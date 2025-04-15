@@ -11,6 +11,8 @@ import {MentionSuggestion, WelshmanExtension} from "@welshman/editor"
 import {getSetting, userSettingValues} from "@app/state"
 import {MentionNodeView} from "./MentionNodeView"
 import ProfileSuggestion from "./ProfileSuggestion.svelte"
+import {PermalinkExtension} from "nostr-git"
+import Spinner from "@src/lib/components/Spinner.svelte"
 
 export const getUploadType = () => getSetting<"nip96" | "blossom">("upload_type")
 
@@ -52,6 +54,11 @@ export const makeEditor = ({
     autofocus,
     element: document.createElement("div"),
     extensions: [
+      PermalinkExtension.configure({
+		signer: async (e) => await signer.get().sign(e),
+		relays: ctx.app.router.FromUser().getUrls(),
+		spinnerComponent: Spinner,
+	  }),
       WelshmanExtension.configure({
         submit,
         sign: signWithAssert,
