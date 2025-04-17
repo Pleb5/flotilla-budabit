@@ -30,6 +30,7 @@
   import ContentTopic from "@app/components/ContentTopic.svelte"
   import ContentMention from "@app/components/ContentMention.svelte"
   import {entityLink, userSettingValues} from "@app/state"
+  import {isKnownUnknown, unknownKindFallback} from "@src/lib/unkown-kinds"
 
   interface Props {
     event: any
@@ -53,7 +54,7 @@
     depth = 0,
   }: Props = $props()
 
-  const fullContent = parse(event)
+  const fullContent = parse(isKnownUnknown(event.kind) ? unknownKindFallback(event) : event)
 
   const expand = () => {
     showEntire = true
