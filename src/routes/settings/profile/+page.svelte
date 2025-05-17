@@ -1,8 +1,9 @@
 <script lang="ts">
-  import {nip19} from "nostr-tools"
+  import * as nip19 from "nostr-tools/nip19"
   import {hexToBytes} from "@noble/hashes/utils"
   import {displayPubkey, displayProfile} from "@welshman/util"
   import {pubkey, session, displayNip05, deriveProfile} from "@welshman/app"
+  import {slideAndFade} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -11,6 +12,7 @@
   import ProfileEdit from "@app/components/ProfileEdit.svelte"
   import ProfileDelete from "@app/components/ProfileDelete.svelte"
   import InfoKeys from "@app/components/InfoKeys.svelte"
+  import Alerts from "@app/components/Alerts.svelte"
   import {PLATFORM_NAME} from "@app/state"
   import {pushModal} from "@app/modal"
   import {clip} from "@app/toast"
@@ -28,6 +30,8 @@
   const startEject = () => pushModal(InfoKeys)
 
   const startDelete = () => pushModal(ProfileDelete)
+
+  let showAdvanced = false
 </script>
 
 <div class="content column gap-4">
@@ -80,7 +84,10 @@
   <div class="card2 bg-alt col-4 shadow-xl">
     <FieldInline>
       {#snippet label()}
-        <p>Public Key</p>
+        <p class="flex items-center gap-3">
+          <Icon icon="key" />
+          Public Key
+        </p>
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center justify-between gap-2">
@@ -103,7 +110,10 @@
     {#if $session?.method === "nip01"}
       <FieldInline>
         {#snippet label()}
-          <p>Private Key</p>
+          <p class="flex items-center gap-3">
+            <Icon icon="key" />
+            Private Key
+          </p>
         {/snippet}
         {#snippet input()}
           <label class="input input-bordered flex w-full items-center gap-2">
@@ -120,10 +130,28 @@
       </FieldInline>
     {/if}
   </div>
-  <div class="card2 bg-alt col-4 shadow-xl">
-    <Button class="btn btn-outline btn-error" onclick={startDelete}>
-      <Icon icon="trash-bin-2" />
-      Delete your profile
-    </Button>
+  <Alerts />
+  <div class="card2 bg-alt shadow-xl">
+    <div class="flex items-center justify-between">
+      <strong class="flex items-center gap-3">
+        <Icon icon="settings" />
+        Advanced
+      </strong>
+      <Button onclick={() => (showAdvanced = !showAdvanced)}>
+        {#if showAdvanced}
+          <Icon icon="alt-arrow-down" />
+        {:else}
+          <Icon icon="alt-arrow-up" />
+        {/if}
+      </Button>
+    </div>
+    {#if showAdvanced}
+      <div transition:slideAndFade class="flex flex-col gap-2 pt-4">
+        <Button class="btn btn-outline btn-error" onclick={startDelete}>
+          <Icon icon="trash-bin-2" />
+          Delete your profile
+        </Button>
+      </div>
+    {/if}
   </div>
 </div>

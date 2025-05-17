@@ -2,8 +2,8 @@ import {config} from "dotenv"
 import daisyui from "daisyui"
 import themes from "daisyui/src/theming/themes"
 
-config({path: ".env.local"})
 config({path: ".env"})
+config({path: ".env.template"})
 
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -30,6 +30,15 @@ export default {
           ...themes["dark"],
           primary: process.env.VITE_PLATFORM_ACCENT,
           "primary-content": "#EAE7FF",
+          secondary: process.env.VITE_PLATFORM_SECONDARY,
+          "secondary-content": "#EAE7FF",
+        },
+        light: {
+          ...themes["winter"],
+          primary: process.env.VITE_PLATFORM_ACCENT,
+          "primary-content": "#EAE7FF",
+          secondary: process.env.VITE_PLATFORM_SECONDARY,
+          "secondary-content": "#EAE7FF",
         },
       },
     ],

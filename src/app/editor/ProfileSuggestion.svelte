@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {removeNil} from "@welshman/lib"
   import {displayPubkey, getPubkeyTagValues, getListTags} from "@welshman/util"
   import {
     userFollows,
@@ -10,10 +11,15 @@
   import WotScore from "@lib/components/WotScore.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
 
-  const {value} = $props()
+  type Props = {
+    value: string
+    url?: string
+  }
+
+  const {value, url}: Props = $props()
 
   const pubkey = value
-  const profileDisplay = deriveProfileDisplay(pubkey)
+  const profileDisplay = deriveProfileDisplay(pubkey, removeNil([url]))
   const handle = deriveHandleForPubkey(pubkey)
   const score = deriveUserWotScore(pubkey)
 
@@ -22,7 +28,7 @@
 
 <div class="flex max-w-full gap-3">
   <div class="py-1">
-    <ProfileCircle {pubkey} />
+    <ProfileCircle {pubkey} {url} />
   </div>
   <div class="flex min-w-0 flex-col">
     <div class="flex items-center gap-2">

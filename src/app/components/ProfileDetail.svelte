@@ -1,13 +1,14 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
+  import {removeNil} from "@welshman/lib"
   import {displayPubkey, getPubkeyTagValues, getListTags} from "@welshman/util"
   import {
     session,
     userFollows,
     deriveUserWotScore,
-    deriveProfile,
     deriveHandleForPubkey,
     displayHandle,
+    deriveProfile,
     deriveProfileDisplay,
   } from "@welshman/app"
   import Icon from "@lib/components/Icon.svelte"
@@ -22,10 +23,16 @@
   import {pushModal} from "@app/modal"
   import {makeChatPath} from "@app/routes"
 
-  const {pubkey} = $props()
+  export type Props = {
+    pubkey: string
+    url?: string
+  }
 
-  const profile = deriveProfile(pubkey)
-  const profileDisplay = deriveProfileDisplay(pubkey)
+  const {pubkey, url}: Props = $props()
+
+  const relays = removeNil([url])
+  const profile = deriveProfile(pubkey, relays)
+  const display = deriveProfileDisplay(pubkey, relays)
   const handle = deriveHandleForPubkey(pubkey)
   const score = deriveUserWotScore(pubkey)
 
@@ -48,7 +55,7 @@
     <div class="flex min-w-0 flex-col">
       <div class="flex items-center gap-2">
         <span class="text-bold overflow-hidden text-ellipsis">
-          {$profileDisplay}
+          {$display}
         </span>
         <WotScore score={$score} active={following} />
       </div>
@@ -57,9 +64,9 @@
       </div>
     </div>
   </div>
-  <ProfileInfo {pubkey} />
+  <ProfileInfo {pubkey} {url} />
   <ModalFooter>
-    <Button onclick={back} class="btn btn-link">
+    <Button onclick={back} class="hidden md:btn md:btn-link">
       <Icon icon="alt-arrow-left" />
       Go back
     </Button>

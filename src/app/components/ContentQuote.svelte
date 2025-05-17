@@ -1,9 +1,12 @@
 <script lang="ts">
-  import {nip19} from "nostr-tools"
+  import * as nip19 from "nostr-tools/nip19"
   import {goto} from "$app/navigation"
-  import {ctx, nthEq} from "@welshman/lib"
+  import {nthEq} from "@welshman/lib"
+  import {Router} from "@welshman/router"
   import {tracker, repository} from "@welshman/app"
+  import type {TrustedEvent} from "@welshman/util"
   import {Address, DIRECT_MESSAGE, MESSAGE, THREAD, EVENT_TIME} from "@welshman/util"
+  import {scrollToEvent} from "@lib/html"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
@@ -11,47 +14,35 @@
   import {deriveEvent, entityLink, ROOM} from "@app/state"
   import {makeThreadPath, makeCalendarPath, makeRoomPath} from "@app/routes"
 
-  const {value, event, depth, hideMediaAtDepth, relays = []} = $props()
+  type Props = {
+    value: any
+    hideMediaAtDepth: number
+    event: TrustedEvent
+    depth: number
+    url?: string
+  }
 
-  const {id, identifier, kind, pubkey, relays: relayHints = []} = value
+  const {value, event, depth, hideMediaAtDepth, url}: Props = $props()
+
+  const {id, identifier, kind, pubkey, relays = []} = value
   const idOrAddress = id || new Address(kind, pubkey, identifier).toString()
-  const mergedRelays = [
-    ...relays,
-    ...ctx.app.router.Quote(event, idOrAddress, relayHints).getUrls(),
-  ]
+  const mergedRelays = Router.get().Quote(event, idOrAddress, relays).getUrls()
+
+  if (url) {
+    mergedRelays.push(url)
+  }
+
   const quote = deriveEvent(idOrAddress, mergedRelays)
   const entity = id
     ? nip19.neventEncode({id, relays: mergedRelays})
     : new Address(kind, pubkey, identifier, mergedRelays).toNaddr()
-
-  const scrollToEvent = (id: string) => {
-    const element = document.querySelector(`[data-event="${id}"]`) as any
-
-    if (element) {
-      element.scrollIntoView({behavior: "smooth"})
-      element.style =
-        "filter: brightness(1.5); transition-property: all; transition-duration: 400ms;"
-
-      setTimeout(() => {
-        element.style = "transition-property: all; transition-duration: 300ms;"
-      }, 800)
-
-      setTimeout(() => {
-        element.style = ""
-      }, 800 + 400)
-    }
-
-    return Boolean(element)
-  }
 
   const openMessage = (url: string, room: string, id: string) => {
     const event = repository.getEvent(id)
 
     if (event) {
       goto(makeRoomPath(url, room))
-
-      // TODO: if the event doesn't immediately load, this won't work. Scroll up until it's found
-      setTimeout(() => scrollToEvent(id), 300)
+      scrollToEvent(id)
     }
 
     return Boolean(event)
@@ -104,8 +95,8 @@
 
 <Button class="my-2 block max-w-full text-left" {onclick}>
   {#if $quote}
-    <NoteCard event={$quote} class="bg-alt rounded-box p-4">
-      <NoteContent {hideMediaAtDepth} {relays} event={$quote} depth={depth + 1} />
+    <NoteCard event={$quote} {url} class="bg-alt rounded-box p-4">
+      <NoteContent {hideMediaAtDepth} {url} event={$quote} depth={depth + 1} />
     </NoteCard>
   {:else}
     <div class="rounded-box p-4">

@@ -8,8 +8,8 @@ import {
   uniq,
   int,
   YEAR,
-  MONTH,
-  insert,
+  DAY,
+  insertAt,
   sortBy,
   assoc,
   now,
@@ -23,30 +23,34 @@ import {
   matchFilters,
   getTagValues,
   getTagValue,
+  getAddress,
   isShareableRelayUrl,
+  getRelaysFromList,
 } from "@welshman/util"
 import type {TrustedEvent, Filter, List} from "@welshman/util"
 import {feedFromFilters, makeRelayFeed, makeIntersectionFeed} from "@welshman/feeds"
-import type {Subscription, SubscribeRequestWithHandlers} from "@welshman/net"
+import {load, request} from "@welshman/net"
 import type {AppSyncOpts, Thunk} from "@welshman/app"
 import {
-  subscribe,
-  load,
   repository,
   pull,
   hasNegentropy,
-  thunkWorker,
-  createFeedController,
+  thunkQueue,
+  makeFeedController,
   loadRelay,
   loadMutes,
   loadFollows,
   loadProfile,
+  loadBlossomServers,
+  loadRelaySelections,
   loadInboxRelaySelections,
-  getRelayUrls,
 } from "@welshman/app"
 import {createScroller} from "@lib/html"
 import {daysBetween} from "@lib/util"
 import {
+  ALERT,
+  ALERT_STATUS,
+  NOTIFIER_RELAY,
   INDEXER_RELAYS,
   getDefaultPubkeys,
   userRoomsByUrl,
@@ -98,8 +102,9 @@ export const makeFeed = ({
   const seen = new Set<string>()
   const buffer = writable<TrustedEvent[]>([])
   const events = writable(initialEvents)
+  const controller = new AbortController()
 
-  for (const event of initialEvents) {
+  const markEvent = (event: TrustedEvent) => {
     if (!seen.has(event.id)) {
       seen.add(event.id)
       onEvent?.(event)
@@ -107,19 +112,32 @@ export const makeFeed = ({
   }
 
   const insertEvent = (event: TrustedEvent) => {
-    buffer.update($buffer => {
-      for (let i = 0; i < $buffer.length; i++) {
-        if ($buffer[i].id === event.id) return $buffer
-        if ($buffer[i].created_at < event.created_at) return insert(i, event, $buffer)
+    let handled = false
+
+    events.update($events => {
+      for (let i = 0; i < $events.length; i++) {
+        if ($events[i].id === event.id) return $events
+        if ($events[i].created_at < event.created_at) {
+          handled = true
+          return insertAt(i, event, $events)
+        }
       }
 
-      return [...$buffer, event]
+      return $events
     })
 
-    if (!seen.has(event.id)) {
-      seen.add(event.id)
-      onEvent?.(event)
+    if (!handled) {
+      buffer.update($buffer => {
+        for (let i = 0; i < $buffer.length; i++) {
+          if ($buffer[i].id === event.id) return $buffer
+          if ($buffer[i].created_at < event.created_at) return insertAt(i, event, $buffer)
+        }
+
+        return [...$buffer, event]
+      })
     }
+
+    markEvent(event)
   }
 
   const removeEvents = (ids: string[]) => {
@@ -141,15 +159,20 @@ export const makeFeed = ({
     }
   }
 
-  const ctrl = createFeedController({
+  const ctrl = makeFeedController({
     useWindowing: true,
     feed: makeIntersectionFeed(makeRelayFeed(...relays), feedFromFilters(feedFilters)),
     onEvent: insertEvent,
     onExhausted,
   })
 
-  const sub = subscribe({
+  for (const event of initialEvents) {
+    markEvent(event)
+  }
+
+  request({
     relays,
+    signal: controller.signal,
     filters: subscriptionFilters,
     onEvent: (e: TrustedEvent) => {
       if (matchFilters(feedFilters, e)) insertEvent(e)
@@ -172,14 +195,14 @@ export const makeFeed = ({
     },
   })
 
-  thunkWorker.addGlobalHandler(onThunk)
+  const unsubscribe = thunkQueue.subscribe(onThunk)
 
   return {
     events,
     cleanup: () => {
-      sub.close()
+      unsubscribe()
       scroller.stop()
-      thunkWorker.removeGlobalHandler(onThunk)
+      controller.abort()
     },
   }
 }
@@ -199,9 +222,12 @@ export const makeCalendarFeed = ({
   onExhausted?: () => void
   initialEvents?: TrustedEvent[]
 }) => {
+  const interval = int(5, DAY)
+  const controller = new AbortController()
+
   let exhaustedScrollers = 0
-  let backwardWindow = [now() - MONTH, now()]
-  let forwardWindow = [now(), now() + MONTH]
+  let backwardWindow = [now() - interval, now()]
+  let forwardWindow = [now(), now() + interval]
 
   const getStart = (event: TrustedEvent) => parseInt(getTagValue("start", event.tags) || "")
 
@@ -211,16 +237,17 @@ export const makeCalendarFeed = ({
 
   const insertEvent = (event: TrustedEvent) => {
     const start = getStart(event)
+    const address = getAddress(event)
 
     if (isNaN(start) || isNaN(getEnd(event))) return
 
     events.update($events => {
       for (let i = 0; i < $events.length; i++) {
         if ($events[i].id === event.id) return $events
-        if (getStart($events[i]) > start) return insert(i, event, $events)
+        if (getStart($events[i]) > start) return insertAt(i, event, $events)
       }
 
-      return [...$events, event]
+      return [...$events.filter(e => getAddress(e) !== address), event]
     })
   }
 
@@ -238,8 +265,9 @@ export const makeCalendarFeed = ({
     }
   }
 
-  const sub = subscribe({
+  request({
     relays,
+    signal: controller.signal,
     filters: subscriptionFilters,
     onEvent: (e: TrustedEvent) => {
       if (matchFilters(feedFilters, e)) insertEvent(e)
@@ -249,8 +277,10 @@ export const makeCalendarFeed = ({
   const loadTimeframe = (since: number, until: number) => {
     const hashes = daysBetween(since, until).map(String)
 
-    load({
+    request({
       relays,
+      signal: controller.signal,
+      autoClose: true,
       filters: [{kinds: [EVENT_TIME], "#D": hashes}],
       onEvent: insertEvent,
     })
@@ -268,7 +298,7 @@ export const makeCalendarFeed = ({
     onScroll: () => {
       const [since, until] = backwardWindow
 
-      backwardWindow = [since - MONTH, since]
+      backwardWindow = [since - interval, since]
 
       if (until > now() - int(2, YEAR)) {
         loadTimeframe(since, until)
@@ -284,7 +314,7 @@ export const makeCalendarFeed = ({
     onScroll: () => {
       const [since, until] = forwardWindow
 
-      forwardWindow = [until, until + MONTH]
+      forwardWindow = [until, until + interval]
 
       if (until < now() + int(2, YEAR)) {
         loadTimeframe(since, until)
@@ -295,23 +325,37 @@ export const makeCalendarFeed = ({
     },
   })
 
-  thunkWorker.addGlobalHandler(onThunk)
+  const unsubscribe = thunkQueue.subscribe(onThunk)
 
   return {
     events,
     cleanup: () => {
-      thunkWorker.removeGlobalHandler(onThunk)
       backwardScroller.stop()
       forwardScroller.stop()
-      sub.close()
+      controller.abort()
+      unsubscribe()
     },
   }
 }
 
+// Domain specific
+
+export const loadAlerts = (pubkey: string) =>
+  load({
+    relays: [NOTIFIER_RELAY],
+    filters: [{kinds: [ALERT], authors: [pubkey]}],
+  })
+
+export const loadAlertStatuses = (pubkey: string) =>
+  load({
+    relays: [NOTIFIER_RELAY],
+    filters: [{kinds: [ALERT_STATUS], "#p": [pubkey]}],
+  })
+
 // Application requests
 
 export const listenForNotifications = () => {
-  const subs: Subscription[] = []
+  const controller = new AbortController()
 
   for (const [url, allRooms] of userRoomsByUrl.get()) {
     // Limit how many rooms we load at a time, since we have to send a separate filter
@@ -319,50 +363,44 @@ export const listenForNotifications = () => {
     const rooms = shuffle(Array.from(allRooms)).slice(0, 30)
 
     load({
+      signal: controller.signal,
       relays: [url],
       filters: [
         {kinds: [THREAD], limit: 1},
-        {kinds: [EVENT_TIME], limit: 1},
         {kinds: [COMMENT], "#K": [String(THREAD)], limit: 1},
-        {kinds: [COMMENT], "#K": [String(EVENT_TIME)], limit: 1},
         ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room], limit: 1})),
       ],
     })
 
-    subs.push(
-      subscribe({
-        relays: [url],
-        filters: [
-          {kinds: [THREAD, EVENT_TIME], since: now()},
-          {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since: now()},
-          ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room], since: now()})),
-        ],
-      }),
-    )
+    request({
+      signal: controller.signal,
+      relays: [url],
+      filters: [
+        {kinds: [THREAD], since: now()},
+        {kinds: [COMMENT], "#K": [String(THREAD)], since: now()},
+        ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room], since: now()})),
+      ],
+    })
   }
 
-  console.log("subs in listenForNotifications", subs)
-
-  return () => {
-    for (const sub of subs) {
-      sub.close()
-    }
-  }
+  return () => controller.abort()
 }
 
-export const loadUserData = (
-  pubkey: string,
-  request: Partial<SubscribeRequestWithHandlers> = {},
-) => {
+export const loadUserData = async (pubkey: string, relays: string[] = []) => {
+  await Promise.race([sleep(3000), loadRelaySelections(pubkey, relays)])
+
   const promise = Promise.race([
     sleep(3000),
     Promise.all([
-      loadInboxRelaySelections(pubkey, request),
-      loadMembership(pubkey, request),
-      loadSettings(pubkey, request),
-      loadProfile(pubkey, request),
-      loadFollows(pubkey, request),
-      loadMutes(pubkey, request),
+      loadInboxRelaySelections(pubkey, relays),
+      loadBlossomServers(pubkey, relays),
+      loadMembership(pubkey, relays),
+      loadSettings(pubkey, relays),
+      loadProfile(pubkey, relays),
+      loadFollows(pubkey, relays),
+      loadMutes(pubkey, relays),
+      loadAlertStatuses(pubkey),
+      loadAlerts(pubkey),
     ]),
   ])
 
@@ -375,10 +413,10 @@ export const loadUserData = (
       await sleep(1000)
 
       for (const pubkey of pubkeys) {
-        loadMembership(pubkey, {relays})
-        loadProfile(pubkey, {relays})
-        loadFollows(pubkey, {relays})
-        loadMutes(pubkey, {relays})
+        loadMembership(pubkey, relays)
+        loadProfile(pubkey, relays)
+        loadFollows(pubkey, relays)
+        loadMutes(pubkey, relays)
       }
     }
   })
@@ -387,4 +425,8 @@ export const loadUserData = (
 }
 
 export const discoverRelays = (lists: List[]) =>
-  Promise.all(uniq(lists.flatMap(getRelayUrls)).filter(isShareableRelayUrl).map(loadRelay))
+  Promise.all(
+    uniq(lists.flatMap($l => getRelaysFromList($l)))
+      .filter(isShareableRelayUrl)
+      .map(url => loadRelay(url)),
+  )

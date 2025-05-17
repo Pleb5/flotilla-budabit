@@ -1,5 +1,6 @@
 <script lang="ts">
   import "@src/app.css"
+  import "@capacitor-community/safe-area"
   import {onMount} from "svelte"
   import * as nip19 from "nostr-tools/nip19"
   import {get, derived} from "svelte/store"
@@ -7,53 +8,39 @@
   import {dev} from "$app/environment"
   import {goto} from "$app/navigation"
   import {bytesToHex, hexToBytes} from "@noble/hashes/utils"
+  import {identity, memoize, sleep, defer, ago, WEEK, TaskQueue} from "@welshman/lib"
+  import type {TrustedEvent, StampedEvent} from "@welshman/util"
   import {
-    identity,
-    sleep,
-    take,
-    sortBy,
-    defer,
-    ago,
-    now,
-    HOUR,
-    WEEK,
-    MONTH,
-    Worker,
-  } from "@welshman/lib"
-  import type {TrustedEvent} from "@welshman/util"
-  import {
-    MESSAGE,
-    PROFILE,
-    DELETE,
-    REACTION,
-    ZAP_RESPONSE,
-    FOLLOWS,
-    RELAYS,
-    INBOX_RELAYS,
     WRAP,
-    getPubkeyTagValues,
-    getListTags,
+    EVENT_TIME,
+    THREAD,
+    MESSAGE,
+    INBOX_RELAYS,
+    DIRECT_MESSAGE,
+    MUTES,
+    FOLLOWS,
+    PROFILE,
+    RELAYS,
+    BLOSSOM_SERVERS,
+    getRelaysFromList,
   } from "@welshman/util"
-  import {Nip46Broker, getPubkey, makeSecret} from "@welshman/signer"
+  import {Nip46Broker, makeSecret} from "@welshman/signer"
+  import type {Socket} from "@welshman/net"
+  import {request, defaultSocketPolicies, makeSocketPolicyAuth} from "@welshman/net"
   import {
-    relays,
-    handles,
     loadRelay,
     db,
     initStorage,
     repository,
     pubkey,
-    plaintext,
-    freshness,
-    storageAdapters,
-    tracker,
+    defaultStorageAdapters,
     session,
     signer,
     dropSession,
-    getRelayUrls,
-    subscribe,
     userInboxRelaySelections,
-    addSession,
+    loginWithNip01,
+    loginWithNip46,
+    EventsStorageAdapter,
   } from "@welshman/app"
   import * as lib from "@welshman/lib"
   import * as util from "@welshman/util"
@@ -65,10 +52,15 @@
   import {setupTracking} from "@app/tracking"
   import {setupAnalytics} from "@app/analytics"
   import {nsecDecode} from "@lib/util"
-  import {theme} from "@app/theme"
-  import {INDEXER_RELAYS, userMembership, ensureUnwrapped, canDecrypt} from "@app/state"
+  import {
+    INDEXER_RELAYS,
+    userMembership,
+    userSettingValues,
+    ensureUnwrapped,
+    canDecrypt,
+  } from "@app/state"
   import {loadUserData, listenForNotifications} from "@app/requests"
-  import {loginWithNip46} from "@app/commands"
+  import {theme} from "@app/theme"
   import * as commands from "@app/commands"
   import * as requests from "@app/requests"
   import * as notifications from "@app/notifications"
@@ -109,14 +101,22 @@
 
       try {
         if (login?.startsWith("bunker://")) {
-          success = await loginWithNip46({
-            clientSecret: makeSecret(),
-            ...Nip46Broker.parseBunkerUrl(login),
-          })
-        } else if (login) {
-          const secret = nsecDecode(login)
+          const clientSecret = makeSecret()
+          const {signerPubkey, connectSecret, relays} = Nip46Broker.parseBunkerUrl(login)
+          const broker = new Nip46Broker({relays, clientSecret, signerPubkey})
+          const result = await broker.connect(connectSecret, appState.NIP46_PERMS)
+          const pubkey = await broker.getPublicKey()
 
-          addSession({method: "nip01", secret, pubkey: getPubkey(secret)})
+          // TODO: remove ack result
+          if (pubkey && ["ack", connectSecret].includes(result)) {
+            await loadUserData(pubkey)
+
+            loginWithNip46(pubkey, clientSecret, signerPubkey, relays)
+            broker.cleanup()
+            success = true
+          }
+        } else if (login) {
+          loginWithNip01(nsecDecode(login))
           success = true
         }
       } catch (e) {
@@ -127,6 +127,17 @@
         goto("/home")
       }
     }
+
+    // Sync theme
+    theme.subscribe($theme => {
+      document.body.setAttribute("data-theme", $theme)
+    })
+
+    // Sync font size
+    userSettingValues.subscribe($userSettingValues => {
+      // @ts-ignore
+      document.documentElement.style["font-size"] = `${$userSettingValues.font_size}rem`
+    })
 
     if (!db) {
       setupTracking()
@@ -140,78 +151,8 @@
         }
       })
 
-      initStorage("flotilla", 5, {
-        relays: storageAdapters.fromCollectionStore("url", relays, {throttle: 3000}),
-        handles: storageAdapters.fromCollectionStore("nip05", handles, {throttle: 3000}),
-        freshness: storageAdapters.fromObjectStore(freshness, {
-          throttle: 3000,
-          migrate: (data: {key: string; value: number}[]) => {
-            const cutoff = ago(HOUR)
-
-            return data.filter(({value}) => value > cutoff)
-          },
-        }),
-        plaintext: storageAdapters.fromObjectStore(plaintext, {
-          throttle: 3000,
-          migrate: (data: {key: string; value: number}[]) => data.slice(0, 10_000),
-        }),
-        events2: storageAdapters.fromRepositoryAndTracker(repository, tracker, {
-          throttle: 3000,
-          migrate: (events: TrustedEvent[]) => {
-            if (events.length < 15_000) {
-              return events
-            }
-
-            const NEVER_KEEP = 0
-            const ALWAYS_KEEP = Infinity
-            const reactionKinds = [REACTION, ZAP_RESPONSE, DELETE]
-            const metaKinds = [PROFILE, FOLLOWS, RELAYS, INBOX_RELAYS]
-            const sessionKeys = new Set(Object.keys(app.sessions.get()))
-            const userFollows = new Set(getPubkeyTagValues(getListTags(get(app.userFollows))))
-            const maxWot = get(app.maxWot)
-
-            const scoreEvent = (e: TrustedEvent) => {
-              const isFollowing = userFollows.has(e.pubkey)
-
-              // No need to keep a record of everyone who follows the current user
-              if (e.kind === FOLLOWS && !isFollowing) return NEVER_KEEP
-
-              // Drop room messages after a month, re-load on demand
-              if (e.kind === MESSAGE && e.created_at < ago(MONTH)) return NEVER_KEEP
-
-              // Always keep stuff by or tagging a signed in user
-              if (sessionKeys.has(e.pubkey)) return ALWAYS_KEEP
-              if (e.tags.some(t => sessionKeys.has(t[1]))) return ALWAYS_KEEP
-
-              // Get rid of irrelevant messages, reactions, and likes
-              if (e.wrap || e.kind === 4 || e.kind === WRAP) return NEVER_KEEP
-              if (reactionKinds.includes(e.kind)) return NEVER_KEEP
-
-              // If the user follows this person, use max wot score
-              let score = isFollowing ? maxWot : app.getUserWotScore(e.pubkey)
-
-              // Inflate the score for profiles/relays/follows to avoid redundant fetches
-              // Demote non-metadata type events, and introduce recency bias
-              score *= metaKinds.includes(e.kind) ? 2 : e.created_at / now()
-
-              return score
-            }
-
-            return take(
-              10_000,
-              sortBy(e => -scoreEvent(e), events),
-            )
-          },
-        }),
-      }).then(async () => {
-        await sleep(300)
-        ready.resolve()
-      })
-
       // Unwrap gift wraps as they come in, but throttled
-      const unwrapper = new Worker<TrustedEvent>({chunkSize: 10})
-
-      unwrapper.addGlobalHandler(ensureUnwrapped)
+      const unwrapper = new TaskQueue<TrustedEvent>({batchSize: 10, processItem: ensureUnwrapped})
 
       repository.on("update", ({added}) => {
         if (!$canDecrypt) {
@@ -224,6 +165,35 @@
           }
         }
       })
+
+      await initStorage("flotilla", 8, {
+        ...defaultStorageAdapters,
+        events: new EventsStorageAdapter({
+          name: "events",
+          limit: 10_000,
+          repository,
+          rankEvent: (e: TrustedEvent) => {
+            if ([PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, INBOX_RELAYS].includes(e.kind)) {
+              return 1
+            }
+
+            if ([EVENT_TIME, THREAD, MESSAGE, DIRECT_MESSAGE].includes(e.kind)) {
+              return 0.9
+            }
+
+            return 0
+          },
+        }),
+      })
+
+      sleep(300).then(() => ready.resolve())
+
+      defaultSocketPolicies.push(
+        makeSocketPolicyAuth({
+          sign: (event: StampedEvent) => signer.get()?.sign(event),
+          shouldAuth: (socket: Socket) => true,
+        }),
+      )
 
       // Load relay info
       for (const url of INDEXER_RELAYS) {
@@ -238,25 +208,29 @@
       // Listen for space data, populate space-based notifications
       let unsubSpaces: any
 
-      userMembership.subscribe($membership => {
-        unsubSpaces?.()
-        unsubSpaces = listenForNotifications()
-      })
+      userMembership.subscribe(
+        memoize($membership => {
+          unsubSpaces?.()
+          unsubSpaces = listenForNotifications()
+        }),
+      )
 
       // Listen for chats, populate chat-based notifications
-      let chatsSub: any
+      let controller: AbortController
 
       derived([pubkey, canDecrypt, userInboxRelaySelections], identity).subscribe(
         ([$pubkey, $canDecrypt, $userInboxRelaySelections]) => {
-          chatsSub?.close()
+          controller?.abort()
+          controller = new AbortController()
 
           if ($pubkey && $canDecrypt) {
-            chatsSub = subscribe({
+            request({
+              signal: controller.signal,
               filters: [
                 {kinds: [WRAP], "#p": [$pubkey], since: ago(WEEK, 2)},
                 {kinds: [WRAP], "#p": [$pubkey], limit: 100},
               ],
-              relays: getRelayUrls($userInboxRelaySelections),
+              relays: getRelaysFromList($userInboxRelaySelections),
             })
           }
         },
@@ -272,9 +246,9 @@
 </svelte:head>
 
 {#await ready}
-  <div data-theme={$theme}></div>
+  <div></div>
 {:then}
-  <div data-theme={$theme}>
+  <div>
     <AppContainer>
       {@render children()}
     </AppContainer>

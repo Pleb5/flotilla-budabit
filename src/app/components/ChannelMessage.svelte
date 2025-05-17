@@ -1,17 +1,9 @@
 <script lang="ts">
-  import {hash} from "@welshman/lib"
-  import {now} from "@welshman/lib"
-  import type {TrustedEvent} from "@welshman/util"
-  import {
-    thunks,
-    pubkey,
-    deriveProfile,
-    deriveProfileDisplay,
-    formatTimestampAsDate,
-    formatTimestampAsTime,
-  } from "@welshman/app"
+  import {hash, now, formatTimestampAsTime, formatTimestampAsDate} from "@welshman/lib"
+  import type {TrustedEvent, EventContent} from "@welshman/util"
+  import {thunks, deriveProfile, deriveProfileDisplay} from "@welshman/app"
   import {isMobile} from "@lib/html"
-  import LongPress from "@lib/components/LongPress.svelte"
+  import TapTarget from "@lib/components/TapTarget.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -27,10 +19,10 @@
   import {pushModal} from "@app/modal"
 
   interface Props {
-    url: any
-    room: any
+    url: string
+    room: string
     event: TrustedEvent
-    replyTo?: any
+    replyTo?: (event: TrustedEvent) => void
     showPubkey?: boolean
     inert?: boolean
   }
@@ -39,30 +31,25 @@
 
   const thunk = $thunks[event.id]
   const today = formatTimestampAsDate(now())
-  const profile = deriveProfile(event.pubkey)
-  const profileDisplay = deriveProfileDisplay(event.pubkey)
+  const profile = deriveProfile(event.pubkey, [url])
+  const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
   const [_, colorValue] = colors[parseInt(hash(event.pubkey)) % colors.length]
 
-  const reply = () => replyTo(event)
+  const reply = () => replyTo!(event)
 
-  const onLongPress = () => pushModal(ChannelMessageMenuMobile, {url, event, reply})
+  const onTap = () => pushModal(ChannelMessageMenuMobile, {url, event, reply})
 
-  const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey})
+  const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, url})
 
-  const onReactionClick = (content: string, events: TrustedEvent[]) => {
-    const reaction = events.find(e => e.pubkey === $pubkey)
+  const deleteReaction = (event: TrustedEvent) => publishDelete({relays: [url], event})
 
-    if (reaction) {
-      publishDelete({relays: [url], event: reaction})
-    } else {
-      publishReaction({event, content, relays: [url]})
-    }
-  }
+  const createReaction = (template: EventContent) =>
+    publishReaction({...template, event, relays: [url]})
 </script>
 
-<LongPress
+<TapTarget
   data-event={event.id}
-  onLongPress={inert ? null : onLongPress}
+  onTap={inert ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left">
   <div class="flex w-full gap-3 overflow-auto">
     {#if showPubkey}
@@ -89,7 +76,7 @@
         </div>
       {/if}
       <div class="text-sm">
-        <Content {event} relays={[url]} />
+        <Content {event} {url} />
         {#if thunk}
           <ThunkStatus {thunk} class="mt-2" />
         {/if}
@@ -97,17 +84,24 @@
     </div>
   </div>
   <div class="row-2 ml-10 mt-1">
-    <ReactionSummary {url} {event} {onReactionClick} reactionClass="tooltip-right" />
+    <ReactionSummary
+      {url}
+      {event}
+      {deleteReaction}
+      {createReaction}
+      reactionClass="tooltip-right" />
   </div>
-  <button
-    class="join absolute right-1 top-1 border border-solid border-neutral text-xs opacity-0 transition-all"
-    class:group-hover:opacity-100={!isMobile}>
-    <ChannelMessageEmojiButton {url} {room} {event} />
-    {#if replyTo}
-      <Button class="btn join-item btn-xs" onclick={reply}>
-        <Icon icon="reply" size={4} />
-      </Button>
-    {/if}
-    <ChannelMessageMenuButton {url} {event} />
-  </button>
-</LongPress>
+  {#if !isMobile}
+    <button
+      class="join absolute right-1 top-1 border border-solid border-neutral text-xs opacity-0 transition-all"
+      class:group-hover:opacity-100={!isMobile}>
+      <ChannelMessageEmojiButton {url} {room} {event} />
+      {#if replyTo}
+        <Button class="btn join-item btn-xs" onclick={reply}>
+          <Icon icon="reply" size={4} />
+        </Button>
+      {/if}
+      <ChannelMessageMenuButton {url} {event} />
+    </button>
+  {/if}
+</TapTarget>

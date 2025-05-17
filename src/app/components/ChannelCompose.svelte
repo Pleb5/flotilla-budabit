@@ -1,39 +1,42 @@
 <script lang="ts">
   import {writable} from "svelte/store"
+  import type {EventContent} from "@welshman/util"
   import {isMobile, preventDefault} from "@lib/html"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {makeEditor} from "@app/editor"
 
-  interface Props {
-    onSubmit: any
+  type Props = {
+    url?: string
+    onSubmit: (event: EventContent) => void
   }
 
-  const {onSubmit}: Props = $props()
+  const {onSubmit, url}: Props = $props()
 
   const autofocus = !isMobile
 
   const uploading = writable(false)
 
-  export const focus = () => editor.chain().focus().run()
+  export const focus = () => editor.then(ed => ed.chain().focus().run())
 
-  const uploadFiles = () => editor.chain().selectFiles().run()
+  const uploadFiles = () => editor.then(ed => ed.chain().selectFiles().run())
 
-  const submit = () => {
+  const submit = async () => {
     if ($uploading) return
 
-    const content = editor.getText({blockSeparator: "\n"}).trim()
-    const tags = editor.storage.nostr.getEditorTags()
+    const ed = await editor
+    const content = ed.getText({blockSeparator: "\n"}).trim()
+    const tags = ed.storage.nostr.getEditorTags()
 
     if (!content) return
 
     onSubmit({content, tags})
 
-    editor.chain().clearContent().run()
+    ed.chain().clearContent().run()
   }
 
-  const editor = makeEditor({autofocus, submit, uploading, aggressive: isMobile ? false : true})
+  const editor = makeEditor({url, autofocus, submit, uploading, aggressive: true})
 </script>
 
 <form class="relative z-feature flex gap-2 p-2" onsubmit={preventDefault(submit)}>

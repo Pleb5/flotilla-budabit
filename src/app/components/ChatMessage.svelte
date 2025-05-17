@@ -1,19 +1,13 @@
 <script lang="ts">
   import {type Instance} from "tippy.js"
-  import {hash} from "@welshman/lib"
-  import type {TrustedEvent} from "@welshman/util"
-  import {
-    thunks,
-    deriveProfile,
-    deriveProfileDisplay,
-    formatTimestampAsTime,
-    pubkey,
-  } from "@welshman/app"
+  import {hash, formatTimestampAsTime} from "@welshman/lib"
+  import type {TrustedEvent, EventContent} from "@welshman/util"
+  import {thunks, pubkey, deriveProfile, deriveProfileDisplay, sendWrapped} from "@welshman/app"
   import {isMobile} from "@lib/html"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
-  import LongPress from "@lib/components/LongPress.svelte"
+  import TapTarget from "@lib/components/TapTarget.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
   import Content from "@app/components/Content.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
@@ -22,17 +16,17 @@
   import ChatMessageMenu from "@app/components/ChatMessageMenu.svelte"
   import ChatMessageMenuMobile from "@app/components/ChatMessageMenuMobile.svelte"
   import {colors} from "@app/state"
-  import {makeDelete, makeReaction, sendWrapped} from "@app/commands"
+  import {makeDelete, makeReaction} from "@app/commands"
   import {pushModal} from "@app/modal"
 
   interface Props {
     event: TrustedEvent
-    replyTo?: any
+    replyTo: (event: TrustedEvent) => void
     pubkeys: string[]
     showPubkey?: boolean
   }
 
-  const {event, replyTo = undefined, pubkeys, showPubkey = false}: Props = $props()
+  const {event, replyTo, pubkeys, showPubkey = false}: Props = $props()
 
   const thunk = $thunks[event.id]
   const isOwn = event.pubkey === $pubkey
@@ -40,16 +34,17 @@
   const profileDisplay = deriveProfileDisplay(event.pubkey)
   const [_, colorValue] = colors[parseInt(hash(event.pubkey)) % colors.length]
 
-  const onReactionClick = async (content: string, events: TrustedEvent[]) => {
-    const reaction = events.find(e => e.pubkey === $pubkey)
-    const template = reaction ? makeDelete({event: reaction}) : makeReaction({event, content})
+  const reply = () => replyTo(event)
 
-    await sendWrapped({template, pubkeys})
-  }
+  const deleteReaction = (event: TrustedEvent) =>
+    sendWrapped({template: makeDelete({event}), pubkeys})
+
+  const createReaction = (template: EventContent) =>
+    sendWrapped({template: makeReaction({event, ...template}), pubkeys})
 
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey})
 
-  const showMobileMenu = () => pushModal(ChatMessageMenuMobile, {event, pubkeys})
+  const showMobileMenu = () => pushModal(ChatMessageMenuMobile, {event, pubkeys, reply})
 
   const togglePopover = () => {
     if (popoverIsVisible) {
@@ -72,32 +67,34 @@
   class:chat-start={!isOwn}
   class:flex-row-reverse={!isOwn}
   class:chat-end={isOwn}>
-  <Tippy
-    bind:popover
-    component={ChatMessageMenu}
-    props={{event, pubkeys, popover, replyTo}}
-    params={{
-      interactive: true,
-      trigger: "manual",
-      onShow() {
-        popoverIsVisible = true
-      },
-      onHidden() {
-        popoverIsVisible = false
-      },
-    }}>
-    <button
-      type="button"
-      class="opacity-0 transition-all"
-      class:group-hover:opacity-100={!isMobile}
-      onclick={togglePopover}>
-      <Icon icon="menu-dots" size={4} />
-    </button>
-  </Tippy>
+  {#if !isMobile}
+    <Tippy
+      bind:popover
+      component={ChatMessageMenu}
+      props={{event, pubkeys, popover, replyTo}}
+      params={{
+        interactive: true,
+        trigger: "manual",
+        onShow() {
+          popoverIsVisible = true
+        },
+        onHidden() {
+          popoverIsVisible = false
+        },
+      }}>
+      <button
+        type="button"
+        class="opacity-0 transition-all"
+        class:group-hover:opacity-100={!isMobile}
+        onclick={togglePopover}>
+        <Icon icon="menu-dots" size={4} />
+      </button>
+    </Tippy>
+  {/if}
   <div class="flex min-w-0 flex-col" class:items-end={isOwn}>
-    <LongPress
-      class="bg-alt chat-bubble mx-1 flex cursor-auto flex-col gap-1 text-left lg:max-w-2xl"
-      onLongPress={showMobileMenu}>
+    <TapTarget
+      class="bg-alt chat-bubble mx-1 mb-2 flex cursor-auto flex-col gap-1 text-left lg:max-w-2xl"
+      onTap={showMobileMenu}>
       {#if showPubkey}
         <div class="flex items-center gap-2">
           {#if !isOwn}
@@ -120,9 +117,9 @@
       <div class="text-sm">
         <Content showEntire {event} />
       </div>
-    </LongPress>
-    <div class="row-2 z-feature -mt-1 ml-4">
-      <ReactionSummary {event} {onReactionClick} noTooltip />
+    </TapTarget>
+    <div class="row-2 z-feature -mt-4 ml-4">
+      <ReactionSummary {event} {deleteReaction} {createReaction} noTooltip />
     </div>
   </div>
 </div>

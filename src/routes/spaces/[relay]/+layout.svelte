@@ -1,15 +1,16 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {page} from "$app/stores"
-  import {ago, MONTH} from "@welshman/lib"
-  import {GROUPS, THREAD, COMMENT, MESSAGE, DELETE} from "@welshman/util"
-  import {subscribe, load} from "@welshman/app"
+  import {ago, WEEK} from "@welshman/lib"
+  import {GROUP_META, EVENT_TIME, GROUPS, THREAD, COMMENT, MESSAGE} from "@welshman/util"
+  import {request} from "@welshman/net"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import MenuSpace from "@app/components/MenuSpace.svelte"
   import SpaceAuthError from "@app/components/SpaceAuthError.svelte"
   import {pushToast} from "@app/toast"
   import {pushModal} from "@app/modal"
+  import {getUploadUrl} from "@app/editor"
   import {setChecked} from "@app/notifications"
   import {checkRelayConnection, checkRelayAuth, checkRelayAccess} from "@app/commands"
   import {decodeRelay, userRoomsByUrl} from "@app/state"
@@ -51,28 +52,30 @@
   onMount(() => {
     checkConnection()
 
+    // Prime our cache so inputs show up quickly
+    getUploadUrl(url)
+
     const relays = [url]
-    const since = ago(MONTH)
+    const since = ago(WEEK)
+    const controller = new AbortController()
 
-    // Load all groups for this space to populate navigation. It would be nice to sync, but relay29
-    // is too picky about how requests are built.
-    load({relays, filters: [{kinds: [GROUPS]}], delay: 0})
-
-    // Load threads, comments, and recent messages for user rooms to help with a quick page transition
+    // Load group meta, threads, calendar events, comments, and recent messages
+    // for user rooms to help with a quick page transition
     pullConservatively({
       relays,
       filters: [
-        {kinds: [THREAD], since},
-        {kinds: [COMMENT], "#K": [String(THREAD)], since},
-        ...rooms.map(r => ({kinds: [MESSAGE], "#h": [r], since})),
+        {kinds: [GROUP_META]},
+        {kinds: [THREAD, EVENT_TIME], since},
+        {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since},
+        ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room], since})),
       ],
     })
 
-    // Listen for deletes that would apply to messages we already have, and new groups
-    const sub = subscribe({relays, filters: [{kinds: [DELETE, GROUPS], since}]})
+    // Completely refresh our groups list and listen for new ones
+    request({relays, filters: [{kinds: [GROUPS]}], signal: controller.signal})
 
     return () => {
-      sub.close()
+      controller.abort()
     }
   })
 </script>

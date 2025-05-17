@@ -1,33 +1,55 @@
 <script lang="ts">
-  import {ctx} from "@welshman/lib"
-  import {getListTags, createEvent, getPubkeyTagValues, MUTES} from "@welshman/util"
-  import {pubkey, signer, userMutes, tagPubkey, publishThunk} from "@welshman/app"
+  import {
+    getListTags,
+    tagger,
+    createEvent,
+    getPubkeyTagValues,
+    getTagValues,
+    MUTES,
+    BLOSSOM_SERVERS,
+  } from "@welshman/util"
+  import {Router} from "@welshman/router"
+  import {
+    pubkey,
+    signer,
+    userMutes,
+    tagPubkey,
+    publishThunk,
+    userBlossomServers,
+  } from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
-  import Icon from "@lib/components/Icon.svelte"
+  import InputList from "@lib/components/InputList.svelte"
   import Button from "@lib/components/Button.svelte"
   import ProfileMultiSelect from "@app/components/ProfileMultiSelect.svelte"
   import {pushToast} from "@app/toast"
   import {SETTINGS, PLATFORM_NAME, userSettingValues} from "@app/state"
 
   const reset = () => {
-    mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
     settings = {...$userSettingValues}
+    mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
+    blossomServers = getTagValues("server", getListTags($userBlossomServers))
   }
 
   const onsubmit = preventDefault(async () => {
     const json = JSON.stringify($state.snapshot(settings))
-    const content = await $signer!.nip04.encrypt($pubkey!, json)
+    const content = await $signer!.nip44.encrypt($pubkey!, json)
+    const relays = Router.get().FromUser().getUrls()
 
     publishThunk({
       event: createEvent(SETTINGS, {content}),
-      relays: ctx.app.router.FromUser().getUrls(),
+      relays,
     })
 
     publishThunk({
       event: createEvent(MUTES, {tags: mutedPubkeys.map(tagPubkey)}),
-      relays: ctx.app.router.FromUser().getUrls(),
+      relays,
+    })
+
+    publishThunk({
+      event: createEvent(BLOSSOM_SERVERS, {tags: blossomServers.map(tagger("server"))}),
+      relays,
     })
 
     pushToast({message: "Your settings have been saved!"})
@@ -35,11 +57,12 @@
 
   let settings = $state({...$userSettingValues})
   let mutedPubkeys = $state(getPubkeyTagValues(getListTags($userMutes)))
+  let blossomServers = $state(getTagValues("server", getListTags($userBlossomServers)))
 </script>
 
 <form class="content column gap-4" {onsubmit}>
   <div class="card2 bg-alt col-4 shadow-xl">
-    <p class="text-lg">Content Settings</p>
+    <strong class="text-lg">Content Settings</strong>
     <FieldInline>
       {#snippet label()}
         <p>Hide sensitive content?</p>
@@ -77,7 +100,37 @@
         </div>
       {/snippet}
     </Field>
-    <p class="text-lg">Editor Settings</p>
+    <strong class="text-lg">Privacy Settings</strong>
+    <FieldInline>
+      {#snippet label()}
+        <p>Report errors?</p>
+      {/snippet}
+      {#snippet input()}
+        <input
+          type="checkbox"
+          class="toggle toggle-primary"
+          bind:checked={settings.report_errors} />
+      {/snippet}
+      {#snippet info()}
+        <p>
+          Allow {PLATFORM_NAME} to send error reports to help improve the app.
+        </p>
+      {/snippet}
+    </FieldInline>
+    <FieldInline>
+      {#snippet label()}
+        <p>Report usage?</p>
+      {/snippet}
+      {#snippet input()}
+        <input type="checkbox" class="toggle toggle-primary" bind:checked={settings.report_usage} />
+      {/snippet}
+      {#snippet info()}
+        <p>
+          Allow {PLATFORM_NAME} to collect anonymous usage data.
+        </p>
+      {/snippet}
+    </FieldInline>
+    <strong class="text-lg">Editor Settings</strong>
     <FieldInline>
       {#snippet label()}
         <p>Send Delay</p>
@@ -103,23 +156,32 @@
         <p>Media Server</p>
       {/snippet}
       {#snippet input()}
-        <div class="flex flex-col gap-2 lg:flex-row">
-          <select bind:value={settings.upload_type} class="select select-bordered">
-            <option value="nip96">NIP 96 (default)</option>
-            <option value="blossom">Blossom</option>
-          </select>
-          <label class="input input-bordered flex flex-grow items-center gap-2">
-            <Icon icon="link-round" />
-            {#if settings.upload_type === "nip96"}
-              <input class="grow" bind:value={settings.nip96_urls[0]} />
-            {:else}
-              <input class="grow" bind:value={settings.blossom_urls[0]} />
-            {/if}
-          </label>
-        </div>
+        <InputList bind:value={blossomServers}>
+          {#snippet addLabel()}
+            Add Server
+          {/snippet}
+        </InputList>
       {/snippet}
       {#snippet info()}
-        <p>Choose a media server type and url for files you upload to flotilla.</p>
+        <p>Choose a media server type and url for files you upload to {PLATFORM_NAME}.</p>
+      {/snippet}
+    </Field>
+    <strong class="text-lg">Accessibility</strong>
+    <Field>
+      {#snippet label()}
+        <p>Font size</p>
+      {/snippet}
+      {#snippet secondary()}
+        <p>{Math.round(settings.font_size * 100)}%</p>
+      {/snippet}
+      {#snippet input()}
+        <input
+          class="range range-primary"
+          type="range"
+          min="0.8"
+          max="1.3"
+          step="0.05"
+          bind:value={settings.font_size} />
       {/snippet}
     </Field>
     <div class="mt-4 flex flex-row items-center justify-between gap-4">

@@ -1,38 +1,39 @@
 <script lang="ts">
-  import {onMount, onDestroy} from "svelte"
-  import {Nip46Broker, getPubkey, makeSecret} from "@welshman/signer"
-  import {addSession} from "@welshman/app"
+  import type {Nip46ResponseWithResult} from "@welshman/signer"
+  import {Nip46Broker, makeSecret} from "@welshman/signer"
+  import {loginWithNip01, loginWithNip46} from "@welshman/app"
   import {preventDefault} from "@lib/html"
-  import {slideAndFade} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Field from "@lib/components/Field.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import QRCode from "@app/components/QRCode.svelte"
-  import InfoBunker from "@app/components/InfoBunker.svelte"
-  import {loginWithNip46} from "@app/commands"
+  import BunkerConnect, {BunkerConnectController} from "@app/components/BunkerConnect.svelte"
+  import BunkerUrl from "@app/components/BunkerUrl.svelte"
   import {loadUserData} from "@app/requests"
-  import {pushModal, clearModals} from "@app/modal"
+  import {clearModals} from "@app/modal"
   import {setChecked} from "@app/notifications"
   import {pushToast} from "@app/toast"
-  import {NIP46_PERMS, PLATFORM_URL, PLATFORM_NAME, PLATFORM_LOGO, SIGNER_RELAYS} from "@app/state"
-
-  const clientSecret = makeSecret()
-
-  const abortController = new AbortController()
-
-  const broker = Nip46Broker.get({clientSecret, relays: SIGNER_RELAYS})
+  import {SIGNER_RELAYS, NIP46_PERMS} from "@app/state"
 
   const back = () => history.back()
 
-  const onSubmit = async () => {
-    const {signerPubkey, connectSecret, relays} = Nip46Broker.parseBunkerUrl(bunker)
+  const controller = new BunkerConnectController({
+    onNostrConnect: async (response: Nip46ResponseWithResult) => {
+      const pubkey = await controller.broker.getPublicKey()
 
-    if (loading) {
-      return
-    }
+      await loadUserData(pubkey)
+
+      loginWithNip46(pubkey, controller.clientSecret, response.event.pubkey, SIGNER_RELAYS)
+      setChecked("*")
+      clearModals()
+    },
+  })
+
+  const onSubmit = async () => {
+    if (controller.loading) return
+
+    const {signerPubkey, connectSecret, relays} = Nip46Broker.parseBunkerUrl(controller.bunker)
 
     if (!signerPubkey || relays.length === 0) {
       return pushToast({
@@ -41,13 +42,22 @@
       })
     }
 
-    loading = true
+    controller.loading = true
 
     try {
-      const success = await loginWithNip46({connectSecret, clientSecret, signerPubkey, relays})
+      const {clientSecret} = controller
+      const broker = new Nip46Broker({relays, clientSecret, signerPubkey})
+      const result = await broker.connect(connectSecret, NIP46_PERMS)
+      const pubkey = await broker.getPublicKey()
 
-      if (success) {
-        abortController.abort()
+      // TODO: remove ack result
+      if (pubkey && ["ack", connectSecret].includes(result)) {
+        broker.cleanup()
+        controller.stop()
+
+        await loadUserData(pubkey)
+
+        loginWithNip46(pubkey, clientSecret, signerPubkey, relays)
       } else {
         return pushToast({
           theme: "error",
@@ -55,71 +65,17 @@
         })
       }
     } finally {
-      loading = false
+      controller.loading = false
     }
 
     clearModals()
   }
 
-  let url = $state("")
-  let bunker = $state("")
-  let loading = $state(false)
-
   $effect(() => {
     // For testing and for play store reviewers
-    if (bunker === "reviewkey") {
-      const secret = makeSecret()
-
-      addSession({method: "nip01", secret, pubkey: getPubkey(secret)})
+    if (controller.bunker === "reviewkey") {
+      loginWithNip01(makeSecret())
     }
-  })
-
-  onMount(async () => {
-    url = await broker.makeNostrconnectUrl({
-      perms: NIP46_PERMS,
-      url: PLATFORM_URL,
-      name: PLATFORM_NAME,
-      image: PLATFORM_LOGO,
-    })
-
-    let response
-    try {
-      response = await broker.waitForNostrconnect(url, abortController)
-    } catch (errorResponse: any) {
-      if (errorResponse?.error) {
-        pushToast({
-          theme: "error",
-          message: `Received error from signer: ${errorResponse.error}`,
-        })
-      } else if (errorResponse) {
-        console.error(errorResponse)
-      }
-    }
-
-    if (response) {
-      loading = true
-
-      const userPubkey = await broker.getPublicKey()
-
-      await loadUserData(userPubkey)
-
-      addSession({
-        method: "nip46",
-        pubkey: userPubkey,
-        secret: clientSecret,
-        handler: {
-          pubkey: response.event.pubkey,
-          relays: SIGNER_RELAYS,
-        },
-      })
-
-      setChecked("*")
-      clearModals()
-    }
-  })
-
-  onDestroy(() => {
-    abortController.abort()
   })
 </script>
 
@@ -132,35 +88,18 @@
       <div>Connect your signer by scanning the QR code below or pasting a bunker link.</div>
     {/snippet}
   </ModalHeader>
-  {#if !loading && url}
-    <div class="flex justify-center" out:slideAndFade>
-      <QRCode code={url} />
-    </div>
-  {/if}
-  <Field>
-    {#snippet label()}
-      <p>Bunker Link*</p>
-    {/snippet}
-    {#snippet input()}
-      <label class="input input-bordered flex w-full items-center gap-2">
-        <Icon icon="cpu" />
-        <input disabled={loading} bind:value={bunker} class="grow" placeholder="bunker://" />
-      </label>
-    {/snippet}
-    {#snippet info()}
-      <p>
-        A login link provided by a nostr signing app.
-        <Button class="link" onclick={() => pushModal(InfoBunker)}>What is a bunker link?</Button>
-      </p>
-    {/snippet}
-  </Field>
+  <BunkerConnect {controller} />
+  <BunkerUrl loading={controller.loading} bind:bunker={controller.bunker} />
   <ModalFooter>
-    <Button class="btn btn-link" onclick={back} disabled={loading}>
+    <Button class="btn btn-link" onclick={back} disabled={controller.loading}>
       <Icon icon="alt-arrow-left" />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary" disabled={loading || !bunker}>
-      <Spinner {loading}>Next</Spinner>
+    <Button
+      type="submit"
+      class="btn btn-primary"
+      disabled={controller.loading || !controller.bunker}>
+      <Spinner loading={controller.loading}>Next</Spinner>
       <Icon icon="alt-arrow-right" />
     </Button>
   </ModalFooter>

@@ -4,9 +4,11 @@
   import {sortBy, sleep} from "@welshman/lib"
   import {COMMENT, getTag, getTagValue, GIT_ISSUE, type Filter, type TrustedEvent} from "@welshman/util"
   import {load, repository, subscribe, type PartialSubscribeRequest} from "@welshman/app"
+  import {request} from "@welshman/net"
   import {deriveEvents} from "@welshman/store"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
+  import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Content from "@app/components/Content.svelte"
@@ -84,10 +86,12 @@
   })
 
   onMount(() => {
-    const sub = subscribe({relays: [url], filters})
+    const controller = new AbortController()
+
+    request({relays: [url], filters, signal: controller.signal})
 
     return () => {
-      sub.close()
+      controller.abort()
       setChecked($page.url.pathname)
     }
   })
@@ -103,40 +107,62 @@
   {/if}  
 {/snippet}
 
-<div class="relative flex flex-col-reverse gap-3 px-2">
-  <div class="absolute left-[51px] top-32 h-[calc(100%-248px)] w-[2px] bg-neutral"></div>
+<PageBar>
+  {#snippet icon()}
+    <div>
+      <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
+        <Icon icon="alt-arrow-left" />
+        <span class="hidden sm:inline">Go back</span>
+      </Button>
+    </div>
+  {/snippet}
+  {#snippet title()}
+    <h1 class="text-xl">{getTagValue("title", $event?.tags || []) || ""}</h1>
+  {/snippet}
+  {#snippet action()}
+    <div>
+      <MenuSpaceButton {url} />
+    </div>
+  {/snippet}
+</PageBar>
+
+<PageContent class="flex flex-col p-2 pt-4">
   {#if $event}
-    {#if !showReply}
-      <div class="flex justify-end px-2 pb-2">
+    <div class="flex flex-col gap-3">
+      <NoteCard event={$event} {url} class="card2 bg-alt z-feature w-full">
+        <div class="col-3 ml-12">
+          <Content showEntire event={$event} {url} />
+          <ThreadActions event={$event} {url} />
+        </div>
+      </NoteCard>
+      {@render jobOrGitIssueElem()}
+      {#if !showAll && $replies.length > 4}
+        <div class="flex justify-center">
+          <Button class="btn btn-link" onclick={expand}>
+            <Icon icon="sort-vertical" />
+            Show all {$replies.length} replies
+          </Button>
+        </div>
+      {/if}
+      {#each sortBy(e => -e.created_at, $replies).slice(0, showAll ? undefined : 4) as reply (reply.id)}
+        <NoteCard event={reply} {url} class="card2 bg-alt z-feature w-full">
+          <div class="col-3 ml-12">
+            <Content showEntire event={reply} {url} />
+            <ThreadActions event={reply} {url} />
+          </div>
+        </NoteCard>
+      {/each}
+    </div>
+    {#if showReply}
+      <EventReply {url} event={$event} onClose={closeReply} onSubmit={closeReply} />
+    {:else}
+      <div class="flex justify-end p-2">
         <Button class="btn btn-primary" onclick={openReply}>
           <Icon icon="reply" />
           Reply to thread
         </Button>
       </div>
     {/if}
-    {#each sortBy(e => -e.created_at, $replies).slice(0, showAll ? undefined : 4) as reply (reply.id)}
-      <NoteCard event={reply} class="card2 bg-alt z-feature w-full">
-        <div class="col-3 ml-12">
-          <Content showEntire event={reply} />
-          <ThreadActions event={reply} {url} />
-        </div>
-      </NoteCard>
-    {/each}
-    {#if !showAll && $replies.length > 4}
-      <div class="flex justify-center">
-        <Button class="btn btn-link" onclick={expand}>
-          <Icon icon="sort-vertical" />
-          Show all {$replies.length} replies
-        </Button>
-      </div>
-    {/if}
-    {@render jobOrGitIssueElem()}
-    <NoteCard event={$event} class="card2 bg-alt z-feature w-full">
-      <div class="col-3 ml-12">
-        <Content showEntire event={$event} relays={[url]} />
-        <ThreadActions event={$event} {url} />
-      </div>
-    </NoteCard>
   {:else}
     {#await sleep(5000)}
       <Spinner loading>Loading thread...</Spinner>
@@ -144,25 +170,4 @@
       <p>Failed to load thread.</p>
     {/await}
   {/if}
-  <PageBar class="!mx-0">
-    {#snippet icon()}
-      <div>
-        <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
-          <Icon icon="alt-arrow-left" />
-          <span class="hidden sm:inline">Go back</span>
-        </Button>
-      </div>
-    {/snippet}
-    {#snippet title()}
-      <h1 class="text-xl">{getTagValue("title", $event?.tags || []) || ""}</h1>
-    {/snippet}
-    {#snippet action()}
-      <div>
-        <MenuSpaceButton {url} />
-      </div>
-    {/snippet}
-  </PageBar>
-</div>
-{#if showReply}
-  <EventReply {url} event={$event} onClose={closeReply} onSubmit={closeReply} />
-{/if}
+</PageContent>

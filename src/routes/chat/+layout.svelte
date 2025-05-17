@@ -1,7 +1,7 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {ctx} from "@welshman/lib"
   import {WRAP} from "@welshman/util"
+  import {Router} from "@welshman/router"
   import {pubkey} from "@welshman/app"
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
@@ -25,7 +25,7 @@
 
   const promise = pullConservatively({
     filters: [{kinds: [WRAP], "#p": [$pubkey!]}],
-    relays: ctx.app.router.UserInbox().getUrls(),
+    relays: Router.get().UserInbox().getUrls(),
   })
 
   let term = $state("")

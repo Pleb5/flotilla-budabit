@@ -1,12 +1,13 @@
 <script lang="ts">
+  import {removeNil} from "@welshman/lib"
   import {displayPubkey, getPubkeyTagValues, getListTags} from "@welshman/util"
   import {
     session,
     userFollows,
     deriveUserWotScore,
-    deriveProfile,
     deriveHandleForPubkey,
     displayHandle,
+    deriveProfile,
     deriveProfileDisplay,
   } from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
@@ -15,14 +16,20 @@
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {pushModal} from "@app/modal"
 
-  const {pubkey} = $props()
+  type Props = {
+    pubkey: string
+    url?: string
+  }
 
-  const profile = deriveProfile(pubkey)
-  const profileDisplay = deriveProfileDisplay(pubkey)
+  const {pubkey, url}: Props = $props()
+
+  const relays = removeNil([url])
+  const profile = deriveProfile(pubkey, relays)
+  const profileDisplay = deriveProfileDisplay(pubkey, relays)
   const handle = deriveHandleForPubkey(pubkey)
   const score = deriveUserWotScore(pubkey)
 
-  const openProfile = () => pushModal(ProfileDetail, {pubkey})
+  const openProfile = () => pushModal(ProfileDetail, {pubkey, url})
 
   const following = $derived(
     pubkey === $session!.pubkey || getPubkeyTagValues(getListTags($userFollows)).includes(pubkey),

@@ -1,3 +1,5 @@
+@import "@welshman/editor/index.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -44,6 +46,14 @@
 
 :root {
   font-family: Lato;
+  --sait: env(safe-area-inset-top);
+  --saib: env(safe-area-inset-bottom);
+  --sail: env(safe-area-inset-left);
+  --sair: env(safe-area-inset-right);
+}
+
+[data-theme] {
+  @apply bg-base-300;
   --base-100: oklch(var(--b1));
   --base-200: oklch(var(--b2));
   --base-300: oklch(var(--b3));
@@ -54,56 +64,80 @@
   --secondary-content: oklch(var(--sc));
 }
 
-:root,
-body,
-html {
-  @apply bg-base-300;
-}
+/* safe area insets */
 
-/* ios */
+@layer components {
+  .pt-sai {
+    padding-top: var(--sait);
+  }
 
-.sait {
-  padding-top: env(safe-area-inset-top);
-}
+  .pr-sai {
+    padding-right: var(--sair);
+  }
 
-.sair {
-  padding-right: env(safe-area-inset-right);
-}
+  .pb-sai {
+    padding-bottom: var(--saib);
+  }
 
-.saib {
-  padding-bottom: env(safe-area-inset-bottom);
-}
+  .pl-sai {
+    padding-left: var(--sail);
+  }
 
-.sail {
-  padding-left: env(safe-area-inset-left);
-}
+  .px-sai {
+    @apply pl-sai pr-sai;
+  }
 
-.saix {
-  @apply sail sair;
-}
+  .py-sai {
+    @apply pt-sai pb-sai;
+  }
 
-.saiy {
-  @apply sait saib;
-}
+  .p-sai {
+    @apply py-sai px-sai;
+  }
 
-.sai {
-  @apply saiy saix;
-}
+  .mt-sai {
+    padding-top: var(--sait);
+  }
 
-.top-sai {
-  top: env(safe-area-inset-top);
-}
+  .mr-sai {
+    padding-right: var(--sair);
+  }
 
-.right-sai {
-  right: env(safe-area-inset-right);
-}
+  .mb-sai {
+    padding-bottom: var(--saib);
+  }
 
-.bottom-sai {
-  bottom: env(safe-area-inset-bottom);
-}
+  .ml-sai {
+    padding-left: var(--sail);
+  }
 
-.left-sai {
-  left: env(safe-area-inset-left);
+  .mx-sai {
+    @apply ml-sai mr-sai;
+  }
+
+  .my-sai {
+    @apply mt-sai mb-sai;
+  }
+
+  .m-sai {
+    @apply my-sai mx-sai;
+  }
+
+  .top-sai {
+    top: var(--sait);
+  }
+
+  .right-sai {
+    right: var(--sair);
+  }
+
+  .bottom-sai {
+    bottom: var(--saib);
+  }
+
+  .left-sai {
+    left: var(--sail);
+  }
 }
 
 /* utilities */
@@ -257,6 +291,14 @@ html {
   --tiptap-active-fg: var(--base-content);
 }
 
+.tiptap-suggestions__item {
+  @apply border-l-2 border-solid border-base-100;
+}
+
+.tiptap-suggestions__selected {
+  @apply border-primary;
+}
+
 .tiptap {
   @apply max-h-[350px] overflow-y-auto p-2 px-4;
 }
@@ -290,6 +332,16 @@ html {
   padding: 0 0.25rem;
   background-color: var(--base-100);
   color: var(--base-content);
+}
+
+/* content rendered by welshman/content */
+
+.welshman-content a {
+  @apply link;
+}
+
+.welshman-content-error a {
+  @apply underline;
 }
 
 /* date input */
@@ -328,4 +380,28 @@ emoji-picker {
 
 progress[value]::-webkit-progress-value {
   transition: width 0.5s;
+}
+
+/* content width for fixed elements */
+
+.cw {
+  @apply w-full md:left-[18.5rem] md:w-[calc(100%-18.5rem-var(--sair))];
+}
+
+.cw-full {
+  @apply w-full md:left-[4rem] md:w-[calc(100%-4rem-var(--sair))];
+}
+
+.cb {
+  @apply md:bottom-sai bottom-[calc(var(--saib)+3.5rem)];
+}
+
+/* chat view */
+
+.chat__compose {
+  @apply cb cw fixed;
+}
+
+.chat__scroll-down {
+  @apply fixed bottom-28 right-4 md:bottom-16;
 }

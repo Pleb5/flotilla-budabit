@@ -6,6 +6,7 @@
     truncate,
     renderAsHtml,
     isText,
+    isEmoji,
     isTopic,
     isCode,
     isCashu,
@@ -22,6 +23,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ContentToken from "@app/components/ContentToken.svelte"
+  import ContentEmoji from "@app/components/ContentEmoji.svelte"
   import ContentCode from "@app/components/ContentCode.svelte"
   import ContentLinkInline from "@app/components/ContentLinkInline.svelte"
   import ContentLinkBlock from "@app/components/ContentLinkBlock.svelte"
@@ -39,8 +41,8 @@
     showEntire?: boolean
     hideMediaAtDepth?: number
     expandMode?: string
-    relays?: string[]
     depth?: number
+    url?: string
   }
 
   let {
@@ -50,8 +52,8 @@
     showEntire = $bindable(false),
     hideMediaAtDepth = 1,
     expandMode = "block",
-    relays = [],
     depth = 0,
+    url,
   }: Props = $props()
 
   const fullContent = parse(isKnownUnknown(event.kind) ? unknownKindFallback(event) : event)
@@ -134,6 +136,8 @@
           <ContentNewline value={parsed.value} />
         {:else if isTopic(parsed)}
           <ContentTopic value={parsed.value} />
+        {:else if isEmoji(parsed)}
+          <ContentEmoji value={parsed.value} />
         {:else if isCode(parsed)}
           <ContentCode
             value={parsed.value}
@@ -142,15 +146,15 @@
           <ContentToken value={parsed.value} />
         {:else if isLink(parsed)}
           {#if isBlock(i)}
-            <ContentLinkBlock value={parsed.value} />
+            <ContentLinkBlock value={parsed.value} {event} />
           {:else}
             <ContentLinkInline value={parsed.value} />
           {/if}
         {:else if isProfile(parsed)}
-          <ContentMention value={parsed.value} />
+          <ContentMention value={parsed.value} {url} />
         {:else if isEvent(parsed) || isAddress(parsed)}
           {#if isBlock(i)}
-            <ContentQuote {depth} {relays} {hideMediaAtDepth} value={parsed.value} {event} />
+            <ContentQuote {depth} {url} {hideMediaAtDepth} value={parsed.value} {event} />
           {:else}
             <Link
               external

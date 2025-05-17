@@ -42,6 +42,7 @@
   import Ghost from "@assets/icons/Ghost.svg?dataurl"
   import Git from "@assets/icons/Git.svg?dataurl"
   import Hashtag from "@assets/icons/Hashtag.svg?dataurl"
+  import HamburgerMenu from "@assets/icons/Hamburger Menu.svg?dataurl"
   import HandPills from "@assets/icons/Hand Pills.svg?dataurl"
   import HomeSmile from "@assets/icons/Home Smile.svg?dataurl"
   import Inbox from "@assets/icons/Inbox.svg?dataurl"
@@ -59,6 +60,8 @@
   import Mailbox from "@assets/icons/Mailbox.svg?dataurl"
   import MapPoint from "@assets/icons/Map Point.svg?dataurl"
   import MenuDots from "@assets/icons/Menu Dots.svg?dataurl"
+  import MenuDotsCircle from "@assets/icons/Menu Dots Circle.svg?dataurl"
+  import Moon from "@assets/icons/Moon.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/Notes Minimalistic.svg?dataurl"
   import Pallete2 from "@assets/icons/Pallete 2.svg?dataurl"
   import Paperclip from "@assets/icons/Paperclip.svg?dataurl"
@@ -70,6 +73,7 @@
   import Server from "@assets/icons/Server.svg?dataurl"
   import Settings from "@assets/icons/Settings.svg?dataurl"
   import SettingsMinimalistic from "@assets/icons/Settings Minimalistic.svg?dataurl"
+  import Station from "@assets/icons/Station.svg?dataurl"
   import TagHorizontal from "@assets/icons/Tag Horizontal.svg?dataurl"
   import ShareCircle from "@assets/icons/Share Circle.svg?dataurl"
   import ShopMinimalistic from "@assets/icons/Shop Minimalistic.svg?dataurl"
@@ -133,6 +137,7 @@
     ghost: Ghost,
     git: Git,
     hashtag: Hashtag,
+    "hamburger-menu": HamburgerMenu,
     "hand-pills": HandPills,
     "home-smile": HomeSmile,
     inbox: Inbox,
@@ -150,6 +155,8 @@
     mailbox: Mailbox,
     "map-point": MapPoint,
     "menu-dots": MenuDots,
+    "menu-dots-circle": MenuDotsCircle,
+    moon: Moon,
     "notes-minimalistic": NotesMinimalistic,
     "pallete-2": Pallete2,
     paperclip: Paperclip,
@@ -164,6 +171,7 @@
     server: Server,
     settings: Settings,
     "settings-minimalistic": SettingsMinimalistic,
+    station: Station,
     "tag-horizontal": TagHorizontal,
     "trash-bin-2": TrashBin2,
     "ufo-3": UFO3,

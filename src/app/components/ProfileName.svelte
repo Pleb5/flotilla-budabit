@@ -1,9 +1,15 @@
 <script lang="ts">
+  import {removeNil} from "@welshman/lib"
   import {deriveProfileDisplay} from "@welshman/app"
 
-  const {pubkey} = $props()
+  type Props = {
+    pubkey: string
+    url?: string
+  }
 
-  const profileDisplay = deriveProfileDisplay(pubkey)
+  const {pubkey, url}: Props = $props()
+
+  const profileDisplay = deriveProfileDisplay(pubkey, removeNil([url]))
 </script>
 
 {$profileDisplay}

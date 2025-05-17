@@ -4,7 +4,7 @@
   import {feedFromFilter, makeIntersectionFeed, makeRelayFeed} from "@welshman/feeds"
   import {NOTE, getReplyTags} from "@welshman/util"
   import type {TrustedEvent} from "@welshman/util"
-  import {createFeedController} from "@welshman/app"
+  import {makeFeedController} from "@welshman/app"
   import {createScroller} from "@lib/html"
   import {fly} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -19,7 +19,7 @@
 
   let {url, pubkey, events = $bindable([]), hideLoading = false}: Props = $props()
 
-  const ctrl = createFeedController({
+  const ctrl = makeFeedController({
     useWindowing: true,
     feed: makeIntersectionFeed(
       makeRelayFeed(url),
@@ -45,7 +45,8 @@
           e => e.id,
           sortBy(e => -e.created_at, buffer),
         )
-        events = [...events, ...buffer.splice(0, 5)]
+
+        events = uniqBy(e => e.id, [...events, ...buffer.splice(0, 5)])
 
         if (buffer.length < 50) {
           ctrl.load(50)

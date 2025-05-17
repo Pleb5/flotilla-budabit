@@ -7,8 +7,9 @@
     DELETE,
     isReplaceable,
     getAddress,
+    getRelaysFromList,
   } from "@welshman/util"
-  import {pubkey, userRelaySelections, publishThunk, getRelayUrls, repository} from "@welshman/app"
+  import {pubkey, userRelaySelections, publishThunk, repository} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -17,7 +18,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import {pushToast} from "@app/toast"
   import {logout} from "@app/commands"
-  import {INDEXER_RELAYS, userMembership, getMembershipUrls} from "@app/state"
+  import {INDEXER_RELAYS, PLATFORM_NAME, userMembership, getMembershipUrls} from "@app/state"
 
   let progress: number | undefined = $state(undefined)
   let confirmText = $state("")
@@ -40,7 +41,7 @@
     const denominator = chunks.length + 2
     const relays = uniq([
       ...INDEXER_RELAYS,
-      ...getRelayUrls($userRelaySelections),
+      ...getRelaysFromList($userRelaySelections),
       ...getMembershipUrls($userMembership),
     ])
 
@@ -120,8 +121,10 @@
     <progress class="progress progress-primary w-full" value={progress! * 100} max="100"></progress>
   {:else}
     <p>
-      Are you sure? To confirm, please type "{CONFIRM_TEXT}" into the text box below. This action
-      can't be undone.
+      This will delete your nostr account everywhere, not just on {PLATFORM_NAME}.
+    </p>
+    <p>
+      To confirm, please type "{CONFIRM_TEXT}" into the text box below. This action can't be undone.
     </p>
     <label class="input input-bordered flex w-full items-center gap-2">
       <input bind:value={confirmText} class="grow" type="text" />

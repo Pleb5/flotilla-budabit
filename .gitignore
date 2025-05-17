@@ -1,5 +1,5 @@
 # Env
-.env.local
+.env
 
 # Vite
 vite.config.js.timestamp-*
@@ -61,6 +61,8 @@ out/
 .gradle/
 local.properties
 proguard/
+google-services.json
+GoogleService-Info.plist
 
 # IDEs and editors
 .idea/

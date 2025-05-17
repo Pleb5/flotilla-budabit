@@ -31,7 +31,10 @@
   const back = () => history.back()
 
   const threadsPath = makeThreadPath(url)
-  const submit = () => {
+
+  const selectFiles = () => editor.then(ed => ed.commands.selectFiles())
+
+  const submit = async () => {
     if ($uploading) return
 
     if (!title) {
@@ -41,7 +44,8 @@
       })
     }
 
-    const content = editor.getText({blockSeparator: "\n"}).trim()
+    const ed = await editor
+    const content = ed.getText({blockSeparator: "\n"}).trim()
 
     if (!content.trim()) {
       return pushToast({
@@ -60,7 +64,7 @@
     }
 
     const tags = [
-      ...editor.storage.nostr.getEditorTags(),
+      ...ed.storage.nostr.getEditorTags(),
       tagRoom(GENERAL, url),
       ["title", titleToPost],
       PROTECTED,
@@ -75,7 +79,7 @@
     goto(threadsPath)
   }
 
-  const editor = makeEditor({submit, uploading, placeholder: "What's on your mind?"})
+  const editor = makeEditor({url, submit, uploading, placeholder: "What's on your mind?"})
 
   let title: string = $state("")
   const jobOrGitIssueTitle = $derived.by(() => {
@@ -136,7 +140,7 @@
     <Button
       data-tip="Add an image"
       class="tooltip tooltip-left absolute bottom-1 right-2"
-      onclick={editor.commands.selectFiles}>
+      onclick={selectFiles}>
       {#if $uploading}
         <span class="loading loading-spinner loading-xs"></span>
       {:else}

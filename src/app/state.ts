@@ -1,9 +1,7 @@
 import twColors from "tailwindcss/colors"
-import {get, derived, writable} from "svelte/store"
-import {nip19} from "nostr-tools"
+import {get, derived} from "svelte/store"
+import * as nip19 from "nostr-tools/nip19"
 import {
-  ctx,
-  setContext,
   remove,
   sortBy,
   sort,
@@ -16,7 +14,11 @@ import {
   fromPairs,
   memoize,
   addToMapKey,
+  identity,
+  always,
 } from "@welshman/lib"
+import {load} from "@welshman/net"
+import {collection} from "@welshman/store"
 import {
   getIdFilters,
   WRAP,
@@ -41,16 +43,12 @@ import {
   normalizeRelayUrl,
 } from "@welshman/util"
 import type {TrustedEvent, SignedEvent, PublishedList, List, Filter} from "@welshman/util"
-import {Nip59} from "@welshman/signer"
+import {Nip59, decrypt} from "@welshman/signer"
+import {routerContext, Router} from "@welshman/router"
 import {
   pubkey,
   repository,
-  load,
-  collection,
   profilesByPubkey,
-  getDefaultAppContext,
-  getDefaultNetContext,
-  makeRouter,
   tracker,
   makeTrackerStore,
   makeRepositoryStore,
@@ -62,10 +60,14 @@ import {
   ensurePlaintext,
   thunks,
   walkThunks,
+  signer,
+  makeOutboxLoader,
+  appContext,
 } from "@welshman/app"
 import type {Thunk, Relay} from "@welshman/app"
-import type {SubscribeRequestWithHandlers} from "@welshman/net"
 import {deriveEvents, deriveEventsMapped, withGetter, synced} from "@welshman/store"
+
+export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
 export const ROOM = "h"
 
@@ -73,13 +75,17 @@ export const GENERAL = "_"
 
 export const PROTECTED = ["-"]
 
-export const INDEXER_RELAYS = [
-  "wss://purplepag.es/",
-  "wss://relay.damus.io/",
-  "wss://relay.nostr.band/",
-]
+export const ALERT = 32830
 
-export const SIGNER_RELAYS = ["wss://relay.nsec.app/", "wss://bucket.coracle.social/"]
+export const ALERT_STATUS = 32831
+
+export const NOTIFIER_PUBKEY = import.meta.env.VITE_NOTIFIER_PUBKEY
+
+export const NOTIFIER_RELAY = import.meta.env.VITE_NOTIFIER_RELAY
+
+export const INDEXER_RELAYS = fromCsv(import.meta.env.VITE_INDEXER_RELAYS)
+
+export const SIGNER_RELAYS = fromCsv(import.meta.env.VITE_SIGNER_RELAYS)
 
 export const PLATFORM_URL = window.location.origin
 
@@ -108,7 +114,7 @@ export const IMGPROXY_URL = "https://imgproxy.coracle.social"
 export const REACTION_KINDS = [REACTION, ZAP_RESPONSE]
 
 export const NIP46_PERMS =
-  "nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt," +
+  "nip44_encrypt,nip44_decrypt," +
   [CLIENT_AUTH, AUTH_JOIN, MESSAGE, THREAD, COMMENT, GROUPS, WRAP, REACTION]
     .map(k => `sign_event:${k}`)
     .join(",")
@@ -153,12 +159,10 @@ export const imgproxy = (url: string, {w = 640, h = 1024} = {}) => {
 
 export const entityLink = (entity: string) => `https://coracle.social/${entity}`
 
-export const pubkeyLink = (
-  pubkey: string,
-  relays = ctx.app.router.FromPubkeys([pubkey]).getUrls(),
-) => entityLink(nip19.nprofileEncode({pubkey, relays}))
+export const pubkeyLink = (pubkey: string, relays = Router.get().FromPubkeys([pubkey]).getUrls()) =>
+  entityLink(nip19.nprofileEncode({pubkey, relays}))
 
-export const jobLink = (naddr: string) => `https://test.satshoot.com/${naddr}`
+export const jobLink = (naddr: string) => `https://satshoot.com/${naddr}`
 export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
 
 
@@ -249,7 +253,7 @@ export const getUrlsForEvent = derived([trackerStore, thunks], ([$tracker, $thun
     const urls = Array.from($tracker.getRelays(id))
 
     for (const thunk of getThunksByEventId().get(id) || []) {
-      for (const url of thunk.request.relays) {
+      for (const url of thunk.options.relays) {
         urls.push(url)
       }
     }
@@ -278,15 +282,9 @@ export const deriveEventsForUrl = (url: string, filters: Filter[]) =>
 
 // Context
 
-setContext({
-  net: getDefaultNetContext(),
-  app: getDefaultAppContext({
-    dufflepudUrl: DUFFLEPUD_URL,
-    indexerRelays: INDEXER_RELAYS,
-    requestTimeout: 5000,
-    router: makeRouter(),
-  }),
-})
+appContext.dufflepudUrl = DUFFLEPUD_URL
+
+routerContext.getIndexerRelays = always(INDEXER_RELAYS)
 
 // Settings
 
@@ -299,20 +297,20 @@ export type Settings = {
   values: {
     show_media: boolean
     hide_sensitive: boolean
+    report_usage: boolean
+    report_errors: boolean
     send_delay: number
-    upload_type: "nip96" | "blossom"
-    nip96_urls: string[]
-    blossom_urls: string[]
+    font_size: number
   }
 }
 
 export const defaultSettings = {
   show_media: true,
   hide_sensitive: true,
+  report_usage: true,
+  report_errors: true,
   send_delay: 3000,
-  upload_type: "nip96",
-  nip96_urls: ["https://nostr.build"],
-  blossom_urls: ["https://cdn.satellite.earth"],
+  font_size: 1,
 }
 
 export const settings = deriveEventsMapped<Settings>(repository, {
@@ -332,8 +330,41 @@ export const {
   name: "settings",
   store: settings,
   getKey: settings => settings.event.pubkey,
-  load: (pubkey: string, request: Partial<SubscribeRequestWithHandlers> = {}) =>
-    load({...request, filters: [{kinds: [SETTINGS], authors: [pubkey]}]}),
+  load: makeOutboxLoader(SETTINGS),
+})
+
+// Alerts
+
+export type Alert = {
+  event: TrustedEvent
+  tags: string[][]
+}
+
+export const alerts = deriveEventsMapped<Alert>(repository, {
+  filters: [{kinds: [ALERT]}],
+  itemToEvent: item => item.event,
+  eventToItem: async event => {
+    const tags = parseJson(await decrypt(signer.get(), NOTIFIER_PUBKEY, event.content))
+
+    return {event, tags}
+  },
+})
+
+// Alert Statuses
+
+export type AlertStatus = {
+  event: TrustedEvent
+  tags: string[][]
+}
+
+export const alertStatuses = deriveEventsMapped<AlertStatus>(repository, {
+  filters: [{kinds: [ALERT_STATUS]}],
+  itemToEvent: item => item.event,
+  eventToItem: async event => {
+    const tags = parseJson(await decrypt(signer.get(), NOTIFIER_PUBKEY, event.content))
+
+    return {event, tags}
+  },
 })
 
 // Membership
@@ -360,11 +391,7 @@ export const getMembershipRooms = (list?: List) =>
   getGroupTags(getListTags(list)).map(([_, room, url, name = ""]) => ({url, room, name}))
 
 export const getMembershipRoomsByUrl = (url: string, list?: List) =>
-  sort(
-    getGroupTags(getListTags(list))
-      .filter(t => t[2] === url)
-      .map(nth(1)),
-  )
+  sort(getGroupTags(getListTags(list)).filter(nthEq(2, url)).map(nth(1)))
 
 export const memberships = deriveEventsMapped<PublishedList>(repository, {
   filters: [{kinds: [GROUPS]}],
@@ -380,8 +407,7 @@ export const {
   name: "memberships",
   store: memberships,
   getKey: list => list.event.pubkey,
-  load: (pubkey: string, request: Partial<SubscribeRequestWithHandlers> = {}) =>
-    load({...request, filters: [{kinds: [GROUPS], authors: [pubkey]}]}),
+  load: makeOutboxLoader(GROUPS),
 })
 
 // Chats
@@ -442,6 +468,7 @@ export const {
   name: "chats",
   store: chats,
   getKey: chat => chat.id,
+  load: always(Promise.resolve()),
 })
 
 export const chatSearch = derived(chats, $chats =>
@@ -463,7 +490,7 @@ export const messages = derived(
 export const groupMeta = deriveEvents(repository, {filters: [{kinds: [GROUP_META]}]})
 
 export const hasNip29 = (relay?: Relay) =>
-  relay?.profile?.supported_nips?.map(String)?.includes("29")
+  relay?.profile?.supported_nips?.map?.(String)?.includes?.("29")
 
 // Channels
 
@@ -607,11 +634,11 @@ export const userRoomsByUrl = withGetter(
     const $userRoomsByUrl = new Map<string, Set<string>>()
 
     for (const [_, room, url] of getGroupTags(tags)) {
-      addToMapKey($userRoomsByUrl, url, room)
+      addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), room)
     }
 
     for (const url of getRelayTagValues(tags)) {
-      addToMapKey($userRoomsByUrl, url, GENERAL)
+      addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), GENERAL)
     }
 
     return $userRoomsByUrl
@@ -633,7 +660,12 @@ export const deriveOtherRooms = (url: string) =>
 
 // Other utils
 
-export const encodeRelay = (url: string) => encodeURIComponent(normalizeRelayUrl(url))
+export const encodeRelay = (url: string) =>
+  encodeURIComponent(
+    normalizeRelayUrl(url)
+      .replace(/^wss:\/\//, "")
+      .replace(/\/$/, ""),
+  )
 
 export const decodeRelay = (url: string) => normalizeRelayUrl(decodeURIComponent(url))
 

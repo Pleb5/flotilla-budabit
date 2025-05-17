@@ -1,5 +1,67 @@
 # Changelog
 
+# 1.0.4
+
+* Fix thunk status click handler
+* Remove duplicate dependencies
+* Improve navigation on white-labeled instances
+* Add setting for font size
+
+# 1.0.3
+
+* Add light theme
+* Use correct alerts server
+* Ignore relay errors for claims
+* Fix inline code blocks
+* Add custom emoji parsing and display
+
+# 1.0.2
+
+* Fix add relay button
+* Fix safe inset areas
+* Better rendering for errors from relays
+* Improve remote signer login
+
+# 1.0.1
+
+* Fix relay images in nav
+* Fix relay nav overflow
+
+# 1.0.0
+
+* Add alerts via Anchor
+* Fix nip46 signer connect
+* Allow use of cleartext relays on native builds
+* Fix some modal state bugs caused by svelte 5
+* Detect blossom support on community relays
+* Use user blossom server list in settings
+* Fix some feed bugs
+* Improve thunk indicator
+* Update storage adapters
+* Fix modal flash
+* Switch to pnpm
+* Improve calendar windowing
+
+# 0.2.14
+
+* Add calendar event editing
+
+# 0.2.13
+
+* Fix android keyboard issue
+
+# 0.2.12
+
+* Fix keyboard covering chat input
+* Fix thread replies
+* Make error reporting and analytics optional
+* Replace long press with tap target
+* Fix time input
+* Fix nevent hints for url-specific stuff
+* Fix confirm and reactions on mobile
+* Add reply to chat on mobile
+* Fix profile suggestions
+
 # 0.2.11
 
 * Add in-app signup flow on ios
