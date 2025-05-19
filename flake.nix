@@ -29,7 +29,7 @@ outputs = { nixpkgs, flake-utils, nvim, ... }:
                     flotilla_nvim
                     pkgs.ripgrep
                     pkgs.nodejs_22
-                    pkgs.just
+                    pkgs.pnpm
                     pkgs.prettierd
                 ];
                 shellHook = ''
