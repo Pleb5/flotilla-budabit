@@ -1,14 +1,12 @@
 {
 description = ''A flake that creates a devShell containing the following:
 			- Nixvim (based on nixos-unstable)
-            - NodeJS
-            - Just (project maintenance/cleanup scripts)
+      - Stuff required for Flotilla-Budabit
 		'';
 
 inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    # nixvim.url = "github:nix-community/nixvim";
     nvim.url = "github:Pleb5/neovim-flake/master";
 };
 
@@ -37,9 +35,13 @@ outputs = { nixpkgs, flake-utils, nvim, ... }:
                 shellHook = ''
                     # for ngit
                     export PATH="$HOME/.cargo/bin:$PATH";
-                    # for linking welshman
-                    npm config set prefix=$HOME/.pnpm-global/bin
-                    export PATH="$HOME/.pnpm-global/bin:$PATH"
+
+                    # FOR LINKING WELSHMAN LOCALLY WITH NPM
+                    # Local linking is NOT used in the current workflow
+                    # Would have to create a PNPM workspace-based config
+                    # to do that in a clean way
+                    #npm config set prefix=$HOME/.pnpm-global/bin
+                    #export PATH="$HOME/.pnpm-global/bin:$PATH"
                 '';
             };
         }
