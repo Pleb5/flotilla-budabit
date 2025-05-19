@@ -1,7 +1,6 @@
 onlyBuiltDependencies:
   - sharp
-overrides:
-  ui: link:../../../Library/pnpm/global/5/node_modules/@nostr-git/ui
-  '@nostr-git/ui': link:../../../Library/pnpm/global/5/node_modules/@nostr-git/ui
-  '@nostr-git/shared-types': link:../../../Library/pnpm/global/5/node_modules/@nostr-git/shared-types
-  '@nostr-git/core': link:../../../Library/pnpm/global/5/node_modules/@nostr-git/core
+
+packages:
+  - "packages/**"
+  - "packages/nostr-git/packages/*"
