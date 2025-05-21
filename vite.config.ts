@@ -1,4 +1,5 @@
 import {config} from "dotenv"
+import path from "path"
 import {defineConfig} from "vite"
 import {SvelteKitPWA} from "@vite-pwa/sveltekit"
 import {sveltekit} from "@sveltejs/kit/vite"
@@ -10,6 +11,13 @@ config({path: ".env.template"})
 export default defineConfig({
   server: {
     port: 1847,
+    // local serving of package files
+    fs: {
+      allow: [
+        '.',
+        path.resolve(__dirname, '../'),
+      ]
+    }
   },
   build: {
     sourcemap: true,

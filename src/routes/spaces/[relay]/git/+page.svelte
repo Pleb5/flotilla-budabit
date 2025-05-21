@@ -28,6 +28,7 @@
   import PageContent from "@src/lib/components/PageContent.svelte"
 
   const url = decodeRelay($page.params.relay)
+
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
   const repos: TrustedEvent[] = $state([])
 
@@ -40,16 +41,13 @@
     // --- Logging bookmark filter and relays ---
     const bookmarkFilter = { kinds: [NAMED_BOOKMARKS], authors: [pubkey.get()!] };
     const bookmarkRelays = [url, ...Router.get().FromUser().getUrls()];
-    console.log("[RepoLoad] Bookmark filter:", bookmarkFilter, "Relays:", bookmarkRelays);
     let bookmark = [];
     try {
       bookmark = await load({
         relays: bookmarkRelays,
         filters: [bookmarkFilter],
       });
-      console.log("[RepoLoad] Bookmark result:", bookmark);
     } catch (e) {
-      console.error("[RepoLoad] Bookmark load() error:", e, "Relays:", bookmarkRelays, "Filter:", bookmarkFilter);
       loading = false;
       return;
     }
@@ -66,28 +64,25 @@
         if (relayHint && !relayHints.includes(relayHint)) relayHints.push(relayHint)
       })
       const repoFilter = { kinds: [GIT_REPO], authors, "#d": dTagValues };
-      console.log("[RepoLoad] Repo filter:", repoFilter, "Relay hints:", relayHints);
-      let loadedRepos = [];
       try {
-        loadedRepos = await load({
+        await load({
           relays: relayHints,
           filters: [repoFilter],
+          onEvent(event, url) {
+            repos.push(event);
+          },
         });
-        console.log("[RepoLoad] Loaded repos result:", loadedRepos);
       } catch (e) {
-        console.error("[RepoLoad] Repo load() error:", e, "Relays:", relayHints, "Filter:", repoFilter);
         loading = false;
         return;
       }
-      loadedBookmarkedRepos = loadedRepos.map(repo => {
+      loadedBookmarkedRepos = repos.map(repo => {
         const address = Address.fromEvent(repo)
         const addressString = address.toString()
         const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
         const hint = relaysOfAddresses.get(addressString) ?? relayHintFromEvent
         return {address: addressString, event: repo, relayHint: hint}
       })
-      loadedRepos.filter(e => !mutedPubkeys.includes(e.pubkey)).forEach(e => repos.push(e))
-      console.log(loadedRepos)
     }
     loading = false
   }
@@ -118,12 +113,13 @@
     <div class="row-2">
       <Button class="btn btn-primary btn-sm" disabled={loading} onclick={onAddRepo}>
         <Icon icon="git" />
-        <span>Add Repo</span>
+        Add Repo
       </Button>
       <MenuSpaceButton {url} />
     </div>
   {/snippet}
 </PageBar>
+
 <PageContent>
   <div class="flex flex-grow flex-col gap-2 overflow-auto p-2">
     {#if loading || repos.length === 0}
@@ -137,9 +133,9 @@
         </Spinner>
       </p>
     {:else}
-      {#each repos as event (event.id)}
-        <div in:fly class="">
-          <GitItem {url} {event} />
+      {#each repos as repo (repo.id)}
+        <div in:fly>
+          <GitItem {url} event={repo} />
         </div>
       {/each}
     {/if}
