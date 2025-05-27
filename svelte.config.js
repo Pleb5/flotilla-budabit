@@ -16,7 +16,6 @@ export default {
     },
     csp: {
       directives: {
-        "script-src": ["self", "plausible.coracle.social"],
         "worker-src": ["self", "blob:"],
         "style-src": ["self", "unsafe-inline"],
         "frame-src": ["none"],

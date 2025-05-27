@@ -1,74 +1,55 @@
 <script lang="ts">
-  import {page} from "$app/state"
+  import {Button, IssueCard, PatchCard} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
-  import {Button, PatchCard} from "@nostr-git/ui"
-  import {setChecked} from "@src/app/notifications"
-  import {onMount} from "svelte"
-  import {GIT_PATCH, type TrustedEvent} from "@welshman/util"
-  import {Address} from "@welshman/util"
-  import {load} from "@welshman/net"
+  import {Address, GIT_PATCH, type TrustedEvent} from "@welshman/util"
+  import {getContext} from "svelte"
   import {nthEq} from "@welshman/lib"
-  import {deriveNaddrEvent} from "@src/app/state"
+  import {deriveProfile, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
-  import {deriveProfile} from "@welshman/app"
+  import {makeFeed} from "@src/app/requests"
+  import type {Readable} from "svelte/store"
+  import {type RepoStateEvent} from "@nostr-git/shared-types"
 
-  // Receive eventStore from layout via $props (Svelte 5 idiom)
-  const { eventStore } = $props();
+  const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
 
-  const {id, relay} = page.params
-  const relayArray = Array.isArray(relay) ? relay : [relay]
-  const repo = deriveNaddrEvent(id, relayArray)
-  let patches = $state([] as TrustedEvent[])
+  const repo = getContext<{
+    repo: Readable<TrustedEvent>
+    state: () => Readable<RepoStateEvent>
+    issues: () => Readable<TrustedEvent[]>
+    patches: () => Readable<TrustedEvent[]>
+  }>("repo")
+
+  let patches = $derived(repo.patches())
+
   let loading = $state(true)
-  let currentPage = $state(1)
-  const pageSize = 10
+  let element: HTMLElement | undefined = $state()
 
-  function pageCount() {
-    return Math.max(1, Math.ceil(patches.length / pageSize))
-  }
+  $effect(() => {
+    if (!patches) {
+      return
+    }
 
-  function paginatedPatches() {
-    return patches.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  }
+    const [_, ...relays] = $repoEvent.tags.find(nthEq(0, "relays")) || []
 
-  function prevPage() {
-    if (currentPage > 1) currentPage = currentPage - 1
-  }
-  function nextPage() {
-    if (currentPage < pageCount()) currentPage = currentPage + 1
-  }
-
-  async function loadPatches() {
-    patches.length = 0
     const patchFilter = {
       kinds: [GIT_PATCH],
-      "#a": [Address.fromEvent($repo).toString()],
+      "#a": [Address.fromEvent($repoEvent).toString()],
     }
 
-    const [tagId, ...relays] = $repo.tags.find(nthEq(0, "relays")) || []
-
-    const patch = await load({
+    const {cleanup} = makeFeed({
+      element: element!,
       relays: relays,
-      filters: [patchFilter],
+      feedFilters: [patchFilter],
+      subscriptionFilters: [patchFilter],
+      initialEvents: $patches,
+      onExhausted: () => {
+        loading = false
+      },
     })
-    if (patch.length > 0) {
-      patches.push(...patch)
-    }
-  }
-
-  async function loadPatchesWrapper() {
-    loading = true
-    await loadPatches()
-    loading = false
-  }
-
-  onMount(() => {
-    loadPatchesWrapper()
-    return () => setChecked(page.url.pathname)
   })
 </script>
 
-<div>
+<div bind:this={element}>
   <div
     class="z-10 sticky top-0 mb-4 flex items-center justify-between bg-background/95 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
     <div>
@@ -99,29 +80,16 @@
         {/if}
       </Spinner>
     </div>
-  {:else if patches.length === 0}
+  {:else if $patches.length === 0}
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No patches found.
     </div>
   {:else}
-    <div class="flex max-h-[32rem] flex-col gap-y-4 overflow-y-auto rounded-md bg-background p-2">
-      {#each paginatedPatches() as patch}
+    <div class="flex flex-col gap-y-4 overflow-y-auto">
+      {#each $patches as patch}
         <PatchCard event={patch} owner={deriveProfile(patch.pubkey)} />
       {/each}
-    </div>
-    <div class="mt-4 flex items-center justify-center gap-4">
-      <button
-        onclick={prevPage}
-        class="rounded bg-gray-100 px-3 py-1 hover:bg-gray-200 disabled:opacity-50"
-        disabled={currentPage === 1}>&larr; Prev</button>
-      <span class="text-gray-600">Page {currentPage} of {pageCount()}</span>
-      <button
-        onclick={nextPage}
-        class="rounded bg-gray-100 px-3 py-1 hover:bg-gray-200 disabled:opacity-50"
-        disabled={currentPage === pageCount()}>
-        Next &rarr;
-      </button>
     </div>
   {/if}
 </div>

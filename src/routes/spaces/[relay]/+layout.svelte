@@ -54,7 +54,9 @@
     checkConnection()
 
     // Prime our cache so inputs show up quickly
-    getUploadUrl(url)
+    // Commented out to prevent warning over no blossom server endpoint
+    // function doesn't seem to do what the comment says it does
+    // getUploadUrl(url)
 
     const relays = [url]
     const since = ago(WEEK)
