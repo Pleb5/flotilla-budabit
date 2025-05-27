@@ -15,6 +15,7 @@
   import RoomCreate from "@app/components/RoomCreate.svelte"
   import RelayDescription from "@app/components/RelayDescription.svelte"
   import {
+    hasNip29,
     decodeRelay,
     channelIsLocked,
     makeChannelId,
