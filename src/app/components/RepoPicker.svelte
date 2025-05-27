@@ -35,8 +35,8 @@
   import {load} from "@welshman/net"
 
   const url = decodeRelay($page.params.relay)
-  const {
-    selectedRepos,
+  let {
+    selectedRepos = $bindable(),
   }: {
     selectedRepos: Array<{address: string; event: TrustedEvent; relayHint: string}>
   } = $props()
@@ -168,12 +168,12 @@
     })
 
     $shouldReloadRepos = true
-
+    //selectedRepos = localSelectedReposState
     goto(makeGitPath(url))
   }
 
   onMount(() => {
-    const relays = [url, ...Router.get().FromUser().getUrls()];
+    const relays = [url, ...Router.get().FromUser().getUrls()]
     load({
       relays,
       filters,
@@ -208,6 +208,8 @@
     } else {
       localSelectedReposState = localSelectedReposState.filter(r => r.address !== address)
     }
+    console.log("localSelectedReposState", localSelectedReposState)
+    selectedRepos.push(...localSelectedReposState)
   }
 </script>
 

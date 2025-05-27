@@ -13,9 +13,9 @@
   import {makeGitPath} from "@app/routes"
   import Button from "@src/lib/components/Button.svelte"
   import Link from "@src/lib/components/Link.svelte"
-  import {onMount} from "svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"
+  import {nthEq} from "@welshman/lib"
 
   interface Props {
     url: any
@@ -25,6 +25,10 @@
   }
 
   const {url, event, showIssues = true, showActivity}: Props = $props()
+
+  let loadingIssues = $state(true)
+
+  const [tagId, ...relays] = event.tags.find(nthEq(0, "relays")) || []
 
   const issueFilter = {
     kinds: [GIT_ISSUE],
@@ -43,12 +47,13 @@
     }
   }
 
-  let loadingIssues = $state(false)
-
-
-  onMount(() => {
-    if (showIssues) {
-      load({relays: [url], filters: [issueFilter]})
+  $effect(() => {
+    if (event) {
+      if (showIssues) {
+        load({relays: relays, filters: [issueFilter]}).then(() => {
+          loadingIssues = false
+        })
+      }
     }
   })
 

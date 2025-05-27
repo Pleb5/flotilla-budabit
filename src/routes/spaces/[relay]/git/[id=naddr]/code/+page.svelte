@@ -1,121 +1,90 @@
 <script lang="ts">
-  import {getContext, onMount} from "svelte"
-  import {FileView, Tabs, TabsList, TabsTrigger} from "@nostr-git/ui"
+  import {getContext} from "svelte"
+  import {FileView} from "@nostr-git/ui"
   import {GitBranch} from "@lucide/svelte"
-  import {listRepoFilesFromEvent, type FileEntry} from "@nostr-git/core"
-  import {load} from "@welshman/net"
-  import {nip19} from "nostr-tools"
-  import {GIT_REPO_STATE} from "@src/lib/util"
-  import {parseRepoStateEvent, type TrustedEvent} from "@nostr-git/shared-types"
+  import {
+    listRepoFilesFromEvent,
+    type FileEntry,
+    listBranchesFromEvent,
+  } from "@nostr-git/core"
+  import {
+    parseRepoAnnouncementEvent,
+    parseRepoStateEvent,
+    type RepoAnnouncementEvent,
+    type RepoStateEvent,
+    type TrustedEvent,
+    type RepoEvent,
+  } from "@nostr-git/shared-types"
   import {page} from "$app/stores"
   import type {Readable} from "svelte/store"
-  import {nthEq} from "@welshman/lib"
   import Popover from "@src/lib/components/Popover.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import {fly} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
 
   const {id, relay} = $page.params
-  const eventStore = getContext<Readable<TrustedEvent>>("repo-event")
+  const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
+  const repoStateEvent = getContext<Readable<TrustedEvent>>("repo-state-event")
+  const repo = getContext<{
+    repo: Readable<TrustedEvent>
+    state: () => Readable<RepoStateEvent>
+    issues: () => Readable<TrustedEvent[]>
+  }>("repo")
 
   // UI state
-  let loading = true
-  let error: string | null = null
-  let files: FileEntry[] = []
-  let branches: {name: string; isDefault: boolean}[] = []
-  let selectedBranch = "master"
-  let fallbackToBranches = false
+  let loading = $state(true)
+  let error: string | null = $state(null)
+  let files: FileEntry[] = $state([])
+  let fallbackToBranches = $state(false)
 
-  async function tryLoadRepoStateEvent() {
-    try {
-      loading = true
-      error = null
-      fallbackToBranches = false
-      files = []
-      branches = []
+  const repoState = repo.state()
 
-      const decoded = nip19.decode(id).data as {
-        pubkey: string
-        kind: number
-        identifier: string
-      }
-      const filters = [
-        {
-          authors: [decoded.pubkey],
-          kinds: [GIT_REPO_STATE],
-          "#d": [decoded.identifier],
-        },
-      ]
-      const [tagId, ...relays] = $eventStore.tags.find(nthEq(0, "relays")) || []
-      const events = await load({relays: relays, filters})
-      const event = events[0]
-      if (event) {
-        //files = await listRepoFilesFromEvent({repoEvent: event, branch: selectedBranch})
-        try {
-          const repoStateEvent = parseRepoStateEvent(event)
-          branches = repoStateEvent.refs.map(branch => ({name: branch.ref, isDefault: false}))
-        } catch (e) {
-          branches = [{name: "master", isDefault: true}]
-        }
-        loading = false
-        return
-      } else {
-        fallbackToBranches = true
-        await loadBranchesFallback()
-      }
-    } catch (e) {
-      error = (e as Error).message || "Failed to load repository event."
+  let branches = $derived.by(() => {
+    if ($repoState) {
+      const state = parseRepoStateEvent($repoState as RepoStateEvent)
+      return state.refs.map(ref => ({name: ref.ref, commit: ref.commit, lineage: ref.lineage}))
+    } else {
+      return listBranchesFromEvent({repoEvent: $repoEvent})
+    }
+  })
+
+  let selectedBranch = $derived.by(async () => {
+    if ($repoState) {
+      const repo = parseRepoStateEvent($repoState as RepoStateEvent)
+      return repo.head
+    } else {
+      const branches = await listBranchesFromEvent({repoEvent: $repoEvent})
+      return branches?.[0].name
+    }
+  })
+
+let selectedBranchValue = $state<string | undefined>(undefined)
+
+  $effect(async () => {
+    if (selectedBranch) {
+      selectedBranchValue = await selectedBranch
+      files = await listRepoFilesFromEvent({
+        repoEvent: $repoEvent as RepoEvent,
+        branch: selectedBranchValue,
+      })
+    }
+  })
+
+  $effect(async () => {
+    if ($repoState) {
+      loading = false
+      files = await listRepoFilesFromEvent({
+        repoEvent: $repoEvent as RepoEvent,
+        branch: await selectedBranch,
+      })
+    } else {
+      console.log($repoEvent)
+      branches = await listBranchesFromEvent({repoEvent: $repoEvent})
       loading = false
     }
-  }
+  })
 
-  async function loadBranchesFallback() {
-    try {
-      branches = [{name: "master", isDefault: true}]
-      selectedBranch = "master"
-      // No repo event, so no files
-      files = []
-      loading = false
-    } catch (e) {
-      error = (e as Error).message || "Failed to load branches."
-      loading = false
-    }
-  }
-
-  // Reload files when branch changes (if event loaded)
-  async function onBranchChange() {
-    if (!fallbackToBranches) {
-      try {
-        loading = true
-        files = []
-        const decoded = nip19.decode(id).data as {
-          pubkey: string
-          kind: number
-          identifier: string
-        }
-        const filters = [
-          {
-            authors: [decoded.pubkey],
-            kinds: [GIT_REPO_STATE],
-            "#d": [decoded.identifier],
-          },
-        ]
-        const events = await load({relays: [relay], filters})
-        const event = events[0]
-        if (event) {
-          files = await listRepoFilesFromEvent({repoEvent: event, branch: selectedBranch})
-        } else {
-          files = []
-        }
-        loading = false
-      } catch (e) {
-        error = (e as Error).message || "Failed to load files for branch."
-        loading = false
-      }
-    }
-  }
-
-  let showMenu = false
+  let showMenu = $state(false)
 
   const toggleMenu = () => {
     showMenu = !showMenu
@@ -124,10 +93,6 @@
   const openMenu = () => {
     showMenu = true
   }
-
-  onMount(() => {
-    tryLoadRepoStateEvent()
-  })
 </script>
 
 <div class="rounded-lg border border-border bg-card">
@@ -144,12 +109,11 @@
         <GitBranch class="h-5 w-5 text-muted-foreground" />
         <select
           class="rounded border border-border bg-secondary px-2 py-1"
-          bind:value={selectedBranch}
+          bind:value={selectedBranchValue}
           disabled>
           {#each branches as branch}
             <option value={branch.name}>
               {branch.name}
-              {branch.isDefault ? " (default)" : ""}
             </option>
           {/each}
         </select>
@@ -163,7 +127,7 @@
           onclick={openMenu}
           class="flex items-center gap-3 text-left transition-all hover:text-base-content">
           <GitBranch class="h-5 w-5 text-muted-foreground" />
-          <span>{selectedBranch}</span>
+          <span>{selectedBranchValue}</span>
           <Icon icon="alt-arrow-down" />
         </Button>
         {#if showMenu}

@@ -1,69 +1,61 @@
 <script lang="ts">
   import {Button, IssueCard} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
-  import {page} from "$app/stores"
   import {
     Address,
     COMMENT,
-    getListTags,
-    getPubkeyTagValues,
     GIT_ISSUE,
     type TrustedEvent,
   } from "@welshman/util"
-  import {getContext, onMount} from "svelte"
-  import {setChecked} from "@src/app/notifications"
+  import {getContext} from "svelte"
   import {nthEq} from "@welshman/lib"
-  import {deriveProfile, userMutes} from "@welshman/app"
+  import {deriveProfile, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
-  import type {Readable} from "svelte/store"
   import {makeFeed} from "@src/app/requests"
+  import type {Readable} from "svelte/store"
+  import {type RepoStateEvent} from "@nostr-git/shared-types"
 
-  const repo = getContext<Readable<TrustedEvent>>("repo-event")
-  const [_, ...relays] = $repo.tags.find(nthEq(0, "relays")) || []
-  const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
+  const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
 
-  const issueFilter = {
-    kinds: [GIT_ISSUE, COMMENT],
-    "#a": [Address.fromEvent($repo).toString()],
-  }
+  const repo = getContext<{
+    repo: Readable<TrustedEvent>
+    state: () => Readable<RepoStateEvent>
+    issues: () => Readable<TrustedEvent[]>
+  }>("repo")
 
-  const issues: TrustedEvent[] = $state([])
+  let issues = $derived(repo.issues())
   const comments: TrustedEvent[] = $state([])
 
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
 
-  onMount(() => {
+  $effect(() => {
+    if (!issues) {
+      return
+    }
+
+    const [_, ...relays] = $repoEvent.tags.find(nthEq(0, "relays")) || []
+
+    const issueFilter = {
+      kinds: [GIT_ISSUE, COMMENT],
+      "#a": [Address.fromEvent($repoEvent).toString()],
+    }
+
     const {cleanup} = makeFeed({
       element: element!,
       relays: relays,
       feedFilters: [issueFilter],
       subscriptionFilters: [issueFilter],
-      initialEvents: [],
-      onEvent: event => {
-        if (event.kind === GIT_ISSUE && !mutedPubkeys.includes(event.pubkey)) {
-          issues.push(event)
-        }
-
-        if (event.kind === COMMENT && !mutedPubkeys.includes(event.pubkey)) {
-          comments.push(event)
-        }
-      },
+      initialEvents: $issues,
       onExhausted: () => {
         loading = false
       },
     })
-
-    return () => {
-      cleanup()
-      setChecked($page.url.pathname)
-    }
   })
 </script>
 
 <div bind:this={element}>
-  <div
-    class="z-10 sticky top-0 mb-4 flex items-center justify-between py-4 backdrop-blur">
+  <div class="z-10 sticky top-0 mb-4 flex items-center justify-between py-4 backdrop-blur">
     <div>
       <h2 class="text-xl font-semibold">Issues</h2>
       <p class="text-sm text-muted-foreground">Track bugs and feature requests</p>
@@ -92,15 +84,15 @@
         {/if}
       </Spinner>
     </div>
-  {:else if issues.length === 0}
+  {:else if $issues.length === 0}
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No issues found.
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each issues as issue (issue.id)}
-        <IssueCard event={issue} author={deriveProfile(issue.pubkey, relayArray)} />
+      {#each $issues as issue (issue.id)}
+        <IssueCard event={issue} author={deriveProfile(issue.pubkey, relays)} />
       {/each}
     </div>
   {/if}
