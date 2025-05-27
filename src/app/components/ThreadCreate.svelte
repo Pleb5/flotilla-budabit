@@ -10,7 +10,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {pushToast} from "@app/toast"
-  import {GENERAL, tagRoom, PROTECTED} from "@app/state"
+  import {PROTECTED} from "@app/state"
   import {makeEditor} from "@app/editor"
   import { FREELANCE_JOB } from "@src/lib/util"
     import { goto } from "$app/navigation"
@@ -62,13 +62,7 @@
       if (relayHint) jobOrGitIssueTag.push(relayHint)
     }
 
-    const tags = [
-      ...ed.storage.nostr.getEditorTags(),
-      tagRoom(GENERAL, url),
-      ["title", titleToPost],
-      PROTECTED,
-    ]
-    if (jobOrGitIssueTag) tags.push(jobOrGitIssueTag)
+    const tags = [...ed.storage.nostr.getEditorTags(), ["title", title], PROTECTED]
 
     publishThunk({
       relays: [url],

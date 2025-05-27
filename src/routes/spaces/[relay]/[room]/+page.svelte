@@ -22,7 +22,6 @@
   import {
     userSettingValues,
     decodeRelay,
-    GENERAL,
     tagRoom,
     userRoomsByUrl,
     displayChannel,
@@ -43,7 +42,7 @@
   import {pushToast} from "@app/toast"
   import {GIT_REPO} from "@src/lib/util"
 
-  const {room = GENERAL} = $page.params
+  const {room} = $page.params
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay($page.params.relay)
@@ -256,22 +255,20 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
-      {#if room !== GENERAL}
-        {#if $userRoomsByUrl.get(url)?.has(room)}
-          <Button class="btn btn-neutral btn-sm" onclick={leaveRoom}>
-            <Icon icon="arrows-a-logout-2" />
-            Leave Room
-          </Button>
-        {:else}
-          <Button class="btn btn-neutral btn-sm" disabled={joiningRoom} onclick={joinRoom}>
-            {#if joiningRoom}
-              <span class="loading loading-spinner loading-sm"></span>
-            {:else}
-              <Icon icon="login-2" />
-            {/if}
-            Join Room
-          </Button>
-        {/if}
+      {#if $userRoomsByUrl.get(url)?.has(room)}
+        <Button class="btn btn-neutral btn-sm" onclick={leaveRoom}>
+          <Icon icon="arrows-a-logout-2" />
+          Leave Room
+        </Button>
+      {:else}
+        <Button class="btn btn-neutral btn-sm" disabled={joiningRoom} onclick={joinRoom}>
+          {#if joiningRoom}
+            <span class="loading loading-spinner loading-sm"></span>
+          {:else}
+            <Icon icon="login-2" />
+          {/if}
+          Join Room
+        </Button>
       {/if}
       <MenuSpaceButton {url} />
     </div>
