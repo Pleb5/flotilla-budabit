@@ -9972,7 +9972,7 @@ snapshots:
       '@welshman/util': 0.3.0(typescript@5.8.3)
       fuse.js: 7.1.0
       idb: 8.0.2
-      svelte: 4.2.19
+      svelte: 4.2.20
       throttle-debounce: 5.0.2
     transitivePeerDependencies:
       - nostr-signer-capacitor-plugin
@@ -10093,7 +10093,7 @@ snapshots:
       '@welshman/lib': 0.3.0
       '@welshman/relay': 0.3.0(typescript@5.8.3)
       '@welshman/util': 0.3.0(typescript@5.8.3)
-      svelte: 4.2.19
+      svelte: 4.2.20
     transitivePeerDependencies:
       - typescript
 

@@ -17,7 +17,6 @@
   import {
     hasNip29,
     decodeRelay,
-    channelIsLocked,
     makeChannelId,
     channelsById,
     deriveUserRooms,
