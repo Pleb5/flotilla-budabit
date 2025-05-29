@@ -667,7 +667,12 @@ export enum MembershipStatus {
 
 export const deriveUserMembershipStatus = (url: string, room: string) =>
   derived(
-    [pubkey, deriveEventsForUrl(url, [{kinds: [GROUP_JOIN, GROUP_ADD_USER, GROUP_REMOVE_USER], '#h': [room]}])],
+    [
+      pubkey,
+      deriveEventsForUrl(url, [
+        {kinds: [GROUP_JOIN, GROUP_ADD_USER, GROUP_REMOVE_USER], "#h": [room]},
+      ]),
+    ],
     ([$pubkey, $events]) => {
       let status = MembershipStatus.Initial
 
@@ -686,7 +691,7 @@ export const deriveUserMembershipStatus = (url: string, room: string) =>
       }
 
       return status
-    }
+    },
   )
 
 // Other utils
