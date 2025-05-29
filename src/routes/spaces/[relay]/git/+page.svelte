@@ -1,13 +1,6 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {page} from "$app/stores"
-  import {
-    getPubkeyTagValues,
-    getListTags,
-    Address,
-    NAMED_BOOKMARKS,
-    type TrustedEvent,
-  } from "@welshman/util"
+  import {Address, NAMED_BOOKMARKS, type TrustedEvent} from "@welshman/util"
   import {GIT_REPO} from "@src/lib/util"
   import {repository, userMutes} from "@welshman/app"
   import {fly} from "@lib/transition"
@@ -63,7 +56,7 @@
       })
       const repoFilter = {kinds: [GIT_REPO], authors, "#d": dTagValues}
       return _derived(deriveEvents(repository, {filters: [repoFilter]}), events => {
-        if (events.length === 0) {
+        if (events.length !== dTagValues.length) {
           load({relays: relayHints, filters: [repoFilter]})
         }
         return events
@@ -83,9 +76,10 @@
     }
   })
 
-  onMount(() => {
-    loading = false
-    console.log("loadedBookmarkedRepos", loadedBookmarkedRepos)
+  $effect(() => {
+    if (loadedBookmarkedRepos) {
+      loading = false
+    }
   })
 
   const onAddRepo = () => {

@@ -1,12 +1,7 @@
 <script lang="ts">
   import {Button, IssueCard} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
-  import {
-    Address,
-    COMMENT,
-    GIT_ISSUE,
-    type TrustedEvent,
-  } from "@welshman/util"
+  import {Address, COMMENT, GIT_ISSUE, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
   import {nthEq} from "@welshman/lib"
   import {deriveProfile, repository} from "@welshman/app"
@@ -14,6 +9,7 @@
   import {makeFeed} from "@src/app/requests"
   import type {Readable} from "svelte/store"
   import {type RepoStateEvent} from "@nostr-git/shared-types"
+  import {fly} from "@lib/transition"
 
   const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
 
@@ -23,15 +19,15 @@
     issues: () => Readable<TrustedEvent[]>
   }>("repo")
 
-  let issues = $derived(repo.issues())
+  let issues = repo.issues()
   const comments: TrustedEvent[] = $state([])
 
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
 
   $effect(() => {
-    if (!issues) {
-      return
+    if (issues) {
+      loading = false
     }
 
     const [_, ...relays] = $repoEvent.tags.find(nthEq(0, "relays")) || []
@@ -92,7 +88,9 @@
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each $issues as issue (issue.id)}
-        <IssueCard event={issue} author={deriveProfile(issue.pubkey, relays)} />
+        <div in:fly>
+          <IssueCard event={issue} author={deriveProfile(issue.pubkey)} />
+        </div>
       {/each}
     </div>
   {/if}

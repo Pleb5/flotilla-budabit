@@ -17,10 +17,10 @@
   import {decodeRelay, userRoomsByUrl} from "@app/state"
   import {pullConservatively} from "@app/requests"
   import {notifications} from "@app/notifications"
-  import { FREELANCE_JOB, GIT_REPO } from "@src/lib/util"
+  import {FREELANCE_JOB, GIT_REPO} from "@src/lib/util"
 
-  type Props = {
-    children?: Snippet
+  interface Props {
+    children?: import("svelte").Snippet
   }
   const {children}: Props = $props()
 

@@ -9,6 +9,14 @@
   import {makeFeed} from "@src/app/requests"
   import type {Readable} from "svelte/store"
   import {type RepoStateEvent} from "@nostr-git/shared-types"
+  import {deriveEvents} from "@welshman/store"
+  import {
+    GIT_STATUS_OPEN,
+    GIT_STATUS_COMPLETE,
+    GIT_STATUS_CLOSED,
+    GIT_STATUS_DRAFT,
+  } from "@welshman/util"
+    import { fly } from "@lib/transition"
 
   const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
 
@@ -19,14 +27,36 @@
     patches: () => Readable<TrustedEvent[]>
   }>("repo")
 
-  let patches = $derived(repo.patches())
+  const patches = $derived(repo.patches())
+
+  const patchList = $derived.by(() => {
+    if ($patches) {
+      return $patches.map(patch => {
+        const statuses = deriveEvents(repository, {
+          filters: [
+            {
+              kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+              "#e": [patch.id],
+            },
+          ],
+        })
+        const profile = deriveProfile(patch.pubkey)
+
+        return {
+          ...patch,
+          status,
+          profile,
+        }
+      })
+    }
+  })
 
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
 
   $effect(() => {
-    if (!patches) {
-      return
+    if (patches) {
+      loading = false
     }
 
     const [_, ...relays] = $repoEvent.tags.find(nthEq(0, "relays")) || []
@@ -51,7 +81,7 @@
 
 <div bind:this={element}>
   <div
-    class="z-10 sticky top-0 mb-4 flex items-center justify-between bg-background/95 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    class="z-10 sticky top-0 mb-4 flex items-center justify-between py-4 backdrop-blur">
     <div>
       <h2 class="text-xl font-semibold">Patches</h2>
       <p class="text-sm text-muted-foreground">Review and merge code changes</p>
@@ -87,8 +117,10 @@
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each $patches as patch}
-        <PatchCard event={patch} owner={deriveProfile(patch.pubkey)} />
+      {#each patchList! as patch}
+        <div in:fly>
+          <PatchCard event={patch} status={patch.status} owner={patch.profile} />
+        </div>
       {/each}
     </div>
   {/if}

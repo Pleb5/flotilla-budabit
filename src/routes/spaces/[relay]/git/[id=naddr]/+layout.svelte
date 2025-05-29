@@ -13,6 +13,7 @@
   import {Address, GIT_ISSUE, GIT_PATCH, type Filter} from "@welshman/util"
   import {load} from "@welshman/net"
   import {nthEq} from "@welshman/lib"
+    import PageBar from "@src/lib/components/PageBar.svelte"
 
   const {id, relay} = $page.params
 
@@ -77,11 +78,67 @@
         relays: relays,
         filters: [issuesFilter, patchesFilter, repoStateFilter],
       })
+
+      if ($repoState && $issues && $patches) {
+        console.log("issues", $issues)
+        console.log("patches", $patches)
+      }
     }
   })
 </script>
-
+<PageBar>
+  <RepoHeader event={$eventStore as RepoAnnouncementEvent} {activeTab}>
+    {#snippet children(activeTab: string)}
+      <RepoTab
+        tabValue={id}
+        label="Overview"
+        href={`/spaces/${encodeddRelay}/git/${id}`}
+        {activeTab}>
+        {#snippet icon()}
+          <FileCode class="h-4 w-4" />
+        {/snippet}
+      </RepoTab>
+      <RepoTab
+        tabValue="code"
+        label="Code"
+        href={`/spaces/${encodeddRelay}/git/${id}/code`}
+        {activeTab}>
+        {#snippet icon()}
+          <GitBranch class="h-4 w-4" />
+        {/snippet}
+      </RepoTab>
+      <RepoTab
+        tabValue="issues"
+        label="Issues"
+        href={`/spaces/${encodeddRelay}/git/${id}/issues`}
+        {activeTab}>
+        {#snippet icon()}
+          <CircleAlert class="h-4 w-4" />
+        {/snippet}
+      </RepoTab>
+      <RepoTab
+        tabValue="patches"
+        label="Patches"
+        href={`/spaces/${encodeddRelay}/git/${id}/patches`}
+        {activeTab}>
+        {#snippet icon()}
+          <GitPullRequest class="h-4 w-4" />
+        {/snippet}
+      </RepoTab>
+      <RepoTab
+        tabValue="wiki"
+        label="Wiki"
+        href={`/spaces/${encodeddRelay}/git/${id}/wiki`}
+        {activeTab}>
+        {#snippet icon()}
+          <Book class="h-4 w-4" />
+        {/snippet}
+      </RepoTab>
+    {/snippet}
+  </RepoHeader>
+</PageBar>
 <PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
+
   {#if $eventStore === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !$eventStore}

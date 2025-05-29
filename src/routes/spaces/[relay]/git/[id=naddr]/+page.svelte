@@ -22,6 +22,8 @@
     type RepoAnnouncementEvent,
     type RepoStateEvent,
   } from "@nostr-git/shared-types"
+  import {fly} from "@lib/transition"
+  import Spinner from "@src/lib/components/Spinner.svelte"
 
   const eventStore = getContext<Readable<TrustedEvent>>("repo-event")
   const repo = getContext<{
@@ -31,28 +33,46 @@
     patches: () => Readable<TrustedEvent[]>
   }>("repo")
 
-  let loading = $state(false)
+  let loading = $state(true)
 
   const repoState = repo.state()
   const issues = repo.issues()
   const patches = repo.patches()
 
-  let issueCount = $derived.by(() => $issues?.length ?? 0)
+  let issueCount = $derived.by(() => {
+    if ($issues) {
+      return $issues.length
+    }
+  })
 
-  let branchCount = $derived.by(() => {
+  let branchCount = $state(0)
+
+  $effect(() => {
     if ($repoState) {
       const repo = parseRepoStateEvent($repoState as RepoStateEvent)
-      return repo.refs.length
+      branchCount = repo.refs.length
+    } else {
+      listBranchesFromEvent({repoEvent: $eventStore}).then(b => (branchCount = b.length))
     }
-    return 0
   })
 
   let contributorCount = $derived.by(() => {
     if ($eventStore) {
       const repo = parseRepoAnnouncementEvent($eventStore as RepoAnnouncementEvent)
-      return repo.maintainers?.length ?? 0
+      const maintainerCount = repo.maintainers
+        ? repo.maintainers.includes($eventStore.pubkey)
+          ? repo.maintainers.length
+          : repo.maintainers.length + 1
+        : 1
+      return maintainerCount
     }
     return 0
+  })
+
+  const patchCount = $derived.by(() => {
+    if ($patches) {
+      return $patches.length
+    }
   })
 
   const statuses = $derived.by(() => {
@@ -98,12 +118,10 @@
   const mainBranch = $derived.by(async () => {
     if ($repoState) {
       const repo = parseRepoStateEvent($repoState as RepoStateEvent)
-      console.log(repo)
       return repo.head
     } else {
       const branches = await listBranchesFromEvent({repoEvent: $eventStore})
-      console.log(branches)
-      return branches?.[0].name
+      return branches.length > 0 ? branches[0].name : undefined
     }
   })
 
@@ -117,7 +135,7 @@
     {label: "Issues", value: () => issueCount, icon: CircleAlert},
     {
       label: "Patches",
-      value: () => $patches.length,
+      value: () => patchCount,
       icon: GitPullRequest,
     },
   ]
@@ -138,6 +156,7 @@
       path: "README.md",
     })
     renderedReadme = readme ? md.render(readme) : ""
+    loading = false
   })
 </script>
 
@@ -146,7 +165,7 @@
     {#each stats as stat}
       <Card class="p-4">
         <div class="flex items-center gap-2">
-          <stat.icon class="h-5 w-5 text-muted-foreground" />
+          <stat.icon class="h-5 text-muted-foreground" />
           <div>
             <p class="text-sm text-muted-foreground">{stat.label}</p>
             <p class="text-2xl font-semibold">{stat.value()}</p>
@@ -157,42 +176,101 @@
   </div>
   {#if renderedReadme}
     <div
-      class="prose-slate dark:prose-invert prose-headings:font-bold prose-headings:mb-3 prose-headings:mt-8 prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-p:leading-relaxed prose-p:my-4 prose-ul:my-4 prose-ol:my-4 prose-li:marker:text-primary prose-blockquote:border-l-4 prose-blockquote:border-accent prose-blockquote:bg-accent/10 prose-blockquote:p-4 prose-blockquote:rounded prose-blockquote:my-6 prose-table:my-6 prose-table:border prose-table:border-muted prose-th:bg-muted/50 prose-th:font-semibold prose-th:p-3 prose-td:p-3 prose-pre:bg-zinc-900 prose-pre:rounded-lg prose-pre:p-4 prose-code:bg-zinc-800 prose-code:rounded-md prose-code:px-2 prose-code:py-1 prose-code:text-sm prose max-w-none overflow-x-auto rounded-xl border border-muted bg-muted p-8 shadow-md">
+      class="prose max-w-2xl bg-white dark:bg-zinc-900"
+      in:fly>
       {@html renderedReadme}
+      <style>
+        .prose {
+          color: theme('colors.zinc.50');
+          background: none;
+        }
+        .dark .prose {
+          color: theme('colors.white');
+        }
+        .prose h1, .prose h2, .prose h3 {
+          font-weight: 600;
+          line-height: 1.25;
+          color: theme('colors.zinc.50');
+          margin-top: 2rem;
+          margin-bottom: 1rem;
+        }
+        .prose h1 {
+          font-size: 2rem;
+          border-bottom: 1px solid theme('colors.zinc.50');
+          padding-bottom: 0.3em;
+        }
+        .prose h2 {
+          font-size: 1.5rem;
+          border-bottom: 1px solid theme('colors.zinc.50');
+          padding-bottom: 0.2em;
+        }
+        .prose h3 {
+          font-size: 1.25rem;
+          padding-bottom: 0.1em;
+        }
+        .prose ul, .prose ol {
+          margin: 1em 0;
+          padding-left: 2em;
+        }
+        .prose li {
+          margin: 0.3em 0;
+        }
+        .prose a {
+          color: theme('colors.accent');
+          text-decoration: underline;
+          text-underline-offset: 2px;
+          transition: color 0.2s;
+        }
+        .prose a:hover {
+          color: theme('colors.primary');
+        }
+        .prose code {
+          background: theme('colors.zinc.700');
+          color: theme('colors.zinc.100');
+          border-radius: 4px;
+          padding: 0.2em 0.4em;
+          font-size: 0.95em;
+        }
+        .prose pre {
+          background: theme('colors.zinc.900');
+          color: theme('colors.zinc.100');
+          border-radius: 8px;
+          padding: 1em;
+          margin: 1.5em 0;
+          font-size: 1em;
+          overflow-x: auto;
+        }
+        .prose blockquote {
+          border-left: 4px solid theme('colors.zinc.300');
+          background: theme('colors.zinc.50');
+          color: theme('colors.zinc.600');
+          padding: 1em 1.5em;
+          border-radius: 0.5em;
+          margin: 1.5em 0;
+          font-style: italic;
+        }
+        .prose table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 1.5em;
+          background: theme('colors.zinc.50');
+          border-radius: 0.5em;
+          overflow: hidden;
+        }
+        .prose th, .prose td {
+          border: 1px solid theme('colors.zinc.200');
+          padding: 0.6em 1em;
+        }
+        .prose th {
+          background: theme('colors.zinc.100');
+          font-weight: 600;
+        }
+      </style>
     </div>
+  {:else if loading}
+    <Spinner {loading}>Loading README.md...</Spinner>
   {:else}
     <div class="text-muted-foreground">No README.md found.</div>
   {/if}
 
-  <style>
-    /* Further polish for markdown rendering in README */
-    .prose h1,
-    .prose h2,
-    .prose h3 {
-      letter-spacing: -0.01em;
-    }
-    .prose h1 {
-      border-bottom: 1px solid theme("colors.border");
-      padding-bottom: 0.3em;
-    }
-    .prose blockquote {
-      border-left-width: 4px;
-      border-color: var(--tw-prose-accent);
-      background: var(--tw-prose-accent-bg, rgba(59, 130, 246, 0.05));
-      padding: 1rem;
-      border-radius: 0.5rem;
-      margin: 1.5rem 0;
-    }
-    .prose pre {
-      margin: 1.5rem 0;
-    }
-    .prose table {
-      border-radius: 0.5rem;
-      overflow: hidden;
-    }
-    .prose th,
-    .prose td {
-      border: 1px solid theme("colors.zinc.700");
-    }
-  </style>
 </div>

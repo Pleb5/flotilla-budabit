@@ -29,6 +29,7 @@
     repo: Readable<TrustedEvent>
     state: () => Readable<RepoStateEvent>
     issues: () => Readable<TrustedEvent[]>
+    patches: () => Readable<TrustedEvent[]>
   }>("repo")
 
   // UI state
