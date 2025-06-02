@@ -1,6 +1,6 @@
 {
   "name": "flotilla",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
+    "@eslint/js": "^9.26.0",
     "@sentry/cli": "^2.40.0",
     "@sveltejs/kit": "^2.5.27",
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
@@ -38,6 +39,7 @@
   },
   "type": "module",
   "dependencies": {
+    "@capacitor-community/safe-area": "7.0.0-alpha.1",
     "@capacitor/android": "^7.0.0",
     "@capacitor/app": "^7.0.0",
     "@capacitor/cli": "^7.0.0",
@@ -53,21 +55,22 @@
     "@poppanator/sveltekit-svg": "^4.2.1",
     "@sentry/browser": "^8.35.0",
     "@sveltejs/adapter-static": "^3.0.4",
+    "@tiptap/core": "^2.12.0",
     "@types/qrcode": "^1.5.5",
     "@vite-pwa/assets-generator": "^0.2.6",
     "@vite-pwa/sveltekit": "^0.6.6",
-    "@welshman/app": "^0.2.4",
-    "@welshman/content": "^0.2.1",
-    "@welshman/dvm": "^0.2.0",
-    "@welshman/editor": "^0.2.1",
-    "@welshman/feeds": "^0.2.2",
-    "@welshman/lib": "^0.2.2",
-    "@welshman/net": "^0.2.3",
-    "@welshman/relay": "^0.2.0",
-    "@welshman/router": "^0.2.0",
-    "@welshman/signer": "^0.2.3",
-    "@welshman/store": "^0.2.0",
-    "@welshman/util": "^0.2.2",
+    "@welshman/app": "^0.3.0",
+    "@welshman/content": "^0.3.0",
+    "@welshman/dvm": "^0.3.0",
+    "@welshman/editor": "^0.3.0",
+    "@welshman/feeds": "^0.3.0",
+    "@welshman/lib": "^0.3.0",
+    "@welshman/net": "^0.3.0",
+    "@welshman/relay": "^0.3.0",
+    "@welshman/router": "^0.3.0",
+    "@welshman/signer": "^0.3.0",
+    "@welshman/store": "^0.3.0",
+    "@welshman/util": "^0.3.0",
     "daisyui": "^4.12.10",
     "date-picker-svelte": "^2.13.0",
     "dotenv": "^16.4.5",
@@ -84,11 +87,13 @@
     "throttle-debounce": "^5.0.2",
     "tippy.js": "^6.3.7"
   },
-  "ignoredBuiltDependencies": [
-    "@sentry/cli",
-    "esbuild"
-  ],
-  "onlyBuiltDependencies": [
-    "sharp"
-  ]
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "@sentry/cli",
+      "esbuild"
+    ],
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
+  }
 }

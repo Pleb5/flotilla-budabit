@@ -1,5 +1,6 @@
 <script lang="ts">
   import "@src/app.css"
+  import "@capacitor-community/safe-area"
   import {onMount} from "svelte"
   import * as nip19 from "nostr-tools/nip19"
   import {get, derived} from "svelte/store"
@@ -51,9 +52,15 @@
   import {setupTracking} from "@app/tracking"
   import {setupAnalytics} from "@app/analytics"
   import {nsecDecode} from "@lib/util"
-  import {theme} from "@app/theme"
-  import {INDEXER_RELAYS, userMembership, ensureUnwrapped, canDecrypt} from "@app/state"
+  import {
+    INDEXER_RELAYS,
+    userMembership,
+    userSettingValues,
+    ensureUnwrapped,
+    canDecrypt,
+  } from "@app/state"
   import {loadUserData, listenForNotifications} from "@app/requests"
+  import {theme} from "@app/theme"
   import * as commands from "@app/commands"
   import * as requests from "@app/requests"
   import * as notifications from "@app/notifications"
@@ -120,6 +127,17 @@
         goto("/home")
       }
     }
+
+    // Sync theme
+    theme.subscribe($theme => {
+      document.body.setAttribute("data-theme", $theme)
+    })
+
+    // Sync font size
+    userSettingValues.subscribe($userSettingValues => {
+      // @ts-ignore
+      document.documentElement.style["font-size"] = `${$userSettingValues.font_size}rem`
+    })
 
     if (!db) {
       setupTracking()
@@ -228,9 +246,9 @@
 </svelte:head>
 
 {#await ready}
-  <div data-theme={$theme}></div>
+  <div></div>
 {:then}
-  <div data-theme={$theme}>
+  <div>
     <AppContainer>
       {@render children()}
     </AppContainer>

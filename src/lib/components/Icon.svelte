@@ -44,6 +44,7 @@
   import Hashtag from "@assets/icons/Hashtag.svg?dataurl"
   import HamburgerMenu from "@assets/icons/Hamburger Menu.svg?dataurl"
   import HandPills from "@assets/icons/Hand Pills.svg?dataurl"
+  import Heart from "@assets/icons/Heart.svg?dataurl"
   import HomeSmile from "@assets/icons/Home Smile.svg?dataurl"
   import Inbox from "@assets/icons/Inbox.svg?dataurl"
   import InfoCircle from "@assets/icons/Info Circle.svg?dataurl"
@@ -61,6 +62,7 @@
   import MapPoint from "@assets/icons/Map Point.svg?dataurl"
   import MenuDots from "@assets/icons/Menu Dots.svg?dataurl"
   import MenuDotsCircle from "@assets/icons/Menu Dots Circle.svg?dataurl"
+  import Moon from "@assets/icons/Moon.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/Notes Minimalistic.svg?dataurl"
   import Pallete2 from "@assets/icons/Pallete 2.svg?dataurl"
   import Paperclip from "@assets/icons/Paperclip.svg?dataurl"
@@ -74,6 +76,7 @@
   import SettingsMinimalistic from "@assets/icons/Settings Minimalistic.svg?dataurl"
   import Station from "@assets/icons/Station.svg?dataurl"
   import TagHorizontal from "@assets/icons/Tag Horizontal.svg?dataurl"
+  import Ticket from "@assets/icons/Ticket.svg?dataurl"
   import ShareCircle from "@assets/icons/Share Circle.svg?dataurl"
   import ShopMinimalistic from "@assets/icons/Shop Minimalistic.svg?dataurl"
   import SmileCircle from "@assets/icons/Smile Circle.svg?dataurl"
@@ -138,6 +141,7 @@
     hashtag: Hashtag,
     "hamburger-menu": HamburgerMenu,
     "hand-pills": HandPills,
+    heart: Heart,
     "home-smile": HomeSmile,
     inbox: Inbox,
     "info-circle": InfoCircle,
@@ -155,6 +159,7 @@
     "map-point": MapPoint,
     "menu-dots": MenuDots,
     "menu-dots-circle": MenuDotsCircle,
+    moon: Moon,
     "notes-minimalistic": NotesMinimalistic,
     "pallete-2": Pallete2,
     paperclip: Paperclip,
@@ -171,6 +176,7 @@
     "settings-minimalistic": SettingsMinimalistic,
     station: Station,
     "tag-horizontal": TagHorizontal,
+    ticket: Ticket,
     "trash-bin-2": TrashBin2,
     "ufo-3": UFO3,
     "square-share-line": SquareShareLine,

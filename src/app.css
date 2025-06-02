@@ -47,6 +47,14 @@
 
 :root {
   font-family: Lato;
+  --sait: env(safe-area-inset-top);
+  --saib: env(safe-area-inset-bottom);
+  --sail: env(safe-area-inset-left);
+  --sair: env(safe-area-inset-right);
+}
+
+[data-theme] {
+  @apply bg-base-300;
   --base-100: oklch(var(--b1));
   --base-200: oklch(var(--b2));
   --base-300: oklch(var(--b3));
@@ -55,16 +63,6 @@
   --primary-content: oklch(var(--pc));
   --secondary: oklch(var(--s));
   --secondary-content: oklch(var(--sc));
-  --sait: env(safe-area-inset-top);
-  --saib: env(safe-area-inset-bottom);
-  --sail: env(safe-area-inset-left);
-  --sair: env(safe-area-inset-right);
-}
-
-:root,
-body,
-html {
-  @apply bg-base-300;
 }
 
 /* safe area insets */
@@ -294,6 +292,14 @@ html {
   --tiptap-active-fg: var(--base-content);
 }
 
+.tiptap-suggestions__item {
+  @apply border-l-2 border-solid border-base-100;
+}
+
+.tiptap-suggestions__selected {
+  @apply border-primary;
+}
+
 .tiptap {
   @apply max-h-[350px] overflow-y-auto p-2 px-4;
 }
@@ -381,6 +387,10 @@ progress[value]::-webkit-progress-value {
 
 .cw {
   @apply w-full md:left-[18.5rem] md:w-[calc(100%-18.5rem-var(--sair))];
+}
+
+.cw-full {
+  @apply w-full md:left-[4rem] md:w-[calc(100%-4rem-var(--sair))];
 }
 
 .cb {

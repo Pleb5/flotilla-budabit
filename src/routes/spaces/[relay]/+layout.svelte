@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type {Snippet} from "svelte"
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {ago, WEEK} from "@welshman/lib"
@@ -16,11 +17,11 @@
   import {decodeRelay, userRoomsByUrl} from "@app/state"
   import {pullConservatively} from "@app/requests"
   import {notifications} from "@app/notifications"
-    import { FREELANCE_JOB, GIT_REPO } from "@src/lib/util"
-  interface Props {
-    children?: import("svelte").Snippet
-  }
+  import { FREELANCE_JOB, GIT_REPO } from "@src/lib/util"
 
+  type Props = {
+    children?: Snippet
+  }
   const {children}: Props = $props()
 
   const url = decodeRelay($page.params.relay)

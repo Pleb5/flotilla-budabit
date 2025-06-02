@@ -276,9 +276,12 @@ export const checkRelayAccess = async (url: string, claim = "") => {
 
     // If it's a strict NIP 29 relay don't worry about requesting access
     // TODO: remove this if relay29 ever gets less strict
-    if (message !== "missing group (`h`) tag") {
-      return message
-    }
+    if (message === "missing group (`h`) tag") return
+
+    // Ignore messages about the relay ignoring ours
+    if (error?.startsWith("mute: ")) return
+
+    return message
   }
 }
 
@@ -377,10 +380,12 @@ export const publishReport = ({
 export type ReactionParams = {
   event: TrustedEvent
   content: string
+  tags?: string[][]
 }
 
-export const makeReaction = ({event, content}: ReactionParams) => {
-  const tags = tagEventForReaction(event)
+export const makeReaction = ({content, event, tags: paramTags = []}: ReactionParams) => {
+  const tags = [...paramTags, ...tagEventForReaction(event)]
+
   const groupTag = getTag("h", event.tags)
 
   if (groupTag) {

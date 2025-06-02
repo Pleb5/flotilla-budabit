@@ -1,5 +1,6 @@
 <script lang="ts">
-  import {nth} from "@welshman/lib"
+  import {stopPropagation} from "svelte/legacy"
+  import {nth, noop} from "@welshman/lib"
   import {PublishStatus} from "@welshman/net"
   import {
     MergedThunk,
@@ -60,9 +61,11 @@
   {@const url = failedUrls[0]}
   {@const status = $thunk.status[url]}
   {@const message = $thunk.details[url]}
-  <div class="flex justify-end px-1 text-xs {restProps.class}">
+  <button
+    class="flex w-full justify-end px-1 text-xs {restProps.class}"
+    onclick={stopPropagation(noop)}>
     <Tippy
-      class="flex items-center {restProps.class}"
+      class="flex items-center"
       component={ThunkStatusDetail}
       props={{url, message, status, retry}}
       params={{interactive: true}}>
@@ -73,10 +76,10 @@
         </span>
       {/snippet}
     </Tippy>
-  </div>
+  </button>
 {:else if showPending}
-  <div class="flex justify-end px-1 text-xs {restProps.class}">
-    <span class="flex items-center gap-1 {restProps.class}">
+  <div class="flex w-full justify-end px-1 text-xs {restProps.class}">
+    <span class="flex items-center gap-1">
       <span class="loading loading-spinner mx-1 h-3 w-3 translate-y-px"></span>
       <span class="opacity-50">Sending...</span>
       <button
@@ -84,7 +87,7 @@
         class="underline transition-all"
         class:link={canCancel}
         class:opacity-25={!canCancel}
-        onclick={abort}>
+        onclick={stopPropagation(abort)}>
         Cancel
       </button>
     </span>

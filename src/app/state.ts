@@ -324,6 +324,7 @@ export type Settings = {
     report_usage: boolean
     report_errors: boolean
     send_delay: number
+    font_size: number
   }
 }
 
@@ -333,6 +334,7 @@ export const defaultSettings = {
   report_usage: true,
   report_errors: true,
   send_delay: 3000,
+  font_size: 1,
 }
 
 export const settings = deriveEventsMapped<Settings>(repository, {

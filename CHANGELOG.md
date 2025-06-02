@@ -1,5 +1,25 @@
 # Changelog
 
+# 1.0.5
+
+* Add better theming support
+* Improve forms for entering invite codes
+
+# 1.0.4
+
+* Fix thunk status click handler
+* Remove duplicate dependencies
+* Improve navigation on white-labeled instances
+* Add setting for font size
+
+# 1.0.3
+
+* Add light theme
+* Use correct alerts server
+* Ignore relay errors for claims
+* Fix inline code blocks
+* Add custom emoji parsing and display
+
 # 1.0.2
 
 * Fix add relay button
