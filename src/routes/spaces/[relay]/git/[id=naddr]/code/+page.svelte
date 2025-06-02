@@ -2,18 +2,13 @@
   import {getContext} from "svelte"
   import {FileView} from "@nostr-git/ui"
   import {GitBranch} from "@lucide/svelte"
-  import {
-    listRepoFilesFromEvent,
-    type FileEntry,
-    listBranchesFromEvent,
-  } from "@nostr-git/core"
+  import {listRepoFilesFromEvent, type FileEntry, listBranchesFromEvent} from "@nostr-git/core"
   import {
     parseRepoAnnouncementEvent,
     parseRepoStateEvent,
     type RepoAnnouncementEvent,
     type RepoStateEvent,
     type TrustedEvent,
-    type RepoEvent,
   } from "@nostr-git/shared-types"
   import {page} from "$app/stores"
   import type {Readable} from "svelte/store"
@@ -21,6 +16,7 @@
   import Button from "@src/lib/components/Button.svelte"
   import {fly} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
+    import Spinner from "@src/lib/components/Spinner.svelte"
 
   const {id, relay} = $page.params
   const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
@@ -35,7 +31,7 @@
   // UI state
   let loading = $state(true)
   let error: string | null = $state(null)
-  let files: FileEntry[] = $state([])
+  let files: Promise<FileEntry[]> = $state(Promise.resolve([]))
   let fallbackToBranches = $state(false)
 
   const repoState = repo.state()
@@ -59,28 +55,18 @@
     }
   })
 
-let selectedBranchValue = $state<string | undefined>(undefined)
+  let selectedBranchValue = $state<string | undefined>(undefined)
 
   $effect(async () => {
     if (selectedBranch) {
       selectedBranchValue = await selectedBranch
-      files = await listRepoFilesFromEvent({
-        repoEvent: $repoEvent as RepoEvent,
-        branch: selectedBranchValue,
+      files = listRepoFilesFromEvent({
+        repoEvent: $repoEvent as RepoAnnouncementEvent,
+        branch: selectedBranchValue?.split("/").pop() || "master",
       })
-    }
-  })
-
-  $effect(async () => {
-    if ($repoState) {
       loading = false
-      files = await listRepoFilesFromEvent({
-        repoEvent: $repoEvent as RepoEvent,
-        branch: await selectedBranch,
-      })
     } else {
-      console.log($repoEvent)
-      branches = await listBranchesFromEvent({repoEvent: $repoEvent})
+      branches = listBranchesFromEvent({repoEvent: $repoEvent})
       loading = false
     }
   })
@@ -99,6 +85,7 @@ let selectedBranchValue = $state<string | undefined>(undefined)
 <div class="rounded-lg border border-border bg-card">
   <div class="p-4">
     {#if loading}
+
       <div class="text-muted-foreground">Loading repository files...</div>
     {:else if error}
       <div class="text-red-500">{error}</div>
@@ -112,11 +99,13 @@ let selectedBranchValue = $state<string | undefined>(undefined)
           class="rounded border border-border bg-secondary px-2 py-1"
           bind:value={selectedBranchValue}
           disabled>
-          {#each branches as branch}
-            <option value={branch.name}>
-              {branch.name}
-            </option>
-          {/each}
+          {#await branches then branches}
+            {#each branches as branch}
+              <option value={branch.name}>
+                {branch.name}
+              </option>
+            {/each}
+          {/await}
         </select>
       </div>
       <div class="border-t border-border pt-4">
@@ -133,28 +122,35 @@ let selectedBranchValue = $state<string | undefined>(undefined)
         </Button>
         {#if showMenu}
           <Popover hideOnClick onClose={toggleMenu}>
-            <ul transition:fly class="menu z-popover mt-2 rounded-box bg-base-100 p-2 shadow-xl">
-              {#each branches as branch}
-                <li>
-                  <Button onclick={() => (selectedBranch = branch.name)}>
-                    <span>{branch.name}</span>
-                  </Button>
-                </li>
-              {/each}
+            <ul
+              transition:fly
+              class="menu z-popover mt-2 flex flex-col rounded-box bg-base-100 p-2 shadow-xl">
+              {#await branches then branches}
+                {#each branches as branch}
+                  <li>
+                    <Button onclick={() => (selectedBranchValue = branch.name)}>
+                      <span>{branch.name}</span>
+                    </Button>
+                  </li>
+                {/each}
+              {/await}
             </ul>
           </Popover>
         {/if}
       </div>
       <div class="border-t border-border pt-4">
-        {#if files.length === 0}
-          <div class="text-muted-foreground">No files found in this branch.</div>
-        {:else}
-          <div class="space-y-2">
-            {#each files as file}
-              <FileView name={file.name} type={file.type} path={file.path} />
-            {/each}
-          </div>
-        {/if}
+        <div class="space-y-2">
+          <Spinner loading={loading}>Loading files...</Spinner>
+          {#await files then files}
+          {#if files.length === 0}
+              <div class="text-muted-foreground">No files found in this branch.</div>
+            {:else}
+              {#each files as file}
+                <FileView name={file.name} type={file.type} path={file.path} />
+              {/each}
+            {/if}
+          {/await}
+        </div>
       </div>
     {/if}
   </div>

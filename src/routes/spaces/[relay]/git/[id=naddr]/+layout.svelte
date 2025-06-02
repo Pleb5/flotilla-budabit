@@ -13,11 +13,16 @@
   import {Address, GIT_ISSUE, GIT_PATCH, type Filter} from "@welshman/util"
   import {load} from "@welshman/net"
   import {nthEq} from "@welshman/lib"
-    import PageBar from "@src/lib/components/PageBar.svelte"
+  import PageBar from "@src/lib/components/PageBar.svelte"
+  import {Buffer} from "buffer"
 
   const {id, relay} = $page.params
 
   let {children} = $props()
+
+  if (typeof window !== "undefined" && !window.Buffer) {
+    (window as any).Buffer = Buffer;
+  }
 
   let eventStore = $state(deriveNaddrEvent(id, Array.isArray(relay) ? relay : [relay]))
 
@@ -65,7 +70,7 @@
   let activeTab: string | undefined = $page.url.pathname.split("/").pop()
   const encodeddRelay = encodeURIComponent(relay)
 
-  $effect(async () => {
+  $effect(() => {
     if ($eventStore) {
       const repoEvent = parseRepoAnnouncementEvent($eventStore as RepoAnnouncementEvent)
       const address = repoEvent.repoId
@@ -74,18 +79,14 @@
       const patchesFilter: Filter = {kinds: [GIT_PATCH], "#a": [address]}
       const [tagId, ...relays] = $eventStore.tags.find(nthEq(0, "relays")) ?? []
 
-      await load({
+      load({
         relays: relays,
         filters: [issuesFilter, patchesFilter, repoStateFilter],
       })
-
-      if ($repoState && $issues && $patches) {
-        console.log("issues", $issues)
-        console.log("patches", $patches)
-      }
     }
   })
 </script>
+
 <PageBar>
   <RepoHeader event={$eventStore as RepoAnnouncementEvent} {activeTab}>
     {#snippet children(activeTab: string)}
@@ -138,7 +139,6 @@
   </RepoHeader>
 </PageBar>
 <PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
-
   {#if $eventStore === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !$eventStore}
