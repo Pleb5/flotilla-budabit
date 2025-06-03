@@ -29,6 +29,7 @@ import {
   REACTION,
   ZAP_RESPONSE,
   DIRECT_MESSAGE,
+  DIRECT_MESSAGE_FILE,
   GROUP_META,
   MESSAGE,
   GROUPS,
@@ -444,7 +445,9 @@ export const {
 
 // Chats
 
-export const chatMessages = deriveEvents(repository, {filters: [{kinds: [DIRECT_MESSAGE]}]})
+export const chatMessages = deriveEvents(repository, {
+  filters: [{kinds: [DIRECT_MESSAGE, DIRECT_MESSAGE_FILE]}],
+})
 
 export type Chat = {
   id: string
