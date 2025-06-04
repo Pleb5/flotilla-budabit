@@ -45,7 +45,23 @@
 
   const addRoom = () => pushModal(RoomCreate, {url})
 
+  let relayAdminEvents: TrustedEvent[] = $state([])
+  let roomSearchQuery = $state("")
+
   const pubkey = $derived($relay?.profile?.pubkey)
+
+  const filteredRooms = $derived(() => {
+    if (!roomSearchQuery) return [...$userRooms, ...$otherRooms]
+
+    const query = roomSearchQuery.toLowerCase()
+    const allRooms = [...$userRooms, ...$otherRooms]
+
+    return allRooms.filter(room => {
+      const channel = $channelsById.get(makeChannelId(url, room))
+      const roomName = channel?.name || room
+      return roomName.toLowerCase().includes(query)
+    })
+  })
 </script>
 
 <div class="relative flex flex-col">
