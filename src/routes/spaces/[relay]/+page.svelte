@@ -1,17 +1,13 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import type {TrustedEvent} from "@welshman/util"
   import {displayRelayUrl} from "@welshman/util"
   import {deriveRelay} from "@welshman/app"
   import {fade} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Divider from "@lib/components/Divider.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
-  import PageContent from "@lib/components/PageContent.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
-  import ProfileFeed from "@app/components/ProfileFeed.svelte"
   import ChannelName from "@app/components/ChannelName.svelte"
   import SpaceJoin from "@app/components/SpaceJoin.svelte"
   import RelayName from "@app/components/RelayName.svelte"
@@ -49,8 +45,6 @@
   const joinSpace = () => pushModal(SpaceJoin, {url})
 
   const addRoom = () => pushModal(RoomCreate, {url})
-
-  let relayAdminEvents: TrustedEvent[] = $state([])
 
   const pubkey = $derived($relay?.profile?.pubkey)
 </script>
@@ -218,11 +212,5 @@
         Create
       </Button>
     </div>
-    {#if pubkey}
-    <Divider>Recent posts from the relay admin</Divider>
-      <div class="hidden flex-col gap-2" class:!flex={relayAdminEvents.length > 0}>
-          <ProfileFeed hideLoading {url} {pubkey} bind:events={relayAdminEvents} />
-      </div>
-    {/if}
   </div>
 </div>
