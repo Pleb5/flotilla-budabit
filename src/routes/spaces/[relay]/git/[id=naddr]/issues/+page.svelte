@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Button, IssueCard} from "@nostr-git/ui"
+  import {Button, IssueCard, NewIssueForm} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, COMMENT, GIT_ISSUE, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
@@ -10,6 +10,7 @@
   import type {Readable} from "svelte/store"
   import {type RepoStateEvent} from "@nostr-git/shared-types"
   import {fly} from "@lib/transition"
+  import {pushModal} from "@src/app/modal"
 
   const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
 
@@ -48,6 +49,15 @@
       },
     })
   })
+
+  const onNewIssue = () => {
+    pushModal(NewIssueForm, {
+      selectedRepos: [],
+      onClose: () => {},
+    })
+  }
+
+
 </script>
 
 <div bind:this={element}>
@@ -63,7 +73,7 @@
         Filter
       </Button>
 
-      <Button size="sm" class="gap-2 bg-git hover:bg-git-hover">
+      <Button size="sm" class="gap-2 bg-git hover:bg-git-hover" onclick={onNewIssue}>
         <Plus class="h-4 w-4" />
         New Issue
       </Button>

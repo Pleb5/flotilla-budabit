@@ -16,7 +16,8 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
   } from "@welshman/util"
-    import { fly } from "@lib/transition"
+  import {fly} from "@lib/transition"
+  import {load} from "@welshman/net"
 
   const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
 
@@ -27,21 +28,32 @@
     patches: () => Readable<TrustedEvent[]>
   }>("repo")
 
-  const patches = $derived(repo.patches())
+  const patches = $state(repo.patches())
+
+  const statuses = $derived.by(() => {
+    if ($patches) {
+      const filters = $patches.map(patch => {
+        return {
+          kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+          "#e": [patch.id],
+        }
+      })
+      const [tagId, ...relays] = $repoEvent.tags.find(nthEq(0, "relays")) || []
+      load({relays: relays, filters})
+      return deriveEvents(repository, {filters})
+    }
+  })
 
   const patchList = $derived.by(() => {
     if ($patches) {
       return $patches.map(patch => {
-        const statuses = deriveEvents(repository, {
-          filters: [
-            {
-              kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
-              "#e": [patch.id],
-            },
-          ],
-        })
         const profile = deriveProfile(patch.pubkey)
-
+        let status = $statuses?.filter(s => {
+          let [tagId, eventId] = s.tags.find(nthEq(0, "e")) || []
+          return eventId === patch.id
+        }).sort(
+          (a: TrustedEvent, b: TrustedEvent) => b.created_at - a.created_at,
+        )[0]
         return {
           ...patch,
           status,
@@ -80,8 +92,7 @@
 </script>
 
 <div bind:this={element}>
-  <div
-    class="z-10 sticky top-0 mb-4 flex items-center justify-between py-4 backdrop-blur">
+  <div class="z-10 sticky top-0 mb-4 flex items-center justify-between py-4 backdrop-blur">
     <div>
       <h2 class="text-xl font-semibold">Patches</h2>
       <p class="text-sm text-muted-foreground">Review and merge code changes</p>
@@ -119,7 +130,7 @@
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each patchList! as patch}
         <div in:fly>
-          <PatchCard event={patch} status={patch.status} owner={patch.profile} />
+          <PatchCard event={patch} status={patch.status} author={patch.profile} />
         </div>
       {/each}
     </div>
