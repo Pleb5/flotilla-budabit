@@ -154,18 +154,18 @@
           {/if}
         </div>
       </Link>
-      <Link href={jobsPath} class="btn btn-success">
-        <div class="relative flex items-center gap-2">
-          <Icon icon="jobs" />
-          Jobs
-          {#if $notifications.has(jobsPath)}
-            <div
-              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary-content"
-              transition:fade>
-            </div>
-          {/if}
-        </div>
-      </Link>
+      <!-- <Link href={jobsPath} class="btn btn-success"> -->
+      <!--   <div class="relative flex items-center gap-2"> -->
+      <!--     <Icon icon="jobs" /> -->
+      <!--     Jobs -->
+      <!--     {#if $notifications.has(jobsPath)} -->
+      <!--       <div -->
+      <!--         class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary-content" -->
+      <!--         transition:fade> -->
+      <!--       </div> -->
+      <!--     {/if} -->
+      <!--   </div> -->
+      <!-- </Link> -->
       <Link href={gitPath} class="btn btn-info">
         <div class="relative flex items-center gap-2">
           <Icon icon="git" />

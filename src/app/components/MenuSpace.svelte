@@ -127,9 +127,9 @@
         notification={$notifications.has(calendarPath)}>
         <Icon icon="calendar-minimalistic" /> Calendar
       </SecondaryNavItem>
-      <SecondaryNavItem href={jobsPath} notification={$notifications.has(jobsPath)}>
-        <Icon icon="jobs" /> Jobs
-      </SecondaryNavItem>
+      <!-- <SecondaryNavItem href={jobsPath} notification={$notifications.has(jobsPath)}> -->
+      <!--   <Icon icon="jobs" /> Jobs -->
+      <!-- </SecondaryNavItem> -->
       <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
         <Icon icon="git" /> Git
       </SecondaryNavItem>
