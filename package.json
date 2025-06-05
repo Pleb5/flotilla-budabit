@@ -85,7 +85,8 @@
     "qrcode": "^1.5.4",
     "sharp": "^0.34.1",
     "throttle-debounce": "^5.0.2",
-    "tippy.js": "^6.3.7"
+    "tippy.js": "^6.3.7",
+    "buffer": "^6.0.3"
   },
   "pnpm": {
     "ignoredBuiltDependencies": [
