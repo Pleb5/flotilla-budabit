@@ -1,7 +1,7 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {displayRelayUrl} from "@welshman/util"
-  import {deriveRelay} from "@welshman/app"
+  import {displayRelayUrl, MESSAGE, THREAD} from "@welshman/util"
+  import {deriveRelay, pubkey} from "@welshman/app"
   import {AuthStatus, SocketStatus} from "@welshman/net"
   import {fade} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
@@ -10,6 +10,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import StatusIndicator from "@lib/components/StatusIndicator.svelte"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ProfileLatest from "@app/components/ProfileLatest.svelte"
   import ChannelName from "@app/components/ChannelName.svelte"
@@ -26,6 +27,7 @@
     deriveOtherRooms,
     userRoomsByUrl,
     deriveSocket,
+    deriveEventsForUrl,
   } from "@app/state"
   import {
     makeChatPath,
@@ -45,6 +47,7 @@
   const threadsPath = makeThreadPath(url)
   const calendarPath = makeCalendarPath(url)
   const gitPath = makeGitPath(url)
+  const mentions = deriveEventsForUrl(url, [{'#p': [$pubkey!], kinds: [MESSAGE, THREAD]}])
 
   const joinSpace = () => pushModal(SpaceJoin, {url})
 
@@ -52,7 +55,7 @@
 
   let roomSearchQuery = $state("")
 
-  const pubkey = $derived($relay?.profile?.pubkey)
+  const owner = $derived($relay?.profile?.pubkey)
 
   const filteredRooms = $derived(() => {
     if (!roomSearchQuery) return [...$userRooms, ...$otherRooms]
@@ -224,17 +227,192 @@
                 <Icon icon="hashtag" />
               {/if}
               <ChannelName {url} {room} />
+    </div>
+    <RelayDescription {url} />
+  </div>
+  <div class="card2 bg-alt md:hidden">
+    <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+      <Icon icon="compass-big" />
+      Quick Links
+    </h3>
+    <div class="flex flex-col gap-2">
+      <Link href={threadsPath} class="btn btn-primary w-full justify-start">
+        <div class="relative flex items-center gap-2">
+          <Icon icon="notes-minimalistic" />
+          Threads
+          {#if $notifications.has(threadsPath)}
+            <div
+              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary-content"
+              transition:fade>
+            </div>
+          {/if}
+        </div>
+      </Link>
+      <Link href={calendarPath} class="btn btn-secondary w-full justify-start">
+        <div class="relative flex items-center gap-2">
+          <Icon icon="calendar-minimalistic" />
+          Calendar
+          {#if $notifications.has(calendarPath)}
+            <div
+              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary-content"
+              transition:fade>
+            </div>
+          {/if}
+        </div>
+      </Link>
+      {#if $userRooms.length + $otherRooms.length > 10}
+        <label class="input input-sm input-bordered flex flex-grow items-center gap-2">
+          <Icon icon="magnifer" size={4} />
+          <input
+            bind:value={roomSearchQuery}
+            class="grow"
+            type="text"
+            placeholder="Search rooms..." />
+        </label>
+      {/if}
+      {#each filteredRooms() as room (room)}
+        {@const roomPath = makeRoomPath(url, room)}
+        {@const channel = $channelsById.get(makeChannelId(url, room))}
+        <Link href={roomPath} class="btn btn-neutral btn-sm relative w-full justify-start">
+          <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap">
+            {#if channel?.closed || channel?.private}
+              <Icon icon="lock" size={4} />
+            {:else}
+              <Icon icon="hashtag" />
+            {/if}
+            <ChannelName {url} {room} />
+          </div>
+          {#if $notifications.has(roomPath)}
+            <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" transition:fade>
+            </div>
+          {/if}
+        </Link>
+      {/each}
+      {#if hasNip29($relay)}
+        <Button onclick={addRoom} class="btn btn-neutral btn-sm w-full justify-start">
+          <Icon icon="add-circle" />
+          Create Room
+        </Button>
+      {/if}
+    </div>
+  </div>
+  <div class="grid grid-cols-1 gap-2 lg:grid-cols-2">
+    <div class="flex flex-col gap-2">
+      <div class="card2 bg-alt">
+        <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+          <Icon icon="chat-round" />
+          Recent Activity
+        </h3>
+        <div class="flex flex-col gap-3">
+          {#if $userRooms.length > 0}
+            {#each $userRooms.slice(0, 3) as room (room)}
+              {@const channel = $channelsById.get(makeChannelId(url, room))}
+              <div class="flex items-center gap-3 rounded bg-base-100">
+                <div class="flex items-center gap-2">
+                  {#if channel?.closed || channel?.private}
+                    <Icon icon="lock" size={4} />
+                  {:else}
+                    <Icon icon="hashtag" />
+                  {/if}
+                  <span class="font-medium">
+                    <ChannelName {url} {room} />
+                  </span>
+                </div>
+                <span class="ml-auto text-sm opacity-60">Active conversations</span>
+              </div>
+            {/each}
+          {:else}
+            <p class="text-sm opacity-60">No recent activity</p>
+          {/if}
+        </div>
+      </div>
+    </div>
+    <div class="flex flex-col gap-2">
+      <div class="card2 bg-alt">
+        <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+          <Icon icon="server" />
+          Relay Status
+        </h3>
+        <div class="flex flex-col gap-3">
+          {#if $socket.status === SocketStatus.Open}
+            {#if $socket.auth.status === AuthStatus.None}
+              <StatusIndicator class="bg-green-500">Connected</StatusIndicator>
+            {:else if $socket.auth.status === AuthStatus.Requested}
+              <StatusIndicator class="bg-yellow-500">Authenticating</StatusIndicator>
+            {:else if $socket.auth.status === AuthStatus.PendingSignature}
+              <StatusIndicator class="bg-yellow-500">Authenticating</StatusIndicator>
+            {:else if $socket.auth.status === AuthStatus.DeniedSignature}
+              <StatusIndicator class="bg-red-500">Failed to Authenticate</StatusIndicator>
+            {:else if $socket.auth.status === AuthStatus.PendingResponse}
+              <StatusIndicator class="bg-yellow-500">Authenticating</StatusIndicator>
+            {:else if $socket.auth.status === AuthStatus.Forbidden}
+              <StatusIndicator class="bg-red-500">Access Denied</StatusIndicator>
+            {:else if $socket.auth.status === AuthStatus.Ok}
+              <StatusIndicator class="bg-green-500">Connected</StatusIndicator>
+            {/if}
+          {:else if $socket.status === SocketStatus.Opening}
+            <StatusIndicator class="bg-yellow-500">Connecting</StatusIndicator>
+          {:else if $socket.status === SocketStatus.Closing}
+            <StatusIndicator class="bg-gray-500">Not Connected</StatusIndicator>
+          {:else if $socket.status === SocketStatus.Closed}
+            <StatusIndicator class="bg-gray-500">Not Connected</StatusIndicator>
+          {:else if $socket.status === SocketStatus.Error}
+            <StatusIndicator class="bg-red-500">Failed to Connect</StatusIndicator>
+          {/if}
+          {#if $relay?.profile}
+            {@const {software, version, supported_nips, limitation} = $relay.profile}
+            <div class="flex flex-wrap gap-1">
+              {#if owner}
+                <div class="badge badge-neutral">
+                  <span class="ellipsize">Administrator: <ProfileLink unstyled pubkey={owner} /></span>
+                </div>
+              {/if}
+              {#if $relay?.profile?.contact}
+                <div class="badge badge-neutral">
+                  <span class="ellipsize">Contact: {$relay.profile.contact}</span>
+                </div>
+              {/if}
+              {#if software}
+                <div class="badge badge-neutral">
+                  <span class="ellipsize">Software: {software}</span>
+                </div>
+              {/if}
+              {#if version}
+                <div class="badge badge-neutral">
+                  <span class="ellipsize">Version: {version}</span>
+                </div>
+              {/if}
+              {#if Array.isArray(supported_nips)}
+                <p class="badge badge-neutral">
+                  <span class="ellipsize">Supported NIPs: {supported_nips.join(", ")}</span>
+                </p>
+              {/if}
+              {#if limitation?.auth_required}
+                <p class="badge badge-warning">
+                  <span class="ellipsize">Auth Required</span>
+                </p>
+              {/if}
+              {#if limitation?.payment_required}
+                <p class="badge badge-warning">
+                  <span class="ellipsize">Payment Required</span>
+                </p>
+              {/if}
+              {#if limitation?.min_pow_difficulty}
+                <p class="badge badge-warning">
+                  <span class="ellipsize">Min PoW: {limitation?.min_pow_difficulty}</span>
+                </p>
+              {/if}
             </div>
           {/if}
         </div>
       </div>
-      {#if pubkey}
+      {#if owner}
         <div class="card2 bg-alt">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <Icon icon="user-rounded" />
             Latest Updates
           </h3>
-          <ProfileLatest {url} {pubkey}>
+          <ProfileLatest {url} pubkey={owner}>
             {#snippet fallback()}
               <p class="text-sm opacity-60">No recent posts from the relay admin</p>
             {/snippet}
