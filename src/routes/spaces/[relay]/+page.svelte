@@ -11,6 +11,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import StatusIndicator from "@lib/components/StatusIndicator.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import ProfileLatest from "@app/components/ProfileLatest.svelte"
   import ChannelName from "@app/components/ChannelName.svelte"
   import SpaceJoin from "@app/components/SpaceJoin.svelte"
   import RelayName from "@app/components/RelayName.svelte"
@@ -49,7 +50,6 @@
 
   const addRoom = () => pushModal(RoomCreate, {url})
 
-  let relayAdminEvents: TrustedEvent[] = $state([])
   let roomSearchQuery = $state("")
 
   const pubkey = $derived($relay?.profile?.pubkey)
@@ -225,13 +225,22 @@
               {/if}
               <ChannelName {url} {room} />
             </div>
-          </Link>
-        {/each}
-        <Button onclick={addRoom} class="btn btn-neutral whitespace-nowrap">
-          <Icon icon="add-circle" />
-          Create
-        </Button>
+          {/if}
+        </div>
       </div>
+      {#if pubkey}
+        <div class="card2 bg-alt">
+          <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+            <Icon icon="user-rounded" />
+            Latest Updates
+          </h3>
+          <ProfileLatest {url} {pubkey}>
+            {#snippet fallback()}
+              <p class="text-sm opacity-60">No recent posts from the relay admin</p>
+            {/snippet}
+          </ProfileLatest>
+        </div>
+      {/if}
     </div>
   </PageContent>
 </div>
