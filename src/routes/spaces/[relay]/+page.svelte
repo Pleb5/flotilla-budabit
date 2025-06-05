@@ -2,12 +2,14 @@
   import {page} from "$app/stores"
   import {displayRelayUrl} from "@welshman/util"
   import {deriveRelay} from "@welshman/app"
+  import {AuthStatus, SocketStatus} from "@welshman/net"
   import {fade} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import StatusIndicator from "@lib/components/StatusIndicator.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ChannelName from "@app/components/ChannelName.svelte"
   import SpaceJoin from "@app/components/SpaceJoin.svelte"
@@ -22,6 +24,7 @@
     deriveUserRooms,
     deriveOtherRooms,
     userRoomsByUrl,
+    deriveSocket,
   } from "@app/state"
   import {
     makeChatPath,
@@ -35,6 +38,7 @@
 
   const url = decodeRelay($page.params.relay)
   const relay = deriveRelay(url)
+  const socket = deriveSocket(url)
   const userRooms = deriveUserRooms(url)
   const otherRooms = deriveOtherRooms(url)
   const threadsPath = makeThreadPath(url)

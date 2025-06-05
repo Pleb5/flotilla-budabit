@@ -2,6 +2,8 @@ import twColors from "tailwindcss/colors"
 import {get, derived, writable} from "svelte/store"
 import {nip19} from "nostr-tools"
 import {
+  on,
+  call,
   remove,
   uniqBy,
   sortBy,
@@ -19,8 +21,9 @@ import {
   groupBy,
   always,
 } from "@welshman/lib"
-import {load} from "@welshman/net"
-import {collection} from "@welshman/store"
+import type {Socket} from "@welshman/net"
+import {Pool, load, AuthStateEvent, SocketEvent} from "@welshman/net"
+import {collection, custom} from "@welshman/store"
 import {
   getIdFilters,
   WRAP,
@@ -715,3 +718,19 @@ export const displayReaction = (content: string) => {
 }
 
 export const shouldReloadRepos = writable(false)
+
+export const deriveSocket = (url: string) =>
+  custom<Socket>(set => {
+    const pool = Pool.get()
+    const socket = pool.get(url)
+
+    set(socket)
+
+    const subs = [
+      on(socket, SocketEvent.Error, () => set(socket)),
+      on(socket, SocketEvent.Status, () => set(socket)),
+      on(socket.auth, AuthStateEvent.Status, () => set(socket)),
+    ]
+
+    return () => subs.forEach(call)
+  })
