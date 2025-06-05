@@ -436,7 +436,7 @@ export const memberships = deriveEventsMapped<PublishedList>(repository, {
 })
 
 export const {
-  indexStore: membershipByPubkey,
+  indexStore: membershipsByPubkey,
   deriveItem: deriveMembership,
   loadItem: loadMembership,
 } = collection({
@@ -624,12 +624,12 @@ export const userSettingValues = withGetter(
 export const getSetting = <T>(key: keyof Settings["values"]) => userSettingValues.get()[key] as T
 
 export const userMembership = withGetter(
-  derived([pubkey, membershipByPubkey], ([$pubkey, $membershipByPubkey]) => {
+  derived([pubkey, membershipsByPubkey], ([$pubkey, $membershipsByPubkey]) => {
     if (!$pubkey) return undefined
 
     loadMembership($pubkey)
 
-    return $membershipByPubkey.get($pubkey)
+    return $membershipsByPubkey.get($pubkey)
   }),
 )
 
