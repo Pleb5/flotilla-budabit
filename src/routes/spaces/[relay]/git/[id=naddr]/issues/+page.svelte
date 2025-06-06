@@ -3,14 +3,15 @@
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, COMMENT, GIT_ISSUE, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
-  import {nthEq} from "@welshman/lib"
-  import {deriveProfile, repository} from "@welshman/app"
+  import {deriveProfile, relays, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
   import type {Readable} from "svelte/store"
   import {type RepoStateEvent} from "@nostr-git/shared-types"
   import {fly} from "@lib/transition"
   import {pushModal} from "@src/app/modal"
+  import {load} from "@welshman/net"
+  import {deriveEvents} from "@welshman/store"
 
   const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
 
@@ -18,10 +19,18 @@
     repo: Readable<TrustedEvent>
     state: () => Readable<RepoStateEvent>
     issues: () => Readable<TrustedEvent[]>
+    relays: () => string[]
   }>("repo")
 
-  let issues = repo.issues()
-  const comments: TrustedEvent[] = $state([])
+  const issues = repo.issues()
+
+  const comments = $derived.by(() => {
+    if ($issues) {
+      const filters = $issues.map(issue => issue.id)
+      load({relays: repo.relays(), filters: [{kinds: [COMMENT], "#E": filters}]})
+      return deriveEvents(repository, {filters: [{kinds: [COMMENT], "#E": filters}]})
+    }
+  })
 
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
@@ -31,16 +40,14 @@
       loading = false
     }
 
-    const [_, ...relays] = $repoEvent.tags.find(nthEq(0, "relays")) || []
-
     const issueFilter = {
-      kinds: [GIT_ISSUE, COMMENT],
+      kinds: [GIT_ISSUE],
       "#a": [Address.fromEvent($repoEvent).toString()],
     }
 
     const {cleanup} = makeFeed({
       element: element!,
-      relays: relays,
+      relays: repo.relays(),
       feedFilters: [issueFilter],
       subscriptionFilters: [issueFilter],
       initialEvents: $issues,
@@ -52,12 +59,10 @@
 
   const onNewIssue = () => {
     pushModal(NewIssueForm, {
-      selectedRepos: [],
-      onClose: () => {},
+      repoId: $repoEvent.id,
+      repoOwnerPubkey: $repoEvent.pubkey,
     })
   }
-
-
 </script>
 
 <div bind:this={element}>
@@ -99,7 +104,7 @@
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each $issues as issue (issue.id)}
         <div in:fly>
-          <IssueCard event={issue} author={deriveProfile(issue.pubkey)} />
+          <IssueCard event={issue} author={deriveProfile(issue.pubkey)} comments={$comments} />
         </div>
       {/each}
     </div>
