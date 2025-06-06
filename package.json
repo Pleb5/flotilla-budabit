@@ -74,6 +74,7 @@
     "@welshman/signer": "^0.3.0",
     "@welshman/store": "^0.3.0",
     "@welshman/util": "^0.3.0",
+    "compressorjs": "^1.2.1",
     "daisyui": "^4.12.10",
     "date-fns": "^4.1.0",
     "date-picker-svelte": "^2.13.0",
