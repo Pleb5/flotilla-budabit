@@ -5,23 +5,36 @@
   import {type RepoStateEvent, type TrustedEvent} from "@nostr-git/shared-types"
   import {Button} from "@nostr-git/ui"
   import {Avatar, AvatarFallback, AvatarImage, DiffViewer, IssueThread} from "@nostr-git/ui"
-  import {deriveProfile} from "@welshman/app"
+  import {deriveProfile, repository} from "@welshman/app"
   import {getContext} from "svelte"
   import type {Readable} from "svelte/motion"
   import markdownit from "markdown-it"
+  import {deriveEvents} from "@welshman/store"
+  import {load} from "@welshman/net"
+  import {COMMENT, GIT_PATCH} from "@welshman/util"
+    import { nthEq } from "@welshman/lib"
 
   const repo = getContext<{
     repo: Readable<TrustedEvent>
     state: () => Readable<RepoStateEvent>
     issues: () => Readable<TrustedEvent[]>
     patches: () => Readable<TrustedEvent[]>
+    relays: () => string[]
   }>("repo")
 
   const patches = $derived(repo.patches())
 
+  const patchSet = $derived.by(() => {
+    if (patch) {
+      const filters = [{kinds: [GIT_PATCH], "#e": [patch.id]}]
+      load({relays: repo.relays(), filters})
+      return deriveEvents(repository, {filters})
+    }
+  })
+
   const patch = $derived.by(() => {
     if ($patches) {
-      const p = $patches.find(patch => patch.id === $page.params.patchid)
+      const p = $patches.find(p => p.id === $page.params.patchid)
       if (p) {
         return parseGitPatchFromEvent(p)
       }
@@ -29,9 +42,11 @@
   })
 
   const threadComments = $derived.by(() => {
-    if (patch) {
-      console.log(patch)
-      return []
+    if ($patchSet) {
+      console.log($patchSet)
+      const filters = [{kinds: [COMMENT], "#e": $patchSet.map(patch => patch.tags.find(nthEq(0, "e"))?.[1])}]
+      load({relays: repo.relays(), filters})
+      return deriveEvents(repository, {filters})
     }
   })
 
@@ -46,17 +61,16 @@
     linkify: true,
     typographer: true,
   })
-
 </script>
 
 {#if patch}
-<div class="z-10 sticky top-0 items-center justify-between py-4 backdrop-blur">
-  <div>
-    <div class="rounded-lg border border-border bg-card p-6">
-      <div class="mb-4 flex items-start justify-between">
-        <div class="flex items-start gap-4">
-          {#if patch?.status === "open"}
-            <div class="mt-1">
+  <div class="z-10 sticky top-0 items-center justify-between py-4 backdrop-blur">
+    <div>
+      <div class="rounded-lg border border-border bg-card p-6">
+        <div class="mb-4 flex items-start justify-between">
+          <div class="flex items-start gap-4">
+            {#if patch?.status === "open"}
+              <div class="mt-1">
                 <div
                   class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
                   <GitCommit class="h-5 w-5 text-amber-500" />
@@ -133,10 +147,10 @@
         <div class="space-y-4">
           <h2 class="flex items-center gap-2 text-lg font-medium">
             <MessageSquare class="h-5 w-5" />
-            Discussion ({threadComments?.length})
+            Discussion ({$threadComments?.length})
           </h2>
 
-          <IssueThread issueId={patch?.id} comments={threadComments} />
+          <IssueThread issueId={patch?.id} comments={$threadComments} />
         </div>
       </div>
     </div>

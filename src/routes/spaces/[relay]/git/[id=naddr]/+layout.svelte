@@ -1,26 +1,30 @@
 <script lang="ts">
   import {RepoHeader, RepoTab} from "@nostr-git/ui"
   import {page} from "$app/stores"
-  import {deriveNaddrEvent} from "@app/state"
+  import {decodeRelay, deriveNaddrEvent, userSettingValues} from "@app/state"
   import PageContent from "@src/lib/components/PageContent.svelte"
-  import {FileCode, GitBranch, CircleAlert, GitPullRequest} from "@lucide/svelte"
-  import {parseRepoAnnouncementEvent, type RepoAnnouncementEvent} from "@nostr-git/shared-types"
+  import {FileCode, GitBranch, CircleAlert, GitPullRequest, Layers} from "@lucide/svelte"
+  import {
+    parseRepoAnnouncementEvent,
+    type CommentEvent,
+    type IssueEvent,
+    type RepoAnnouncementEvent,
+  } from "@nostr-git/shared-types"
   import {setContext} from "svelte"
   import {deriveEvents} from "@welshman/store"
-  import {repository} from "@welshman/app"
+  import {deriveProfile, publishThunk, repository} from "@welshman/app"
   import {GIT_REPO_STATE} from "@src/lib/util"
   import {derived as _derived} from "svelte/store"
   import {Address, GIT_ISSUE, GIT_PATCH, type Filter} from "@welshman/util"
   import {load} from "@welshman/net"
   import {nthEq} from "@welshman/lib"
   import {Buffer} from "buffer"
-
   const {id, relay} = $page.params
 
   let {children} = $props()
 
   if (typeof window !== "undefined" && !window.Buffer) {
-    (window as any).Buffer = Buffer;
+    ;(window as any).Buffer = Buffer
   }
 
   let eventStore = $state(deriveNaddrEvent(id, Array.isArray(relay) ? relay : [relay]))
@@ -29,7 +33,10 @@
     if ($eventStore) {
       const repoEvent = parseRepoAnnouncementEvent($eventStore as RepoAnnouncementEvent)
       const address = repoEvent.repoId
-      const repoStateFilter = [{kinds: [GIT_REPO_STATE], "#d": [address]}]
+      const repoStateFilter: Filter[] = [
+        {kinds: [GIT_REPO_STATE], "#d": [address!]},
+        {kinds: [GIT_REPO_STATE], "#d": [address!], "#t": ["root"]},
+      ]
       const repoState = _derived(
         deriveEvents(repository, {filters: repoStateFilter}),
         events => events[0],
@@ -57,11 +64,45 @@
 
   setContext("repo-event", eventStore)
 
+  const url = decodeRelay($page.params.relay)
+
+  const relays = $derived.by(() => {
+    if ($eventStore) {
+      const [_, ...relays] = $eventStore.tags.find(nthEq(0, "relays")) || []
+      return [url, ...relays]
+    }
+  })
+
+  const postComment = (comment: CommentEvent) => {
+    publishThunk({
+      relays: [url],
+      event: comment,
+    })
+  }
+
+  setContext("postComment", postComment)
+
+  const postIssue = (issue: IssueEvent) => {
+    publishThunk({
+      relays: [url],
+      event: issue,
+    })
+  }
+
+  setContext("postIssue", postIssue)
+
+  const getProfile = (pubkey: string) => {
+    return deriveProfile(pubkey)
+  }
+
+  setContext("getProfile", deriveProfile)
+
   const repo = $state({
     repo: eventStore,
     state: () => repoState,
     issues: () => issues,
     patches: () => patches,
+    relays: () => relays,
   })
 
   setContext("repo", repo)
@@ -76,10 +117,9 @@
       const repoStateFilter: Filter = {kinds: [GIT_REPO_STATE], "#d": [address]}
       const issuesFilter: Filter = {kinds: [GIT_ISSUE], "#a": [address]}
       const patchesFilter: Filter = {kinds: [GIT_PATCH], "#a": [address]}
-      const [tagId, ...relays] = $eventStore.tags.find(nthEq(0, "relays")) ?? []
 
       load({
-        relays: relays,
+        relays: relays!,
         filters: [issuesFilter, patchesFilter, repoStateFilter],
       })
     }
@@ -128,6 +168,15 @@
           {activeTab}>
           {#snippet icon()}
             <GitPullRequest class="h-4 w-4" />
+          {/snippet}
+        </RepoTab>
+        <RepoTab
+          tabValue="workbench"
+          label="Workbench"
+          href={`/spaces/${encodeddRelay}/git/${id}/workbench`}
+          {activeTab}>
+          {#snippet icon()}
+            <Layers class="h-4 w-4" />
           {/snippet}
         </RepoTab>
       {/snippet}

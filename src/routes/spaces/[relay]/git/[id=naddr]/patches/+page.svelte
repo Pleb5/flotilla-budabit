@@ -1,7 +1,7 @@
 <script lang="ts">
   import {Button, IssueCard, PatchCard} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
-  import {Address, GIT_PATCH, type TrustedEvent} from "@welshman/util"
+  import {Address, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
   import {nthEq} from "@welshman/lib"
   import {deriveProfile, repository} from "@welshman/app"
@@ -11,6 +11,7 @@
   import {type RepoStateEvent} from "@nostr-git/shared-types"
   import {deriveEvents} from "@welshman/store"
   import {
+    GIT_PATCH,
     GIT_STATUS_OPEN,
     GIT_STATUS_COMPLETE,
     GIT_STATUS_CLOSED,
@@ -26,6 +27,7 @@
     state: () => Readable<RepoStateEvent>
     issues: () => Readable<TrustedEvent[]>
     patches: () => Readable<TrustedEvent[]>
+    relays: () => string[]
   }>("repo")
 
   const patches = $state(repo.patches())
@@ -34,12 +36,16 @@
     if ($patches) {
       const filters = $patches.map(patch => {
         return {
-          kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+          kinds: [
+            GIT_STATUS_OPEN,
+            GIT_STATUS_COMPLETE,
+            GIT_STATUS_CLOSED,
+            GIT_STATUS_DRAFT,
+          ],
           "#e": [patch.id],
         }
       })
-      const [tagId, ...relays] = $repoEvent.tags.find(nthEq(0, "relays")) || []
-      load({relays: relays, filters})
+      load({relays: repo.relays(), filters})
       return deriveEvents(repository, {filters})
     }
   })
@@ -48,14 +54,15 @@
     if ($patches) {
       return $patches.map(patch => {
         const profile = deriveProfile(patch.pubkey)
-        let status = $statuses?.filter(s => {
-          let [tagId, eventId] = s.tags.find(nthEq(0, "e")) || []
-          return eventId === patch.id
-        }).sort(
-          (a: TrustedEvent, b: TrustedEvent) => b.created_at - a.created_at,
-        )[0]
+        let status = $statuses
+          ?.filter(s => {
+            let [tagId, eventId] = s.tags.find(nthEq(0, "e")) || []
+            return eventId === patch.id
+          })
+          .sort((a: TrustedEvent, b: TrustedEvent) => b.created_at - a.created_at)[0]
         return {
           ...patch,
+          patches: $patches.filter(issue => issue.tags.find(nthEq(0, "e"))?.[1] === patch.id),
           status,
           profile,
         }
@@ -71,8 +78,6 @@
       loading = false
     }
 
-    const [_, ...relays] = $repoEvent.tags.find(nthEq(0, "relays")) || []
-
     const patchFilter = {
       kinds: [GIT_PATCH],
       "#a": [Address.fromEvent($repoEvent).toString()],
@@ -80,7 +85,7 @@
 
     const {cleanup} = makeFeed({
       element: element!,
-      relays: relays,
+      relays: repo.relays(),
       feedFilters: [patchFilter],
       subscriptionFilters: [patchFilter],
       initialEvents: $patches,
