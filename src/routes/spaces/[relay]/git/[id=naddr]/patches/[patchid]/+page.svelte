@@ -12,7 +12,6 @@
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
   import {COMMENT, GIT_PATCH, type Filter} from "@welshman/util"
-  import {nthEq} from "@welshman/lib"
 
   const repo = getContext<{
     repo: Readable<TrustedEvent>

@@ -172,15 +172,6 @@
             <GitPullRequest class="h-4 w-4" />
           {/snippet}
         </RepoTab>
-        <RepoTab
-          tabValue="workbench"
-          label="Workbench"
-          href={`/spaces/${encodeddRelay}/git/${id}/workbench`}
-          {activeTab}>
-          {#snippet icon()}
-            <Layers class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
       {/snippet}
     </RepoHeader>
     {@render children()}
