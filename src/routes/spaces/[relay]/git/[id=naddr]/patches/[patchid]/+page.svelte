@@ -11,8 +11,8 @@
   import markdownit from "markdown-it"
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
-  import {COMMENT, GIT_PATCH} from "@welshman/util"
-    import { nthEq } from "@welshman/lib"
+  import {COMMENT, GIT_PATCH, type Filter} from "@welshman/util"
+  import {nthEq} from "@welshman/lib"
 
   const repo = getContext<{
     repo: Readable<TrustedEvent>
@@ -43,8 +43,7 @@
 
   const threadComments = $derived.by(() => {
     if ($patchSet) {
-      console.log($patchSet)
-      const filters = [{kinds: [COMMENT], "#e": $patchSet.map(patch => patch.tags.find(nthEq(0, "e"))?.[1])}]
+      const filters: Filter[] = [{kinds: [COMMENT], "#E": patch?.id}]
       load({relays: repo.relays(), filters})
       return deriveEvents(repository, {filters})
     }

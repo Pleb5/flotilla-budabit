@@ -16,7 +16,7 @@
   import Button from "@src/lib/components/Button.svelte"
   import {fly} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
-    import Spinner from "@src/lib/components/Spinner.svelte"
+  import Spinner from "@src/lib/components/Spinner.svelte"
 
   const {id, relay} = $page.params
   const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
@@ -67,7 +67,6 @@
       loading = false
     } else {
       branches = listBranchesFromEvent({repoEvent: $repoEvent})
-      loading = false
     }
   })
 
@@ -85,8 +84,7 @@
 <div class="rounded-lg border border-border bg-card">
   <div class="p-4">
     {#if loading}
-
-      <div class="text-muted-foreground">Loading repository files...</div>
+      <Spinner {loading}>Loading files...</Spinner>
     {:else if error}
       <div class="text-red-500">{error}</div>
     {:else if fallbackToBranches}
@@ -140,9 +138,8 @@
       </div>
       <div class="border-t border-border pt-4">
         <div class="space-y-2">
-          <Spinner loading={loading}>Loading files...</Spinner>
           {#await files then files}
-          {#if files.length === 0}
+            {#if files.length === 0}
               <div class="text-muted-foreground">No files found in this branch.</div>
             {:else}
               {#each files as file}

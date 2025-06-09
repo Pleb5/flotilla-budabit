@@ -242,7 +242,7 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   let attempted = false
   const decoded = nip19.decode(naddr).data as AddressPointer
   const fallbackRelays = [...hints, ...INDEXER_RELAYS]
-  const relays = decoded.relays?.length > 0 ? decoded.relays : fallbackRelays
+  const relays = decoded.relays?.length! > 0 ? decoded.relays : fallbackRelays
   const filters = [{
     authors: [decoded.pubkey],
     kinds: [decoded.kind],

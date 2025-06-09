@@ -19,6 +19,8 @@
   import {load} from "@welshman/net"
   import {nthEq} from "@welshman/lib"
   import {Buffer} from "buffer"
+  import {nip19} from "nostr-tools"
+  import type {AddressPointer} from "nostr-tools/nip19"
   const {id, relay} = $page.params
 
   let {children} = $props()
@@ -26,6 +28,9 @@
   if (typeof window !== "undefined" && !window.Buffer) {
     ;(window as any).Buffer = Buffer
   }
+
+  const decoded = nip19.decode(id).data as AddressPointer
+  const repoId = decoded.identifier
 
   let eventStore = $state(deriveNaddrEvent(id, Array.isArray(relay) ? relay : [relay]))
 
@@ -91,14 +96,11 @@
 
   setContext("postIssue", postIssue)
 
-  const getProfile = (pubkey: string) => {
-    return deriveProfile(pubkey)
-  }
-
   setContext("getProfile", deriveProfile)
 
   const repo = $state({
     repo: eventStore,
+    repoId,
     state: () => repoState,
     issues: () => issues,
     patches: () => patches,
