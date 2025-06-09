@@ -2,9 +2,8 @@
   import {getContext} from "svelte"
   import {FileView} from "@nostr-git/ui"
   import {GitBranch} from "@lucide/svelte"
-  import {listRepoFilesFromEvent, type FileEntry, listBranchesFromEvent} from "@nostr-git/core"
+  import {listRepoFilesFromEvent, type FileEntry, listBranchesFromEvent, getRepoFileContentFromEvent} from "@nostr-git/core"
   import {
-    parseRepoAnnouncementEvent,
     parseRepoStateEvent,
     type RepoAnnouncementEvent,
     type RepoStateEvent,
@@ -27,7 +26,7 @@
     issues: () => Readable<TrustedEvent[]>
     patches: () => Readable<TrustedEvent[]>
   }>("repo")
-
+  
   // UI state
   let loading = $state(true)
   let error: string | null = $state(null)
@@ -79,6 +78,15 @@
   const openMenu = () => {
     showMenu = true
   }
+
+const getFileContent = async (path: string) => {
+  return await getRepoFileContentFromEvent({
+    repoEvent: $repoEvent,
+    branch: selectedBranchValue?.split("/").pop() || "master",
+    path,
+  })
+}
+
 </script>
 
 <div class="rounded-lg border border-border bg-card">
@@ -143,7 +151,7 @@
               <div class="text-muted-foreground">No files found in this branch.</div>
             {:else}
               {#each files as file}
-                <FileView name={file.name} type={file.type} path={file.path} />
+                <FileView {file} getFileContent={getFileContent}/>
               {/each}
             {/if}
           {/await}

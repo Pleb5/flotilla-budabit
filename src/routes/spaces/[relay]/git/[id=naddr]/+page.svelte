@@ -14,7 +14,7 @@
   import {repository} from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
   import {getRootEventTagValue} from "@src/lib/util"
-  import {Card} from "@nostr-git/ui"
+  import {Card, Repo} from "@nostr-git/ui"
   import {CircleAlert, GitBranch, GitPullRequest, Users} from "@lucide/svelte"
   import {
     parseRepoAnnouncementEvent,

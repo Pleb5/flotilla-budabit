@@ -17,10 +17,7 @@
   import {Card, CardContent, CardHeader, CardTitle} from "@nostr-git/ui"
   import {Tabs, TabsContent, TabsList, TabsTrigger} from "@nostr-git/ui"
   import {Badge} from "@nostr-git/ui"
-  import PatchSelector from "@nostr-git/ui"
-  import CommitSelector from "@nostr-git/ui"
-  import MergeAnalyzer from "@nostr-git/ui"
-  import ConflictVisualizer from "@nostr-git/ui"
+  import {PatchSelector, CommitSelector, MergeAnalyzer, ConflictVisualizer} from "@nostr-git/ui"
   import {getContext} from "svelte"
   import type {Readable} from "svelte/store"
   import type {RepoStateEvent} from "@nostr-git/shared-types"
@@ -36,6 +33,7 @@
     repo: Readable<TrustedEvent>
     state: () => Readable<RepoStateEvent>
     issues: () => Readable<TrustedEvent[]>
+    patches: () => Readable<TrustedEvent[]>
   }>("repo")
 
   // Simulate merge analysis when both patch and commit are selected
@@ -87,7 +85,7 @@
   }
 </script>
 
-<div class="container max-w-7xl py-6">
+<div>
   <div class="mt-6">
     <div class="mb-6">
       <div class="mb-2 flex items-center gap-3">
@@ -104,8 +102,8 @@
     </div>
 
     <div class="mb-6 grid grid-cols-2 gap-6">
-      <PatchSelector selectedPatch={$selectedPatch} onPatchSelect={setSelectedPatch} />
-      <CommitSelector selectedCommit={$selectedCommit} onCommitSelect={setSelectedCommit} />
+      <PatchSelector patches={repo.patches()} selectedPatch={$selectedPatch} onPatchSelect={(patch) => selectedPatch = patch} />
+      <CommitSelector commits={[]} selectedCommit={$selectedCommit} onCommitSelect={(commit) => selectedCommit = commit} />
     </div>
 
     {#if selectedPatch && selectedCommit}
