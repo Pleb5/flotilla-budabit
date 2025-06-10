@@ -8,7 +8,7 @@
   import {request} from "@welshman/net"
   import type {TrustedEvent, EventContent} from "@welshman/util"
   import {
-    createEvent,
+    makeEvent,
     MESSAGE,
     DELETE,
     REACTION,
@@ -126,7 +126,7 @@
 
     publishThunk({
       relays: [url],
-      event: createEvent(MESSAGE, template),
+      event: makeEvent(MESSAGE, template),
       delay: $userSettingValues.send_delay,
     })
 

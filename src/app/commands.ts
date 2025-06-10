@@ -19,7 +19,7 @@ import {
   GROUPS,
   COMMENT,
   isSignedEvent,
-  createEvent,
+  makeEvent,
   displayProfile,
   normalizeRelayUrl,
   makeList,
@@ -130,13 +130,13 @@ export const broadcastUserData = async (relays: string[]) => {
 // NIP 29 stuff
 
 export const createRoom = (url: string, room: string) => {
-  const event = createEvent(GROUP_CREATE, {tags: [tagRoom(room, url)]})
+  const event = makeEvent(GROUP_CREATE, {tags: [tagRoom(room, url)]})
 
   return publishThunk({event, relays: [url]})
 }
 
 export const editRoom = (url: string, room: string, meta: Record<string, string>) => {
-  const event = createEvent(GROUP_EDIT_META, {
+  const event = makeEvent(GROUP_EDIT_META, {
     tags: [tagRoom(room, url), ...Object.entries(meta)],
   })
 
@@ -144,13 +144,13 @@ export const editRoom = (url: string, room: string, meta: Record<string, string>
 }
 
 export const joinRoom = (url: string, room: string) => {
-  const event = createEvent(GROUP_JOIN, {tags: [tagRoom(room, url)]})
+  const event = makeEvent(GROUP_JOIN, {tags: [tagRoom(room, url)]})
 
   return publishThunk({event, relays: [url]})
 }
 
 export const leaveRoom = (url: string, room: string) => {
-  const event = createEvent(GROUP_LEAVE, {tags: [tagRoom(room, url)]})
+  const event = makeEvent(GROUP_LEAVE, {tags: [tagRoom(room, url)]})
 
   return publishThunk({event, relays: [url]})
 }
@@ -208,7 +208,7 @@ export const setRelayPolicy = (url: string, read: boolean, write: boolean) => {
   }
 
   return publishThunk({
-    event: createEvent(list.kind, {tags}),
+    event: makeEvent(list.kind, {tags}),
     relays: [
       url,
       ...INDEXER_RELAYS,
@@ -230,7 +230,7 @@ export const setInboxRelayPolicy = (url: string, enabled: boolean) => {
     }
 
     return publishThunk({
-      event: createEvent(list.kind, {tags}),
+      event: makeEvent(list.kind, {tags}),
       relays: [
         ...INDEXER_RELAYS,
         ...Router.get().FromUser().getUrls(),
@@ -248,7 +248,7 @@ export const checkRelayAccess = async (url: string, claim = "") => {
   await socket.auth.attemptAuth(e => signer.get()?.sign(e))
 
   const thunk = publishThunk({
-    event: createEvent(AUTH_JOIN, {tags: [["claim", claim]]}),
+    event: makeEvent(AUTH_JOIN, {tags: [["claim", claim]]}),
     relays: [url],
   })
 
@@ -334,7 +334,7 @@ export const makeDelete = ({event}: {event: TrustedEvent}) => {
     tags.push(groupTag)
   }
 
-  return createEvent(DELETE, {tags})
+  return makeEvent(DELETE, {tags})
 }
 
 export const publishDelete = ({relays, event}: {relays: string[]; event: TrustedEvent}) =>
@@ -352,7 +352,7 @@ export const makeReport = ({event, reason, content}: ReportParams) => {
     ["e", event.id, reason],
   ]
 
-  return createEvent(REPORT, {content, tags})
+  return makeEvent(REPORT, {content, tags})
 }
 
 export const publishReport = ({
@@ -379,7 +379,7 @@ export const makeReaction = ({content, event, tags: paramTags = []}: ReactionPar
     tags.push(groupTag)
   }
 
-  return createEvent(REACTION, {content, tags})
+  return makeEvent(REACTION, {content, tags})
 }
 
 export const publishReaction = ({relays, ...params}: ReactionParams & {relays: string[]}) =>
@@ -392,7 +392,7 @@ export type CommentParams = {
 }
 
 export const makeComment = ({event, content, tags = []}: CommentParams) =>
-  createEvent(COMMENT, {content, tags: [...tags, ...tagEventForComment(event)]})
+  makeEvent(COMMENT, {content, tags: [...tags, ...tagEventForComment(event)]})
 
 export const publishComment = ({relays, ...params}: CommentParams & {relays: string[]}) =>
   publishThunk({event: makeComment(params), relays})
@@ -427,7 +427,7 @@ export const makeAlert = async ({cron, email, feed, bunker, secret, description}
     tags.push(["nip46", secret, bunker])
   }
 
-  return createEvent(ALERT, {
+  return makeEvent(ALERT, {
     content: await signer.get().nip44.encrypt(NOTIFIER_PUBKEY, JSON.stringify(tags)),
     tags: [
       ["d", randomId()],

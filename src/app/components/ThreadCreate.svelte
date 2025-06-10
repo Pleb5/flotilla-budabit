@@ -1,6 +1,6 @@
 <script lang="ts">
   import {writable} from "svelte/store"
-  import {Address, createEvent, getTagValue, GIT_ISSUE, THREAD, type TrustedEvent} from "@welshman/util"
+  import {Address, makeEvent, getTagValue, GIT_ISSUE, THREAD, type TrustedEvent} from "@welshman/util"
   import {publishThunk} from "@welshman/app"
   import {isMobile, preventDefault} from "@lib/html"
   import Icon from "@lib/components/Icon.svelte"
@@ -66,7 +66,7 @@
 
     publishThunk({
       relays: [url],
-      event: createEvent(THREAD, {content, tags}),
+      event: makeEvent(THREAD, {content, tags}),
     })
 
     goto(threadsPath)
