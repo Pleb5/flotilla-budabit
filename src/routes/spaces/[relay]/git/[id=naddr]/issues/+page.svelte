@@ -79,7 +79,7 @@
 </script>
 
 <div bind:this={element}>
-  <div class="z-10 sticky top-0 mb-4 flex items-center justify-between py-4 backdrop-blur">
+  <div class="z-nav sticky -top-8 mb-4 flex items-center justify-between py-4 backdrop-blur">
     <div>
       <h2 class="text-xl font-semibold">Issues</h2>
       <p class="text-sm text-muted-foreground">Track bugs and feature requests</p>
@@ -91,8 +91,9 @@
         Filter
       </Button>
 
-      <Button size="sm" class="gap-2 bg-git hover:bg-git-hover" onclick={onNewIssue}>
+      <Button class="gap-2" variant="git" size="sm" onclick={onNewIssue}>
         <Plus class="h-4 w-4" />
+
         New Issue
       </Button>
     </div>
