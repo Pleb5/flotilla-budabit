@@ -15,12 +15,19 @@
   import {deriveProfile, publishThunk, repository} from "@welshman/app"
   import {GIT_REPO_STATE} from "@src/lib/util"
   import {derived as _derived} from "svelte/store"
-  import {Address, GIT_ISSUE, GIT_PATCH, type Filter} from "@welshman/util"
+  import {
+    Address,
+    GIT_ISSUE,
+    GIT_PATCH,
+    type Filter
+  } from "@welshman/util"
   import {load} from "@welshman/net"
   import {nthEq} from "@welshman/lib"
   import {Buffer} from "buffer"
   import {nip19} from "nostr-tools"
   import type {AddressPointer} from "nostr-tools/nip19"
+  import { pushToast } from "@src/app/toast"
+
   const {id, relay} = $page.params
 
   let {children} = $props()
@@ -32,11 +39,15 @@
   const decoded = nip19.decode(id).data as AddressPointer
   const repoId = decoded.identifier
 
-  let eventStore = $state(deriveNaddrEvent(id, Array.isArray(relay) ? relay : [relay]))
+  let eventStore = $state(
+    deriveNaddrEvent(id, Array.isArray(relay) ? relay : [relay])
+  )
 
   const repoState = $derived.by(() => {
     if ($eventStore) {
-      const repoEvent = parseRepoAnnouncementEvent($eventStore as RepoAnnouncementEvent)
+      const repoEvent = parseRepoAnnouncementEvent(
+        $eventStore as RepoAnnouncementEvent
+      )
       const address = repoEvent.repoId
       const repoStateFilter: Filter[] = [
         {kinds: [GIT_REPO_STATE], "#d": [address!]},
@@ -69,27 +80,39 @@
 
   setContext("repo-event", eventStore)
 
-  const url = decodeRelay($page.params.relay)
-
   const relays = $derived.by(() => {
     if ($eventStore) {
       const [_, ...relays] = $eventStore.tags.find(nthEq(0, "relays")) || []
-      return [url, ...relays]
+      return relays
     }
   })
 
   const postComment = (comment: CommentEvent) => {
+    if (!relays) {
+      pushToast({
+          theme: "error",
+          message: 'No relays found to post!', timeout: 7000
+      })
+      return;
+    }
     publishThunk({
-      relays: [url],
+      relays: relays,
       event: comment,
     })
   }
 
   setContext("postComment", postComment)
 
-  const postIssue = (issue: IssueEvent) => {
+  const postIssue = async (issue: IssueEvent) => {
+    if (!relays) {
+      pushToast({
+          theme: "error",
+          message: 'No relays found to post!', timeout: 7000
+      })
+      return;
+    }
     publishThunk({
-      relays: [url],
+      relays: relays,
       event: issue,
     })
   }
@@ -110,7 +133,7 @@
   setContext("repo", repo)
 
   let activeTab: string | undefined = $page.url.pathname.split("/").pop()
-  const encodeddRelay = encodeURIComponent(relay)
+  const encodedRelay = encodeURIComponent(relay)
 
   $effect(() => {
     if ($eventStore) {
@@ -139,7 +162,7 @@
         <RepoTab
           tabValue={id}
           label="Overview"
-          href={`/spaces/${encodeddRelay}/git/${id}`}
+          href={`/spaces/${encodedRelay}/git/${id}`}
           {activeTab}>
           {#snippet icon()}
             <FileCode class="h-4 w-4" />
@@ -148,7 +171,7 @@
         <RepoTab
           tabValue="code"
           label="Code"
-          href={`/spaces/${encodeddRelay}/git/${id}/code`}
+          href={`/spaces/${encodedRelay}/git/${id}/code`}
           {activeTab}>
           {#snippet icon()}
             <GitBranch class="h-4 w-4" />
@@ -157,7 +180,7 @@
         <RepoTab
           tabValue="issues"
           label="Issues"
-          href={`/spaces/${encodeddRelay}/git/${id}/issues`}
+          href={`/spaces/${encodedRelay}/git/${id}/issues`}
           {activeTab}>
           {#snippet icon()}
             <CircleAlert class="h-4 w-4" />
@@ -166,7 +189,7 @@
         <RepoTab
           tabValue="patches"
           label="Patches"
-          href={`/spaces/${encodeddRelay}/git/${id}/patches`}
+          href={`/spaces/${encodedRelay}/git/${id}/patches`}
           {activeTab}>
           {#snippet icon()}
             <GitPullRequest class="h-4 w-4" />
