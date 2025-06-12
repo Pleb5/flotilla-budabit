@@ -3,17 +3,15 @@
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, COMMENT, GIT_ISSUE, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
-  import {deriveProfile, publishThunk, repository} from "@welshman/app"
+  import {deriveProfile, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
-  import type {Readable} from "svelte/store"
+  import {get, type Readable} from "svelte/store"
   import {type IssueEvent, type RepoStateEvent} from "@nostr-git/shared-types"
   import {fly} from "@lib/transition"
   import {pushModal} from "@src/app/modal"
   import {load} from "@welshman/net"
   import {deriveEvents} from "@welshman/store"
-  import {page} from "$app/stores"
-  import {decodeRelay} from "@src/app/state"
 
   const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
 
@@ -26,6 +24,7 @@
   }>("repo")
 
   const issues = repo.issues()
+  const repoAddress = Address.fromEvent(get(repo.repo)).toString()
 
   const comments = $derived.by(() => {
     if ($issues) {
@@ -45,7 +44,7 @@
 
     const issueFilter = {
       kinds: [GIT_ISSUE],
-      "#a": [repo.repoId],
+      "#a": [repoAddress],
     }
 
     const {cleanup} = makeFeed({
@@ -60,14 +59,7 @@
     })
   })
 
-  const url = decodeRelay($page.params.relay)
-
-  const postIssue = (issue: IssueEvent) => {
-    publishThunk({
-      relays: [url],
-      event: issue,
-    })
-  }
+  const postIssue: (issue: IssueEvent) => Promise<void> = getContext("postIssue");
 
   const onNewIssue = () => {
     pushModal(NewIssueForm, {
