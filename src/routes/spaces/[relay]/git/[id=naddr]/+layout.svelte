@@ -8,6 +8,7 @@
     parseRepoAnnouncementEvent,
     type CommentEvent,
     type IssueEvent,
+    type PatchEvent,
     type RepoAnnouncementEvent,
     type RepoStateEvent,
   } from "@nostr-git/shared-types"
@@ -26,6 +27,13 @@
   import {makeSpacePath} from "@src/app/routes"
   import {goto} from "$app/navigation"
   import {toast} from "@nostr-git/ui"
+  import {ConfigProvider} from "@nostr-git/ui"
+
+  import Button from "@lib/components/Button.svelte"
+  import Avatar from "@lib/components/Avatar.svelte"
+  import Divider from "@lib/components/Divider.svelte"
+  import Input from "@lib/components/Field.svelte"
+  import Dialog from "@lib/components/Dialog.svelte"
 
   const {id, relay} = $page.params
 
@@ -204,15 +212,15 @@
 
   const repoClass = new Repo({
     repoEvent: $eventStore as RepoAnnouncementEvent,
-    repoStateEvent: $repoState[0] as RepoStateEvent,
-    publish: (event: NostrEvent) => {
+    repoStateEvent: $repoState ? ($repoState[0] as RepoStateEvent) : undefined,
+    publish: (event) => {
       return publishThunk({
         relays: [url],
         event: event,
       })
     },
-    issues: $issues,
-    patches: $patches,
+    issues: $issues! as IssueEvent[],
+    patches: $patches! as PatchEvent[],
   })
 
   setContext("repoClass", repoClass)
@@ -268,6 +276,14 @@
         </RepoTab>
       {/snippet}
     </RepoHeader>
-    {@render children()}
+    <ConfigProvider components={{
+      Button,
+      Avatar,
+      Separator: Divider,
+      Input,
+      Alert: Dialog
+    }}>
+      {@render children()}
+    </ConfigProvider>
   {/if}
 </PageContent>

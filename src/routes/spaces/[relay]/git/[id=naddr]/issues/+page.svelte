@@ -1,5 +1,6 @@
 <script lang="ts">
   import {Button, IssueCard, NewIssueForm, Repo} from "@nostr-git/ui"
+  import { isCommentEvent, type CommentEvent } from "@nostr-git/shared-types"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, COMMENT, GIT_ISSUE} from "@welshman/util"
   import {getContext} from "svelte"
@@ -15,11 +16,19 @@
   const repoClass = getContext<Repo>("repoClass")
 
   const comments = $derived.by(() => {
-    if (repoClass.issues) {
-      const filters = repoClass.issues.map(issue => issue.id)
-      load({relays: repoClass.relays, filters: [{kinds: [COMMENT], "#E": filters}]})
-      return deriveEvents(repository, {filters: [{kinds: [COMMENT], "#E": filters}]})
-    }
+    return deriveEvents(repository, {
+      filters: [
+        {
+          kinds: [COMMENT],
+          "#E": [...repoClass.issues.map((i) => i.id)],
+        },
+      ],
+    })
+  })
+
+  const commentEvents = $derived.by(() => {
+    if (!$comments) return undefined
+    return $comments.filter(isCommentEvent) as CommentEvent[]
   })
 
   let loading = $state(true)
@@ -98,7 +107,7 @@
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each repoClass.issues as issue (issue.id)}
         <div in:fly>
-          <IssueCard event={issue} author={deriveProfile(issue.pubkey)} comments={$comments} />
+          <IssueCard event={issue} author={deriveProfile(issue.pubkey)} comments={commentEvents} />
         </div>
       {/each}
     </div>
