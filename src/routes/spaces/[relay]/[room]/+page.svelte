@@ -15,7 +15,7 @@
     GROUP_ADD_USER,
     GROUP_REMOVE_USER,
   } from "@welshman/util"
-  import {pubkey, publishThunk, getThunkError} from "@welshman/app"
+  import {pubkey, publishThunk, getThunkError, joinRoom, leaveRoom} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -32,7 +32,6 @@
     userRoomsByUrl,
     userSettingValues,
     decodeRelay,
-    tagRoom,
     getEventsForUrl,
     deriveUserMembershipStatus,
     deriveChannel,
@@ -40,13 +39,7 @@
     channelsById,
   } from "@app/state"
   import {setChecked, checked} from "@app/notifications"
-  import {
-    joinRoom,
-    leaveRoom,
-    addRoomMembership,
-    removeRoomMembership,
-    prependParent,
-  } from "@app/commands"
+  import {addRoomMembership, removeRoomMembership, prependParent} from "@app/commands"
   import {PROTECTED} from "@app/state"
   import {makeFeed} from "@app/requests"
   import {popKey} from "@app/implicit"
@@ -111,7 +104,7 @@
   }
 
   const onSubmit = ({content, tags}: EventContent) => {
-    tags.push(tagRoom(room, url))
+    tags.push(["h", room])
     tags.push(PROTECTED)
 
     let template = {content, tags}
