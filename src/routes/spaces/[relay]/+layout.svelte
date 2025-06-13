@@ -1,5 +1,4 @@
 <script lang="ts">
-  import type {Snippet} from "svelte"
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {ago, WEEK} from "@welshman/lib"
@@ -11,7 +10,6 @@
   import SpaceAuthError from "@app/components/SpaceAuthError.svelte"
   import {pushToast} from "@app/toast"
   import {pushModal} from "@app/modal"
-  import {getUploadUrl} from "@app/editor"
   import {setChecked} from "@app/notifications"
   import {checkRelayConnection, checkRelayAuth, checkRelayAccess} from "@app/commands"
   import {decodeRelay, userRoomsByUrl} from "@app/state"

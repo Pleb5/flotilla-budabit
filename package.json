@@ -20,6 +20,8 @@
     "@sveltejs/kit": "^2.5.27",
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
     "@types/eslint": "^9.6.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/mustache": "^4.2.6",
     "@types/throttle-debounce": "^5.0.2",
     "autoprefixer": "^10.4.19",
     "classnames": "^2.5.1",
@@ -79,13 +81,15 @@
     "husky": "^9.1.6",
     "idb": "^8.0.0",
     "markdown-it": "^14.1.0",
+    "mustache": "^4.2.0",
     "nostr-signer-capacitor-plugin": "^0.0.4",
     "nostr-tools": "^2.7.2",
     "prettier-plugin-tailwindcss": "^0.6.5",
     "qrcode": "^1.5.4",
     "sharp": "^0.34.1",
     "throttle-debounce": "^5.0.2",
-    "tippy.js": "^6.3.7"
+    "tippy.js": "^6.3.7",
+    "buffer": "^6.0.3"
   },
   "pnpm": {
     "ignoredBuiltDependencies": [

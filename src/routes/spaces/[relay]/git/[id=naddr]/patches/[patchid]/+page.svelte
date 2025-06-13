@@ -2,38 +2,20 @@
   import {page} from "$app/stores"
   import {GitCommit, MessageSquare, Check, X} from "@lucide/svelte"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
-  import {type RepoStateEvent, type TrustedEvent} from "@nostr-git/shared-types"
-  import {Button} from "@nostr-git/ui"
+  import {Button, Repo} from "@nostr-git/ui"
   import {Avatar, AvatarFallback, AvatarImage, DiffViewer, IssueThread} from "@nostr-git/ui"
   import {deriveProfile, repository} from "@welshman/app"
   import {getContext} from "svelte"
-  import type {Readable} from "svelte/motion"
   import markdownit from "markdown-it"
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
-  import {COMMENT, GIT_PATCH, type Filter} from "@welshman/util"
+  import {COMMENT, type Filter} from "@welshman/util"
 
-  const repo = getContext<{
-    repo: Readable<TrustedEvent>
-    state: () => Readable<RepoStateEvent>
-    issues: () => Readable<TrustedEvent[]>
-    patches: () => Readable<TrustedEvent[]>
-    relays: () => string[]
-  }>("repo")
-
-  const patches = $derived(repo.patches())
-
-  const patchSet = $derived.by(() => {
-    if (patch) {
-      const filters = [{kinds: [GIT_PATCH], "#e": [patch.id]}]
-      load({relays: repo.relays(), filters})
-      return deriveEvents(repository, {filters})
-    }
-  })
+  const repoClass = getContext<Repo>("repoClass")
 
   const patch = $derived.by(() => {
-    if ($patches) {
-      const p = $patches.find(p => p.id === $page.params.patchid)
+    if (repoClass.patches) {
+      const p = repoClass.patches.find(p => p.id === $page.params.patchid)
       if (p) {
         return parseGitPatchFromEvent(p)
       }
@@ -41,9 +23,9 @@
   })
 
   const threadComments = $derived.by(() => {
-    if ($patchSet) {
+    if (repoClass.patches) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": patch?.id}]
-      load({relays: repo.relays(), filters})
+      load({relays: repoClass.relays, filters})
       return deriveEvents(repository, {filters})
     }
   })

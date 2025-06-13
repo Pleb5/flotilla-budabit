@@ -40,12 +40,13 @@
   import {makeFeed} from "@app/requests"
   import {popKey} from "@app/implicit"
   import {pushToast} from "@app/toast"
+  import {GIT_REPO} from "@src/lib/util"
 
   const {room = GENERAL} = $page.params
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay($page.params.relay)
-  const filter = {kinds: [MESSAGE], "#h": [room]}
+  const filter = {kinds: [MESSAGE, GIT_REPO], "#h": [room]}
   const relay = deriveRelay(url)
 
   const joinRoom = async () => {
@@ -207,7 +208,9 @@
       element: element!,
       relays: [url],
       feedFilters: [filter],
-      subscriptionFilters: [{kinds: [DELETE, REACTION, MESSAGE], "#h": [room], since: now()}],
+      subscriptionFilters: [
+        {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO], "#h": [room], since: now()},
+      ],
       initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
       onExhausted: () => {
         loadingEvents = false
