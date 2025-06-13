@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Button, IssueCard, PatchCard} from "@nostr-git/ui"
+  import {Button, IssueCard, PatchCard, Repo} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
@@ -7,8 +7,6 @@
   import {deriveProfile, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
-  import type {Readable} from "svelte/store"
-  import {type RepoStateEvent} from "@nostr-git/shared-types"
   import {deriveEvents} from "@welshman/store"
   import {
     GIT_PATCH,
@@ -20,49 +18,44 @@
   import {fly} from "@lib/transition"
   import {load} from "@welshman/net"
 
-  const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
-
-  const repo = getContext<{
-    repo: Readable<TrustedEvent>
-    state: () => Readable<RepoStateEvent>
-    issues: () => Readable<TrustedEvent[]>
-    patches: () => Readable<TrustedEvent[]>
-    relays: () => string[]
-  }>("repo")
-
-  const patches = $state(repo.patches())
+  const repoClass = getContext<Repo>("repoClass")
 
   const statuses = $derived.by(() => {
-    if ($patches) {
-      const filters = $patches.map(patch => {
-        return {
+    if (repoClass.patches) {
+      const patchIds = repoClass.patches.map((patch: TrustedEvent) => patch.id)
+
+      const filters = [
+        {
           kinds: [
             GIT_STATUS_OPEN,
             GIT_STATUS_COMPLETE,
             GIT_STATUS_CLOSED,
             GIT_STATUS_DRAFT,
           ],
-          "#e": [patch.id],
-        }
-      })
-      load({relays: repo.relays(), filters})
+          "#e": [...patchIds],
+        },
+      ]
+
+      load({relays: repoClass.relays, filters})
       return deriveEvents(repository, {filters})
     }
   })
 
   const patchList = $derived.by(() => {
-    if ($patches) {
-      return $patches.map(patch => {
+    if (repoClass.patches) {
+      return repoClass.patches.map((patch: TrustedEvent) => {
         const profile = deriveProfile(patch.pubkey)
         let status = $statuses
           ?.filter(s => {
-            let [tagId, eventId] = s.tags.find(nthEq(0, "e")) || []
+            let [_, eventId] = s.tags.find(nthEq(0, "e")) || []
             return eventId === patch.id
           })
           .sort((a: TrustedEvent, b: TrustedEvent) => b.created_at - a.created_at)[0]
         return {
           ...patch,
-          patches: $patches.filter(issue => issue.tags.find(nthEq(0, "e"))?.[1] === patch.id),
+          patches: repoClass.patches.filter(
+            issue => issue.tags.find(nthEq(0, "e"))?.[1] === patch.id,
+          ),
           status,
           profile,
         }
@@ -74,21 +67,21 @@
   let element: HTMLElement | undefined = $state()
 
   $effect(() => {
-    if (patches) {
+    if (repoClass.patches) {
       loading = false
     }
 
     const patchFilter = {
       kinds: [GIT_PATCH],
-      "#a": [Address.fromEvent($repoEvent).toString()],
+      "#a": [repoClass.repoId],
     }
 
-    const {cleanup} = makeFeed({
+    makeFeed({
       element: element!,
-      relays: repo.relays(),
+      relays: repoClass.relays,
       feedFilters: [patchFilter],
       subscriptionFilters: [patchFilter],
-      initialEvents: $patches,
+      initialEvents: repoClass.patches,
       onExhausted: () => {
         loading = false
       },
@@ -126,7 +119,7 @@
         {/if}
       </Spinner>
     </div>
-  {:else if $patches.length === 0}
+  {:else if repoClass.patches.length === 0}
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No patches found.

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {page} from "$app/stores"
   import {
     GitMerge,
     GitPullRequest,
@@ -13,28 +12,19 @@
     Target,
     GitBranch,
   } from "@lucide/svelte"
-  import {Button} from "@nostr-git/ui"
+  import {Button, Repo} from "@nostr-git/ui"
   import {Card, CardContent, CardHeader, CardTitle} from "@nostr-git/ui"
   import {Tabs, TabsContent, TabsList, TabsTrigger} from "@nostr-git/ui"
   import {Badge} from "@nostr-git/ui"
   import {PatchSelector, CommitSelector, MergeAnalyzer, ConflictVisualizer} from "@nostr-git/ui"
   import {getContext} from "svelte"
-  import type {Readable} from "svelte/store"
-  import type {RepoStateEvent} from "@nostr-git/shared-types"
-  import type {TrustedEvent} from "@welshman/util"
 
-  let {repoId} = $page.params
+  const repoClass = getContext<Repo>("repoClass")
+
   let selectedPatch = $state<any>(null)
   let selectedCommit = $state<any>(null)
   let mergeAnalysis = $state<any>(null)
   let isAnalyzing = $state(false)
-
-  const repo = getContext<{
-    repo: Readable<TrustedEvent>
-    state: () => Readable<RepoStateEvent>
-    issues: () => Readable<TrustedEvent[]>
-    patches: () => Readable<TrustedEvent[]>
-  }>("repo")
 
   // Simulate merge analysis when both patch and commit are selected
   $effect(() => {
@@ -102,7 +92,7 @@
     </div>
 
     <div class="mb-6 grid grid-cols-2 gap-6">
-      <PatchSelector patches={repo.patches()} selectedPatch={$selectedPatch} onPatchSelect={(patch) => selectedPatch = patch} />
+      <PatchSelector patches={repoClass.patches} selectedPatch={$selectedPatch} onPatchSelect={(patch) => selectedPatch = patch} />
       <CommitSelector commits={[]} selectedCommit={$selectedCommit} onCommitSelect={(commit) => selectedCommit = commit} />
     </div>
 

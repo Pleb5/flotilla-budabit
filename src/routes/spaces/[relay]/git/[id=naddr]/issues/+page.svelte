@@ -1,35 +1,23 @@
 <script lang="ts">
-  import {Button, IssueCard, NewIssueForm} from "@nostr-git/ui"
+  import {Button, IssueCard, NewIssueForm, Repo} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
-  import {Address, COMMENT, GIT_ISSUE, type TrustedEvent} from "@welshman/util"
+  import {Address, COMMENT, GIT_ISSUE} from "@welshman/util"
   import {getContext} from "svelte"
   import {deriveProfile, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
-  import {get, type Readable} from "svelte/store"
-  import {type IssueEvent, type RepoStateEvent} from "@nostr-git/shared-types"
   import {fly} from "@lib/transition"
   import {pushModal} from "@src/app/modal"
   import {load} from "@welshman/net"
   import {deriveEvents} from "@welshman/store"
+  import type { IssueEvent } from "@nostr-git/shared-types"
 
-  const repoEvent = getContext<Readable<TrustedEvent>>("repo-event")
-
-  const repo = getContext<{
-    repo: Readable<TrustedEvent>
-    repoId: string
-    state: () => Readable<RepoStateEvent>
-    issues: () => Readable<TrustedEvent[]>
-    relays: () => string[]
-  }>("repo")
-
-  const issues = repo.issues()
-  const repoAddress = Address.fromEvent(get(repo.repo)).toString()
+  const repoClass = getContext<Repo>("repoClass")
 
   const comments = $derived.by(() => {
-    if ($issues) {
-      const filters = $issues.map(issue => issue.id)
-      load({relays: repo.relays(), filters: [{kinds: [COMMENT], "#E": filters}]})
+    if (repoClass.issues) {
+      const filters = repoClass.issues.map(issue => issue.id)
+      load({relays: repoClass.relays, filters: [{kinds: [COMMENT], "#E": filters}]})
       return deriveEvents(repository, {filters: [{kinds: [COMMENT], "#E": filters}]})
     }
   })
@@ -38,21 +26,21 @@
   let element: HTMLElement | undefined = $state()
 
   $effect(() => {
-    if (issues) {
+    if (repoClass.issues) {
       loading = false
     }
 
     const issueFilter = {
       kinds: [GIT_ISSUE],
-      "#a": [repoAddress],
+      "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
     }
 
-    const {cleanup} = makeFeed({
+    makeFeed({
       element: element!,
-      relays: repo.relays(),
+      relays: repoClass.relays,
       feedFilters: [issueFilter],
       subscriptionFilters: [issueFilter],
-      initialEvents: $issues,
+      initialEvents: repoClass.issues,
       onExhausted: () => {
         loading = false
       },
@@ -63,8 +51,8 @@
 
   const onNewIssue = () => {
     pushModal(NewIssueForm, {
-      repoId: repo.repoId,
-      repoOwnerPubkey: $repoEvent.pubkey,
+      repoId: repoClass.repoId,
+      repoOwnerPubkey: repoClass.repoEvent?.pubkey,
       postIssue,
     })
   }
@@ -101,14 +89,14 @@
         {/if}
       </Spinner>
     </div>
-  {:else if $issues.length === 0}
+  {:else if repoClass.issues.length === 0}
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No issues found.
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each $issues as issue (issue.id)}
+      {#each repoClass.issues as issue (issue.id)}
         <div in:fly>
           <IssueCard event={issue} author={deriveProfile(issue.pubkey)} comments={$comments} />
         </div>
