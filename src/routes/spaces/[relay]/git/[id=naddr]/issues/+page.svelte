@@ -1,29 +1,27 @@
 <script lang="ts">
   import {Button, IssueCard, NewIssueForm, Repo} from "@nostr-git/ui"
-  import { isCommentEvent, type CommentEvent } from "@nostr-git/shared-types"
+  import {isCommentEvent, type CommentEvent} from "@nostr-git/shared-types"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, COMMENT, GIT_ISSUE} from "@welshman/util"
   import {getContext} from "svelte"
-  import {deriveProfile, repository} from "@welshman/app"
+  import {deriveProfile, repository, Thunk} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
   import {fly} from "@lib/transition"
   import {pushModal} from "@src/app/modal"
-  import {load} from "@welshman/net"
   import {deriveEvents} from "@welshman/store"
-  import type { IssueEvent } from "@nostr-git/shared-types"
+  import type {IssueEvent} from "@nostr-git/shared-types"
+  import {load} from "@welshman/net"
 
   const repoClass = getContext<Repo>("repoClass")
 
-  const comments = $derived.by(() => {
-    return deriveEvents(repository, {
-      filters: [
-        {
-          kinds: [COMMENT],
-          "#E": [...repoClass.issues.map((i) => i.id)],
-        },
-      ],
-    })
+  const commentFilter = {
+    kinds: [COMMENT],
+    "#E": [...repoClass.issues.map(i => i.id)],
+  }
+
+  const comments = deriveEvents(repository, {
+    filters: [commentFilter],
   })
 
   const commentEvents = $derived.by(() => {
@@ -34,29 +32,30 @@
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
 
+  const issueFilter = {
+    kinds: [GIT_ISSUE],
+    "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
+  }
+
   $effect(() => {
     if (repoClass.issues) {
+      load({relays: repoClass.relays, filters: [commentFilter, issueFilter]})
+
+      makeFeed({
+        element: element!,
+        relays: repoClass.relays,
+        feedFilters: [issueFilter],
+        subscriptionFilters: [issueFilter],
+        initialEvents: repoClass.issues,
+        onExhausted: () => {
+          loading = false
+        },
+      })
       loading = false
     }
-
-    const issueFilter = {
-      kinds: [GIT_ISSUE],
-      "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
-    }
-
-    makeFeed({
-      element: element!,
-      relays: repoClass.relays,
-      feedFilters: [issueFilter],
-      subscriptionFilters: [issueFilter],
-      initialEvents: repoClass.issues,
-      onExhausted: () => {
-        loading = false
-      },
-    })
   })
 
-  const postIssue: (issue: IssueEvent) => Promise<void> = getContext("postIssue");
+  const {postIssue} = getContext("functions") as {postIssue: (issue: IssueEvent) => Thunk}
 
   const onNewIssue = () => {
     pushModal(NewIssueForm, {
@@ -68,7 +67,7 @@
 </script>
 
 <div bind:this={element}>
-  <div class="z-nav sticky -top-8 mb-4 flex items-center justify-between py-4 backdrop-blur">
+  <div class="sticky -top-8 z-nav mb-4 flex items-center justify-between py-4 backdrop-blur">
     <div>
       <h2 class="text-xl font-semibold">Issues</h2>
       <p class="text-sm text-muted-foreground">Track bugs and feature requests</p>
@@ -107,7 +106,7 @@
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each repoClass.issues as issue (issue.id)}
         <div in:fly>
-          <IssueCard event={issue} author={deriveProfile(issue.pubkey)} comments={commentEvents} />
+          <IssueCard event={issue} author={deriveProfile(issue.pubkey)} comments={commentEvents}/>
         </div>
       {/each}
     </div>

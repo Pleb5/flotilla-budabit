@@ -10,6 +10,7 @@
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
   import {COMMENT, type Filter} from "@welshman/util"
+  import type {CommentEvent} from "@nostr-git/shared-types"
 
   const repoClass = getContext<Repo>("repoClass")
 
@@ -105,8 +106,6 @@
           <h2 class="text-lg font-medium">{patch?.commitCount} Commits</h2>
 
           <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm">View on GitHub</Button>
-
             {#if patch?.status === "open"}
               <Button variant="default" size="sm" class="bg-git hover:bg-git-hover">
                 Merge Patch
@@ -130,7 +129,7 @@
             Discussion ({$threadComments?.length})
           </h2>
 
-          <IssueThread issueId={patch?.id} comments={$threadComments} />
+          <IssueThread issueId={patch?.id} comments={$threadComments as CommentEvent[]} />
         </div>
       </div>
     </div>

@@ -1,204 +1,24 @@
 <script lang="ts">
-  import {Repo, RepoHeader, RepoTab} from "@nostr-git/ui"
-  import {page} from "$app/stores"
-  import {decodeRelay, deriveNaddrEvent, hasNip29, userMembership} from "@app/state"
-  import PageContent from "@src/lib/components/PageContent.svelte"
-  import {FileCode, GitBranch, CircleAlert, GitPullRequest, Layers, GitMerge} from "@lucide/svelte"
-  import {
-    parseRepoAnnouncementEvent,
-    type CommentEvent,
-    type IssueEvent,
-    type PatchEvent,
-    type RepoAnnouncementEvent,
-    type RepoStateEvent,
-  } from "@nostr-git/shared-types"
-  import {setContext} from "svelte"
-  import {deriveEvents} from "@welshman/store"
-  import {deriveProfile, deriveRelay, publishThunk, repository} from "@welshman/app"
-  import {GIT_REPO_STATE} from "@src/lib/util"
-  import {derived as _derived, get} from "svelte/store"
-  import {Address, GIT_ISSUE, GIT_PATCH, type Filter} from "@welshman/util"
-  import {load} from "@welshman/net"
-  import {equals, nthEq} from "@welshman/lib"
-  import {nip19, type NostrEvent} from "nostr-tools"
-  import type {AddressPointer} from "nostr-tools/nip19"
-  import {addRoomMembership, getThunkError, nip29} from "@src/app/commands"
-  import {pushToast} from "@src/app/toast"
-  import {makeSpacePath} from "@src/app/routes"
-  import {goto} from "$app/navigation"
-  import {toast} from "@nostr-git/ui"
+  import {FunctionProvider, Repo, RepoHeader, RepoTab, toast} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
-
+  import {FileCode, GitBranch, CircleAlert, GitPullRequest} from "@lucide/svelte"
+  import {page} from "$app/stores"
+  import PageContent from "@src/lib/components/PageContent.svelte"
   import Button from "@lib/components/Button.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
+  import {setContext} from "svelte"
+  import {pushToast} from "@src/app/toast"
 
   const {id, relay} = $page.params
+  let {data, children} = $props()
 
-  let {children} = $props()
-
-  const decoded = nip19.decode(id).data as AddressPointer
-  const repoId = decoded.identifier
-
-  let eventStore = deriveNaddrEvent(id, Array.isArray(relay) ? relay : [relay])
-
-  const repoState = $derived.by(() => {
-    if ($eventStore) {
-      const repoEvent = parseRepoAnnouncementEvent(
-        $eventStore as RepoAnnouncementEvent
-      )
-      const address = repoEvent.repoId
-
-      const repoStateFilter: Filter[] = [
-        {
-          kinds: [GIT_REPO_STATE],
-          "#d": [address!],
-        },
-      ]
-      return deriveEvents(repository, {filters: repoStateFilter})
-    }
-  })
-
-  const issues = $derived.by(() => {
-    if ($eventStore) {
-      return deriveEvents(repository, {
-        filters: [
-          {
-            kinds: [GIT_ISSUE],
-            "#a": [Address.fromEvent($eventStore).toString()],
-          },
-        ],
-      })
-    }
-  })
-
-  const patches = $derived.by(() => {
-    if ($eventStore) {
-      return deriveEvents(repository, {
-        filters: [
-          {
-            kinds: [GIT_PATCH],
-            "#a": [Address.fromEvent($eventStore).toString()],
-            "#t": ["root"],
-          },
-        ],
-      })
-    }
-  })
-
-  const url = decodeRelay($page.params.relay)
-
-  const relays = $derived.by(() => {
-    if ($eventStore) {
-      const [_, ...relays] = $eventStore.tags.find(nthEq(0, "relays")) || []
-      return relays
-    }
-  })
-
-  const postComment = (comment: CommentEvent) => {
-    if (!relays) {
-      pushToast({
-          theme: "error",
-          message: 'No relays found to post!', timeout: 7000
-      })
-      return;
-    }
-    publishThunk({
-      relays: relays,
-      event: comment,
-    })
-  }
-
-  setContext("postComment", postComment)
-
-  const postIssue = async (issue: IssueEvent) => {
-    if (!relays) {
-      pushToast({
-          theme: "error",
-          message: 'No relays found to post!', timeout: 7000
-      })
-      return;
-    }
-    publishThunk({
-      relays: relays,
-      event: issue,
-    })
-  }
-
-  setContext("postIssue", postIssue)
-
-  setContext("getProfile", deriveProfile)
+  const {repoClass, eventStore, functionRegistry} = data
 
   let activeTab: string | undefined = $page.url.pathname.split("/").pop()
   const encodedRelay = encodeURIComponent(relay)
-
-  $effect(() => {
-    if ($eventStore) {
-      const address = Address.fromEvent($eventStore).toString()
-      const repoStateFilter: Filter = {kinds: [GIT_REPO_STATE], "#d": [address]}
-      const issuesFilter: Filter = {kinds: [GIT_ISSUE], "#a": [address]}
-      const patchesFilter: Filter = {kinds: [GIT_PATCH], "#a": [address]}
-
-      load({
-        relays: relays!,
-        filters: [issuesFilter, patchesFilter, repoStateFilter],
-      })
-    }
-  })
-
-  const nipRelay = deriveRelay(url)
-
-  const isRepoWatched = $derived.by(() => {
-    const list = get(userMembership)
-    const pred = (t: string[]) => equals(["group", repoId, url], t.slice(0, 3))
-    const room = list?.publicTags.find(pred)
-    return room !== undefined && room.length > 0
-  })
-
-  const watchRepo = async () => {
-    $eventStore.tags.push(["h", id])
-    console.log($eventStore)
-
-    const publish = publishThunk({
-      relays: [url],
-      event: {
-        content: $eventStore.content,
-        tags: $eventStore.tags,
-        kind: $eventStore.kind,
-        pubkey: $eventStore.pubkey,
-      },
-    })
-
-    const message = await getThunkError(publish)
-
-    if (message) {
-      return pushToast({theme: "error", message})
-    }
-
-    if (hasNip29($nipRelay)) {
-      const createMessage = await getThunkError(nip29.createRoom(url, id))
-
-      if (createMessage && !createMessage.match(/^duplicate:|already a member/)) {
-        return pushToast({theme: "error", message: createMessage})
-      }
-
-      const editMessage = await getThunkError(nip29.editMeta(url, id, {repoId}))
-
-      if (editMessage) {
-        return pushToast({theme: "error", message: editMessage})
-      }
-
-      const joinMessage = await getThunkError(nip29.joinRoom(url, id))
-
-      if (joinMessage && !joinMessage.includes("already")) {
-        return pushToast({theme: "error", message: joinMessage})
-      }
-    }
-    addRoomMembership(url, id, repoId)
-    goto(makeSpacePath(url, id))
-  }
 
   // Connect the nostr-git toast store to the toast component
   $effect(() => {
@@ -210,19 +30,7 @@
     }
   })
 
-  const repoClass = new Repo({
-    repoEvent: $eventStore as RepoAnnouncementEvent,
-    repoStateEvent: $repoState ? ($repoState[0] as RepoStateEvent) : undefined,
-    publish: (event) => {
-      return publishThunk({
-        relays: [url],
-        event: event,
-      })
-    },
-    issues: $issues! as IssueEvent[],
-    patches: $patches! as PatchEvent[],
-  })
-
+  setContext("functions", functionRegistry)
   setContext("repoClass", repoClass)
 </script>
 
@@ -232,11 +40,7 @@
   {:else if !$eventStore}
     <div class="p-4 text-center text-red-500">Repository not found.</div>
   {:else}
-    <RepoHeader
-      event={$eventStore as RepoAnnouncementEvent}
-      {activeTab}
-      {watchRepo}
-      {isRepoWatched}>
+    <RepoHeader event={$eventStore as any} {activeTab} isRepoWatched={false}>
       {#snippet children(activeTab: string)}
         <RepoTab
           tabValue={id}
@@ -274,16 +78,28 @@
             <GitPullRequest class="h-4 w-4" />
           {/snippet}
         </RepoTab>
+        <RepoTab
+          tabValue="workbench"
+          label="Workbench"
+          href={`/spaces/${encodedRelay}/git/${id}/workbench`}
+          {activeTab}>
+          {#snippet icon()}
+            <GitBranch class="h-4 w-4" />
+          {/snippet}
+        </RepoTab>
       {/snippet}
     </RepoHeader>
-    <ConfigProvider components={{
-      Button,
-      Avatar,
-      Separator: Divider,
-      Input,
-      Alert: Dialog
-    }}>
-      {@render children()}
-    </ConfigProvider>
+    <FunctionProvider functions={functionRegistry}>
+      <ConfigProvider
+        components={{
+          Button: Button as typeof import("@nostr-git/ui").Button,
+          AvatarImage: Avatar as typeof import("@nostr-git/ui").AvatarImage,
+          Separator: Divider as typeof import("@nostr-git/ui").Separator,
+          Input: Input as typeof import("@nostr-git/ui").Input,
+          Alert: Dialog as typeof import("@nostr-git/ui").Alert,
+        }}>
+        {@render children()}
+      </ConfigProvider>
+    </FunctionProvider>
   {/if}
 </PageContent>

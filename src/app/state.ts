@@ -256,7 +256,6 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
         load({relays: relays as string[], filters})
         attempted = true
       }
-
       return events[0]
     },
   )

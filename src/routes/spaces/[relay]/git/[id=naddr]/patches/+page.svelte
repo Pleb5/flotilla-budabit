@@ -20,26 +20,12 @@
 
   const repoClass = getContext<Repo>("repoClass")
 
-  const statuses = $derived.by(() => {
-    if (repoClass.patches) {
-      const patchIds = repoClass.patches.map((patch: TrustedEvent) => patch.id)
+  const statusFilter = {
+    kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+    "#e": [...repoClass.patches.map((patch: TrustedEvent) => patch.id)],
+  }
 
-      const filters = [
-        {
-          kinds: [
-            GIT_STATUS_OPEN,
-            GIT_STATUS_COMPLETE,
-            GIT_STATUS_CLOSED,
-            GIT_STATUS_DRAFT,
-          ],
-          "#e": [...patchIds],
-        },
-      ]
-
-      load({relays: repoClass.relays, filters})
-      return deriveEvents(repository, {filters})
-    }
-  })
+  const statuses = deriveEvents(repository, {filters: [statusFilter]})
 
   const patchList = $derived.by(() => {
     if (repoClass.patches) {
@@ -66,26 +52,28 @@
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
 
+  const patchFilter = {
+    kinds: [GIT_PATCH],
+    "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
+    "#t": ["root"],
+  }
+
   $effect(() => {
     if (repoClass.patches) {
+      load({relays: repoClass.relays, filters: [patchFilter, statusFilter]})
+ 
+      makeFeed({
+        element: element!,
+        relays: repoClass.relays,
+        feedFilters: [patchFilter],
+        subscriptionFilters: [patchFilter],
+        initialEvents: patchList,
+        onExhausted: () => {
+          loading = false
+        },
+      })
       loading = false
     }
-
-    const patchFilter = {
-      kinds: [GIT_PATCH],
-      "#a": [repoClass.repoId],
-    }
-
-    makeFeed({
-      element: element!,
-      relays: repoClass.relays,
-      feedFilters: [patchFilter],
-      subscriptionFilters: [patchFilter],
-      initialEvents: repoClass.patches,
-      onExhausted: () => {
-        loading = false
-      },
-    })
   })
 </script>
 
