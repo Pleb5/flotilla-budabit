@@ -51,7 +51,7 @@ export async function load({ params }) {
         "#d": [decoded.identifier],
     }]
 
-    load({ relays: relayList as string[], filters })
+    await load({ relays: relayList as string[], filters })
 
     // Combine the separate event stores
     const repoAnnouncementEvents = deriveEvents(repository, {
@@ -84,25 +84,32 @@ export async function load({ params }) {
         return undefined;
     });
 
+    const issueFilters = {
+        kinds: [GIT_ISSUE],
+        "#a": [`${GIT_REPO}:${decoded.pubkey}:${decoded.identifier}`],
+    }
+
+    const patchFilters = {
+        kinds: [GIT_PATCH],
+        "#a": [`${GIT_REPO}:${decoded.pubkey}:${decoded.identifier}`],
+    }
+
+    await load({ 
+        relays: relayList as string[], 
+        filters: [issueFilters, patchFilters] 
+    })
+
     // Create derived stores for issues and patches
     const issues: Readable<IssueEvent[]> = derived(
         deriveEvents(repository, {
-            filters: [{
-                authors: [decoded.pubkey],
-                kinds: [GIT_ISSUE],
-                "#a": [`${GIT_REPO}:${decoded.pubkey}:${decoded.identifier}`],
-            }],
+            filters: [issueFilters],
         }),
         (events) => (events || []) as IssueEvent[]
     );
 
     const patches: Readable<PatchEvent[]> = derived(
         deriveEvents(repository, {
-            filters: [{
-                authors: [decoded.pubkey],
-                kinds: [GIT_PATCH],
-                "#a": [`${GIT_REPO}:${decoded.pubkey}:${decoded.identifier}`],
-            }]
+            filters: [patchFilters],
         }),
         (events) => (events || []) as PatchEvent[]
     );
