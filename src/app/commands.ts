@@ -12,7 +12,7 @@ import {
   FOLLOWS,
   REACTION,
   AUTH_JOIN,
-  GROUPS,
+  ROOMS,
   COMMENT,
   isSignedEvent,
   makeEvent,
@@ -125,7 +125,7 @@ export const broadcastUserData = async (relays: string[]) => {
 // List updates
 
 export const addSpaceMembership = async (url: string) => {
-  const list = get(userMembership) || makeList({kind: GROUPS})
+  const list = get(userMembership) || makeList({kind: ROOMS})
   const event = await addToListPublicly(list, ["r", url]).reconcile(nip44EncryptToSelf)
   const relays = uniq([...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
 
@@ -133,7 +133,7 @@ export const addSpaceMembership = async (url: string) => {
 }
 
 export const removeSpaceMembership = async (url: string) => {
-  const list = get(userMembership) || makeList({kind: GROUPS})
+  const list = get(userMembership) || makeList({kind: ROOMS})
   const pred = (t: string[]) => t[t[0] === "r" ? 1 : 2] === url
   const event = await removeFromListByPredicate(list, pred).reconcile(nip44EncryptToSelf)
   const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
@@ -142,7 +142,7 @@ export const removeSpaceMembership = async (url: string) => {
 }
 
 export const addRoomMembership = async (url: string, room: string) => {
-  const list = get(userMembership) || makeList({kind: GROUPS})
+  const list = get(userMembership) || makeList({kind: ROOMS})
   const newTags = [
     ["r", url],
     ["group", room, url],
@@ -154,7 +154,7 @@ export const addRoomMembership = async (url: string, room: string) => {
 }
 
 export const removeRoomMembership = async (url: string, room: string) => {
-  const list = get(userMembership) || makeList({kind: GROUPS})
+  const list = get(userMembership) || makeList({kind: ROOMS})
   const pred = (t: string[]) => equals(["group", room, url], t.slice(0, 3))
   const event = await removeFromListByPredicate(list, pred).reconcile(nip44EncryptToSelf)
   const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])

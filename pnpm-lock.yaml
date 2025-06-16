@@ -69,38 +69,38 @@ importers:
         specifier: ^0.6.6
         version: 0.6.8(@sveltejs/kit@2.20.5(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.25.10)(vite@5.4.17(@types/node@22.15.19)(terser@5.39.0)))(svelte@5.25.10)(vite@5.4.17(@types/node@22.15.19)(terser@5.39.0)))(@vite-pwa/assets-generator@0.2.6)(vite-plugin-pwa@0.21.2(@vite-pwa/assets-generator@0.2.6)(vite@5.4.17(@types/node@22.15.19)(terser@5.39.0))(workbox-build@7.3.0)(workbox-window@7.3.0))
       '@welshman/app':
-        specifier: ^0.3.5
-        version: 0.3.5(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.2.0))(typescript@5.8.3)(ws@8.18.2)
+        specifier: ^0.3.7
+        version: 0.3.7(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.2.0))(typescript@5.8.3)(ws@8.18.2)
       '@welshman/content':
-        specifier: ^0.3.5
-        version: 0.3.5(typescript@5.8.3)
+        specifier: ^0.3.7
+        version: 0.3.7(typescript@5.8.3)
       '@welshman/editor':
         specifier: ^0.3.0
         version: 0.3.0(@tiptap/extension-image@2.12.0(@tiptap/core@2.12.0(@tiptap/pm@2.12.0)))(@tiptap/extension-link@2.12.0(@tiptap/core@2.12.0(@tiptap/pm@2.12.0))(@tiptap/pm@2.12.0))(linkifyjs@4.2.0)(prosemirror-markdown@1.13.2)(prosemirror-model@1.25.1)(prosemirror-state@1.4.3)(tiptap-markdown@0.8.10(@tiptap/core@2.12.0(@tiptap/pm@2.12.0)))(typescript@5.8.3)
       '@welshman/feeds':
-        specifier: ^0.3.5
-        version: 0.3.5(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.2.0))(typescript@5.8.3)(ws@8.18.2)
+        specifier: ^0.3.7
+        version: 0.3.7(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.2.0))(typescript@5.8.3)(ws@8.18.2)
       '@welshman/lib':
-        specifier: ^0.3.5
-        version: 0.3.5
+        specifier: ^0.3.7
+        version: 0.3.7
       '@welshman/net':
-        specifier: ^0.3.5
-        version: 0.3.5(typescript@5.8.3)(ws@8.18.2)
+        specifier: ^0.3.7
+        version: 0.3.7(typescript@5.8.3)(ws@8.18.2)
       '@welshman/relay':
-        specifier: ^0.3.5
-        version: 0.3.5(typescript@5.8.3)
+        specifier: ^0.3.7
+        version: 0.3.7(typescript@5.8.3)
       '@welshman/router':
-        specifier: ^0.3.5
-        version: 0.3.5(typescript@5.8.3)
+        specifier: ^0.3.7
+        version: 0.3.7(typescript@5.8.3)
       '@welshman/signer':
-        specifier: ^0.3.5
-        version: 0.3.5(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.2.0))(typescript@5.8.3)(ws@8.18.2)
+        specifier: ^0.3.7
+        version: 0.3.7(nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.2.0))(typescript@5.8.3)(ws@8.18.2)
       '@welshman/store':
-        specifier: ^0.3.5
-        version: 0.3.5(typescript@5.8.3)
+        specifier: ^0.3.7
+        version: 0.3.7(typescript@5.8.3)
       '@welshman/util':
-        specifier: ^0.3.5
-        version: 0.3.5(typescript@5.8.3)
+        specifier: ^0.3.7
+        version: 0.3.7(typescript@5.8.3)
       compressorjs:
         specifier: ^1.2.1
         version: 1.2.1
@@ -5285,8 +5285,8 @@ packages:
     resolution: {integrity: sha512-bdok/XvKII3nUpklnV6P2hxtMNrCboOjAcyBuQnWEhO665FwrSNRxU+AqpsyvO6LgGYPspN+lu5CLtw4jPRKNA==}
     engines: {node: '>=0.10.0'}
 
-  nostr-editor-coracle-workaround@0.0.4-pre.18:
-    resolution: {integrity: sha512-QAoySZ9uOsR7C4nnVbcEpVgT0vLxwZxlYhE2NsJzmeoK7nTgkcHFaZkn/QMlUem3qjT8AolW8X5TrRdnZ5eIZQ==}
+  nostr-editor@1.0.0:
+    resolution: {integrity: sha512-+TL3G0m7WsXeEAitxzQhun7hyARxqRANjGIS2z9CBbniCGvT/Wz6YLgUnUysnBg3tmSgMZg5FWhaDPwfvdvbSw==}
     engines: {node: '>=18.16.1'}
     peerDependencies:
       '@tiptap/core': ^2.6.6
@@ -5294,10 +5294,11 @@ packages:
       '@tiptap/extension-link': ^2.6.6
       '@tiptap/pm': ^2.6.6
       linkifyjs: ^4.1.3
-      nostr-tools: ^2.14.2
+      nostr-tools: ~2.14.2
       prosemirror-markdown: ^1.13.0
       prosemirror-model: ^1.22.3
       prosemirror-state: ^1.4.3
+      prosemirror-view: ^1.39.3
       tiptap-markdown: ^0.8.10
 
   nostr-signer-capacitor-plugin@0.0.4:
@@ -10032,6 +10033,7 @@ snapshots:
       - prosemirror-markdown
       - prosemirror-model
       - prosemirror-state
+      - prosemirror-view
       - tiptap-markdown
       - typescript
 
@@ -12583,6 +12585,7 @@ snapshots:
       prosemirror-markdown: 1.13.2
       prosemirror-model: 1.25.1
       prosemirror-state: 1.4.3
+      prosemirror-view: 1.39.3
       tiptap-markdown: 0.8.10(@tiptap/core@2.12.0(@tiptap/pm@2.12.0))
 
   nostr-signer-capacitor-plugin@0.0.4(@capacitor/core@7.2.0):

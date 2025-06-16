@@ -2,7 +2,7 @@
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {ago, MONTH} from "@welshman/lib"
-  import {GROUP_META, EVENT_TIME, THREAD, COMMENT, MESSAGE} from "@welshman/util"
+  import {ROOM_META, EVENT_TIME, THREAD, COMMENT, MESSAGE} from "@welshman/util"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import MenuSpace from "@app/components/MenuSpace.svelte"
@@ -60,7 +60,7 @@
     pullConservatively({
       relays,
       filters: [
-        {kinds: [GROUP_META]},
+        {kinds: [ROOM_META]},
         {kinds: [GIT_REPO]},
         {kinds: [THREAD, EVENT_TIME], since},
         {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since},

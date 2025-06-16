@@ -33,14 +33,14 @@ import {
   ZAP_RESPONSE,
   DIRECT_MESSAGE,
   DIRECT_MESSAGE_FILE,
-  GROUP_META,
+  ROOM_META,
   MESSAGE,
-  GROUPS,
+  ROOMS,
   THREAD,
   COMMENT,
-  GROUP_JOIN,
-  GROUP_ADD_USER,
-  GROUP_REMOVE_USER,
+  ROOM_JOIN,
+  ROOM_ADD_USER,
+  ROOM_REMOVE_USER,
   getGroupTags,
   getRelayTagValues,
   getPubkeyTagValues,
@@ -129,7 +129,7 @@ export const REPO_RELAYS_KEY = Symbol("repo-relays");
 
 export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt," +
-  [CLIENT_AUTH, AUTH_JOIN, MESSAGE, THREAD, COMMENT, GROUPS, WRAP, REACTION]
+  [CLIENT_AUTH, AUTH_JOIN, MESSAGE, THREAD, COMMENT, ROOMS, WRAP, REACTION]
     .map(k => `sign_event:${k}`)
     .join(",")
 
@@ -430,7 +430,7 @@ export const getMembershipRoomsByUrl = (url: string, list?: List) =>
   sort(getGroupTags(getListTags(list)).filter(nthEq(2, url)).map(nth(1)))
 
 export const memberships = deriveEventsMapped<PublishedList>(repository, {
-  filters: [{kinds: [GROUPS]}],
+  filters: [{kinds: [ROOMS]}],
   itemToEvent: item => item.event,
   eventToItem: (event: TrustedEvent) => readList(asDecryptedEvent(event)),
 })
@@ -443,7 +443,7 @@ export const {
   name: "memberships",
   store: memberships,
   getKey: list => list.event.pubkey,
-  load: makeOutboxLoader(GROUPS),
+  load: makeOutboxLoader(ROOMS),
 })
 
 // Chats
@@ -541,7 +541,7 @@ export const splitChannelId = (id: string) => id.split("'")
 export const hasNip29 = (relay?: Relay) =>
   relay?.profile?.supported_nips?.map?.(String)?.includes?.("29")
 
-export const channelEvents = deriveEvents(repository, {filters: [{kinds: [GROUP_META]}]})
+export const channelEvents = deriveEvents(repository, {filters: [{kinds: [ROOM_META]}]})
 
 export const channels = derived(
   [channelEvents, getUrlsForEvent],
@@ -590,7 +590,7 @@ export const {
 
     await load({
       relays: [url],
-      filters: [{kinds: [GROUP_META], "#d": [room]}],
+      filters: [{kinds: [ROOM_META], "#d": [room]}],
     })
   },
 })
@@ -676,22 +676,22 @@ export const deriveUserMembershipStatus = (url: string, room: string) =>
     [
       pubkey,
       deriveEventsForUrl(url, [
-        {kinds: [GROUP_JOIN, GROUP_ADD_USER, GROUP_REMOVE_USER], "#h": [room]},
+        {kinds: [ROOM_JOIN, ROOM_ADD_USER, ROOM_REMOVE_USER], "#h": [room]},
       ]),
     ],
     ([$pubkey, $events]) => {
       let status = MembershipStatus.Initial
 
       for (const event of $events) {
-        if (event.kind === GROUP_JOIN && event.pubkey === $pubkey) {
+        if (event.kind === ROOM_JOIN && event.pubkey === $pubkey) {
           status = MembershipStatus.Pending
         }
 
-        if (event.kind === GROUP_REMOVE_USER && getTagValues("p", event.tags).includes($pubkey!)) {
+        if (event.kind === ROOM_REMOVE_USER && getTagValues("p", event.tags).includes($pubkey!)) {
           break
         }
 
-        if (event.kind === GROUP_ADD_USER && getTagValues("p", event.tags).includes($pubkey!)) {
+        if (event.kind === ROOM_ADD_USER && getTagValues("p", event.tags).includes($pubkey!)) {
           return MembershipStatus.Granted
         }
       }
