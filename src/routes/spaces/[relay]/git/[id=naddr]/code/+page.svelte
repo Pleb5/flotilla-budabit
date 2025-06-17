@@ -8,11 +8,25 @@
   import Icon from "@lib/components/Icon.svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {type FileEntry} from "@nostr-git/core"
+  import {pushToast} from "@src/app/toast"
   const repoClass = getContext<Repo>("repoClass")
 
   let loading = $state(true)
   let error: string | null = $state(null)
   let files: Promise<FileEntry[]> = $state(Promise.resolve([]))
+  let path = $state<string | undefined>(undefined)
+
+  const rootDir: FileEntry = $state({
+    name: ".",
+    path: "",
+    type: "directory",
+  })
+
+  let curDir: FileEntry = $state({
+    name: "..",
+    path: "",
+    type: "directory",
+  })
 
   let selectedBranch = $derived.by(() => {
     return repoClass.mainBranch
@@ -22,8 +36,19 @@
     if (selectedBranch) {
       files = repoClass.listRepoFiles({
         branch: selectedBranch?.split("/").pop() || "master",
+        path,
       })
       loading = false
+    }
+  })
+
+  $effect(() => {
+    if (path) {
+      curDir.path = path.split("/").slice(0, -1).join("/")
+      files = repoClass.listRepoFiles({
+        branch: selectedBranch?.split("/").pop() || "master",
+        path,
+      })
     }
   })
 
@@ -38,10 +63,26 @@
   }
 
   const getFileContent = async (path: string) => {
-    return await repoClass.getFileContent({
-      branch: selectedBranch?.split("/").pop() || "master",
-      path,
-    })
+    try {
+      return await repoClass.getFileContent({
+        branch: selectedBranch?.split("/").pop() || "master",
+        path,
+      })
+    } catch (e) {
+      console.error(e)
+      pushToast({
+        message: "Failed to load file: " + e,
+        theme: "error",
+      })
+      return ""
+    }
+  }
+
+  const setDirectory = (p: string) => {
+    if (p !== path) {
+      console.log("setDirectory", p)
+      path = p
+    }
   }
 </script>
 
@@ -82,8 +123,12 @@
             {#if files.length === 0}
               <div class="text-muted-foreground">No files found in this branch.</div>
             {:else}
+              {#if path}
+              <FileView file={rootDir} {getFileContent} {setDirectory} />
+                <FileView file={curDir} {getFileContent} {setDirectory} />
+              {/if}
               {#each files as file}
-                <FileView {file} {getFileContent} />
+                <FileView {file} {getFileContent} {setDirectory} />
               {/each}
             {/if}
           {/await}
