@@ -27,18 +27,20 @@
 
   const bookmarkRelays = [url, ...Router.get().FromUser().getUrls()]
 
-  const bookmarks = $derived.by(() => {
-    const bookmarkFilter = {kinds: [NAMED_BOOKMARKS], authors: [pubkey.get()!]}
-    return _derived(
-      deriveEvents(repository, {filters: [bookmarkFilter]}),
-      (events: TrustedEvent[]) => {
-        if (events.length === 0) {
-          load({relays: bookmarkRelays, filters: [bookmarkFilter]})
-        }
-        return events[0]
-      },
-    )
-  })
+  const bookmarkFilter = {
+    kinds: [NAMED_BOOKMARKS],
+    authors: [pubkey.get()!],
+  }
+
+  const bookmarks = _derived(
+    deriveEvents(repository, {filters: [bookmarkFilter]}),
+    (events: TrustedEvent[]) => {
+      if (events.length === 0) {
+        load({relays: bookmarkRelays, filters: [bookmarkFilter]})
+      }
+      return events[0]
+    },
+  )
 
   const relaysOfAddresses = $state(new Map<string, string>())
 
@@ -48,7 +50,7 @@
       const dTagValues: string[] = []
       const authors: string[] = []
       const relayHints: string[] = []
-      aTagList.forEach(([letter, value, relayHint]) => {
+      aTagList.forEach(([_, value, relayHint]) => {
         dTagValues.push(value.split(":")[2])
         authors.push(value.split(":")[1])
         relaysOfAddresses.set(value, relayHint || "")
@@ -73,19 +75,25 @@
         const hint = relaysOfAddresses.get(addressString) ?? relayHintFromEvent
         return {address: addressString, event: repo, relayHint: hint}
       })
+    } else {
+      return []
     }
   })
 
   $effect(() => {
-    if (loadedBookmarkedRepos) {
+    if (loadedBookmarkedRepos.length > 0) {
       loading = false
     }
   })
 
+  const back = () => history.back()
+
   const onAddRepo = () => {
     pushModal(RepoPicker, {
       selectedRepos: loadedBookmarkedRepos,
-      onClose: () => {},
+      onClose: () => {
+        back()
+      },
     })
   }
 </script>

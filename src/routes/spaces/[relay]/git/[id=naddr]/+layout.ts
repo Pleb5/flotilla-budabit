@@ -1,49 +1,34 @@
+export const ssr = false;
 import { derived, get, type Readable } from 'svelte/store';
 import {
     type CommentEvent,
     type IssueEvent,
     type PatchEvent,
+    type RepoAnnouncementEvent,
+    type RepoStateEvent,
 } from '@nostr-git/shared-types';
 import { GIT_ISSUE, GIT_PATCH } from '@welshman/util';
 import { nip19 } from 'nostr-tools';
 import type { AddressPointer } from 'nostr-tools/nip19';
 import { nthEq } from '@welshman/lib';
 import { GIT_REPO, GIT_REPO_STATE } from '@src/lib/util.js';
-import { browser } from '$app/environment';
-
-export const ssr = false;
 
 export async function load({ params }) {
     const { id, relay } = params;
 
-    // Only import and use browser-specific modules when in browser context
-    if (!browser) {
-        // Return minimal data for SSR
-        return {
-            repoClass: null,
-            eventStore: null,
-            relays: null,
-            url: null,
-            repoId: null,
-            functionRegistry: undefined,
-        };
-    }
-
     // Dynamic imports to avoid SSR issues
-    const { deriveNaddrEvent, decodeRelay, INDEXER_RELAYS } = await import('@app/state');
+    const { decodeRelay, INDEXER_RELAYS } = await import('@app/state');
     const { deriveEvents } = await import('@welshman/store');
     const { publishThunk, repository } = await import('@welshman/app');
     const { load } = await import("@welshman/net");
-    const { Repo } = await import('@nostr-git/ui'); // Make Repo import dynamic
+    const { Repo } = await import('@nostr-git/ui');
 
     const decoded = nip19.decode(id).data as AddressPointer;
     const repoId = decoded.identifier;
     const url = decodeRelay(relay);
 
-    const eventStore = deriveNaddrEvent(id, Array.isArray(relay) ? relay : [relay]);
-
     const fallbackRelays = INDEXER_RELAYS
-    const relayList = decoded.relays?.length! > 0 ? decoded.relays : fallbackRelays
+    const relayList = (decoded.relays?.length ?? 0) > 0 ? decoded.relays : fallbackRelays
 
     const filters = [{
         authors: [decoded.pubkey],
@@ -54,31 +39,26 @@ export async function load({ params }) {
     await load({ relays: relayList as string[], filters })
 
     // Combine the separate event stores
-    const repoAnnouncementEvents = deriveEvents(repository, {
+    const repoEvent = derived(deriveEvents(repository, {
         filters: [{
             authors: [decoded.pubkey],
             kinds: [GIT_REPO],
             "#d": [decoded.identifier],
         }]
-    });
+    }), (events) => events[0]) as Readable<RepoAnnouncementEvent>;
 
-    const repoStateEvents = deriveEvents(repository, {
+    const repoStateEvent = derived(deriveEvents(repository, {
         filters: [{
             authors: [decoded.pubkey],
             kinds: [GIT_REPO_STATE],
             "#d": [decoded.identifier],
         }]
-    });
-
-    const repoEvents = derived([repoAnnouncementEvents, repoStateEvents], ([announcements, states]) => {
-        const combined = [...(announcements || []), ...(states || [])];
-        return combined;
-    });
+    }), (events) => events[0]) as Readable<RepoStateEvent>;
 
     // Get relays from event tags
-    const relays = derived(eventStore, $eventStore => {
-        if ($eventStore) {
-            const [_, ...relaysList] = $eventStore.tags.find(nthEq(0, "relays")) || [];
+    const relays = derived(repoEvent, re => {
+        if (re) {
+            const [_, ...relaysList] = re.tags.find(nthEq(0, "relays")) || [];
             return relaysList;
         }
         return undefined;
@@ -131,14 +111,14 @@ export async function load({ params }) {
     };
 
     const repoClass = new Repo({
-        repoEvents,
+        repoEvent,
+        repoStateEvent,
         issues,
         patches,
     });
 
     return {
         repoClass,
-        eventStore,
         relays,
         url,
         repoId,

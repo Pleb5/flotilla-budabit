@@ -5,6 +5,7 @@
   import {CircleAlert, GitBranch, GitPullRequest, Users} from "@lucide/svelte"
   import {fly} from "@lib/transition"
   import Spinner from "@src/lib/components/Spinner.svelte"
+    import { pushToast } from "@src/app/toast"
 
   let loading = $state(true)
 
@@ -44,12 +45,16 @@
     if (repoClass.repoEvent) {
       repoClass
         .getFileContent({
-          branch: repoClass.mainBranch?.split("/").pop() || "master",
           path: "README.md",
         })
         .then(content => {
           readme = content
           renderedReadme = readme ? md.render(readme) : ""
+          loading = false
+        })
+        .catch((e) => {
+          console.error(e)
+          pushToast({message: "Failed to load README.md: " + e, theme: "error"})
           loading = false
         })
     }

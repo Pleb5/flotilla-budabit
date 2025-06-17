@@ -1,10 +1,9 @@
 <script lang="ts">
-  import {FunctionProvider, Repo, RepoHeader, RepoTab, toast} from "@nostr-git/ui"
+  import {FunctionProvider, RepoHeader, RepoTab, toast} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
   import {FileCode, GitBranch, CircleAlert, GitPullRequest} from "@lucide/svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
-  import Button from "@lib/components/Button.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import Input from "@lib/components/Field.svelte"
@@ -14,8 +13,7 @@
 
   const {id, relay} = $page.params
   let {data, children} = $props()
-
-  const {repoClass, eventStore, functionRegistry} = data
+  const {repoClass, functionRegistry} = data
 
   let activeTab: string | undefined = $page.url.pathname.split("/").pop()
   const encodedRelay = encodeURIComponent(relay)
@@ -24,7 +22,10 @@
   $effect(() => {
     if ($toast.length > 0) {
       $toast.forEach(t => {
-        pushToast({message: t.description!, theme: t.variant === "error" ? "error" : undefined})
+        pushToast({
+          message: t.description!,
+          theme: t.variant === "error" ? "error" : undefined,
+        })
       })
       toast.clear()
     }
@@ -35,12 +36,12 @@
 </script>
 
 <PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
-  {#if $eventStore === undefined}
+  {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
-  {:else if !$eventStore}
+  {:else if !repoClass}
     <div class="p-4 text-center text-red-500">Repository not found.</div>
   {:else}
-    <RepoHeader event={$eventStore as any} {activeTab} isRepoWatched={false}>
+    <RepoHeader event={repoClass.repoEvent} {activeTab} isRepoWatched={false}>
       {#snippet children(activeTab: string)}
         <RepoTab
           tabValue={id}
@@ -92,7 +93,6 @@
     <FunctionProvider functions={functionRegistry}>
       <ConfigProvider
         components={{
-          Button: Button as typeof import("@nostr-git/ui").Button,
           AvatarImage: Avatar as typeof import("@nostr-git/ui").AvatarImage,
           Separator: Divider as typeof import("@nostr-git/ui").Separator,
           Input: Input as typeof import("@nostr-git/ui").Input,
