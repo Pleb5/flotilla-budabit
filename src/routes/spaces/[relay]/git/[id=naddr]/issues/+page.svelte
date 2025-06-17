@@ -13,6 +13,11 @@
   import type {IssueEvent} from "@nostr-git/shared-types"
   import {load} from "@welshman/net"
 
+  interface FunctionRegistry {
+    postComment: (comment: CommentEvent) => Thunk;
+    postIssue: (issue: IssueEvent) => Thunk;
+  }
+
   const repoClass = getContext<Repo>("repoClass")
 
   const commentFilter = {
@@ -55,15 +60,21 @@
     }
   })
 
-  const {postIssue} = getContext("functions") as {postIssue: (issue: IssueEvent) => Thunk}
+  const functions = getContext<FunctionRegistry>("functions")
+
+  const onIssueCreated = async (issue: IssueEvent) => {
+    await functions.postIssue(issue).result
+    history.back()
+  }
 
   const onNewIssue = () => {
     pushModal(NewIssueForm, {
       repoId: repoClass.repoId,
       repoOwnerPubkey: repoClass.repoEvent?.pubkey,
-      postIssue,
+      onIssueCreated
     })
   }
+
 </script>
 
 <div bind:this={element}>
