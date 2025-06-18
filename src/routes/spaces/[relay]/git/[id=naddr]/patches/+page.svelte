@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Button, IssueCard, PatchCard, Repo} from "@nostr-git/ui"
+  import {Button, PatchCard, Repo} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
