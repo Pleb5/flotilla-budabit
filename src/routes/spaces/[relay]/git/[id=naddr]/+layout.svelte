@@ -80,9 +80,9 @@
           {/snippet}
         </RepoTab>
         <RepoTab
-          tabValue="workbench"
-          label="Workbench"
-          href={`/spaces/${encodedRelay}/git/${id}/workbench`}
+          tabValue="commits"
+          label="Commits"
+          href={`/spaces/${encodedRelay}/git/${id}/commits`}
           {activeTab}>
           {#snippet icon()}
             <GitBranch class="h-4 w-4" />
