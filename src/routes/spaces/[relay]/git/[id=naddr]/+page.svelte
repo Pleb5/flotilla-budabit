@@ -26,7 +26,7 @@
   let loading = $state(true)
   let lastCommit = $state<any>(null)
 
-  const repoClass = getContext<Repo>("repoClass")
+  const repoClass = getContext<Repo>(REPO_KEY)
 
   const stats = $derived([
     {

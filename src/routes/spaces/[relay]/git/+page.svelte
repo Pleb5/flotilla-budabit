@@ -109,7 +109,7 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
-      <Button class="btn btn-primary btn-sm" disabled={loading} onclick={onAddRepo}>
+      <Button class="btn btn-primary btn-sm" onclick={onAddRepo}>
         <Icon icon="git" />
         Add Repo
       </Button>
