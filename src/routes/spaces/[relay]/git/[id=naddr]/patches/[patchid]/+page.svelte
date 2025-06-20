@@ -25,7 +25,7 @@
 
   const threadComments = $derived.by(() => {
     if (repoClass.patches) {
-      const filters: Filter[] = [{kinds: [COMMENT], "#E": patch?.id}]
+      const filters: Filter[] = [{kinds: [COMMENT], "#E": [patch?.id!]}]
       load({relays: repoClass.relays, filters})
       return deriveEvents(repository, {filters})
     }

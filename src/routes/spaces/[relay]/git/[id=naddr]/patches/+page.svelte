@@ -2,7 +2,6 @@
   import {Button, PatchCard, Repo} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, type TrustedEvent} from "@welshman/util"
-  import {getContext} from "svelte"
   import {nthEq} from "@welshman/lib"
   import {deriveProfile, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
@@ -18,7 +17,8 @@
   import {fly} from "@lib/transition"
   import {load} from "@welshman/net"
 
-  const repoClass = getContext<Repo>("repoClass")
+  const {data} = $props()
+  const {repoClass} = data
 
   const statusFilter = {
     kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],

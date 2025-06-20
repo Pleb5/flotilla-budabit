@@ -1,15 +1,16 @@
 <script lang="ts">
-  import {getContext} from "svelte"
-  import {FileView, Repo} from "@nostr-git/ui"
+  import {FileView} from "@nostr-git/ui"
   import {GitBranch} from "@lucide/svelte"
   import Popover from "@src/lib/components/Popover.svelte"
   import Button from "@src/lib/components/Button.svelte"
-  import {fly} from "svelte/transition"
+  import {fade, fly, slide} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {type FileEntry} from "@nostr-git/core"
   import {pushToast} from "@src/app/toast"
-  const repoClass = getContext<Repo>("repoClass")
+
+  const {data} = $props()
+  const {repoClass} = data
 
   let loading = $state(true)
   let error: string | null = $state(null)
@@ -80,13 +81,12 @@
 
   const setDirectory = (p: string) => {
     if (p !== path) {
-      console.log("setDirectory", p)
       path = p
     }
   }
 </script>
 
-<div class="rounded-lg border border-border bg-card">
+<div class="rounded-lg border border-border bg-card mt-2">
   <div class="p-4">
     {#if loading}
       <Spinner {loading}>Loading files...</Spinner>
@@ -118,13 +118,13 @@
         {/if}
       </div>
       <div class="border-t border-border pt-4">
-        <div class="space-y-2">
+        <div transition:fade>
           {#await files then files}
             {#if files.length === 0}
               <div class="text-muted-foreground">No files found in this branch.</div>
             {:else}
               {#if path}
-              <FileView file={rootDir} {getFileContent} {setDirectory} />
+                <FileView file={rootDir} {getFileContent} {setDirectory} />
                 <FileView file={curDir} {getFileContent} {setDirectory} />
               {/if}
               {#each files as file}

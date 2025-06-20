@@ -1,7 +1,7 @@
 <script lang="ts">
   import {FunctionProvider, RepoHeader, RepoTab, toast} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
-  import {FileCode, GitBranch, CircleAlert, GitPullRequest} from "@lucide/svelte"
+  import {FileCode, GitBranch, CircleAlert, GitPullRequest, PencilRuler, GitCommit} from "@lucide/svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
@@ -33,6 +33,7 @@
 
   setContext("functions", functionRegistry)
   setContext("repoClass", repoClass)
+
 </script>
 
 <PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
@@ -85,7 +86,16 @@
           href={`/spaces/${encodedRelay}/git/${id}/commits`}
           {activeTab}>
           {#snippet icon()}
-            <GitBranch class="h-4 w-4" />
+            <GitCommit class="h-4 w-4" />
+          {/snippet}
+        </RepoTab>
+        <RepoTab
+          tabValue="workbench"
+          label="Workbench"
+          href={`/spaces/${encodedRelay}/git/${id}/workbench`}
+          {activeTab}>
+          {#snippet icon()}
+            <PencilRuler class="h-4 w-4" />
           {/snippet}
         </RepoTab>
       {/snippet}
