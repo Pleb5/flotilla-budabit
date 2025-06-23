@@ -40,7 +40,6 @@ export const load: LayoutLoad = async ({ params }) => {
 
     await load({ relays: relayListFromUrl as string[], filters })
 
-    // Combine the separate event stores
     const repoEvent = derived(deriveEvents(repository, {
         filters: [{
             authors: [decoded.pubkey],

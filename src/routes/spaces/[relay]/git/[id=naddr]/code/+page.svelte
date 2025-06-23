@@ -118,8 +118,11 @@
         {/if}
       </div>
       <div class="border-t border-border pt-4">
+        {#key files}
         <div transition:fade>
-          {#await files then files}
+          {#await files}
+            <Spinner {loading}>Loading files...</Spinner>
+          {:then files}
             {#if files.length === 0}
               <div class="text-muted-foreground">No files found in this branch.</div>
             {:else}
@@ -127,12 +130,13 @@
                 <FileView file={rootDir} {getFileContent} {setDirectory} />
                 <FileView file={curDir} {getFileContent} {setDirectory} />
               {/if}
-              {#each files as file}
+              {#each files as file (file)}
                 <FileView {file} {getFileContent} {setDirectory} />
               {/each}
             {/if}
           {/await}
         </div>
+        {/key}
       </div>
     {/if}
   </div>

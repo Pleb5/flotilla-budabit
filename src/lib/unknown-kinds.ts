@@ -9,8 +9,8 @@ const DEFAULT_TEMPLATES: Record<number, string> = {
   10002: "canonical relays list for {{pubkey}}",
 
   1111: "{{content}}",
-  30617: "git repository {{tags.name}} hosted at {{tags.h}} by {{pubkey}}",
-  30618: "git repository state {{tags.d}} hosted at {{tags.h[0]}} by {{pubkey}}",
+  30617: "Git repository {{tags.name}} hosted at {{{tags.clone}}} by {{#npub}}{{pubkey}}{{/npub}}",
+  30618: "## Git repository state {{tags.d}} hosted at {{tags.clone}} by {{#npub}}{{pubkey}}{{/npub}}",
   1617: "```\n{{{content}}}\n```",
   1621: "{{#tags.subject}}Subject{{tags.subject}}\n{{/tags.subject}}{{content}} {{#npub}}{{tags.p}}{{/npub}}",
   1623: "```\n{{{content}}}\n```",
@@ -53,9 +53,9 @@ export function unknownKindFallback(
       tags: tagsToObj(params.tags),
       nevent: () => (txt: string, render: (s: string) => string) => {
         const hex = render(txt).trim().toLowerCase();
-        return "nostr:" + nip19.neventEncode({id: hex, relays: []});
+        return "nostr:" + nip19.neventEncode({ id: hex, relays: [] });
       },
-	  npub: () => (txt: string, render: (s: string) => string) => {
+      npub: () => (txt: string, render: (s: string) => string) => {
         const hex = render(txt).trim().toLowerCase()
         return "nostr:" + nip19.npubEncode(hex);
       },

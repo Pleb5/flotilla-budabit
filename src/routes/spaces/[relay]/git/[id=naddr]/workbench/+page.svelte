@@ -26,11 +26,9 @@
   let mergeAnalysis = $state<any>(null)
   let isAnalyzing = $state(false)
 
-  // Simulate merge analysis when both patch and commit are selected
   $effect(() => {
     if ($selectedPatch && $selectedCommit) {
       isAnalyzing = true
-      // Simulate analysis delay
       setTimeout(() => {
         mergeAnalysis = {
           compatibility: $selectedPatch.id === "patch-002" ? "conflicts" : "clean",
@@ -92,7 +90,7 @@
     </div>
 
     <div class="mb-6 grid grid-cols-2 gap-6">
-      <PatchSelector patches={repoClass.patches} selectedPatch={$selectedPatch} onPatchSelect={(patch: any) => selectedPatch = patch} />
+      <PatchSelector patches={repoClass.patches} selectedPatch={selectedPatch} onPatchSelect={(patch: any) => selectedPatch = patch} />
       <CommitSelector commits={repoClass.commits} selectedCommit={$selectedCommit} onCommitSelect={(commit: any) => selectedCommit = commit} />
     </div>
 

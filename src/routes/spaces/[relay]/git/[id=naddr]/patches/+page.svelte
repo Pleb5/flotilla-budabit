@@ -1,69 +1,43 @@
 <script lang="ts">
   import {Button, PatchCard} from "@nostr-git/ui"
-  import {
-    CalendarDays,
-    Check,
-    Clock,
-    Funnel,
-    GitCommit,
-    Plus,
-    SearchX,
-    User,
-    X,
-  } from "@lucide/svelte"
-  import {Address, COMMENT} from "@welshman/util"
+  import {CalendarDays, Check, Clock, Funnel, GitCommit, SearchX, User, X} from "@lucide/svelte"
   import {nthEq} from "@welshman/lib"
-  import {createSearch, repository} from "@welshman/app"
+  import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
-  import {deriveEvents} from "@welshman/store"
   import {
-    GIT_PATCH,
     GIT_STATUS_OPEN,
     GIT_STATUS_COMPLETE,
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
   } from "@welshman/util"
-  import {fly, slide} from "@lib/transition"
+  import {fly, slide, slideAndFade} from "@lib/transition"
   import {load} from "@welshman/net"
-  import {getTags, type PatchEvent, type StatusEvent} from "@nostr-git/shared-types"
+  import {
+    getTags,
+    type CommentEvent,
+    type PatchEvent,
+    type StatusEvent,
+  } from "@nostr-git/shared-types"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
-    import { get } from "svelte/store"
-    import Icon from "@src/lib/components/Icon.svelte"
-    import { isMobile } from "@src/lib/html.js"
+  import Icon from "@src/lib/components/Icon.svelte"
+  import {isMobile} from "@src/lib/html.js"
+  import {postComment} from "@src/app/commands.js"
+  import ProfileName from "@src/app/components/ProfileName.svelte"
 
   const {data} = $props()
-  const {repoClass} = data
-
-  const statusEventFilter = {
-    kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
-    "#e": [...repoClass.patches.map((patch: PatchEvent) => patch.id)],
-  }
-  const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
+  const {repoClass, comments, statusEvents, patchFilter, repoRelays, uniqueAuthors} = data
 
   // Filter and sort options
-  let statusFilter = $state<string>("all") // all, open, applied, closed, draft
+  let statusFilter = $state<string>("open") // all, open, applied, closed, draft
   let sortBy = $state<string>("newest") // newest, oldest, status, commits
   let authorFilter = $state<string>("") // empty string means all authors
   let showFilters = $state(false)
-
-  let searchTerm = $state('')
-
-  // Get all unique authors from patches
-  const uniqueAuthors = $derived.by(() => {
-    if (!repoClass.patches) return []
-
-    const authors = new Set<string>()
-    repoClass.patches.forEach((patch: PatchEvent) => {
-      const pubkey = patch.pubkey
-      if (pubkey) authors.add(pubkey)
-    })
-
-    return Array.from(authors)
-  })
+  let searchTerm = $state("")
 
   const patchList = $derived.by(() => {
-    if (repoClass.patches && $statusEvents.length > 0) {
+    if (repoClass.patches && $statusEvents.length > 0 && $comments) {
+      // First get all root patches
       let filteredPatches = repoClass.patches
         .filter((patch: PatchEvent) => {
           const tags = getTags(patch, "t")
@@ -83,16 +57,18 @@
           })
           const parsedPatch = parseGitPatchFromEvent(patch)
 
-          const comments = deriveEvents(repository, {
-            filters: [{kinds: [COMMENT], "#E": [patch.id]}],
+          const commentEvents = $comments?.filter((comment: any) => {
+            const tags = getTags(comment, "E")
+            return tags.length > 0 && tags[0][1] === patch.id
           })
 
           return {
             ...patch,
             patches,
             status,
-            comments,
             parsedPatch,
+            comments: commentEvents,
+            // Add commit count directly for easier sorting
             commitCount: parsedPatch?.commitCount || 0,
           }
         })
@@ -163,26 +139,16 @@
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
 
-  const patchFilter = {
-    kinds: [GIT_PATCH],
-    "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
-    "#t": ["root"],
+  const onCommentCreated = async (comment: CommentEvent) => {
+    await postComment(comment, repoClass.relays || repoRelays).result
   }
-
-  const commentFilter = {
-    kinds: [COMMENT],
-    "#E": [...repoClass.patches.map(i => i.id)],
-  }
-
-  const allComments = $derived.by(() => {
-    if (repoClass.patches) {
-      return deriveEvents(repository, {filters: [commentFilter]})
-    }
-  })
 
   $effect(() => {
     if (repoClass.patches) {
-      load({relays: repoClass.relays, filters: [patchFilter, statusEventFilter, commentFilter]})
+      load({
+        relays: repoClass.relays,
+        filters: [patchFilter],
+      })
 
       makeFeed({
         element: element!,
@@ -202,21 +168,19 @@
     const patchesToSearch = patchList.map(patch => {
       return {
         id: patch.id,
-        title: patch.parsedPatch.title
+        title: patch.parsedPatch.title,
       }
     })
     const patchesSearch = createSearch(patchesToSearch, {
       getValue: (patch: {id: string; title: string}) => patch.id,
       fuseOptions: {
-        keys: [
-          {name: "title"},
-        ],
+        keys: [{name: "title"}],
         includeScore: true,
         threshold: 0.3,
         isCaseSensitive: false,
         // When true, search will ignore location and distance, so it won't
         // matter where in the string the pattern appears
-        ignoreLocation: true, 
+        ignoreLocation: true,
       },
       sortFn: ({score, item}) => {
         if (score && score > 0.3) return -score!
@@ -230,30 +194,14 @@
 </script>
 
 <div bind:this={element}>
-  <div class="z-10 sticky -top-8 z-nav flex flex-col gap-y-2 mb-2 py-4 backdrop-blur">
-    <div class=" flex items-center justify-between ">
+  <div class="z-10 sticky -top-8 z-nav mb-2 flex flex-col gap-y-2 py-4 backdrop-blur">
+    <div class=" flex items-center justify-between">
       <div>
         <h2 class="text-xl font-semibold">Patches</h2>
-        <p class="max-sm:hidden text-sm text-muted-foreground">Review and merge code changes</p>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          class="gap-2"
-          onclick={() => (showFilters = !showFilters)}>
-          <Funnel class="h-4 w-4" />
-          {showFilters ? "Hide Filters" : "Filter"}
-        </Button>
-
-        <Button size="sm" class="gap-2 bg-git hover:bg-git-hover">
-          <Plus class="h-4 w-4" />
-          New Patch
-        </Button>
+        <p class="text-sm text-muted-foreground max-sm:hidden">Review and merge code changes</p>
       </div>
     </div>
-    <label class="row-2 input grow overflow-x-hidden">
+    <div class="row-2 input grow overflow-x-hidden">
       <Icon icon="magnifer" />
       <!-- svelte-ignore a11y_autofocus -->
       <input
@@ -262,7 +210,15 @@
         bind:value={searchTerm}
         type="text"
         placeholder="Search patches..." />
-    </label>
+      <Button
+        variant="outline"
+        size="sm"
+        class="gap-2"
+        onclick={() => (showFilters = !showFilters)}>
+        <Funnel class="h-4 w-4" />
+        {showFilters ? "Hide Filters" : "Filter"}
+      </Button>
+    </div>
   </div>
 
   {#if showFilters}
@@ -345,7 +301,7 @@
         </div>
 
         <!-- Author Filter -->
-        {#if uniqueAuthors.length > 1}
+        {#if uniqueAuthors.size > 1}
           <div class="md:col-span-2">
             <h3 class="mb-2 text-sm font-medium">Author</h3>
             <div class="flex flex-wrap gap-2">
@@ -360,10 +316,10 @@
                 <Button
                   variant={authorFilter === author ? "default" : "outline"}
                   size="sm"
-                  onclick={() => (authorFilter = author)}
+                  onclick={() => (authorFilter = author!)}
                   class="gap-1">
                   <User class="h-3 w-3" />
-                  <span class="text-sm">{author.slice(0, 8)}...</span>
+                  <span class="text-sm"><ProfileName pubkey={author!} /></span>
                 </Button>
               {/each}
             </div>
@@ -383,22 +339,26 @@
         {/if}
       </Spinner>
     </div>
-  {:else if repoClass.patches.length === 0}
+  {:else if searchedPatches.length === 0}
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No patches found.
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each searchedPatches as patch}
-        <div in:fly>
-          <PatchCard
-            event={patch}
-            patches={patch.patches}
-            status={patch.status as StatusEvent}
-            commentCount={get(patch.comments).length} />
-        </div>
-      {/each}
+      {#key searchedPatches}
+        {#each searchedPatches as patch (patch.id)}
+          <div in:fly={slideAndFade({duration: 200})}>
+            <PatchCard
+              event={patch}
+              patches={patch.patches}
+              status={patch.status as StatusEvent}
+              comments={patch.comments}
+              currentCommenter={$pubkey!}
+              {onCommentCreated} />
+          </div>
+        {/each}
+      {/key}
     </div>
   {/if}
 </div>

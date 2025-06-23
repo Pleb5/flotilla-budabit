@@ -11,6 +11,7 @@
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {pushToast} from "@src/app/toast"
+  import { REPO_KEY, REPO_RELAYS_KEY } from "@src/app/state.js"
 
   const {id, relay} = $page.params
 

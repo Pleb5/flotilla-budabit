@@ -16,7 +16,7 @@
     GIT_STATUS_DRAFT,
     GIT_STATUS_OPEN,
     type Filter,
-    type TrustedEvent
+    type TrustedEvent,
   } from "@welshman/util"
   import {
     getTags,
@@ -27,11 +27,12 @@
   } from "@nostr-git/shared-types"
   import {postComment} from "@src/app/commands.js"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
-  import { sortBy } from "@welshman/lib"
-  import { derived as _derived } from "svelte/store"
-  import type { LayoutProps } from "../../$types"
+  import {sortBy} from "@welshman/lib"
+  import {derived as _derived} from "svelte/store"
+  import type {LayoutProps} from "../../$types"
+  import {slideAndFade} from "@src/lib/transition"
 
-  let {data}:LayoutProps = $props()
+  let {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
 
   const patchId = $page.params.patchid
@@ -44,15 +45,15 @@
   while (currentPatch) {
     const replyTags = getTags(currentPatch, "e")
     if (replyTags.length === 0) break
-    
+
     const parentId = replyTags[0][1]
     const parentPatch = repoClass.patches.find(p => p.id === parentId)
     if (!parentPatch) break
-    
+
     rootPatchId = parentId
     currentPatch = parentPatch
   }
-  
+
   const patchSet = repoClass.patches
     .filter((p): p is PatchEvent => {
       if (p.id === patchId) return true
@@ -63,40 +64,38 @@
         if (replyTags.length > 0) {
           let checkPatch: PatchEvent | undefined = p
           let foundRoot = false
-          
+
           while (checkPatch) {
             if (checkPatch.id === rootPatchId) {
               foundRoot = true
               break
             }
-            
+
             const checkReplyTags: [string, ...string[]][] = getTags(checkPatch, "e")
             if (checkReplyTags.length === 0) break
-            
+
             const checkParentId: string = checkReplyTags[0][1]
             checkPatch = repoClass.patches.find((p): p is PatchEvent => p.id === checkParentId)
             if (!checkPatch) break
-          }   
+          }
           return foundRoot
         }
       }
       return false
     })
     .sort((a, b) => a.created_at - b.created_at)
-    .sort((a,b) => a.id === rootPatchId ? -1 : 1)
+    .sort((a, b) => (a.id === rootPatchId ? -1 : 1))
     .map(p => parseGitPatchFromEvent(p))
-    
+
   let selectedPatch = $state(patch)
 
   const threadComments = $derived.by(() => {
     if (repoClass.patches && selectedPatch) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [selectedPatch.id]}]
       load({relays: repoClass.relays, filters})
-      return _derived(deriveEvents(repository, {filters}),
-        (events: TrustedEvent[]) => {
-          return sortBy(e => -e.created_at, events) as CommentEvent[]
-        }
-      )
+      return _derived(deriveEvents(repository, {filters}), (events: TrustedEvent[]) => {
+        return sortBy(e => -e.created_at, events) as CommentEvent[]
+      })
     }
   })
 
@@ -121,7 +120,7 @@
   })
 
   function truncateHash(hash: string): string {
-    return hash.substring(0, 7);
+    return hash.substring(0, 7)
   }
 
   const md = markdownit({
@@ -160,7 +159,7 @@
             {/if}
 
             <div>
-              <h1 class="text-2xl font-bold break-words">{patch?.title}</h1>
+              <h1 class="break-words text-2xl font-bold">{patch?.title}</h1>
 
               <div class="mt-1 flex items-center gap-2">
                 <div class="git-tag bg-secondary">
@@ -171,72 +170,25 @@
                       : "Closed"}
                 </div>
                 <span class="text-sm text-muted-foreground">
-                  <ProfileLink pubkey={patch?.author.pubkey}/>
-                  opened this patch • {new Date(
-                    patch?.createdAt,
-                  ).toLocaleString()}
+                  <ProfileLink pubkey={patch?.author.pubkey} />
+                  opened this patch • {new Date(patch?.createdAt).toLocaleString()}
                 </span>
               </div>
-
-              <p class="mt-4 text-muted-foreground">{@html md.render(patch?.description || "")}</p>
             </div>
           </div>
 
           <Profile pubkey={patch.author.pubkey} hideDetails={true}></Profile>
         </div>
 
+        <div class="mb-6">
+          <p class="text-muted-foreground">{@html md.render(patch?.description || "")}</p>
+        </div>
+
         <div class="git-separator"></div>
 
         <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-lg font-medium">{patchSet.length} Patches in Set</h2>
-
-          <div class="flex items-center gap-2">
-            {#if status?.status === "open"}
-              <Button variant="default" size="sm" class="bg-git hover:bg-git-hover">
-                Merge Patch
-              </Button>
-            {/if}
-          </div>
-        </div>
-
-        <!-- Patch Set -->
-        <div class="mb-6 border border-border rounded-md overflow-hidden">
-          {#each patchSet as patchItem, index}
-            {@const isSelected = selectedPatch?.id === patchItem.id}
-            {@const isRoot = patchSet.some(p => {
-              const tags = getTags(p.raw, "e")
-              return tags.length > 0 && tags[0][1] === patchItem.id
-            })}
-            
-            <button 
-              class="w-full text-left p-3 hover:bg-secondary/20 border-b border-border last:border-b-0 flex items-center gap-3 {isSelected ? 'bg-secondary/30' : ''}" 
-              onclick={() => selectedPatch = patchItem}
-            >
-              <div class="flex-shrink-0">
-                <GitCommit class="h-5 w-5 {isSelected ? 'text-primary' : 'text-muted-foreground'}" />
-              </div>
-              <div class="flex-grow">
-                <div class="font-semibold break-words">{patchItem.title || `Patch ${index + 1}`}</div>
-                <div class="text-sm text-muted-foreground flex items-center gap-2">
-                  <ProfileLink pubkey={patchItem.author.pubkey}/>
-                  <span>•</span>
-                  <span>{new Date(patchItem.createdAt).toLocaleString()}</span>
-                  {#if patchItem.commitHash}
-                    <span>•</span>
-                    <span>{truncateHash(patchItem.commitHash)}</span>
-                  {/if}
-                  {#if isRoot}
-                    <span class="ml-1 px-1.5 py-0.5 text-xs rounded bg-blue-500/20 text-blue-500">root</span>
-                  {/if}
-                </div>
-              </div>
-            </button>
-          {/each}
-        </div>
-
-        <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-medium">Changes</h2>
-          
+
           <!-- Navigation Controls -->
           {#if patchSet.length > 1}
             <div class="flex items-center gap-2">
@@ -244,46 +196,75 @@
                 {@const currentIndex = patchSet.findIndex(p => p.id === selectedPatch?.id)}
                 {@const hasPrevious = currentIndex > 0}
                 {@const hasNext = currentIndex < patchSet.length - 1}
-                
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+
+                <Button
+                  variant="outline"
+                  size="sm"
                   disabled={!hasPrevious}
                   onclick={() => {
                     if (hasPrevious) {
-                      selectedPatch = patchSet[currentIndex - 1];
+                      selectedPatch = patchSet[currentIndex - 1]
                     }
-                  }}
-                >
-                  <ChevronLeft class="h-4 w-4 mr-1" />
+                  }}>
+                  <ChevronLeft class="mr-1 h-4 w-4" />
                   Previous
                 </Button>
-                
+
                 <span class="text-sm text-muted-foreground">
                   {currentIndex + 1} of {patchSet.length}
                 </span>
-                
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+
+                <Button
+                  variant="outline"
+                  size="sm"
                   disabled={!hasNext}
                   onclick={() => {
                     if (hasNext) {
-                      selectedPatch = patchSet[currentIndex + 1];
+                      selectedPatch = patchSet[currentIndex + 1]
                     }
-                  }}
-                >
+                  }}>
                   Next
-                  <ChevronRight class="h-4 w-4 ml-1" />
+                  <ChevronRight class="ml-1 h-4 w-4" />
                 </Button>
               {/key}
             </div>
           {/if}
         </div>
-        
-        {#if selectedPatch?.diff}
-          <DiffViewer diff={selectedPatch.diff} />
-        {/if}
+
+        <!-- Patch Set -->
+        <div class="mb-6 overflow-hidden rounded-md border border-border">
+          {#key selectedPatch?.id}
+            <div transition:slideAndFade={{axis: "y", duration: 250}}>
+              {#if selectedPatch}
+                <div
+                  class="flex w-full items-center gap-3 border-b border-border p-3 text-left last:border-b-0 hover:bg-secondary/20">
+                  <div class="flex-shrink-0">
+                    <GitCommit class="h-5 w-5 text-primary" />
+                  </div>
+                  <div class="flex-grow">
+                    <div class="break-words font-semibold">
+                      {selectedPatch.title || `Patch ${selectedPatch.id}`}
+                    </div>
+                    <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span
+                        >{selectedPatch.author.name ||
+                          selectedPatch.author.pubkey.slice(0, 8)}</span>
+                      <span>•</span>
+                      <span>{new Date(selectedPatch.createdAt).toLocaleString()}</span>
+                      {#if selectedPatch.commitHash}
+                        <span>•</span>
+                        <span>{selectedPatch.commitHash}</span>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/if}
+              {#if selectedPatch?.diff}
+                <DiffViewer diff={selectedPatch.diff} />
+              {/if}
+            </div>
+          {/key}
+        </div>
 
         <div class="git-separator my-6"></div>
 

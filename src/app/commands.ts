@@ -65,7 +65,7 @@ import {
   NOTIFIER_RELAY,
   userRoomsByUrl,
 } from "@app/state"
-import type { CommentEvent, IssueEvent } from "@nostr-git/shared-types"
+import type {CommentEvent, IssueEvent, StatusEvent} from "@nostr-git/shared-types"
 
 // Utils
 
@@ -454,17 +454,24 @@ export const makeAlert = async ({cron, email, feed, bunker, secret, description}
 export const publishAlert = async (params: AlertParams) =>
   publishThunk({event: await makeAlert(params), relays: [NOTIFIER_RELAY]})
 
-export const postComment = (comment: CommentEvent, relays :string[]) => {
+export const postComment = (comment: CommentEvent, relays: string[]) => {
   return publishThunk({
     relays: relays ?? [],
     event: comment,
-  });
+  })
 }
 
 export const postIssue = (issue: IssueEvent, relays: string[]) => {
   return publishThunk({
-    relays: relays ?? [],
     event: issue,
-  });
+    relays: relays ?? [],
+  })
 }
 
+export const postStatus = (status: StatusEvent, relays: string[]) => {
+  console.log(status)
+  return publishThunk({
+    relays: relays ?? [],
+    event: status,
+  })
+}

@@ -27,6 +27,7 @@
     userRoomsByUrl,
     displayChannel,
     getEventsForUrl,
+    channelsById,
   } from "@app/state"
   import {setChecked, checked} from "@app/notifications"
   import {

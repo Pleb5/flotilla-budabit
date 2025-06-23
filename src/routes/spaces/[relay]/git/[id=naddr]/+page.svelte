@@ -325,7 +325,7 @@
                       <GitPullRequest class="mt-0.5 h-4 w-4 text-purple-500" />
                       <div class="min-w-0 flex-1">
                         <p class="truncate text-sm font-medium">
-                          {patch.tags.find(nthEq(0, "title"))?.[1] || "Untitled Patch"}
+                          {patch.tags.find(nthEq(0, "t"))?.[1] || "Untitled Patch"}
                         </p>
                         <p class="text-xs text-muted-foreground">
                           {formatDate(new Date(patch.created_at * 1000))}
