@@ -9,7 +9,7 @@
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {type FileEntry} from "@nostr-git/core"
   import {pushToast} from "@src/app/toast"
-  const repoClass = getContext<Repo>("repoClass")
+  const repoClass = getContext<Repo>(REPO_KEY)
 
   let loading = $state(true)
   let error: string | null = $state(null)

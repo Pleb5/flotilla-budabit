@@ -1,7 +1,7 @@
 <script lang="ts">
   import {Button, PatchCard, Repo} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
-  import {Address, type TrustedEvent} from "@welshman/util"
+  import {Address, COMMENT, getTagValue, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
   import {nthEq} from "@welshman/lib"
   import {deriveProfile, repository} from "@welshman/app"
@@ -17,8 +17,9 @@
   } from "@welshman/util"
   import {fly} from "@lib/transition"
   import {load} from "@welshman/net"
+  import { REPO_KEY } from "@src/app/state"
 
-  const repoClass = getContext<Repo>("repoClass")
+  const repoClass = getContext<Repo>(REPO_KEY)
 
   const statusFilter = {
     kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
@@ -30,7 +31,6 @@
   const patchList = $derived.by(() => {
     if (repoClass.patches) {
       return repoClass.patches.map((patch: TrustedEvent) => {
-        const profile = deriveProfile(patch.pubkey)
         let status = $statuses
           ?.filter(s => {
             let [_, eventId] = s.tags.find(nthEq(0, "e")) || []
@@ -43,7 +43,6 @@
             issue => issue.tags.find(nthEq(0, "e"))?.[1] === patch.id,
           ),
           status,
-          profile,
         }
       })
     }
@@ -58,9 +57,20 @@
     "#t": ["root"],
   }
 
+  const commentFilter = {
+    kinds: [COMMENT],
+    "#E": [...repoClass.patches.map(i => i.id)],
+  }
+
+  const allComments = $derived.by(() => {
+    if(repoClass.patches) {
+      return deriveEvents(repository, {filters:[commentFilter]})
+    }
+  })
+
   $effect(() => {
     if (repoClass.patches) {
-      load({relays: repoClass.relays, filters: [patchFilter, statusFilter]})
+      load({relays: repoClass.relays, filters: [patchFilter, statusFilter, commentFilter]})
  
       makeFeed({
         element: element!,
@@ -78,7 +88,7 @@
 </script>
 
 <div bind:this={element}>
-  <div class="z-10 sticky top-0 mb-4 flex items-center justify-between py-4 backdrop-blur">
+  <div class="z-10 sticky z-nav -top-8 mb-4 flex items-center justify-between py-4 backdrop-blur">
     <div>
       <h2 class="text-xl font-semibold">Patches</h2>
       <p class="text-sm text-muted-foreground">Review and merge code changes</p>
@@ -115,8 +125,11 @@
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each patchList! as patch}
+        {@const count = $allComments
+          ?.filter((c)=>getTagValue("E", c.tags) === patch.id).length ?? 0
+        }
         <div in:fly>
-          <PatchCard event={patch} status={patch.status} author={patch.profile} />
+          <PatchCard event={patch} status={patch.status} commentCount={count} />
         </div>
       {/each}
     </div>

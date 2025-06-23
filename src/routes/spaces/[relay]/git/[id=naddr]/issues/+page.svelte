@@ -4,7 +4,7 @@
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, COMMENT, GIT_ISSUE} from "@welshman/util"
   import {getContext} from "svelte"
-  import {deriveProfile, repository, Thunk} from "@welshman/app"
+  import { pubkey, repository } from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
   import {fly} from "@lib/transition"
@@ -12,13 +12,10 @@
   import {deriveEvents} from "@welshman/store"
   import type {IssueEvent} from "@nostr-git/shared-types"
   import {load} from "@welshman/net"
+  import { REPO_KEY, REPO_RELAYS_KEY } from "@src/app/state"
+  import { postComment, postIssue } from "@src/app/commands"
 
-  interface FunctionRegistry {
-    postComment: (comment: CommentEvent) => Thunk;
-    postIssue: (issue: IssueEvent) => Thunk;
-  }
-
-  const repoClass = getContext<Repo>("repoClass")
+  const repoClass = getContext<Repo>(REPO_KEY)
 
   const commentFilter = {
     kinds: [COMMENT],
@@ -60,11 +57,9 @@
     }
   })
 
-  const functions = getContext<FunctionRegistry>("functions")
-
+  const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onIssueCreated = async (issue: IssueEvent) => {
-    await functions.postIssue(issue).result
-    history.back()
+    await postIssue(issue, repoClass.relays || repoRelays).result
   }
 
   const onNewIssue = () => {
@@ -74,6 +69,14 @@
       onIssueCreated
     })
   }
+
+  const onCommentCreated = async (comment: CommentEvent) => {
+    await postComment(comment, repoClass.relays || repoRelays).result
+  }
+
+  $inspect(commentEvents).with((type, comments) => {
+    console.log('comments for all issues on the repo in budabit:')
+  })
 
 </script>
 
@@ -117,7 +120,12 @@
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each repoClass.issues as issue (issue.id)}
         <div in:fly>
-          <IssueCard event={issue} author={deriveProfile(issue.pubkey)} comments={commentEvents}/>
+          <IssueCard
+            event={issue}
+            comments={commentEvents}
+            currentCommenter={$pubkey!}
+            onCommentCreated={onCommentCreated}
+          />
         </div>
       {/each}
     </div>

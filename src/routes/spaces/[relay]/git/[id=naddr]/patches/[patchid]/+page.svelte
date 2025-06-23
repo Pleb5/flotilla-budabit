@@ -3,16 +3,20 @@
   import {GitCommit, MessageSquare, Check, X} from "@lucide/svelte"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import {Button, Repo} from "@nostr-git/ui"
-  import {Avatar, AvatarFallback, AvatarImage, DiffViewer, IssueThread} from "@nostr-git/ui"
-  import {deriveProfile, repository} from "@welshman/app"
+  import { DiffViewer, IssueThread} from "@nostr-git/ui"
+  import { repository, pubkey } from "@welshman/app"
   import {getContext} from "svelte"
   import markdownit from "markdown-it"
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
-  import {COMMENT, type Filter} from "@welshman/util"
+  import {COMMENT, GIT_PATCH, type Filter, type TrustedEvent} from "@welshman/util"
   import type {CommentEvent} from "@nostr-git/shared-types"
+  import { REPO_KEY, REPO_RELAYS_KEY } from "@src/app/state"
+  import { derived as _derived } from "svelte/store"
+  import { postComment } from "@src/app/commands"
+  import Profile from "@src/app/components/Profile.svelte"
 
-  const repoClass = getContext<Repo>("repoClass")
+  const repoClass = getContext<Repo>(REPO_KEY)
 
   const patch = $derived.by(() => {
     if (repoClass.patches) {
@@ -23,19 +27,22 @@
     }
   })
 
-  const threadComments = $derived.by(() => {
-    if (repoClass.patches) {
-      const filters: Filter[] = [{kinds: [COMMENT], "#E": patch?.id}]
-      load({relays: repoClass.relays, filters})
-      return deriveEvents(repository, {filters})
+  let threadComments = $derived.by(() => {
+    if(patch) {
+      const filter: Filter = {kinds: [COMMENT], "#E": [patch.id]}
+      load({relays: repoClass.relays, filters:[filter]})
+      return _derived(deriveEvents(repository, {filters:[filter]}),
+        (events: TrustedEvent[]) => {
+          return events as CommentEvent[]
+        }
+      )
     }
   })
 
-  const patchProfile = $derived.by(() => {
-    if (patch) {
-      return deriveProfile(patch.author.pubkey)
-    }
-  })
+  const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
+  const onCommentCreated = async (comment: CommentEvent) => {
+    await postComment(comment, repoClass.relays || repoRelays).result
+  }
 
   const md = markdownit({
     html: true,
@@ -94,10 +101,7 @@
             </div>
           </div>
 
-          <Avatar class="h-10 w-10">
-            <AvatarImage src={$patchProfile?.picture} alt={$patchProfile?.name} />
-            <AvatarFallback>{$patchProfile?.name?.substring(0, 2).toUpperCase()}</AvatarFallback>
-          </Avatar>
+          <Profile pubkey={patch.author.pubkey} hideDetails={true}></Profile>
         </div>
 
         <div class="git-separator"></div>
@@ -129,7 +133,13 @@
             Discussion ({$threadComments?.length})
           </h2>
 
-          <IssueThread issueId={patch?.id} comments={$threadComments as CommentEvent[]} />
+          <IssueThread
+            issueId = {patch?.id}
+            issueKind={GIT_PATCH.toString() as '1617'}
+            comments = {$threadComments}
+            currentCommenter = {$pubkey!}
+            onCommentCreated={onCommentCreated}
+          />
         </div>
       </div>
     </div>

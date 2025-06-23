@@ -1,7 +1,6 @@
 export const ssr = false;
-import { derived, get, type Readable } from 'svelte/store';
+import { derived, type Readable } from 'svelte/store';
 import {
-    type CommentEvent,
     type IssueEvent,
     type PatchEvent,
     type RepoAnnouncementEvent,
@@ -12,6 +11,7 @@ import { nip19 } from 'nostr-tools';
 import type { AddressPointer } from 'nostr-tools/nip19';
 import { nthEq } from '@welshman/lib';
 import { GIT_REPO, GIT_REPO_STATE } from '@src/lib/util.js';
+import type { FunctionRegistry } from '@nostr-git/ui';
 
 export async function load({ params }) {
     const { id, relay } = params;
@@ -19,7 +19,7 @@ export async function load({ params }) {
     // Dynamic imports to avoid SSR issues
     const { decodeRelay, INDEXER_RELAYS } = await import('@app/state');
     const { deriveEvents } = await import('@welshman/store');
-    const { publishThunk, repository } = await import('@welshman/app');
+    const { repository } = await import('@welshman/app');
     const { load } = await import("@welshman/net");
     const { Repo } = await import('@nostr-git/ui');
 
@@ -94,20 +94,7 @@ export async function load({ params }) {
         (events) => (events || []) as PatchEvent[]
     );
 
-    const functionRegistry = {
-        postComment: (comment: CommentEvent) => {
-            return publishThunk({
-                relays: get(relays) ?? [],
-                event: comment,
-            });
-        },
-
-        postIssue: (issue: IssueEvent) => {
-            return publishThunk({
-                relays: get(relays) ?? [],
-                event: issue,
-            });
-        },
+    const functionRegistry:Partial<FunctionRegistry> = {
     };
 
     const repoClass = new Repo({

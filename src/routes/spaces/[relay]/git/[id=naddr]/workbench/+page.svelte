@@ -19,7 +19,7 @@
   import {PatchSelector, CommitSelector, MergeAnalyzer, ConflictVisualizer} from "@nostr-git/ui"
   import {getContext} from "svelte"
 
-  const repoClass = getContext<Repo>("repoClass")
+  const repoClass = getContext<Repo>(REPO_KEY)
 
   let selectedPatch = $state<any>(null)
   let selectedCommit = $state<any>(null)

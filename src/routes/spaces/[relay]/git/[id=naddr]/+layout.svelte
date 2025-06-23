@@ -5,15 +5,19 @@
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
+  import Profile from "@src/app/components/Profile.svelte"
+  import ProfileLink from "@src/app/components/ProfileLink.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {setContext} from "svelte"
   import {pushToast} from "@src/app/toast"
+  import { REPO_KEY, REPO_RELAYS_KEY } from "@src/app/state.js"
 
   const {id, relay} = $page.params
   let {data, children} = $props()
-  const {repoClass, functionRegistry} = data
+  // functionRegistry unused at the moment
+  const {repoClass, relays, functionRegistry} = data
 
   let activeTab: string | undefined = $page.url.pathname.split("/").pop()
   const encodedRelay = encodeURIComponent(relay)
@@ -31,8 +35,8 @@
     }
   })
 
-  setContext("functions", functionRegistry)
-  setContext("repoClass", repoClass)
+  setContext(REPO_KEY, repoClass)
+  setContext(REPO_RELAYS_KEY, relays)
 </script>
 
 <PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
@@ -97,6 +101,8 @@
           Separator: Divider as typeof import("@nostr-git/ui").Separator,
           Input: Input as typeof import("@nostr-git/ui").Input,
           Alert: Dialog as typeof import("@nostr-git/ui").Alert,
+          ProfileComponent: Profile as typeof import("@nostr-git/ui").Profile,
+          ProfileLink: ProfileLink as typeof import("@nostr-git/ui").ProfileLink,
         }}>
         {@render children()}
       </ConfigProvider>
