@@ -11,12 +11,13 @@
   import {load} from "@welshman/net"
   import {COMMENT, GIT_PATCH, type Filter, type TrustedEvent} from "@welshman/util"
   import type {CommentEvent} from "@nostr-git/shared-types"
-  import { REPO_KEY, REPO_RELAYS_KEY } from "@src/app/state"
+  import { REPO_RELAYS_KEY } from "@src/app/state"
   import { derived as _derived } from "svelte/store"
   import { postComment } from "@src/app/commands"
   import Profile from "@src/app/components/Profile.svelte"
 
-  const repoClass = getContext<Repo>(REPO_KEY)
+  const {data} = $props()
+  const {repoClass} = data
 
   const patch = $derived.by(() => {
     if (repoClass.patches) {

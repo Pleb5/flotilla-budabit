@@ -17,9 +17,9 @@
   import {Tabs, TabsContent, TabsList, TabsTrigger} from "@nostr-git/ui"
   import {Badge} from "@nostr-git/ui"
   import {PatchSelector, CommitSelector, MergeAnalyzer, ConflictVisualizer} from "@nostr-git/ui"
-  import {getContext} from "svelte"
 
-  const repoClass = getContext<Repo>(REPO_KEY)
+  const {data} = $props()
+  const {repoClass} = data
 
   let selectedPatch = $state<any>(null)
   let selectedCommit = $state<any>(null)
@@ -92,8 +92,8 @@
     </div>
 
     <div class="mb-6 grid grid-cols-2 gap-6">
-      <PatchSelector patches={repoClass.patches} selectedPatch={$selectedPatch} onPatchSelect={(patch) => selectedPatch = patch} />
-      <CommitSelector commits={[]} selectedCommit={$selectedCommit} onCommitSelect={(commit) => selectedCommit = commit} />
+      <PatchSelector patches={repoClass.patches} selectedPatch={$selectedPatch} onPatchSelect={(patch: any) => selectedPatch = patch} />
+      <CommitSelector commits={repoClass.commits} selectedCommit={$selectedCommit} onCommitSelect={(commit: any) => selectedCommit = commit} />
     </div>
 
     {#if selectedPatch && selectedCommit}

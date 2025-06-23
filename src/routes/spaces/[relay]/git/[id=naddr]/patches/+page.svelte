@@ -4,7 +4,7 @@
   import {Address, COMMENT, getTagValue, type TrustedEvent} from "@welshman/util"
   import {getContext} from "svelte"
   import {nthEq} from "@welshman/lib"
-  import {deriveProfile, repository} from "@welshman/app"
+  import {repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
   import {deriveEvents} from "@welshman/store"
@@ -17,9 +17,9 @@
   } from "@welshman/util"
   import {fly} from "@lib/transition"
   import {load} from "@welshman/net"
-  import { REPO_KEY } from "@src/app/state"
 
-  const repoClass = getContext<Repo>(REPO_KEY)
+  const {data} = $props()
+  const {repoClass} = data
 
   const statusFilter = {
     kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
