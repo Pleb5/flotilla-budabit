@@ -23,7 +23,14 @@ import {
 } from "@welshman/lib"
 import type {Socket} from "@welshman/net"
 import {Pool, load, AuthStateEvent, SocketEvent} from "@welshman/net"
-import {collection, custom} from "@welshman/store"
+import {
+  collection,
+  custom,
+  deriveEvents,
+  deriveEventsMapped,
+  withGetter,
+  synced,
+} from "@welshman/store"
 import {
   getIdFilters,
   WRAP,
@@ -56,7 +63,9 @@ import {
   asDecryptedEvent,
   normalizeRelayUrl,
   getTag,
+  getTagValue,
   getTagValues,
+  getAddress,
 } from "@welshman/util"
 import type {TrustedEvent, SignedEvent, PublishedList, List, Filter} from "@welshman/util"
 import {Nip59, decrypt} from "@welshman/signer"
@@ -374,6 +383,8 @@ export const {
 
 // Alerts
 
+export const deviceAlertAddresses = synced<string[]>("deviceAlertAddresses", [])
+
 export type Alert = {
   event: TrustedEvent
   tags: string[][]
@@ -388,6 +399,12 @@ export const alerts = deriveEventsMapped<Alert>(repository, {
     return {event, tags}
   },
 })
+
+export const deviceAlerts = derived(
+  [deviceAlertAddresses, alerts],
+  ([$deviceAlertAddresses, $alerts]) =>
+    $alerts.filter(a => $deviceAlertAddresses.includes(getAddress(a.event))),
+)
 
 // Alert Statuses
 
@@ -405,6 +422,9 @@ export const alertStatuses = deriveEventsMapped<AlertStatus>(repository, {
     return {event, tags}
   },
 })
+
+export const deriveAlertStatus = (address: string) =>
+  derived(alertStatuses, statuses => statuses.find(s => getTagValue("d", s.event.tags) === address))
 
 // Membership
 

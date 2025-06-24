@@ -24,8 +24,8 @@
     memberships,
     deriveUserRooms,
     deriveOtherRooms,
+    deviceAlerts,
     hasNip29,
-    alerts,
   } from "@app/state"
   import {loadAlerts} from "@app/requests"
   import {notifications} from "@app/notifications"
@@ -42,7 +42,7 @@
   const gitPath = makeSpacePath(url, "git")
   const userRooms = deriveUserRooms(url)
   const otherRooms = deriveOtherRooms(url)
-  const alert = $derived($alerts.find(a => getTagValue("feed", a.tags)?.includes(url)))
+  const alert = $derived($deviceAlerts.find(a => getTagValue("feed", a.tags)?.includes(url)))
 
   const openMenu = () => {
     showMenu = true
