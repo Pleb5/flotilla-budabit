@@ -1,35 +1,58 @@
 <script lang="ts">
-  import {Button, IssueCard, NewIssueForm, Repo} from "@nostr-git/ui"
-  import {isCommentEvent, type CommentEvent} from "@nostr-git/shared-types"
+  import {Button, IssueCard, NewIssueForm} from "@nostr-git/ui"
+  import {type CommentEvent} from "@nostr-git/shared-types"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
-  import {Address, COMMENT, GIT_ISSUE} from "@welshman/util"
-  import {getContext} from "svelte"
-  import { pubkey, repository } from "@welshman/app"
+  import {Address, COMMENT, GIT_ISSUE, type TrustedEvent} from "@welshman/util"
+  import { pubkey } from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
   import {fly} from "@lib/transition"
   import {pushModal} from "@src/app/modal"
-  import {deriveEvents} from "@welshman/store"
   import type {IssueEvent} from "@nostr-git/shared-types"
-  import {load} from "@welshman/net"
-  import { REPO_KEY, REPO_RELAYS_KEY } from "@src/app/state"
+  import {request} from "@welshman/net"
   import { postComment, postIssue } from "@src/app/commands"
+  import { sortBy } from "@welshman/lib"
+  import type { LayoutProps } from "../$types"
 
-  const repoClass = getContext<Repo>(REPO_KEY)
+  let {data}:LayoutProps = $props()
+  const {repoClass, repoRelays} = data
 
-  const commentFilter = {
-    kinds: [COMMENT],
-    "#E": [...repoClass.issues.map(i => i.id)],
+
+  const issues = $derived.by(() => {
+    return sortBy(e => -e.created_at, repoClass.issues)
+  })
+
+  const comments = $state<Record<string, CommentEvent[]>>({})
+  
+  const commentsOrdered = $derived.by(() => {
+    const ret: Record<string, CommentEvent[]> = {}
+    for (const [key, value] of Object.entries(comments)) {
+      ret[key] = sortBy(e => -e.created_at, value)
+    }
+    return ret
+  })
+
+  $effect(() => {
+    for (const issue of issues) {
+      if (!comments[issue.id]) {
+        comments[issue.id] = []
+        requestComments(issue)
+      }
+    }
+  })
+
+  const requestComments = async (issue:TrustedEvent) => {
+    request({
+      relays: $repoRelays,
+      filters: [{kinds: [COMMENT], '#E': [issue.id], since: issue.created_at}],
+      onEvent: (e) => {
+        const issueComments = comments[issue.id]
+        if (!issueComments.some(c => c.id === e.id)) {
+          issueComments.push(e as CommentEvent)
+        }
+      }
+    })
   }
-
-  const comments = deriveEvents(repository, {
-    filters: [commentFilter],
-  })
-
-  const commentEvents = $derived.by(() => {
-    if (!$comments) return undefined
-    return $comments.filter(isCommentEvent) as CommentEvent[]
-  })
 
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
@@ -41,11 +64,9 @@
 
   $effect(() => {
     if (repoClass.issues) {
-      load({relays: repoClass.relays, filters: [commentFilter, issueFilter]})
-
       makeFeed({
         element: element!,
-        relays: repoClass.relays,
+        relays: [...$repoRelays],
         feedFilters: [issueFilter],
         subscriptionFilters: [issueFilter],
         initialEvents: repoClass.issues,
@@ -57,9 +78,8 @@
     }
   })
 
-  const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onIssueCreated = async (issue: IssueEvent) => {
-    await postIssue(issue, repoClass.relays || repoRelays).result
+    await postIssue(issue, $repoRelays).result
   }
 
   const onNewIssue = () => {
@@ -71,12 +91,15 @@
   }
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, repoClass.relays || repoRelays).result
+    await postComment(comment, $repoRelays).result
   }
 
-  $inspect(commentEvents).with((type, comments) => {
-    console.log('comments for all issues on the repo in budabit:')
+  $inspect(comments).with((type, comments) => {
+    console.log('comments for all issues on the repo in budabit:',comments)
   })
+  // $inspect(repoClass.issues).with((type, issues) => {
+  //   console.log('all issues on the repo in budabit:', issues)
+  // })
 
 </script>
 
@@ -118,11 +141,11 @@
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each repoClass.issues as issue (issue.id)}
+      {#each issues as issue (issue.id)}
         <div in:fly>
           <IssueCard
             event={issue}
-            comments={commentEvents}
+            comments={commentsOrdered[issue.id]}
             currentCommenter={$pubkey!}
             onCommentCreated={onCommentCreated}
           />

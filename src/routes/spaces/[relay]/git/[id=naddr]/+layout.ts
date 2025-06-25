@@ -11,9 +11,9 @@ import { nip19 } from 'nostr-tools';
 import type { AddressPointer } from 'nostr-tools/nip19';
 import { nthEq } from '@welshman/lib';
 import { GIT_REPO, GIT_REPO_STATE } from '@src/lib/util.js';
-import type { FunctionRegistry } from '@nostr-git/ui';
+import type { LayoutLoad } from './$types';
 
-export async function load({ params }) {
+export const load: LayoutLoad = async ({ params }) => {
     const { id, relay } = params;
 
     // Dynamic imports to avoid SSR issues
@@ -28,7 +28,9 @@ export async function load({ params }) {
     const url = decodeRelay(relay);
 
     const fallbackRelays = INDEXER_RELAYS
-    const relayList = (decoded.relays?.length ?? 0) > 0 ? decoded.relays : fallbackRelays
+    const relayListFromUrl = (decoded.relays?.length ?? 0) > 0
+      ? decoded.relays as string[] 
+      : fallbackRelays
 
     const filters = [{
         authors: [decoded.pubkey],
@@ -36,7 +38,7 @@ export async function load({ params }) {
         "#d": [decoded.identifier],
     }]
 
-    await load({ relays: relayList as string[], filters })
+    await load({ relays: relayListFromUrl as string[], filters })
 
     // Combine the separate event stores
     const repoEvent = derived(deriveEvents(repository, {
@@ -56,12 +58,12 @@ export async function load({ params }) {
     }), (events) => events[0]) as Readable<RepoStateEvent>;
 
     // Get relays from event tags
-    const relays = derived(repoEvent, re => {
+    const bestRelayList = derived(repoEvent, re => {
         if (re) {
             const [_, ...relaysList] = re.tags.find(nthEq(0, "relays")) || [];
             return relaysList;
         }
-        return undefined;
+        return relayListFromUrl;
     });
 
     const issueFilters = {
@@ -75,7 +77,7 @@ export async function load({ params }) {
     }
 
     await load({ 
-        relays: relayList as string[], 
+        relays: relayListFromUrl as string[], 
         filters: [issueFilters, patchFilters] 
     })
 
@@ -94,9 +96,6 @@ export async function load({ params }) {
         (events) => (events || []) as PatchEvent[]
     );
 
-    const functionRegistry:Partial<FunctionRegistry> = {
-    };
-
     const repoClass = new Repo({
         repoEvent,
         repoStateEvent,
@@ -106,9 +105,8 @@ export async function load({ params }) {
 
     return {
         repoClass,
-        relays,
+        repoRelays: bestRelayList,
         url,
         repoId,
-        functionRegistry,
     };
 }

@@ -1,9 +1,8 @@
 <script lang="ts">
-  import {Button, PatchCard, Repo} from "@nostr-git/ui"
+  import {Button, PatchCard} from "@nostr-git/ui"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
   import {Address, COMMENT, getTagValue, type TrustedEvent} from "@welshman/util"
-  import {getContext} from "svelte"
-  import {nthEq} from "@welshman/lib"
+  import {nthEq, sortBy} from "@welshman/lib"
   import {repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
@@ -28,8 +27,13 @@
 
   const statuses = deriveEvents(repository, {filters: [statusFilter]})
 
+  $inspect(repoClass.patches).with((type, patches) => {
+    console.log('patches in budabit', patches)
+  })
+
   const patchList = $derived.by(() => {
     if (repoClass.patches) {
+      sortBy(e => -e.created_at, repoClass.patches)
       return repoClass.patches.map((patch: TrustedEvent) => {
         let status = $statuses
           ?.filter(s => {

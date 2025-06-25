@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {FunctionProvider, RepoHeader, RepoTab, toast} from "@nostr-git/ui"
+  import { RepoHeader, RepoTab, toast} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
   import {FileCode, GitBranch, CircleAlert, GitPullRequest, PencilRuler, GitCommit} from "@lucide/svelte"
   import {page} from "$app/stores"
@@ -10,14 +10,12 @@
   import Divider from "@lib/components/Divider.svelte"
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
-  import {setContext} from "svelte"
   import {pushToast} from "@src/app/toast"
-  import { REPO_KEY, REPO_RELAYS_KEY } from "@src/app/state.js"
 
   const {id, relay} = $page.params
+
   let {data, children} = $props()
-  // functionRegistry unused at the moment
-  const {repoClass, relays, functionRegistry} = data
+  const {repoClass} = data
 
   let activeTab: string | undefined = $page.url.pathname.split("/").pop()
   const encodedRelay = encodeURIComponent(relay)
@@ -35,8 +33,6 @@
     }
   })
 
-  setContext(REPO_KEY, repoClass)
-  setContext(REPO_RELAYS_KEY, relays)
 </script>
 
 <PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
@@ -103,18 +99,16 @@
         </RepoTab>
       {/snippet}
     </RepoHeader>
-    <FunctionProvider functions={functionRegistry}>
-      <ConfigProvider
-        components={{
-          AvatarImage: Avatar as typeof import("@nostr-git/ui").AvatarImage,
+    <ConfigProvider
+      components={{
+        AvatarImage: Avatar as typeof import("@nostr-git/ui").AvatarImage,
           Separator: Divider as typeof import("@nostr-git/ui").Separator,
           Input: Input as typeof import("@nostr-git/ui").Input,
           Alert: Dialog as typeof import("@nostr-git/ui").Alert,
           ProfileComponent: Profile as typeof import("@nostr-git/ui").Profile,
           ProfileLink: ProfileLink as typeof import("@nostr-git/ui").ProfileLink,
-        }}>
-        {@render children()}
-      </ConfigProvider>
-    </FunctionProvider>
+      }}>
+      {@render children()}
+    </ConfigProvider>
   {/if}
 </PageContent>

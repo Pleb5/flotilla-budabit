@@ -114,10 +114,6 @@ export const IMGPROXY_URL = "https://imgproxy.coracle.social"
 
 export const REACTION_KINDS = [REACTION, ZAP_RESPONSE]
 
-export const REPO_KEY = Symbol("repo");
-
-export const REPO_RELAYS_KEY = Symbol("repo-relays");
-
 export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt," +
   [CLIENT_AUTH, AUTH_JOIN, MESSAGE, THREAD, COMMENT, GROUPS, WRAP, REACTION]

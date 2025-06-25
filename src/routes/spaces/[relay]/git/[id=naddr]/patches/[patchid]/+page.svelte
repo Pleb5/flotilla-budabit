@@ -2,22 +2,22 @@
   import {page} from "$app/stores"
   import {GitCommit, MessageSquare, Check, X} from "@lucide/svelte"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
-  import {Button, Repo} from "@nostr-git/ui"
+  import {Button} from "@nostr-git/ui"
   import { DiffViewer, IssueThread} from "@nostr-git/ui"
   import { repository, pubkey } from "@welshman/app"
-  import {getContext} from "svelte"
   import markdownit from "markdown-it"
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
   import {COMMENT, GIT_PATCH, type Filter, type TrustedEvent} from "@welshman/util"
   import type {CommentEvent} from "@nostr-git/shared-types"
-  import { REPO_RELAYS_KEY } from "@src/app/state"
   import { derived as _derived } from "svelte/store"
   import { postComment } from "@src/app/commands"
   import Profile from "@src/app/components/Profile.svelte"
+  import { sortBy } from "@welshman/lib"
+  import type { LayoutProps } from "../../$types"
 
-  const {data} = $props()
-  const {repoClass} = data
+  let {data}:LayoutProps = $props()
+  const {repoClass, repoRelays} = data
 
   const patch = $derived.by(() => {
     if (repoClass.patches) {
@@ -28,19 +28,18 @@
     }
   })
 
-  let threadComments = $derived.by(() => {
+  const threadComments = $derived.by(() => {
     if(patch) {
       const filter: Filter = {kinds: [COMMENT], "#E": [patch.id]}
       load({relays: repoClass.relays, filters:[filter]})
       return _derived(deriveEvents(repository, {filters:[filter]}),
         (events: TrustedEvent[]) => {
-          return events as CommentEvent[]
+          return sortBy(e => -e.created_at, events) as CommentEvent[]
         }
       )
     }
   })
 
-  const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onCommentCreated = async (comment: CommentEvent) => {
     await postComment(comment, repoClass.relays || repoRelays).result
   }

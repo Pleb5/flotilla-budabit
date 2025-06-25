@@ -20,12 +20,13 @@
   import {nthEq} from "@welshman/lib"
   import Button from "@src/lib/components/Button.svelte"
   import {profilesByPubkey} from "@welshman/app"
+  import type { LayoutProps } from "./$types.js"
+
+  let {data}:LayoutProps = $props()
+  const {repoClass, repoRelays} = data
 
   let loading = $state(true)
   let lastCommit = $state<any>(null)
-
-  const {data} = $props()
-  const {repoClass} = data
 
   const stats = $derived([
     {
@@ -63,7 +64,7 @@
     description: repoClass.repo?.description || "",
     repoId: repoClass.repo?.repoId || "",
     maintainers: maintainers || [],
-    relays: repoClass.relays || [],
+    relays: $repoRelays,
     cloneUrls: repoClass.repo?.clone || [],
     webUrls: repoClass.repo?.web || [],
     mainBranch: repoClass.mainBranch || "main",
