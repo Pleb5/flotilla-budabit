@@ -2,6 +2,7 @@
   import {page} from "$app/stores"
   import {Check, ChevronLeft, ChevronRight, GitCommit, MessageSquare, X} from "@lucide/svelte"
   import {Button, Profile} from "@nostr-git/ui"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
   import {DiffViewer, IssueThread} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
   import markdownit from "markdown-it"
@@ -120,6 +121,10 @@
     }
   })
 
+  function truncateHash(hash: string): string {
+    return hash.substring(0, 7);
+  }
+
   const md = markdownit({
     html: true,
     linkify: true,
@@ -167,7 +172,8 @@
                       : "Closed"}
                 </div>
                 <span class="text-sm text-muted-foreground">
-                  {patch?.author.name} opened this patch • {new Date(
+                  <ProfileLink pubkey={patch?.author.pubkey}/>
+                  opened this patch • {new Date(
                     patch?.createdAt,
                   ).toLocaleString()}
                 </span>
@@ -213,12 +219,12 @@
               <div class="flex-grow">
                 <div class="font-semibold break-words">{patchItem.title || `Patch ${index + 1}`}</div>
                 <div class="text-sm text-muted-foreground flex items-center gap-2">
-                  <span>{patchItem.author.name || patchItem.author.pubkey.slice(0, 8)}</span>
+                  <ProfileLink pubkey={patchItem.author.pubkey}/>
                   <span>•</span>
                   <span>{new Date(patchItem.createdAt).toLocaleString()}</span>
                   {#if patchItem.commitHash}
                     <span>•</span>
-                    <span>{patchItem.commitHash}</span>
+                    <span>{truncateHash(patchItem.commitHash)}</span>
                   {/if}
                   {#if isRoot}
                     <span class="ml-1 px-1.5 py-0.5 text-xs rounded bg-blue-500/20 text-blue-500">root</span>
