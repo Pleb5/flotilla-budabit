@@ -64,23 +64,19 @@
 
 <div class="flex flex-wrap items-center justify-between gap-2">
   <div class="flex flex-grow flex-wrap justify-end gap-2">
-    <Button class="btn btn-primary btn-sm">
-      <Link
-        class="w-full cursor-pointer"
-        href={makeGitPath(url, Address.fromEvent(event).toNaddr())}>
-        <span class="">Browse</span>
-      </Link>
-    </Button>
+    <Link
+      class="cursor-pointer btn btn-primary btn-sm"
+      href={makeGitPath(url, Address.fromEvent(event).toNaddr())}>
+      <span class="">Browse</span>
+    </Link>
     {#if showIssues}
-      <Button class="btn btn-secondary btn-sm">
-        <Link
-          class="flex h-full w-full cursor-pointer items-center"
-          href={makeGitPath(url, Address.fromEvent(event).toNaddr()) + "/issues"}>
-          <Spinner loading={loadingIssues} minHeight={"min-h-6"}>
-            {"Issues (" + issueCount + ")"}
-          </Spinner>
-        </Link>
-      </Button>
+      <Link
+        class="flex btn btn-secondary btn-sm cursor-pointer items-center"
+        href={makeGitPath(url, Address.fromEvent(event).toNaddr()) + "/issues"}>
+        <Spinner loading={loadingIssues} minHeight={"min-h-6"}>
+          {"Issues (" + issueCount + ")"}
+        </Spinner>
+      </Link>
     {/if}
 
     {#if showActivity}
