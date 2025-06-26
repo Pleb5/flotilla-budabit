@@ -307,6 +307,9 @@ importers:
       nostr-tools:
         specifier: ^2.11.0
         version: 2.12.0(typescript@5.8.3)
+      parse-diff:
+        specifier: ^0.11.1
+        version: 0.11.1
       parse-git-diff:
         specifier: ^0.0.19
         version: 0.0.19
@@ -506,6 +509,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      parse-diff:
+        specifier: ^0.11.1
+        version: 0.11.1
       parse-git-diff:
         specifier: ^0.0.19
         version: 0.0.19
@@ -5408,6 +5414,9 @@ packages:
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
     engines: {node: '>=6'}
+
+  parse-diff@0.11.1:
+    resolution: {integrity: sha512-Oq4j8LAOPOcssanQkIjxosjATBIEJhCxMCxPhMu+Ci4wdNmAEdx0O+a7gzbR2PyKXgKPvRLIN5g224+dJAsKHA==}
 
   parse-git-diff@0.0.19:
     resolution: {integrity: sha512-oh3giwKzsPlOhekiDDyd/pfFKn04IZoTjEThquhfKigwiUHymiP/Tp6AN5nGIwXQdWuBTQvz9AaRdN5TBsJ8MA==}
@@ -12691,6 +12700,8 @@ snapshots:
   parent-module@1.0.1:
     dependencies:
       callsites: 3.1.0
+
+  parse-diff@0.11.1: {}
 
   parse-git-diff@0.0.19: {}
 

@@ -12,7 +12,7 @@
     X,
   } from "@lucide/svelte"
   import {Address, COMMENT} from "@welshman/util"
-  import {nthEq, sortBy} from "@welshman/lib"
+  import {nthEq} from "@welshman/lib"
   import {repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"

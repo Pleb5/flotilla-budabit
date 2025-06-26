@@ -25,14 +25,14 @@
     type StatusEvent,
     type PatchEvent,
   } from "@nostr-git/shared-types"
-  import {getContext} from "svelte"
   import {postComment} from "@src/app/commands.js"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import { sortBy } from "@welshman/lib"
   import { derived as _derived } from "svelte/store"
+  import type { LayoutProps } from "../../$types"
 
-  const {data} = $props()
-  const {repoClass} = data
+  let {data}:LayoutProps = $props()
+  const {repoClass, repoRelays} = data
 
   const patchId = $page.params.patchid
 
@@ -109,9 +109,8 @@
     return deriveEvents(repository, {filters: [getStatusFilter()]})
   })
 
-  const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, repoClass.relays || repoRelays).result
+    await postComment(comment, $repoRelays).result
   }
 
   const status = $derived.by(() => {
