@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {ellipsize, postJson} from "@welshman/lib"
+  import {ellipsize, displayUrl, postJson} from "@welshman/lib"
   import {dufflepud, imgproxy} from "@app/state"
   import {preventDefault, stopPropagation} from "@lib/html"
   import Link from "@lib/components/Link.svelte"
@@ -31,7 +31,7 @@
 </script>
 
 <Link external href={url} class="my-2 block">
-  <div class="overflow-hidden rounded-box leading-[0]">
+  <div class="overflow-hidden rounded-box">
     {#if url.match(/\.(mov|webm|mp4)$/)}
       <video controls src={url} class="max-h-96 object-contain object-center">
         <track kind="captions" />
@@ -54,13 +54,11 @@
               src={imgproxy(preview.image)}
               class="bg-alt max-h-72 object-contain object-center" />
           {/if}
-          {#if preview.title}
-            <div class="flex flex-col gap-2 p-4">
-              <strong class="overflow-hidden text-ellipsis whitespace-nowrap"
-                >{preview.title}</strong>
-              <p>{ellipsize(preview.description, 140)}</p>
-            </div>
-          {/if}
+          <div class="flex flex-col gap-2 p-4">
+            <strong class="overflow-hidden text-ellipsis whitespace-nowrap"
+              >{preview.title || displayUrl(url)}</strong>
+            <p>{ellipsize(preview.description, 140)}</p>
+          </div>
         </div>
       {:catch}
         <p class="bg-alt p-12 text-center leading-normal">

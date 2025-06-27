@@ -2,7 +2,7 @@
   import type {Snippet} from "svelte"
   import {writable} from "svelte/store"
   import {randomId, HOUR} from "@welshman/lib"
-  import {createEvent, EVENT_TIME} from "@welshman/util"
+  import {makeEvent, EVENT_TIME} from "@welshman/util"
   import {publishThunk} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import {daysBetween} from "@lib/util"
@@ -13,7 +13,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
-  import {PROTECTED, GENERAL, tagRoom} from "@app/state"
+  import {PROTECTED} from "@app/state"
   import {makeEditor} from "@app/editor"
   import {pushToast} from "@app/toast"
 
@@ -63,7 +63,7 @@
     }
 
     const ed = await editor
-    const event = createEvent(EVENT_TIME, {
+    const event = makeEvent(EVENT_TIME, {
       content: ed.getText({blockSeparator: "\n"}).trim(),
       tags: [
         ["d", initialValues?.d || randomId()],
@@ -73,7 +73,6 @@
         ["end", end.toString()],
         ...daysBetween(start, end).map(D => ["D", D.toString()]),
         ...ed.storage.nostr.getEditorTags(),
-        tagRoom(GENERAL, url),
         PROTECTED,
       ],
     })

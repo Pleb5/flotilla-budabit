@@ -1,6 +1,6 @@
 <script lang="ts">
   import {writable} from "svelte/store"
-  import {Address, createEvent, getTagValue, GIT_ISSUE, THREAD, type TrustedEvent} from "@welshman/util"
+  import {makeEvent, THREAD} from "@welshman/util"
   import {publishThunk} from "@welshman/app"
   import {isMobile, preventDefault} from "@lib/html"
   import Icon from "@lib/components/Icon.svelte"
@@ -10,20 +10,15 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {pushToast} from "@app/toast"
-  import {GENERAL, tagRoom, PROTECTED} from "@app/state"
+  import {PROTECTED} from "@app/state"
   import {makeEditor} from "@app/editor"
-  import { FREELANCE_JOB } from "@src/lib/util"
-    import { goto } from "$app/navigation"
-    import { makeThreadPath } from "../routes"
+  import { goto } from "$app/navigation"
+  import { makeThreadPath } from "../routes"
 
   const {
     url,
-    jobOrGitIssue,
-    relayHint
   }: {
     url: string,
-    jobOrGitIssue?: TrustedEvent
-    relayHint?: string
   } = $props()
 
   const uploading = writable(false)
@@ -53,26 +48,11 @@
       })
     }
 
-    let jobOrGitIssueTag:string[] | undefined = undefined
-    if (jobOrGitIssue?.kind === GIT_ISSUE) {
-      jobOrGitIssueTag = ['gitissue', jobOrGitIssue.id]
-      if (relayHint) jobOrGitIssueTag.push(relayHint)
-    } else if (jobOrGitIssue?.kind === FREELANCE_JOB) {
-      jobOrGitIssueTag = ['job', Address.fromEvent(jobOrGitIssue).toString()]
-      if (relayHint) jobOrGitIssueTag.push(relayHint)
-    }
-
-    const tags = [
-      ...ed.storage.nostr.getEditorTags(),
-      tagRoom(GENERAL, url),
-      ["title", titleToPost],
-      PROTECTED,
-    ]
-    if (jobOrGitIssueTag) tags.push(jobOrGitIssueTag)
+    const tags = [...ed.storage.nostr.getEditorTags(), ["title", title], PROTECTED]
 
     publishThunk({
       relays: [url],
-      event: createEvent(THREAD, {content, tags}),
+      event: makeEvent(THREAD, {content, tags}),
     })
 
     goto(threadsPath)
@@ -81,21 +61,6 @@
   const editor = makeEditor({url, submit, uploading, placeholder: "What's on your mind?"})
 
   let title: string = $state("")
-  const jobOrGitIssueTitle = $derived.by(() => {
-    if (!jobOrGitIssue) return ''
-
-    let title = ''
-    if (jobOrGitIssue.kind === GIT_ISSUE) {
-      title = 'Git: ' + (getTagValue('subject', jobOrGitIssue.tags) ?? '?')
-    } else if (jobOrGitIssue.kind === FREELANCE_JOB) {
-      title = 'Job: ' + (getTagValue('title', jobOrGitIssue.tags) ?? '?')
-    }
-    return title
-  })
-
-  let titleToPost = $derived(
-    title + (jobOrGitIssueTitle ? "(" + jobOrGitIssueTitle + ")" : "")
-  )
 
 </script>
 
@@ -103,7 +68,6 @@
   <ModalHeader>
     {#snippet title()}
       <div>Create a Thread</div>
-      <div>{jobOrGitIssueTitle}</div>
     {/snippet}
     {#snippet info()}
       <div>Share a link, or start a discussion.</div>

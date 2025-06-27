@@ -1,49 +1,52 @@
 <script lang="ts">
-  import {onDestroy} from "svelte"
-  import {now} from "@welshman/lib"
-  import {BLOSSOM_AUTH, makeEvent, getTags, getTagValue, tagsFromIMeta} from "@welshman/util"
-  import {signer} from "@welshman/app"
+  import {onMount, onDestroy} from "svelte"
+  import {displayUrl} from "@welshman/lib"
+  import {getTags, decryptFile, getTagValue, tagsFromIMeta} from "@welshman/util"
+  import Icon from "@lib/components/Icon.svelte"
   import {imgproxy} from "@app/state"
 
   const {value, event, ...props} = $props()
 
   const url = value.url.toString()
-
-  // If we fail to fetch the image, try authenticating if we have a blossom hash
-  const onerror = async () => {
-    const meta = getTags("imeta", event.tags)
+  const meta =
+    getTags("imeta", event.tags)
       .map(tagsFromIMeta)
-      .find(meta => getTagValue("url", meta) === url)
-    const hash = meta ? getTagValue("x", meta) : undefined
+      .find(meta => getTagValue("url", meta) === url) || event.tags
 
-    if (hash && $signer) {
-      const event = await signer.get().sign(
-        makeEvent(BLOSSOM_AUTH, {
-          tags: [
-            ["t", "get"],
-            ["x", hash],
-            ["expiration", String(now() + 30)],
-          ],
-        }),
-      )
+  const key = getTagValue("decryption-key", meta)
+  const nonce = getTagValue("decryption-nonce", meta)
+  const algorithm = getTagValue("encryption-algorithm", meta)
 
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Nostr ${btoa(JSON.stringify(event))}`,
-        },
-      })
-
-      if (res.status === 200) {
-        src = URL.createObjectURL(await res.blob())
-      }
-    }
+  const onError = () => {
+    hasError = true
   }
 
+  let hasError = $state(false)
   let src = $state(imgproxy(url))
+
+  onMount(async () => {
+    if (algorithm === "aes-gcm" && key && nonce) {
+      const response = await fetch(url)
+
+      if (response.ok) {
+        const ciphertext = new Uint8Array(await response.arrayBuffer())
+        const decryptedData = await decryptFile({ciphertext, key, nonce, algorithm})
+
+        src = URL.createObjectURL(new Blob([decryptedData]))
+      }
+    }
+  })
 
   onDestroy(() => {
     URL.revokeObjectURL(src)
   })
 </script>
 
-<img alt="" {src} {onerror} {...props} />
+{#if hasError}
+  <a href={url} class="link-content whitespace-nowrap">
+    <Icon icon="link-round" size={3} class="inline-block" />
+    {displayUrl(url)}
+  </a>
+{:else}
+  <img alt="" {src} onerror={onError} {...props} />
+{/if}

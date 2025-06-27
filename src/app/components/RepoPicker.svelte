@@ -6,7 +6,7 @@
   import {writable} from "svelte/store"
   import {
     Address,
-    createEvent,
+    makeEvent,
     getTagValue,
     NAMED_BOOKMARKS,
     type Filter,
@@ -157,7 +157,7 @@
       atagList.push(["a", address, relayHint])
     }
 
-    const eventToPublish = createEvent(NAMED_BOOKMARKS, {
+    const eventToPublish = makeEvent(NAMED_BOOKMARKS, {
       tags: [["d", GIT_REPO_BOOKMARK_DTAG], ...atagList],
     })
     console.log("eventToPublish", eventToPublish)

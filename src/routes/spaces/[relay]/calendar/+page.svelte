@@ -17,13 +17,13 @@
   import CalendarEventItem from "@app/components/CalendarEventItem.svelte"
   import CalendarEventCreate from "@app/components/CalendarEventCreate.svelte"
   import {pushModal} from "@app/modal"
-  import {GENERAL, getEventsForUrl, decodeRelay} from "@app/state"
+  import {getEventsForUrl, decodeRelay} from "@app/state"
   import {makeCalendarFeed} from "@app/requests"
   import {setChecked} from "@app/notifications"
 
   const url = decodeRelay($page.params.relay)
 
-  const createEvent = () => pushModal(CalendarEventCreate, {url})
+  const makeEvent = () => pushModal(CalendarEventCreate, {url})
 
   const getStart = (event: TrustedEvent) => parseInt(getTagValue("start", event.tags) || "")
 
@@ -92,10 +92,8 @@
   })
 
   onMount(() => {
-    const feedFilters = [{kinds: [EVENT_TIME], "#h": [GENERAL]}]
-    const subscriptionFilters = [
-      {kinds: [DELETE, REACTION, EVENT_TIME], "#h": [GENERAL], since: now()},
-    ]
+    const feedFilters = [{kinds: [EVENT_TIME]}]
+    const subscriptionFilters = [{kinds: [DELETE, REACTION, EVENT_TIME], since: now()}]
 
     ;({events, cleanup} = makeCalendarFeed({
       element: element!,
@@ -126,7 +124,7 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
-      <Button class="btn btn-primary btn-sm" onclick={createEvent}>
+      <Button class="btn btn-primary btn-sm" onclick={makeEvent}>
         <Icon icon="calendar-add" />
         Create an Event
       </Button>

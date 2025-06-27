@@ -1,9 +1,8 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {page} from "$app/stores"
-  import {ago, WEEK} from "@welshman/lib"
-  import {GROUP_META, EVENT_TIME, GROUPS, THREAD, COMMENT, MESSAGE} from "@welshman/util"
-  import {request} from "@welshman/net"
+  import {ago, MONTH} from "@welshman/lib"
+  import {ROOM_META, EVENT_TIME, THREAD, COMMENT, MESSAGE} from "@welshman/util"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import MenuSpace from "@app/components/MenuSpace.svelte"
@@ -58,7 +57,7 @@
     // getUploadUrl(url)
 
     const relays = [url]
-    const since = ago(WEEK)
+    const since = ago(MONTH)
     const controller = new AbortController()
 
     // Load group meta, threads, calendar events, comments, and recent messages
@@ -66,18 +65,13 @@
     pullConservatively({
       relays,
       filters: [
-        {kinds: [GROUP_META]},
         {kinds: [GIT_REPO]},
+        {kinds: [ROOM_META]},
         {kinds: [THREAD, EVENT_TIME], since},
         {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since},
-        {kinds: [FREELANCE_JOB], "#s": ["0"]},
-        {kinds: [COMMENT], "#K": [String(FREELANCE_JOB)]},
         ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room], since})),
       ],
     })
-
-    // Completely refresh our groups list and listen for new ones
-    request({relays, filters: [{kinds: [GROUPS]}], signal: controller.signal})
 
     return () => {
       controller.abort()

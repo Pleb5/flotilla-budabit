@@ -41,6 +41,7 @@
     showEntire?: boolean
     hideMediaAtDepth?: number
     expandMode?: string
+    minimalQuote?: boolean
     depth?: number
     url?: string
   }
@@ -52,6 +53,7 @@
     showEntire = $bindable(false),
     hideMediaAtDepth = 1,
     expandMode = "block",
+    minimalQuote = false,
     depth = 0,
     url,
   }: Props = $props()
@@ -154,7 +156,13 @@
           <ContentMention value={parsed.value} {url} />
         {:else if isEvent(parsed) || isAddress(parsed)}
           {#if isBlock(i)}
-            <ContentQuote {depth} {url} {hideMediaAtDepth} value={parsed.value} {event} />
+            <ContentQuote
+              {depth}
+              {url}
+              {hideMediaAtDepth}
+              value={parsed.value}
+              {event}
+              minimal={minimalQuote} />
           {:else}
             <Link
               external

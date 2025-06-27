@@ -7,7 +7,6 @@
   import {App} from "@capacitor/app"
   import {dev} from "$app/environment"
   import {goto} from "$app/navigation"
-  import {bytesToHex, hexToBytes} from "@noble/hashes/utils"
   import {identity, memoize, sleep, defer, ago, WEEK, TaskQueue} from "@welshman/lib"
   import type {TrustedEvent, StampedEvent} from "@welshman/util"
   import {
@@ -17,6 +16,7 @@
     MESSAGE,
     INBOX_RELAYS,
     DIRECT_MESSAGE,
+    DIRECT_MESSAGE_FILE,
     MUTES,
     FOLLOWS,
     PROFILE,
@@ -44,6 +44,7 @@
   } from "@welshman/app"
   import * as lib from "@welshman/lib"
   import * as util from "@welshman/util"
+  import * as router from "@welshman/router"
   import * as welshmanSigner from "@welshman/signer"
   import * as net from "@welshman/net"
   import * as app from "@welshman/app"
@@ -79,10 +80,9 @@
     Object.assign(window, {
       get,
       nip19,
-      bytesToHex,
-      hexToBytes,
       ...lib,
       ...welshmanSigner,
+      ...router,
       ...util,
       ...net,
       ...app,
@@ -177,7 +177,9 @@
               return 1
             }
 
-            if ([EVENT_TIME, THREAD, MESSAGE, DIRECT_MESSAGE].includes(e.kind)) {
+            if (
+              [EVENT_TIME, THREAD, MESSAGE, DIRECT_MESSAGE, DIRECT_MESSAGE_FILE].includes(e.kind)
+            ) {
               return 0.9
             }
 

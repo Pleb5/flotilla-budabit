@@ -1,69 +1,31 @@
 import {mount} from "svelte"
 import type {Writable} from "svelte/store"
 import {get} from "svelte/store"
-import type {StampedEvent} from "@welshman/util"
-import {makeEvent, getTagValues, getListTags, BLOSSOM_AUTH} from "@welshman/util"
-import {simpleCache, normalizeUrl, removeNil, now} from "@welshman/lib"
+import {sha256} from "@welshman/lib"
+import {
+  getTagValues,
+  encryptFile,
+  uploadBlob,
+  makeBlossomAuthEvent,
+  getListTags,
+} from "@welshman/util"
 import {Router} from "@welshman/router"
+import {Nip01Signer} from "@welshman/signer"
 import {signer, profileSearch, userBlossomServers} from "@welshman/app"
+import type {FileAttributes} from "@welshman/editor"
 import {Editor, MentionSuggestion, WelshmanExtension} from "@welshman/editor"
 import {makeMentionNodeView} from "./MentionNodeView"
 import ProfileSuggestion from "./ProfileSuggestion.svelte"
+import {pushToast} from "@app/toast"
 
-export const hasBlossomSupport = simpleCache(async ([url]: [string]) => {
-  const $signer = signer.get()
-  const headers: Record<string, string> = {
-    "X-Content-Type": "text/plain",
-    "X-Content-Length": "1",
-    "X-SHA-256": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac",
-  }
-
-  try {
-    if ($signer) {
-      const event = await signer.get().sign(
-        makeEvent(BLOSSOM_AUTH, {
-          tags: [
-            ["t", "upload"],
-            ["server", url],
-            ["expiration", String(now() + 30)],
-          ],
-        }),
-      )
-
-      headers.Authorization = `Nostr ${btoa(JSON.stringify(event))}`
-    }
-
-    const res = await fetch(normalizeUrl(url) + "/upload", {method: "head", headers})
-
-    return res.status === 200
-  } catch (e) {
-    if (!String(e).includes("Failed to fetch")) {
-      console.error(e)
-    }
-  }
-
-  return false
-})
-
-export const getUploadUrl = async (spaceUrl?: string) => {
+export const getBlossomServer = () => {
   const userUrls = getTagValues("server", getListTags(userBlossomServers.get()))
-  const allUrls = removeNil([spaceUrl, ...userUrls])
 
-  for (let url of allUrls) {
-    url = url.replace(/^ws/, "http")
-
-    if (await hasBlossomSupport(url)) {
-      return url
-    }
+  for (const url of userUrls) {
+    return url.replace(/^ws/, "http")
   }
 
   return "https://cdn.satellite.earth"
-}
-
-export const signWithAssert = async (template: StampedEvent) => {
-  const event = await signer.get().sign(template)
-
-  return event!
 }
 
 export const makeEditor = async ({
@@ -76,7 +38,6 @@ export const makeEditor = async ({
   submit,
   uploading,
   wordCount,
-  disableFileUpload,
 }: {
   aggressive?: boolean
   autofocus?: boolean
@@ -87,7 +48,6 @@ export const makeEditor = async ({
   submit: () => void
   uploading?: Writable<boolean>
   wordCount?: Writable<number>
-  disableFileUpload?: boolean
 }) => {
   return new Editor({
     content,
@@ -96,9 +56,6 @@ export const makeEditor = async ({
     extensions: [
       WelshmanExtension.configure({
         submit,
-        sign: signWithAssert,
-        defaultUploadType: "blossom",
-        defaultUploadUrl: await getUploadUrl(url),
         extensions: {
           placeholder: {
             config: {
@@ -110,18 +67,81 @@ export const makeEditor = async ({
               aggressive,
             },
           },
-          fileUpload: disableFileUpload
-            ? false
-            : {
-                config: {
-                  onDrop() {
-                    uploading?.set(true)
-                  },
-                  onComplete() {
-                    uploading?.set(false)
-                  },
-                },
+          fileUpload: {
+            config: {
+              upload: async (attrs: FileAttributes) => {
+                let file: Blob = attrs.file
+
+                if (!file.type.match("image/(webp|gif)")) {
+                  const {default: Compressor} = await import("compressorjs")
+
+                  file = await new Promise((resolve, _reject) => {
+                    new Compressor(file, {
+                      maxWidth: 1024,
+                      maxHeight: 1024,
+                      convertSize: 2 * 1024 * 1024,
+                      success: resolve,
+                      error: e => {
+                        // Non-images break compressor
+                        if (e.toString().includes("File or Blob")) {
+                          return resolve(file)
+                        }
+
+                        _reject(e)
+                      },
+                    })
+                  })
+                }
+
+                const {ciphertext, key, nonce, algorithm} = await encryptFile(file)
+                const tags = [
+                  ["decryption-key", key],
+                  ["decryption-nonce", nonce],
+                  ["encryption-algorithm", algorithm],
+                ]
+
+                file = new File([new Blob([ciphertext])], attrs.file.name, {type: attrs.file.type})
+
+                const server = getBlossomServer()
+                const hashes = [await sha256(await file.arrayBuffer())]
+                const $signer = signer.get() || Nip01Signer.ephemeral()
+                const authTemplate = makeBlossomAuthEvent({action: "upload", server, hashes})
+                const authEvent = await $signer.sign(authTemplate)
+
+                try {
+                  const res = await uploadBlob(server, file, {authEvent})
+                  let {uploaded, url, ...task} = await res.json()
+
+                  if (!uploaded) {
+                    return {error: "Server refused to process the file"}
+                  }
+
+                  // Always append file extension if missing
+                  if (new URL(url).pathname.split(".").length === 1) {
+                    url += "." + attrs.file.type.split("/")[1]
+                  }
+
+                  const result = {...task, tags, url}
+
+                  return {result}
+                } catch (e: any) {
+                  console.error(e)
+                  return {error: e.toString()}
+                }
               },
+              onDrop() {
+                uploading?.set(true)
+              },
+              onComplete() {
+                uploading?.set(false)
+              },
+              onUploadError(currentEditor, task) {
+                currentEditor.commands.removeFailedUploads()
+                pushToast({theme: "error", message: "Failed to upload file"})
+                uploading?.set(false)
+              },
+            },
+          },
           nprofile: {
             extend: {
               addNodeView: () => makeMentionNodeView(url),

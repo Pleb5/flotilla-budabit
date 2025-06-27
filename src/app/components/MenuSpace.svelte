@@ -1,6 +1,7 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {displayRelayUrl} from "@welshman/util"
+  import {deriveRelay} from "@welshman/app"
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -14,12 +15,14 @@
   import ProfileList from "@app/components/ProfileList.svelte"
   import RoomCreate from "@app/components/RoomCreate.svelte"
   import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
+  import InfoMissingRooms from "@app/components/InfoMissingRooms.svelte"
   import {
     userRoomsByUrl,
     hasMembershipUrl,
     memberships,
     deriveUserRooms,
     deriveOtherRooms,
+    hasNip29,
   } from "@app/state"
   import {notifications} from "@app/notifications"
   import {pushModal} from "@app/modal"
@@ -27,6 +30,8 @@
 
   const {url} = $props()
 
+  const relay = deriveRelay(url)
+  const chatPath = makeSpacePath(url, "chat")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
   const jobsPath = makeSpacePath(url, "jobs")
@@ -41,6 +46,8 @@
   const toggleMenu = () => {
     showMenu = !showMenu
   }
+
+  const showMissingRooms = () => pushModal(InfoMissingRooms)
 
   const showMembers = () =>
     pushModal(
@@ -133,28 +140,43 @@
       <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
         <Icon icon="git" /> Git
       </SecondaryNavItem>
-      <div class="h-2"></div>
-      <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
-      {#each $userRooms as room, i (room)}
-        <MenuSpaceRoomItem {replaceState} notify {url} {room} />
-      {/each}
-      {#if $otherRooms.length > 0}
-        <div class="h-2"></div>
-        <SecondaryNavHeader>
-          {#if $userRooms.length > 0}
-            Other Rooms
-          {:else}
-            Rooms
-          {/if}
-        </SecondaryNavHeader>
+      {#if hasNip29($relay)}
+        {#if $userRooms.length > 0}
+          <div class="h-2"></div>
+          <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
+        {/if}
+        {#each $userRooms as room, i (room)}
+          <MenuSpaceRoomItem {replaceState} notify {url} {room} />
+        {/each}
+        {#if $otherRooms.length > 0}
+          <div class="h-2"></div>
+          <SecondaryNavHeader>
+            {#if $userRooms.length > 0}
+              Other Rooms
+            {:else}
+              Rooms
+            {/if}
+          </SecondaryNavHeader>
+        {/if}
+        {#each $otherRooms as room, i (room)}
+          <MenuSpaceRoomItem {replaceState} {url} {room} />
+        {/each}
+        <SecondaryNavItem {replaceState} onclick={addRoom}>
+          <Icon icon="add-circle" />
+          Create room
+        </SecondaryNavItem>
+      {:else}
+        <SecondaryNavItem
+          {replaceState}
+          href={chatPath}
+          notification={$notifications.has(chatPath)}>
+          <Icon icon="chat-round" /> Chat
+        </SecondaryNavItem>
+        <Button class="link flex items-center gap-2 py-2 pl-4 text-sm" onclick={showMissingRooms}>
+          <Icon icon="info-circle" size={4} />
+          Where did my rooms go?
+        </Button>
       {/if}
-      {#each $otherRooms as room, i (room)}
-        <MenuSpaceRoomItem {replaceState} {url} {room} />
-      {/each}
-      <SecondaryNavItem {replaceState} onclick={addRoom}>
-        <Icon icon="add-circle" />
-        Create room
-      </SecondaryNavItem>
     </div>
   </SecondaryNavSection>
 </div>

@@ -1,9 +1,20 @@
 # Changelog
 
-# 1.0.5
+# 1.1.1
+
+* Add chat quick link
+
+# 1.1.0
 
 * Add better theming support
 * Improve forms for entering invite codes
+* Rely more heavily on NIP 29 for rooms
+* Support multiple platform relays
+* Remove default general room
+* Remove room tag from threads/calendars
+* Show pubkey on profile detail
+* Support pasting pubkey into chat start dialog
+* Add minimal style for quoted messages
 
 # 1.0.4
 

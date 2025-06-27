@@ -65,6 +65,7 @@ google-services.json
 GoogleService-Info.plist
 
 # IDEs and editors
+.roo
 .idea/
 .vscode/
 
