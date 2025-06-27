@@ -1,7 +1,7 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {Address, NAMED_BOOKMARKS, type TrustedEvent} from "@welshman/util"
-  import {GIT_REPO} from "@src/lib/util"
+  import {GIT_REPO, GIT_REPO_BOOKMARK_DTAG} from "@src/lib/util"
   import {repository, userMutes} from "@welshman/app"
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
@@ -29,6 +29,7 @@
 
   const bookmarkFilter = {
     kinds: [NAMED_BOOKMARKS],
+    '#d': [GIT_REPO_BOOKMARK_DTAG],
     authors: [pubkey.get()!],
   }
 
@@ -111,7 +112,7 @@
     <div class="row-2">
       <Button class="btn btn-primary btn-sm" onclick={onAddRepo}>
         <Icon icon="git" />
-        Add Repo
+        Edit Repos
       </Button>
       <MenuSpaceButton {url} />
     </div>

@@ -36,15 +36,12 @@
 
   const url = decodeRelay($page.params.relay)
   let {
-    selectedRepos = $bindable(),
+    selectedRepos,
   }: {
     selectedRepos: Array<{address: string; event: TrustedEvent; relayHint: string}>
   } = $props()
 
   let localSelectedReposState = $state([...selectedRepos])
-  $effect(() => {
-    localSelectedReposState = [...selectedRepos]
-  })
 
   let unmounted = false
   let element: HTMLElement
@@ -168,7 +165,7 @@
     })
 
     $shouldReloadRepos = true
-    //selectedRepos = localSelectedReposState
+
     goto(makeGitPath(url))
   }
 
