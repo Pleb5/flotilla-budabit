@@ -4,19 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@welshman/app': ../welshman/packages/app
-  '@welshman/content': ../welshman/packages/content
-  '@welshman/editor': ../welshman/packages/editor
-  '@welshman/feeds': ../welshman/packages/feeds
-  '@welshman/lib': ../welshman/packages/lib
-  '@welshman/net': ../welshman/packages/net
-  '@welshman/relay': ../welshman/packages/relay
-  '@welshman/router': ../welshman/packages/router
-  '@welshman/signer': ../welshman/packages/signer
-  '@welshman/store': ../welshman/packages/store
-  '@welshman/util': ../welshman/packages/util
-
 importers:
 
   .:

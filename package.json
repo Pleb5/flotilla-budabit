@@ -50,6 +50,7 @@
     "@capacitor/ios": "^7.0.0",
     "@capacitor/keyboard": "^7.0.0",
     "@capacitor/push-notifications": "^7.0.1",
+    "@capawesome/capacitor-badge": "^7.0.1",
     "@lucide/svelte": "^0.509.0",
     "@noble/curves": "^1.5.0",
     "@noble/hashes": "^1.4.0",
