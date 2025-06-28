@@ -106,7 +106,7 @@
     </div>
   {/snippet}
   {#snippet title()}
-    <strong>Followed Repos</strong>
+    <strong>Repos</strong>
   {/snippet}
   {#snippet action()}
     <div class="row-2">

@@ -120,6 +120,8 @@
           ],
           includeScore: true,
           threshold: 0.3,
+          isCaseSensitive: false,
+          ignoreLocation: true,
         },
         sortFn: ({score, item}) => {
           if (score && score > 0.3) return -score!

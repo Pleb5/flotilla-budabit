@@ -2,8 +2,8 @@
   import {Button, IssueCard, NewIssueForm} from "@nostr-git/ui"
   import {type CommentEvent} from "@nostr-git/shared-types"
   import {Funnel, Plus, SearchX} from "@lucide/svelte"
-  import {Address, COMMENT, GIT_ISSUE, type TrustedEvent} from "@welshman/util"
-  import { pubkey } from "@welshman/app"
+  import {Address, COMMENT, getTagValue, GIT_ISSUE, type TrustedEvent} from "@welshman/util"
+  import { createSearch, pubkey } from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
   import {fly} from "@lib/transition"
@@ -13,10 +13,12 @@
   import { postComment, postIssue } from "@src/app/commands"
   import { sortBy } from "@welshman/lib"
   import type { LayoutProps } from "../$types"
+  import Icon from "@src/lib/components/Icon.svelte"
+  import { isMobile } from "@src/lib/html"
+    import { debounce } from "throttle-debounce"
 
   let {data}:LayoutProps = $props()
   const {repoClass, repoRelays} = data
-
 
   const issues = $derived.by(() => {
     return sortBy(e => -e.created_at, repoClass.issues)
@@ -30,6 +32,51 @@
       ret[key] = sortBy(e => -e.created_at, value)
     }
     return ret
+  })
+
+  let searchTerm = $state("")
+  let debouncedTerm = $state("")
+
+  // Set up the debounced update
+  const updateDebouncedTerm = debounce(500, term => {
+    debouncedTerm = term
+  })
+
+  // Watch searchTerm changes
+  $effect(() => {
+    updateDebouncedTerm(searchTerm)
+  })
+
+  const searchedIssues = $derived.by(() => {
+    const issuesToSearch = issues.map(issue => {
+      return {
+        id: issue.id,
+        subject: getTagValue("subject", issue.tags) ?? "",
+        desc: issue.content,
+      }
+    })
+    const issueSearch = createSearch(issuesToSearch, {
+      getValue: (issue: {id: string; subject: string; desc: string}) => issue.id,
+      fuseOptions: {
+        keys: [
+          {name: "subject", weight: 0.8},
+          {name: "desc", weight: 0.2},
+        ],
+        includeScore: true,
+        threshold: 0.3,
+        isCaseSensitive: false,
+        // When true, search will ignore location and distance, so it won't
+        // matter where in the string the pattern appears
+        ignoreLocation: true, 
+      },
+      sortFn: ({score, item}) => {
+        if (score && score > 0.3) return -score!
+        return item.subject
+      },
+    })
+    const searchResults = issueSearch.searchOptions(searchTerm)
+    const result = issues.filter(r => searchResults.find(res => res.id === r.id))
+    return result
   })
 
   $effect(() => {
@@ -94,34 +141,32 @@
     await postComment(comment, $repoRelays).result
   }
 
-  $inspect(comments).with((type, comments) => {
-    console.log('comments for all issues on the repo in budabit:',comments)
-  })
-  // $inspect(repoClass.issues).with((type, issues) => {
-  //   console.log('all issues on the repo in budabit:', issues)
-  // })
-
 </script>
 
 <div bind:this={element}>
-  <div class="sticky -top-8 z-nav mb-4 flex items-center justify-between py-4 backdrop-blur">
-    <div>
-      <h2 class="text-xl font-semibold">Issues</h2>
-      <p class="text-sm text-muted-foreground">Track bugs and feature requests</p>
+  <div class="max-w-full sticky -top-8 z-nav my-4 space-y-2 backdrop-blur">
+    <div class=" flex justify-between items-center">
+      <div>
+        <h2 class="text-xl font-semibold">Issues</h2>
+        <p class="max-sm:hidden text-sm text-muted-foreground">Track bugs and feature requests</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <Button class="gap-2" variant="git" size="sm" onclick={onNewIssue}>
+          <Plus class="h-4 w-4" />
+          <span class="">New Issue</span>
+        </Button>
+      </div>
     </div>
-
-    <div class="flex items-center gap-2">
-      <Button variant="outline" size="sm" class="gap-2">
-        <Funnel class="h-4 w-4" />
-        Filter
-      </Button>
-
-      <Button class="gap-2" variant="git" size="sm" onclick={onNewIssue}>
-        <Plus class="h-4 w-4" />
-
-        New Issue
-      </Button>
-    </div>
+    <label class="row-2 input grow overflow-x-hidden mt-1">
+      <Icon icon="magnifer" />
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        autofocus={!isMobile}
+        class="w-full"
+        bind:value={searchTerm}
+        type="text"
+        placeholder="Search issues..." />
+    </label>
   </div>
 
   {#if loading}
@@ -141,7 +186,7 @@
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each issues as issue (issue.id)}
+      {#each searchedIssues as issue (issue.id)}
         <div in:fly>
           <IssueCard
             event={issue}

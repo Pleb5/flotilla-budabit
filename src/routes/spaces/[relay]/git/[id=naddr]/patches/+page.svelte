@@ -13,7 +13,7 @@
   } from "@lucide/svelte"
   import {Address, COMMENT} from "@welshman/util"
   import {nthEq} from "@welshman/lib"
-  import {repository} from "@welshman/app"
+  import {createSearch, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
   import {deriveEvents} from "@welshman/store"
@@ -29,6 +29,8 @@
   import {getTags, type PatchEvent, type StatusEvent} from "@nostr-git/shared-types"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
     import { get } from "svelte/store"
+    import Icon from "@src/lib/components/Icon.svelte"
+    import { isMobile } from "@src/lib/html.js"
 
   const {data} = $props()
   const {repoClass} = data
@@ -44,6 +46,8 @@
   let sortBy = $state<string>("newest") // newest, oldest, status, commits
   let authorFilter = $state<string>("") // empty string means all authors
   let showFilters = $state(false)
+
+  let searchTerm = $state('')
 
   // Get all unique authors from patches
   const uniqueAuthors = $derived.by(() => {
@@ -153,6 +157,7 @@
       }
       return sortedPatches
     }
+    return []
   })
 
   let loading = $state(true)
@@ -192,30 +197,72 @@
       loading = false
     }
   })
+
+  const searchedPatches = $derived.by(() => {
+    const patchesToSearch = patchList.map(patch => {
+      return {
+        id: patch.id,
+        title: patch.parsedPatch.title
+      }
+    })
+    const patchesSearch = createSearch(patchesToSearch, {
+      getValue: (patch: {id: string; title: string}) => patch.id,
+      fuseOptions: {
+        keys: [
+          {name: "title"},
+        ],
+        includeScore: true,
+        threshold: 0.3,
+        isCaseSensitive: false,
+        // When true, search will ignore location and distance, so it won't
+        // matter where in the string the pattern appears
+        ignoreLocation: true, 
+      },
+      sortFn: ({score, item}) => {
+        if (score && score > 0.3) return -score!
+        return item.title
+      },
+    })
+    const searchResults = patchesSearch.searchOptions(searchTerm)
+    const result = patchList.filter(p => searchResults.find(res => res.id === p.id))
+    return result
+  })
 </script>
 
 <div bind:this={element}>
-  <div class="z-10 sticky -top-8 z-nav mb-2 flex items-center justify-between py-4 backdrop-blur">
-    <div>
-      <h2 class="text-xl font-semibold">Patches</h2>
-      <p class="text-sm text-muted-foreground">Review and merge code changes</p>
-    </div>
+  <div class="z-10 sticky -top-8 z-nav flex flex-col gap-y-2 mb-2 py-4 backdrop-blur">
+    <div class=" flex items-center justify-between ">
+      <div>
+        <h2 class="text-xl font-semibold">Patches</h2>
+        <p class="max-sm:hidden text-sm text-muted-foreground">Review and merge code changes</p>
+      </div>
 
-    <div class="flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        class="gap-2"
-        onclick={() => (showFilters = !showFilters)}>
-        <Funnel class="h-4 w-4" />
-        {showFilters ? "Hide Filters" : "Filter"}
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          class="gap-2"
+          onclick={() => (showFilters = !showFilters)}>
+          <Funnel class="h-4 w-4" />
+          {showFilters ? "Hide Filters" : "Filter"}
+        </Button>
 
-      <Button size="sm" class="gap-2 bg-git hover:bg-git-hover">
-        <Plus class="h-4 w-4" />
-        New Patch
-      </Button>
+        <Button size="sm" class="gap-2 bg-git hover:bg-git-hover">
+          <Plus class="h-4 w-4" />
+          New Patch
+        </Button>
+      </div>
     </div>
+    <label class="row-2 input grow overflow-x-hidden">
+      <Icon icon="magnifer" />
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        autofocus={!isMobile}
+        class="w-full"
+        bind:value={searchTerm}
+        type="text"
+        placeholder="Search patches..." />
+    </label>
   </div>
 
   {#if showFilters}
@@ -343,7 +390,7 @@
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each patchList! as patch}
+      {#each searchedPatches as patch}
         <div in:fly>
           <PatchCard
             event={patch}
