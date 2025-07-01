@@ -78,7 +78,7 @@
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
   let sortByOrder = $state<string>("newest") // newest, oldest, status, commits
   let authorFilter = $state<string>("") // empty string means all authors
-  let showFilters = $state(false)
+  let showFilters = $state(true)
 
   const uniqueAuthors = $derived.by(() => {
     if (!repoClass.patches) return []

@@ -32,7 +32,7 @@
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
   let sortBy = $state<string>("newest") // newest, oldest, status, commits
   let authorFilter = $state<string>("") // empty string means all authors
-  let showFilters = $state(false)
+  let showFilters = $state(true)
   let searchTerm = $state("")
 
   const patchList = $derived.by(() => {
