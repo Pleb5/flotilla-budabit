@@ -16,6 +16,8 @@
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
+    import { navigating } from "$app/state"
+    import { goto } from "$app/navigation"
 
   interface Props {
     url: any
@@ -57,6 +59,25 @@
     }
   })
 
+  $effect(() => {
+    if (navigating.type) {
+
+    }
+  })
+
+  const gotoRepo = async () => {
+    const destination = makeGitPath(url, Address.fromEvent(event).toNaddr())
+    goto(destination)
+  }
+
+  const gotoIssues = async () => {
+    const destination = makeGitPath(
+      url, Address.fromEvent(event).toNaddr()
+    ) + "/issues"
+    
+    goto(destination)
+  }
+
   // This might be broken depending on repo owners updating their links or
   // even including one in the first place
   // const web = event.tags.find(nthEq(0, "web"))?.[1]
@@ -64,19 +85,23 @@
 
 <div class="flex flex-wrap items-center justify-between gap-2">
   <div class="flex flex-grow flex-wrap justify-end gap-2">
-    <Link
+    <Button
       class="cursor-pointer btn btn-primary btn-sm"
-      href={makeGitPath(url, Address.fromEvent(event).toNaddr())}>
-      <span class="">Browse</span>
-    </Link>
+      onclick={gotoRepo}
+      disabled={!!navigating.type}>
+      <Spinner loading={!!navigating.type} minHeight={"min-h-6"}>
+        Browse
+      </Spinner>
+    </Button>
     {#if showIssues}
-      <Link
+      <Button
         class="flex btn btn-secondary btn-sm cursor-pointer items-center"
-        href={makeGitPath(url, Address.fromEvent(event).toNaddr()) + "/issues"}>
-        <Spinner loading={loadingIssues} minHeight={"min-h-6"}>
+        onclick={gotoIssues}
+        disabled={!!navigating.type}>
+        <Spinner loading={loadingIssues || !!navigating.type} minHeight={"min-h-6"}>
           {"Issues (" + issueCount + ")"}
         </Spinner>
-      </Link>
+      </Button>
     {/if}
 
     {#if showActivity}
