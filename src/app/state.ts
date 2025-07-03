@@ -89,7 +89,6 @@ import {
   appContext,
 } from "@welshman/app"
 import type {Thunk, Relay} from "@welshman/app"
-import {deriveEvents, deriveEventsMapped, withGetter, synced} from "@welshman/store"
 import type { AddressPointer } from "nostr-tools/nip19"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
@@ -266,7 +265,7 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   let attempted = false
   const decoded = nip19.decode(naddr).data as AddressPointer
   const fallbackRelays = [...hints, ...INDEXER_RELAYS]
-  const relays = decoded.relays?.length! > 0 ? decoded.relays : fallbackRelays
+  const relays = decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays
   const filters = [{
     authors: [decoded.pubkey],
     kinds: [decoded.kind],

@@ -46,7 +46,7 @@
         <Button onclick={openProfile} class="text-bold overflow-hidden text-ellipsis">
           {$profileDisplay}
         </Button>
-        <WotScore score={$score} active={following} />
+        <WotScore pubkey={pubkey} />
       </div>
       {#if $handle}
       <div class="overflow-hidden text-ellipsis text-sm opacity-75">

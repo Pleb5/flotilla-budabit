@@ -16,7 +16,7 @@
     ROOM_ADD_USER,
     ROOM_REMOVE_USER,
   } from "@welshman/util"
-  import {pubkey, publishThunk, getThunkError, joinRoom, leaveRoom} from "@welshman/app"
+  import {pubkey, publishThunk, getThunkError, joinRoom, leaveRoom, deriveRelay} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -37,7 +37,6 @@
     deriveUserMembershipStatus,
     deriveChannel,
     MembershipStatus,
-    channelsById,
   } from "@app/state"
   import {setChecked, checked} from "@app/notifications"
   import {addRoomMembership, removeRoomMembership, prependParent} from "@app/commands"

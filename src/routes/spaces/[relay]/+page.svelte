@@ -1,7 +1,7 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {displayRelayUrl} from "@welshman/util"
-  import {deriveRelay} from "@welshman/app"
+  import {displayRelayUrl, MESSAGE, THREAD} from "@welshman/util"
+  import {deriveRelay, pubkey} from "@welshman/app"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -13,18 +13,18 @@
   import RelayName from "@app/components/RelayName.svelte"
   import RelayDescription from "@app/components/RelayDescription.svelte"
   import SpaceQuickLinks from "@app/components/SpaceQuickLinks.svelte"
-  import SpaceRecentActivity from "@app/components/SpaceRecentActivity.svelte"
   import SpaceRelayStatus from "@app/components/SpaceRelayStatus.svelte"
-  import {decodeRelay, userRoomsByUrl} from "@app/state"
   import {
-    makeChatPath,
-    makeThreadPath,
-    makeCalendarPath,
-    makeGitPath,
-    makeRoomPath,
-  } from "@app/routes"
-  import {notifications} from "@app/notifications"
+    channelsById,
+    decodeRelay,
+    deriveEventsForUrl,
+    deriveOtherRooms,
+    makeChannelId,
+    userRoomsByUrl,
+  } from "@app/state"
+  import {makeChatPath, makeThreadPath, makeCalendarPath, makeGitPath} from "@app/routes"
   import {pushModal} from "@app/modal"
+  import ChannelName from "@src/app/components/ChannelName.svelte"
 
   const url = decodeRelay($page.params.relay)
   const relay = deriveRelay(url)
@@ -32,93 +32,60 @@
   const threadsPath = makeThreadPath(url)
   const calendarPath = makeCalendarPath(url)
   const gitPath = makeGitPath(url)
-  const mentions = deriveEventsForUrl(url, [{'#p': [$pubkey!], kinds: [MESSAGE, THREAD]}])
+  const mentions = deriveEventsForUrl(url, [{"#p": [$pubkey!], kinds: [MESSAGE, THREAD]}])
 
   const joinSpace = () => pushModal(SpaceJoin, {url})
 
   const owner = $derived($relay?.profile?.pubkey)
 </script>
 
-<div class="relative flex flex-col">
-  <PageBar>
-    {#snippet icon()}
-      <div class="center">
-        <Icon icon="home-smile" />
-      </div>
-    {/snippet}
-    {#snippet title()}
-      <strong>Home</strong>
-    {/snippet}
-    {#snippet action()}
-      <div class="row-2">
-        {#if !$userRoomsByUrl.has(url)}
-          <Button class="btn btn-primary btn-sm" onclick={joinSpace}>
-            <Icon icon="login-2" />
-            Join Space
-          </Button>
-        {:else if pubkey}
-          <Link class="btn btn-primary btn-sm" href={makeChatPath([pubkey])}>
-            <Icon icon="letter" />
-            Contact Owner
-          </Link>
-        {/if}
-        <MenuSpaceButton {url} />
-      </div>
-    {/snippet}
-  </PageBar>
-  <PageContent>
-    <div class="col-2 p-2">
-      <div class="card2 bg-alt col-4 text-left">
-        <div class="relative flex gap-4">
-          <div class="relative">
-            <div class="avatar relative">
-              <div
-                class="center !flex h-12 w-12 min-w-12 rounded-full border-2 border-solid border-base-300 bg-base-300">
-                {#if $relay?.profile?.icon}
-                  <img alt="" src={$relay.profile.icon} />
-                {:else}
-                  <Icon icon="ghost" size={5} />
-                {/if}
-              </div>
-            </div>
-          </div>
-          <div class="min-w-0">
-            <h2 class="ellipsize whitespace-nowrap text-xl">
-              <RelayName {url} />
-            </h2>
-            <p class="ellipsize text-sm opacity-75">{displayRelayUrl(url)}</p>
+<PageBar>
+  {#snippet icon()}
+    <div class="center">
+      <Icon icon="home-smile" />
+    </div>
+  {/snippet}
+  {#snippet title()}
+    <strong>Home</strong>
+  {/snippet}
+  {#snippet action()}
+    <div class="row-2">
+      {#if !$userRoomsByUrl.has(url)}
+        <Button class="btn btn-primary btn-sm" onclick={joinSpace}>
+          <Icon icon="login-2" />
+          Join Space
+        </Button>
+      {:else if $pubkey}
+        <Link class="btn btn-primary btn-sm" href={makeChatPath([$pubkey])}>
+          <Icon icon="letter" />
+          Contact Owner
+        </Link>
+      {/if}
+      <MenuSpaceButton {url} />
+    </div>
+  {/snippet}
+</PageBar>
+
+<PageContent class="flex flex-col gap-2 p-2 pt-4">
+  <div class="card2 bg-alt col-4 text-left">
+    <div class="relative flex gap-4">
+      <div class="relative">
+        <div class="avatar relative">
+          <div
+            class="center !flex h-12 w-12 min-w-12 rounded-full border-2 border-solid border-base-300 bg-base-300">
+            {#if $relay?.profile?.icon}
+              <img alt="" src={$relay.profile.icon} />
+            {:else}
+              <Icon icon="ghost" size={5} />
+            {/if}
           </div>
         </div>
-        <RelayDescription {url} />
-        {#if $relay?.profile}
-          {@const {software, version, supported_nips, limitation} = $relay.profile}
-          <div class="flex flex-wrap gap-1">
-            {#if limitation?.auth_required}
-              <p class="badge badge-neutral">
-                <span class="ellipsize">Authentication Required</span>
-              </p>
-            {/if}
-            {#if limitation?.payment_required}
-              <p class="badge badge-neutral"><span class="ellipsize">Payment Required</span></p>
-            {/if}
-            {#if limitation?.min_pow_difficulty}
-              <p class="badge badge-neutral">
-                <span class="ellipsize">Requires PoW {limitation?.min_pow_difficulty}</span>
-              </p>
-            {/if}
-            {#if Array.isArray(supported_nips)}
-              <p class="badge badge-neutral">
-                <span class="ellipsize">NIPs: {supported_nips.join(", ")}</span>
-              </p>
-            {/if}
-            {#if software}
-              <p class="badge badge-neutral"><span class="ellipsize">Software: {software}</span></p>
-            {/if}
-            {#if version}
-              <p class="badge badge-neutral"><span class="ellipsize">Version: {version}</span></p>
-            {/if}
-          </div>
-        {/if}
+      </div>
+      <div class="flex min-w-0 flex-col gap-1">
+        <h2 class="ellipsize whitespace-nowrap text-xl">
+          <RelayName {url} />
+        </h2>
+        <p class="ellipsize text-sm opacity-75">{displayRelayUrl(url)}</p>
       </div>
     </div>
     <RelayDescription {url} />
@@ -148,8 +115,8 @@
           Recent Activity
         </h3>
         <div class="flex flex-col gap-3">
-          {#if $userRooms.length > 0}
-            {#each $userRooms.slice(0, 3) as room (room)}
+          {#if $otherRooms.length > 0}
+            {#each $otherRooms.slice(0, 3) as room (room)}
               {@const channel = $channelsById.get(makeChannelId(url, room))}
               <div class="flex items-center gap-3 rounded bg-base-100">
                 <div class="flex items-center gap-2">
@@ -187,5 +154,5 @@
         </div>
       {/if}
     </div>
-  </PageContent>
-</div>
+  </div>
+</PageContent>

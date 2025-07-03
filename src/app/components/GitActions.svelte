@@ -1,10 +1,6 @@
 <script lang="ts">
   import {load} from "@welshman/net"
-  import {
-    Address,
-    GIT_ISSUE,
-    type TrustedEvent,
-  } from "@welshman/util"
+  import {Address, GIT_ISSUE, type EventContent, type TrustedEvent} from "@welshman/util"
   import {pubkey, repository} from "@welshman/app"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
@@ -40,13 +36,10 @@
   const issues = deriveEvents(repository, {filters: [issueFilter]})
   const issueCount = $derived($issues.length)
 
-  const onReactionClick = (content: string, events: TrustedEvent[]) => {
-    const reaction = events.find(e => e.pubkey === $pubkey)
-    if (reaction) {
-      publishDelete({relays: [url], event: reaction})
-    } else {
-      publishReaction({event, content, relays: [url]})
-    }
+  const onPublishDelete = (event: TrustedEvent) => publishDelete({relays: [url], event})
+
+  const onPublishReaction = (event: EventContent) => {
+    publishReaction({event: event as TrustedEvent, content: event.content, relays: [url]})
   }
 
   $effect(() => {
@@ -105,7 +98,12 @@
     {/if}
 
     {#if showActivity}
-      <ReactionSummary {url} {event} {onReactionClick} reactionClass="tooltip-left" />
+      <ReactionSummary
+        {url}
+        {event}
+        createReaction={onPublishReaction}
+        deleteReaction={onPublishDelete}
+        reactionClass="tooltip-left" />
       <ThunkStatusOrDeleted {event} />
       <EventActions {url} {event} noun="Repo" />
     {/if}

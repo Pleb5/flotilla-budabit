@@ -3,19 +3,17 @@
   import {page} from "$app/stores"
   import {sortBy, sleep} from "@welshman/lib"
   import {COMMENT, getTag, getTagValue, GIT_ISSUE, type Filter, type TrustedEvent} from "@welshman/util"
-  import { repository, type PartialSubscribeRequest} from "@welshman/app"
-  import {load} from "@welshman/net"
+  import { repository} from "@welshman/app"
+  import {load, request} from "@welshman/net"
   import {deriveEvents} from "@welshman/store"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
-  import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
-  import CommentActions from "@app/components/CommentActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/state"
   import {setChecked} from "@app/notifications"
@@ -55,7 +53,7 @@
       authors: [jobPubkey],
       '#d': [jobDTag]
     }
-    const request:PartialSubscribeRequest = {filters: [jobFilter]}
+    const request = {filters: [jobFilter], relays: [url]}
     if (relayHint) request.relays = [relayHint]
 
     const jobs = await load(request)
@@ -67,7 +65,7 @@
       ids: [issueId],
       kinds: [GIT_ISSUE],
     }
-    const request:PartialSubscribeRequest = {filters: [issueFilter]}
+    const request = {filters: [issueFilter], relays: [url]}
     if (relayHint) request.relays = [relayHint]
 
     const issues = await load(request)
@@ -138,7 +136,7 @@
     {@render jobOrGitIssueElem()}
     <NoteCard event={$event} class="card2 bg-alt z-feature w-full">
       <div class="col-3 ml-12">
-        <Content showEntire event={$event} relays={[url]} />
+        <Content showEntire event={$event} />
         <ThreadActions event={$event} {url} />
       </div>
     </NoteCard>

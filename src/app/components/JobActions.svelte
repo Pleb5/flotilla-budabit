@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Address, type TrustedEvent} from "@welshman/util"
+  import {Address, type EventContent, type TrustedEvent} from "@welshman/util"
   import {pubkey, tracker} from "@welshman/app"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
@@ -47,14 +47,10 @@
   const startThread = () =>
     pushModal(ThreadCreate, {url: url, jobOrGitIssue: event, relayHint: relayHint})
 
-  const onReactionClick = (content: string, events: TrustedEvent[]) => {
-    const reaction = events.find(e => e.pubkey === $pubkey)
+  const onPublishDelete = (event: TrustedEvent) => publishDelete({relays: [url], event})
 
-    if (reaction) {
-      publishDelete({relays: [url], event: reaction})
-    } else {
-      publishReaction({event, content, relays: [url]})
-    }
+  const onPublishReaction = (event: EventContent) => {
+    publishReaction({event: event as TrustedEvent, content: event.content, relays: [url]})
   }
 </script>
 
@@ -82,7 +78,7 @@
         </Link>
       </Button>
     {/if}
-    <ReactionSummary {url} {event} {onReactionClick} reactionClass="tooltip-left" />
+    <ReactionSummary {url} {event} createReaction={onPublishReaction} deleteReaction={onPublishDelete} reactionClass="tooltip-left" />
     <ThunkStatusOrDeleted {event} />
     {#if showActivity}
       <EventActivity {url} {path} {event} />
