@@ -147,6 +147,9 @@
         notification={$notifications.has(calendarPath)}>
         <Icon icon="calendar-minimalistic" /> Calendar
       </SecondaryNavItem>
+      <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
+        <Icon icon="git" /> Git
+      </SecondaryNavItem>
       {#if hasNip29($relay)}
         {#if $userRooms.length > 0}
           <div class="h-2"></div>
@@ -158,7 +161,7 @@
         {#if $otherRooms.length > 0}
           <div class="h-2"></div>
           <SecondaryNavHeader>
-            {#if $userRooms.length > 0}
+            {#if $userRoomsByUrl.has(url)}
               Other Rooms
             {:else}
               Rooms
