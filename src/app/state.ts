@@ -545,7 +545,7 @@ export type Channel = {
   url: string
   room: string
   name: string
-  event: TrustedEvent
+  event?: TrustedEvent | null
   closed: boolean
   private: boolean
   picture?: string
@@ -598,7 +598,6 @@ export const channels = derived(
             url,
             room,
             name,
-            event,
             closed: false,
             private: false,
           })
@@ -615,6 +614,7 @@ export const channels = derived(
           const id = makeChannelId(url, room)
 
           if (!$channels.some(c => c.id === id)) {
+            console.log("adding channel", event)
             $channels.push({
               id,
               url,
@@ -711,14 +711,6 @@ export const userRoomsByUrl = withGetter(
 
     for (const url of getRelayTagValues(tags)) {
       $userRoomsByUrl.set(normalizeRelayUrl(url), new Set())
-    }
-
-    for (const [_, room, url] of getGroupTags(tags)) {
-      addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), room)
-    }
-
-    for (const url of getRelayTagValues(tags)) {
-      addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), GENERAL)
     }
 
     return $userRoomsByUrl

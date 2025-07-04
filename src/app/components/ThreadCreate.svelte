@@ -1,6 +1,13 @@
 <script lang="ts">
   import {writable} from "svelte/store"
-  import {Address, makeEvent, getTagValue, GIT_ISSUE, THREAD, type TrustedEvent} from "@welshman/util"
+  import {
+    Address,
+    makeEvent,
+    getTagValue,
+    GIT_ISSUE,
+    THREAD,
+    type TrustedEvent,
+  } from "@welshman/util"
   import {publishThunk} from "@welshman/app"
   import {isMobile, preventDefault} from "@lib/html"
   import Icon from "@lib/components/Icon.svelte"
@@ -10,18 +17,18 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {pushToast} from "@app/toast"
-  import {PROTECTED} from "@app/state"
+  import {GENERAL, PROTECTED, tagRoom} from "@app/state"
   import {makeEditor} from "@app/editor"
-  import { FREELANCE_JOB } from "@src/lib/util"
-    import { goto } from "$app/navigation"
-    import { makeThreadPath } from "../routes"
+  import {FREELANCE_JOB} from "@src/lib/util"
+  import {goto} from "$app/navigation"
+  import {makeThreadPath} from "../routes"
 
   const {
     url,
     jobOrGitIssue,
-    relayHint
+    relayHint,
   }: {
-    url: string,
+    url: string
     jobOrGitIssue?: TrustedEvent
     relayHint?: string
   } = $props()
@@ -30,7 +37,6 @@
 
   const back = () => history.back()
   const selectFiles = () => editor.then(ed => ed.commands.selectFiles())
-
 
   const threadsPath = makeThreadPath(url)
   const submit = async () => {
@@ -53,16 +59,21 @@
       })
     }
 
-    let jobOrGitIssueTag:string[] | undefined = undefined
+    let jobOrGitIssueTag: string[] | undefined = undefined
     if (jobOrGitIssue?.kind === GIT_ISSUE) {
-      jobOrGitIssueTag = ['gitissue', jobOrGitIssue.id]
+      jobOrGitIssueTag = ["gitissue", jobOrGitIssue.id]
       if (relayHint) jobOrGitIssueTag.push(relayHint)
     } else if (jobOrGitIssue?.kind === FREELANCE_JOB) {
-      jobOrGitIssueTag = ['job', Address.fromEvent(jobOrGitIssue).toString()]
+      jobOrGitIssueTag = ["job", Address.fromEvent(jobOrGitIssue).toString()]
       if (relayHint) jobOrGitIssueTag.push(relayHint)
     }
 
-    const tags = [...ed.storage.nostr.getEditorTags(), ["title", title], PROTECTED]
+    const tags = [
+      ...ed.storage.nostr.getEditorTags(),
+      tagRoom(GENERAL, url),
+      ["title", title],
+      PROTECTED,
+    ]
 
     publishThunk({
       relays: [url],
@@ -76,21 +87,18 @@
 
   let title: string = $state("")
   const jobOrGitIssueTitle = $derived.by(() => {
-    if (!jobOrGitIssue) return ''
+    if (!jobOrGitIssue) return ""
 
-    let title = ''
+    let title = ""
     if (jobOrGitIssue.kind === GIT_ISSUE) {
-      title = 'Git: ' + (getTagValue('subject', jobOrGitIssue.tags) ?? '?')
+      title = "Git: " + (getTagValue("subject", jobOrGitIssue.tags) ?? "?")
     } else if (jobOrGitIssue.kind === FREELANCE_JOB) {
-      title = 'Job: ' + (getTagValue('title', jobOrGitIssue.tags) ?? '?')
+      title = "Job: " + (getTagValue("title", jobOrGitIssue.tags) ?? "?")
     }
     return title
   })
 
-  let titleToPost = $derived(
-    title + (jobOrGitIssueTitle ? "(" + jobOrGitIssueTitle + ")" : "")
-  )
-
+  let titleToPost = $derived(title + (jobOrGitIssueTitle ? "(" + jobOrGitIssueTitle + ")" : ""))
 </script>
 
 <form class="column gap-4" onsubmit={preventDefault(submit)}>

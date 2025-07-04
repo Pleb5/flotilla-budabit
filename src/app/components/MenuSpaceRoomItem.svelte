@@ -18,9 +18,6 @@
   const path = makeRoomPath(url, room)
   const channel = deriveChannel(url, room)
 
-  $effect(() => {
-    if($channel) console.log("channel", $channel)
-  })
 </script>
 
 <SecondaryNavItem
