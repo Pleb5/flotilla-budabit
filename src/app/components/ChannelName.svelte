@@ -1,7 +1,11 @@
 <script lang="ts">
-  import {channelsById, makeChannelId} from "@app/state"
+  import {channelsById, makeChannelId, GENERAL} from "@app/state"
 
   const {url, room} = $props()
 </script>
 
-{$channelsById.get(makeChannelId(url, room))?.name || room}
+{#if room === GENERAL}
+  general
+{:else}
+  {$channelsById.get(makeChannelId(url, room))?.name || room}
+{/if}

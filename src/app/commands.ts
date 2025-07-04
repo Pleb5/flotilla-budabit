@@ -63,7 +63,6 @@ import {
   userRoomsByUrl,
 } from "@app/state"
 import type {CommentEvent, IssueEvent, StatusEvent} from "@nostr-git/shared-types"
-import {getPushInfo} from "@app/push"
 
 // Utils
 

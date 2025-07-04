@@ -18,7 +18,6 @@ import {
   memoize,
   addToMapKey,
   identity,
-  groupBy,
   always,
 } from "@welshman/lib"
 import type {Socket} from "@welshman/net"
@@ -89,13 +88,17 @@ import {
   appContext,
 } from "@welshman/app"
 import type {Thunk, Relay} from "@welshman/app"
-import type { AddressPointer } from "nostr-tools/nip19"
+import type {AddressPointer} from "nostr-tools/nip19"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
 export const ROOM = "h"
 
+export const GENERAL = "_"
+
 export const PROTECTED = ["-"]
+
+export const GROUPS = 32829
 
 export const NOTIFIER_PUBKEY = import.meta.env.VITE_NOTIFIER_PUBKEY
 
@@ -133,9 +136,9 @@ export const IMGPROXY_URL = "https://imgproxy.coracle.social"
 
 export const REACTION_KINDS = [REACTION, ZAP_RESPONSE]
 
-export const REPO_KEY = Symbol("repo");
+export const REPO_KEY = Symbol("repo")
 
-export const REPO_RELAYS_KEY = Symbol("repo-relays");
+export const REPO_RELAYS_KEY = Symbol("repo-relays")
 
 export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt," +
@@ -266,22 +269,21 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   const decoded = nip19.decode(naddr).data as AddressPointer
   const fallbackRelays = [...hints, ...INDEXER_RELAYS]
   const relays = decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays
-  const filters = [{
-    authors: [decoded.pubkey],
-    kinds: [decoded.kind],
-    "#d": [decoded.identifier],
-  }]
-
-  return derived(
-    deriveEvents(repository, {filters}),
-    (events: TrustedEvent[]) => {
-      if (!attempted && events.length === 0) {
-        load({relays: relays as string[], filters})
-        attempted = true
-      }
-      return events[0]
+  const filters = [
+    {
+      authors: [decoded.pubkey],
+      kinds: [decoded.kind],
+      "#d": [decoded.identifier],
     },
-  )
+  ]
+
+  return derived(deriveEvents(repository, {filters}), (events: TrustedEvent[]) => {
+    if (!attempted && events.length === 0) {
+      load({relays: relays as string[], filters})
+      attempted = true
+    }
+    return events[0]
+  })
 }
 
 export const getUrlsForEvent = derived([trackerStore, thunks], ([$tracker, $thunks]) => {
@@ -311,7 +313,6 @@ export const getUrlsForEvent = derived([trackerStore, thunks], ([$tracker, $thun
 export const getEventsForUrl = (url: string, filters: Filter[]) => {
   const $getUrlsForEvent = get(getUrlsForEvent)
   const $events = repository.query(filters)
-
   return sortBy(
     e => -e.created_at,
     $events.filter(e => $getUrlsForEvent(e.id).includes(url)),
@@ -558,17 +559,15 @@ export const splitChannelId = (id: string) => id.split("'")
 export const hasNip29 = (relay?: Relay) =>
   relay?.profile?.supported_nips?.map?.(String)?.includes?.("29")
 
-export const channelEvents = deriveEvents(repository, {filters: [{kinds: [ROOM_META]}]})
+export const channelEvents = deriveEvents(repository, {filters: [{kinds: [ROOM_META, ROOMS]}]})
 
 export const channels = derived(
-  [channelEvents, getUrlsForEvent],
-  ([$channelEvents, $getUrlsForEvent]) => {
+  [channelEvents, getUrlsForEvent, memberships, messages],
+  ([$channelEvents, $getUrlsForEvent, $memberships, $messages]) => {
     const $channels: Channel[] = []
-
     for (const event of $channelEvents) {
       const meta = fromPairs(event.tags)
       const room = meta.d
-
       if (room) {
         for (const url of $getUrlsForEvent(event.id)) {
           const id = makeChannelId(url, room)
@@ -588,11 +587,51 @@ export const channels = derived(
       }
     }
 
+    // Add known rooms based on membership events
+    for (const membership of $memberships) {
+      for (const {url, room, name} of getMembershipRooms(membership)) {
+        const id = makeChannelId(url, room)
+
+        if (!$channels.some(c => c.id === id)) {
+          $channels.push({
+            id,
+            url,
+            room,
+            name,
+            event,
+            closed: false,
+            private: false,
+          })
+        }
+      }
+    }
+
+    // Add rooms based on known messages
+    for (const event of $messages) {
+      const [_, room] = event.tags.find(nthEq(0, ROOM)) || []
+
+      if (room) {
+        for (const url of $getUrlsForEvent(event.id)) {
+          const id = makeChannelId(url, room)
+
+          if (!$channels.some(c => c.id === id)) {
+            $channels.push({
+              id,
+              url,
+              room,
+              name: room,
+              event,
+              closed: false,
+              private: false,
+            })
+          }
+        }
+      }
+    }
+
     return uniqBy(c => c.id, $channels)
   },
 )
-
-export const channelsByUrl = derived(channels, $channels => groupBy(c => c.url, $channels))
 
 export const {
   indexStore: channelsById,
@@ -601,23 +640,38 @@ export const {
 } = collection({
   name: "channels",
   store: channels,
-  getKey: channel => channel.id,
+  getKey: channel => {
+    return channel.id
+  },
   load: async (id: string) => {
     const [url, room] = splitChannelId(id)
-
     await load({
       relays: [url],
-      filters: [{kinds: [ROOM_META], "#d": [room]}],
+      filters: [{kinds: [ROOM_META], "#d": [room]}, {kinds: [ROOMS]}],
     })
   },
+})
+
+export const channelsByUrl = derived(channelsById, $channelsById => {
+  const $channelsByUrl = new Map<string, Channel[]>()
+
+  for (const channel of $channelsById.values()) {
+    pushToMapKey($channelsByUrl, channel.url, channel)
+  }
+
+  return $channelsByUrl
 })
 
 export const deriveChannel = (url: string, room: string) => _deriveChannel(makeChannelId(url, room))
 
 export const loadChannel = (url: string, room: string) => _loadChannel(makeChannelId(url, room))
 
-export const displayChannel = (url: string, room: string) =>
-  channelsById.get().get(makeChannelId(url, room))?.name || room
+export const displayChannel = (url: string, room: string) => {
+  if (room === GENERAL) {
+    return "general"
+  }
+  return channelsById.get().get(makeChannelId(url, room))?.name || room
+}
 
 export const roomComparator = (url: string) => (room: string) =>
   displayChannel(url, room).toLowerCase()
@@ -651,7 +705,7 @@ export const userMembership = withGetter(
 )
 
 export const userRoomsByUrl = withGetter(
-  derived([userMembership, channelsById], ([$userMembership, $channelsById]) => {
+  derived(userMembership, $userMembership => {
     const tags = getListTags($userMembership)
     const $userRoomsByUrl = new Map<string, Set<string>>()
 
@@ -660,9 +714,11 @@ export const userRoomsByUrl = withGetter(
     }
 
     for (const [_, room, url] of getGroupTags(tags)) {
-      if ($channelsById.has(makeChannelId(url, room))) {
-        addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), room)
-      }
+      addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), room)
+    }
+
+    for (const url of getRelayTagValues(tags)) {
+      addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), GENERAL)
     }
 
     return $userRoomsByUrl
@@ -671,7 +727,7 @@ export const userRoomsByUrl = withGetter(
 
 export const deriveUserRooms = (url: string) =>
   derived(userRoomsByUrl, $userRoomsByUrl =>
-    sortBy(roomComparator(url), uniq(Array.from($userRoomsByUrl.get(url) || []))),
+    sortBy(roomComparator(url), uniq(Array.from($userRoomsByUrl.get(url) || [GENERAL]))),
   )
 
 export const deriveOtherRooms = (url: string) =>

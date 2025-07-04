@@ -150,43 +150,30 @@
       <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
         <Icon icon="git" /> Git
       </SecondaryNavItem>
-      {#if hasNip29($relay)}
-        {#if $userRooms.length > 0}
-          <div class="h-2"></div>
-          <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
-        {/if}
-        {#each $userRooms as room, i (room)}
-          <MenuSpaceRoomItem {replaceState} notify {url} {room} />
-        {/each}
-        {#if $otherRooms.length > 0}
-          <div class="h-2"></div>
-          <SecondaryNavHeader>
-            {#if $userRoomsByUrl.has(url)}
-              Other Rooms
-            {:else}
-              Rooms
-            {/if}
-          </SecondaryNavHeader>
-        {/if}
-        {#each $otherRooms as room, i (room)}
-          <MenuSpaceRoomItem {replaceState} {url} {room} />
-        {/each}
-        <SecondaryNavItem {replaceState} onclick={addRoom}>
-          <Icon icon="add-circle" />
-          Create room
-        </SecondaryNavItem>
-      {:else}
-        <SecondaryNavItem
-          {replaceState}
-          href={chatPath}
-          notification={$notifications.has(chatPath)}>
-          <Icon icon="chat-round" /> Chat
-        </SecondaryNavItem>
-        <Button class="link flex items-center gap-2 py-2 pl-4 text-sm" onclick={showMissingRooms}>
-          <Icon icon="info-circle" size={4} />
-          Where did my rooms go?
-        </Button>
+      {#if $userRooms.length > 0}
+        <div class="h-2"></div>
+        <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
       {/if}
+      {#each $userRooms as room, i (room)}
+        <MenuSpaceRoomItem {replaceState} notify {url} {room} />
+      {/each}
+      {#if $otherRooms.length > 0}
+        <div class="h-2"></div>
+        <SecondaryNavHeader>
+          {#if $userRoomsByUrl.has(url)}
+            Other Rooms
+          {:else}
+            Rooms
+          {/if}
+        </SecondaryNavHeader>
+      {/if}
+      {#each $otherRooms as room, i (room)}
+        <MenuSpaceRoomItem {replaceState} {url} {room} />
+      {/each}
+      <SecondaryNavItem {replaceState} onclick={addRoom}>
+        <Icon icon="add-circle" />
+        Create room
+      </SecondaryNavItem>
     </div>
   </SecondaryNavSection>
   <div class="p-4">

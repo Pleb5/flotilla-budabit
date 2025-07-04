@@ -72,30 +72,23 @@
       </div>
     {/snippet}
   </ModalHeader>
-  {#if hasNip29($relay)}
-    <Field>
-      {#snippet label()}
-        <p>Room Name</p>
-      {/snippet}
-      {#snippet input()}
-        <label class="input input-bordered flex w-full items-center gap-2">
-          <Icon icon="hashtag" />
-          <input bind:value={name} class="grow" type="text" />
-        </label>
-      {/snippet}
-    </Field>
-  {:else}
-    <p class="bg-alt card2 row-2">
-      <Icon icon="danger" />
-      This relay does not support creating rooms.
-    </p>
-  {/if}
+  <Field>
+    {#snippet label()}
+      <p>Room Name</p>
+    {/snippet}
+    {#snippet input()}
+      <label class="input input-bordered flex w-full items-center gap-2">
+        <Icon icon="hashtag" />
+        <input bind:value={name} class="grow" type="text" />
+      </label>
+    {/snippet}
+  </Field>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
       <Icon icon="alt-arrow-left" />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary" disabled={!name || loading || !hasNip29($relay)}>
+    <Button type="submit" class="btn btn-primary" disabled={!name || loading}>
       <Spinner {loading}>Create Room</Spinner>
       <Icon icon="alt-arrow-right" />
     </Button>
