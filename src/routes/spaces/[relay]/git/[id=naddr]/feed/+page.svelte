@@ -1,11 +1,10 @@
 <script lang="ts">
-  import cx from "classnames"
   import {readable} from "svelte/store"
   import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
   import type {Readable} from "svelte/store"
   import {now, formatTimestampAsDate} from "@welshman/lib"
-  import {load, request} from "@welshman/net"
+  import {load} from "@welshman/net"
   import type {TrustedEvent, EventContent} from "@welshman/util"
   import {
     makeEvent,
@@ -13,8 +12,6 @@
     MESSAGE,
     DELETE,
     REACTION,
-    ROOM_ADD_USER,
-    ROOM_REMOVE_USER,
     GIT_ISSUE,
     GIT_PATCH,
     Address,
@@ -30,22 +27,16 @@
     getThunkError,
     joinRoom,
     leaveRoom,
-    deriveRelay,
   } from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
-  import PageBar from "@lib/components/PageBar.svelte"
-  import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
-  import ChannelName from "@app/components/ChannelName.svelte"
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import ChannelCompose from "@app/components/ChannelCompose.svelte"
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
   import {
-    userRoomsByUrl,
     userSettingValues,
     decodeRelay,
     deriveUserMembershipStatus,
@@ -53,7 +44,7 @@
     MembershipStatus,
   } from "@app/state"
   import {setChecked, checked} from "@app/notifications"
-  import {addRoomMembership, removeRoomMembership, prependParent} from "@app/commands"
+  import {prependParent} from "@app/commands"
   import {PROTECTED} from "@app/state"
   import {makeFeed} from "@app/requests"
   import {popKey} from "@app/implicit"
@@ -91,13 +82,7 @@
 
   const filter = [roomFilter, issueFilter, patchFilter, statusFilter, commentFilter]
 
-  const isFavorite = $derived($userRoomsByUrl.get(url)?.has(room))
   const membershipStatus = deriveUserMembershipStatus(url, room)
-
-  const addFavorite = () => addRoomMembership(url, room)
-
-  const removeFavorite = () => removeRoomMembership(url, room)
-  const relay = deriveRelay(url)
 
   const join = async () => {
     joining = true
@@ -294,21 +279,6 @@
   }
 
   onMount(() => {
-    const controller = new AbortController()
-
-    request({
-      signal: controller.signal,
-      relays: [url],
-      filters: [
-        {
-          kinds: [ROOM_ADD_USER, ROOM_REMOVE_USER],
-          "#p": [$pubkey!],
-          "#h": [room],
-          limit: 10,
-        },
-      ],
-    })
-
     const observer = new ResizeObserver(() => {
       if (dynamicPadding && chatCompose) {
         dynamicPadding!.style.minHeight = `${chatCompose!.offsetHeight}px`
@@ -320,14 +290,13 @@
     start()
 
     return () => {
-      controller.abort()
       observer.unobserve(chatCompose!)
       observer.unobserve(dynamicPadding!)
     }
   })
 
   onDestroy(() => {
-    cleanup()
+    cleanup?.()
 
     // Sveltekit calls onDestroy at the beginning of the page load for some reason
     setTimeout(() => {
@@ -336,60 +305,40 @@
   })
 </script>
 
-<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse pt-4">
+<div
+  bind:this={element}
+  onscroll={onScroll}
+  class="scroll-container cw md:bottom-sai fixed bottom-[calc(var(--saib)+3.5rem)] top-[calc(var(--sait)+16em)] flex flex-col-reverse overflow-y-auto overflow-x-hidden px-6 w-full">
   <div bind:this={dynamicPadding}></div>
-  {#if $channel?.private && $membershipStatus !== MembershipStatus.Granted}
-    <div class="py-20">
-      <div class="card2 col-8 m-auto max-w-md items-center text-center">
-        <p class="row-2">You aren't currently a member of this room.</p>
-        {#if $membershipStatus === MembershipStatus.Pending}
-          <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
-            <Icon icon="clock-circle" />
-            Access Pending
-          </Button>
-        {:else}
-          <Button class="btn btn-neutral btn-sm" disabled={joining} onclick={join}>
-            {#if joining}
-              <span class="loading loading-spinner loading-sm"></span>
-            {:else}
-              <Icon icon="login-2" />
-            {/if}
-            Join Room
-          </Button>
-        {/if}
+  {#each elements as { type, id, value, showPubkey } (id)}
+    {#if type === "new-messages"}
+      <div
+        bind:this={newMessages}
+        class="flex items-center py-2 text-xs transition-colors"
+        class:opacity-0={showFixedNewMessages}>
+        <div class="h-px flex-grow bg-primary"></div>
+        <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
+        <div class="h-px flex-grow bg-primary"></div>
       </div>
-    </div>
-  {:else}
-    {#each elements as { type, id, value, showPubkey } (id)}
-      {#if type === "new-messages"}
-        <div
-          bind:this={newMessages}
-          class="flex items-center py-2 text-xs transition-colors"
-          class:opacity-0={showFixedNewMessages}>
-          <div class="h-px flex-grow bg-primary"></div>
-          <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
-          <div class="h-px flex-grow bg-primary"></div>
-        </div>
-      {:else if type === "date"}
-        <Divider>{value}</Divider>
-      {:else}
-        <div in:slide class:-mt-1={!showPubkey}>
-          <ChannelMessage
-            {url}
-            {replyTo}
-            event={$state.snapshot(value as TrustedEvent)}
-            {showPubkey} />
-        </div>
-      {/if}
-    {/each}
-    <p class="flex h-10 items-center justify-center py-20">
-      {#if loadingEvents}
-        <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-      {:else}
-        <Spinner>End of message history</Spinner>
-      {/if}
-    </p>
-  {/if}
+    {:else if type === "date"}
+      <Divider>{value}</Divider>
+    {:else}
+      <div in:slide class:-mt-1={!showPubkey}>
+        <ChannelMessage
+          {url}
+          {replyTo}
+          event={$state.snapshot(value as TrustedEvent)}
+          {showPubkey} />
+      </div>
+    {/if}
+  {/each}
+  <p class="flex h-10 items-center justify-center py-20">
+    {#if loadingEvents}
+      <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
+    {:else}
+      <Spinner>End of message history</Spinner>
+    {/if}
+  </p>
 </div>
 
 <div class="chat__compose bg-base-200" bind:this={chatCompose}>

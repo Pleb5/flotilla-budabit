@@ -1,7 +1,7 @@
 <script lang="ts">
   import { RepoHeader, RepoTab, toast} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
-  import {FileCode, GitBranch, CircleAlert, GitPullRequest, PencilRuler, GitCommit, Layers} from "@lucide/svelte"
+  import {FileCode, GitBranch, CircleAlert, GitPullRequest, GitCommit, Layers} from "@lucide/svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
@@ -11,7 +11,6 @@
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {pushToast} from "@src/app/toast"
-  import { REPO_KEY, REPO_RELAYS_KEY } from "@src/app/state.js"
 
   const {id, relay} = $page.params
 
