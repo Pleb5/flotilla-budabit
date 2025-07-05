@@ -273,7 +273,7 @@
       ...repoClass.patches.filter(p => p.tags.some(t => t[0] === "t" && t[1] === "root")),
     )
 
-initialEvents.sort((a, b) => b.created_at - a.created_at)
+    initialEvents.sort((a, b) => b.created_at - a.created_at)
 
     const feed = makeFeed({
       element: element!,
@@ -335,7 +335,6 @@ initialEvents.sort((a, b) => b.created_at - a.created_at)
     }, 800)
   })
 </script>
-
 
 <div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse pt-4">
   <div bind:this={dynamicPadding}></div>

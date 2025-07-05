@@ -613,7 +613,6 @@ export const channels = derived(
           const id = makeChannelId(url, room)
 
           if (!$channels.some(c => c.id === id)) {
-            console.log("adding channel", event)
             $channels.push({
               id,
               url,
