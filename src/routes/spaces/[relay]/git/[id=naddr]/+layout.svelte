@@ -1,7 +1,7 @@
 <script lang="ts">
   import { RepoHeader, RepoTab, toast} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
-  import {FileCode, GitBranch, CircleAlert, GitPullRequest, PencilRuler, GitCommit} from "@lucide/svelte"
+  import {FileCode, GitBranch, CircleAlert, GitPullRequest, PencilRuler, GitCommit, Layers} from "@lucide/svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
@@ -90,12 +90,12 @@
           {/snippet}
         </RepoTab>
         <RepoTab
-          tabValue="workbench"
-          label="Workbench"
-          href={`/spaces/${encodedRelay}/git/${id}/workbench`}
+          tabValue="feed"
+          label="Feed"
+          href={`/spaces/${encodedRelay}/git/${id}/feed`}
           {activeTab}>
           {#snippet icon()}
-            <PencilRuler class="h-4 w-4" />
+            <Layers class="h-4 w-4" />
           {/snippet}
         </RepoTab>
       {/snippet}
