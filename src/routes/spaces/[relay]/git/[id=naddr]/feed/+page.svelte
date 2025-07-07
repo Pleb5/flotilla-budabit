@@ -198,12 +198,12 @@
 
     if (events) {
       const lastUserEvent = $events.find(e => e.pubkey === $pubkey)
-
+      const today = formatTimestampAsDate(Date.now()/1000)
       // Adjust last checked to account for messages that came from a different device
       const adjustedLastChecked =
         lastChecked && lastUserEvent ? Math.max(lastUserEvent.created_at, lastChecked) : lastChecked
 
-      for (const event of $events.toReversed()) {
+      for (const event of $events) {
         if (seen.has(event.id)) {
           continue
         }
@@ -221,7 +221,7 @@
           newMessagesSeen = true
         }
 
-        if (date !== previousDate) {
+        if (date !== previousDate && date !== today) {
           elements.push({type: "date", value: date, id: date, showPubkey: false})
         }
 
@@ -238,7 +238,7 @@
       }
     }
 
-    elements.reverse()
+    //elements.reverse()
 
     setTimeout(onScroll, 100)
 
@@ -279,20 +279,7 @@
   }
 
   onMount(() => {
-    const observer = new ResizeObserver(() => {
-      if (dynamicPadding && chatCompose) {
-        dynamicPadding!.style.minHeight = `${chatCompose!.offsetHeight}px`
-      }
-    })
-
-    observer.observe(chatCompose!)
-    observer.observe(dynamicPadding!)
     start()
-
-    return () => {
-      observer.unobserve(chatCompose!)
-      observer.unobserve(dynamicPadding!)
-    }
   })
 
   onDestroy(() => {
@@ -308,8 +295,7 @@
 <div
   bind:this={element}
   onscroll={onScroll}
-  class="scroll-container cw md:bottom-sai fixed bottom-[calc(var(--saib)+3.5rem)] top-[calc(var(--sait)+16em)] flex flex-col-reverse overflow-y-auto overflow-x-hidden px-6 w-full">
-  <div bind:this={dynamicPadding}></div>
+  class="scroll-container cw md:bottom-sai fixed bottom-[calc(var(--saib)+3.5rem)] top-[calc(var(--sait)+16rem)] flex flex-col overflow-y-auto overflow-x-hidden px-6 w-full">
   {#each elements as { type, id, value, showPubkey } (id)}
     {#if type === "new-messages"}
       <div
@@ -379,7 +365,7 @@
 {#if showScrollButton}
   <div in:fade class="chat__scroll-down">
     <Button class="btn btn-circle btn-neutral" onclick={scrollToBottom}>
-      <Icon icon="alt-arrow-down" />
+      <Icon icon="alt-arrow-up" />
     </Button>
   </div>
 {/if}

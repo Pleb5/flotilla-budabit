@@ -44,9 +44,9 @@
     <RepoHeader event={repoClass.repoEvent} {activeTab} isRepoWatched={false}>
       {#snippet children(activeTab: string)}
         <RepoTab
-          tabValue={id}
-          label="Overview"
-          href={`/spaces/${encodedRelay}/git/${id}`}
+          tabValue="feed"
+          label="Feed"
+          href={`/spaces/${encodedRelay}/git/${id}/feed`}
           {activeTab}>
           {#snippet icon()}
             <FileCode class="h-4 w-4" />
@@ -89,9 +89,9 @@
           {/snippet}
         </RepoTab>
         <RepoTab
-          tabValue="feed"
-          label="Feed"
-          href={`/spaces/${encodedRelay}/git/${id}/feed`}
+          tabValue="workbench"
+          label="Workbench"
+          href={`/spaces/${encodedRelay}/git/${id}/workbench`}
           {activeTab}>
           {#snippet icon()}
             <Layers class="h-4 w-4" />
