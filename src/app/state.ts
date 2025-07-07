@@ -18,6 +18,7 @@ import {
   memoize,
   identity,
   always,
+  addToMapKey,
 } from "@welshman/lib"
 import type {Socket} from "@welshman/net"
 import {Pool, load, AuthStateEvent, SocketEvent} from "@welshman/net"
@@ -591,38 +592,33 @@ export const channels = derived(
       for (const {url, room, name} of getMembershipRooms(membership)) {
         const id = makeChannelId(url, room)
 
-        if (!$channels.some(c => c.id === id)) {
-          $channels.push({
-            id,
-            url,
-            room,
-            name,
-            closed: false,
-            private: false,
-          })
-        }
+        $channels.push({
+          id,
+          url,
+          room,
+          name,
+          closed: false,
+          private: false,
+        })
       }
     }
 
     // Add rooms based on known messages
     for (const event of $messages) {
       const [_, room] = event.tags.find(nthEq(0, ROOM)) || []
-
       if (room) {
         for (const url of $getUrlsForEvent(event.id)) {
           const id = makeChannelId(url, room)
 
-          if (!$channels.some(c => c.id === id)) {
-            $channels.push({
-              id,
-              url,
-              room,
-              name: room,
-              event,
-              closed: false,
-              private: false,
-            })
-          }
+          $channels.push({
+            id,
+            url,
+            room,
+            name: room,
+            event,
+            closed: false,
+            private: false,
+          })
         }
       }
     }
@@ -707,8 +703,8 @@ export const userRoomsByUrl = withGetter(
     const tags = getListTags($userMembership)
     const $userRoomsByUrl = new Map<string, Set<string>>()
 
-    for (const url of getRelayTagValues(tags)) {
-      $userRoomsByUrl.set(normalizeRelayUrl(url), new Set())
+    for (const [_, room, url] of getGroupTags(tags)) {
+      addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), room)
     }
 
     return $userRoomsByUrl

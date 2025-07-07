@@ -24,7 +24,6 @@
     memberships,
     deriveUserRooms,
     deriveOtherRooms,
-    hasNip29,
     alerts,
   } from "@app/state"
   import {notifications} from "@app/notifications"
