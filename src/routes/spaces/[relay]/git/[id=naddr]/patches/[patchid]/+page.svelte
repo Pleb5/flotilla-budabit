@@ -1,6 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {Check, ChevronLeft, ChevronRight, GitCommit, MessageSquare, X} from "@lucide/svelte"
+  import {Check, ChevronLeft, ChevronRight, GitCommit, GitMerge, MessageSquare, X} from "@lucide/svelte"
   import {Button, Profile} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {DiffViewer, IssueThread} from "@nostr-git/ui"
@@ -119,15 +119,16 @@
     }
   })
 
-  function truncateHash(hash: string): string {
-    return hash.substring(0, 7)
-  }
-
   const md = markdownit({
     html: true,
     linkify: true,
     typographer: true,
   })
+
+  const applyPatch = () => {
+    
+  }
+
 </script>
 
 {#if patch}
@@ -264,6 +265,12 @@
               {/if}
             </div>
           {/key}
+        </div>
+
+        <div class="flex justify-end">
+          <Button onclick={applyPatch} variant="default">
+            <GitMerge class="h-4 w-4" /> Apply
+          </Button>
         </div>
 
         <div class="git-separator my-6"></div>

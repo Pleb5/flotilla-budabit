@@ -17,6 +17,8 @@ import {Editor, MentionSuggestion, WelshmanExtension} from "@welshman/editor"
 import {makeMentionNodeView} from "./MentionNodeView"
 import ProfileSuggestion from "./ProfileSuggestion.svelte"
 import {pushToast} from "@app/toast"
+import {PermalinkExtension} from "@nostr-git/ui"
+import Spinner from "@lib/components/Spinner.svelte"
 
 export const getBlossomServer = () => {
   const userUrls = getTagValues("server", getListTags(userBlossomServers.get()))
@@ -54,6 +56,11 @@ export const makeEditor = async ({
     autofocus,
     element: document.createElement("div"),
     extensions: [
+      PermalinkExtension.configure({
+        signer: async (e) => await signer.get().sign(e),
+        relays: Router.get().FromUser().getUrls(),
+        spinnerComponent: Spinner,
+      }),
       WelshmanExtension.configure({
         submit,
         extensions: {
