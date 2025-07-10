@@ -69,6 +69,8 @@
   import * as notifications from "@app/notifications"
   import * as appState from "@app/state"
 
+  import {signer as gitSigner} from "@nostr-git/ui"
+
   // Migration: old nostrtalk instance used different sessions
   if ($session && !$signer) {
     dropSession($session.pubkey)
@@ -219,6 +221,8 @@
       if ($pubkey) {
         await loadUserData($pubkey)
       }
+
+      gitSigner.set($signer)
 
       // Listen for space data, populate space-based notifications
       let unsubSpaces: any

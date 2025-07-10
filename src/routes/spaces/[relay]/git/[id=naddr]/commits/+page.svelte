@@ -1,7 +1,6 @@
 <script lang="ts">
-  import {GitBranch, Funnel, User, Search} from "@lucide/svelte"
+  import {GitBranch, User, Search} from "@lucide/svelte"
   import {
-    Button,
     Input,
     Select,
     SelectContent,

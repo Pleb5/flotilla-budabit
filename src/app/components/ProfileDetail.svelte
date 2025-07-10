@@ -11,7 +11,7 @@
   import ChatEnable from "@app/components/ChatEnable.svelte"
   import {canDecrypt, pubkeyLink} from "@app/state"
   import {pushModal} from "@app/modal"
-  import {makeChatPath} from "@app/routes"
+  import {makeChatPath, makeGitRepoPath} from "@app/routes"
 
   export type Props = {
     pubkey: string
@@ -39,8 +39,12 @@
     <div class="flex gap-2">
       <Link external href={pubkeyLink(pubkey)} class="btn btn-neutral">
         <Avatar src="/coracle.png" />
-        Open in Coracle
+        Profile
       </Link>
+      <Button onclick={() => goto(makeGitRepoPath(pubkey))} class="btn btn-neutral">
+        <Icon icon="git" />
+        Git Repos
+      </Button>
       <Button onclick={openChat} class="btn btn-primary">
         <Icon icon="letter" />
         Open Chat

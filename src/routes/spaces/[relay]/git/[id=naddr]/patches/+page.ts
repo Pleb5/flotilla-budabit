@@ -31,8 +31,12 @@ export const load = async ({parent}) => {
   const patchFilter = {
     kinds: [GIT_PATCH],
     "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
-    "#t": ["root"],
   }
+
+  await load({
+    relays: repoClass.relays,
+    filters: [commentFilter, statusEventFilter, patchFilter],
+  })
 
   const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
 
@@ -42,11 +46,6 @@ export const load = async ({parent}) => {
   )
 
   const uniqueAuthors = new Set(repoClass.patches.map((patch: PatchEvent) => patch.pubkey))
-
-  await load({
-    relays: repoClass.relays,
-    filters: [commentFilter, statusEventFilter, patchFilter],
-  })
 
   return {
     comments,

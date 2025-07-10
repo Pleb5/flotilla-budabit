@@ -168,6 +168,8 @@ export const colors = [
   ["zinc", twColors.zinc[600]],
 ]
 
+export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
+
 export const dufflepud = (path: string) => DUFFLEPUD_URL + "/" + path
 
 export const imgproxy = (url: string, {w = 640, h = 1024} = {}) => {

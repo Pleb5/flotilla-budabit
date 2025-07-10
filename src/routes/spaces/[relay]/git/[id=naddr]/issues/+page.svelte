@@ -1,11 +1,10 @@
 <script lang="ts">
-  import {Button, IssueCard, NewIssueForm} from "@nostr-git/ui"
-  import {createStatusEvent, type CommentEvent} from "@nostr-git/shared-types"
+  import {IssueCard, NewIssueForm, Button} from "@nostr-git/ui"
   import {
     CalendarDays,
     Check,
     Clock,
-    Funnel,
+    Eye,
     GitCommit,
     Plus,
     SearchX,
@@ -26,7 +25,13 @@
   import {makeFeed} from "@src/app/requests"
   import {fly, slide, slideAndFade} from "@lib/transition"
   import {pushModal} from "@src/app/modal"
-  import type {IssueEvent, StatusEvent, TrustedEvent} from "@nostr-git/shared-types"
+  import {
+    createStatusEvent,
+    type CommentEvent,
+    type IssueEvent,
+    type StatusEvent,
+    type TrustedEvent,
+  } from "@nostr-git/shared-types"
   import {PublishStatus, request} from "@welshman/net"
   import {postComment, postIssue, postStatus} from "@src/app/commands"
   import {nthEq, sortBy} from "@welshman/lib"
@@ -96,7 +101,7 @@
   let debouncedTerm = $state("")
 
   // Set up the debounced update
-  const updateDebouncedTerm = debounce(500, term => {
+  const updateDebouncedTerm = debounce(500, (term: string) => {
     debouncedTerm = term
   })
 
@@ -262,12 +267,8 @@
         bind:value={searchTerm}
         type="text"
         placeholder="Search issues..." />
-      <Button
-        variant="outline"
-        size="sm"
-        class="gap-2"
-        onclick={() => (showFilters = !showFilters)}>
-        <Funnel class="h-4 w-4" />
+      <Button size="sm" class="gap-2" onclick={() => (showFilters = !showFilters)}>
+        <Eye class="h-4 w-4" />
         {showFilters ? "Hide Filters" : "Filter"}
       </Button>
     </div>

@@ -49,6 +49,9 @@ export const makeJobPath = (url: string, eventId?: string) =>
 export const makeGitPath = (url: string, eventId?: string) =>
   makeSpacePath(url, "git", eventId)
 
+export const makeGitRepoPath = (url: string, eventId?: string) =>
+  makeSpacePath(url, "git", "repos", eventId)
+
 export const getPrimaryNavItem = ($page: Page) => $page.route?.id?.split("/")[1]
 
 export const getPrimaryNavItemIndex = ($page: Page) => {

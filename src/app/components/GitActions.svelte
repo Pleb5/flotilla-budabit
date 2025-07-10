@@ -8,12 +8,11 @@
   import {publishDelete, publishReaction} from "@app/commands"
   import {makeGitPath} from "@app/routes"
   import Button from "@src/lib/components/Button.svelte"
-  import Link from "@src/lib/components/Link.svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
-    import { navigating } from "$app/state"
-    import { goto } from "$app/navigation"
+  import {navigating} from "$app/state"
+  import {goto} from "$app/navigation"
 
   interface Props {
     url: any
@@ -54,7 +53,6 @@
 
   $effect(() => {
     if (navigating.type) {
-
     }
   })
 
@@ -64,10 +62,8 @@
   }
 
   const gotoIssues = async () => {
-    const destination = makeGitPath(
-      url, Address.fromEvent(event).toNaddr()
-    ) + "/issues"
-    
+    const destination = makeGitPath(url, Address.fromEvent(event).toNaddr()) + "/issues"
+
     goto(destination)
   }
 
@@ -79,16 +75,14 @@
 <div class="flex flex-wrap items-center justify-between gap-2">
   <div class="flex flex-grow flex-wrap justify-end gap-2">
     <Button
-      class="cursor-pointer btn btn-primary btn-sm"
+      class="btn btn-primary btn-sm cursor-pointer"
       onclick={gotoRepo}
       disabled={!!navigating.type}>
-      <Spinner loading={!!navigating.type} minHeight={"min-h-6"}>
-        Browse
-      </Spinner>
+      <Spinner loading={!!navigating.type} minHeight={"min-h-6"}>Browse</Spinner>
     </Button>
     {#if showIssues}
       <Button
-        class="flex btn btn-secondary btn-sm cursor-pointer items-center"
+        class="btn btn-secondary btn-sm flex cursor-pointer items-center"
         onclick={gotoIssues}
         disabled={!!navigating.type}>
         <Spinner loading={loadingIssues || !!navigating.type} minHeight={"min-h-6"}>

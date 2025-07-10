@@ -11,6 +11,8 @@
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {pushToast} from "@src/app/toast"
+  import EventActions from "@src/app/components/EventActions.svelte"
+  import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
 
   const {id, relay} = $page.params
 
@@ -24,9 +26,11 @@
   $effect(() => {
     if ($toast.length > 0) {
       $toast.forEach(t => {
+        // The toast store now handles format conversion internally
         pushToast({
-          message: t.description!,
-          theme: t.variant === "error" ? "error" : undefined,
+          message: t.message || (t.title && t.description ? `${t.title}: ${t.description}` : t.title || t.description || ''),
+          timeout: t.timeout || t.duration,
+          theme: t.theme || (t.variant === 'destructive' ? 'error' : undefined),
         })
       })
       toast.clear()
@@ -107,6 +111,8 @@
           Alert: Dialog as typeof import("@nostr-git/ui").Alert,
           ProfileComponent: Profile as typeof import("@nostr-git/ui").Profile,
           ProfileLink: ProfileLink as typeof import("@nostr-git/ui").ProfileLink,
+          EventActions: EventActions as typeof import("@nostr-git/ui").EventActions,
+          ReactionSummary: ReactionSummary as typeof import("@nostr-git/ui").ReactionSummary,
       }}>
       {@render children()}
     </ConfigProvider>

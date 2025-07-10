@@ -1,7 +1,15 @@
 <script lang="ts">
   import {Button, PatchCard} from "@nostr-git/ui"
-  import {CalendarDays, Check, Clock, Funnel, GitCommit, SearchX, User, X} from "@lucide/svelte"
-  import {nthEq} from "@welshman/lib"
+  import {
+    CalendarDays,
+    Check,
+    Clock,
+    Eye,
+    GitCommit,
+    SearchX,
+    User,
+    X,
+  } from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
@@ -40,26 +48,22 @@
       // First get all root patches
       let filteredPatches = repoClass.patches
         .filter((patch: PatchEvent) => {
-          const tags = getTags(patch, "t")
-          return tags.length > 0 && tags[0][1] === "root"
+          return getTags(patch, "t").find((tag: string[]) => tag[1] === "root")
         })
         .map((patch: PatchEvent) => {
           const status = $statusEvents
             ?.filter((s: any) => {
-              let [_, eventId] = s.tags.find(nthEq(0, "e")) || []
-              return eventId === patch.id
+              return getTags(s, "e").find((tag: string[]) => tag[1] === patch.id)
             })
             .sort((a: any, b: any) => b.created_at - a.created_at)[0]
 
           const patches = repoClass.patches.filter(issue => {
-            const tags = getTags(issue, "e")
-            return tags.length > 0 && tags[0][1] === patch.id
+            return getTags(issue, "e").find((tag: string[]) => tag[1] === patch.id)
           })
           const parsedPatch = parseGitPatchFromEvent(patch)
 
           const commentEvents = $comments?.filter((comment: any) => {
-            const tags = getTags(comment, "E")
-            return tags.length > 0 && tags[0][1] === patch.id
+            return getTags(comment, "E").find((tag: string[]) => tag[1] === patch.id)
           })
 
           return {
@@ -215,7 +219,7 @@
         size="sm"
         class="gap-2"
         onclick={() => (showFilters = !showFilters)}>
-        <Funnel class="h-4 w-4" />
+        <Eye class="h-4 w-4" />
         {showFilters ? "Hide Filters" : "Filter"}
       </Button>
     </div>
