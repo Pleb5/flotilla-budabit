@@ -111,8 +111,7 @@
         repoAddr: Address.fromEvent(repoClass.repoEvent!).toString(),
         relays: repoClass.relays,
       })
-
-      postStatus(statusEvent, repoClass.relays || repoRelays)
+      postStatus(statusEvent, repoClass.relays)
     }
   })
 
