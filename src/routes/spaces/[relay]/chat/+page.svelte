@@ -23,6 +23,7 @@
   import {prependParent} from "@app/commands"
   import {PROTECTED} from "@app/state"
   import {makeFeed} from "@app/requests"
+  import {whenElementReady} from "@src/lib/html"
   import {popKey} from "@app/implicit"
 
   const mounted = now()
@@ -170,19 +171,24 @@
     observer.observe(chatCompose!)
     observer.observe(dynamicPadding!)
 
-    const feed = makeFeed({
-      element: element!,
-      relays: [url],
-      feedFilters: [filter],
-      subscriptionFilters: [{kinds: [DELETE, REACTION, MESSAGE], since: now()}],
-      initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
-      onExhausted: () => {
-        loadingEvents = false
-      },
-    })
+    whenElementReady(
+      () => element,
+      (readyElement) => {
+        const feed = makeFeed({
+          element: readyElement,
+          relays: [url],
+          feedFilters: [filter],
+          subscriptionFilters: [{kinds: [DELETE, REACTION, MESSAGE], since: now()}],
+          initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
+          onExhausted: () => {
+            loadingEvents = false
+          },
+        })
 
-    events = feed.events
-    cleanup = feed.cleanup
+        events = feed.events
+        cleanup = feed.cleanup
+      }
+    )
 
     return () => {
       controller.abort()

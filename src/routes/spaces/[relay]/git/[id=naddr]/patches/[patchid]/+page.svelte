@@ -105,29 +105,48 @@
   let isAnalyzingMerge = $state(false)
 
   async function analyzeMerge() {
-    if (!selectedPatch || !repoClass.repoEvent) return
+    if (!selectedPatch || !patchEvent || !repoClass.repoEvent) {
+      return
+    }
 
+    // Use robust branch detection: patch baseBranch, repo mainBranch, or fallback
+    const targetBranch = selectedPatch?.baseBranch || repoClass.mainBranch || "main";
+
+    // First, try to get cached result from repository's merge analysis system
+    const cachedResult = await repoClass.getMergeAnalysis(patchEvent, targetBranch)
+    
+    if (cachedResult) {
+      mergeAnalysisResult = cachedResult
+      return
+    }
+
+    // If no cached result, the repository's background processing should handle this
+    // Set loading state and wait for background analysis to complete
     isAnalyzingMerge = true
     mergeAnalysisResult = null
 
     try {
-      const result = await analyzePatchMerge(
-        repoClass.repoEvent.id,
-        selectedPatch,
-        selectedPatch.baseBranch || repoClass.mainBranch.split("/").pop()!,
-      )
-      mergeAnalysisResult = result
+      // The repository should already be running background merge analysis
+      // We just need to trigger a refresh if needed and wait for the result
+      const result = await repoClass.refreshMergeAnalysis(patchEvent)
+      
+      if (result) {
+        mergeAnalysisResult = result
+      } else {
+        // If still no result, create a minimal error state
+        throw new Error('Merge analysis not available - repository may still be initializing')
+      }
     } catch (error) {
-      console.error("Failed to analyze merge:", error)
+      console.error("❌ Failed to get merge analysis:", error)
       const errorMessage = error instanceof Error ? error.message : "Unknown error"
 
       toast.push({
-        message: `Merge Analysis Failed: Unable to analyze merge status: ${errorMessage}`,
+        message: `Merge Analysis Failed: ${errorMessage}`,
         timeout: 5000,
         theme: "error",
       })
 
-      mergeAnalysisResult = {
+      const errorResult: MergeAnalysisResult = {
         canMerge: false,
         hasConflicts: false,
         conflictFiles: [],
@@ -138,6 +157,8 @@
         analysis: "error",
         errorMessage,
       }
+      
+      mergeAnalysisResult = errorResult
     } finally {
       isAnalyzingMerge = false
     }
@@ -491,7 +512,7 @@
           <MergeStatus
             result={mergeAnalysisResult}
             loading={isAnalyzingMerge}
-            targetBranch={selectedPatch?.baseBranch || "main"} />
+            targetBranch={selectedPatch?.baseBranch || repoClass.mainBranch || "main"} />
         </div>
 
         <div class="git-separator"></div>

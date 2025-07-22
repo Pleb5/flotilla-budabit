@@ -17,6 +17,7 @@
   import {decodeRelay, getEventsForUrl} from "@app/state"
   import {setChecked} from "@app/notifications"
   import {makeFeed} from "@app/requests"
+  import {whenElementReady} from "@src/lib/html"
   import {pushModal} from "@app/modal"
 
   const url = decodeRelay($page.params.relay)
@@ -44,8 +45,13 @@
   })
 
   onMount(() => {
-    const {cleanup} = makeFeed({
-      element: element!,
+    let cleanup: (() => void) | undefined;
+    
+    whenElementReady(
+      () => element,
+      (readyElement) => {
+        const feedResult = makeFeed({
+          element: readyElement,
       relays: [url],
       feedFilters: [{kinds: [THREAD, COMMENT]}],
       subscriptionFilters: [
@@ -62,13 +68,16 @@
           comments.push(event)
         }
       },
-      onExhausted: () => {
-        loading = false
-      },
-    })
-
+          onExhausted: () => {
+            loading = false
+          },
+        })
+        cleanup = feedResult.cleanup;
+      }
+    )
+    
     return () => {
-      cleanup()
+      cleanup?.()
       setChecked($page.url.pathname)
     }
   })

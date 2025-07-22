@@ -47,10 +47,35 @@
 
   // Set initial page size and load commits when the component mounts or when the repo changes
   $effect(() => {
-    if (repoClass) {
+    console.log("🔍 $effect triggered:", {
+      repoClass: !!repoClass,
+      repoEvent: !!repoClass?.repoEvent,
+      mainBranch: repoClass?.mainBranch,
+      branches: repoClass?.branches?.length || 0,
+      selectedPageSize
+    });
+    
+    if (repoClass && repoClass.repoEvent && repoClass.mainBranch) {
       // Set the initial page size
       repoClass.setCommitsPerPage(selectedPageSize)
       loadCommits()
+    } else if (repoClass) {
+      console.log("⚠️ Repository not fully initialized yet, waiting...");
+      // Try again after a short delay to allow initialization to complete
+      setTimeout(() => {
+        if (repoClass.repoEvent && repoClass.mainBranch) {
+          console.log("✅ Repository now initialized, loading commits...");
+          repoClass.setCommitsPerPage(selectedPageSize)
+          loadCommits()
+        } else {
+          console.error("❌ Repository failed to initialize:", {
+            repoEvent: !!repoClass.repoEvent,
+            mainBranch: repoClass.mainBranch
+          });
+          commitsError = "Repository not properly initialized";
+          commitsLoading = false;
+        }
+      }, 1000);
     }
   })
 
@@ -66,12 +91,29 @@
 
   // Load commits with pagination
   async function loadCommits() {
+    console.log('🔍 loadCommits called with:', {
+      currentPage,
+      repoClass: !!repoClass,
+      repoEvent: !!repoClass?.repoEvent,
+      mainBranch: repoClass?.mainBranch,
+      repoId: repoClass?.repoId,
+      initialLoadComplete
+    });
+    
     if (!initialLoadComplete) {
       commitsLoading = true
     }
 
     try {
-      await repoClass.loadPage(currentPage)
+      console.log('🔍 About to call repoClass.loadPage with:', currentPage);
+      const result = await repoClass.loadPage(currentPage);
+      console.log('🔍 loadPage result:', result);
+      
+      // Check if the result indicates an error
+      if (result && !result.success) {
+        throw new Error(result.error || "Failed to load commits");
+      }
+      
       commits = repoClass.commits
       totalCommits = repoClass.totalCommits
       hasMoreCommits = repoClass.hasMoreCommits

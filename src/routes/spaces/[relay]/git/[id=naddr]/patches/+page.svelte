@@ -13,6 +13,7 @@
   import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
+  import {whenElementReady} from "@src/lib/html"
   import {
     GIT_STATUS_OPEN,
     GIT_STATUS_COMPLETE,
@@ -154,16 +155,21 @@
         filters: [patchFilter],
       })
 
-      makeFeed({
-        element: element!,
-        relays: repoClass.relays,
-        feedFilters: [patchFilter],
-        subscriptionFilters: [patchFilter],
-        initialEvents: patchList,
-        onExhausted: () => {
-          loading = false
-        },
-      })
+      whenElementReady(
+        () => element,
+        (readyElement) => {
+          makeFeed({
+            element: readyElement,
+            relays: repoClass.relays,
+            feedFilters: [patchFilter],
+            subscriptionFilters: [patchFilter],
+            initialEvents: patchList,
+            onExhausted: () => {
+              loading = false
+            },
+          })
+        }
+      )
       loading = false
     }
   })

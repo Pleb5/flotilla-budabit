@@ -42,6 +42,7 @@
   import {addRoomMembership, removeRoomMembership, prependParent} from "@app/commands"
   import {PROTECTED} from "@app/state"
   import {makeFeed} from "@app/requests"
+  import {whenElementReady} from "@src/lib/html"
   import {popKey} from "@app/implicit"
   import {pushToast} from "@app/toast"
   import {GIT_REPO} from "@src/lib/util"
@@ -224,21 +225,26 @@
   const start = () => {
     cleanup?.()
 
-    const feed = makeFeed({
-      element: element!,
-      relays: [url],
-      feedFilters: [filter],
-      subscriptionFilters: [
-        {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO], "#h": [room], since: now()},
-      ],
-      initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
-      onExhausted: () => {
-        loadingEvents = false
-      },
-    })
+    whenElementReady(
+      () => element,
+      (readyElement) => {
+        const feed = makeFeed({
+          element: readyElement,
+          relays: [url],
+          feedFilters: [filter],
+          subscriptionFilters: [
+            {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO], "#h": [room], since: now()},
+          ],
+          initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
+          onExhausted: () => {
+            loadingEvents = false
+          },
+        })
 
-    events = feed.events
-    cleanup = feed.cleanup
+        events = feed.events
+        cleanup = feed.cleanup
+      }
+    )
   }
 
   onMount(() => {

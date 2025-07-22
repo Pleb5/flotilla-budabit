@@ -23,6 +23,7 @@
   import {createSearch, pubkey, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
+  import {whenElementReady} from "@src/lib/html"
   import {fly, slide, slideAndFade} from "@lib/transition"
   import {pushModal} from "@src/app/modal"
   import {
@@ -198,16 +199,21 @@
 
   $effect(() => {
     if (repoClass.issues) {
-      makeFeed({
-        element: element!,
-        relays: [...$repoRelays],
-        feedFilters: [issueFilter],
-        subscriptionFilters: [issueFilter],
-        initialEvents: repoClass.issues,
-        onExhausted: () => {
-          loading = false
-        },
-      })
+      whenElementReady(
+        () => element,
+        (readyElement) => {
+          makeFeed({
+            element: readyElement,
+            relays: [...$repoRelays],
+            feedFilters: [issueFilter],
+            subscriptionFilters: [issueFilter],
+            initialEvents: repoClass.issues,
+            onExhausted: () => {
+              loading = false
+            },
+          })
+        }
+      )
       loading = false
     }
   })
@@ -394,7 +400,7 @@
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#key repoClass.issues}
         {#each searchedIssues as issue (issue.id)}
-          <div in:fly={slideAndFade({duration: 200})}>
+          <div in:slideAndFade={{duration: 200}}>
             <IssueCard
               event={issue}
               comments={commentsOrdered[issue.id]}

@@ -54,7 +54,21 @@ export const load: LayoutLoad = async ({ params }) => {
             kinds: [GIT_REPO_STATE],
             "#d": [decoded.identifier],
         }]
-    }), (events) => events[0]) as Readable<RepoStateEvent>;
+    }), (events) => {
+        console.log('🔍 Repository State events found:', events?.length || 0, events)
+        const stateEvent = events?.[0]
+        if (stateEvent) {
+            console.log('✅ Repository State event loaded:', stateEvent.kind, stateEvent.id)
+            console.log('🔍 Repository State event tags:', stateEvent.tags)
+        } else {
+            console.log('❌ No Repository State event found for:', {
+                author: decoded.pubkey,
+                identifier: decoded.identifier,
+                kind: GIT_REPO_STATE
+            })
+        }
+        return stateEvent
+    }) as Readable<RepoStateEvent>;
 
     // Get relays from event tags
     const bestRelayList = derived(repoEvent, re => {

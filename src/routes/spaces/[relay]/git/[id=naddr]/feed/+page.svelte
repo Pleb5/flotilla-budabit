@@ -1,8 +1,9 @@
 <script lang="ts">
-  import {readable} from "svelte/store"
+  import {readable, type Readable} from "svelte/store"
   import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
-  import type {Readable} from "svelte/store"
+  import {makeFeed} from "@app/requests"
+  import {whenElementReady} from "@src/lib/html"
   import {now, formatTimestampAsDate} from "@welshman/lib"
   import {load} from "@welshman/net"
   import type {TrustedEvent, EventContent} from "@welshman/util"
@@ -46,7 +47,6 @@
   import {setChecked, checked} from "@app/notifications"
   import {prependParent} from "@app/commands"
   import {PROTECTED} from "@app/state"
-  import {makeFeed} from "@app/requests"
   import {popKey} from "@app/implicit"
   import {pushToast} from "@app/toast"
   import {GIT_REPO} from "@src/lib/util"
@@ -248,34 +248,39 @@
   const start = async () => {
     cleanup?.()
 
-    const initialEvents = await load({
-      relays: repoClass.relays || [url],
-      filters: filter,
-    })
+    await whenElementReady(
+      () => element,
+      async (readyElement) => {
+        const initialEvents = await load({
+          relays: repoClass.relays || [url],
+          filters: filter,
+        })
 
-    initialEvents.push(
-      ...repoClass.issues,
-      ...repoClass.patches.filter(p => p.tags.some(t => t[0] === "t" && t[1] === "root")),
+        initialEvents.push(
+          ...repoClass.issues,
+          ...repoClass.patches.filter(p => p.tags.some(t => t[0] === "t" && t[1] === "root")),
+        )
+
+        initialEvents.sort((a, b) => b.created_at - a.created_at)
+
+        const feed = makeFeed({
+          element: readyElement,
+          relays: [url],
+          feedFilters: filter,
+          subscriptionFilters: [
+            ...filter,
+            {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO], "#h": [room], since: now()},
+          ],
+          initialEvents,
+          onExhausted: () => {
+            loadingEvents = false
+          },
+        })
+
+        events = feed.events
+        cleanup = feed.cleanup
+      }
     )
-
-    initialEvents.sort((a, b) => b.created_at - a.created_at)
-
-    const feed = makeFeed({
-      element: element!,
-      relays: [url],
-      feedFilters: filter,
-      subscriptionFilters: [
-        ...filter,
-        {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO], "#h": [room], since: now()},
-      ],
-      initialEvents,
-      onExhausted: () => {
-        loadingEvents = false
-      },
-    })
-
-    events = feed.events
-    cleanup = feed.cleanup
   }
 
   onMount(() => {

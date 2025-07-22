@@ -94,7 +94,7 @@
     try {
       try {
         const readmeContent = await repoClass.getFileContent({path: "README.md"})
-        readme = readmeContent
+        readme = readmeContent.content
         renderedReadme = readme ? md.render(readme) : ""
       } catch (e) {
         console.log("No README.md found")
@@ -276,11 +276,6 @@
                 </div>
               </div>
             {/if}
-
-            <div class="border-t pt-3">
-              <Button class="btn btn-primary btn-sm" onclick={() => repoClass.resetRepo()}
-                >Reset Repo</Button>
-            </div>
           </div>
         </div>
       </Card>

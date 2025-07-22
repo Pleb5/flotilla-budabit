@@ -32,7 +32,7 @@
   import ContentTopic from "@app/components/ContentTopic.svelte"
   import ContentMention from "@app/components/ContentMention.svelte"
   import {entityLink, userSettingValues} from "@app/state"
-  import {Template, isKnownUnknown} from "@nostr-git/ui"
+  import {Template, isKnownUnknown, EventRenderer, isKnownEventKind} from "@nostr-git/ui"
 
   interface Props {
     event: any
@@ -130,7 +130,11 @@
       </p>
     </div>
   {:else}
-    {#if isKnownUnknown(event.kind)}
+    {#if isKnownEventKind(event.kind)}
+      <div class="event-renderer">
+        <EventRenderer {event} />
+      </div>
+    {:else if isKnownUnknown(event.kind)}
       <div class="unknown-kind">
         {@html new Template(event).render()}
       </div>

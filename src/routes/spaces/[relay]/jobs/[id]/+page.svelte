@@ -17,6 +17,7 @@
   import JobItem from "@src/app/components/JobItem.svelte"
   import Divider from "@src/lib/components/Divider.svelte"
   import {makeFeed} from "@src/app/requests"
+  import {whenElementReady} from "@src/lib/html"
   import {readable, writable, type Readable} from "svelte/store"
   import PageContent from "@src/lib/components/PageContent.svelte"
 
@@ -53,16 +54,21 @@
   let element: HTMLElement | undefined = $state()
 
   onMount(() => {
-    ;({events, cleanup} = makeFeed({
-      element: element!,
-      relays: [url],
-      feedFilters: [{kinds: [COMMENT], "#E": [id]}],
-      subscriptionFilters: [{kinds: [COMMENT], "#E": [id], since: now()}],
-      initialEvents: getEventsForUrl(url, [{kinds: [COMMENT], "#E": [id], limit: 20}]),
-      onExhausted: () => {
-        loadingEvents = false
-      },
-    }))
+    whenElementReady(
+      () => element,
+      (readyElement) => {
+        ;({events, cleanup} = makeFeed({
+          element: readyElement,
+          relays: [url],
+          feedFilters: [{kinds: [COMMENT], "#E": [id]}],
+          subscriptionFilters: [{kinds: [COMMENT], "#E": [id], since: now()}],
+          initialEvents: getEventsForUrl(url, [{kinds: [COMMENT], "#E": [id], limit: 20}]),
+          onExhausted: () => {
+            loadingEvents = false
+          },
+        }))
+      }
+    )
 
     return () => {}
   })

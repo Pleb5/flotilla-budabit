@@ -18,6 +18,7 @@
   import {decodeRelay, getEventsForUrl, INDEXER_RELAYS} from "@app/state"
   import {setChecked} from "@app/notifications"
   import {makeFeed} from "@app/requests"
+  import {whenElementReady} from "@src/lib/html"
 
   const url = decodeRelay($page.params.relay)
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
@@ -44,28 +45,37 @@
   })
 
   onMount(() => {
-    const {cleanup} = makeFeed({
-      element: element!,
-      relays: INDEXER_RELAYS,
-      feedFilters: [jobFilter, commentFilter],
-      subscriptionFilters: [jobFilter, commentFilter],
-      initialEvents: getEventsForUrl(url, [
-        {kinds: [FREELANCE_JOB, COMMENT], "#s": ["0"], limit: 10},
-      ]),
-      onEvent: event => {
-        if (event.kind === FREELANCE_JOB && !mutedPubkeys.includes(event.pubkey)) {
-          jobs.push(event)
-        }
-        if (event.kind === COMMENT) {
-          comments.push(event)
-        }
-      },
-      onExhausted: () => {
-        loading = false
-      },
-    })
+    let cleanup: (() => void) | undefined;
+    
+    whenElementReady(
+      () => element,
+      (readyElement) => {
+        const feedResult = makeFeed({
+          element: readyElement,
+          relays: INDEXER_RELAYS,
+          feedFilters: [jobFilter, commentFilter],
+          subscriptionFilters: [jobFilter, commentFilter],
+          initialEvents: getEventsForUrl(url, [
+            {kinds: [FREELANCE_JOB, COMMENT], "#s": ["0"], limit: 10},
+          ]),
+          onEvent: event => {
+            if (event.kind === FREELANCE_JOB && !mutedPubkeys.includes(event.pubkey)) {
+              jobs.push(event)
+            }
+            if (event.kind === COMMENT) {
+              comments.push(event)
+            }
+          },
+          onExhausted: () => {
+            loading = false
+          },
+        })
+        cleanup = feedResult.cleanup;
+      }
+    )
+    
     return () => {
-      cleanup()
+      cleanup?.()
       setChecked($page.url.pathname)
     }
   })
