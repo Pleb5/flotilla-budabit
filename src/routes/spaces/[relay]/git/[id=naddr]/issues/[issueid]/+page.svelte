@@ -108,10 +108,10 @@
         content: "",
         rootId: issueId,
         recipients: [$pubkey!, repoClass.repoEvent?.pubkey],
-        repoAddr: Address.fromEvent(repoClass.repoEvent!).toString(),
-        relays: repoClass.relays,
+        repoAddr: Address.fromEvent(repoClass.repoEvent!).toString() || "",
+        relays: repoClass.relays || repoRelays || [],
       })
-      postStatus(statusEvent, repoClass.relays)
+      postStatus(statusEvent, repoClass.relays || repoRelays || [])
     }
   })
 

@@ -22,6 +22,23 @@ export default defineConfig({
   build: {
     sourcemap: true,
   },
+  optimizeDeps: {
+    exclude: [
+      "svelte-codemirror-editor",
+      "codemirror",
+      "@codemirror/lang-javascript",
+      "@codemirror/lang-python",
+      "@codemirror/lang-json",
+      "@codemirror/lang-css",
+      "@codemirror/lang-html",
+      "@codemirror/lang-xml",
+      "@codemirror/lang-markdown",
+      "@codemirror/lang-sql",
+      "@codemirror/state",
+      "@codemirror/view",
+      "@codemirror/theme-one-dark"
+    ],
+  },
   plugins: [
     sveltekit(),
     SvelteKitPWA({

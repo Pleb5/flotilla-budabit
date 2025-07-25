@@ -20,12 +20,17 @@
   import {nthEq} from "@welshman/lib"
   import Button from "@src/lib/components/Button.svelte"
   import {profilesByPubkey} from "@welshman/app"
+  import {pushModal} from "@app/modal"
+  import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import type { LayoutProps } from "./$types.js"
 
   let {data}:LayoutProps = $props()
   const {repoClass, repoRelays} = data
 
-  let loading = $state(true)
+  // Progressive loading states - show immediate content right away
+  let initialLoading = $state(false)
+  let readmeLoading = $state(true)
+  let commitLoading = $state(true)
   let lastCommit = $state<any>(null)
 
   const stats = $derived([
@@ -86,39 +91,47 @@
 
   $effect(() => {
     if (repoClass.repoEvent) {
+      // Load async data in parallel
       loadRepoInfo()
     }
   })
 
   async function loadRepoInfo() {
+    // Load README and commit info in parallel for better performance
+    const readmePromise = loadReadme()
+    const commitPromise = loadLastCommit()
+    
+    // Wait for both to complete
+    await Promise.allSettled([readmePromise, commitPromise])
+  }
+  
+  async function loadReadme() {
     try {
-      try {
-        const readmeContent = await repoClass.getFileContent({path: "README.md"})
-        readme = readmeContent.content
-        renderedReadme = readme ? md.render(readme) : ""
-      } catch (e) {
-        console.log("No README.md found")
-      }
-
-      try {
-        if (repoClass.mainBranch) {
-          const commits = await repoClass.getCommitHistory({
-            branch: repoClass.mainBranch,
-            depth: 1,
-          })
-          if (commits && commits.length > 0) {
-            lastCommit = commits[0]
-          }
-        }
-      } catch (e) {
-        console.log("Could not fetch commit info:", e)
-      }
-
-      loading = false
+      const readmeContent = await repoClass.getFileContent({path: "README.md"})
+      readme = readmeContent.content
+      renderedReadme = readme ? md.render(readme) : ""
     } catch (e) {
-      console.error("Error loading repo info:", e)
-      pushToast({message: "Failed to load repository information: " + e, theme: "error"})
-      loading = false
+
+    } finally {
+      readmeLoading = false
+    }
+  }
+  
+  async function loadLastCommit() {
+    try {
+      if (repoClass.mainBranch) {
+        const commits = await repoClass.getCommitHistory({
+          branch: repoClass.mainBranch,
+          depth: 1,
+        })
+        if (commits && commits.length > 0) {
+          lastCommit = commits[0]
+        }
+      }
+    } catch (e) {
+
+    } finally {
+      commitLoading = false
     }
   }
 
@@ -133,7 +146,7 @@
 </script>
 
 <div class="relative flex flex-col gap-6 py-2">
-  {#if loading}
+  {#if initialLoading}
     <div class="flex justify-center py-8">
       <Spinner />
     </div>
@@ -158,10 +171,23 @@
     <div class="grid gap-6 md:grid-cols-2" transition:fly>
       <!-- Repository Details -->
       <Card class="p-6">
-        <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
-          <GitCommit class="h-5 w-5" />
-          Repo Information
-        </h3>
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="flex items-center gap-2 text-lg font-semibold">
+            <GitCommit class="h-5 w-5" />
+            Repo Information
+          </h3>
+          <Button
+            onclick={() => {
+              pushModal(ResetRepoConfirm, {
+                repoClass,
+                repoName: repoMetadata.name
+              });
+            }}
+            class="text-xs px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+          >
+            Reset Repo
+          </Button>
+        </div>
         <div class="grid gap-6 md:grid-cols-1">
           <!-- Git Information -->
           <div class="space-y-3">
@@ -172,8 +198,22 @@
               </span>
             </div>
 
-            {#if lastCommit}
+            {#if commitLoading}
               <div class="border-t pt-3">
+                <div class="mb-2 flex items-center justify-between">
+                  <span class="text-sm text-muted-foreground">Latest Commit</span>
+                  <div class="h-4 w-16 animate-pulse rounded bg-muted"></div>
+                </div>
+                <div class="h-4 w-3/4 animate-pulse rounded bg-muted"></div>
+                <div class="mt-2 flex items-center gap-2">
+                  <div class="h-3 w-3 animate-pulse rounded bg-muted"></div>
+                  <div class="h-3 w-20 animate-pulse rounded bg-muted"></div>
+                  <div class="h-3 w-3 animate-pulse rounded bg-muted"></div>
+                  <div class="h-3 w-24 animate-pulse rounded bg-muted"></div>
+                </div>
+              </div>
+            {:else if lastCommit}
+              <div class="border-t pt-3" transition:fade>
                 <div class="mb-2 flex items-start justify-between">
                   <span class="text-sm text-muted-foreground">Latest Commit</span>
                   <span class="rounded px-2 py-1 font-mono text-xs">
@@ -336,7 +376,23 @@
       {/if}
     </div>
     <!-- README -->
-    {#if renderedReadme}
+    {#if readmeLoading}
+      <div transition:slide>
+        <Card class="p-6">
+          <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+            <BookOpen class="h-5 w-5" />
+            README
+          </h3>
+          <div class="space-y-3">
+            <div class="h-4 w-3/4 animate-pulse rounded bg-muted"></div>
+            <div class="h-4 w-full animate-pulse rounded bg-muted"></div>
+            <div class="h-4 w-2/3 animate-pulse rounded bg-muted"></div>
+            <div class="h-4 w-5/6 animate-pulse rounded bg-muted"></div>
+            <div class="h-4 w-1/2 animate-pulse rounded bg-muted"></div>
+          </div>
+        </Card>
+      </div>
+    {:else if renderedReadme}
       <div transition:slide>
         <Card class="p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">

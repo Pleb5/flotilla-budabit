@@ -20,6 +20,7 @@
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
+    import { NewRepoWizard } from "@nostr-git/ui"
 
   const url = decodeRelay($page.params.relay)
 
@@ -97,6 +98,14 @@
       },
     })
   }
+
+  const onNewRepo = () => {
+    pushModal(NewRepoWizard, {
+      onClose: () => {
+        back()
+      },
+    })
+  }
 </script>
 
 <PageBar>
@@ -110,6 +119,10 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
+      <Button class="btn btn-secondary btn-sm" onclick={onNewRepo}>
+        <Icon icon="add-circle" />
+        New Repo
+      </Button>
       <Button class="btn btn-primary btn-sm" onclick={onAddRepo}>
         <Icon icon="git" />
         Edit Repos

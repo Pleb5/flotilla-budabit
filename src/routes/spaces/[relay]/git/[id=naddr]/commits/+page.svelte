@@ -47,35 +47,8 @@
 
   // Set initial page size and load commits when the component mounts or when the repo changes
   $effect(() => {
-    console.log("🔍 $effect triggered:", {
-      repoClass: !!repoClass,
-      repoEvent: !!repoClass?.repoEvent,
-      mainBranch: repoClass?.mainBranch,
-      branches: repoClass?.branches?.length || 0,
-      selectedPageSize
-    });
-    
-    if (repoClass && repoClass.repoEvent && repoClass.mainBranch) {
-      // Set the initial page size
-      repoClass.setCommitsPerPage(selectedPageSize)
+    if (repoClass && repoClass.repoId && repoClass.mainBranch) {
       loadCommits()
-    } else if (repoClass) {
-      console.log("⚠️ Repository not fully initialized yet, waiting...");
-      // Try again after a short delay to allow initialization to complete
-      setTimeout(() => {
-        if (repoClass.repoEvent && repoClass.mainBranch) {
-          console.log("✅ Repository now initialized, loading commits...");
-          repoClass.setCommitsPerPage(selectedPageSize)
-          loadCommits()
-        } else {
-          console.error("❌ Repository failed to initialize:", {
-            repoEvent: !!repoClass.repoEvent,
-            mainBranch: repoClass.mainBranch
-          });
-          commitsError = "Repository not properly initialized";
-          commitsLoading = false;
-        }
-      }, 1000);
     }
   })
 
@@ -91,23 +64,12 @@
 
   // Load commits with pagination
   async function loadCommits() {
-    console.log('🔍 loadCommits called with:', {
-      currentPage,
-      repoClass: !!repoClass,
-      repoEvent: !!repoClass?.repoEvent,
-      mainBranch: repoClass?.mainBranch,
-      repoId: repoClass?.repoId,
-      initialLoadComplete
-    });
-    
     if (!initialLoadComplete) {
       commitsLoading = true
     }
 
     try {
-      console.log('🔍 About to call repoClass.loadPage with:', currentPage);
       const result = await repoClass.loadPage(currentPage);
-      console.log('🔍 loadPage result:', result);
       
       // Check if the result indicates an error
       if (result && !result.success) {
@@ -190,11 +152,11 @@
   })
 
   const handleReact = (commitId: string, type: "heart") => {
-    console.log(`Reacting to commit ${commitId} with ${type}`)
+
   }
 
   const handleComment = (commitId: string, comment: string) => {
-    console.log(`Commenting on commit ${commitId}: ${comment}`)
+
     // TODO: Implement Nostr comments for commits
   }
 </script>

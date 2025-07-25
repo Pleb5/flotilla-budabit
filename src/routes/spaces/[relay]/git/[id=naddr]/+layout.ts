@@ -55,17 +55,12 @@ export const load: LayoutLoad = async ({ params }) => {
             "#d": [decoded.identifier],
         }]
     }), (events) => {
-        console.log('🔍 Repository State events found:', events?.length || 0, events)
+
         const stateEvent = events?.[0]
         if (stateEvent) {
-            console.log('✅ Repository State event loaded:', stateEvent.kind, stateEvent.id)
-            console.log('🔍 Repository State event tags:', stateEvent.tags)
+            // Repository State event loaded successfully
         } else {
-            console.log('❌ No Repository State event found for:', {
-                author: decoded.pubkey,
-                identifier: decoded.identifier,
-                kind: GIT_REPO_STATE
-            })
+            // No Repository State event found
         }
         return stateEvent
     }) as Readable<RepoStateEvent>;
@@ -108,6 +103,8 @@ export const load: LayoutLoad = async ({ params }) => {
         }),
         (events) => (events || []) as PatchEvent[]
     );
+
+    // Token store is now initialized at app level - no need to set up here
 
     const repoClass = new Repo({
         repoEvent,

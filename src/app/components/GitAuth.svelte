@@ -6,6 +6,7 @@
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
   import {pubkey} from "@welshman/app"
   import {signer} from "@welshman/app"
+  import {tokens as tokensStore} from "@nostr-git/ui"
 
   type Props = {
     tokenKey: string
@@ -13,45 +14,61 @@
 
   const {tokenKey}: Props = $props()
 
-  type TokenEntry = {host: string; token: string}
+  import { loadTokensFromStorage, saveTokensToStorage, type TokenEntry } from "$lib/utils/tokenLoader"
 
   async function loadTokens(): Promise<TokenEntry[]> {
-    try {
-      const tok = localStorage.getItem(tokenKey)
-      if (!tok) return []
-      const decrypted = await $signer.nip04.decrypt($pubkey!, tok)
-      if (!decrypted) return []
-      return JSON.parse(decrypted)
-    } catch (e) {
-      console.error("Failed to load tokens", e)
-      return []
-    }
+    return await loadTokensFromStorage(tokenKey)
   }
 
   async function saveTokens(toks: TokenEntry[]) {
-    try {
-      const encrypted = await $signer.nip04.encrypt($pubkey!, JSON.stringify(toks))
-      console.log(encrypted)
-      localStorage.setItem(tokenKey, encrypted)
-    } catch (e) {
-      console.error("Failed to save tokens", e)
-    }
+    await saveTokensToStorage(tokenKey, toks)
   }
 
   function mask(t: string) {
     return t.length <= 8 ? "••••••••" : `${t.slice(0, 4)}…${t.slice(-4)}`
   }
 
-  let tokens: TokenEntry[] = $state([])
+  // Use reactive token store instead of local state
+  let tokens = $state($tokensStore)
 
-  onMount(async () => (tokens = await loadTokens()))
+  onMount(async () => {
+    // Tokens are now loaded at app level - just ensure they're loaded
+    // If tokens aren't loaded yet, wait for them
+    if (tokens.length === 0) {
+      try {
+        const loadedTokens = await loadTokens()
+        if (loadedTokens.length > 0) {
+          tokensStore.clear()
+          loadedTokens.forEach(token => tokensStore.push(token))
+        }
+      } catch (error) {
+        console.warn('GitAuth: Failed to load tokens as fallback:', error)
+      }
+    }
+  })
+
+  // Subscribe to store changes
+  $effect(() => {
+    tokens = $tokensStore
+  })
 
   function del(h: string) {
-    tokens = tokens.filter(t => t.host !== h)
-    saveTokens(tokens)
+    const updatedTokens = tokens.filter(t => t.host !== h)
+    saveTokens(updatedTokens)
+    // Update the reactive store
+    tokensStore.clear()
+    updatedTokens.forEach(token => tokensStore.push(token))
   }
 
-  const openDialog = () => pushModal(GitAuthAdd, {tokenKey})
+  const openDialog = () => {
+    pushModal(GitAuthAdd, {tokenKey})
+    // No need for polling - the reactive token store will automatically update the UI
+  }
+
+  const editToken = (token: TokenEntry) => {
+    pushModal(GitAuthAdd, {tokenKey, editToken: token})
+    // The reactive token store will automatically update the UI when editing is complete
+  }
 </script>
 
 <div class="card2 bg-alt flex flex-col gap-6 shadow-xl">
@@ -83,7 +100,7 @@
               <td class="p-2 text-left">{mask(t.token)}</td>
               <td class="p-2 text-right">
                 <div class="flex gap-2 justify-end">
-                  <Button class="btn btn-primary btn-sm"><Icon icon="pen" /></Button>
+                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}><Icon icon="pen" /></Button>
                   <Button class="btn btn-error btn-sm" onclick={() => del(t.host)}
                     ><Icon icon="trash-bin-2" /></Button>
                 </div>

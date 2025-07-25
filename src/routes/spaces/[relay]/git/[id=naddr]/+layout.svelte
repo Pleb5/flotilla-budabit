@@ -21,6 +21,55 @@
 
   let activeTab: string | undefined = $page.url.pathname.split("/").pop()
   const encodedRelay = encodeURIComponent(relay)
+  
+  // Refresh state
+  let isRefreshing = $state(false)
+
+  // Refresh repository function
+  async function refreshRepo() {
+    if (!repoClass || isRefreshing) return
+    
+    isRefreshing = true
+    
+    try {
+      // Get clone URLs from the repo event
+      const cloneUrls = repoClass.repoEvent.tags
+        .filter((tag: string[]) => tag[0] === 'clone')
+        .map((tag: string[]) => tag[1])
+        .filter(Boolean)
+      
+      if (cloneUrls.length === 0) {
+        throw new Error('No clone URLs found for repository')
+      }
+      
+      // Call syncWithRemote through the repo's worker manager
+      const result = await repoClass.workerManager.syncWithRemote({
+        repoId: repoClass.repoEvent.id,
+        cloneUrls,
+        branch: repoClass.mainBranch
+      })
+      
+      if (result.success) {
+        // Show success toast
+        pushToast({
+          message: `Repository synced with remote (${result.headCommit?.slice(0, 8)})`
+        })
+        
+        // Reset the repo to refresh all cached data
+        await repoClass.reset()
+      } else {
+        throw new Error(result.error || 'Sync failed')
+      }
+    } catch (error) {
+      console.error('Failed to refresh repository:', error)
+      pushToast({
+        message: `Failed to sync repository: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        theme: 'error'
+      })
+    } finally {
+      isRefreshing = false
+    }
+  }
 
   // Connect the nostr-git toast store to the toast component
   $effect(() => {
@@ -45,7 +94,7 @@
   {:else if !repoClass}
     <div class="p-4 text-center text-red-500">Repository not found.</div>
   {:else}
-    <RepoHeader event={repoClass.repoEvent} {activeTab} isRepoWatched={false}>
+    <RepoHeader event={repoClass.repoEvent} {activeTab} isRepoWatched={false} {refreshRepo} {isRefreshing}>
       {#snippet children(activeTab: string)}
         <RepoTab
           tabValue="feed"

@@ -31,75 +31,41 @@
 
   let selectedBranch = $state(repoClass.mainBranch)
 
-  // Reactive trigger to force re-computation when branches are loaded
   let branchLoadTrigger = $state(0)
 
-  // Get all NIP-34 refs (branches and tags) from the repository state
   let allRefs = $derived.by(() => {
-    // Include branchLoadTrigger to make this reactive to branch loading
     branchLoadTrigger
-    console.log("🔍 Code page: Computing allRefs...")
-    console.log("🔍 repoClass:", repoClass)
-    console.log("🔍 repoClass.branchManager:", repoClass.branchManager)
-    console.log("🔍 repoClass.repoEvent (kind 30617):", repoClass.repoEvent)
 
-    // Check for Repository State event (kind 30618) which contains the refs
     const repoStateEvent = repoClass.repoStateEvent
-    console.log("🔍 repoClass.repoStateEvent (kind 30618):", repoStateEvent)
 
-    // If we have a Repository State event but no NIP-34 refs, the BranchManager might not have processed it
     if (repoStateEvent && repoStateEvent.tags) {
-      console.log("🔍 Repository State event tags:", repoStateEvent.tags)
-
-      // Check if BranchManager has processed this event
       const hasProcessedState = repoClass.branchManager?.getAllNIP34References().size > 0
       if (!hasProcessedState) {
-        console.log(
-          "⚠️ BranchManager has not processed Repository State event, triggering processing...",
-        )
         repoClass.branchManager?.processRepoStateEvent(repoStateEvent)
       }
     } else if (!repoStateEvent) {
-      console.log(
-        "⚠️ No Repository State event found, attempting to load branches from git repository...",
-      )
-
-      // Trigger BranchManager to load branches from the actual git repository
-      // This is a fallback when the Repository State event is missing
       if (
         repoClass.branchManager &&
         repoClass.branchManager.getBranches().length === 0 &&
         repoClass.repoEvent
       ) {
-        console.log("🔍 Triggering BranchManager.loadBranchesFromRepo() as fallback...")
         repoClass.branchManager
           .loadBranchesFromRepo(repoClass.repoEvent)
           .then(() => {
-            console.log("✅ Branches loaded successfully, triggering UI update...")
-            console.log("🔍 BranchManager after loading:", {
-              branchCount: repoClass.branchManager.getBranches().length,
-              branches: repoClass.branchManager
-                .getBranches()
-                .map(b => ({name: b.name, isHead: b.isHead, fromStateEvent: b.fromStateEvent})),
-            })
-            branchLoadTrigger++ // Trigger reactive update
+            branchLoadTrigger++
           })
-          .catch((error: any) => {
-            console.warn("⚠️ Failed to load branches from git repository:", error)
+          .catch((error: Error) => {
+            pushToast({
+              message: "Failed to load branches from git repository: " + error,
+              theme: "error",
+            })
           })
       }
     }
 
     const nip34Refs = repoClass.branchManager?.getAllNIP34References() || new Map()
-    console.log(
-      "🔍 NIP-34 refs from BranchManager:",
-      nip34Refs.size,
-      Array.from(nip34Refs.entries()),
-    )
 
-    // Also check what branches the BranchManager has processed
     const processedBranches = repoClass.branchManager?.getBranches() || []
-    console.log("🔍 Processed branches from BranchManager:", processedBranches)
 
     const refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
       []
@@ -113,23 +79,7 @@
       })
     }
 
-    console.log("🔍 Processed refs for popover:", refs)
-
-    // If no NIP-34 refs, fall back to processed branches as a temporary measure
     if (refs.length === 0 && processedBranches.length > 0) {
-      console.log("🔍 No NIP-34 refs found, falling back to processed branches")
-      console.log(
-        "🔍 Processed branches details:",
-        processedBranches.map(b => ({
-          name: b.name,
-          oid: b.oid,
-          commit: b.commit,
-          isHead: b.isHead,
-          lineage: b.lineage,
-          fromStateEvent: b.fromStateEvent,
-          isNIP34Head: b.isNIP34Head,
-        })),
-      )
 
       for (const branch of processedBranches) {
         const refObj = {
@@ -138,14 +88,10 @@
           fullRef: `refs/heads/${branch.name}`,
           commitId: branch.oid || "",
         }
-        console.log("🔍 Adding processed branch to refs:", refObj)
         refs.push(refObj)
       }
-
-      console.log("🔍 Final refs after fallback:", refs)
     }
 
-    // Sort: branches first, then tags, alphabetically within each group
     return refs.sort((a, b) => {
       if (a.type !== b.type) {
         return a.type === "heads" ? -1 : 1
@@ -216,7 +162,6 @@
       })
       return result.content
     } catch (e) {
-      console.error(e)
       pushToast({
         message: "Failed to load file: " + e,
         theme: "error",
@@ -269,14 +214,12 @@
                         onclick={async () => {
                           try {
                             selectedBranch = ref.name
-                            // Trigger a file listing to validate the branch exists locally
                             await repoClass.fileManager.listRepoFiles({
                               repoEvent: repoClass.repoEvent,
                               branch: ref.name,
                               path: ''
                             })
                           } catch (error) {
-                            // Handle branch resolution errors gracefully
                             if (error instanceof Error && error.message.includes('Could not find')) {
                               const { pushToast } = await import('@app/toast')
                               pushToast({
