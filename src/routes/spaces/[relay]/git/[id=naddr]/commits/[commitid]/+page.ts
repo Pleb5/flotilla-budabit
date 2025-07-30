@@ -1,0 +1,120 @@
+import type { PageLoad } from './$types';
+import { getGitWorker } from '@nostr-git/core';
+import { pushToast } from '@src/app/toast';
+
+export interface CommitChange {
+  path: string;
+  status: 'added' | 'modified' | 'deleted' | 'renamed';
+  diffHunks: Array<{
+    oldStart: number;
+    oldLines: number;
+    newStart: number;
+    newLines: number;
+    patches: Array<{ line: string; type: '+' | '-' | ' ' }>;
+  }>;
+}
+
+export interface CommitMeta {
+  sha: string;
+  author: string;
+  email: string;
+  date: number;
+  message: string;
+  parents: string[];
+}
+
+export const load: PageLoad = async ({ params, parent }) => {
+  const { commitid } = params;
+  
+  try {
+    // Get parent data which includes repoClass
+    const parentData = await parent();
+    const { repoClass } = parentData;
+    
+    if (!repoClass || !repoClass.repoId) {
+      pushToast({
+        message: 'Repository not found',
+        theme: 'error',
+        timeout: 5000
+      });
+      return;
+    }
+
+    // Get git worker instance
+    const gitWorker = getGitWorker();
+    
+    // Ensure repository is properly initialized and cloned
+    console.log('Initializing repository:', repoClass.repoId, 'with branch:', repoClass.mainBranch);
+    
+    try {
+      // First ensure the repository is initialized
+      await gitWorker.api.smartInitializeRepo({
+        repoId: repoClass.repoEvent.id,
+        branch: repoClass.mainBranch
+      });
+      
+      // Then ensure we have full clone with sufficient depth
+      await gitWorker.api.ensureFullClone({
+        repoId: repoClass.repoEvent.id,
+        branch: repoClass.mainBranch,
+        depth: 100
+      });
+    } catch (initError) {
+      console.error('Repository initialization failed:', initError);
+      const errorMessage = initError instanceof Error ? initError.message : String(initError);
+      pushToast({
+        message: `Failed to initialize repository: ${errorMessage}`,
+        theme: 'error',
+        timeout: 5000
+      });
+      return;
+    }
+    
+    // Get detailed commit information including file changes
+    const commitDetails = await gitWorker.api.getCommitDetails({
+      repoId: repoClass.repoEvent.id,
+      commitId: commitid
+    });
+
+    if (!commitDetails.success) {
+      pushToast({
+        message: commitDetails.error || 'Commit not found',
+        theme: 'error',
+        timeout: 5000
+      });
+      return;
+    }
+
+    // Create commit metadata from detailed commit data
+    const commitMeta: CommitMeta = {
+      sha: commitDetails.meta.sha,
+      author: commitDetails.meta.author,
+      email: commitDetails.meta.email,
+      date: commitDetails.meta.date,
+      message: commitDetails.meta.message,
+      parents: commitDetails.meta.parents
+    };
+
+    // Convert git-worker changes to our CommitChange format
+    const changes: CommitChange[] = commitDetails.changes.map((change: any) => ({
+      path: change.path,
+      status: change.status,
+      diffHunks: change.diffHunks
+    }));
+
+    return {
+      commitMeta,
+      changes,
+      repoClass,
+      commitid
+    };
+  } catch (err) {
+    console.error('Error loading commit details:', err);
+    pushToast({
+      message: 'Failed to load commit details',
+      theme: 'error',
+      timeout: 5000
+    });
+    return;
+  }
+};

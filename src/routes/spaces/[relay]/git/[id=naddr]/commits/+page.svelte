@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from '$app/stores';
   import {GitBranch, User, Search} from "@lucide/svelte"
   import {
     Input,
@@ -44,6 +45,11 @@
 
   // Track if we're currently loading more commits
   let isLoadingMore = $state(true)
+
+  // Create navigation helper
+  const getCommitUrl = (commitId: string) => {
+    return `/spaces/${encodeURIComponent($page.params.relay)}/git/${encodeURIComponent($page.params.id)}/commits/${commitId}`;
+  };
 
   // Set initial page size and load commits when the component mounts or when the repo changes
   $effect(() => {
@@ -254,7 +260,12 @@
         {#if commits}
           <div class="space-y-4" transition:slide>
             {#each filteredCommits as commit (commit.oid)}
-              <CommitCard {commit} onReact={handleReact} onComment={handleComment} />
+              <CommitCard 
+                {commit} 
+                onReact={handleReact} 
+                onComment={handleComment}
+                href={getCommitUrl(commit.oid)}
+              />
             {/each}
           </div>
           <div class="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">

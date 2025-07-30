@@ -24,7 +24,7 @@
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
   import {whenElementReady} from "@src/lib/html"
-  import {fly, slide, slideAndFade} from "@lib/transition"
+  import {slide, slideAndFade} from "@lib/transition"
   import {pushModal} from "@src/app/modal"
   import {
     createStatusEvent,

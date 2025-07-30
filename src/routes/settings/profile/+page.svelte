@@ -13,7 +13,7 @@
   import ProfileDelete from "@app/components/ProfileDelete.svelte"
   import InfoKeys from "@app/components/InfoKeys.svelte"
   import Alerts from "@app/components/Alerts.svelte"
-  import {GIT_CLIENT_ID, PLATFORM_NAME} from "@app/state"
+  import {PLATFORM_NAME} from "@app/state"
   import {pushModal} from "@app/modal"
   import {clip} from "@app/toast"
   import GitAuth from "@src/app/components/GitAuth.svelte"

@@ -33,71 +33,29 @@
 
   let branchLoadTrigger = $state(0)
 
-  let allRefs = $derived.by(() => {
-    branchLoadTrigger
+  let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> = $state([])
+  let loadingRefs = $state(true)
 
-    const repoStateEvent = repoClass.repoStateEvent
-
-    if (repoStateEvent && repoStateEvent.tags) {
-      const hasProcessedState = repoClass.branchManager?.getAllNIP34References().size > 0
-      if (!hasProcessedState) {
-        repoClass.branchManager?.processRepoStateEvent(repoStateEvent)
-      }
-    } else if (!repoStateEvent) {
-      if (
-        repoClass.branchManager &&
-        repoClass.branchManager.getBranches().length === 0 &&
-        repoClass.repoEvent
-      ) {
-        repoClass.branchManager
-          .loadBranchesFromRepo(repoClass.repoEvent)
-          .then(() => {
-            branchLoadTrigger++
+  // Load refs using the unified API
+  $effect(() => {
+    if (repoClass) {
+      loadingRefs = true
+      repoClass.getAllRefsWithFallback()
+        .then(loadedRefs => {
+          refs = loadedRefs
+          loadingRefs = false
+          branchLoadTrigger++ // Trigger reactivity for dependent effects
+        })
+        .catch((error: Error) => {
+          console.error('Failed to load repository references:', error)
+          pushToast({
+            message: "Failed to load branches from git repository: " + error,
+            theme: "error",
           })
-          .catch((error: Error) => {
-            pushToast({
-              message: "Failed to load branches from git repository: " + error,
-              theme: "error",
-            })
-          })
-      }
+          refs = []
+          loadingRefs = false
+        })
     }
-
-    const nip34Refs = repoClass.branchManager?.getAllNIP34References() || new Map()
-
-    const processedBranches = repoClass.branchManager?.getBranches() || []
-
-    const refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
-      []
-
-    for (const [shortName, ref] of nip34Refs) {
-      refs.push({
-        name: shortName,
-        type: ref.type,
-        fullRef: ref.fullRef,
-        commitId: ref.commitId,
-      })
-    }
-
-    if (refs.length === 0 && processedBranches.length > 0) {
-
-      for (const branch of processedBranches) {
-        const refObj = {
-          name: branch.name,
-          type: "heads" as const,
-          fullRef: `refs/heads/${branch.name}`,
-          commitId: branch.oid || "",
-        }
-        refs.push(refObj)
-      }
-    }
-
-    return refs.sort((a, b) => {
-      if (a.type !== b.type) {
-        return a.type === "heads" ? -1 : 1
-      }
-      return a.name.localeCompare(b.name)
-    })
   })
 
   $effect(() => {
@@ -197,11 +155,11 @@
             <ul
               transition:fly
               class="menu z-popover mt-2 flex max-h-64 flex-col overflow-y-auto rounded-box bg-base-100 p-2 shadow-xl">
-              {#if allRefs.length === 0}
+              {#if refs.length === 0}
                 <li class="px-3 py-2 text-sm text-muted-foreground">No branches or tags found</li>
               {:else}
-                {@const branches = allRefs.filter(ref => ref.type === "heads")}
-                {@const tags = allRefs.filter(ref => ref.type === "tags")}
+                {@const branches = refs.filter(ref => ref.type === "heads")}
+                {@const tags = refs.filter(ref => ref.type === "tags")}
 
                 {#if branches.length > 0}
                   <li

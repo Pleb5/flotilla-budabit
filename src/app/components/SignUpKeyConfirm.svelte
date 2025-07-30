@@ -8,6 +8,8 @@
   import SignUpProfile from "@app/components/SignUpProfile.svelte"
   import {pushToast} from "@app/toast"
   import {pushModal} from "@app/modal"
+  import {getPublicKey} from "nostr-tools"
+  import {hexToBytes} from "nostr-tools/utils"
 
   type Props = {
     secret: string
@@ -15,6 +17,8 @@
   }
 
   const {secret, ncryptsec}: Props = $props()
+  const secretKey = hexToBytes(ncryptsec)
+  const pubkey = getPublicKey(secretKey)
 
   const back = () => history.back()
 
@@ -24,7 +28,7 @@
   }
 
   const next = () => {
-    pushModal(SignUpProfile, {secret})
+    pushModal(SignUpProfile, {secret, pubkey})
   }
 </script>
 

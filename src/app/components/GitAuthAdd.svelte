@@ -22,7 +22,6 @@
   const key = tokenKey
 
   const back = () => history.back()
-  //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
   const disabled = $state(true)
 
   let host = $state(editToken?.host || "")

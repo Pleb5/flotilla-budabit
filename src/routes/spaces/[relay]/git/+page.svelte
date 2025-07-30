@@ -2,7 +2,7 @@
   import {page} from "$app/stores"
   import {Address, NAMED_BOOKMARKS, type TrustedEvent} from "@welshman/util"
   import {GIT_REPO, GIT_REPO_BOOKMARK_DTAG} from "@src/lib/util"
-  import {repository, userMutes} from "@welshman/app"
+  import {publishThunk, repository, userMutes} from "@welshman/app"
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -20,7 +20,8 @@
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
-    import { NewRepoWizard } from "@nostr-git/ui"
+  import { NewRepoWizard } from "@nostr-git/ui"
+    import type { RepoAnnouncementEvent } from "@nostr-git/shared-types"
 
   const url = decodeRelay($page.params.relay)
 
@@ -101,8 +102,17 @@
 
   const onNewRepo = () => {
     pushModal(NewRepoWizard, {
-      onClose: () => {
+      onCancel: () => {
         back()
+      },
+      onRepoCreated: () => {
+        back()
+      },
+      onPublishEvent: async (event: RepoAnnouncementEvent) => {
+        publishThunk({
+          relays: [url],
+          event,
+        })
       },
     })
   }

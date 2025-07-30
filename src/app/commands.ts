@@ -62,7 +62,7 @@ import {
   NOTIFIER_RELAY,
   userRoomsByUrl,
 } from "@app/state"
-import type {CommentEvent, IssueEvent, StatusEvent} from "@nostr-git/shared-types"
+import type {CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent} from "@nostr-git/shared-types"
 
 // Utils
 
@@ -449,7 +449,7 @@ export const publishAlert = async (params: AlertParams) =>
 
 export const postComment = (comment: CommentEvent, relays: string[]) => {
   return publishThunk({
-    relays: relays ?? [],
+    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
     event: comment,
   })
 }
@@ -457,14 +457,20 @@ export const postComment = (comment: CommentEvent, relays: string[]) => {
 export const postIssue = (issue: IssueEvent, relays: string[]) => {
   return publishThunk({
     event: issue,
-    relays: relays ?? [],
+    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
   })
 }
 
 export const postStatus = (status: StatusEvent, relays: string[]) => {
-  console.log(status)
   return publishThunk({
-    relays: relays ?? [],
+    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
     event: status,
+  })
+}
+
+export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string[]) => {
+  return publishThunk({
+    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
+    event: repo,
   })
 }

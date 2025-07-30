@@ -4,8 +4,6 @@
   import Button from "@lib/components/Button.svelte"
   import {pushModal} from "@app/modal"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
-  import {pubkey} from "@welshman/app"
-  import {signer} from "@welshman/app"
   import {tokens as tokensStore} from "@nostr-git/ui"
 
   type Props = {
