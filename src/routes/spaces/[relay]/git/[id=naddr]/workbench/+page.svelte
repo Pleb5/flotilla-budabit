@@ -16,7 +16,13 @@
   import {Card, CardContent, CardHeader, CardTitle} from "@nostr-git/ui"
   import {Tabs, TabsContent, TabsList, TabsTrigger} from "@nostr-git/ui"
   import {Badge} from "@nostr-git/ui"
-  import {PatchSelector, CommitSelector, MergeAnalyzer, ConflictVisualizer} from "@nostr-git/ui"
+  import {
+    PatchSelector,
+    CommitSelector,
+    MergeAnalyzer,
+    ConflictVisualizer,
+    StackedDiff,
+  } from "@nostr-git/ui"
 
   const {data} = $props()
   const {repoClass} = data
@@ -87,6 +93,10 @@
           </p>
         </div>
       </div>
+    </div>
+
+    <div class="mb-6">
+      <StackedDiff commits={repoClass.commits} repo={repoClass} />
     </div>
 
     <div class="mb-6 grid grid-cols-2 gap-6">
