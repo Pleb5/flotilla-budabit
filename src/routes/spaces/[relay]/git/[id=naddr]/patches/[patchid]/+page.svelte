@@ -110,7 +110,8 @@
   let isAnalyzingMerge = $state(false)
 
   async function analyzeMerge() {
-    if (!selectedPatch || !patchEvent || !repoClass.repoEvent) {
+    const sel = selectedPatch;
+    if (!sel || !repoClass.repoEvent) {
       return
     }
 
@@ -127,10 +128,16 @@
     }
 
     // Use robust branch detection: patch baseBranch, repo mainBranch, or fallback
-    const targetBranch = selectedPatch?.baseBranch || repoClass.mainBranch || "main";
+    const targetBranch = sel.baseBranch || repoClass.mainBranch || "main";
+
+    // Resolve the PatchEvent corresponding to the currently selected parsed patch
+    const selectedPatchEvent = repoClass.patches.find(p => p.id === sel.id)
+    if (!selectedPatchEvent) {
+      return
+    }
 
     // First, try to get cached result from repository's merge analysis system
-    const cachedResult = await repoClass.getMergeAnalysis(patchEvent, targetBranch)
+    const cachedResult = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
     
     if (cachedResult) {
       mergeAnalysisResult = cachedResult
@@ -140,13 +147,13 @@
     isAnalyzingMerge = true
     mergeAnalysisResult = null
     try {
-      let result = await repoClass.getMergeAnalysis(patchEvent, targetBranch)
+      let result = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
       
       if (result) {
         mergeAnalysisResult = result
       } else {
         // If still no result, try to get from cache first
-        const cachedResult = await repoClass.getMergeAnalysis(patchEvent, targetBranch)
+        const cachedResult = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
         if (cachedResult) {
           mergeAnalysisResult = cachedResult
         } else {
@@ -364,8 +371,8 @@
     }
       
     // Execute merge via worker
-    // Use repoEvent.id as primary repository ID since that's what gets initialized in the worker
-    const effectiveRepoId = repoClass.repoEvent?.id || repoClass.repoId || '';
+    // Use canonical repo ID consistently for worker operations
+    const effectiveRepoId = repoClass.canonicalKey || repoClass.repoId || '';
     
     try {
         

@@ -49,13 +49,13 @@ export const load: PageLoad = async ({ params, parent }) => {
     try {
       // First ensure the repository is initialized
       await gitWorker.api.smartInitializeRepo({
-        repoId: repoClass.repoEvent.id,
+        repoId: repoClass.canonicalKey,
         branch: repoClass.mainBranch
       });
       
       // Then ensure we have full clone with sufficient depth
       await gitWorker.api.ensureFullClone({
-        repoId: repoClass.repoEvent.id,
+        repoId: repoClass.canonicalKey,
         branch: repoClass.mainBranch,
         depth: 100
       });
@@ -72,7 +72,7 @@ export const load: PageLoad = async ({ params, parent }) => {
     
     // Get detailed commit information including file changes
     const commitDetails = await gitWorker.api.getCommitDetails({
-      repoId: repoClass.repoEvent.id,
+      repoId: repoClass.canonicalKey,
       commitId: commitid
     });
 

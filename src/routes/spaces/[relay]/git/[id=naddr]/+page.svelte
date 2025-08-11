@@ -66,7 +66,7 @@
   const repoMetadata = $derived({
     name: repoClass.repo?.name || "Unknown Repository",
     description: repoClass.repo?.description || "",
-    repoId: repoClass.repo?.repoId || "",
+    repoId: repoClass.canonicalKey || "",
     maintainers: maintainers || [],
     relays: $repoRelays,
     cloneUrls: repoClass.repo?.clone || [],

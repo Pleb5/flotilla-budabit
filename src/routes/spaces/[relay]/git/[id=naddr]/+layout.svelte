@@ -48,7 +48,7 @@
 
       // Call syncWithRemote through the repo's worker manager
       const result = await repoClass.workerManager.syncWithRemote({
-        repoId: repoClass.repoEvent.id,
+        repoId: repoClass.canonicalKey,
         cloneUrls,
         branch: repoClass.mainBranch,
       })

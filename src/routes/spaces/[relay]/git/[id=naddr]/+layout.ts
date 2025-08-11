@@ -22,9 +22,17 @@ export const load: LayoutLoad = async ({ params }) => {
     const { repository } = await import('@welshman/app');
     const { load } = await import("@welshman/net");
     const { Repo } = await import('@nostr-git/ui');
+    const { canonicalRepoKey } = await import('@nostr-git/core');
 
     const decoded = nip19.decode(id).data as AddressPointer;
-    const repoId = decoded.identifier;
+    const repoId = `${decoded.pubkey}:${decoded.identifier}`;
+    const repoName = decoded.identifier;
+    // Enforce canonical repo key at routing layer (fail fast)
+    try {
+        canonicalRepoKey(repoId);
+    } catch (e) {
+        throw new Error(`Invalid repoId: "${repoId}". Expected canonical repoId in the form "owner/name" or "owner:name".`);
+    }
     const url = decodeRelay(relay);
 
     const fallbackRelays = INDEXER_RELAYS
@@ -35,7 +43,7 @@ export const load: LayoutLoad = async ({ params }) => {
     const filters = [{
         authors: [decoded.pubkey],
         kinds: [GIT_REPO_STATE, GIT_REPO],
-        "#d": [decoded.identifier],
+        "#d": [repoName],
     }]
 
     await load({ relays: relayListFromUrl as string[], filters })
@@ -44,7 +52,7 @@ export const load: LayoutLoad = async ({ params }) => {
         filters: [{
             authors: [decoded.pubkey],
             kinds: [GIT_REPO],
-            "#d": [decoded.identifier],
+            "#d": [repoName],
         }]
     }), (events) => events[0]) as Readable<RepoAnnouncementEvent>;
 
@@ -52,7 +60,7 @@ export const load: LayoutLoad = async ({ params }) => {
         filters: [{
             authors: [decoded.pubkey],
             kinds: [GIT_REPO_STATE],
-            "#d": [decoded.identifier],
+            "#d": [repoName],
         }]
     }), (events) => {
 
@@ -76,12 +84,12 @@ export const load: LayoutLoad = async ({ params }) => {
 
     const issueFilters = {
         kinds: [GIT_ISSUE],
-        "#a": [`${GIT_REPO}:${decoded.pubkey}:${decoded.identifier}`],
+        "#a": [`${GIT_REPO}:${repoId}`],
     }
 
     const patchFilters = {
         kinds: [GIT_PATCH],
-        "#a": [`${GIT_REPO}:${decoded.pubkey}:${decoded.identifier}`],
+        "#a": [`${GIT_REPO}:${repoId}`],
     }
 
     await load({ 

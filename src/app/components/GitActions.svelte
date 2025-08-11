@@ -1,18 +1,22 @@
 <script lang="ts">
   import {load} from "@welshman/net"
   import {Address, GIT_ISSUE, type EventContent, type TrustedEvent} from "@welshman/util"
-  import {pubkey, repository} from "@welshman/app"
+  import {repository} from "@welshman/app"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/commands"
   import {makeGitPath} from "@app/routes"
-  import Button from "@src/lib/components/Button.svelte"
-  import Spinner from "@src/lib/components/Spinner.svelte"
+  import Button from "@lib/components/Button.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
   import {navigating} from "$app/state"
   import {goto} from "$app/navigation"
+  import { nip19 } from "nostr-tools"
+  import type { AddressPointer } from "nostr-tools/nip19"
+  import { canonicalRepoKey } from "@nostr-git/core"
+  import { pushToast } from "@app/toast"
 
   interface Props {
     url: any
@@ -57,13 +61,36 @@
   })
 
   const gotoRepo = async () => {
-    const destination = makeGitPath(url, Address.fromEvent(event).toNaddr())
+    const naddr = Address.fromEvent(event).toNaddr()
+    try {
+      const decoded = nip19.decode(naddr).data as AddressPointer
+      const repoId = `${decoded.pubkey}:${decoded.identifier}`
+      canonicalRepoKey(repoId)
+    } catch (e) {
+      pushToast({
+        message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open repo until it is fixed: ${e}`,
+        timeout: 7000,
+      })
+      return
+    }
+    const destination = makeGitPath(url, naddr)
     goto(destination)
   }
 
   const gotoIssues = async () => {
-    const destination = makeGitPath(url, Address.fromEvent(event).toNaddr()) + "/issues"
-
+    const naddr = Address.fromEvent(event).toNaddr()
+    try {
+      const decoded = nip19.decode(naddr).data as AddressPointer
+      const repoId = `${decoded.pubkey}:${decoded.identifier}`
+      canonicalRepoKey(repoId)
+    } catch (e) {
+      pushToast({
+        message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open issues until repo is fixed.`,
+        timeout: 7000,
+      })
+      return
+    }
+    const destination = makeGitPath(url, naddr) + "/issues"
     goto(destination)
   }
 
