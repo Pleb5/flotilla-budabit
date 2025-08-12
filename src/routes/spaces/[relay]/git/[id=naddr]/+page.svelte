@@ -1,6 +1,6 @@
 <script lang="ts">
   import markdownit from "markdown-it"
-  import {Card} from "@nostr-git/ui"
+  import {Card, Terminal} from "@nostr-git/ui"
   import {
     CircleAlert,
     GitBranch,
@@ -22,6 +22,9 @@
   import {pushModal} from "@app/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import type { LayoutProps } from "./$types.js"
+  import { page } from "$app/stores"
+  import { pubkey } from "@welshman/app"
+  import { decodeRelay } from "@app/state"
 
   let {data}:LayoutProps = $props()
   const {repoClass, repoRelays} = data
@@ -79,6 +82,36 @@
       ? new Date(repoClass.repoStateEvent.created_at * 1000)
       : null,
   })
+
+  // Defaults for Terminal
+  const repoCloneUrls = $derived(repoMetadata.cloneUrls || [])
+  const defaultRemoteUrl = $derived(repoCloneUrls[0])
+  const defaultBranch = $derived(repoMetadata.mainBranch || 'main')
+  const detectedProvider = $derived(detectProviderFromUrl(defaultRemoteUrl || repoMetadata.relays?.[0]))
+  const defaultToken = $derived(detectedProvider === 'grasp' ? $pubkey : undefined)
+  const relayUrl = $derived(decodeRelay($page.params.relay))
+  const naddr = $derived($page.params.id)
+  const repoRefObj = $derived({
+    relay: relayUrl,
+    naddr,
+    npub: $pubkey,
+    repoId: repoClass.canonicalKey,
+  })
+
+  // Simple provider detection from URL
+  function detectProviderFromUrl(url: string | undefined): string | undefined {
+    if (!url) return undefined
+    try {
+      const u = new URL(url)
+      const host = u.hostname
+      if (host.includes('github.com')) return 'github'
+      if (host.includes('gitlab.com')) return 'gitlab'
+      // Heuristic: ws/wss relay → grasp, but pushes must use HTTP(S) Grasp endpoint
+      if (u.protocol === 'ws:' || u.protocol === 'wss:') return 'grasp'
+      if (host.includes('ngit.dev') || host.includes('grasp')) return 'grasp'
+    } catch {}
+    return undefined
+  }
 
   let readme = $state<string | undefined>(undefined)
   let renderedReadme = $state<string | undefined>(undefined)
@@ -374,6 +407,27 @@
         </Card>
       {/if}
     </div>
+<div class="flex-1" transition:slide>
+  <Terminal
+    fs={undefined}
+    repoRef={repoRefObj}
+    repoEvent={repoClass.repoEvent}
+    relays={$repoRelays}
+    theme="dark"
+    height={260}
+    initialCwd="/"
+    urlAllowlist={[]}
+    outputLimit={{ bytes: 1_000_000, lines: 10_000, timeMs: 30_000 }}
+    onCommand={(cmd: string) => console.log(cmd)}
+    onOutput={(evt: { stream: string; chunk: string }) => console.log(evt)}
+    repoCloneUrls={repoCloneUrls}
+    defaultRemoteUrl={defaultRemoteUrl}
+    defaultBranch={defaultBranch}
+    provider={detectedProvider}
+    token={defaultToken}
+  />
+</div>
+
     <!-- README -->
     {#if readmeLoading}
       <div transition:slide>
