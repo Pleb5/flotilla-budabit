@@ -13,7 +13,7 @@
   import {pushToast} from "@src/app/toast"
   import EventActions from "@src/app/components/EventActions.svelte"
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
-  import {pushModal} from "@src/app/modal.js"
+  import {pushModal} from "@app/modal"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@src/app/commands.js"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
@@ -80,9 +80,9 @@
     
     pushModal(ForkRepoDialog, {
       repo: repoClass,
-      onPublishEvent: async (event: any) => {
+      onPublishEvent: (event: any) => {
         // Handle event publishing
-        await postRepoAnnouncement(event, [])
+        postRepoAnnouncement(event, [])
       }
     })
   }

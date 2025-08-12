@@ -101,20 +101,26 @@
   }
 
   const onNewRepo = () => {
-    pushModal(NewRepoWizard, {
-      onCancel: () => {
-        back()
+    pushModal(
+      NewRepoWizard,
+      {
+        onCancel: () => {
+          back()
+        },
+        onRepoCreated: () => {
+          back()
+        },
+        onPublishEvent: async (event: RepoAnnouncementEvent) => {
+          publishThunk({
+            relays: [url],
+            event,
+          })
+        },
       },
-      onRepoCreated: () => {
-        back()
+      {
+        fullscreen: true,
       },
-      onPublishEvent: async (event: RepoAnnouncementEvent) => {
-        publishThunk({
-          relays: [url],
-          event,
-        })
-      },
-    })
+    )
   }
 </script>
 

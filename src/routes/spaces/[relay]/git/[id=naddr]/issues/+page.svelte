@@ -25,7 +25,7 @@
   import {makeFeed} from "@src/app/requests"
   import {whenElementReady} from "@src/lib/html"
   import {slide, slideAndFade} from "@lib/transition"
-  import {pushModal} from "@src/app/modal"
+  import {pushModal} from "@app/modal"
   import {
     createStatusEvent,
     type CommentEvent,
