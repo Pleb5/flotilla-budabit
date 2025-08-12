@@ -206,8 +206,7 @@
             <TabsContent value="analyzer">
               <MergeAnalyzer
                 analysis={mergeAnalysis}
-                patch={selectedPatch}
-                commit={selectedCommit} />
+                patch={selectedPatch} />
             </TabsContent>
 
             <TabsContent value="conflicts">
