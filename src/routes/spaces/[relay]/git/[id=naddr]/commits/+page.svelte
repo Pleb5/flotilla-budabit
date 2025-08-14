@@ -265,6 +265,8 @@
                 onReact={handleReact} 
                 onComment={handleComment}
                 href={getCommitUrl(commit.oid)}
+                avatarUrl={commit?.commit?.author?.email ? `https://unavatar.io/gravatar/${encodeURIComponent(commit.commit.author.email)}` : undefined}
+                displayName={commit?.commit?.author?.name || undefined}
               />
             {/each}
           </div>
