@@ -102,6 +102,19 @@ export const load: PageLoad = async ({ params, parent }) => {
       diffHunks: change.diffHunks
     }));
 
+    // Debug: log commit details and change summary
+    try {
+      console.debug('[commit/+page] Loaded commit', {
+        repoId: repoClass.canonicalKey,
+        commitId: commitid,
+        meta: commitMeta,
+        changeCount: changes.length,
+        firstChange: changes[0]
+      });
+    } catch (e) {
+      console.debug('[commit/+page] Debug log failed (ignored)', e);
+    }
+
     return {
       commitMeta,
       changes,
