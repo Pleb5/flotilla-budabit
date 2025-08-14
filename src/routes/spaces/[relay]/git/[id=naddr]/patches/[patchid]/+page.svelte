@@ -718,10 +718,15 @@
             
             {#if selectedPatch.diff}
               {@const stats = selectedPatch.diff.reduce((acc, file) => {
-                // This is a simplified calculation - real implementation would parse the diff
-                const content = file.content || ''
-                const added = (content.match(/^\+/gm) || []).length
-                const removed = (content.match(/^-/gm) || []).length
+                // Accurate calculation using parse-diff structure
+                const added = (file.chunks ?? []).reduce((a, chunk) => {
+                  const adds = chunk.changes?.filter((ch) => ch.type === 'add').length ?? 0
+                  return a + adds
+                }, 0)
+                const removed = (file.chunks ?? []).reduce((a, chunk) => {
+                  const dels = chunk.changes?.filter((ch) => ch.type === 'del').length ?? 0
+                  return a + dels
+                }, 0)
                 return { added: acc.added + added, removed: acc.removed + removed }
               }, { added: 0, removed: 0 })}
               

@@ -413,7 +413,7 @@
     repoRef={repoRefObj}
     repoEvent={repoClass.repoEvent}
     relays={$repoRelays}
-    theme="dark"
+    theme="retro"
     height={260}
     initialCwd="/"
     urlAllowlist={[]}
