@@ -17,6 +17,12 @@
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@src/app/commands.js"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
+  import { derived as _derived } from "svelte/store"
+  import { repository, pubkey } from "@welshman/app"
+  import { deriveEvents } from "@welshman/store"
+  import { load } from "@welshman/net"
+  import { Router } from "@welshman/router"
+  import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core"
 
   const {id, relay} = $page.params
 
@@ -28,6 +34,32 @@
 
   // Refresh state
   let isRefreshing = $state(false)
+
+  // --- GRASP servers (user profile) ---
+  const graspServersFilter = {
+    kinds: [GRASP_SET_KIND],
+    authors: [pubkey.get()!],
+    "#d": [DEFAULT_GRASP_SET_ID],
+  }
+
+  const graspServersEvent = _derived(
+    deriveEvents(repository, { filters: [graspServersFilter] }),
+    (events) => {
+      if (events.length === 0) {
+        load({ relays: Router.get().FromUser().getUrls(), filters: [graspServersFilter] })
+      }
+      return events[0]
+    }
+  )
+
+  let graspServerUrls = $state<string[]>([])
+  graspServersEvent.subscribe((ev) => {
+    try {
+      graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
+    } catch {
+      graspServerUrls = []
+    }
+  })
 
   // Refresh repository function
   async function refreshRepo() {
@@ -83,7 +115,8 @@
       onPublishEvent: (event: any) => {
         // Handle event publishing
         postRepoAnnouncement(event, [])
-      }
+      },
+      graspServerUrls: graspServerUrls
     })
   }
 
