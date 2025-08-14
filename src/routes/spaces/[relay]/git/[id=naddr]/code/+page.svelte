@@ -181,11 +181,11 @@
                             if (error instanceof Error && error.message.includes('Could not find')) {
                               const { pushToast } = await import('@app/toast')
                               pushToast({
-                                message: `Branch '${ref.name}' not available locally. This branch exists in the repository state but may have been deleted, merged, or not fetched locally. Switching to main branch instead.`,
+                                message: `Branch '${ref.name}' is not available locally. It may have been deleted, merged, or not fetched yet. Using the repository's default branch instead.`,
                                 theme: 'error',
                                 timeout: 8000
                               })
-                              selectedBranch = repoClass.mainBranch || 'main'
+                              selectedBranch = repoClass.mainBranch || ''
                             } else {
                               console.error('Branch selection error:', error)
                             }
