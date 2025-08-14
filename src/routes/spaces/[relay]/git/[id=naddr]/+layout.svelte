@@ -23,6 +23,7 @@
   import { load } from "@welshman/net"
   import { Router } from "@welshman/router"
   import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core"
+    import { goto } from "$app/navigation"
 
   const {id, relay} = $page.params
 
@@ -130,6 +131,11 @@
     })
   }
 
+  function overviewRepo() {
+    if (!repoClass) return
+    goto(`/spaces/${relay}/git/${id}/`)
+  }
+
   // Connect the nostr-git toast store to the toast component
   $effect(() => {
     if ($toast.length > 0) {
@@ -165,6 +171,7 @@
       {isRefreshing}
       {forkRepo}
       {settingsRepo}
+      {overviewRepo}
       >
       {#snippet children(activeTab: string)}
         <RepoTab
