@@ -17,6 +17,45 @@
   import {pushModal} from "@app/modal"
   import {clip} from "@app/toast"
   import GitAuth from "@src/app/components/GitAuth.svelte"
+  import { GraspServersPanel } from "@nostr-git/ui";
+
+  // Nostr data access (patterns from spaces/[relay]/git/+page.svelte)
+  import { repository, publishThunk } from "@welshman/app";
+  import { load } from "@welshman/net";
+  import { deriveEvents } from "@welshman/store";
+  import { Router } from "@welshman/router";
+  import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core";
+
+  // Local state fed into GraspServersPanel
+  let graspUrls = $state<string[]>([]);
+
+  // Event handlers for GraspServersPanel. Integrate with your app's Nostr layer.
+  function handleReload() {
+    const author = $session?.pubkey;
+    if (!author) return;
+    const filters = [
+      { kinds: [GRASP_SET_KIND], authors: [author], "#d": [DEFAULT_GRASP_SET_ID], limit: 1 },
+    ];
+    const relays = Router.get().FromUser().getUrls();
+    load({ relays, filters });
+    // Subscribe once to repository for these filters and update urls
+    const store = deriveEvents(repository, { filters });
+    const unsub = store.subscribe((events) => {
+      if (events && events.length > 0) {
+        graspUrls = parseGraspServersEvent(events[0] as any);
+        unsub();
+      }
+    });
+  }
+
+  function handleSave(e: CustomEvent<{ unsigned: { kind: number; created_at: number; tags: string[][]; content: string }; urls: string[] }>) {
+    const author = $session?.pubkey;
+    if (!author) return;
+    const { unsigned } = e.detail;
+    const relays = Router.get().FromUser().getUrls();
+    // TODO: sign 'unsigned' with app signer if required. If your stack auto-signs in publishThunk, this is sufficient.
+    publishThunk({ relays, event: unsigned as any });
+  }
 
   const profile = deriveProfile($pubkey!)
 
@@ -32,7 +71,14 @@
 
   const startDelete = () => pushModal(ProfileDelete)
 
-  let showAdvanced = false
+  let showAdvanced = $state(false)
+
+  // Load current GRASP servers once session pubkey is available
+  $effect(() => {
+    if ($session?.pubkey) {
+      handleReload();
+    }
+  });
 
 </script>
 
@@ -134,6 +180,19 @@
   </div>
 
   <GitAuth tokenKey="gh_tokens" />
+
+  <!-- GRASP Servers Settings -->
+  <div class="card2 bg-alt shadow-xl">
+    <div class="flex items-center justify-between">
+      <strong class="flex items-center gap-3">
+        <Icon icon="settings" />
+        GRASP Servers
+      </strong>
+    </div>
+    <div class="pt-4">
+      <GraspServersPanel pubkey={$session?.pubkey} urls={graspUrls} on:reload={handleReload} on:save={handleSave} />
+    </div>
+  </div>
 
   <Alerts />
 
