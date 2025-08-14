@@ -21,6 +21,10 @@ export interface CommitMeta {
   date: number;
   message: string;
   parents: string[];
+  // Optional Nostr identifiers if available (reserved for future resolver wiring)
+  pubkey?: string;
+  nip05?: string;
+  nip39?: string;
 }
 
 export const load: PageLoad = async ({ params, parent }) => {
@@ -92,7 +96,11 @@ export const load: PageLoad = async ({ params, parent }) => {
       email: commitDetails.meta.email,
       date: commitDetails.meta.date,
       message: commitDetails.meta.message,
-      parents: commitDetails.meta.parents
+      parents: commitDetails.meta.parents,
+      // Placeholders to be populated when resolver is wired
+      pubkey: undefined,
+      nip05: undefined,
+      nip39: undefined
     };
 
     // Convert git-worker changes to our CommitChange format

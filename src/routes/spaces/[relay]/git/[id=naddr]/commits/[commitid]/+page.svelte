@@ -123,6 +123,9 @@
     message={commitMeta.message}
     parents={commitMeta.parents}
     displayName={commitMeta.author}
+    pubkey={commitMeta.pubkey}
+    nip05={commitMeta.nip05}
+    nip39={commitMeta.nip39}
   />
 
   <!-- Diff Summary -->
