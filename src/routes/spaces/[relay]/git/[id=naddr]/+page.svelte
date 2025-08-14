@@ -74,7 +74,7 @@
     relays: $repoRelays,
     cloneUrls: repoClass.repo?.clone || [],
     webUrls: repoClass.repo?.web || [],
-    mainBranch: repoClass.mainBranch || "main",
+    mainBranch: repoClass.mainBranch,
     createdAt: repoClass.repoEvent?.created_at
       ? new Date(repoClass.repoEvent.created_at * 1000)
       : null,
@@ -86,7 +86,7 @@
   // Defaults for Terminal
   const repoCloneUrls = $derived(repoMetadata.cloneUrls || [])
   const defaultRemoteUrl = $derived(repoCloneUrls[0])
-  const defaultBranch = $derived(repoMetadata.mainBranch || 'main')
+  const defaultBranch = $derived(repoMetadata.mainBranch || '')
   const detectedProvider = $derived(detectProviderFromUrl(defaultRemoteUrl || repoMetadata.relays?.[0]))
   const defaultToken = $derived(detectedProvider === 'grasp' ? $pubkey : undefined)
   const relayUrl = $derived(decodeRelay($page.params.relay))

@@ -124,8 +124,8 @@
       return
     }
 
-    // Use robust branch detection: patch baseBranch, repo mainBranch, or fallback
-    const targetBranch = sel.baseBranch || repoClass.mainBranch || "main"
+    // Use robust branch detection: prefer patch baseBranch, then repo mainBranch
+    const targetBranch = sel.baseBranch || repoClass.mainBranch
 
     // Resolve the PatchEvent corresponding to the currently selected parsed patch
     const selectedPatchEvent = repoClass.patches.find(p => p.id === sel.id)
@@ -302,7 +302,7 @@
           email: commit.author?.email || "",
         },
       })),
-      baseBranch: selectedPatch.baseBranch || repoClass.mainBranch || "main",
+      baseBranch: selectedPatch.baseBranch || repoClass.mainBranch,
       rawContent: selectedPatch.raw?.content || "",
     }
 
@@ -368,7 +368,19 @@
 
     // Execute merge via worker
     // Use canonical repo ID consistently for worker operations
-    const effectiveRepoId = repoClass.canonicalKey || repoClass.repoId || ""
+    // Require canonical repo key to avoid Invalid repoId issues
+    if (!repoClass.canonicalKey) {
+      mergeError = "Repository identifier is not ready (missing canonical key)."
+      mergeStep = "Setup failed"
+      isMerging = false
+      toast.push({
+        message: "Repository is still initializing. Please try again once metadata loads.",
+        timeout: 6000,
+        variant: "destructive",
+      })
+      return
+    }
+    const effectiveRepoId = repoClass.canonicalKey
 
     try {
       const result = await repoClass.workerManager.applyPatchAndPush({
@@ -598,7 +610,7 @@
             <div class="flex items-center justify-between">
               <span class="text-muted-foreground">Target Branch:</span>
               <code class="rounded bg-background px-2 py-1 text-xs">
-                {selectedPatch?.baseBranch || "main"}
+                {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}
               </code>
             </div>
 
@@ -776,7 +788,7 @@
           <MergeStatus
             result={mergeAnalysisResult}
             loading={isAnalyzingMerge}
-            targetBranch={selectedPatch?.baseBranch || repoClass.mainBranch || "main"} />
+            targetBranch={selectedPatch?.baseBranch || repoClass.mainBranch || ""} />
         </div>
 
         <div class="git-separator"></div>
@@ -869,7 +881,7 @@
                 <div>
                   <h3 class="font-semibold">Merge this patch</h3>
                   <p class="text-sm text-muted-foreground">
-                    Apply the changes from this patch to the {repoClass.mainBranch || "main"} branch
+                    Apply the changes from this patch to the {(selectedPatch?.baseBranch || repoClass.mainBranch) || "-"} branch
                   </p>
                 </div>
               </div>
@@ -1022,14 +1034,14 @@
                 <div>
                   <p class="mb-2 text-sm text-muted-foreground">
                     This will merge the patch into <code class="rounded bg-muted px-1"
-                      >{repoClass.mainBranch || "main"}</code> and push to all remotes.
+                      >{(selectedPatch?.baseBranch || repoClass.mainBranch) || "-"}</code> and push to all remotes.
                   </p>
 
                   <div class="rounded-lg bg-muted/30 p-3 text-sm">
                     <div class="mb-1 font-medium">Patch Details:</div>
                     <div>ID: <code>{selectedPatch?.id.slice(0, 16)}...</code></div>
                     <div>Commits: {selectedPatch?.commits?.length || 0}</div>
-                    <div>Target: {repoClass.mainBranch || "main"}</div>
+                    <div>Target: {(selectedPatch?.baseBranch || repoClass.mainBranch) || "-"}</div>
                   </div>
                 </div>
 

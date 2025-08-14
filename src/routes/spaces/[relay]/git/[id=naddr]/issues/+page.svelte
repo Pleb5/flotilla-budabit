@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {IssueCard, NewIssueForm, Button} from "@nostr-git/ui"
+  import {IssueCard, NewIssueForm, Button, toast} from "@nostr-git/ui"
   import {
     CalendarDays,
     Check,
@@ -238,8 +238,16 @@
   }
 
   const onNewIssue = () => {
+    if (!repoClass.canonicalKey) {
+      toast.push({
+        message: "Repository is still initializing (missing canonical key). Please try again shortly.",
+        timeout: 6000,
+        variant: "destructive",
+      })
+      return
+    }
     pushModal(NewIssueForm, {
-      repoId: repoClass.repoId,
+      repoId: repoClass.canonicalKey,
       repoOwnerPubkey: repoClass.repoEvent?.pubkey,
       onIssueCreated,
     })
