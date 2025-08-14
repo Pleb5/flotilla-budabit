@@ -20,8 +20,9 @@
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
-  import { NewRepoWizard } from "@nostr-git/ui"
-    import type { RepoAnnouncementEvent } from "@nostr-git/shared-types"
+  import {NewRepoWizard} from "@nostr-git/ui"
+  import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
+  import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core";
 
   const url = decodeRelay($page.params.relay)
 
@@ -31,7 +32,7 @@
 
   const bookmarkFilter = {
     kinds: [NAMED_BOOKMARKS],
-    '#d': [GIT_REPO_BOOKMARK_DTAG],
+    "#d": [GIT_REPO_BOOKMARK_DTAG],
     authors: [pubkey.get()!],
   }
 
@@ -66,6 +67,33 @@
         }
         return events
       })
+    }
+  })
+
+  // Load user's saved GRASP servers (profile settings) and expose as list of URLs
+  const graspServersFilter = {
+    kinds: [GRASP_SET_KIND],
+    authors: [pubkey.get()!],
+    "#d": [DEFAULT_GRASP_SET_ID],
+  };
+
+  const graspServersEvent = _derived(
+    deriveEvents(repository, { filters: [graspServersFilter] }),
+    (events: TrustedEvent[]) => {
+      if (events.length === 0) {
+        load({ relays: Router.get().FromUser().getUrls(), filters: [graspServersFilter] });
+      }
+      return events[0];
+    }
+  );
+
+  // Keep a reactive list of saved GRASP servers
+  let graspServerUrls = $state<string[]>([])
+  graspServersEvent.subscribe((ev) => {
+    try {
+      graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
+    } catch {
+      graspServerUrls = []
     }
   })
 
@@ -116,6 +144,7 @@
             event,
           })
         },
+        graspServerUrls: graspServerUrls,
       },
       {
         fullscreen: true,
