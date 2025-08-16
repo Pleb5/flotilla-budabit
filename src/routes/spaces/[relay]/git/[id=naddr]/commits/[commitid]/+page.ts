@@ -47,32 +47,8 @@ export const load: PageLoad = async ({ params, parent }) => {
     // Get git worker instance
     const gitWorker = getGitWorker();
     
-    // Ensure repository is properly initialized and cloned
-    console.log('Initializing repository:', repoClass.repoId, 'with branch:', repoClass.mainBranch);
-    
-    try {
-      // First ensure the repository is initialized
-      await gitWorker.api.smartInitializeRepo({
-        repoId: repoClass.canonicalKey,
-        branch: repoClass.mainBranch
-      });
-      
-      // Then ensure we have full clone with sufficient depth
-      await gitWorker.api.ensureFullClone({
-        repoId: repoClass.canonicalKey,
-        branch: repoClass.mainBranch,
-        depth: 100
-      });
-    } catch (initError) {
-      console.error('Repository initialization failed:', initError);
-      const errorMessage = initError instanceof Error ? initError.message : String(initError);
-      pushToast({
-        message: `Failed to initialize repository: ${errorMessage}`,
-        theme: 'error',
-        timeout: 5000
-      });
-      return;
-    }
+    // Initialization is handled by Repo class constructor (#loadCommitsFromRepo)
+    // Avoid re-initializing here to prevent duplicate worker operations/logs
     
     // Get detailed commit information including file changes
     const commitDetails = await gitWorker.api.getCommitDetails({

@@ -15,7 +15,7 @@
   import {goto} from "$app/navigation"
   import { nip19 } from "nostr-tools"
   import type { AddressPointer } from "nostr-tools/nip19"
-  import { canonicalRepoKey } from "@nostr-git/core"
+  import { canonicalRepoKey, sanitizeRelays } from "@nostr-git/core"
   import { pushToast } from "@app/toast"
 
   interface Props {
@@ -29,7 +29,7 @@
 
   let loadingIssues = $state(true)
 
-  const [tagId, ...relays] = event.tags.find(nthEq(0, "relays")) || []
+  const [tagId, ...relays] = sanitizeRelays(event.tags.find(nthEq(0, "relays")) || [])
 
   const issueFilter = {
     kinds: [GIT_ISSUE],
