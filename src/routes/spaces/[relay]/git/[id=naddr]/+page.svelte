@@ -26,7 +26,7 @@
   import { pubkey } from "@welshman/app"
   import { decodeRelay } from "@app/state"
 
-  let {data}:LayoutProps = $props()
+  let {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
 
   // Progressive loading states - show immediate content right away

@@ -126,5 +126,6 @@ export const load: LayoutLoad = async ({ params }) => {
         repoRelays: bestRelayList,
         url,
         repoId,
+        ...params,
     };
 }
