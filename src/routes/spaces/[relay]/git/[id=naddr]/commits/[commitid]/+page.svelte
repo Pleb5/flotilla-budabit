@@ -9,7 +9,6 @@
   // Extract data from page load
   const { commitMeta, changes, repoClass } = data;
 
-
   // State for collapsible file panels
   let expandedFiles = $state<Set<string>>(new Set());
 
@@ -122,10 +121,6 @@
     date={commitMeta.date}
     message={commitMeta.message}
     parents={commitMeta.parents}
-    displayName={commitMeta.author}
-    pubkey={commitMeta.pubkey}
-    nip05={commitMeta.nip05}
-    nip39={commitMeta.nip39}
   />
 
   <!-- Diff Summary -->
