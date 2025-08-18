@@ -50,6 +50,7 @@
   import {popKey} from "@app/implicit"
   import {pushToast} from "@app/toast"
   import {GIT_REPO} from "@src/lib/util"
+  import type {IssueEvent, PatchEvent} from "@nostr-git/shared-types"
 
   const {id} = $page.params
   const {data} = $props()
@@ -63,21 +64,21 @@
   const roomFilter = {kinds: [MESSAGE], "#h": [room]}
   const issueFilter = {
     kinds: [GIT_ISSUE],
-    "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
+    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
   }
   const patchFilter = {
     kinds: [GIT_PATCH],
-    "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
+    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
     "#t": ["root"],
   }
   const statusFilter = {
     kinds: [GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT, GIT_STATUS_OPEN],
-    "#e": [...repoClass.issues.map(issue => issue.id), ...repoClass.patches.map(patch => patch.id)],
+    "#e": [...repoClass.issues.map((issue: IssueEvent) => issue.id), ...repoClass.patches.map((patch: PatchEvent) => patch.id)],
   }
 
   const commentFilter = {
     kinds: [COMMENT],
-    "#E": [...repoClass.issues.map(issue => issue.id), ...repoClass.patches.map(patch => patch.id)],
+    "#E": [...repoClass.issues.map((issue: IssueEvent) => issue.id), ...repoClass.patches.map((patch: PatchEvent) => patch.id)],
   }
 
   const filter = [roomFilter, issueFilter, patchFilter, statusFilter, commentFilter]

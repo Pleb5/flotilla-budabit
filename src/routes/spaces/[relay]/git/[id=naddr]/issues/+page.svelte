@@ -230,7 +230,7 @@
       kind: GIT_STATUS_OPEN,
       content: "",
       rootId: postIssueEvent.id,
-      recipients: [$pubkey!, repoClass.repoEvent?.pubkey],
+      recipients: [$pubkey!, repoClass.repoEvent!.pubkey!],
       repoAddr: Address.fromEvent(repoClass.repoEvent!).toString(),
       relays: repoClass.relays || repoRelays,
     })

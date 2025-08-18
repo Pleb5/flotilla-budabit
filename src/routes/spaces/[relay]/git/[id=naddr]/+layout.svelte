@@ -70,11 +70,7 @@
 
     try {
       // Get clone URLs from the repo event
-      const cloneUrls = repoClass.repoEvent.tags
-        .filter((tag: string[]) => tag[0] === "clone")
-        .map((tag: string[]) => tag[1])
-        .filter(Boolean)
-
+      const cloneUrls = repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         throw new Error("No clone URLs found for repository")
       }
@@ -164,7 +160,8 @@
     <div class="p-4 text-center text-red-500">Repository not found.</div>
   {:else}
     <RepoHeader
-      event={repoClass.repoEvent}
+      event={repoClass.repoEvent!}
+      repoClass={repoClass}
       {activeTab}
       isRepoWatched={false}
       {refreshRepo}

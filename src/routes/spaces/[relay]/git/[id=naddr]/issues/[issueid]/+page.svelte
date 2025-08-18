@@ -107,7 +107,7 @@
                 : GIT_STATUS_DRAFT,
         content: "",
         rootId: issueId,
-        recipients: [$pubkey!, repoClass.repoEvent?.pubkey],
+        recipients: [$pubkey!, repoClass.repoEvent!.pubkey!],
         repoAddr: Address.fromEvent(repoClass.repoEvent!).toString() || "",
         relays: repoClass.relays || repoRelays || [],
       })

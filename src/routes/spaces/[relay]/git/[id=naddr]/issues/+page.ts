@@ -30,7 +30,7 @@ export const load = async ({parent}) => {
 
   const issueFilter = {
     kinds: [GIT_ISSUE],
-    "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
+    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
   }
 
   const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})

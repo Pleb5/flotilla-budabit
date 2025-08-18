@@ -173,7 +173,7 @@
                           try {
                             selectedBranch = ref.name
                             await repoClass.fileManager.listRepoFiles({
-                              repoEvent: repoClass.repoEvent,
+                              repoEvent: repoClass.repoEvent!,
                               branch: ref.name,
                               path: ''
                             })

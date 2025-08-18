@@ -17,7 +17,7 @@
   import {pushModal} from "@app/modal"
   import {clip} from "@app/toast"
   import GitAuth from "@src/app/components/GitAuth.svelte"
-  import { GraspServersPanel } from "@nostr-git/ui";
+  import GraspServersPanel from "@app/components/GraspServersPanel.svelte";
 
   // Nostr data access (patterns from spaces/[relay]/git/+page.svelte)
   import { repository, publishThunk } from "@welshman/app";

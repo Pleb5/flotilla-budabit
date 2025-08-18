@@ -30,7 +30,7 @@ export const load = async ({parent}) => {
 
   const patchFilter = {
     kinds: [GIT_PATCH],
-    "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
+    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
   }
 
   await load({
