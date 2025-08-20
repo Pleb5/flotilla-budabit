@@ -122,7 +122,7 @@
     pushModal(EditRepoPanel, {
       repo: repoClass,
       onPublishEvent: (event: RepoAnnouncementEvent) => {
-        postRepoAnnouncement(event, [])
+        postRepoAnnouncement(event, repoClass.relays)
       },
     })
   }
@@ -162,6 +162,7 @@
     <RepoHeader
       event={repoClass.repoEvent!}
       repoClass={repoClass}
+      pubkey={$pubkey}
       {activeTab}
       isRepoWatched={false}
       {refreshRepo}

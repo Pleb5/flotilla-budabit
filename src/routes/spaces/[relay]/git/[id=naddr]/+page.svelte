@@ -25,6 +25,8 @@
   import { page } from "$app/stores"
   import { pubkey } from "@welshman/app"
   import { decodeRelay } from "@app/state"
+  import { nip19 } from "nostr-tools"
+  import { clip } from "@app/toast"
 
   let {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
@@ -66,14 +68,52 @@
     m => $profilesByPubkey.get(m) ?? {display_name: truncateHash(m), name: truncateHash(m)},
   )
 
+  function buildDefaultNgitCloneUrl(): string | undefined {
+    try {
+      const owner = repoClass.repoEvent?.pubkey
+      const name = repoClass.repo?.name
+      if (!owner || !name) return undefined
+      const npub = nip19.npubEncode(owner)
+      return `nostr://${npub}/${name}`
+    } catch {
+      return undefined
+    }
+  }
+
+  function buildDefaultViewRepoUrl(): string | undefined {
+    try {
+      const owner = repoClass.repoEvent?.pubkey
+      const name = repoClass.repo?.name
+      if (!owner || !name) return undefined
+      const npub = nip19.npubEncode(owner)
+      return `https://gitworkshop.dev/${npub}/${name}`
+    } catch {
+      return undefined
+    }
+  }
+
   const repoMetadata = $derived({
     name: repoClass.repo?.name || "Unknown Repository",
     description: repoClass.repo?.description || "",
     repoId: repoClass.canonicalKey || "",
     maintainers: maintainers || [],
     relays: $repoRelays,
-    cloneUrls: repoClass.repo?.clone || [],
-    webUrls: repoClass.repo?.web || [],
+    cloneUrls: (() => {
+      let urls = [...(repoClass.repo?.clone || [])]
+      if (!urls.find(u => u.startsWith("nostr://"))) {
+        const def = buildDefaultNgitCloneUrl()
+        if (def && !urls.includes(def)) urls.push(def)
+      }
+      return urls
+    })(),
+    webUrls: (() => {
+      let urls = [...(repoClass.repo?.web || [])]
+      if (!urls.find(u => u.startsWith("https://gitworkshop.dev"))) {
+        const def = buildDefaultViewRepoUrl()
+        if (def && !urls.includes(def)) urls.push(def)
+      }
+      return urls
+    })(),
     mainBranch: repoClass.mainBranch,
     createdAt: repoClass.repoEvent?.created_at
       ? new Date(repoClass.repoEvent.created_at * 1000)
@@ -237,12 +277,9 @@
                   <div class="h-4 w-16 animate-pulse rounded bg-muted"></div>
                 </div>
                 <div class="h-4 w-3/4 animate-pulse rounded bg-muted"></div>
-                <div class="mt-2 flex items-center gap-2">
-                  <div class="h-3 w-3 animate-pulse rounded bg-muted"></div>
-                  <div class="h-3 w-20 animate-pulse rounded bg-muted"></div>
-                  <div class="h-3 w-3 animate-pulse rounded bg-muted"></div>
-                  <div class="h-3 w-24 animate-pulse rounded bg-muted"></div>
-                </div>
+                <div class="h-4 w-2/3 animate-pulse rounded bg-muted"></div>
+                <div class="h-4 w-5/6 animate-pulse rounded bg-muted"></div>
+                <div class="h-4 w-1/2 animate-pulse rounded bg-muted"></div>
               </div>
             {:else if lastCommit}
               <div class="border-t pt-3" transition:fade>
@@ -326,10 +363,15 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Clone URLs</span>
                 <div class="space-y-1">
                   {#each repoMetadata.cloneUrls as url}
-                    <div class="flex items-center gap-2 text-sm">
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-2 text-left text-sm hover:opacity-80"
+                      title="Click to copy"
+                      onclick={() => clip(url)}
+                    >
                       <Link class="h-3 w-3" />
                       <span class="truncate font-mono text-xs">{url}</span>
-                    </div>
+                    </button>
                   {/each}
                 </div>
               </div>
