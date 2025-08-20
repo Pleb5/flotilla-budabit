@@ -19,6 +19,7 @@
     GIT_STATUS_DRAFT,
     GIT_STATUS_OPEN,
     GIT_STATUS_CLOSED,
+    getTag,
   } from "@welshman/util"
   import {createSearch, pubkey, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
@@ -61,7 +62,7 @@
 
   const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
 
-  const statusMap = new Map<string, StatusEvent>()
+  const statuses: Record<string, StatusEvent> = {}
 
   $effect(() => {
     if ($statusEvents) {
@@ -74,7 +75,7 @@
           .sort((a: any, b: any) => b.created_at - a.created_at)[0]
 
         if (status) {
-          statusMap.set(issue.id, status as StatusEvent)
+          statuses[issue.id] = status as StatusEvent
         }
       })
     }
@@ -149,7 +150,7 @@
       })
       .filter(issue => {
         if (statusFilter !== "all") {
-          const status = statusMap.get(issue.id)
+          const status = statuses[issue.id]
           if (!status) return false
           switch (statusFilter) {
             case "open":
@@ -199,6 +200,7 @@
 
   $effect(() => {
     if (repoClass.issues) {
+      console.log('issues filter:', issueFilter)
       whenElementReady(
         () => element,
         (readyElement) => {
@@ -265,8 +267,11 @@
   }
 
   const onNewIssue = () => {
+    const aTag = getTag("d", repoClass.repoEvent!.tags) as string[]
+    const repoDtag = aTag[1]
+
     pushModal(NewIssueForm, {
-      repoId: repoClass.repoId,
+      repoId: repoDtag,
       repoOwnerPubkey: repoClass.repoEvent?.pubkey,
       onIssueCreated,
     })
@@ -433,7 +438,7 @@
               comments={commentsOrdered[issue.id]}
               currentCommenter={$pubkey!}
               {onCommentCreated}
-              status={statusMap.get(issue.id) || undefined} />
+              status={statuses[issue.id] || undefined} />
           </div>
         {/each}
       {/key}
