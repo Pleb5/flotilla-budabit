@@ -33,7 +33,7 @@
   const bookmarkFilter = {
     kinds: [NAMED_BOOKMARKS],
     "#d": [GIT_REPO_BOOKMARK_DTAG],
-    authors: [pubkey.get()!],
+    authors: [$pubkey],
   }
 
   const bookmarks = _derived(
