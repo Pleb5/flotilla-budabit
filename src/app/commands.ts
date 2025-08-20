@@ -455,15 +455,17 @@ export const postComment = (comment: CommentEvent, relays: string[]) => {
 }
 
 export const postIssue = (issue: IssueEvent, relays: string[]) => {
+  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
   return publishThunk({
     event: issue,
-    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
+    relays: merged,
   })
 }
 
 export const postStatus = (status: StatusEvent, relays: string[]) => {
+  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
   return publishThunk({
-    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
+    relays: merged,
     event: status,
   })
 }

@@ -163,7 +163,7 @@
 
     publishThunk({
       event: eventToPublish,
-      relays: [url, ...Router.get().FromUser().getUrls()],
+      relays: [url ?? "", ...Router.get().FromUser().getUrls()],
     })
 
     $shouldReloadRepos = true

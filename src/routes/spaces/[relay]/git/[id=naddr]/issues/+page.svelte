@@ -219,12 +219,39 @@
   })
 
   const onIssueCreated = async (issue: IssueEvent) => {
-    const thunk = postIssue(issue, repoClass.relays || repoRelays)
+    const relaysToUse = repoClass.relays || $repoRelays
+    if (!relaysToUse || relaysToUse.length === 0) {
+      console.warn("onIssueCreated: no relays available", {relaysToUse})
+      toast.push({
+        message: "No relays available to publish issue.",
+        variant: "destructive",
+      })
+      return
+    }
+    console.debug("onIssueCreated: publishing issue", {
+      relays: relaysToUse,
+      repoAddr: Address.fromEvent(repoClass.repoEvent!).toString(),
+    })
+    const thunk = postIssue(issue, relaysToUse)
     const postIssueEvent = thunk.event
     const result = await thunk.result
+    console.debug("onIssueCreated: publish result", result)
     if (result.error === PublishStatus.Failure) {
       console.error(result.error)
+      toast.push({
+        message: `Failed to publish issue${result.reason ? `: ${result.reason}` : ". Please try again."}`,
+        variant: "destructive",
+      })
       return
+    }
+    toast.push({ message: "Issue created", variant: "default" })
+    // Optimistically add the new issue to the local list so it appears immediately
+    try {
+      if (postIssueEvent) {
+        repoClass.issues = [postIssueEvent as IssueEvent, ...repoClass.issues]
+      }
+    } catch (e) {
+      console.warn("Failed to optimistically add new issue to UI:", e)
     }
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
@@ -232,22 +259,14 @@
       rootId: postIssueEvent.id,
       recipients: [$pubkey!, repoClass.repoEvent!.pubkey!],
       repoAddr: Address.fromEvent(repoClass.repoEvent!).toString(),
-      relays: repoClass.relays || repoRelays,
+      relays: relaysToUse,
     })
-    await postStatus(statusEvent, repoClass.relays || repoRelays).result
+    await postStatus(statusEvent, relaysToUse).result
   }
 
   const onNewIssue = () => {
-    if (!repoClass.canonicalKey) {
-      toast.push({
-        message: "Repository is still initializing (missing canonical key). Please try again shortly.",
-        timeout: 6000,
-        variant: "destructive",
-      })
-      return
-    }
     pushModal(NewIssueForm, {
-      repoId: repoClass.canonicalKey,
+      repoId: repoClass.name,
       repoOwnerPubkey: repoClass.repoEvent?.pubkey,
       onIssueCreated,
     })
