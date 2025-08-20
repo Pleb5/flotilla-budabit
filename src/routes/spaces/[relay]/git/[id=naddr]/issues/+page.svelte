@@ -266,7 +266,7 @@
 
   const onNewIssue = () => {
     pushModal(NewIssueForm, {
-      repoId: repoClass.name,
+      repoId: repoClass.repoId,
       repoOwnerPubkey: repoClass.repoEvent?.pubkey,
       onIssueCreated,
     })
