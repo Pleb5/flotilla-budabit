@@ -1,9 +1,9 @@
 <script lang="ts">
   import {debounce} from "throttle-debounce"
-  import {onMount} from "svelte"
+  import {onMount, tick} from "svelte"
   import {GIT_REPO_BOOKMARK_DTAG} from "@src/lib/util"
   import {page} from "$app/stores"
-  import {writable} from "svelte/store"
+  import {get, writable} from "svelte/store"
   import {
     Address,
     makeEvent,
@@ -17,7 +17,7 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import FieldInline from "@src/lib/components/FieldInline.svelte"
-  import {makeFeedController, createSearch, publishThunk, repository, tracker} from "@welshman/app"
+  import {makeFeedController, createSearch, publishThunk, repository, tracker, pubkey, signer} from "@welshman/app"
   import {feedFromFilter, makeIntersectionFeed, makeWOTFeed} from "@welshman/feeds"
   import {sleep} from "@welshman/lib"
   import {createScroller, isMobile, type Scroller} from "@src/lib/html"
@@ -48,6 +48,7 @@
   let scroller: Scroller
   let limit = 30
   let loading = $state(true)
+  let submitting = $state(false)
 
   const filters: Filter[] = [{kinds: [GIT_REPO]}]
   const repoEvents = deriveEvents(repository, {filters})
@@ -148,23 +149,37 @@
 
   const back = () => history.back()
 
-  const submit = () => {
+  const submit = async () => {
+    submitting = true
+    await tick()
+
     if ($uploading) return
     const atagList: string[][] = []
 
     for (const {address, relayHint} of localSelectedReposState) {
-      atagList.push(["a", address, relayHint])
+      atagList.push(["a", address, relayHint || ''])
     }
 
-    const eventToPublish = makeEvent(NAMED_BOOKMARKS, {
-      tags: [["d", GIT_REPO_BOOKMARK_DTAG], ...atagList],
-    })
+    const eventToPublish = makeEvent(
+      NAMED_BOOKMARKS,
+      {
+        tags: [
+          ["d", GIT_REPO_BOOKMARK_DTAG],
+          ...atagList
+        ],
+      }
+    )
+
     console.log("eventToPublish", eventToPublish)
 
-    publishThunk({
+    await publishThunk({
       event: eventToPublish,
       relays: [url ?? "", ...Router.get().FromUser().getUrls()],
+    }).result.then((value) => {
+      console.log('Publish thunk result:', value)
     })
+
+    submitting = false
 
     $shouldReloadRepos = true
 
@@ -197,6 +212,7 @@
 
     return () => {
       unmounted = true
+      selectedRepos = []
       scroller?.stop()
     }
   })
@@ -291,6 +307,15 @@
       <Icon icon="alt-arrow-left" />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary">Finish</Button>
+    <Button 
+      type="submit" 
+      class="btn btn-primary"
+      disabled={submitting}>
+      <Spinner 
+        loading={submitting}
+        minHeight={"min-h-6"}>
+        Done
+      </Spinner>
+    </Button>
   </ModalFooter>
 </form>

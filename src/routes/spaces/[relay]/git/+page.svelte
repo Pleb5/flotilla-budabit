@@ -11,7 +11,7 @@
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import RepoPicker from "@app/components/RepoPicker.svelte"
-  import {decodeRelay} from "@app/state"
+  import {decodeRelay, shouldReloadRepos} from "@app/state"
   import {pushModal} from "@app/modal"
   import {load} from "@welshman/net"
   import {pubkey} from "@welshman/app"
@@ -23,6 +23,7 @@
   import {NewRepoWizard} from "@nostr-git/ui"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
   import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core";
+    import { onMount } from "svelte"
 
   const url = decodeRelay($page.params.relay)
 
@@ -33,7 +34,7 @@
   const bookmarkFilter = {
     kinds: [NAMED_BOOKMARKS],
     "#d": [GIT_REPO_BOOKMARK_DTAG],
-    authors: [$pubkey],
+    authors: [$pubkey!],
   }
 
   const bookmarks = _derived(
@@ -73,7 +74,7 @@
   // Load user's saved GRASP servers (profile settings) and expose as list of URLs
   const graspServersFilter = {
     kinds: [GRASP_SET_KIND],
-    authors: [pubkey.get()!],
+    authors: [$pubkey!],
     "#d": [DEFAULT_GRASP_SET_ID],
   };
 
@@ -111,9 +112,20 @@
     }
   })
 
+  onMount(() => {
+    load({relays: bookmarkRelays, filters: [bookmarkFilter]})
+  })
+
   $effect(() => {
     if (loadedBookmarkedRepos.length > 0) {
       loading = false
+    }
+  })
+
+  $effect(() => {
+    if ($shouldReloadRepos){
+      $shouldReloadRepos = false
+      load({relays: bookmarkRelays, filters: [bookmarkFilter]})
     }
   })
 
