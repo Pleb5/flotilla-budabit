@@ -24,7 +24,6 @@
   import {createSearch, pubkey, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
-  import {whenElementReady} from "@src/lib/html"
   import {slide, slideAndFade} from "@lib/transition"
   import {pushModal} from "@app/modal"
   import {
@@ -44,7 +43,7 @@
   import ProfileName from "@src/app/components/ProfileName.svelte"
 
   let {data} = $props()
-  const {repoClass, repoRelays, issueFilter, statusEventFilter} = data
+  const {repoClass, issueFilter, statusEventFilter} = data
 
   const issues = $derived.by(() => {
     return sortBy(e => -e.created_at, repoClass.issues)
@@ -62,22 +61,33 @@
 
   const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
 
-  const statuses: Record<string, StatusEvent> = {}
+  const statuses: Record<string, StatusEvent> = $state({})
 
   $effect(() => {
-    if ($statusEvents) {
-      repoClass.issues.forEach((issue: IssueEvent) => {
-        const status = $statusEvents
-          ?.filter((s: any) => {
-            let [_, eventId] = s.tags.find(nthEq(0, "e")) || []
-            return eventId === issue.id
-          })
-          .sort((a: any, b: any) => b.created_at - a.created_at)[0]
+    // Create a new object to trigger reactivity
+    const newStatuses: Record<string, StatusEvent> = {}
+    
+    repoClass.issues.forEach((issue: IssueEvent) => {
+      const status = $statusEvents
+        ?.filter((s: any) => {
+          let [_, eventId] = s.tags.find(nthEq(0, "e")) || []
+          return eventId === issue.id
+        })
+        .sort((a: any, b: any) => b.created_at - a.created_at)[0]
 
-        if (status) {
-          statuses[issue.id] = status as StatusEvent
-        }
-      })
+      if (status) {
+        newStatuses[issue.id] = status as StatusEvent
+      }
+    })
+    
+    // Replace the entire statuses object to trigger reactivity
+    Object.assign(statuses, newStatuses)
+    
+    // Clear any removed statuses
+    for (const key in statuses) {
+      if (!(key in newStatuses)) {
+        delete statuses[key]
+      }
     }
   })
 
@@ -151,7 +161,7 @@
       .filter(issue => {
         if (statusFilter !== "all") {
           const status = statuses[issue.id]
-          if (!status) return false
+          if (!status) return true // NO status = OPEN!
           switch (statusFilter) {
             case "open":
               return status.kind === GIT_STATUS_OPEN
@@ -184,12 +194,12 @@
 
   const requestComments = async (issue: TrustedEvent) => {
     request({
-      relays: $repoRelays,
+      relays: repoClass.relays,
       filters: [{kinds: [COMMENT], "#E": [issue.id], since: issue.created_at}],
       onEvent: e => {
-        const issueComments = comments[issue.id]
-        if (!issueComments.some(c => c.id === e.id)) {
-          issueComments.push(e as CommentEvent)
+        if (!comments[issue.id].some(c => c.id === e.id)) {
+          // Create a new array to trigger reactivity
+          comments[issue.id] = [...comments[issue.id], e as CommentEvent]
         }
       },
     })
@@ -198,30 +208,29 @@
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
 
+  let initialized = $state(false)
   $effect(() => {
-    if (repoClass.issues) {
-      console.log('issues filter:', issueFilter)
-      whenElementReady(
-        () => element,
-        (readyElement) => {
-          makeFeed({
-            element: readyElement,
-            relays: [...$repoRelays],
-            feedFilters: [issueFilter],
-            subscriptionFilters: [issueFilter],
-            initialEvents: repoClass.issues,
-            onExhausted: () => {
-              loading = false
-            },
-          })
-        }
-      )
+    if (repoClass.issues && element && !initialized) {
+      initialized = true
+      console.log('init. repo relays:', repoClass.relays)
+      makeFeed({
+        element: element,
+        relays: repoClass.relays,
+        feedFilters: [issueFilter],
+        subscriptionFilters: [issueFilter],
+        initialEvents: repoClass.issues,
+        onExhausted: () => {
+          loading = false
+        },
+      })
+
       loading = false
     }
   })
 
   const onIssueCreated = async (issue: IssueEvent) => {
-    const relaysToUse = repoClass.relays || $repoRelays
+    console.log('repo relays', repoClass.relays)
+    const relaysToUse = repoClass.relays
     if (!relaysToUse || relaysToUse.length === 0) {
       console.warn("onIssueCreated: no relays available", {relaysToUse})
       toast.push({
@@ -232,7 +241,7 @@
     }
     console.debug("onIssueCreated: publishing issue", {
       relays: relaysToUse,
-      repoAddr: Address.fromEvent(repoClass.repoEvent!).toString(),
+      repoAddr: getTag('a', issue.tags),
     })
     const thunk = postIssue(issue, relaysToUse)
     const postIssueEvent = thunk.event
@@ -248,13 +257,13 @@
     }
     toast.push({ message: "Issue created", variant: "default" })
     // Optimistically add the new issue to the local list so it appears immediately
-    try {
-      if (postIssueEvent) {
-        repoClass.issues = [postIssueEvent as IssueEvent, ...repoClass.issues]
-      }
-    } catch (e) {
-      console.warn("Failed to optimistically add new issue to UI:", e)
-    }
+    // try {
+    //   if (postIssueEvent) {
+    //     repoClass.issues = [postIssueEvent as IssueEvent, ...repoClass.issues]
+    //   }
+    // } catch (e) {
+    //   console.warn("Failed to optimistically add new issue to UI:", e)
+    // }
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
       content: "",
@@ -278,7 +287,7 @@
   }
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, $repoRelays).result
+    await postComment(comment, repoClass.relays).result
   }
 </script>
 
@@ -430,18 +439,17 @@
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#key repoClass.issues}
-        {#each searchedIssues as issue (issue.id)}
-          <div in:slideAndFade={{duration: 200}}>
-            <IssueCard
-              event={issue}
-              comments={commentsOrdered[issue.id]}
-              currentCommenter={$pubkey!}
-              {onCommentCreated}
-              status={statuses[issue.id] || undefined} />
-          </div>
-        {/each}
-      {/key}
+      {#each searchedIssues as issue (issue.id)}
+        {@const status = statuses[issue.id] || undefined}
+        <div in:slideAndFade={{duration: 200}}>
+          <IssueCard
+            event={issue}
+            comments={commentsOrdered[issue.id]}
+            currentCommenter={$pubkey!}
+            {onCommentCreated}
+            status={status} />
+        </div>
+      {/each}
     </div>
   {/if}
 </div>
