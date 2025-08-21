@@ -17,19 +17,26 @@
   import {pubkey} from "@welshman/app"
   import {getAddressTags} from "@welshman/util"
   import {Router} from "@welshman/router"
+  import { normalizeRelayUrl } from "@welshman/util"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
   import {NewRepoWizard} from "@nostr-git/ui"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
   import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core";
-    import { onMount } from "svelte"
+  import { onMount } from "svelte"
+    import { pushToast } from "@src/app/toast"
 
   const url = decodeRelay($page.params.relay)
 
   let loading = $state(true)
 
-  const bookmarkRelays = [url, ...Router.get().FromUser().getUrls()]
+  // Normalize all relay URLs to avoid whitespace/trailing-slash/socket issues
+  const bookmarkRelays = Array.from(
+    new Set(
+      [url, ...Router.get().FromUser().getUrls()].map(u => normalizeRelayUrl(u)).filter(Boolean)
+    )
+  ) as string[]
 
   const bookmarkFilter = {
     kinds: [NAMED_BOOKMARKS],
@@ -58,8 +65,9 @@
       aTagList.forEach(([_, value, relayHint]) => {
         dTagValues.push(value.split(":")[2])
         authors.push(value.split(":")[1])
-        relaysOfAddresses.set(value, relayHint || "")
-        if (relayHint && !relayHints.includes(relayHint)) relayHints.push(relayHint)
+        const normalizedHint = relayHint ? normalizeRelayUrl(relayHint) : ""
+        relaysOfAddresses.set(value, normalizedHint)
+        if (normalizedHint && !relayHints.includes(normalizedHint)) relayHints.push(normalizedHint)
       })
       const repoFilter = {kinds: [GIT_REPO], authors, "#d": dTagValues}
       return _derived(deriveEvents(repository, {filters: [repoFilter]}), events => {
@@ -148,15 +156,19 @@
           back()
         },
         onRepoCreated: () => {
+          pushToast({
+            message: "Repository created successfully",
+          })
           back()
         },
         onPublishEvent: async (event: RepoAnnouncementEvent) => {
           publishThunk({
-            relays: [url],
+            relays: bookmarkRelays,
             event,
           })
         },
         graspServerUrls: graspServerUrls,
+        defaultRelays: bookmarkRelays,
       },
       {
         fullscreen: true,

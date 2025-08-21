@@ -17,6 +17,7 @@
   import type { AddressPointer } from "nostr-tools/nip19"
   import { canonicalRepoKey, sanitizeRelays } from "@nostr-git/core"
   import { pushToast } from "@app/toast"
+  import { normalizeRelayUrl } from "@welshman/util"
 
   interface Props {
     url: any
@@ -39,16 +40,22 @@
   const issues = deriveEvents(repository, {filters: [issueFilter]})
   const issueCount = $derived($issues.length)
 
-  const onPublishDelete = (event: TrustedEvent) => publishDelete({relays: [url], event})
+  const onPublishDelete = (event: TrustedEvent) =>
+    publishDelete({relays: [normalizeRelayUrl(url)], event})
 
   const onPublishReaction = (event: EventContent) => {
-    publishReaction({event: event as TrustedEvent, content: event.content, relays: [url]})
+    publishReaction({
+      event: event as TrustedEvent,
+      content: event.content,
+      relays: [normalizeRelayUrl(url)],
+    })
   }
 
   $effect(() => {
     if (event) {
       if (showIssues) {
-        load({relays: relays, filters: [issueFilter]}).then(() => {
+        const cleanRelays = (relays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+        load({relays: cleanRelays as string[], filters: [issueFilter]}).then(() => {
           loadingIssues = false
         })
       }

@@ -12,6 +12,7 @@ import type { AddressPointer } from 'nostr-tools/nip19';
 import { nthEq } from '@welshman/lib';
 import { GIT_REPO, GIT_REPO_STATE } from '@src/lib/util.js';
 import type { LayoutLoad } from './$types';
+import { normalizeRelayUrl } from '@welshman/util';
 
 export const load: LayoutLoad = async ({ params }) => {
     const { id, relay } = params;
@@ -36,9 +37,11 @@ export const load: LayoutLoad = async ({ params }) => {
     const url = decodeRelay(relay);
 
     const fallbackRelays = INDEXER_RELAYS
-    const relayListFromUrl = (decoded.relays?.length ?? 0) > 0
-      ? decoded.relays as string[] 
-      : fallbackRelays
+    const relayListFromUrl = ((decoded.relays?.length ?? 0) > 0
+      ? (decoded.relays as string[])
+      : fallbackRelays)
+      .map((u) => normalizeRelayUrl(u))
+      .filter(Boolean) as string[]
 
     const filters = [{
         authors: [decoded.pubkey],
@@ -77,7 +80,7 @@ export const load: LayoutLoad = async ({ params }) => {
     const bestRelayList = derived(repoEvent, re => {
         if (re) {
             const [_, ...relaysList] = re.tags.find(nthEq(0, "relays")) || [];
-            return relaysList;
+            return (relaysList as string[]).map((u) => normalizeRelayUrl(u)).filter(Boolean) as string[];
         }
         return relayListFromUrl;
     });

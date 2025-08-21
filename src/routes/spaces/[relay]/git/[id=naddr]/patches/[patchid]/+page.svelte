@@ -48,6 +48,7 @@
   import {derived as _derived} from "svelte/store"
   import type {LayoutProps} from "../../$types"
   import {slideAndFade} from "@src/lib/transition"
+  import { normalizeRelayUrl } from "@welshman/util"
 
   let {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
@@ -208,7 +209,8 @@
   const threadComments = $derived.by(() => {
     if (repoClass.patches && selectedPatch) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [selectedPatch.id]}]
-      load({relays: repoClass.relays, filters})
+      const relays = (repoClass.relays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+      load({relays: relays as string[], filters})
       return _derived(deriveEvents(repository, {filters}), (events: TrustedEvent[]) => {
         return sortBy(e => -e.created_at, events) as CommentEvent[]
       })
@@ -225,7 +227,8 @@
   })
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, $repoRelays).result
+    const relays = ($repoRelays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+    await postComment(comment, relays).result
   }
 
   const status = $derived.by(() => {

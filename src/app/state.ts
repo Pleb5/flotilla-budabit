@@ -251,13 +251,13 @@ export const deriveEvent = (idOrAddress: string, hints: string[] = []) => {
   let attempted = false
 
   const filters = getIdFilters([idOrAddress])
-  const relays = [...hints, ...INDEXER_RELAYS]
+  const relays = [...hints, ...INDEXER_RELAYS].map(u => normalizeRelayUrl(u)).filter(Boolean)
 
   return derived(
     deriveEvents(repository, {filters, includeDeleted: true}),
     (events: TrustedEvent[]) => {
       if (!attempted && events.length === 0) {
-        load({relays, filters})
+        load({relays: relays as string[], filters})
         attempted = true
       }
 
@@ -270,7 +270,9 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   let attempted = false
   const decoded = nip19.decode(naddr).data as AddressPointer
   const fallbackRelays = [...hints, ...INDEXER_RELAYS]
-  const relays = decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays
+  const relays = (decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays)
+    .map(u => normalizeRelayUrl(u))
+    .filter(Boolean)
   const filters = [
     {
       authors: [decoded.pubkey],
@@ -642,7 +644,7 @@ export const {
   load: async (id: string) => {
     const [url, room] = splitChannelId(id)
     await load({
-      relays: [url],
+      relays: [normalizeRelayUrl(url)],
       filters: [{kinds: [ROOM_META], "#d": [room]}, {kinds: [ROOMS]}],
     })
   },

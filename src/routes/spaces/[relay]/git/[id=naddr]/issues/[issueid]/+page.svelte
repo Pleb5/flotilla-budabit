@@ -28,6 +28,7 @@
   import {REPO_RELAYS_KEY} from "@src/app/state.js"
   import {postComment, postStatus} from "@src/app/commands.js"
   import {Card, IssueThread, Select, SelectContent, SelectItem, SelectTrigger} from "@nostr-git/ui"
+  import { normalizeRelayUrl } from "@welshman/util"
 
   const {data} = $props()
   const {repoClass} = data
@@ -45,7 +46,8 @@
   const threadComments = $derived.by(() => {
     if (repoClass.issues && issue) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [issue.id]}]
-      load({relays: repoClass.relays, filters})
+      const relays = (repoClass.relays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+      load({relays: relays as string[], filters})
       return deriveEvents(repository, {filters})
     }
   })
@@ -109,15 +111,16 @@
         rootId: issueId,
         recipients: [$pubkey!, repoClass.repoEvent!.pubkey!],
         repoAddr: Address.fromEvent(repoClass.repoEvent!).toString() || "",
-        relays: repoClass.relays || repoRelays || [],
+        relays: (repoClass.relays || repoRelays || []).map(u => normalizeRelayUrl(u)).filter(Boolean),
       })
-      postStatus(statusEvent, repoClass.relays || repoRelays || [])
+      postStatus(statusEvent, (repoClass.relays || repoRelays || []).map(u => normalizeRelayUrl(u)).filter(Boolean))
     }
   })
 
   const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, repoClass.relays || repoRelays).result
+    const relays = (repoClass.relays || repoRelays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+    await postComment(comment, relays).result
   }
 
   const isMaintainerOrAuthor = $derived.by(() => {

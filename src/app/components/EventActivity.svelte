@@ -8,6 +8,7 @@
   import {repository} from "@welshman/app"
   import {notifications} from "@app/notifications"
   import Icon from "@lib/components/Icon.svelte"
+  import { normalizeRelayUrl } from "@welshman/util"
 
   const {url, path, event}: {url: string; path: string; event: TrustedEvent} = $props()
 
@@ -16,7 +17,8 @@
   const lastActive = $derived(max([...$replies, event].map(e => e.created_at)))
 
   onMount(() => {
-    load({relays: [url], filters})
+    const relay = normalizeRelayUrl(url)
+    load({relays: [relay], filters})
   })
 </script>
 

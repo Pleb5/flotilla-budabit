@@ -17,13 +17,15 @@
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@src/app/commands.js"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
-  import { derived as _derived } from "svelte/store"
-  import { repository, pubkey } from "@welshman/app"
-  import { deriveEvents } from "@welshman/store"
-  import { load } from "@welshman/net"
-  import { Router } from "@welshman/router"
-  import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core"
-    import { goto } from "$app/navigation"
+  import {derived as _derived} from "svelte/store"
+  import {repository, pubkey} from "@welshman/app"
+  import {deriveEvents} from "@welshman/store"
+  import {load} from "@welshman/net"
+  import {Router} from "@welshman/router"
+  import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/core"
+  import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
+  import {onMount} from "svelte"
+  import { normalizeRelayUrl } from "@welshman/util"
 
   const {id, relay} = $page.params
 
@@ -43,18 +45,53 @@
     "#d": [DEFAULT_GRASP_SET_ID],
   }
 
+  // Initial refresh on mount
+  onMount(() => {
+    // Fire and forget; guard prevents overlap
+    refreshRepo()
+  })
+
+  // Helper to compute base path for this repo scope
+  function repoBasePath() {
+    return `/spaces/${encodeURIComponent(relay)}/git/${id}`
+  }
+
+  // Refresh after navigation into any sub-route under this layout
+  afterNavigate(({to}) => {
+    try {
+      if (!to) return
+      const base = repoBasePath()
+      if (to.url.pathname.startsWith(base)) {
+        refreshRepo()
+      }
+    } catch {}
+  })
+
+  // Pre-emptive refresh when navigating within the same repo scope
+  beforeNavigate(({to}) => {
+    try {
+      if (!to) return
+      const base = repoBasePath()
+      if (to.url.pathname.startsWith(base)) {
+        // Kick off without awaiting to avoid blocking navigation
+        Promise.resolve().then(() => refreshRepo())
+      }
+    } catch {}
+  })
+
   const graspServersEvent = _derived(
-    deriveEvents(repository, { filters: [graspServersFilter] }),
-    (events) => {
+    deriveEvents(repository, {filters: [graspServersFilter]}),
+    events => {
       if (events.length === 0) {
-        load({ relays: Router.get().FromUser().getUrls(), filters: [graspServersFilter] })
+        const relays = Router.get().FromUser().getUrls().map(u => normalizeRelayUrl(u)).filter(Boolean)
+        load({relays: relays as string[], filters: [graspServersFilter]})
       }
       return events[0]
-    }
+    },
   )
 
   let graspServerUrls = $state<string[]>([])
-  graspServersEvent.subscribe((ev) => {
+  graspServersEvent.subscribe(ev => {
     try {
       graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
     } catch {
@@ -84,9 +121,9 @@
 
       if (result.success) {
         // Show success toast
-        pushToast({
-          message: `Repository synced with remote (${result.headCommit?.slice(0, 8)})`,
-        })
+        //pushToast({
+        //  message: `Repository synced with remote (${result.headCommit?.slice(0, 8)})`,
+        //})
 
         // Reset the repo to refresh all cached data
         await repoClass.reset()
@@ -106,14 +143,14 @@
 
   function forkRepo() {
     if (!repoClass || !repoClass.repo) return
-    
+
     pushModal(ForkRepoDialog, {
       repo: repoClass,
       onPublishEvent: (event: any) => {
         // Handle event publishing
         postRepoAnnouncement(event, [])
       },
-      graspServerUrls: graspServerUrls
+      graspServerUrls: graspServerUrls,
     })
   }
 
@@ -150,7 +187,6 @@
       toast.clear()
     }
   })
-  
 </script>
 
 <PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
@@ -161,7 +197,7 @@
   {:else}
     <RepoHeader
       event={repoClass.repoEvent!}
-      repoClass={repoClass}
+      {repoClass}
       pubkey={$pubkey}
       {activeTab}
       isRepoWatched={false}
@@ -169,8 +205,7 @@
       {isRefreshing}
       {forkRepo}
       {settingsRepo}
-      {overviewRepo}
-      >
+      {overviewRepo}>
       {#snippet children(activeTab: string)}
         <RepoTab
           tabValue="feed"
@@ -217,6 +252,7 @@
             <GitCommit class="h-4 w-4" />
           {/snippet}
         </RepoTab>
+        <!--
         <RepoTab
           tabValue="workbench"
           label="Workbench"
@@ -226,6 +262,7 @@
             <Layers class="h-4 w-4" />
           {/snippet}
         </RepoTab>
+        -->
       {/snippet}
     </RepoHeader>
     <ConfigProvider
