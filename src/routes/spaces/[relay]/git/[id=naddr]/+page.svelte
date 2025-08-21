@@ -21,12 +21,12 @@
   import {profilesByPubkey} from "@welshman/app"
   import {pushModal} from "@app/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
-  import type { LayoutProps } from "./$types.js"
-  import { page } from "$app/stores"
-  import { pubkey } from "@welshman/app"
-  import { decodeRelay } from "@app/state"
-  import { nip19 } from "nostr-tools"
-  import { clip } from "@app/toast"
+  import type {LayoutProps} from "./$types.js"
+  import {page} from "$app/stores"
+  import {pubkey} from "@welshman/app"
+  import {decodeRelay} from "@app/state"
+  import {nip19} from "nostr-tools"
+  import {clip, pushToast} from "@app/toast"
 
   let {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
@@ -126,9 +126,11 @@
   // Defaults for Terminal
   const repoCloneUrls = $derived(repoMetadata.cloneUrls || [])
   const defaultRemoteUrl = $derived(repoCloneUrls[0])
-  const defaultBranch = $derived(repoMetadata.mainBranch || '')
-  const detectedProvider = $derived(detectProviderFromUrl(defaultRemoteUrl || repoMetadata.relays?.[0]))
-  const defaultToken = $derived(detectedProvider === 'grasp' ? $pubkey : undefined)
+  const defaultBranch = $derived(repoMetadata.mainBranch || "")
+  const detectedProvider = $derived(
+    detectProviderFromUrl(defaultRemoteUrl || repoMetadata.relays?.[0]),
+  )
+  const defaultToken = $derived(detectedProvider === "grasp" ? $pubkey : undefined)
   const relayUrl = $derived(decodeRelay($page.params.relay))
   const naddr = $derived($page.params.id)
   const repoRefObj = $derived({
@@ -144,11 +146,11 @@
     try {
       const u = new URL(url)
       const host = u.hostname
-      if (host.includes('github.com')) return 'github'
-      if (host.includes('gitlab.com')) return 'gitlab'
+      if (host.includes("github.com")) return "github"
+      if (host.includes("gitlab.com")) return "gitlab"
       // Heuristic: ws/wss relay → grasp, but pushes must use HTTP(S) Grasp endpoint
-      if (u.protocol === 'ws:' || u.protocol === 'wss:') return 'grasp'
-      if (host.includes('ngit.dev') || host.includes('grasp')) return 'grasp'
+      if (u.protocol === "ws:" || u.protocol === "wss:") return "grasp"
+      if (host.includes("ngit.dev") || host.includes("grasp")) return "grasp"
     } catch {}
     return undefined
   }
@@ -172,23 +174,22 @@
     // Load README and commit info in parallel for better performance
     const readmePromise = loadReadme()
     const commitPromise = loadLastCommit()
-    
+
     // Wait for both to complete
     await Promise.allSettled([readmePromise, commitPromise])
   }
-  
+
   async function loadReadme() {
     try {
       const readmeContent = await repoClass.getFileContent({path: "README.md"})
       readme = readmeContent.content
       renderedReadme = readme ? md.render(readme) : ""
     } catch (e) {
-
     } finally {
       readmeLoading = false
     }
   }
-  
+
   async function loadLastCommit() {
     try {
       if (repoClass.mainBranch) {
@@ -201,7 +202,6 @@
         }
       }
     } catch (e) {
-
     } finally {
       commitLoading = false
     }
@@ -252,11 +252,10 @@
             onclick={() => {
               pushModal(ResetRepoConfirm, {
                 repoClass,
-                repoName: repoMetadata.name
-              });
+                repoName: repoMetadata.name,
+              })
             }}
-            class="text-xs px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
-          >
+            class="rounded border border-gray-300 px-3 py-1 text-xs transition-colors hover:bg-gray-50">
             Reset Repo
           </Button>
         </div>
@@ -367,8 +366,7 @@
                       type="button"
                       class="flex w-full items-center gap-2 text-left text-sm hover:opacity-80"
                       title="Click to copy"
-                      onclick={() => clip(url)}
-                    >
+                      onclick={() => clip(url)}>
                       <Link class="h-3 w-3" />
                       <span class="truncate font-mono text-xs">{url}</span>
                     </button>
@@ -449,26 +447,29 @@
         </Card>
       {/if}
     </div>
-<div class="flex-1" transition:slide>
-  <Terminal
-    fs={undefined}
-    repoRef={repoRefObj}
-    repoEvent={repoClass.repoEvent}
-    relays={$repoRelays}
-    theme="retro"
-    height={260}
-    initialCwd="/"
-    urlAllowlist={[]}
-    outputLimit={{ bytes: 1_000_000, lines: 10_000, timeMs: 30_000 }}
-    onCommand={(cmd: string) => console.log(cmd)}
-    onOutput={(evt: { stream: string; chunk: string }) => console.log(evt)}
-    repoCloneUrls={repoCloneUrls}
-    defaultRemoteUrl={defaultRemoteUrl}
-    defaultBranch={defaultBranch}
-    provider={detectedProvider}
-    token={defaultToken}
-  />
-</div>
+    <div class="flex-1" transition:slide>
+      <Terminal
+        fs={undefined}
+        repoRef={repoRefObj}
+        repoEvent={repoClass.repoEvent}
+        relays={$repoRelays}
+        theme="retro"
+        height={260}
+        initialCwd="/"
+        urlAllowlist={[]}
+        outputLimit={{bytes: 1_000_000, lines: 10_000, timeMs: 30_000}}
+        onCommand={(cmd: string) => console.log(cmd)}
+        onOutput={(evt: {stream: string; chunk: string}) => console.log(evt)}
+        onExit={(e: {code: number}) => console.log("terminal exit", e.code)}
+        onProgress={(evt: any) => console.log("terminal progress", evt)}
+        onToast={(evt: {level: "error" | undefined; message: string}) =>
+          pushToast({message: evt.message, theme: evt.level})}
+        {repoCloneUrls}
+        {defaultRemoteUrl}
+        {defaultBranch}
+        provider={detectedProvider}
+        token={defaultToken} />
+    </div>
 
     <!-- README -->
     {#if readmeLoading}
