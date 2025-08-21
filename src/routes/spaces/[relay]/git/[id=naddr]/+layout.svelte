@@ -25,7 +25,7 @@
   import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/core"
   import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
   import {onMount} from "svelte"
-  import { normalizeRelayUrl } from "@welshman/util"
+  import {normalizeRelayUrl} from "@welshman/util"
 
   const {id, relay} = $page.params
 
@@ -48,7 +48,7 @@
   // Initial refresh on mount
   onMount(() => {
     // Fire and forget; guard prevents overlap
-    refreshRepo()
+    updateRepo()
   })
 
   // Helper to compute base path for this repo scope
@@ -62,7 +62,7 @@
       if (!to) return
       const base = repoBasePath()
       if (to.url.pathname.startsWith(base)) {
-        refreshRepo()
+        updateRepo()
       }
     } catch {}
   })
@@ -74,7 +74,7 @@
       const base = repoBasePath()
       if (to.url.pathname.startsWith(base)) {
         // Kick off without awaiting to avoid blocking navigation
-        Promise.resolve().then(() => refreshRepo())
+        Promise.resolve().then(() => updateRepo())
       }
     } catch {}
   })
@@ -83,7 +83,11 @@
     deriveEvents(repository, {filters: [graspServersFilter]}),
     events => {
       if (events.length === 0) {
-        const relays = Router.get().FromUser().getUrls().map(u => normalizeRelayUrl(u)).filter(Boolean)
+        const relays = Router.get()
+          .FromUser()
+          .getUrls()
+          .map(u => normalizeRelayUrl(u))
+          .filter(Boolean)
         load({relays: relays as string[], filters: [graspServersFilter]})
       }
       return events[0]
@@ -98,6 +102,39 @@
       graspServerUrls = []
     }
   })
+
+  async function updateRepo() {
+    if (!repoClass || isRefreshing) return
+
+    isRefreshing = true
+
+    try {
+      // Get clone URLs from the repo event
+      const cloneUrls = repoClass.cloneUrls
+      if (cloneUrls.length === 0) {
+        throw new Error("No clone URLs found for repository")
+      }
+
+      // Call syncWithRemote through the repo's worker manager
+      const result = await repoClass.workerManager.syncWithRemote({
+        repoId: repoClass.canonicalKey,
+        cloneUrls,
+        branch: repoClass.mainBranch,
+      })
+
+      if (!result.success) {
+        throw new Error(result.error || "Sync failed")
+      }
+    } catch (error) {
+      console.error("Failed to refresh repository:", error)
+      pushToast({
+        message: `Failed to sync repository: ${error instanceof Error ? error.message : "Unknown error"}`,
+        theme: "error",
+      })
+    } finally {
+      isRefreshing = false
+    }
+  }
 
   // Refresh repository function
   async function refreshRepo() {
@@ -121,9 +158,9 @@
 
       if (result.success) {
         // Show success toast
-        //pushToast({
-        //  message: `Repository synced with remote (${result.headCommit?.slice(0, 8)})`,
-        //})
+        pushToast({
+          message: `Repository synced with remote (${result.headCommit?.slice(0, 8)})`,
+        })
 
         // Reset the repo to refresh all cached data
         await repoClass.reset()
