@@ -159,7 +159,7 @@
           pushToast({
             message: "Repository created successfully",
           })
-          back()
+          //back()
         },
         onPublishEvent: async (event: RepoAnnouncementEvent) => {
           publishThunk({

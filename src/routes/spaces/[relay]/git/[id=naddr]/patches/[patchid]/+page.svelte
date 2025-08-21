@@ -19,7 +19,7 @@
   } from "@lucide/svelte"
   import {Button, Profile, MergeStatus, toast} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
-  import {DiffViewer, IssueThread} from "@nostr-git/ui"
+  import {DiffViewer, IssueThread, MergeAnalyzer} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
   import markdownit from "markdown-it"
   import {deriveEvents} from "@welshman/store"
@@ -793,6 +793,21 @@
             loading={isAnalyzingMerge}
             targetBranch={selectedPatch?.baseBranch || repoClass.mainBranch || ""} />
         </div>
+        {#if mergeAnalysisResult}
+          <div class="mb-6">
+            <MergeAnalyzer
+              analysis={{
+                similarity: mergeAnalysisResult.hasConflicts ? 0.7 : 0.95,
+                autoMergeable: mergeAnalysisResult.canMerge,
+                affectedFiles: (selectedPatch?.diff || []).map((f: any) => f.to || f.from || f.file || "unknown"),
+                conflictCount: (mergeAnalysisResult.conflictFiles || []).length,
+              }}
+              patch={(selectedPatch as any)}
+              analyzing={isAnalyzingMerge}
+              onAnalyze={() => analyzeMerge()}
+            />
+          </div>
+        {/if}
 
         <div class="git-separator"></div>
 
