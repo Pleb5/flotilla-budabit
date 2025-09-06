@@ -1,15 +1,6 @@
 <script lang="ts">
   import {Button, PatchCard} from "@nostr-git/ui"
-  import {
-    CalendarDays,
-    Check,
-    Clock,
-    Eye,
-    GitCommit,
-    SearchX,
-    User,
-    X,
-  } from "@lucide/svelte"
+  import {CalendarDays, Check, Clock, Eye, GitCommit, SearchX, User, X} from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
@@ -32,7 +23,12 @@
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
   import {postComment} from "@src/app/commands.js"
+  import {Address} from "@welshman/util"
   import ProfileName from "@src/app/components/ProfileName.svelte"
+  import {effectiveLabelsFor} from "@nostr-git/core"
+  import {deriveEvents} from "@welshman/store"
+  import {repository} from "@welshman/app"
+  import {onMount, onDestroy} from "svelte"
 
   const {data} = $props()
   const {repoClass, comments, statusEvents, patchFilter, repoRelays, uniqueAuthors} = data
@@ -43,6 +39,143 @@
   let authorFilter = $state<string>("") // empty string means all authors
   let showFilters = $state(true)
   let searchTerm = $state("")
+  // Label filters (NIP-32)
+  let selectedLabels = $state<string[]>([])
+  let matchAllLabels = $state(false)
+  let labelSearch = $state("")
+  const labelEvents = deriveEvents(repository, {filters: [{kinds: [1985]}]})
+  const labelsByPatch = $derived.by(() => {
+    const map = new Map<string, string[]>()
+    for (const p of repoClass.patches || []) {
+      try {
+        const extern = ($labelEvents || []).filter((e: any) =>
+          (e.tags as string[][])?.some?.(t => t[0] === "e" && t[1] === p.id),
+        )
+        const merged = effectiveLabelsFor({self: p as any, external: extern as any})
+        map.set(p.id, merged.normalized || [])
+      } catch (e) {
+        map.set(p.id, [])
+      }
+    }
+    return map
+  })
+
+  // Persist filters per repo
+  let storageKey = ""
+  onMount(() => {
+    try {
+      storageKey = repoClass.repoEvent ? `patchesFilters:${Address.fromEvent(repoClass.repoEvent!).toString()}` : ""
+    } catch (e) {
+      storageKey = ""
+    }
+    if (!storageKey) return
+    try {
+      const raw = localStorage.getItem(storageKey)
+      if (raw) {
+        const data = JSON.parse(raw)
+        if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
+        if (typeof data.sortBy === "string") sortBy = data.sortBy
+        if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
+        if (typeof data.showFilters === "boolean") showFilters = data.showFilters
+        if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
+        if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
+        if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
+        if (typeof data.labelSearch === "string") labelSearch = data.labelSearch
+      }
+    } catch (e) {
+      // ignore
+    }
+  })
+
+  const persist = () => {
+    if (!storageKey) return
+    try {
+      const data = {
+        statusFilter,
+        sortBy,
+        authorFilter,
+        showFilters,
+        searchTerm,
+        selectedLabels,
+        matchAllLabels,
+        labelSearch,
+      }
+      localStorage.setItem(storageKey, JSON.stringify(data))
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  $effect(() => {
+    statusFilter
+    persist()
+  })
+  $effect(() => {
+    sortBy
+    persist()
+  })
+  $effect(() => {
+    authorFilter
+    persist()
+  })
+  $effect(() => {
+    showFilters
+    persist()
+  })
+  $effect(() => {
+    searchTerm
+    persist()
+  })
+  $effect(() => {
+    selectedLabels
+    persist()
+  })
+  $effect(() => { matchAllLabels; persist() })
+  $effect(() => { labelSearch; persist() })
+
+  const applyFromData = (data: any) => {
+    if (!data) return
+    if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
+    if (typeof data.sortBy === "string") sortBy = data.sortBy
+    if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
+    if (typeof data.showFilters === "boolean") showFilters = data.showFilters
+    if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
+    if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
+    if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
+    if (typeof data.labelSearch === "string") labelSearch = data.labelSearch
+  }
+
+  const resetFilters = () => {
+    statusFilter = "open"
+    sortBy = "newest"
+    authorFilter = ""
+    showFilters = true
+    searchTerm = ""
+    selectedLabels = []
+    matchAllLabels = false
+    labelSearch = ""
+    if (storageKey) localStorage.removeItem(storageKey)
+  }
+
+  let storageListener: ((e: StorageEvent) => void) | null = null
+  onMount(() => {
+    storageListener = (e: StorageEvent) => {
+      if (!storageKey) return
+      if (e.key === storageKey) {
+        try {
+          const data = e.newValue ? JSON.parse(e.newValue) : null
+          if (data) applyFromData(data)
+        } catch {}
+      }
+    }
+    window.addEventListener('storage', storageListener)
+  })
+  onDestroy(() => {
+    if (storageListener) window.removeEventListener('storage', storageListener)
+  })
+  const allNormalizedLabels = $derived.by(() =>
+    Array.from(new Set(Array.from(labelsByPatch.values()).flat())),
+  )
 
   const patchList = $derived.by(() => {
     if (repoClass.patches && $statusEvents.length > 0 && $comments) {
@@ -157,7 +290,7 @@
 
       whenElementReady(
         () => element,
-        (readyElement) => {
+        readyElement => {
           makeFeed({
             element: readyElement,
             relays: repoClass.relays,
@@ -168,7 +301,7 @@
               loading = false
             },
           })
-        }
+        },
       )
       loading = false
     }
@@ -198,7 +331,15 @@
       },
     })
     const searchResults = patchesSearch.searchOptions(searchTerm)
-    const result = patchList.filter(p => searchResults.find(res => res.id === p.id))
+    const result = patchList
+      .filter(p => searchResults.find(res => res.id === p.id))
+      .filter(p => {
+        if (selectedLabels.length === 0) return true
+        const labs = labelsByPatch.get(p.id) || []
+        return matchAllLabels
+          ? selectedLabels.every(l => labs.includes(l))
+          : selectedLabels.some(l => labs.includes(l))
+      })
     return result
   })
 </script>
@@ -335,6 +476,56 @@
             </div>
           </div>
         {/if}
+
+        <!-- Label Filter -->
+        {#if allNormalizedLabels.length > 0}
+          <div class="md:col-span-2">
+            <h3 class="mb-2 text-sm font-medium">Labels</h3>
+            <div class="row-2 input mb-2 max-w-md">
+              <Icon icon="magnifer" />
+              <input
+                class="w-full"
+                bind:value={labelSearch}
+                type="text"
+                placeholder="Search labels..." />
+            </div>
+            <div class="flex flex-wrap gap-2">
+              {#each allNormalizedLabels.filter(l => l
+                  .toLowerCase()
+                  .includes(labelSearch.toLowerCase())) as lbl (lbl)}
+                <Button
+                  variant={selectedLabels.includes(lbl) ? "default" : "outline"}
+                  size="sm"
+                  onclick={() => {
+                    selectedLabels = selectedLabels.includes(lbl)
+                      ? selectedLabels.filter(l => l !== lbl)
+                      : [...selectedLabels, lbl]
+                  }}>
+                  {lbl}
+                </Button>
+              {/each}
+              <Button
+                variant={matchAllLabels ? "default" : "outline"}
+                size="sm"
+                onclick={() => (matchAllLabels = !matchAllLabels)}>
+                Match all
+              </Button>
+              {#if selectedLabels.length > 0}
+                <Button variant="ghost" size="sm" onclick={() => (selectedLabels = [])}>
+                  Clear labels
+                </Button>
+              {/if}
+            </div>
+            {#if selectedLabels.length > 0}
+              <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span class="text-muted-foreground">Selected:</span>
+                {#each selectedLabels as sl (sl)}
+                  <span class="badge badge-ghost badge-sm">{sl}</span>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
@@ -365,6 +556,7 @@
               status={patch.status as StatusEvent}
               comments={patch.comments}
               currentCommenter={$pubkey!}
+              extraLabels={labelsByPatch.get(patch.id) || []}
               {onCommentCreated} />
           </div>
         {/each}

@@ -89,6 +89,8 @@ import {
 } from "@welshman/app"
 import type {Thunk, Relay} from "@welshman/app"
 import type {AddressPointer} from "nostr-tools/nip19"
+import { groupByEuc, deriveMaintainers } from "@nostr-git/core"
+import type { RepoGroup } from "@nostr-git/core"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
@@ -781,6 +783,32 @@ export const displayReaction = (content: string) => {
 }
 
 export const shouldReloadRepos = writable(false)
+
+// Repositories adapter (NIP-34 repo announcements)
+// - derive announcements (30617)
+// - group by r:euc using core's groupByEuc
+// - expose lookups and maintainer derivation helpers
+
+export const repoAnnouncements = deriveEvents(repository, { filters: [{ kinds: [30617] }] })
+
+export const repoGroups = derived(repoAnnouncements, ($events): RepoGroup[] => {
+  return groupByEuc($events as any)
+})
+
+export const repoGroupsByEuc = derived(repoGroups, ($groups) => {
+  const map = new Map<string, RepoGroup>()
+  for (const g of $groups) map.set(g.euc, g)
+  return map
+})
+
+export const deriveRepoGroup = (euc: string) =>
+  derived(repoGroupsByEuc, ($by) => $by.get(euc))
+
+export const deriveMaintainersForEuc = (euc: string) =>
+  derived(deriveRepoGroup(euc), (g) => (g ? deriveMaintainers(g) : new Set<string>()))
+
+export const loadRepoAnnouncements = (relays: string[] = INDEXER_RELAYS) =>
+  load({ relays: relays.map(u => normalizeRelayUrl(u)).filter(Boolean) as string[], filters: [{ kinds: [30617] }] })
 
 export const deriveSocket = (url: string) =>
   custom<Socket>(set => {

@@ -41,6 +41,8 @@
   import {debounce} from "throttle-debounce"
   import {deriveEvents} from "@welshman/store"
   import ProfileName from "@src/app/components/ProfileName.svelte"
+  import { effectiveLabelsFor } from "@nostr-git/core"
+  import { onMount, onDestroy } from "svelte"
 
   let {data} = $props()
   const {repoClass, issueFilter, statusEventFilter} = data
@@ -96,6 +98,24 @@
   let sortByOrder = $state<string>("newest") // newest, oldest, status, commits
   let authorFilter = $state<string>("") // empty string means all authors
   let showFilters = $state(true)
+  // Label filters (NIP-32 normalized labels)
+  let selectedLabels = $state<string[]>([])
+  let matchAllLabels = $state(false)
+  const labelEvents = deriveEvents(repository, { filters: [{ kinds: [1985] }] })
+  const labelsByIssue = $derived.by(() => {
+    const map = new Map<string, string[]>()
+    for (const issue of issues) {
+      const extern = ($labelEvents || []).filter((e: any) => (e.tags as string[][])?.some?.(t => t[0] === 'e' && t[1] === issue.id))
+      try {
+        const merged = effectiveLabelsFor({ self: issue as any, external: extern as any })
+        map.set(issue.id, merged.normalized || [])
+      } catch (e) {
+        map.set(issue.id, [])
+      }
+    }
+    return map
+  })
+  const allNormalizedLabels = $derived.by(() => Array.from(new Set(Array.from(labelsByIssue.values()).flat())))
 
   const uniqueAuthors = $derived.by(() => {
     if (!repoClass.patches) return []
@@ -121,6 +141,110 @@
   $effect(() => {
     updateDebouncedTerm(searchTerm)
   })
+
+  // Load label events for current issues
+  $effect(() => {
+    if (repoClass.issues && repoClass.issues.length > 0) {
+      const ids = repoClass.issues.map((i: any) => i.id)
+      request({
+        relays: [...$repoRelays],
+        filters: [{ kinds: [1985], "#e": ids, since: 0 }],
+        onEvent: () => {},
+      })
+    }
+  })
+
+  // Persist filters per repo
+  let storageKey = ""
+  onMount(() => {
+    try {
+      storageKey = repoClass.repoEvent ? `issuesFilters:${Address.fromEvent(repoClass.repoEvent!).toString()}` : ""
+    } catch (e) {
+      storageKey = ""
+    }
+    if (!storageKey) return
+    try {
+      const raw = localStorage.getItem(storageKey)
+      if (raw) {
+        const data = JSON.parse(raw)
+        if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
+        if (typeof data.sortByOrder === "string") sortByOrder = data.sortByOrder
+        if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
+        if (typeof data.showFilters === "boolean") showFilters = data.showFilters
+        if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
+        if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
+        if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
+      }
+    } catch (e) {
+      // ignore
+    }
+  })
+
+  const persist = () => {
+    if (!storageKey) return
+    try {
+      const data = {
+        statusFilter,
+        sortByOrder,
+        authorFilter,
+        showFilters,
+        searchTerm,
+        selectedLabels,
+        matchAllLabels,
+      }
+      localStorage.setItem(storageKey, JSON.stringify(data))
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  const applyFromData = (data: any) => {
+    if (!data) return
+    if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
+    if (typeof data.sortByOrder === "string") sortByOrder = data.sortByOrder
+    if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
+    if (typeof data.showFilters === "boolean") showFilters = data.showFilters
+    if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
+    if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
+    if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
+  }
+
+  const resetFilters = () => {
+    statusFilter = "open"
+    sortByOrder = "newest"
+    authorFilter = ""
+    showFilters = true
+    searchTerm = ""
+    selectedLabels = []
+    matchAllLabels = false
+    if (storageKey) localStorage.removeItem(storageKey)
+  }
+
+  let storageListener: ((e: StorageEvent) => void) | null = null
+  onMount(() => {
+    storageListener = (e: StorageEvent) => {
+      if (!storageKey) return
+      if (e.key === storageKey) {
+        try {
+          const data = e.newValue ? JSON.parse(e.newValue) : null
+          if (data) applyFromData(data)
+        } catch {}
+      }
+    }
+    window.addEventListener('storage', storageListener)
+  })
+  onDestroy(() => {
+    if (storageListener) window.removeEventListener('storage', storageListener)
+  })
+
+  // Persist on changes
+  $effect(() => { statusFilter; persist() })
+  $effect(() => { sortByOrder; persist() })
+  $effect(() => { authorFilter; persist() })
+  $effect(() => { showFilters; persist() })
+  $effect(() => { searchTerm; persist() })
+  $effect(() => { selectedLabels; persist() })
+  $effect(() => { matchAllLabels; persist() })
 
   const searchedIssues = $derived.by(() => {
     const issuesToSearch = issues.map(issue => {
@@ -157,6 +281,13 @@
           return issue.pubkey === authorFilter
         }
         return true
+      })
+      .filter(issue => {
+        if (selectedLabels.length === 0) return true
+        const labs = labelsByIssue.get(issue.id) || []
+        return matchAllLabels
+          ? selectedLabels.every(l => labs.includes(l))
+          : selectedLabels.some(l => labs.includes(l))
       })
       .filter(issue => {
         if (statusFilter !== "all") {
@@ -418,6 +549,38 @@
             </div>
           </div>
         {/if}
+
+        <!-- Label Filter -->
+        {#if allNormalizedLabels.length > 0}
+          <div class="md:col-span-2">
+            <h3 class="mb-2 text-sm font-medium">Labels</h3>
+            <div class="flex flex-wrap gap-2">
+              {#each allNormalizedLabels as lbl (lbl)}
+                <Button
+                  variant={selectedLabels.includes(lbl) ? "default" : "outline"}
+                  size="sm"
+                  onclick={() => {
+                    selectedLabels = selectedLabels.includes(lbl)
+                      ? selectedLabels.filter(l => l !== lbl)
+                      : [...selectedLabels, lbl]
+                  }}>
+                  {lbl}
+                </Button>
+              {/each}
+              <Button variant={matchAllLabels ? "default" : "outline"} size="sm" onclick={() => (matchAllLabels = !matchAllLabels)}>
+                Match all
+              </Button>
+              {#if selectedLabels.length > 0}
+                <Button variant="ghost" size="sm" onclick={() => (selectedLabels = [])}>
+                  Clear labels
+                </Button>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </div>
+      <div class="mt-4 flex items-center justify-end">
+        <Button variant="ghost" size="sm" onclick={resetFilters}>Reset Filters</Button>
       </div>
     </div>
   {/if}
@@ -439,17 +602,19 @@
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each searchedIssues as issue (issue.id)}
-        {@const status = statuses[issue.id] || undefined}
-        <div in:slideAndFade={{duration: 200}}>
-          <IssueCard
-            event={issue}
-            comments={commentsOrdered[issue.id]}
-            currentCommenter={$pubkey!}
-            {onCommentCreated}
-            status={status} />
-        </div>
-      {/each}
+      {#key repoClass.issues}
+        {#each searchedIssues as issue (issue.id)}
+          <div in:slideAndFade={{duration: 200}} class="space-y-1">
+            <IssueCard
+              event={issue}
+              comments={commentsOrdered[issue.id]}
+              currentCommenter={$pubkey!}
+              {onCommentCreated}
+              status={statuses[issue.id] || undefined}
+              extraLabels={labelsByIssue.get(issue.id) || []} />
+          </div>
+        {/each}
+      {/key}
     </div>
   {/if}
 </div>

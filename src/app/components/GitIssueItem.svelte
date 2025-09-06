@@ -24,8 +24,9 @@
   import {onMount} from "svelte"
   import {pushModal} from "../modal"
   import ThreadCreate from "./ThreadCreate.svelte"
-  import {decodeRelay} from "../state"
+  import {decodeRelay, repoAnnouncements, loadRepoAnnouncements, deriveMaintainersForEuc} from "../state"
   import {Router} from "@welshman/router"
+  import { resolveIssueStatus, effectiveLabelsFor } from "@nostr-git/core"
 
   let {
     issue,
@@ -63,10 +64,38 @@
 
   let statusColor = $state("badge-success")
   let displayedStatus = $state(GitIssueStatus.OPEN)
+  // Accumulated status events and the resolved final status (per NIP-34 precedence)
+  let statusEvents: TrustedEvent[] = $state([])
+  let finalStatus: TrustedEvent | undefined = $state(undefined)
+  let finalReason: string | undefined = $state(undefined)
+  let maintainersSet: Set<string> = $state(new Set<string>())
+  // Maintainers via RepoGroup (preferred when available)
+  let repoEuc: string | undefined = $derived.by(() => {
+    const match = $repoAnnouncements?.find?.((evt) => evt.pubkey === pubkey && (evt.tags as string[][]).some(t => t[0] === 'd' && t[1] === repoDtag))
+    const eucTag = match?.tags?.find?.((t: any) => t[0] === 'r' && t[2] === 'euc')
+    return eucTag?.[1]
+  })
+  let groupMaintainers: Set<string> = $state(new Set<string>())
+  $effect(() => {
+    // subscribe to maintainers set for current repoEuc
+    groupMaintainers = new Set()
+    if (repoEuc) {
+      const store = deriveMaintainersForEuc(repoEuc)
+      const unsub = store.subscribe((s) => {
+        groupMaintainers = s || new Set()
+      })
+      return () => unsub()
+    }
+  })
+  // NIP-32 labels
+  let labelEvents: TrustedEvent[] = $state([])
+  let labelsNormalized: string[] = $state([])
 
   $effect(() => {
-    if (latestStatus) {
-      switch (latestStatus.kind) {
+    // Prefer resolved finalStatus when available, otherwise fallback to latestStatus prop
+    const s = finalStatus ?? latestStatus
+    if (s) {
+      switch (s.kind) {
         case GIT_STATUS_OPEN:
           statusColor = "badge-success"
           displayedStatus = GitIssueStatus.OPEN
@@ -89,6 +118,34 @@
 
   const controller = new AbortController()
 
+  const recomputeFinalStatus = () => {
+    try {
+      if (statusEvents.length === 0) {
+        finalStatus = undefined
+        finalReason = undefined
+        return
+      }
+      const maint = groupMaintainers && groupMaintainers.size > 0 ? groupMaintainers : maintainersSet
+      const { final } = resolveIssueStatus(
+        { root: issue as any, comments: [], statuses: statusEvents as any },
+        issue.pubkey,
+        maint
+      )
+      // resolveIssueStatus returns { final, reason } but type erasure on import; call again to grab reason
+      const res: any = resolveIssueStatus(
+        { root: issue as any, comments: [], statuses: statusEvents as any },
+        issue.pubkey,
+        maint
+      )
+      finalStatus = res.final as any
+      finalReason = res.reason as string
+    } catch (e) {
+      // Non-fatal; keep fallback behavior
+      finalStatus = undefined
+      finalReason = undefined
+    }
+  }
+
   const loadRepoAndStatus = async () => {
     if (aTag && aTag.length > 0) {
       const repoFilter = {
@@ -104,6 +161,17 @@
 
       if (events.length > 0) {
         const repoEvent = events[0]
+        // Prefer maintainers from RepoGroup when available; fallback to repo 'p' tags + owner
+        if (groupMaintainers && groupMaintainers.size > 0) {
+          maintainersSet = groupMaintainers
+        } else {
+          // Derive maintainers from 'p' tags of the repo event
+          const pTags = (repoEvent.tags as string[][]).filter(t => t[0] === 'p')
+          const repoMaintainers = new Set<string>(pTags.map(t => t[1]).filter(Boolean))
+          // Also include repo owner pubkey as maintainer by convention
+          if (repoEvent.pubkey) repoMaintainers.add(repoEvent.pubkey)
+          maintainersSet = repoMaintainers
+        }
 
         const [tagId, ...relays] = getTag("relays", repoEvent.tags) ?? []
 
@@ -124,7 +192,22 @@
           filters: [statusFilter],
         })
 
-        latestStatus = sortBy(s => -s.created_at, statuses)[0]
+        statusEvents = statuses
+        // Compute effective status from all fetched statuses
+        recomputeFinalStatus()
+
+        // Fetch label events (NIP-32 kind 1985) targeting this issue by #e
+        const labelFilter: Filter = {
+          kinds: [1985],
+          "#e": [issue.id],
+        }
+        const labels = await load({
+          relays: queryRelays,
+          filters: [labelFilter],
+        })
+        labelEvents = labels
+        const merged = effectiveLabelsFor({ self: issue as any, external: labelEvents as any })
+        labelsNormalized = merged.normalized
 
         statusFilter.since = now()
         request({
@@ -132,7 +215,25 @@
           relays: queryRelays,
           filters: [statusFilter],
           onEvent: (status: TrustedEvent) => {
-            latestStatus = status
+            // dedupe by id and append
+            if (!statusEvents.find((s) => s.id === status.id)) {
+              statusEvents = [...statusEvents, status]
+              recomputeFinalStatus()
+            }
+          },
+        })
+        // Subscribe to future label events as well
+        labelFilter.since = now()
+        request({
+          signal: controller.signal,
+          relays: queryRelays,
+          filters: [labelFilter],
+          onEvent: (evt: TrustedEvent) => {
+            if (!labelEvents.find((e) => e.id === evt.id)) {
+              labelEvents = [...labelEvents, evt]
+              const merged = effectiveLabelsFor({ self: issue as any, external: labelEvents as any })
+              labelsNormalized = merged.normalized
+            }
           },
         })
       }
@@ -143,7 +244,11 @@
     pushModal(ThreadCreate, {url: url, jobOrGitIssue: issue, relayHint: queryRelays[0]})
 
   onMount(() => {
-    if (fetchRepoAndStatus) loadRepoAndStatus()
+    if (fetchRepoAndStatus) {
+      // ensure announcements are loaded to resolve RepoGroup maintainers
+      loadRepoAnnouncements()
+      loadRepoAndStatus()
+    }
 
     return () => {
       controller.abort()
@@ -163,9 +268,16 @@
           <span>Modified {formatTimestampRelative(lastActive)}</span>
         </Link>
       </div>
-      <div class="badge badge-lg {statusColor}">
+      <div class="badge badge-lg {statusColor}" title={finalReason || undefined}>
         {displayedStatus}
       </div>
+      {#if labelsNormalized.length}
+        <div class="flex flex-wrap gap-1">
+          {#each labelsNormalized as lbl (lbl)}
+            <span class="badge badge-ghost badge-sm">{lbl}</span>
+          {/each}
+        </div>
+      {/if}
       <Button class="btn btn-info btn-sm">
         <Link external class="w-full cursor-pointer" href={issueLink}>
           <span class="">View</span>

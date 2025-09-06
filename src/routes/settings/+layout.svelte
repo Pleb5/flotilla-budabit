@@ -34,21 +34,26 @@
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 100}}>
+      <SecondaryNavItem href="/settings/repos">
+        <Icon icon="git" /> Repos
+      </SecondaryNavItem>
+    </div>
+    <div in:fly|local={{delay: 150}}>
       <SecondaryNavItem href="/settings">
         <Icon icon="settings" /> Settings
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 150}}>
+    <div in:fly|local={{delay: 200}}>
       <SecondaryNavItem onclick={toggleTheme}>
         <Icon icon="moon" /> Theme
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 200}}>
+    <div in:fly|local={{delay: 250}}>
       <SecondaryNavItem href="/settings/about">
         <Icon icon="info-square" /> About
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 250}}>
+    <div in:fly|local={{delay: 300}}>
       <SecondaryNavItem class="text-error hover:text-error" onclick={logout}>
         <Icon icon="exit" /> Log Out
       </SecondaryNavItem>
