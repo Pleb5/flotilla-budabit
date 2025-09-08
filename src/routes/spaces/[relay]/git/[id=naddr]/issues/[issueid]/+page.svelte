@@ -8,7 +8,13 @@
     type StatusEvent,
   } from "@nostr-git/shared-types"
   import {page} from "$app/stores"
-  import {CircleCheck, CircleDot, FileCode, MessageSquare, SearchX} from "@lucide/svelte"
+  import {
+    CircleCheck,
+    CircleDot,
+    FileCode,
+    MessageSquare,
+    SearchX,
+  } from "@lucide/svelte"
   import markdownit from "markdown-it"
   import {
     Address,
@@ -27,10 +33,24 @@
   import {getContext} from "svelte"
   import {REPO_RELAYS_KEY} from "@src/app/state.js"
   import {postComment, postStatus} from "@src/app/commands.js"
-  import {Card, IssueThread, Select, SelectContent, SelectItem, SelectTrigger} from "@nostr-git/ui"
+  import {
+    Card,
+    IssueThread,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger
+  } from "@nostr-git/ui"
   import { normalizeRelayUrl } from "@welshman/util"
-  import { resolveIssueStatus, effectiveLabelsFor } from "@nostr-git/core"
-  import { repoAnnouncements, deriveMaintainersForEuc, loadRepoAnnouncements } from "@src/app/state.js"
+  import {
+    resolveIssueStatus,
+    effectiveLabelsFor
+  } from "@nostr-git/core"
+  import {
+    repoAnnouncements,
+    deriveMaintainersForEuc,
+    loadRepoAnnouncements
+  } from "@src/app/state.js"
   import { onMount } from "svelte"
 
   const {data} = $props()

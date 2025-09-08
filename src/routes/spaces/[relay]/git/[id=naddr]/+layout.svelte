@@ -25,7 +25,11 @@
   import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/core"
   import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
   import {onMount} from "svelte"
-  import {normalizeRelayUrl} from "@welshman/util"
+  import {getTagValue, normalizeRelayUrl} from "@welshman/util"
+  import PageBar from "@src/lib/components/PageBar.svelte"
+  import Button from "@src/lib/components/Button.svelte"
+  import Icon from "@src/lib/components/Icon.svelte"
+  import MenuSpaceButton from "@src/app/components/MenuSpaceButton.svelte"
 
   const {id, relay} = $page.params
 
@@ -224,7 +228,28 @@
       toast.clear()
     }
   })
+
+  const back = () => goto(`/spaces/${relay}/git/`)
 </script>
+
+<PageBar class="!mx-0 flex items-center my-2">
+  {#snippet icon()}
+    <div>
+      <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
+        <Icon icon="alt-arrow-left" />
+        <span class="hidden sm:inline">Go back</span>
+      </Button>
+    </div>
+  {/snippet}
+  {#snippet title()}
+    <h1 class="text-xl">{""}</h1>
+  {/snippet}
+  {#snippet action()}
+    <div>
+      <MenuSpaceButton url={id} />
+    </div>
+  {/snippet}
+</PageBar>
 
 <PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
   {#if repoClass === undefined}

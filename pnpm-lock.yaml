@@ -395,6 +395,9 @@ importers:
       typescript-eslint:
         specifier: ^8.20.0
         version: 8.36.0(eslint@9.30.1(jiti@1.21.7))(typescript@5.8.3)
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@24.3.0)(happy-dom@15.11.7)(jsdom@26.1.0)(terser@5.43.1)
 
   packages/nostr-git/packages/extension:
     dependencies:
