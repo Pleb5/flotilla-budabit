@@ -37,6 +37,8 @@
   import {postComment, postIssue, postStatus} from "@src/app/commands"
   import {nthEq, sortBy} from "@welshman/lib"
   import Icon from "@src/lib/components/Icon.svelte"
+  import StatusChip from "@src/lib/components/StatusChip.svelte"
+  import MaintainerBadge from "@src/lib/components/MaintainerBadge.svelte"
   import {isMobile} from "@src/lib/html"
   import {debounce} from "throttle-debounce"
   import {deriveEvents} from "@welshman/store"
@@ -67,9 +69,30 @@
     const byId: Record<string, StatusEvent | undefined> = {}
     const reasons: Record<string, string | undefined> = {}
     for (const issue of issues) {
-      const res = deriveStatus(issue.id, issue.pubkey, euc).get()
-      byId[issue.id] = (res?.final as StatusEvent | undefined)
-      reasons[issue.id] = res?.reason
+      // Prefer Repo class resolveStatusFor when available
+      let statusStub: StatusEvent | undefined = undefined
+      let reason: string | undefined = undefined
+      try {
+        const rc: any = repoClass as any
+        if (typeof rc.resolveStatusFor === 'function') {
+          const r = rc.resolveStatusFor(issue.id)
+          if (r) {
+            const mapKind = (s: string) => s === 'open' ? GIT_STATUS_OPEN
+              : s === 'draft' ? GIT_STATUS_DRAFT
+              : s === 'closed' ? GIT_STATUS_CLOSED
+              : /* merged | resolved */ GIT_STATUS_COMPLETE
+            statusStub = { kind: mapKind(r.state) } as any
+            reason = `by ${r.by}`
+          }
+        }
+      } catch {}
+      if (!statusStub) {
+        const res = deriveStatus(issue.id, issue.pubkey, euc).get()
+        statusStub = res?.final as StatusEvent | undefined
+        reason = res?.reason
+      }
+      byId[issue.id] = statusStub
+      reasons[issue.id] = reason
     }
     return { byId, reasons }
   })
@@ -101,14 +124,17 @@
     const byId = new Map<string, string[]>()
     const groupsById = new Map<string, Record<string, string[]>>()
     for (const issue of issues) {
-      const eff = deriveEffectiveLabels(issue.id).get()
-      const flat = eff ? Array.from(eff.flat) : []
-      const naturals = flat.map(toNaturalLabel)
+      const rc: any = repoClass as any
+      const eff = (typeof rc.getIssueLabels === 'function')
+        ? rc.getIssueLabels(issue.id)
+        : deriveEffectiveLabels(issue.id).get()
+      const flat = eff ? (Array.from((eff.flat as any as Set<string>) ?? new Set<string>()) as string[]) : ([] as string[])
+      const naturals = (flat as string[]).map(toNaturalLabel)
       byId.set(issue.id, naturals)
       const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
       if (eff) {
-        for (const [ns, set] of Object.entries(eff.byNamespace)) {
-          const vals = Array.from(set).map(toNaturalLabel)
+        for (const [ns, set] of Object.entries(eff.byNamespace as any)) {
+          const vals = Array.from(set as any as Set<string>).map(toNaturalLabel)
           if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
           else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
           else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
@@ -621,6 +647,16 @@
                 {onCommentCreated}
                 status={statuses[issue.id] || undefined}
                 extraLabels={labelsByIssue.get(issue.id) || []} />
+              <!-- Status chip (Repo getter preferred) -->
+              {#key statuses[issue.id]}
+                {@const rc = repoClass as any}
+                {@const resolved = (typeof rc?.resolveStatusFor === 'function') ? rc.resolveStatusFor(issue.id) : null}
+                {@const badge = (typeof rc?.getMaintainerBadge === 'function') ? rc.getMaintainerBadge(issue.pubkey) : null}
+                <div class="absolute left-2 top-2 flex items-center gap-2">
+                  <StatusChip state={resolved?.state} kind={statuses[issue.id]?.kind} reason={statusReasons[issue.id]} />
+                  <MaintainerBadge role={badge} />
+                </div>
+              {/key}
               {#if statusReasons[issue.id]}
                 <div class="absolute right-2 top-2 text-[10px] opacity-60" title={statusReasons[issue.id]}>ⓘ</div>
               {/if}

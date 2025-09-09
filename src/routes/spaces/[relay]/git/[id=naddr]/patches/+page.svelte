@@ -21,6 +21,9 @@
   } from "@nostr-git/shared-types"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import Icon from "@src/lib/components/Icon.svelte"
+  import StatusChip from "@src/lib/components/StatusChip.svelte"
+  import PatchDagSummary from "@src/lib/components/PatchDagSummary.svelte"
+  import MaintainerBadge from "@src/lib/components/MaintainerBadge.svelte"
   import {isMobile} from "@src/lib/html.js"
   import {postComment} from "@src/app/commands.js"
   import {Address} from "@welshman/util"
@@ -52,14 +55,17 @@
     const byId = new Map<string, string[]>()
     const groupsById = new Map<string, Record<string, string[]>>()
     for (const p of repoClass.patches || []) {
-      const eff = deriveEffectiveLabels(p.id).get()
-      const flat = eff ? (Array.from(eff.flat as Set<string>) as string[]) : ([] as string[])
-      const naturals = flat.map(toNaturalLabel)
+      const rc: any = repoClass as any
+      const eff = (typeof rc.getPatchLabels === 'function')
+        ? rc.getPatchLabels(p.id)
+        : deriveEffectiveLabels(p.id).get()
+      const flat = eff ? (Array.from((eff.flat as any as Set<string>) ?? new Set<string>()) as string[]) : ([] as string[])
+      const naturals = (flat as string[]).map(toNaturalLabel)
       byId.set(p.id, naturals)
       const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
       if (eff) {
-        for (const [ns, set] of Object.entries(eff.byNamespace)) {
-          const vals = Array.from(set).map(toNaturalLabel)
+        for (const [ns, set] of Object.entries(eff.byNamespace as any)) {
+          const vals = Array.from(set as any as Set<string>).map(toNaturalLabel)
           if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
           else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
           else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
@@ -72,25 +78,26 @@
     }
     return { byId, groupsById }
   })
+
+  // Optional: Patch DAG summary using Repo getter if available
+  const patchDag = $derived.by(() => {
+    try {
+      const rc: any = repoClass as any
+      if (rc && typeof rc.getPatchGraph === 'function') {
+        const g = rc.getPatchGraph()
+        return {
+          roots: Array.isArray(g?.roots) ? g.roots : [],
+          rootRevisions: Array.isArray(g?.rootRevisions) ? g.rootRevisions : [],
+          nodeCount: g?.nodes ? (g.nodes.size ?? 0) : 0,
+          edgesCount: typeof g?.edgesCount === 'number' ? g.edgesCount : undefined,
+          topParents: Array.isArray(g?.topParents) ? g.topParents : undefined,
+        }
+      }
+    } catch {}
+    return null
+  })
   const labelsByPatch = $derived.by(() => labelsData.byId)
   const labelGroupsFor = (id: string) => labelsData.groupsById.get(id) || { Status: [], Type: [], Area: [], Tags: [], Other: [] }
-
-  const labelGroupsFor = (id: string) => {
-    const eff = deriveEffectiveLabels(id).get()
-    const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
-    if (!eff) return groups
-    for (const [ns, set] of Object.entries(eff.byNamespace)) {
-      const vals = Array.from(set).map(toNaturalLabel)
-      if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
-      else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
-      else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
-      else if (ns === '#t') groups.Tags.push(...vals)
-      else groups.Other.push(...vals)
-    }
-    // de-dup within each group
-    for (const k of Object.keys(groups)) groups[k] = Array.from(new Set(groups[k]))
-    return groups
-  }
 
   // Persist filters per repo
   let storageKey = ""
@@ -222,9 +229,30 @@
     const byId: Record<string, StatusEvent | undefined> = {}
     const reasons: Record<string, string | undefined> = {}
     for (const p of repoClass.patches || []) {
-      const res = deriveStatus(p.id, p.pubkey, euc).get()
-      byId[p.id] = (res?.final as StatusEvent | undefined)
-      reasons[p.id] = res?.reason
+      // Prefer Repo class resolveStatusFor when available
+      let statusStub: StatusEvent | undefined = undefined
+      let reason: string | undefined = undefined
+      try {
+        const rc: any = repoClass as any
+        if (typeof rc.resolveStatusFor === 'function') {
+          const r = rc.resolveStatusFor(p.id)
+          if (r) {
+            const mapKind = (s: string) => s === 'open' ? GIT_STATUS_OPEN
+              : s === 'draft' ? GIT_STATUS_DRAFT
+              : s === 'closed' ? GIT_STATUS_CLOSED
+              : /* merged | resolved */ GIT_STATUS_COMPLETE
+            statusStub = { kind: mapKind(r.state) } as any
+            reason = `by ${r.by}`
+          }
+        }
+      } catch {}
+      if (!statusStub) {
+        const res = deriveStatus(p.id, p.pubkey, euc).get()
+        statusStub = res?.final as StatusEvent | undefined
+        reason = res?.reason
+      }
+      byId[p.id] = statusStub
+      reasons[p.id] = reason
     }
     return { byId, reasons }
   })
@@ -584,6 +612,12 @@
     </div>
   {/if}
 
+  {#if patchDag}
+    <div class="mb-4">
+      <PatchDagSummary nodeCount={patchDag.nodeCount} roots={patchDag.roots} rootRevisions={patchDag.rootRevisions} edgesCount={patchDag.edgesCount} topParents={patchDag.topParents} />
+    </div>
+  {/if}
+
   {#if loading}
     <div class="flex flex-col items-center justify-center py-12">
       <Spinner {loading}>
@@ -613,6 +647,16 @@
                 currentCommenter={$pubkey!}
                 extraLabels={labelsByPatch.get(patch.id) || []}
                 {onCommentCreated} />
+              <!-- Status chip (Repo getter preferred) -->
+              {#key statusByPatch[patch.id]}
+                {@const rc = repoClass as any}
+                {@const resolved = (typeof rc?.resolveStatusFor === 'function') ? rc.resolveStatusFor(patch.id) : null}
+                {@const badge = (typeof rc?.getMaintainerBadge === 'function') ? rc.getMaintainerBadge(patch.pubkey) : null}
+                <div class="absolute left-2 top-2 flex items-center gap-2">
+                  <StatusChip state={resolved?.state} kind={statusByPatch[patch.id]?.kind} reason={statusReasonByPatch[patch.id]} />
+                  <MaintainerBadge role={badge} />
+                </div>
+              {/key}
               {#if patch.statusReason}
                 <div class="absolute right-2 top-2 text-[10px] opacity-60" title={patch.statusReason}>ⓘ</div>
               {/if}
