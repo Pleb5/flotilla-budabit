@@ -69,24 +69,17 @@
     const byId: Record<string, StatusEvent | undefined> = {}
     const reasons: Record<string, string | undefined> = {}
     for (const issue of issues) {
-      // Prefer Repo class resolveStatusFor when available
-      let statusStub: StatusEvent | undefined = undefined
-      let reason: string | undefined = undefined
-      try {
-        const rc: any = repoClass as any
-        if (typeof rc.resolveStatusFor === 'function') {
-          const r = rc.resolveStatusFor(issue.id)
-          if (r) {
-            const mapKind = (s: string) => s === 'open' ? GIT_STATUS_OPEN
-              : s === 'draft' ? GIT_STATUS_DRAFT
-              : s === 'closed' ? GIT_STATUS_CLOSED
-              : /* merged | resolved */ GIT_STATUS_COMPLETE
-            statusStub = { kind: mapKind(r.state) } as any
-            reason = `by ${r.by}`
-          }
-        }
-      } catch {}
-      if (!statusStub) {
+      let statusStub: StatusEvent | undefined
+      let reason: string | undefined
+      const r = getResolvedStateFor(issue.id)
+      if (r) {
+        const mapKind = (s: string) => s === 'open' ? GIT_STATUS_OPEN
+          : s === 'draft' ? GIT_STATUS_DRAFT
+          : s === 'closed' ? GIT_STATUS_CLOSED
+          : /* merged | resolved */ GIT_STATUS_COMPLETE
+        statusStub = { kind: mapKind(r.state) } as unknown as StatusEvent
+        reason = undefined
+      } else {
         const res = deriveStatus(issue.id, issue.pubkey, euc).get()
         statusStub = res?.final as StatusEvent | undefined
         reason = res?.reason
@@ -120,21 +113,37 @@
     const idx = s.lastIndexOf(":");
     return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "");
   }
+  // Types + helpers to normalize effective labels and resolved status
+  type EffectiveLabelsView = { byNamespace: Record<string, Set<string>>; flat: Set<string> }
+  const toSet = (x: unknown): Set<string> => (x instanceof Set) ? x : new Set<string>(Array.isArray(x) ? x.filter((v) => typeof v === 'string') : [])
+  const normalizeEff = (eff: any | undefined | null): EffectiveLabelsView | null => {
+    if (!eff) return null
+    const flat = toSet(eff.flat)
+    const byNs: Record<string, Set<string>> = {}
+    if (eff.byNamespace && typeof eff.byNamespace === 'object') {
+      for (const ns of Object.keys(eff.byNamespace)) {
+        byNs[ns] = toSet((eff.byNamespace as any)[ns])
+      }
+    }
+    return { byNamespace: byNs, flat }
+  }
+  const getResolvedStateFor = (id: string): { state: 'open'|'draft'|'closed'|'merged'|'resolved' } | null => {
+    const maybe = (repoClass as unknown as { resolveStatusFor?: (id: string) => { state: 'open'|'draft'|'closed'|'merged'|'resolved' } | null }).resolveStatusFor
+    return typeof maybe === 'function' ? maybe.call(repoClass, id) : null
+  }
   const labelsData = $derived.by(() => {
     const byId = new Map<string, string[]>()
     const groupsById = new Map<string, Record<string, string[]>>()
     for (const issue of issues) {
-      const rc: any = repoClass as any
-      const eff = (typeof rc.getIssueLabels === 'function')
-        ? rc.getIssueLabels(issue.id)
-        : deriveEffectiveLabels(issue.id).get()
-      const flat = eff ? (Array.from((eff.flat as any as Set<string>) ?? new Set<string>()) as string[]) : ([] as string[])
-      const naturals = (flat as string[]).map(toNaturalLabel)
+      const getter = (repoClass as unknown as { getIssueLabels?: (id: string) => any }).getIssueLabels
+      const eff = normalizeEff(typeof getter === 'function' ? getter.call(repoClass, issue.id) : deriveEffectiveLabels(issue.id).get())
+      const flat = eff ? Array.from(eff.flat) : []
+      const naturals = flat.map(toNaturalLabel)
       byId.set(issue.id, naturals)
       const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
       if (eff) {
-        for (const [ns, set] of Object.entries(eff.byNamespace as any)) {
-          const vals = Array.from(set as any as Set<string>).map(toNaturalLabel)
+        for (const ns of Object.keys(eff.byNamespace)) {
+          const vals = Array.from(eff.byNamespace[ns]).map(toNaturalLabel)
           if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
           else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
           else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
@@ -649,9 +658,8 @@
                 extraLabels={labelsByIssue.get(issue.id) || []} />
               <!-- Status chip (Repo getter preferred) -->
               {#key statuses[issue.id]}
-                {@const rc = repoClass as any}
-                {@const resolved = (typeof rc?.resolveStatusFor === 'function') ? rc.resolveStatusFor(issue.id) : null}
-                {@const badge = (typeof rc?.getMaintainerBadge === 'function') ? rc.getMaintainerBadge(issue.pubkey) : null}
+                {@const resolved = getResolvedStateFor(issue.id)}
+                {@const badge = (repoClass as unknown as { getMaintainerBadge?: (pubkey: string) => 'owner'|'maintainer'|null }).getMaintainerBadge?.call(repoClass, issue.pubkey)}
                 <div class="absolute left-2 top-2 flex items-center gap-2">
                   <StatusChip state={resolved?.state} kind={statuses[issue.id]?.kind} reason={statusReasons[issue.id]} />
                   <MaintainerBadge role={badge} />
