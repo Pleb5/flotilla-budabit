@@ -25,7 +25,7 @@
   import {postComment} from "@src/app/commands.js"
   import {Address} from "@welshman/util"
   import ProfileName from "@src/app/components/ProfileName.svelte"
-  import {effectiveLabelsFor} from "@nostr-git/core"
+  import { deriveEffectiveLabels, deriveStatus } from "@app/state"
   import {deriveEvents} from "@welshman/store"
   import {repository} from "@welshman/app"
   import {onMount, onDestroy} from "svelte"
@@ -43,22 +43,54 @@
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
   let labelSearch = $state("")
-  const labelEvents = deriveEvents(repository, {filters: [{kinds: [1985]}]})
-  const labelsByPatch = $derived.by(() => {
-    const map = new Map<string, string[]>()
+  // Centralized labels via app state; render as natural values (no FQN, no '#')
+  const toNaturalLabel = (s: string): string => {
+    const idx = s.lastIndexOf(":");
+    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "");
+  }
+  const labelsData = $derived.by(() => {
+    const byId = new Map<string, string[]>()
+    const groupsById = new Map<string, Record<string, string[]>>()
     for (const p of repoClass.patches || []) {
-      try {
-        const extern = ($labelEvents || []).filter((e: any) =>
-          (e.tags as string[][])?.some?.(t => t[0] === "e" && t[1] === p.id),
-        )
-        const merged = effectiveLabelsFor({self: p as any, external: extern as any})
-        map.set(p.id, merged.normalized || [])
-      } catch (e) {
-        map.set(p.id, [])
+      const eff = deriveEffectiveLabels(p.id).get()
+      const flat = eff ? (Array.from(eff.flat as Set<string>) as string[]) : ([] as string[])
+      const naturals = flat.map(toNaturalLabel)
+      byId.set(p.id, naturals)
+      const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
+      if (eff) {
+        for (const [ns, set] of Object.entries(eff.byNamespace)) {
+          const vals = Array.from(set).map(toNaturalLabel)
+          if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
+          else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
+          else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
+          else if (ns === '#t') groups.Tags.push(...vals)
+          else groups.Other.push(...vals)
+        }
+        for (const k of Object.keys(groups)) groups[k] = Array.from(new Set(groups[k]))
       }
+      groupsById.set(p.id, groups)
     }
-    return map
+    return { byId, groupsById }
   })
+  const labelsByPatch = $derived.by(() => labelsData.byId)
+  const labelGroupsFor = (id: string) => labelsData.groupsById.get(id) || { Status: [], Type: [], Area: [], Tags: [], Other: [] }
+
+  const labelGroupsFor = (id: string) => {
+    const eff = deriveEffectiveLabels(id).get()
+    const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
+    if (!eff) return groups
+    for (const [ns, set] of Object.entries(eff.byNamespace)) {
+      const vals = Array.from(set).map(toNaturalLabel)
+      if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
+      else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
+      else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
+      else if (ns === '#t') groups.Tags.push(...vals)
+      else groups.Other.push(...vals)
+    }
+    // de-dup within each group
+    for (const k of Object.keys(groups)) groups[k] = Array.from(new Set(groups[k]))
+    return groups
+  }
 
   // Persist filters per repo
   let storageKey = ""
@@ -177,6 +209,28 @@
     Array.from(new Set(Array.from(labelsByPatch.values()).flat())),
   )
 
+  // Extract euc grouping key from repoEvent tags (r:euc)
+  const euc = $derived.by(() => {
+    try {
+      const t = (repoClass.repoEvent?.tags || []).find((t: string[]) => t[0] === 'r' && t[2] === 'euc')
+      return t ? t[1] : ""
+    } catch { return "" }
+  })
+
+  // Precompute status for patches to avoid scattered .get() calls
+  const patchStatusData = $derived.by(() => {
+    const byId: Record<string, StatusEvent | undefined> = {}
+    const reasons: Record<string, string | undefined> = {}
+    for (const p of repoClass.patches || []) {
+      const res = deriveStatus(p.id, p.pubkey, euc).get()
+      byId[p.id] = (res?.final as StatusEvent | undefined)
+      reasons[p.id] = res?.reason
+    }
+    return { byId, reasons }
+  })
+  const statusByPatch: Record<string, StatusEvent | undefined> = $derived.by(() => patchStatusData.byId)
+  const statusReasonByPatch: Record<string, string | undefined> = $derived.by(() => patchStatusData.reasons)
+
   const patchList = $derived.by(() => {
     if (repoClass.patches && $statusEvents.length > 0 && $comments) {
       // First get all root patches
@@ -185,11 +239,9 @@
           return getTags(patch, "t").find((tag: string[]) => tag[1] === "root")
         })
         .map((patch: PatchEvent) => {
-          const status = $statusEvents
-            ?.filter((s: any) => {
-              return getTags(s, "e").find((tag: string[]) => tag[1] === patch.id)
-            })
-            .sort((a: any, b: any) => b.created_at - a.created_at)[0]
+          // Use precomputed status precedence data
+          const status = statusByPatch[patch.id] as any
+          const statusReason = statusReasonByPatch[patch.id] || ""
 
           const patches = repoClass.patches.filter(issue => {
             return getTags(issue, "e").find((tag: string[]) => tag[1] === patch.id)
@@ -208,6 +260,8 @@
             comments: commentEvents,
             // Add commit count directly for easier sorting
             commitCount: parsedPatch?.commitCount || 0,
+            statusReason,
+            groups: labelGroupsFor(patch.id),
           }
         })
 
@@ -550,14 +604,44 @@
       {#key searchedPatches}
         {#each searchedPatches as patch (patch.id)}
           <div in:fly={slideAndFade({duration: 200})}>
-            <PatchCard
-              event={patch}
-              patches={patch.patches}
-              status={patch.status as StatusEvent}
-              comments={patch.comments}
-              currentCommenter={$pubkey!}
-              extraLabels={labelsByPatch.get(patch.id) || []}
-              {onCommentCreated} />
+            <div class="relative">
+              <PatchCard
+                event={patch}
+                patches={patch.patches}
+                status={patch.status as StatusEvent}
+                comments={patch.comments}
+                currentCommenter={$pubkey!}
+                extraLabels={labelsByPatch.get(patch.id) || []}
+                {onCommentCreated} />
+              {#if patch.statusReason}
+                <div class="absolute right-2 top-2 text-[10px] opacity-60" title={patch.statusReason}>ⓘ</div>
+              {/if}
+              <!-- Grouped labels below card -->
+              {#if labelsByPatch.get(patch.id)?.length}
+                <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                  {#if patch.groups.Status.length}
+                    <span class="opacity-60">Status:</span>
+                    {#each patch.groups.Status as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {/if}
+                  {#if patch.groups.Type.length}
+                    <span class="opacity-60">Type:</span>
+                    {#each patch.groups.Type as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {/if}
+                  {#if patch.groups.Area.length}
+                    <span class="opacity-60">Area:</span>
+                    {#each patch.groups.Area as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {/if}
+                  {#if patch.groups.Tags.length}
+                    <span class="opacity-60">Tags:</span>
+                    {#each patch.groups.Tags as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {/if}
+                  {#if patch.groups.Other.length}
+                    <span class="opacity-60">Other:</span>
+                    {#each patch.groups.Other as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
           </div>
         {/each}
       {/key}

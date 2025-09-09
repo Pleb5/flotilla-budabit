@@ -26,6 +26,7 @@
   import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core";
   import { onMount } from "svelte"
     import { pushToast } from "@src/app/toast"
+  import { repoGroups, deriveRepoRefState, deriveMaintainersForEuc, loadRepoAnnouncements, repoCountsByEuc } from "@app/state"
 
   const url = decodeRelay($page.params.relay)
 
@@ -122,6 +123,8 @@
 
   onMount(() => {
     load({relays: bookmarkRelays, filters: [bookmarkFilter]})
+    // Also load repo announcements (30617) so repoGroups can populate
+    loadRepoAnnouncements(bookmarkRelays)
   })
 
   $effect(() => {
@@ -134,7 +137,19 @@
     if ($shouldReloadRepos){
       $shouldReloadRepos = false
       load({relays: bookmarkRelays, filters: [bookmarkFilter]})
+      loadRepoAnnouncements(bookmarkRelays)
     }
+  })
+
+  // Build display data for grouped repos to avoid calling .get() in markup
+  const groupCards = $derived.by(() => {
+    const groups = ($repoGroups || []).filter(g => ($repoCountsByEuc.get(g.euc) || 0) >= 2)
+    return groups.map(g => {
+      // Compute maintainers and refs once per group
+      const maintainers = Array.from(deriveMaintainersForEuc(g.euc).get() || [])
+      const refs = deriveRepoRefState(g.euc).get() || {}
+      return { euc: g.euc, web: g.web, clone: g.clone, maintainers, refs }
+    })
   })
 
   const back = () => history.back()
@@ -221,4 +236,31 @@
       {/each}
     {/if}
   </div>
+  {#if groupCards.length > 0}
+    <div class="flex flex-col gap-3 p-3">
+      <h2 class="text-lg font-semibold">Grouped Repos</h2>
+      {#each groupCards as g (g.euc)}
+        <div class="rounded border border-base-300 p-3">
+          <div class="mb-2 flex items-center justify-between">
+            <div class="font-medium">{g.euc}</div>
+            <div class="text-xs opacity-70">Maintainers: {g.maintainers.join(", ")}</div>
+          </div>
+          <div class="text-sm">
+            <div class="mb-1">Web: {g.web.join(", ")}</div>
+            <div class="mb-2">Clone: {g.clone.join(", ")}</div>
+            {#if Object.keys(g.refs).length > 0}
+              <div class="mt-2">
+                <div class="text-xs font-semibold">Refs</div>
+                <ul class="text-xs">
+                  {#each Object.entries(g.refs) as [ref, head]}
+                    <li><code>{ref}</code>: {head.commit}</li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
 </PageContent>

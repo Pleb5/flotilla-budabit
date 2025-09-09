@@ -41,11 +41,11 @@
   import {debounce} from "throttle-debounce"
   import {deriveEvents} from "@welshman/store"
   import ProfileName from "@src/app/components/ProfileName.svelte"
-  import { effectiveLabelsFor } from "@nostr-git/core"
+  import { deriveEffectiveLabels, deriveStatus } from "@app/state"
   import { onMount, onDestroy } from "svelte"
 
   let {data} = $props()
-  const {repoClass, issueFilter, statusEventFilter} = data
+  const {repoClass, issueFilter, statusEventFilter, repoRelays} = data
 
   const issues = $derived.by(() => {
     return sortBy(e => -e.created_at, repoClass.issues)
@@ -62,36 +62,28 @@
   })
 
   const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
-
-  const statuses: Record<string, StatusEvent> = $state({})
-
-  $effect(() => {
-    // Create a new object to trigger reactivity
-    const newStatuses: Record<string, StatusEvent> = {}
-    
-    repoClass.issues.forEach((issue: IssueEvent) => {
-      const status = $statusEvents
-        ?.filter((s: any) => {
-          let [_, eventId] = s.tags.find(nthEq(0, "e")) || []
-          return eventId === issue.id
-        })
-        .sort((a: any, b: any) => b.created_at - a.created_at)[0]
-
-      if (status) {
-        newStatuses[issue.id] = status as StatusEvent
-      }
-    })
-    
-    // Replace the entire statuses object to trigger reactivity
-    Object.assign(statuses, newStatuses)
-    
-    // Clear any removed statuses
-    for (const key in statuses) {
-      if (!(key in newStatuses)) {
-        delete statuses[key]
-      }
+  // Precompute statuses and reasons in one place (Svelte 5-safe)
+  const statusData = $derived.by(() => {
+    const byId: Record<string, StatusEvent | undefined> = {}
+    const reasons: Record<string, string | undefined> = {}
+    for (const issue of issues) {
+      const res = deriveStatus(issue.id, issue.pubkey, euc).get()
+      byId[issue.id] = (res?.final as StatusEvent | undefined)
+      reasons[issue.id] = res?.reason
     }
+    return { byId, reasons }
   })
+
+  // Extract euc grouping key from repoEvent tags (r:euc)
+  const euc = $derived.by(() => {
+    try {
+      const t = (repoClass.repoEvent?.tags || []).find((t: string[]) => t[0] === 'r' && t[2] === 'euc')
+      return t ? t[1] : ""
+    } catch { return "" }
+  })
+
+  const statuses: Record<string, StatusEvent | undefined> = $derived.by(() => statusData.byId)
+  const statusReasons: Record<string, string | undefined> = $derived.by(() => statusData.reasons)
 
   // Filter and sort options
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
@@ -101,20 +93,36 @@
   // Label filters (NIP-32 normalized labels)
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
-  const labelEvents = deriveEvents(repository, { filters: [{ kinds: [1985] }] })
-  const labelsByIssue = $derived.by(() => {
-    const map = new Map<string, string[]>()
+  const toNaturalLabel = (s: string): string => {
+    const idx = s.lastIndexOf(":");
+    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "");
+  }
+  const labelsData = $derived.by(() => {
+    const byId = new Map<string, string[]>()
+    const groupsById = new Map<string, Record<string, string[]>>()
     for (const issue of issues) {
-      const extern = ($labelEvents || []).filter((e: any) => (e.tags as string[][])?.some?.(t => t[0] === 'e' && t[1] === issue.id))
-      try {
-        const merged = effectiveLabelsFor({ self: issue as any, external: extern as any })
-        map.set(issue.id, merged.normalized || [])
-      } catch (e) {
-        map.set(issue.id, [])
+      const eff = deriveEffectiveLabels(issue.id).get()
+      const flat = eff ? Array.from(eff.flat) : []
+      const naturals = flat.map(toNaturalLabel)
+      byId.set(issue.id, naturals)
+      const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
+      if (eff) {
+        for (const [ns, set] of Object.entries(eff.byNamespace)) {
+          const vals = Array.from(set).map(toNaturalLabel)
+          if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
+          else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
+          else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
+          else if (ns === '#t') groups.Tags.push(...vals)
+          else groups.Other.push(...vals)
+        }
+        for (const k of Object.keys(groups)) groups[k] = Array.from(new Set(groups[k]))
       }
+      groupsById.set(issue.id, groups)
     }
-    return map
+    return { byId, groupsById }
   })
+  const labelsByIssue = $derived.by(() => labelsData.byId)
+  const labelGroupsFor = (id: string) => labelsData.groupsById.get(id) || { Status: [], Type: [], Area: [], Tags: [], Other: [] }
   const allNormalizedLabels = $derived.by(() => Array.from(new Set(Array.from(labelsByIssue.values()).flat())))
 
   const uniqueAuthors = $derived.by(() => {
@@ -147,7 +155,7 @@
     if (repoClass.issues && repoClass.issues.length > 0) {
       const ids = repoClass.issues.map((i: any) => i.id)
       request({
-        relays: [...$repoRelays],
+        relays: [...repoRelays],
         filters: [{ kinds: [1985], "#e": ids, since: 0 }],
         onEvent: () => {},
       })
@@ -605,13 +613,42 @@
       {#key repoClass.issues}
         {#each searchedIssues as issue (issue.id)}
           <div in:slideAndFade={{duration: 200}} class="space-y-1">
-            <IssueCard
-              event={issue}
-              comments={commentsOrdered[issue.id]}
-              currentCommenter={$pubkey!}
-              {onCommentCreated}
-              status={statuses[issue.id] || undefined}
-              extraLabels={labelsByIssue.get(issue.id) || []} />
+            <div class="relative">
+              <IssueCard
+                event={issue}
+                comments={commentsOrdered[issue.id]}
+                currentCommenter={$pubkey!}
+                {onCommentCreated}
+                status={statuses[issue.id] || undefined}
+                extraLabels={labelsByIssue.get(issue.id) || []} />
+              {#if statusReasons[issue.id]}
+                <div class="absolute right-2 top-2 text-[10px] opacity-60" title={statusReasons[issue.id]}>ⓘ</div>
+              {/if}
+            </div>
+            {#if labelsByIssue.get(issue.id)?.length}
+              <div class="mt-1 flex flex-wrap gap-2 text-xs">
+                {#if labelGroupsFor(issue.id).Status.length}
+                  <span class="opacity-60">Status:</span>
+                  {#each labelGroupsFor(issue.id).Status as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                {/if}
+                {#if labelGroupsFor(issue.id).Type.length}
+                  <span class="opacity-60">Type:</span>
+                  {#each labelGroupsFor(issue.id).Type as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                {/if}
+                {#if labelGroupsFor(issue.id).Area.length}
+                  <span class="opacity-60">Area:</span>
+                  {#each labelGroupsFor(issue.id).Area as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                {/if}
+                {#if labelGroupsFor(issue.id).Tags.length}
+                  <span class="opacity-60">Tags:</span>
+                  {#each labelGroupsFor(issue.id).Tags as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                {/if}
+                {#if labelGroupsFor(issue.id).Other.length}
+                  <span class="opacity-60">Other:</span>
+                  {#each labelGroupsFor(issue.id).Other as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                {/if}
+              </div>
+            {/if}
           </div>
         {/each}
       {/key}

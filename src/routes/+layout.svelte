@@ -256,23 +256,33 @@
       // Listen for chats, populate chat-based notifications
       let controller: AbortController
 
-      derived([pubkey, canDecrypt, userInboxRelaySelections], identity).subscribe(
-        ([$pubkey, $canDecrypt, $userInboxRelaySelections]) => {
-          controller?.abort()
-          controller = new AbortController()
+      {
+        let lastSig = ""
+        derived([pubkey, canDecrypt, userInboxRelaySelections], identity).subscribe(
+          ([$pubkey, $canDecrypt, $userInboxRelaySelections]) => {
+            // Build a minimal, stable signature to detect real changes
+            const relays = getRelaysFromList($userInboxRelaySelections)
+            const sig = `${$pubkey || ''}|${$canDecrypt ? '1' : '0'}|${relays.join(',')}`
 
-          if ($pubkey && $canDecrypt) {
-            request({
-              signal: controller.signal,
-              filters: [
-                {kinds: [WRAP], "#p": [$pubkey], since: ago(WEEK, 2)},
-                {kinds: [WRAP], "#p": [$pubkey], limit: 100},
-              ],
-              relays: getRelaysFromList($userInboxRelaySelections),
-            })
-          }
-        },
-      )
+            if (sig === lastSig) return
+            lastSig = sig
+
+            controller?.abort()
+            controller = new AbortController()
+
+            if ($pubkey && $canDecrypt) {
+              request({
+                signal: controller.signal,
+                filters: [
+                  {kinds: [WRAP], "#p": [$pubkey], since: ago(WEEK, 2)},
+                  {kinds: [WRAP], "#p": [$pubkey], limit: 100},
+                ],
+                relays,
+              })
+            }
+          },
+        )
+      }
     }
   })
 </script>
