@@ -117,6 +117,7 @@
       const result = await repoClass.getFileContent({
         branch: selectedBranch?.split("/").pop() || "master",
         path,
+        commit: undefined as any,
       })
       return result.content
     } catch (e) {

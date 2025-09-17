@@ -4,7 +4,10 @@
   export let rootRevisions: string[] = [];
   export let edgesCount: number | undefined;
   export let topParents: string[] | undefined;
+  export let parentOutDegree: Record<string, number> | undefined;
+  export let parentChildren: Record<string, string[]> | undefined;
   export let maxShow: number = 5;
+  const maxChildIdsInTooltip = 3;
 </script>
 
 <div class="rounded-md border border-border bg-card p-3 text-xs">
@@ -45,7 +48,11 @@
         <span>top parents:</span>
         <div class="flex flex-wrap gap-1">
           {#each topParents.slice(0, maxShow) as r (r)}
-            <span class="badge badge-ghost badge-sm" title={r}>{r}</span>
+            {@const kids = parentChildren?.[r] || []}
+            {@const extra = kids.length > maxChildIdsInTooltip ? '…' : ''}
+            <span class="badge badge-ghost badge-sm" title={`${r} · ${parentOutDegree?.[r] ?? 0} children${kids.length ? `: ${kids.slice(0, maxChildIdsInTooltip).map(k => k.slice(0, 8)).join(', ')}${extra}` : ''}`}>
+              {r}{#if parentOutDegree && parentOutDegree[r] !== undefined} ({parentOutDegree[r]}){/if}
+            </span>
           {/each}
           {#if topParents.length > maxShow}
             <span>…</span>

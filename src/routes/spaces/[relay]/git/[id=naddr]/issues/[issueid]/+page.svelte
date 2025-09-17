@@ -67,11 +67,11 @@
   const issue = issueEvent ? parseIssueEvent(issueEvent) : undefined
 
   // Repo EUC lookup via announcements (30617) and derived maintainers
-  const repoPubkey = repoClass.repoEvent?.pubkey
-  const repoD = repoClass.repoEvent?.tags?.find?.(t => t[0] === 'd')?.[1]
+  const repoPubkey = (repoClass as any).repoEvent?.pubkey as string | undefined
+  const repoD = ((repoClass as any).repoEvent?.tags as any[])?.find?.((t: any[]) => t[0] === 'd')?.[1]
   let repoEuc: string | undefined = $derived.by(() => {
-    const match = $repoAnnouncements?.find?.(evt => evt.pubkey === repoPubkey && (evt.tags as string[][]).some(t => t[0] === 'd' && t[1] === repoD))
-    const eucTag = match?.tags?.find?.((t: any) => t[0] === 'r' && t[2] === 'euc')
+    const match = $repoAnnouncements?.find?.((evt: any) => evt.pubkey === repoPubkey && (evt.tags as string[][]).some((t: string[]) => t[0] === 'd' && t[1] === repoD))
+    const eucTag = (match as any)?.tags?.find?.((t: any) => t[0] === 'r' && t[2] === 'euc')
     return eucTag?.[1]
   })
   let groupMaintainers: Set<string> = $state(new Set<string>())
@@ -89,7 +89,7 @@
   const threadComments = $derived.by(() => {
     if (repoClass.issues && issue) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [issue.id]}]
-      const relays = (repoClass.relays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+      const relays = (repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
       load({relays: relays as string[], filters})
       return deriveEvents(repository, {filters})
     }
@@ -108,7 +108,7 @@
   const getLabelFilter = (): Filter => ({ kinds: [1985], "#e": [issue?.id ?? ""] })
   const labelEvents = $derived.by(() => {
     if (repoClass.issues && issue) {
-      const relays = (repoClass.relays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+      const relays = (repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
       load({ relays: relays as string[], filters: [getLabelFilter()] })
       return deriveEvents(repository, { filters: [getLabelFilter()] })
     }
@@ -122,7 +122,7 @@
   // Resolve effective status using precedence rules (maintainers > author > others; kind; recency)
   const resolved = $derived.by(() => {
     if (!$statusEvents || !issue) return undefined
-    const fallbackMaintainers = new Set<string>([...repoClass.maintainers, repoClass.repoEvent?.pubkey].filter(Boolean) as string[])
+    const fallbackMaintainers = new Set<string>([...repoClass.maintainers, (repoClass as any).repoEvent?.pubkey].filter(Boolean) as string[])
     const maintainerSet = (groupMaintainers && groupMaintainers.size > 0) ? groupMaintainers : fallbackMaintainers
     return resolveIssueStatus(
       { root: (issueEvent as any), comments: [], statuses: ($statusEvents as any) },
@@ -170,6 +170,7 @@
 
   $effect(() => {
     if (currentStatus && currentStatus !== status?.status) {
+      const evt: any = (repoClass as any).repoEvent
       const statusEvent = createStatusEvent({
         kind:
           currentStatus === "open"
@@ -181,17 +182,17 @@
                 : GIT_STATUS_DRAFT,
         content: "",
         rootId: issueId,
-        recipients: [$pubkey!, repoClass.repoEvent!.pubkey!],
-        repoAddr: Address.fromEvent(repoClass.repoEvent!).toString() || "",
-        relays: (repoClass.relays || repoRelays || []).map(u => normalizeRelayUrl(u)).filter(Boolean),
+        recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
+        repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
+        relays: (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean),
       })
-      postStatus(statusEvent, (repoClass.relays || repoRelays || []).map(u => normalizeRelayUrl(u)).filter(Boolean))
+      postStatus(statusEvent, (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean))
     }
   })
 
   const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onCommentCreated = async (comment: CommentEvent) => {
-    const relays = (repoClass.relays || repoRelays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     await postComment(comment, relays).result
   }
 
@@ -202,7 +203,7 @@
   const isMaintainerOrAuthor = $derived.by(() => {
     return (
       $pubkey === issue?.author.pubkey ||
-      repoClass.repoEvent?.pubkey === $pubkey ||
+      ((repoClass as any).repoEvent?.pubkey as string | undefined) === $pubkey ||
       repoClass.maintainers.includes($pubkey!)
     )
   })

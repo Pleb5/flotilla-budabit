@@ -109,6 +109,8 @@
           nodeCount: g?.nodes ? (g.nodes.size ?? 0) : 0,
           edgesCount: typeof g?.edgesCount === 'number' ? g.edgesCount : undefined,
           topParents: Array.isArray(g?.topParents) ? g.topParents : undefined,
+          parentOutDegree: typeof g?.parentOutDegree === 'object' ? g.parentOutDegree as Record<string, number> : undefined,
+          parentChildren: typeof g?.parentChildren === 'object' ? g.parentChildren as Record<string, string[]> : undefined,
         }
       }
     } catch {}
@@ -237,7 +239,8 @@
   // Extract euc grouping key from repoEvent tags (r:euc)
   const euc = $derived.by(() => {
     try {
-      const t = (repoClass.repoEvent?.tags || []).find((t: string[]) => t[0] === 'r' && t[2] === 'euc')
+      const evt: any = (repoClass as any).repoEvent
+      const t = ((evt?.tags || []) as any[]).find((t: string[]) => t[0] === 'r' && t[2] === 'euc')
       return t ? t[1] : ""
     } catch { return "" }
   })
@@ -625,7 +628,7 @@
 
   {#if patchDag}
     <div class="mb-4">
-      <PatchDagSummary nodeCount={patchDag.nodeCount} roots={patchDag.roots} rootRevisions={patchDag.rootRevisions} edgesCount={patchDag.edgesCount} topParents={patchDag.topParents} />
+      <PatchDagSummary nodeCount={patchDag.nodeCount} roots={patchDag.roots} rootRevisions={patchDag.rootRevisions} edgesCount={patchDag.edgesCount} topParents={patchDag.topParents} parentOutDegree={patchDag.parentOutDegree} parentChildren={patchDag.parentChildren} />
     </div>
   {/if}
 

@@ -117,11 +117,16 @@ export const load: LayoutLoad = async ({ params }) => {
 
     // Token store is now initialized at app level - no need to set up here
 
+    const emptyArr = derived([], () => [] as any[]);
     const repoClass = new Repo({
         repoEvent,
         repoStateEvent,
         issues,
         patches,
+        repoStateEvents: emptyArr as unknown as Readable<any[]>,
+        statusEvents: emptyArr as unknown as Readable<any[]>,
+        commentEvents: emptyArr as unknown as Readable<any[]>,
+        labelEvents: emptyArr as unknown as Readable<any[]>,
     });
 
     return {

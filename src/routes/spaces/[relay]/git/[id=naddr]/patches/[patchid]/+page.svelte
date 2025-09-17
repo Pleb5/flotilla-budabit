@@ -209,7 +209,7 @@
   const threadComments = $derived.by(() => {
     if (repoClass.patches && selectedPatch) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [selectedPatch.id]}]
-      const relays = (repoClass.relays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+      const relays = (repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
       load({relays: relays as string[], filters})
       return _derived(deriveEvents(repository, {filters}), (events: TrustedEvent[]) => {
         return sortBy(e => -e.created_at, events) as CommentEvent[]
@@ -227,7 +227,7 @@
   })
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    const relays = ($repoRelays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = ($repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     await postComment(comment, relays).result
   }
 

@@ -70,8 +70,10 @@
 
   function buildDefaultNgitCloneUrl(): string | undefined {
     try {
-      const owner = repoClass.repoEvent?.pubkey
-      const name = repoClass.repo?.name
+      const evt: any = (repoClass as any).repoEvent
+      const rep: any = (repoClass as any).repo
+      const owner = evt?.pubkey
+      const name = rep?.name
       if (!owner || !name) return undefined
       const npub = nip19.npubEncode(owner)
       return `nostr://${npub}/${name}`
@@ -82,8 +84,10 @@
 
   function buildDefaultViewRepoUrl(): string | undefined {
     try {
-      const owner = repoClass.repoEvent?.pubkey
-      const name = repoClass.repo?.name
+      const evt: any = (repoClass as any).repoEvent
+      const rep: any = (repoClass as any).repo
+      const owner = evt?.pubkey
+      const name = rep?.name
       if (!owner || !name) return undefined
       const npub = nip19.npubEncode(owner)
       return `https://gitworkshop.dev/${npub}/${name}`
@@ -93,13 +97,14 @@
   }
 
   const repoMetadata = $derived({
-    name: repoClass.repo?.name || "Unknown Repository",
-    description: repoClass.repo?.description || "",
+    name: ((repoClass as any).repo?.name as string) || "Unknown Repository",
+    description: ((repoClass as any).repo?.description as string) || "",
     repoId: repoClass.canonicalKey || "",
     maintainers: maintainers || [],
     relays: $repoRelays,
     cloneUrls: (() => {
-      let urls = [...(repoClass.repo?.clone || [])]
+      const rep: any = (repoClass as any).repo
+      let urls = [...(rep?.clone || [])]
       if (!urls.find(u => u.startsWith("nostr://"))) {
         const def = buildDefaultNgitCloneUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -107,7 +112,8 @@
       return urls
     })(),
     webUrls: (() => {
-      let urls = [...(repoClass.repo?.web || [])]
+      const rep: any = (repoClass as any).repo
+      let urls = [...(rep?.web || [])]
       if (!urls.find(u => u.startsWith("https://gitworkshop.dev"))) {
         const def = buildDefaultViewRepoUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -115,11 +121,11 @@
       return urls
     })(),
     mainBranch: repoClass.mainBranch,
-    createdAt: repoClass.repoEvent?.created_at
-      ? new Date(repoClass.repoEvent.created_at * 1000)
+    createdAt: (repoClass as any).repoEvent?.created_at
+      ? new Date(((repoClass as any).repoEvent.created_at as number) * 1000)
       : null,
-    updatedAt: repoClass.repoStateEvent?.created_at
-      ? new Date(repoClass.repoStateEvent.created_at * 1000)
+    updatedAt: (repoClass as any).repoStateEvent?.created_at
+      ? new Date(((repoClass as any).repoStateEvent.created_at as number) * 1000)
       : null,
   })
 
@@ -181,7 +187,11 @@
 
   async function loadReadme() {
     try {
-      const readmeContent = await repoClass.getFileContent({path: "README.md"})
+      const readmeContent = await repoClass.getFileContent({
+        path: "README.md",
+        branch: repoClass.mainBranch?.split("/").pop() || "master",
+        commit: undefined as any,
+      })
       readme = readmeContent.content
       renderedReadme = readme ? md.render(readme) : ""
     } catch (e) {

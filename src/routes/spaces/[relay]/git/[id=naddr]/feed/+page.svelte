@@ -259,7 +259,7 @@
 
         initialEvents.push(
           ...repoClass.issues,
-          ...repoClass.patches.filter(p => p.tags.some(t => t[0] === "t" && t[1] === "root")),
+          ...repoClass.patches.filter(p => p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root")),
         )
 
         initialEvents.sort((a, b) => b.created_at - a.created_at)

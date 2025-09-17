@@ -9,6 +9,14 @@
   // Extract data from page load
   const { commitMeta, changes, repoClass } = data;
 
+  // Safe repo title name derived from repoEvent content
+  const repoTitleName = $derived(() => {
+    try {
+      const evt: any = (repoClass as any).repoEvent
+      return evt?.content ? JSON.parse(evt.content).name : 'Repository'
+    } catch { return 'Repository' }
+  })
+
   // State for collapsible file panels
   let expandedFiles = $state<Set<string>>(new Set());
 
@@ -109,7 +117,7 @@
 </script>
 
 <svelte:head>
-  <title>Commit {commitMeta.sha.slice(0, 7)} · {repoClass.repoEvent?.content ? JSON.parse(repoClass.repoEvent.content).name : 'Repository'}</title>
+  <title>Commit {commitMeta.sha.slice(0, 7)} · {repoTitleName}</title>
 </svelte:head>
 
 <div class="min-h-screen bg-background">

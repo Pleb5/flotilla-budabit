@@ -93,7 +93,8 @@
   // Extract euc grouping key from repoEvent tags (r:euc)
   const euc = $derived.by(() => {
     try {
-      const t = (repoClass.repoEvent?.tags || []).find((t: string[]) => t[0] === 'r' && t[2] === 'euc')
+      const evt: any = (repoClass as any).repoEvent
+      const t = ((evt?.tags || []) as any[]).find((t: string[]) => t[0] === 'r' && t[2] === 'euc')
       return t ? t[1] : ""
     } catch { return "" }
   })
@@ -438,24 +439,26 @@
     // } catch (e) {
     //   console.warn("Failed to optimistically add new issue to UI:", e)
     // }
+    const evt: any = (repoClass as any).repoEvent
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
       content: "",
       rootId: postIssueEvent.id,
-      recipients: [$pubkey!, repoClass.repoEvent!.pubkey!],
-      repoAddr: Address.fromEvent(repoClass.repoEvent!).toString(),
+      recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
+      repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })
     await postStatus(statusEvent, relaysToUse).result
   }
 
   const onNewIssue = () => {
-    const aTag = getTag("d", repoClass.repoEvent!.tags) as string[]
-    const repoDtag = aTag[1]
+    const evt: any = (repoClass as any).repoEvent
+    const aTag = evt ? (getTag("d", evt.tags) as string[]) : undefined
+    const repoDtag = aTag ? aTag[1] : ""
 
     pushModal(NewIssueForm, {
       repoId: repoDtag,
-      repoOwnerPubkey: repoClass.repoEvent?.pubkey,
+      repoOwnerPubkey: evt?.pubkey,
       onIssueCreated,
     })
   }
