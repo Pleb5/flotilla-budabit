@@ -45,11 +45,11 @@
   })
 
   onMount(() => {
-    let cleanup: (() => void) | undefined;
-    
+    let cleanup: (() => void) | undefined
+
     whenElementReady(
       () => element,
-      (readyElement) => {
+      readyElement => {
         const feedResult = makeFeed({
           element: readyElement,
           relays: INDEXER_RELAYS,
@@ -70,10 +70,10 @@
             loading = false
           },
         })
-        cleanup = feedResult.cleanup;
-      }
+        cleanup = feedResult.cleanup
+      },
     )
-    
+
     return () => {
       cleanup?.()
       setChecked($page.url.pathname)

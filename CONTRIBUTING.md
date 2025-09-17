@@ -13,22 +13,22 @@ The `master` branch is automatically deployed to production, so always work on f
 ```javascript
 #!/usr/bin/env node
 
-import fs from 'fs'
-import path from 'path'
+import fs from "fs"
+import path from "path"
 
-const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'))
+const packageJson = JSON.parse(fs.readFileSync("./package.json", "utf8"))
 
 packageJson.pnpm.overrides = Object.keys(packageJson.dependencies)
-  .filter(pkg => pkg.startsWith('@welshman/'))
+  .filter(pkg => pkg.startsWith("@welshman/"))
   .reduce((acc, pkg) => {
-    const packageName = pkg.split('/')[1]
+    const packageName = pkg.split("/")[1]
     acc[pkg] = `link:../welshman/packages/${packageName}`
     return acc
   }, {})
 
-fs.writeFileSync('./package.json', JSON.stringify(packageJson, null, 2) + '\n')
+fs.writeFileSync("./package.json", JSON.stringify(packageJson, null, 2) + "\n")
 
-console.log('Added welshman package overrides.')
+console.log("Added welshman package overrides.")
 ```
 
 Be sure to avoid committing overrides to either `package.json` or `pnpm-lock.yaml`. These overrides can generally be added, installed, and removed, and will persist until another `pnpm install` command gets run.
@@ -93,4 +93,3 @@ Discussion about development is done [on Flotilla](https://app.flotilla.social/s
 ## Project License
 
 This project is licensed under the MIT license. By contributing, you agree to waive all intellectual property rights to your contributions to this project.
-

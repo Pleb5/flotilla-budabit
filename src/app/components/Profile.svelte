@@ -24,7 +24,7 @@
     avatarSize?: number
   }
 
-  const {pubkey, url, hideDetails=false, showPubkey, avatarSize = 10}: Props = $props()
+  const {pubkey, url, hideDetails = false, showPubkey, avatarSize = 10}: Props = $props()
 
   const relays = removeNil([url])
   const profile = deriveProfile(pubkey, relays)
@@ -46,21 +46,21 @@
         <Button onclick={openProfile} class="text-bold overflow-hidden text-ellipsis">
           {$profileDisplay}
         </Button>
-        <WotScore pubkey={pubkey} />
+        <WotScore {pubkey} />
       </div>
       {#if $handle}
-      <div class="overflow-hidden text-ellipsis text-sm opacity-75">
+        <div class="overflow-hidden text-ellipsis text-sm opacity-75">
           {displayHandle($handle)}
-      </div>
-    {/if}
-    {#if showPubkey}
-      <div class="flex items-center gap-1 overflow-hidden text-ellipsis text-xs opacity-60">
-        {displayPubkey(pubkey)}
-          <Button onclick={copyPubkey} class="pt-1">
-          <Icon size={3} icon="copy" />
-        </Button>
-      </div>
+        </div>
       {/if}
-  </div>
+      {#if showPubkey}
+        <div class="flex items-center gap-1 overflow-hidden text-ellipsis text-xs opacity-60">
+          {displayPubkey(pubkey)}
+          <Button onclick={copyPubkey} class="pt-1">
+            <Icon size={3} icon="copy" />
+          </Button>
+        </div>
+      {/if}
+    </div>
   {/if}
 </div>

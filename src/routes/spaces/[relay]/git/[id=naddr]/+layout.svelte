@@ -15,7 +15,7 @@
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
   import {pushModal} from "@app/modal"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
-  import {postRepoAnnouncement} from "@src/app/commands.js"
+  import {postRepoAnnouncement} from "@src/app/core/commands"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
   import {derived as _derived} from "svelte/store"
   import {repository, pubkey} from "@welshman/app"
@@ -33,10 +33,10 @@
 
   const {id, relay} = $page.params
 
-  let {data, children} = $props()
+  const {data, children} = $props()
   const {repoClass} = data
 
-  let activeTab: string | undefined = $page.url.pathname.split("/").pop()
+  const activeTab: string | undefined = $page.url.pathname.split("/").pop()
   const encodedRelay = encodeURIComponent(relay)
 
   // Refresh state
@@ -232,7 +232,7 @@
   const back = () => goto(`/spaces/${relay}/git/`)
 </script>
 
-<PageBar class="!mx-0 flex items-center my-2">
+<PageBar class="!mx-0 my-2 flex items-center">
   {#snippet icon()}
     <div>
       <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>

@@ -45,37 +45,37 @@
   })
 
   onMount(() => {
-    let cleanup: (() => void) | undefined;
-    
+    let cleanup: (() => void) | undefined
+
     whenElementReady(
       () => element,
-      (readyElement) => {
+      readyElement => {
         const feedResult = makeFeed({
           element: readyElement,
-      relays: [url],
-      feedFilters: [{kinds: [THREAD, COMMENT]}],
-      subscriptionFilters: [
-        {kinds: [THREAD, REACTION, DELETE]},
-        {kinds: [COMMENT], "#K": [String(THREAD)]},
-      ],
-      initialEvents: getEventsForUrl(url, [{kinds: [THREAD, COMMENT], limit: 10}]),
-      onEvent: event => {
-        if (event.kind === THREAD && !mutedPubkeys.includes(event.pubkey)) {
-          threads.push(event)
-        }
+          relays: [url],
+          feedFilters: [{kinds: [THREAD, COMMENT]}],
+          subscriptionFilters: [
+            {kinds: [THREAD, REACTION, DELETE]},
+            {kinds: [COMMENT], "#K": [String(THREAD)]},
+          ],
+          initialEvents: getEventsForUrl(url, [{kinds: [THREAD, COMMENT], limit: 10}]),
+          onEvent: event => {
+            if (event.kind === THREAD && !mutedPubkeys.includes(event.pubkey)) {
+              threads.push(event)
+            }
 
-        if (event.kind === COMMENT) {
-          comments.push(event)
-        }
-      },
+            if (event.kind === COMMENT) {
+              comments.push(event)
+            }
+          },
           onExhausted: () => {
             loading = false
           },
         })
-        cleanup = feedResult.cleanup;
-      }
+        cleanup = feedResult.cleanup
+      },
     )
-    
+
     return () => {
       cleanup?.()
       setChecked($page.url.pathname)

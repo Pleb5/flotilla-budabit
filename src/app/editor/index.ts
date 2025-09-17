@@ -57,7 +57,7 @@ export const makeEditor = async ({
     element: document.createElement("div"),
     extensions: [
       PermalinkExtension.configure({
-        signer: async (e) => await signer.get().sign(e),
+        signer: async e => await signer.get().sign(e),
         relays: Router.get().FromUser().getUrls(),
         spinnerComponent: Spinner,
       }),

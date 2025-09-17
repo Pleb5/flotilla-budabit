@@ -100,8 +100,14 @@
     </div>
 
     <div class="mb-6 grid grid-cols-2 gap-6">
-      <PatchSelector patches={repoClass.patches} selectedPatch={selectedPatch} onPatchSelect={(patch: any) => selectedPatch = patch} />
-      <CommitSelector commits={repoClass.commits} selectedCommit={$selectedCommit} onCommitSelect={(commit: any) => selectedCommit = commit} />
+      <PatchSelector
+        patches={repoClass.patches}
+        {selectedPatch}
+        onPatchSelect={(patch: any) => (selectedPatch = patch)} />
+      <CommitSelector
+        commits={repoClass.commits}
+        selectedCommit={$selectedCommit}
+        onCommitSelect={(commit: any) => (selectedCommit = commit)} />
     </div>
 
     {#if selectedPatch && selectedCommit}
@@ -204,9 +210,7 @@
             </TabsList>
 
             <TabsContent value="analyzer">
-              <MergeAnalyzer
-                analysis={mergeAnalysis}
-                patch={selectedPatch} />
+              <MergeAnalyzer analysis={mergeAnalysis} patch={selectedPatch} />
             </TabsContent>
 
             <TabsContent value="conflicts">

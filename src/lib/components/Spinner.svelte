@@ -7,7 +7,7 @@
     children?: import("svelte").Snippet
   }
 
-  const {loading = false, minHeight="min-h-10", children}: Props = $props()
+  const {loading = false, minHeight = "min-h-10", children}: Props = $props()
 </script>
 
 <span class="flex {minHeight} items-center">

@@ -390,7 +390,6 @@ export const listenForNotifications = () => {
         ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room], since: now()})),
       ],
     })
-    
   }
 
   return () => controller.abort()

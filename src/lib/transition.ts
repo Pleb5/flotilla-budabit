@@ -43,15 +43,15 @@ export function slideAndFade(
 ) {
   // Defensive check: ensure node is a valid DOM Element
   if (!node || !(node instanceof Element)) {
-    console.warn('slideAndFade: Invalid node provided, falling back to simple fade');
+    console.warn("slideAndFade: Invalid node provided, falling back to simple fade")
     return {
       delay,
       duration,
       easing,
-      css: (t: number) => `opacity: ${t};`
-    };
+      css: (t: number) => `opacity: ${t};`,
+    }
   }
-  
+
   const style = getComputedStyle(node)
   const primary_property = axis === "y" ? "height" : "width"
   const primary_property_value = parseFloat(style[primary_property])

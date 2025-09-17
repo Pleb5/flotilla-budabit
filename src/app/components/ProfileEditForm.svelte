@@ -35,107 +35,108 @@
     ...initialValues,
     githubIdentity: (() => {
       // Extract GitHub identity from existing profile tags if present
-      const existingGithubTag = initialValues.profile.event?.tags?.find(tag => 
-        tag[0] === 'i' && tag[1]?.startsWith('github:')
+      const existingGithubTag = initialValues.profile.event?.tags?.find(
+        tag => tag[0] === "i" && tag[1]?.startsWith("github:"),
       )
-      
+
       if (existingGithubTag) {
         const [, platformIdentity, proof] = existingGithubTag
-        const username = platformIdentity.split(':')[1]
+        const username = platformIdentity.split(":")[1]
         if (username && proof) {
-          return { username, proof }
+          return {username, proof}
         }
       }
-      
-      return { username: '', proof: '' }
-    })()
+
+      return {username: "", proof: ""}
+    })(),
   })
 
   const submit = () => onsubmit($state.snapshot(values))
 
   let file: File | undefined = $state()
   let isCreatingAttestation = $state(false)
-  let attestationError = $state('')
-  
+  let attestationError = $state("")
+
   const npub = nip19.npubEncode(pubkey)
-  
+
   // Check if user has GitHub token and no existing GitHub identity
   const githubToken = $derived(() => {
     const tokens = $tokensStore
-    return tokens.find(t => t.host === 'github.com' || t.host === 'api.github.com')
+    return tokens.find(t => t.host === "github.com" || t.host === "api.github.com")
   })
-  
+
   const shouldOfferAutoAttestation = $derived(() => {
-    return githubToken() && 
-           (!values.githubIdentity?.username || !values.githubIdentity?.proof) &&
-           !isCreatingAttestation
+    return (
+      githubToken() &&
+      (!values.githubIdentity?.username || !values.githubIdentity?.proof) &&
+      !isCreatingAttestation
+    )
   })
-  
+
   // Auto-create GitHub attestation
   async function createGitHubAttestation() {
     const token = githubToken()
     if (!token) {
-      attestationError = 'No GitHub token found'
+      attestationError = "No GitHub token found"
       return
     }
-    
+
     isCreatingAttestation = true
-    attestationError = ''
-    
+    attestationError = ""
+
     try {
       // Get GitHub user info
-      const userResponse = await fetch('https://api.github.com/user', {
+      const userResponse = await fetch("https://api.github.com/user", {
         headers: {
-          'Authorization': `token ${token.token}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
+          Authorization: `token ${token.token}`,
+          Accept: "application/vnd.github.v3+json",
+        },
       })
-      
+
       if (!userResponse.ok) {
         throw new Error(`GitHub API error: ${userResponse.status}`)
       }
-      
+
       const userData = await userResponse.json()
       const username = userData.login
-      
+
       // Create attestation text
       const attestationText = `Verifying that I control the following Nostr public key: ${npub}`
-      
+
       // Create GitHub Gist
-      const gistResponse = await fetch('https://api.github.com/gists', {
-        method: 'POST',
+      const gistResponse = await fetch("https://api.github.com/gists", {
+        method: "POST",
         headers: {
-          'Authorization': `token ${token.token}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
+          Authorization: `token ${token.token}`,
+          Accept: "application/vnd.github.v3+json",
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          description: 'Nostr Identity Verification (NIP-39)',
+          description: "Nostr Identity Verification (NIP-39)",
           public: true,
           files: {
-            'nostr-verification.txt': {
-              content: attestationText
-            }
-          }
-        })
+            "nostr-verification.txt": {
+              content: attestationText,
+            },
+          },
+        }),
       })
-      
+
       if (!gistResponse.ok) {
         throw new Error(`Failed to create Gist: ${gistResponse.status}`)
       }
-      
+
       const gistData = await gistResponse.json()
       const gistId = gistData.id
-      
+
       // Update form values
       values.githubIdentity = {
         username,
-        proof: gistId
+        proof: gistId,
       }
-      
     } catch (error) {
-      console.error('Failed to create GitHub attestation:', error)
-      attestationError = error instanceof Error ? error.message : 'Failed to create attestation'
+      console.error("Failed to create GitHub attestation:", error)
+      attestationError = error instanceof Error ? error.message : "Failed to create attestation"
     } finally {
       isCreatingAttestation = false
     }
@@ -174,23 +175,22 @@
       Give a brief introduction to why you're here.
     {/snippet}
   </Field>
-  
+
   <!-- Auto-Attestation Offer -->
   {#if shouldOfferAutoAttestation()}
-    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+    <div class="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
       <div class="flex items-start gap-3">
-        <Icon icon="info-circle" class="text-blue-600 mt-0.5" />
+        <Icon icon="info-circle" class="mt-0.5 text-blue-600" />
         <div class="flex-1">
-          <h4 class="font-medium text-blue-900 mb-2">Automatic GitHub Verification Available</h4>
-          <p class="text-sm text-blue-700 mb-3">
-            We detected you have a GitHub token configured. We can automatically create a verification Gist 
-            and set up your GitHub identity for you.
+          <h4 class="mb-2 font-medium text-blue-900">Automatic GitHub Verification Available</h4>
+          <p class="mb-3 text-sm text-blue-700">
+            We detected you have a GitHub token configured. We can automatically create a
+            verification Gist and set up your GitHub identity for you.
           </p>
-          <Button 
-            class="btn btn-sm btn-primary" 
+          <Button
+            class="btn btn-primary btn-sm"
             onclick={createGitHubAttestation}
-            disabled={isCreatingAttestation}
-          >
+            disabled={isCreatingAttestation}>
             {#if isCreatingAttestation}
               <Icon icon="clock-circle" class="animate-spin" />
               Creating Attestation...
@@ -200,13 +200,13 @@
             {/if}
           </Button>
           {#if attestationError}
-            <p class="text-sm text-red-600 mt-2">{attestationError}</p>
+            <p class="mt-2 text-sm text-red-600">{attestationError}</p>
           {/if}
         </div>
       </div>
     </div>
   {/if}
-  
+
   <!-- GitHub Identity Section (NIP-39) -->
   <Field>
     {#snippet label()}
@@ -215,19 +215,18 @@
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
         <Icon icon="git" />
-        <input 
-          bind:value={values.githubIdentity.username} 
-          class="grow" 
-          type="text" 
-          placeholder="your-github-username"
-        />
+        <input
+          bind:value={values.githubIdentity.username}
+          class="grow"
+          type="text"
+          placeholder="your-github-username" />
       </label>
     {/snippet}
     {#snippet info()}
       Your GitHub username for identity verification.
     {/snippet}
   </Field>
-  
+
   {#if values.githubIdentity?.username}
     <Field>
       {#snippet label()}
@@ -236,34 +235,34 @@
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
           <Icon icon="link-round" />
-          <input 
-            bind:value={values.githubIdentity.proof} 
-            class="grow" 
-            type="text" 
-            placeholder="abc123def456"
-          />
+          <input
+            bind:value={values.githubIdentity.proof}
+            class="grow"
+            type="text"
+            placeholder="abc123def456" />
         </label>
       {/snippet}
       {#snippet info()}
         {#if !shouldOfferAutoAttestation() && !values.githubIdentity?.proof}
           <p class="text-sm">
-            Create a GitHub Gist with the text: <br/>
-            <code class="bg-gray-100 px-1 rounded text-xs break-all">
+            Create a GitHub Gist with the text: <br />
+            <code class="break-all rounded bg-gray-100 px-1 text-xs">
               Verifying that I control the following Nostr public key: {npub}
-            </code><br/>
+            </code><br />
             Then paste the Gist ID here.
           </p>
         {:else if values.githubIdentity?.proof}
           <p class="text-sm">
-            Your verification Gist is available at:<br/>
-            <a 
-              href="https://gist.github.com/{values.githubIdentity?.username}/{values.githubIdentity?.proof}" 
-              target="_blank" 
+            Your verification Gist is available at:<br />
+            <a
+              href="https://gist.github.com/{values.githubIdentity?.username}/{values.githubIdentity
+                ?.proof}"
+              target="_blank"
               rel="noopener noreferrer"
-              class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 underline text-xs mt-1"
-            >
+              class="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-800">
               <Icon icon="link-round" size={3} />
-              https://gist.github.com/{values.githubIdentity?.username}/{values.githubIdentity?.proof}
+              https://gist.github.com/{values.githubIdentity?.username}/{values.githubIdentity
+                ?.proof}
             </a>
           </p>
         {:else}
@@ -274,7 +273,7 @@
       {/snippet}
     </Field>
   {/if}
-  
+
   {#if !hideAddress}
     <Field>
       {#snippet label()}

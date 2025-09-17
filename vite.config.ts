@@ -13,11 +13,8 @@ export default defineConfig({
     port: 1847,
     // local serving of package files
     fs: {
-      allow: [
-        '.',
-        path.resolve(__dirname, '../'),
-      ]
-    }
+      allow: [".", path.resolve(__dirname, "../")],
+    },
   },
   build: {
     sourcemap: true,
@@ -36,7 +33,7 @@ export default defineConfig({
       "@codemirror/lang-sql",
       "@codemirror/state",
       "@codemirror/view",
-      "@codemirror/theme-one-dark"
+      "@codemirror/theme-one-dark",
     ],
   },
   plugins: [
@@ -70,11 +67,7 @@ export default defineConfig({
     svg({
       svgoOptions: {
         multipass: true,
-        plugins: [
-          "preset-default",
-          "removeViewBox",
-          "removeDimensions",
-        ],
+        plugins: ["preset-default", "removeViewBox", "removeDimensions"],
       },
     }),
   ],

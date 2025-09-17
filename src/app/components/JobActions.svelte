@@ -78,7 +78,12 @@
         </Link>
       </Button>
     {/if}
-    <ReactionSummary {url} {event} createReaction={onPublishReaction} deleteReaction={onPublishDelete} reactionClass="tooltip-left" />
+    <ReactionSummary
+      {url}
+      {event}
+      createReaction={onPublishReaction}
+      deleteReaction={onPublishDelete}
+      reactionClass="tooltip-left" />
     <ThunkStatusOrDeleted {event} />
     {#if showActivity}
       <EventActivity {url} {path} {event} />

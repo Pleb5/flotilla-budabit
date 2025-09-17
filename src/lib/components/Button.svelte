@@ -8,7 +8,7 @@
     children,
     ...restProps
   }: {
-    children?: Snippet  // Changed from required to optional
+    children?: Snippet // Changed from required to optional
     onclick?: (event: Event) => any
     type?: "button" | "submit"
     class?: string
@@ -17,9 +17,9 @@
     "data-tip"?: string
     ref?: any
   } = $props()
-  
+
   const className = $derived(`text-left ${restProps.class}`)
-  
+
   const onClick = (e: Event) => {
     e.preventDefault()
     e.stopPropagation()
@@ -35,7 +35,12 @@
     {/if}
   </button>
 {:else}
-  <button {...restProps} onclick={onClick} type={type as "button" | "submit"} class={className} bind:this={ref}>
+  <button
+    {...restProps}
+    onclick={onClick}
+    type={type as "button" | "submit"}
+    class={className}
+    bind:this={ref}>
     {#if children}
       {@render children()}
     {/if}

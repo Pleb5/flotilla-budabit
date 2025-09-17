@@ -223,23 +223,23 @@
       }
 
       gitSigner.set($signer)
-      
+
       // Initialize git token store at app level where signer is available
       // This replicates the logic from GitAuth component but at app level
       if ($pubkey) {
-        const { tokens } = await import('@nostr-git/ui')
-        const { loadTokensFromStorage } = await import('$lib/utils/tokenLoader')
-        
+        const {tokens} = await import("@nostr-git/ui")
+        const {loadTokensFromStorage} = await import("$lib/utils/tokenLoader")
+
         // Use the same token key pattern as GitAuth component in settings
         const tokenKey = "gh_tokens"
-        
+
         try {
           // Load tokens directly (same as GitAuth onMount logic)
           const loadedTokens = await loadTokensFromStorage(tokenKey)
           tokens.clear()
           loadedTokens.forEach(token => tokens.push(token))
         } catch (error) {
-          console.warn('🔐 Failed to initialize git tokens at app level:', error)
+          console.warn("🔐 Failed to initialize git tokens at app level:", error)
         }
       }
 
@@ -262,7 +262,7 @@
           ([$pubkey, $canDecrypt, $userInboxRelaySelections]) => {
             // Build a minimal, stable signature to detect real changes
             const relays = getRelaysFromList($userInboxRelaySelections)
-            const sig = `${$pubkey || ''}|${$canDecrypt ? '1' : '0'}|${relays.join(',')}`
+            const sig = `${$pubkey || ""}|${$canDecrypt ? "1" : "0"}|${relays.join(",")}`
 
             if (sig === lastSig) return
             lastSig = sig

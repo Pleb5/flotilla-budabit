@@ -53,19 +53,19 @@
     if (!$pubkey) {
       throw new Error("Public key is not available")
     }
-    
+
     try {
-      let allTokens: TokenEntry[] = [];
-      
+      let allTokens: TokenEntry[] = []
+
       const existing = localStorage.getItem(key)
-      
+
       if (existing) {
         const decrypted = await $signer.nip04.decrypt($pubkey!, existing)
         if (!decrypted) {
           throw new Error("Failed to decrypt existing tokens")
         }
         const parsed = JSON.parse(decrypted)
-        
+
         if (editToken) {
           // Edit mode: replace the existing token with the same host
           const existingTokens = parsed.filter((t: TokenEntry) => t.host !== editToken.host)
@@ -77,28 +77,36 @@
       } else {
         allTokens = toks
       }
-      
+
       // Clean the data to ensure it's properly formatted
       const cleanTokens = allTokens.map(token => ({
         host: String(token.host).trim(),
-        token: String(token.token).trim()
-      }));
-      
-      const dataToEncrypt = JSON.stringify(cleanTokens);
-      
+        token: String(token.token).trim(),
+      }))
+
+      const dataToEncrypt = JSON.stringify(cleanTokens)
+
       // Create a promise that rejects after timeout (longer for NIP-46 signers)
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('NIP-46 encryption timeout. Please try logging out and back in with your signer.')), 15000)
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "NIP-46 encryption timeout. Please try logging out and back in with your signer.",
+              ),
+            ),
+          15000,
+        )
       })
-      
+
       // Race the encryption against the timeout
-      const encrypted = await Promise.race([
+      const encrypted = (await Promise.race([
         $signer.nip04.encrypt($pubkey!, dataToEncrypt),
-        timeoutPromise
-      ]) as string
-      
+        timeoutPromise,
+      ])) as string
+
       localStorage.setItem(key, encrypted)
-      
+
       // Update the reactive store only after successful save
       if (editToken) {
         // Edit mode: remove old token and add new one
@@ -109,7 +117,6 @@
         // Add mode: just add the new token
         tokensStore.push(toks[0])
       }
-      
     } catch (e) {
       error = "Failed to save tokens: " + e
       throw e // Re-throw to let submit function know it failed
@@ -118,23 +125,23 @@
 
   const submit = async () => {
     // Clean the token to remove any potential console output contamination
-    const cleanToken = token.split('\n')[0].trim(); // Take only the first line
-    const cleanHost = host.trim();
-    
+    const cleanToken = token.split("\n")[0].trim() // Take only the first line
+    const cleanHost = host.trim()
+
     // Basic validation
     if (!cleanHost || !cleanToken) {
       error = "Both host and token are required"
       return
     }
-    
+
     if (cleanToken.length > 200) {
       error = "Token appears to be corrupted (too long). Please refresh the page and try again."
       return
     }
-    
+
     busy = true
     error = "" // Clear any previous errors
-    
+
     try {
       await saveTokens([{host: cleanHost, token: cleanToken}])
       reset()
@@ -171,11 +178,13 @@
 <form class="column gap-4" onsubmit={preventDefault(submit)}>
   <ModalHeader>
     {#snippet title()}
-      {editToken ? 'Edit Git Auth Token' : 'Add a Git Auth Token'}
+      {editToken ? "Edit Git Auth Token" : "Add a Git Auth Token"}
     {/snippet}
     {#snippet info()}
-      <p>Use this form to {editToken ? 'edit your existing' : 'add a'} Git auth token.</p>
-      <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token" target="_blank">Learn more about personal access tokens</a>
+      <p>Use this form to {editToken ? "edit your existing" : "add a"} Git auth token.</p>
+      <a
+        href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token"
+        target="_blank">Learn more about personal access tokens</a>
       <a href="https://github.com/settings/tokens" target="_blank">Create a new token</a>
     {/snippet}
   </ModalHeader>
@@ -225,7 +234,7 @@
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary" disabled={busy}>
-      <Spinner loading={busy}>{editToken ? 'Save Changes' : 'Add'}</Spinner>
+      <Spinner loading={busy}>{editToken ? "Save Changes" : "Add"}</Spinner>
       <Icon icon="alt-arrow-right" />
     </Button>
   </ModalFooter>

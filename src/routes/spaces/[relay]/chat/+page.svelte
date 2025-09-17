@@ -173,7 +173,7 @@
 
     whenElementReady(
       () => element,
-      (readyElement) => {
+      readyElement => {
         const feed = makeFeed({
           element: readyElement,
           relays: [url],
@@ -187,7 +187,7 @@
 
         events = feed.events
         cleanup = feed.cleanup
-      }
+      },
     )
 
     return () => {

@@ -3,7 +3,7 @@
   import {CalendarDays, Check, Clock, Eye, GitCommit, SearchX, User, X} from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
-  import {makeFeed} from "@src/app/requests"
+  import {makeFeed} from "@src/app/core/requests"
   import {whenElementReady} from "@src/lib/html"
   import {
     GIT_STATUS_OPEN,
@@ -25,10 +25,10 @@
   import PatchDagSummary from "@src/lib/components/PatchDagSummary.svelte"
   import MaintainerBadge from "@src/lib/components/MaintainerBadge.svelte"
   import {isMobile} from "@src/lib/html.js"
-  import {postComment} from "@src/app/commands.js"
+  import {postComment} from "@src/app/core/commands"
   import {Address} from "@welshman/util"
   import ProfileName from "@src/app/components/ProfileName.svelte"
-  import { deriveEffectiveLabels, deriveStatus } from "@app/state"
+  import {deriveEffectiveLabels, deriveStatus} from "@app/state"
   import {deriveEvents} from "@welshman/store"
   import {repository} from "@welshman/app"
   import {onMount, onDestroy} from "svelte"
@@ -48,82 +48,107 @@
   let labelSearch = $state("")
   // Centralized labels via app state; render as natural values (no FQN, no '#')
   const toNaturalLabel = (s: string): string => {
-    const idx = s.lastIndexOf(":");
-    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "");
+    const idx = s.lastIndexOf(":")
+    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
   }
 
   // Types + helpers to normalize effective labels and resolved status
-  type EffectiveLabelsView = { byNamespace: Record<string, Set<string>>; flat: Set<string> }
-  const isSetOfString = (x: unknown): x is Set<string> => x instanceof Set && Array.from(x).every(v => typeof v === 'string')
-  const toSet = (x: unknown): Set<string> => (x instanceof Set) ? x : new Set<string>(Array.isArray(x) ? x.filter((v) => typeof v === 'string') : [])
+  type EffectiveLabelsView = {byNamespace: Record<string, Set<string>>; flat: Set<string>}
+  const isSetOfString = (x: unknown): x is Set<string> =>
+    x instanceof Set && Array.from(x).every(v => typeof v === "string")
+  const toSet = (x: unknown): Set<string> =>
+    x instanceof Set
+      ? x
+      : new Set<string>(Array.isArray(x) ? x.filter(v => typeof v === "string") : [])
   const normalizeEff = (eff: any | undefined | null): EffectiveLabelsView | null => {
     if (!eff) return null
     const flat = toSet(eff.flat)
     const byNs: Record<string, Set<string>> = {}
-    if (eff.byNamespace && typeof eff.byNamespace === 'object') {
+    if (eff.byNamespace && typeof eff.byNamespace === "object") {
       for (const ns of Object.keys(eff.byNamespace)) {
         byNs[ns] = toSet((eff.byNamespace as any)[ns])
       }
     }
-    return { byNamespace: byNs, flat }
+    return {byNamespace: byNs, flat}
   }
-  const getResolvedStateFor = (id: string): { state: 'open'|'draft'|'closed'|'merged'|'resolved' } | null => {
-    const maybe = (repoClass as unknown as { resolveStatusFor?: (id: string) => { state: 'open'|'draft'|'closed'|'merged'|'resolved' } | null }).resolveStatusFor
-    return typeof maybe === 'function' ? maybe.call(repoClass, id) : null
+  const getResolvedStateFor = (
+    id: string,
+  ): {state: "open" | "draft" | "closed" | "merged" | "resolved"} | null => {
+    const maybe = (
+      repoClass as unknown as {
+        resolveStatusFor?: (
+          id: string,
+        ) => {state: "open" | "draft" | "closed" | "merged" | "resolved"} | null
+      }
+    ).resolveStatusFor
+    return typeof maybe === "function" ? maybe.call(repoClass, id) : null
   }
   const labelsData = $derived.by(() => {
     const byId = new Map<string, string[]>()
     const groupsById = new Map<string, Record<string, string[]>>()
     for (const p of repoClass.patches || []) {
-      const getter = (repoClass as unknown as { getPatchLabels?: (id: string) => any }).getPatchLabels
-      const eff = normalizeEff(typeof getter === 'function' ? getter.call(repoClass, p.id) : deriveEffectiveLabels(p.id).get())
+      const getter = (repoClass as unknown as {getPatchLabels?: (id: string) => any}).getPatchLabels
+      const eff = normalizeEff(
+        typeof getter === "function"
+          ? getter.call(repoClass, p.id)
+          : deriveEffectiveLabels(p.id).get(),
+      )
       const flat = eff ? Array.from(eff.flat) : []
       const naturals = flat.map(toNaturalLabel)
       byId.set(p.id, naturals)
-      const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
+      const groups: Record<string, string[]> = {Status: [], Type: [], Area: [], Tags: [], Other: []}
       if (eff) {
         for (const ns of Object.keys(eff.byNamespace)) {
           const vals = Array.from(eff.byNamespace[ns]).map(toNaturalLabel)
-          if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
-          else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
-          else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
-          else if (ns === '#t') groups.Tags.push(...vals)
+          if (ns === "org.nostr.git.status") groups.Status.push(...vals)
+          else if (ns === "org.nostr.git.type") groups.Type.push(...vals)
+          else if (ns === "org.nostr.git.area") groups.Area.push(...vals)
+          else if (ns === "#t") groups.Tags.push(...vals)
           else groups.Other.push(...vals)
         }
         for (const k of Object.keys(groups)) groups[k] = Array.from(new Set(groups[k]))
       }
       groupsById.set(p.id, groups)
     }
-    return { byId, groupsById }
+    return {byId, groupsById}
   })
 
   // Optional: Patch DAG summary using Repo getter if available
   const patchDag = $derived.by(() => {
     try {
       const rc: any = repoClass as any
-      if (rc && typeof rc.getPatchGraph === 'function') {
+      if (rc && typeof rc.getPatchGraph === "function") {
         const g = rc.getPatchGraph()
         return {
           roots: Array.isArray(g?.roots) ? g.roots : [],
           rootRevisions: Array.isArray(g?.rootRevisions) ? g.rootRevisions : [],
           nodeCount: g?.nodes ? (g.nodes.size ?? 0) : 0,
-          edgesCount: typeof g?.edgesCount === 'number' ? g.edgesCount : undefined,
+          edgesCount: typeof g?.edgesCount === "number" ? g.edgesCount : undefined,
           topParents: Array.isArray(g?.topParents) ? g.topParents : undefined,
-          parentOutDegree: typeof g?.parentOutDegree === 'object' ? g.parentOutDegree as Record<string, number> : undefined,
-          parentChildren: typeof g?.parentChildren === 'object' ? g.parentChildren as Record<string, string[]> : undefined,
+          parentOutDegree:
+            typeof g?.parentOutDegree === "object"
+              ? (g.parentOutDegree as Record<string, number>)
+              : undefined,
+          parentChildren:
+            typeof g?.parentChildren === "object"
+              ? (g.parentChildren as Record<string, string[]>)
+              : undefined,
         }
       }
     } catch {}
     return null
   })
   const labelsByPatch = $derived.by(() => labelsData.byId)
-  const labelGroupsFor = (id: string) => labelsData.groupsById.get(id) || { Status: [], Type: [], Area: [], Tags: [], Other: [] }
+  const labelGroupsFor = (id: string) =>
+    labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
 
   // Persist filters per repo
   let storageKey = ""
   onMount(() => {
     try {
-      storageKey = repoClass.repoEvent ? `patchesFilters:${Address.fromEvent(repoClass.repoEvent!).toString()}` : ""
+      storageKey = repoClass.repoEvent
+        ? `patchesFilters:${Address.fromEvent(repoClass.repoEvent!).toString()}`
+        : ""
     } catch (e) {
       storageKey = ""
     }
@@ -189,8 +214,14 @@
     selectedLabels
     persist()
   })
-  $effect(() => { matchAllLabels; persist() })
-  $effect(() => { labelSearch; persist() })
+  $effect(() => {
+    matchAllLabels
+    persist()
+  })
+  $effect(() => {
+    labelSearch
+    persist()
+  })
 
   const applyFromData = (data: any) => {
     if (!data) return
@@ -227,10 +258,10 @@
         } catch {}
       }
     }
-    window.addEventListener('storage', storageListener)
+    window.addEventListener("storage", storageListener)
   })
   onDestroy(() => {
-    if (storageListener) window.removeEventListener('storage', storageListener)
+    if (storageListener) window.removeEventListener("storage", storageListener)
   })
   const allNormalizedLabels = $derived.by(() =>
     Array.from(new Set(Array.from(labelsByPatch.values()).flat())),
@@ -240,9 +271,11 @@
   const euc = $derived.by(() => {
     try {
       const evt: any = (repoClass as any).repoEvent
-      const t = ((evt?.tags || []) as any[]).find((t: string[]) => t[0] === 'r' && t[2] === 'euc')
+      const t = ((evt?.tags || []) as any[]).find((t: string[]) => t[0] === "r" && t[2] === "euc")
       return t ? t[1] : ""
-    } catch { return "" }
+    } catch {
+      return ""
+    }
   })
 
   // Precompute status for patches to avoid scattered .get() calls
@@ -254,11 +287,15 @@
       let reason: string | undefined
       const r = getResolvedStateFor(p.id)
       if (r) {
-        const mapKind = (s: string) => s === 'open' ? GIT_STATUS_OPEN
-          : s === 'draft' ? GIT_STATUS_DRAFT
-          : s === 'closed' ? GIT_STATUS_CLOSED
-          : /* merged | resolved */ GIT_STATUS_COMPLETE
-        statusStub = { kind: mapKind(r.state) } as unknown as StatusEvent
+        const mapKind = (s: string) =>
+          s === "open"
+            ? GIT_STATUS_OPEN
+            : s === "draft"
+              ? GIT_STATUS_DRAFT
+              : s === "closed"
+                ? GIT_STATUS_CLOSED
+                : /* merged | resolved */ GIT_STATUS_COMPLETE
+        statusStub = {kind: mapKind(r.state)} as unknown as StatusEvent
         reason = undefined
       } else {
         const res = deriveStatus(p.id, p.pubkey, euc).get()
@@ -268,10 +305,14 @@
       byId[p.id] = statusStub
       reasons[p.id] = reason
     }
-    return { byId, reasons }
+    return {byId, reasons}
   })
-  const statusByPatch: Record<string, StatusEvent | undefined> = $derived.by(() => patchStatusData.byId)
-  const statusReasonByPatch: Record<string, string | undefined> = $derived.by(() => patchStatusData.reasons)
+  const statusByPatch: Record<string, StatusEvent | undefined> = $derived.by(
+    () => patchStatusData.byId,
+  )
+  const statusReasonByPatch: Record<string, string | undefined> = $derived.by(
+    () => patchStatusData.reasons,
+  )
 
   const patchList = $derived.by(() => {
     if (repoClass.patches && $statusEvents.length > 0 && $comments) {
@@ -333,7 +374,7 @@
         filteredPatches = filteredPatches.filter(patch => patch.pubkey === authorFilter)
       }
 
-      let sortedPatches = [...filteredPatches]
+      const sortedPatches = [...filteredPatches]
 
       const currentSortBy = sortBy
 
@@ -628,7 +669,14 @@
 
   {#if patchDag}
     <div class="mb-4">
-      <PatchDagSummary nodeCount={patchDag.nodeCount} roots={patchDag.roots} rootRevisions={patchDag.rootRevisions} edgesCount={patchDag.edgesCount} topParents={patchDag.topParents} parentOutDegree={patchDag.parentOutDegree} parentChildren={patchDag.parentChildren} />
+      <PatchDagSummary
+        nodeCount={patchDag.nodeCount}
+        roots={patchDag.roots}
+        rootRevisions={patchDag.rootRevisions}
+        edgesCount={patchDag.edgesCount}
+        topParents={patchDag.topParents}
+        parentOutDegree={patchDag.parentOutDegree}
+        parentChildren={patchDag.parentChildren} />
     </div>
   {/if}
 
@@ -664,37 +712,58 @@
               <!-- Status chip (Repo getter preferred) -->
               {#key statusByPatch[patch.id]}
                 {@const resolved = getResolvedStateFor(patch.id)}
-                {@const badge = (repoClass as unknown as { getMaintainerBadge?: (pubkey: string) => 'owner'|'maintainer'|null }).getMaintainerBadge?.call(repoClass, patch.pubkey)}
+                {@const badge = (
+                  repoClass as unknown as {
+                    getMaintainerBadge?: (pubkey: string) => "owner" | "maintainer" | null
+                  }
+                ).getMaintainerBadge?.call(repoClass, patch.pubkey)}
                 <div class="absolute left-2 top-2 flex items-center gap-2">
-                  <StatusChip state={resolved?.state} kind={statusByPatch[patch.id]?.kind} reason={statusReasonByPatch[patch.id]} />
+                  <StatusChip
+                    state={resolved?.state}
+                    kind={statusByPatch[patch.id]?.kind}
+                    reason={statusReasonByPatch[patch.id]} />
                   <MaintainerBadge role={badge} />
                 </div>
               {/key}
               {#if patch.statusReason}
-                <div class="absolute right-2 top-2 text-[10px] opacity-60" title={patch.statusReason}>ⓘ</div>
+                <div
+                  class="absolute right-2 top-2 text-[10px] opacity-60"
+                  title={patch.statusReason}>
+                  ⓘ
+                </div>
               {/if}
               <!-- Grouped labels below card -->
               {#if labelsByPatch.get(patch.id)?.length}
                 <div class="mt-2 flex flex-wrap gap-2 text-xs">
                   {#if patch.groups.Status.length}
                     <span class="opacity-60">Status:</span>
-                    {#each patch.groups.Status as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                    {#each patch.groups.Status as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
                   {/if}
                   {#if patch.groups.Type.length}
                     <span class="opacity-60">Type:</span>
-                    {#each patch.groups.Type as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                    {#each patch.groups.Type as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
                   {/if}
                   {#if patch.groups.Area.length}
                     <span class="opacity-60">Area:</span>
-                    {#each patch.groups.Area as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                    {#each patch.groups.Area as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
                   {/if}
                   {#if patch.groups.Tags.length}
                     <span class="opacity-60">Tags:</span>
-                    {#each patch.groups.Tags as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                    {#each patch.groups.Tags as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
                   {/if}
                   {#if patch.groups.Other.length}
                     <span class="opacity-60">Other:</span>
-                    {#each patch.groups.Other as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                    {#each patch.groups.Other as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
                   {/if}
                 </div>
               {/if}

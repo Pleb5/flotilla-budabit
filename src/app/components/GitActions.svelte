@@ -13,11 +13,11 @@
   import {nthEq} from "@welshman/lib"
   import {navigating} from "$app/state"
   import {goto} from "$app/navigation"
-  import { nip19 } from "nostr-tools"
-  import type { AddressPointer } from "nostr-tools/nip19"
-  import { canonicalRepoKey, sanitizeRelays } from "@nostr-git/core"
-  import { pushToast } from "@app/toast"
-  import { normalizeRelayUrl } from "@welshman/util"
+  import {nip19} from "nostr-tools"
+  import type {AddressPointer} from "nostr-tools/nip19"
+  import {canonicalRepoKey, sanitizeRelays} from "@nostr-git/core"
+  import {pushToast} from "@app/toast"
+  import {normalizeRelayUrl} from "@welshman/util"
 
   interface Props {
     url: any

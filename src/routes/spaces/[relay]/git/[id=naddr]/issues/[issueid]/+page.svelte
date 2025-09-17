@@ -8,13 +8,7 @@
     type StatusEvent,
   } from "@nostr-git/shared-types"
   import {page} from "$app/stores"
-  import {
-    CircleCheck,
-    CircleDot,
-    FileCode,
-    MessageSquare,
-    SearchX,
-  } from "@lucide/svelte"
+  import {CircleCheck, CircleDot, FileCode, MessageSquare, SearchX} from "@lucide/svelte"
   import markdownit from "markdown-it"
   import {
     Address,
@@ -31,27 +25,17 @@
   import ProfileLink from "@src/app/components/ProfileLink.svelte"
   import {slide} from "svelte/transition"
   import {getContext} from "svelte"
-  import {REPO_RELAYS_KEY} from "@src/app/state.js"
-  import {postComment, postStatus} from "@src/app/commands.js"
-  import {
-    Card,
-    IssueThread,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger
-  } from "@nostr-git/ui"
-  import { normalizeRelayUrl } from "@welshman/util"
-  import {
-    resolveIssueStatus,
-    effectiveLabelsFor
-  } from "@nostr-git/core"
+  import {REPO_RELAYS_KEY} from "@src/app/core/state"
+  import {postComment, postStatus} from "@src/app/core/commands"
+  import {Card, IssueThread, Select, SelectContent, SelectItem, SelectTrigger} from "@nostr-git/ui"
+  import {normalizeRelayUrl} from "@welshman/util"
+  import {resolveIssueStatus, effectiveLabelsFor} from "@nostr-git/core"
   import {
     repoAnnouncements,
     deriveMaintainersForEuc,
-    loadRepoAnnouncements
-  } from "@src/app/state.js"
-  import { onMount } from "svelte"
+    loadRepoAnnouncements,
+  } from "@src/app/core/state"
+  import {onMount} from "svelte"
 
   const {data} = $props()
   const {repoClass} = data
@@ -68,10 +52,16 @@
 
   // Repo EUC lookup via announcements (30617) and derived maintainers
   const repoPubkey = (repoClass as any).repoEvent?.pubkey as string | undefined
-  const repoD = ((repoClass as any).repoEvent?.tags as any[])?.find?.((t: any[]) => t[0] === 'd')?.[1]
-  let repoEuc: string | undefined = $derived.by(() => {
-    const match = $repoAnnouncements?.find?.((evt: any) => evt.pubkey === repoPubkey && (evt.tags as string[][]).some((t: string[]) => t[0] === 'd' && t[1] === repoD))
-    const eucTag = (match as any)?.tags?.find?.((t: any) => t[0] === 'r' && t[2] === 'euc')
+  const repoD = ((repoClass as any).repoEvent?.tags as any[])?.find?.(
+    (t: any[]) => t[0] === "d",
+  )?.[1]
+  const repoEuc: string | undefined = $derived.by(() => {
+    const match = $repoAnnouncements?.find?.(
+      (evt: any) =>
+        evt.pubkey === repoPubkey &&
+        (evt.tags as string[][]).some((t: string[]) => t[0] === "d" && t[1] === repoD),
+    )
+    const eucTag = (match as any)?.tags?.find?.((t: any) => t[0] === "r" && t[2] === "euc")
     return eucTag?.[1]
   })
   let groupMaintainers: Set<string> = $state(new Set<string>())
@@ -79,7 +69,7 @@
     groupMaintainers = new Set()
     if (repoEuc) {
       const store = deriveMaintainersForEuc(repoEuc)
-      const unsub = store.subscribe((s) => {
+      const unsub = store.subscribe(s => {
         groupMaintainers = s || new Set()
       })
       return () => unsub()
@@ -89,7 +79,9 @@
   const threadComments = $derived.by(() => {
     if (repoClass.issues && issue) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [issue.id]}]
-      const relays = (repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+      const relays = (repoClass.relays || [])
+        .map((u: string) => normalizeRelayUrl(u))
+        .filter(Boolean)
       load({relays: relays as string[], filters})
       return deriveEvents(repository, {filters})
     }
@@ -105,35 +97,43 @@
   })
 
   // NIP-32: label events (1985) targeting this issue
-  const getLabelFilter = (): Filter => ({ kinds: [1985], "#e": [issue?.id ?? ""] })
+  const getLabelFilter = (): Filter => ({kinds: [1985], "#e": [issue?.id ?? ""]})
   const labelEvents = $derived.by(() => {
     if (repoClass.issues && issue) {
-      const relays = (repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
-      load({ relays: relays as string[], filters: [getLabelFilter()] })
-      return deriveEvents(repository, { filters: [getLabelFilter()] })
+      const relays = (repoClass.relays || [])
+        .map((u: string) => normalizeRelayUrl(u))
+        .filter(Boolean)
+      load({relays: relays as string[], filters: [getLabelFilter()]})
+      return deriveEvents(repository, {filters: [getLabelFilter()]})
     }
   })
   const labelsNormalized = $derived(() => {
     if (!issue) return [] as string[]
-    const merged = effectiveLabelsFor({ self: issueEvent as any, external: ($labelEvents as any) || [] })
+    const merged = effectiveLabelsFor({
+      self: issueEvent as any,
+      external: ($labelEvents as any) || [],
+    })
     return merged.normalized
   })
 
   // Resolve effective status using precedence rules (maintainers > author > others; kind; recency)
   const resolved = $derived.by(() => {
     if (!$statusEvents || !issue) return undefined
-    const fallbackMaintainers = new Set<string>([...repoClass.maintainers, (repoClass as any).repoEvent?.pubkey].filter(Boolean) as string[])
-    const maintainerSet = (groupMaintainers && groupMaintainers.size > 0) ? groupMaintainers : fallbackMaintainers
+    const fallbackMaintainers = new Set<string>(
+      [...repoClass.maintainers, (repoClass as any).repoEvent?.pubkey].filter(Boolean) as string[],
+    )
+    const maintainerSet =
+      groupMaintainers && groupMaintainers.size > 0 ? groupMaintainers : fallbackMaintainers
     return resolveIssueStatus(
-      { root: (issueEvent as any), comments: [], statuses: ($statusEvents as any) },
+      {root: issueEvent as any, comments: [], statuses: $statusEvents as any},
       issue.author.pubkey,
-      maintainerSet
-    ) as { final: any | undefined; reason: string }
+      maintainerSet,
+    ) as {final: any | undefined; reason: string}
   })
 
   const statusReason = $derived(() => resolved?.reason)
 
-  let status = $derived.by(() => {
+  const status = $derived.by(() => {
     if ($statusEvents) {
       const final = resolved?.final
       return final ? parseStatusEvent(final as StatusEvent) : undefined
@@ -157,7 +157,7 @@
     }
   }
 
-  let statuses = $state(["open", "resolved", "closed", "draft"])
+  const statuses = $state(["open", "resolved", "closed", "draft"])
   let currentStatus = $derived.by(() => {
     if (status) {
       if (status.status === "applied") {
@@ -184,15 +184,24 @@
         rootId: issueId,
         recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
         repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
-        relays: (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean),
+        relays: (repoClass.relays || repoRelays || [])
+          .map((u: string) => normalizeRelayUrl(u))
+          .filter(Boolean),
       })
-      postStatus(statusEvent, (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean))
+      postStatus(
+        statusEvent,
+        (repoClass.relays || repoRelays || [])
+          .map((u: string) => normalizeRelayUrl(u))
+          .filter(Boolean),
+      )
     }
   })
 
   const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onCommentCreated = async (comment: CommentEvent) => {
-    const relays = (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = (repoClass.relays || repoRelays || [])
+      .map((u: string) => normalizeRelayUrl(u))
+      .filter(Boolean)
     await postComment(comment, relays).result
   }
 

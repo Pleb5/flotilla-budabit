@@ -10,7 +10,8 @@ const DEFAULT_TEMPLATES: Record<number, string> = {
 
   1111: "{{#nevent}}{{tags.E}}{{/nevent}}\n{{content}}",
   30617: "Git repository {{tags.name}} hosted at {{{tags.clone}}} by {{#npub}}{{pubkey}}{{/npub}}",
-  30618: "## Git repository state {{tags.d}} hosted at {{tags.clone}} by {{#npub}}{{pubkey}}{{/npub}}",
+  30618:
+    "## Git repository state {{tags.d}} hosted at {{tags.clone}} by {{#npub}}{{pubkey}}{{/npub}}",
   1617: "Patch",
   1621: "Issue: {{tags.subject}}\n{{content}}",
   1623: "```\n{{content}}\n```",
@@ -52,14 +53,13 @@ export function unknownKindFallback(
       ...params,
       tags: tagsToObj(params.tags),
       nevent: () => (txt: string, render: (s: string) => string) => {
-        const hex = render(txt).trim().toLowerCase();
-        return "nostr:" + nip19.neventEncode({ id: hex, relays: [] });
+        const hex = render(txt).trim().toLowerCase()
+        return "nostr:" + nip19.neventEncode({id: hex, relays: []})
       },
       npub: () => (txt: string, render: (s: string) => string) => {
         const hex = render(txt).trim().toLowerCase()
-        return "nostr:" + nip19.npubEncode(hex);
+        return "nostr:" + nip19.npubEncode(hex)
       },
-
     }),
     tags: params.tags,
   }

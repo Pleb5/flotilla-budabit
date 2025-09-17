@@ -17,16 +17,22 @@
   import {pubkey} from "@welshman/app"
   import {getAddressTags} from "@welshman/util"
   import {Router} from "@welshman/router"
-  import { normalizeRelayUrl } from "@welshman/util"
+  import {normalizeRelayUrl} from "@welshman/util"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
   import {NewRepoWizard} from "@nostr-git/ui"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
-  import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core";
-  import { onMount } from "svelte"
-    import { pushToast } from "@src/app/toast"
-  import { repoGroups, deriveRepoRefState, deriveMaintainersForEuc, loadRepoAnnouncements, repoCountsByEuc } from "@app/state"
+  import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/core"
+  import {onMount} from "svelte"
+  import {pushToast} from "@src/app/toast"
+  import {
+    repoGroups,
+    deriveRepoRefState,
+    deriveMaintainersForEuc,
+    loadRepoAnnouncements,
+    repoCountsByEuc,
+  } from "@app/state"
 
   const url = decodeRelay($page.params.relay)
 
@@ -35,8 +41,8 @@
   // Normalize all relay URLs to avoid whitespace/trailing-slash/socket issues
   const bookmarkRelays = Array.from(
     new Set(
-      [url, ...Router.get().FromUser().getUrls()].map(u => normalizeRelayUrl(u)).filter(Boolean)
-    )
+      [url, ...Router.get().FromUser().getUrls()].map(u => normalizeRelayUrl(u)).filter(Boolean),
+    ),
   ) as string[]
 
   const bookmarkFilter = {
@@ -85,21 +91,21 @@
     kinds: [GRASP_SET_KIND],
     authors: [$pubkey!],
     "#d": [DEFAULT_GRASP_SET_ID],
-  };
+  }
 
   const graspServersEvent = _derived(
-    deriveEvents(repository, { filters: [graspServersFilter] }),
+    deriveEvents(repository, {filters: [graspServersFilter]}),
     (events: TrustedEvent[]) => {
       if (events.length === 0) {
-        load({ relays: Router.get().FromUser().getUrls(), filters: [graspServersFilter] });
+        load({relays: Router.get().FromUser().getUrls(), filters: [graspServersFilter]})
       }
-      return events[0];
-    }
-  );
+      return events[0]
+    },
+  )
 
   // Keep a reactive list of saved GRASP servers
   let graspServerUrls = $state<string[]>([])
-  graspServersEvent.subscribe((ev) => {
+  graspServersEvent.subscribe(ev => {
     try {
       graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
     } catch {
@@ -134,7 +140,7 @@
   })
 
   $effect(() => {
-    if ($shouldReloadRepos){
+    if ($shouldReloadRepos) {
       $shouldReloadRepos = false
       load({relays: bookmarkRelays, filters: [bookmarkFilter]})
       loadRepoAnnouncements(bookmarkRelays)
@@ -148,7 +154,7 @@
       // Compute maintainers and refs once per group
       const maintainers = Array.from(deriveMaintainersForEuc(g.euc).get() || [])
       const refs = deriveRepoRefState(g.euc).get() || {}
-      return { euc: g.euc, web: g.web, clone: g.clone, maintainers, refs }
+      return {euc: g.euc, web: g.web, clone: g.clone, maintainers, refs}
     })
   })
 

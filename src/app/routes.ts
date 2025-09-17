@@ -43,11 +43,9 @@ export const makeThreadPath = (url: string, eventId?: string) =>
 export const makeCalendarPath = (url: string, eventId?: string) =>
   makeSpacePath(url, "calendar", eventId)
 
-export const makeJobPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "jobs", eventId)
+export const makeJobPath = (url: string, eventId?: string) => makeSpacePath(url, "jobs", eventId)
 
-export const makeGitPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "git", eventId)
+export const makeGitPath = (url: string, eventId?: string) => makeSpacePath(url, "git", eventId)
 
 export const makeGitRepoPath = (url: string, eventId?: string) =>
   makeSpacePath(url, "git", "repos", eventId)

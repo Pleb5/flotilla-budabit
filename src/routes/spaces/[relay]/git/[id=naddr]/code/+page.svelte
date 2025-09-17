@@ -13,7 +13,7 @@
   const {repoClass} = data
 
   let loading = $state(true)
-  let error: string | null = $state(null)
+  const error: string | null = $state(null)
   let files: Promise<FileEntry[]> = $state(Promise.resolve([]))
   let path = $state<string | undefined>(undefined)
 
@@ -23,7 +23,7 @@
     type: "directory",
   })
 
-  let curDir: FileEntry = $state({
+  const curDir: FileEntry = $state({
     name: "..",
     path: "",
     type: "directory",
@@ -33,21 +33,23 @@
 
   let branchLoadTrigger = $state(0)
 
-  let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> = $state([])
+  let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
+    $state([])
   let loadingRefs = $state(true)
 
   // Load refs using the unified API
   $effect(() => {
     if (repoClass) {
       loadingRefs = true
-      repoClass.getAllRefsWithFallback()
+      repoClass
+        .getAllRefsWithFallback()
         .then(loadedRefs => {
           refs = loadedRefs
           loadingRefs = false
           branchLoadTrigger++ // Trigger reactivity for dependent effects
         })
         .catch((error: Error) => {
-          console.error('Failed to load repository references:', error)
+          console.error("Failed to load repository references:", error)
           pushToast({
             message: "Failed to load branches from git repository: " + error,
             theme: "error",

@@ -16,7 +16,14 @@
     ROOM_ADD_USER,
     ROOM_REMOVE_USER,
   } from "@welshman/util"
-  import {pubkey, publishThunk, getThunkError, joinRoom, leaveRoom, deriveRelay} from "@welshman/app"
+  import {
+    pubkey,
+    publishThunk,
+    getThunkError,
+    joinRoom,
+    leaveRoom,
+    deriveRelay,
+  } from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -227,7 +234,7 @@
 
     whenElementReady(
       () => element,
-      (readyElement) => {
+      readyElement => {
         const feed = makeFeed({
           element: readyElement,
           relays: [url],
@@ -243,7 +250,7 @@
 
         events = feed.events
         cleanup = feed.cleanup
-      }
+      },
     )
   }
 

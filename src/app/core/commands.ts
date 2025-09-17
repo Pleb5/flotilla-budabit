@@ -62,7 +62,12 @@ import {
   NOTIFIER_RELAY,
   userRoomsByUrl,
 } from "@app/state"
-import type {CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent} from "@nostr-git/shared-types"
+import type {
+  CommentEvent,
+  IssueEvent,
+  RepoAnnouncementEvent,
+  StatusEvent,
+} from "@nostr-git/shared-types"
 
 // Utils
 
@@ -455,7 +460,9 @@ export const postComment = (comment: CommentEvent, relays: string[]) => {
 }
 
 export const postIssue = (issue: IssueEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
+  const merged = Array.from(
+    new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]),
+  )
   return publishThunk({
     event: issue,
     relays: merged,
@@ -463,7 +470,9 @@ export const postIssue = (issue: IssueEvent, relays: string[]) => {
 }
 
 export const postStatus = (status: StatusEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
+  const merged = Array.from(
+    new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]),
+  )
   return publishThunk({
     relays: merged,
     event: status,

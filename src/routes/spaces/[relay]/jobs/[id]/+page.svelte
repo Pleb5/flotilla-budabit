@@ -16,7 +16,7 @@
   import {setChecked} from "@app/notifications"
   import JobItem from "@src/app/components/JobItem.svelte"
   import Divider from "@src/lib/components/Divider.svelte"
-  import {makeFeed} from "@src/app/requests"
+  import {makeFeed} from "@src/app/core/requests"
   import {whenElementReady} from "@src/lib/html"
   import {readable, writable, type Readable} from "svelte/store"
   import PageContent from "@src/lib/components/PageContent.svelte"
@@ -56,7 +56,7 @@
   onMount(() => {
     whenElementReady(
       () => element,
-      (readyElement) => {
+      readyElement => {
         ;({events, cleanup} = makeFeed({
           element: readyElement,
           relays: [url],
@@ -67,7 +67,7 @@
             loadingEvents = false
           },
         }))
-      }
+      },
     )
 
     return () => {}

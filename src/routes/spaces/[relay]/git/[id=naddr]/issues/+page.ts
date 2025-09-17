@@ -11,9 +11,9 @@ import {
 } from "@welshman/util"
 import {isCommentEvent, type CommentEvent, type IssueEvent} from "@nostr-git/shared-types"
 import {derived} from "svelte/store"
-import type { PageLoad } from "./$types"
+import type {PageLoad} from "./$types"
 
-export const load: PageLoad = async ({ parent }) => {
+export const load: PageLoad = async ({parent}) => {
   const {repoClass} = await parent()
   const {deriveEvents} = await import("@welshman/store")
   const {repository} = await import("@welshman/app")

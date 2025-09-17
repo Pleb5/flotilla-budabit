@@ -98,7 +98,7 @@
     return title
   })
 
-  let titleToPost = $derived(title + (jobOrGitIssueTitle ? "(" + jobOrGitIssueTitle + ")" : ""))
+  const titleToPost = $derived(title + (jobOrGitIssueTitle ? "(" + jobOrGitIssueTitle + ")" : ""))
 </script>
 
 <form class="column gap-4" onsubmit={preventDefault(submit)}>

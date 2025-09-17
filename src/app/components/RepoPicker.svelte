@@ -17,7 +17,15 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import FieldInline from "@src/lib/components/FieldInline.svelte"
-  import {makeFeedController, createSearch, publishThunk, repository, tracker, pubkey, signer} from "@welshman/app"
+  import {
+    makeFeedController,
+    createSearch,
+    publishThunk,
+    repository,
+    tracker,
+    pubkey,
+    signer,
+  } from "@welshman/app"
   import {feedFromFilter, makeIntersectionFeed, makeWOTFeed} from "@welshman/feeds"
   import {sleep} from "@welshman/lib"
   import {createScroller, isMobile, type Scroller} from "@src/lib/html"
@@ -157,26 +165,20 @@
     const atagList: string[][] = []
 
     for (const {address, relayHint} of localSelectedReposState) {
-      atagList.push(["a", address, relayHint || ''])
+      atagList.push(["a", address, relayHint || ""])
     }
 
-    const eventToPublish = makeEvent(
-      NAMED_BOOKMARKS,
-      {
-        tags: [
-          ["d", GIT_REPO_BOOKMARK_DTAG],
-          ...atagList
-        ],
-      }
-    )
+    const eventToPublish = makeEvent(NAMED_BOOKMARKS, {
+      tags: [["d", GIT_REPO_BOOKMARK_DTAG], ...atagList],
+    })
 
     console.log("eventToPublish", eventToPublish)
 
     await publishThunk({
       event: eventToPublish,
       relays: [url ?? "", ...Router.get().FromUser().getUrls()],
-    }).result.then((value) => {
-      console.log('Publish thunk result:', value)
+    }).result.then(value => {
+      console.log("Publish thunk result:", value)
     })
 
     submitting = false
@@ -307,15 +309,8 @@
       <Icon icon="alt-arrow-left" />
       Go back
     </Button>
-    <Button 
-      type="submit" 
-      class="btn btn-primary"
-      disabled={submitting}>
-      <Spinner 
-        loading={submitting}
-        minHeight={"min-h-6"}>
-        Done
-      </Spinner>
+    <Button type="submit" class="btn btn-primary" disabled={submitting}>
+      <Spinner loading={submitting} minHeight={"min-h-6"}>Done</Spinner>
     </Button>
   </ModalFooter>
 </form>

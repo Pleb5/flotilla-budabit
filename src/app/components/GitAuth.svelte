@@ -12,7 +12,7 @@
 
   const {tokenKey}: Props = $props()
 
-  import { loadTokensFromStorage, saveTokensToStorage, type TokenEntry } from "$lib/utils/tokenLoader"
+  import {loadTokensFromStorage, saveTokensToStorage, type TokenEntry} from "$lib/utils/tokenLoader"
 
   async function loadTokens(): Promise<TokenEntry[]> {
     return await loadTokensFromStorage(tokenKey)
@@ -40,7 +40,7 @@
           loadedTokens.forEach(token => tokensStore.push(token))
         }
       } catch (error) {
-        console.warn('GitAuth: Failed to load tokens as fallback:', error)
+        console.warn("GitAuth: Failed to load tokens as fallback:", error)
       }
     }
   })
@@ -86,9 +86,9 @@
       <table class="w-full table-fixed">
         <thead>
           <tr>
-            <th class="p-2 text-left w-1/3">Host</th>
-            <th class="p-2 text-left w-1/3">Token</th>
-            <th class="p-2 text-right w-1/3">Actions</th>
+            <th class="w-1/3 p-2 text-left">Host</th>
+            <th class="w-1/3 p-2 text-left">Token</th>
+            <th class="w-1/3 p-2 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -97,8 +97,9 @@
               <td class="p-2 text-left">{t.host}</td>
               <td class="p-2 text-left">{mask(t.token)}</td>
               <td class="p-2 text-right">
-                <div class="flex gap-2 justify-end">
-                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}><Icon icon="pen" /></Button>
+                <div class="flex justify-end gap-2">
+                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}
+                    ><Icon icon="pen" /></Button>
                   <Button class="btn btn-error btn-sm" onclick={() => del(t.host)}
                     ><Icon icon="trash-bin-2" /></Button>
                 </div>

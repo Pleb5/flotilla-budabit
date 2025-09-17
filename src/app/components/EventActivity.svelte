@@ -8,7 +8,7 @@
   import {repository} from "@welshman/app"
   import {notifications} from "@app/util/notifications"
   import Icon from "@lib/components/Icon.svelte"
-  import { normalizeRelayUrl } from "@welshman/util"
+  import {normalizeRelayUrl} from "@welshman/util"
 
   const {url, path, event}: {url: string; path: string; event: TrustedEvent} = $props()
 

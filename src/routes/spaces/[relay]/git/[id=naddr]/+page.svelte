@@ -28,11 +28,11 @@
   import {nip19} from "nostr-tools"
   import {clip, pushToast} from "@app/toast"
 
-  let {data}: LayoutProps = $props()
+  const {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
 
   // Progressive loading states - show immediate content right away
-  let initialLoading = $state(false)
+  const initialLoading = $state(false)
   let readmeLoading = $state(true)
   let commitLoading = $state(true)
   let lastCommit = $state<any>(null)
@@ -104,7 +104,7 @@
     relays: $repoRelays,
     cloneUrls: (() => {
       const rep: any = (repoClass as any).repo
-      let urls = [...(rep?.clone || [])]
+      const urls = [...(rep?.clone || [])]
       if (!urls.find(u => u.startsWith("nostr://"))) {
         const def = buildDefaultNgitCloneUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -113,7 +113,7 @@
     })(),
     webUrls: (() => {
       const rep: any = (repoClass as any).repo
-      let urls = [...(rep?.web || [])]
+      const urls = [...(rep?.web || [])]
       if (!urls.find(u => u.startsWith("https://gitworkshop.dev"))) {
         const def = buildDefaultViewRepoUrl()
         if (def && !urls.includes(def)) urls.push(def)

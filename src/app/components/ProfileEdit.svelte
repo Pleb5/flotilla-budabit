@@ -24,25 +24,33 @@
 
   const back = () => history.back()
 
-  const onsubmit = ({profile, shouldBroadcast, githubIdentity}: {profile: Profile; shouldBroadcast: boolean; githubIdentity?: {username: string; proof: string}}) => {
+  const onsubmit = ({
+    profile,
+    shouldBroadcast,
+    githubIdentity,
+  }: {
+    profile: Profile
+    shouldBroadcast: boolean
+    githubIdentity?: {username: string; proof: string}
+  }) => {
     const router = Router.get()
     const template = isPublishedProfile(profile) ? editProfile(profile) : createProfile(profile)
     const scenarios = [router.FromRelays(getMembershipUrls($userMembership))]
-    
+
     // Handle NIP-39 GitHub identity
     if (githubIdentity?.username && githubIdentity?.proof) {
       // Remove existing GitHub identity tags
-      template.tags = template.tags.filter(tag => 
-        !(tag[0] === 'i' && tag[1]?.startsWith('github:'))
+      template.tags = template.tags.filter(
+        tag => !(tag[0] === "i" && tag[1]?.startsWith("github:")),
       )
-      
+
       // Add new GitHub identity tag
-      const githubTag = ['i', `github:${githubIdentity.username}`, githubIdentity.proof]
+      const githubTag = ["i", `github:${githubIdentity.username}`, githubIdentity.proof]
       template.tags.push(githubTag)
     } else {
       // Remove GitHub identity tags if no identity provided
-      template.tags = template.tags.filter(tag => 
-        !(tag[0] === 'i' && tag[1]?.startsWith('github:'))
+      template.tags = template.tags.filter(
+        tag => !(tag[0] === "i" && tag[1]?.startsWith("github:")),
       )
     }
 

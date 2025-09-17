@@ -13,20 +13,20 @@
   const confirm = async () => {
     try {
       await repoClass.reset()
-      
+
       pushToast({
         message: "Repository reset complete - local state now matches remote",
         timeout: 4000,
       })
-      
+
       clearModals()
     } catch (error) {
       pushToast({
         message: `Reset failed: ${error}`,
         timeout: 6000,
-        theme: "error"
+        theme: "error",
       })
-      
+
       clearModals()
     }
   }

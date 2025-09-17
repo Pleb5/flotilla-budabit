@@ -35,7 +35,7 @@
   const filters = [{kinds: [COMMENT], "#E": [id]}]
   const replies = deriveEvents(repository, {filters})
 
-  let element: HTMLElement | undefined = $state()
+  const element: HTMLElement | undefined = $state()
 
   const back = () => history.back()
 

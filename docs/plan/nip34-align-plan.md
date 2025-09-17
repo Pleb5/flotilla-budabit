@@ -83,4 +83,3 @@ This plan proposes concrete edits to align Budabit/Flotilla with the published a
   - Show grouped repos by `r:euc`; fold duplicate facets.
 - Phase 3: Performance
   - Add caching to repo state merge; optimize redundant subscriptions.
-

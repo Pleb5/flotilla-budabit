@@ -1,10 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {
-    Address,
-    getTagValue,
-    type Filter,
-  } from "@welshman/util"
+  import {Address, getTagValue, type Filter} from "@welshman/util"
   import {GIT_REPO} from "@src/lib/util"
   import {repository, tracker} from "@welshman/app"
   import {fly} from "@lib/transition"
@@ -94,7 +90,12 @@
     {:else}
       {#each repos! as repo (repo.repo.id)}
         <div in:fly>
-          <GitItem {url} event={repo.repo} showActivity={false} showIssues={false} showActions={true}/>
+          <GitItem
+            {url}
+            event={repo.repo}
+            showActivity={false}
+            showIssues={false}
+            showActions={true} />
         </div>
       {/each}
     {/if}

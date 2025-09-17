@@ -50,10 +50,8 @@
       By using {PLATFORM_NAME}, you consent to the rules of the club:
     </p>
     <ul class="list-decimal p-4 pt-0">
-      <li>No shitcoinery and other scammy/spammy behavior will be tolerated
-      </li>
-      <li>Keep it relevant and focused: Inspire and get inspired. Be a signal rather than noise
-      </li>
+      <li>No shitcoinery and other scammy/spammy behavior will be tolerated</li>
+      <li>Keep it relevant and focused: Inspire and get inspired. Be a signal rather than noise</li>
     </ul>
   </div>
 </Dialog>
