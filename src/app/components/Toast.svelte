@@ -3,7 +3,12 @@
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
-  import {toast, popToast} from "@app/toast"
+  import {toast, popToast} from "@app/util/toast"
+
+  const onActionClick = () => {
+    $toast!.action!.onclick()
+    popToast($toast!.id)
+  }
 </script>
 
 {#if $toast}
@@ -16,8 +21,18 @@
         class:bg-base-100={theme === "info"}
         class:text-base-content={theme === "info"}
         class:alert-error={theme === "error"}>
-        <p class="welshman-content-error">
-          {@html renderAsHtml(parse({content: $toast.message}))}
+        <p class:welshman-content-error={theme === "error"}>
+          {#if $toast.message}
+            {@html renderAsHtml(parse({content: $toast.message}))}
+            {#if $toast.action}
+              <Button class="cursor-pointer underline" onclick={onActionClick}>
+                {$toast.action.message}
+              </Button>
+            {/if}
+          {:else if $toast.children}
+            {@const {component: Component, props} = $toast?.children || {}}
+            <Component toast={$toast} {...props} />
+          {/if}
         </p>
         <Button class="flex items-center opacity-75" onclick={() => popToast($toast.id)}>
           <Icon icon="close-circle" />

@@ -1,6 +1,6 @@
 import {derived} from "svelte/store"
-import {synced, throttled} from "@welshman/store"
-import {pubkey} from "@welshman/app"
+import {synced, localStorageProvider, throttled} from "@welshman/store"
+import {pubkey, relaysByUrl} from "@welshman/app"
 import {prop, spec, identity, now, groupBy} from "@welshman/lib"
 import type {TrustedEvent} from "@welshman/util"
 import {EVENT_TIME, MESSAGE, THREAD, COMMENT, getTagValue} from "@welshman/util"
@@ -11,12 +11,16 @@ import {
   makeCalendarPath,
   makeSpaceChatPath,
   makeRoomPath,
-} from "@app/routes"
-import {chats, getUrlsForEvent, userRoomsByUrl, repositoryStore} from "@app/state"
+} from "@app/util/routes"
+import {chats, hasNip29, getUrlsForEvent, userRoomsByUrl, repositoryStore} from "@app/core/state"
 
 // Checked state
 
-export const checked = synced<Record<string, number>>("checked", {})
+export const checked = synced<Record<string, number>>({
+  key: "checked",
+  defaultValue: {},
+  storage: localStorageProvider,
+})
 
 export const deriveChecked = (key: string) => derived(checked, prop(key))
 
@@ -27,9 +31,12 @@ export const setChecked = (key: string) => checked.update(state => ({...state, [
 export const notifications = derived(
   throttled(
     1000,
-    derived([pubkey, checked, chats, userRoomsByUrl, repositoryStore, getUrlsForEvent], identity),
+    derived(
+      [pubkey, checked, chats, userRoomsByUrl, repositoryStore, getUrlsForEvent, relaysByUrl],
+      identity,
+    ),
   ),
-  ([$pubkey, $checked, $chats, $userRoomsByUrl, $repository, $getUrlsForEvent]) => {
+  ([$pubkey, $checked, $chats, $userRoomsByUrl, $repository, $getUrlsForEvent, $relaysByUrl]) => {
     const hasNotification = (path: string, latestEvent: TrustedEvent | undefined) => {
       if (!latestEvent || latestEvent.pubkey === $pubkey) {
         return false
@@ -122,16 +129,24 @@ export const notifications = derived(
         }
       }
 
-      for (const room of rooms) {
-        const roomPath = makeRoomPath(url, room)
-        const latestEvent = allMessageEvents.find(
-          e =>
-            $getUrlsForEvent(e.id).includes(url) && e.tags.find(t => t[0] === "h" && t[1] === room),
-        )
+      if (hasNip29($relaysByUrl.get(url))) {
+        for (const room of rooms) {
+          const roomPath = makeRoomPath(url, room)
+          const latestEvent = allMessageEvents.find(
+            e =>
+              $getUrlsForEvent(e.id).includes(url) &&
+              e.tags.find(t => t[0] === "h" && t[1] === room),
+          )
 
-        if (hasNotification(roomPath, latestEvent)) {
+          if (hasNotification(roomPath, latestEvent)) {
+            paths.add(spacePath)
+            paths.add(roomPath)
+          }
+        }
+      } else {
+        if (hasNotification(messagesPath, messagesEvents[0])) {
           paths.add(spacePath)
-          paths.add(roomPath)
+          paths.add(messagesPath)
         }
       }
     }

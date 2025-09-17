@@ -4,7 +4,7 @@
   import {sendWrapped} from "@welshman/app"
   import Icon from "@lib/components/Icon.svelte"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
-  import {makeReaction} from "@app/commands"
+  import {makeReaction} from "@app/core/commands"
 
   interface Props {
     event: TrustedEvent
@@ -14,7 +14,7 @@
   const {event, pubkeys}: Props = $props()
 
   const onEmoji = (emoji: NativeEmoji) =>
-    sendWrapped({template: makeReaction({event, content: emoji.unicode}), pubkeys})
+    sendWrapped({template: makeReaction({event, content: emoji.unicode, protect: false}), pubkeys})
 </script>
 
 <EmojiButton {onEmoji} class="btn join-item btn-xs">

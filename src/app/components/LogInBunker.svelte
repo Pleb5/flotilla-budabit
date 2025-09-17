@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {onMount, onDestroy} from "svelte"
   import type {Nip46ResponseWithResult} from "@welshman/signer"
   import {Nip46Broker, makeSecret} from "@welshman/signer"
   import {loginWithNip01, loginWithNip46} from "@welshman/app"
@@ -8,17 +9,24 @@
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import BunkerConnect, {BunkerConnectController} from "@app/components/BunkerConnect.svelte"
+  import BunkerConnect from "@app/components/BunkerConnect.svelte"
   import BunkerUrl from "@app/components/BunkerUrl.svelte"
-  import {loadUserData} from "@app/requests"
-  import {clearModals} from "@app/modal"
-  import {setChecked} from "@app/notifications"
-  import {pushToast} from "@app/toast"
-  import {SIGNER_RELAYS, NIP46_PERMS} from "@app/state"
+  import {Nip46Controller} from "@app/util/nip46"
+  import {loadUserData} from "@app/core/requests"
+  import {clearModals} from "@app/util/modal"
+  import {setChecked} from "@app/util/notifications"
+  import {pushToast} from "@app/util/toast"
+  import {SIGNER_RELAYS, NIP46_PERMS} from "@app/core/state"
 
-  const back = () => history.back()
+  const back = () => {
+    if (mode === "connect") {
+      selectBunker()
+    } else {
+      history.back()
+    }
+  }
 
-  const controller = new BunkerConnectController({
+  const controller = new Nip46Controller({
     onNostrConnect: async (response: Nip46ResponseWithResult) => {
       const pubkey = await controller.broker.getPublicKey()
 
@@ -30,21 +38,23 @@
     },
   })
 
+  const {loading, bunker} = controller
+
   const onSubmit = async () => {
-    if (controller.loading) return
-
-    const {signerPubkey, connectSecret, relays} = Nip46Broker.parseBunkerUrl(controller.bunker)
-
-    if (!signerPubkey || relays.length === 0) {
-      return pushToast({
-        theme: "error",
-        message: "Sorry, it looks like that's an invalid bunker link.",
-      })
-    }
-
-    controller.loading = true
+    if ($loading) return
 
     try {
+      const {signerPubkey, connectSecret, relays} = Nip46Broker.parseBunkerUrl($bunker)
+
+      if (!signerPubkey || relays.length === 0) {
+        return pushToast({
+          theme: "error",
+          message: "Sorry, it looks like that's an invalid bunker link.",
+        })
+      }
+
+      controller.loading.set(true)
+
       const {clientSecret} = controller
       const broker = new Nip46Broker({relays, clientSecret, signerPubkey})
       const result = await broker.connect(connectSecret, NIP46_PERMS)
@@ -64,43 +74,73 @@
           message: "Something went wrong, please try again!",
         })
       }
+    } catch (e) {
+      console.error(e)
+
+      return pushToast({
+        theme: "error",
+        message: "Something went wrong, please try again!",
+      })
     } finally {
-      controller.loading = false
+      controller.loading.set(false)
     }
 
     clearModals()
   }
 
+  const selectConnect = () => {
+    mode = "connect"
+  }
+
+  const selectBunker = () => {
+    mode = "bunker"
+  }
+
+  let mode: string = $state("bunker")
+
   $effect(() => {
     // For testing and for play store reviewers
-    if (controller.bunker === "reviewkey") {
+    if ($bunker === "reviewkey") {
       loginWithNip01(makeSecret())
     }
+  })
+
+  onMount(() => {
+    controller.start()
+  })
+
+  onDestroy(() => {
+    controller.stop()
   })
 </script>
 
 <form class="column gap-4" onsubmit={preventDefault(onSubmit)}>
   <ModalHeader>
     {#snippet title()}
-      <div>Log In</div>
+      <div>Log In with a Signer</div>
     {/snippet}
     {#snippet info()}
-      <div>Connect your signer by scanning the QR code below or pasting a bunker link.</div>
+      <div>Using a remote signer app helps you keep your keys safe.</div>
     {/snippet}
   </ModalHeader>
-  <BunkerConnect {controller} />
-  <BunkerUrl loading={controller.loading} bind:bunker={controller.bunker} />
+  <div class:hidden={mode !== "bunker"}></div>
+  {#if mode === "connect"}
+    <BunkerConnect {controller} />
+  {:else}
+    <BunkerUrl {controller} />
+    <Button class="btn {$bunker ? 'btn-neutral' : 'btn-primary'}" onclick={selectConnect}
+      >Log in with a QR code instead</Button>
+  {/if}
   <ModalFooter>
-    <Button class="btn btn-link" onclick={back} disabled={controller.loading}>
+    <Button class="btn btn-link" onclick={back} disabled={$loading}>
       <Icon icon="alt-arrow-left" />
       Go back
     </Button>
-    <Button
-      type="submit"
-      class="btn btn-primary"
-      disabled={controller.loading || !controller.bunker}>
-      <Spinner loading={controller.loading}>Next</Spinner>
-      <Icon icon="alt-arrow-right" />
-    </Button>
+    {#if mode === "bunker"}
+      <Button type="submit" class="btn btn-primary" disabled={$loading || !$bunker}>
+        <Spinner loading={$loading}>Next</Spinner>
+        <Icon icon="alt-arrow-right" />
+      </Button>
+    {/if}
   </ModalFooter>
 </form>

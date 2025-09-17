@@ -7,8 +7,8 @@
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import LogOut from "@app/components/LogOut.svelte"
-  import {pushModal} from "@app/modal"
-  import {theme} from "@app/theme"
+  import {pushModal} from "@app/util/modal"
+  import {theme} from "@app/util/theme"
 
   type Props = {
     children?: Snippet
@@ -26,6 +26,11 @@
     <div in:fly|local>
       <SecondaryNavItem href="/settings/profile">
         <Icon icon="user-circle" /> Profile
+      </SecondaryNavItem>
+    </div>
+    <div in:fly|local>
+      <SecondaryNavItem href="/settings/wallet">
+        <Icon icon="wallet" /> Wallet
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 50}}>

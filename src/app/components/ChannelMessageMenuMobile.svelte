@@ -5,10 +5,12 @@
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import EmojiPicker from "@lib/components/EmojiPicker.svelte"
+  import ZapButton from "@app/components/ZapButton.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
-  import {publishReaction} from "@app/commands"
-  import {pushModal} from "@app/modal"
+  import {ENABLE_ZAPS} from "@app/core/state"
+  import {publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {pushModal} from "@app/util/modal"
 
   type Props = {
     url: string
@@ -18,9 +20,16 @@
 
   const {url, event, reply}: Props = $props()
 
-  const onEmoji = ((event: TrustedEvent, url: string, emoji: NativeEmoji) => {
+  const shouldProtect = canEnforceNip70(url)
+
+  const onEmoji = (async (event: TrustedEvent, url: string, emoji: NativeEmoji) => {
     history.back()
-    publishReaction({event, relays: [url], content: emoji.unicode})
+    publishReaction({
+      event,
+      relays: [url],
+      content: emoji.unicode,
+      protect: await shouldProtect,
+    })
   }).bind(undefined, event, url)
 
   const showEmojiPicker = () => pushModal(EmojiPicker, {onClick: onEmoji}, {replaceState: true})
@@ -40,6 +49,12 @@
     <Icon size={4} icon="smile-circle" />
     Send Reaction
   </Button>
+  {#if ENABLE_ZAPS}
+    <ZapButton replaceState {url} {event} class="btn btn-secondary w-full">
+      <Icon size={4} icon="bolt" />
+      Send Zap
+    </ZapButton>
+  {/if}
   <Button class="btn btn-neutral w-full" onclick={sendReply}>
     <Icon size={4} icon="reply" />
     Send Reply

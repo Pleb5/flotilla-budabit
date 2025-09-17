@@ -6,30 +6,45 @@
   import Icon from "@lib/components/Icon.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
   import Button from "@lib/components/Button.svelte"
+  import ZapButton from "@app/components/ZapButton.svelte"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
   import EventMenu from "@app/components/EventMenu.svelte"
-  import {publishReaction} from "@app/commands"
+  import {ENABLE_ZAPS} from "@app/core/state"
+  import {publishReaction, canEnforceNip70} from "@app/core/commands"
 
   type Props = {
     url: string
     noun: string
     event: TrustedEvent
+    hideZap?: boolean
     customActions?: Snippet
   }
 
-  const {url, noun, event, customActions}: Props = $props()
+  const {url, noun, event, hideZap, customActions}: Props = $props()
+
+  const shouldProtect = canEnforceNip70(url)
 
   const showPopover = () => popover?.show()
 
   const hidePopover = () => popover?.hide()
 
-  const onEmoji = (emoji: NativeEmoji) =>
-    publishReaction({event, content: emoji.unicode, relays: [url]})
+  const onEmoji = async (emoji: NativeEmoji) =>
+    publishReaction({
+      event,
+      content: emoji.unicode,
+      relays: [url],
+      protect: await shouldProtect,
+    })
 
   let popover: Instance | undefined = $state()
 </script>
 
 <Button class="join rounded-full">
+  {#if ENABLE_ZAPS && !hideZap}
+    <ZapButton {url} {event} class="btn join-item btn-neutral btn-xs">
+      <Icon icon="bolt" size={4} />
+    </ZapButton>
+  {/if}
   <EmojiButton {onEmoji} class="btn join-item btn-neutral btn-xs">
     <Icon icon="smile-circle" size={4} />
   </EmojiButton>

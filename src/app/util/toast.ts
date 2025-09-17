@@ -1,11 +1,20 @@
+import type {Component} from "svelte"
 import {writable} from "svelte/store"
 import {randomId} from "@welshman/lib"
 import {copyToClipboard} from "@lib/html"
 
 export type ToastParams = {
-  message: string
+  message?: string
   timeout?: number
   theme?: "error"
+  children?: {
+    component: Component<any>
+    props: Record<string, any>
+  }
+  action?: {
+    message: string
+    onclick: () => void
+  }
 }
 
 export type Toast = ToastParams & {
