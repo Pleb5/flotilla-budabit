@@ -14,9 +14,9 @@
   import ChannelMessageEmojiButton from "@app/components/ChannelMessageEmojiButton.svelte"
   import ChannelMessageMenuButton from "@app/components/ChannelMessageMenuButton.svelte"
   import ChannelMessageMenuMobile from "@app/components/ChannelMessageMenuMobile.svelte"
-  import {colors} from "@app/state"
-  import {publishDelete, publishReaction} from "@app/commands"
-  import {pushModal} from "@app/modal"
+  import {colors} from "@app/core/state"
+  import {publishDelete, publishReaction} from "@app/core/commands"
+  import {pushModal} from "@app/util/modal"
 
   interface Props {
     url: string

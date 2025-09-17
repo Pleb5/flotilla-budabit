@@ -18,7 +18,7 @@ export const load: LayoutLoad = async ({params}) => {
   const {id, relay} = params
 
   // Dynamic imports to avoid SSR issues
-  const {decodeRelay, INDEXER_RELAYS} = await import("@app/state")
+  const {decodeRelay, INDEXER_RELAYS} = await import("@app/core/state")
   const {deriveEvents} = await import("@welshman/store")
   const {repository} = await import("@welshman/app")
   const {load} = await import("@welshman/net")

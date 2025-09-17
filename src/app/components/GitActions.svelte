@@ -5,7 +5,7 @@
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActions from "@app/components/EventActions.svelte"
-  import {publishDelete, publishReaction} from "@app/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeGitPath} from "@app/routes"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -16,7 +16,7 @@
   import {nip19} from "nostr-tools"
   import type {AddressPointer} from "nostr-tools/nip19"
   import {canonicalRepoKey, sanitizeRelays} from "@nostr-git/core"
-  import {pushToast} from "@app/toast"
+  import {pushToast} from "@app/util/toast"
   import {normalizeRelayUrl} from "@welshman/util"
 
   interface Props {

@@ -7,7 +7,7 @@
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileCircles from "@app/components/ProfileCircles.svelte"
   import {goToEvent} from "@app/routes"
-  import {displayChannel} from "@app/state"
+  import {displayChannel} from "@app/core/state"
 
   type Props = {
     url: string

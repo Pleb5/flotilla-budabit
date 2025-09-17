@@ -1,7 +1,3 @@
-import {synced, localStorageProvider} from "@welshman/store"
+import {synced} from "@welshman/store"
 
-export const theme = synced({
-  key: "theme",
-  defaultValue: "dark",
-  storage: localStorageProvider,
-})
+export const theme = synced("theme", "dark")

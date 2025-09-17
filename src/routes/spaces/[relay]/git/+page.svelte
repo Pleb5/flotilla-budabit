@@ -11,8 +11,8 @@
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import RepoPicker from "@app/components/RepoPicker.svelte"
-  import {decodeRelay, shouldReloadRepos} from "@app/state"
-  import {pushModal} from "@app/modal"
+  import {decodeRelay, shouldReloadRepos} from "@app/core/state"
+  import {pushModal} from "@app/util/modal"
   import {load} from "@welshman/net"
   import {pubkey} from "@welshman/app"
   import {getAddressTags} from "@welshman/util"
@@ -25,14 +25,14 @@
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
   import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/core"
   import {onMount} from "svelte"
-  import {pushToast} from "@src/app/toast"
+  import {pushToast} from "@src/app/util/toast"
   import {
     repoGroups,
     deriveRepoRefState,
     deriveMaintainersForEuc,
     loadRepoAnnouncements,
     repoCountsByEuc,
-  } from "@app/state"
+  } from "@app/core/state"
 
   const url = decodeRelay($page.params.relay)
 

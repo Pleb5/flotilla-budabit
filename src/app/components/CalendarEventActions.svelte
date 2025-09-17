@@ -8,7 +8,7 @@
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import CalendarEventEdit from "@app/components/CalendarEventEdit.svelte"
-  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeCalendarPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
 
@@ -22,17 +22,15 @@
     showActivity?: boolean
   } = $props()
 
-  const shouldProtect = canEnforceNip70(url)
-
   const path = makeCalendarPath(url, event.id)
 
   const editEvent = () => pushModal(CalendarEventEdit, {url, event})
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishDelete({relays: [url], event, protect: await shouldProtect})
+    publishDelete({relays: [url], event})
 
   const createReaction = async (template: EventContent) =>
-    publishReaction({...template, event, relays: [url], protect: await shouldProtect})
+    publishReaction({...template, event, relays: [url]})
 </script>
 
 <div class="flex flex-wrap items-center justify-between gap-2">

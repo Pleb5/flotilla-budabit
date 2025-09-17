@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {nwc} from "@getalby/sdk"
+  // Use dynamic import for @getalby/sdk to avoid SSR bundling issues
   import {LOCALE} from "@welshman/lib"
   import {displayRelayUrl, fromMsats} from "@welshman/util"
   import {session} from "@welshman/app"
@@ -8,7 +8,13 @@
   import WalletConnect from "@app/components/WalletConnect.svelte"
   import WalletDisconnect from "@app/components/WalletDisconnect.svelte"
   import {pushModal} from "@app/util/modal"
-  import {getWebLn} from "@app/core/commands"
+  const getWebLn = (): any => (typeof window !== "undefined" ? (window as any).webln : undefined)
+
+  const getBalanceNwc = async (nostrWalletConnectUrl: string) => {
+    const {nwc} = await import(/* @vite-ignore */ "@getalby/sdk")
+    const client = new nwc.NWCClient({nostrWalletConnectUrl})
+    return client.getBalance()
+  }
 
   const connect = () => pushModal(WalletConnect)
 
@@ -65,7 +71,7 @@
             </p>
             <p class="flex gap-2 whitespace-nowrap">
               Balance:
-              {#await new nwc.NWCClient({nostrWalletConnectUrl}).getBalance()}
+              {#await getBalanceNwc(nostrWalletConnectUrl)}
                 <span class="loading loading-spinner loading-sm"></span>
               {:then res}
                 {new Intl.NumberFormat(LOCALE).format(fromMsats(res?.balance || 0))}

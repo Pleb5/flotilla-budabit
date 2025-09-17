@@ -18,13 +18,13 @@
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import ChannelCompose from "@app/components/ChannelCompose.svelte"
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
-  import {userSettingValues, decodeRelay, getEventsForUrl} from "@app/state"
-  import {setChecked, checked} from "@app/notifications"
-  import {prependParent} from "@app/commands"
-  import {PROTECTED} from "@app/state"
-  import {makeFeed} from "@app/requests"
+  import {userSettingValues, decodeRelay, getEventsForUrl} from "@app/core/state"
+  import {setChecked, checked} from "@app/util/notifications"
+  import {prependParent} from "@app/core/commands"
+  import {PROTECTED} from "@app/core/state"
+  import {makeFeed} from "@app/core/requests"
   import {whenElementReady} from "@src/lib/html"
-  import {popKey} from "@app/implicit"
+  import {popKey} from "@lib/implicit"
 
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]

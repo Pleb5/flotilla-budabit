@@ -95,6 +95,7 @@
   import Widget from "@assets/icons/Widget.svg?dataurl"
   import WidgetAdd from "@assets/icons/Widget Add.svg?dataurl"
   import WiFiRouterRound from "@assets/icons/Wi-Fi Router Round.svg?dataurl"
+  import QRCode from "@assets/icons/QR Code.svg?dataurl"
 
   const {
     icon,
@@ -197,6 +198,7 @@
     widget: Widget,
     "widget-add": WidgetAdd,
     "wifi-router-round": WiFiRouterRound,
+    "qr-code": QRCode,
   })
 
   if (!data) {

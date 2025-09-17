@@ -25,9 +25,9 @@
     deriveUserRooms,
     deriveOtherRooms,
     alerts,
-  } from "@app/state"
-  import {notifications} from "@app/notifications"
-  import {pushModal} from "@app/modal"
+  } from "@app/core/state"
+  import {notifications} from "@app/util/notifications"
+  import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/routes"
 
   const {url} = $props()

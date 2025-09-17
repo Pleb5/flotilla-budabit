@@ -9,8 +9,8 @@
   import ZapButton from "@app/components/ZapButton.svelte"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
   import EventMenu from "@app/components/EventMenu.svelte"
-  import {ENABLE_ZAPS} from "@app/core/state"
-  import {publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishReaction} from "@app/core/commands"
+  const ENABLE_ZAPS = false
 
   type Props = {
     url: string
@@ -22,19 +22,12 @@
 
   const {url, noun, event, hideZap, customActions}: Props = $props()
 
-  const shouldProtect = canEnforceNip70(url)
-
   const showPopover = () => popover?.show()
 
   const hidePopover = () => popover?.hide()
 
   const onEmoji = async (emoji: NativeEmoji) =>
-    publishReaction({
-      event,
-      content: emoji.unicode,
-      relays: [url],
-      protect: await shouldProtect,
-    })
+    publishReaction({event, content: emoji.unicode, relays: [url]})
 
   let popover: Instance | undefined = $state()
 </script>

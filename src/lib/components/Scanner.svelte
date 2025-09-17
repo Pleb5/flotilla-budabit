@@ -1,24 +1,28 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import QrScanner from "qr-scanner"
+  // Dynamically import qr-scanner at runtime to avoid dev resolution errors
   import Spinner from "@lib/components/Spinner.svelte"
 
   const {onscan} = $props()
 
   let video: HTMLVideoElement
-  let scanner: QrScanner
+  let scanner: any
   let loading = $state(true)
 
   onMount(() => {
-    scanner = new QrScanner(video, r => onscan(r.data), {
-      returnDetailedScanResult: true,
-    })
-
-    scanner.start().then(() => {
-      loading = false
-    })
-
-    return () => scanner.destroy()
+    let destroyed = false
+    ;(async () => {
+      const {default: QrScanner} = await import(/* @vite-ignore */ "qr-scanner")
+      scanner = new QrScanner(video, (r: any) => onscan(r.data), {
+        returnDetailedScanResult: true,
+      })
+      await scanner.start()
+      if (!destroyed) loading = false
+    })()
+    return () => {
+      destroyed = true
+      scanner?.destroy?.()
+    }
   })
 </script>
 
@@ -28,5 +32,7 @@
       <Spinner loading>Loading your camera...</Spinner>
     </p>
   {/if}
-  <video class="m-auto rounded" class:h-0={loading} bind:this={video}></video>
+  <video class="m-auto rounded" class:h-0={loading} bind:this={video}>
+    <track kind="captions" label="camera" />
+  </video>
 </div>

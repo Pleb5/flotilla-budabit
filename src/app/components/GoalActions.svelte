@@ -4,7 +4,7 @@
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
-  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeGoalPath} from "@app/util/routes"
 
   interface Props {
@@ -15,15 +15,13 @@
 
   const {url, event, showActivity = false}: Props = $props()
 
-  const shouldProtect = canEnforceNip70(url)
-
   const path = makeGoalPath(url, event.id)
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishDelete({relays: [url], event, protect: await shouldProtect})
+    publishDelete({relays: [url], event})
 
   const createReaction = async (template: EventContent) =>
-    publishReaction({...template, event, relays: [url], protect: await shouldProtect})
+    publishReaction({...template, event, relays: [url]})
 </script>
 
 <div class="flex flex-wrap items-center justify-between gap-2">

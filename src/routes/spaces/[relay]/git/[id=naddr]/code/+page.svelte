@@ -7,7 +7,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {type FileEntry} from "@nostr-git/core"
-  import {pushToast} from "@src/app/toast"
+  import {pushToast} from "@src/app/util/toast"
 
   const {data} = $props()
   const {repoClass} = data
@@ -182,7 +182,7 @@
                             })
                           } catch (error) {
                             if (error instanceof Error && error.message.includes('Could not find')) {
-                              const { pushToast } = await import('@app/toast')
+                              const { pushToast } = await import('@app/util/toast')
                               pushToast({
                                 message: `Branch '${ref.name}' is not available locally. It may have been deleted, merged, or not fetched yet. Using the repository's default branch instead.`,
                                 theme: 'error',

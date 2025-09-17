@@ -22,14 +22,14 @@
   import Link from "@src/lib/components/Link.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import {onMount} from "svelte"
-  import {pushModal} from "../modal"
+  import {pushModal} from "@app/util/modal"
   import ThreadCreate from "./ThreadCreate.svelte"
   import {
     decodeRelay,
     repoAnnouncements,
     loadRepoAnnouncements,
     deriveMaintainersForEuc,
-  } from "../state"
+  } from "@app/core/state"
   import {Router} from "@welshman/router"
   import {resolveIssueStatus, effectiveLabelsFor} from "@nostr-git/core"
 
@@ -76,10 +76,8 @@
   let maintainersSet: Set<string> = $state(new Set<string>())
   // Maintainers via RepoGroup (preferred when available)
   const repoEuc: string | undefined = $derived.by(() => {
-    const match = $repoAnnouncements?.find?.(
-      evt =>
-        evt.pubkey === pubkey &&
-        (evt.tags as string[][]).some(t => t[0] === "d" && t[1] === repoDtag),
+    const match = $repoAnnouncements?.find?.((evt: any) =>
+      evt.pubkey === pubkey && (evt.tags as string[][]).some(t => t[0] === "d" && t[1] === repoDtag),
     )
     const eucTag = match?.tags?.find?.((t: any) => t[0] === "r" && t[2] === "euc")
     return eucTag?.[1]
@@ -90,7 +88,7 @@
     groupMaintainers = new Set()
     if (repoEuc) {
       const store = deriveMaintainersForEuc(repoEuc)
-      const unsub = store.subscribe(s => {
+      const unsub = store.subscribe((s: any) => {
         groupMaintainers = s || new Set()
       })
       return () => unsub()

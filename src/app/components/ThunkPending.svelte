@@ -11,9 +11,9 @@
 
   const {thunk, ...restProps}: Props = $props()
 
-  const abort = () => abortThunk(thunk)
+  const abort = () => abortThunk(thunk as any)
 
-  const isSending = $derived(thunkHasStatus(PublishStatus.Sending, $thunk))
+  const isSending = $derived(thunkHasStatus($thunk as any, PublishStatus.Sending))
 </script>
 
 <div class="flex w-full justify-end px-1 text-xs {restProps.class}">

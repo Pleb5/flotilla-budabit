@@ -1,7 +1,7 @@
 <script lang="ts">
   import Confirm from "@lib/components/Confirm.svelte"
-  import {clearModals} from "@app/modal"
-  import {pushToast} from "@src/app/toast"
+  import {clearModals} from "@app/util/modal"
+  import {pushToast} from "@src/app/util/toast"
 
   type Props = {
     repoClass: any

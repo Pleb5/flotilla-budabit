@@ -19,14 +19,14 @@
   import {nthEq} from "@welshman/lib"
   import Button from "@src/lib/components/Button.svelte"
   import {profilesByPubkey} from "@welshman/app"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import type {LayoutProps} from "./$types.js"
   import {page} from "$app/stores"
   import {pubkey} from "@welshman/app"
-  import {decodeRelay} from "@app/state"
+  import {decodeRelay} from "@app/core/state"
   import {nip19} from "nostr-tools"
-  import {clip, pushToast} from "@app/toast"
+  import {clip, pushToast} from "@app/util/toast"
 
   const {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data

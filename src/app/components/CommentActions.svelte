@@ -4,7 +4,7 @@
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
-  import {publishDelete, publishReaction} from "@app/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeThreadPath} from "@app/routes"
 
   interface Props {

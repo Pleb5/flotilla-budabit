@@ -14,11 +14,11 @@
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ThreadItem from "@app/components/ThreadItem.svelte"
   import ThreadCreate from "@app/components/ThreadCreate.svelte"
-  import {decodeRelay, getEventsForUrl} from "@app/state"
-  import {setChecked} from "@app/notifications"
-  import {makeFeed} from "@app/requests"
+  import {decodeRelay, getEventsForUrl} from "@app/core/state"
+  import {setChecked} from "@app/util/notifications"
+  import {makeFeed} from "@app/core/requests"
   import {whenElementReady} from "@src/lib/html"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
 
   const url = decodeRelay($page.params.relay)
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))

@@ -8,9 +8,9 @@
   import ZapButton from "@app/components/ZapButton.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
-  import {ENABLE_ZAPS} from "@app/core/state"
-  import {publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishReaction} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
+  const ENABLE_ZAPS = false
 
   type Props = {
     url: string
@@ -20,15 +20,12 @@
 
   const {url, event, reply}: Props = $props()
 
-  const shouldProtect = canEnforceNip70(url)
-
   const onEmoji = (async (event: TrustedEvent, url: string, emoji: NativeEmoji) => {
     history.back()
     publishReaction({
       event,
       relays: [url],
       content: emoji.unicode,
-      protect: await shouldProtect,
     })
   }).bind(undefined, event, url)
 

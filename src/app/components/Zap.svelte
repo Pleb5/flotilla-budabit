@@ -12,7 +12,13 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
-  import {payInvoice} from "@app/core/commands"
+  const getWebLn = (): any => (typeof window !== "undefined" ? (window as any).webln : undefined)
+  const payInvoice = async (invoice: string) => {
+    const webln = getWebLn()
+    if (!webln) throw new Error("WebLN not available")
+    await webln.enable()
+    await webln.sendPayment(invoice)
+  }
   import {pushToast} from "@app/util/toast"
 
   type Props = {

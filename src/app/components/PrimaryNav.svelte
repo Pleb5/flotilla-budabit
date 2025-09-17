@@ -13,10 +13,10 @@
   import MenuOtherSpaces from "@app/components/MenuOtherSpaces.svelte"
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import PrimaryNavItemSpace from "@app/components/PrimaryNavItemSpace.svelte"
-  import {userRoomsByUrl, canDecrypt, PLATFORM_RELAYS, PLATFORM_LOGO} from "@app/state"
-  import {pushModal} from "@app/modal"
+  import {userRoomsByUrl, canDecrypt, PLATFORM_RELAYS, PLATFORM_LOGO} from "@app/core/state"
+  import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/routes"
-  import {notifications} from "@app/notifications"
+  import {notifications} from "@app/util/notifications"
 
   type Props = {
     children?: Snippet

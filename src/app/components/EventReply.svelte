@@ -7,10 +7,10 @@
   import Button from "@lib/components/Button.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
-  import {publishComment} from "@app/commands"
-  import {GENERAL, PROTECTED, tagRoom} from "@app/state"
+  import {publishComment} from "@app/core/commands"
+  import {GENERAL, PROTECTED, tagRoom} from "@app/core/state"
   import {makeEditor} from "@app/editor"
-  import {pushToast} from "@app/toast"
+  import {pushToast} from "@app/util/toast"
 
   const {url, event, onClose, onSubmit} = $props()
 

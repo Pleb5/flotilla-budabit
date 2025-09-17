@@ -60,14 +60,14 @@
     userSettingValues,
     ensureUnwrapped,
     canDecrypt,
-  } from "@app/state"
-  import {loadUserData, listenForNotifications} from "@app/requests"
-  import {theme} from "@app/theme"
+  } from "@app/core/state"
+  import {loadUserData, listenForNotifications} from "@app/core/requests"
+  import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
-  import * as commands from "@app/commands"
-  import * as requests from "@app/requests"
-  import * as notifications from "@app/notifications"
-  import * as appState from "@app/state"
+  import * as commands from "@app/core/commands"
+  import * as requests from "@app/core/requests"
+  import * as notifications from "@app/util/notifications"
+  import * as appState from "@app/core/state"
 
   import {signer as gitSigner} from "@nostr-git/ui"
 
@@ -144,8 +144,8 @@
     }
 
     // Sync theme
-    theme.subscribe($theme => {
-      document.body.setAttribute("data-theme", $theme)
+    theme.subscribe(t => {
+      document.body.setAttribute("data-theme", t as any)
     })
 
     // Sync font size

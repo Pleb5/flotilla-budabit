@@ -14,7 +14,7 @@ import {
   THREAD,
   EVENT_TIME,
 } from "@welshman/util"
-import {makeChatId, entityLink, decodeRelay, encodeRelay, userRoomsByUrl, ROOM} from "@app/state"
+import {makeChatId, entityLink, decodeRelay, encodeRelay, userRoomsByUrl, ROOM} from "@app/core/state"
 
 export const makeSpacePath = (url: string, ...extra: (string | undefined)[]) => {
   let path = `/spaces/${encodeRelay(url)}`

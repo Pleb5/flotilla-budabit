@@ -1,6 +1,6 @@
 import type {PageLoad} from "./$types"
 import {getGitWorker} from "@nostr-git/core"
-import {pushToast} from "@src/app/toast"
+import {pushToast} from "@src/app/util/toast"
 
 export interface CommitChange {
   path: string

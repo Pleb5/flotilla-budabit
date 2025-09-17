@@ -8,7 +8,7 @@
   import Divider from "@src/lib/components/Divider.svelte"
   import Field from "@src/lib/components/Field.svelte"
   import {GithubIcon} from "@lucide/svelte"
-  import {pushToast} from "@app/toast"
+  import {pushToast} from "@app/util/toast"
   import {toast, tokens as tokensStore} from "@nostr-git/ui"
   import {signer, pubkey} from "@welshman/app"
 

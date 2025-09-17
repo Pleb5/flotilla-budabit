@@ -32,7 +32,7 @@
   import {deriveEvents} from "@welshman/store"
   import {GIT_REPO} from "@src/lib/util"
   import {preventDefault} from "svelte/legacy"
-  import {decodeRelay, shouldReloadRepos} from "../state"
+  import {decodeRelay, shouldReloadRepos} from "@app/core/state"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {fly} from "svelte/transition"
   import GitItem from "./GitItem.svelte"

@@ -6,9 +6,9 @@
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
   import SpaceAdd from "@app/components/SpaceAdd.svelte"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/routes"
-  import {PLATFORM_NAME, PLATFORM_RELAYS} from "@app/state"
+  import {PLATFORM_NAME, PLATFORM_RELAYS} from "@app/core/state"
 
   const addSpace = () => pushModal(SpaceAdd)
 

@@ -2,7 +2,7 @@
   import type {NativeEmoji} from "emoji-picker-element/shared"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
   import Icon from "@lib/components/Icon.svelte"
-  import {publishReaction} from "@app/commands"
+  import {publishReaction} from "@app/core/commands"
 
   const {url, event} = $props()
 

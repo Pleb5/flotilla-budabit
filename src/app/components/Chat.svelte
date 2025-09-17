@@ -51,9 +51,9 @@
     deriveChat,
     splitChatId,
     PLATFORM_NAME,
-  } from "@app/state"
-  import {pushModal} from "@app/modal"
-  import {prependParent} from "@app/commands"
+  } from "@app/core/state"
+  import {pushModal} from "@app/util/modal"
+  import {prependParent} from "@app/core/commands"
 
   type Props = {
     id: string

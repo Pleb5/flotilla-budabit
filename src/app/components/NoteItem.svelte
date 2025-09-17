@@ -6,24 +6,21 @@
   import NoteContent from "@app/components/NoteContent.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
-  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
 
   const {url, event} = $props()
 
-  const shouldProtect = canEnforceNip70(url)
-
   const deleteReaction = async (event: TrustedEvent) =>
-    publishDelete({relays: [url], event, protect: await shouldProtect})
+    publishDelete({relays: [url], event})
 
   const createReaction = async (template: EventContent) =>
-    publishReaction({...template, event, relays: [url], protect: await shouldProtect})
+    publishReaction({...template, event, relays: [url]})
 
   const onEmoji = async (emoji: NativeEmoji) =>
     publishReaction({
       event,
       content: emoji.unicode,
       relays: [url],
-      protect: await shouldProtect,
     })
 </script>
 

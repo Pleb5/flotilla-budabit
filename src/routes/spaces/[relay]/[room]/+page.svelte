@@ -44,14 +44,14 @@
     deriveUserMembershipStatus,
     deriveChannel,
     MembershipStatus,
-  } from "@app/state"
-  import {setChecked, checked} from "@app/notifications"
-  import {addRoomMembership, removeRoomMembership, prependParent} from "@app/commands"
-  import {PROTECTED} from "@app/state"
-  import {makeFeed} from "@app/requests"
+  } from "@app/core/state"
+  import {setChecked, checked} from "@app/util/notifications"
+  import {addRoomMembership, removeRoomMembership, prependParent} from "@app/core/commands"
+  import {PROTECTED} from "@app/core/state"
+  import {makeFeed} from "@app/core/requests"
   import {whenElementReady} from "@src/lib/html"
-  import {popKey} from "@app/implicit"
-  import {pushToast} from "@app/toast"
+  import {popKey} from "@lib/implicit"
+  import {pushToast} from "@app/util/toast"
   import {GIT_REPO} from "@src/lib/util"
 
   const {room} = $page.params

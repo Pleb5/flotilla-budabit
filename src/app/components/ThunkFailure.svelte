@@ -1,13 +1,8 @@
 <script lang="ts">
   import {stopPropagation} from "svelte/legacy"
   import {noop} from "@welshman/lib"
-  import {
-    MergedThunk,
-    publishThunk,
-    isMergedThunk,
-    thunkIsComplete,
-    getFailedThunkUrls,
-  } from "@welshman/app"
+  import {MergedThunk, publishThunk, isMergedThunk, thunkIsComplete} from "@welshman/app"
+  import {PublishStatus} from "@welshman/net"
   import type {Thunk} from "@welshman/app"
   import Icon from "@lib/components/Icon.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
@@ -39,8 +34,14 @@
     }
   }
 
-  const failedUrls = $derived(getFailedThunkUrls($thunk))
-  const showFailure = $derived(thunkIsComplete($thunk) && failedUrls.length > 0)
+  const failedUrls = $derived(
+    Object.entries(($thunk as any).status || {})
+      .filter(([_, s]) =>
+        [PublishStatus.Aborted, PublishStatus.Timeout, PublishStatus.Failure].includes(s as any),
+      )
+      .map(([url]) => url),
+  )
+  const showFailure = $derived(thunkIsComplete($thunk as any) && failedUrls.length > 0)
 </script>
 
 {#if showFailure}

@@ -28,7 +28,7 @@
   import {postComment} from "@src/app/core/commands"
   import {Address} from "@welshman/util"
   import ProfileName from "@src/app/components/ProfileName.svelte"
-  import {deriveEffectiveLabels, deriveStatus} from "@app/state"
+  import {deriveEffectiveLabels, deriveStatus} from "@app/core/state"
   import {deriveEvents} from "@welshman/store"
   import {repository} from "@welshman/app"
   import {onMount, onDestroy} from "svelte"

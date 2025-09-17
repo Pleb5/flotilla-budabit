@@ -13,9 +13,9 @@
     deriveOtherRooms,
     makeChannelId,
     channelsById,
-  } from "@app/state"
-  import {notifications} from "@app/notifications"
-  import {pushModal} from "@app/modal"
+  } from "@app/core/state"
+  import {notifications} from "@app/util/notifications"
+  import {pushModal} from "@app/util/modal"
 
   type Props = {
     url: string

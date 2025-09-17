@@ -15,7 +15,7 @@
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/core/requests"
   import {slide, slideAndFade} from "@lib/transition"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
   import {
     createStatusEvent,
     type CommentEvent,
@@ -24,7 +24,7 @@
     type TrustedEvent,
   } from "@nostr-git/shared-types"
   import {PublishStatus, request} from "@welshman/net"
-  import {postComment, postIssue, postStatus} from "@src/app/commands"
+  import {postComment, postIssue, postStatus} from "@src/app/core/commands"
   import {nthEq, sortBy} from "@welshman/lib"
   import Icon from "@src/lib/components/Icon.svelte"
   import StatusChip from "@src/lib/components/StatusChip.svelte"
@@ -33,7 +33,7 @@
   import {debounce} from "throttle-debounce"
   import {deriveEvents} from "@welshman/store"
   import ProfileName from "@src/app/components/ProfileName.svelte"
-  import {deriveEffectiveLabels, deriveStatus} from "@app/state"
+  import {deriveEffectiveLabels, deriveStatus} from "@app/core/state"
   import {onMount, onDestroy} from "svelte"
 
   const {data} = $props()

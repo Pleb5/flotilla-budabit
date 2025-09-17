@@ -1,8 +1,7 @@
 <script lang="ts">
   import {debounce} from "throttle-debounce"
-  import {nwc} from "@getalby/sdk"
+  // Use dynamic import for @getalby/sdk in the NWC connect flow
   import {sleep, assoc} from "@welshman/lib"
-  import type {NWCInfo} from "@welshman/util"
   import {pubkey, updateSession} from "@welshman/app"
   import Link from "@lib/components/Link.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -13,8 +12,8 @@
   import Divider from "@lib/components/Divider.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {getWebLn} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
+  const getWebLn = (): any => (typeof window !== "undefined" ? (window as any).webln : undefined)
 
   const back = () => history.back()
 
@@ -53,6 +52,7 @@
     loading = true
 
     try {
+      const {nwc} = await import(/* @vite-ignore */ "@getalby/sdk")
       const client = new nwc.NWCClient({nostrWalletConnectUrl})
       const [_, info] = await Promise.all([sleep(800), client.getInfo()])
 
@@ -62,10 +62,7 @@
           message: "Wallet failed to connect",
         })
       } else {
-        updateSession(
-          $pubkey!,
-          assoc("wallet", {type: "nwc", info: client.options as unknown as NWCInfo}),
-        )
+        updateSession($pubkey!, assoc("wallet", {type: "nwc", info: client.options as any}))
         pushToast({message: "Wallet successfully connected!"})
 
         await sleep(400)

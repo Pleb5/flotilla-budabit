@@ -8,7 +8,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import GitItem from "@app/components/GitItem.svelte"
-  import {decodeRelay} from "@app/state"
+  import {decodeRelay} from "@app/core/state"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
   import PageContent from "@src/lib/components/PageContent.svelte"

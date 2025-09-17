@@ -22,7 +22,7 @@
     deriveOtherRooms,
     userRoomsByUrl,
     type Channel,
-  } from "@app/state"
+  } from "@app/core/state"
   import {
     makeChatPath,
     makeThreadPath,
@@ -30,8 +30,8 @@
     makeGitPath,
     makeRoomPath,
   } from "@app/routes"
-  import {notifications} from "@app/notifications"
-  import {pushModal} from "@app/modal"
+  import {notifications} from "@app/util/notifications"
+  import {pushModal} from "@app/util/modal"
 
   const channelIsLocked = (channel: Channel | undefined) => false
 

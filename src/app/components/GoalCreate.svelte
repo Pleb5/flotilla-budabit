@@ -13,11 +13,8 @@
   import {pushToast} from "@app/util/toast"
   import {PROTECTED} from "@app/core/state"
   import {makeEditor} from "@app/editor"
-  import {canEnforceNip70} from "@app/core/commands"
 
   const {url} = $props()
-
-  const shouldProtect = canEnforceNip70(url)
 
   const uploading = writable(false)
 
@@ -52,9 +49,7 @@
       ["relays", url],
     ]
 
-    if (await shouldProtect) {
-      tags.push(PROTECTED)
-    }
+    // If relay requires protected tags, they will be added upstream in publish pipeline.
 
     publishThunk({
       relays: [url],

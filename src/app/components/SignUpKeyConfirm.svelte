@@ -6,8 +6,8 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import SignUpProfile from "@app/components/SignUpProfile.svelte"
-  import {pushToast} from "@app/toast"
-  import {pushModal} from "@app/modal"
+  import {pushToast} from "@app/util/toast"
+  import {pushModal} from "@app/util/modal"
   import {getPublicKey} from "nostr-tools"
   import {hexToBytes} from "nostr-tools/utils"
 
