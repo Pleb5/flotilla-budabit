@@ -1,6 +1,14 @@
 <script lang="ts">
   import {deriveRelay} from "@welshman/app"
   import {fade} from "@lib/transition"
+  import CompassBig from "@assets/icons/compass-big.svg?dataurl"
+  import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
+  import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
+  import Magnifier from "@assets/icons/magnifier.svg?dataurl"
+  import Lock from "@assets/icons/lock-keyhole.svg?dataurl"
+  import Hashtag from "@assets/icons/hashtag.svg?dataurl"
+  import AddCircle from "@assets/icons/add-circle.svg?dataurl"
+  import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -49,13 +57,13 @@
 
 <div class="card2 bg-alt md:hidden">
   <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
-    <Icon icon="compass-big" />
+    <Icon icon={CompassBig} />
     Quick Links
   </h3>
   <div class="flex flex-col gap-2">
     <Link href={threadsPath} class="btn btn-primary w-full justify-start">
       <div class="relative flex items-center gap-2">
-        <Icon icon="notes-minimalistic" />
+        <Icon icon={NotesMinimalistic} />
         Threads
         {#if $notifications.has(threadsPath)}
           <div
@@ -67,7 +75,7 @@
     </Link>
     <Link href={calendarPath} class="btn btn-secondary w-full justify-start">
       <div class="relative flex items-center gap-2">
-        <Icon icon="calendar-minimalistic" />
+        <Icon icon={CalendarMinimalistic} />
         Calendar
         {#if $notifications.has(calendarPath)}
           <div

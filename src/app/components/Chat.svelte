@@ -47,7 +47,7 @@
   import ChatComposeParent from "@app/components/ChatComposeParent.svelte"
   import {
     INDEXER_RELAYS,
-    userSettingValues,
+    userSettingsValues,
     deriveChat,
     splitChatId,
     PLATFORM_NAME,
@@ -241,7 +241,7 @@
         <div
           class="row-2 badge badge-error badge-lg tooltip tooltip-left cursor-pointer"
           data-tip="{count} {label} not configured.">
-          <Icon icon="danger" />
+          <Icon icon={Danger} />
           {count}
         </div>
       {/if}
@@ -255,7 +255,7 @@
     <div class="py-12">
       <div class="card2 col-2 m-auto max-w-md items-center text-center">
         <p class="row-2 text-lg text-error">
-          <Icon icon="danger" />
+          <Icon icon={Danger} />
           Your inbox is not configured.
         </p>
         <p>
@@ -268,7 +268,7 @@
     <div class="py-12">
       <div class="card2 col-2 m-auto max-w-md items-center text-center">
         <p class="row-2 text-lg text-error">
-          <Icon icon="danger" />
+          <Icon icon={Danger} />
           {missingInboxes.length}
           {missingInboxes.length > 1 ? "inboxes are" : "inbox is"} not configured.
         </p>

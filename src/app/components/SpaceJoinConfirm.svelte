@@ -1,10 +1,11 @@
 <script module lang="ts">
   import {goto} from "$app/navigation"
+  import {dissoc} from "@welshman/lib"
   import {ROOM_META} from "@welshman/util"
   import {load} from "@welshman/net"
   import {makeSpacePath} from "@app/routes"
   import {addSpaceMembership, broadcastUserData} from "@app/core/commands"
-  import {pushToast} from "@app/util/toast"
+  import {relaysMostlyRestricted} from "@app/core/state"
 
   export const confirmSpaceJoin = async (url: string) => {
     await addSpaceMembership(url)
@@ -19,12 +20,9 @@
     }
 
     broadcastUserData([url])
-
     goto(path, {replaceState: true})
-
-    pushToast({
-      message: "Welcome to the space!",
-    })
+    relaysMostlyRestricted.update(dissoc(url))
+    pushToast({message: "Welcome to the space!"})
   }
 </script>
 

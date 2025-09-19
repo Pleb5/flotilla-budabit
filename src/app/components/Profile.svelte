@@ -15,6 +15,7 @@
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
+  import Copy from "@assets/icons/copy.svg?dataurl"
 
   type Props = {
     pubkey: string

@@ -208,5 +208,5 @@
 
 <div
   class="inline-block {restProps.class}"
-  style="mask-image: url({data}); width: {px}px; height: {px}px; min-width: {px}px; min-height: {px}px; background-color: currentcolor;">
+  style="mask-image: url({icon}); width: {px}px; height: {px}px; min-width: {px}px; min-height: {px}px; background-color: currentcolor;">
 </div>

@@ -1,9 +1,28 @@
 import * as nip19 from "nostr-tools/nip19"
 import {get} from "svelte/store"
-import {randomId, flatten, poll, uniq, equals, TIMEZONE, LOCALE} from "@welshman/lib"
+import type {Override, MakeOptional} from "@welshman/lib"
+import {
+  sha256,
+  randomId,
+  append,
+  remove,
+  flatten,
+  poll,
+  uniq,
+  equals,
+  TIMEZONE,
+  LOCALE,
+  parseJson,
+  fromPairs,
+  last,
+} from "@welshman/lib"
+import {decrypt, Nip01Signer} from "@welshman/signer"
+import type {UploadTask} from "@welshman/editor"
 import type {Feed} from "@welshman/feeds"
+import {makeIntersectionFeed, feedFromFilters, makeRelayFeed} from "@welshman/feeds"
 import type {TrustedEvent, EventContent} from "@welshman/util"
 import {
+  WRAP,
   DELETE,
   REPORT,
   PROFILE,
@@ -18,6 +37,7 @@ import {
   ALERT_WEB,
   ALERT_IOS,
   ALERT_ANDROID,
+  APP_DATA,
   isSignedEvent,
   makeEvent,
   displayProfile,
@@ -32,6 +52,12 @@ import {
   toNostrURI,
   getRelaysFromList,
   RelayMode,
+  getAddress,
+  getTagValue,
+  getTagValues,
+  uploadBlob,
+  encryptFile,
+  makeBlossomAuthEvent,
 } from "@welshman/util"
 import {Pool, AuthStatus, SocketStatus} from "@welshman/net"
 import {Router} from "@welshman/router"
@@ -41,7 +67,6 @@ import {
   repository,
   publishThunk,
   profilesByPubkey,
-  relaySelectionsByPubkey,
   tagEvent,
   tagEventForReaction,
   userRelaySelections,
@@ -52,15 +77,24 @@ import {
   dropSession,
   tagEventForComment,
   tagEventForQuote,
-  getThunkError,
+  waitForThunkError,
+  getPubkeyRelays,
+  userBlossomServers,
 } from "@welshman/app"
+import {compressFile} from "@src/lib/html"
+import type {SettingsValues, Alert} from "@app/core/state"
 import {
+  SETTINGS,
   PROTECTED,
   userMembership,
   INDEXER_RELAYS,
   NOTIFIER_PUBKEY,
   NOTIFIER_RELAY,
   userRoomsByUrl,
+  userSettingsValues,
+  canDecrypt,
+  ensureUnwrapped,
+  userInboxRelays,
 } from "@app/core/state"
 import type {
   CommentEvent,
@@ -72,8 +106,7 @@ import type {
 // Utils
 
 export const getPubkeyHints = (pubkey: string) => {
-  const selections = relaySelectionsByPubkey.get().get(pubkey)
-  const relays = selections ? getRelaysFromList(selections, RelayMode.Write) : []
+  const relays = getPubkeyRelays(pubkey, RelayMode.Write)
   const hints = relays.length ? relays : INDEXER_RELAYS
 
   return hints
@@ -114,6 +147,7 @@ export const logout = async () => {
   await clearStorage()
 
   localStorage.clear()
+  await preferencesStorageProvider.clear()
 }
 
 // Synchronization
@@ -227,12 +261,8 @@ export const checkRelayAccess = async (url: string, claim = "") => {
 
   await attemptAuth(url)
 
-  const thunk = publishThunk({
-    event: makeEvent(AUTH_JOIN, {tags: [["claim", claim]]}),
-    relays: [url],
-  })
-
-  const error = await getThunkError(thunk)
+  const thunk = publishJoinRequest({url, claim})
+  const error = await waitForThunkError(thunk)
 
   if (error) {
     const message =
@@ -279,7 +309,7 @@ export const checkRelayConnection = async (url: string) => {
   }
 }
 
-export const checkRelayAuth = async (url: string, timeout = 3000) => {
+export const checkRelayAuth = async (url: string) => {
   const socket = Pool.get().get(url)
   const okStatuses = [AuthStatus.None, AuthStatus.Ok]
 
@@ -287,8 +317,12 @@ export const checkRelayAuth = async (url: string, timeout = 3000) => {
 
   // Only raise an error if it's not a timeout.
   // If it is, odds are the problem is with our signer, not the relay
-  if (!okStatuses.includes(socket.auth.status) && socket.auth.details) {
-    return `Failed to authenticate (${socket.auth.details})`
+  if (!okStatuses.includes(socket.auth.status)) {
+    if (socket.auth.details) {
+      return `Failed to authenticate (${socket.auth.details})`
+    } else {
+      return `Failed to authenticate (${last(socket.auth.status.split(":"))})`
+    }
   }
 }
 
@@ -308,7 +342,7 @@ export const attemptRelayAccess = async (url: string, claim = "") => {
   }
 }
 
-// Actions
+// Deletions
 
 export const makeDelete = ({event, tags = []}: {event: TrustedEvent; tags?: string[][]}) => {
   const thisTags = [["k", String(event.kind)], ...tagEvent(event), ...tags]
@@ -330,6 +364,8 @@ export const publishDelete = ({
   event: TrustedEvent
   tags?: string[][]
 }) => publishThunk({event: makeDelete({event, tags}), relays})
+
+// Reports
 
 export type ReportParams = {
   event: TrustedEvent
@@ -354,6 +390,8 @@ export const publishReport = ({
 }: ReportParams & {relays: string[]}) =>
   publishThunk({event: makeReport({event, reason, content}), relays})
 
+// Reactions
+
 export type ReactionParams = {
   event: TrustedEvent
   content: string
@@ -376,6 +414,8 @@ export const makeReaction = ({content, event, tags: paramTags = []}: ReactionPar
 export const publishReaction = ({relays, ...params}: ReactionParams & {relays: string[]}) =>
   publishThunk({event: makeReaction(params), relays})
 
+// Comments
+
 export type CommentParams = {
   event: TrustedEvent
   content: string
@@ -388,27 +428,37 @@ export const makeComment = ({event, content, tags = []}: CommentParams) =>
 export const publishComment = ({relays, ...params}: CommentParams & {relays: string[]}) =>
   publishThunk({event: makeComment(params), relays})
 
+// Alerts
+
+export type AlertParamsEmail = {
+  cron: string
+  email: string
+  handler: string[]
+}
+
+export type AlertParamsWeb = {
+  endpoint: string
+  p256dh: string
+  auth: string
+}
+
+export type AlertParamsIos = {
+  device_token: string
+  bundle_identifier: string
+}
+
+export type AlertParamsAndroid = {
+  device_token: string
+}
+
 export type AlertParams = {
   feed: Feed
   description: string
-  claims: Record<string, string>
-  email?: {
-    cron: string
-    email: string
-    handler: string[]
-  }
-  web?: {
-    endpoint: string
-    p256dh: string
-    auth: string
-  }
-  ios?: {
-    device_token: string
-    bundle_identifier: string
-  }
-  android?: {
-    device_token: string
-  }
+  claims?: Record<string, string>
+  email?: AlertParamsEmail
+  web?: AlertParamsWeb
+  ios?: AlertParamsIos
+  android?: AlertParamsAndroid
 }
 
 export const makeAlert = async (params: AlertParams) => {
@@ -419,7 +469,7 @@ export const makeAlert = async (params: AlertParams) => {
     ["description", params.description],
   ]
 
-  for (const [relay, claim] of Object.entries(params.claims)) {
+  for (const [relay, claim] of Object.entries(params.claims || [])) {
     tags.push(["claim", relay, claim])
   }
 
@@ -484,4 +534,88 @@ export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string
     relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
     event: repo,
   })
+}
+
+// Gift Wraps
+
+export const enableGiftWraps = () => {
+  canDecrypt.set(true)
+
+  for (const event of repository.query([{kinds: [WRAP]}])) {
+    ensureUnwrapped(event)
+  }
+}
+
+// File upload
+
+export const getBlossomServer = () => {
+  const userUrls = getTagValues("server", getListTags(userBlossomServers.get()))
+
+  for (const url of userUrls) {
+    return url.replace(/^ws/, "http")
+  }
+
+  return "https://cdn.satellite.earth"
+}
+
+export type UploadFileOptions = {
+  encrypt?: boolean
+}
+
+export type UploadFileResult = {
+  error?: string
+  result?: UploadTask
+}
+
+export const uploadFile = async (file: File, options: UploadFileOptions = {}) => {
+  const {name, type} = file
+
+  if (!type.match("image/(webp|gif)")) {
+    file = await compressFile(file)
+  }
+
+  const tags: string[][] = []
+
+  if (options.encrypt) {
+    const {ciphertext, key, nonce, algorithm} = await encryptFile(file)
+
+    tags.push(
+      ["decryption-key", key],
+      ["decryption-nonce", nonce],
+      ["encryption-algorithm", algorithm],
+    )
+
+    file = new File([new Blob([ciphertext])], name, {
+      type: "application/octet-stream",
+    })
+  }
+
+  const server = getBlossomServer()
+  const hashes = [await sha256(await file.arrayBuffer())]
+  const $signer = signer.get() || Nip01Signer.ephemeral()
+  const authTemplate = makeBlossomAuthEvent({action: "upload", server, hashes})
+  const authEvent = await $signer.sign(authTemplate)
+
+  try {
+    const res = await uploadBlob(server, file, {authEvent})
+    const text = await res.text()
+
+    let {uploaded, url, ...task} = parseJson(text) || {}
+
+    if (!uploaded) {
+      return {error: text}
+    }
+
+    // Always append file extension if missing
+    if (new URL(url).pathname.split(".").length === 1) {
+      url += "." + type.split("/")[1]
+    }
+
+    const result = {...task, tags, url}
+
+    return {result}
+  } catch (e: any) {
+    console.error(e)
+    return {error: e.toString()}
+  }
 }

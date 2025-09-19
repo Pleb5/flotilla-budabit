@@ -4,6 +4,7 @@
   import {MergedThunk, publishThunk, isMergedThunk, thunkIsComplete} from "@welshman/app"
   import {PublishStatus} from "@welshman/net"
   import type {Thunk} from "@welshman/app"
+  import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
   import ThunkToast from "@app/components/ThunkToast.svelte"
@@ -58,7 +59,7 @@
       params={{interactive: true}}>
       {#snippet children()}
         <span class="flex cursor-pointer items-center gap-1 text-error">
-          <Icon icon="danger" size={3} />
+          <Icon icon={Danger} size={3} />
           <span>Failed to send!</span>
         </span>
       {/snippet}

@@ -10,25 +10,15 @@ import {
   getListTags,
 } from "@welshman/util"
 import {Router} from "@welshman/router"
-import {Nip01Signer} from "@welshman/signer"
-import {signer, profileSearch, userBlossomServers} from "@welshman/app"
+import {profileSearch} from "@welshman/app"
 import type {FileAttributes} from "@welshman/editor"
 import {Editor, MentionSuggestion, WelshmanExtension} from "@welshman/editor"
-import {makeMentionNodeView} from "./MentionNodeView"
-import ProfileSuggestion from "./ProfileSuggestion.svelte"
+import {makeMentionNodeView} from "@app/editor/MentionNodeView"
+import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
+import {uploadFile} from "@app/core/commands"
 import {pushToast} from "@app/util/toast"
 import {PermalinkExtension} from "@nostr-git/ui"
 import Spinner from "@lib/components/Spinner.svelte"
-
-export const getBlossomServer = () => {
-  const userUrls = getTagValues("server", getListTags(userBlossomServers.get()))
-
-  for (const url of userUrls) {
-    return url.replace(/^ws/, "http")
-  }
-
-  return "https://cdn.satellite.earth"
-}
 
 export const makeEditor = async ({
   aggressive = false,

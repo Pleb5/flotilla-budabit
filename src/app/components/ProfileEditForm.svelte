@@ -8,7 +8,7 @@
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
-  import InputProfilePicture from "@lib/components/InputProfilePicture.svelte"
+  import InputProfilePicture from "@app/components/InputProfilePicture.svelte"
   import InfoHandle from "@app/components/InfoHandle.svelte"
   import {pushModal} from "@app/util/modal"
 
@@ -149,11 +149,11 @@
   </div>
   <Field>
     {#snippet label()}
-      <p>Username</p>
+      <p>Nickname</p>
     {/snippet}
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
-        <Icon icon="user-circle" />
+        <Icon icon={UserCircle} />
         <input bind:value={values.profile.name} class="grow" type="text" />
       </label>
     {/snippet}
@@ -281,7 +281,7 @@
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
-          <Icon icon="map-point" />
+          <Icon icon={MapPoint} />
           <input bind:value={values.profile.nip05} class="grow" type="text" />
         </label>
       {/snippet}

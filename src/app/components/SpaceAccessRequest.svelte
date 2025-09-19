@@ -1,17 +1,22 @@
 <script lang="ts">
   import {displayUrl} from "@welshman/lib"
-  import {Pool, AuthStatus} from "@welshman/net"
+  import {AuthStatus} from "@welshman/net"
+  import {waitForThunkError} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import LinkRound from "@assets/icons/link-round.svg?dataurl"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import SpaceJoinConfirm, {confirmSpaceJoin} from "@app/components/SpaceJoinConfirm.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
-  import {attemptRelayAccess} from "@app/core/commands"
+  import {publishJoinRequest} from "@app/core/commands"
+  import {deriveSocket} from "@app/core/state"
 
   type Props = {
     url: string
@@ -21,27 +26,24 @@
 
   const back = () => history.back()
 
-  const joinRelay = async () => {
-    const error = await attemptRelayAccess(url, claim)
-
-    if (error) {
-      return pushToast({theme: "error", message: error, timeout: 30_000})
-    }
-
-    const socket = Pool.get().get(url)
-
-    if (socket.auth.status === AuthStatus.None) {
-      pushModal(SpaceJoinConfirm, {url}, {replaceState: true})
-    } else {
-      await confirmSpaceJoin(url)
-    }
-  }
+  const socket = deriveSocket(url)
 
   const join = async () => {
     loading = true
 
     try {
-      await joinRelay()
+      const thunk = publishJoinRequest({url, claim})
+      const error = await waitForThunkError(thunk)
+
+      if (error) {
+        return pushToast({theme: "error", message: error, timeout: 30_000})
+      }
+
+      if ($socket.auth.status === AuthStatus.None) {
+        pushModal(SpaceJoinConfirm, {url}, {replaceState: true})
+      } else {
+        await confirmSpaceJoin(url)
+      }
     } finally {
       loading = false
     }
@@ -66,19 +68,19 @@
     {/snippet}
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
-        <Icon icon="link-round" />
+        <Icon icon={LinkRound} />
         <input bind:value={claim} class="grow" type="text" />
       </label>
     {/snippet}
   </Field>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary" disabled={loading}>
       <Spinner {loading}>Join Space</Spinner>
-      <Icon icon="alt-arrow-right" />
+      <Icon icon={AltArrowRight} />
     </Button>
   </ModalFooter>
 </form>

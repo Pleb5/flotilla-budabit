@@ -1,6 +1,14 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
   import {fly} from "@lib/transition"
+  import UserCircle from "@assets/icons/user-circle.svg?dataurl"
+  import Wallet from "@assets/icons/wallet.svg?dataurl"
+  import Server from "@assets/icons/server.svg?dataurl"
+  import Moon from "@assets/icons/moon.svg?dataurl"
+  import InfoSquare from "@assets/icons/info-square.svg?dataurl"
+  import Exit from "@assets/icons/logout-3.svg?dataurl"
+  import GalleryMinimalistic from "@assets/icons/gallery-minimalistic.svg?dataurl"
+  import Bell from "@assets/icons/bell.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
@@ -23,19 +31,17 @@
 
 <SecondaryNav>
   <SecondaryNavSection>
+    <SecondaryNavItem class="w-full !justify-between">
+      <strong class="ellipsize flex items-center gap-3"> Your Settings </strong>
+    </SecondaryNavItem>
     <div in:fly|local>
       <SecondaryNavItem href="/settings/profile">
-        <Icon icon="user-circle" /> Profile
-      </SecondaryNavItem>
-    </div>
-    <div in:fly|local>
-      <SecondaryNavItem href="/settings/wallet">
-        <Icon icon="wallet" /> Wallet
+        <Icon icon={UserCircle} /> Profile
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 50}}>
-      <SecondaryNavItem href="/settings/relays">
-        <Icon icon="server" /> Relays
+      <SecondaryNavItem href="/settings/alerts">
+        <Icon icon={Bell} /> Alerts
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 100}}>
@@ -60,7 +66,7 @@
     </div>
     <div in:fly|local={{delay: 300}}>
       <SecondaryNavItem class="text-error hover:text-error" onclick={logout}>
-        <Icon icon="exit" /> Log Out
+        <Icon icon={Exit} /> Log Out
       </SecondaryNavItem>
     </div>
   </SecondaryNavSection>

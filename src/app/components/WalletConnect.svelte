@@ -4,6 +4,11 @@
   import {sleep, assoc} from "@welshman/lib"
   import {pubkey, updateSession} from "@welshman/app"
   import Link from "@lib/components/Link.svelte"
+  import Cpu from "@assets/icons/cpu-bolt.svg?dataurl"
+  import Lock from "@assets/icons/lock-keyhole.svg?dataurl"
+  import QrCode from "@assets/icons/qr-code.svg?dataurl"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Scanner from "@lib/components/Scanner.svelte"
@@ -101,7 +106,7 @@
       <div>Connect a Wallet</div>
     {/snippet}
     {#snippet info()}
-      Use Nostr Wallet Connect to send Bitcoin payments over Lightning.
+      Use Nostr Wallet Connect to send Bitcoin payments over Bolt.
     {/snippet}
   </ModalHeader>
   {#if getWebLn()}
@@ -114,7 +119,7 @@
           Connecting...
         {:else}
           <div class="flex items-center gap-2">
-            <Icon icon="cpu" />
+            <Icon icon={Cpu} />
             Connect with WebLN
           </div>
         {/if}
@@ -128,7 +133,7 @@
     {/snippet}
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
-        <Icon icon="lock" />
+        <Icon icon={Lock} />
         <input
           bind:value={nostrWalletConnectUrl}
           autocomplete="off"
@@ -136,7 +141,7 @@
           class="grow"
           type="password" />
         <Button onclick={toggleScanner}>
-          <Icon icon="qr-code" />
+          <Icon icon={QrCode} />
         </Button>
       </label>
     {/snippet}
@@ -152,7 +157,7 @@
   {/if}
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
     <Button
@@ -165,7 +170,7 @@
         {:else}
           <div class="flex items-center gap-2">
             Connect Wallet
-            <Icon icon="alt-arrow-right" />
+            <Icon icon={AltArrowRight} />
           </div>
         {/if}
       </Spinner>

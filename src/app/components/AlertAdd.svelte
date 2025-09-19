@@ -1,20 +1,12 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {preventDefault} from "@lib/html"
-  import {decrypt} from "@welshman/signer"
-  import {randomInt, parseJson, fromPairs, displayList, TIMEZONE, identity} from "@welshman/lib"
-  import {
-    displayRelayUrl,
-    getTagValue,
-    getAddress,
-    THREAD,
-    MESSAGE,
-    EVENT_TIME,
-    COMMENT,
-  } from "@welshman/util"
+  import {randomInt, displayList, TIMEZONE, identity} from "@welshman/lib"
+  import {displayRelayUrl, getTagValue, THREAD, MESSAGE, EVENT_TIME, COMMENT} from "@welshman/util"
   import type {Filter} from "@welshman/util"
   import {makeIntersectionFeed, makeRelayFeed, feedFromFilters} from "@welshman/feeds"
-  import {pubkey, signer, getThunkError} from "@welshman/app"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
@@ -115,61 +107,19 @@
       const description = `for ${displayList(display)} on ${displayRelayUrl(url)}`
       const params: AlertParams = {feed, claims, description}
 
-      if (channel === "email") {
-        const cadence = cron?.endsWith("1") ? "Weekly" : "Daily"
-
-        params.description = `${cadence} alert ${description}, sent via email.`
-        params.email = {
-          cron,
-          email,
-          handler: [
-            "31990:97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322:1737058597050",
-            "wss://relay.nostr.band/",
-            "web",
-          ],
-        }
-      } else {
-        try {
-          // @ts-ignore
-          params[platform] = await getPushInfo()
-          params.description = `${platformName} push notification ${description}.`
-        } catch (e: any) {
-          return pushToast({
-            theme: "error",
-            message: String(e),
-          })
-        }
-      }
-
-      // If we don't do this we'll get an event rejection
-      await attemptAuth(NOTIFIER_RELAY)
-
-      const thunk = await publishAlert(params)
-      const error = await getThunkError(thunk)
+      const {error} = await createAlert({
+        feed: makeIntersectionFeed(feedFromFilters(filters), makeRelayFeed(url)),
+        claims: claim ? {[url]: claim} : {},
+        description: `for ${displayList(display)} on ${displayRelayUrl(url)}`,
+        email: channel === "email" ? {cron, email} : undefined,
+      })
 
       if (error) {
-        return pushToast({
-          theme: "error",
-          message: `Failed to send your alert to the notification server (${error}).`,
-        })
+        pushToast({theme: "error", message: error})
+      } else {
+        pushToast({message: "Your alert has been successfully created!"})
+        back()
       }
-
-      // Fetch our new status to make sure it's active
-      const address = getAddress(thunk.event)
-      const statusEvents = await loadAlertStatuses($pubkey!)
-      const statusEvent = statusEvents.find(event => getTagValue("d", event.tags) === address)
-      const statusTags = statusEvent
-        ? parseJson(await decrypt(signer.get(), NOTIFIER_PUBKEY, statusEvent.content))
-        : []
-      const {status = "error", message = "Your alert was not activated"}: Record<string, string> =
-        fromPairs(statusTags)
-
-      if (status === "error") {
-        return pushToast({theme: "error", message})
-      }
-
-      pushToast({message: "Your alert has been successfully created!"})
-      back()
     } finally {
       loading = false
     }
@@ -194,6 +144,9 @@
   <ModalHeader>
     {#snippet title()}
       Add an Alert
+    {/snippet}
+    {#snippet info()}
+      Enable notifications to keep up to date on activity you care about.
     {/snippet}
   </ModalHeader>
   {#if canSendPushNotifications()}
@@ -286,12 +239,12 @@
   </FieldInline>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary" disabled={loading}>
       <Spinner {loading}>Confirm</Spinner>
-      <Icon icon="alt-arrow-right" />
+      <Icon icon={AltArrowRight} />
     </Button>
   </ModalFooter>
 </form>

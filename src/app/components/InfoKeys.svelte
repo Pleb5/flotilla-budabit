@@ -1,6 +1,8 @@
 <script lang="ts">
   import {session} from "@welshman/app"
   import Link from "@lib/components/Link.svelte"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import CheckCircle from "@assets/icons/check-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
@@ -27,8 +29,8 @@
   </p>
   <p>
     On <Link external href="https://nostr.com/">Nostr</Link>, <strong>you</strong> control your own
-    identity and social data, through the magic of crytography. The basic idea is that you have a
-    <strong>public key</strong>, which acts as your user id, and a
+    identity and social data, through the magic of cryptography. The basic idea is that you have a
+    <strong>public key</strong>, which acts as your user ID, and a
     <strong>private key</strong> which allows you to prove your identity.
   </p>
   {#if $session?.email}
@@ -39,11 +41,11 @@
     <p>If you'd like to switch to self-custody, please click below to get started.</p>
     <ModalFooter>
       <Button class="btn btn-link" onclick={back}>
-        <Icon icon="alt-arrow-left" />
+        <Icon icon={AltArrowLeft} />
         Go back
       </Button>
       <Button class="btn btn-primary" onclick={startEject}>
-        <Icon icon="check-circle" />
+        <Icon icon={CheckCircle} />
         I want to hold my own keys
       </Button>
     </ModalFooter>

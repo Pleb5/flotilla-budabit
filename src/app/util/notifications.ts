@@ -13,6 +13,7 @@ import {
   makeRoomPath,
 } from "@app/util/routes"
 import {chats, hasNip29, getUrlsForEvent, userRoomsByUrl, repositoryStore} from "@app/core/state"
+import {preferencesStorageProvider} from "@src/lib/storage"
 
 // Checked state
 

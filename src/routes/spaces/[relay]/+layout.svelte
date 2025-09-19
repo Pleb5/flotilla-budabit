@@ -4,14 +4,21 @@
   import {ago, MONTH} from "@welshman/lib"
   import {ROOM_META, EVENT_TIME, THREAD, COMMENT, MESSAGE, ROOMS} from "@welshman/util"
   import Page from "@lib/components/Page.svelte"
+  import Dialog from "@lib/components/Dialog.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import MenuSpace from "@app/components/MenuSpace.svelte"
   import SpaceAuthError from "@app/components/SpaceAuthError.svelte"
+  import SpaceTrustRelay from "@app/components/SpaceTrustRelay.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
-  import {checkRelayConnection, checkRelayAuth, checkRelayAccess} from "@app/core/commands"
-  import {decodeRelay, userRoomsByUrl} from "@app/core/state"
+  import {
+    decodeRelay,
+    deriveRelayAuthError,
+    relaysPendingTrust,
+    deriveSocket,
+    userRoomsByUrl,
+  } from "@app/core/state"
   import {pullConservatively} from "@app/core/requests"
   import {notifications} from "@app/util/notifications"
   import {FREELANCE_JOB, GIT_REPO} from "@src/lib/util"
@@ -28,9 +35,7 @@
   const checkConnection = async () => {
     const connectionError = await checkRelayConnection(url)
 
-    if (connectionError) {
-      return pushToast({theme: "error", message: connectionError})
-    }
+  const authError = deriveRelayAuthError(url)
 
     const [authError, accessError] = await Promise.all([checkRelayAuth(url), checkRelayAccess(url)])
 
@@ -58,7 +63,7 @@
     // Load group meta, threads, calendar events, comments, and recent messages
     // for user rooms to help with a quick page transition
     pullConservatively({
-      relays,
+      relays: [url],
       filters: [
         {kinds: [ROOMS]},
         {kinds: [ROOM_META]},
@@ -70,10 +75,6 @@
         ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room], since})),
       ],
     })
-
-    return () => {
-      controller.abort()
-    }
   })
 </script>
 
@@ -85,3 +86,9 @@
     {@render children?.()}
   {/key}
 </Page>
+
+{#if $relaysPendingTrust.includes(url)}
+  <Dialog>
+    <SpaceTrustRelay {url} />
+  </Dialog>
+{/if}
