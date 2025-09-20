@@ -2,7 +2,7 @@
   import {goto} from "$app/navigation"
   import {uniqBy, nth} from "@welshman/lib"
   import {displayRelayUrl, makeRoomMeta} from "@welshman/util"
-  import {deriveRelay, waitForThunkError, createRoom, editRoom, joinRoom} from "@welshman/app"
+  import {deriveRelay, createRoom, editRoom, joinRoom, getThunkError} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Field from "@lib/components/Field.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -28,22 +28,32 @@
   const tryCreate = async () => {
     room.tags = uniqBy(nth(0), [...room.tags, ["name", name]])
 
-    const createMessage = await waitForThunkError(createRoom(url, room))
+    {
+      const thunk = createRoom(url, room)
+      await thunk.result
+      const createMessage = await getThunkError(thunk)
 
-    if (createMessage && !createMessage.match(/^duplicate:|already a member/)) {
-      return pushToast({theme: "error", message: createMessage})
+      if (createMessage && !createMessage.match(/^duplicate:|already a member/)) {
+        return pushToast({theme: "error", message: createMessage})
+      }
     }
 
-    const editMessage = await waitForThunkError(editRoom(url, room))
-
-    if (editMessage) {
-      return pushToast({theme: "error", message: editMessage})
+    {
+      const thunk = editRoom(url, room)
+      await thunk.result
+      const editMessage = await getThunkError(thunk)
+      if (editMessage) {
+        return pushToast({theme: "error", message: editMessage})
+      }
     }
 
-    const joinMessage = await waitForThunkError(joinRoom(url, room))
-
-    if (joinMessage && !joinMessage.includes("already")) {
-      return pushToast({theme: "error", message: joinMessage})
+    {
+      const thunk = joinRoom(url, room)
+      await thunk.result
+      const joinMessage = await getThunkError(thunk)
+      if (joinMessage && !joinMessage.includes("already")) {
+        return pushToast({theme: "error", message: joinMessage})
+      }
     }
 
     await loadChannel(url, room.id)

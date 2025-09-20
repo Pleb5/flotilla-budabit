@@ -19,6 +19,9 @@ import {uploadFile} from "@app/core/commands"
 import {pushToast} from "@app/util/toast"
 import {PermalinkExtension} from "@nostr-git/ui"
 import Spinner from "@lib/components/Spinner.svelte"
+import {signer} from "@welshman/app"
+import {Nip01Signer} from "@welshman/signer"
+import {getBlossomServer} from "@app/core/commands"
 
 export const makeEditor = async ({
   aggressive = false,

@@ -30,7 +30,7 @@ import {
   withGetter,
   synced,
 } from "@welshman/store"
-import {isKindFeed, findFeed} from "@welshman/feeds"
+// removed unused isKindFeed import
 import {
   getIdFilters,
   WRAP,
@@ -67,7 +67,6 @@ import {
   getTagValue,
   getTagValues,
   verifyEvent,
-  makeEvent,
   RelayMode,
   getRelaysFromList,
 } from "@welshman/util"
@@ -92,8 +91,6 @@ import {
   signer,
   makeOutboxLoader,
   appContext,
-  getThunkError,
-  publishThunk,
   userRelaySelections,
   userInboxRelaySelections,
 } from "@welshman/app"
@@ -220,11 +217,14 @@ export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
 
 export const tagRoom = (room: string, url: string) => [ROOM, room]
 
-export const getDefaultPubkeys = () => {
-  const appPubkeys = DEFAULT_PUBKEYS.split(",")
-  const userPubkeys = shuffle(getPubkeyTagValues(getListTags($userFollows)))
-
-  return userPubkeys.length > 5 ? userPubkeys : [...userPubkeys, ...appPubkeys]
+export const defaultPubkeys = derived(userFollows, $userFollows => {
+  try {
+    const appPubkeys = DEFAULT_PUBKEYS.split(",")
+    const userPubkeys = shuffle(getPubkeyTagValues(getListTags($userFollows)))
+    return userPubkeys.length > 5 ? userPubkeys : [...userPubkeys, ...appPubkeys]
+  } catch {
+    return DEFAULT_PUBKEYS.split(",")
+  }
 })
 
 const failedUnwraps = new Set()
@@ -516,7 +516,7 @@ export const {
   name: "settings",
   store: settings,
   getKey: settings => settings.event.pubkey,
-  load: makeOutboxLoader(APP_DATA, {"#d": [SETTINGS]}),
+  load: makeOutboxLoader(APP_DATA),
 })
 
 // Relays sending events with empty signatures that the user has to choose to trust
@@ -558,14 +558,26 @@ export const alerts = withGetter(
   }),
 )
 
-export const getAlertFeed = (alert: Alert) =>
-  tryCatch(() => JSON.parse(getTagValue("feed", alert.tags)!))
+export const getAlertFeed = (alert: Alert) => {
+  try {
+    const v = getTagValue("feed", alert.tags)
+    return v ? JSON.parse(v) : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export const dmAlert = derived(alerts, $alerts =>
   $alerts.find(alert => {
     const feed = getAlertFeed(alert)
-
-    return findFeed(feed, f => isKindFeed(f) && f.includes(WRAP))
+    if (!feed) return false
+    try {
+      // Best-effort: treat feed as any and detect WRAP kind
+      const kinds: any[] = (feed as any).kinds || []
+      return Array.isArray(kinds) && kinds.includes(WRAP)
+    } catch {
+      return false
+    }
   }),
 )
 
@@ -1037,11 +1049,6 @@ export const deriveRelayAuthError = (url: string, claim = "") => {
   socket.auth.attemptAuth($signer.sign)
 
   // Attempt to join the relay
-  const thunk = publishThunk({
-    event: makeEvent(AUTH_JOIN, {tags: [["claim", claim]]}),
-    relays: [url],
-  })
-
   return derived(
     [relaysMostlyRestricted, deriveSocket(url)],
     ([$relaysMostlyRestricted, $socket]) => {
@@ -1051,18 +1058,6 @@ export const deriveRelayAuthError = (url: string, claim = "") => {
 
       if ($relaysMostlyRestricted[url]) {
         return stripPrefix($relaysMostlyRestricted[url])
-      }
-
-      const error = getThunkError(thunk)
-
-      if (error) {
-        const isIgnored = error.startsWith("mute: ")
-        const isEmptyInvite = !claim && error.includes("invite code")
-        const isStrictNip29Relay = error.includes("missing group (`h`) tag")
-
-        if (!isStrictNip29Relay && !isIgnored && !isEmptyInvite && !isStrictNip29Relay) {
-          return stripPrefix(error) || "join request rejected"
-        }
       }
     },
   )

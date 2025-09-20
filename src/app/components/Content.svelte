@@ -32,7 +32,7 @@
   import ContentQuote from "@app/components/ContentQuote.svelte"
   import ContentTopic from "@app/components/ContentTopic.svelte"
   import ContentMention from "@app/components/ContentMention.svelte"
-  import {entityLink, userSettingValues} from "@app/core/state"
+  import {entityLink, userSettingsValues} from "@app/core/state"
   import {Template, isKnownUnknown, EventRenderer, isKnownEventKind} from "@nostr-git/ui"
 
   interface Props {

@@ -416,16 +416,16 @@ export const loadUserData = async (pubkey: string, relays: string[] = []) => {
   // Load followed profiles slowly in the background without clogging other stuff up. Only use a single
   // indexer relay to avoid too many redundant validations, which slow things down and eat bandwidth
   promise.then(async () => {
-    for (const pubkeys of chunk(50, get(defaultPubkeys))) {
+    for (const pubkeys of chunk(50, get(defaultPubkeys) as string[])) {
       const relays = sample(1, INDEXER_RELAYS)
 
       await sleep(1000)
 
-      for (const pubkey of pubkeys) {
-        loadMembership(pubkey, relays)
-        loadProfile(pubkey, relays)
-        loadFollows(pubkey, relays)
-        loadMutes(pubkey, relays)
+      for (const pubkey of pubkeys as string[]) {
+        loadMembership(pubkey as string, relays)
+        loadProfile(pubkey as string, relays)
+        loadFollows(pubkey as string, relays)
+        loadMutes(pubkey as string, relays)
       }
     }
   })

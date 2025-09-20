@@ -1,7 +1,12 @@
-import {type StorageProvider} from "@welshman/store"
 import {Preferences} from "@capacitor/preferences"
 
-export class PreferencesStorageProvider implements StorageProvider {
+export interface StorageProviderLike {
+  get: <T>(key: string) => Promise<T | undefined>
+  set: <T>(key: string, value: T) => Promise<void>
+  clear: () => Promise<void>
+}
+
+export class PreferencesStorageProvider implements StorageProviderLike {
   get = async <T>(key: string): Promise<T | undefined> => {
     const result = await Preferences.get({key})
     if (!result.value) return undefined

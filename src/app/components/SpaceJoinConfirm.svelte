@@ -6,6 +6,7 @@
   import {makeSpacePath} from "@app/routes"
   import {addSpaceMembership, broadcastUserData} from "@app/core/commands"
   import {relaysMostlyRestricted} from "@app/core/state"
+  import {pushToast} from "@app/util/toast"
 
   export const confirmSpaceJoin = async (url: string) => {
     await addSpaceMembership(url)

@@ -29,9 +29,15 @@ importers:
       '@capacitor/keyboard':
         specifier: ^7.0.0
         version: 7.0.1(@capacitor/core@7.4.2)
+      '@capacitor/preferences':
+        specifier: ^7.0.2
+        version: 7.0.2(@capacitor/core@7.4.2)
       '@capacitor/push-notifications':
         specifier: ^7.0.1
         version: 7.0.1(@capacitor/core@7.4.2)
+      '@capawesome/capacitor-android-dark-mode-support':
+        specifier: ^7.0.0
+        version: 7.0.0(@capacitor/core@7.4.2)
       '@capawesome/capacitor-badge':
         specifier: ^7.0.1
         version: 7.0.1(@capacitor/core@7.4.2)
@@ -8689,7 +8695,15 @@ snapshots:
     dependencies:
       '@capacitor/core': 7.4.2
 
+  '@capacitor/preferences@7.0.2(@capacitor/core@7.4.2)':
+    dependencies:
+      '@capacitor/core': 7.4.2
+
   '@capacitor/push-notifications@7.0.1(@capacitor/core@7.4.2)':
+    dependencies:
+      '@capacitor/core': 7.4.2
+
+  '@capawesome/capacitor-android-dark-mode-support@7.0.0(@capacitor/core@7.4.2)':
     dependencies:
       '@capacitor/core': 7.4.2
 

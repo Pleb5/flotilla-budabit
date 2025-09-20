@@ -32,7 +32,7 @@
   import ChannelCompose from "@app/components/ChannelCompose.svelte"
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
   import {
-    userSettingValues,
+    userSettingsValues,
     decodeRelay,
     deriveUserMembershipStatus,
     deriveChannel,
@@ -145,7 +145,7 @@
     publishThunk({
       relays: [url],
       event: makeEvent(MESSAGE, template),
-      delay: $userSettingValues.send_delay,
+      delay: $userSettingsValues.send_delay,
     })
 
     clearParent()

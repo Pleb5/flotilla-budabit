@@ -11,8 +11,9 @@
   import {setChecked} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {dmAlert, userInboxRelays} from "@app/core/state"
-  import {deleteAlert, createDmAlert} from "@app/core/commands"
+  import {dmAlert, userInboxRelays, NOTIFIER_RELAY, NOTIFIER_PUBKEY} from "@app/core/state"
+  import {publishAlert, publishDelete} from "@app/core/commands"
+  import {getThunkError} from "@welshman/app"
 
   const startChat = () => pushModal(ChatStart, {}, {replaceState: true})
 
@@ -32,8 +33,16 @@
     enablingAlert = true
 
     try {
-      const {error} = await createDmAlert()
+      const feed = {kinds: ["DM"], relays: []} as any
+      const description = "Direct message notifications"
+      const web = undefined
+      const ios = undefined
+      const android = undefined
+      const email = undefined
 
+      const thunk = await publishAlert({feed, description, web, ios, android, email})
+      await thunk.result
+      const error = await getThunkError(thunk)
       if (error) {
         return pushToast({theme: "error", message: error})
       }
@@ -46,7 +55,12 @@
     disablingAlert = true
 
     try {
-      await waitForThunkCompletion(deleteAlert($dmAlert!))
+      const thunk = publishDelete({
+        event: $dmAlert!.event,
+        relays: [NOTIFIER_RELAY],
+        tags: [["p", NOTIFIER_PUBKEY]],
+      })
+      await waitForThunkCompletion(thunk)
     } finally {
       disablingAlert = false
     }

@@ -9,6 +9,16 @@ config({path: ".env"})
 config({path: ".env.template"})
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@nostr-git/ui": path.resolve(__dirname, "packages/nostr-git/packages/ui/dist"),
+      "@nostr-git/shared-types": path.resolve(
+        __dirname,
+        "packages/nostr-git/packages/shared-types/dist",
+      ),
+      "@nostr-git/core": path.resolve(__dirname, "packages/nostr-git/packages/core/dist"),
+    },
+  },
   server: {
     port: 1847,
     // local serving of package files

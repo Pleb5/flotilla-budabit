@@ -1,7 +1,7 @@
 <script lang="ts">
   import {displayUrl} from "@welshman/lib"
   import {AuthStatus} from "@welshman/net"
-  import {waitForThunkError} from "@welshman/app"
+  import {publishThunk, getThunkError} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -15,8 +15,8 @@
   import SpaceJoinConfirm, {confirmSpaceJoin} from "@app/components/SpaceJoinConfirm.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
-  import {publishJoinRequest} from "@app/core/commands"
   import {deriveSocket} from "@app/core/state"
+  import {makeEvent, AUTH_JOIN} from "@welshman/util"
 
   type Props = {
     url: string
@@ -32,8 +32,12 @@
     loading = true
 
     try {
-      const thunk = publishJoinRequest({url, claim})
-      const error = await waitForThunkError(thunk)
+      const thunk = publishThunk({
+        event: makeEvent(AUTH_JOIN, {tags: [["claim", claim]]}),
+        relays: [url],
+      })
+      await thunk.result
+      const error = await getThunkError(thunk)
 
       if (error) {
         return pushToast({theme: "error", message: error, timeout: 30_000})

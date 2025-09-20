@@ -1,7 +1,6 @@
 <script lang="ts">
   import {sleep} from "@welshman/lib"
   import {getTagValue, getAddress} from "@welshman/util"
-  import {isRelayFeed, findFeed} from "@welshman/feeds"
   import Inbox from "@assets/icons/inbox.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -10,8 +9,9 @@
   import AlertItem from "@app/components/AlertItem.svelte"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {alerts, dmAlert, deriveAlertStatus, userInboxRelays, getAlertFeed} from "@app/core/state"
-  import {deleteAlert, createDmAlert} from "@app/core/commands"
+  import {alerts, dmAlert, deriveAlertStatus, userInboxRelays, getAlertFeed, NOTIFIER_RELAY, NOTIFIER_PUBKEY} from "@app/core/state"
+  import {publishAlert, publishDelete} from "@app/core/commands"
+  import {getThunkError} from "@welshman/app"
 
   type Props = {
     url?: string
@@ -30,8 +30,8 @@
       // Skip non-feeds and DM alerts
       if (!feed || alert === $dmAlert) return false
 
-      // If we have a space url, only match feeds for this space
-      if (url) return findFeed(feed, f => isRelayFeed(f) && f.includes(url))
+      // If we have a space url, only match feeds that reference this url (best-effort)
+      if (url) return JSON.stringify(feed).includes(url)
 
       return true
     }),
@@ -48,16 +48,27 @@
 
   const onToggle = async () => {
     if ($dmAlert) {
-      deleteAlert($dmAlert)
+      publishDelete({event: $dmAlert.event, relays: [NOTIFIER_RELAY], tags: [["p", NOTIFIER_PUBKEY]]})
     } else {
       if ($userInboxRelays.length === 0) {
         return uncheckDmAlert("Please set up your messaging relays before enabling alerts.")
       }
 
-      const {error} = await createDmAlert()
+      // Create a minimal DM alert using publishAlert
+      const feed = {kinds: ["DM"], relays: []} as any
+      const description = "Direct message notifications"
+      const web = undefined
+      const ios = undefined
+      const android = undefined
+      const email = undefined
 
-      if (error) {
-        return uncheckDmAlert(error)
+      {
+        const thunk = await publishAlert({feed, description, web, ios, android, email})
+        await thunk.result
+        const error = await getThunkError(thunk)
+        if (error) {
+          return uncheckDmAlert(String(error))
+        }
       }
 
       pushToast({message: "Your alert has been successfully created!"})

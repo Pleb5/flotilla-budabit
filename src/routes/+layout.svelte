@@ -71,6 +71,7 @@
   import {setupTracking} from "@app/tracking"
   import {setupAnalytics} from "@app/analytics"
   import {nsecDecode} from "@lib/util"
+  import {preferencesStorageProvider} from "@lib/storage"
   import {
     INDEXER_RELAYS,
     userMembership,
@@ -128,31 +129,31 @@
         return item !== undefined && item !== null && item !== ""
       }
 
-      const localStoragePubKey = await localStorageProvider.get("pubkey")
+      const localStoragePubKey = localStorage.getItem("pubkey")
       if (isSome(localStoragePubKey)) {
         await preferencesStorageProvider.set("pubkey", localStoragePubKey)
         localStorage.removeItem("pubkey")
       }
 
-      const localStorageSessions = await localStorageProvider.get("sessions")
+      const localStorageSessions = localStorage.getItem("sessions")
       if (isSome(localStorageSessions)) {
         await preferencesStorageProvider.set("sessions", localStorageSessions)
         localStorage.removeItem("sessions")
       }
 
-      const localStorageCanDecrypt = await localStorageProvider.get("canDecrypt")
+      const localStorageCanDecrypt = localStorage.getItem("canDecrypt")
       if (isSome(localStorageCanDecrypt)) {
         await preferencesStorageProvider.set("canDecrypt", localStorageCanDecrypt)
         localStorage.removeItem("canDecrypt")
       }
 
-      const localStorageChecked = await localStorageProvider.get("checked")
+      const localStorageChecked = localStorage.getItem("checked")
       if (isSome(localStorageChecked)) {
         await preferencesStorageProvider.set("checked", localStorageChecked)
         localStorage.removeItem("checked")
       }
 
-      const localStorageTheme = await localStorageProvider.get("theme")
+      const localStorageTheme = localStorage.getItem("theme")
       if (isSome(localStorageTheme)) {
         await preferencesStorageProvider.set("theme", localStorageTheme)
         localStorage.removeItem("theme")
@@ -284,7 +285,7 @@
             }),
             // When we get an event with no signature from an untrusted relay, remove it from
             // the receive queue. If trust status is undefined, buffer it for later.
-            on(socket, SocketEvent.Receiving, (message: RelayMessage) => {
+            lib.on(socket, SocketEvent.Receiving, (message: RelayMessage) => {
               if (isRelayEvent(message) && !message[2]?.sig) {
                 const isTrusted = getSetting<string[]>("trusted_relays").includes(socket.url)
 
@@ -301,7 +302,7 @@
           ]
 
           return () => {
-            unsubscribers.forEach(call)
+            unsubscribers.forEach(lib.call)
           }
         },
         function monitorRestrictedResponses(socket: Socket) {
@@ -313,11 +314,11 @@
 
           const updateStatus = () =>
             relaysMostlyRestricted.update(
-              restricted > total / 2 ? assoc(socket.url, error) : dissoc(socket.url),
+              restricted > total / 2 ? lib.assoc(socket.url, error) : lib.dissoc(socket.url),
             )
 
           const unsubscribers = [
-            on(socket, SocketEvent.Receive, (message: RelayMessage) => {
+            lib.on(socket, SocketEvent.Receive, (message: RelayMessage) => {
               if (isRelayOk(message)) {
                 const [_, id, ok, details = ""] = message
 
@@ -346,7 +347,7 @@
                 }
               }
             }),
-            on(socket, SocketEvent.Send, (message: ClientMessage) => {
+            lib.on(socket, SocketEvent.Send, (message: ClientMessage) => {
               if (isClientReq(message)) {
                 total++
                 pending.add(message[1])
@@ -366,7 +367,7 @@
           ]
 
           return () => {
-            unsubscribers.forEach(call)
+            unsubscribers.forEach(lib.call)
           }
         },
       )

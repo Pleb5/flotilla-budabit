@@ -16,14 +16,7 @@
     ROOM_ADD_USER,
     ROOM_REMOVE_USER,
   } from "@welshman/util"
-  import {
-    pubkey,
-    publishThunk,
-    getThunkError,
-    joinRoom,
-    leaveRoom,
-    deriveRelay,
-  } from "@welshman/app"
+  import {pubkey, publishThunk, getThunkError, joinRoom, leaveRoom, deriveRelay} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
@@ -78,7 +71,9 @@
     joining = true
 
     try {
-      const message = await waitForThunkError(joinRoom(url, makeRoomMeta({id: room})))
+      const thunk = joinRoom(url, makeRoomMeta({id: room}))
+      await thunk.result
+      const message = await getThunkError(thunk)
 
       if (message && !message.startsWith("duplicate:")) {
         return pushToast({theme: "error", message})
@@ -94,7 +89,9 @@
   const leave = async () => {
     leaving = true
     try {
-      const message = await waitForThunkError(leaveRoom(url, makeRoomMeta({id: room})))
+      const thunk = leaveRoom(url, makeRoomMeta({id: room}))
+      await thunk.result
+      const message = await getThunkError(thunk)
 
       if (message && !message.startsWith("duplicate:")) {
         pushToast({theme: "error", message})

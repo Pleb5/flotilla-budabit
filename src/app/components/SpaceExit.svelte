@@ -8,7 +8,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {removeSpaceMembership, removeTrustedRelay} from "@app/core/commands"
+  import {removeSpaceMembership} from "@app/core/commands"
 
   const {url} = $props()
 
@@ -19,7 +19,6 @@
 
     try {
       await removeSpaceMembership(url)
-      await removeTrustedRelay(url)
     } finally {
       loading = false
     }

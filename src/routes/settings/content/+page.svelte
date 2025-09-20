@@ -9,7 +9,7 @@
     BLOSSOM_SERVERS,
   } from "@welshman/util"
   import {Router} from "@welshman/router"
-  import {userMutes, tagPubkey, publishThunk, userBlossomServers} from "@welshman/app"
+  import {userMutes, tagPubkey, userBlossomServers} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
@@ -17,8 +17,9 @@
   import Button from "@lib/components/Button.svelte"
   import ProfileMultiSelect from "@app/components/ProfileMultiSelect.svelte"
   import {pushToast} from "@app/util/toast"
-  import {PLATFORM_NAME, userSettingsValues} from "@app/core/state"
-  import {publishSettings} from "@app/core/commands"
+  import {PLATFORM_NAME, userSettingsValues, SETTINGS} from "@app/core/state"
+  import {publishThunk, signer, pubkey} from "@welshman/app"
+  import {APP_DATA} from "@welshman/util"
 
   const reset = () => {
     settings = {...$userSettingsValues}
@@ -27,7 +28,13 @@
   }
 
   const onsubmit = preventDefault(async () => {
-    await publishSettings($state.snapshot(settings))
+    const next = $state.snapshot(settings)
+    const json = JSON.stringify(next)
+    const content = await signer.get().nip44.encrypt(pubkey.get()!, json)
+    await publishThunk({
+      event: makeEvent(APP_DATA, {content, tags: [["d", SETTINGS]]}),
+      relays: Router.get().FromUser().getUrls(),
+    })
 
     publishThunk({
       event: makeEvent(MUTES, {tags: mutedPubkeys.map(tagPubkey)}),

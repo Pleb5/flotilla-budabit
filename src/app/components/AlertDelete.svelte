@@ -1,7 +1,8 @@
 <script lang="ts">
   import Confirm from "@lib/components/Confirm.svelte"
   import type {Alert} from "@app/core/state"
-  import {deleteAlert} from "@app/core/commands"
+  import {publishDelete} from "@app/core/commands"
+  import {NOTIFIER_RELAY, NOTIFIER_PUBKEY} from "@app/core/state"
   import {pushToast} from "@app/util/toast"
 
   type Props = {

@@ -25,7 +25,7 @@
         filters: [{kinds: [ROOMS]}],
         relays: Router.get().Index().getUrls(),
       }),
-      ...$defaultPubkeys.map(async pubkey => {
+      ...$defaultPubkeys.map(async (pubkey: string) => {
         await loadRelaySelections(pubkey)
 
         const membership = await loadMembership(pubkey)

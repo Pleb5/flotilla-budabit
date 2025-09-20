@@ -153,7 +153,7 @@
     {/snippet}
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
-        <Icon icon={UserCircle} />
+        <Icon icon="user-circle" />
         <input bind:value={values.profile.name} class="grow" type="text" />
       </label>
     {/snippet}
@@ -281,7 +281,7 @@
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
-          <Icon icon={MapPoint} />
+          <Icon icon="map-point" />
           <input bind:value={values.profile.nip05} class="grow" type="text" />
         </label>
       {/snippet}

@@ -25,17 +25,17 @@
   <div class="card2 bg-alt flex flex-col gap-6 shadow-xl">
     <div class="flex items-center justify-between">
       <strong class="flex items-center gap-3">
-        <Icon icon={Wallet2} />
+        <Icon icon="wallet-2" />
         Wallet
       </strong>
       {#if $session?.wallet}
         <div class="flex items-center gap-2 text-sm text-success">
-          <Icon icon={CheckCircle} size={4} />
+          <Icon icon="check-circle" size={4} />
           Connected
         </div>
       {:else}
         <Button class="btn btn-primary btn-sm" onclick={connect}>
-          <Icon icon={AddCircle} />
+          <Icon icon="add-circle" />
           Connect Wallet
         </Button>
       {/if}
@@ -83,7 +83,7 @@
           </div>
         {/if}
         <Button class="btn btn-neutral btn-sm" onclick={disconnect}>
-          <Icon icon={CloseCircle} />
+          <Icon icon="close-circle" />
           Disconnect Wallet
         </Button>
       {:else}

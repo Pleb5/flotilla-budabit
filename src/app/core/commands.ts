@@ -1,6 +1,6 @@
 import * as nip19 from "nostr-tools/nip19"
 import {get} from "svelte/store"
-import type {Override, MakeOptional} from "@welshman/lib"
+// removed deprecated type imports from @welshman/lib
 import {
   sha256,
   randomId,
@@ -77,10 +77,11 @@ import {
   dropSession,
   tagEventForComment,
   tagEventForQuote,
-  waitForThunkError,
   getPubkeyRelays,
   userBlossomServers,
+  getThunkError,
 } from "@welshman/app"
+import {preferencesStorageProvider} from "@lib/storage"
 import {compressFile} from "@src/lib/html"
 import type {SettingsValues, Alert} from "@app/core/state"
 import {
@@ -261,8 +262,12 @@ export const checkRelayAccess = async (url: string, claim = "") => {
 
   await attemptAuth(url)
 
-  const thunk = publishJoinRequest({url, claim})
-  const error = await waitForThunkError(thunk)
+  const thunk = publishThunk({
+    event: makeEvent(AUTH_JOIN, {tags: [["claim", claim]]}),
+    relays: [url],
+  })
+  await thunk.result
+  const error = await getThunkError(thunk)
 
   if (error) {
     const message =

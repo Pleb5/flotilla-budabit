@@ -26,6 +26,7 @@
   import {clip} from "@app/util/toast"
   import GitAuth from "@src/app/components/GitAuth.svelte"
   import GraspServersPanel from "@app/components/GraspServersPanel.svelte"
+  import Alerts from "@app/components/Alerts.svelte"
 
   // Nostr data access (patterns from spaces/[relay]/git/+page.svelte)
   import {repository, publishThunk} from "@welshman/app"

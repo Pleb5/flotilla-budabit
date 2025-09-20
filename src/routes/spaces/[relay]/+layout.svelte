@@ -19,6 +19,7 @@
     deriveSocket,
     userRoomsByUrl,
   } from "@app/core/state"
+  import {checkRelayConnection, checkRelayAuth, checkRelayAccess} from "@app/core/commands"
   import {pullConservatively} from "@app/core/requests"
   import {notifications} from "@app/util/notifications"
   import {FREELANCE_JOB, GIT_REPO} from "@src/lib/util"
@@ -32,14 +33,17 @@
 
   const rooms = Array.from($userRoomsByUrl.get(url) || [])
 
+  const authErrorStore = deriveRelayAuthError(url)
+
   const checkConnection = async () => {
     const connectionError = await checkRelayConnection(url)
 
-  const authError = deriveRelayAuthError(url)
+    const [authError, accessError] = await Promise.all([
+      checkRelayAuth(url),
+      checkRelayAccess(url),
+    ])
 
-    const [authError, accessError] = await Promise.all([checkRelayAuth(url), checkRelayAccess(url)])
-
-    const error = authError || accessError
+    const error = connectionError || authError || accessError
 
     if (error) {
       pushModal(SpaceAuthError, {url, error})

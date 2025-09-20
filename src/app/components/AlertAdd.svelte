@@ -21,8 +21,8 @@
     NOTIFIER_RELAY,
   } from "@app/core/state"
   import {loadAlertStatuses, requestRelayClaim} from "@app/core/requests"
-  import {publishAlert, attemptAuth} from "@app/core/commands"
-  import type {AlertParams} from "@app/core/commands"
+  import {publishAlert} from "@app/core/commands"
+  import {getThunkError} from "@welshman/app"
   import {platform, platformName, canSendPushNotifications, getPushInfo} from "@app/push"
   import {pushToast} from "@app/util/toast"
 
@@ -102,20 +102,16 @@
     loading = true
 
     try {
-      const claims = claim ? {[url]: claim} : {}
       const feed = makeIntersectionFeed(feedFromFilters(filters), makeRelayFeed(url))
       const description = `for ${displayList(display)} on ${displayRelayUrl(url)}`
-      const params: AlertParams = {feed, claims, description}
+      const claims = claim ? {[url]: claim} : {}
+      const emailParams = channel === "email" ? {cron, email, handler: ["digest"]} : undefined
 
-      const {error} = await createAlert({
-        feed: makeIntersectionFeed(feedFromFilters(filters), makeRelayFeed(url)),
-        claims: claim ? {[url]: claim} : {},
-        description: `for ${displayList(display)} on ${displayRelayUrl(url)}`,
-        email: channel === "email" ? {cron, email} : undefined,
-      })
-
+      const thunk = await publishAlert({feed, description, claims, email: emailParams})
+      await thunk.result
+      const error = await getThunkError(thunk)
       if (error) {
-        pushToast({theme: "error", message: error})
+        pushToast({theme: "error", message: String(error)})
       } else {
         pushToast({message: "Your alert has been successfully created!"})
         back()

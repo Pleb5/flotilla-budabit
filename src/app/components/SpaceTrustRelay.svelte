@@ -11,8 +11,12 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import InfoSignatures from "@app/components/InfoSignatures.svelte"
   import {relaysPendingTrust} from "@app/core/state"
-  import {removeSpaceMembership, addTrustedRelay, removeTrustedRelay} from "@app/core/commands"
+  import {removeSpaceMembership} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
+  import {publishThunk, signer, pubkey} from "@welshman/app"
+  import {APP_DATA, makeEvent} from "@welshman/util"
+  import {SETTINGS, userSettingsValues} from "@app/core/state"
+  import {Router} from "@welshman/router"
 
   type Props = {
     url: string
@@ -27,7 +31,14 @@
 
     try {
       await removeSpaceMembership(url)
-      await removeTrustedRelay(url)
+
+      // Remove from trusted_relays and publish settings
+      const next = {...$userSettingsValues, trusted_relays: $userSettingsValues.trusted_relays.filter(u => u !== url)}
+      const content = await signer.get().nip44.encrypt(pubkey.get()!, JSON.stringify(next))
+      await publishThunk({
+        event: makeEvent(APP_DATA, {content, tags: [["d", SETTINGS]]}),
+        relays: Router.get().FromUser().getUrls(),
+      })
       goto("/")
     } finally {
       loading = false
@@ -38,7 +49,18 @@
     loading = true
 
     try {
-      await addTrustedRelay(url)
+      const next = {
+        ...$userSettingsValues,
+        trusted_relays: Array.from(new Set([
+          ...(($userSettingsValues.trusted_relays || []) as string[]),
+          url,
+        ])),
+      }
+      const content = await signer.get().nip44.encrypt(pubkey.get()!, JSON.stringify(next))
+      await publishThunk({
+        event: makeEvent(APP_DATA, {content, tags: [["d", SETTINGS]]}),
+        relays: Router.get().FromUser().getUrls(),
+      })
 
       relaysPendingTrust.update($r => remove(url, $r))
     } finally {

@@ -43,26 +43,26 @@
 
 <div class="col-2">
   <Button class="btn btn-primary w-full" onclick={showEmojiPicker}>
-    <Icon size={4} icon={SmileCircle} />
+    <Icon size={4} icon="smile-circle" />
     Send Reaction
   </Button>
   {#if ENABLE_ZAPS}
     <ZapButton replaceState {url} {event} class="btn btn-secondary w-full">
-      <Icon size={4} icon={Bolt} />
+      <Icon size={4} icon="bolt" />
       Send Zap
     </ZapButton>
   {/if}
   <Button class="btn btn-neutral w-full" onclick={sendReply}>
-    <Icon size={4} icon={Reply} />
+    <Icon size={4} icon="reply" />
     Send Reply
   </Button>
   <Button class="btn btn-neutral" onclick={showInfo}>
-    <Icon size={4} icon={Code2} />
+    <Icon size={4} icon="code-2" />
     Message Details
   </Button>
   {#if event.pubkey === $pubkey}
     <Button class="btn btn-neutral text-error" onclick={showDelete}>
-      <Icon size={4} icon={TrashBin2} />
+      <Icon size={4} icon="trash-bin-2" />
       Delete Message
     </Button>
   {/if}
