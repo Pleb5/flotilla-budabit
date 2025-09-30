@@ -1,6 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {Address, NAMED_BOOKMARKS, type TrustedEvent} from "@welshman/util"
+  import {Address, NAMED_BOOKMARKS, type TrustedEvent, makeEvent} from "@welshman/util"
   import {GIT_REPO, GIT_REPO_BOOKMARK_DTAG} from "@src/lib/util"
   import {repository} from "@welshman/app"
   import {publishThunk} from "@welshman/app"
@@ -22,8 +22,6 @@
   import {derived as _derived, get as getStore} from "svelte/store"
   import {
     NewRepoWizard,
-    RepoAlertBadge,
-    BranchSelector,
     Avatar,
     AvatarImage,
     AvatarFallback,
@@ -36,8 +34,7 @@
   import {pushToast} from "@src/app/toast"
   import {profilesByPubkey, tracker} from "@welshman/app"
   import GitItem from "@app/components/GitItem.svelte"
-  import { RepoPicker } from "@nostr-git/ui"
-  import { createRepositoriesStore, type RepoFetchEvent, type RepoGroup } from "@nostr-git/ui"
+  import { RepoPicker, bookmarksStore, type BookmarkedRepo } from "@nostr-git/ui"
   import {
     deriveRepoRefState,
     deriveMaintainersForEuc,
@@ -62,39 +59,45 @@
     authors: [$pubkey!],
   }
 
-  const bookmarks = _derived(
+  // Load initial bookmarks from Welshman repository into our store
+  const bookmarkEvents = _derived(
     deriveEvents(repository, {filters: [bookmarkFilter]}),
     (events: TrustedEvent[]) => {
       if (events.length === 0) {
         load({relays: bookmarkRelays, filters: [bookmarkFilter]})
+        return undefined
       }
-      return events[0]
+      // Return the event with the highest created_at (most recent)
+      const latest = events.reduce((latest, current) => 
+        (current.created_at > latest.created_at) ? current : latest
+      )
+      return latest
     },
   )
 
-  const relaysOfAddresses = $state(new Map<string, string>())
+  // Derive bookmarked addresses from the singleton bookmarksStore
+  const bookmarkedAddresses = $derived($bookmarksStore.map(b => ({
+    address: b.address,
+    author: b.address.split(":")[1],
+    identifier: b.address.split(":")[2],
+    relayHint: b.relayHint
+  })))
 
+  // Fetch actual repo events for bookmarked addresses
   const repos = $derived.by(() => {
-    if ($bookmarks) {
-      const aTagList = getAddressTags($bookmarks.tags)
-      const dTagValues: string[] = []
-      const authors: string[] = []
-      const relayHints: string[] = []
-      aTagList.forEach(([_, value, relayHint]) => {
-        dTagValues.push(value.split(":")[2])
-        authors.push(value.split(":")[1])
-        const normalizedHint = relayHint ? normalizeRelayUrl(relayHint) : ""
-        relaysOfAddresses.set(value, normalizedHint)
-        if (normalizedHint && !relayHints.includes(normalizedHint)) relayHints.push(normalizedHint)
-      })
-      const repoFilter = {kinds: [GIT_REPO], authors, "#d": dTagValues}
-      return _derived(deriveEvents(repository, {filters: [repoFilter]}), events => {
-        if (events.length !== dTagValues.length) {
-          load({relays: relayHints, filters: [repoFilter]})
-        }
-        return events
-      })
-    }
+    if (bookmarkedAddresses.length === 0) return undefined
+    
+    const authors = bookmarkedAddresses.map(b => b.author)
+    const identifiers = bookmarkedAddresses.map(b => b.identifier)
+    const relayHints = Array.from(new Set(bookmarkedAddresses.map(b => b.relayHint).filter(Boolean)))
+    
+    const repoFilter = {kinds: [GIT_REPO], authors, "#d": identifiers}
+    return _derived(deriveEvents(repository, {filters: [repoFilter]}), events => {
+      if (events.length !== identifiers.length && relayHints.length > 0) {
+        load({relays: relayHints, filters: [repoFilter]})
+      }
+      return events
+    })
   })
 
   // Load user's saved GRASP servers (profile settings) and expose as list of URLs
@@ -124,24 +127,53 @@
     }
   })
 
+  // Loaded bookmarked repos - combines bookmark addresses with actual repo events
   const loadedBookmarkedRepos = $derived.by(() => {
-    if ($repos) {
-      return $repos.map(repo => {
+    if (!$repos || !bookmarkedAddresses.length) return []
+    
+    return $repos.map(repo => {
+      let addressString = ""
+      try {
         const address = Address.fromEvent(repo)
-        const addressString = address.toString()
-        const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
-        const hint = relaysOfAddresses.get(addressString) ?? relayHintFromEvent
-        return {address: addressString, event: repo, relayHint: hint}
-      })
-    } else {
-      return []
-    }
+        addressString = address.toString()
+      } catch (e) {
+        // Fallback: manually construct address if Address.fromEvent fails
+        const dTag = (repo.tags || []).find((t: string[]) => t[0] === "d")?.[1]
+        if (dTag && repo.pubkey && repo.kind) {
+          addressString = `${repo.kind}:${repo.pubkey}:${dTag}`
+          // Manually constructed address
+        } else {
+          console.error(`[loadedBookmarkedRepos] Failed to create address for event ${repo.id}:`, e)
+        }
+      }
+      
+      const bookmarkInfo = bookmarkedAddresses.find(b => b.address === addressString)
+      const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
+      const hint = bookmarkInfo?.relayHint || relayHintFromEvent
+      
+      return {address: addressString, event: repo, relayHint: hint}
+    })
   })
 
   onMount(() => {
     load({relays: bookmarkRelays, filters: [bookmarkFilter]})
     // Also load repo announcements (30617) so repoGroups can populate
     loadRepoAnnouncements(bookmarkRelays)
+    
+    // Subscribe to bookmark events and sync to bookmarksStore
+    const unsubscribe = bookmarkEvents.subscribe((event) => {
+      if (event) {
+        const aTagList = getAddressTags(event.tags)
+        const bookmarkedRepos: BookmarkedRepo[] = aTagList.map(([_, value, relayHint]) => ({
+          address: value,
+          event: null,
+          relayHint: relayHint ? normalizeRelayUrl(relayHint) : ""
+        }))
+        bookmarksStore.set(bookmarkedRepos)
+      }
+    })
+    
+    return unsubscribe
   })
 
   $effect(() => {
@@ -150,23 +182,90 @@
     }
     if ($shouldReloadRepos) {
       $shouldReloadRepos = false
-      load({relays: bookmarkRelays, filters: [bookmarkFilter]})
+      load({
+        relays: bookmarkRelays, 
+        filters: [bookmarkFilter]
+      })
+      
+      // Reload repo announcements
       loadRepoAnnouncements(bookmarkRelays)
     }
   })
+  
 
   // Cache per-EUC derived stores to avoid creating too many listeners repeatedly
   const refStateStoreByEuc = new Map<string, ReturnType<typeof deriveRepoRefState>>()
   const maintainersStoreByEuc = new Map<string, ReturnType<typeof deriveMaintainersForEuc>>()
   const patchDagStoreByAddr = new Map<string, ReturnType<typeof derivePatchGraph>>()
+  
+  // Helper to create composite key for proper fork/duplicate distinction
+  function createRepoKey(event: any): string {
+    const euc = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
+    const d = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1] || ""
+    const name = (event.tags || []).find((t: string[]) => t[0] === "name")?.[1] || d || ""
+    
+    // Normalize clone URLs by:
+    // 1. Remove .git suffix
+    // 2. Remove trailing slashes
+    // 3. Replace npub-specific paths with placeholder (for gitnostr.com, relay.ngit.dev, etc.)
+    // 4. Lowercase and sort
+    const cloneUrls = (event.tags || [])
+      .filter((t: string[]) => t[0] === "clone")
+      .flatMap((t: string[]) => t.slice(1))
+      .map((url: string) => {
+        let normalized = url.trim().toLowerCase().replace(/\.git$/, '').replace(/\/$/, '')
+        // Replace npub paths with generic placeholder to group by repo name only
+        normalized = normalized.replace(/\/npub1[a-z0-9]+\//g, '/{npub}/')
+        return normalized
+      })
+      .sort()
+      .join('|')
+    return `${euc}:${name}:${cloneUrls}`
+  }
+  
   const groupCards = $derived.by(() => {
     // Only from loadedBookmarkedRepos
     const bookmarked = loadedBookmarkedRepos || []
-    const byEuc = new Map<string, any>()
+    const byCompositeKey = new Map<string, any>()
+    
+    
     for (const {event, relayHint} of bookmarked) {
-      const t = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
-      const euc = t ? t[1] : ""
-      if (!euc) continue
+      // Try to find EUC tag, fall back to any r tag, or use event ID as last resort
+      const eucTag = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
+      const anyRTag = (event.tags || []).find((t: string[]) => t[0] === "r")
+      const euc = eucTag?.[1] || anyRTag?.[1] || event.id || ""
+      
+      if (!euc) {
+        continue
+      }
+      
+
+      // Use composite key to distinguish forks from duplicates
+      const compositeKey = createRepoKey(event)
+      const d = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1] || ""
+      const name = (event.tags || []).find((t: string[]) => t[0] === "name")?.[1] || ""
+      const cloneUrls = (event.tags || []).filter((t: string[]) => t[0] === "clone").map(t => t[1])
+      
+      // Extract event data
+      const web = (event.tags || [])
+        .filter((t: string[]) => t[0] === "web")
+        .flatMap((t: string[]) => t.slice(1))
+      const clone = (event.tags || [])
+        .filter((t: string[]) => t[0] === "clone")
+        .flatMap((t: string[]) => t.slice(1))
+      
+      // If we already have this repo, merge maintainers (duplicate announcement)
+      if (byCompositeKey.has(compositeKey)) {
+        const existing = byCompositeKey.get(compositeKey)
+        // Add this event's author as maintainer if not already present
+        if (event.pubkey && !existing.maintainers.includes(event.pubkey)) {
+          existing.maintainers.push(event.pubkey)
+        }
+        // Merge web/clone URLs
+        existing.web = Array.from(new Set([...existing.web, ...web]))
+        existing.clone = Array.from(new Set([...existing.clone, ...clone]))
+        continue
+      }
 
       let mStore = maintainersStoreByEuc.get(euc)
       if (!mStore) {
@@ -227,8 +326,8 @@
       } catch {}
       const card = {
         euc,
-        web: [],
-        clone: [],
+        web: Array.from(new Set(web)),
+        clone: Array.from(new Set(clone)),
         maintainers,
         refs,
         rootsCount,
@@ -239,128 +338,15 @@
         principal,
         repoNaddr,
       }
-      if (!byEuc.has(euc)) byEuc.set(euc, card)
+      byCompositeKey.set(compositeKey, card)
     }
-    return Array.from(byEuc.values())
+    
+    const result = Array.from(byCompositeKey.values())
+    return result
   })
 
-  // =============================
-  // UI Repositories Store (ThunkFunction-based)
-  // =============================
-  let repoGroupsFromStore = $state<RepoGroup[]>([])
-  const repoLoaderThunk = (evt: RepoFetchEvent) => {
-    const controller = new AbortController()
-    // Subscribe once to repo announcements and return result via callback
-    const store = deriveEvents(repository, {filters: evt.filters})
-    const unsubscribe = store.subscribe((events: any[]) => {
-      try { evt.onResult(events as any[]) } finally { unsubscribe(); controller.abort() }
-    })
-    // Kick network load
-    load({ relays: bookmarkRelays, filters: evt.filters })
-    return { controller }
-  }
-  const reposStore = createRepositoriesStore({ fetchEvents: async () => [] }, repoLoaderThunk)
-  // keep local copy for $state usage
-  reposStore.subscribe((v) => (repoGroupsFromStore = v))
-  onMount(() => { void reposStore.refresh() })
-
-  // Map repoGroupsFromStore into card-like objects compatible with existing template
-  const groupCardsFromStore = $derived.by(() => {
-    const out: any[] = []
-    for (const g of repoGroupsFromStore || []) {
-      const first = (g.repos || [])[0]
-      if (!first) continue
-      const euc = g.euc
-      // reuse existing derived maintainers/refs if available
-      let mStore = maintainersStoreByEuc.get(euc)
-      if (!mStore) { mStore = deriveMaintainersForEuc(euc); maintainersStoreByEuc.set(euc, mStore) }
-      const maintainers = Array.from(mStore.get() || [])
-      let rStore = refStateStoreByEuc.get(euc)
-      if (!rStore) { rStore = deriveRepoRefState(euc); refStateStoreByEuc.set(euc, rStore) }
-      const refs = rStore.get() || {}
-      let title = g.name || ""
-      let description = ""
-      try {
-        const parsed = parseRepoAnnouncementEvent(first as unknown as RepoAnnouncementEvent)
-        if (!title && parsed?.name) title = parsed.name
-        if (parsed?.description) description = parsed.description
-      } catch {}
-      const principal = maintainers[0] || (first as any)?.pubkey || ""
-      const repoNaddr = (() => {
-        try {
-          if (!principal || !title) return ""
-          const relays = Router.get().FromPubkeys([principal]).getUrls()
-          return nip19.naddrEncode({pubkey: principal, kind: 30617, identifier: title, relays})
-        } catch { return "" }
-      })()
-      // patch DAG stats as before
-      let rootsCount = 0, revisionsCount = 0
-      try {
-        const addrA = Address.fromEvent(first).toString()
-        let dStore = patchDagStoreByAddr.get(addrA)
-        if (!dStore) { dStore = derivePatchGraph(addrA); patchDagStoreByAddr.set(addrA, dStore) }
-        const dag: any = dStore.get()
-        rootsCount = Array.isArray(dag?.roots) ? dag.roots.length : (typeof dag?.nodeCount === "number" ? Math.min(1, dag.nodeCount) : 0)
-        revisionsCount = Array.isArray(dag?.rootRevisions) ? dag.rootRevisions.length : (typeof dag?.edgesCount === "number" ? dag.edgesCount : 0)
-      } catch {}
-      // open issues/patches count
-      let openIssues = 0
-      let openPatches = 0
-      try {
-        const addrA = Address.fromEvent(first).toString()
-        const issuesStore = deriveEvents(repository, { filters: [{ kinds: [1621], "#a": [addrA] }] })
-        const issues = getStore(issuesStore) as any[]
-        if (Array.isArray(issues)) {
-          openIssues = issues.reduce((acc, ev) => {
-            const rootId = ev.id
-            const rootAuthor = ev.pubkey
-            const statusesStore = deriveEvents(repository, { filters: [{ kinds: [1630,1631,1632,1633], "#e": [rootId] }] })
-            const statuses = getStore(statusesStore) as any[]
-            const res = resolveStatus({ statuses, rootAuthor, maintainers: new Set(maintainers) })
-            const kind = res.final?.kind
-            const state = kind === 1632 ? 'closed' : kind === 1631 ? 'applied' : kind === 1630 ? 'open' : 'draft'
-            return acc + (state === 'open' ? 1 : 0)
-          }, 0)
-        }
-        // patches: count roots with open status
-        const patchesStore = deriveEvents(repository, { filters: [{ kinds: [1617], "#a": [addrA] }] })
-        const patches = getStore(patchesStore) as any[]
-        if (Array.isArray(patches)) {
-          const roots = patches.filter((p) => (p.tags || []).some((t: string[]) => t[0] === 't' && t[1] === 'root'))
-          openPatches = roots.reduce((acc, ev) => {
-            const rootId = ev.id
-            const rootAuthor = ev.pubkey
-            const statusesStore = deriveEvents(repository, { filters: [{ kinds: [1630,1631,1632,1633], "#e": [rootId] }] })
-            const statuses = getStore(statusesStore) as any[]
-            const res = resolveStatus({ statuses, rootAuthor, maintainers: new Set(maintainers) })
-            const kind = res.final?.kind
-            const state = kind === 1632 ? 'closed' : kind === 1631 ? 'applied' : kind === 1630 ? 'open' : 'draft'
-            return acc + (state === 'open' ? 1 : 0)
-          }, 0)
-        }
-      } catch {}
-      out.push({
-        euc,
-        web: g.web || [],
-        clone: g.clone || [],
-        maintainers,
-        refs,
-        rootsCount,
-        revisionsCount,
-        openIssues,
-        openPatches,
-        title,
-        description,
-        first,
-        principal,
-        repoNaddr,
-      })
-    }
-    return out
-  })
-
-  // Final list: prefer store data if available, else fallback to local derived
-  const groupCardsToRender = $derived.by(() => (groupCardsFromStore.length > 0 ? groupCardsFromStore : groupCards))
+  // Use groupCards directly - it already filters to bookmarked repos only
+  const groupCardsToRender = $derived(groupCards)
 
   // Map first repo announcement per EUC for navigation using only bookmarks
   const firstRepoByEuc = $derived.by(() => {
@@ -393,27 +379,56 @@
     } catch {}
   }
 
-  const back = () => history.back()
+  const back = () => {
+    // Trigger reload when closing the modal
+    $shouldReloadRepos = true
+    clearModals()
+  }
 
   const onAddRepo = () => {
     // Open RepoPicker in a modal for editing followed repos
     try {
       // Inject closures matching ThunkFunction signature
-      const fetchRepos = (evt: RepoFetchEvent) => {
+      const fetchRepos = (evt: { filters: any[]; onResult: (events: any[]) => void }) => {
         const controller = new AbortController()
         const store = deriveEvents(repository, { filters: evt.filters })
-        const unsubscribe = store.subscribe((events: any[]) => {
-          try { evt.onResult(events as any[]) } finally { unsubscribe(); controller.abort() }
+        store.subscribe((events: any[]) => {
+          evt.onResult(events as any[])
         })
         load({ relays: bookmarkRelays, filters: evt.filters })
         return { controller }
       }
       const publishBookmarks = ({ tags, relays }: { tags: string[][]; relays?: string[] }) => {
         const controller = new AbortController()
-        const eventToPublish = (window as any)?.welshman?.makeEvent
-          ? (window as any).welshman.makeEvent(30001, { tags }) // fallback if helper exists
-          : { kind: 30001, content: "", tags }
-        publishThunk({ event: eventToPublish, relays: relays || bookmarkRelays }).result.finally(() => controller.abort())
+        const eventToPublish = makeEvent(NAMED_BOOKMARKS, {tags, content: ""})
+        
+        // Extract a-tags and update the bookmarks store immediately
+        const aTags = tags.filter(t => t[0] === 'a')
+        const newBookmarks: BookmarkedRepo[] = aTags.map(([_, address, relayHint]) => ({
+          address,
+          event: null,
+          relayHint: relayHint || ""
+        }))
+        
+        bookmarksStore.set(newBookmarks)
+        
+        // Then publish to relays in the background
+        const thunk = publishThunk({ event: eventToPublish, relays: relays || bookmarkRelays })
+        
+        thunk.result
+          .then(() => {
+            // Force reload from relays after a delay to get the new event
+            setTimeout(() => {
+              load({relays: relays || bookmarkRelays, filters: [bookmarkFilter]})
+            }, 2000)
+          })
+          .catch((err) => {
+            console.error('[git/+page] Failed to publish bookmarks:', err)
+          })
+          .finally(() => {
+            controller.abort()
+          })
+        
         return { controller }
       }
       const makeRelayHint = (event: any) => {
@@ -482,58 +497,36 @@
       </p>
     {:else}
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each groupCardsToRender as g (g.euc)}
+        {#each groupCardsToRender as g (g.repoNaddr || g.euc)}
           <div class="rounded-md border border-border bg-card p-3" in:fly>
             <!-- Use GitItem for consistent repo card rendering -->
             {#if g.first}
-              <GitItem url={url} event={g.first as any} showActivity={false} showIssues={false} showActions={true} />
+              <GitItem url={url} event={g.first as any} showActivity={true} showIssues={true} showActions={true} />
             {/if}
 
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <div class="mt-2 flex items-center gap-2">
-                  <div class="flex -space-x-2">
-                    {#each g.maintainers.slice(0, 4) as pk (pk)}
-                      {@const prof = $profilesByPubkey.get(pk)}
-                      <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
-                        <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
-                        <AvatarFallback
-                          >{(prof?.display_name || prof?.name || pk)
-                            .slice(0, 2)
-                            .toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                    {/each}
-                    {#if g.maintainers.length > 4}
-                      <div
-                        class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                        +{g.maintainers.length - 4}
-                      </div>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-2 flex flex-wrap gap-2 text-xs">
-              {#if Object.keys(g.refs).length}
-                <span class="badge badge-ghost">{Object.keys(g.refs).length} refs</span>
-              {/if}
-              {#if g.web?.length}
-                <span class="badge badge-ghost">{g.web.length} web</span>
-              {/if}
-              {#if g.clone?.length}
-                <span class="badge badge-ghost">{g.clone.length} clone</span>
-              {/if}
-              {#if g.rootsCount > 0}
-                <span class="badge badge-ghost">{g.rootsCount} roots</span>
-              {/if}
-              {#if g.revisionsCount > 0}
-                <span class="badge badge-ghost">{g.revisionsCount} revisions</span>
-              {/if}
-            </div>
-
+            <!-- Maintainers avatars -->
             <div class="mt-3 flex items-center justify-between">
-              <div class="text-xs opacity-60">{g.maintainers.length} maintainers</div>
+              <div class="flex items-center gap-2">
+                <div class="flex -space-x-2">
+                  {#each g.maintainers.slice(0, 4) as pk (pk)}
+                    {@const prof = $profilesByPubkey.get(pk)}
+                    <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
+                      <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                      <AvatarFallback
+                        >{(prof?.display_name || prof?.name || pk)
+                          .slice(0, 2)
+                          .toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                  {/each}
+                  {#if g.maintainers.length > 4}
+                    <div
+                      class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
+                      +{g.maintainers.length - 4}
+                    </div>
+                  {/if}
+                </div>
+                <span class="text-xs opacity-60">{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? 's' : ''}</span>
+              </div>
             </div>
           </div>
         {/each}

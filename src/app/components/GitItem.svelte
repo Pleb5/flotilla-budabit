@@ -25,7 +25,7 @@
 <NoteCard {event} class="card2 sm:card2-sm bg-alt">
   {#if name}
     <div class="flex w-full items-center justify-between gap-2">
-      <p class="text-xl">{name}</p>
+      <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>
     </div>
   {:else}
     <p class="mb-3 h-0 text-xs opacity-75">
@@ -33,8 +33,8 @@
     </p>
   {/if}
   {#if description}
-    <div class="flex w-full items-center">
-      <p class="text-lg">{description}</p>
+    <div class="flex w-full items-start">
+      <p class="text-lg break-words overflow-wrap-anywhere">{description}</p>
     </div>
   {:else}
     <p class="mb-3 h-0 text-xs opacity-75">

@@ -109,14 +109,14 @@
 <div class="flex flex-wrap items-center justify-between gap-2">
   <div class="flex flex-grow flex-wrap justify-end gap-2">
     <Button
-      class="btn btn-primary btn-sm cursor-pointer"
+      class="btn btn-primary btn-xs rounded-full cursor-pointer"
       onclick={gotoRepo}
       disabled={!!navigating.type}>
       <Spinner loading={!!navigating.type} minHeight={"min-h-6"}>Browse</Spinner>
     </Button>
     {#if showIssues}
       <Button
-        class="btn btn-secondary btn-sm flex cursor-pointer items-center"
+        class="btn btn-secondary btn-xs rounded-full flex cursor-pointer items-center"
         onclick={gotoIssues}
         disabled={!!navigating.type}>
         <Spinner loading={loadingIssues || !!navigating.type} minHeight={"min-h-6"}>

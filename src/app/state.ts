@@ -806,9 +806,15 @@ export const repoCountsByEuc = derived(repoAnnouncements, $events => {
   return counts
 })
 
+// Map groups by EUC for backward compatibility
+// Note: With composite keys, multiple groups may share the same EUC (forks)
+// This map returns the first group found for each EUC
 export const repoGroupsByEuc = derived(repoGroups, $groups => {
   const map = new Map<string, RepoGroup>()
-  for (const g of $groups) map.set(g.euc, g)
+  for (const g of $groups) {
+    // Only set if not already present (first wins)
+    if (!map.has(g.euc)) map.set(g.euc, g)
+  }
   return map
 })
 

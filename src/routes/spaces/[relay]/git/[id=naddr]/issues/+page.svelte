@@ -36,7 +36,6 @@
   import {deriveEffectiveLabels, deriveStatus} from "@app/state"
   import {onMount, onDestroy} from "svelte"
   import {now} from "@welshman/lib"
-  import Magnifer from "@assets/icons/magnifer.svg?dataurl"
 
   const {data} = $props()
   const {repoClass, issueFilter, statusEventFilter, repoRelays} = data
@@ -636,7 +635,7 @@
       </div>
     </div>
     <div class="row-2 input mt-4 grow overflow-x-hidden">
-      <Icon icon={Magnifer} />
+      <Icon icon="magnifer" />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         autofocus={!isMobile}

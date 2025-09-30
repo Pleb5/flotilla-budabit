@@ -50,13 +50,15 @@
       <Button class="link ml-8" onclick={ignoreMute}>Show anyway</Button>
     </div>
   {:else}
-    <div class="flex justify-between gap-2">
+    <div class="flex flex-col gap-1">
       {#if !hideProfile}
-        {#if minimal}
-          @<ProfileName pubkey={event.pubkey} {url} />
-        {:else}
-          <Profile pubkey={event.pubkey} {url} />
-        {/if}
+        <div class="flex items-center gap-2">
+          {#if minimal}
+            @<ProfileName pubkey={event.pubkey} {url} />
+          {:else}
+            <Profile pubkey={event.pubkey} {url} />
+          {/if}
+        </div>
       {/if}
       <Link
         external

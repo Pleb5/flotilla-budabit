@@ -608,7 +608,7 @@
       </div>
     </div>
     <div class="row-2 input grow overflow-x-hidden">
-      <Icon icon="magnifier" />
+      <Icon icon="magnifer" />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         autofocus={!isMobile}
@@ -737,7 +737,7 @@
           <div class="md:col-span-2">
             <h3 class="mb-2 text-sm font-medium">Labels</h3>
             <div class="row-2 input mb-2 max-w-md">
-              <Icon icon="magnifier" />
+              <Icon icon="magnifer" />
               <input
                 class="w-full"
                 bind:value={labelSearch}
