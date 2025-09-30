@@ -29,7 +29,6 @@
   import {deriveEffectiveLabels, deriveStatus} from "@app/state"
   import {onMount, onDestroy} from "svelte"
   import {now} from "@welshman/lib"
-  import Magnifer from "@assets/icons/magnifer.svg?dataurl"
 
   const {data} = $props()
   const {repoClass, comments, statusEvents, patchFilter, repoRelays, uniqueAuthors} = data
@@ -609,7 +608,7 @@
       </div>
     </div>
     <div class="row-2 input grow overflow-x-hidden">
-      <Icon icon={Magnifer} />
+      <Icon icon="magnifier" />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         autofocus={!isMobile}
@@ -738,7 +737,7 @@
           <div class="md:col-span-2">
             <h3 class="mb-2 text-sm font-medium">Labels</h3>
             <div class="row-2 input mb-2 max-w-md">
-              <Icon icon={Magnifer} />
+              <Icon icon="magnifier" />
               <input
                 class="w-full"
                 bind:value={labelSearch}

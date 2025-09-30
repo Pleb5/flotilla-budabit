@@ -30,11 +30,14 @@
   } from "@nostr-git/ui"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
   import {parseRepoAnnouncementEvent} from "@nostr-git/shared-types"
-  import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/core"
+  import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, resolveStatus} from "@nostr-git/core"
   import {nip19} from "nostr-tools"
   import {onMount} from "svelte"
   import {pushToast} from "@src/app/toast"
-  import {profilesByPubkey} from "@welshman/app"
+  import {profilesByPubkey, tracker} from "@welshman/app"
+  import GitItem from "@app/components/GitItem.svelte"
+  import { RepoPicker } from "@nostr-git/ui"
+  import { createRepositoriesStore, type RepoFetchEvent, type RepoGroup } from "@nostr-git/ui"
   import {
     deriveRepoRefState,
     deriveMaintainersForEuc,
@@ -241,6 +244,124 @@
     return Array.from(byEuc.values())
   })
 
+  // =============================
+  // UI Repositories Store (ThunkFunction-based)
+  // =============================
+  let repoGroupsFromStore = $state<RepoGroup[]>([])
+  const repoLoaderThunk = (evt: RepoFetchEvent) => {
+    const controller = new AbortController()
+    // Subscribe once to repo announcements and return result via callback
+    const store = deriveEvents(repository, {filters: evt.filters})
+    const unsubscribe = store.subscribe((events: any[]) => {
+      try { evt.onResult(events as any[]) } finally { unsubscribe(); controller.abort() }
+    })
+    // Kick network load
+    load({ relays: bookmarkRelays, filters: evt.filters })
+    return { controller }
+  }
+  const reposStore = createRepositoriesStore({ fetchEvents: async () => [] }, repoLoaderThunk)
+  // keep local copy for $state usage
+  reposStore.subscribe((v) => (repoGroupsFromStore = v))
+  onMount(() => { void reposStore.refresh() })
+
+  // Map repoGroupsFromStore into card-like objects compatible with existing template
+  const groupCardsFromStore = $derived.by(() => {
+    const out: any[] = []
+    for (const g of repoGroupsFromStore || []) {
+      const first = (g.repos || [])[0]
+      if (!first) continue
+      const euc = g.euc
+      // reuse existing derived maintainers/refs if available
+      let mStore = maintainersStoreByEuc.get(euc)
+      if (!mStore) { mStore = deriveMaintainersForEuc(euc); maintainersStoreByEuc.set(euc, mStore) }
+      const maintainers = Array.from(mStore.get() || [])
+      let rStore = refStateStoreByEuc.get(euc)
+      if (!rStore) { rStore = deriveRepoRefState(euc); refStateStoreByEuc.set(euc, rStore) }
+      const refs = rStore.get() || {}
+      let title = g.name || ""
+      let description = ""
+      try {
+        const parsed = parseRepoAnnouncementEvent(first as unknown as RepoAnnouncementEvent)
+        if (!title && parsed?.name) title = parsed.name
+        if (parsed?.description) description = parsed.description
+      } catch {}
+      const principal = maintainers[0] || (first as any)?.pubkey || ""
+      const repoNaddr = (() => {
+        try {
+          if (!principal || !title) return ""
+          const relays = Router.get().FromPubkeys([principal]).getUrls()
+          return nip19.naddrEncode({pubkey: principal, kind: 30617, identifier: title, relays})
+        } catch { return "" }
+      })()
+      // patch DAG stats as before
+      let rootsCount = 0, revisionsCount = 0
+      try {
+        const addrA = Address.fromEvent(first).toString()
+        let dStore = patchDagStoreByAddr.get(addrA)
+        if (!dStore) { dStore = derivePatchGraph(addrA); patchDagStoreByAddr.set(addrA, dStore) }
+        const dag: any = dStore.get()
+        rootsCount = Array.isArray(dag?.roots) ? dag.roots.length : (typeof dag?.nodeCount === "number" ? Math.min(1, dag.nodeCount) : 0)
+        revisionsCount = Array.isArray(dag?.rootRevisions) ? dag.rootRevisions.length : (typeof dag?.edgesCount === "number" ? dag.edgesCount : 0)
+      } catch {}
+      // open issues/patches count
+      let openIssues = 0
+      let openPatches = 0
+      try {
+        const addrA = Address.fromEvent(first).toString()
+        const issuesStore = deriveEvents(repository, { filters: [{ kinds: [1621], "#a": [addrA] }] })
+        const issues = getStore(issuesStore) as any[]
+        if (Array.isArray(issues)) {
+          openIssues = issues.reduce((acc, ev) => {
+            const rootId = ev.id
+            const rootAuthor = ev.pubkey
+            const statusesStore = deriveEvents(repository, { filters: [{ kinds: [1630,1631,1632,1633], "#e": [rootId] }] })
+            const statuses = getStore(statusesStore) as any[]
+            const res = resolveStatus({ statuses, rootAuthor, maintainers: new Set(maintainers) })
+            const kind = res.final?.kind
+            const state = kind === 1632 ? 'closed' : kind === 1631 ? 'applied' : kind === 1630 ? 'open' : 'draft'
+            return acc + (state === 'open' ? 1 : 0)
+          }, 0)
+        }
+        // patches: count roots with open status
+        const patchesStore = deriveEvents(repository, { filters: [{ kinds: [1617], "#a": [addrA] }] })
+        const patches = getStore(patchesStore) as any[]
+        if (Array.isArray(patches)) {
+          const roots = patches.filter((p) => (p.tags || []).some((t: string[]) => t[0] === 't' && t[1] === 'root'))
+          openPatches = roots.reduce((acc, ev) => {
+            const rootId = ev.id
+            const rootAuthor = ev.pubkey
+            const statusesStore = deriveEvents(repository, { filters: [{ kinds: [1630,1631,1632,1633], "#e": [rootId] }] })
+            const statuses = getStore(statusesStore) as any[]
+            const res = resolveStatus({ statuses, rootAuthor, maintainers: new Set(maintainers) })
+            const kind = res.final?.kind
+            const state = kind === 1632 ? 'closed' : kind === 1631 ? 'applied' : kind === 1630 ? 'open' : 'draft'
+            return acc + (state === 'open' ? 1 : 0)
+          }, 0)
+        }
+      } catch {}
+      out.push({
+        euc,
+        web: g.web || [],
+        clone: g.clone || [],
+        maintainers,
+        refs,
+        rootsCount,
+        revisionsCount,
+        openIssues,
+        openPatches,
+        title,
+        description,
+        first,
+        principal,
+        repoNaddr,
+      })
+    }
+    return out
+  })
+
+  // Final list: prefer store data if available, else fallback to local derived
+  const groupCardsToRender = $derived.by(() => (groupCardsFromStore.length > 0 ? groupCardsFromStore : groupCards))
+
   // Map first repo announcement per EUC for navigation using only bookmarks
   const firstRepoByEuc = $derived.by(() => {
     const map = new Map<string, TrustedEvent>()
@@ -275,9 +396,48 @@
   const back = () => history.back()
 
   const onAddRepo = () => {
-    console.log("[git page] onAddRepo handler invoked")
-    console.log("[git page] onAddRepo clicked")
-    goto("/settings/repos")
+    // Open RepoPicker in a modal for editing followed repos
+    try {
+      // Inject closures matching ThunkFunction signature
+      const fetchRepos = (evt: RepoFetchEvent) => {
+        const controller = new AbortController()
+        const store = deriveEvents(repository, { filters: evt.filters })
+        const unsubscribe = store.subscribe((events: any[]) => {
+          try { evt.onResult(events as any[]) } finally { unsubscribe(); controller.abort() }
+        })
+        load({ relays: bookmarkRelays, filters: evt.filters })
+        return { controller }
+      }
+      const publishBookmarks = ({ tags, relays }: { tags: string[][]; relays?: string[] }) => {
+        const controller = new AbortController()
+        const eventToPublish = (window as any)?.welshman?.makeEvent
+          ? (window as any).welshman.makeEvent(30001, { tags }) // fallback if helper exists
+          : { kind: 30001, content: "", tags }
+        publishThunk({ event: eventToPublish, relays: relays || bookmarkRelays }).result.finally(() => controller.abort())
+        return { controller }
+      }
+      const makeRelayHint = (event: any) => {
+        try {
+          const relayTag = (event.tags || []).find((t: string[]) => t[0] === "relays")?.[1] || ""
+          const fromTracker = Array.from(tracker.getRelays(event.id) || [])[0] || ""
+          const fromPubkey = Router.get().getRelaysForPubkey(event.pubkey)?.[0] || ""
+          return relayTag || fromTracker || fromPubkey || ""
+        } catch { return "" }
+      }
+      pushModal(RepoPicker, {
+        selectedRepos: loadedBookmarkedRepos,
+        fetchRepos,
+        publishBookmarks,
+        filters: [{ kinds: [30617] }],
+        relays: bookmarkRelays,
+        makeRelayHint,
+        onClose: back,
+      })
+    } catch (e) {
+      // Fallback to settings route if modal fails for any reason
+      console.error("Failed to open RepoPicker modal:", e)
+      goto("/settings/repos")
+    }
   }
 
   const onNewRepo = () => {
@@ -322,20 +482,15 @@
       </p>
     {:else}
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each groupCards as g (g.euc)}
+        {#each groupCardsToRender as g (g.euc)}
           <div class="rounded-md border border-border bg-card p-3" in:fly>
+            <!-- Use GitItem for consistent repo card rendering -->
+            {#if g.first}
+              <GitItem url={url} event={g.first as any} showActivity={false} showIssues={false} showActions={true} />
+            {/if}
+
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
-                <a
-                  class="block truncate text-base font-semibold hover:underline"
-                  href={g.principal
-                    ? `/spaces/${$page.params.relay}/git/${g.principal}/${encodeURIComponent(g.title)}`
-                    : undefined}>{g.title}</a>
-                {#if g.description}
-                  <div class="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
-                    {g.description}
-                  </div>
-                {/if}
                 <div class="mt-2 flex items-center gap-2">
                   <div class="flex -space-x-2">
                     {#each g.maintainers.slice(0, 4) as pk (pk)}
