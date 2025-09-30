@@ -15,7 +15,7 @@
     "src",
     "packages/nostr-git/packages/ui/src/lib/components/git/RepoCore.ts",
     "packages/nostr-git/packages/ui/tests/**/*.ts"
-  ],
+, "src/lib/signerContextAdapter.ts", "packages/nostr-git/packages/ui/src/lib/utils/tokenLoader.ts"  ],
   "exclude": [
     "packages/**/dist",
     "packages/**/dist/**",

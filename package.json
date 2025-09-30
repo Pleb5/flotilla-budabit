@@ -30,6 +30,7 @@
     "@vitest/ui": "^3.2.4",
     "autoprefixer": "^10.4.19",
     "classnames": "^2.5.1",
+    "dotenv": "^16.6.1",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-svelte": "^2.45.1",
@@ -96,7 +97,6 @@
     "daisyui": "^4.12.10",
     "date-fns": "^4.1.0",
     "date-picker-svelte": "^2.13.0",
-    "dotenv": "^16.4.5",
     "emoji-picker-element": "^1.22.8",
     "fuse.js": "^7.0.0",
     "husky": "^9.1.6",
@@ -109,7 +109,8 @@
     "qrcode": "^1.5.4",
     "sharp": "^0.34.1",
     "throttle-debounce": "^5.0.2",
-    "tippy.js": "^6.3.7"
+    "tippy.js": "^6.3.7",
+    "isomorphic-git": "https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz"
   },
   "pnpm": {
     "ignoredBuiltDependencies": [

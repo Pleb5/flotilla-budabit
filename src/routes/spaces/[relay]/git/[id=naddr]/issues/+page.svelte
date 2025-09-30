@@ -1,16 +1,6 @@
 <script lang="ts">
-  import {IssueCard, NewIssueForm, Button, toast} from "@nostr-git/ui"
-  import {
-    CalendarDays,
-    Check,
-    Clock,
-    Eye,
-    GitCommit,
-    Plus,
-    SearchX,
-    User,
-    X,
-  } from "@lucide/svelte"
+  import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert} from "@nostr-git/ui"
+  import {Bell, CalendarDays, Check, Clock, Eye, GitCommit, Plus, SearchX, User, X} from "@lucide/svelte"
   import {
     Address,
     COMMENT,
@@ -21,6 +11,7 @@
     GIT_STATUS_CLOSED,
     getTag,
   } from "@welshman/util"
+  import { getTags } from "@nostr-git/shared-types"
   import {createSearch, pubkey, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
@@ -37,17 +28,25 @@
   import {postComment, postIssue, postStatus} from "@src/app/commands"
   import {nthEq, sortBy} from "@welshman/lib"
   import Icon from "@src/lib/components/Icon.svelte"
-  import StatusChip from "@src/lib/components/StatusChip.svelte"
-  import MaintainerBadge from "@src/lib/components/MaintainerBadge.svelte"
+  import { RepoPatchStatus } from "@nostr-git/ui"
   import {isMobile} from "@src/lib/html"
   import {debounce} from "throttle-debounce"
   import {deriveEvents} from "@welshman/store"
   import ProfileName from "@src/app/components/ProfileName.svelte"
-  import { deriveEffectiveLabels, deriveStatus } from "@app/state"
-  import { onMount, onDestroy } from "svelte"
+  import {deriveEffectiveLabels, deriveStatus} from "@app/state"
+  import {onMount, onDestroy} from "svelte"
+  import {now} from "@welshman/lib"
+  import Magnifer from "@assets/icons/magnifer.svg?dataurl"
 
-  let {data} = $props()
+  const {data} = $props()
   const {repoClass, issueFilter, statusEventFilter, repoRelays} = data
+  const mounted = now()
+  const alertedIds = new Set<string>()
+  // Track previous review-needed state per issue to alert only on false -> true transitions
+  const prevReviewStateByIssue: Map<string, boolean> = new Map()
+  // Debounce window for comment mention alerts per issue (ms)
+  const mentionWindowMs = 3000
+  const lastMentionAlertAtByIssue: Map<string, number> = new Map()
 
   const issues = $derived.by(() => {
     return sortBy(e => -e.created_at, repoClass.issues)
@@ -60,6 +59,28 @@
     for (const [key, value] of Object.entries(comments)) {
       ret[key] = sortBy(e => -e.created_at, value)
     }
+
+  // Alerts: watch for new status events arriving after mount and alert once
+  $effect(() => {
+    try {
+      const arr = $statusEvents || []
+      for (const e of arr) {
+        if (!e || !e.id) continue
+        if (alertedIds.has(e.id)) continue
+        if (e.created_at <= mounted) continue
+        if ([GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE].includes(e.kind as number)) {
+          const body = getTagValue("t", e.tags) || ""
+          pushRepoAlert({
+            repoKey: repoClass.canonicalKey,
+            kind: "status-change",
+            title: "Status changed",
+            body,
+          })
+          alertedIds.add(e.id)
+        }
+      }
+    } catch {}
+  })
     return ret
   })
 
@@ -73,11 +94,15 @@
       let reason: string | undefined
       const r = getResolvedStateFor(issue.id)
       if (r) {
-        const mapKind = (s: string) => s === 'open' ? GIT_STATUS_OPEN
-          : s === 'draft' ? GIT_STATUS_DRAFT
-          : s === 'closed' ? GIT_STATUS_CLOSED
-          : /* merged | resolved */ GIT_STATUS_COMPLETE
-        statusStub = { kind: mapKind(r.state) } as unknown as StatusEvent
+        const mapKind = (s: string) =>
+          s === "open"
+            ? GIT_STATUS_OPEN
+            : s === "draft"
+              ? GIT_STATUS_DRAFT
+              : s === "closed"
+                ? GIT_STATUS_CLOSED
+                : /* merged | resolved */ GIT_STATUS_COMPLETE
+        statusStub = {kind: mapKind(r.state)} as unknown as StatusEvent
         reason = undefined
       } else {
         const res = deriveStatus(issue.id, issue.pubkey, euc).get()
@@ -87,20 +112,99 @@
       byId[issue.id] = statusStub
       reasons[issue.id] = reason
     }
-    return { byId, reasons }
+    return {byId, reasons}
   })
 
   // Extract euc grouping key from repoEvent tags (r:euc)
   const euc = $derived.by(() => {
     try {
       const evt: any = (repoClass as any).repoEvent
-      const t = ((evt?.tags || []) as any[]).find((t: string[]) => t[0] === 'r' && t[2] === 'euc')
+      const t = ((evt?.tags || []) as any[]).find((t: string[]) => t[0] === "r" && t[2] === "euc")
       return t ? t[1] : ""
-    } catch { return "" }
+    } catch {
+      return ""
+    }
   })
 
   const statuses: Record<string, StatusEvent | undefined> = $derived.by(() => statusData.byId)
   const statusReasons: Record<string, string | undefined> = $derived.by(() => statusData.reasons)
+
+  // Alerts: review-request based on Type labels for issues; alert on transition to true
+  $effect(() => {
+    try {
+      const arr = repoClass.issues || []
+      for (const it of arr) {
+        if (!it || !it.id) continue
+        const groups = labelGroupsFor(it.id)
+        const typeVals = (groups?.Type || []).map(v => v.toLowerCase())
+        const current = typeVals.some(v => v.includes("review"))
+        const prev = prevReviewStateByIssue.get(it.id) || false
+        if (!prev && current) {
+          pushRepoAlert({
+            repoKey: repoClass.canonicalKey,
+            kind: "review-request",
+            title: "Review requested",
+            body: getTagValue("subject", it.tags) || "",
+          })
+        }
+        prevReviewStateByIssue.set(it.id, current)
+      }
+    } catch {}
+  })
+
+  // Alerts: if current user is tagged via 'p' on an issue, treat as review request; alert on transition
+  $effect(() => {
+    try {
+      const me = $pubkey
+      if (!me) return
+      const arr = repoClass.issues || []
+      for (const it of arr) {
+        if (!it || !it.id) continue
+        const pks = getTags(it as any, "p").map((t: string[]) => t[1])
+        const current = pks.includes(me)
+        const prev = prevReviewStateByIssue.get(it.id) || false
+        if (!prev && current) {
+          pushRepoAlert({
+            repoKey: repoClass.canonicalKey,
+            kind: "review-request",
+            title: "Review requested",
+            body: getTagValue("subject", it.tags) || "",
+          })
+        }
+        prevReviewStateByIssue.set(it.id, current)
+      }
+    } catch {}
+  })
+
+  // Alerts: thread/comment mentions (p-tag to me) on issue threads; alert once per comment, with debounce window per issue
+  $effect(() => {
+    try {
+      const me = $pubkey
+      if (!me) return
+      for (const issue of issues) {
+        const cmts = commentsOrdered[issue.id] || []
+        for (const c of cmts) {
+          if (!c?.id) continue
+          if (alertedIds.has(`review-issue-cmnt:${c.id}`)) continue
+          const pks = getTags(c as any, "p").map((t: string[]) => t[1])
+          if (pks.includes(me)) {
+            const nowTs = Date.now()
+            const last = lastMentionAlertAtByIssue.get(issue.id) || 0
+            if (nowTs - last > mentionWindowMs) {
+              pushRepoAlert({
+                repoKey: repoClass.canonicalKey,
+                kind: "review-request",
+                title: "Review requested in comments",
+                body: getTagValue("subject", issue.tags) || "",
+              })
+              lastMentionAlertAtByIssue.set(issue.id, nowTs)
+            }
+            alertedIds.add(`review-issue-cmnt:${c.id}`)
+          }
+        }
+      }
+    } catch {}
+  })
 
   // Filter and sort options
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
@@ -111,55 +215,73 @@
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
   const toNaturalLabel = (s: string): string => {
-    const idx = s.lastIndexOf(":");
-    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "");
+    const idx = s.lastIndexOf(":")
+    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
   }
   // Types + helpers to normalize effective labels and resolved status
-  type EffectiveLabelsView = { byNamespace: Record<string, Set<string>>; flat: Set<string> }
-  const toSet = (x: unknown): Set<string> => (x instanceof Set) ? x : new Set<string>(Array.isArray(x) ? x.filter((v) => typeof v === 'string') : [])
+  type EffectiveLabelsView = {byNamespace: Record<string, Set<string>>; flat: Set<string>}
+  const toSet = (x: unknown): Set<string> =>
+    x instanceof Set
+      ? x
+      : new Set<string>(Array.isArray(x) ? x.filter(v => typeof v === "string") : [])
   const normalizeEff = (eff: any | undefined | null): EffectiveLabelsView | null => {
     if (!eff) return null
     const flat = toSet(eff.flat)
     const byNs: Record<string, Set<string>> = {}
-    if (eff.byNamespace && typeof eff.byNamespace === 'object') {
+    if (eff.byNamespace && typeof eff.byNamespace === "object") {
       for (const ns of Object.keys(eff.byNamespace)) {
         byNs[ns] = toSet((eff.byNamespace as any)[ns])
       }
     }
-    return { byNamespace: byNs, flat }
+    return {byNamespace: byNs, flat}
   }
-  const getResolvedStateFor = (id: string): { state: 'open'|'draft'|'closed'|'merged'|'resolved' } | null => {
-    const maybe = (repoClass as unknown as { resolveStatusFor?: (id: string) => { state: 'open'|'draft'|'closed'|'merged'|'resolved' } | null }).resolveStatusFor
-    return typeof maybe === 'function' ? maybe.call(repoClass, id) : null
+  const getResolvedStateFor = (
+    id: string,
+  ): {state: "open" | "draft" | "closed" | "merged" | "resolved"} | null => {
+    const maybe = (
+      repoClass as unknown as {
+        resolveStatusFor?: (
+          id: string,
+        ) => {state: "open" | "draft" | "closed" | "merged" | "resolved"} | null
+      }
+    ).resolveStatusFor
+    return typeof maybe === "function" ? maybe.call(repoClass, id) : null
   }
   const labelsData = $derived.by(() => {
     const byId = new Map<string, string[]>()
     const groupsById = new Map<string, Record<string, string[]>>()
     for (const issue of issues) {
-      const getter = (repoClass as unknown as { getIssueLabels?: (id: string) => any }).getIssueLabels
-      const eff = normalizeEff(typeof getter === 'function' ? getter.call(repoClass, issue.id) : deriveEffectiveLabels(issue.id).get())
+      const getter = (repoClass as unknown as {getIssueLabels?: (id: string) => any}).getIssueLabels
+      const eff = normalizeEff(
+        typeof getter === "function"
+          ? getter.call(repoClass, issue.id)
+          : deriveEffectiveLabels(issue.id).get(),
+      )
       const flat = eff ? Array.from(eff.flat) : []
       const naturals = flat.map(toNaturalLabel)
       byId.set(issue.id, naturals)
-      const groups: Record<string, string[]> = { Status: [], Type: [], Area: [], Tags: [], Other: [] }
+      const groups: Record<string, string[]> = {Status: [], Type: [], Area: [], Tags: [], Other: []}
       if (eff) {
         for (const ns of Object.keys(eff.byNamespace)) {
           const vals = Array.from(eff.byNamespace[ns]).map(toNaturalLabel)
-          if (ns === 'org.nostr.git.status') groups.Status.push(...vals)
-          else if (ns === 'org.nostr.git.type') groups.Type.push(...vals)
-          else if (ns === 'org.nostr.git.area') groups.Area.push(...vals)
-          else if (ns === '#t') groups.Tags.push(...vals)
+          if (ns === "org.nostr.git.status") groups.Status.push(...vals)
+          else if (ns === "org.nostr.git.type") groups.Type.push(...vals)
+          else if (ns === "org.nostr.git.area") groups.Area.push(...vals)
+          else if (ns === "#t") groups.Tags.push(...vals)
           else groups.Other.push(...vals)
         }
         for (const k of Object.keys(groups)) groups[k] = Array.from(new Set(groups[k]))
       }
       groupsById.set(issue.id, groups)
     }
-    return { byId, groupsById }
+    return {byId, groupsById}
   })
   const labelsByIssue = $derived.by(() => labelsData.byId)
-  const labelGroupsFor = (id: string) => labelsData.groupsById.get(id) || { Status: [], Type: [], Area: [], Tags: [], Other: [] }
-  const allNormalizedLabels = $derived.by(() => Array.from(new Set(Array.from(labelsByIssue.values()).flat())))
+  const labelGroupsFor = (id: string) =>
+    labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
+  const allNormalizedLabels = $derived.by(() =>
+    Array.from(new Set(Array.from(labelsByIssue.values()).flat())),
+  )
 
   const uniqueAuthors = $derived.by(() => {
     if (!repoClass.patches) return []
@@ -192,7 +314,7 @@
       const ids = repoClass.issues.map((i: any) => i.id)
       request({
         relays: [...repoRelays],
-        filters: [{ kinds: [1985], "#e": ids, since: 0 }],
+        filters: [{kinds: [1985], "#e": ids, since: 0}],
         onEvent: () => {},
       })
     }
@@ -202,7 +324,9 @@
   let storageKey = ""
   onMount(() => {
     try {
-      storageKey = repoClass.repoEvent ? `issuesFilters:${Address.fromEvent(repoClass.repoEvent!).toString()}` : ""
+      storageKey = repoClass.repoEvent
+        ? `issuesFilters:${Address.fromEvent(repoClass.repoEvent!).toString()}`
+        : ""
     } catch (e) {
       storageKey = ""
     }
@@ -275,20 +399,41 @@
         } catch {}
       }
     }
-    window.addEventListener('storage', storageListener)
+    window.addEventListener("storage", storageListener)
   })
   onDestroy(() => {
-    if (storageListener) window.removeEventListener('storage', storageListener)
+    if (storageListener) window.removeEventListener("storage", storageListener)
   })
 
   // Persist on changes
-  $effect(() => { statusFilter; persist() })
-  $effect(() => { sortByOrder; persist() })
-  $effect(() => { authorFilter; persist() })
-  $effect(() => { showFilters; persist() })
-  $effect(() => { searchTerm; persist() })
-  $effect(() => { selectedLabels; persist() })
-  $effect(() => { matchAllLabels; persist() })
+  $effect(() => {
+    statusFilter
+    persist()
+  })
+  $effect(() => {
+    sortByOrder
+    persist()
+  })
+  $effect(() => {
+    authorFilter
+    persist()
+  })
+  $effect(() => {
+    showFilters
+    persist()
+  })
+  $effect(() => {
+    searchTerm
+    persist()
+  })
+  $effect(() => {
+    selectedLabels
+    persist()
+  })
+  $effect(() => {
+    matchAllLabels
+    persist()
+  })
 
   const searchedIssues = $derived.by(() => {
     const issuesToSearch = issues.map(issue => {
@@ -387,7 +532,7 @@
   $effect(() => {
     if (repoClass.issues && element && !initialized) {
       initialized = true
-      console.log('init. repo relays:', repoClass.relays)
+      console.log("init. repo relays:", repoClass.relays)
       makeFeed({
         element: element,
         relays: repoClass.relays,
@@ -404,7 +549,7 @@
   })
 
   const onIssueCreated = async (issue: IssueEvent) => {
-    console.log('repo relays', repoClass.relays)
+    console.log("repo relays", repoClass.relays)
     const relaysToUse = repoClass.relays
     if (!relaysToUse || relaysToUse.length === 0) {
       console.warn("onIssueCreated: no relays available", {relaysToUse})
@@ -416,7 +561,7 @@
     }
     console.debug("onIssueCreated: publishing issue", {
       relays: relaysToUse,
-      repoAddr: getTag('a', issue.tags),
+      repoAddr: getTag("a", issue.tags),
     })
     const thunk = postIssue(issue, relaysToUse)
     const postIssueEvent = thunk.event
@@ -430,7 +575,15 @@
       })
       return
     }
-    toast.push({ message: "Issue created", variant: "default" })
+    toast.push({message: "Issue created", variant: "default"})
+    try {
+      pushRepoAlert({
+        repoKey: repoClass.canonicalKey,
+        kind: "new-patch",
+        title: "New issue",
+        body: getTagValue("subject", issue.tags) || "",
+      })
+    } catch {}
     // Optimistically add the new issue to the local list so it appears immediately
     // try {
     //   if (postIssueEvent) {
@@ -483,7 +636,7 @@
       </div>
     </div>
     <div class="row-2 input mt-4 grow overflow-x-hidden">
-      <Icon icon="magnifer" />
+      <Icon icon={Magnifer} />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         autofocus={!isMobile}
@@ -613,7 +766,10 @@
                   {lbl}
                 </Button>
               {/each}
-              <Button variant={matchAllLabels ? "default" : "outline"} size="sm" onclick={() => (matchAllLabels = !matchAllLabels)}>
+              <Button
+                variant={matchAllLabels ? "default" : "outline"}
+                size="sm"
+                onclick={() => (matchAllLabels = !matchAllLabels)}>
                 Match all
               </Button>
               {#if selectedLabels.length > 0}
@@ -627,6 +783,12 @@
       </div>
       <div class="mt-4 flex items-center justify-end">
         <Button variant="ghost" size="sm" onclick={resetFilters}>Reset Filters</Button>
+      </div>
+      <div class="mt-3 flex items-center justify-end">
+        <span class="text-[11px] opacity-60 inline-flex items-center gap-1" title="Bell indicates review requested (label, you are tagged, or mentioned in comments)">
+          <Bell class="h-3 w-3" />
+          Review indicator
+        </span>
       </div>
     </div>
   {/if}
@@ -662,37 +824,62 @@
               <!-- Status chip (Repo getter preferred) -->
               {#key statuses[issue.id]}
                 {@const resolved = getResolvedStateFor(issue.id)}
-                {@const badge = (repoClass as unknown as { getMaintainerBadge?: (pubkey: string) => 'owner'|'maintainer'|null }).getMaintainerBadge?.call(repoClass, issue.pubkey)}
-                <div class="absolute left-2 top-2 flex items-center gap-2">
-                  <StatusChip state={resolved?.state} kind={statuses[issue.id]?.kind} reason={statusReasons[issue.id]} />
-                  <MaintainerBadge role={badge} />
-                </div>
+                {@const badge = (
+                  repoClass as unknown as {
+                    getMaintainerBadge?: (pubkey: string) => "owner" | "maintainer" | null
+                  }
+                ).getMaintainerBadge?.call(repoClass, issue.pubkey)}
+                {@const needsReview = (() => {
+                  try {
+                    const typeVals = (labelGroupsFor(issue.id).Type || []).map((v: string) => v.toLowerCase())
+                    const hasType = typeVals.some(v => v.includes("review"))
+                    const me = $pubkey
+                    const pks = getTags(issue as any, "p").map((t: string[]) => t[1])
+                    const hasTag = !!(me && pks.includes(me))
+                    const hasMention = !!(me && (commentsOrdered[issue.id] || []).some((c: any) => getTags(c, "p").some((t: string[]) => t[1] === me)))
+                    return hasType || hasTag || hasMention
+                  } catch { return false }
+                })()}
+                <RepoPatchStatus
+                  className="absolute left-2 top-2"
+                  state={resolved?.state}
+                  kind={statuses[issue.id]?.kind}
+                  reason={statusReasons[issue.id]}
+                  badgeRole={badge}
+                  reviewRequested={needsReview} />
               {/key}
-              {#if statusReasons[issue.id]}
-                <div class="absolute right-2 top-2 text-[10px] opacity-60" title={statusReasons[issue.id]}>ⓘ</div>
-              {/if}
             </div>
             {#if labelsByIssue.get(issue.id)?.length}
               <div class="mt-1 flex flex-wrap gap-2 text-xs">
                 {#if labelGroupsFor(issue.id).Status.length}
                   <span class="opacity-60">Status:</span>
-                  {#each labelGroupsFor(issue.id).Status as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {#each labelGroupsFor(issue.id).Status as l (l)}<span
+                      class="badge badge-ghost badge-sm">{l}</span
+                    >{/each}
                 {/if}
                 {#if labelGroupsFor(issue.id).Type.length}
                   <span class="opacity-60">Type:</span>
-                  {#each labelGroupsFor(issue.id).Type as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {#each labelGroupsFor(issue.id).Type as l (l)}<span
+                      class="badge badge-ghost badge-sm">{l}</span
+                    >{/each}
                 {/if}
                 {#if labelGroupsFor(issue.id).Area.length}
                   <span class="opacity-60">Area:</span>
-                  {#each labelGroupsFor(issue.id).Area as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {#each labelGroupsFor(issue.id).Area as l (l)}<span
+                      class="badge badge-ghost badge-sm">{l}</span
+                    >{/each}
                 {/if}
                 {#if labelGroupsFor(issue.id).Tags.length}
                   <span class="opacity-60">Tags:</span>
-                  {#each labelGroupsFor(issue.id).Tags as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {#each labelGroupsFor(issue.id).Tags as l (l)}<span
+                      class="badge badge-ghost badge-sm">{l}</span
+                    >{/each}
                 {/if}
                 {#if labelGroupsFor(issue.id).Other.length}
                   <span class="opacity-60">Other:</span>
-                  {#each labelGroupsFor(issue.id).Other as l (l)}<span class="badge badge-ghost badge-sm">{l}</span>{/each}
+                  {#each labelGroupsFor(issue.id).Other as l (l)}<span
+                      class="badge badge-ghost badge-sm">{l}</span
+                    >{/each}
                 {/if}
               </div>
             {/if}

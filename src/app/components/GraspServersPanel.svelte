@@ -129,5 +129,3 @@
     </div>
   {/if}
 </div>
-
-<svelte:options runes={true} />

@@ -29,7 +29,7 @@
   import {fly} from "svelte/transition"
   import GitItem from "./GitItem.svelte"
   import Divider from "@src/lib/components/Divider.svelte"
-  import {makeGitPath} from "../routes"
+  import {makeGitPath} from "@app/routes"
   import {goto} from "$app/navigation"
   import {Router} from "@welshman/router"
   import {load} from "@welshman/net"

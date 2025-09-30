@@ -69,7 +69,7 @@
   import * as notifications from "@app/notifications"
   import * as appState from "@app/state"
 
-  import {signer as gitSigner} from "@nostr-git/ui"
+  import {signer as gitSigner, type Token} from "@nostr-git/ui"
 
   // Migration: old nostrtalk instance used different sessions
   if ($session && !$signer) {
@@ -228,7 +228,7 @@
       // This replicates the logic from GitAuth component but at app level
       if ($pubkey) {
         const { tokens } = await import('@nostr-git/ui')
-        const { loadTokensFromStorage } = await import('$lib/utils/tokenLoader')
+        const { loadTokensFromStorage } = await import('@nostr-git/ui')
         
         // Use the same token key pattern as GitAuth component in settings
         const tokenKey = "gh_tokens"
@@ -237,7 +237,7 @@
           // Load tokens directly (same as GitAuth onMount logic)
           const loadedTokens = await loadTokensFromStorage(tokenKey)
           tokens.clear()
-          loadedTokens.forEach(token => tokens.push(token))
+          loadedTokens.forEach((token: Token) => tokens.push(token))
         } catch (error) {
           console.warn('🔐 Failed to initialize git tokens at app level:', error)
         }

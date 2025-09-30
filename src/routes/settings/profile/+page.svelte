@@ -16,20 +16,15 @@
   import {PLATFORM_NAME} from "@app/state"
   import {pushModal} from "@app/modal"
   import {clip} from "@app/toast"
-  import GitAuth from "@src/app/components/GitAuth.svelte"
   import GraspServersPanel from "@app/components/GraspServersPanel.svelte";
-
-  // Nostr data access (patterns from spaces/[relay]/git/+page.svelte)
-  import { repository, publishThunk } from "@welshman/app";
+  import { publishThunk } from "@welshman/app";
   import { load } from "@welshman/net";
-  import { deriveEvents } from "@welshman/store";
   import { Router } from "@welshman/router";
-  import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent } from "@nostr-git/core";
+  import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID } from "@nostr-git/core";
+  import GitAuth from "@app/components/GitAuth.svelte";
 
-  // Local state fed into GraspServersPanel
   let graspUrls = $state<string[]>([]);
 
-  // Event handlers for GraspServersPanel. Integrate with your app's Nostr layer.
   function handleReload() {
     const author = $session?.pubkey;
     if (!author) return;
@@ -38,14 +33,6 @@
     ];
     const relays = Router.get().FromUser().getUrls();
     load({ relays, filters });
-    // Subscribe once to repository for these filters and update urls
-    const store = deriveEvents(repository, { filters });
-    const unsub = store.subscribe((events) => {
-      if (events && events.length > 0) {
-        graspUrls = parseGraspServersEvent(events[0] as any);
-        unsub();
-      }
-    });
   }
 
   function handleSave(e: CustomEvent<{ unsigned: { kind: number; created_at: number; tags: string[][]; content: string }; urls: string[] }>) {
@@ -53,7 +40,6 @@
     if (!author) return;
     const { unsigned } = e.detail;
     const relays = Router.get().FromUser().getUrls();
-    // TODO: sign 'unsigned' with app signer if required. If your stack auto-signs in publishThunk, this is sufficient.
     publishThunk({ relays, event: unsigned as any });
   }
 
@@ -75,7 +61,7 @@
 
   // Load current GRASP servers once session pubkey is available
   $effect(() => {
-    if ($session?.pubkey) {
+    if ($pubkey) {
       handleReload();
     }
   });

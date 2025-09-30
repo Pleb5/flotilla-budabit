@@ -41,16 +41,16 @@
     type StatusEvent,
     type PatchEvent,
   } from "@nostr-git/shared-types"
-  import {postComment} from "@src/app/commands.js"
+  import {postComment} from "@src/app/commands"
   import {parseGitPatchFromEvent, analyzePatchMerge} from "@nostr-git/core"
   import type {MergeAnalysisResult} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"
   import {derived as _derived} from "svelte/store"
   import type {LayoutProps} from "../../$types"
   import {slideAndFade} from "@src/lib/transition"
-  import { normalizeRelayUrl } from "@welshman/util"
+  import {normalizeRelayUrl} from "@welshman/util"
 
-  let {data}: LayoutProps = $props()
+  const {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
 
   const patchId = $page.params.patchid
@@ -145,7 +145,7 @@
     isAnalyzingMerge = true
     mergeAnalysisResult = null
     try {
-      let result = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
+      const result = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
 
       if (result) {
         mergeAnalysisResult = result
@@ -209,7 +209,9 @@
   const threadComments = $derived.by(() => {
     if (repoClass.patches && selectedPatch) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [selectedPatch.id]}]
-      const relays = (repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+      const relays = (repoClass.relays || [])
+        .map((u: string) => normalizeRelayUrl(u))
+        .filter(Boolean)
       load({relays: relays as string[], filters})
       return _derived(deriveEvents(repository, {filters}), (events: TrustedEvent[]) => {
         return sortBy(e => -e.created_at, events) as CommentEvent[]
@@ -799,13 +801,14 @@
               analysis={{
                 similarity: mergeAnalysisResult.hasConflicts ? 0.7 : 0.95,
                 autoMergeable: mergeAnalysisResult.canMerge,
-                affectedFiles: (selectedPatch?.diff || []).map((f: any) => f.to || f.from || f.file || "unknown"),
+                affectedFiles: (selectedPatch?.diff || []).map(
+                  (f: any) => f.to || f.from || f.file || "unknown",
+                ),
                 conflictCount: (mergeAnalysisResult.conflictFiles || []).length,
               }}
-              patch={(selectedPatch as any)}
+              patch={selectedPatch as any}
               analyzing={isAnalyzingMerge}
-              onAnalyze={() => analyzeMerge()}
-            />
+              onAnalyze={() => analyzeMerge()} />
           </div>
         {/if}
 
@@ -899,7 +902,9 @@
                 <div>
                   <h3 class="font-semibold">Merge this patch</h3>
                   <p class="text-sm text-muted-foreground">
-                    Apply the changes from this patch to the {(selectedPatch?.baseBranch || repoClass.mainBranch) || "-"} branch
+                    Apply the changes from this patch to the {selectedPatch?.baseBranch ||
+                      repoClass.mainBranch ||
+                      "-"} branch
                   </p>
                 </div>
               </div>
@@ -1052,14 +1057,15 @@
                 <div>
                   <p class="mb-2 text-sm text-muted-foreground">
                     This will merge the patch into <code class="rounded bg-muted px-1"
-                      >{(selectedPatch?.baseBranch || repoClass.mainBranch) || "-"}</code> and push to all remotes.
+                      >{selectedPatch?.baseBranch || repoClass.mainBranch || "-"}</code> and push to
+                    all remotes.
                   </p>
 
                   <div class="rounded-lg bg-muted/30 p-3 text-sm">
                     <div class="mb-1 font-medium">Patch Details:</div>
                     <div>ID: <code>{selectedPatch?.id.slice(0, 16)}...</code></div>
                     <div>Commits: {selectedPatch?.commits?.length || 0}</div>
-                    <div>Target: {(selectedPatch?.baseBranch || repoClass.mainBranch) || "-"}</div>
+                    <div>Target: {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}</div>
                   </div>
                 </div>
 

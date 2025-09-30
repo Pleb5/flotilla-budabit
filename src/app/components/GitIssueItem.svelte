@@ -24,11 +24,16 @@
   import {onMount} from "svelte"
   import {pushModal} from "../modal"
   import ThreadCreate from "./ThreadCreate.svelte"
-  import {decodeRelay, repoAnnouncements, loadRepoAnnouncements, deriveMaintainersForEuc} from "../state"
+  import {
+    decodeRelay,
+    repoAnnouncements,
+    loadRepoAnnouncements,
+    deriveMaintainersForEuc,
+  } from "../state"
   import {Router} from "@welshman/router"
   import { resolveIssueStatus, effectiveLabelsFor } from "@nostr-git/core"
 
-  let {
+  const {
     issue,
     latestStatus = undefined,
     fetchRepoAndStatus = false,

@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { page } from '$app/stores';
   import { ChevronDown, ChevronRight, FileText, FilePlus, FileMinus, FileX } from '@lucide/svelte';
   import { CommitHeader, SplitDiff } from '@nostr-git/ui';
   import type { PageData } from './$types';
 
-  let { data }: { data: PageData } = $props();
+  const { data }: { data: PageData } = $props();
   
   // Extract data from page load
   const { commitMeta, changes, repoClass } = data;

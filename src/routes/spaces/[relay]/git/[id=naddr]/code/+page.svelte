@@ -3,7 +3,7 @@
   import {GitBranch, Tag} from "@lucide/svelte"
   import Popover from "@src/lib/components/Popover.svelte"
   import Button from "@src/lib/components/Button.svelte"
-  import {fade, fly, slide} from "svelte/transition"
+  import {fade, fly} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {type FileEntry} from "@nostr-git/core"

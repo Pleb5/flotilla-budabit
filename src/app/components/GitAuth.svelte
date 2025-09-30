@@ -5,6 +5,11 @@
   import {pushModal} from "@app/modal"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
   import {tokens as tokensStore} from "@nostr-git/ui"
+  import {
+    loadTokensFromStorage,
+    saveTokensToStorage,
+    type TokenEntry
+  } from "@nostr-git/ui"
 
   type Props = {
     tokenKey: string
@@ -12,7 +17,6 @@
 
   const {tokenKey}: Props = $props()
 
-  import { loadTokensFromStorage, saveTokensToStorage, type TokenEntry } from "$lib/utils/tokenLoader"
 
   async function loadTokens(): Promise<TokenEntry[]> {
     return await loadTokensFromStorage(tokenKey)

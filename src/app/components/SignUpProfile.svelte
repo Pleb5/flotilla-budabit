@@ -18,7 +18,15 @@
     shouldBroadcast: true,
   }
 
-  const onsubmit = ({profile, shouldBroadcast, githubIdentity}: {profile: Profile; shouldBroadcast: boolean; githubIdentity?: {username: string; proof: string}}) => {
+  const onsubmit = ({
+    profile,
+    shouldBroadcast,
+    githubIdentity,
+  }: {
+    profile: Profile;
+    shouldBroadcast: boolean;
+    githubIdentity?: {username: string; proof: string}
+  }) => {
     const template = createProfile(profile)
     
     // Handle NIP-39 GitHub identity
