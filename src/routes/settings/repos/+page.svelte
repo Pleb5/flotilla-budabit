@@ -10,7 +10,7 @@
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
   import {onMount} from "svelte"
-  import { repoGroups, loadRepoAnnouncements } from "@src/app/state.js"
+  import { repoGroups, loadRepoAnnouncements } from "@src/app/git-state.js"
 
   const id = $pubkey!
   let loading = $state(true)

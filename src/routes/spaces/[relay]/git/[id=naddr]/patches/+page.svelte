@@ -1,6 +1,22 @@
 <script lang="ts">
-  import {Button, PatchCard, pushRepoAlert} from "@nostr-git/ui"
-  import {Bell, CalendarDays, Check, Clock, Eye, GitCommit, SearchX, User, X} from "@lucide/svelte"
+  import {
+    Button,
+    PatchCard,
+    pushRepoAlert,
+    PatchDagSummary,
+    RepoPatchStatus,
+  } from "@nostr-git/ui"
+  import {
+    Bell,
+    CalendarDays,
+    Check,
+    Clock,
+    Eye,
+    GitCommit,
+    SearchX,
+    User,
+    X,
+  } from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
@@ -20,13 +36,11 @@
   } from "@nostr-git/shared-types"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import Icon from "@src/lib/components/Icon.svelte"
-  import {PatchDagSummary} from "@nostr-git/ui"
-  import {RepoPatchStatus} from "@nostr-git/ui"
   import {isMobile} from "@src/lib/html.js"
-  import {postComment} from "@src/app/commands"
+  import {postComment} from "@src/app/git-commands"
   import {Address} from "@welshman/util"
   import ProfileName from "@src/app/components/ProfileName.svelte"
-  import {deriveEffectiveLabels, deriveStatus} from "@app/state"
+  import {deriveEffectiveLabels, deriveStatus} from "@app/git-state"
   import {onMount, onDestroy} from "svelte"
   import {now} from "@welshman/lib"
 

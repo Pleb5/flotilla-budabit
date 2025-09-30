@@ -9,7 +9,7 @@
   import Button from "@lib/components/Button.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
-  import {decodeRelay, shouldReloadRepos} from "@app/state"
+  import {decodeRelay} from "@app/state"
   import {pushModal, clearModals} from "@app/modal"
   import {goto} from "$app/navigation"
   import {load} from "@welshman/net"
@@ -40,7 +40,8 @@
     deriveMaintainersForEuc,
     loadRepoAnnouncements,
     derivePatchGraph,
-  } from "@app/state"
+    shouldReloadRepos,
+  } from "@app/git-state"
 
   const url = decodeRelay($page.params.relay)
 

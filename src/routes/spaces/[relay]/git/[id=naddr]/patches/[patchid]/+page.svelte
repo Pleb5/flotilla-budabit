@@ -41,7 +41,7 @@
     type StatusEvent,
     type PatchEvent,
   } from "@nostr-git/shared-types"
-  import {postComment} from "@src/app/commands"
+  import {postComment} from "@src/app/git-commands"
   import {parseGitPatchFromEvent, analyzePatchMerge} from "@nostr-git/core"
   import type {MergeAnalysisResult} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"

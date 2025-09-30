@@ -24,14 +24,10 @@
   import {onMount} from "svelte"
   import {pushModal} from "../modal"
   import ThreadCreate from "./ThreadCreate.svelte"
-  import {
-    decodeRelay,
-    repoAnnouncements,
-    loadRepoAnnouncements,
-    deriveMaintainersForEuc,
-  } from "../state"
+  import {decodeRelay} from "@app/state"
+  import {loadRepoAnnouncements, deriveMaintainersForEuc, repoAnnouncements} from "@app/git-state"
   import {Router} from "@welshman/router"
-  import { resolveIssueStatus, effectiveLabelsFor } from "@nostr-git/core"
+  import {resolveIssueStatus, effectiveLabelsFor} from "@nostr-git/core"
 
   const {
     issue,
@@ -76,8 +72,12 @@
   let maintainersSet: Set<string> = $state(new Set<string>())
   // Maintainers via RepoGroup (preferred when available)
   let repoEuc: string | undefined = $derived.by(() => {
-    const match = $repoAnnouncements?.find?.((evt) => evt.pubkey === pubkey && (evt.tags as string[][]).some(t => t[0] === 'd' && t[1] === repoDtag))
-    const eucTag = match?.tags?.find?.((t: any) => t[0] === 'r' && t[2] === 'euc')
+    const match = $repoAnnouncements?.find?.(
+      evt =>
+        evt.pubkey === pubkey &&
+        (evt.tags as string[][]).some(t => t[0] === "d" && t[1] === repoDtag),
+    )
+    const eucTag = match?.tags?.find?.((t: any) => t[0] === "r" && t[2] === "euc")
     return eucTag?.[1]
   })
   let groupMaintainers: Set<string> = $state(new Set<string>())
@@ -86,7 +86,7 @@
     groupMaintainers = new Set()
     if (repoEuc) {
       const store = deriveMaintainersForEuc(repoEuc)
-      const unsub = store.subscribe((s) => {
+      const unsub = store.subscribe(s => {
         groupMaintainers = s || new Set()
       })
       return () => unsub()
@@ -130,17 +130,18 @@
         finalReason = undefined
         return
       }
-      const maint = groupMaintainers && groupMaintainers.size > 0 ? groupMaintainers : maintainersSet
-      const { final } = resolveIssueStatus(
-        { root: issue as any, comments: [], statuses: statusEvents as any },
+      const maint =
+        groupMaintainers && groupMaintainers.size > 0 ? groupMaintainers : maintainersSet
+      const {final} = resolveIssueStatus(
+        {root: issue as any, comments: [], statuses: statusEvents as any},
         issue.pubkey,
-        maint
+        maint,
       )
       // resolveIssueStatus returns { final, reason } but type erasure on import; call again to grab reason
       const res: any = resolveIssueStatus(
-        { root: issue as any, comments: [], statuses: statusEvents as any },
+        {root: issue as any, comments: [], statuses: statusEvents as any},
         issue.pubkey,
-        maint
+        maint,
       )
       finalStatus = res.final as any
       finalReason = res.reason as string
@@ -171,7 +172,7 @@
           maintainersSet = groupMaintainers
         } else {
           // Derive maintainers from 'p' tags of the repo event
-          const pTags = (repoEvent.tags as string[][]).filter(t => t[0] === 'p')
+          const pTags = (repoEvent.tags as string[][]).filter(t => t[0] === "p")
           const repoMaintainers = new Set<string>(pTags.map(t => t[1]).filter(Boolean))
           // Also include repo owner pubkey as maintainer by convention
           if (repoEvent.pubkey) repoMaintainers.add(repoEvent.pubkey)
@@ -211,7 +212,7 @@
           filters: [labelFilter],
         })
         labelEvents = labels
-        const merged = effectiveLabelsFor({ self: issue as any, external: labelEvents as any })
+        const merged = effectiveLabelsFor({self: issue as any, external: labelEvents as any})
         labelsNormalized = merged.normalized
 
         statusFilter.since = now()
@@ -221,7 +222,7 @@
           filters: [statusFilter],
           onEvent: (status: TrustedEvent) => {
             // dedupe by id and append
-            if (!statusEvents.find((s) => s.id === status.id)) {
+            if (!statusEvents.find(s => s.id === status.id)) {
               statusEvents = [...statusEvents, status]
               recomputeFinalStatus()
             }
@@ -234,9 +235,9 @@
           relays: queryRelays,
           filters: [labelFilter],
           onEvent: (evt: TrustedEvent) => {
-            if (!labelEvents.find((e) => e.id === evt.id)) {
+            if (!labelEvents.find(e => e.id === evt.id)) {
               labelEvents = [...labelEvents, evt]
-              const merged = effectiveLabelsFor({ self: issue as any, external: labelEvents as any })
+              const merged = effectiveLabelsFor({self: issue as any, external: labelEvents as any})
               labelsNormalized = merged.normalized
             }
           },

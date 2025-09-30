@@ -25,7 +25,7 @@
     type TrustedEvent,
   } from "@nostr-git/shared-types"
   import {PublishStatus, request} from "@welshman/net"
-  import {postComment, postIssue, postStatus} from "@src/app/commands"
+  import {postComment, postIssue, postStatus} from "@src/app/git-commands"
   import {nthEq, sortBy} from "@welshman/lib"
   import Icon from "@src/lib/components/Icon.svelte"
   import { RepoPatchStatus } from "@nostr-git/ui"
@@ -33,7 +33,7 @@
   import {debounce} from "throttle-debounce"
   import {deriveEvents} from "@welshman/store"
   import ProfileName from "@src/app/components/ProfileName.svelte"
-  import {deriveEffectiveLabels, deriveStatus} from "@app/state"
+  import {deriveEffectiveLabels, deriveStatus} from "@app/git-state"
   import {onMount, onDestroy} from "svelte"
   import {now} from "@welshman/lib"
 

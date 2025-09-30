@@ -20,9 +20,16 @@
 
   const name = event.tags.find(nthEq(0, "name"))?.[1]
   const description = event.tags.find(nthEq(0, "description"))?.[1]
+  
+  // Get maintainers from the event, or fall back to the event author
+  const maintainersTag = event.tags.find(nthEq(0, "maintainers"))
+  const maintainers = maintainersTag ? maintainersTag.slice(1) : [event.pubkey]
+  
+  // Create a modified event with the first maintainer as the pubkey for display
+  const displayEvent = {...event, pubkey: maintainers[0]}
 </script>
 
-<NoteCard {event} class="card2 sm:card2-sm bg-alt">
+<NoteCard event={displayEvent} class="card2 sm:card2-sm bg-alt">
   {#if name}
     <div class="flex w-full items-center justify-between gap-2">
       <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>

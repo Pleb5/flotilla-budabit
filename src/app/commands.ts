@@ -62,7 +62,6 @@ import {
   NOTIFIER_RELAY,
   userRoomsByUrl,
 } from "@app/state"
-import type {CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent} from "@nostr-git/shared-types"
 
 // Utils
 
@@ -446,33 +445,3 @@ export const makeAlert = async (params: AlertParams) => {
 
 export const publishAlert = async (params: AlertParams) =>
   publishThunk({event: await makeAlert(params), relays: [NOTIFIER_RELAY]})
-
-export const postComment = (comment: CommentEvent, relays: string[]) => {
-  return publishThunk({
-    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
-    event: comment,
-  })
-}
-
-export const postIssue = (issue: IssueEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
-  return publishThunk({
-    event: issue,
-    relays: merged,
-  })
-}
-
-export const postStatus = (status: StatusEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
-  return publishThunk({
-    relays: merged,
-    event: status,
-  })
-}
-
-export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string[]) => {
-  return publishThunk({
-    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
-    event: repo,
-  })
-}

@@ -11,7 +11,8 @@
   import ChatEnable from "@app/components/ChatEnable.svelte"
   import {canDecrypt, pubkeyLink} from "@app/state"
   import {pushModal} from "@app/modal"
-  import {makeChatPath, makeGitRepoPath} from "@app/routes"
+  import {makeChatPath} from "@app/routes"
+  import {makeGitRepoPath} from "@app/git-routes"
 
   export type Props = {
     pubkey: string

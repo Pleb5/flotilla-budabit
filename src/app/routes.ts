@@ -43,15 +43,6 @@ export const makeThreadPath = (url: string, eventId?: string) =>
 export const makeCalendarPath = (url: string, eventId?: string) =>
   makeSpacePath(url, "calendar", eventId)
 
-export const makeJobPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "jobs", eventId)
-
-export const makeGitPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "git", eventId)
-
-export const makeGitRepoPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "git", "repos", eventId)
-
 export const getPrimaryNavItem = ($page: Page) => $page.route?.id?.split("/")[1]
 
 export const getPrimaryNavItemIndex = ($page: Page) => {

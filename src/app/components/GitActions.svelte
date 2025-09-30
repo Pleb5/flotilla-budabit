@@ -1,12 +1,12 @@
 <script lang="ts">
   import {load} from "@welshman/net"
-  import {Address, GIT_ISSUE, type EventContent, type TrustedEvent} from "@welshman/util"
+  import {Address, GIT_ISSUE, GIT_PATCH, type EventContent, type TrustedEvent} from "@welshman/util"
   import {repository} from "@welshman/app"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/commands"
-  import {makeGitPath} from "@app/routes"
+  import {makeGitPath} from "@app/git-routes"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"
@@ -24,9 +24,16 @@
     event: TrustedEvent
     showIssues?: boolean
     showActivity?: boolean
+    showPatches?: boolean
   }
 
-  const {url, event, showIssues = true, showActivity}: Props = $props()
+  const {
+    url,
+    event,
+    showIssues = true,
+    showActivity = true,
+    showPatches = true,
+  }: Props = $props()
 
   let loadingIssues = $state(true)
 
@@ -39,6 +46,14 @@
 
   const issues = deriveEvents(repository, {filters: [issueFilter]})
   const issueCount = $derived($issues.length)
+
+  const patchFilter = {
+    kinds: [GIT_PATCH],
+    "#a": [Address.fromEvent(event).toString()],
+  }
+
+  const patches = deriveEvents(repository, {filters: [patchFilter]})
+  const patchCount = $derived($patches.length)
 
   const onPublishDelete = (event: TrustedEvent) =>
     publishDelete({relays: [normalizeRelayUrl(url)], event})
@@ -66,6 +81,23 @@
     if (navigating.type) {
     }
   })
+
+  const gotoPatches = async () => {
+    const naddr = Address.fromEvent(event).toNaddr()
+    try {
+      const decoded = nip19.decode(naddr).data as AddressPointer
+      const repoId = `${decoded.pubkey}:${decoded.identifier}`
+      canonicalRepoKey(repoId)
+    } catch (e) {
+      pushToast({
+        message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open patches until repo is fixed: ${e}`,
+        timeout: 7000,
+      })
+      return
+    }
+    const destination = makeGitPath(url, naddr) + "/patches"
+    goto(destination)
+  }
 
   const gotoRepo = async () => {
     const naddr = Address.fromEvent(event).toNaddr()
@@ -123,6 +155,17 @@
           {"Issues (" + issueCount + ")"}
         </Spinner>
       </Button>
+    {/if}
+
+    {#if showPatches}
+    <Button
+      class="btn btn-secondary btn-xs rounded-full flex cursor-pointer items-center"
+      onclick={gotoPatches}
+      disabled={!!navigating.type}>
+      <Spinner loading={loadingIssues || !!navigating.type} minHeight={"min-h-6"}>
+        {"Patches (" + patchCount + ")"}
+      </Spinner>
+    </Button>
     {/if}
 
     {#if showActivity}

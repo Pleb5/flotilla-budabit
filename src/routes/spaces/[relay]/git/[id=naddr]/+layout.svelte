@@ -15,7 +15,7 @@
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
   import {pushModal} from "@app/modal"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
-  import {postRepoAnnouncement} from "@src/app/commands.js"
+  import {postRepoAnnouncement} from "@src/app/git-commands.js"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
   import {derived as _derived} from "svelte/store"
   import {repository, pubkey} from "@welshman/app"

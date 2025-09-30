@@ -31,8 +31,8 @@
   import ProfileLink from "@src/app/components/ProfileLink.svelte"
   import {slide} from "svelte/transition"
   import {getContext} from "svelte"
-  import {REPO_RELAYS_KEY} from "@src/app/state.js"
-  import {postComment, postStatus} from "@src/app/commands.js"
+  import {REPO_RELAYS_KEY} from "@src/app/git-state"
+  import {postComment, postStatus} from "@src/app/git-commands"
   import {
     Card,
     IssueThread,
@@ -50,7 +50,7 @@
     repoAnnouncements,
     deriveMaintainersForEuc,
     loadRepoAnnouncements
-  } from "@src/app/state.js"
+  } from "@src/app/git-state.js"
   import { onMount } from "svelte"
 
   const {data} = $props()

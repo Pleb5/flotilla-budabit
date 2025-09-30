@@ -27,9 +27,9 @@
     makeChatPath,
     makeThreadPath,
     makeCalendarPath,
-    makeGitPath,
     makeRoomPath,
   } from "@app/routes"
+  import {makeGitPath} from "@app/git-routes"
   import {notifications} from "@app/notifications"
   import {pushModal} from "@app/modal"
 
