@@ -39,7 +39,8 @@
     Select,
     SelectContent,
     SelectItem,
-    SelectTrigger
+    SelectTrigger,
+    Status
   } from "@nostr-git/ui"
   import { normalizeRelayUrl } from "@welshman/util"
   import {
@@ -207,6 +208,14 @@
       repoClass.maintainers.includes($pubkey!)
     )
   })
+
+  const handleStatusPublish = async (statusEvent: StatusEvent) => {
+    console.log("[IssueDetail] Publishing status", statusEvent)
+    const relays = (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const thunk = postStatus(statusEvent as any, relays)
+    console.log("[IssueDetail] Status publish thunk", thunk)
+    return thunk
+  }
 </script>
 
 {#if issue}
@@ -268,6 +277,21 @@
 
       <div class="mt-4">
         <p class="text-muted-foreground">{@html markdown.render(issue.content)}</p>
+      </div>
+
+      <div class="git-separator my-6"></div>
+
+      <!-- Status Section -->
+      <div class="my-6">
+        <Status
+          repo={repoClass}
+          rootId={issue.id}
+          rootKind={1621}
+          rootAuthor={issue.author.pubkey}
+          statusEvents={($statusEvents || []) as StatusEvent[]}
+          actorPubkey={$pubkey}
+          compact={false}
+          onPublish={handleStatusPublish} />
       </div>
 
       <div class="git-separator my-6"></div>

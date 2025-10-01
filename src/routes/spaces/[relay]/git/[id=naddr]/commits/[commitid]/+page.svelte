@@ -183,32 +183,32 @@
           onclick={() => toggleFile(change.path)}
           class="w-full px-6 py-4 text-left hover:bg-muted/50 transition-colors focus:outline-none focus:bg-muted/50"
         >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0 flex-1">
               <!-- Expand/Collapse Icon -->
               {#if isExpanded}
-                <ChevronDown class="h-4 w-4 text-muted-foreground" />
+                <ChevronDown class="h-4 w-4 text-muted-foreground flex-shrink-0" />
               {:else}
-                <ChevronRight class="h-4 w-4 text-muted-foreground" />
+                <ChevronRight class="h-4 w-4 text-muted-foreground flex-shrink-0" />
               {/if}
               
               <!-- File Status Icon -->
               {#if statusInfo.icon}
                 {@const IconComponent = statusInfo.icon}
-                <IconComponent class="h-4 w-4 {statusInfo.class}" />
+                <IconComponent class="h-4 w-4 {statusInfo.class} flex-shrink-0" />
               {/if}
               
               <!-- File Path -->
-              <span class="font-mono text-sm text-foreground">{change.path}</span>
+              <span class="font-mono text-sm text-foreground truncate" title={change.path}>{change.path}</span>
               
               <!-- Status Badge -->
-              <span class="rounded-full border px-2 py-0.5 text-xs font-medium {getStatusBadgeClass(change.status)}">
+              <span class="rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap flex-shrink-0 {getStatusBadgeClass(change.status)}">
                 {change.status}
               </span>
             </div>
             
             <!-- File Stats -->
-            <div class="flex items-center gap-2 text-sm text-muted-foreground">
+            <div class="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap flex-shrink-0">
               {#if stats.additions > 0}
                 <span class="text-green-600">+{stats.additions}</span>
               {/if}

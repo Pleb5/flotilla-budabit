@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert} from "@nostr-git/ui"
+  import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert, Status} from "@nostr-git/ui"
   import {Bell, CalendarDays, Check, Clock, Eye, GitCommit, Plus, SearchX, User, X} from "@lucide/svelte"
   import {
     Address,
@@ -38,7 +38,7 @@
   import {now} from "@welshman/lib"
 
   const {data} = $props()
-  const {repoClass, issueFilter, statusEventFilter, repoRelays} = data
+  const {repoClass, issueFilter, statusEventFilter, repoRelays, statusEventsByRoot} = data
   const mounted = now()
   const alertedIds = new Set<string>()
   // Track previous review-needed state per issue to alert only on false -> true transitions
@@ -839,13 +839,23 @@
                     return hasType || hasTag || hasMention
                   } catch { return false }
                 })()}
-                <RepoPatchStatus
-                  className="absolute left-2 top-2"
-                  state={resolved?.state}
-                  kind={statuses[issue.id]?.kind}
-                  reason={statusReasons[issue.id]}
-                  badgeRole={badge}
-                  reviewRequested={needsReview} />
+                <div class="absolute left-2 top-2 flex items-center gap-2">
+                  <RepoPatchStatus
+                    state={resolved?.state}
+                    kind={statuses[issue.id]?.kind}
+                    reason={statusReasons[issue.id]}
+                    badgeRole={badge}
+                    reviewRequested={needsReview} />
+                  <!-- Compact Status Component -->
+                  <Status
+                    repo={repoClass}
+                    rootId={issue.id}
+                    rootKind={1621}
+                    rootAuthor={issue.pubkey}
+                    statusEvents={$statusEventsByRoot?.get(issue.id) || []}
+                    actorPubkey={$pubkey}
+                    compact={true} />
+                </div>
               {/key}
             </div>
             {#if labelsByIssue.get(issue.id)?.length}

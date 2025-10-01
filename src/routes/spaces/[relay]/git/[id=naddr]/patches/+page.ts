@@ -46,11 +46,28 @@ export const load: PageLoad = async ({ parent }) => {
     events => events.filter(isCommentEvent) as CommentEvent[],
   )
 
+  // Group status events by root ID for easier lookup
+  const statusEventsByRoot = derived(statusEvents, events => {
+    const map = new Map<string, any[]>()
+    for (const event of events) {
+      const rootTag = event.tags.find((t: string[]) => t[0] === "e" && t[3] === "root")
+      if (rootTag) {
+        const rootId = rootTag[1]
+        if (!map.has(rootId)) {
+          map.set(rootId, [])
+        }
+        map.get(rootId)!.push(event)
+      }
+    }
+    return map
+  })
+
   const uniqueAuthors = new Set(repoClass.patches.map((patch: PatchEvent) => patch.pubkey))
 
   return {
     comments,
     statusEvents,
+    statusEventsByRoot,
     patchFilter,
     uniqueAuthors,
   }

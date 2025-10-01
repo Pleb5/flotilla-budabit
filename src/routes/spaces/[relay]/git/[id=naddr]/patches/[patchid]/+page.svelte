@@ -17,7 +17,7 @@
     User,
     X,
   } from "@lucide/svelte"
-  import {Button, Profile, MergeStatus, toast} from "@nostr-git/ui"
+  import {Button, Profile, MergeStatus, toast, Status} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {DiffViewer, IssueThread, MergeAnalyzer} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
@@ -41,7 +41,7 @@
     type StatusEvent,
     type PatchEvent,
   } from "@nostr-git/shared-types"
-  import {postComment} from "@src/app/git-commands"
+  import {postComment, postStatus} from "@src/app/git-commands"
   import {parseGitPatchFromEvent, analyzePatchMerge} from "@nostr-git/core"
   import type {MergeAnalysisResult} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"
@@ -231,6 +231,14 @@
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = ($repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     await postComment(comment, relays).result
+  }
+
+  const handleStatusPublish = async (statusEvent: StatusEvent) => {
+    console.log("[PatchDetail] Publishing status", statusEvent)
+    const relays = ($repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const thunk = postStatus(statusEvent as any, relays)
+    console.log("[PatchDetail] Status publish thunk", thunk)
+    return thunk
   }
 
   const status = $derived.by(() => {
@@ -787,6 +795,21 @@
             {/if}
           </div>
         {/if}
+
+        <!-- Status Section -->
+        <div class="mb-6">
+          <Status
+            repo={repoClass}
+            rootId={patch.id}
+            rootKind={1617}
+            rootAuthor={patch.author.pubkey}
+            statusEvents={($statusEvents || []) as StatusEvent[]}
+            actorPubkey={$pubkey}
+            compact={false}
+            onPublish={handleStatusPublish} />
+        </div>
+
+        <div class="git-separator my-6"></div>
 
         <!-- Merge Status Analysis -->
         <div class="mb-6">

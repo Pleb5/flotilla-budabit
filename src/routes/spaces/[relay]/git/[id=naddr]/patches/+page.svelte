@@ -5,6 +5,7 @@
     pushRepoAlert,
     PatchDagSummary,
     RepoPatchStatus,
+    Status,
   } from "@nostr-git/ui"
   import {
     Bell,
@@ -45,7 +46,7 @@
   import {now} from "@welshman/lib"
 
   const {data} = $props()
-  const {repoClass, comments, statusEvents, patchFilter, repoRelays, uniqueAuthors} = data
+  const {repoClass, comments, statusEvents, statusEventsByRoot, patchFilter, repoRelays, uniqueAuthors} = data
   const mounted = now()
   const alertedIds = new Set<string>()
   // Track previous review-needed state to only alert on false -> true transitions
@@ -869,13 +870,23 @@
                     return hasType || hasTag || hasMention
                   } catch { return false }
                 })()}
-                <RepoPatchStatus
-                  className="absolute left-2 top-2"
-                  state={resolved?.state}
-                  kind={statusByPatch[patch.id]?.kind}
-                  reason={statusReasonByPatch[patch.id]}
-                  badgeRole={badge}
-                  reviewRequested={needsReview} />
+                <div class="absolute left-2 top-2 flex items-center gap-2">
+                  <RepoPatchStatus
+                    state={resolved?.state}
+                    kind={statusByPatch[patch.id]?.kind}
+                    reason={statusReasonByPatch[patch.id]}
+                    badgeRole={badge}
+                    reviewRequested={needsReview} />
+                  <!-- Compact Status Component -->
+                  <Status
+                    repo={repoClass}
+                    rootId={patch.id}
+                    rootKind={1617}
+                    rootAuthor={patch.pubkey}
+                    statusEvents={$statusEventsByRoot?.get(patch.id) || []}
+                    actorPubkey={$pubkey}
+                    compact={true} />
+                </div>
               {/key}
               <!-- Grouped labels below card -->
               {#if labelsByPatch.get(patch.id)?.length}
