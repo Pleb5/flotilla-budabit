@@ -28,9 +28,10 @@ export const REPO_RELAYS_KEY = Symbol("repo-relays")
 
 export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
+export const FREELANCE_JOB = 32767
+
 export const jobLink = (naddr: string) => `https://test.satshoot.com/${naddr}`
 export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
-
 
 // Repositories adapter (NIP-34 repo announcements)
 // - derive announcements (30617)
@@ -78,9 +79,6 @@ export const loadRepoAnnouncements = (relays: string[] = INDEXER_RELAYS) =>
     relays: relays.map(u => normalizeRelayUrl(u)).filter(Boolean) as string[],
     filters: [{kinds: [30617]}],
   })
-
-
-
 
 // ---------------------------------------------------------------------------
 // NIP-34 / 22 / 32 convergence helpers

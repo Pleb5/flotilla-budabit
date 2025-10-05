@@ -15,7 +15,10 @@
   import {formatTimestampRelative} from "@welshman/lib"
   import {load, request} from "@welshman/net"
   import {now, nthEq, sortBy} from "@welshman/lib"
-  import {GIT_REPO, GitIssueStatus} from "@src/lib/util"
+  import {
+    GIT_REPO_ANNOUNCEMENT,
+    GitIssueStatus,
+  } from "@nostr-git/shared-types"
   import NoteCard from "./NoteCard.svelte"
   import Content from "./Content.svelte"
   import {nip19} from "nostr-tools"
@@ -25,7 +28,11 @@
   import {pushModal} from "../modal"
   import ThreadCreate from "./ThreadCreate.svelte"
   import {decodeRelay} from "@app/state"
-  import {loadRepoAnnouncements, deriveMaintainersForEuc, repoAnnouncements} from "@app/git-state"
+  import {
+    loadRepoAnnouncements,
+    deriveMaintainersForEuc,
+    repoAnnouncements,
+  } from "@app/git-state"
   import {Router} from "@welshman/router"
   import {resolveIssueStatus, effectiveLabelsFor} from "@nostr-git/core"
 
@@ -155,7 +162,7 @@
   const loadRepoAndStatus = async () => {
     if (aTag && aTag.length > 0) {
       const repoFilter = {
-        kinds: [GIT_REPO],
+        kinds: [GIT_REPO_ANNOUNCEMENT],
         authors: [pubkey!],
         "#d": [repoDtag],
       }

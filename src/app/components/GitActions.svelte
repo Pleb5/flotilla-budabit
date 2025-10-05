@@ -6,18 +6,19 @@
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/commands"
-  import {makeGitPath} from "@app/git-routes"
+  import {makeGitIssuePath, makeGitPath} from "@app/git-routes"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
   import {navigating} from "$app/state"
   import {goto} from "$app/navigation"
-  import { nip19 } from "nostr-tools"
-  import type { AddressPointer } from "nostr-tools/nip19"
-  import { canonicalRepoKey, sanitizeRelays } from "@nostr-git/core"
-  import { pushToast } from "@app/toast"
-  import { normalizeRelayUrl } from "@welshman/util"
+  import {nip19} from "nostr-tools"
+  import type {AddressPointer} from "nostr-tools/nip19"
+  import {canonicalRepoKey, sanitizeRelays} from "@nostr-git/core"
+  import {pushToast} from "@app/toast"
+  import {normalizeRelayUrl} from "@welshman/util"
+  import Link from "@src/lib/components/Link.svelte"
 
   interface Props {
     url: any
@@ -27,13 +28,7 @@
     showPatches?: boolean
   }
 
-  const {
-    url,
-    event,
-    showIssues = true,
-    showActivity = true,
-    showPatches = true,
-  }: Props = $props()
+  const {url, event, showIssues = true, showActivity = true, showPatches = true}: Props = $props()
 
   let loadingIssues = $state(true)
 
@@ -141,33 +136,28 @@
 <div class="flex flex-wrap items-center justify-between gap-2">
   <div class="flex flex-grow flex-wrap justify-end gap-2">
     <Button
-      class="btn btn-primary btn-xs rounded-full cursor-pointer"
+      class="btn btn-neutral btn-xs cursor-pointer rounded-full"
       onclick={gotoRepo}
       disabled={!!navigating.type}>
       <Spinner loading={!!navigating.type} minHeight={"min-h-6"}>Browse</Spinner>
     </Button>
     {#if showIssues}
-      <Button
-        class="btn btn-secondary btn-xs rounded-full flex cursor-pointer items-center"
-        onclick={gotoIssues}
-        disabled={!!navigating.type}>
-        <Spinner loading={loadingIssues || !!navigating.type} minHeight={"min-h-6"}>
-          {"Issues (" + issueCount + ")"}
-        </Spinner>
-      </Button>
+      <Link
+        class="cursor-pointer"
+        href={makeGitIssuePath(url, Address.fromEvent(event).toNaddr())}>
+        <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Issues</div>
+      </Link>
     {/if}
 
     {#if showPatches}
-    <Button
-      class="btn btn-secondary btn-xs rounded-full flex cursor-pointer items-center"
-      onclick={gotoPatches}
-      disabled={!!navigating.type}>
-      <Spinner loading={loadingIssues || !!navigating.type} minHeight={"min-h-6"}>
-        {"Patches (" + patchCount + ")"}
-      </Spinner>
-    </Button>
+      <Link
+        class="cursor-pointer"
+        href={makeGitPath(url, Address.fromEvent(event).toNaddr()) + "/patches"}>
+        <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">
+          <span>Patches</span>
+        </div>
+      </Link>
     {/if}
-
     {#if showActivity}
       <ReactionSummary
         {url}

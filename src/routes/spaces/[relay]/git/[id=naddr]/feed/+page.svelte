@@ -49,8 +49,7 @@
   import {PROTECTED} from "@app/state"
   import {popKey} from "@app/implicit"
   import {pushToast} from "@app/toast"
-  import {GIT_REPO} from "@src/lib/util"
-  import type {IssueEvent, PatchEvent} from "@nostr-git/shared-types"
+  import {GIT_REPO_ANNOUNCEMENT, type IssueEvent, type PatchEvent} from "@nostr-git/shared-types"
 
   const {id} = $page.params
   const {data} = $props()
@@ -270,7 +269,7 @@
           feedFilters: filter,
           subscriptionFilters: [
             ...filter,
-            {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO], "#h": [room], since: now()},
+            {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
           ],
           initialEvents,
           onExhausted: () => {

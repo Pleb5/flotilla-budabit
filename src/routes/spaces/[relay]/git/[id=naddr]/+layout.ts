@@ -6,12 +6,16 @@ import {
   type RepoAnnouncementEvent,
   type RepoStateEvent,
 } from "@nostr-git/shared-types"
+import {
+  GIT_REPO_ANNOUNCEMENT,
+  GIT_REPO_STATE,
+  normalizeRelayUrl,
+} from "@nostr-git/shared-types"
 import {GIT_ISSUE, GIT_PATCH} from "@welshman/util"
+import {nthEq} from "@welshman/lib"
 import {nip19} from "nostr-tools"
 import type {AddressPointer} from "nostr-tools/nip19"
-import {GIT_REPO, GIT_REPO_STATE} from "@src/lib/util.js"
 import type {LayoutLoad} from "./$types"
-import {normalizeRelayUrl} from "@welshman/util"
 
 export const load: LayoutLoad = async ({params}) => {
   const {id, relay} = params
@@ -46,7 +50,7 @@ export const load: LayoutLoad = async ({params}) => {
   const filters = [
     {
       authors: [decoded.pubkey],
-      kinds: [GIT_REPO_STATE, GIT_REPO],
+      kinds: [GIT_REPO_STATE, GIT_REPO_ANNOUNCEMENT],
     },
   ]
 
@@ -57,7 +61,7 @@ export const load: LayoutLoad = async ({params}) => {
       filters: [
         {
           authors: [decoded.pubkey],
-          kinds: [GIT_REPO],
+          kinds: [GIT_REPO_ANNOUNCEMENT],
           "#d": [repoName],
         },
       ],
@@ -97,7 +101,7 @@ export const load: LayoutLoad = async ({params}) => {
 
   // First, load all repo announcements with the same name to get all related repos
   const allReposFilter = {
-    kinds: [GIT_REPO],
+    kinds: [GIT_REPO_ANNOUNCEMENT],
     "#d": [repoName],
   }
 
@@ -127,12 +131,12 @@ export const load: LayoutLoad = async ({params}) => {
   // Filter issues and patches by authors (maintainers + repo author)
   const issueFilters = {
     kinds: [GIT_ISSUE],
-    "#a": repoAuthors.map(a => `${GIT_REPO}:${a}:${repoName}`),
+    "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
   }
 
   const patchFilters = {
     kinds: [GIT_PATCH],
-    "#a": repoAuthors.map(a => `${GIT_REPO}:${a}:${repoName}`),
+    "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
   }
 
   console.log("issueFilters", issueFilters)

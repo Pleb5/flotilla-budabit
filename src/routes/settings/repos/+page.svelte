@@ -1,6 +1,5 @@
 <script lang="ts">
   import {Address, getTagValue, type Filter} from "@welshman/util"
-  import {GIT_REPO} from "@src/lib/util"
   import {pubkey, repository, tracker} from "@welshman/app"
   import {fly} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -10,7 +9,8 @@
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
   import {onMount} from "svelte"
-  import { repoGroups, loadRepoAnnouncements } from "@src/app/git-state.js"
+  import {repoGroups, loadRepoAnnouncements} from "@src/app/git-state.js"
+  import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
 
   const id = $pubkey!
   let loading = $state(true)
@@ -18,7 +18,7 @@
 
   const filters: Filter[] = [
     {
-      kinds: [GIT_REPO],
+      kinds: [GIT_REPO_ANNOUNCEMENT],
       authors: [id],
     },
   ]
@@ -82,7 +82,7 @@
 <div class="content column gap-4">
   <div class="flex items-center justify-between">
     <h2 class="text-xl font-semibold">Announced Repositories</h2>
-    <button class="btn btn-sm btn-outline" onclick={refreshAnnouncements}>Refresh</button>
+    <button class="btn btn-outline btn-sm" onclick={refreshAnnouncements}>Refresh</button>
   </div>
   {#if loadingAnnouncements}
     <p class="flex h-10 items-center justify-center py-10" out:fly>
@@ -96,13 +96,14 @@
     <div class="text-sm text-muted-foreground">No announcements found for your account.</div>
   {:else}
     {#each myGroups as g (g.euc)}
-      <div class="rounded-lg border p-4 space-y-3" in:fly>
+      <div class="space-y-3 rounded-lg border p-4" in:fly>
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="font-mono text-sm">euc: <span class="font-semibold">{g.euc}</span></div>
           <div class="flex items-center gap-2">
             <div class="text-xs text-muted-foreground">{g.relays?.length || 0} relays</div>
             {#if g.web?.length}
-              <button class="btn btn-xs btn-outline" onclick={() => window.open(g.web[0], '_blank')}>Open</button>
+              <button class="btn btn-outline btn-xs" onclick={() => window.open(g.web[0], "_blank")}
+                >Open</button>
             {/if}
           </div>
         </div>
@@ -118,7 +119,11 @@
             <div class="text-xs font-semibold text-muted-foreground">Web</div>
             <div class="flex flex-col gap-1">
               {#each g.web as w (w)}
-                <a class="link link-primary text-sm break-all" href={w} target="_blank" rel="noreferrer">{w}</a>
+                <a
+                  class="link link-primary break-all text-sm"
+                  href={w}
+                  target="_blank"
+                  rel="noreferrer">{w}</a>
               {/each}
             </div>
           </div>
@@ -129,7 +134,7 @@
             <div class="flex flex-col gap-1">
               {#each g.clone as c (c)}
                 <div class="flex items-center gap-2">
-                  <code class="text-xs break-all">{c}</code>
+                  <code class="break-all text-xs">{c}</code>
                   <button class="btn btn-xs" onclick={() => navigator.clipboard?.writeText(c)}>
                     Copy
                   </button>

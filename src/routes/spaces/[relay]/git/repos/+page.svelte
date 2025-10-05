@@ -1,11 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {
-    Address,
-    getTagValue,
-    type Filter,
-  } from "@welshman/util"
-  import {GIT_REPO} from "@src/lib/util"
+  import {Address, getTagValue, type Filter} from "@welshman/util"
   import {repository, tracker} from "@welshman/app"
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
@@ -19,12 +14,13 @@
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
   import {onMount} from "svelte"
+  import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
 
   const url = decodeRelay($page.params.relay)
 
   let loading = $state(true)
 
-  const filters: Filter[] = [{kinds: [GIT_REPO]}]
+  const filters: Filter[] = [{kinds: [GIT_REPO_ANNOUNCEMENT]}]
   const repoEvents = deriveEvents(repository, {filters})
 
   const repos = $derived.by(() => {
@@ -94,7 +90,12 @@
     {:else}
       {#each repos! as repo (repo.repo.id)}
         <div in:fly>
-          <GitItem {url} event={repo.repo} showActivity={false} showIssues={false} showActions={true}/>
+          <GitItem
+            {url}
+            event={repo.repo}
+            showActivity={false}
+            showIssues={false}
+            showActions={true} />
         </div>
       {/each}
     {/if}

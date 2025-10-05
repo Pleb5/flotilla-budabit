@@ -45,14 +45,14 @@
   import {whenElementReady} from "@src/lib/html"
   import {popKey} from "@app/implicit"
   import {pushToast} from "@app/toast"
-  import {GIT_REPO} from "@src/lib/util"
+  import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
 
   const {room} = $page.params
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay($page.params.relay)
   const channel = deriveChannel(url, room)
-  const filter = {kinds: [MESSAGE, GIT_REPO], "#h": [room]}
+  const filter = {kinds: [MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room]}
   const isFavorite = $derived($userRoomsByUrl.get(url)?.has(room))
   const membershipStatus = deriveUserMembershipStatus(url, room)
 
@@ -233,7 +233,7 @@
           relays: [url],
           feedFilters: [filter],
           subscriptionFilters: [
-            {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO], "#h": [room], since: now()},
+            {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
           ],
           initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
           onExhausted: () => {
