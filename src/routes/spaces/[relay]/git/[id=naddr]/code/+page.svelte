@@ -23,13 +23,23 @@
     type: "directory",
   })
 
+  // Keep local selectedBranch in sync with repoClass changes (e.g., BranchSelector)
+  $effect(() => {
+    if (repoClass) {
+      const next = repoClass.selectedBranch || repoClass.mainBranch || selectedBranch
+      if (next && next !== selectedBranch) {
+        selectedBranch = next
+      }
+    }
+  })
+
   let curDir: FileEntry = $state({
     name: "..",
     path: "",
     type: "directory",
   })
 
-  let selectedBranch = $state(repoClass.mainBranch)
+  let selectedBranch = $state(repoClass.selectedBranch)
 
   let branchLoadTrigger = $state(0)
 
@@ -143,91 +153,7 @@
     {:else if error}
       <div class="text-red-500">{error}</div>
     {:else}
-      <div class="mb-4">
-        <Button
-          onclick={openMenu}
-          class="flex items-center gap-3 text-left transition-all hover:text-base-content">
-          <GitBranch class="h-5 w-5 text-muted-foreground" />
-          <span>{selectedBranch}</span>
-          <Icon icon="alt-arrow-down" />
-        </Button>
-        {#if showMenu}
-          <Popover hideOnClick onClose={toggleMenu}>
-            <ul
-              transition:fly
-              class="menu z-popover mt-2 flex max-h-64 flex-col overflow-y-auto rounded-box bg-base-100 p-2 shadow-xl">
-              {#if refs.length === 0}
-                <li class="px-3 py-2 text-sm text-muted-foreground">No branches or tags found</li>
-              {:else}
-                {@const branches = refs.filter(ref => ref.type === "heads")}
-                {@const tags = refs.filter(ref => ref.type === "tags")}
-
-                {#if branches.length > 0}
-                  <li
-                    class="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Branches
-                  </li>
-                  {#each branches as ref}
-                    <li>
-                      <Button
-                        onclick={async () => {
-                          try {
-                            selectedBranch = ref.name
-                            await repoClass.fileManager.listRepoFiles({
-                              repoEvent: repoClass.repoEvent!,
-                              branch: ref.name,
-                              path: ''
-                            })
-                          } catch (error) {
-                            if (error instanceof Error && error.message.includes('Could not find')) {
-                              const { pushToast } = await import('@app/toast')
-                              pushToast({
-                                message: `Branch '${ref.name}' is not available locally. It may have been deleted, merged, or not fetched yet. Using the repository's default branch instead.`,
-                                theme: 'error',
-                                timeout: 8000
-                              })
-                              selectedBranch = repoClass.mainBranch || ''
-                            } else {
-                              console.error('Branch selection error:', error)
-                            }
-                          }
-                        }}
-                        class={selectedBranch === ref.name ? "bg-primary/10 text-primary" : ""}>
-                        <GitBranch class="h-4 w-4" />
-                        <span>{ref.name}</span>
-                        {#if ref.name === repoClass.mainBranch}
-                          <span class="ml-auto text-xs text-muted-foreground">default</span>
-                        {/if}
-                      </Button>
-                    </li>
-                  {/each}
-                {/if}
-
-                {#if tags.length > 0}
-                  {#if branches.length > 0}
-                    <li class="my-1 border-t border-border"></li>
-                  {/if}
-                  <li
-                    class="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Tags
-                  </li>
-                  {#each tags as ref}
-                    <li>
-                      <Button
-                        onclick={() => (selectedBranch = ref.name)}
-                        class={selectedBranch === ref.name ? "bg-primary/10 text-primary" : ""}>
-                        <Tag class="h-4 w-4" />
-                        <span>{ref.name}</span>
-                      </Button>
-                    </li>
-                  {/each}
-                {/if}
-              {/if}
-            </ul>
-          </Popover>
-        {/if}
-      </div>
-      <div class="border-t border-border pt-4">
+      <div class="border-border pt-2">
         {#key files}
           <div transition:fade>
             {#await files}

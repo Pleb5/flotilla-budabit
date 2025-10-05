@@ -123,7 +123,7 @@
       const result = await repoClass.workerManager.syncWithRemote({
         repoId: repoClass.canonicalKey,
         cloneUrls,
-        branch: repoClass.mainBranch,
+        branch: repoClass.selectedBranch,
       })
 
       if (!result.success) {
@@ -258,11 +258,8 @@
     <div class="p-4 text-center text-red-500">Repository not found.</div>
   {:else}
     <RepoHeader
-      event={repoClass.repoEvent!}
       {repoClass}
-      pubkey={$pubkey}
       {activeTab}
-      isRepoWatched={false}
       {refreshRepo}
       {isRefreshing}
       {forkRepo}
