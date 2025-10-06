@@ -112,16 +112,6 @@
     }
   })
 
-  let showMenu = $state(false)
-
-  const toggleMenu = () => {
-    showMenu = !showMenu
-  }
-
-  const openMenu = () => {
-    showMenu = true
-  }
-
   const getFileContent = async (path: string) => {
     try {
       const result = await repoClass.getFileContent({
@@ -153,7 +143,7 @@
     {:else if error}
       <div class="text-red-500">{error}</div>
     {:else}
-      <div class="border-border pt-2">
+      <div class="border-border">
         {#key files}
           <div transition:fade>
             {#await files}
