@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import {GitBranch, User, Search} from "@lucide/svelte"
+  import {User, Search} from "@lucide/svelte"
   import {
     Input,
     Select,
@@ -12,14 +12,12 @@
     context,
   } from "@nostr-git/ui"
   import Spinner from "@src/lib/components/Spinner.svelte"
-  import {slide} from "svelte/transition"
-
+    import { slide } from 'svelte/transition'
   let {data} = $props()
   const {repoClass} = data
 
   // Reactive state for UI
   let searchQuery = $state("")
-  let selectedBranch = $state([repoClass.mainBranch?.split("/").pop() || ""])
   let selectedAuthor = $state([])
 
   // Get commits from the repo class (lazy-loaded and reactive)
@@ -34,8 +32,7 @@
   const pageSizeOptions = [10, 30, 50, 100]
   let selectedPageSize = $state(30)
 
-  // Get available branches for filtering
-  let branches = $state<string[]>([])
+  // Branch selector removed; commits follow repoClass.selectedBranch
 
   // Get unique authors from commits for filtering
   let authors = $state<Set<string>>(new Set())
@@ -53,7 +50,7 @@
 
   // Set initial page size and load commits when the component mounts or when the repo changes
   $effect(() => {
-    if (repoClass && repoClass.repoId && repoClass.mainBranch) {
+    if (repoClass && repoClass.repoId && (repoClass.selectedBranch || repoClass.mainBranch)) {
       loadCommits()
     }
   })
@@ -113,11 +110,7 @@
     }
   }
 
-  $effect(() => {
-    if (repoClass.branches) {
-      branches = repoClass.branches.map((branch: any) => branch.name.split("/").pop())
-    }
-  })
+  // Branch list removed
 
   $effect(() => {
     if (repoClass.commits && repoClass.commits.length > 0) {
@@ -140,11 +133,6 @@
             commit.commit.author.name.toLowerCase().includes(query) ||
             commit.oid.toLowerCase().includes(query),
         )
-      }
-
-      // Filter by branch (if branch filtering is implemented)
-      if (selectedBranch.length > 0) {
-        //filtered = filtered.filter(commit => commit.branch === selectedBranch[0])
       }
 
       // Filter by author
@@ -176,20 +164,6 @@
         <Input placeholder="Search commits..." bind:value={searchQuery} class="pl-10" />
       </div>
     </div>
-
-    <Select bind:value={selectedBranch} type="multiple">
-      <SelectTrigger class="w-[140px]">
-        <GitBranch class="mr-2 h-4 w-4" />
-        <span>{selectedBranch}</span>
-      </SelectTrigger>
-      <SelectContent>
-        {#each branches as branch (branch)}
-          <SelectItem value={branch}>
-            {branch}
-          </SelectItem>
-        {/each}
-      </SelectContent>
-    </Select>
 
     <Select bind:value={selectedAuthor} type="multiple">
       <SelectTrigger class="w-[120px]">
