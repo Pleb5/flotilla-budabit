@@ -25,7 +25,12 @@ export const load: PageLoad = async ({ parent }) => {
   }
 
   const statusEventFilter = {
-    kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+    kinds: [
+      GIT_STATUS_OPEN,
+      GIT_STATUS_COMPLETE,
+      GIT_STATUS_CLOSED,
+      GIT_STATUS_DRAFT,
+    ],
     "#e": [...repoClass.issues.map((issue: IssueEvent) => issue.id)],
   }
 

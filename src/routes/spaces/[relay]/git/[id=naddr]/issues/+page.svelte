@@ -1,6 +1,6 @@
 <script lang="ts">
-  import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert, Status} from "@nostr-git/ui"
-  import {Bell, CalendarDays, Check, Clock, Eye, GitCommit, Plus, SearchX, User, X} from "@lucide/svelte"
+  import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert} from "@nostr-git/ui"
+  import {CalendarDays, Check, Clock, Eye, GitCommit, Plus, SearchX, X} from "@lucide/svelte"
   import {
     Address,
     COMMENT,
@@ -11,11 +11,11 @@
     GIT_STATUS_CLOSED,
     getTag,
   } from "@welshman/util"
-  import { getTags } from "@nostr-git/shared-types"
-  import {createSearch, pubkey, repository} from "@welshman/app"
+  import {getTags} from "@nostr-git/shared-types"
+  import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/requests"
-  import {slide, slideAndFade} from "@lib/transition"
+  import {slideAndFade} from "@lib/transition"
   import {pushModal} from "@app/modal"
   import {
     createStatusEvent,
@@ -26,14 +26,11 @@
   } from "@nostr-git/shared-types"
   import {PublishStatus, request} from "@welshman/net"
   import {postComment, postIssue, postStatus} from "@src/app/git-commands"
-  import {nthEq, sortBy} from "@welshman/lib"
+  import {sortBy} from "@welshman/lib"
   import Icon from "@src/lib/components/Icon.svelte"
-  import { RepoPatchStatus } from "@nostr-git/ui"
+  import FilterPanel from "@src/app/components/FilterPanel.svelte"
   import {isMobile} from "@src/lib/html"
-  import {debounce} from "throttle-debounce"
-  import {deriveEvents} from "@welshman/store"
-  import ProfileName from "@src/app/components/ProfileName.svelte"
-  import {deriveEffectiveLabels, deriveStatus} from "@app/git-state"
+  import {deriveEffectiveLabels} from "@app/git-state"
   import {onMount, onDestroy} from "svelte"
   import {now} from "@welshman/lib"
 
@@ -59,74 +56,34 @@
       ret[key] = sortBy(e => -e.created_at, value)
     }
 
-  // Alerts: watch for new status events arriving after mount and alert once
-  $effect(() => {
-    try {
-      const arr = $statusEvents || []
-      for (const e of arr) {
-        if (!e || !e.id) continue
-        if (alertedIds.has(e.id)) continue
-        if (e.created_at <= mounted) continue
-        if ([GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE].includes(e.kind as number)) {
-          const body = getTagValue("t", e.tags) || ""
-          pushRepoAlert({
-            repoKey: repoClass.canonicalKey,
-            kind: "status-change",
-            title: "Status changed",
-            body,
-          })
-          alertedIds.add(e.id)
+    // Alerts: watch for new status events arriving after mount and alert once
+    $effect(() => {
+      try {
+        const groups = statusEventsByRoot ? Array.from($statusEventsByRoot.values()) : []
+        const arr = groups.flat() as StatusEvent[]
+        for (const e of arr) {
+          if (!e || !e.id) continue
+          if (alertedIds.has(e.id)) continue
+          if (e.created_at <= mounted) continue
+          if (
+            [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE].includes(
+              e.kind as number,
+            )
+          ) {
+            const body = getTagValue("t", e.tags) || ""
+            pushRepoAlert({
+              repoKey: repoClass.key,
+              kind: "status-change",
+              title: "Status changed",
+              body,
+            })
+            alertedIds.add(e.id)
+          }
         }
-      }
-    } catch {}
-  })
+      } catch {}
+    })
     return ret
   })
-
-  const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
-  // Precompute statuses and reasons in one place (Svelte 5-safe)
-  const statusData = $derived.by(() => {
-    const byId: Record<string, StatusEvent | undefined> = {}
-    const reasons: Record<string, string | undefined> = {}
-    for (const issue of issues) {
-      let statusStub: StatusEvent | undefined
-      let reason: string | undefined
-      const r = getResolvedStateFor(issue.id)
-      if (r) {
-        const mapKind = (s: string) =>
-          s === "open"
-            ? GIT_STATUS_OPEN
-            : s === "draft"
-              ? GIT_STATUS_DRAFT
-              : s === "closed"
-                ? GIT_STATUS_CLOSED
-                : /* merged | resolved */ GIT_STATUS_COMPLETE
-        statusStub = {kind: mapKind(r.state)} as unknown as StatusEvent
-        reason = undefined
-      } else {
-        const res = deriveStatus(issue.id, issue.pubkey, euc).get()
-        statusStub = res?.final as StatusEvent | undefined
-        reason = res?.reason
-      }
-      byId[issue.id] = statusStub
-      reasons[issue.id] = reason
-    }
-    return {byId, reasons}
-  })
-
-  // Extract euc grouping key from repoEvent tags (r:euc)
-  const euc = $derived.by(() => {
-    try {
-      const evt: any = (repoClass as any).repoEvent
-      const t = ((evt?.tags || []) as any[]).find((t: string[]) => t[0] === "r" && t[2] === "euc")
-      return t ? t[1] : ""
-    } catch {
-      return ""
-    }
-  })
-
-  const statuses: Record<string, StatusEvent | undefined> = $derived.by(() => statusData.byId)
-  const statusReasons: Record<string, string | undefined> = $derived.by(() => statusData.reasons)
 
   // Alerts: review-request based on Type labels for issues; alert on transition to true
   $effect(() => {
@@ -140,7 +97,7 @@
         const prev = prevReviewStateByIssue.get(it.id) || false
         if (!prev && current) {
           pushRepoAlert({
-            repoKey: repoClass.canonicalKey,
+            repoKey: repoClass.key,
             kind: "review-request",
             title: "Review requested",
             body: getTagValue("subject", it.tags) || "",
@@ -164,7 +121,7 @@
         const prev = prevReviewStateByIssue.get(it.id) || false
         if (!prev && current) {
           pushRepoAlert({
-            repoKey: repoClass.canonicalKey,
+            repoKey: repoClass.key,
             kind: "review-request",
             title: "Review requested",
             body: getTagValue("subject", it.tags) || "",
@@ -191,7 +148,7 @@
             const last = lastMentionAlertAtByIssue.get(issue.id) || 0
             if (nowTs - last > mentionWindowMs) {
               pushRepoAlert({
-                repoKey: repoClass.canonicalKey,
+                repoKey: repoClass.key,
                 kind: "review-request",
                 title: "Review requested in comments",
                 body: getTagValue("subject", issue.tags) || "",
@@ -233,18 +190,6 @@
       }
     }
     return {byNamespace: byNs, flat}
-  }
-  const getResolvedStateFor = (
-    id: string,
-  ): {state: "open" | "draft" | "closed" | "merged" | "resolved"} | null => {
-    const maybe = (
-      repoClass as unknown as {
-        resolveStatusFor?: (
-          id: string,
-        ) => {state: "open" | "draft" | "closed" | "merged" | "resolved"} | null
-      }
-    ).resolveStatusFor
-    return typeof maybe === "function" ? maybe.call(repoClass, id) : null
   }
   const labelsData = $derived.by(() => {
     const byId = new Map<string, string[]>()
@@ -294,18 +239,41 @@
     return Array.from(authors)
   })
 
+  // Compute current status state using Status.svelte semantics
+  const maintainerSet = $derived.by(() => {
+    try {
+      const maintainers = repoClass.maintainers || []
+      const owner = (repoClass as any).repoEvent?.pubkey
+      return new Set([...(maintainers || []), owner].filter(Boolean))
+    } catch {
+      return new Set<string>()
+    }
+  })
+  const currentStateFor = (rootId: string): "open" | "draft" | "closed" | "resolved" => {
+    try {
+      const events = ($statusEventsByRoot?.get(rootId) || []) as StatusEvent[]
+      const rootAuthor = issues.find(i => i.id === rootId)?.pubkey
+      const authorized = events.filter(e => e.pubkey === rootAuthor || maintainerSet.has(e.pubkey))
+      if (authorized.length === 0) return "open"
+      const latest = [...authorized].sort((a, b) => b.created_at - a.created_at)[0]
+      switch (latest.kind) {
+        case GIT_STATUS_OPEN:
+          return "open"
+        case GIT_STATUS_DRAFT:
+          return "draft"
+        case GIT_STATUS_CLOSED:
+          return "closed"
+        case GIT_STATUS_COMPLETE:
+          return "resolved"
+        default:
+          return "open"
+      }
+    } catch {
+      return "open"
+    }
+  }
+
   let searchTerm = $state("")
-  let debouncedTerm = $state("")
-
-  // Set up the debounced update
-  const updateDebouncedTerm = debounce(500, (term: string) => {
-    debouncedTerm = term
-  })
-
-  // Watch searchTerm changes
-  $effect(() => {
-    updateDebouncedTerm(searchTerm)
-  })
 
   // Load label events for current issues
   $effect(() => {
@@ -323,9 +291,7 @@
   let storageKey = ""
   onMount(() => {
     try {
-      storageKey = repoClass.repoEvent
-        ? `issuesFilters:${Address.fromEvent(repoClass.repoEvent!).toString()}`
-        : ""
+      storageKey = repoClass ? `issuesFilters:${repoClass.key}` : ""
     } catch (e) {
       storageKey = ""
     }
@@ -404,32 +370,14 @@
     if (storageListener) window.removeEventListener("storage", storageListener)
   })
 
-  // Persist on changes
+  // Persist on changes (single watcher)
   $effect(() => {
     statusFilter
-    persist()
-  })
-  $effect(() => {
     sortByOrder
-    persist()
-  })
-  $effect(() => {
     authorFilter
-    persist()
-  })
-  $effect(() => {
     showFilters
-    persist()
-  })
-  $effect(() => {
     searchTerm
-    persist()
-  })
-  $effect(() => {
     selectedLabels
-    persist()
-  })
-  $effect(() => {
     matchAllLabels
     persist()
   })
@@ -478,22 +426,12 @@
           : selectedLabels.some(l => labs.includes(l))
       })
       .filter(issue => {
-        if (statusFilter !== "all") {
-          const status = statuses[issue.id]
-          if (!status) return true // NO status = OPEN!
-          switch (statusFilter) {
-            case "open":
-              return status.kind === GIT_STATUS_OPEN
-            case "resolved":
-              return status.kind === GIT_STATUS_COMPLETE
-            case "closed":
-              return status.kind === GIT_STATUS_CLOSED
-            case "draft":
-              return status.kind === GIT_STATUS_DRAFT
-            default:
-              return true
-          }
-        }
+        if (statusFilter === "all") return true
+        const state = currentStateFor(issue.id)
+        if (statusFilter === "open") return state === "open"
+        if (statusFilter === "draft") return state === "draft"
+        if (statusFilter === "closed") return state === "closed"
+        if (statusFilter === "resolved") return state === "resolved"
         return true
       })
       .sort((a, b) =>
@@ -577,7 +515,7 @@
     toast.push({message: "Issue created", variant: "default"})
     try {
       pushRepoAlert({
-        repoKey: repoClass.canonicalKey,
+        repoKey: repoClass.key,
         kind: "new-patch",
         title: "New issue",
         body: getTagValue("subject", issue.tags) || "",
@@ -651,145 +589,39 @@
   </div>
 
   {#if showFilters}
-    <div class="mb-6 rounded-md border border-border bg-card p-4" transition:slide>
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <!-- Status Filter -->
-        <div>
-          <h3 class="mb-2 text-sm font-medium">Status</h3>
-          <div class="flex flex-wrap gap-2">
-            <Button
-              variant={statusFilter === "all" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "all")}>
-              All
-            </Button>
-            <Button
-              variant={statusFilter === "open" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "open")}
-              class="gap-1">
-              <GitCommit class="h-3 w-3" /> Open
-            </Button>
-            <Button
-              variant={statusFilter === "resolved" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "resolved")}
-              class="gap-1">
-              <Check class="h-3 w-3" /> Resolved
-            </Button>
-            <Button
-              variant={statusFilter === "closed" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "closed")}
-              class="gap-1">
-              <X class="h-3 w-3" /> Closed
-            </Button>
-            <Button
-              variant={statusFilter === "draft" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "draft")}
-              class="gap-1">
-              <Clock class="h-3 w-3" /> Draft
-            </Button>
-          </div>
-        </div>
-
-        <!-- Sort Options -->
-        <div>
-          <h3 class="mb-2 text-sm font-medium">Sort By</h3>
-          <div class="flex flex-wrap gap-2">
-            <Button
-              variant={sortByOrder === "newest" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (sortByOrder = "newest")}
-              class="gap-1">
-              <CalendarDays class="h-3 w-3" /> Newest
-            </Button>
-            <Button
-              variant={sortByOrder === "oldest" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (sortByOrder = "oldest")}
-              class="gap-1">
-              <CalendarDays class="h-3 w-3" /> Oldest
-            </Button>
-            <Button
-              variant={sortByOrder === "status" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (sortByOrder = "status")}
-              class="gap-1">
-              <Check class="h-3 w-3" /> Status
-            </Button>
-          </div>
-        </div>
-
-        <!-- Author Filter -->
-        {#if uniqueAuthors.length > 1}
-          <div class="md:col-span-2">
-            <h3 class="mb-2 text-sm font-medium">Author</h3>
-            <div class="flex flex-wrap gap-2">
-              <Button
-                variant={authorFilter === "" ? "default" : "outline"}
-                size="sm"
-                onclick={() => (authorFilter = "")}>
-                All Authors
-              </Button>
-
-              {#each uniqueAuthors as author}
-                <Button
-                  variant={authorFilter === author ? "default" : "outline"}
-                  size="sm"
-                  onclick={() => (authorFilter = author)}
-                  class="gap-1">
-                  <User class="h-3 w-3" />
-                  <span class="text-sm"><ProfileName pubkey={author} /></span>
-                </Button>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        <!-- Label Filter -->
-        {#if allNormalizedLabels.length > 0}
-          <div class="md:col-span-2">
-            <h3 class="mb-2 text-sm font-medium">Labels</h3>
-            <div class="flex flex-wrap gap-2">
-              {#each allNormalizedLabels as lbl (lbl)}
-                <Button
-                  variant={selectedLabels.includes(lbl) ? "default" : "outline"}
-                  size="sm"
-                  onclick={() => {
-                    selectedLabels = selectedLabels.includes(lbl)
-                      ? selectedLabels.filter(l => l !== lbl)
-                      : [...selectedLabels, lbl]
-                  }}>
-                  {lbl}
-                </Button>
-              {/each}
-              <Button
-                variant={matchAllLabels ? "default" : "outline"}
-                size="sm"
-                onclick={() => (matchAllLabels = !matchAllLabels)}>
-                Match all
-              </Button>
-              {#if selectedLabels.length > 0}
-                <Button variant="ghost" size="sm" onclick={() => (selectedLabels = [])}>
-                  Clear labels
-                </Button>
-              {/if}
-            </div>
-          </div>
-        {/if}
-      </div>
-      <div class="mt-4 flex items-center justify-end">
-        <Button variant="ghost" size="sm" onclick={resetFilters}>Reset Filters</Button>
-      </div>
-      <div class="mt-3 flex items-center justify-end">
-        <span class="text-[11px] opacity-60 inline-flex items-center gap-1" title="Bell indicates review requested (label, you are tagged, or mentioned in comments)">
-          <Bell class="h-3 w-3" />
-          Review indicator
-        </span>
-      </div>
-    </div>
+    <FilterPanel
+      statusOptions={[
+        {value: "open", label: "Open", icon: GitCommit},
+        {value: "resolved", label: "Resolved", icon: Check},
+        {value: "closed", label: "Closed", icon: X},
+        {value: "draft", label: "Draft", icon: Clock},
+      ]}
+      selectedStatus={statusFilter}
+      onStatusChange={v => (statusFilter = v)}
+      on:statusChange={e => (statusFilter = e.detail)}
+      sortOptions={[
+        {value: "newest", label: "Newest", icon: CalendarDays},
+        {value: "oldest", label: "Oldest", icon: CalendarDays},
+        {value: "status", label: "Status", icon: Check},
+      ]}
+      sortBy={sortByOrder}
+      onSortChange={v => (sortByOrder = v)}
+      authors={uniqueAuthors}
+      {authorFilter}
+      onAuthorChange={v => (authorFilter = v)}
+      allLabels={allNormalizedLabels}
+      {selectedLabels}
+      onToggleLabel={lbl =>
+        (selectedLabels = selectedLabels.includes(lbl)
+          ? selectedLabels.filter(l => l !== lbl)
+          : [...selectedLabels, lbl])}
+      onClearLabels={() => (selectedLabels = [])}
+      {matchAllLabels}
+      onMatchAllToggle={() => (matchAllLabels = !matchAllLabels)}
+      labelSearchEnabled={false}
+      showReset={true}
+      onReset={resetFilters}
+      showReviewIndicator={true} />
   {/if}
 
   {#if loading}
@@ -818,45 +650,10 @@
                 comments={commentsOrdered[issue.id]}
                 currentCommenter={$pubkey!}
                 {onCommentCreated}
-                status={statuses[issue.id] || undefined}
-                extraLabels={labelsByIssue.get(issue.id) || []} />
-              <!-- Status chip (Repo getter preferred) -->
-              {#key statuses[issue.id]}
-                {@const resolved = getResolvedStateFor(issue.id)}
-                {@const badge = (
-                  repoClass as unknown as {
-                    getMaintainerBadge?: (pubkey: string) => "owner" | "maintainer" | null
-                  }
-                ).getMaintainerBadge?.call(repoClass, issue.pubkey)}
-                {@const needsReview = (() => {
-                  try {
-                    const typeVals = (labelGroupsFor(issue.id).Type || []).map((v: string) => v.toLowerCase())
-                    const hasType = typeVals.some(v => v.includes("review"))
-                    const me = $pubkey
-                    const pks = getTags(issue as any, "p").map((t: string[]) => t[1])
-                    const hasTag = !!(me && pks.includes(me))
-                    const hasMention = !!(me && (commentsOrdered[issue.id] || []).some((c: any) => getTags(c, "p").some((t: string[]) => t[1] === me)))
-                    return hasType || hasTag || hasMention
-                  } catch { return false }
-                })()}
-                <div class="absolute left-2 top-2 flex items-center gap-2">
-                  <RepoPatchStatus
-                    state={resolved?.state}
-                    kind={statuses[issue.id]?.kind}
-                    reason={statusReasons[issue.id]}
-                    badgeRole={badge}
-                    reviewRequested={needsReview} />
-                  <!-- Compact Status Component -->
-                  <Status
-                    repo={repoClass}
-                    rootId={issue.id}
-                    rootKind={1621}
-                    rootAuthor={issue.pubkey}
-                    statusEvents={$statusEventsByRoot?.get(issue.id) || []}
-                    actorPubkey={$pubkey}
-                    compact={true} />
-                </div>
-              {/key}
+                extraLabels={labelsByIssue.get(issue.id) || []}
+                repo={repoClass}
+                statusEvents={$statusEventsByRoot?.get(issue.id) || []}
+                actorPubkey={$pubkey} />
             </div>
             {#if labelsByIssue.get(issue.id)?.length}
               <div class="mt-1 flex flex-wrap gap-2 text-xs">

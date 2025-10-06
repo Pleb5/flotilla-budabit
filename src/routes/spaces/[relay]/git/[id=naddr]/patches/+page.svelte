@@ -3,12 +3,8 @@
     Button,
     PatchCard,
     pushRepoAlert,
-    PatchDagSummary,
-    RepoPatchStatus,
-    Status,
   } from "@nostr-git/ui"
   import {
-    Bell,
     CalendarDays,
     Check,
     Clock,
@@ -28,7 +24,6 @@
     GIT_STATUS_DRAFT,
   } from "@welshman/util"
   import {fly, slide, slideAndFade} from "@lib/transition"
-  import {load} from "@welshman/net"
   import {
     getTags,
     type CommentEvent,
@@ -39,9 +34,7 @@
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
   import {postComment} from "@src/app/git-commands"
-  import {Address} from "@welshman/util"
-  import ProfileName from "@src/app/components/ProfileName.svelte"
-  import {deriveEffectiveLabels, deriveStatus} from "@app/git-state"
+  import FilterPanel from "@src/app/components/FilterPanel.svelte"
   import {onMount, onDestroy} from "svelte"
   import {now} from "@welshman/lib"
 
@@ -65,72 +58,10 @@
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
   let labelSearch = $state("")
-  // Centralized labels via app state; render as natural values (no FQN, no '#')
-  const toNaturalLabel = (s: string): string => {
-    const idx = s.lastIndexOf(":")
-    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
-  }
+  // Centralized labels via app state
 
-  // Types + helpers to normalize effective labels and resolved status
-  type EffectiveLabelsView = {byNamespace: Record<string, Set<string>>; flat: Set<string>}
-  const isSetOfString = (x: unknown): x is Set<string> =>
-    x instanceof Set && Array.from(x).every(v => typeof v === "string")
-  const toSet = (x: unknown): Set<string> =>
-    x instanceof Set
-      ? x
-      : new Set<string>(Array.isArray(x) ? x.filter(v => typeof v === "string") : [])
-  const normalizeEff = (eff: any | undefined | null): EffectiveLabelsView | null => {
-    if (!eff) return null
-    const flat = toSet(eff.flat)
-    const byNs: Record<string, Set<string>> = {}
-    if (eff.byNamespace && typeof eff.byNamespace === "object") {
-      for (const ns of Object.keys(eff.byNamespace)) {
-        byNs[ns] = toSet((eff.byNamespace as any)[ns])
-      }
-    }
-    return {byNamespace: byNs, flat}
-  }
-  const getResolvedStateFor = (
-    id: string,
-  ): {state: "open" | "draft" | "closed" | "merged" | "resolved"} | null => {
-    const maybe = (
-      repoClass as unknown as {
-        resolveStatusFor?: (
-          id: string,
-        ) => {state: "open" | "draft" | "closed" | "merged" | "resolved"} | null
-      }
-    ).resolveStatusFor
-    return typeof maybe === "function" ? maybe.call(repoClass, id) : null
-  }
-  const labelsData = $derived.by(() => {
-    const byId = new Map<string, string[]>()
-    const groupsById = new Map<string, Record<string, string[]>>()
-    for (const p of repoClass.patches || []) {
-      const getter = (repoClass as unknown as {getPatchLabels?: (id: string) => any}).getPatchLabels
-      const eff = normalizeEff(
-        typeof getter === "function"
-          ? getter.call(repoClass, p.id)
-          : deriveEffectiveLabels(p.id).get(),
-      )
-      const flat = eff ? Array.from(eff.flat) : []
-      const naturals = flat.map(toNaturalLabel)
-      byId.set(p.id, naturals)
-      const groups: Record<string, string[]> = {Status: [], Type: [], Area: [], Tags: [], Other: []}
-      if (eff) {
-        for (const ns of Object.keys(eff.byNamespace)) {
-          const vals = Array.from(eff.byNamespace[ns]).map(toNaturalLabel)
-          if (ns === "org.nostr.git.status") groups.Status.push(...vals)
-          else if (ns === "org.nostr.git.type") groups.Type.push(...vals)
-          else if (ns === "org.nostr.git.area") groups.Area.push(...vals)
-          else if (ns === "#t") groups.Tags.push(...vals)
-          else groups.Other.push(...vals)
-        }
-        for (const k of Object.keys(groups)) groups[k] = Array.from(new Set(groups[k]))
-      }
-      groupsById.set(p.id, groups)
-    }
-    return {byId, groupsById}
-  })
+  // Types + helpers to normalize effective labels
+  const labelsData = $derived.by(() => repoClass.patchManager.getLabelsData(repoClass))
 
   // Alerts: if current user is explicitly tagged via 'p' on a root patch, treat as review request
   $effect(() => {
@@ -148,7 +79,7 @@
         const prev = prevReviewStateByPatch.get(p.id) || false
         if (!prev && current) {
           pushRepoAlert({
-            repoKey: repoClass.canonicalKey,
+            repoKey: repoClass.key,
             kind: "review-request",
             title: "Review requested",
             body: parseGitPatchFromEvent(p)?.title || "",
@@ -178,7 +109,7 @@
             const last = lastMentionAlertAtByPatch.get(p.id) || 0
             if (nowTs - last > mentionWindowMs) {
               pushRepoAlert({
-                repoKey: repoClass.canonicalKey,
+                repoKey: repoClass.key,
                 kind: "review-request",
                 title: "Review requested in comments",
                 body: parseGitPatchFromEvent(p)?.title || "",
@@ -204,7 +135,7 @@
         const prev = prevReviewStateByPatch.get(p.id) || false
         if (!prev && current) {
           pushRepoAlert({
-            repoKey: repoClass.canonicalKey,
+            repoKey: repoClass.key,
             kind: "review-request",
             title: "Review requested",
             body: parseGitPatchFromEvent(p)?.title || "",
@@ -215,31 +146,6 @@
     } catch {}
   })
 
-  // Optional: Patch DAG summary using Repo getter if available
-  const patchDag = $derived.by(() => {
-    try {
-      const rc: any = repoClass as any
-      if (rc && typeof rc.getPatchGraph === "function") {
-        const g = rc.getPatchGraph()
-        return {
-          roots: Array.isArray(g?.roots) ? g.roots : [],
-          rootRevisions: Array.isArray(g?.rootRevisions) ? g.rootRevisions : [],
-          nodeCount: g?.nodes ? (g.nodes.size ?? 0) : 0,
-          edgesCount: typeof g?.edgesCount === "number" ? g.edgesCount : undefined,
-          topParents: Array.isArray(g?.topParents) ? g.topParents : undefined,
-          parentOutDegree:
-            typeof g?.parentOutDegree === "object"
-              ? (g.parentOutDegree as Record<string, number>)
-              : undefined,
-          parentChildren:
-            typeof g?.parentChildren === "object"
-              ? (g.parentChildren as Record<string, string[]>)
-              : undefined,
-        }
-      }
-    } catch {}
-    return null
-  })
   const labelsByPatch = $derived.by(() => labelsData.byId)
   const labelGroupsFor = (id: string) =>
     labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
@@ -248,8 +154,8 @@
   let storageKey = ""
   onMount(() => {
     try {
-      storageKey = repoClass.repoEvent
-        ? `patchesFilters:${Address.fromEvent(repoClass.repoEvent!).toString()}`
+      storageKey = repoClass.key
+        ? `patchesFilters:${repoClass.key}`
         : ""
     } catch (e) {
       storageKey = ""
@@ -292,7 +198,7 @@
                   ? "Patch draft"
                   : "Patch opened"
           pushRepoAlert({
-            repoKey: repoClass.canonicalKey,
+            repoKey: repoClass.key,
             kind: "status-change",
             title,
           })
@@ -321,37 +227,28 @@
     }
   }
 
+  // Debounced persist to avoid excessive writes
+  let persistTimer: number | null = null
+  const persistDebounced = () => {
+    if (!storageKey) return
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = window.setTimeout(() => {
+      persist()
+      persistTimer = null
+    }, 150)
+  }
+
+  // Single reactive watcher for all filter inputs
   $effect(() => {
     statusFilter
-    persist()
-  })
-  $effect(() => {
     sortBy
-    persist()
-  })
-  $effect(() => {
     authorFilter
-    persist()
-  })
-  $effect(() => {
     showFilters
-    persist()
-  })
-  $effect(() => {
     searchTerm
-    persist()
-  })
-  $effect(() => {
     selectedLabels
-    persist()
-  })
-  $effect(() => {
     matchAllLabels
-    persist()
-  })
-  $effect(() => {
     labelSearch
-    persist()
+    persistDebounced()
   })
 
   const applyFromData = (data: any) => {
@@ -364,18 +261,6 @@
     if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
     if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
     if (typeof data.labelSearch === "string") labelSearch = data.labelSearch
-  }
-
-  const resetFilters = () => {
-    statusFilter = "open"
-    sortBy = "newest"
-    authorFilter = ""
-    showFilters = true
-    searchTerm = ""
-    selectedLabels = []
-    matchAllLabels = false
-    labelSearch = ""
-    if (storageKey) localStorage.removeItem(storageKey)
   }
 
   let storageListener: ((e: StorageEvent) => void) | null = null
@@ -393,57 +278,47 @@
   })
   onDestroy(() => {
     if (storageListener) window.removeEventListener("storage", storageListener)
+    if (persistTimer) clearTimeout(persistTimer)
   })
   const allNormalizedLabels = $derived.by(() =>
     Array.from(new Set(Array.from(labelsByPatch.values()).flat())),
   )
 
-  // Extract euc grouping key from repoEvent tags (r:euc)
-  const euc = $derived.by(() => {
-    try {
-      const evt: any = (repoClass as any).repoEvent
-      const t = ((evt?.tags || []) as any[]).find((t: string[]) => t[0] === "r" && t[2] === "euc")
-      return t ? t[1] : ""
-    } catch {
-      return ""
-    }
-  })
+  // Precompute status via PatchManager; map state -> kind where needed (fallback)
+  const statusData = $derived.by(() => repoClass.patchManager.getStatusData(repoClass))
+  const kindFromState = (s?: string) =>
+    s === "open"
+      ? GIT_STATUS_OPEN
+      : s === "draft"
+        ? GIT_STATUS_DRAFT
+        : s === "closed"
+          ? GIT_STATUS_CLOSED
+          : GIT_STATUS_COMPLETE // merged/resolved
 
-  // Precompute status for patches to avoid scattered .get() calls
-  const patchStatusData = $derived.by(() => {
-    const byId: Record<string, StatusEvent | undefined> = {}
-    const reasons: Record<string, string | undefined> = {}
-    for (const p of repoClass.patches || []) {
-      let statusStub: StatusEvent | undefined
-      let reason: string | undefined
-      const r = getResolvedStateFor(p.id)
-      if (r) {
-        const mapKind = (s: string) =>
-          s === "open"
-            ? GIT_STATUS_OPEN
-            : s === "draft"
-              ? GIT_STATUS_DRAFT
-              : s === "closed"
-                ? GIT_STATUS_CLOSED
-                : /* merged | resolved */ GIT_STATUS_COMPLETE
-        statusStub = {kind: mapKind(r.state)} as unknown as StatusEvent
-        reason = undefined
-      } else {
-        const res = deriveStatus(p.id, p.pubkey, euc).get()
-        statusStub = res?.final as StatusEvent | undefined
-        reason = res?.reason
-      }
-      byId[p.id] = statusStub
-      reasons[p.id] = reason
-    }
-    return {byId, reasons}
+  // Compute current status state using Status.svelte rules (authorized events)
+  const patchMaintainerSet = $derived.by(() => {
+    try {
+      const maintainers = repoClass.maintainers || []
+      const owner = (repoClass as any).repoEvent?.pubkey
+      return new Set([...(maintainers || []), owner].filter(Boolean))
+    } catch { return new Set<string>() }
   })
-  const statusByPatch: Record<string, StatusEvent | undefined> = $derived.by(
-    () => patchStatusData.byId,
-  )
-  const statusReasonByPatch: Record<string, string | undefined> = $derived.by(
-    () => patchStatusData.reasons,
-  )
+  const currentPatchStateFor = (rootId: string): "open" | "draft" | "closed" | "applied" => {
+    try {
+      const events = ($statusEventsByRoot?.get(rootId) || []) as StatusEvent[]
+      const rootAuthor = repoClass.patches.find((p: any) => p.id === rootId)?.pubkey
+      const auth = events.filter(e => e.pubkey === rootAuthor || patchMaintainerSet.has(e.pubkey))
+      if (auth.length === 0) return "open"
+      const latest = [...auth].sort((a, b) => b.created_at - a.created_at)[0]
+      switch (latest.kind) {
+        case GIT_STATUS_OPEN: return "open"
+        case GIT_STATUS_DRAFT: return "draft"
+        case GIT_STATUS_CLOSED: return "closed"
+        case GIT_STATUS_COMPLETE: return "applied"
+        default: return "open"
+      }
+    } catch { return "open" }
+  }
 
   const patchList = $derived.by(() => {
     if (repoClass.patches && $statusEvents.length > 0 && $comments) {
@@ -453,9 +328,8 @@
           return getTags(patch, "t").find((tag: string[]) => tag[1] === "root")
         })
         .map((patch: PatchEvent) => {
-          // Use precomputed status precedence data
-          const status = statusByPatch[patch.id] as any
-          const statusReason = statusReasonByPatch[patch.id] || ""
+          // Use manager-provided state and derive kind for UI
+          const status = { kind: kindFromState(statusData.stateById[patch.id]) } as any
 
           const patches = repoClass.patches.filter(issue => {
             return getTags(issue, "e").find((tag: string[]) => tag[1] === patch.id)
@@ -474,29 +348,18 @@
             comments: commentEvents,
             // Add commit count directly for easier sorting
             commitCount: parsedPatch?.commitCount || 0,
-            statusReason,
             groups: labelGroupsFor(patch.id),
           }
         })
 
       if (statusFilter !== "all") {
         filteredPatches = filteredPatches.filter(patch => {
-          if (!patch.status) {
-            return statusFilter === "open"
-          }
-
-          switch (statusFilter) {
-            case "open":
-              return patch.status.kind === GIT_STATUS_OPEN
-            case "applied":
-              return patch.status.kind === GIT_STATUS_COMPLETE
-            case "closed":
-              return patch.status.kind === GIT_STATUS_CLOSED
-            case "draft":
-              return patch.status.kind === GIT_STATUS_DRAFT
-            default:
-              return true
-          }
+          const state = currentPatchStateFor(patch.id)
+          if (statusFilter === "open") return state === "open"
+          if (statusFilter === "applied") return state === "applied"
+          if (statusFilter === "closed") return state === "closed"
+          if (statusFilter === "draft") return state === "draft"
+          return true
         })
       }
 
@@ -514,25 +377,12 @@
       } else if (currentSortBy === "oldest") {
         sortedPatches.sort((a, b) => a.created_at - b.created_at)
       } else if (currentSortBy === "status") {
-        // Sort by status priority: open, draft, complete, closed
-        sortedPatches.sort((a, b) => {
-          const getStatusPriority = (status?: any) => {
-            if (!status) return 0 // Open (default)
-            switch (status.kind) {
-              case GIT_STATUS_OPEN:
-                return 0
-              case GIT_STATUS_DRAFT:
-                return 1
-              case GIT_STATUS_COMPLETE:
-                return 2
-              case GIT_STATUS_CLOSED:
-                return 3
-              default:
-                return 4
-            }
-          }
-          return getStatusPriority(a.status) - getStatusPriority(b.status)
-        })
+        // Sort by current state priority using Status.svelte semantics
+        const prio = (id: string) => {
+          const s = currentPatchStateFor(id)
+          return s === "open" ? 0 : s === "draft" ? 1 : s === "applied" ? 2 : 3
+        }
+        sortedPatches.sort((a, b) => prio(a.id) - prio(b.id))
       } else if (currentSortBy === "commits") {
         // Sort by commit count (highest first)
         sortedPatches.sort((a, b) => b.commitCount - a.commitCount)
@@ -551,11 +401,6 @@
 
   $effect(() => {
     if (repoClass.patches) {
-      load({
-        relays: repoClass.relays,
-        filters: [patchFilter],
-      })
-
       const tryStart = () => {
         if (element) {
           makeFeed({
@@ -643,181 +488,42 @@
   </div>
 
   {#if showFilters}
-    <div class="mb-6 rounded-md border border-border bg-card p-4" transition:slide>
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <!-- Status Filter -->
-        <div>
-          <h3 class="mb-2 text-sm font-medium">Status</h3>
-          <div class="flex flex-wrap gap-2">
-            <Button
-              variant={statusFilter === "all" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "all")}>
-              All
-            </Button>
-            <Button
-              variant={statusFilter === "open" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "open")}
-              class="gap-1">
-              <GitCommit class="h-3 w-3" /> Open
-            </Button>
-            <Button
-              variant={statusFilter === "applied" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "applied")}
-              class="gap-1">
-              <Check class="h-3 w-3" /> Applied
-            </Button>
-            <Button
-              variant={statusFilter === "closed" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "closed")}
-              class="gap-1">
-              <X class="h-3 w-3" /> Closed
-            </Button>
-            <Button
-              variant={statusFilter === "draft" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (statusFilter = "draft")}
-              class="gap-1">
-              <Clock class="h-3 w-3" /> Draft
-            </Button>
-          </div>
-        </div>
+    <FilterPanel
+      statusOptions={[
+        { value: "open", label: "Open", icon: GitCommit },
+        { value: "applied", label: "Applied", icon: Check },
+        { value: "closed", label: "Closed", icon: X },
+        { value: "draft", label: "Draft", icon: Clock },
+      ]}
+      selectedStatus={statusFilter}
+      onStatusChange={(v) => (statusFilter = v)}
 
-        <!-- Sort Options -->
-        <div>
-          <h3 class="mb-2 text-sm font-medium">Sort By</h3>
-          <div class="flex flex-wrap gap-2">
-            <Button
-              variant={sortBy === "newest" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (sortBy = "newest")}
-              class="gap-1">
-              <CalendarDays class="h-3 w-3" /> Newest
-            </Button>
-            <Button
-              variant={sortBy === "oldest" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (sortBy = "oldest")}
-              class="gap-1">
-              <CalendarDays class="h-3 w-3" /> Oldest
-            </Button>
-            <Button
-              variant={sortBy === "status" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (sortBy = "status")}
-              class="gap-1">
-              <Check class="h-3 w-3" /> Status
-            </Button>
-            <Button
-              variant={sortBy === "commits" ? "default" : "outline"}
-              size="sm"
-              onclick={() => (sortBy = "commits")}
-              class="gap-1">
-              <GitCommit class="h-3 w-3" /> Commits
-            </Button>
-          </div>
-        </div>
+      sortOptions={[
+        { value: "newest", label: "Newest", icon: CalendarDays },
+        { value: "oldest", label: "Oldest", icon: CalendarDays },
+        { value: "status", label: "Status", icon: Check },
+        { value: "commits", label: "Commits", icon: GitCommit },
+      ]}
+      sortBy={sortBy}
+      onSortChange={(v) => (sortBy = v)}
 
-        <!-- Author Filter -->
-        {#if uniqueAuthors.size > 1}
-          <div class="md:col-span-2">
-            <h3 class="mb-2 text-sm font-medium">Author</h3>
-            <div class="flex flex-wrap gap-2">
-              <Button
-                variant={authorFilter === "" ? "default" : "outline"}
-                size="sm"
-                onclick={() => (authorFilter = "")}>
-                All Authors
-              </Button>
+      authors={Array.from(uniqueAuthors)}
+      authorFilter={authorFilter}
+      onAuthorChange={(v) => (authorFilter = v)}
 
-              {#each uniqueAuthors as author}
-                <Button
-                  variant={authorFilter === author ? "default" : "outline"}
-                  size="sm"
-                  onclick={() => (authorFilter = author!)}
-                  class="gap-1">
-                  <User class="h-3 w-3" />
-                  <span class="text-sm"><ProfileName pubkey={author!} /></span>
-                </Button>
-              {/each}
-            </div>
-          </div>
-        {/if}
+      allLabels={allNormalizedLabels}
+      selectedLabels={selectedLabels}
+      onToggleLabel={(lbl) => (selectedLabels = selectedLabels.includes(lbl) ? selectedLabels.filter(l => l !== lbl) : [...selectedLabels, lbl])}
+      onClearLabels={() => (selectedLabels = [])}
+      matchAllLabels={matchAllLabels}
+      onMatchAllToggle={() => (matchAllLabels = !matchAllLabels)}
+      labelSearchEnabled={true}
+      labelSearch={labelSearch}
+      onLabelSearchChange={(s) => (labelSearch = s)}
 
-        <!-- Label Filter -->
-        {#if allNormalizedLabels.length > 0}
-          <div class="md:col-span-2">
-            <h3 class="mb-2 text-sm font-medium">Labels</h3>
-            <div class="row-2 input mb-2 max-w-md">
-              <Icon icon="magnifer" />
-              <input
-                class="w-full"
-                bind:value={labelSearch}
-                type="text"
-                placeholder="Search labels..." />
-            </div>
-            <div class="flex flex-wrap gap-2">
-              {#each allNormalizedLabels.filter(l => l
-                  .toLowerCase()
-                  .includes(labelSearch.toLowerCase())) as lbl (lbl)}
-                <Button
-                  variant={selectedLabels.includes(lbl) ? "default" : "outline"}
-                  size="sm"
-                  onclick={() => {
-                    selectedLabels = selectedLabels.includes(lbl)
-                      ? selectedLabels.filter(l => l !== lbl)
-                      : [...selectedLabels, lbl]
-                  }}>
-                  {lbl}
-                </Button>
-              {/each}
-              <Button
-                variant={matchAllLabels ? "default" : "outline"}
-                size="sm"
-                onclick={() => (matchAllLabels = !matchAllLabels)}>
-                Match all
-              </Button>
-              {#if selectedLabels.length > 0}
-                <Button variant="ghost" size="sm" onclick={() => (selectedLabels = [])}>
-                  Clear labels
-                </Button>
-              {/if}
-            </div>
-            {#if selectedLabels.length > 0}
-              <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                <span class="text-muted-foreground">Selected:</span>
-                {#each selectedLabels as sl (sl)}
-                  <span class="badge badge-ghost badge-sm">{sl}</span>
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-      <div class="mt-3 flex items-center justify-end">
-        <span class="text-[11px] opacity-60 inline-flex items-center gap-1" title="Bell indicates review requested (label, you are tagged, or mentioned in comments)">
-          <Bell class="h-3 w-3" />
-          Review indicator
-        </span>
-      </div>
-    </div>
-  {/if}
-
-  {#if patchDag}
-    <div class="mb-4">
-      <PatchDagSummary
-        nodeCount={patchDag.nodeCount}
-        roots={patchDag.roots}
-        rootRevisions={patchDag.rootRevisions}
-        edgesCount={patchDag.edgesCount}
-        topParents={patchDag.topParents}
-        parentOutDegree={patchDag.parentOutDegree}
-        parentChildren={patchDag.parentChildren}
-        maxShow={50} />
-    </div>
+      showReset={false}
+      showReviewIndicator={true}
+    />
   {/if}
 
   {#if loading}
@@ -848,46 +554,10 @@
                 comments={patch.comments}
                 currentCommenter={$pubkey!}
                 extraLabels={labelsByPatch.get(patch.id) || []}
+                repo={repoClass}
+                statusEvents={$statusEventsByRoot?.get(patch.id) || []}
+                actorPubkey={$pubkey}
                 {onCommentCreated} />
-              <!-- Status chip (Repo getter preferred) -->
-              {#key statusByPatch[patch.id]}
-                {@const resolved = getResolvedStateFor(patch.id)}
-                {@const badge = (
-                  repoClass as unknown as {
-                    getMaintainerBadge?: (pubkey: string) => "owner" | "maintainer" | null
-                  }
-                ).getMaintainerBadge?.call(repoClass, patch.pubkey)}
-                {@const needsReview = (() => {
-                  try {
-                    const typeVals = (patch.groups?.Type || []).map((v: string) => v.toLowerCase())
-                    const hasType = typeVals.some(v => v.includes("review"))
-                    const me = $pubkey
-                    const pks = getTags(patch as any, "p").map((t: string[]) => t[1])
-                    const hasTag = !!(me && pks.includes(me))
-                    // Also consider thread mentions
-                    const comments = repoClass.getIssueThread(patch.id)?.comments || []
-                    const hasMention = !!(me && comments.some((c: any) => getTags(c, "p").some((t: string[]) => t[1] === me)))
-                    return hasType || hasTag || hasMention
-                  } catch { return false }
-                })()}
-                <div class="absolute left-2 top-2 flex items-center gap-2">
-                  <RepoPatchStatus
-                    state={resolved?.state}
-                    kind={statusByPatch[patch.id]?.kind}
-                    reason={statusReasonByPatch[patch.id]}
-                    badgeRole={badge}
-                    reviewRequested={needsReview} />
-                  <!-- Compact Status Component -->
-                  <Status
-                    repo={repoClass}
-                    rootId={patch.id}
-                    rootKind={1617}
-                    rootAuthor={patch.pubkey}
-                    statusEvents={$statusEventsByRoot?.get(patch.id) || []}
-                    actorPubkey={$pubkey}
-                    compact={true} />
-                </div>
-              {/key}
               <!-- Grouped labels below card -->
               {#if labelsByPatch.get(patch.id)?.length}
                 <div class="mt-2 flex flex-wrap gap-2 text-xs">

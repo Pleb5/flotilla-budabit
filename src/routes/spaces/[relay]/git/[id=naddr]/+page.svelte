@@ -99,7 +99,7 @@
   const repoMetadata = $derived({
     name: ((repoClass as any).repo?.name as string) || "Unknown Repository",
     description: ((repoClass as any).repo?.description as string) || "",
-    repoId: repoClass.canonicalKey || "",
+    repoId: repoClass.key || "",
     maintainers: maintainers || [],
     relays: $repoRelays,
     cloneUrls: (() => {
@@ -143,7 +143,7 @@
     relay: relayUrl,
     naddr,
     npub: $pubkey,
-    repoId: repoClass.canonicalKey,
+    repoId: repoClass.key,
   })
 
   // Simple provider detection from URL
@@ -170,7 +170,7 @@
   })
 
   $effect(() => {
-    if (repoClass.repoEvent) {
+    if (repoClass) {
       // Load async data in parallel
       loadRepoInfo()
     }

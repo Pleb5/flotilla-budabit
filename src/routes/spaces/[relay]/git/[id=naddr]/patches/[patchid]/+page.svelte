@@ -111,12 +111,12 @@
 
   async function analyzeMerge() {
     const sel = selectedPatch
-    if (!sel || !repoClass.repoEvent) {
+    if (!sel || !repoClass) {
       return
     }
 
     // Check if repository is properly initialized before attempting merge analysis
-    if (!repoClass.repoId || !repoClass.mainBranch) {
+    if (!repoClass.key || !repoClass.mainBranch) {
       return
     }
 
@@ -382,7 +382,7 @@
     // Execute merge via worker
     // Use canonical repo ID consistently for worker operations
     // Require canonical repo key to avoid Invalid repoId issues
-    if (!repoClass.canonicalKey) {
+    if (!repoClass.key) {
       mergeError = "Repository identifier is not ready (missing canonical key)."
       mergeStep = "Setup failed"
       isMerging = false
@@ -393,7 +393,7 @@
       })
       return
     }
-    const effectiveRepoId = repoClass.canonicalKey
+    const effectiveRepoId = repoClass.key
 
     try {
       const result = await repoClass.workerManager.applyPatchAndPush({

@@ -52,7 +52,7 @@ export const load: PageLoad = async ({ params, parent }) => {
     
     // Get detailed commit information including file changes
     const commitDetails = await gitWorker.api.getCommitDetails({
-      repoId: repoClass.canonicalKey,
+      repoId: repoClass.key,
       commitId: commitid
     });
 
@@ -89,7 +89,7 @@ export const load: PageLoad = async ({ params, parent }) => {
     // Debug: log commit details and change summary
     try {
       console.debug('[commit/+page] Loaded commit', {
-        repoId: repoClass.canonicalKey,
+        repoId: repoClass.key,
         commitId: commitid,
         meta: commitMeta,
         changeCount: changes.length,

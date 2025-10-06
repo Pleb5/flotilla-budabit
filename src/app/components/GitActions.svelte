@@ -135,12 +135,11 @@
 
 <div class="flex flex-wrap items-center justify-between gap-2">
   <div class="flex flex-grow flex-wrap justify-end gap-2">
-    <Button
-      class="btn btn-neutral btn-xs cursor-pointer rounded-full"
-      onclick={gotoRepo}
-      disabled={!!navigating.type}>
-      <Spinner loading={!!navigating.type} minHeight={"min-h-6"}>Browse</Spinner>
-    </Button>
+    <Link
+      class="cursor-pointer"
+      href={makeGitPath(url, Address.fromEvent(event).toNaddr())}>
+      <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Browse</div>
+    </Link>
     {#if showIssues}
       <Link
         class="cursor-pointer"

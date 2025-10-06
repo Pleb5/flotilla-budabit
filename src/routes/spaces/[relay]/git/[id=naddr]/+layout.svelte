@@ -121,7 +121,7 @@
 
       // Call syncWithRemote through the repo's worker manager
       const result = await repoClass.workerManager.syncWithRemote({
-        repoId: repoClass.canonicalKey,
+        repoId: repoClass.key,
         cloneUrls,
         branch: repoClass.selectedBranch,
       })
@@ -155,7 +155,7 @@
 
       // Call syncWithRemote through the repo's worker manager
       const result = await repoClass.workerManager.syncWithRemote({
-        repoId: repoClass.canonicalKey,
+        repoId: repoClass.key,
         cloneUrls,
         branch: repoClass.mainBranch,
       })
@@ -183,7 +183,7 @@
   }
 
   function forkRepo() {
-    if (!repoClass || !repoClass.repo) return
+    if (!repoClass) return
 
     pushModal(ForkRepoDialog, {
       repo: repoClass,
