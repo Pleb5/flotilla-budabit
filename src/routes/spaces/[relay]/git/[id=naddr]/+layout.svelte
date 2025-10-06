@@ -232,6 +232,10 @@
   const back = () => goto(`/spaces/${relay}/git/`)
 </script>
 
+<svelte:head>
+  <title>{repoClass?.name}</title>
+</svelte:head>
+
 <PageBar class="!mx-0 flex items-center my-2">
   {#snippet icon()}
     <div>
