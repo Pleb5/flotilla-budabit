@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    createStatusEvent,
     GIT_ISSUE,
     parseIssueEvent,
     parseStatusEvent,
@@ -32,21 +31,17 @@
   import {slide} from "svelte/transition"
   import {getContext} from "svelte"
   import {REPO_RELAYS_KEY} from "@src/app/git-state"
-  import {postComment, postStatus} from "@src/app/git-commands"
+  import {postComment, postStatus, postLabel} from "@src/app/git-commands"
   import {
     Card,
     IssueThread,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
     Status
   } from "@nostr-git/ui"
   import { normalizeRelayUrl } from "@welshman/util"
   import {
     resolveIssueStatus,
-    effectiveLabelsFor
   } from "@nostr-git/core"
+  import { deriveEffectiveLabels } from "@src/app/git-state"
   import {
     repoAnnouncements,
     deriveMaintainersForEuc,
@@ -66,6 +61,9 @@
   const issueId = $page.params.issueid
   const issueEvent = repoClass.issues.find(i => i.id === issueId)
   const issue = issueEvent ? parseIssueEvent(issueEvent) : undefined
+
+  // Filter helper used when refreshing labels after publishing a new one
+  const getLabelFilter = (): Filter => ({ kinds: [1985], "#e": [issue?.id ?? ""] })
 
   // Repo EUC lookup via announcements (30617) and derived maintainers
   const repoPubkey = (repoClass as any).repoEvent?.pubkey as string | undefined
@@ -87,6 +85,48 @@
     }
   })
 
+  // NIP-32: Add label UI state and publisher
+  let newLabel = $state("")
+  let addingLabel = $state(false)
+  const addLabel = async () => {
+    const value = newLabel.trim()
+    if (!value || !issue) return
+    if (!$pubkey) return
+    // Avoid duplicates
+    const existing = new Set(labelsNormalized || [])
+    if (existing.has(value)) return
+    try {
+      addingLabel = true
+      const relays = (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+      console.debug("[IssueDetail] addLabel start", { value, issueId: issue.id, pubkey: $pubkey, relays })
+      const labelEvent: any = {
+        kind: 1985,
+        content: "",
+        // Reference the issue and include both 'L' (canonical) and 'l' (compat) label tags
+        tags: [["e", issue.id], ["L", value], ["l", value]],
+        created_at: Math.floor(Date.now() / 1000),
+        pubkey: $pubkey,
+        id: "",
+        sig: "",
+      }
+      console.debug("[IssueDetail] addLabel event payload", labelEvent)
+      postLabel(labelEvent, relays)
+      console.debug("[IssueDetail] addLabel published")
+      // Refresh labels from relays to reflect the change sooner
+      console.debug("[IssueDetail] addLabel refreshing", { filter: getLabelFilter() })
+      await load({ relays: relays as string[], filters: [getLabelFilter()] })
+      // Give indexers a moment, then log current normalized labels
+      setTimeout(() => {
+        console.debug("[IssueDetail] post-refresh labels", { labels: labelsNormalized })
+      }, 1000)
+      newLabel = ""
+    } catch (e) {
+      console.error("[IssueDetail] Failed to add label", e)
+    } finally {
+      addingLabel = false
+    }
+  }
+
   const threadComments = $derived.by(() => {
     if (repoClass.issues && issue) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [issue.id]}]
@@ -105,19 +145,18 @@
     return deriveEvents(repository, {filters: [getStatusFilter()]})
   })
 
-  // NIP-32: label events (1985) targeting this issue
-  const getLabelFilter = (): Filter => ({ kinds: [1985], "#e": [issue?.id ?? ""] })
-  const labelEvents = $derived.by(() => {
-    if (repoClass.issues && issue) {
-      const relays = (repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
-      load({ relays: relays as string[], filters: [getLabelFilter()] })
-      return deriveEvents(repository, { filters: [getLabelFilter()] })
-    }
-  })
-  const labelsNormalized = $derived(() => {
+  // Normalize helper same as issues list page
+  const toNaturalLabel = (s: string): string => {
+    const idx = s.lastIndexOf("/")
+    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
+  }
+  // Centralized NIP-32 labels via store; avoid calling .get() in Svelte 5
+  const effStore = $derived.by(() => (issue ? deriveEffectiveLabels(issue.id) : undefined))
+  const labelsNormalized = $derived.by(() => {
     if (!issue) return [] as string[]
-    const merged = effectiveLabelsFor({ self: issueEvent as any, external: ($labelEvents as any) || [] })
-    return merged.normalized
+    const eff = $effStore as any
+    const flat = eff && eff.flat ? Array.from(eff.flat) : []
+    return flat.map((v: unknown) => toNaturalLabel(String(v)))
   })
 
   // Resolve effective status using precedence rules (maintainers > author > others; kind; recency)
@@ -133,15 +172,19 @@
   })
 
   const statusReason = $derived(() => resolved?.reason)
-
-  let status = $derived.by(() => {
-    if ($statusEvents) {
-      const final = resolved?.final
-      return final ? parseStatusEvent(final as StatusEvent) : undefined
-    }
+  // Title icon should match Status component logic: authorized events (author or maintainers/owner), latest by time
+  const titleCurrentStatusEvent = $derived.by(() => {
+    if (!$statusEvents || !issue) return undefined
+    const owner = (repoClass as any).repoEvent?.pubkey
+    const maintainerSet = new Set<string>([...repoClass.maintainers, owner].filter(Boolean) as string[])
+    const authorized = ($statusEvents as StatusEvent[]).filter(
+      (e) => e.pubkey === issue.author.pubkey || maintainerSet.has(e.pubkey)
+    )
+    if (authorized.length === 0) return undefined
+    return [...authorized].sort((a, b) => b.created_at - a.created_at)[0]
   })
+  const statusIcon = $derived(() => getStatusIcon(titleCurrentStatusEvent?.kind))
 
-  const statusIcon = $derived(() => getStatusIcon(status?.raw.kind))
 
   function getStatusIcon(kind: number | undefined) {
     switch (kind) {
@@ -158,38 +201,7 @@
     }
   }
 
-  let statuses = $state(["open", "resolved", "closed", "draft"])
-  let currentStatus = $derived.by(() => {
-    if (status) {
-      if (status.status === "applied") {
-        return "resolved"
-      }
-      return status.status
-    }
-    return "unknown"
-  })
-
-  $effect(() => {
-    if (currentStatus && currentStatus !== status?.status) {
-      const evt: any = (repoClass as any).repoEvent
-      const statusEvent = createStatusEvent({
-        kind:
-          currentStatus === "open"
-            ? GIT_STATUS_OPEN
-            : currentStatus === "resolved"
-              ? GIT_STATUS_COMPLETE
-              : currentStatus === "closed"
-                ? GIT_STATUS_CLOSED
-                : GIT_STATUS_DRAFT,
-        content: "",
-        rootId: issueId,
-        recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
-        repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
-        relays: (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean),
-      })
-      postStatus(statusEvent, (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean))
-    }
-  })
+  // Remove inline status state and auto-publish; Status component handles publishing
 
   const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onCommentCreated = async (comment: CommentEvent) => {
@@ -233,53 +245,56 @@
         <div>
           <h1 class="break-words text-2xl font-semibold">{issue.subject || "Issue"}</h1>
           <div class="mt-2 flex items-center gap-2">
-            {#if isMaintainerOrAuthor}
-              <Select bind:value={currentStatus} type="single">
-                <SelectTrigger class="w-[140px]">
-                  <span>{currentStatus}</span>
-                </SelectTrigger>
-                <SelectContent>
-                  {#each statuses as status (status)}
-                    <SelectItem value={status}>
-                      {status}
-                    </SelectItem>
-                  {/each}
-                </SelectContent>
-              </Select>
-            {:else}
-              <div class="git-tag bg-secondary" title={statusReason() || undefined}>
-                {#if status}
-                  {status?.status === "open"
-                    ? "Open"
-                    : status?.status === "applied"
-                      ? "Resolved"
-                      : "Closed"}
-                {:else}
-                  {currentStatus}
-                {/if}
-              </div>
-              {#if labelsNormalized()?.length}
-                <div class="flex flex-wrap gap-1">
-                  {#each labelsNormalized() as lbl (lbl)}
-                    <span class="git-tag bg-muted text-xs">{lbl}</span>
-                  {/each}
-                </div>
-              {/if}
-            {/if}
-
+            <Status
+              repo={repoClass}
+              rootId={issue.id}
+              rootKind={1621}
+              rootAuthor={issue.author.pubkey}
+              statusEvents={($statusEvents || []) as StatusEvent[]}
+              actorPubkey={$pubkey}
+              compact={true}
+              ProfileComponent={ProfileLink} />
             <span class="text-sm text-muted-foreground">
               <ProfileLink pubkey={issue?.author.pubkey}></ProfileLink>
               opened this issue • {new Date(issue?.createdAt).toLocaleString()}
             </span>
           </div>
-        </div>
+      </div>
       </div>
 
-      <div class="mt-4">
-        <p class="text-muted-foreground">{@html markdown.render(issue.content)}</p>
+      <div class="mt-4 prose prose-sm dark:prose-invert max-w-none">
+        {@html markdown.render(issue.content)}
       </div>
 
       <div class="git-separator my-6"></div>
+
+      <!-- Labels Section -->
+      <div class="my-4 space-y-2">
+        {#if labelsNormalized?.length}
+          <div class="flex flex-wrap gap-1">
+            {#each labelsNormalized as lbl (lbl)}
+              <span class="git-tag bg-muted text-xs">{lbl}</span>
+            {/each}
+          </div>
+        {/if}
+        {#if isMaintainerOrAuthor}
+          <div class="flex items-center gap-2">
+            <input
+              class="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              placeholder="Add tag..."
+              bind:value={newLabel}
+              onkeydown={(e) => { if (e.key === 'Enter') addLabel() }}
+            />
+            <button
+              class="rounded-md border border-border px-3 py-1 text-sm"
+              onclick={addLabel}
+              disabled={addingLabel || !newLabel.trim()}
+            >
+              {addingLabel ? 'Adding...' : 'Add Tag'}
+            </button>
+          </div>
+        {/if}
+      </div>
 
       <!-- Status Section -->
       <div class="my-6">
@@ -291,6 +306,7 @@
           statusEvents={($statusEvents || []) as StatusEvent[]}
           actorPubkey={$pubkey}
           compact={false}
+          ProfileComponent={ProfileLink}
           onPublish={handleStatusPublish} />
       </div>
 

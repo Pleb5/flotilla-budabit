@@ -30,12 +30,12 @@
   import Icon from "@src/lib/components/Icon.svelte"
   import FilterPanel from "@src/app/components/FilterPanel.svelte"
   import {isMobile} from "@src/lib/html"
-  import {deriveEffectiveLabels} from "@app/git-state"
   import {onMount, onDestroy} from "svelte"
+  // Labels are resolved from repoClass.getIssueLabels() to avoid direct store reads in component
   import {now} from "@welshman/lib"
 
   const {data} = $props()
-  const {repoClass, issueFilter, statusEventFilter, repoRelays, statusEventsByRoot} = data
+  const {repoClass, issueFilter, repoRelays, statusEventsByRoot} = data
   const mounted = now()
   const alertedIds = new Set<string>()
   // Track previous review-needed state per issue to alert only on false -> true transitions
@@ -171,7 +171,8 @@
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
   const toNaturalLabel = (s: string): string => {
-    const idx = s.lastIndexOf(":")
+    // normalized strings are typically "namespace/value"
+    const idx = s.lastIndexOf("/")
     return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
   }
   // Types + helpers to normalize effective labels and resolved status
@@ -199,7 +200,7 @@
       const eff = normalizeEff(
         typeof getter === "function"
           ? getter.call(repoClass, issue.id)
-          : deriveEffectiveLabels(issue.id).get(),
+          : null,
       )
       const flat = eff ? Array.from(eff.flat) : []
       const naturals = flat.map(toNaturalLabel)
@@ -218,7 +219,9 @@
       }
       groupsById.set(issue.id, groups)
     }
-    return {byId, groupsById}
+    const res = {byId, groupsById}
+    console.debug("[IssuesList] labelsData recomputed", { count: byId.size })
+    return res
   })
   const labelsByIssue = $derived.by(() => labelsData.byId)
   const labelGroupsFor = (id: string) =>
@@ -275,16 +278,18 @@
 
   let searchTerm = $state("")
 
-  // Load label events for current issues
+  // NIP-32 labels are derived centrally via deriveEffectiveLabels(); proactively load 1985 for all issues
   $effect(() => {
-    if (repoClass.issues && repoClass.issues.length > 0) {
-      const ids = repoClass.issues.map((i: any) => i.id)
-      request({
-        relays: [...repoRelays],
-        filters: [{kinds: [1985], "#e": ids, since: 0}],
-        onEvent: () => {},
-      })
-    }
+    try {
+      const ids = (repoClass.issues || []).map((i: any) => i.id).filter(Boolean)
+      if (ids.length) {
+        request({
+          relays: repoClass.relays,
+          filters: [{ kinds: [1985], "#e": ids }],
+          onEvent: () => {},
+        })
+      }
+    } catch {}
   })
 
   // Persist filters per repo
@@ -654,6 +659,9 @@
                 repo={repoClass}
                 statusEvents={$statusEventsByRoot?.get(issue.id) || []}
                 actorPubkey={$pubkey} />
+            {#if (labelsByIssue.get(issue.id) || []).length}
+              <!-- extraLabels passed for this issue; debug logging removed to satisfy Svelte placement rules -->
+            {/if}
             </div>
             {#if labelsByIssue.get(issue.id)?.length}
               <div class="mt-1 flex flex-wrap gap-2 text-xs">

@@ -34,7 +34,8 @@
     repoAnnouncements,
   } from "@app/git-state"
   import {Router} from "@welshman/router"
-  import {resolveIssueStatus, effectiveLabelsFor} from "@nostr-git/core"
+  import {resolveIssueStatus} from "@nostr-git/core"
+  import { deriveEffectiveLabels } from "@app/git-state"
 
   const {
     issue,
@@ -99,8 +100,7 @@
       return () => unsub()
     }
   })
-  // NIP-32 labels
-  let labelEvents: TrustedEvent[] = $state([])
+  // NIP-32 labels (centralized derivation)
   let labelsNormalized: string[] = $state([])
 
   $effect(() => {
@@ -209,18 +209,17 @@
         // Compute effective status from all fetched statuses
         recomputeFinalStatus()
 
-        // Fetch label events (NIP-32 kind 1985) targeting this issue by #e
-        const labelFilter: Filter = {
-          kinds: [1985],
-          "#e": [issue.id],
-        }
-        const labels = await load({
-          relays: queryRelays,
-          filters: [labelFilter],
-        })
-        labelEvents = labels
-        const merged = effectiveLabelsFor({self: issue as any, external: labelEvents as any})
-        labelsNormalized = merged.normalized
+        // Derive labels via shared store helper
+        try {
+          const eff = deriveEffectiveLabels(issue.id).get()
+          const flat = eff ? Array.from((eff as any).flat ?? []) : []
+          // Convert to display-friendly labels (drop namespace like 't/' or 'ugc/')
+          labelsNormalized = flat.map(v => {
+            const s = String(v)
+            const idx = s.lastIndexOf("/")
+            return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
+          })
+        } catch {}
 
         statusFilter.since = now()
         request({
@@ -235,20 +234,7 @@
             }
           },
         })
-        // Subscribe to future label events as well
-        labelFilter.since = now()
-        request({
-          signal: controller.signal,
-          relays: queryRelays,
-          filters: [labelFilter],
-          onEvent: (evt: TrustedEvent) => {
-            if (!labelEvents.find(e => e.id === evt.id)) {
-              labelEvents = [...labelEvents, evt]
-              const merged = effectiveLabelsFor({self: issue as any, external: labelEvents as any})
-              labelsNormalized = merged.normalized
-            }
-          },
-        })
+        // Live updates are handled by deriveEffectiveLabels' internal subscriptions
       }
     }
   }

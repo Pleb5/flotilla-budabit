@@ -32,3 +32,12 @@ export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string
     event: repo,
   })
 }
+
+// Publish a NIP-32 label event (kind 1985)
+export const postLabel = (labelEvent: any, relays: string[]) => {
+  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
+  return publishThunk({
+    relays: merged,
+    event: labelEvent,
+  })
+}
