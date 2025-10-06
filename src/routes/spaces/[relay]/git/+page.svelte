@@ -365,20 +365,6 @@
   // Use groupCards directly - it already filters to bookmarked repos only
   const groupCardsToRender = $derived(groupCards)
 
-  // Map first repo announcement per EUC for navigation using only bookmarks
-  const firstRepoByEuc = $derived.by(() => {
-    const map = new Map<string, TrustedEvent>()
-    for (const {event} of loadedBookmarkedRepos || []) {
-      const t = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
-      const euc = t ? t[1] : ""
-      if (!euc) continue
-      if (!map.has(euc)) map.set(euc, event as any)
-    }
-    return map
-  })
-
-  // Inline alert markers per EUC (persist during session)
-  const headChangedByEuc = new Set<string>()
   const hasGraspDelay = $derived.by(() => {
     try {
       // Reuse platform setting send_delay > 0 as proxy for GRASP delay
@@ -388,13 +374,6 @@
       return false
     }
   })
-
-  function onHeadChange(euc: string, newRef: string) {
-    try {
-      headChangedByEuc.add(euc)
-      pushToast({message: `HEAD switched to ${newRef}`})
-    } catch {}
-  }
 
   const back = () => history.back()
 

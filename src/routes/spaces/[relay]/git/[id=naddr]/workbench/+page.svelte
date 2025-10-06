@@ -12,7 +12,7 @@
     Target,
     GitBranch,
   } from "@lucide/svelte"
-  import {Button, Repo} from "@nostr-git/ui"
+  import {Button} from "@nostr-git/ui"
   import {Card, CardContent, CardHeader, CardTitle} from "@nostr-git/ui"
   import {Tabs, TabsContent, TabsList, TabsTrigger} from "@nostr-git/ui"
   import {Badge} from "@nostr-git/ui"
