@@ -36,6 +36,10 @@
   let readmeLoading = $state(true)
   let commitLoading = $state(true)
   let lastCommit = $state<any>(null)
+  let lastCommitReqSeq = $state(0)
+  let _prevRepoKey = $state<string | undefined>(undefined)
+  let _prevMain = $state<string | undefined>(undefined)
+  let _prevBranchSig = $state<string | undefined>(undefined)
 
   const stats = $derived([
     {
@@ -176,6 +180,35 @@
     }
   })
 
+  // Reactively refresh latest commit when repo updates
+  $effect(() => {
+    // Touch reactive dependencies so this effect re-runs when repo changes
+    const repoKey = repoClass.key
+    const main = repoClass.mainBranch
+    const branchSig = (repoClass.branches || []).map(b => b.name).join("|")
+
+    // Only refetch if identity actually changed
+    const changed =
+      repoKey !== _prevRepoKey ||
+      main !== _prevMain ||
+      branchSig !== _prevBranchSig
+    if (!changed) return
+
+    _prevRepoKey = repoKey
+    _prevMain = main
+    _prevBranchSig = branchSig
+
+    // Debounce/Dedupe: increment sequence and capture
+    const seq = ++lastCommitReqSeq
+    commitLoading = true
+    lastCommit = null
+    ;(async () => {
+      await loadLastCommit()
+      // Only apply result if this is the latest request
+      if (seq !== lastCommitReqSeq) return
+    })()
+  })
+
   async function loadRepoInfo() {
     // Load README and commit info in parallel for better performance
     const readmePromise = loadReadme()
@@ -202,15 +235,44 @@
 
   async function loadLastCommit() {
     try {
-      if (repoClass.mainBranch) {
-        const commits = await repoClass.getCommitHistory({
-          branch: repoClass.mainBranch,
-          depth: 1,
-        })
-        if (commits && commits.length > 0) {
-          lastCommit = commits[0]
+      // Assume Repo already initialized; avoid triggering repo updates here
+      // Build candidate branches to try in order
+      const shortMain = repoClass.mainBranch
+        ? repoClass.mainBranch.split("/").pop() || repoClass.mainBranch
+        : undefined
+      const fullMain = repoClass.mainBranch || undefined
+      const firstBranch = repoClass.branches?.[0]?.name
+      const candidates = Array.from(new Set([shortMain, fullMain, firstBranch].filter(Boolean))) as string[]
+      console.debug("LatestCommit candidates", { shortMain, fullMain, firstBranch, candidates })
+
+      // Try a few depths to accommodate shallow clones
+      const depths = [5, 10, 25]
+
+      for (const branchName of candidates) {
+        for (const depth of depths) {
+          try {
+            const res = await repoClass.getCommitHistory({ branch: branchName, depth })
+            const list = Array.isArray(res) ? res : res?.commits
+            console.debug("LatestCommit attempt", { branchName, depth, count: list?.length })
+            if (Array.isArray(list) && list.length > 0) {
+              lastCommit = list[0]
+              return
+            }
+          } catch (e) {
+            console.debug("LatestCommit attempt failed", { branchName, depth, error: String(e) })
+          }
         }
       }
+      // Final fallback: let Repo resolve the branch internally
+      try {
+        const res = await repoClass.getCommitHistory({ depth: 25 } as any)
+        const list = Array.isArray(res) ? res : res?.commits
+        console.debug("LatestCommit final fallback", { count: list?.length })
+        if (Array.isArray(list) && list.length > 0) {
+          lastCommit = list[0]
+          return
+        }
+      } catch {}
     } catch (e) {
     } finally {
       commitLoading = false
