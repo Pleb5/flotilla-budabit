@@ -1,4 +1,4 @@
-import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent } from "@nostr-git/shared-types"
+import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent, PermalinkEvent } from "@nostr-git/shared-types"
 import { publishThunk } from "@welshman/app"
 import { INDEXER_RELAYS } from "@app/state"
 import { Router } from "@welshman/router"
@@ -39,5 +39,13 @@ export const postLabel = (labelEvent: any, relays: string[]) => {
   return publishThunk({
     relays: merged,
     event: labelEvent,
+  })
+}
+
+export const postPermalink = (permalink: PermalinkEvent, relays: string[]) => {
+  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
+  return publishThunk({
+    event: permalink,
+    relays: merged,
   })
 }

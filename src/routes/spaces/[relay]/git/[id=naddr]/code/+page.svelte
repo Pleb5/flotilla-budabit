@@ -1,13 +1,11 @@
 <script lang="ts">
   import {FileView} from "@nostr-git/ui"
-  import {GitBranch, Tag} from "@lucide/svelte"
-  import Popover from "@src/lib/components/Popover.svelte"
-  import Button from "@src/lib/components/Button.svelte"
   import {fade, fly} from "svelte/transition"
-  import Icon from "@lib/components/Icon.svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
-  import {type FileEntry} from "@nostr-git/core"
+  import {type FileEntry, type PermalinkEvent} from "@nostr-git/core"
   import {pushToast} from "@src/app/toast"
+  import {postPermalink} from "@src/app/git-commands"
+  import {nip19} from "nostr-tools"
 
   const {data} = $props()
   const {repoClass} = data
@@ -43,21 +41,23 @@
 
   let branchLoadTrigger = $state(0)
 
-  let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> = $state([])
+  let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
+    $state([])
   let loadingRefs = $state(true)
 
   // Load refs using the unified API
   $effect(() => {
     if (repoClass) {
       loadingRefs = true
-      repoClass.getAllRefsWithFallback()
+      repoClass
+        .getAllRefsWithFallback()
         .then(loadedRefs => {
           refs = loadedRefs
           loadingRefs = false
           branchLoadTrigger++ // Trigger reactivity for dependent effects
         })
         .catch((error: Error) => {
-          console.error('Failed to load repository references:', error)
+          console.error("Failed to load repository references:", error)
           pushToast({
             message: "Failed to load branches from git repository: " + error,
             theme: "error",
@@ -134,6 +134,25 @@
       path = p
     }
   }
+
+  const publish = async (permalink: PermalinkEvent) => {
+    const thunk = postPermalink(permalink, repoClass.relays)
+    await thunk.result
+    pushToast({
+      message: "Permalink published successfully",
+    })
+    console.log("Permalink published successfully", thunk.event)
+    const nevent = nip19.neventEncode({
+      id: thunk.event.id,
+      kind: thunk.event.kind,
+      relays: repoClass.relays,
+    })
+    console.log("Permalink published successfully", nevent)
+    navigator.clipboard.writeText(nevent)
+    pushToast({
+      message: "Permalink copied to clipboard",
+    })
+  }
 </script>
 
 <div class="mt-2 rounded-lg border border-border bg-card">
@@ -157,7 +176,7 @@
                   <FileView file={curDir} {getFileContent} {setDirectory} />
                 {/if}
                 {#each files as file (file)}
-                  <FileView {file} {getFileContent} {setDirectory} />
+                  <FileView {file} {getFileContent} {setDirectory} {publish} repo={repoClass} />
                 {/each}
               {/if}
             {/await}
