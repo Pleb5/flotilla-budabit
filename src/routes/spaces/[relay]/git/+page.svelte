@@ -8,7 +8,7 @@
     type TrustedEvent,
     makeEvent,
   } from "@welshman/util"
-  import {repository, publishThunk, pubkey, profilesByPubkey, tracker} from "@welshman/app"
+  import {repository, publishThunk, pubkey, profilesByPubkey, tracker, profileSearch, loadProfile, relaySearch} from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
   import {Router} from "@welshman/router"
   import {load} from "@welshman/net"
@@ -450,7 +450,47 @@
   }
 
   const onNewRepo = () => {
-    pushModal(NewRepoWizard, {onCancel: back})
+    pushModal(NewRepoWizard, {
+      onCancel: back,
+      getProfile: async (pubkey: string) => {
+        const profile = $profilesByPubkey.get(pubkey)
+        if (profile) {
+          return {
+            name: profile.name,
+            picture: profile.picture,
+            nip05: profile.nip05,
+            display_name: profile.display_name,
+          }
+        }
+        await loadProfile(pubkey, [])
+        const loadedProfile = $profilesByPubkey.get(pubkey)
+        if (loadedProfile) {
+          return {
+            name: loadedProfile.name,
+            picture: loadedProfile.picture,
+            nip05: loadedProfile.nip05,
+            display_name: loadedProfile.display_name,
+          }
+        }
+        return null
+      },
+      searchProfiles: async (query: string) => {
+        const pubkeys = $profileSearch.searchValues(query)
+        return pubkeys.map((pubkey: string) => {
+          const profile = $profilesByPubkey.get(pubkey)
+          return {
+            pubkey: pubkey,
+            name: profile?.name,
+            picture: profile?.picture,
+            nip05: profile?.nip05,
+            display_name: profile?.display_name,
+          }
+        })
+      },
+      searchRelays: async (query: string) => {
+        return $relaySearch.searchValues(query)
+      },
+    }, {fullscreen: true})
   }
 </script>
 

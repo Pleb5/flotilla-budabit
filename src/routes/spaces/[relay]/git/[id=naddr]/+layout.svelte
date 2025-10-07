@@ -18,7 +18,7 @@
   import {postRepoAnnouncement} from "@src/app/git-commands.js"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
   import {derived as _derived} from "svelte/store"
-  import {repository, pubkey} from "@welshman/app"
+  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch} from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
@@ -201,6 +201,49 @@
       repo: repoClass,
       onPublishEvent: (event: RepoAnnouncementEvent) => {
         postRepoAnnouncement(event, repoClass.relays)
+      },
+      getProfile: async (pubkey: string) => {
+        const profile = $profilesByPubkey.get(pubkey)
+        if (profile) {
+          return {
+            name: profile.name,
+            picture: profile.picture,
+            nip05: profile.nip05,
+            display_name: profile.display_name,
+          }
+        }
+        // Try to load profile if not in cache
+        await loadProfile(pubkey, repoClass.relays)
+        const loadedProfile = $profilesByPubkey.get(pubkey)
+        if (loadedProfile) {
+          return {
+            name: loadedProfile.name,
+            picture: loadedProfile.picture,
+            nip05: loadedProfile.nip05,
+            display_name: loadedProfile.display_name,
+          }
+        }
+        return null
+      },
+      searchProfiles: async (query: string) => {
+        // profileSearch.searchValues returns an array of pubkeys (strings)
+        const pubkeys = $profileSearch.searchValues(query)
+        
+        // Map each pubkey to a profile object by looking it up in profilesByPubkey
+        return pubkeys.map((pubkey: string) => {
+          const profile = $profilesByPubkey.get(pubkey)
+          return {
+            pubkey: pubkey,
+            name: profile?.name,
+            picture: profile?.picture,
+            nip05: profile?.nip05,
+            display_name: profile?.display_name,
+          }
+        })
+      },
+      searchRelays: async (query: string) => {
+        // relaySearch.searchValues returns an array of relay URLs (strings)
+        return $relaySearch.searchValues(query)
       },
     })
   }
