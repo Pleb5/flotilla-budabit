@@ -59,6 +59,7 @@
   import {makeFeed} from "@app/core/requests"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
+  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
   import ChannelComposeEdit from "@src/app/components/ChannelComposeEdit.svelte"
@@ -361,8 +362,7 @@
         onclick={showRoomDetail}>
         <Icon size={4} icon={InfoCircle} />
       </Button>
-<<<<<<< HEAD
-      <MenuSpaceButton {url} />
+      <SpaceMenuButton {url} />
       <Button
         class="btn btn-neutral btn-sm tooltip tooltip-left"
         data-tip={showRightPanel ? "Hide Extensions Panel" : "Show Extensions Panel"}
@@ -370,9 +370,6 @@
         Panel
       </Button>
       <SlotRenderer slotId="room:header:actions" context={{url, room}} />
-=======
-      <SpaceMenuButton {url} />
->>>>>>> 997b223e (Rename space menu components)
     </div>
   {/snippet}
 </PageBar>

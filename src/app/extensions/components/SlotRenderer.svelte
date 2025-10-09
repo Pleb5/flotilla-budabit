@@ -12,8 +12,12 @@
   import {renderSlot} from "../slots"
   import type {ExtensionSlotId} from "../types"
 
-  export let slotId: ExtensionSlotId
-  export let context: Record<string, unknown> = {}
+  type Props = {
+    slotId: ExtensionSlotId
+    context?: Record<string, unknown>
+  }
+
+  const {slotId, context = {}}: Props = $props()
 
   let container: HTMLElement
 

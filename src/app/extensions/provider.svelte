@@ -1,9 +1,3 @@
-<style>
-  #flotilla-extension-container {
-    display: none;
-  }
-</style>
-
 <script lang="ts">
   import {onMount, onDestroy} from "svelte"
   import {extensionRegistry} from "./registry"

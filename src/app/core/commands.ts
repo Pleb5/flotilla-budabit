@@ -109,6 +109,11 @@ import {
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
+import {preferencesStorageProvider, collectionStorageProvider} from "@src/lib/storage"
+import {extensionSettings} from "@app/extensions/settings"
+import {extensionRegistry} from "@app/extensions/registry"
+import {request} from "@welshman/net"
+import type {ExtensionManifest} from "@app/extensions/types"
 
 // Utils
 
