@@ -9,6 +9,7 @@
   import Exit from "@assets/icons/logout-3.svg?dataurl"
   import GalleryMinimalistic from "@assets/icons/gallery-minimalistic.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
+  import Plugins from "@assets/icons/plug-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
@@ -57,6 +58,11 @@
     <div in:fly|local={{delay: 200}}>
       <SecondaryNavItem href="/settings/content">
         <Icon icon={GalleryMinimalistic} /> Content
+      </SecondaryNavItem>
+    </div>
+    <div in:fly|local={{delay: 225}}>
+      <SecondaryNavItem href="/settings/extensions">
+        <Icon icon={Plugins} /> Extensions
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 250}}>

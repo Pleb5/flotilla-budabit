@@ -56,6 +56,7 @@
   import {makeFeed} from "@app/core/requests"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
+  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   const {room} = $page.params
   const mounted = now()
@@ -185,6 +186,7 @@
   let cleanup: () => void
   let events: Readable<TrustedEvent[]> = $state(readable([]))
   let compose: ChannelCompose | undefined = $state()
+  let showRightPanel = $state(false)
 
   const elements = $derived.by(() => {
     const elements = []
@@ -353,6 +355,13 @@
         <Icon size={4} icon={Bookmark} class={cx({"text-primary": isFavorite})} />
       </Button>
       <MenuSpaceButton {url} />
+      <Button
+        class="btn btn-neutral btn-sm tooltip tooltip-left"
+        data-tip={showRightPanel ? "Hide Extensions Panel" : "Show Extensions Panel"}
+        onclick={() => (showRightPanel = !showRightPanel)}>
+        Panel
+      </Button>
+      <SlotRenderer slotId="room:header:actions" context={{url, room}} />
     </div>
   {/snippet}
 </PageBar>
@@ -464,4 +473,13 @@
       </Button>
     </div>
   </div>
+{/if}
+
+{#if showRightPanel}
+  <aside
+    class="fixed bottom-0 right-0 top-14 z-feature hidden w-96 overflow-auto border-l border-base-300 bg-base-200 lg:block">
+    <div class="p-3">
+      <SlotRenderer slotId="room:panel" context={{url, room}} />
+    </div>
+  </aside>
 {/if}

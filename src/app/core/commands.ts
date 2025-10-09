@@ -111,8 +111,110 @@ import {
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
 import {preferencesStorageProvider, collectionStorageProvider} from "@src/lib/storage"
+import {extensionSettings} from "@app/extensions/settings"
+import {extensionRegistry} from "@app/extensions/registry"
+import {request} from "@welshman/net"
+import type {ExtensionManifest} from "@app/extensions/types"
 
 // Utils
+
+export const installExtension = async (manifestUrl: string) => {
+  // Fetch + validate + register the manifest in the registry
+  const manifest = await extensionRegistry.load(manifestUrl)
+
+  // Persist into settings.installed and leave enablement to the user
+  extensionSettings.update(s => {
+    s.installed = {...s.installed, [manifest.id]: manifest}
+    return s
+  })
+
+  return manifest
+}
+
+export const uninstallExtension = (id: string) => {
+  // Unload runtime if present
+  extensionRegistry.unloadExtension(id)
+
+  extensionSettings.update(s => {
+    if (s.installed && s.installed[id]) {
+      delete s.installed[id]
+    }
+    s.enabled = s.enabled.filter(e => e !== id)
+    return s
+  })
+}
+
+export const installExtensionFromManifest = (manifest: ExtensionManifest) => {
+  extensionRegistry.register(manifest)
+  extensionSettings.update(s => {
+    s.installed = {...s.installed, [manifest.id]: manifest}
+    return s
+  })
+  return manifest
+}
+
+// NIP-89 discovery (kind 31990)
+export const discoverExtensions = async (): Promise<ExtensionManifest[]> => {
+  const KIND = 31990
+  // Ask indexers for manifests, then read from local repository cache
+  try {
+    await request({relays: INDEXER_RELAYS, filters: [{kinds: [KIND], limit: 100}]})
+  } catch (e) {
+    console.warn("Discovery request errored:", e)
+  }
+
+  const events = repository.query([{kinds: [KIND]}])
+  const manifests: ExtensionManifest[] = []
+
+  for (const ev of events) {
+    try {
+      const m = JSON.parse(ev.content)
+      if (m && m.id && m.name && m.entrypoint) {
+        manifests.push(m as ExtensionManifest)
+      }
+    } catch (_e) {
+      // ignore malformed manifest content
+    }
+  }
+
+  // De-duplicate by id, prefer latest by created_at
+  const byId = new Map<string, ExtensionManifest>()
+  for (const m of manifests) {
+    if (!byId.has(m.id)) byId.set(m.id, m)
+  }
+
+  return Array.from(byId.values())
+}
+
+export const enableExtension = async (id: string) => {
+  // Persist enabled flag
+  extensionSettings.update(s => {
+    if (!s.enabled.includes(id)) {
+      s.enabled = [...s.enabled, id]
+    }
+    return s
+  })
+
+  // Load the extension iframe/runtime
+  const manifest = get(extensionSettings).installed[id]
+  if (manifest) {
+    try {
+      await extensionRegistry.loadIframeExtension(manifest)
+    } catch (e) {
+      console.warn("Failed to load extension", id, e)
+    }
+  }
+}
+
+export const disableExtension = (id: string) => {
+  // Unload runtime
+  extensionRegistry.unloadExtension(id)
+
+  extensionSettings.update(s => {
+    s.enabled = s.enabled.filter(e => e !== id)
+    return s
+  })
+}
 
 export const getPubkeyHints = (pubkey: string) => {
   const relays = getPubkeyRelays(pubkey, RelayMode.Write)

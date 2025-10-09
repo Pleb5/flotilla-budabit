@@ -53,9 +53,6 @@ importers:
       '@sentry/browser':
         specifier: ^8.35.0
         version: 8.55.0
-      '@sveltejs/adapter-static':
-        specifier: ^3.0.4
-        version: 3.0.8(@sveltejs/kit@2.20.5(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.25.10)(vite@5.4.17(@types/node@22.14.0)(terser@5.39.0)))(svelte@5.25.10)(vite@5.4.17(@types/node@22.14.0)(terser@5.39.0)))
       '@tiptap/core':
         specifier: ^2.12.0
         version: 2.12.0(@tiptap/pm@2.12.0)
@@ -159,6 +156,9 @@ importers:
       '@sentry/cli':
         specifier: ^2.40.0
         version: 2.43.0
+      '@sveltejs/adapter-static':
+        specifier: ^3.0.4
+        version: 3.0.8(@sveltejs/kit@2.20.5(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.25.10)(vite@5.4.17(@types/node@22.14.0)(terser@5.39.0)))(svelte@5.25.10)(vite@5.4.17(@types/node@22.14.0)(terser@5.39.0)))
       '@sveltejs/kit':
         specifier: ^2.5.27
         version: 2.20.5(@sveltejs/vite-plugin-svelte@4.0.4(svelte@5.25.10)(vite@5.4.17(@types/node@22.14.0)(terser@5.39.0)))(svelte@5.25.10)(vite@5.4.17(@types/node@22.14.0)(terser@5.39.0))

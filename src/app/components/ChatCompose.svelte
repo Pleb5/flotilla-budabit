@@ -8,6 +8,7 @@
   import Button from "@lib/components/Button.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {makeEditor} from "@app/editor"
+  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   type Props = {
     onSubmit: (event: EventContent) => void
@@ -68,4 +69,9 @@
     onclick={submit}>
     <Icon icon={Plane} />
   </Button>
+  {#if true}
+    <div class="ml-2 flex items-center">
+      <SlotRenderer slotId="chat:composer:actions" context={{editor}} />
+    </div>
+  {/if}
 </form>

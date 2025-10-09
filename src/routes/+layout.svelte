@@ -87,6 +87,7 @@
   import * as notifications from "@app/util/notifications"
   import * as storage from "@app/util/storage"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
+  import {ExtensionProvider} from "@app/extensions"
 
   // Migration: delete old indexeddb database
   indexedDB?.deleteDatabase("flotilla")
@@ -452,6 +453,7 @@
   <div></div>
 {:then}
   <div>
+    <ExtensionProvider />
     <AppContainer>
       {@render children()}
     </AppContainer>

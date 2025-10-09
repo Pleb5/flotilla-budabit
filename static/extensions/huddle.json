@@ -1,0 +1,13 @@
+{
+  "id": "flotilla-huddle",
+  "kind": 31990,
+  "name": "Huddle",
+  "description": "Lightweight audio collaboration for chat rooms.",
+  "author": "Flotilla Team",
+  "homepage": "https://flotilla.app/extensions/huddle",
+  "version": "1.0.0",
+  "permissions": ["nostr:publish", "nostr:subscribe", "ui:toast"],
+  "entrypoint": "https://cdn.flotilla.app/extensions/huddle/index.html",
+  "icon": "/images/extensions/huddle-icon.png",
+  "sha256": ""
+}

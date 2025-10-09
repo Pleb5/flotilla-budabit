@@ -24,6 +24,7 @@
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import SettingsMinimalistic from "@assets/icons/settings-minimalistic.svg?dataurl"
   import Settings from "@assets/icons/settings.svg?dataurl"
+  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   type Props = {
     children?: Snippet
@@ -107,6 +108,7 @@
       <PrimaryNavItem title="Search" href="/people" class="tooltip-right">
         <Avatar icon={Magnifier} class="!h-10 !w-10" />
       </PrimaryNavItem>
+      <SlotRenderer slotId="space:sidebar:widgets" context={{urls: spaceUrls}} />
     </div>
   </div>
 </div>

@@ -1,0 +1,12 @@
+{
+  "id": "example-hello-world",
+  "kind": 31990,
+  "name": "Hello World Example",
+  "description": "A minimal example demonstrating the Flotilla extension API.",
+  "author": "Flotilla Dev Team",
+  "homepage": "https://flotilla.app/extensions/example",
+  "version": "1.0.0",
+  "permissions": ["ui:toast"],
+  "entrypoint": "https://cdn.flotilla.app/extensions/example/index.html",
+  "icon": "/images/extensions/example-icon.png"
+}

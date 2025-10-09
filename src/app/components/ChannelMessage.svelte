@@ -19,6 +19,7 @@
   import {colors, ENABLE_ZAPS} from "@app/core/state"
   import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
+  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   interface Props {
     url: string
@@ -108,6 +109,7 @@
         </Button>
       {/if}
       <ChannelMessageMenuButton {url} {event} />
+      <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
     </button>
   {/if}
 </TapTarget>
