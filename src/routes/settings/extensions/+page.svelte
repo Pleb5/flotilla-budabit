@@ -17,7 +17,7 @@
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import BoxMinimalistic from "@assets/icons/box-minimalistic.svg?dataurl"
-
+  import LinkRound from "@assets/icons/link-round.svg?dataurl"
   // Installed/Enabled (from settings)
   let installed = $state<ExtensionManifest[]>([])
   let enabledIds = $state<string[]>([])
@@ -131,7 +131,7 @@
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
-          <Icon icon={BoxMinimalistic} />
+          <Icon icon={LinkRound} />
           <input class="grow" placeholder="https://.../manifest.json" bind:value={manifestUrl} />
         </label>
       {/snippet}

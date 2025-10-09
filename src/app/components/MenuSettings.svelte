@@ -7,6 +7,7 @@
   import Exit from "@assets/icons/logout-3.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Wallet from "@assets/icons/wallet.svg?dataurl"
+  import Plugins from "@assets/icons/plug-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -84,6 +85,19 @@
       {/snippet}
       {#snippet info()}
         <div>Get into the details about how {PLATFORM_NAME} works</div>
+      {/snippet}
+    </CardButton>
+  </Link>
+  <Link replaceState href="/settings/extensions">
+    <CardButton class="btn-neutral">
+      {#snippet icon()}
+        <div><Icon icon={Plugins} size={7} /></div>
+      {/snippet}
+      {#snippet title()}
+        <div>Extensions</div>
+      {/snippet}
+      {#snippet info()}
+        <div>Install and manage extensions</div>
       {/snippet}
     </CardButton>
   </Link>
