@@ -11,7 +11,7 @@
   const {manifest, enabled = false}: Props = $props()
   const dispatch = createEventDispatcher<{toggle: {enabled: boolean}}>()
 
-  const onToggle = (value: boolean) => dispatch("toggle", { enabled: value });
+  const onToggle = (value: boolean) => dispatch("toggle", {enabled: value})
 </script>
 
 <div class="flex w-full flex-col gap-2 rounded border border-base-300 bg-base-100 p-4 shadow-sm">
@@ -30,7 +30,7 @@
         type="checkbox"
         class="toggle toggle-primary"
         checked={enabled}
-        onchange={(e) => onToggle((e.currentTarget as HTMLInputElement).checked)} />
+        onchange={e => onToggle((e.currentTarget as HTMLInputElement).checked)} />
       <span class="opacity-70">Enabled</span>
     </label>
   </div>

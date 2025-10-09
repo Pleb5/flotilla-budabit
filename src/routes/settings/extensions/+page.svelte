@@ -58,7 +58,7 @@
         relays: INDEXER_RELAYS,
         filters: [{kinds: [31990]}],
         signal: controller.signal,
-        onEvent: (e) => {
+        onEvent: e => {
           try {
             const m = JSON.parse(e.content)
             if (m && m.id && m.name && m.entrypoint) {
@@ -132,10 +132,7 @@
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
           <Icon icon={BoxMinimalistic} />
-          <input
-            class="grow"
-            placeholder="https://.../manifest.json"
-            bind:value={manifestUrl} />
+          <input class="grow" placeholder="https://.../manifest.json" bind:value={manifestUrl} />
         </label>
       {/snippet}
       {#snippet info()}
@@ -143,7 +140,10 @@
       {/snippet}
     </FieldInline>
     <div class="mt-3 flex justify-end">
-      <Button class="btn btn-primary btn-sm" disabled={!manifestUrl || installing} onclick={onInstallByUrl}>
+      <Button
+        class="btn btn-primary btn-sm"
+        disabled={!manifestUrl || installing}
+        onclick={onInstallByUrl}>
         {installing ? "Installing..." : "Install"}
       </Button>
     </div>
@@ -187,18 +187,22 @@
               {#if m.description}<div class="text-xs opacity-70">{m.description}</div>{/if}
               <div class="text-xs opacity-50">{m.entrypoint}</div>
             </div>
-            <div class="row-2 gap-3 items-center">
+            <div class="row-2 items-center gap-3">
               {#if installed.some((i: ExtensionManifest) => i.id === m.id)}
                 <label class="row-2 items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     class="toggle toggle-primary"
                     checked={enabledIds.includes(m.id)}
-                    onchange={(e) => (e.currentTarget as HTMLInputElement).checked ? enableExtension(m.id) : disableExtension(m.id)} />
+                    onchange={e =>
+                      (e.currentTarget as HTMLInputElement).checked
+                        ? enableExtension(m.id)
+                        : disableExtension(m.id)} />
                   <span class="opacity-70">Enabled</span>
                 </label>
               {:else}
-                <Button class="btn btn-primary btn-sm" onclick={() => onInstallManifest(m)}>Install</Button>
+                <Button class="btn btn-primary btn-sm" onclick={() => onInstallManifest(m)}
+                  >Install</Button>
               {/if}
             </div>
           </div>
@@ -218,8 +222,9 @@
               {manifest}
               enabled={enabledIds.includes(manifest.id)}
               on:toggle={({detail}) => toggle(manifest.id, detail.enabled)} />
-            <Button class="btn btn-outline btn-error btn-sm" onclick={() => onUninstall(manifest.id)}
-              >Uninstall</Button>
+            <Button
+              class="btn btn-outline btn-error btn-sm"
+              onclick={() => onUninstall(manifest.id)}>Uninstall</Button>
           </div>
         {/each}
       </div>
