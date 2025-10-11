@@ -49,14 +49,9 @@
     bookmarksStore,
     type BookmarkedRepo,
   } from "@nostr-git/ui"
-  import {
-    deriveRepoRefState,
-    deriveMaintainersForEuc,
-    loadRepoAnnouncements,
-    derivePatchGraph,
-    shouldReloadRepos,
-  } from "@app/git-state"
-  import {createSignEvent} from "@lib/nostr/io-adapter"
+  import {deriveRepoRefState, deriveMaintainersForEuc, loadRepoAnnouncements, derivePatchGraph, shouldReloadRepos} from "@app/git-state"
+  import {createSignEvent, createEventIO} from "@lib/nostr/io-adapter"
+  import {getInitializedGitWorker} from "$lib/git/worker-singleton"
   import {
     DEFAULT_GRASP_SET_ID,
     GIT_REPO_BOOKMARK_DTAG,
@@ -68,8 +63,25 @@
 
   const url = decodeRelay($page.params.relay)
 
+  // Create EventIO and SignEvent for GRASP operations
+  const io = createEventIO()
   const signEvent = createSignEvent()
   let loading = $state(true)
+  
+  // Initialize worker for Git operations
+  // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
+  let workerApi: any = null
+  let workerInstance: Worker | null = null
+  onMount(async () => {
+    try {
+      const { api, worker } = await getInitializedGitWorker()
+      workerApi = api
+      workerInstance = worker
+      console.log('[+page.svelte] Worker API initialized successfully')
+    } catch (error) {
+      console.error('[+page.svelte] Failed to initialize worker:', error)
+    }
+  })
 
   // Normalize all relay URLs to avoid whitespace/trailing-slash/socket issues
   const bookmarkRelays = Array.from(
@@ -575,7 +587,20 @@
     }
   }
 
-  const onNewRepo = () => {
+  const onNewRepo = async () => {
+    // Ensure worker is initialized before opening wizard
+    if (!workerApi || !workerInstance) {
+      try {
+        const { api, worker } = await getInitializedGitWorker()
+        workerApi = api
+        workerInstance = worker
+        console.log('[+page.svelte] Worker initialized for new repo')
+      } catch (error) {
+        console.error('[+page.svelte] Failed to initialize worker:', error)
+        return
+      }
+    }
+
     const currentGraspEvent = getStore(graspServersEvent)
     const initialGraspUrls = currentGraspEvent
       ? extractGraspUrls(currentGraspEvent as TrustedEvent)
@@ -584,6 +609,8 @@
     pushModal(
       NewRepoWizard,
       {
+        workerApi, // Pass initialized worker API
+        workerInstance, // Pass worker instance for event signing
         onRepoCreated: () => {
           // Reload repos by forcing bookmarks refresh and announcements
           load({relays: bookmarkRelays, filters: [bookmarkFilter]})

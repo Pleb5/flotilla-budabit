@@ -1,5 +1,5 @@
 import type { PageLoad } from './$types';
-import { getGitWorker } from '@nostr-git/core';
+import { getInitializedGitWorker } from '$lib/git/worker-singleton';
 import { pushToast } from '@src/app/toast';
 
 export interface CommitChange {
@@ -44,14 +44,14 @@ export const load: PageLoad = async ({ params, parent }) => {
       return;
     }
 
-    // Get git worker instance
-    const gitWorker = getGitWorker();
+    // Get initialized git worker instance (with EventIO configured)
+    const { api } = await getInitializedGitWorker();
     
     // Initialization is handled by Repo class constructor (#loadCommitsFromRepo)
     // Avoid re-initializing here to prevent duplicate worker operations/logs
     
     // Get detailed commit information including file changes
-    const commitDetails = await gitWorker.api.getCommitDetails({
+    const commitDetails = await api.getCommitDetails({
       repoId: repoClass.key,
       commitId: commitid
     });
