@@ -13,22 +13,13 @@
     MESSAGE,
     DELETE,
     REACTION,
-    GIT_ISSUE,
-    GIT_PATCH,
-    Address,
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
     GIT_STATUS_OPEN,
     GIT_STATUS_COMPLETE,
     COMMENT,
   } from "@welshman/util"
-  import {
-    pubkey,
-    publishThunk,
-    getThunkError,
-    joinRoom,
-    leaveRoom,
-  } from "@welshman/app"
+  import {pubkey, publishThunk, getThunkError, joinRoom, leaveRoom} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -61,26 +52,24 @@
   const channel = deriveChannel(url, room)
 
   const roomFilter = {kinds: [MESSAGE], "#h": [room]}
-  const issueFilter = {
-    kinds: [GIT_ISSUE],
-    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
-  }
-  const patchFilter = {
-    kinds: [GIT_PATCH],
-    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
-    "#t": ["root"],
-  }
+
   const statusFilter = {
     kinds: [GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT, GIT_STATUS_OPEN],
-    "#e": [...repoClass.issues.map((issue: IssueEvent) => issue.id), ...repoClass.patches.map((patch: PatchEvent) => patch.id)],
+    "#e": [
+      ...repoClass.issues.map((issue: IssueEvent) => issue.id),
+      ...repoClass.patches.map((patch: PatchEvent) => patch.id),
+    ],
   }
 
   const commentFilter = {
     kinds: [COMMENT],
-    "#E": [...repoClass.issues.map((issue: IssueEvent) => issue.id), ...repoClass.patches.map((patch: PatchEvent) => patch.id)],
+    "#E": [
+      ...repoClass.issues.map((issue: IssueEvent) => issue.id),
+      ...repoClass.patches.map((patch: PatchEvent) => patch.id),
+    ],
   }
 
-  const filter = [roomFilter, issueFilter, patchFilter, statusFilter, commentFilter]
+  const filter = [roomFilter, statusFilter, commentFilter]
 
   const membershipStatus = deriveUserMembershipStatus(url, room)
 
@@ -198,7 +187,7 @@
 
     if (events) {
       const lastUserEvent = $events.find(e => e.pubkey === $pubkey)
-      const today = formatTimestampAsDate(Date.now()/1000)
+      const today = formatTimestampAsDate(Date.now() / 1000)
       // Adjust last checked to account for messages that came from a different device
       const adjustedLastChecked =
         lastChecked && lastUserEvent ? Math.max(lastUserEvent.created_at, lastChecked) : lastChecked
@@ -250,7 +239,7 @@
 
     await whenElementReady(
       () => element,
-      async (readyElement) => {
+      async readyElement => {
         const initialEvents = await load({
           relays: repoClass.relays || [url],
           filters: filter,
@@ -258,7 +247,9 @@
 
         initialEvents.push(
           ...repoClass.issues,
-          ...repoClass.patches.filter(p => p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root")),
+          ...repoClass.patches.filter(p =>
+            p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root"),
+          ),
         )
 
         initialEvents.sort((a, b) => b.created_at - a.created_at)
@@ -279,7 +270,7 @@
 
         events = feed.events
         cleanup = feed.cleanup
-      }
+      },
     )
   }
 
@@ -300,7 +291,7 @@
 <div
   bind:this={element}
   onscroll={onScroll}
-  class="scroll-container cw md:bottom-sai fixed bottom-[calc(var(--saib)+3.5rem)] top-[calc(var(--sait)+16rem)] flex flex-col overflow-y-auto overflow-x-hidden px-6 w-full">
+  class="scroll-container cw md:bottom-sai fixed bottom-[calc(var(--saib)+3.5rem)] top-[calc(var(--sait)+16rem)] flex w-full flex-col overflow-y-auto overflow-x-hidden px-6">
   {#each elements as { type, id, value, showPubkey } (id)}
     {#if type === "new-messages"}
       <div

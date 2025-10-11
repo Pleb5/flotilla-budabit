@@ -3,12 +3,21 @@
   import {
     getAddressTags,
     normalizeRelayUrl,
-    Address,
     NAMED_BOOKMARKS,
     type TrustedEvent,
     makeEvent,
+    Address,
   } from "@welshman/util"
-  import {repository, publishThunk, pubkey, profilesByPubkey, tracker, profileSearch, loadProfile, relaySearch} from "@welshman/app"
+  import {
+    repository,
+    publishThunk,
+    pubkey,
+    profilesByPubkey,
+    tracker,
+    profileSearch,
+    loadProfile,
+    relaySearch,
+  } from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
   import {Router} from "@welshman/router"
   import {load} from "@welshman/net"
@@ -25,18 +34,12 @@
   import {goto} from "$app/navigation"
   import {onMount} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
-  import {nip19} from "nostr-tools"
+  import {nip19, type NostrEvent} from "nostr-tools"
   import {
     GIT_REPO_ANNOUNCEMENT,
     parseRepoAnnouncementEvent,
     type RepoAnnouncementEvent,
   } from "@nostr-git/shared-types"
-  import {
-    GRASP_SET_KIND,
-    DEFAULT_GRASP_SET_ID,
-    parseGraspServersEvent,
-    GIT_REPO_BOOKMARK_DTAG,
-  } from "@nostr-git/core"
   import {
     NewRepoWizard,
     Avatar,
@@ -53,9 +56,19 @@
     derivePatchGraph,
     shouldReloadRepos,
   } from "@app/git-state"
+  import {createSignEvent} from "@lib/nostr/io-adapter"
+  import {
+    DEFAULT_GRASP_SET_ID,
+    GIT_REPO_BOOKMARK_DTAG,
+    GRASP_SET_KIND,
+    normalizeGraspServerUrl,
+    validateGraspServerUrl,
+    parseGraspServersEvent,
+  } from "@nostr-git/core"
 
   const url = decodeRelay($page.params.relay)
 
+  const signEvent = createSignEvent()
   let loading = $state(true)
 
   // Normalize all relay URLs to avoid whitespace/trailing-slash/socket issues
@@ -133,14 +146,48 @@
     },
   )
 
+  const extractGraspUrls = (event: TrustedEvent | undefined): string[] => {
+    if (!event) return []
+
+    try {
+      const parsed = parseGraspServersEvent(event as any)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed
+      }
+    } catch {}
+
+    const urls = new Set<string>()
+    const tags = event.tags || []
+
+    if (event.kind === GRASP_SET_KIND) {
+      for (const tag of tags) {
+        if (tag[0] === "relay" && tag[1]) {
+          const normalized = normalizeGraspServerUrl(tag[1])
+          if (validateGraspServerUrl(normalized)) {
+            urls.add(normalized)
+          }
+        }
+      }
+    }
+
+    if (event.kind === 10003) {
+      for (const tag of tags) {
+        if (tag[0] === "r" && tag[1]) {
+          const normalized = normalizeGraspServerUrl(tag[1])
+          if (validateGraspServerUrl(normalized)) {
+            urls.add(normalized)
+          }
+        }
+      }
+    }
+
+    return Array.from(urls)
+  }
+
   // Keep a reactive list of saved GRASP servers
   let graspServerUrls = $state<string[]>([])
   graspServersEvent.subscribe(ev => {
-    try {
-      graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
-    } catch {
-      graspServerUrls = []
-    }
+    graspServerUrls = extractGraspUrls(ev)
   })
 
   // Loaded bookmarked repos - combines bookmark addresses with actual repo events
@@ -449,48 +496,112 @@
     }
   }
 
+  let defaultRepoRelays = $state<string[]>([])
+  $effect(() => {
+    defaultRepoRelays = Router.get()
+      .FromUser()
+      .getUrls()
+      .map(u => normalizeRelayUrl(u))
+      .filter(Boolean) as string[]
+  })
+
+  const publishEventToRelays = async (event: any, relays: string[] = defaultRepoRelays) => {
+    try {
+      await publishThunk({event, relays})
+    } catch (err) {
+      console.error("[git/+page] Failed to publish repo event", err)
+      pushToast({message: `Failed to publish repository event: ${String(err)}`, theme: "error"})
+      throw err
+    }
+  }
+
+  const getProfileForWizard = async (pubkey: string) => {
+    try {
+      const map = getStore(profilesByPubkey)
+      const existing = map?.get(pubkey)
+      if (existing) {
+        return {
+          name: existing.name,
+          picture: existing.picture,
+          nip05: existing.nip05,
+          display_name: existing.display_name,
+        }
+      }
+
+      await loadProfile(pubkey, [])
+      const refreshed = getStore(profilesByPubkey)?.get(pubkey)
+      if (refreshed) {
+        return {
+          name: refreshed.name,
+          picture: refreshed.picture,
+          nip05: refreshed.nip05,
+          display_name: refreshed.display_name,
+        }
+      }
+    } catch (err) {
+      console.error("[git/+page] Failed to load profile", pubkey, err)
+    }
+    return null
+  }
+
+  const searchProfilesForWizard = async (query: string) => {
+    try {
+      const searchStore = getStore(profileSearch)
+      const pubkeys = searchStore?.searchValues?.(query) || []
+      const map = getStore(profilesByPubkey)
+      return pubkeys.map((pk: string) => {
+        const profile = map?.get(pk)
+        return {
+          pubkey: pk,
+          name: profile?.name,
+          picture: profile?.picture,
+          nip05: profile?.nip05,
+          display_name: profile?.display_name,
+        }
+      })
+    } catch (err) {
+      console.error("[git/+page] Failed to search profiles", err)
+      return []
+    }
+  }
+
+  const searchRelaysForWizard = async (query: string) => {
+    try {
+      const relayStore = getStore(relaySearch)
+      return relayStore?.searchValues?.(query) || []
+    } catch (err) {
+      console.error("[git/+page] Failed to search relays", err)
+      return []
+    }
+  }
+
   const onNewRepo = () => {
-    pushModal(NewRepoWizard, {
-      onCancel: back,
-      getProfile: async (pubkey: string) => {
-        const profile = $profilesByPubkey.get(pubkey)
-        if (profile) {
-          return {
-            name: profile.name,
-            picture: profile.picture,
-            nip05: profile.nip05,
-            display_name: profile.display_name,
-          }
-        }
-        await loadProfile(pubkey, [])
-        const loadedProfile = $profilesByPubkey.get(pubkey)
-        if (loadedProfile) {
-          return {
-            name: loadedProfile.name,
-            picture: loadedProfile.picture,
-            nip05: loadedProfile.nip05,
-            display_name: loadedProfile.display_name,
-          }
-        }
-        return null
+    const currentGraspEvent = getStore(graspServersEvent)
+    const initialGraspUrls = currentGraspEvent
+      ? extractGraspUrls(currentGraspEvent as TrustedEvent)
+      : graspServerUrls
+
+    pushModal(
+      NewRepoWizard,
+      {
+        onRepoCreated: () => {
+          // Reload repos by forcing bookmarks refresh and announcements
+          load({relays: bookmarkRelays, filters: [bookmarkFilter]})
+          loadRepoAnnouncements(bookmarkRelays)
+        },
+        onCancel: back,
+        defaultRelays: defaultRepoRelays,
+        graspServerUrls: initialGraspUrls,
+        onPublishEvent: async (repoEvent: NostrEvent) => {
+          const signedEvent = await signEvent(repoEvent)
+          await publishEventToRelays(signedEvent)
+        },
+        getProfile: getProfileForWizard,
+        searchProfiles: searchProfilesForWizard,
+        searchRelays: searchRelaysForWizard,
       },
-      searchProfiles: async (query: string) => {
-        const pubkeys = $profileSearch.searchValues(query)
-        return pubkeys.map((pubkey: string) => {
-          const profile = $profilesByPubkey.get(pubkey)
-          return {
-            pubkey: pubkey,
-            name: profile?.name,
-            picture: profile?.picture,
-            nip05: profile?.nip05,
-            display_name: profile?.display_name,
-          }
-        })
-      },
-      searchRelays: async (query: string) => {
-        return $relaySearch.searchValues(query)
-      },
-    }, {fullscreen: true})
+      {fullscreen: true},
+    )
   }
 </script>
 

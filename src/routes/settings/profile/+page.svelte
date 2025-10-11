@@ -17,31 +17,16 @@
   import {pushModal} from "@app/modal"
   import {clip} from "@app/toast"
   import GraspServersPanel from "@app/components/GraspServersPanel.svelte";
-  import { publishThunk } from "@welshman/app";
-  import { load } from "@welshman/net";
-  import { Router } from "@welshman/router";
-  import { GRASP_SET_KIND, DEFAULT_GRASP_SET_ID } from "@nostr-git/core";
   import GitAuth from "@app/components/GitAuth.svelte";
+  import {
+    createEventIO,
+    createSignEvent,
+    getCurrentPubkey,
+  } from "@lib/nostr/io-adapter";
 
-  let graspUrls = $state<string[]>([]);
-
-  function handleReload() {
-    const author = $session?.pubkey;
-    if (!author) return;
-    const filters = [
-      { kinds: [GRASP_SET_KIND], authors: [author], "#d": [DEFAULT_GRASP_SET_ID], limit: 1 },
-    ];
-    const relays = Router.get().FromUser().getUrls();
-    load({ relays, filters });
-  }
-
-  function handleSave(e: CustomEvent<{ unsigned: { kind: number; created_at: number; tags: string[][]; content: string }; urls: string[] }>) {
-    const author = $session?.pubkey;
-    if (!author) return;
-    const { unsigned } = e.detail;
-    const relays = Router.get().FromUser().getUrls();
-    publishThunk({ relays, event: unsigned as any });
-  }
+  // Create I/O closures once for the entire component lifetime
+  const io = createEventIO();
+  const signEvent = createSignEvent();
 
   const profile = deriveProfile($pubkey!)
 
@@ -58,14 +43,6 @@
   const startDelete = () => pushModal(ProfileDelete)
 
   let showAdvanced = $state(false)
-
-  // Load current GRASP servers once session pubkey is available
-  $effect(() => {
-    if ($pubkey) {
-      handleReload();
-    }
-  });
-
 </script>
 
 <div class="content column gap-4">
@@ -169,15 +146,7 @@
 
   <!-- GRASP Servers Settings -->
   <div class="card2 bg-alt shadow-xl">
-    <div class="flex items-center justify-between">
-      <strong class="flex items-center gap-3">
-        <Icon icon="settings" />
-        GRASP Servers
-      </strong>
-    </div>
-    <div class="pt-4">
-      <GraspServersPanel pubkey={$session?.pubkey} urls={graspUrls} on:reload={handleReload} on:save={handleSave} />
-    </div>
+    <GraspServersPanel {io} {signEvent} authorPubkey={$pubkey ?? undefined} />
   </div>
 
   <Alerts />
