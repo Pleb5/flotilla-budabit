@@ -842,7 +842,7 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
         ["encryption-algorithm", algorithm],
       )
 
-      file = new File([new Blob([ciphertext])], name, {
+      file = new File([new Uint8Array(ciphertext)], name, {
         type: "application/octet-stream",
       })
     }
