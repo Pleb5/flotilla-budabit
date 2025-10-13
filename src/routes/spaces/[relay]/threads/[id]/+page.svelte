@@ -25,7 +25,7 @@
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/state"
   import {setChecked} from "@app/notifications"
-  import {FREELANCE_JOB} from "@app/git-state"
+  import {FREELANCE_JOB} from "@lib/budabit"
   import JobItem from "@src/app/components/JobItem.svelte"
   import GitIssueItem from "@src/app/components/GitIssueItem.svelte"
 

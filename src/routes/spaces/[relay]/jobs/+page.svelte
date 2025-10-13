@@ -3,7 +3,7 @@
   import {page} from "$app/stores"
   import {sortBy, min, nthEq} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {FREELANCE_JOB} from "@app/git-state"
+  import {FREELANCE_JOB} from "@lib/budabit"
   import {COMMENT, getListTags, getPubkeyTagValues} from "@welshman/util"
   import {userMutes} from "@welshman/app"
   import {fly} from "@lib/transition"

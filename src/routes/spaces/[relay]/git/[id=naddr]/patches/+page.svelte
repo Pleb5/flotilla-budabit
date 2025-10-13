@@ -33,7 +33,7 @@
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
-  import {postComment} from "@src/app/git-commands"
+  import {postComment} from "@lib/budabit/commands.js"
   import FilterPanel from "@src/app/components/FilterPanel.svelte"
   import {onMount, onDestroy} from "svelte"
   import {now} from "@welshman/lib"

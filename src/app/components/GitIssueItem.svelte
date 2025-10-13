@@ -32,10 +32,10 @@
     loadRepoAnnouncements,
     deriveMaintainersForEuc,
     repoAnnouncements,
-  } from "@app/git-state"
+  } from "@lib/budabit"
   import {Router} from "@welshman/router"
   import {resolveIssueStatus} from "@nostr-git/core"
-  import { deriveEffectiveLabels } from "@app/git-state"
+  import { deriveEffectiveLabels } from "@lib/budabit"
 
   const {
     issue,

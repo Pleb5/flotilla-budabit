@@ -19,7 +19,7 @@
   import {pushToast} from "@app/toast"
   import {GENERAL, PROTECTED, tagRoom} from "@app/state"
   import {makeEditor} from "@app/editor"
-  import {FREELANCE_JOB} from "@app/git-state"
+  import {FREELANCE_JOB} from "@lib/budabit"
   import {goto} from "$app/navigation"
   import {makeThreadPath} from "../routes"
 

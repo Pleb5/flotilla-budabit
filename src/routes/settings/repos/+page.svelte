@@ -9,7 +9,7 @@
   import {deriveEvents} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
   import {onMount} from "svelte"
-  import {repoGroups, loadRepoAnnouncements} from "@src/app/git-state.js"
+  import {repoGroups, loadRepoAnnouncements} from "@lib/budabit/state.js"
   import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
 
   const id = $pubkey!

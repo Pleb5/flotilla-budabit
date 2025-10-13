@@ -1,4 +1,4 @@
-import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent, PermalinkEvent } from "@nostr-git/shared-types"
+import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent, PermalinkEvent, RepoStateEvent, GraspSetEvent } from "@nostr-git/shared-types"
 import { publishThunk } from "@welshman/app"
 import { INDEXER_RELAYS } from "@app/state"
 import { Router } from "@welshman/router"
@@ -27,9 +27,18 @@ export const postStatus = (status: StatusEvent, relays: string[]) => {
 }
 
 export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string[]) => {
+  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
   return publishThunk({
-    relays: relays ?? [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
+    relays: merged,
     event: repo,
+  })
+}
+
+export const postRepoStateEvent = (repoEvent: RepoStateEvent, relays: string[]) => {
+  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
+  return publishThunk({
+    relays: merged,
+    event: repoEvent,
   })
 }
 
@@ -46,6 +55,16 @@ export const postPermalink = (permalink: PermalinkEvent, relays: string[]) => {
   const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
   return publishThunk({
     event: permalink,
+    relays: merged,
+  })
+}
+
+export const postGraspServersList = (graspServersList: GraspSetEvent) => {
+  const merged = Array.from(new Set([...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
+  console.log("📡 Publishing GRASP servers list:", graspServersList)
+  console.log("📡 Publishing GRASP servers list relays:", merged)
+  return publishThunk({
+    event: graspServersList,
     relays: merged,
   })
 }

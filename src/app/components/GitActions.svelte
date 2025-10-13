@@ -6,7 +6,7 @@
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/commands"
-  import {makeGitIssuePath, makeGitPath} from "@app/git-routes"
+  import {makeGitIssuePath, makeGitPath} from "@lib/budabit"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"

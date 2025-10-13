@@ -1,22 +1,20 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {
-    getAddressTags,
     normalizeRelayUrl,
     NAMED_BOOKMARKS,
-    type TrustedEvent,
     makeEvent,
     Address,
   } from "@welshman/util"
   import {
     repository,
     publishThunk,
-    pubkey,
     profilesByPubkey,
     tracker,
     profileSearch,
     loadProfile,
     relaySearch,
+    pubkey,
   } from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
   import {Router} from "@welshman/router"
@@ -38,7 +36,7 @@
   import {
     GIT_REPO_ANNOUNCEMENT,
     parseRepoAnnouncementEvent,
-    type RepoAnnouncementEvent,
+    type BookmarkedRepo,
   } from "@nostr-git/shared-types"
   import {
     NewRepoWizard,
@@ -47,39 +45,33 @@
     AvatarFallback,
     RepoPicker,
     bookmarksStore,
-    type BookmarkedRepo,
+    repositoriesStore,
+    signer,
   } from "@nostr-git/ui"
-  import {deriveRepoRefState, deriveMaintainersForEuc, loadRepoAnnouncements, derivePatchGraph, shouldReloadRepos} from "@app/git-state"
-  import {createSignEvent, createEventIO} from "@lib/nostr/io-adapter"
-  import {getInitializedGitWorker} from "$lib/git/worker-singleton"
   import {
-    DEFAULT_GRASP_SET_ID,
-    GIT_REPO_BOOKMARK_DTAG,
-    GRASP_SET_KIND,
-    normalizeGraspServerUrl,
-    validateGraspServerUrl,
-    parseGraspServersEvent,
-  } from "@nostr-git/core"
+    deriveRepoRefState,
+    deriveMaintainersForEuc,
+    loadRepoAnnouncements,
+    derivePatchGraph,
+  } from "@lib/budabit/state"
+  import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
 
   const url = decodeRelay($page.params.relay)
 
-  // Create EventIO and SignEvent for GRASP operations
-  const io = createEventIO()
-  const signEvent = createSignEvent()
   let loading = $state(true)
-  
+
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
   let workerApi: any = null
   let workerInstance: Worker | null = null
   onMount(async () => {
     try {
-      const { api, worker } = await getInitializedGitWorker()
+      const {api, worker} = await getInitializedGitWorker()
       workerApi = api
       workerInstance = worker
-      console.log('[+page.svelte] Worker API initialized successfully')
+      console.log("[+page.svelte] Worker API initialized successfully")
     } catch (error) {
-      console.error('[+page.svelte] Failed to initialize worker:', error)
+      console.error("[+page.svelte] Failed to initialize worker:", error)
     }
   })
 
@@ -90,36 +82,14 @@
     ),
   ) as string[]
 
-  const bookmarkFilter = {
-    kinds: [NAMED_BOOKMARKS],
-    "#d": [GIT_REPO_BOOKMARK_DTAG],
-    authors: [$pubkey!],
-  }
-
-  // Load initial bookmarks from Welshman repository into our store
-  const bookmarkEvents = _derived(
-    deriveEvents(repository, {filters: [bookmarkFilter]}),
-    (events: TrustedEvent[]) => {
-      if (events.length === 0) {
-        load({relays: bookmarkRelays, filters: [bookmarkFilter]})
-        return undefined
-      }
-      // Return the event with the highest created_at (most recent)
-      const latest = events.reduce((latest, current) =>
-        current.created_at > latest.created_at ? current : latest,
-      )
-      return latest
-    },
-  )
-
   // Derive bookmarked addresses from the singleton bookmarksStore
   const bookmarkedAddresses = $derived(
-    $bookmarksStore.map(b => ({
+    $bookmarksStore?.map(b => ({
       address: b.address,
       author: b.address.split(":")[1],
       identifier: b.address.split(":")[2],
       relayHint: b.relayHint,
-    })),
+    })) || [],
   )
 
   // Fetch actual repo events for bookmarked addresses
@@ -139,67 +109,6 @@
       }
       return events
     })
-  })
-
-  // Load user's saved GRASP servers (profile settings) and expose as list of URLs
-  const graspServersFilter = {
-    kinds: [GRASP_SET_KIND],
-    authors: [$pubkey!],
-    "#d": [DEFAULT_GRASP_SET_ID],
-  }
-
-  const graspServersEvent = _derived(
-    deriveEvents(repository, {filters: [graspServersFilter]}),
-    (events: TrustedEvent[]) => {
-      if (events.length === 0) {
-        load({relays: Router.get().FromUser().getUrls(), filters: [graspServersFilter]})
-      }
-      return events[0]
-    },
-  )
-
-  const extractGraspUrls = (event: TrustedEvent | undefined): string[] => {
-    if (!event) return []
-
-    try {
-      const parsed = parseGraspServersEvent(event as any)
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed
-      }
-    } catch {}
-
-    const urls = new Set<string>()
-    const tags = event.tags || []
-
-    if (event.kind === GRASP_SET_KIND) {
-      for (const tag of tags) {
-        if (tag[0] === "relay" && tag[1]) {
-          const normalized = normalizeGraspServerUrl(tag[1])
-          if (validateGraspServerUrl(normalized)) {
-            urls.add(normalized)
-          }
-        }
-      }
-    }
-
-    if (event.kind === 10003) {
-      for (const tag of tags) {
-        if (tag[0] === "r" && tag[1]) {
-          const normalized = normalizeGraspServerUrl(tag[1])
-          if (validateGraspServerUrl(normalized)) {
-            urls.add(normalized)
-          }
-        }
-      }
-    }
-
-    return Array.from(urls)
-  }
-
-  // Keep a reactive list of saved GRASP servers
-  let graspServerUrls = $state<string[]>([])
-  graspServersEvent.subscribe(ev => {
-    graspServerUrls = extractGraspUrls(ev)
   })
 
   // Loaded bookmarked repos - combines bookmark addresses with actual repo events
@@ -230,207 +139,23 @@
     })
   })
 
-  onMount(() => {
-    load({relays: bookmarkRelays, filters: [bookmarkFilter]})
-    // Also load repo announcements (30617) so repoGroups can populate
-    loadRepoAnnouncements(bookmarkRelays)
-
-    // Subscribe to bookmark events and sync to bookmarksStore
-    const unsubscribe = bookmarkEvents.subscribe(event => {
-      if (event) {
-        const aTagList = getAddressTags(event.tags)
-        const bookmarkedRepos: BookmarkedRepo[] = aTagList.map(([_, value, relayHint]) => ({
-          address: value,
-          event: null,
-          relayHint: relayHint ? normalizeRelayUrl(relayHint) : "",
-        }))
-        bookmarksStore.set(bookmarkedRepos)
-      }
-    })
-
-    return unsubscribe
-  })
-
+  // Update repositoriesStore whenever loadedBookmarkedRepos changes
   $effect(() => {
     if (loadedBookmarkedRepos.length > 0) {
       loading = false
-    }
-    if ($shouldReloadRepos) {
-      $shouldReloadRepos = false
-      load({
-        relays: bookmarkRelays,
-        filters: [bookmarkFilter],
+      // Compute cards using the store's method
+      const cards = repositoriesStore.computeCards(loadedBookmarkedRepos, {
+        deriveMaintainersForEuc,
+        deriveRepoRefState,
+        derivePatchGraph,
+        parseRepoAnnouncementEvent,
+        Router,
+        nip19,
+        Address,
       })
-
-      // Reload repo announcements
-      loadRepoAnnouncements(bookmarkRelays)
-    }
-  })
-
-  // Cache per-EUC derived stores to avoid creating too many listeners repeatedly
-  const refStateStoreByEuc = new Map<string, ReturnType<typeof deriveRepoRefState>>()
-  const maintainersStoreByEuc = new Map<string, ReturnType<typeof deriveMaintainersForEuc>>()
-  const patchDagStoreByAddr = new Map<string, ReturnType<typeof derivePatchGraph>>()
-
-  // Helper to create composite key for proper fork/duplicate distinction
-  function createRepoKey(event: any): string {
-    const euc = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
-    const d = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1] || ""
-    const name = (event.tags || []).find((t: string[]) => t[0] === "name")?.[1] || d || ""
-
-    // Normalize clone URLs by:
-    // 1. Remove .git suffix
-    // 2. Remove trailing slashes
-    // 3. Replace npub-specific paths with placeholder (for gitnostr.com, relay.ngit.dev, etc.)
-    // 4. Lowercase and sort
-    const cloneUrls = (event.tags || [])
-      .filter((t: string[]) => t[0] === "clone")
-      .flatMap((t: string[]) => t.slice(1))
-      .map((url: string) => {
-        let normalized = url
-          .trim()
-          .toLowerCase()
-          .replace(/\.git$/, "")
-          .replace(/\/$/, "")
-        // Replace npub paths with generic placeholder to group by repo name only
-        normalized = normalized.replace(/\/npub1[a-z0-9]+\//g, "/{npub}/")
-        return normalized
-      })
-      .sort()
-      .join("|")
-    return `${euc}:${name}:${cloneUrls}`
-  }
-
-  const groupCards = $derived.by(() => {
-    // Only from loadedBookmarkedRepos
-    const bookmarked = loadedBookmarkedRepos || []
-    const byCompositeKey = new Map<string, any>()
-
-    for (const {event, relayHint} of bookmarked) {
-      // Try to find EUC tag, fall back to any r tag, or use event ID as last resort
-      const eucTag = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
-      const anyRTag = (event.tags || []).find((t: string[]) => t[0] === "r")
-      const euc = eucTag?.[1] || anyRTag?.[1] || event.id || ""
-
-      if (!euc) {
-        continue
-      }
-
-      // Use composite key to distinguish forks from duplicates
-      const compositeKey = createRepoKey(event)
-      const d = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1] || ""
-      const name = (event.tags || []).find((t: string[]) => t[0] === "name")?.[1] || ""
-      const cloneUrls = (event.tags || []).filter((t: string[]) => t[0] === "clone").map(t => t[1])
-
-      // Extract event data
-      const web = (event.tags || [])
-        .filter((t: string[]) => t[0] === "web")
-        .flatMap((t: string[]) => t.slice(1))
-      const clone = (event.tags || [])
-        .filter((t: string[]) => t[0] === "clone")
-        .flatMap((t: string[]) => t.slice(1))
-
-      // If we already have this repo, merge maintainers (duplicate announcement)
-      if (byCompositeKey.has(compositeKey)) {
-        const existing = byCompositeKey.get(compositeKey)
-        // Add this event's author as maintainer if not already present
-        if (event.pubkey && !existing.maintainers.includes(event.pubkey)) {
-          existing.maintainers.push(event.pubkey)
-        }
-        // Merge web/clone URLs
-        existing.web = Array.from(new Set([...existing.web, ...web]))
-        existing.clone = Array.from(new Set([...existing.clone, ...clone]))
-        continue
-      }
-
-      let mStore = maintainersStoreByEuc.get(euc)
-      if (!mStore) {
-        mStore = deriveMaintainersForEuc(euc)
-        maintainersStoreByEuc.set(euc, mStore)
-      }
-      const maintainers = Array.from(mStore.get() || [])
-      let rStore = refStateStoreByEuc.get(euc)
-      if (!rStore) {
-        rStore = deriveRepoRefState(euc)
-        refStateStoreByEuc.set(euc, rStore)
-      }
-      const refs = rStore.get() || {}
-      const first = event
-      let title = euc
-      let description = ""
-      try {
-        if (first) {
-          const parsed = parseRepoAnnouncementEvent(first as unknown as RepoAnnouncementEvent)
-          if (parsed?.name) title = parsed.name
-          if (parsed?.description) description = parsed.description
-        }
-      } catch {}
-      // Compute principal maintainer and naddr for navigation
-      const principal = maintainers[0] || (first as any)?.pubkey || ""
-      const repoNaddr = (() => {
-        try {
-          if (!principal || !title) return ""
-          const relays = Router.get().FromPubkeys([principal]).getUrls()
-          return nip19.naddrEncode({pubkey: principal, kind: 30617, identifier: title, relays})
-        } catch {
-          return ""
-        }
-      })()
-
-      let rootsCount = 0
-      let revisionsCount = 0
-      try {
-        if (first) {
-          const addrA = Address.fromEvent(first).toString()
-          let dStore = patchDagStoreByAddr.get(addrA)
-          if (!dStore) {
-            dStore = derivePatchGraph(addrA)
-            patchDagStoreByAddr.set(addrA, dStore)
-          }
-          const dag: any = dStore.get()
-          rootsCount = Array.isArray(dag?.roots)
-            ? dag.roots.length
-            : typeof dag?.nodeCount === "number"
-              ? Math.min(1, dag.nodeCount)
-              : 0
-          revisionsCount = Array.isArray(dag?.rootRevisions)
-            ? dag.rootRevisions.length
-            : typeof dag?.edgesCount === "number"
-              ? dag.edgesCount
-              : 0
-        }
-      } catch {}
-      const card = {
-        euc,
-        web: Array.from(new Set(web)),
-        clone: Array.from(new Set(clone)),
-        maintainers,
-        refs,
-        rootsCount,
-        revisionsCount,
-        title,
-        description,
-        first,
-        principal,
-        repoNaddr,
-      }
-      byCompositeKey.set(compositeKey, card)
-    }
-
-    const result = Array.from(byCompositeKey.values())
-    return result
-  })
-
-  // Use groupCards directly - it already filters to bookmarked repos only
-  const groupCardsToRender = $derived(groupCards)
-
-  const hasGraspDelay = $derived.by(() => {
-    try {
-      // Reuse platform setting send_delay > 0 as proxy for GRASP delay
-      const v = (window as any)?.flotilla?.settings?.send_delay
-      return typeof v === "number" && v > 0
-    } catch {
-      return false
+      repositoriesStore.set(cards)
+    } else {
+      repositoriesStore.clear()
     }
   })
 
@@ -470,7 +195,7 @@
           .then(() => {
             // Force reload from relays after a delay to get the new event
             setTimeout(() => {
-              load({relays: relays || bookmarkRelays, filters: [bookmarkFilter]})
+              //load({relays: relays || bookmarkRelays, filters: [bookmarkFilter]})
             }, 2000)
           })
           .catch(err => {
@@ -510,16 +235,22 @@
 
   let defaultRepoRelays = $state<string[]>([])
   $effect(() => {
-    defaultRepoRelays = Router.get()
-      .FromUser()
-      .getUrls()
-      .map(u => normalizeRelayUrl(u))
-      .filter(Boolean) as string[]
+    try {
+      defaultRepoRelays = Router.get()
+        .FromUser()
+        .getUrls()
+        .map(u => normalizeRelayUrl(u))
+        .filter(Boolean) as string[]
+    } catch (error) {
+      console.warn("Failed to get default repo relays:", error)
+      defaultRepoRelays = []
+    }
   })
 
-  const publishEventToRelays = async (event: any, relays: string[] = defaultRepoRelays) => {
+  const publishEventToRelays = (event: any, relays: string[] = defaultRepoRelays) => {
     try {
-      await publishThunk({event, relays})
+      console.log("🔐 publishing event to relays", event, relays)
+      publishThunk({event, relays})
     } catch (err) {
       console.error("[git/+page] Failed to publish repo event", err)
       pushToast({message: `Failed to publish repository event: ${String(err)}`, theme: "error"})
@@ -591,20 +322,15 @@
     // Ensure worker is initialized before opening wizard
     if (!workerApi || !workerInstance) {
       try {
-        const { api, worker } = await getInitializedGitWorker()
+        const {api, worker} = await getInitializedGitWorker()
         workerApi = api
         workerInstance = worker
-        console.log('[+page.svelte] Worker initialized for new repo')
+        console.log("[+page.svelte] Worker initialized for new repo")
       } catch (error) {
-        console.error('[+page.svelte] Failed to initialize worker:', error)
+        console.error("[+page.svelte] Failed to initialize worker:", error)
         return
       }
     }
-
-    const currentGraspEvent = getStore(graspServersEvent)
-    const initialGraspUrls = currentGraspEvent
-      ? extractGraspUrls(currentGraspEvent as TrustedEvent)
-      : graspServerUrls
 
     pushModal(
       NewRepoWizard,
@@ -613,15 +339,30 @@
         workerInstance, // Pass worker instance for event signing
         onRepoCreated: () => {
           // Reload repos by forcing bookmarks refresh and announcements
-          load({relays: bookmarkRelays, filters: [bookmarkFilter]})
           loadRepoAnnouncements(bookmarkRelays)
         },
         onCancel: back,
-        defaultRelays: defaultRepoRelays,
-        graspServerUrls: initialGraspUrls,
+        defaultRelays: [...defaultRepoRelays],
+        userPubkey: $pubkey,
         onPublishEvent: async (repoEvent: NostrEvent) => {
-          const signedEvent = await signEvent(repoEvent)
-          await publishEventToRelays(signedEvent)
+          // For GRASP repos (kind 30617/30618), publish to the GRASP relay from the event's 'relays' tag
+          let targetRelays = defaultRepoRelays;
+          
+          // Check if this is a repo announcement or state event
+          if (repoEvent.kind === 30617 || repoEvent.kind === 30618) {
+            // Extract relay URLs from the 'relays' tag if present
+            const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === 'relays');
+            if (relaysTag && relaysTag.length > 1) {
+              // For GRASP events, publish to BOTH the GRASP relay AND default relays
+              const graspRelays = relaysTag.slice(1);
+              targetRelays = [...graspRelays, ...defaultRepoRelays];
+              // Remove duplicates while preserving order
+              targetRelays = [...new Set(targetRelays)];
+              console.log('🔐 Publishing GRASP event to GRASP relay + default relays:', targetRelays);
+            }
+          }
+          
+          publishEventToRelays(repoEvent, targetRelays);
         },
         getProfile: getProfileForWizard,
         searchProfiles: searchProfilesForWizard,
@@ -673,7 +414,7 @@
       </p>
     {:else}
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each groupCardsToRender as g (g.repoNaddr || g.euc)}
+        {#each $repositoriesStore as g (g.repoNaddr || g.euc)}
           <div class="rounded-md border border-border bg-card p-3" in:fly>
             <!-- Use GitItem for consistent repo card rendering -->
             {#if g.first}

@@ -1,5 +1,5 @@
 import twColors from "tailwindcss/colors"
-import {get, derived, writable} from "svelte/store"
+import {get, derived} from "svelte/store"
 import {nip19} from "nostr-tools"
 import {
   on,

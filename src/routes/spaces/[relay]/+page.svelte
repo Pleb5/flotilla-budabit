@@ -29,7 +29,7 @@
     makeCalendarPath,
     makeRoomPath,
   } from "@app/routes"
-  import {makeGitPath} from "@app/git-routes"
+  import {makeGitPath} from "@lib/budabit"
   import {notifications} from "@app/notifications"
   import {pushModal} from "@app/modal"
 

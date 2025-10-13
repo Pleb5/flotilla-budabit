@@ -8,8 +8,7 @@
  * - Worker is reused for all Git operations
  * - No manual initialization needed
  */
-
-import { getGitWorker, registerEventSigner, proxy } from '@nostr-git/core';
+import { getGitWorker, proxy } from '@nostr-git/core';
 import { createEventIO, createSignEvent } from '$lib/nostr/io-adapter';
 
 interface GitWorkerInstance {
@@ -75,7 +74,7 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
     console.log('[GitWorker] EventIO configured');
     
     // Register event signer for GRASP operations
-    registerEventSigner(worker, signEvent);
+    //registerEventSigner(worker, signEvent);
     
     workerInstance = { api, worker };
     console.log('[GitWorker] Singleton worker initialized successfully');

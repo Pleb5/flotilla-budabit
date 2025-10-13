@@ -12,7 +12,7 @@
   import {canDecrypt, pubkeyLink} from "@app/state"
   import {pushModal} from "@app/modal"
   import {makeChatPath} from "@app/routes"
-  import {makeGitRepoPath} from "@app/git-routes"
+  import {makeGitRepoPath} from "@lib/budabit"
 
   export type Props = {
     pubkey: string

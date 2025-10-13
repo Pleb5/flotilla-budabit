@@ -16,7 +16,7 @@ import {
  } from "@nostr-git/core"
 import { repository } from "@welshman/app"
 import { deriveEvents, withGetter } from "@welshman/store"
-import { GIT_RELAYS, INDEXER_RELAYS, deriveEvent } from "./state"
+import { GIT_RELAYS, INDEXER_RELAYS, deriveEvent } from "../../app/state"
 import { normalizeRelayUrl, type TrustedEvent } from "@welshman/util"
 import { nip19 } from "nostr-tools"
 
@@ -207,3 +207,6 @@ export const deriveRepoRefState = (euc: string) =>
       return events[0]
     })
   }
+
+
+  

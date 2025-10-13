@@ -25,7 +25,7 @@
     type TrustedEvent,
   } from "@nostr-git/shared-types"
   import {PublishStatus, request} from "@welshman/net"
-  import {postComment, postIssue, postStatus} from "@src/app/git-commands"
+  import {postComment, postIssue, postStatus} from "@lib/budabit/commands.js"
   import {sortBy} from "@welshman/lib"
   import Icon from "@src/lib/components/Icon.svelte"
   import FilterPanel from "@src/app/components/FilterPanel.svelte"

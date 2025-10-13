@@ -68,8 +68,9 @@
   import * as requests from "@app/requests"
   import * as notifications from "@app/notifications"
   import * as appState from "@app/state"
-
-  import {signer as gitSigner, type Token} from "@nostr-git/ui"
+  import {loadUserGitData} from "@lib/budabit"
+  import {Router} from "@welshman/router"
+  import {signer as gitSigner} from "@nostr-git/ui"
 
   // Migration: old nostrtalk instance used different sessions
   if ($session && !$signer) {
@@ -203,7 +204,7 @@
         }),
       })
 
-      sleep(300).then(() => ready.resolve())
+      sleep(500).then(() => ready.resolve())
 
       defaultSocketPolicies.push(
         makeSocketPolicyAuth({
@@ -222,25 +223,10 @@
         await loadUserData($pubkey)
       }
 
-      gitSigner.set($signer)
-      
-      // Initialize git token store at app level where signer is available
-      // This replicates the logic from GitAuth component but at app level
+      // Load user git data
       if ($pubkey) {
-        const { tokens } = await import('@nostr-git/ui')
-        const { loadTokensFromStorage } = await import('@nostr-git/ui')
-        
-        // Use the same token key pattern as GitAuth component in settings
-        const tokenKey = "gh_tokens"
-        
-        try {
-          // Load tokens directly (same as GitAuth onMount logic)
-          const loadedTokens = await loadTokensFromStorage(tokenKey)
-          tokens.clear()
-          loadedTokens.forEach((token: Token) => tokens.push(token))
-        } catch (error) {
-          console.warn('🔐 Failed to initialize git tokens at app level:', error)
-        }
+        gitSigner.set($signer)
+        await loadUserGitData($pubkey, Router.get().FromUser().getUrls())
       }
 
       // Listen for space data, populate space-based notifications
@@ -262,7 +248,7 @@
           ([$pubkey, $canDecrypt, $userInboxRelaySelections]) => {
             // Build a minimal, stable signature to detect real changes
             const relays = getRelaysFromList($userInboxRelaySelections)
-            const sig = `${$pubkey || ''}|${$canDecrypt ? '1' : '0'}|${relays.join(',')}`
+            const sig = `${$pubkey || ""}|${$canDecrypt ? "1" : "0"}|${relays.join(",")}`
 
             if (sig === lastSig) return
             lastSig = sig

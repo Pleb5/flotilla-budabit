@@ -4,7 +4,7 @@
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {type FileEntry, type PermalinkEvent} from "@nostr-git/core"
   import {pushToast} from "@src/app/toast"
-  import {postPermalink} from "@src/app/git-commands"
+  import {postPermalink} from "@lib/budabit/commands.js"
   import {nip19} from "nostr-tools"
 
   const {data} = $props()

@@ -30,8 +30,8 @@
   import ProfileLink from "@src/app/components/ProfileLink.svelte"
   import {slide} from "svelte/transition"
   import {getContext} from "svelte"
-  import {REPO_RELAYS_KEY} from "@src/app/git-state"
-  import {postComment, postStatus, postLabel} from "@src/app/git-commands"
+  import {REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import {postComment, postStatus, postLabel} from "@lib/budabit/commands.js"
   import {
     Card,
     IssueThread,
@@ -41,12 +41,12 @@
   import {
     resolveIssueStatus,
   } from "@nostr-git/core"
-  import { deriveEffectiveLabels } from "@src/app/git-state"
+  import { deriveEffectiveLabels } from "@lib/budabit/state"
   import {
     repoAnnouncements,
     deriveMaintainersForEuc,
     loadRepoAnnouncements
-  } from "@src/app/git-state.js"
+  } from "@lib/budabit/state.js"
   import { onMount } from "svelte"
 
   const {data} = $props()

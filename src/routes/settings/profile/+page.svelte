@@ -20,13 +20,10 @@
   import GitAuth from "@app/components/GitAuth.svelte";
   import {
     createEventIO,
-    createSignEvent,
-    getCurrentPubkey,
   } from "@lib/nostr/io-adapter";
 
   // Create I/O closures once for the entire component lifetime
   const io = createEventIO();
-  const signEvent = createSignEvent();
 
   const profile = deriveProfile($pubkey!)
 
@@ -146,7 +143,7 @@
 
   <!-- GRASP Servers Settings -->
   <div class="card2 bg-alt shadow-xl">
-    <GraspServersPanel {io} {signEvent} authorPubkey={$pubkey ?? undefined} />
+    <GraspServersPanel></GraspServersPanel>
   </div>
 
   <Alerts />
