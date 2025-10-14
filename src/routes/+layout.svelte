@@ -81,7 +81,6 @@
   import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
   import {toast, pushToast} from "@app/util/toast"
-  import {initializePushNotifications} from "@app/util/push"
   import * as commands from "@app/core/commands"
   import * as requests from "@app/core/requests"
   import * as appState from "@app/core/state"
@@ -93,7 +92,6 @@
   indexedDB?.deleteDatabase("flotilla")
   import {loadUserGitData} from "@lib/budabit"
   import {Router} from "@welshman/router"
-  import {signer as gitSigner} from "@nostr-git/ui"
 
   // Initialize push notification handler asap
   initializePushNotifications()
@@ -301,7 +299,7 @@
                   buffer.push(message)
 
                   if (!$relaysPendingTrust.includes(socket.url)) {
-                    relaysPendingTrust.update($r => [...$r, socket.url])
+                    relaysPendingTrust.update((r: any) => [...r, socket.url] as string[])
                   }
                 }
               }

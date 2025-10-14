@@ -74,25 +74,33 @@
 
   const join = async () => {
     joining = true
-
+  }
     try {
-      const message = await waitForThunkError(joinRoom(url, makeRoomMeta({id: room})))
+  const message = await waitForThunkError(joinRoom(url, makeRoomMeta({id: room})))
 
       if (message && !message.startsWith("duplicate:")) {
-  const url = decodeRelay($page.params.relay)
-  const channel = deriveChannel(url, room)
-  const filter = {kinds: [MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room]}
-  const isFavorite = $derived($userRoomsByUrl.get(url)?.has(room))
-  const membershipStatus = deriveUserMembershipStatus(url, room)
+        return pushToast({theme: "error", message})
+      } else {
+        // Restart the feed now that we're a member
+        start()
+      }
+    } finally {
+      joining = false
+    }
 
-  const addFavorite = () => addRoomMembership(url, room)
+  const leave = async () => {
+    leaving = true
+    try {
+      const message = await waitForThunkError(leaveRoom(url, makeRoomMeta({id: room})))
 
-  const removeFavorite = () => removeRoomMembership(url, room)
-  const relay = deriveRelay(url)
-
-  const join = async () => {
+      if (message && !message.startsWith("duplicate:")) {
+        pushToast({theme: "error", message})
+      }
+    } finally {
+      leaving = false
     joining = true
-
+    }
+  }
     try {
       const message = await getThunkError(joinRoom(url, makeRoomMeta({id: room})))
 

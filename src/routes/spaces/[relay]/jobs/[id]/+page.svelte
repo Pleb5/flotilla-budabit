@@ -7,16 +7,16 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Content from "@app/components/Content.svelte"
+  import ChannelContent from "@app/components/ChannelMessage.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import JobActions from "@app/components/JobActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
-  import {deriveEvent, decodeRelay, getEventsForUrl} from "@app/state"
-  import {setChecked} from "@app/notifications"
+  import {deriveEvent, decodeRelay, getEventsForUrl} from "@app/core/state"
+  import {setChecked} from "@app/util/notifications"
   import JobItem from "@src/app/components/JobItem.svelte"
   import Divider from "@src/lib/components/Divider.svelte"
-  import {makeFeed} from "@src/app/requests"
+  import {makeFeed} from "@app/core/requests"
   import {whenElementReady} from "@src/lib/html"
   import {readable, writable, type Readable} from "svelte/store"
   import PageContent from "@src/lib/components/PageContent.svelte"
@@ -112,7 +112,7 @@
       {#each sortBy(e => -e.created_at, $replies).slice(0, showAll ? undefined : 4) as reply (reply.id)}
         <NoteCard event={reply} class="card2 bg-alt z-feature w-full">
           <div class="col-3 ml-12">
-            <Content showEntire event={reply} />
+            <ChannelContent {url} event={reply} />
             <JobActions event={reply} {url} showExternal={false} />
           </div>
         </NoteCard>

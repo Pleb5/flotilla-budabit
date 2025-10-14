@@ -15,9 +15,9 @@
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import JobItem from "@app/components/JobItem.svelte"
   import Link from "@lib/components/Link.svelte"
-  import {decodeRelay, getEventsForUrl, INDEXER_RELAYS} from "@app/state"
-  import {setChecked} from "@app/notifications"
-  import {makeFeed} from "@app/requests"
+  import {decodeRelay, getEventsForUrl, INDEXER_RELAYS} from "@app/core/state"
+  import {setChecked} from "@app/util/notifications"
+  import {makeFeed} from "@app/core/requests"
   import {whenElementReady} from "@src/lib/html"
 
   const url = decodeRelay($page.params.relay)
@@ -58,7 +58,7 @@
           initialEvents: getEventsForUrl(url, [
             {kinds: [FREELANCE_JOB, COMMENT], "#s": ["0"], limit: 10},
           ]),
-          onEvent: event => {
+          onEvent: (event: TrustedEvent) => {
             if (event.kind === FREELANCE_JOB && !mutedPubkeys.includes(event.pubkey)) {
               jobs.push(event)
             }

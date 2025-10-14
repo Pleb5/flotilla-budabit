@@ -1,7 +1,7 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {page} from "$app/stores"
-  import {sortBy, sleep} from "@welshman/lib"
+  import {sortBy, sleep, type MakeNonOptional} from "@welshman/lib"
   import {
     COMMENT,
     getTag,
@@ -15,23 +15,21 @@
   import {deriveEvents} from "@welshman/store"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import SortVertical from "@assets/icons/sort-vertical.svg?dataurl"
-  import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
-  import CommentActions from "@app/components/CommentActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
-  import {deriveEvent, decodeRelay} from "@app/state"
-  import {setChecked} from "@app/notifications"
+  import {deriveEvent, decodeRelay} from "@app/core/state"
+  import {setChecked} from "@app/util/notifications"
   import {FREELANCE_JOB} from "@lib/budabit"
   import JobItem from "@src/app/components/JobItem.svelte"
   import GitIssueItem from "@src/app/components/GitIssueItem.svelte"
+  import ChannelContent from "@app/components/ChannelMessage.svelte"
 
   const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
@@ -154,7 +152,7 @@
       {#each sortBy(e => -e.created_at, $replies).slice(0, showAll ? undefined : 4) as reply (reply.id)}
         <NoteCard event={reply} class="card2 bg-alt z-feature w-full">
           <div class="col-3 ml-12">
-            <Content showEntire event={reply} />
+            <ChannelContent {url} event={reply} />
             <ThreadActions event={reply} {url} />
           </div>
         </NoteCard>
@@ -170,7 +168,7 @@
       {@render jobOrGitIssueElem()}
       <NoteCard event={$event} class="card2 bg-alt z-feature w-full">
         <div class="col-3 ml-12">
-          <Content showEntire event={$event} />
+          <ChannelContent {url} event={$event} />
           <ThreadActions event={$event} {url} />
         </div>
       </NoteCard>

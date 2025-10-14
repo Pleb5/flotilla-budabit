@@ -17,10 +17,10 @@
   import ThreadCreate from "@app/components/ThreadCreate.svelte"
   import {decodeRelay, getEventsForUrl} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
-  import {REACTION_KINDS} from "@app/core/state"
   import {makeFeed} from "@app/core/requests"
   import {whenElementReady} from "@src/lib/html"
   import {pushModal} from "@app/util/modal"
+  import {REACTION} from "@welshman/util"
 
   const url = decodeRelay($page.params.relay!)
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
@@ -57,7 +57,7 @@
       relays: [url],
       feedFilters: [{kinds: [THREAD, COMMENT]}],
       subscriptionFilters: [
-        {kinds: [THREAD, DELETE, ...REACTION_KINDS]},
+        {kinds: [THREAD, DELETE, REACTION]},
         {kinds: [COMMENT], "#K": [String(THREAD)]},
       ],
       initialEvents: getEventsForUrl(url, [{kinds: [THREAD, COMMENT], limit: 10}]),
