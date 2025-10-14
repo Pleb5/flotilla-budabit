@@ -389,7 +389,7 @@
 
       // Load user git data
       if ($pubkey) {
-        gitSigner.set($signer)
+        //gitSigner.set($signer)
         await loadUserGitData($pubkey, Router.get().FromUser().getUrls())
       }
 

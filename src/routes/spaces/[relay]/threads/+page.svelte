@@ -17,10 +17,9 @@
   import ThreadCreate from "@app/components/ThreadCreate.svelte"
   import {decodeRelay, getEventsForUrl} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
+  import {REACTION_KINDS} from "@app/core/state"
   import {makeFeed} from "@app/core/requests"
-  import {whenElementReady} from "@src/lib/html"
   import {pushModal} from "@app/util/modal"
-  import {REACTION} from "@welshman/util"
 
   const url = decodeRelay($page.params.relay!)
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
@@ -47,17 +46,12 @@
   })
 
   onMount(() => {
-    let cleanup: (() => void) | undefined;
-    
-    whenElementReady(
-      () => element,
-      (readyElement) => {
-        const feedResult = makeFeed({
-          element: readyElement,
+    const {cleanup} = makeFeed({
+      element: element!,
       relays: [url],
       feedFilters: [{kinds: [THREAD, COMMENT]}],
       subscriptionFilters: [
-        {kinds: [THREAD, DELETE, REACTION]},
+        {kinds: [THREAD, DELETE, ...REACTION_KINDS]},
         {kinds: [COMMENT], "#K": [String(THREAD)]},
       ],
       initialEvents: getEventsForUrl(url, [{kinds: [THREAD, COMMENT], limit: 10}]),
@@ -70,14 +64,11 @@
           comments.push(event)
         }
       },
-          onExhausted: () => {
-            loading = false
-          },
-        })
-        cleanup = feedResult.cleanup;
-      }
-    )
-    
+      onExhausted: () => {
+        loading = false
+      },
+    })
+
     return () => {
       cleanup?.()
       setChecked($page.url.pathname)

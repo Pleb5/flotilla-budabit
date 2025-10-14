@@ -1,11 +1,5 @@
 <script lang="ts">
-  import {
-    IssueCard,
-    NewIssueForm,
-    Button,
-    toast,
-    pushRepoAlert,
-  } from "@nostr-git/ui"
+  import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert} from "@nostr-git/ui"
   import {
     getTags,
     createStatusEvent,
@@ -14,16 +8,7 @@
     type StatusEvent,
     type TrustedEvent,
   } from "@nostr-git/shared-types"
-  import {
-    CalendarDays,
-    Check,
-    Clock,
-    Eye,
-    GitCommit,
-    Plus,
-    SearchX,
-    X,
-  } from "@lucide/svelte"
+  import {CalendarDays, Check, Clock, Eye, GitCommit, Plus, SearchX, X} from "@lucide/svelte"
   import {
     Address,
     COMMENT,
@@ -36,16 +21,18 @@
   } from "@welshman/util"
   import {createSearch, pubkey} from "@welshman/app"
   import {now, sortBy} from "@welshman/lib"
-  import {PublishStatus, request} from "@welshman/net"
+  import {request} from "@welshman/net"
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import {slideAndFade} from "@lib/transition"
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
-  import {postComment, postIssue, postStatus} from "@lib/budabit/commands.js"
+  import {postComment, postIssue, publishEvent} from "@lib/budabit/commands.js"
   import FilterPanel from "@app/components/FilterPanel.svelte"
   import {isMobile} from "@lib/html"
   import {onMount, onDestroy} from "svelte"
+  import {pushToast} from "@src/app/util/toast.js"
+  import type {Status} from "@nostr-git/ui"
 
   const {data} = $props()
   const {repoClass, issueFilter, statusEventsByRoot} = data
@@ -58,7 +45,7 @@
   const mentionWindowMs = 3000
   const lastMentionAlertAtByIssue: Map<string, number> = new Map()
 
-  const issues =repoClass.issues
+  const issues = repoClass.issues
 
   const comments = $state<Record<string, CommentEvent[]>>({})
 
@@ -515,19 +502,9 @@
       relays: relaysToUse,
       repoAddr: getTag("a", issue.tags),
     })
-    const thunk = postIssue(issue, relaysToUse)
-    const postIssueEvent = thunk.event
-    const result = await thunk.result
-    console.debug("onIssueCreated: publish result", result)
-    if (result.error === PublishStatus.Failure) {
-      console.error(result.error)
-      toast.push({
-        message: `Failed to publish issue${result.reason ? `: ${result.reason}` : ". Please try again."}`,
-        variant: "destructive",
-      })
-      return
-    }
-    toast.push({message: "Issue created", variant: "default"})
+    const postIssueEvent = await postIssue(issue, relaysToUse)
+    console.debug("onIssueCreated: publish result", postIssueEvent)
+    pushToast({message: "Issue created"})
     try {
       pushRepoAlert({
         repoKey: repoClass.key,
@@ -548,12 +525,12 @@
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
       content: "",
-      rootId: postIssueEvent.id,
+      rootId: issue.id,
       recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })
-    await postStatus(statusEvent, relaysToUse).result
+    await publishEvent(statusEvent, relaysToUse)
   }
 
   const onNewIssue = () => {
@@ -616,8 +593,8 @@
         {value: "draft", label: "Draft", icon: Clock},
       ]}
       selectedStatus={statusFilter}
-      onStatusChange={v => (statusFilter = v)}
-      on:statusChange={e => (statusFilter = e.detail)}
+      onStatusChange={(v: string) => (statusFilter = v)}
+      on:statusChange={(e: CustomEvent<string>) => (statusFilter = e.detail)}
       sortOptions={[
         {value: "newest", label: "Newest", icon: CalendarDays},
         {value: "oldest", label: "Oldest", icon: CalendarDays},

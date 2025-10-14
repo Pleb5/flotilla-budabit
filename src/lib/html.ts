@@ -17,55 +17,6 @@ export const copyToClipboard = (text: string) => {
   return result
 }
 
-/**
- * Utility function to ensure DOM element is ready before executing a callback
- * Provides retry logic with exponential backoff for DOM timing issues
- */
-export const whenElementReady = async <T extends HTMLElement | undefined>(
-  getElement: () => T,
-  callback: (element: NonNullable<T>) => void | Promise<void>,
-  options: {
-    maxRetries?: number;
-    initialDelay?: number;
-    maxDelay?: number;
-    retryMultiplier?: number;
-  } = {}
-): Promise<void> => {
-  const {
-    maxRetries = 20,
-    initialDelay = 50,
-    maxDelay = 1000,
-    retryMultiplier = 1.5
-  } = options;
-
-  let attempt = 0;
-  let delay = initialDelay;
-
-  const tryCallback = async (): Promise<void> => {
-    const element = getElement();
-    
-    if (element) {
-      await callback(element as NonNullable<T>);
-      return;
-    }
-
-    if (attempt >= maxRetries) {
-      console.warn(`Element not ready after ${maxRetries} attempts, proceeding anyway`);
-      return;
-    }
-
-    attempt++;
-    console.debug(`Element not ready, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
-    
-    await sleep(delay);
-    delay = Math.min(delay * retryMultiplier, maxDelay);
-    
-    return tryCallback();
-  };
-
-  return tryCallback();
-};
-
 export type ScrollerOpts = {
   onScroll: () => any
   element: Element
@@ -87,15 +38,6 @@ export const createScroller = ({
   reverse = false,
 }: ScrollerOpts) => {
   let done = false
-
-  // Check if element exists before accessing classList
-  if (!element) {
-    console.warn('createScroller: element is null, returning no-op scroller');
-    return {
-      check: async () => {},
-      stop: () => {}
-    };
-  }
 
   const container = element.classList.contains("scroll-container")
     ? element

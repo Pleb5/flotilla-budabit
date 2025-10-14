@@ -18,7 +18,6 @@
   import {decodeRelay, getEventsForUrl, INDEXER_RELAYS} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
   import {makeFeed} from "@app/core/requests"
-  import {whenElementReady} from "@src/lib/html"
 
   const url = decodeRelay($page.params.relay)
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
@@ -45,35 +44,26 @@
   })
 
   onMount(() => {
-    let cleanup: (() => void) | undefined;
-    
-    whenElementReady(
-      () => element,
-      (readyElement) => {
-        const feedResult = makeFeed({
-          element: readyElement,
-          relays: INDEXER_RELAYS,
-          feedFilters: [jobFilter, commentFilter],
-          subscriptionFilters: [jobFilter, commentFilter],
-          initialEvents: getEventsForUrl(url, [
-            {kinds: [FREELANCE_JOB, COMMENT], "#s": ["0"], limit: 10},
-          ]),
-          onEvent: (event: TrustedEvent) => {
-            if (event.kind === FREELANCE_JOB && !mutedPubkeys.includes(event.pubkey)) {
-              jobs.push(event)
-            }
-            if (event.kind === COMMENT) {
-              comments.push(event)
-            }
-          },
-          onExhausted: () => {
-            loading = false
-          },
-        })
-        cleanup = feedResult.cleanup;
-      }
-    )
-    
+    const {cleanup} = makeFeed({
+      element: element!,
+      relays: INDEXER_RELAYS,
+      feedFilters: [jobFilter, commentFilter],
+      subscriptionFilters: [jobFilter, commentFilter],
+      initialEvents: getEventsForUrl(url, [
+        {kinds: [FREELANCE_JOB, COMMENT], "#s": ["0"], limit: 10},
+      ]),
+      onEvent: (event: TrustedEvent) => {
+        if (event.kind === FREELANCE_JOB && !mutedPubkeys.includes(event.pubkey)) {
+          jobs.push(event)
+        }
+        if (event.kind === COMMENT) {
+          comments.push(event)
+        }
+      },
+      onExhausted: () => {
+        loading = false
+      },
+    })
     return () => {
       cleanup?.()
       setChecked($page.url.pathname)

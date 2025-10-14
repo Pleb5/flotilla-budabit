@@ -1,17 +1,8 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {preventDefault} from "@lib/html"
-  import {decrypt} from "@welshman/signer"
-  import {randomInt, parseJson, fromPairs, displayList, TIMEZONE, identity} from "@welshman/lib"
-  import {
-    displayRelayUrl,
-    getTagValue,
-    getAddress,
-    THREAD,
-    MESSAGE,
-    EVENT_TIME,
-    COMMENT,
-  } from "@welshman/util"
+  import {randomInt, displayList, TIMEZONE, identity} from "@welshman/lib"
+  import {displayRelayUrl, getTagValue, THREAD, MESSAGE, EVENT_TIME, COMMENT} from "@welshman/util"
   import type {Filter} from "@welshman/util"
   import {makeIntersectionFeed, makeRelayFeed, feedFromFilters} from "@welshman/feeds"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
@@ -54,7 +45,6 @@
 
   let loading = $state(false)
   let cron = $state(WEEKLY)
-  let claim = $state("")
   let email = $state($alerts.map(a => getTagValue("email", a.tags)).filter(identity)[0] || "")
 
   const back = () => history.back()
@@ -104,84 +94,25 @@
     loading = true
 
     try {
-      const claims = claim ? {[url]: claim} : {}
-      const feed = makeIntersectionFeed(feedFromFilters(filters), makeRelayFeed(url))
-      const description = `for ${displayList(display)} on ${displayRelayUrl(url)}`
-      const params: AlertParams = {feed, claims, description}
+      const claim = url ? await requestRelayClaim(url) : undefined
 
-      if (channel === "email") {
-        const cadence = cron?.endsWith("1") ? "Weekly" : "Daily"
-
-        params.description = `${cadence} alert ${description}, sent via email.`
-        params.email = {
-          cron,
-          email,
-          handler: [
-            "31990:97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322:1737058597050",
-            "wss://relay.nostr.band/",
-            "web",
-          ],
-        }
-      } else {
-        try {
-          // @ts-ignore
-          params[platform] = await getPushInfo()
-          params.description = `${platformName} push notification ${description}.`
-        } catch (e: any) {
-          return pushToast({
-            theme: "error",
-            message: String(e),
-          })
-        }
-      }
-
-      // If we don't do this we'll get an event rejection
-      await attemptAuth(NOTIFIER_RELAY)
-
-      const thunk = await publishAlert(params)
-      const error = await getThunkError(thunk)
+      const {error} = await createAlert({
+        feed: makeIntersectionFeed(feedFromFilters(filters), makeRelayFeed(url)),
+        claims: claim ? {[url]: claim} : {},
+        description: `for ${displayList(display)} on ${displayRelayUrl(url)}`,
+        email: channel === "email" ? {cron, email} : undefined,
+      })
 
       if (error) {
-        return pushToast({
-          theme: "error",
-          message: `Failed to send your alert to the notification server (${error}).`,
-        })
+        pushToast({theme: "error", message: error})
+      } else {
+        pushToast({message: "Your alert has been successfully created!"})
+        back()
       }
-
-      // Fetch our new status to make sure it's active
-      const address = getAddress(thunk.event)
-      const statusEvents = await loadAlertStatuses($pubkey!)
-      const statusEvent = statusEvents.find(event => getTagValue("d", event.tags) === address)
-      const statusTags = statusEvent
-        ? parseJson(await decrypt(signer.get(), NOTIFIER_PUBKEY, statusEvent.content))
-        : []
-      const {status = "error", message = "Your alert was not activated"}: Record<string, string> =
-        fromPairs(statusTags)
-
-      if (status === "error") {
-        return pushToast({theme: "error", message})
-      }
-
-      pushToast({message: "Your alert has been successfully created!"})
-      back()
     } finally {
       loading = false
     }
   }
-
-  onMount(() => {
-    if (!canSendPushNotifications()) {
-      channel = "email"
-    }
-
-    if (url) {
-      requestRelayClaim(url).then(code => {
-        if (code) {
-          claim = code
-        }
-      })
-    }
-  })
 
   onMount(() => {
     if (!canSendPushNotifications()) {
@@ -269,22 +200,6 @@
           Chat
         </span>
       </div>
-    {/snippet}
-  </FieldInline>
-  <FieldInline>
-    {#snippet label()}
-      <p>Invite Code</p>
-    {/snippet}
-    {#snippet input()}
-      <label class="input input-bordered flex w-full items-center gap-2">
-        <input bind:value={claim} />
-      </label>
-    {/snippet}
-    {#snippet info()}
-      <p>
-        To get notifications from private spaces, please provide an invite code which grants access
-        to the space.
-      </p>
     {/snippet}
   </FieldInline>
   <ModalFooter>

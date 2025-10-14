@@ -19,7 +19,6 @@
 
   const path = makeRoomPath(url, room)
   const channel = deriveChannel(url, room)
-
 </script>
 
 <SecondaryNavItem

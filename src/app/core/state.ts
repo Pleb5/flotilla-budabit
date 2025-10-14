@@ -1,12 +1,7 @@
 import twColors from "tailwindcss/colors"
-<<<<<<< HEAD:src/app/state.ts
-import {get, derived} from "svelte/store"
-import {nip19} from "nostr-tools"
-=======
 import {Capacitor} from "@capacitor/core"
 import {get, derived, writable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 import {
   on,
   call,
@@ -22,20 +17,14 @@ import {
   parseJson,
   fromPairs,
   memoize,
+  addToMapKey,
   identity,
   groupBy,
   always,
-<<<<<<< HEAD:src/app/state.ts
-  addToMapKey,
-} from "@welshman/lib"
-import type {Socket} from "@welshman/net"
-import {Pool, load, AuthStateEvent, SocketEvent} from "@welshman/net"
-=======
   tryCatch,
 } from "@welshman/lib"
 import type {Socket} from "@welshman/net"
 import {Pool, load, AuthStateEvent, AuthStatus, SocketEvent, netContext} from "@welshman/net"
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 import {
   collection,
   custom,
@@ -44,10 +33,7 @@ import {
   withGetter,
   synced,
 } from "@welshman/store"
-<<<<<<< HEAD:src/app/state.ts
-=======
 import {isKindFeed, findFeed} from "@welshman/feeds"
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 import {
   getIdFilters,
   WRAP,
@@ -71,10 +57,7 @@ import {
   ALERT_IOS,
   ALERT_ANDROID,
   ALERT_STATUS,
-<<<<<<< HEAD:src/app/state.ts
-=======
   APP_DATA,
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
   getGroupTags,
   getRelayTagValues,
   getPubkeyTagValues,
@@ -87,13 +70,10 @@ import {
   getTag,
   getTagValue,
   getTagValues,
-<<<<<<< HEAD:src/app/state.ts
-=======
   verifyEvent,
   makeEvent,
   RelayMode,
   getRelaysFromList,
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 } from "@welshman/util"
 import type {TrustedEvent, SignedEvent, PublishedList, List, Filter} from "@welshman/util"
 import {Nip59, decrypt} from "@welshman/signer"
@@ -122,10 +102,7 @@ import {
   userInboxRelaySelections,
 } from "@welshman/app"
 import type {Thunk, Relay} from "@welshman/app"
-<<<<<<< HEAD:src/app/state.ts
-=======
 import {preferencesStorageProvider} from "@src/lib/storage"
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
@@ -133,13 +110,9 @@ export const ROOM = "h"
 
 export const PROTECTED = ["-"]
 
-<<<<<<< HEAD:src/app/state.ts
-export const GROUPS = 32829
-=======
 export const ENABLE_ZAPS = Capacitor.getPlatform() != "ios"
 
 export const REACTION_KINDS = ENABLE_ZAPS ? [REACTION, ZAP_RESPONSE] : [REACTION]
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 
 export const NOTIFIER_PUBKEY = import.meta.env.VITE_NOTIFIER_PUBKEY
 
@@ -150,9 +123,6 @@ export const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY
 export const INDEXER_RELAYS = fromCsv(import.meta.env.VITE_INDEXER_RELAYS)
 
 export const SIGNER_RELAYS = fromCsv(import.meta.env.VITE_SIGNER_RELAYS)
-
-// Git-specific relays for NIP-34 views (user preference: VITE_GIT_RELAYS)
-export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
 export const PLATFORM_URL = window.location.origin
 
@@ -180,11 +150,7 @@ export const DUFFLEPUD_URL = "https://dufflepud.onrender.com"
 
 export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt," +
-<<<<<<< HEAD:src/app/state.ts
-  [CLIENT_AUTH, AUTH_JOIN, MESSAGE, THREAD, COMMENT, ROOMS, WRAP, REACTION]
-=======
   [CLIENT_AUTH, AUTH_JOIN, MESSAGE, THREAD, COMMENT, ROOMS, WRAP, REACTION, ZAP_REQUEST]
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
     .map(k => `sign_event:${k}`)
     .join(",")
 
@@ -272,13 +238,13 @@ export const deriveEvent = (idOrAddress: string, hints: string[] = []) => {
   let attempted = false
 
   const filters = getIdFilters([idOrAddress])
-  const relays = [...hints, ...INDEXER_RELAYS].map(u => normalizeRelayUrl(u)).filter(Boolean)
+  const relays = [...hints, ...INDEXER_RELAYS]
 
   return derived(
     deriveEvents(repository, {filters, includeDeleted: true}),
     (events: TrustedEvent[]) => {
       if (!attempted && events.length === 0) {
-        load({relays: relays as string[], filters})
+        load({relays, filters})
         attempted = true
       }
 
@@ -314,6 +280,7 @@ export const getUrlsForEvent = derived([trackerStore, thunks], ([$tracker, $thun
 export const getEventsForUrl = (url: string, filters: Filter[]) => {
   const $getUrlsForEvent = get(getUrlsForEvent)
   const $events = repository.query(filters)
+
   return sortBy(
     e => -e.created_at,
     $events.filter(e => $getUrlsForEvent(e.id).includes(url)),
@@ -428,14 +395,6 @@ export const alerts = withGetter(
     filters: [{kinds: [ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID]}],
     itemToEvent: item => item.event,
     eventToItem: async event => {
-<<<<<<< HEAD:src/app/state.ts
-      const tags = parseJson(await decrypt(signer.get(), NOTIFIER_PUBKEY, event.content))
-
-      return {event, tags}
-    },
-  }),
-)
-=======
       const $signer = signer.get()
 
       if ($signer) {
@@ -457,7 +416,6 @@ export const dmAlert = derived(alerts, $alerts =>
     return findFeed(feed, f => isKindFeed(f) && f.includes(WRAP))
   }),
 )
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 
 // Alert Statuses
 
@@ -471,11 +429,6 @@ export const alertStatuses = withGetter(
     filters: [{kinds: [ALERT_STATUS]}],
     itemToEvent: item => item.event,
     eventToItem: async event => {
-<<<<<<< HEAD:src/app/state.ts
-      const tags = parseJson(await decrypt(signer.get(), NOTIFIER_PUBKEY, event.content))
-
-      return {event, tags}
-=======
       const $signer = signer.get()
 
       if ($signer) {
@@ -483,7 +436,6 @@ export const alertStatuses = withGetter(
 
         return {event, tags}
       }
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
     },
   }),
 )
@@ -635,11 +587,7 @@ export type Channel = {
   url: string
   room: string
   name: string
-<<<<<<< HEAD:src/app/state.ts
-  event?: TrustedEvent | null
-=======
   event: TrustedEvent
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
   closed: boolean
   private: boolean
   picture?: string
@@ -653,17 +601,6 @@ export const splitChannelId = (id: string) => id.split("'")
 export const hasNip29 = (relay?: Relay) =>
   relay?.profile?.supported_nips?.map?.(String)?.includes?.("29")
 
-<<<<<<< HEAD:src/app/state.ts
-export const channelEvents = deriveEvents(repository, {filters: [{kinds: [ROOM_META, ROOMS]}]})
-
-export const channels = derived(
-  [channelEvents, getUrlsForEvent, memberships, messages],
-  ([$channelEvents, $getUrlsForEvent, $memberships, $messages]) => {
-    const $channels: Channel[] = []
-    for (const event of $channelEvents) {
-      const meta = fromPairs(event.tags)
-      const room = meta.d
-=======
 export const channelEvents = deriveEvents(repository, {filters: [{kinds: [ROOM_META]}]})
 
 export const channels = derived(
@@ -675,7 +612,6 @@ export const channels = derived(
       const meta = fromPairs(event.tags)
       const room = meta.d
 
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
       if (room) {
         for (const url of $getUrlsForEvent(event.id)) {
           const id = makeChannelId(url, room)
@@ -695,71 +631,11 @@ export const channels = derived(
       }
     }
 
-<<<<<<< HEAD:src/app/state.ts
-    // Add known rooms based on membership events
-    for (const membership of $memberships) {
-      for (const {url, room, name} of getMembershipRooms(membership)) {
-        const id = makeChannelId(url, room)
-
-        $channels.push({
-          id,
-          url,
-          room,
-          name,
-          closed: false,
-          private: false,
-        })
-      }
-    }
-
-    // Add rooms based on known messages
-    for (const event of $messages) {
-      const [_, room] = event.tags.find(nthEq(0, ROOM)) || []
-      if (room) {
-        for (const url of $getUrlsForEvent(event.id)) {
-          const id = makeChannelId(url, room)
-
-          $channels.push({
-            id,
-            url,
-            room,
-            name: room,
-            event,
-            closed: false,
-            private: false,
-          })
-        }
-      }
-    }
-
-=======
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
     return uniqBy(c => c.id, $channels)
   },
 )
 
-<<<<<<< HEAD:src/app/state.ts
-export const {
-  indexStore: channelsById,
-  deriveItem: _deriveChannel,
-  loadItem: _loadChannel,
-} = collection({
-  name: "channels",
-  store: channels,
-  getKey: channel => {
-    return channel.id
-  },
-  load: async (id: string) => {
-    const [url, room] = splitChannelId(id)
-    await load({
-      relays: [normalizeRelayUrl(url)],
-      filters: [{kinds: [ROOM_META], "#d": [room]}, {kinds: [ROOMS]}],
-    })
-  },
-})
-=======
 export const channelsByUrl = derived(channels, $channels => groupBy(c => c.url, $channels))
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 
 export const {
   indexStore: channelsById,
@@ -783,17 +659,8 @@ export const deriveChannel = (url: string, room: string) => _deriveChannel(makeC
 
 export const loadChannel = (url: string, room: string) => _loadChannel(makeChannelId(url, room))
 
-<<<<<<< HEAD:src/app/state.ts
-export const displayChannel = (url: string, room: string) => {
-  if (room === GENERAL) {
-    return "general"
-  }
-  return channelsById.get().get(makeChannelId(url, room))?.name || room
-}
-=======
 export const displayChannel = (url: string, room: string) =>
   channelsById.get().get(makeChannelId(url, room))?.name || room
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
 
 export const roomComparator = (url: string) => (room: string) =>
   displayChannel(url, room).toLowerCase()
@@ -835,15 +702,12 @@ export const userRoomsByUrl = withGetter(
       $userRoomsByUrl.set(normalizeRelayUrl(url), new Set())
     }
 
-<<<<<<< HEAD:src/app/state.ts
-=======
     for (const [_, room, url] of getGroupTags(tags)) {
       if ($channelsById.has(makeChannelId(url, room))) {
         addToMapKey($userRoomsByUrl, normalizeRelayUrl(url), room)
       }
     }
 
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts
     return $userRoomsByUrl
   }),
 )
@@ -929,8 +793,6 @@ export const deriveSocket = (url: string) =>
     return () => subs.forEach(call)
   })
 
-<<<<<<< HEAD:src/app/state.ts
-=======
 export const deriveTimeout = (timeout: number) => {
   const store = writable<boolean>(false)
 
@@ -978,4 +840,3 @@ export const deriveRelayAuthError = (url: string, claim = "") => {
     },
   )
 }
->>>>>>> 7334cd26f8d5e488a8e3932d70dee737095d5f1b:src/app/core/state.ts

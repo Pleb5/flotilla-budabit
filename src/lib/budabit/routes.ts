@@ -1,4 +1,4 @@
-import {makeSpacePath} from "@app/routes"
+import {makeSpacePath} from "@app/util/routes"
 
 export const makeJobPath = (url: string, eventId?: string) => makeSpacePath(url, "jobs", eventId)
 

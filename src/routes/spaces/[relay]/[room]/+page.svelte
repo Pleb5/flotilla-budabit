@@ -74,35 +74,9 @@
 
   const join = async () => {
     joining = true
-  }
-    try {
-  const message = await waitForThunkError(joinRoom(url, makeRoomMeta({id: room})))
 
-      if (message && !message.startsWith("duplicate:")) {
-        return pushToast({theme: "error", message})
-      } else {
-        // Restart the feed now that we're a member
-        start()
-      }
-    } finally {
-      joining = false
-    }
-
-  const leave = async () => {
-    leaving = true
     try {
-      const message = await waitForThunkError(leaveRoom(url, makeRoomMeta({id: room})))
-
-      if (message && !message.startsWith("duplicate:")) {
-        pushToast({theme: "error", message})
-      }
-    } finally {
-      leaving = false
-    joining = true
-    }
-  }
-    try {
-      const message = await getThunkError(joinRoom(url, makeRoomMeta({id: room})))
+      const message = await waitForThunkError(joinRoom(url, makeRoomMeta({id: room})))
 
       if (message && !message.startsWith("duplicate:")) {
         return pushToast({theme: "error", message})
@@ -275,26 +249,21 @@
   const start = () => {
     cleanup?.()
 
-    whenElementReady(
-      () => element,
-      (readyElement) => {
-        const feed = makeFeed({
-          element: readyElement,
-          relays: [url],
-          feedFilters: [filter],
-          subscriptionFilters: [
-            {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
-          ],
-          initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
-          onExhausted: () => {
-            loadingEvents = false
-          },
-        })
+    const feed = makeFeed({
+      element: element!,
+      relays: [url],
+      feedFilters: [filter],
+      subscriptionFilters: [
+        {kinds: [DELETE, MESSAGE, ...REACTION_KINDS], "#h": [room], since: now()},
+      ],
+      initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
+      onExhausted: () => {
+        loadingEvents = false
+      },
+    })
 
-        events = feed.events
-        cleanup = feed.cleanup
-      }
-    )
+    events = feed.events
+    cleanup = feed.cleanup
   }
 
   onMount(() => {
@@ -362,14 +331,14 @@
           {#if joining}
             <span class="loading loading-spinner loading-sm"></span>
           {:else}
-            <Icon size={4} icon="login-2" />
+            <Icon size={4} icon={Login2} />
           {/if}
         </Button>
       {:else if $membershipStatus === MembershipStatus.Pending}
         <Button
           class="btn btn-neutral btn-sm tooltip tooltip-left"
           data-tip="Membership is pending">
-          <Icon size={4} icon="clock-circle" />
+          <Icon size={4} icon={ClockCircle} />
         </Button>
       {:else}
         <Button
@@ -377,42 +346,16 @@
           data-tip="Request to be removed from member list"
           disabled={leaving}
           onclick={leave}>
-          <Icon size={4} icon="arrows-a-logout-2" />
+          <Icon size={4} icon={Logout2} />
         </Button>
       {/if}
       <Button
         class="btn btn-neutral btn-sm tooltip tooltip-left"
         data-tip={isFavorite ? "Remove Favorite" : "Add Favorite"}
         onclick={isFavorite ? removeFavorite : addFavorite}>
-        <Icon size={4} icon="bookmark" class={cx({"text-primary": isFavorite})} />
+        <Icon size={4} icon={Bookmark} class={cx({"text-primary": isFavorite})} />
       </Button>
       <MenuSpaceButton {url} />
-    </div>
-  {/snippet}
-</PageBar>
-
-<PageContent bind:element onscroll={onScroll} class="flex flex-col-reverse pt-4">
-  <div bind:this={dynamicPadding}></div>
-  {#if $channel?.private && $membershipStatus !== MembershipStatus.Granted}
-    <div class="py-20">
-      <div class="card2 col-8 m-auto max-w-md items-center text-center">
-        <p class="row-2">You aren't currently a member of this room.</p>
-        {#if $membershipStatus === MembershipStatus.Pending}
-          <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
-            <Icon icon="clock-circle" />
-            Access Pending
-          </Button>
-        {:else}
-          <Button class="btn btn-neutral btn-sm" disabled={joining} onclick={join}>
-            {#if joining}
-              <span class="loading loading-spinner loading-sm"></span>
-            {:else}
-              <Icon icon="login-2" />
-            {/if}
-            Join Room
-          </Button>
-        {/if}
-      </div>
     </div>
   {/snippet}
 </PageBar>
@@ -440,37 +383,6 @@
         {/if}
       </div>
     </div>
-  {:else}
-    {#each elements as { type, id, value, showPubkey } (id)}
-      {#if type === "new-messages"}
-        <div
-          bind:this={newMessages}
-          class="flex items-center py-2 text-xs transition-colors"
-          class:opacity-0={showFixedNewMessages}>
-          <div class="h-px flex-grow bg-primary"></div>
-          <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
-          <div class="h-px flex-grow bg-primary"></div>
-        </div>
-      {:else if type === "date"}
-        <Divider>{value}</Divider>
-      {:else}
-        <div in:slide class:-mt-1={!showPubkey}>
-          <ChannelMessage
-            {url}
-            {replyTo}
-            event={$state.snapshot(value as TrustedEvent)}
-            {showPubkey} />
-        </div>
-      {/if}
-    {/each}
-    <p class="flex h-10 items-center justify-center py-20">
-      {#if loadingEvents}
-        <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-      {:else}
-        <Spinner>End of message history</Spinner>
-      {/if}
-    </p>
-  {/if}
   {:else}
     {#each elements as { type, id, value, showPubkey } (id)}
       {#if type === "new-messages"}

@@ -216,7 +216,7 @@
     const relays = (repoClass.relays || repoRelays || [])
       .map((u: string) => normalizeRelayUrl(u))
       .filter(Boolean)
-    await postComment(comment, relays).result
+    postComment(comment, relays)
   }
 
   onMount(() => {

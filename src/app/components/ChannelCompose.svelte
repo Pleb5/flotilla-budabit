@@ -38,7 +38,7 @@
     ed.chain().clearContent().run()
   }
 
-  const editor = makeEditor({autofocus, submit, uploading, aggressive: isMobile ? false : true})
+  const editor = makeEditor({url, autofocus, submit, uploading, aggressive: true})
 </script>
 
 <form class="relative z-feature flex gap-2 p-2" onsubmit={preventDefault(submit)}>

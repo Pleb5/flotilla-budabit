@@ -30,18 +30,13 @@
     await publishSettings($state.snapshot(settings))
 
     publishThunk({
-      event: makeEvent(SETTINGS, {content}),
-      relays,
-    })
-
-    publishThunk({
       event: makeEvent(MUTES, {tags: mutedPubkeys.map(tagPubkey)}),
-      relays,
+      relays: Router.get().FromUser().getUrls(),
     })
 
     publishThunk({
       event: makeEvent(BLOSSOM_SERVERS, {tags: blossomServers.map(tagger("server"))}),
-      relays,
+      relays: Router.get().FromUser().getUrls(),
     })
 
     pushToast({message: "Your settings have been saved!"})

@@ -25,9 +25,9 @@
   import Link from "@src/lib/components/Link.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import {onMount} from "svelte"
-  import {pushModal} from "../modal"
+  import {pushModal} from "@app/util/modal"
   import ThreadCreate from "./ThreadCreate.svelte"
-  import {decodeRelay} from "@app/state"
+  import {decodeRelay} from "@app/core/state"
   import {
     loadRepoAnnouncements,
     deriveMaintainersForEuc,

@@ -5,11 +5,7 @@
   import Divider from "@lib/components/Divider.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
   import MenuSpacesItem from "@app/components/MenuSpacesItem.svelte"
-  import SpaceAdd from "@app/components/SpaceAdd.svelte"
-  import {userRoomsByUrl, PLATFORM_RELAYS} from "@app/state"
-  import {pushModal} from "@app/modal"
-
-  const addSpace = () => pushModal(SpaceAdd)
+  import {userRoomsByUrl, PLATFORM_RELAYS} from "@app/core/state"
 </script>
 
 <div class="column menu gap-2">

@@ -16,17 +16,15 @@
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
   import Copy from "@assets/icons/copy.svg?dataurl"
-  import {clip} from "@app/toast"
 
   type Props = {
     pubkey: string
     url?: string
-    hideDetails?: boolean
     showPubkey?: boolean
     avatarSize?: number
   }
 
-  const {pubkey, url, hideDetails=false, showPubkey, avatarSize = 10, showPubkey, avatarSize = 10}: Props = $props()
+  const {pubkey, url, showPubkey, avatarSize = 10}: Props = $props()
 
   const relays = removeNil([url])
   const profile = deriveProfile(pubkey, relays)
@@ -36,34 +34,31 @@
   const openProfile = () => pushModal(ProfileDetail, {pubkey, url})
 
   const copyPubkey = () => clip(nip19.npubEncode(pubkey))
-  const copyPubkey = () => clip(nip19.npubEncode(pubkey))
 </script>
 
 <div class="flex max-w-full items-start gap-3">
   <Button onclick={openProfile} class="py-1">
     <Avatar src={$profile?.picture} size={avatarSize} />
   </Button>
-  {#if !hideDetails}
-    <div class="flex min-w-0 flex-col">
-      <div class="flex items-center gap-2">
-        <Button onclick={openProfile} class="text-bold overflow-hidden text-ellipsis">
-          {$profileDisplay}
-        </Button>
-        <WotScore pubkey={pubkey} />
-      </div>
-      {#if $handle}
+  <div class="flex min-w-0 flex-col">
+    <div class="flex items-center gap-2">
+      <Button onclick={openProfile} class="text-bold overflow-hidden text-ellipsis">
+        {$profileDisplay}
+      </Button>
+      <WotScore {pubkey} />
+    </div>
+    {#if $handle}
       <div class="overflow-hidden text-ellipsis text-sm opacity-75">
-          {displayHandle($handle)}
+        {displayHandle($handle)}
       </div>
     {/if}
     {#if showPubkey}
       <div class="flex items-center gap-1 overflow-hidden text-ellipsis text-xs opacity-60">
         {displayPubkey(pubkey)}
-          <Button onclick={copyPubkey} class="pt-1">
-          <Icon size={3} icon="copy" />
+        <Button onclick={copyPubkey} class="pt-1">
+          <Icon size={3} icon={Copy} />
         </Button>
       </div>
-      {/if}
+    {/if}
   </div>
-  {/if}
 </div>

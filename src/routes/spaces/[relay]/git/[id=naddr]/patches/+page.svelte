@@ -396,7 +396,7 @@
   let element: HTMLElement | undefined = $state()
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, repoClass.relays || repoRelays).result
+    postComment(comment, repoClass.relays || repoRelays)
   }
 
   $effect(() => {

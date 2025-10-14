@@ -1,24 +1,30 @@
 <script lang="ts">
   import {load} from "@welshman/net"
-  import {Address, GIT_ISSUE, GIT_PATCH, type EventContent, type TrustedEvent} from "@welshman/util"
+  import {
+    Address,
+    GIT_ISSUE,
+    GIT_PATCH,
+    type EventContent,
+    type TrustedEvent,
+  } from "@welshman/util"
   import {repository} from "@welshman/app"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActions from "@app/components/EventActions.svelte"
-  import {publishDelete, publishReaction} from "@app/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeGitIssuePath, makeGitPath} from "@lib/budabit"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
-  import {navigating} from "$app/state"
+  import {navigating} from "$app/stores"
   import {goto} from "$app/navigation"
-  import {nip19} from "nostr-tools"
+  import * as nip19 from "nostr-tools/nip19"
   import type {AddressPointer} from "nostr-tools/nip19"
   import {canonicalRepoKey, sanitizeRelays} from "@nostr-git/core"
-  import {pushToast} from "@app/toast"
+  import {pushToast} from "@app/util/toast"
   import {normalizeRelayUrl} from "@welshman/util"
-  import Link from "@src/lib/components/Link.svelte"
+  import Link from "@lib/components/Link.svelte"
 
   interface Props {
     url: any
@@ -51,13 +57,14 @@
   const patchCount = $derived($patches.length)
 
   const onPublishDelete = (event: TrustedEvent) =>
-    publishDelete({relays: [normalizeRelayUrl(url)], event})
+    publishDelete({relays: [normalizeRelayUrl(url)], event, protect: false})
 
   const onPublishReaction = (event: EventContent) => {
     publishReaction({
       event: event as TrustedEvent,
       content: event.content,
       relays: [normalizeRelayUrl(url)],
+      protect: false,
     })
   }
 
@@ -69,11 +76,6 @@
           loadingIssues = false
         })
       }
-    }
-  })
-
-  $effect(() => {
-    if (navigating.type) {
     }
   })
 
@@ -135,15 +137,11 @@
 
 <div class="flex flex-wrap items-center justify-between gap-2">
   <div class="flex flex-grow flex-wrap justify-end gap-2">
-    <Link
-      class="cursor-pointer"
-      href={makeGitPath(url, Address.fromEvent(event).toNaddr())}>
+    <Link class="cursor-pointer" href={makeGitPath(url, Address.fromEvent(event).toNaddr())}>
       <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Browse</div>
     </Link>
     {#if showIssues}
-      <Link
-        class="cursor-pointer"
-        href={makeGitIssuePath(url, Address.fromEvent(event).toNaddr())}>
+      <Link class="cursor-pointer" href={makeGitIssuePath(url, Address.fromEvent(event).toNaddr())}>
         <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Issues</div>
       </Link>
     {/if}

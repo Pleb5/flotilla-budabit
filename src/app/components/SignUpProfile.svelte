@@ -15,25 +15,7 @@
     shouldBroadcast: false,
   }
 
-  const onsubmit = ({
-    profile,
-    shouldBroadcast,
-    githubIdentity,
-  }: {
-    profile: Profile;
-    shouldBroadcast: boolean;
-    githubIdentity?: {username: string; proof: string}
-  }) => {
-    const template = createProfile(profile)
-    
-    // Handle NIP-39 GitHub identity
-    if (githubIdentity?.username && githubIdentity?.proof) {
-      const githubTag = ['i', `github:${githubIdentity.username}`, githubIdentity.proof]
-      template.tags.push(githubTag)
-    }
-    
-    const event = makeEvent(PROFILE, template)
-    const relays = shouldBroadcast ? INDEXER_RELAYS : []
+  const back = () => history.back()
 
   const onsubmit = (values: {profile: Profile}) => pushModal(SignUpKey, values)
 </script>

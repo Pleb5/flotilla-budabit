@@ -95,7 +95,7 @@
 
   onMount(() => {
     const feedFilters = [{kinds: [EVENT_TIME]}]
-    const subscriptionFilters = [{kinds: [DELETE, REACTION, EVENT_TIME], since: now()}]
+    const subscriptionFilters = [{kinds: [DELETE, EVENT_TIME, ...REACTION_KINDS], since: now()}]
 
     ;({events, cleanup} = makeCalendarFeed({
       element: element!,

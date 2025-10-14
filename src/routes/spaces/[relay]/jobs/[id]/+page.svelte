@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {onDestroy, onMount} from "svelte"
+  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {sortBy, sleep, now} from "@welshman/lib"
   import {COMMENT, type TrustedEvent} from "@welshman/util"
@@ -17,7 +17,6 @@
   import JobItem from "@src/app/components/JobItem.svelte"
   import Divider from "@src/lib/components/Divider.svelte"
   import {makeFeed} from "@app/core/requests"
-  import {whenElementReady} from "@src/lib/html"
   import {readable, writable, type Readable} from "svelte/store"
   import PageContent from "@src/lib/components/PageContent.svelte"
 
@@ -54,30 +53,20 @@
   let element: HTMLElement | undefined = $state()
 
   onMount(() => {
-    whenElementReady(
-      () => element,
-      (readyElement) => {
-        ;({events, cleanup} = makeFeed({
-          element: readyElement,
-          relays: [url],
-          feedFilters: [{kinds: [COMMENT], "#E": [id]}],
-          subscriptionFilters: [{kinds: [COMMENT], "#E": [id], since: now()}],
-          initialEvents: getEventsForUrl(url, [{kinds: [COMMENT], "#E": [id], limit: 20}]),
-          onExhausted: () => {
-            loadingEvents = false
-          },
-        }))
-      }
-    )
-
-    return () => {}
-  })
-
-  onDestroy(() => {
-    cleanup()
-    setTimeout(() => {
+    const {cleanup} = makeFeed({
+      element: element!,
+      relays: [url],
+      feedFilters: [{kinds: [COMMENT], "#E": [id]}],
+      subscriptionFilters: [{kinds: [COMMENT], "#E": [id], since: now()}],
+      initialEvents: getEventsForUrl(url, [{kinds: [COMMENT], "#E": [id], limit: 20}]),
+      onExhausted: () => {
+        loadingEvents = false
+      },
+    })
+    return () => {
+      cleanup?.()
       setChecked($page.url.pathname)
-    }, 800)
+    }
   })
 </script>
 

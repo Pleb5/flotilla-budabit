@@ -2,7 +2,7 @@
   import {onMount} from "svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
   import {tokens as tokensStore} from "@nostr-git/ui"
   import {

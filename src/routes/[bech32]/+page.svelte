@@ -5,8 +5,6 @@
   import type {TrustedEvent} from "@welshman/util"
   import {Address, getIdFilters} from "@welshman/util"
   import {LOCAL_RELAY_URL} from "@welshman/relay"
-  import {Address, getIdFilters} from "@welshman/util"
-  import {LOCAL_RELAY_URL} from "@welshman/relay"
   import {load} from "@welshman/net"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"

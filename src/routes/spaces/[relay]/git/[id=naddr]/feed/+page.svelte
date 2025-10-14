@@ -2,8 +2,7 @@
   import {readable, type Readable} from "svelte/store"
   import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
-  import {makeFeed} from "@app/requests"
-  import {whenElementReady} from "@src/lib/html"
+  import {makeFeed} from "@app/core/requests"
   import {now, formatTimestampAsDate} from "@welshman/lib"
   import {load} from "@welshman/net"
   import type {TrustedEvent, EventContent} from "@welshman/util"
@@ -29,17 +28,17 @@
   import ChannelCompose from "@app/components/ChannelCompose.svelte"
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
   import {
-    userSettingValues,
+    userSettingsValues,
     decodeRelay,
     deriveUserMembershipStatus,
     deriveChannel,
     MembershipStatus,
-  } from "@app/state"
-  import {setChecked, checked} from "@app/notifications"
-  import {prependParent} from "@app/commands"
-  import {PROTECTED} from "@app/state"
-  import {popKey} from "@app/implicit"
-  import {pushToast} from "@app/toast"
+  } from "@app/core/state"
+  import {setChecked, checked} from "@app/util/notifications"
+  import {prependParent} from "@app/core/commands"
+  import {PROTECTED} from "@app/core/state"
+  import {popKey} from "@lib/implicit"
+  import {pushToast} from "@app/util/toast"
   import {GIT_REPO_ANNOUNCEMENT, type IssueEvent, type PatchEvent} from "@nostr-git/shared-types"
 
   const {id} = $page.params
@@ -83,7 +82,7 @@
         return pushToast({theme: "error", message})
       } else {
         // Restart the feed now that we're a member
-        start()
+        start?.()
       }
     } finally {
       joining = false
@@ -133,7 +132,7 @@
     publishThunk({
       relays: [url],
       event: makeEvent(MESSAGE, template),
-      delay: $userSettingValues.send_delay,
+      delay: $userSettingsValues.send_delay,
     })
 
     clearParent()
@@ -169,11 +168,11 @@
   let element: HTMLElement | undefined = $state()
   let newMessages: HTMLElement | undefined = $state()
   let chatCompose: HTMLElement | undefined = $state()
-  let dynamicPadding: HTMLElement | undefined = $state()
   let newMessagesSeen = false
   let showFixedNewMessages = $state(false)
   let showScrollButton = $state(false)
   let cleanup: () => void
+  let start: (() => void) | undefined = $state()
   let events: Readable<TrustedEvent[]> = $state(readable([]))
   let compose: ChannelCompose | undefined = $state()
 
@@ -234,57 +233,48 @@
     return elements
   })
 
-  const start = async () => {
-    cleanup?.()
+ onMount(() => {
+    let cleanup: (() => void) | undefined
+    
+    // Async initialization
+    ;(async () => {
+      const initialEvents = await load({
+        relays: repoClass.relays || [url],
+        filters: filter,
+      })
 
-    await whenElementReady(
-      () => element,
-      async readyElement => {
-        const initialEvents = await load({
-          relays: repoClass.relays || [url],
-          filters: filter,
-        })
+      initialEvents.push(
+        ...repoClass.issues,
+        ...repoClass.patches.filter(p =>
+          p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root"),
+        ),
+      )
 
-        initialEvents.push(
-          ...repoClass.issues,
-          ...repoClass.patches.filter(p =>
-            p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root"),
-          ),
-        )
+      initialEvents.sort((a, b) => b.created_at - a.created_at)
 
-        initialEvents.sort((a, b) => b.created_at - a.created_at)
-
-        const feed = makeFeed({
-          element: readyElement,
-          relays: [url],
-          feedFilters: filter,
-          subscriptionFilters: [
-            ...filter,
-            {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
-          ],
-          initialEvents,
-          onExhausted: () => {
-            loadingEvents = false
-          },
-        })
-
-        events = feed.events
-        cleanup = feed.cleanup
-      },
-    )
-  }
-
-  onMount(() => {
-    start()
-  })
-
-  onDestroy(() => {
-    cleanup?.()
-
-    // Sveltekit calls onDestroy at the beginning of the page load for some reason
-    setTimeout(() => {
+      const feedResult = makeFeed({
+        element: element!,
+        relays: [url],
+        feedFilters: filter,
+        subscriptionFilters: [
+          ...filter,
+          {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
+        ],
+        initialEvents,
+        onExhausted: () => {
+          loadingEvents = false
+        },
+      })
+      
+      cleanup = feedResult.cleanup
+      // Store cleanup function for use in join()
+      start = cleanup
+    })()
+        
+    return () => {
+      cleanup?.()
       setChecked($page.url.pathname)
-    }, 800)
+    }
   })
 </script>
 

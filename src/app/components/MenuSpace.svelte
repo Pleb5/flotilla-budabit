@@ -1,7 +1,6 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {displayRelayUrl, getTagValue, getTagValue} from "@welshman/util"
-  import {deriveRelay} from "@welshman/app"
+  import {displayRelayUrl, getTagValue} from "@welshman/util"
   import {deriveRelay} from "@welshman/app"
   import {fly} from "@lib/transition"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
@@ -30,7 +29,6 @@
   import Alerts from "@app/components/Alerts.svelte"
   import RoomCreate from "@app/components/RoomCreate.svelte"
   import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
-  import InfoMissingRooms from "@app/components/InfoMissingRooms.svelte"
   import {
     ENABLE_ZAPS,
     userRoomsByUrl,
@@ -52,8 +50,6 @@
   const goalsPath = makeSpacePath(url, "goals")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
-  const jobsPath = makeSpacePath(url, "jobs")
-  const gitPath = makeSpacePath(url, "git")
   const userRooms = deriveUserRooms(url)
   const otherRooms = deriveOtherRooms(url)
   const hasAlerts = $derived($alerts.some(a => getTagValue("feed", a.tags)?.includes(url)))
@@ -65,8 +61,6 @@
   const toggleMenu = () => {
     showMenu = !showMenu
   }
-
-  const showMissingRooms = () => pushModal(InfoMissingRooms)
 
   const showMembers = () =>
     pushModal(
@@ -170,15 +164,10 @@
         notification={$notifications.has(calendarPath)}>
         <Icon icon={CalendarMinimalistic} /> Calendar
       </SecondaryNavItem>
-      <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
-        <Icon icon="git" /> Git
-      </SecondaryNavItem>
-      {#if $userRooms.length > 0}
-        {#if hasNip29($relay)}
+      {#if hasNip29($relay)}
         {#if $userRooms.length > 0}
           <div class="h-2"></div>
-            <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
-      {/if}
+          <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
         {/if}
         {#each $userRooms as room, i (room)}
           <MenuSpaceRoomItem {replaceState} notify {url} {room} />
@@ -186,7 +175,7 @@
         {#if $otherRooms.length > 0}
           <div class="h-2"></div>
           <SecondaryNavHeader>
-            {#if $userRoomsByUrl.has(url)}
+            {#if $userRooms.length > 0}
               Other Rooms
             {:else}
               Rooms
@@ -210,12 +199,6 @@
       {/if}
     </div>
   </SecondaryNavSection>
-  <div class="p-4">
-    <button class="btn btn-neutral btn-sm w-full" onclick={manageAlerts}>
-      <Icon icon="bell" />
-      Manage Alerts
-    </button>
-  </div>
   <div class="p-4">
     <button class="btn btn-neutral btn-sm w-full" onclick={manageAlerts}>
       <Icon icon={Bell} />

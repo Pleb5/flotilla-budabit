@@ -14,7 +14,6 @@
   import {canDecrypt, pubkeyLink} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {makeChatPath} from "@app/util/routes"
-  import {makeGitRepoPath} from "@lib/budabit"
 
   export type Props = {
     pubkey: string
@@ -42,12 +41,8 @@
     <div class="flex gap-2">
       <Link external href={pubkeyLink(pubkey)} class="btn btn-neutral">
         <Avatar src="/coracle.png" />
-        Profile
+        Open in Coracle
       </Link>
-      <Button onclick={() => goto(makeGitRepoPath(pubkey))} class="btn btn-neutral">
-        <Icon icon="git" />
-        Git Repos
-      </Button>
       <Button onclick={openChat} class="btn btn-primary">
         <Icon icon={Letter} />
         Open Chat

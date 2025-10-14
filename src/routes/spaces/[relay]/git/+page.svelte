@@ -26,9 +26,9 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import GitItem from "@app/components/GitItem.svelte"
-  import {pushModal} from "@app/modal"
-  import {pushToast} from "@app/toast"
-  import {decodeRelay} from "@app/state"
+  import {pushModal} from "@app/util/modal"
+  import {pushToast} from "@app/util/toast"
+  import {decodeRelay} from "@app/core/state"
   import {goto} from "$app/navigation"
   import {onMount} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
@@ -190,20 +190,6 @@
 
         // Then publish to relays in the background
         const thunk = publishThunk({event: eventToPublish, relays: relays || bookmarkRelays})
-
-        thunk.result
-          .then(() => {
-            // Force reload from relays after a delay to get the new event
-            setTimeout(() => {
-              //load({relays: relays || bookmarkRelays, filters: [bookmarkFilter]})
-            }, 2000)
-          })
-          .catch(err => {
-            console.error("[git/+page] Failed to publish bookmarks:", err)
-          })
-          .finally(() => {
-            controller.abort()
-          })
 
         return {controller}
       }

@@ -27,6 +27,7 @@
   import {deriveUserRooms, deriveOtherRooms} from "@app/core/state"
   import {makeChatPath, makeThreadPath, makeCalendarPath} from "@app/util/routes"
   import {makeGitPath} from "@lib/budabit/routes"
+  import RoomCreate from "@app/components/RoomCreate.svelte"
 
   const url = decodeRelay($page.params.relay!)
   const relay = deriveRelay(url)
@@ -40,7 +41,7 @@
 
   const addRoom = () => pushModal(RoomCreate, {url})
 
-  const pubkey = $derived($relay?.profile?.pubkey)
+  const owner = $derived($relay?.profile?.pubkey)
 </script>
 
 <PageBar>

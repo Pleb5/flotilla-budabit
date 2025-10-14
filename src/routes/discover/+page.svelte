@@ -5,9 +5,6 @@
   import {ROOMS, normalizeRelayUrl, isRelayUrl} from "@welshman/util"
   import {Router} from "@welshman/router"
   import {load} from "@welshman/net"
-  import {ROOMS} from "@welshman/util"
-  import {Router} from "@welshman/router"
-  import {load} from "@welshman/net"
   import type {Relay} from "@welshman/app"
   import {relays, createSearch, loadRelay, loadRelaySelections} from "@welshman/app"
   import {createScroller} from "@lib/html"
@@ -57,18 +54,6 @@
         await Promise.all(urls.map(url => loadRelay(url)))
       }),
     ])
-
-  const wotGraph = $derived.by(() => {
-    const scores = new Map<string, Set<string>>()
-
-    for (const pubkey of getDefaultPubkeys()) {
-      for (const url of getMembershipUrls($membershipsByPubkey.get(pubkey))) {
-        addToMapKey(scores, url, pubkey)
-      }
-    }
-
-    return scores
-  })
 
   const relaySearch = $derived(
     createSearch(

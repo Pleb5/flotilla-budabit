@@ -10,7 +10,7 @@
   let loading = $state(true)
 
   onMount(() => {
-    scanner = new QrScanner(video, r => onscan(r.data), {
+    scanner = new QrScanner(video, (r: any) => onscan(r.data), {
       returnDetailedScanResult: true,
     })
 

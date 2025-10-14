@@ -20,7 +20,7 @@
   <div class="column gap-4">
     <div class="py-2">
       <h1 class="heading">Welcome to {PLATFORM_NAME}!</h1>
-      <p class="text-center">A Club for Builders in Freedom Tech</p>
+      <p class="text-center">The chat app built for self-hosted communities.</p>
     </div>
     <Button onclick={logIn}>
       <CardButton class="btn-primary">
@@ -48,14 +48,10 @@
         {/snippet}
       </CardButton>
     </Button>
-    <p class="text-center underline">
-      By using {PLATFORM_NAME}, you consent to the rules of the club:
+    <p class="text-center text-xs opacity-75">
+      By using {PLATFORM_NAME}, you consent to our
+      <Link external class="link" href={PLATFORM_TERMS}>Terms of Service</Link> and
+      <Link external class="link" href={PLATFORM_PRIVACY}>Privacy Policy</Link>.
     </p>
-    <ul class="list-decimal p-4 pt-0">
-      <li>No shitcoinery and other scammy/spammy behavior will be tolerated
-      </li>
-      <li>Keep it relevant and focused: Inspire and get inspired. Be a signal rather than noise
-      </li>
-    </ul>
   </div>
 </Dialog>

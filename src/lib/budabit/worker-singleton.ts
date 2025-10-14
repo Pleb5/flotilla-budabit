@@ -8,8 +8,8 @@
  * - Worker is reused for all Git operations
  * - No manual initialization needed
  */
-import { getGitWorker, proxy } from '@nostr-git/core';
-import { createEventIO, createSignEvent } from '$lib/nostr/io-adapter';
+import { getGitWorker, proxy, type NostrEvent } from '@nostr-git/core';
+import { publishEvent } from './commands';
 
 interface GitWorkerInstance {
   api: any;
@@ -64,8 +64,7 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
     });
     
     // Create EventIO and SignEvent instances
-    const io = createEventIO();
-    const signEvent = createSignEvent();
+    const io = (event: NostrEvent) => publishEvent(event);
     
     // Configure EventIO for GRASP operations
     // Wrap EventIO with Comlink proxy to allow async functions to be passed to worker

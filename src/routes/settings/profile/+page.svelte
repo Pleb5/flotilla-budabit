@@ -17,23 +17,16 @@
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
-  import Content from "@app/components/ChannelMessage.svelte"
+  import Content from "@app/components/Content.svelte"
   import ProfileEdit from "@app/components/ProfileEdit.svelte"
   import ProfileDelete from "@app/components/ProfileDelete.svelte"
   import SignerStatus from "@app/components/SignerStatus.svelte"
   import InfoKeys from "@app/components/InfoKeys.svelte"
-  import Alerts from "@app/components/Alerts.svelte"
   import {PLATFORM_NAME} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
   import GraspServersPanel from "@app/components/GraspServersPanel.svelte";
   import GitAuth from "@app/components/GitAuth.svelte";
-  import {
-    createEventIO,
-  } from "@lib/nostr/io-adapter";
-
-  // Create I/O closures once for the entire component lifetime
-  const io = createEventIO();
 
   const npub = nip19.npubEncode($pubkey!)
   const profile = deriveProfile($pubkey!)
@@ -49,7 +42,7 @@
 
   const startDelete = () => pushModal(ProfileDelete)
 
-  let showAdvanced = $state(false)
+  let showAdvanced = false
 </script>
 
 <div class="content column gap-4">
@@ -157,7 +150,6 @@
     <GraspServersPanel></GraspServersPanel>
   </div>
 
-  <Alerts />
 
   <div class="card2 bg-alt shadow-xl">
     <div class="flex items-center justify-between">

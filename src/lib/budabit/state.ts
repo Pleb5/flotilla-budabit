@@ -16,7 +16,7 @@ import {
  } from "@nostr-git/core"
 import { repository } from "@welshman/app"
 import { deriveEvents, withGetter } from "@welshman/store"
-import { GIT_RELAYS, INDEXER_RELAYS, deriveEvent } from "../../app/state"
+import { INDEXER_RELAYS, deriveEvent } from "@app/core/state"
 import { normalizeRelayUrl, type TrustedEvent } from "@welshman/util"
 import { nip19 } from "nostr-tools"
 
@@ -29,6 +29,10 @@ export const REPO_RELAYS_KEY = Symbol("repo-relays")
 export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767
+
+export const GIT_RELAYS = import.meta.env.VITE_GIT_RELAYS
+
+export const ROOMS = 10009
 
 export const jobLink = (naddr: string) => `https://test.satshoot.com/${naddr}`
 export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
@@ -179,7 +183,7 @@ export const deriveRepoRefState = (euc: string) =>
     })
     const defaults = GIT_RELAYS && GIT_RELAYS.length > 0 ? GIT_RELAYS : INDEXER_RELAYS
     const relays = (args.relays || defaults)
-      .map(u => normalizeRelayUrl(u))
+      .map((u: string) => normalizeRelayUrl(u))
       .filter(Boolean) as string[]
     return load({relays, filters})
   }

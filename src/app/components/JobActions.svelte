@@ -1,19 +1,19 @@
 <script lang="ts">
   import {Address, type EventContent, type TrustedEvent} from "@welshman/util"
-  import {pubkey, tracker} from "@welshman/app"
+  import {tracker} from "@welshman/app"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
-  import {publishDelete, publishReaction} from "@app/commands"
+  import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeJobPath} from "@lib/budabit"
   import Button from "@src/lib/components/Button.svelte"
   import Link from "@src/lib/components/Link.svelte"
   import {jobLink} from "@lib/budabit"
-  import {pushModal} from "../modal"
+  import {pushModal} from "@app/util/modal"
   import ThreadCreate from "./ThreadCreate.svelte"
   import {Router} from "@welshman/router"
-
+  
   interface Props {
     url: any
     event: any
@@ -47,10 +47,15 @@
   const startThread = () =>
     pushModal(ThreadCreate, {url: url, jobOrGitIssue: event, relayHint: relayHint})
 
-  const onPublishDelete = (event: TrustedEvent) => publishDelete({relays: [url], event})
+  const onPublishDelete = (event: TrustedEvent) => publishDelete({relays: [url], event, protect: false})
 
-  const onPublishReaction = (event: EventContent) => {
-    publishReaction({event: event as TrustedEvent, content: event.content, relays: [url]})
+  const onPublishReaction = (eventContent: EventContent) => {
+    publishReaction({
+      event: eventContent as TrustedEvent, 
+      content: eventContent.content,
+      relays: [url], 
+      protect: false
+    })
   }
 </script>
 

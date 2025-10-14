@@ -42,8 +42,8 @@
     type PatchEvent,
   } from "@nostr-git/shared-types"
   import {postComment, postStatus} from "@lib/budabit/commands"
-  import {parseGitPatchFromEvent, analyzePatchMerge} from "@nostr-git/core"
-  import type {MergeAnalysisResult} from "@nostr-git/core"
+  import {parseGitPatchFromEvent} from "@nostr-git/core"
+  import type {Commit, MergeAnalysisResult, Patch, PatchTag} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"
   import {derived as _derived} from "svelte/store"
   import type {LayoutProps} from "../../$types"
@@ -307,7 +307,7 @@
     // Prepare patch data - ensure all data is serializable
     const patchData = {
       id: selectedPatch.id,
-      commits: (selectedPatch.commits || []).map(commit: Commit => ({
+      commits: (selectedPatch.commits || []).map((commit: Commit) => ({
         oid: commit.oid || "",
         message: commit.message || "",
         author: {
@@ -613,7 +613,7 @@
             {/if}
 
             <!-- PGP Signature -->
-            {#if selectedPatch?.raw?.tags?.find(t: => t[0] === "commit-pgp-sig")}
+            {#if selectedPatch?.raw?.tags?.find((t: PatchTag) => t[0] === "commit-pgp-sig")}
               <div class="flex items-center justify-between">
                 <span class="text-muted-foreground">Signed:</span>
                 <div class="flex items-center gap-2 text-green-600">
@@ -848,7 +848,7 @@
           {#if patchSet.length > 1}
             <div class="flex items-center gap-2">
               {#key selectedPatch?.id}
-                {@const currentIndex = patchSet.findIndex((p: PatchEvent) => p.id === selectedPatch?.id)}
+                {@const currentIndex = patchSet.findIndex((p: Patch) => p.id === selectedPatch?.id)}
                 {@const hasPrevious = currentIndex > 0}
                 {@const hasNext = currentIndex < patchSet.length - 1}
 

@@ -107,11 +107,6 @@ export const notifications = derived(
         paths.add(calendarPath)
       }
 
-      if (hasNotification(messagesPath, messagesEvents[0])) {
-        paths.add(spacePath)
-        paths.add(messagesPath)
-      }
-
       const commentsByThreadId = groupBy(
         e => getTagValue("E", e.tags),
         threadEvents.filter(spec({kind: COMMENT})),
