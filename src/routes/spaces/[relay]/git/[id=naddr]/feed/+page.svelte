@@ -288,6 +288,10 @@
   })
 </script>
 
+<svelte:head>
+  <title>{repoClass.name} - Feed</title>
+</svelte:head>
+
 <div
   bind:this={element}
   onscroll={onScroll}

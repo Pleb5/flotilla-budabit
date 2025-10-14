@@ -311,7 +311,9 @@
       {isRefreshing}
       {forkRepo}
       {settingsRepo}
-      {overviewRepo}>
+      {overviewRepo}
+      userPubkey={$pubkey}
+      >
       {#snippet children(activeTab: string)}
         <RepoTab
           tabValue="feed"
@@ -358,17 +360,6 @@
             <GitCommit class="h-4 w-4" />
           {/snippet}
         </RepoTab>
-        <!--
-        <RepoTab
-          tabValue="workbench"
-          label="Workbench"
-          href={`/spaces/${encodedRelay}/git/${id}/workbench`}
-          {activeTab}>
-          {#snippet icon()}
-            <Layers class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        -->
       {/snippet}
     </RepoHeader>
     <ConfigProvider

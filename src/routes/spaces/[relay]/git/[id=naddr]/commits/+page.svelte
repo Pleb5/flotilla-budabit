@@ -155,6 +155,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{repoClass.name} - Commits</title>
+</svelte:head>
+
 <div class="flex flex-col gap-6">
   <div class="mt-2 flex flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:flex-row">
     <div class="flex-1">

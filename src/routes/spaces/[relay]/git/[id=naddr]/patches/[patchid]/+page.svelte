@@ -507,6 +507,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{repoClass.name} - {patch?.title}</title>
+</svelte:head>
+
 {#if patch}
   <div class="z-10 sticky top-0 items-center justify-between py-4 backdrop-blur">
     <div>

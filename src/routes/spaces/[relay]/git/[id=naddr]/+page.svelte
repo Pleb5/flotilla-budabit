@@ -14,10 +14,10 @@
     BookOpen,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
-  import Spinner from "@src/lib/components/Spinner.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import {formatDistanceToNow} from "date-fns"
   import {nthEq} from "@welshman/lib"
-  import Button from "@src/lib/components/Button.svelte"
+  import Button from "@lib/components/Button.svelte"
   import {profilesByPubkey} from "@welshman/app"
   import {pushModal} from "@app/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
@@ -49,7 +49,7 @@
       color: "text-blue-600",
     },
     {
-      label: "Doers",
+      label: "Maintainers",
       value: repoClass.maintainers?.length || 0,
       icon: Users,
       color: "text-green-600",
@@ -289,6 +289,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{repoClass.name}</title>
+</svelte:head>
+
 <div class="relative flex flex-col gap-6 py-2">
   {#if initialLoading}
     <div class="flex justify-center py-8">
@@ -300,12 +304,12 @@
       {#each stats as stat}
         <Card class="p-4 transition-shadow hover:shadow-md">
           <div class="flex items-center gap-3">
-            <div class="p-2">
-              <stat.icon class="h-5 w-5 {stat.color}" />
-            </div>
             <div>
               <p class="text-sm text-muted-foreground">{stat.label}</p>
-              <p class="text-2xl font-semibold">{stat.value}</p>
+              <div class="flex items-center gap-3 py-2">
+                <stat.icon class="h-5 w-5 {stat.color}" />
+                <p class="text-2xl font-semibold">{stat.value}</p>
+              </div>
             </div>
           </div>
         </Card>
@@ -372,11 +376,11 @@
 
             {#if repoClass.branches && repoClass.branches.length > 0}
               <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground">Branches</span>
+                <span class="mb-2 block text-sm text-muted-foreground ">Branches</span>
                 <div class="flex flex-wrap gap-1">
                   {#each repoClass.branches.slice(0, 5) as branch}
                     <span
-                      class="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+                      class="truncate rounded outline outline-1 outline-gray-200 px-2 py-1 text-xs text-white dark:bg-blue-900/30 dark:text-blue-200">
                       {branch.name}
                       {#if branch.isHead}
                         <span class="ml-1">•</span>

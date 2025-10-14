@@ -459,6 +459,10 @@
   })
 </script>
 
+<svelte:head>
+  <title>{repoClass.name} - Patches</title>
+</svelte:head>
+
 <div bind:this={element}>
   <div class="z-10 sticky -top-8 z-nav mb-2 flex flex-col gap-y-2 py-4 backdrop-blur">
     <div class=" flex items-center justify-between">

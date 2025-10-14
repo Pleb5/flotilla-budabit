@@ -138,10 +138,6 @@ export const load: LayoutLoad = async ({params}) => {
     kinds: [GIT_PATCH],
     "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
   }
-
-  console.log("issueFilters", issueFilters)
-  console.log("patchFilters", patchFilters)
-
   // Load issues and patches
   await load({
     relays: relayListFromUrl as string[],
@@ -163,8 +159,6 @@ export const load: LayoutLoad = async ({params}) => {
     }),
     events => (events || []) as PatchEvent[],
   )
-
-  // Token store is now initialized at app level - no need to set up here
 
   const emptyArr = derived([], () => [] as any[])
   const repoClass = new Repo({

@@ -1,6 +1,29 @@
 <script lang="ts">
-  import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert} from "@nostr-git/ui"
-  import {CalendarDays, Check, Clock, Eye, GitCommit, Plus, SearchX, X} from "@lucide/svelte"
+  import {
+    IssueCard,
+    NewIssueForm,
+    Button,
+    toast,
+    pushRepoAlert,
+  } from "@nostr-git/ui"
+  import {
+    getTags,
+    createStatusEvent,
+    type CommentEvent,
+    type IssueEvent,
+    type StatusEvent,
+    type TrustedEvent,
+  } from "@nostr-git/shared-types"
+  import {
+    CalendarDays,
+    Check,
+    Clock,
+    Eye,
+    GitCommit,
+    Plus,
+    SearchX,
+    X,
+  } from "@lucide/svelte"
   import {
     Address,
     COMMENT,
@@ -11,42 +34,31 @@
     GIT_STATUS_CLOSED,
     getTag,
   } from "@welshman/util"
-  import {getTags} from "@nostr-git/shared-types"
   import {createSearch, pubkey} from "@welshman/app"
-  import Spinner from "@src/lib/components/Spinner.svelte"
-  import {makeFeed} from "@src/app/requests"
-  import {slideAndFade} from "@lib/transition"
-  import {pushModal} from "@app/modal"
-  import {
-    createStatusEvent,
-    type CommentEvent,
-    type IssueEvent,
-    type StatusEvent,
-    type TrustedEvent,
-  } from "@nostr-git/shared-types"
+  import {now, sortBy} from "@welshman/lib"
   import {PublishStatus, request} from "@welshman/net"
+  import Spinner from "@lib/components/Spinner.svelte"
+  import Icon from "@lib/components/Icon.svelte"
+  import {slideAndFade} from "@lib/transition"
+  import {makeFeed} from "@app/requests"
+  import {pushModal} from "@app/modal"
   import {postComment, postIssue, postStatus} from "@lib/budabit/commands.js"
-  import {sortBy} from "@welshman/lib"
-  import Icon from "@src/lib/components/Icon.svelte"
-  import FilterPanel from "@src/app/components/FilterPanel.svelte"
-  import {isMobile} from "@src/lib/html"
+  import FilterPanel from "@app/components/FilterPanel.svelte"
+  import {isMobile} from "@lib/html"
   import {onMount, onDestroy} from "svelte"
-  // Labels are resolved from repoClass.getIssueLabels() to avoid direct store reads in component
-  import {now} from "@welshman/lib"
 
   const {data} = $props()
-  const {repoClass, issueFilter, repoRelays, statusEventsByRoot} = data
+  const {repoClass, issueFilter, statusEventsByRoot} = data
   const mounted = now()
   const alertedIds = new Set<string>()
+
   // Track previous review-needed state per issue to alert only on false -> true transitions
   const prevReviewStateByIssue: Map<string, boolean> = new Map()
   // Debounce window for comment mention alerts per issue (ms)
   const mentionWindowMs = 3000
   const lastMentionAlertAtByIssue: Map<string, number> = new Map()
 
-  const issues = $derived.by(() => {
-    return sortBy(e => -e.created_at, repoClass.issues)
-  })
+  const issues =repoClass.issues
 
   const comments = $state<Record<string, CommentEvent[]>>({})
 
@@ -198,9 +210,7 @@
     for (const issue of issues) {
       const getter = (repoClass as unknown as {getIssueLabels?: (id: string) => any}).getIssueLabels
       const eff = normalizeEff(
-        typeof getter === "function"
-          ? getter.call(repoClass, issue.id)
-          : null,
+        typeof getter === "function" ? getter.call(repoClass, issue.id) : null,
       )
       const flat = eff ? Array.from(eff.flat) : []
       const naturals = flat.map(toNaturalLabel)
@@ -220,7 +230,7 @@
       groupsById.set(issue.id, groups)
     }
     const res = {byId, groupsById}
-    console.debug("[IssuesList] labelsData recomputed", { count: byId.size })
+    console.debug("[IssuesList] labelsData recomputed", {count: byId.size})
     return res
   })
   const labelsByIssue = $derived.by(() => labelsData.byId)
@@ -285,7 +295,7 @@
       if (ids.length) {
         request({
           relays: repoClass.relays,
-          filters: [{ kinds: [1985], "#e": ids }],
+          filters: [{kinds: [1985], "#e": ids}],
           onEvent: () => {},
         })
       }
@@ -563,6 +573,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{repoClass.name} - Issues</title>
+</svelte:head>
+
 <div bind:this={element}>
   <div class="sticky -top-8 z-nav my-4 max-w-full space-y-2 backdrop-blur">
     <div class=" flex items-center justify-between">
@@ -659,44 +673,7 @@
                 repo={repoClass}
                 statusEvents={$statusEventsByRoot?.get(issue.id) || []}
                 actorPubkey={$pubkey} />
-            {#if (labelsByIssue.get(issue.id) || []).length}
-              <!-- extraLabels passed for this issue; debug logging removed to satisfy Svelte placement rules -->
-            {/if}
             </div>
-            {#if labelsByIssue.get(issue.id)?.length}
-              <div class="mt-1 flex flex-wrap gap-2 text-xs">
-                {#if labelGroupsFor(issue.id).Status.length}
-                  <span class="opacity-60">Status:</span>
-                  {#each labelGroupsFor(issue.id).Status as l (l)}<span
-                      class="badge badge-ghost badge-sm">{l}</span
-                    >{/each}
-                {/if}
-                {#if labelGroupsFor(issue.id).Type.length}
-                  <span class="opacity-60">Type:</span>
-                  {#each labelGroupsFor(issue.id).Type as l (l)}<span
-                      class="badge badge-ghost badge-sm">{l}</span
-                    >{/each}
-                {/if}
-                {#if labelGroupsFor(issue.id).Area.length}
-                  <span class="opacity-60">Area:</span>
-                  {#each labelGroupsFor(issue.id).Area as l (l)}<span
-                      class="badge badge-ghost badge-sm">{l}</span
-                    >{/each}
-                {/if}
-                {#if labelGroupsFor(issue.id).Tags.length}
-                  <span class="opacity-60">Tags:</span>
-                  {#each labelGroupsFor(issue.id).Tags as l (l)}<span
-                      class="badge badge-ghost badge-sm">{l}</span
-                    >{/each}
-                {/if}
-                {#if labelGroupsFor(issue.id).Other.length}
-                  <span class="opacity-60">Other:</span>
-                  {#each labelGroupsFor(issue.id).Other as l (l)}<span
-                      class="badge badge-ghost badge-sm">{l}</span
-                    >{/each}
-                {/if}
-              </div>
-            {/if}
           </div>
         {/each}
       {/key}

@@ -116,7 +116,7 @@
 </script>
 
 <svelte:head>
-  <title>Commit {commitMeta.sha.slice(0, 7)} · {repoTitleName}</title>
+  <title>{repoClass.name} - Commit {commitMeta.sha.slice(0, 7)}</title>
 </svelte:head>
 
 <div class="min-h-screen bg-background">

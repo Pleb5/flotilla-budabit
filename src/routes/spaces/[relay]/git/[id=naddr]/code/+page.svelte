@@ -155,6 +155,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{repoClass.name} - Code</title>
+</svelte:head>
+
 <div class="mt-2 rounded-lg border border-border bg-card">
   <div class="p-4">
     {#if loading}

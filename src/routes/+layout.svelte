@@ -72,11 +72,6 @@
   import {Router} from "@welshman/router"
   import {signer as gitSigner} from "@nostr-git/ui"
 
-  // Migration: old nostrtalk instance used different sessions
-  if ($session && !$signer) {
-    dropSession($session.pubkey)
-  }
-
   // Initialize push notification handler asap
   initializePushNotifications()
 
@@ -85,6 +80,9 @@
   const ready = $state(defer<void>())
 
   onMount(async () => {
+    // Preserve window.nostr before overriding window object
+    const originalNostr = (window as any).nostr
+    
     Object.assign(window, {
       get,
       nip19,
@@ -100,6 +98,12 @@
       ...requests,
       ...notifications,
     })
+    
+    // Restore window.nostr if it was overridden
+    if (originalNostr && !(window as any).nostr) {
+      (window as any).nostr = originalNostr
+      console.log("Restored window.nostr after Object.assign")
+    }
 
     // Listen for navigation messages from service worker
     navigator.serviceWorker?.addEventListener("message", event => {

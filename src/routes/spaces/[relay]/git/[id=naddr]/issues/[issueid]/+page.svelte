@@ -2,21 +2,15 @@
   import {
     GIT_ISSUE,
     parseIssueEvent,
-    parseStatusEvent,
     type CommentEvent,
     type StatusEvent,
   } from "@nostr-git/shared-types"
+  import {resolveIssueStatus} from "@nostr-git/core"
+  import {Card, IssueThread, Status} from "@nostr-git/ui"
   import {page} from "$app/stores"
-  import {
-    CircleCheck,
-    CircleDot,
-    FileCode,
-    MessageSquare,
-    SearchX,
-  } from "@lucide/svelte"
+  import {CircleCheck, CircleDot, FileCode, MessageSquare, SearchX} from "@lucide/svelte"
   import markdownit from "markdown-it"
   import {
-    Address,
     COMMENT,
     GIT_STATUS_CLOSED,
     GIT_STATUS_COMPLETE,
@@ -27,27 +21,18 @@
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
-  import ProfileLink from "@src/app/components/ProfileLink.svelte"
+  import {normalizeRelayUrl} from "@welshman/util"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
   import {slide} from "svelte/transition"
-  import {getContext} from "svelte"
-  import {REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import {getContext, onMount} from "svelte"
   import {postComment, postStatus, postLabel} from "@lib/budabit/commands.js"
   import {
-    Card,
-    IssueThread,
-    Status
-  } from "@nostr-git/ui"
-  import { normalizeRelayUrl } from "@welshman/util"
-  import {
-    resolveIssueStatus,
-  } from "@nostr-git/core"
-  import { deriveEffectiveLabels } from "@lib/budabit/state"
-  import {
+    REPO_RELAYS_KEY,
+    deriveEffectiveLabels,
     repoAnnouncements,
     deriveMaintainersForEuc,
-    loadRepoAnnouncements
+    loadRepoAnnouncements,
   } from "@lib/budabit/state.js"
-  import { onMount } from "svelte"
 
   const {data} = $props()
   const {repoClass} = data
@@ -63,14 +48,20 @@
   const issue = issueEvent ? parseIssueEvent(issueEvent) : undefined
 
   // Filter helper used when refreshing labels after publishing a new one
-  const getLabelFilter = (): Filter => ({ kinds: [1985], "#e": [issue?.id ?? ""] })
+  const getLabelFilter = (): Filter => ({kinds: [1985], "#e": [issue?.id ?? ""]})
 
   // Repo EUC lookup via announcements (30617) and derived maintainers
   const repoPubkey = (repoClass as any).repoEvent?.pubkey as string | undefined
-  const repoD = ((repoClass as any).repoEvent?.tags as any[])?.find?.((t: any[]) => t[0] === 'd')?.[1]
+  const repoD = ((repoClass as any).repoEvent?.tags as any[])?.find?.(
+    (t: any[]) => t[0] === "d",
+  )?.[1]
   let repoEuc: string | undefined = $derived.by(() => {
-    const match = $repoAnnouncements?.find?.((evt: any) => evt.pubkey === repoPubkey && (evt.tags as string[][]).some((t: string[]) => t[0] === 'd' && t[1] === repoD))
-    const eucTag = (match as any)?.tags?.find?.((t: any) => t[0] === 'r' && t[2] === 'euc')
+    const match = $repoAnnouncements?.find?.(
+      (evt: any) =>
+        evt.pubkey === repoPubkey &&
+        (evt.tags as string[][]).some((t: string[]) => t[0] === "d" && t[1] === repoD),
+    )
+    const eucTag = (match as any)?.tags?.find?.((t: any) => t[0] === "r" && t[2] === "euc")
     return eucTag?.[1]
   })
   let groupMaintainers: Set<string> = $state(new Set<string>())
@@ -78,7 +69,7 @@
     groupMaintainers = new Set()
     if (repoEuc) {
       const store = deriveMaintainersForEuc(repoEuc)
-      const unsub = store.subscribe((s) => {
+      const unsub = store.subscribe(s => {
         groupMaintainers = s || new Set()
       })
       return () => unsub()
@@ -97,13 +88,24 @@
     if (existing.has(value)) return
     try {
       addingLabel = true
-      const relays = (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
-      console.debug("[IssueDetail] addLabel start", { value, issueId: issue.id, pubkey: $pubkey, relays })
+      const relays = (repoClass.relays || repoRelays || [])
+        .map((u: string) => normalizeRelayUrl(u))
+        .filter(Boolean)
+      console.debug("[IssueDetail] addLabel start", {
+        value,
+        issueId: issue.id,
+        pubkey: $pubkey,
+        relays,
+      })
       const labelEvent: any = {
         kind: 1985,
         content: "",
         // Reference the issue and include both 'L' (canonical) and 'l' (compat) label tags
-        tags: [["e", issue.id], ["L", value], ["l", value]],
+        tags: [
+          ["e", issue.id],
+          ["L", value],
+          ["l", value],
+        ],
         created_at: Math.floor(Date.now() / 1000),
         pubkey: $pubkey,
         id: "",
@@ -113,11 +115,11 @@
       postLabel(labelEvent, relays)
       console.debug("[IssueDetail] addLabel published")
       // Refresh labels from relays to reflect the change sooner
-      console.debug("[IssueDetail] addLabel refreshing", { filter: getLabelFilter() })
-      await load({ relays: relays as string[], filters: [getLabelFilter()] })
+      console.debug("[IssueDetail] addLabel refreshing", {filter: getLabelFilter()})
+      await load({relays: relays as string[], filters: [getLabelFilter()]})
       // Give indexers a moment, then log current normalized labels
       setTimeout(() => {
-        console.debug("[IssueDetail] post-refresh labels", { labels: labelsNormalized })
+        console.debug("[IssueDetail] post-refresh labels", {labels: labelsNormalized})
       }, 1000)
       newLabel = ""
     } catch (e) {
@@ -130,7 +132,9 @@
   const threadComments = $derived.by(() => {
     if (repoClass.issues && issue) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [issue.id]}]
-      const relays = (repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+      const relays = (repoClass.relays || [])
+        .map((u: string) => normalizeRelayUrl(u))
+        .filter(Boolean)
       load({relays: relays as string[], filters})
       return deriveEvents(repository, {filters})
     }
@@ -162,13 +166,16 @@
   // Resolve effective status using precedence rules (maintainers > author > others; kind; recency)
   const resolved = $derived.by(() => {
     if (!$statusEvents || !issue) return undefined
-    const fallbackMaintainers = new Set<string>([...repoClass.maintainers, (repoClass as any).repoEvent?.pubkey].filter(Boolean) as string[])
-    const maintainerSet = (groupMaintainers && groupMaintainers.size > 0) ? groupMaintainers : fallbackMaintainers
+    const fallbackMaintainers = new Set<string>(
+      [...repoClass.maintainers, (repoClass as any).repoEvent?.pubkey].filter(Boolean) as string[],
+    )
+    const maintainerSet =
+      groupMaintainers && groupMaintainers.size > 0 ? groupMaintainers : fallbackMaintainers
     return resolveIssueStatus(
-      { root: (issueEvent as any), comments: [], statuses: ($statusEvents as any) },
+      {root: issueEvent as any, comments: [], statuses: $statusEvents as any},
       issue.author.pubkey,
-      maintainerSet
-    ) as { final: any | undefined; reason: string }
+      maintainerSet,
+    ) as {final: any | undefined; reason: string}
   })
 
   const statusReason = $derived(() => resolved?.reason)
@@ -176,15 +183,16 @@
   const titleCurrentStatusEvent = $derived.by(() => {
     if (!$statusEvents || !issue) return undefined
     const owner = (repoClass as any).repoEvent?.pubkey
-    const maintainerSet = new Set<string>([...repoClass.maintainers, owner].filter(Boolean) as string[])
+    const maintainerSet = new Set<string>(
+      [...repoClass.maintainers, owner].filter(Boolean) as string[],
+    )
     const authorized = ($statusEvents as StatusEvent[]).filter(
-      (e) => e.pubkey === issue.author.pubkey || maintainerSet.has(e.pubkey)
+      e => e.pubkey === issue.author.pubkey || maintainerSet.has(e.pubkey),
     )
     if (authorized.length === 0) return undefined
     return [...authorized].sort((a, b) => b.created_at - a.created_at)[0]
   })
   const statusIcon = $derived(() => getStatusIcon(titleCurrentStatusEvent?.kind))
-
 
   function getStatusIcon(kind: number | undefined) {
     switch (kind) {
@@ -205,7 +213,9 @@
 
   const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onCommentCreated = async (comment: CommentEvent) => {
-    const relays = (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = (repoClass.relays || repoRelays || [])
+      .map((u: string) => normalizeRelayUrl(u))
+      .filter(Boolean)
     await postComment(comment, relays).result
   }
 
@@ -223,12 +233,18 @@
 
   const handleStatusPublish = async (statusEvent: StatusEvent) => {
     console.log("[IssueDetail] Publishing status", statusEvent)
-    const relays = (repoClass.relays || repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = (repoClass.relays || repoRelays || [])
+      .map((u: string) => normalizeRelayUrl(u))
+      .filter(Boolean)
     const thunk = postStatus(statusEvent as any, relays)
     console.log("[IssueDetail] Status publish thunk", thunk)
     return thunk
   }
 </script>
+
+<svelte:head>
+  <title>{repoClass.name} - {issue?.subject}</title>
+</svelte:head>
 
 {#if issue}
   <div class="z-10 sticky top-0 items-center justify-between py-4 backdrop-blur" transition:slide>
@@ -259,10 +275,10 @@
               opened this issue • {new Date(issue?.createdAt).toLocaleString()}
             </span>
           </div>
-      </div>
+        </div>
       </div>
 
-      <div class="mt-4 prose prose-sm dark:prose-invert max-w-none">
+      <div class="prose-sm dark:prose-invert prose mt-8 max-w-none truncate">
         {@html markdown.render(issue.content)}
       </div>
 
@@ -283,14 +299,14 @@
               class="rounded-md border border-border bg-background px-2 py-1 text-sm"
               placeholder="Add tag..."
               bind:value={newLabel}
-              onkeydown={(e) => { if (e.key === 'Enter') addLabel() }}
-            />
+              onkeydown={e => {
+                if (e.key === "Enter") addLabel()
+              }} />
             <button
               class="rounded-md border border-border px-3 py-1 text-sm"
               onclick={addLabel}
-              disabled={addingLabel || !newLabel.trim()}
-            >
-              {addingLabel ? 'Adding...' : 'Add Tag'}
+              disabled={addingLabel || !newLabel.trim()}>
+              {addingLabel ? "Adding..." : "Add Tag"}
             </button>
           </div>
         {/if}
