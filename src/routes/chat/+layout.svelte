@@ -1,6 +1,5 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
-  import type {Snippet} from "svelte"
   import {page} from "$app/stores"
   import {WRAP} from "@welshman/util"
   import {Router} from "@welshman/router"
@@ -14,7 +13,6 @@
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
-  import ChatMenu from "@app/components/ChatMenu.svelte"
   import ChatMenu from "@app/components/ChatMenu.svelte"
   import ChatItem from "@app/components/ChatItem.svelte"
   import {chatSearch} from "@app/core/state"

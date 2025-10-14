@@ -47,6 +47,18 @@ importers:
       '@getalby/sdk':
         specifier: ^5.1.2
         version: 5.1.2(typescript@5.9.3)
+      '@nostr-git/core':
+        specifier: workspace:*
+        version: link:packages/nostr-git/packages/core
+      '@nostr-git/git-wrapper':
+        specifier: workspace:*
+        version: link:packages/nostr-git/packages/git-wrapper
+      '@nostr-git/shared-types':
+        specifier: workspace:*
+        version: link:packages/nostr-git/packages/shared-types
+      '@nostr-git/ui':
+        specifier: workspace:*
+        version: link:packages/nostr-git/packages/ui
       '@poppanator/sveltekit-svg':
         specifier: ^4.2.1
         version: 4.2.1(rollup@2.79.2)(svelte@5.39.12)(svgo@4.0.0)(vite@5.4.20(@types/node@24.7.2)(terser@5.44.0))
@@ -131,6 +143,9 @@ importers:
       isomorphic-git:
         specifier: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
         version: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
+      lucide-svelte:
+        specifier: ^0.489.0
+        version: 0.489.0(svelte@5.39.12)
       nostr-signer-capacitor-plugin:
         specifier: ^0.0.4
         version: 0.0.4(@capacitor/core@7.4.3)
@@ -5452,6 +5467,11 @@ packages:
   lru-cache@6.0.0:
     resolution: {integrity: sha512-Jo6dJ04CmSjuznwJSS3pUeWmd/H0ffTlkXXgwZi+eq1UCmqQwCh+eLsYOYCwY991i2Fah4h1BEMCx4qThGbsiA==}
     engines: {node: '>=10'}
+
+  lucide-svelte@0.489.0:
+    resolution: {integrity: sha512-ya3aho7jabdCUX+ahzXFQtDCMFEkxHnalRoRzZEul2qtdvPNvbQJnK+GewK90/6sqy7Yx6zvbb2dVJRlrH5kfw==}
+    peerDependencies:
+      svelte: ^3 || ^4 || ^5.0.0-next.42
 
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
@@ -13368,6 +13388,10 @@ snapshots:
   lru-cache@6.0.0:
     dependencies:
       yallist: 4.0.0
+
+  lucide-svelte@0.489.0(svelte@5.39.12):
+    dependencies:
+      svelte: 5.39.12
 
   lz-string@1.5.0: {}
 

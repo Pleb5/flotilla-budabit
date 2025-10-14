@@ -16,7 +16,7 @@
   } from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
-  import {makeFeed} from "@src/app/requests"
+  import {makeFeed} from "@src/app/core/requests"
   import {
     GIT_STATUS_OPEN,
     GIT_STATUS_COMPLETE,
@@ -331,12 +331,12 @@
           // Use manager-provided state and derive kind for UI
           const status = { kind: kindFromState(statusData.stateById[patch.id]) } as any
 
-          const patches = repoClass.patches.filter(issue => {
+          const patches = repoClass.patches.filter((issue: PatchEvent) => {
             return getTags(issue, "e").find((tag: string[]) => tag[1] === patch.id)
           })
           const parsedPatch = parseGitPatchFromEvent(patch)
 
-          const commentEvents = $comments?.filter((comment: any) => {
+          const commentEvents = $comments?.filter((comment: CommentEvent) => {
             return getTags(comment, "E").find((tag: string[]) => tag[1] === patch.id)
           })
 

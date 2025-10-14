@@ -93,7 +93,7 @@
             if (checkReplyTags.length === 0) break
 
             const checkParentId: string = checkReplyTags[0][1]
-            checkPatch = repoClass.patches.find((p): p is PatchEvent => p.id === checkParentId)
+            checkPatch = repoClass.patches.find((p: PatchEvent) => p.id === checkParentId)
             if (!checkPatch) break
           }
           return foundRoot
@@ -230,7 +230,7 @@
 
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = ($repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
-    await postComment(comment, relays).result
+    postComment(comment, relays)
   }
 
   const handleStatusPublish = async (statusEvent: StatusEvent) => {
@@ -307,7 +307,7 @@
     // Prepare patch data - ensure all data is serializable
     const patchData = {
       id: selectedPatch.id,
-      commits: (selectedPatch.commits || []).map(commit => ({
+      commits: (selectedPatch.commits || []).map(commit: Commit => ({
         oid: commit.oid || "",
         message: commit.message || "",
         author: {
@@ -613,7 +613,7 @@
             {/if}
 
             <!-- PGP Signature -->
-            {#if selectedPatch?.raw?.tags?.find(t => t[0] === "commit-pgp-sig")}
+            {#if selectedPatch?.raw?.tags?.find(t: => t[0] === "commit-pgp-sig")}
               <div class="flex items-center justify-between">
                 <span class="text-muted-foreground">Signed:</span>
                 <div class="flex items-center gap-2 text-green-600">
@@ -848,7 +848,7 @@
           {#if patchSet.length > 1}
             <div class="flex items-center gap-2">
               {#key selectedPatch?.id}
-                {@const currentIndex = patchSet.findIndex(p => p.id === selectedPatch?.id)}
+                {@const currentIndex = patchSet.findIndex((p: PatchEvent) => p.id === selectedPatch?.id)}
                 {@const hasPrevious = currentIndex > 0}
                 {@const hasNext = currentIndex < patchSet.length - 1}
 

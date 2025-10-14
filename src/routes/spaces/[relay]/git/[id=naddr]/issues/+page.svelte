@@ -40,8 +40,8 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import {slideAndFade} from "@lib/transition"
-  import {makeFeed} from "@app/requests"
-  import {pushModal} from "@app/modal"
+  import {makeFeed} from "@app/core/requests"
+  import {pushModal} from "@app/util/modal"
   import {postComment, postIssue, postStatus} from "@lib/budabit/commands.js"
   import FilterPanel from "@app/components/FilterPanel.svelte"
   import {isMobile} from "@lib/html"
@@ -569,7 +569,7 @@
   }
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    await postComment(comment, repoClass.relays).result
+    postComment(comment, repoClass.relays)
   }
 </script>
 

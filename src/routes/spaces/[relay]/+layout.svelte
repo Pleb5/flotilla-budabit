@@ -17,17 +17,13 @@
   import Dialog from "@lib/components/Dialog.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import MenuSpace from "@app/components/MenuSpace.svelte"
-  import {pushToast} from "@app/toast"
-  import {setChecked} from "@app/notifications"
-  import {decodeRelay, deriveSocket, userRoomsByUrl} from "@app/state"
-  import {pullConservatively} from "@app/requests"
-  import {notifications} from "@app/notifications"
-  import {
-    GIT_ISSUE,
-    GIT_PATCH,
-    GIT_REPO_ANNOUNCEMENT,
-    GIT_REPO_STATE,
-  } from "@nostr-git/shared-types"
+  import {pushToast} from "@app/util/toast"
+  import {setChecked} from "@app/util/notifications"
+  import {decodeRelay, deriveSocket, userRoomsByUrl} from "@app/core/state"
+  import {pullConservatively} from "@app/core/requests"
+  import {notifications} from "@app/util/notifications"
+  import {pushModal} from "@app/util/modal"
+  import {once} from "@welshman/lib"
   import {GRASP_SET_KIND} from "@nostr-git/shared-types"
 
   type Props = {
@@ -71,9 +67,6 @@
         })
       }
     })
-
-    // Prime our cache so we can upload images quicker
-    hasBlossomSupport(url)
 
     // Load group meta, threads, calendar events, comments, and recent messages
     // for user rooms to help with a quick page transition
