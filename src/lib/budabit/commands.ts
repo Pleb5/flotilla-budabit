@@ -61,10 +61,9 @@ export const postPermalink = (permalink: PermalinkEvent, relays: string[]) => {
 
 export const postGraspServersList = (graspServersList: GraspSetEvent) => {
   const merged = Array.from(new Set([...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
-  console.log("📡 Publishing GRASP servers list:", graspServersList)
-  console.log("📡 Publishing GRASP servers list relays:", merged)
-  return publishThunk({
+  const result = publishThunk({
     event: graspServersList,
     relays: merged,
   })
+  console.log("📡 Published GRASP servers list:", result)
 }

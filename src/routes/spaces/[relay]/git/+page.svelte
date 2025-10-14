@@ -250,7 +250,9 @@
   const publishEventToRelays = (event: any, relays: string[] = defaultRepoRelays) => {
     try {
       console.log("🔐 publishing event to relays", event, relays)
-      publishThunk({event, relays})
+      const result = publishThunk({event, relays})
+      console.log("📡 Published event to relays:", result)
+      return result
     } catch (err) {
       console.error("[git/+page] Failed to publish repo event", err)
       pushToast({message: `Failed to publish repository event: ${String(err)}`, theme: "error"})
@@ -362,7 +364,7 @@
             }
           }
           
-          publishEventToRelays(repoEvent, targetRelays);
+          const result = publishEventToRelays(repoEvent, targetRelays);
         },
         getProfile: getProfileForWizard,
         searchProfiles: searchProfilesForWizard,
