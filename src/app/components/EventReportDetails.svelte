@@ -6,9 +6,11 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import Button from "@lib/components/Button.svelte"
   import Profile from "@app/components/Profile.svelte"
-  import {publishDelete} from "@app/commands"
+  import {publishDelete, canEnforceNip70} from "@app/core/commands"
 
   const {url, event} = $props()
+
+  const shouldProtect = canEnforceNip70(url)
 
   const reports = deriveEvents(repository, {
     filters: [{kinds: [REPORT], "#e": [event.id]}],
@@ -16,8 +18,8 @@
 
   const back = () => history.back()
 
-  const deleteReport = (report: TrustedEvent) => {
-    publishDelete({event: report, relays: [url]})
+  const deleteReport = async (report: TrustedEvent) => {
+    publishDelete({event: report, relays: [url], protect: await shouldProtect})
 
     if ($reports.length === 0) {
       history.back()

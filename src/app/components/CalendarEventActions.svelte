@@ -8,9 +8,10 @@
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import CalendarEventEdit from "@app/components/CalendarEventEdit.svelte"
-  import {publishDelete, publishReaction} from "@app/commands"
-  import {makeCalendarPath} from "@app/routes"
-  import {pushModal} from "@app/modal"
+  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {makeCalendarPath} from "@app/util/routes"
+  import {pushModal} from "@app/util/modal"
+  import Pen2 from "@assets/icons/pen-2.svg?dataurl"
 
   const {
     url,
@@ -22,14 +23,17 @@
     showActivity?: boolean
   } = $props()
 
+  const shouldProtect = canEnforceNip70(url)
+
   const path = makeCalendarPath(url, event.id)
 
   const editEvent = () => pushModal(CalendarEventEdit, {url, event})
 
-  const deleteReaction = (event: TrustedEvent) => publishDelete({relays: [url], event})
+  const deleteReaction = async (event: TrustedEvent) =>
+    publishDelete({relays: [url], event, protect: await shouldProtect})
 
-  const createReaction = (template: EventContent) =>
-    publishReaction({...template, event, relays: [url]})
+  const createReaction = async (template: EventContent) =>
+    publishReaction({...template, event, relays: [url], protect: await shouldProtect})
 </script>
 
 <div class="flex flex-wrap items-center justify-between gap-2">
@@ -44,7 +48,7 @@
         {#if event.pubkey === $pubkey}
           <li>
             <Button onclick={editEvent}>
-              <Icon size={4} icon="pen" />
+              <Icon size={4} icon={Pen2} />
               Edit Event
             </Button>
           </li>

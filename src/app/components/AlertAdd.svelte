@@ -14,25 +14,19 @@
   } from "@welshman/util"
   import type {Filter} from "@welshman/util"
   import {makeIntersectionFeed, makeRelayFeed, feedFromFilters} from "@welshman/feeds"
-  import {pubkey, signer, getThunkError} from "@welshman/app"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {
-    alerts,
-    getMembershipUrls,
-    userMembership,
-    NOTIFIER_PUBKEY,
-    NOTIFIER_RELAY,
-  } from "@app/state"
-  import {loadAlertStatuses, requestRelayClaim} from "@app/requests"
-  import {publishAlert, attemptAuth} from "@app/commands"
-  import type {AlertParams} from "@app/commands"
-  import {platform, platformName, canSendPushNotifications, getPushInfo} from "@app/push"
-  import {pushToast} from "@app/toast"
+  import {alerts, getMembershipUrls, userMembership} from "@app/core/state"
+  import {requestRelayClaim} from "@app/core/requests"
+  import {createAlert} from "@app/core/commands"
+  import {canSendPushNotifications} from "@app/util/push"
+  import {pushToast} from "@app/util/toast"
 
   type Props = {
     url?: string
@@ -188,12 +182,21 @@
       })
     }
   })
+
+  onMount(() => {
+    if (!canSendPushNotifications()) {
+      channel = "email"
+    }
+  })
 </script>
 
 <form class="column gap-4" onsubmit={preventDefault(submit)}>
   <ModalHeader>
     {#snippet title()}
       Add an Alert
+    {/snippet}
+    {#snippet info()}
+      Enable notifications to keep up to date on activity you care about.
     {/snippet}
   </ModalHeader>
   {#if canSendPushNotifications()}
@@ -286,12 +289,12 @@
   </FieldInline>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary" disabled={loading}>
       <Spinner {loading}>Confirm</Spinner>
-      <Icon icon="alt-arrow-right" />
+      <Icon icon={AltArrowRight} />
     </Button>
   </ModalFooter>
 </form>

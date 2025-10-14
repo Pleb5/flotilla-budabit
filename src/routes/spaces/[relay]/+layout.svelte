@@ -14,6 +14,7 @@
   } from "@welshman/util"
   import {SocketStatus} from "@welshman/net"
   import Page from "@lib/components/Page.svelte"
+  import Dialog from "@lib/components/Dialog.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import MenuSpace from "@app/components/MenuSpace.svelte"
   import {pushToast} from "@app/toast"
@@ -35,16 +36,27 @@
 
   const {children}: Props = $props()
 
-  const url = decodeRelay($page.params.relay)
+  const url = decodeRelay($page.params.relay!)
 
   const rooms = Array.from($userRoomsByUrl.get(url) || [])
 
   const socket = deriveSocket(url)
 
+  const authError = deriveRelayAuthError(url)
+
+  const showAuthError = once(() => pushModal(SpaceAuthError, {url, error: $authError}))
+
   // We have to watch this one, since on mobile the badge will be visible when active
   $effect(() => {
     if ($notifications.has($page.url.pathname)) {
       setChecked($page.url.pathname)
+    }
+  })
+
+  // Watch for relay errors and notify the user
+  $effect(() => {
+    if ($authError) {
+      showAuthError()
     }
   })
 
@@ -59,6 +71,9 @@
         })
       }
     })
+
+    // Prime our cache so we can upload images quicker
+    hasBlossomSupport(url)
 
     // Load group meta, threads, calendar events, comments, and recent messages
     // for user rooms to help with a quick page transition
@@ -86,3 +101,9 @@
     {@render children?.()}
   {/key}
 </Page>
+
+{#if $relaysPendingTrust.includes(url)}
+  <Dialog>
+    <SpaceTrustRelay {url} />
+  </Dialog>
+{/if}

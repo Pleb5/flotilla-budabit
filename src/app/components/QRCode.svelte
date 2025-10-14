@@ -2,7 +2,7 @@
   import QRCode from "qrcode"
   import {onMount} from "svelte"
   import Button from "@lib/components/Button.svelte"
-  import {clip} from "@app/toast"
+  import {clip} from "@app/util/toast"
 
   const {code, ...props} = $props()
 
@@ -26,8 +26,8 @@
   })
 </script>
 
-<Button class="max-w-full {props.class}" onclick={copy}>
-  <div bind:this={wrapper} style={`height: ${height}px`}>
+<Button class="flex w-full justify-center {props.class}" onclick={copy}>
+  <div bind:this={wrapper} class="w-md" style={`height: ${height}px`}>
     <canvas
       class="rounded-box"
       bind:this={canvas}

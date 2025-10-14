@@ -3,6 +3,7 @@
   import {writable} from "svelte/store"
   import {isMobile, preventDefault} from "@lib/html"
   import {fly} from "@lib/transition"
+  import Paperclip from "@assets/icons/paperclip-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
@@ -10,9 +11,11 @@
   import {publishComment} from "@app/commands"
   import {GENERAL, PROTECTED, tagRoom} from "@app/state"
   import {makeEditor} from "@app/editor"
-  import {pushToast} from "@app/toast"
+  import {pushToast} from "@app/util/toast"
 
   const {url, event, onClose, onSubmit} = $props()
+
+  const shouldProtect = canEnforceNip70(url)
 
   const uploading = writable(false)
 
@@ -23,7 +26,11 @@
 
     const ed = await editor
     const content = ed.getText({blockSeparator: "\n"}).trim()
-    const tags = [...ed.storage.nostr.getEditorTags(), tagRoom(GENERAL, url), PROTECTED]
+    const tags = ed.storage.nostr.getEditorTags()
+
+    if (await shouldProtect) {
+      tags.push(PROTECTED)
+    }
 
     if (!content) {
       return pushToast({
@@ -75,7 +82,7 @@
         {#if $uploading}
           <span class="loading loading-spinner loading-xs"></span>
         {:else}
-          <Icon icon="paperclip" size={3} />
+          <Icon icon={Paperclip} size={3} />
         {/if}
       </Button>
     </div>

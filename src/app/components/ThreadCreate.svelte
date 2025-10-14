@@ -10,6 +10,8 @@
   } from "@welshman/util"
   import {publishThunk} from "@welshman/app"
   import {isMobile, preventDefault} from "@lib/html"
+  import Paperclip from "@assets/icons/paperclip-2.svg?dataurl"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Field from "@lib/components/Field.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -19,6 +21,7 @@
   import {pushToast} from "@app/toast"
   import {GENERAL, PROTECTED, tagRoom} from "@app/state"
   import {makeEditor} from "@app/editor"
+  import {canEnforceNip70} from "@app/core/commands"
   import {FREELANCE_JOB} from "@lib/budabit"
   import {goto} from "$app/navigation"
   import {makeThreadPath} from "../routes"
@@ -32,6 +35,8 @@
     jobOrGitIssue?: TrustedEvent
     relayHint?: string
   } = $props()
+
+  const shouldProtect = canEnforceNip70(url)
 
   const uploading = writable(false)
 
@@ -77,6 +82,7 @@
 
     publishThunk({
       relays: [url],
+      event: makeEvent(THREAD, {content, tags}),
       event: makeEvent(THREAD, {content, tags}),
     })
 
@@ -145,13 +151,13 @@
       {#if $uploading}
         <span class="loading loading-spinner loading-xs"></span>
       {:else}
-        <Icon icon="paperclip" size={3} />
+        <Icon icon={Paperclip} size={3} />
       {/if}
     </Button>
   </div>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary">Create Thread</Button>

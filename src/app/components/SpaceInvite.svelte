@@ -1,16 +1,19 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {sleep, identity, nthEq} from "@welshman/lib"
+  import {sleep, nthEq} from "@welshman/lib"
   import {request} from "@welshman/net"
   import {displayRelayUrl, AUTH_INVITE} from "@welshman/util"
-  import {slide} from "@lib/transition"
+  import LinkRound from "@assets/icons/link-round.svg?dataurl"
+  import Copy from "@assets/icons/copy.svg?dataurl"
   import Spinner from "@lib/components/Spinner.svelte"
   import Field from "@lib/components/Field.svelte"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {clip} from "@app/toast"
+  import QRCode from "@app/components/QRCode.svelte"
+  import {clip} from "@app/util/toast"
+  import {PLATFORM_URL} from "@app/core/state"
 
   const {url} = $props()
 
@@ -24,7 +27,10 @@
   let invite = $state("")
 
   $effect(() => {
-    invite = [displayRelayUrl(url), claim].filter(identity).join("|")
+    const relay = displayRelayUrl(url)
+    const params = new URLSearchParams({r: relay, c: claim}).toString()
+
+    invite = PLATFORM_URL + "/join?" + params
   })
 
   onMount(async () => {
@@ -56,18 +62,19 @@
   </ModalHeader>
   <div>
     {#if loading}
-      <p class="center" out:slide>
-        <Spinner {loading}>Requesting an invite code...</Spinner>
+      <p class="center">
+        <Spinner {loading}>Requesting an invite link...</Spinner>
       </p>
     {:else}
-      <div in:slide>
+      <div class="flex flex-col items-center gap-6">
+        <QRCode code={invite} />
         <Field>
           {#snippet input()}
             <label class="input input-bordered flex w-full items-center gap-2">
-              <Icon icon="link-round" />
+              <Icon icon={LinkRound} />
               <input bind:value={invite} class="grow" type="text" />
               <Button onclick={copyInvite}>
-                <Icon icon="copy" />
+                <Icon icon={Copy} />
               </Button>
             </label>
           {/snippet}

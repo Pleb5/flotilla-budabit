@@ -11,7 +11,8 @@ import {
 } from "@welshman/util"
 import {Router} from "@welshman/router"
 import {Nip01Signer} from "@welshman/signer"
-import {signer, profileSearch, userBlossomServers} from "@welshman/app"
+import {profileSearch} from "@welshman/app"
+import type {FileAttributes} from "@welshman/editor"
 import type {FileAttributes} from "@welshman/editor"
 import {Editor, MentionSuggestion, WelshmanExtension} from "@welshman/editor"
 import {makeMentionNodeView} from "./MentionNodeView"
@@ -31,6 +32,7 @@ export const getBlossomServer = () => {
 }
 
 export const makeEditor = async ({
+  encryptFiles = false,
   aggressive = false,
   autofocus = false,
   charCount,
@@ -41,6 +43,7 @@ export const makeEditor = async ({
   uploading,
   wordCount,
 }: {
+  encryptFiles?: boolean
   aggressive?: boolean
   autofocus?: boolean
   charCount?: Writable<number>

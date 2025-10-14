@@ -20,6 +20,7 @@
   } from "@welshman/content"
   import {preventDefault, stopPropagation} from "@lib/html"
   import Link from "@lib/components/Link.svelte"
+  import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ContentToken from "@app/components/ContentToken.svelte"
@@ -31,7 +32,7 @@
   import ContentQuote from "@app/components/ContentQuote.svelte"
   import ContentTopic from "@app/components/ContentTopic.svelte"
   import ContentMention from "@app/components/ContentMention.svelte"
-  import {entityLink, userSettingValues} from "@app/state"
+  import {entityLink, userSettingsValues} from "@app/core/state"
   import {Template, isKnownUnknown, EventRenderer, isKnownEventKind} from "@nostr-git/ui"
 
   interface Props {
@@ -69,11 +70,11 @@
 
     if (!parsed || hideMediaAtDepth <= depth) return false
 
-    if (isLink(parsed) && $userSettingValues.show_media && isStartOrEnd(i)) {
+    if (isLink(parsed) && $userSettingsValues.show_media && isStartAndEnd(i)) {
       return true
     }
 
-    if ((isEvent(parsed) || isAddress(parsed)) && isStartOrEnd(i)) {
+    if ((isEvent(parsed) || isAddress(parsed)) && isStartAndEnd(i)) {
       return true
     }
 
@@ -95,14 +96,12 @@
 
   const isStartAndEnd = (i: number) => isStart(i) && isEnd(i)
 
-  const isStartOrEnd = (i: number) => isStart(i) || isEnd(i)
-
   const ignoreWarning = () => {
     warning = null
   }
 
   let warning = $state(
-    $userSettingValues.hide_sensitive && event.tags.find(nthEq(0, "content-warning"))?.[1],
+    $userSettingsValues.hide_sensitive && event.tags.find(nthEq(0, "content-warning"))?.[1],
   )
 
   const shortContent = $derived(
@@ -123,7 +122,7 @@
 <div class="relative">
   {#if warning}
     <div class="card2 card2-sm bg-alt row-2">
-      <Icon icon="danger" />
+      <Icon icon={Danger} />
       <p>
         This note has been flagged by the author as "{warning}".<br />
         <Button class="link" onclick={ignoreWarning}>Show anyway</Button>
@@ -166,12 +165,18 @@
           {:else if isEvent(parsed) || isAddress(parsed)}
             {#if isBlock(i)}
               <ContentQuote
-                {depth}
-                {url}
-                {hideMediaAtDepth}
-                value={parsed.value}
-                {event}
-                minimal={minimalQuote} />
+               
+              {depth}
+               
+              {url}
+               
+              {hideMediaAtDepth}
+               
+              value={parsed.value}
+               
+              {event}
+                minimal={minimalQuote}
+              minimal={minimalQuote} />
             {:else}
               <Link
                 external

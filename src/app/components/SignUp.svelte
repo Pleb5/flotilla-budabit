@@ -1,7 +1,9 @@
 <script lang="ts">
-  import {Capacitor} from "@capacitor/core"
   import {postJson} from "@welshman/lib"
-  import {isMobile, preventDefault} from "@lib/html"
+  import {preventDefault} from "@lib/html"
+  import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
+  import Key from "@assets/icons/key-minimalistic.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -9,22 +11,11 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import LogIn from "@app/components/LogIn.svelte"
   import InfoNostr from "@app/components/InfoNostr.svelte"
-  import SignUpKey from "@app/components/SignUpKey.svelte"
+  import SignUpProfile from "@app/components/SignUpProfile.svelte"
   import SignUpSuccess from "@app/components/SignUpSuccess.svelte"
-  import {pushModal} from "@app/modal"
-  import {BURROW_URL, PLATFORM_NAME, PLATFORM_ACCENT} from "@app/state"
-  import {pushToast} from "@app/toast"
-
-  const params = new URLSearchParams({
-    an: PLATFORM_NAME,
-    ac: window.location.origin,
-    at: isMobile ? "android" : "web",
-    aa: PLATFORM_ACCENT.slice(1),
-    am: "dark",
-    asf: "yes",
-  })
-
-  const nstart = `https://start.njump.me/?${params.toString()}`
+  import {pushModal} from "@app/util/modal"
+  import {BURROW_URL, PLATFORM_NAME} from "@app/core/state"
+  import {pushToast} from "@app/util/toast"
 
   const login = () => pushModal(LogIn)
 
@@ -50,7 +41,7 @@
     }
   }
 
-  const useKey = () => pushModal(SignUpKey)
+  const next = () => pushModal(SignUpProfile)
 
   let email = $state("")
   let password = $state("")
@@ -61,8 +52,8 @@
   <h1 class="heading">Sign up with Nostr</h1>
   <p class="m-auto max-w-sm text-center">
     {PLATFORM_NAME} is built using the
-    <Button class="link" onclick={() => pushModal(InfoNostr)}>nostr protocol</Button>, which allows
-    you to own your social identity.
+    <Button class="link" onclick={() => pushModal(InfoNostr)}>nostr protocol</Button>, which gives
+    users control over their digital identity using <strong>cryptographic key pairs</strong>.
   </p>
   {#if BURROW_URL}
     <FieldInline>
@@ -71,7 +62,7 @@
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
-          <Icon icon="user-rounded" />
+          <Icon icon={UserRounded} />
           <input bind:value={email} />
         </label>
       {/snippet}
@@ -82,14 +73,14 @@
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
-          <Icon icon="key" />
+          <Icon icon={Key} />
           <input bind:value={password} type="password" />
         </label>
       {/snippet}
     </FieldInline>
     <Button type="submit" class="btn btn-primary" disabled={loading || !email || !password}>
       <Spinner {loading}>Sign Up</Spinner>
-      <Icon icon="alt-arrow-right" />
+      <Icon icon={AltArrowRight} />
     </Button>
     <p class="text-sm opacity-75">
       Note that your email and password will only work to log in to {PLATFORM_NAME}. To use your key
@@ -98,17 +89,10 @@
     </p>
     <Divider>Or</Divider>
   {/if}
-  {#if Capacitor.isNativePlatform()}
-    <Button onclick={useKey} class="btn {email || password ? 'btn-neutral' : 'btn-primary'}">
-      <Icon icon="key" />
-      Generate a key
-    </Button>
-  {:else}
-    <a href={nstart} class="btn {email || password ? 'btn-neutral' : 'btn-primary'}">
-      <Icon icon="square-share-line" />
-      Create an account on Nstart
-    </a>
-  {/if}
+  <Button onclick={next} class="btn {email || password ? 'btn-neutral' : 'btn-primary'}">
+    <Icon icon={Key} />
+    Generate a key
+  </Button>
   <div class="text-sm">
     Already have an account?
     <Button class="link" onclick={login}>Log in instead</Button>

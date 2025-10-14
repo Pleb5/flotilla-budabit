@@ -1,35 +1,44 @@
 <script lang="ts">
-  import {readable} from "svelte/store"
   import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
   import type {Readable} from "svelte/store"
+  import {readable} from "svelte/store"
   import {now, formatTimestampAsDate} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
-  import {makeEvent, MESSAGE, DELETE, REACTION} from "@welshman/util"
+  import {makeEvent, getTag, MESSAGE, DELETE} from "@welshman/util"
   import {pubkey, publishThunk} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
+  import ChatRound from "@assets/icons/chat-round.svg?dataurl"
+  import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
+  import ThunkToast from "@app/components/ThunkToast.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import ChannelCompose from "@app/components/ChannelCompose.svelte"
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
-  import {userSettingValues, decodeRelay, getEventsForUrl} from "@app/state"
-  import {setChecked, checked} from "@app/notifications"
-  import {prependParent} from "@app/commands"
-  import {PROTECTED} from "@app/state"
-  import {makeFeed} from "@app/requests"
-  import {whenElementReady} from "@src/lib/html"
-  import {popKey} from "@app/implicit"
+  import {
+    userSettingsValues,
+    decodeRelay,
+    getEventsForUrl,
+    PROTECTED,
+    REACTION_KINDS,
+  } from "@app/core/state"
+  import {prependParent, canEnforceNip70} from "@app/core/commands"
+  import {setChecked, checked} from "@app/util/notifications"
+  import {pushToast} from "@app/util/toast"
+  import {makeFeed} from "@app/core/requests"
+  import {popKey} from "@lib/implicit"
 
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
-  const url = decodeRelay($page.params.relay)
+  const url = decodeRelay($page.params.relay!)
   const filter = {kinds: [MESSAGE]}
+  const shouldProtect = canEnforceNip70(url)
 
   const replyTo = (event: TrustedEvent) => {
     parent = event
@@ -44,8 +53,10 @@
     share = undefined
   }
 
-  const onSubmit = ({content, tags}: EventContent) => {
-    tags.push(PROTECTED)
+  const onSubmit = async ({content, tags}: EventContent) => {
+    if (await shouldProtect) {
+      tags.push(PROTECTED)
+    }
 
     let template = {content, tags}
 
@@ -57,11 +68,21 @@
       template = prependParent(parent, template)
     }
 
-    publishThunk({
+    const thunk = publishThunk({
       relays: [url],
       event: makeEvent(MESSAGE, template),
-      delay: $userSettingValues.send_delay,
+      delay: $userSettingsValues.send_delay,
     })
+
+    if ($userSettingsValues.send_delay) {
+      pushToast({
+        timeout: 30_000,
+        children: {
+          component: ThunkToast,
+          props: {thunk},
+        },
+      })
+    }
 
     clearParent()
     clearShare()
@@ -122,6 +143,10 @@
           continue
         }
 
+        if (getTag("h", event.tags)) {
+          continue
+        }
+
         const date = formatTimestampAsDate(event.created_at)
 
         if (
@@ -171,24 +196,19 @@
     observer.observe(chatCompose!)
     observer.observe(dynamicPadding!)
 
-    whenElementReady(
-      () => element,
-      (readyElement) => {
-        const feed = makeFeed({
-          element: readyElement,
-          relays: [url],
-          feedFilters: [filter],
-          subscriptionFilters: [{kinds: [DELETE, REACTION, MESSAGE], since: now()}],
-          initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
-          onExhausted: () => {
-            loadingEvents = false
-          },
-        })
+    const feed = makeFeed({
+      element: element!,
+      relays: [url],
+      feedFilters: [filter],
+      subscriptionFilters: [{kinds: [DELETE, MESSAGE, ...REACTION_KINDS], since: now()}],
+      initialEvents: getEventsForUrl(url, [{...filter, limit: 20}]),
+      onExhausted: () => {
+        loadingEvents = false
+      },
+    })
 
-        events = feed.events
-        cleanup = feed.cleanup
-      }
-    )
+    events = feed.events
+    cleanup = feed.cleanup
 
     return () => {
       controller.abort()
@@ -198,7 +218,7 @@
   })
 
   onDestroy(() => {
-    cleanup()
+    cleanup?.()
 
     // Sveltekit calls onDestroy at the beginning of the page load for some reason
     setTimeout(() => {
@@ -210,7 +230,7 @@
 <PageBar>
   {#snippet icon()}
     <div class="center">
-      <Icon icon="chat-round" />
+      <Icon icon={ChatRound} />
     </div>
   {/snippet}
   {#snippet title()}
@@ -269,7 +289,7 @@
 {#if showScrollButton}
   <div in:fade class="chat__scroll-down">
     <Button class="btn btn-circle btn-neutral" onclick={scrollToBottom}>
-      <Icon icon="alt-arrow-down" />
+      <Icon icon={AltArrowDown} />
     </Button>
   </div>
 {/if}

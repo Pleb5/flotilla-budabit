@@ -2,17 +2,21 @@
   import {goto} from "$app/navigation"
   import {uniqBy, nth} from "@welshman/lib"
   import {displayRelayUrl, makeRoomMeta} from "@welshman/util"
-  import {deriveRelay, getThunkError, createRoom, editRoom, joinRoom} from "@welshman/app"
+  import {deriveRelay, waitForThunkError, createRoom, editRoom, joinRoom} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Field from "@lib/components/Field.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
+  import Hashtag from "@assets/icons/hashtag.svg?dataurl"
+  import Danger from "@assets/icons/danger-triangle.svg?dataurl"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {hasNip29, loadChannel} from "@app/state"
-  import {makeSpacePath} from "@app/routes"
-  import {pushToast} from "@app/toast"
+  import {hasNip29, loadChannel} from "@app/core/state"
+  import {makeSpacePath} from "@app/util/routes"
+  import {pushToast} from "@app/util/toast"
 
   const {url} = $props()
 
@@ -24,19 +28,19 @@
   const tryCreate = async () => {
     room.tags = uniqBy(nth(0), [...room.tags, ["name", name]])
 
-    const createMessage = await getThunkError(createRoom(url, room))
+    const createMessage = await waitForThunkError(createRoom(url, room))
 
     if (createMessage && !createMessage.match(/^duplicate:|already a member/)) {
       return pushToast({theme: "error", message: createMessage})
     }
 
-    const editMessage = await getThunkError(editRoom(url, room))
+    const editMessage = await waitForThunkError(editRoom(url, room))
 
     if (editMessage) {
       return pushToast({theme: "error", message: editMessage})
     }
 
-    const joinMessage = await getThunkError(joinRoom(url, room))
+    const joinMessage = await waitForThunkError(joinRoom(url, room))
 
     if (joinMessage && !joinMessage.includes("already")) {
       return pushToast({theme: "error", message: joinMessage})
@@ -72,25 +76,32 @@
       </div>
     {/snippet}
   </ModalHeader>
-  <Field>
-    {#snippet label()}
-      <p>Room Name</p>
-    {/snippet}
-    {#snippet input()}
-      <label class="input input-bordered flex w-full items-center gap-2">
-        <Icon icon="hashtag" />
-        <input bind:value={name} class="grow" type="text" />
-      </label>
-    {/snippet}
-  </Field>
+  {#if hasNip29($relay)}
+    <Field>
+      {#snippet label()}
+        <p>Room Name</p>
+      {/snippet}
+      {#snippet input()}
+        <label class="input input-bordered flex w-full items-center gap-2">
+          <Icon icon={Hashtag} />
+          <input bind:value={name} class="grow" type="text" />
+        </label>
+      {/snippet}
+    </Field>
+  {:else}
+    <p class="bg-alt card2 row-2">
+      <Icon icon={Danger} />
+      This relay does not support creating rooms.
+    </p>
+  {/if}
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary" disabled={!name || loading}>
+    <Button type="submit" class="btn btn-primary" disabled={!name || loading || !hasNip29($relay)}>
       <Spinner {loading}>Create Room</Spinner>
-      <Icon icon="alt-arrow-right" />
+      <Icon icon={AltArrowRight} />
     </Button>
   </ModalFooter>
 </form>

@@ -4,6 +4,7 @@
   import type {TrustedEvent, EventContent} from "@welshman/util"
   import {thunks, pubkey, deriveProfile, deriveProfileDisplay, sendWrapped} from "@welshman/app"
   import {isMobile} from "@lib/html"
+  import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
@@ -11,13 +12,13 @@
   import Avatar from "@lib/components/Avatar.svelte"
   import Content from "@app/components/Content.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
-  import ThunkStatus from "@app/components/ThunkStatus.svelte"
+  import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ChatMessageMenu from "@app/components/ChatMessageMenu.svelte"
   import ChatMessageMenuMobile from "@app/components/ChatMessageMenuMobile.svelte"
-  import {colors} from "@app/state"
-  import {makeDelete, makeReaction} from "@app/commands"
-  import {pushModal} from "@app/modal"
+  import {colors} from "@app/core/state"
+  import {makeDelete, makeReaction} from "@app/core/commands"
+  import {pushModal} from "@app/util/modal"
 
   interface Props {
     event: TrustedEvent
@@ -37,10 +38,10 @@
   const reply = () => replyTo(event)
 
   const deleteReaction = (event: TrustedEvent) =>
-    sendWrapped({template: makeDelete({event}), pubkeys})
+    sendWrapped({template: makeDelete({event, protect: false}), pubkeys})
 
   const createReaction = (template: EventContent) =>
-    sendWrapped({template: makeReaction({event, ...template}), pubkeys})
+    sendWrapped({template: makeReaction({event, protect: false, ...template}), pubkeys})
 
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey})
 
@@ -59,7 +60,7 @@
 </script>
 
 {#if thunk}
-  <ThunkStatus {thunk} class="mt-1" />
+  <ThunkFailure showToastOnRetry {thunk} class="mt-1" />
 {/if}
 <div
   data-event={event.id}
@@ -87,7 +88,7 @@
         class="opacity-0 transition-all"
         class:group-hover:opacity-100={!isMobile}
         onclick={togglePopover}>
-        <Icon icon="menu-dots" size={4} />
+        <Icon icon={MenuDots} size={4} />
       </button>
     </Tippy>
   {/if}

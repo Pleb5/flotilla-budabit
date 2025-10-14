@@ -1,21 +1,18 @@
 <script lang="ts">
   import type {Profile} from "@welshman/util"
-  import {PROFILE, createProfile, makeProfile, makeEvent} from "@welshman/util"
-  import {loginWithNip01, publishThunk} from "@welshman/app"
+  import {makeProfile} from "@welshman/util"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
+  import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
+  import ModalFooter from "@lib/components/ModalFooter.svelte"
   import ProfileEditForm from "@app/components/ProfileEditForm.svelte"
-  import {INDEXER_RELAYS} from "@app/state"
-
-  type Props = {
-    secret: string
-    pubkey: string
-  }
-
-  const {secret, pubkey}: Props = $props()
+  import SignUpKey from "@app/components/SignUpKey.svelte"
+  import {pushModal} from "@app/util/modal"
 
   const initialValues = {
     profile: makeProfile(),
-    shouldBroadcast: true,
+    shouldBroadcast: false,
   }
 
   const onsubmit = ({
@@ -38,13 +35,22 @@
     const event = makeEvent(PROFILE, template)
     const relays = shouldBroadcast ? INDEXER_RELAYS : []
 
-    loginWithNip01(secret)
-    publishThunk({event, relays})
-  }
+  const onsubmit = (values: {profile: Profile}) => pushModal(SignUpKey, values)
 </script>
 
-<ProfileEditForm pubkey={pubkey} hideAddress {initialValues} {onsubmit}>
-  {#snippet footer()}
-    <Button type="submit" class="btn btn-primary">Create Account</Button>
-  {/snippet}
-</ProfileEditForm>
+<div class="flex flex-col gap-4">
+  <ProfileEditForm isSignup {initialValues} {onsubmit}>
+    {#snippet footer()}
+      <ModalFooter>
+        <Button class="btn btn-link" onclick={back}>
+          <Icon icon={AltArrowLeft} />
+          Go back
+        </Button>
+        <Button class="btn btn-primary" type="submit">
+          Create Account
+          <Icon icon={AltArrowRight} />
+        </Button>
+      </ModalFooter>
+    {/snippet}
+  </ProfileEditForm>
+</div>

@@ -3,9 +3,10 @@
   import {page} from "$app/stores"
   import {sortBy, max, nthEq} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {THREAD, REACTION, DELETE, COMMENT, getListTags, getPubkeyTagValues} from "@welshman/util"
+  import {THREAD, DELETE, COMMENT, getListTags, getPubkeyTagValues} from "@welshman/util"
   import {userMutes} from "@welshman/app"
   import {fly} from "@lib/transition"
+  import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
@@ -14,13 +15,14 @@
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ThreadItem from "@app/components/ThreadItem.svelte"
   import ThreadCreate from "@app/components/ThreadCreate.svelte"
-  import {decodeRelay, getEventsForUrl} from "@app/state"
-  import {setChecked} from "@app/notifications"
-  import {makeFeed} from "@app/requests"
+  import {decodeRelay, getEventsForUrl} from "@app/core/state"
+  import {setChecked} from "@app/util/notifications"
+  import {REACTION_KINDS} from "@app/core/state"
+  import {makeFeed} from "@app/core/requests"
   import {whenElementReady} from "@src/lib/html"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
 
-  const url = decodeRelay($page.params.relay)
+  const url = decodeRelay($page.params.relay!)
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
   const threads: TrustedEvent[] = $state([])
   const comments: TrustedEvent[] = $state([])
@@ -55,7 +57,7 @@
       relays: [url],
       feedFilters: [{kinds: [THREAD, COMMENT]}],
       subscriptionFilters: [
-        {kinds: [THREAD, REACTION, DELETE]},
+        {kinds: [THREAD, DELETE, ...REACTION_KINDS]},
         {kinds: [COMMENT], "#K": [String(THREAD)]},
       ],
       initialEvents: getEventsForUrl(url, [{kinds: [THREAD, COMMENT], limit: 10}]),
@@ -86,7 +88,7 @@
 <PageBar>
   {#snippet icon()}
     <div class="center">
-      <Icon icon="notes-minimalistic" />
+      <Icon icon={NotesMinimalistic} />
     </div>
   {/snippet}
   {#snippet title()}
@@ -95,7 +97,7 @@
   {#snippet action()}
     <div class="row-2">
       <Button class="btn btn-primary btn-sm" onclick={createThread}>
-        <Icon icon="notes-minimalistic" />
+        <Icon icon={NotesMinimalistic} />
         Create a Thread
       </Button>
       <MenuSpaceButton {url} />

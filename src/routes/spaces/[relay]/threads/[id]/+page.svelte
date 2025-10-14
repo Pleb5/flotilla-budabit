@@ -13,6 +13,9 @@
   import {repository} from "@welshman/app"
   import {load, request} from "@welshman/net"
   import {deriveEvents} from "@welshman/store"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import SortVertical from "@assets/icons/sort-vertical.svg?dataurl"
+  import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
@@ -22,6 +25,7 @@
   import NoteCard from "@app/components/NoteCard.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
+  import CommentActions from "@app/components/CommentActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/state"
   import {setChecked} from "@app/notifications"
@@ -29,7 +33,7 @@
   import JobItem from "@src/app/components/JobItem.svelte"
   import GitIssueItem from "@src/app/components/GitIssueItem.svelte"
 
-  const {relay, id} = $page.params
+  const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
   const event = deriveEvent(id)
   const filters = [{kinds: [COMMENT], "#E": [id]}]
@@ -120,7 +124,7 @@
   {#snippet icon()}
     <div>
       <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
-        <Icon icon="alt-arrow-left" />
+        <Icon icon={AltArrowLeft} />
         <span class="hidden sm:inline">Go back</span>
       </Button>
     </div>
@@ -158,7 +162,7 @@
       {#if !showAll && $replies.length > 4}
         <div class="flex justify-center">
           <Button class="btn btn-link" onclick={expand}>
-            <Icon icon="sort-vertical" />
+            <Icon icon={SortVertical} />
             Show all {$replies.length} replies
           </Button>
         </div>

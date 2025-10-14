@@ -1,9 +1,12 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
+  import type {Snippet} from "svelte"
   import {page} from "$app/stores"
   import {WRAP} from "@welshman/util"
   import {Router} from "@welshman/router"
   import {pubkey} from "@welshman/app"
+  import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
+  import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -12,10 +15,11 @@
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import ChatMenu from "@app/components/ChatMenu.svelte"
+  import ChatMenu from "@app/components/ChatMenu.svelte"
   import ChatItem from "@app/components/ChatItem.svelte"
-  import {chatSearch} from "@app/state"
-  import {pullConservatively} from "@app/requests"
-  import {pushModal} from "@app/modal"
+  import {chatSearch} from "@app/core/state"
+  import {pullConservatively} from "@app/core/requests"
+  import {pushModal} from "@app/util/modal"
 
   type Props = {
     children?: Snippet
@@ -40,12 +44,12 @@
     <SecondaryNavHeader>
       Chats
       <Button onclick={openMenu}>
-        <Icon icon="menu-dots" />
+        <Icon icon={MenuDots} />
       </Button>
     </SecondaryNavHeader>
   </SecondaryNavSection>
   <label class="input input-sm input-bordered mx-6 -mt-4 mb-2 flex items-center gap-2">
-    <Icon icon="magnifer" />
+    <Icon icon={Magnifier} />
     <input bind:value={term} class="grow" type="text" />
   </label>
   <div class="overflow-auto">

@@ -14,9 +14,10 @@
   import {pubkey, profilesByPubkey, publishThunk} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
   import ProfileEditForm from "@app/components/ProfileEditForm.svelte"
-  import {clearModals} from "@app/modal"
-  import {pushToast} from "@app/toast"
-  import {PROTECTED, getMembershipUrls, userMembership} from "@app/state"
+  import {clearModals} from "@app/util/modal"
+  import {pushToast} from "@app/util/toast"
+  import {PROTECTED} from "@app/core/state"
+  import {updateProfile} from "../core/commands"
 
   const profile = $profilesByPubkey.get($pubkey!) || makeProfile()
   const shouldBroadcast = !getTag(PROTECTED, profile.event?.tags || [])

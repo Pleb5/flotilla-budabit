@@ -11,8 +11,11 @@ apply from: "../capacitor-cordova-android-plugins/cordova.variables.gradle"
 dependencies {
     implementation project(':capacitor-community-safe-area')
     implementation project(':capacitor-app')
+    implementation project(':capacitor-filesystem')
     implementation project(':capacitor-keyboard')
+    implementation project(':capacitor-preferences')
     implementation project(':capacitor-push-notifications')
+    implementation project(':capawesome-capacitor-android-dark-mode-support')
     implementation project(':capawesome-capacitor-badge')
     implementation project(':nostr-signer-capacitor-plugin')
 

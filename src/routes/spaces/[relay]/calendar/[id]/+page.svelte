@@ -2,10 +2,14 @@
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {sortBy, sleep} from "@welshman/lib"
+  import type {MakeNonOptional} from "@welshman/lib"
   import {COMMENT, getTagValue} from "@welshman/util"
   import {request} from "@welshman/net"
   import {repository} from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import SortVertical from "@assets/icons/sort-vertical.svg?dataurl"
+  import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
@@ -19,10 +23,10 @@
   import CalendarEventMeta from "@app/components/CalendarEventMeta.svelte"
   import CalendarEventDate from "@app/components/CalendarEventDate.svelte"
   import EventReply from "@app/components/EventReply.svelte"
-  import {deriveEvent, decodeRelay} from "@app/state"
-  import {setChecked} from "@app/notifications"
+  import {deriveEvent, decodeRelay} from "@app/core/state"
+  import {setChecked} from "@app/util/notifications"
 
-  const {relay, id} = $page.params
+  const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
   const event = deriveEvent(id)
   const filters = [{kinds: [COMMENT], "#E": [id]}]
@@ -61,7 +65,7 @@
   {#snippet icon()}
     <div>
       <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
-        <Icon icon="alt-arrow-left" />
+        <Icon icon={AltArrowLeft} />
         <span class="hidden sm:inline">Go back</span>
       </Button>
     </div>
@@ -95,7 +99,7 @@
     {#if !showAll && $replies.length > 4}
       <div class="flex justify-center">
         <Button class="btn btn-link" onclick={expand}>
-          <Icon icon="sort-vertical" />
+          <Icon icon={SortVertical} />
           Show all {$replies.length} replies
         </Button>
       </div>
@@ -113,7 +117,7 @@
     {:else}
       <div class="flex justify-end px-2 pb-2">
         <Button class="btn btn-primary" onclick={openReply}>
-          <Icon icon="reply" />
+          <Icon icon={Reply} />
           Leave comment
         </Button>
       </div>

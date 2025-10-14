@@ -1,16 +1,32 @@
 <script lang="ts">
-  import {pushModal} from "@app/modal"
-  import InfoBunker from "@app/components/InfoBunker.svelte"
+  import {debounce} from "throttle-debounce"
+  import Scanner from "@lib/components/Scanner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import CpuBolt from "@assets/icons/cpu-bolt.svg?dataurl"
+  import QrCode from "@assets/icons/qr-code.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
+  import InfoBunker from "@app/components/InfoBunker.svelte"
+  import type {Nip46Controller} from "@app/util/nip46"
+  import {pushModal} from "@app/util/modal"
 
   type Props = {
-    bunker: string
-    loading: boolean
+    controller: Nip46Controller
   }
 
-  let {loading, bunker = $bindable("")}: Props = $props()
+  const {controller}: Props = $props()
+  const {loading, bunker} = controller
+
+  const toggleScanner = () => {
+    showScanner = !showScanner
+  }
+
+  const onScan = debounce(1000, async (data: string) => {
+    showScanner = false
+    $bunker = data
+  })
+
+  let showScanner = $state(false)
 </script>
 
 <Field>
@@ -19,8 +35,11 @@
   {/snippet}
   {#snippet input()}
     <label class="input input-bordered flex w-full items-center gap-2">
-      <Icon icon="cpu" />
-      <input disabled={loading} bind:value={bunker} class="grow" placeholder="bunker://" />
+      <Icon icon={CpuBolt} />
+      <input disabled={$loading} bind:value={$bunker} class="grow" placeholder="bunker://" />
+      <Button onclick={toggleScanner}>
+        <Icon icon={QrCode} />
+      </Button>
     </label>
   {/snippet}
   {#snippet info()}
@@ -30,3 +49,6 @@
     </p>
   {/snippet}
 </Field>
+{#if showScanner}
+  <Scanner onscan={onScan} />
+{/if}

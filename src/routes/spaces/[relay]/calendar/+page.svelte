@@ -5,8 +5,10 @@
   import {page} from "$app/stores"
   import {now, last, formatTimestampAsDate} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {REACTION, DELETE, EVENT_TIME, getTagValue} from "@welshman/util"
+  import {DELETE, EVENT_TIME, getTagValue} from "@welshman/util"
   import {fly} from "@lib/transition"
+  import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
+  import CalendarAdd from "@assets/icons/calendar-add.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -16,12 +18,12 @@
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import CalendarEventItem from "@app/components/CalendarEventItem.svelte"
   import CalendarEventCreate from "@app/components/CalendarEventCreate.svelte"
-  import {pushModal} from "@app/modal"
-  import {getEventsForUrl, decodeRelay} from "@app/state"
-  import {makeCalendarFeed} from "@app/requests"
-  import {setChecked} from "@app/notifications"
+  import {pushModal} from "@app/util/modal"
+  import {getEventsForUrl, decodeRelay, REACTION_KINDS} from "@app/core/state"
+  import {makeCalendarFeed} from "@app/core/requests"
+  import {setChecked} from "@app/util/notifications"
 
-  const url = decodeRelay($page.params.relay)
+  const url = decodeRelay($page.params.relay!)
 
   const makeEvent = () => pushModal(CalendarEventCreate, {url})
 
@@ -108,7 +110,7 @@
 
     return () => {
       setChecked($page.url.pathname)
-      cleanup()
+      cleanup?.()
     }
   })
 </script>
@@ -116,7 +118,7 @@
 <PageBar>
   {#snippet icon()}
     <div class="center">
-      <Icon icon="calendar-minimalistic" />
+      <Icon icon={CalendarMinimalistic} />
     </div>
   {/snippet}
   {#snippet title()}
@@ -125,7 +127,7 @@
   {#snippet action()}
     <div class="row-2">
       <Button class="btn btn-primary btn-sm" onclick={makeEvent}>
-        <Icon icon="calendar-add" />
+        <Icon icon={CalendarAdd} />
         Create an Event
       </Button>
       <MenuSpaceButton {url} />

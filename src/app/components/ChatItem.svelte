@@ -9,8 +9,8 @@
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileCircles from "@app/components/ProfileCircles.svelte"
-  import {makeChatPath} from "@app/routes"
-  import {notifications} from "@app/notifications"
+  import {makeChatPath} from "@app/util/routes"
+  import {notifications} from "@app/util/notifications"
 
   interface Props {
     id: string
@@ -59,6 +59,11 @@
         {/if}
       </div>
       <p class="overflow-hidden text-ellipsis whitespace-nowrap text-sm">
+        <span class="opacity-50">
+          {#if props.messages[0].pubkey === $pubkey}
+            You:
+          {/if}
+        </span>
         {props.messages[0].content}
       </p>
     </div>

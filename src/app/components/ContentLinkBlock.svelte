@@ -1,11 +1,11 @@
 <script lang="ts">
   import {ellipsize, displayUrl, postJson} from "@welshman/lib"
-  import {dufflepud, imgproxy} from "@app/state"
+  import {dufflepud} from "@app/core/state"
   import {preventDefault, stopPropagation} from "@lib/html"
   import Link from "@lib/components/Link.svelte"
   import ContentLinkDetail from "@app/components/ContentLinkDetail.svelte"
   import ContentLinkBlockImage from "@app/components/ContentLinkBlockImage.svelte"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
 
   const {value, event} = $props()
 
@@ -51,8 +51,8 @@
             <img
               alt="Link preview"
               onerror={onError}
-              src={imgproxy(preview.image)}
-              class="bg-alt max-h-72 object-contain object-center" />
+              src={preview.image}
+              class="bg-alt max-h-72 rounded-t-box object-contain object-center" />
           {/if}
           <div class="flex flex-col gap-2 p-4">
             <strong class="overflow-hidden text-ellipsis whitespace-nowrap"

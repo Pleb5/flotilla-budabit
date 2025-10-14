@@ -1,13 +1,14 @@
 <script lang="ts">
   import {formatTimestamp} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Content from "@app/components/Content.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileCircles from "@app/components/ProfileCircles.svelte"
-  import {goToEvent} from "@app/routes"
-  import {displayChannel} from "@app/state"
+  import {goToEvent} from "@app/util/routes"
+  import {displayChannel} from "@app/core/state"
 
   type Props = {
     url: string
@@ -28,19 +29,19 @@
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 text-sm opacity-70">
           {#if room}
-            <span class="font-medium text-blue-400">
+            <span class="truncate font-medium text-blue-400">
               #{displayChannel(url, room)}
             </span>
             <span class="opacity-50">•</span>
           {/if}
-          <span>{formatTimestamp(earliest.created_at)}</span>
+          <span class="text-nowrap">{formatTimestamp(earliest.created_at)}</span>
         </div>
         <Content minimalQuote minLength={100} maxLength={400} event={earliest} />
       </div>
     </div>
     <div class="ml-13 flex items-center justify-between">
       <div class="flex gap-1">
-        <Icon icon="alt-arrow-left" />
+        <Icon icon={AltArrowLeft} />
         <span class="text-sm opacity-70">
           {events.length}
           {events.length === 1 ? "message" : "messages"}

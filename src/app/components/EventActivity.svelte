@@ -6,7 +6,8 @@
   import {deriveEvents} from "@welshman/store"
   import type {TrustedEvent} from "@welshman/util"
   import {repository} from "@welshman/app"
-  import {notifications} from "@app/notifications"
+  import {notifications} from "@app/util/notifications"
+  import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import { normalizeRelayUrl } from "@welshman/util"
 
@@ -23,7 +24,7 @@
 </script>
 
 <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">
-  <Icon icon="reply" />
+  <Icon icon={Reply} />
   <span>{$replies.length} {$replies.length === 1 ? "reply" : "replies"}</span>
 </div>
 <div class="btn btn-neutral btn-xs relative hidden rounded-full sm:flex">

@@ -1,5 +1,83 @@
 # Changelog
 
+# 1.3.1
+
+* Fix memory leak in storage adapter
+* Show fewer annoying toast messages
+
+# 1.3.0
+
+* Add optional badge and sound for notifications
+* Improve link rendering
+* Remove imgproxy
+* Bring back blossom feature detection for spaces
+* Improve light theme
+* Add more info to signer status
+* Simplify navigation for adding a space
+* Add ability to scan QR code for invite links
+* Streamline wallet setup and move receive address setting
+* Remove indexeddb on mobile, use capacitor file storage API
+* Fix duplicate DMs showing up
+
+# 1.2.5
+
+* Fix icons in build
+
+# 1.2.4
+
+* Add direct message alerts
+* Add alert settings page
+* Add instructions to key download
+* Add option that allows relays to strip signatures
+* Detect relays that mostly refuse to serve requests
+* Compress and upload profile images
+* Use system theme by default
+* Switch icon set, refactor how they're included
+* Use capacitor's preferences for storage instead of localStorage
+
+# 1.2.3
+
+* Add `created_at` to event info dialog
+* Add signer status to profile page
+* Re-work bunker login flow
+* Add in-app onboarding flow
+* Only protect events if relay authenticates
+* Filter out non-global chats from global chat
+* Improve publish status indicator
+* Fix encrypted upload content type
+* Add relays to event details dialog
+* Add universal link handler for apps
+
+# 1.2.2
+
+* Fix phantom chat notifications
+* Fix zaps on mobile
+
+# 1.2.1
+
+* Add zaps to chat, threads, and events
+* Add funding goals
+* Add NWC support
+* Add wallet settings page
+* Handle invalid bunker url
+* Fix sidebar overflow
+* Fix profile npub display
+
+# 1.2.0
+
+* Fix sort order of thread comments
+* Fix link display when no title is available
+* Fix making profiles non-protected
+* Replace bunker url with relay claims for notifier auth
+* Add push notifications on all platforms
+* Add "mark all as read" on desktop
+* Re-design space dashboard
+
+# 1.1.1
+
+* Add chat quick link
+
+# 1.1.0
 # Unreleased
 
 * Add NIP-34 alignment scaffolding (no breaking changes):

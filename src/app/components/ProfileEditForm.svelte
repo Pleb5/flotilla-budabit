@@ -4,13 +4,15 @@
   import {preventDefault} from "@lib/html"
   import {nip19} from "nostr-tools"
   import {tokens as tokensStore} from "@nostr-git/ui"
+  import UserCircle from "@assets/icons/user-circle.svg?dataurl"
+  import MapPoint from "@assets/icons/map-point.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
-  import InputProfilePicture from "@lib/components/InputProfilePicture.svelte"
+  import InputProfilePicture from "@app/components/InputProfilePicture.svelte"
   import InfoHandle from "@app/components/InfoHandle.svelte"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
 
   type Values = {
     profile: Profile
@@ -24,7 +26,7 @@
   type Props = {
     initialValues: Values
     onsubmit: (values: Values) => void
-    hideAddress?: boolean
+    isSignup?: boolean
     footer: Snippet
     pubkey: string
   }
@@ -143,16 +145,32 @@
 </script>
 
 <form class="col-4" onsubmit={preventDefault(submit)}>
-  <div class="flex justify-center py-2">
-    <InputProfilePicture bind:file bind:url={values.profile.picture} />
-  </div>
+  {#if isSignup}
+    <div class="grid grid-cols-2">
+      <div class="flex flex-col gap-2">
+        <p class="text-2xl">Create a Profile</p>
+        <p class="text-sm">
+          Give people something to go on — but remember, privacy matters! Be careful about sharing
+          sensitive information.
+        </p>
+      </div>
+      <div class="flex flex-col items-center justify-center gap-2">
+        <InputProfilePicture bind:file bind:url={values.profile.picture} />
+        <p class="text-xs">Upload an Avatar</p>
+      </div>
+    </div>
+  {:else}
+    <div class="flex items-center justify-center py-4">
+      <InputProfilePicture bind:file bind:url={values.profile.picture} />
+    </div>
+  {/if}
   <Field>
     {#snippet label()}
-      <p>Username</p>
+      <p>Nickname</p>
     {/snippet}
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
-        <Icon icon="user-circle" />
+        <Icon icon={UserCircle} />
         <input bind:value={values.profile.name} class="grow" type="text" />
       </label>
     {/snippet}
@@ -282,7 +300,7 @@
       {/snippet}
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
-          <Icon icon="map-point" />
+          <Icon icon={MapPoint} />
           <input bind:value={values.profile.nip05} class="grow" type="text" />
         </label>
       {/snippet}
@@ -294,19 +312,24 @@
       {/snippet}
     </Field>
   {/if}
-  <FieldInline>
-    {#snippet label()}
-      <p>Broadcast Profile</p>
-    {/snippet}
-    {#snippet input()}
-      <input type="checkbox" class="toggle toggle-primary" bind:checked={values.shouldBroadcast} />
-    {/snippet}
-    {#snippet info()}
-      <p>
-        If enabled, changes will be published to the broader nostr network in addition to spaces you
-        are a member of.
-      </p>
-    {/snippet}
-  </FieldInline>
+  {#if !isSignup}
+    <FieldInline>
+      {#snippet label()}
+        <p>Broadcast Profile</p>
+      {/snippet}
+      {#snippet input()}
+        <input
+          type="checkbox"
+          class="toggle toggle-primary"
+          bind:checked={values.shouldBroadcast} />
+      {/snippet}
+      {#snippet info()}
+        <p>
+          If enabled, changes will be published to the broader nostr network in addition to spaces
+          you are a member of.
+        </p>
+      {/snippet}
+    </FieldInline>
+  {/if}
   {@render footer()}
 </form>

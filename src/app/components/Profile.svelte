@@ -13,7 +13,9 @@
   import Avatar from "@lib/components/Avatar.svelte"
   import WotScore from "@app/components/WotScore.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
-  import {pushModal} from "@app/modal"
+  import {pushModal} from "@app/util/modal"
+  import {clip} from "@app/util/toast"
+  import Copy from "@assets/icons/copy.svg?dataurl"
   import {clip} from "@app/toast"
 
   type Props = {
@@ -24,7 +26,7 @@
     avatarSize?: number
   }
 
-  const {pubkey, url, hideDetails=false, showPubkey, avatarSize = 10}: Props = $props()
+  const {pubkey, url, hideDetails=false, showPubkey, avatarSize = 10, showPubkey, avatarSize = 10}: Props = $props()
 
   const relays = removeNil([url])
   const profile = deriveProfile(pubkey, relays)
@@ -33,6 +35,7 @@
 
   const openProfile = () => pushModal(ProfileDetail, {pubkey, url})
 
+  const copyPubkey = () => clip(nip19.npubEncode(pubkey))
   const copyPubkey = () => clip(nip19.npubEncode(pubkey))
 </script>
 

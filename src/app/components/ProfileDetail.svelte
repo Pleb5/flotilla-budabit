@@ -1,5 +1,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import Letter from "@assets/icons/letter-opened.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
   import Link from "@lib/components/Link.svelte"
@@ -9,9 +11,9 @@
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
   import ChatEnable from "@app/components/ChatEnable.svelte"
-  import {canDecrypt, pubkeyLink} from "@app/state"
-  import {pushModal} from "@app/modal"
-  import {makeChatPath} from "@app/routes"
+  import {canDecrypt, pubkeyLink} from "@app/core/state"
+  import {pushModal} from "@app/util/modal"
+  import {makeChatPath} from "@app/util/routes"
   import {makeGitRepoPath} from "@lib/budabit"
 
   export type Props = {
@@ -34,7 +36,7 @@
   <ProfileBadges {pubkey} {url} />
   <ModalFooter>
     <Button onclick={back} class="hidden md:btn md:btn-link">
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
     <div class="flex gap-2">
@@ -47,7 +49,7 @@
         Git Repos
       </Button>
       <Button onclick={openChat} class="btn btn-primary">
-        <Icon icon="letter" />
+        <Icon icon={Letter} />
         Open Chat
       </Button>
     </div>

@@ -21,15 +21,17 @@
     getTags,
     DIRECT_MESSAGE,
     DIRECT_MESSAGE_FILE,
-    INBOX_RELAYS,
   } from "@welshman/util"
   import {
     pubkey,
     tagPubkey,
     sendWrapped,
-    loadUsingOutbox,
+    mergeThunks,
+    loadInboxRelaySelections,
     inboxRelaySelectionsByPubkey,
   } from "@welshman/app"
+  import type {AbstractThunk} from "@welshman/app"
+  import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -45,15 +47,17 @@
   import ChatMessage from "@app/components/ChatMessage.svelte"
   import ChatCompose from "@app/components/ChatCompose.svelte"
   import ChatComposeParent from "@app/components/ChatComposeParent.svelte"
+  import ThunkToast from "@app/components/ThunkToast.svelte"
   import {
     INDEXER_RELAYS,
-    userSettingValues,
+    userSettingsValues,
     deriveChat,
     splitChatId,
     PLATFORM_NAME,
-  } from "@app/state"
-  import {pushModal} from "@app/modal"
-  import {prependParent} from "@app/commands"
+  } from "@app/core/state"
+  import {pushModal} from "@app/util/modal"
+  import {prependParent} from "@app/core/commands"
+  import {pushToast} from "@app/util/toast"
 
   type Props = {
     id: string
@@ -122,11 +126,22 @@
 
     // Split the message into multiple pieces so that we can use kind 15 to send images per nip 17
     // Sleep 1 second between each one to make sure timestamps are distinct
+    const thunks: AbstractThunk[] = []
     for (let i = 0; i < templates.length; i++) {
       const template = templates[i]
 
-      await sendWrapped({pubkeys, template, delay: $userSettingValues.send_delay + ms(i)})
+      thunks.push(
+        await sendWrapped({pubkeys, template, delay: $userSettingsValues.send_delay + ms(i)}),
+      )
     }
+
+    pushToast({
+      timeout: 30_000,
+      children: {
+        component: ThunkToast,
+        props: {thunk: mergeThunks(thunks)},
+      },
+    })
 
     clearParent()
   }
@@ -156,7 +171,7 @@
         id,
         type: "note",
         value: event,
-        showPubkey: created_at - previousCreatedAt > int(15, MINUTE) || previousPubkey !== pubkey,
+        showPubkey: created_at - previousCreatedAt > int(2, MINUTE) || previousPubkey !== pubkey,
       })
 
       previousDate = date
@@ -168,13 +183,8 @@
   })
 
   onMount(() => {
-    // Don't use loadInboxRelaySelection because we want to force reload
     for (const pubkey of others) {
-      loadUsingOutbox({
-        pubkey,
-        kind: INBOX_RELAYS,
-        relays: INDEXER_RELAYS,
-      })
+      loadInboxRelaySelections(pubkey, INDEXER_RELAYS, true)
     }
 
     const observer = new ResizeObserver(() => {
@@ -241,7 +251,7 @@
         <div
           class="row-2 badge badge-error badge-lg tooltip tooltip-left cursor-pointer"
           data-tip="{count} {label} not configured.">
-          <Icon icon="danger" />
+          <Icon icon={Danger} />
           {count}
         </div>
       {/if}
@@ -255,7 +265,7 @@
     <div class="py-12">
       <div class="card2 col-2 m-auto max-w-md items-center text-center">
         <p class="row-2 text-lg text-error">
-          <Icon icon="danger" />
+          <Icon icon={Danger} />
           Your inbox is not configured.
         </p>
         <p>
@@ -268,7 +278,7 @@
     <div class="py-12">
       <div class="card2 col-2 m-auto max-w-md items-center text-center">
         <p class="row-2 text-lg text-error">
-          <Icon icon="danger" />
+          <Icon icon={Danger} />
           {missingInboxes.length}
           {missingInboxes.length > 1 ? "inboxes are" : "inbox is"} not configured.
         </p>

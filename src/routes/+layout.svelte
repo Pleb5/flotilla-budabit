@@ -1,46 +1,57 @@
 <script lang="ts">
   import "@src/app.css"
   import "@capacitor-community/safe-area"
+  import {throttle} from "throttle-debounce"
   import {onMount} from "svelte"
   import * as nip19 from "nostr-tools/nip19"
   import {get, derived} from "svelte/store"
-  import {App} from "@capacitor/app"
+  import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {dev} from "$app/environment"
   import {goto} from "$app/navigation"
-  import {identity, memoize, sleep, defer, ago, WEEK, TaskQueue} from "@welshman/lib"
-  import type {TrustedEvent, StampedEvent} from "@welshman/util"
+  import {sync, localStorageProvider} from "@welshman/store"
   import {
-    WRAP,
-    EVENT_TIME,
-    THREAD,
-    MESSAGE,
-    INBOX_RELAYS,
-    DIRECT_MESSAGE,
-    DIRECT_MESSAGE_FILE,
-    MUTES,
-    FOLLOWS,
-    PROFILE,
-    RELAYS,
-    BLOSSOM_SERVERS,
-    getRelaysFromList,
-  } from "@welshman/util"
+    ago,
+    assoc,
+    call,
+    defer,
+    dissoc,
+    identity,
+    memoize,
+    on,
+    sleep,
+    spec,
+    TaskQueue,
+    WEEK,
+  } from "@welshman/lib"
+  import type {TrustedEvent, StampedEvent} from "@welshman/util"
+  import {WRAP} from "@welshman/util"
   import {Nip46Broker, makeSecret} from "@welshman/signer"
-  import type {Socket} from "@welshman/net"
-  import {request, defaultSocketPolicies, makeSocketPolicyAuth} from "@welshman/net"
+  import type {Socket, RelayMessage, ClientMessage} from "@welshman/net"
+  import {
+    request,
+    defaultSocketPolicies,
+    makeSocketPolicyAuth,
+    SocketEvent,
+    isRelayEvent,
+    isRelayOk,
+    isRelayClosed,
+    isClientReq,
+    isClientEvent,
+    isClientClose,
+  } from "@welshman/net"
   import {
     loadRelay,
-    db,
-    initStorage,
     repository,
     pubkey,
-    defaultStorageAdapters,
     session,
+    sessions,
     signer,
+    signerLog,
     dropSession,
-    userInboxRelaySelections,
     loginWithNip01,
     loginWithNip46,
-    EventsStorageAdapter,
+    loadRelaySelections,
+    SignerLogEntryStatus,
   } from "@welshman/app"
   import * as lib from "@welshman/lib"
   import * as util from "@welshman/util"
@@ -49,28 +60,43 @@
   import * as welshmanSigner from "@welshman/signer"
   import * as net from "@welshman/net"
   import * as app from "@welshman/app"
+  import {nsecDecode} from "@lib/util"
+  import {preferencesStorageProvider} from "@lib/storage"
   import AppContainer from "@app/components/AppContainer.svelte"
   import ModalContainer from "@app/components/ModalContainer.svelte"
-  import {setupTracking} from "@app/tracking"
-  import {setupAnalytics} from "@app/analytics"
-  import {nsecDecode} from "@lib/util"
+  import {setupTracking} from "@app/util/tracking"
+  import {setupAnalytics} from "@app/util/analytics"
   import {
     INDEXER_RELAYS,
     userMembership,
-    userSettingValues,
+    userSettingsValues,
+    relaysPendingTrust,
     ensureUnwrapped,
     canDecrypt,
-  } from "@app/state"
-  import {loadUserData, listenForNotifications} from "@app/requests"
-  import {theme} from "@app/theme"
+    getSetting,
+    relaysMostlyRestricted,
+    userInboxRelays,
+  } from "@app/core/state"
+  import {loadUserData, listenForNotifications} from "@app/core/requests"
+  import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
-  import * as commands from "@app/commands"
-  import * as requests from "@app/requests"
-  import * as notifications from "@app/notifications"
-  import * as appState from "@app/state"
+  import {toast, pushToast} from "@app/util/toast"
+  import {initializePushNotifications} from "@app/util/push"
+  import * as commands from "@app/core/commands"
+  import * as requests from "@app/core/requests"
+  import * as appState from "@app/core/state"
+  import * as notifications from "@app/util/notifications"
+  import * as storage from "@app/util/storage"
+  import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
+
+  // Migration: delete old indexeddb database
+  indexedDB?.deleteDatabase("flotilla")
   import {loadUserGitData} from "@lib/budabit"
   import {Router} from "@welshman/router"
   import {signer as gitSigner} from "@nostr-git/ui"
+
+  // Initialize push notification handler asap
+  initializePushNotifications()
 
   // Initialize push notification handler asap
   initializePushNotifications()
@@ -79,6 +105,8 @@
 
   const ready = $state(defer<void>())
 
+  let initialized = false
+
   onMount(async () => {
     // Preserve window.nostr before overriding window object
     const originalNostr = (window as any).nostr
@@ -86,6 +114,7 @@
     Object.assign(window, {
       get,
       nip19,
+      theme,
       ...lib,
       ...welshmanSigner,
       ...router,
@@ -98,18 +127,57 @@
       ...requests,
       ...notifications,
     })
-    
-    // Restore window.nostr if it was overridden
-    if (originalNostr && !(window as any).nostr) {
-      (window as any).nostr = originalNostr
-      console.log("Restored window.nostr after Object.assign")
+
+    // migrate from localStorage to capacitor Preferences storage if needed
+    const runMigration = async () => {
+      const isSome = (item: any) => {
+        return item !== undefined && item !== null && item !== ""
+      }
+
+      const localStoragePubKey = await localStorageProvider.get("pubkey")
+      if (isSome(localStoragePubKey)) {
+        await preferencesStorageProvider.set("pubkey", localStoragePubKey)
+        localStorage.removeItem("pubkey")
+      }
+
+      const localStorageSessions = await localStorageProvider.get("sessions")
+      if (isSome(localStorageSessions)) {
+        await preferencesStorageProvider.set("sessions", localStorageSessions)
+        localStorage.removeItem("sessions")
+      }
+
+      const localStorageCanDecrypt = await localStorageProvider.get("canDecrypt")
+      if (isSome(localStorageCanDecrypt)) {
+        await preferencesStorageProvider.set("canDecrypt", localStorageCanDecrypt)
+        localStorage.removeItem("canDecrypt")
+      }
+
+      const localStorageChecked = await localStorageProvider.get("checked")
+      if (isSome(localStorageChecked)) {
+        await preferencesStorageProvider.set("checked", localStorageChecked)
+        localStorage.removeItem("checked")
+      }
+
+      const localStorageTheme = await localStorageProvider.get("theme")
+      if (isSome(localStorageTheme)) {
+        await preferencesStorageProvider.set("theme", localStorageTheme)
+        localStorage.removeItem("theme")
+      }
     }
+    await runMigration()
 
     // Listen for navigation messages from service worker
     navigator.serviceWorker?.addEventListener("message", event => {
       if (event.data && event.data.type === "NAVIGATE") {
         goto(event.data.url)
       }
+    })
+
+    // Listen for deep link events
+    App.addListener("appUrlOpen", (event: URLOpenListenerEvent) => {
+      const url = new URL(event.url)
+      const target = `${url.pathname}${url.search}${url.hash}`
+      goto(target, {replaceState: false, noScroll: false})
     })
 
     // Nstart login
@@ -154,12 +222,13 @@
     })
 
     // Sync font size
-    userSettingValues.subscribe($userSettingValues => {
+    userSettingsValues.subscribe($userSettingsValues => {
       // @ts-ignore
-      document.documentElement.style["font-size"] = `${$userSettingValues.font_size}rem`
+      document.documentElement.style["font-size"] = `${$userSettingsValues.font_size}rem`
     })
 
-    if (!db) {
+    if (!initialized) {
+      initialized = true
       setupTracking()
       setupAnalytics()
 
@@ -175,46 +244,139 @@
       const unwrapper = new TaskQueue<TrustedEvent>({batchSize: 10, processItem: ensureUnwrapped})
 
       repository.on("update", ({added}) => {
-        if (!$canDecrypt) {
-          return
-        }
-
         for (const event of added) {
-          if (event.kind === WRAP) {
+          loadRelaySelections(event.pubkey)
+
+          if ($canDecrypt && event.kind === WRAP) {
             unwrapper.push(event)
           }
         }
       })
 
-      await initStorage("flotilla", 8, {
-        ...defaultStorageAdapters,
-        events: new EventsStorageAdapter({
-          name: "events",
-          limit: 10_000,
-          repository,
-          rankEvent: (e: TrustedEvent) => {
-            if ([PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, INBOX_RELAYS].includes(e.kind)) {
-              return 1
-            }
-
-            if (
-              [EVENT_TIME, THREAD, MESSAGE, DIRECT_MESSAGE, DIRECT_MESSAGE_FILE].includes(e.kind)
-            ) {
-              return 0.9
-            }
-
-            return 0
-          },
-        }),
+      // Sync current pubkey
+      await sync({
+        key: "pubkey",
+        store: pubkey,
+        storage: preferencesStorageProvider,
       })
 
-      sleep(500).then(() => ready.resolve())
+      // Sync user sessions
+      await sync({
+        key: "sessions",
+        store: sessions,
+        storage: preferencesStorageProvider,
+      })
+
+      // Sync application data (relay, events, etc)
+      await storage.syncDataStores()
+
+      // Wait 300 ms for any throttled stores to finish
+      sleep(300).then(() => ready.resolve())
 
       defaultSocketPolicies.push(
         makeSocketPolicyAuth({
           sign: (event: StampedEvent) => signer.get()?.sign(event),
           shouldAuth: (socket: Socket) => true,
         }),
+        (socket: Socket) => {
+          const buffer: RelayMessage[] = []
+
+          const unsubscribers = [
+            // When the socket goes from untrusted to trusted, receive all buffered messages
+            userSettingsValues.subscribe($settings => {
+              if ($settings.trusted_relays.includes(socket.url)) {
+                for (const message of buffer.splice(0)) {
+                  socket._recvQueue.push(message)
+                }
+              }
+            }),
+            // When we get an event with no signature from an untrusted relay, remove it from
+            // the receive queue. If trust status is undefined, buffer it for later.
+            on(socket, SocketEvent.Receiving, (message: RelayMessage) => {
+              if (isRelayEvent(message) && !message[2]?.sig) {
+                const isTrusted = getSetting<string[]>("trusted_relays").includes(socket.url)
+
+                if (!isTrusted) {
+                  socket._recvQueue.remove(message)
+                  buffer.push(message)
+
+                  if (!$relaysPendingTrust.includes(socket.url)) {
+                    relaysPendingTrust.update($r => [...$r, socket.url])
+                  }
+                }
+              }
+            }),
+          ]
+
+          return () => {
+            unsubscribers.forEach(call)
+          }
+        },
+        function monitorRestrictedResponses(socket: Socket) {
+          let total = 0
+          let restricted = 0
+          let error = ""
+
+          const pending = new Set<string>()
+
+          const updateStatus = () =>
+            relaysMostlyRestricted.update(
+              restricted > total / 2 ? assoc(socket.url, error) : dissoc(socket.url),
+            )
+
+          const unsubscribers = [
+            on(socket, SocketEvent.Receive, (message: RelayMessage) => {
+              if (isRelayOk(message)) {
+                const [_, id, ok, details = ""] = message
+
+                if (pending.has(id)) {
+                  pending.delete(id)
+
+                  if (!ok && details.startsWith("restricted: ")) {
+                    restricted++
+                    error = details
+                    updateStatus()
+                  }
+                }
+              }
+
+              if (isRelayClosed(message)) {
+                const [_, id, details = ""] = message
+
+                if (pending.has(id)) {
+                  pending.delete(id)
+
+                  if (details.startsWith("restricted: ")) {
+                    restricted++
+                    error = details
+                    updateStatus()
+                  }
+                }
+              }
+            }),
+            on(socket, SocketEvent.Send, (message: ClientMessage) => {
+              if (isClientReq(message)) {
+                total++
+                pending.add(message[1])
+                updateStatus()
+              }
+
+              if (isClientEvent(message)) {
+                total++
+                pending.add(message[1].id)
+                updateStatus()
+              }
+
+              if (isClientClose(message)) {
+                pending.delete(message[1])
+              }
+            }),
+          ]
+
+          return () => {
+            unsubscribers.forEach(call)
+          }
+        },
       )
 
       // Load relay info
@@ -246,33 +408,47 @@
       // Listen for chats, populate chat-based notifications
       let controller: AbortController
 
-      {
-        let lastSig = ""
-        derived([pubkey, canDecrypt, userInboxRelaySelections], identity).subscribe(
-          ([$pubkey, $canDecrypt, $userInboxRelaySelections]) => {
-            // Build a minimal, stable signature to detect real changes
-            const relays = getRelaysFromList($userInboxRelaySelections)
-            const sig = `${$pubkey || ""}|${$canDecrypt ? "1" : "0"}|${relays.join(",")}`
+      derived([pubkey, canDecrypt, userInboxRelays], identity).subscribe(
+        ([$pubkey, $canDecrypt, $userInboxRelays]) => {
+          controller?.abort()
+          controller = new AbortController()
 
-            if (sig === lastSig) return
-            lastSig = sig
+          if ($pubkey && $canDecrypt) {
+            request({
+              signal: controller.signal,
+              relays: $userInboxRelays,
+              filters: [
+                {kinds: [WRAP], "#p": [$pubkey], since: ago(WEEK, 2)},
+                {kinds: [WRAP], "#p": [$pubkey], limit: 100},
+              ],
+            })
+          }
+        },
+      )
 
-            controller?.abort()
-            controller = new AbortController()
+      // subscribe to badge count for changes
+      notifications.badgeCount.subscribe(notifications.handleBadgeCountChanges)
 
-            if ($pubkey && $canDecrypt) {
-              request({
-                signal: controller.signal,
-                filters: [
-                  {kinds: [WRAP], "#p": [$pubkey], since: ago(WEEK, 2)},
-                  {kinds: [WRAP], "#p": [$pubkey], limit: 100},
-                ],
-                relays,
-              })
-            }
-          },
-        )
-      }
+      // Listen for signer errors, report to user via toast
+      signerLog.subscribe(
+        throttle(10_000, $log => {
+          const recent = $log.slice(-10)
+          const success = recent.filter(spec({status: SignerLogEntryStatus.Success}))
+          const failure = recent.filter(spec({status: SignerLogEntryStatus.Failure}))
+
+          if (!$toast && failure.length > 5 && success.length === 0) {
+            pushToast({
+              theme: "error",
+              timeout: 60_000,
+              message: "Your signer appears to be unresponsive.",
+              action: {
+                message: "Details",
+                onclick: () => goto("/settings/profile"),
+              },
+            })
+          }
+        }),
+      )
     }
   })
 </script>
@@ -292,5 +468,6 @@
     </AppContainer>
     <ModalContainer />
     <div class="tippy-target"></div>
+    <NewNotificationSound />
   </div>
 {/await}

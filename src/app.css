@@ -47,10 +47,10 @@
 
 :root {
   font-family: Lato;
-  --sait: env(safe-area-inset-top);
-  --saib: env(safe-area-inset-bottom);
-  --sail: env(safe-area-inset-left);
-  --sair: env(safe-area-inset-right);
+  --sait: var(--safe-area-inset-top, env(safe-area-inset-top));
+  --saib: var(--safe-area-inset-bottom, env(safe-area-inset-bottom));
+  --sail: var(--safe-area-inset-left, env(safe-area-inset-left));
+  --sair: var(--safe-area-inset-right, env(safe-area-inset-right));
 }
 
 [data-theme] {
@@ -63,6 +63,8 @@
   --primary-content: oklch(var(--pc));
   --secondary: oklch(var(--s));
   --secondary-content: oklch(var(--sc));
+  --neutral: oklch(var(--n));
+  --neutral-content: oklch(var(--nc));
 }
 
 /* safe area insets */
@@ -161,11 +163,11 @@
 }
 
 .card2 {
-  @apply rounded-box p-6 text-base-content;
+  @apply rounded-box p-4 text-base-content sm:p-6;
 }
 
 .card2.card2-sm {
-  @apply p-4 text-base-content;
+  @apply p-2 text-base-content sm:p-4;
 }
 
 .column {
@@ -214,12 +216,6 @@
 
 [data-tip]::before {
   @apply ellipsize;
-}
-
-@media (max-width: 639px) {
-  [data-tip]::before {
-    display: none;
-  }
 }
 
 .content-padding-x {
@@ -279,8 +275,8 @@
 }
 
 .tiptap {
-  --tiptap-object-bg: var(--base-100);
-  --tiptap-object-fg: var(--base-content);
+  --tiptap-object-bg: var(--neutral);
+  --tiptap-object-fg: var(--neutral-content);
   --tiptap-active-bg: var(--primary);
   --tiptap-active-fg: var(--primary-content);
 }

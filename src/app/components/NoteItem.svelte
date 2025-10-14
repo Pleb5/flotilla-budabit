@@ -1,22 +1,31 @@
 <script lang="ts">
   import type {NativeEmoji} from "emoji-picker-element/shared"
   import type {TrustedEvent, EventContent} from "@welshman/util"
+  import SmileCircle from "@assets/icons/smile-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
   import NoteContent from "@app/components/NoteContent.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
-  import {publishDelete, publishReaction} from "@app/commands"
+  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
 
   const {url, event} = $props()
 
-  const deleteReaction = (event: TrustedEvent) => publishDelete({relays: [url], event})
+  const shouldProtect = canEnforceNip70(url)
 
-  const createReaction = (template: EventContent) =>
-    publishReaction({...template, event, relays: [url]})
+  const deleteReaction = async (event: TrustedEvent) =>
+    publishDelete({relays: [url], event, protect: await shouldProtect})
 
-  const onEmoji = (emoji: NativeEmoji) =>
-    publishReaction({event, content: emoji.unicode, relays: [url]})
+  const createReaction = async (template: EventContent) =>
+    publishReaction({...template, event, relays: [url], protect: await shouldProtect})
+
+  const onEmoji = async (emoji: NativeEmoji) =>
+    publishReaction({
+      event,
+      content: emoji.unicode,
+      relays: [url],
+      protect: await shouldProtect,
+    })
 </script>
 
 <NoteCard {event} {url} class="card2 bg-alt">
@@ -24,7 +33,7 @@
   <div class="flex w-full justify-between gap-2">
     <ReactionSummary {url} {event} {deleteReaction} {createReaction} reactionClass="tooltip-right">
       <EmojiButton {onEmoji} class="btn btn-neutral btn-xs h-[26px] rounded-box">
-        <Icon icon="smile-circle" size={4} />
+        <Icon icon={SmileCircle} size={4} />
       </EmojiButton>
     </ReactionSummary>
   </div>

@@ -5,6 +5,7 @@
   import {page} from "$app/stores"
   import type {Readable} from "svelte/store"
   import {now, formatTimestampAsDate} from "@welshman/lib"
+  import type {MakeNonOptional} from "@welshman/lib"
   import {request} from "@welshman/net"
   import type {TrustedEvent, EventContent} from "@welshman/util"
   import {
@@ -12,18 +13,24 @@
     makeRoomMeta,
     MESSAGE,
     DELETE,
-    REACTION,
     ROOM_ADD_USER,
     ROOM_REMOVE_USER,
   } from "@welshman/util"
-  import {pubkey, publishThunk, getThunkError, joinRoom, leaveRoom, deriveRelay} from "@welshman/app"
+  import {pubkey, publishThunk, waitForThunkError, joinRoom, leaveRoom} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
+  import Hashtag from "@assets/icons/hashtag.svg?dataurl"
+  import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
+  import Login2 from "@assets/icons/login-3.svg?dataurl"
+  import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
+  import Logout2 from "@assets/icons/logout-3.svg?dataurl"
+  import Bookmark from "@assets/icons/bookmark.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
+  import ThunkToast from "@app/components/ThunkToast.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ChannelName from "@app/components/ChannelName.svelte"
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
@@ -31,25 +38,47 @@
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
   import {
     userRoomsByUrl,
-    userSettingValues,
+    userSettingsValues,
     decodeRelay,
     getEventsForUrl,
     deriveUserMembershipStatus,
     deriveChannel,
     MembershipStatus,
-  } from "@app/state"
-  import {setChecked, checked} from "@app/notifications"
-  import {addRoomMembership, removeRoomMembership, prependParent} from "@app/commands"
-  import {PROTECTED} from "@app/state"
-  import {makeFeed} from "@app/requests"
-  import {whenElementReady} from "@src/lib/html"
-  import {popKey} from "@app/implicit"
-  import {pushToast} from "@app/toast"
-  import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
+    REACTION_KINDS,
+  } from "@app/core/state"
+  import {setChecked, checked} from "@app/util/notifications"
+  import {
+    addRoomMembership,
+    canEnforceNip70,
+    removeRoomMembership,
+    prependParent,
+  } from "@app/core/commands"
+  import {PROTECTED} from "@app/core/state"
+  import {makeFeed} from "@app/core/requests"
+  import {popKey} from "@lib/implicit"
+  import {pushToast} from "@app/util/toast"
 
-  const {room} = $page.params
+  const {room, relay} = $page.params as MakeNonOptional<typeof $page.params>
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
+  const url = decodeRelay(relay)
+  const channel = deriveChannel(url, room)
+  const filter = {kinds: [MESSAGE], "#h": [room]}
+  const isFavorite = $derived($userRoomsByUrl.get(url)?.has(room))
+  const shouldProtect = canEnforceNip70(url)
+  const membershipStatus = deriveUserMembershipStatus(url, room)
+
+  const addFavorite = () => addRoomMembership(url, room)
+
+  const removeFavorite = () => removeRoomMembership(url, room)
+
+  const join = async () => {
+    joining = true
+
+    try {
+      const message = await waitForThunkError(joinRoom(url, makeRoomMeta({id: room})))
+
+      if (message && !message.startsWith("duplicate:")) {
   const url = decodeRelay($page.params.relay)
   const channel = deriveChannel(url, room)
   const filter = {kinds: [MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room]}
@@ -81,7 +110,7 @@
   const leave = async () => {
     leaving = true
     try {
-      const message = await getThunkError(leaveRoom(url, makeRoomMeta({id: room})))
+      const message = await waitForThunkError(leaveRoom(url, makeRoomMeta({id: room})))
 
       if (message && !message.startsWith("duplicate:")) {
         pushToast({theme: "error", message})
@@ -104,9 +133,12 @@
     share = undefined
   }
 
-  const onSubmit = ({content, tags}: EventContent) => {
+  const onSubmit = async ({content, tags}: EventContent) => {
     tags.push(["h", room])
-    tags.push(PROTECTED)
+
+    if (await shouldProtect) {
+      tags.push(PROTECTED)
+    }
 
     let template = {content, tags}
 
@@ -118,11 +150,21 @@
       template = prependParent(parent, template)
     }
 
-    publishThunk({
+    const thunk = publishThunk({
       relays: [url],
       event: makeEvent(MESSAGE, template),
-      delay: $userSettingValues.send_delay,
+      delay: $userSettingsValues.send_delay,
     })
+
+    if ($userSettingsValues.send_delay) {
+      pushToast({
+        timeout: 30_000,
+        children: {
+          component: ThunkToast,
+          props: {thunk},
+        },
+      })
+    }
 
     clearParent()
     clearShare()
@@ -281,7 +323,7 @@
   })
 
   onDestroy(() => {
-    cleanup()
+    cleanup?.()
 
     // Sveltekit calls onDestroy at the beginning of the page load for some reason
     setTimeout(() => {
@@ -293,7 +335,7 @@
 <PageBar>
   {#snippet icon()}
     <div class="center">
-      <Icon icon="hashtag" />
+      <Icon icon={Hashtag} />
     </div>
   {/snippet}
   {#snippet title()}
@@ -364,6 +406,63 @@
         {/if}
       </div>
     </div>
+  {/snippet}
+</PageBar>
+
+<PageContent bind:element onscroll={onScroll} class="flex flex-col-reverse pt-4">
+  <div bind:this={dynamicPadding}></div>
+  {#if $channel?.private && $membershipStatus !== MembershipStatus.Granted}
+    <div class="py-20">
+      <div class="card2 col-8 m-auto max-w-md items-center text-center">
+        <p class="row-2">You aren't currently a member of this room.</p>
+        {#if $membershipStatus === MembershipStatus.Pending}
+          <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
+            <Icon icon={ClockCircle} />
+            Access Pending
+          </Button>
+        {:else}
+          <Button class="btn btn-neutral btn-sm" disabled={joining} onclick={join}>
+            {#if joining}
+              <span class="loading loading-spinner loading-sm"></span>
+            {:else}
+              <Icon icon={Login2} />
+            {/if}
+            Join Room
+          </Button>
+        {/if}
+      </div>
+    </div>
+  {:else}
+    {#each elements as { type, id, value, showPubkey } (id)}
+      {#if type === "new-messages"}
+        <div
+          bind:this={newMessages}
+          class="flex items-center py-2 text-xs transition-colors"
+          class:opacity-0={showFixedNewMessages}>
+          <div class="h-px flex-grow bg-primary"></div>
+          <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
+          <div class="h-px flex-grow bg-primary"></div>
+        </div>
+      {:else if type === "date"}
+        <Divider>{value}</Divider>
+      {:else}
+        <div in:slide class:-mt-1={!showPubkey}>
+          <ChannelMessage
+            {url}
+            {replyTo}
+            event={$state.snapshot(value as TrustedEvent)}
+            {showPubkey} />
+        </div>
+      {/if}
+    {/each}
+    <p class="flex h-10 items-center justify-center py-20">
+      {#if loadingEvents}
+        <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
+      {:else}
+        <Spinner>End of message history</Spinner>
+      {/if}
+    </p>
+  {/if}
   {:else}
     {#each elements as { type, id, value, showPubkey } (id)}
       {#if type === "new-messages"}
@@ -405,7 +504,7 @@
       <p>Only members are allowed to post to this room.</p>
       {#if $membershipStatus === MembershipStatus.Pending}
         <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
-          <Icon icon="clock-circle" />
+          <Icon icon={ClockCircle} />
           Access Pending
         </Button>
       {:else}
@@ -413,7 +512,7 @@
           {#if joining}
             <span class="loading loading-spinner loading-sm"></span>
           {:else}
-            <Icon icon="login-2" />
+            <Icon icon={Login2} />
           {/if}
           Ask to Join
         </Button>
@@ -435,7 +534,7 @@
 {#if showScrollButton}
   <div in:fade class="chat__scroll-down">
     <Button class="btn btn-circle btn-neutral" onclick={scrollToBottom}>
-      <Icon icon="alt-arrow-down" />
+      <Icon icon={AltArrowDown} />
     </Button>
   </div>
 {/if}

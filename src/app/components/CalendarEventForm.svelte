@@ -6,6 +6,9 @@
   import {publishThunk} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import {daysBetween} from "@lib/util"
+  import GallerySend from "@assets/icons/gallery-send.svg?dataurl"
+  import MapPoint from "@assets/icons/map-point.svg?dataurl"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Field from "@lib/components/Field.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -13,9 +16,10 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
-  import {PROTECTED} from "@app/state"
+  import {PROTECTED} from "@app/core/state"
   import {makeEditor} from "@app/editor"
-  import {pushToast} from "@app/toast"
+  import {pushToast} from "@app/util/toast"
+  import {canEnforceNip70} from "@app/core/commands"
 
   type Props = {
     url: string
@@ -31,6 +35,8 @@
   }
 
   const {url, header, initialValues}: Props = $props()
+
+  const shouldProtect = canEnforceNip70(url)
 
   const uploading = writable(false)
 
@@ -63,19 +69,22 @@
     }
 
     const ed = await editor
-    const event = makeEvent(EVENT_TIME, {
-      content: ed.getText({blockSeparator: "\n"}).trim(),
-      tags: [
-        ["d", initialValues?.d || randomId()],
-        ["title", title],
-        ["location", location || ""],
-        ["start", start.toString()],
-        ["end", end.toString()],
-        ...daysBetween(start, end).map(D => ["D", D.toString()]),
-        ...ed.storage.nostr.getEditorTags(),
-        PROTECTED,
-      ],
-    })
+    const content = ed.getText({blockSeparator: "\n"}).trim()
+    const tags = [
+      ["d", initialValues?.d || randomId()],
+      ["title", title],
+      ["location", location || ""],
+      ["start", start.toString()],
+      ["end", end.toString()],
+      ...daysBetween(start, end).map(D => ["D", D.toString()]),
+      ...ed.storage.nostr.getEditorTags(),
+    ]
+
+    if (await shouldProtect) {
+      tags.push(PROTECTED)
+    }
+
+    const event = makeEvent(EVENT_TIME, {content, tags})
 
     pushToast({message: "Your event has been saved!"})
     publishThunk({event, relays: [url]})
@@ -125,7 +134,7 @@
           {#if $uploading}
             <span class="loading loading-spinner loading-xs"></span>
           {:else}
-            <Icon icon="gallery-send" />
+            <Icon icon={GallerySend} />
           {/if}
         </Button>
       </div>
@@ -153,14 +162,14 @@
     {/snippet}
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
-        <Icon icon="map-point" />
+        <Icon icon={MapPoint} />
         <input bind:value={location} class="grow" type="text" />
       </label>
     {/snippet}
   </Field>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary" disabled={$uploading}>

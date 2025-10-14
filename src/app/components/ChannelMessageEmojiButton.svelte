@@ -1,15 +1,23 @@
 <script lang="ts">
   import type {NativeEmoji} from "emoji-picker-element/shared"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
+  import SmileCircle from "@assets/icons/smile-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
-  import {publishReaction} from "@app/commands"
+  import {publishReaction, canEnforceNip70} from "@app/core/commands"
 
   const {url, event} = $props()
 
-  const onEmoji = (emoji: NativeEmoji) =>
-    publishReaction({event, relays: [url], content: emoji.unicode})
+  const shouldProtect = canEnforceNip70(url)
+
+  const onEmoji = async (emoji: NativeEmoji) =>
+    publishReaction({
+      event,
+      relays: [url],
+      content: emoji.unicode,
+      protect: await shouldProtect,
+    })
 </script>
 
 <EmojiButton {onEmoji} class="btn join-item btn-xs">
-  <Icon icon="smile-circle" size={4} />
+  <Icon icon={SmileCircle} size={4} />
 </EmojiButton>

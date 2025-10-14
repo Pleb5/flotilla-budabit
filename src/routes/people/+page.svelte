@@ -2,19 +2,18 @@
   import {onMount} from "svelte"
   import {createScroller, isMobile} from "@lib/html"
   import {profileSearch} from "@welshman/app"
+  import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
   import ContentSearch from "@lib/components/ContentSearch.svelte"
   import PeopleItem from "@app/components/PeopleItem.svelte"
-  import {getDefaultPubkeys} from "@app/state"
-
-  const defaultPubkeys = getDefaultPubkeys()
+  import {defaultPubkeys} from "@app/core/state"
 
   let term = $state("")
   let limit = $state(10)
   let element: Element | undefined = $state()
 
-  const pubkeys = $derived(term ? $profileSearch.searchValues(term) : defaultPubkeys)
+  const pubkeys = $derived(term ? $profileSearch.searchValues(term) : $defaultPubkeys)
 
   onMount(() => {
     const scroller = createScroller({
@@ -32,7 +31,7 @@
   <ContentSearch>
     {#snippet input()}
       <label class="row-2 input input-bordered">
-        <Icon icon="magnifer" />
+        <Icon icon={Magnifier} />
         <!-- svelte-ignore a11y_autofocus -->
         <input
           autofocus={!isMobile}
