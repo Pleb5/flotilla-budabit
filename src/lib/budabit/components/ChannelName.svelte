@@ -1,9 +1,9 @@
 <script lang="ts">
-  import {GENERAL} from "@lib/budabit/state"
-  import {makeChannelId} from "@app/core/state"
-  import {channelsById} from "@lib/budabit/state"
+  import {GENERAL, makeChannelId, channelsById} from "@lib/budabit/state"
   
   const {url, room} = $props()
+  console.log("url", url)
+  console.log("room", room)
 </script>
 
 {#if room === GENERAL}

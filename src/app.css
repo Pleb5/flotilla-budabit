@@ -40,7 +40,7 @@
   font-weight: 400;
   src:
     local(""),
-    url("/fonts/Italic.ttf") format("truetype");
+    url("/fonts/Lato-Italic.ttf") format("truetype");
 }
 
 /* root */

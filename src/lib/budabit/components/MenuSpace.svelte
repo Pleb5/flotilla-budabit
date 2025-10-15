@@ -29,7 +29,7 @@
   import AlertAdd from "@app/components/AlertAdd.svelte"
   import Alerts from "@app/components/Alerts.svelte"
   import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
-  import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
+  import MenuSpaceRoomItem from "@lib/budabit/components/MenuSpaceRoomItem.svelte"
   import {
     userRoomsByUrl,
     hasMembershipUrl,

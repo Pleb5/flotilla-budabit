@@ -16,7 +16,7 @@ import {
 } from "@nostr-git/core"
 import { repository } from "@welshman/app"
 import { collection, deriveEvents, withGetter } from "@welshman/store"
-import { INDEXER_RELAYS, channelEvents, deriveEvent, messages, getUrlsForEvent, makeChannelId, memberships, roomComparator, splitChannelId, userRoomsByUrl, type Channel, getMembershipRooms, ROOM } from "@app/core/state"
+import { INDEXER_RELAYS, channelEvents, deriveEvent, messages, getUrlsForEvent, memberships, roomComparator, splitChannelId, userRoomsByUrl, type Channel, getMembershipRooms, ROOM } from "@app/core/state"
 import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
 import { fromPairs, nthEq, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
@@ -215,9 +215,17 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   })
 }
 
+export const makeChannelId = (url: string, room: string) => {
+  if (room.startsWith("naddr1")) {
+    return "naddr1"
+  }
+  return `${url}'${room}`
+}
+
+
 export const displayChannel = (url: string, room: string) => {
   if (room === GENERAL) {
-    return "general"
+    return "generalisimo"
   }
   return channelsById.get().get(makeChannelId(url, room))?.name || room
 }
