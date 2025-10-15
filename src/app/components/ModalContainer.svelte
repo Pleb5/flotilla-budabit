@@ -10,17 +10,20 @@
   }
 
   const m = $derived($modal)
+  
+  // Additional safety check to ensure modal is valid
+  const isValidModal = $derived(m && m.component && m.id && typeof m.component === 'function')
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
 
-{#if m?.options?.drawer}
+{#if isValidModal && m.options?.drawer}
   <Drawer onClose={clearModals} {...m.options}>
     {#key m.id}
       <m.component {...m.props} />
     {/key}
   </Drawer>
-{:else if m}
+{:else if isValidModal}
   <Dialog onClose={clearModals} {...m.options}>
     {#key m.id}
       <m.component {...m.props} />

@@ -17,6 +17,8 @@
   import LogOut from "@app/components/LogOut.svelte"
   import {pushModal} from "@app/util/modal"
   import {theme} from "@app/util/theme"
+  import Git from "@assets/icons/git.svg?dataurl"
+  import Settings from "@assets/icons/settings.svg?dataurl"
 
   type Props = {
     children?: Snippet
@@ -46,12 +48,12 @@
     </div>
     <div in:fly|local={{delay: 100}}>
       <SecondaryNavItem href="/settings/repos">
-        <Icon icon="git" /> Repos
+        <Icon icon={Git} /> Repos
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 150}}>
       <SecondaryNavItem href="/settings">
-        <Icon icon="settings" /> Settings
+        <Icon icon={Settings} /> Settings
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 150}}>

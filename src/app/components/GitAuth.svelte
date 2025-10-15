@@ -5,6 +5,7 @@
   import {pushModal} from "@app/util/modal"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
   import {tokens as tokensStore} from "@nostr-git/ui"
+  import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import {
     loadTokensFromStorage,
     saveTokensToStorage,
@@ -80,7 +81,7 @@
       Git Authentication Tokens
     </strong>
     <Button class="btn btn-primary btn-sm" onclick={openDialog}>
-      <Icon icon="add-circle" />
+      <Icon icon={AddCircle} />
       Add Token
     </Button>
   </div>

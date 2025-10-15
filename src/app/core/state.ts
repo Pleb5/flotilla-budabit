@@ -806,8 +806,11 @@ export const deriveRelayAuthError = (url: string, claim = "") => {
   const socket = Pool.get().get(url)
   const stripPrefix = (m: string) => m.replace(/^\w+: /, "")
 
-  // Kick off the auth process
-  socket.auth.attemptAuth($signer.sign)
+  // Only attempt auth if signer is available and not already authenticating
+  if ($signer?.sign && socket.auth.status === AuthStatus.None) {
+    // Kick off the auth process
+    socket.auth.attemptAuth($signer.sign)
+  }
 
   // Attempt to join the relay
   const thunk = publishThunk({

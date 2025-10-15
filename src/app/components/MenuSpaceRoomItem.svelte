@@ -3,10 +3,10 @@
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
-  import ChannelName from "@app/components/ChannelName.svelte"
+  import ChannelName from "@lib/budabit/components/ChannelName.svelte"
   import {makeRoomPath} from "@app/util/routes"
-  import {deriveChannel} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
+  import {deriveChannel} from "@app/core/state"
 
   interface Props {
     url: any

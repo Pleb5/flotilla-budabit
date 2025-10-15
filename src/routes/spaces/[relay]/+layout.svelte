@@ -8,7 +8,7 @@
   import Page from "@lib/components/Page.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
-  import MenuSpace from "@app/components/MenuSpace.svelte"
+  import MenuSpace from "@lib/budabit/components/MenuSpace.svelte"
   import SpaceAuthError from "@app/components/SpaceAuthError.svelte"
   import SpaceTrustRelay from "@app/components/SpaceTrustRelay.svelte"
   import {pushToast} from "@app/util/toast"

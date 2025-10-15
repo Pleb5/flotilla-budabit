@@ -8,7 +8,7 @@
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileCircles from "@app/components/ProfileCircles.svelte"
   import {goToEvent} from "@app/util/routes"
-  import {displayChannel} from "@app/core/state"
+  import {displayChannel} from "@lib/budabit/state"
 
   type Props = {
     url: string

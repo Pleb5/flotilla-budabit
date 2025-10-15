@@ -1,6 +1,7 @@
 <script lang="ts">
   import "@src/app.css"
   import "@capacitor-community/safe-area"
+  import "@src/lib/crypto-polyfill" // Import crypto polyfill early
   import {throttle} from "throttle-debounce"
   import {onMount} from "svelte"
   import * as nip19 from "nostr-tools/nip19"

@@ -55,6 +55,9 @@
     derivePatchGraph,
   } from "@lib/budabit/state"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
+  import AddCircle from "@assets/icons/add-circle.svg?dataurl"
+  import Bookmark from "@assets/icons/bookmark.svg?dataurl"
+  import Git from "@assets/icons/git.svg?dataurl"
 
   const url = decodeRelay($page.params.relay)
 
@@ -373,15 +376,15 @@
   {#snippet action()}
     <div class="row-2">
       <Button class="btn btn-secondary btn-sm" onclick={() => onNewRepo()}>
-        <Icon icon="add-circle" />
+        <Icon icon={AddCircle} />
         New Repo
       </Button>
       <Button class="btn btn-primary btn-sm" onclick={() => onAddRepo()}>
-        <Icon icon="bookmark" />
+        <Icon icon={Bookmark} />
         My Repos
       </Button>
       <Button class="btn btn-primary btn-sm" onclick={() => onAddRepo()}>
-        <Icon icon="git" />
+        <Icon icon={Git} />
         All Repos
       </Button>
     </div>

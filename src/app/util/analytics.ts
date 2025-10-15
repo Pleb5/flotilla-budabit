@@ -13,8 +13,23 @@ w.plausible =
 
 export const setupAnalytics = () => {
   page.subscribe($page => {
-    if ($page.route && getSetting("report_usage")) {
-      w.plausible("pageview", {u: $page.route.id})
+    if ($page.route?.id && getSetting("report_usage")) {
+      const routeId = $page.route.id
+      
+      // Skip localhost, root, and invalid routes
+      if (routeId === "localhost" || 
+          routeId === "/" || 
+          routeId.includes("localhost") ||
+          !routeId ||
+          routeId === "undefined") {
+        return
+      }
+      
+      try {
+        w.plausible("pageview", {u: routeId})
+      } catch (error) {
+        console.warn("Analytics error:", error)
+      }
     }
   })
 }

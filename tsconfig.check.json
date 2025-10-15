@@ -13,7 +13,7 @@
   },
   "include": [
     "src",
-    "packages/nostr-git/packages/ui/src/lib/components/git/RepoCore.ts",
+
     "packages/nostr-git/packages/ui/tests/**/*.ts"
   ],
   "exclude": [

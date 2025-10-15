@@ -1,24 +1,25 @@
 
-import {writable, derived, } from "svelte/store"
-import {load} from "@welshman/net"
+import { writable, derived, } from "svelte/store"
+import { load } from "@welshman/net"
 import {
-    groupByEuc,
-    deriveMaintainers,
-    mergeRepoStateByMaintainers,
-    buildPatchGraph,
-    assembleIssueThread,
-    resolveIssueStatus,
-    buildRepoSubscriptions,
-    extractSelfLabelsV2,
-    extractLabelEventsV2,
-    mergeEffectiveLabelsV2,
-    type RepoGroup
- } from "@nostr-git/core"
+  groupByEuc,
+  deriveMaintainers,
+  mergeRepoStateByMaintainers,
+  buildPatchGraph,
+  assembleIssueThread,
+  resolveIssueStatus,
+  buildRepoSubscriptions,
+  extractSelfLabelsV2,
+  extractLabelEventsV2,
+  mergeEffectiveLabelsV2,
+  type RepoGroup
+} from "@nostr-git/core"
 import { repository } from "@welshman/app"
-import { deriveEvents, withGetter } from "@welshman/store"
-import { INDEXER_RELAYS, deriveEvent } from "@app/core/state"
-import { normalizeRelayUrl, type TrustedEvent } from "@welshman/util"
+import { collection, deriveEvents, withGetter } from "@welshman/store"
+import { INDEXER_RELAYS, channelEvents, deriveEvent, messages, getUrlsForEvent, makeChannelId, memberships, roomComparator, splitChannelId, userRoomsByUrl, type Channel, getMembershipRooms, ROOM } from "@app/core/state"
+import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
+import { fromPairs, nthEq, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
 
 export const shouldReloadRepos = writable(false)
 
@@ -34,6 +35,8 @@ export const GIT_RELAYS = import.meta.env.VITE_GIT_RELAYS
 
 export const ROOMS = 10009
 
+export const GENERAL = "_"
+
 export const jobLink = (naddr: string) => `https://test.satshoot.com/${naddr}`
 export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
 
@@ -42,7 +45,7 @@ export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
 // - group by r:euc using core's groupByEuc
 // - expose lookups and maintainer derivation helpers
 
-export const repoAnnouncements = deriveEvents(repository, {filters: [{kinds: [30617]}]})
+export const repoAnnouncements = deriveEvents(repository, { filters: [{ kinds: [30617] }] })
 
 export const repoGroups = derived(repoAnnouncements, ($events): RepoGroup[] => {
   return groupByEuc($events as any)
@@ -81,7 +84,7 @@ export const deriveMaintainersForEuc = (euc: string) =>
 export const loadRepoAnnouncements = (relays: string[] = INDEXER_RELAYS) =>
   load({
     relays: relays.map(u => normalizeRelayUrl(u)).filter(Boolean) as string[],
-    filters: [{kinds: [30617]}],
+    filters: [{ kinds: [30617] }],
   })
 
 // ---------------------------------------------------------------------------
@@ -91,126 +94,241 @@ export const loadRepoAnnouncements = (relays: string[] = INDEXER_RELAYS) =>
  * Derive merged ref heads for a repo group by euc, bounded by recognized maintainers.
  */
 export const deriveRepoRefState = (euc: string) =>
-    withGetter(
-      derived(
-        [deriveEvents(repository, {filters: [{kinds: [30618]}]}), deriveRepoGroup(euc)],
-        ([$states, $group]) => {
-          const maintainers = $group ? deriveMaintainers($group) : new Set<string>()
-          return mergeRepoStateByMaintainers({states: $states as unknown as any[], maintainers})
-        },
-      ),
-    )
-  
-  /**
-   * Build a patch DAG for patches addressed to a given repo address (a-tag value).
-   */
-  export const derivePatchGraph = (addressA: string) =>
-    withGetter(
-      derived(deriveEvents(repository, {filters: [{kinds: [1617], "#a": [addressA]}]}), $patches =>
-        buildPatchGraph($patches as unknown as any[]),
-      ),
-    )
-  
-  /**
-   * Assemble an issue thread (root + NIP-22 comments + statuses) for a given root id.
-   */
-  export const deriveIssueThread = (rootId: string) =>
-    withGetter(
-      derived(
-        [
-          deriveEvent(rootId),
-          deriveEvents(repository, {filters: [{kinds: [1111], "#e": [rootId]}]}),
-          deriveEvents(repository, {filters: [{kinds: [1630, 1631, 1632, 1633], "#e": [rootId]}]}),
-        ],
-        ([$root, $comments, $statuses]) =>
-          $root
-            ? assembleIssueThread({
-                root: $root as unknown as any,
-                comments: $comments as unknown as any[],
-                statuses: $statuses as unknown as any[],
-              })
-            : undefined,
-      ),
-    )
-  
-  /**
-   * Resolve final status for an issue or patch root using precedence rules.
-   */
-  export const deriveStatus = (rootId: string, rootAuthor: string, euc: string) =>
-    withGetter(
-      derived([deriveIssueThread(rootId), deriveRepoGroup(euc)], ([$thread, $group]) => {
-        if (!$thread) return undefined
+  withGetter(
+    derived(
+      [deriveEvents(repository, { filters: [{ kinds: [30618] }] }), deriveRepoGroup(euc)],
+      ([$states, $group]) => {
         const maintainers = $group ? deriveMaintainers($group) : new Set<string>()
-        return resolveIssueStatus($thread as unknown as any, rootAuthor, maintainers)
-      }),
-    )
-  
-  /**
-   * Effective labels for an event id by combining self labels, external 1985 labels, and legacy #t.
-   */
-  export const deriveEffectiveLabels = (eventId: string) =>
-    withGetter(
-      derived(
-        [
-          deriveEvent(eventId),
-          deriveEvents(repository, {filters: [{kinds: [1985], "#e": [eventId]}]}),
-        ],
-        ([$evt, $external]) => {
-          if (!$evt) return undefined
-          const self = extractSelfLabelsV2($evt as unknown as any)
-          const external = extractLabelEventsV2($external as unknown as any[])
-          const t = (($evt as any).tags || [])
-            .filter((t: string[]) => t[0] === "t")
-            .map((t: string[]) => t[1])
-          return mergeEffectiveLabelsV2({self, external, t})
-        },
-      ),
-    )
-  
-  /**
-   * Load repo context using redundant subscriptions with client-side dedupe.
-   */
-  export const loadRepoContext = (args: {
-    addressA?: string
-    rootId?: string
-    euc?: string
-    relays?: string[]
-  }) => {
-    const {filters} = buildRepoSubscriptions({
-      addressA: args.addressA,
-      rootEventId: args.rootId,
-      euc: args.euc,
-    })
-    const defaults = GIT_RELAYS && GIT_RELAYS.length > 0 ? GIT_RELAYS : INDEXER_RELAYS
-    const relays = (args.relays || defaults)
-      .map((u: string) => normalizeRelayUrl(u))
-      .filter(Boolean) as string[]
-    return load({relays, filters})
-  }
-  
-  export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
-    let attempted = false
-    const decoded = nip19.decode(naddr).data as nip19.AddressPointer
-    const fallbackRelays = [...hints, ...INDEXER_RELAYS]
-    const relays = (decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays)
-      .map(u => normalizeRelayUrl(u))
-      .filter(Boolean)
-    const filters = [
-      {
-        authors: [decoded.pubkey],
-        kinds: [decoded.kind],
-        "#d": [decoded.identifier],
+        return mergeRepoStateByMaintainers({ states: $states as unknown as any[], maintainers })
       },
-    ]
-  
-    return derived(deriveEvents(repository, {filters}), (events: TrustedEvent[]) => {
-      if (!attempted && events.length === 0) {
-        load({relays: relays as string[], filters})
-        attempted = true
+    ),
+  )
+
+/**
+ * Build a patch DAG for patches addressed to a given repo address (a-tag value).
+ */
+export const derivePatchGraph = (addressA: string) =>
+  withGetter(
+    derived(deriveEvents(repository, { filters: [{ kinds: [1617], "#a": [addressA] }] }), $patches =>
+      buildPatchGraph($patches as unknown as any[]),
+    ),
+  )
+
+/**
+ * Assemble an issue thread (root + NIP-22 comments + statuses) for a given root id.
+ */
+export const deriveIssueThread = (rootId: string) =>
+  withGetter(
+    derived(
+      [
+        deriveEvent(rootId),
+        deriveEvents(repository, { filters: [{ kinds: [1111], "#e": [rootId] }] }),
+        deriveEvents(repository, { filters: [{ kinds: [1630, 1631, 1632, 1633], "#e": [rootId] }] }),
+      ],
+      ([$root, $comments, $statuses]) =>
+        $root
+          ? assembleIssueThread({
+            root: $root as unknown as any,
+            comments: $comments as unknown as any[],
+            statuses: $statuses as unknown as any[],
+          })
+          : undefined,
+    ),
+  )
+
+/**
+ * Resolve final status for an issue or patch root using precedence rules.
+ */
+export const deriveStatus = (rootId: string, rootAuthor: string, euc: string) =>
+  withGetter(
+    derived([deriveIssueThread(rootId), deriveRepoGroup(euc)], ([$thread, $group]) => {
+      if (!$thread) return undefined
+      const maintainers = $group ? deriveMaintainers($group) : new Set<string>()
+      return resolveIssueStatus($thread as unknown as any, rootAuthor, maintainers)
+    }),
+  )
+
+/**
+ * Effective labels for an event id by combining self labels, external 1985 labels, and legacy #t.
+ */
+export const deriveEffectiveLabels = (eventId: string) =>
+  withGetter(
+    derived(
+      [
+        deriveEvent(eventId),
+        deriveEvents(repository, { filters: [{ kinds: [1985], "#e": [eventId] }] }),
+      ],
+      ([$evt, $external]) => {
+        if (!$evt) return undefined
+        const self = extractSelfLabelsV2($evt as unknown as any)
+        const external = extractLabelEventsV2($external as unknown as any[])
+        const t = (($evt as any).tags || [])
+          .filter((t: string[]) => t[0] === "t")
+          .map((t: string[]) => t[1])
+        return mergeEffectiveLabelsV2({ self, external, t })
+      },
+    ),
+  )
+
+/**
+ * Load repo context using redundant subscriptions with client-side dedupe.
+ */
+export const loadRepoContext = (args: {
+  addressA?: string
+  rootId?: string
+  euc?: string
+  relays?: string[]
+}) => {
+  const { filters } = buildRepoSubscriptions({
+    addressA: args.addressA,
+    rootEventId: args.rootId,
+    euc: args.euc,
+  })
+  const defaults = GIT_RELAYS && GIT_RELAYS.length > 0 ? GIT_RELAYS : INDEXER_RELAYS
+  const relays = (args.relays || defaults)
+    .map((u: string) => normalizeRelayUrl(u))
+    .filter(Boolean) as string[]
+  return load({ relays, filters })
+}
+
+export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
+  let attempted = false
+  const decoded = nip19.decode(naddr).data as nip19.AddressPointer
+  const fallbackRelays = [...hints, ...INDEXER_RELAYS]
+  const relays = (decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays)
+    .map(u => normalizeRelayUrl(u))
+    .filter(Boolean)
+  const filters = [
+    {
+      authors: [decoded.pubkey],
+      kinds: [decoded.kind],
+      "#d": [decoded.identifier],
+    },
+  ]
+
+  return derived(deriveEvents(repository, { filters }), (events: TrustedEvent[]) => {
+    if (!attempted && events.length === 0) {
+      load({ relays: relays as string[], filters })
+      attempted = true
+    }
+    return events[0]
+  })
+}
+
+export const displayChannel = (url: string, room: string) => {
+  if (room === GENERAL) {
+    return "general"
+  }
+  return channelsById.get().get(makeChannelId(url, room))?.name || room
+}
+
+export const deriveUserRooms = (url: string) =>
+  derived(userRoomsByUrl, $userRoomsByUrl =>
+    sortBy(roomComparator(url), uniq(Array.from($userRoomsByUrl.get(url) || [GENERAL]))),
+  )
+
+export const deriveOtherRooms = (url: string) =>
+  derived([deriveUserRooms(url), channelsByUrl], ([$userRooms, $channelsByUrl]) =>
+    sortBy(
+      roomComparator(url),
+      ($channelsByUrl.get(url) || []).filter(c => !$userRooms.includes(c.room)).map(c => c.room),
+    ),
+  )
+
+export const channels = derived(
+  [channelEvents, getUrlsForEvent, memberships, messages],
+  ([$channelEvents, $getUrlsForEvent, $memberships, $messages]) => {
+    const $channels: Channel[] = []
+    for (const event of $channelEvents) {
+      const meta = fromPairs(event.tags)
+      const room = meta.d
+      if (room) {
+        for (const url of $getUrlsForEvent(event.id)) {
+          const id = makeChannelId(url, room)
+
+          $channels.push({
+            id,
+            url,
+            room,
+            event,
+            name: meta.name || room,
+            closed: Boolean(getTag("closed", event.tags)),
+            private: Boolean(getTag("private", event.tags)),
+            picture: meta.picture,
+            about: meta.about,
+          })
+        }
       }
-      return events[0]
+    }
+
+    // Add known rooms based on membership events
+    for (const membership of $memberships) {
+      for (const {url, room, name} of getMembershipRooms(membership)) {
+        const id = makeChannelId(url, room)
+
+        $channels.push({
+          id,
+          url,
+          room,
+          name,
+          closed: false,
+          private: false,
+          event: membership.event,
+          picture: undefined,
+          about: undefined,
+        })
+      }
+    }
+
+    // Add rooms based on known messages
+    for (const event of $messages) {
+      const [_, room] = event.tags.find(nthEq(0, ROOM)) || []
+      if (room) {
+        for (const url of $getUrlsForEvent(event.id)) {
+          const id = makeChannelId(url, room)
+
+          $channels.push({
+            id,
+            url,
+            room,
+            name: room,
+            event,
+            closed: false,
+            private: false,
+          })
+        }
+      }
+    }
+
+    return uniqBy(c => c.id, $channels)
+  },
+)
+
+export const {
+  indexStore: channelsById,
+  deriveItem: _deriveChannel,
+  loadItem: _loadChannel,
+} = collection({
+  name: "channels",
+  store: channels,
+  getKey: channel => {
+    return channel.id
+  },
+  load: async (id: string) => {
+    const [url, room] = splitChannelId(id)
+    await load({
+      relays: [normalizeRelayUrl(url)],
+      filters: [{kinds: [ROOM_META], "#d": [room]}, {kinds: [ROOMS]}],
     })
+  },
+})
+
+export const channelsByUrl = derived(channelsById, $channelsById => {
+  const $channelsByUrl = new Map<string, Channel[]>()
+
+  for (const channel of $channelsById.values()) {
+    pushToMapKey($channelsByUrl, channel.url, channel)
   }
 
-
-  
+  return $channelsByUrl
+})

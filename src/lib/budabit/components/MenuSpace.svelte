@@ -12,6 +12,7 @@
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic-2.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
+  import Git from "@assets/icons/git.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
@@ -27,32 +28,32 @@
   import ProfileList from "@app/components/ProfileList.svelte"
   import AlertAdd from "@app/components/AlertAdd.svelte"
   import Alerts from "@app/components/Alerts.svelte"
-  import RoomCreate from "@app/components/RoomCreate.svelte"
+  import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
   import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
   import {
-    ENABLE_ZAPS,
     userRoomsByUrl,
     hasMembershipUrl,
     memberships,
-    deriveOtherRooms,
-    hasNip29,
     alerts,
+    ENABLE_ZAPS,
   } from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
-  import {deriveUserRooms} from "@lib/budabit/state"
+  import {deriveUserRooms, deriveOtherRooms} from "@lib/budabit/state"
 
   const {url} = $props()
 
   const relay = deriveRelay(url)
   const chatPath = makeSpacePath(url, "chat")
-  const goalsPath = makeSpacePath(url, "goals")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
+  const jobsPath = makeSpacePath(url, "jobs")
+  const gitPath = makeSpacePath(url, "git")
   const userRooms = deriveUserRooms(url)
   const otherRooms = deriveOtherRooms(url)
   const hasAlerts = $derived($alerts.some(a => getTagValue("feed", a.tags)?.includes(url)))
+  const goalsPath = makeSpacePath(url, "goals")
 
   const openMenu = () => {
     showMenu = true
@@ -140,7 +141,7 @@
         </Popover>
       {/if}
     </div>
-    <div class="flex max-h-[calc(100vh-150px)] min-h-0 flex-col gap-1 overflow-auto">
+    <div class="flex min-h-0 flex-col gap-1 overflow-auto">
       <SecondaryNavItem {replaceState} href={makeSpacePath(url)}>
         <Icon icon={HomeSmile} /> Home
       </SecondaryNavItem>
@@ -164,39 +165,37 @@
         notification={$notifications.has(calendarPath)}>
         <Icon icon={CalendarMinimalistic} /> Calendar
       </SecondaryNavItem>
-      {#if hasNip29($relay)}
-        {#if $userRooms.length > 0}
-          <div class="h-2"></div>
-          <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
-        {/if}
-        {#each $userRooms as room, i (room)}
-          <MenuSpaceRoomItem {replaceState} notify {url} {room} />
-        {/each}
-        {#if $otherRooms.length > 0}
-          <div class="h-2"></div>
-          <SecondaryNavHeader>
-            {#if $userRooms.length > 0}
-              Other Rooms
-            {:else}
-              Rooms
-            {/if}
-          </SecondaryNavHeader>
-        {/if}
-        {#each $otherRooms as room, i (room)}
-          <MenuSpaceRoomItem {replaceState} {url} {room} />
-        {/each}
-        <SecondaryNavItem {replaceState} onclick={addRoom}>
-          <Icon icon={AddCircle} />
-          Create room
-        </SecondaryNavItem>
-      {:else}
-        <SecondaryNavItem
-          {replaceState}
-          href={chatPath}
-          notification={$notifications.has(chatPath)}>
-          <Icon icon={ChatRound} /> Chat
-        </SecondaryNavItem>
+
+      <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
+        <Icon icon={Git} /> Git
+      </SecondaryNavItem>
+      {#if $userRooms.length > 0}
+        <div class="h-2"></div>
+        <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
       {/if}
+      {#each $userRooms as room, i (room)}
+        <MenuSpaceRoomItem {replaceState} notify {url} {room} />
+      {/each}
+      {#if $otherRooms.length > 0}
+        <div class="h-2"></div>
+        <SecondaryNavHeader>
+          {#if $userRoomsByUrl.has(url)}
+            Other Rooms
+          {:else}
+            Rooms
+          {/if}
+        </SecondaryNavHeader>
+      {/if}
+      {#each $otherRooms as room, i (room)}
+        <MenuSpaceRoomItem {replaceState} {url} {room} />
+      {/each}
+      <SecondaryNavItem {replaceState} onclick={addRoom}>
+        <Icon icon={AddCircle} />
+        Create room
+      </SecondaryNavItem>
+      <SecondaryNavItem {replaceState} href={chatPath} notification={$notifications.has(chatPath)}>
+        <Icon icon={ChatRound} /> Chat
+      </SecondaryNavItem>
     </div>
   </SecondaryNavSection>
   <div class="p-4">

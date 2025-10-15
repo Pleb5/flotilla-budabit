@@ -18,13 +18,13 @@
   import {makeRoomPath, makeSpacePath} from "@app/util/routes"
   import {
     hasNip29,
-    deriveUserRooms,
     deriveOtherRooms,
     makeChannelId,
-    channelsById,
   } from "@app/core/state"
+  import {channelsById} from "@lib/budabit/state"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
+  import {deriveUserRooms} from "@lib/budabit/state"
 
   type Props = {
     url: string
