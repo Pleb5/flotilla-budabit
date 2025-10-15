@@ -7,7 +7,13 @@
   import type {MakeNonOptional} from "@welshman/lib"
   import {now, formatTimestampAsDate, ago, MINUTE} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
-  import {makeEvent, makeRoomMeta, MESSAGE} from "@welshman/util"
+  import {
+    makeEvent,
+    makeRoomMeta,
+    MESSAGE,
+    ROOM_ADD_MEMBER,
+    ROOM_REMOVE_MEMBER,
+  } from "@welshman/util"
   import {pubkey, publishThunk, waitForThunkError, joinRoom, leaveRoom} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
@@ -26,13 +32,16 @@
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import ChannelName from "@app/components/ChannelName.svelte"
   import ChannelItem from "@app/components/ChannelItem.svelte"
+  import ChannelItemAddMember from "@src/app/components/ChannelItemAddMember.svelte"
+  import ChannelItemRemoveMember from "@src/app/components/ChannelItemRemoveMember.svelte"
   import ChannelCompose from "@app/components/ChannelCompose.svelte"
+  import ChannelComposeEdit from "@src/app/components/ChannelComposeEdit.svelte"
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
   import {
-    userRoomsByUrl,
+    deriveUserRooms,
     userSettingsValues,
     decodeRelay,
-    deriveUserMembershipStatus,
+    deriveUserRoomMembershipStatus,
     deriveChannel,
     MembershipStatus,
     PROTECTED,
@@ -57,9 +66,10 @@
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay(relay)
   const channel = deriveChannel(url, room)
-  const isFavorite = $derived($userRoomsByUrl.get(url)?.has(room))
   const shouldProtect = canEnforceNip70(url)
-  const membershipStatus = deriveUserMembershipStatus(url, room)
+  const userRooms = deriveUserRooms(url)
+  const isFavorite = $derived($userRooms.includes(room))
+  const membershipStatus = deriveUserRoomMembershipStatus(url, room)
 
   const addFavorite = () => addRoomMembership(url, room)
 
@@ -258,7 +268,7 @@
     const feed = makeFeed({
       url,
       element: element!,
-      filters: [{kinds: MESSAGE_KINDS, "#h": [room]}],
+      filters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [room]}],
       onExhausted: () => {
         loadingEvents = false
       },
@@ -407,15 +417,22 @@
       {:else if type === "date"}
         <Divider>{value}</Divider>
       {:else}
-        <div in:slide class:-mt-1={!showPubkey}>
-          <ChannelItem
-            {url}
-            {replyTo}
-            event={$state.snapshot(value as TrustedEvent)}
-            {showPubkey}
-            canEdit={canEditEvent}
-            onEdit={onEditEvent} />
-        </div>
+        {@const event = $state.snapshot(value as TrustedEvent)}
+        {#if event.kind === ROOM_ADD_MEMBER}
+          <ChannelItemAddMember {url} {event} />
+        {:else if event.kind === ROOM_REMOVE_MEMBER}
+          <ChannelItemRemoveMember {url} {event} />
+        {:else}
+          <div in:slide class:-mt-1={!showPubkey}>
+            <ChannelItem
+              {url}
+              {event}
+              {replyTo}
+              {showPubkey}
+              canEdit={canEditEvent}
+              onEdit={onEditEvent} />
+          </div>
+        {/if}
       {/if}
     {/each}
     <p class="flex h-10 items-center justify-center py-20">
