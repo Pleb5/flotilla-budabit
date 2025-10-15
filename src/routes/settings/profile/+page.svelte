@@ -17,7 +17,7 @@
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import ProfileEdit from "@lib/budabit/components/ProfileEdit.svelte"
   import ProfileDelete from "@app/components/ProfileDelete.svelte"
   import SignerStatus from "@app/components/SignerStatus.svelte"

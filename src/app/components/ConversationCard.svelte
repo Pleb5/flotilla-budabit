@@ -4,7 +4,7 @@
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileCircles from "@app/components/ProfileCircles.svelte"
   import {goToEvent} from "@app/util/routes"

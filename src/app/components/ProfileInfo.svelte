@@ -1,7 +1,7 @@
 <script lang="ts">
   import {removeNil} from "@welshman/lib"
   import {deriveProfile} from "@welshman/app"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
 
   export type Props = {
     pubkey: string

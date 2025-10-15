@@ -2,7 +2,7 @@
   import {nthEq} from "@welshman/lib"
   import {type TrustedEvent} from "@welshman/util"
   import {formatTimestamp} from "@welshman/lib"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import JobActions from "./JobActions.svelte"
   import NoteCard from "./NoteCard.svelte"
 

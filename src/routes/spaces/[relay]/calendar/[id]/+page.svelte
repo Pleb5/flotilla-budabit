@@ -15,7 +15,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"

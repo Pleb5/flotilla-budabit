@@ -10,7 +10,7 @@
   import Tippy from "@lib/components/Tippy.svelte"
   import TapTarget from "@lib/components/TapTarget.svelte"
   import Avatar from "@lib/components/Avatar.svelte"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"

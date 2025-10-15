@@ -2,7 +2,7 @@
   import {nthEq, formatTimestamp} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
   import Link from "@lib/components/Link.svelte"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
   import {makeThreadPath} from "@app/util/routes"

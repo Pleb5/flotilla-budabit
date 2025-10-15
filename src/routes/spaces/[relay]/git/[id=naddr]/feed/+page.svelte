@@ -1,10 +1,9 @@
 <script lang="ts">
   import {readable, type Readable} from "svelte/store"
-  import {onMount, onDestroy} from "svelte"
+  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {makeFeed} from "@app/core/requests"
   import {now, formatTimestampAsDate} from "@welshman/lib"
-  import {load} from "@welshman/net"
   import type {TrustedEvent, EventContent} from "@welshman/util"
   import {
     makeEvent,
@@ -32,26 +31,29 @@
     decodeRelay,
     deriveUserMembershipStatus,
     deriveChannel,
-    MembershipStatus,
+    REACTION_KINDS,
   } from "@app/core/state"
-  import {setChecked, checked} from "@app/util/notifications"
+  import {checked} from "@app/util/notifications"
   import {prependParent} from "@app/core/commands"
   import {PROTECTED} from "@app/core/state"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
   import {GIT_REPO_ANNOUNCEMENT, type IssueEvent, type PatchEvent} from "@nostr-git/shared-types"
-  import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
-  import Login2 from "@assets/icons/login-2.svg?dataurl"
-  import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
-  
+  import ThunkToast from "@app/components/ThunkToast.svelte"
+  import PageBar from "@lib/components/PageBar.svelte"
+  import PageContent from "@lib/components/PageContent.svelte"
+  import ChatRound from "@assets/icons/chat-round.svg?dataurl"
+  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
+
   const {id} = $page.params
   const {data} = $props()
   const {repoClass} = data
   const room = id
+
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay($page.params.relay)
-  const channel = deriveChannel(url, room)
 
   const roomFilter = {kinds: [MESSAGE], "#h": [room]}
 
@@ -73,13 +75,11 @@
 
   const filter = [roomFilter, statusFilter, commentFilter]
 
-  const membershipStatus = deriveUserMembershipStatus(url, room)
-
   const join = async () => {
     joining = true
 
     try {
-      const message = await getThunkError(joinRoom(url, makeRoomMeta({id: room})))
+      const message = getThunkError(joinRoom(url, makeRoomMeta({id: room})))
 
       if (message && !message.startsWith("duplicate:")) {
         return pushToast({theme: "error", message})
@@ -95,7 +95,7 @@
   const leave = async () => {
     leaving = true
     try {
-      const message = await getThunkError(leaveRoom(url, makeRoomMeta({id: room})))
+      const message = getThunkError(leaveRoom(url, makeRoomMeta({id: room})))
 
       if (message && !message.startsWith("duplicate:")) {
         pushToast({theme: "error", message})
@@ -132,11 +132,21 @@
       template = prependParent(parent, template)
     }
 
-    publishThunk({
+    const thunk = publishThunk({
       relays: [url],
       event: makeEvent(MESSAGE, template),
       delay: $userSettingsValues.send_delay,
     })
+
+    if ($userSettingsValues.send_delay) {
+      pushToast({
+        timeout: 30_000,
+        children: {
+          component: ThunkToast,
+          props: {thunk},
+        },
+      })
+    }
 
     clearParent()
     clearShare()
@@ -171,6 +181,7 @@
   let element: HTMLElement | undefined = $state()
   let newMessages: HTMLElement | undefined = $state()
   let chatCompose: HTMLElement | undefined = $state()
+  let dynamicPadding: HTMLElement | undefined = $state()
   let newMessagesSeen = false
   let showFixedNewMessages = $state(false)
   let showScrollButton = $state(false)
@@ -189,6 +200,7 @@
 
     if (events) {
       const lastUserEvent = $events.find(e => e.pubkey === $pubkey)
+
       const today = formatTimestampAsDate(Date.now() / 1000)
       // Adjust last checked to account for messages that came from a different device
       const adjustedLastChecked =
@@ -228,55 +240,51 @@
         seen.add(event.id)
       }
     }
-
     //elements.reverse()
-
     setTimeout(onScroll, 100)
-
     return elements
   })
 
- onMount(() => {
-    let cleanup: (() => void) | undefined
-    
-    // Async initialization
-    ;(async () => {
-      const initialEvents = await load({
-        relays: repoClass.relays || [url],
-        filters: filter,
-      })
+  const initialEvents = $state<TrustedEvent[]>([])
+  initialEvents.push(
+    ...repoClass.issues,
+    ...repoClass.patches.filter(p => p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root")),
+  )
+  initialEvents.sort((a, b) => b.created_at - a.created_at)
 
-      initialEvents.push(
-        ...repoClass.issues,
-        ...repoClass.patches.filter(p =>
-          p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root"),
-        ),
-      )
+  onMount(() => {
+    const controller = new AbortController()
 
-      initialEvents.sort((a, b) => b.created_at - a.created_at)
+    const observer = new ResizeObserver(() => {
+      if (dynamicPadding && chatCompose) {
+        dynamicPadding!.style.minHeight = `${chatCompose!.offsetHeight}px`
+      }
+    })
 
-      const feedResult = makeFeed({
-        element: element!,
-        relays: [url],
-        feedFilters: filter,
-        subscriptionFilters: [
-          ...filter,
-          {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
-        ],
-        initialEvents,
-        onExhausted: () => {
-          loadingEvents = false
-        },
-      })
-      
-      cleanup = feedResult.cleanup
-      // Store cleanup function for use in join()
-      start = cleanup
-    })()
-        
+    observer.observe(chatCompose!)
+    observer.observe(dynamicPadding!)
+
+    const feed = makeFeed({
+      element: element!,
+      relays: [url],
+      feedFilters: filter,
+      subscriptionFilters: [
+        ...filter,
+        {kinds: [DELETE, MESSAGE, ...REACTION_KINDS], since: now()},
+        {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
+      ],
+      initialEvents: initialEvents,
+      onExhausted: () => {
+        loadingEvents = false
+      },
+    })
+    events = feed.events
+    cleanup = feed.cleanup
+
     return () => {
-      cleanup?.()
-      setChecked($page.url.pathname)
+      controller.abort()
+      observer.unobserve(chatCompose!)
+      observer.unobserve(dynamicPadding!)
     }
   })
 </script>
@@ -285,10 +293,8 @@
   <title>{repoClass.name} - Feed</title>
 </svelte:head>
 
-<div
-  bind:this={element}
-  onscroll={onScroll}
-  class="scroll-container cw md:bottom-sai fixed bottom-[calc(var(--saib)+3.5rem)] top-[calc(var(--sait)+16rem)] flex w-full flex-col overflow-y-auto overflow-x-hidden px-6">
+<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse pt-4">
+  <div bind:this={dynamicPadding}></div>
   {#each elements as { type, id, value, showPubkey } (id)}
     {#if type === "new-messages"}
       <div
@@ -321,44 +327,21 @@
 </div>
 
 <div class="chat__compose bg-base-200" bind:this={chatCompose}>
-  {#if $channel?.private && $membershipStatus !== MembershipStatus.Granted}
-    <!-- pass -->
-  {:else if $channel?.closed && $membershipStatus !== MembershipStatus.Granted}
-    <div class="bg-alt card m-4 flex flex-row items-center justify-between px-4 py-3">
-      <p>Only members are allowed to post to this room.</p>
-      {#if $membershipStatus === MembershipStatus.Pending}
-        <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
-          <Icon icon={ClockCircle} />
-          Access Pending
-        </Button>
-      {:else}
-        <Button class="btn btn-neutral btn-sm" disabled={joining} onclick={join}>
-          {#if joining}
-            <span class="loading loading-spinner loading-sm"></span>
-          {:else}
-            <Icon icon={Login2} />
-          {/if}
-          Ask to Join
-        </Button>
-      {/if}
-    </div>
-  {:else}
-    <div>
-      {#if parent}
-        <ChannelComposeParent event={parent} clear={clearParent} verb="Replying to" />
-      {/if}
-      {#if share}
-        <ChannelComposeParent event={share} clear={clearShare} verb="Sharing" />
-      {/if}
-    </div>
-    <ChannelCompose bind:this={compose} {onSubmit} {url} />
-  {/if}
+  <div>
+    {#if parent}
+      <ChannelComposeParent event={parent} clear={clearParent} verb="Replying to" />
+    {/if}
+    {#if share}
+      <ChannelComposeParent event={share} clear={clearShare} verb="Sharing" />
+    {/if}
+  </div>
+  <ChannelCompose bind:this={compose} {onSubmit} {url} />
 </div>
 
 {#if showScrollButton}
   <div in:fade class="chat__scroll-down">
     <Button class="btn btn-circle btn-neutral" onclick={scrollToBottom}>
-      <Icon icon={AltArrowUp} />
+      <Icon icon={AltArrowDown} />
     </Button>
   </div>
 {/if}
