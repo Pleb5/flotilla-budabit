@@ -4,8 +4,8 @@
   import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
   import type {Readable} from "svelte/store"
-  import {now, formatTimestampAsDate} from "@welshman/lib"
   import type {MakeNonOptional} from "@welshman/lib"
+  import {now, formatTimestampAsDate, ago, MINUTE} from "@welshman/lib"
   import {request} from "@welshman/net"
   import type {TrustedEvent, EventContent} from "@welshman/util"
   import {
@@ -52,11 +52,13 @@
     canEnforceNip70,
     removeRoomMembership,
     prependParent,
+    publishDelete,
   } from "@app/core/commands"
   import {PROTECTED} from "@app/core/state"
   import {makeFeed} from "@app/core/requests"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
+  import ChannelComposeEdit from "@src/app/components/ChannelComposeEdit.svelte"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   const {room, relay} = $page.params as MakeNonOptional<typeof $page.params>
@@ -116,6 +118,10 @@
     share = undefined
   }
 
+  const clearEventToEdit = () => {
+    eventToEdit = undefined
+  }
+
   const onSubmit = async ({content, tags}: EventContent) => {
     tags.push(["h", room])
 
@@ -123,7 +129,13 @@
       tags.push(PROTECTED)
     }
 
-    let template = {content, tags}
+    let template: EventContent & {created_at?: number} = {content, tags}
+
+    if (eventToEdit) {
+      // Delete previous message, to be republished with same timestamp
+      template.created_at = eventToEdit.created_at
+      publishDelete({relays: [url], event: eventToEdit, protect: await shouldProtect})
+    }
 
     if (share) {
       template = prependParent(share, template)
@@ -151,6 +163,7 @@
 
     clearParent()
     clearShare()
+    clearEventToEdit()
   }
 
   const onScroll = () => {
@@ -189,6 +202,7 @@
   let cleanup: () => void
   let events: Readable<TrustedEvent[]> = $state(readable([]))
   let compose: ChannelCompose | undefined = $state()
+  let eventToEdit: TrustedEvent | undefined = $state()
   let showRightPanel = $state(false)
 
   const elements = $derived.by(() => {
@@ -266,6 +280,23 @@
 
     events = feed.events
     cleanup = feed.cleanup
+  }
+
+  const canEditEvent = (event: TrustedEvent) =>
+    event.pubkey === $pubkey && event.created_at >= ago(5, MINUTE)
+
+  const onEditEvent = (event: TrustedEvent) => {
+    clearParent()
+    clearShare()
+    eventToEdit = event
+  }
+
+  const onEditPrevious = () => {
+    const prev = $events.find(e => e.pubkey === $pubkey)
+
+    if (prev && canEditEvent(prev)) {
+      onEditEvent(prev)
+    }
   }
 
   onMount(() => {
@@ -411,7 +442,9 @@
             {url}
             {replyTo}
             event={$state.snapshot(value as TrustedEvent)}
-            {showPubkey} />
+            {showPubkey}
+            canEdit={canEditEvent}
+            onEdit={onEditEvent} />
         </div>
       {/if}
     {/each}
@@ -455,8 +488,18 @@
       {#if share}
         <ChannelComposeParent event={share} clear={clearShare} verb="Sharing" />
       {/if}
+      {#if eventToEdit}
+        <ChannelComposeEdit clear={clearEventToEdit} />
+      {/if}
     </div>
-    <ChannelCompose bind:this={compose} {onSubmit} {url} />
+    {#key eventToEdit}
+      <ChannelCompose
+        bind:this={compose}
+        content={eventToEdit?.content}
+        {onSubmit}
+        {url}
+        {onEditPrevious} />
+    {/key}
   {/if}
 </div>
 
