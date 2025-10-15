@@ -11,6 +11,9 @@
     saveTokensToStorage,
     type TokenEntry
   } from "@nostr-git/ui"
+  import Git from "@assets/icons/git.svg?dataurl"
+  import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
+  import Pen from "@assets/icons/pen.svg?dataurl"
 
   type Props = {
     tokenKey: string
@@ -77,7 +80,7 @@
 <div class="card2 bg-alt flex flex-col gap-6 shadow-xl">
   <div class="flex items-center justify-between">
     <strong class="flex items-center gap-3">
-      <Icon icon="git" />
+      <Icon icon={Git} />
       Git Authentication Tokens
     </strong>
     <Button class="btn btn-primary btn-sm" onclick={openDialog}>
@@ -103,9 +106,9 @@
               <td class="p-2 text-left">{mask(t.token)}</td>
               <td class="p-2 text-right">
                 <div class="flex gap-2 justify-end">
-                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}><Icon icon="pen" /></Button>
+                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}><Icon icon={Pen} /></Button>
                   <Button class="btn btn-error btn-sm" onclick={() => del(t.host)}
-                    ><Icon icon="trash-bin-2" /></Button>
+                    ><Icon icon={TrashBin2} /></Button>
                 </div>
               </td>
             </tr>

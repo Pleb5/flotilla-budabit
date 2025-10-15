@@ -367,7 +367,7 @@
 <PageBar>
   {#snippet icon()}
     <div class="center">
-      <Icon icon="git" />
+      <Icon icon={Git} />
     </div>
   {/snippet}
   {#snippet title()}

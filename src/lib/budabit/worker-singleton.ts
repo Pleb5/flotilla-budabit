@@ -63,8 +63,12 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
       });
     });
     
-    // Create EventIO and SignEvent instances
-    const io = (event: NostrEvent) => publishEvent(event);
+    // Create EventIO function that can be proxied by Comlink
+    const io = async (event: NostrEvent) => {
+      const thunk = publishEvent(event);
+      // Execute the thunk to actually publish the event
+      return await thunk.complete;
+    };
     
     // Configure EventIO for GRASP operations
     // Wrap EventIO with Comlink proxy to allow async functions to be passed to worker

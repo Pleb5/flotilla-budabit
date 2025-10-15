@@ -15,7 +15,8 @@
   import {derived as _derived} from "svelte/store"
   import {onMount} from "svelte"
   import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
-
+  import Git from "@assets/icons/git.svg?dataurl"
+  
   const url = decodeRelay($page.params.relay)
 
   let loading = $state(true)
@@ -67,7 +68,7 @@
 <PageBar>
   {#snippet icon()}
     <div class="center">
-      <Icon icon="git" />
+      <Icon icon={Git} />
     </div>
   {/snippet}
   {#snippet title()}

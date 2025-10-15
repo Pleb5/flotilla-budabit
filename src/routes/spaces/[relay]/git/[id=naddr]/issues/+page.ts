@@ -34,6 +34,8 @@ export const load: PageLoad = async ({ parent }) => {
     "#e": [...repoClass.issues.map((issue: IssueEvent) => issue.id)],
   }
 
+
+  console.log(repoClass.repoEvent)
   const issueFilter = {
     kinds: [GIT_ISSUE],
     "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],

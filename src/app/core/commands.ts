@@ -267,11 +267,21 @@ export const attemptAuth = async (url: string) => {
 }
 
 export const canEnforceNip70 = async (url: string) => {
-  const socket = Pool.get().get(url)
+  // Guard against invalid URLs
+  if (!url || url.trim() === "") {
+    return false
+  }
 
-  await socket.auth.attemptAuth(e => signer.get()?.sign(e))
+  try {
+    const socket = Pool.get().get(url)
 
-  return socket.auth.status !== AuthStatus.None
+    await socket.auth.attemptAuth(e => signer.get()?.sign(e))
+
+    return socket.auth.status !== AuthStatus.None
+  } catch (error) {
+    console.warn(`Failed to check NIP-70 enforcement for URL: ${url}`, error)
+    return false
+  }
 }
 
 export const checkRelayAccess = async (url: string, claim = "") => {

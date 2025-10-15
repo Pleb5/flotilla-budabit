@@ -40,7 +40,10 @@
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
   import {GIT_REPO_ANNOUNCEMENT, type IssueEvent, type PatchEvent} from "@nostr-git/shared-types"
-
+  import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
+  import Login2 from "@assets/icons/login-2.svg?dataurl"
+  import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
+  
   const {id} = $page.params
   const {data} = $props()
   const {repoClass} = data
@@ -325,7 +328,7 @@
       <p>Only members are allowed to post to this room.</p>
       {#if $membershipStatus === MembershipStatus.Pending}
         <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
-          <Icon icon="clock-circle" />
+          <Icon icon={ClockCircle} />
           Access Pending
         </Button>
       {:else}
@@ -333,7 +336,7 @@
           {#if joining}
             <span class="loading loading-spinner loading-sm"></span>
           {:else}
-            <Icon icon="login-2" />
+            <Icon icon={Login2} />
           {/if}
           Ask to Join
         </Button>
@@ -355,7 +358,7 @@
 {#if showScrollButton}
   <div in:fade class="chat__scroll-down">
     <Button class="btn btn-circle btn-neutral" onclick={scrollToBottom}>
-      <Icon icon="alt-arrow-up" />
+      <Icon icon={AltArrowUp} />
     </Button>
   </div>
 {/if}

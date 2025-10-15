@@ -1,4 +1,5 @@
 @import "@welshman/editor/index.css";
+@import '@nostr-git/ui/index.css';
 
 @tailwind base;
 @tailwind components;

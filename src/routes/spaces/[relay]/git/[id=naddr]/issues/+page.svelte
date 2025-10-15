@@ -33,7 +33,8 @@
   import {onMount, onDestroy} from "svelte"
   import {pushToast} from "@src/app/util/toast.js"
   import type {Status} from "@nostr-git/ui"
-
+  import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  
   const {data} = $props()
   const {repoClass, issueFilter, statusEventsByRoot} = data
   const mounted = now()
@@ -502,7 +503,7 @@
       relays: relaysToUse,
       repoAddr: getTag("a", issue.tags),
     })
-    const postIssueEvent = await postIssue(issue, relaysToUse)
+    const postIssueEvent = postIssue(issue, relaysToUse)
     console.debug("onIssueCreated: publish result", postIssueEvent)
     pushToast({message: "Issue created"})
     try {
@@ -513,24 +514,19 @@
         body: getTagValue("subject", issue.tags) || "",
       })
     } catch {}
-    // Optimistically add the new issue to the local list so it appears immediately
-    // try {
-    //   if (postIssueEvent) {
-    //     repoClass.issues = [postIssueEvent as IssueEvent, ...repoClass.issues]
-    //   }
-    // } catch (e) {
-    //   console.warn("Failed to optimistically add new issue to UI:", e)
-    // }
     const evt: any = (repoClass as any).repoEvent
+
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
       content: "",
-      rootId: issue.id,
+      rootId: postIssueEvent.event.id,
       recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })
-    await publishEvent(statusEvent, relaysToUse)
+    console.log("publishing status event", statusEvent)
+    publishEvent(statusEvent, relaysToUse)
+    
   }
 
   const onNewIssue = () => {
@@ -569,7 +565,7 @@
       </div>
     </div>
     <div class="row-2 input mt-4 grow overflow-x-hidden">
-      <Icon icon="magnifer" />
+      <Icon icon={Magnifer} />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         autofocus={!isMobile}

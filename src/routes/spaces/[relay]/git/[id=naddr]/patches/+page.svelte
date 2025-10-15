@@ -37,7 +37,8 @@
   import FilterPanel from "@src/app/components/FilterPanel.svelte"
   import {onMount, onDestroy} from "svelte"
   import {now} from "@welshman/lib"
-
+  import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  
   const {data} = $props()
   const {repoClass, comments, statusEvents, statusEventsByRoot, patchFilter, repoRelays, uniqueAuthors} = data
   const mounted = now()
@@ -62,6 +63,8 @@
 
   // Types + helpers to normalize effective labels
   const labelsData = $derived.by(() => repoClass.patchManager.getLabelsData(repoClass))
+
+console.log(repoClass.patches)
 
   // Alerts: if current user is explicitly tagged via 'p' on a root patch, treat as review request
   $effect(() => {
@@ -321,7 +324,7 @@
   }
 
   const patchList = $derived.by(() => {
-    if (repoClass.patches && $statusEvents.length > 0 && $comments) {
+    if (repoClass.patches && $comments) {
       // First get all root patches
       let filteredPatches = repoClass.patches
         .filter((patch: PatchEvent) => {
@@ -472,7 +475,7 @@
       </div>
     </div>
     <div class="row-2 input grow overflow-x-hidden">
-      <Icon icon="magnifer" />
+      <Icon icon={Magnifer} />
       <!-- svelte-ignore a11y_autofocus -->
       <input
         autofocus={!isMobile}

@@ -30,7 +30,8 @@
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
   import MenuSpaceButton from "@src/app/components/MenuSpaceButton.svelte"
-
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  
   const {id, relay} = $page.params
 
   let {data, children} = $props()
@@ -283,7 +284,7 @@
   {#snippet icon()}
     <div>
       <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
-        <Icon icon="alt-arrow-left" />
+        <Icon icon={AltArrowLeft} />
         <span class="hidden sm:inline">Go back</span>
       </Button>
     </div>

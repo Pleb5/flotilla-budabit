@@ -19,7 +19,10 @@
   import {makeFeed} from "@app/core/requests"
   import {readable, writable, type Readable} from "svelte/store"
   import PageContent from "@src/lib/components/PageContent.svelte"
-
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import Reply from "@assets/icons/reply-2.svg?dataurl"
+  import SortVertical from "@assets/icons/sort-vertical.svg?dataurl"
+  
   const {relay, id} = $page.params
   const url = decodeRelay(relay)
   const event = deriveEvent(id)
@@ -74,7 +77,7 @@
   {#snippet icon()}
     <div>
       <Button class="btn btn-neutral btn-sm" onclick={back}>
-        <Icon icon="alt-arrow-left" />
+        <Icon icon={AltArrowLeft} />
       </Button>
     </div>
   {/snippet}
@@ -93,7 +96,7 @@
       {#if !showReply}
         <div class="flex justify-end px-2 pb-2">
           <Button class="btn btn-primary" onclick={openReply}>
-            <Icon icon="reply" />
+            <Icon icon={Reply} />
             Comment on Job
           </Button>
         </div>
@@ -109,7 +112,7 @@
       {#if !showAll && $replies.length > 4}
         <div class="flex justify-center">
           <Button class="btn btn-link" onclick={expand}>
-            <Icon icon="sort-vertical" />
+            <Icon icon={SortVertical} />
             Show all {$replies.length} replies
           </Button>
         </div>

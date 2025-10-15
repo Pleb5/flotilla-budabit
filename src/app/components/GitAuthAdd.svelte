@@ -11,6 +11,8 @@
   import {pushToast} from "@app/util/toast"
   import {toast, tokens as tokensStore} from "@nostr-git/ui"
   import {signer, pubkey} from "@welshman/app"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
 
   type Props = {
     tokenKey: string
@@ -221,12 +223,12 @@
   </div>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>
-      <Icon icon="alt-arrow-left" />
+      <Icon icon={AltArrowLeft} />
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary" disabled={busy}>
       <Spinner loading={busy}>{editToken ? 'Save Changes' : 'Add'}</Spinner>
-      <Icon icon="alt-arrow-right" />
+      <Icon icon={AltArrowRight} />
     </Button>
   </ModalFooter>
 </form>

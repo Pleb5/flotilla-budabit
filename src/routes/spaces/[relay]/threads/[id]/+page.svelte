@@ -30,7 +30,8 @@
   import JobItem from "@src/app/components/JobItem.svelte"
   import GitIssueItem from "@src/app/components/GitIssueItem.svelte"
   import ChannelContent from "@app/components/ChannelMessage.svelte"
-
+  import Reply from "@assets/icons/reply-2.svg?dataurl"
+  
   const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
   const event = deriveEvent(id)
@@ -144,7 +145,7 @@
       {#if !showReply}
         <div class="flex justify-end px-2 pb-2">
           <Button class="btn btn-primary" onclick={openReply}>
-            <Icon icon="reply" />
+            <Icon icon={Reply} />
             Reply to thread
           </Button>
         </div>

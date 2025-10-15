@@ -5,7 +5,8 @@
   import ProfileName from "@src/app/components/ProfileName.svelte"
   import { slide } from "@lib/transition"
   import { createEventDispatcher } from "svelte"
-
+  import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  
   interface StatusOpt { value: string; label: string; icon?: any }
   interface SortOpt { value: string; label: string; icon?: any }
 
@@ -148,7 +149,7 @@
         <h3 class="mb-2 text-sm font-medium">Labels</h3>
         {#if labelSearchEnabled}
           <div class="row-2 input mb-2 max-w-md">
-            <Icon icon="magnifer" />
+            <Icon icon={Magnifer} />
             <input
               class="w-full"
               value={labelSearch}

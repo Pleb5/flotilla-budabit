@@ -18,7 +18,9 @@
   import {decodeRelay, getEventsForUrl, INDEXER_RELAYS} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
   import {makeFeed} from "@app/core/requests"
-
+  import Jobs from "@assets/icons/jobs.svg?dataurl"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  
   const url = decodeRelay($page.params.relay)
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
   const jobs: TrustedEvent[] = $state([])
@@ -74,7 +76,7 @@
 <PageBar>
   {#snippet icon()}
     <div class="center">
-      <Icon icon="jobs" />
+      <Icon icon={Jobs} />
     </div>
   {/snippet}
   {#snippet title()}
@@ -87,7 +89,7 @@
           external
           href="https://test.satshoot.com/post-job"
           class="flex items-center gap-x-2 bg-primary">
-          <Icon icon="jobs" />
+          <Icon icon={Jobs} />
           <span class="">Create Job</span>
         </Link>
       </Button>
@@ -103,7 +105,7 @@
     </div>
   {:else if events.length === 0}
     <div class="flex h-32 items-center justify-center text-gray-400">
-      <Icon icon="jobs" class="mr-2" /> No Jobs found.
+      <Icon icon={Jobs} class="mr-2" /> No Jobs found.
     </div>
   {:else}
     <div class="flex flex-col gap-3">
