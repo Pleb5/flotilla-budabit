@@ -1,11 +1,10 @@
 <script lang="ts">
   import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert} from "@nostr-git/ui"
   import {
-    getTags,
     createStatusEvent,
+    GIT_ISSUE,
     type CommentEvent,
     type IssueEvent,
-    type StatusEvent,
     type TrustedEvent,
   } from "@nostr-git/shared-types"
   import {CalendarDays, Check, Clock, Eye, GitCommit, Plus, SearchX, X} from "@lucide/svelte"
@@ -20,7 +19,7 @@
     getTag,
   } from "@welshman/util"
   import {createSearch, pubkey, repository} from "@welshman/app"
-  import {now, sortBy} from "@welshman/lib"
+  import {sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -33,19 +32,11 @@
   import {isMobile} from "@lib/html"
   import {onMount, onDestroy} from "svelte"
   import {pushToast} from "@src/app/util/toast.js"
-  import type {Status} from "@nostr-git/ui"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
-  
+  import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
+  import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
   const {data} = $props()
-  const {repoClass, issueFilter, statusEventsByRoot} = data
-  const mounted = now()
-  const alertedIds = new Set<string>()
-
-  // Track previous review-needed state per issue to alert only on false -> true transitions
-  const prevReviewStateByIssue: Map<string, boolean> = new Map()
-  // Debounce window for comment mention alerts per issue (ms)
-  const mentionWindowMs = 3000
-  const lastMentionAlertAtByIssue: Map<string, number> = new Map()
+  const {repoClass, statusEventsByRoot, repoRelays} = data
 
   const issues = repoClass.issues
 
@@ -56,58 +47,7 @@
     for (const [key, value] of Object.entries(comments)) {
       ret[key] = sortBy(e => -e.created_at, value)
     }
-
-    // Alerts: watch for new status events arriving after mount and alert once
-    $effect(() => {
-      try {
-        const groups = statusEventsByRoot ? Array.from($statusEventsByRoot.values()) : []
-        const arr = groups.flat() as StatusEvent[]
-        for (const e of arr) {
-          if (!e || !e.id) continue
-          if (alertedIds.has(e.id)) continue
-          if (e.created_at <= mounted) continue
-          if (
-            [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE].includes(
-              e.kind as number,
-            )
-          ) {
-            const body = getTagValue("t", e.tags) || ""
-            pushRepoAlert({
-              repoKey: repoClass.key,
-              kind: "status-change",
-              title: "Status changed",
-              body,
-            })
-            alertedIds.add(e.id)
-          }
-        }
-      } catch {}
-    })
     return ret
-  })
-
-  
-  // Alerts: review-request based on Type labels for issues; alert on transition to true
-  $effect(() => {
-    try {
-      const arr = repoClass.issues || []
-      for (const it of arr) {
-        if (!it || !it.id) continue
-        const groups = labelGroupsFor(it.id)
-        const typeVals = (groups?.Type || []).map(v => v.toLowerCase())
-        const current = typeVals.some(v => v.includes("review"))
-        const prev = prevReviewStateByIssue.get(it.id) || false
-        if (!prev && current) {
-          pushRepoAlert({
-            repoKey: repoClass.key,
-            kind: "review-request",
-            title: "Review requested",
-            body: getTagValue("subject", it.tags) || "",
-          })
-        }
-        prevReviewStateByIssue.set(it.id, current)
-      }
-    } catch {}
   })
 
   // Filter and sort options
@@ -118,7 +58,7 @@
   // Label filters (NIP-32 normalized labels)
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
-  import { normalizeEffectiveLabels, toNaturalArray, groupLabels } from "@lib/budabit/labels"
+
   const labelsData = $derived.by(() => {
     const byId = new Map<string, string[]>()
     const groupsById = new Map<string, Record<string, string[]>>()
@@ -128,15 +68,15 @@
       const effValue = effStore.get()
       const eff = normalizeEffectiveLabels(effValue)
       const naturals = toNaturalArray(eff?.flat)
-      
+
       // Debug logging
       console.debug(`[IssuesList] Issue ${issue.id}:`, {
         effValue,
         eff,
         naturals,
-        issueLabels: issue.tags?.filter(t => t[0] === 't').map(t => t[1]) || []
+        issueLabels: issue.tags?.filter(t => t[0] === "t").map(t => t[1]) || [],
       })
-      
+
       byId.set(issue.id, naturals)
       const groups = eff ? groupLabels(eff) : {Status: [], Type: [], Area: [], Tags: [], Other: []}
       groupsById.set(issue.id, groups)
@@ -145,22 +85,19 @@
     console.debug("[IssuesList] labelsData recomputed", {count: byId.size})
     return res
   })
+
   const labelsByIssue = $derived.by(() => {
     const result = labelsData.byId
     console.debug("[IssuesList] labelsByIssue computed:", result)
     return result
   })
-  const labelGroupsFor = (id: string) =>
-    labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
+
   const allNormalizedLabels = $derived.by(() =>
     Array.from(new Set(Array.from(labelsByIssue.values()).flat())),
   )
 
-  // Role assignments for all issues
-  const roleAssignments = $derived.by(() => deriveAssignmentsFor(issues.map(i => i.id)))
-
   const uniqueAuthors = $derived.by(() => {
-    if (!repoClass.patches) return []
+    if (!repoClass.issues) return []
 
     const authors = new Set<string>()
     repoClass.issues.forEach((issue: IssueEvent) => {
@@ -181,29 +118,6 @@
       return new Set<string>()
     }
   })
-  const currentStateFor = (rootId: string): "open" | "draft" | "closed" | "resolved" => {
-    try {
-      const events = ($statusEventsByRoot?.get(rootId) || []) as StatusEvent[]
-      const rootAuthor = issues.find(i => i.id === rootId)?.pubkey
-      const authorized = events.filter(e => e.pubkey === rootAuthor || maintainerSet.has(e.pubkey))
-      if (authorized.length === 0) return "open"
-      const latest = [...authorized].sort((a, b) => b.created_at - a.created_at)[0]
-      switch (latest.kind) {
-        case GIT_STATUS_OPEN:
-          return "open"
-        case GIT_STATUS_DRAFT:
-          return "draft"
-        case GIT_STATUS_CLOSED:
-          return "closed"
-        case GIT_STATUS_COMPLETE:
-          return "resolved"
-        default:
-          return "open"
-      }
-    } catch {
-      return "open"
-    }
-  }
 
   let searchTerm = $state("")
 
@@ -213,7 +127,7 @@
       const ids = (repoClass.issues || []).map((i: any) => i.id).filter(Boolean)
       if (ids.length) {
         request({
-          relays: repoClass.relays,
+          relays: repoRelays,
           filters: [{kinds: [1985], "#e": ids}],
           onEvent: () => {},
         })
@@ -316,8 +230,50 @@
     persist()
   })
 
+  // Create a reactive status map that depends on statusEventsByRoot
+  const statusMap = $derived.by(() => {
+    console.log("[StatusMap] Recalculating statusMap, statusEventsByRoot:", $statusEventsByRoot)
+    const map: Record<string, string> = {}
+    
+    // First, set default "open" status for all issues
+    if (repoClass.issues) {
+      for (const issue of repoClass.issues) {
+        map[issue.id] = "open"
+      }
+    }
+    
+    // Then override with actual status events
+    if ($statusEventsByRoot) {
+      for (const [rootId, events] of $statusEventsByRoot) {
+        const statusResult = repoClass.resolveStatusFor(rootId)
+        map[rootId] = statusResult?.state || "open"
+        console.log(`[StatusMap] ${rootId}: ${map[rootId]}`)
+      }
+    }
+    return map
+  })
+
+  const issueList = $derived.by(() => {
+    console.log("[IssueList] Recalculating issueList")
+    if (repoClass.issues) {
+      return repoClass.issues.map((issue: IssueEvent) => {
+        const commentEvents = comments[issue.id] || []
+        const currentState = statusMap[issue.id] || "open"
+        console.log(`[IssueList] Issue ${issue.id} state: ${currentState}`)
+        
+        return {
+          ...issue,
+          comments: commentEvents,
+          status: { kind: currentState },
+          currentState,
+        }
+      })
+    }
+    return []
+  })
+
   const searchedIssues = $derived.by(() => {
-    const issuesToSearch = issues.map(issue => {
+    const issuesToSearch = issueList.map(issue => {
       return {
         id: issue.id,
         subject: getTagValue("subject", issue.tags) ?? "",
@@ -344,7 +300,7 @@
       },
     })
     const searchResults = issueSearch.searchOptions(searchTerm)
-    const result = issues
+    const result = issueList
       .filter(r => searchResults.find(res => res.id === r.id))
       .filter(issue => {
         if (authorFilter) {
@@ -374,6 +330,11 @@
     return result
   })
 
+  const roleAssignments = $derived.by(() => {
+    const ids = repoClass.issues?.map((i: any) => i.id) || []
+    return deriveAssignmentsFor(ids)
+  })
+
   $effect(() => {
     for (const issue of issues) {
       if (!comments[issue.id]) {
@@ -385,7 +346,7 @@
 
   const requestComments = async (issue: TrustedEvent) => {
     request({
-      relays: repoClass.relays,
+      relays: repoRelays,
       filters: [{kinds: [COMMENT], "#E": [issue.id], since: issue.created_at}],
       onEvent: e => {
         if (!comments[issue.id].some(c => c.id === e.id)) {
@@ -399,29 +360,39 @@
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
 
-  let initialized = $state(false)
-  $effect(() => {
-    if (repoClass.issues && element && !initialized) {
-      initialized = true
-      console.log("init. repo relays:", repoClass.relays)
-      makeFeed({
-        element: element,
-        relays: repoClass.relays,
-        feedFilters: [issueFilter],
-        subscriptionFilters: [issueFilter],
-        initialEvents: repoClass.issues,
-        onExhausted: () => {
-          loading = false
-        },
-      })
+  // Create combined filter for issues and status events
+  const combinedFilter = {
+    kinds: [GIT_ISSUE, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+    "#a": repoClass.maintainers?.map(m => `${GIT_REPO_ANNOUNCEMENT}:${m}:${repoClass.name}`) || [],
+  }
 
+  $effect(() => {
+    console.log("[Effect] makeFeed effect running, repoClass.issues length:", repoClass.issues?.length, "statusEventsByRoot size:", $statusEventsByRoot?.size)
+    if (repoClass.issues) {
+      const tryStart = () => {
+        if (element) {
+          makeFeed({
+            element,
+            relays: repoClass.relays,
+            feedFilters: [combinedFilter],
+            subscriptionFilters: [combinedFilter],
+            initialEvents: issueList,
+            onExhausted: () => {
+              loading = false
+            },
+          })
+        } else {
+          requestAnimationFrame(tryStart)
+        }
+      }
+      tryStart()
       loading = false
     }
   })
 
   const onIssueCreated = async (issue: IssueEvent) => {
-    console.log("repo relays", repoClass.relays)
-    const relaysToUse = repoClass.relays
+    console.log("repo relays", repoRelays)
+    const relaysToUse = repoRelays
     if (!relaysToUse || relaysToUse.length === 0) {
       console.warn("onIssueCreated: no relays available", {relaysToUse})
       toast.push({
@@ -457,7 +428,6 @@
     })
     console.log("publishing status event", statusEvent)
     publishEvent(statusEvent, relaysToUse)
-    
   }
 
   const onNewIssue = () => {
@@ -473,7 +443,7 @@
   }
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    postComment(comment, repoClass.relays)
+    postComment(comment, repoRelays)
   }
 </script>
 
@@ -577,7 +547,8 @@
                 repo={repoClass}
                 statusEvents={$statusEventsByRoot?.get(issue.id) || []}
                 actorPubkey={$pubkey}
-                assigneeCount={$roleAssignments?.get(issue.id)?.assignees?.size || 0} />
+                assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
+                relays={repoRelays} />
             </div>
           </div>
         {/each}

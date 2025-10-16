@@ -7,7 +7,6 @@
   import type {TrustedEvent, EventContent} from "@welshman/util"
   import {
     makeEvent,
-    makeRoomMeta,
     MESSAGE,
     DELETE,
     REACTION,
@@ -54,6 +53,8 @@
       ...repoClass.patches.map((patch: PatchEvent) => patch.id),
     ],
   }
+
+console.log("statusFilter", statusFilter)
 
   const commentFilter = {
     kinds: [COMMENT],
@@ -231,6 +232,8 @@
       feedFilters: filter,
       subscriptionFilters: [
         ...filter,
+        statusFilter,
+        commentFilter,
         {kinds: [DELETE, MESSAGE, ...REACTION_KINDS], since: now()},
         {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
       ],

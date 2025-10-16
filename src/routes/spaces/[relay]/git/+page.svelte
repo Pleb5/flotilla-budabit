@@ -1,11 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {
-    normalizeRelayUrl,
-    NAMED_BOOKMARKS,
-    makeEvent,
-    Address,
-  } from "@welshman/util"
+  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address} from "@welshman/util"
   import {
     repository,
     publishThunk,
@@ -47,6 +42,7 @@
     bookmarksStore,
     repositoriesStore,
     signer,
+    RepoTab,
   } from "@nostr-git/ui"
   import {
     deriveRepoRefState,
@@ -337,23 +333,26 @@
         userPubkey: $pubkey,
         onPublishEvent: async (repoEvent: NostrEvent) => {
           // For GRASP repos (kind 30617/30618), publish to the GRASP relay from the event's 'relays' tag
-          let targetRelays = defaultRepoRelays;
-          
+          let targetRelays = defaultRepoRelays
+
           // Check if this is a repo announcement or state event
           if (repoEvent.kind === 30617 || repoEvent.kind === 30618) {
             // Extract relay URLs from the 'relays' tag if present
-            const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === 'relays');
+            const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
             if (relaysTag && relaysTag.length > 1) {
               // For GRASP events, publish to BOTH the GRASP relay AND default relays
-              const graspRelays = relaysTag.slice(1);
-              targetRelays = [...graspRelays, ...defaultRepoRelays];
+              const graspRelays = relaysTag.slice(1)
+              targetRelays = [...graspRelays, ...defaultRepoRelays]
               // Remove duplicates while preserving order
-              targetRelays = [...new Set(targetRelays)];
-              console.log('🔐 Publishing GRASP event to GRASP relay + default relays:', targetRelays);
+              targetRelays = [...new Set(targetRelays)]
+              console.log(
+                "🔐 Publishing GRASP event to GRASP relay + default relays:",
+                targetRelays,
+              )
             }
           }
-          
-          const result = publishEventToRelays(repoEvent, targetRelays);
+
+          const result = publishEventToRelays(repoEvent, targetRelays)
         },
         getProfile: getProfileForWizard,
         searchProfiles: searchProfilesForWizard,
@@ -379,6 +378,12 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
+      <nav class="w-full rounded-md bg-muted text-muted-foreground">
+        <div class="scrollbar-hide flex overflow-x-auto">
+          <div class="m-1 flex w-full min-w-max justify-evenly gap-1">
+          </div>
+        </div>
+      </nav>
       <Button class="btn btn-secondary btn-sm" onclick={() => onNewRepo()}>
         <Icon icon={AddCircle} />
         New Repo

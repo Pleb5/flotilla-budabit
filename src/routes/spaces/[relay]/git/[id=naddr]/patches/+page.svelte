@@ -23,7 +23,7 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
   } from "@welshman/util"
-  import {fly, slide, slideAndFade} from "@lib/transition"
+  import {fly, slideAndFade} from "@lib/transition"
   import {deriveEffectiveLabels, deriveAssignmentsFor} from "@lib/budabit/state.js"
   import { normalizeEffectiveLabels, toNaturalArray, groupLabels } from "@lib/budabit/labels"
   import {
@@ -87,91 +87,6 @@
     return deriveAssignmentsFor(ids)
   })
 
-console.log(repoClass.patches)
-
-  // Alerts: if current user is explicitly tagged via 'p' on a root patch, treat as review request
-  $effect(() => {
-    try {
-      const me = $pubkey
-      if (!me) return
-      const arr = repoClass.patches || []
-      for (const p of arr) {
-        if (!p || !p.id) continue
-        // only root patches
-        const isRoot = getTags(p, "t").some((t: string[]) => t[1] === "root")
-        if (!isRoot) continue
-        const pTags = getTags(p, "p").map((t: string[]) => t[1])
-        const current = pTags.includes(me)
-        const prev = prevReviewStateByPatch.get(p.id) || false
-        if (!prev && current) {
-          pushRepoAlert({
-            repoKey: repoClass.key,
-            kind: "review-request",
-            title: "Review requested",
-            body: parseGitPatchFromEvent(p)?.title || "",
-          })
-        }
-        prevReviewStateByPatch.set(p.id, current)
-      }
-    } catch {}
-  })
-
-  // Alerts: thread/comment mentions (p-tag to me) on patch threads; alert once per comment, with debounce window per patch
-  $effect(() => {
-    try {
-      const me = $pubkey
-      if (!me) return
-      const arr = repoClass.patches || []
-      for (const p of arr) {
-        if (!p || !p.id) continue
-        const thread = repoClass.getIssueThread(p.id)
-        const comments = thread?.comments || []
-        for (const c of comments) {
-          if (!c?.id) continue
-          if (alertedIds.has(`review-cmnt:${c.id}`)) continue
-          const pks = getTags(c as any, "p").map((t: string[]) => t[1])
-          if (pks.includes(me)) {
-            const nowTs = Date.now()
-            const last = lastMentionAlertAtByPatch.get(p.id) || 0
-            if (nowTs - last > mentionWindowMs) {
-              pushRepoAlert({
-                repoKey: repoClass.key,
-                kind: "review-request",
-                title: "Review requested in comments",
-                body: parseGitPatchFromEvent(p)?.title || "",
-              })
-              lastMentionAlertAtByPatch.set(p.id, nowTs)
-            }
-            alertedIds.add(`review-cmnt:${c.id}`)
-          }
-        }
-      }
-    } catch {}
-  })
-
-  // Alerts: review-request based on Type labels; alert on transition to true
-  $effect(() => {
-    try {
-      const arr = repoClass.patches || []
-      for (const p of arr) {
-        if (!p || !p.id) continue
-        const groups = labelGroupsFor(p.id)
-        const typeVals = (groups?.Type || []).map(v => v.toLowerCase())
-        const current = typeVals.some(v => v.includes("review"))
-        const prev = prevReviewStateByPatch.get(p.id) || false
-        if (!prev && current) {
-          pushRepoAlert({
-            repoKey: repoClass.key,
-            kind: "review-request",
-            title: "Review requested",
-            body: parseGitPatchFromEvent(p)?.title || "",
-          })
-        }
-        prevReviewStateByPatch.set(p.id, current)
-      }
-    } catch {}
-  })
-
   const labelsByPatch = $derived.by(() => labelsData.byId)
   const labelGroupsFor = (id: string) =>
     labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
@@ -203,35 +118,6 @@ console.log(repoClass.patches)
     } catch (e) {
       // ignore
     }
-  })
-
-  // Alerts: watch for new status events since mount and push alerts
-  $effect(() => {
-    try {
-      const arr = $statusEvents || []
-      for (const e of arr) {
-        if (!e || !e.id) continue
-        if (alertedIds.has(e.id)) continue
-        if (e.created_at <= mounted) continue
-        const k = e.kind as number
-        if ([GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE].includes(k)) {
-          const title =
-            k === GIT_STATUS_COMPLETE
-              ? "Patch merged"
-              : k === GIT_STATUS_CLOSED
-                ? "Patch closed"
-                : k === GIT_STATUS_DRAFT
-                  ? "Patch draft"
-                  : "Patch opened"
-          pushRepoAlert({
-            repoKey: repoClass.key,
-            kind: "status-change",
-            title,
-          })
-          alertedIds.add(e.id)
-        }
-      }
-    } catch {}
   })
 
   const persist = () => {
@@ -455,6 +341,7 @@ console.log(repoClass.patches)
         title: patch.parsedPatch.title,
       }
     })
+    
     const patchesSearch = createSearch(patchesToSearch, {
       getValue: (patch: {id: string; title: string}) => patch.id,
       fuseOptions: {

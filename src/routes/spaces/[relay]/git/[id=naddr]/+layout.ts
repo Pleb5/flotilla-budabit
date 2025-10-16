@@ -11,7 +11,7 @@ import {
   GIT_REPO_STATE,
   normalizeRelayUrl,
 } from "@nostr-git/shared-types"
-import {GIT_ISSUE, GIT_PATCH} from "@welshman/util"
+import {GIT_ISSUE, GIT_PATCH, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE, getTagValue} from "@welshman/util"
 import {nthEq} from "@welshman/lib"
 import {nip19} from "nostr-tools"
 import type {AddressPointer} from "nostr-tools/nip19"
@@ -96,13 +96,18 @@ export const load: LayoutLoad = async ({params}) => {
       const relaysTag = re.tags.find(nthEq(0, "relays"))
       if (relaysTag) {
         const [_, ...relaysList] = relaysTag
+        console.log(`[Layout] Raw relays from repo event tags:`, relaysList)
         // Filter out invalid relay URLs and log warnings
         const validRelays = relaysList.filter((relay: string) => {
           try {
             const url = new URL(relay)
-            return url.protocol === 'ws:' || url.protocol === 'wss:'
-          } catch {
-            console.warn(`Invalid relay URL found in repo event tags: ${relay}`)
+            const isValid = url.protocol === 'ws:' || url.protocol === 'wss:'
+            if (!isValid) {
+              console.warn(`Invalid relay URL protocol: ${relay} (protocol: ${url.protocol})`)
+            }
+            return isValid
+          } catch (e) {
+            console.warn(`Invalid relay URL found in repo event tags: ${relay}`, e)
             return false
           }
         })
@@ -153,10 +158,15 @@ export const load: LayoutLoad = async ({params}) => {
     kinds: [GIT_PATCH],
     "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
   }
+
+  const statusFilters = {
+    kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+    "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+  }
   // Load issues and patches
   await load({
     relays: relayListFromUrl as string[],
-    filters: [issueFilters, patchFilters],
+    filters: [issueFilters, patchFilters, statusFilters],
   })
 
   // Create derived stores that will include all issues/patches
@@ -175,6 +185,31 @@ export const load: LayoutLoad = async ({params}) => {
     events => (events || []) as PatchEvent[],
   )
 
+  const statusEvents: Readable<any[]> = derived(
+    deriveEvents(repository, {
+      filters: [statusFilters],
+    }),
+    events => events || [],
+  )
+
+  // Create statusEventsByRoot map
+  const statusEventsByRoot: Readable<Map<string, any[]>> = derived(
+    statusEvents,
+    events => {
+      const map = new Map<string, any[]>()
+      for (const event of events) {
+        const rootId = getTagValue("e", event.tags)
+        if (rootId) {
+          if (!map.has(rootId)) {
+            map.set(rootId, [])
+          }
+          map.get(rootId)!.push(event)
+        }
+      }
+      return map
+    }
+  )
+
   const emptyArr = derived([], () => [] as any[])
   const repoClass = new Repo({
     repoEvent,
@@ -182,7 +217,7 @@ export const load: LayoutLoad = async ({params}) => {
     issues,
     patches,
     repoStateEvents: emptyArr as unknown as Readable<any[]>,
-    statusEvents: emptyArr as unknown as Readable<any[]>,
+    statusEvents,
     commentEvents: emptyArr as unknown as Readable<any[]>,
     labelEvents: emptyArr as unknown as Readable<any[]>,
   })
@@ -190,6 +225,7 @@ export const load: LayoutLoad = async ({params}) => {
   return {
     repoClass,
     repoRelays: bestRelayList,
+    statusEventsByRoot,
     url,
     repoId,
     ...params,
