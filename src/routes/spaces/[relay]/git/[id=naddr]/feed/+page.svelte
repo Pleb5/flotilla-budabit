@@ -26,11 +26,7 @@
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import ChannelCompose from "@app/components/ChannelCompose.svelte"
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
-  import {
-    userSettingsValues,
-    decodeRelay,
-    REACTION_KINDS,
-  } from "@app/core/state"
+  import {userSettingsValues, decodeRelay, REACTION_KINDS} from "@app/core/state"
   import {checked} from "@app/util/notifications"
   import {prependParent} from "@app/core/commands"
   import {PROTECTED} from "@app/core/state"
@@ -135,7 +131,10 @@
   const scrollToNewMessages = () =>
     newMessages?.scrollIntoView({behavior: "smooth", block: "center"})
 
-  const scrollToBottom = () => element?.scrollTo({top: 0, behavior: "smooth"})
+  const scrollToBottom = () => {
+    // Scroll to the compose area at the bottom
+    chatCompose?.scrollIntoView({behavior: "smooth", block: "end"})
+  }
 
   let loadingEvents = $state(true)
   let share = $state(popKey<TrustedEvent | undefined>("share"))
@@ -146,7 +145,7 @@
   let dynamicPadding: HTMLElement | undefined = $state()
   let newMessagesSeen = false
   let showFixedNewMessages = $state(false)
-  let showScrollButton = $state(false)
+  let showScrollButton = $state(true)
   let cleanup: () => void
   let start: (() => void) | undefined = $state()
   let events: Readable<TrustedEvent[]> = $state(readable([]))
@@ -243,6 +242,10 @@
     events = feed.events
     cleanup = feed.cleanup
 
+    // Scroll to bottom after a short delay to ensure content is rendered
+    setTimeout(() => {
+      scrollToBottom()
+    }, 100)
 
     return () => {
       controller.abort()
@@ -256,7 +259,7 @@
   <title>{repoClass.name} - Feed</title>
 </svelte:head>
 
-<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse">
+<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse overflow-y-auto overflow-x-hidden">
   <div bind:this={dynamicPadding}></div>
   {#each elements as { type, id, value, showPubkey } (id)}
     {#if type === "new-messages"}
