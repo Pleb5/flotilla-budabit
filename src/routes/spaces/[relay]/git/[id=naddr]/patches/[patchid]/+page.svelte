@@ -68,7 +68,21 @@
       }
     }
     // Try to load profile if not in cache
-    await loadProfile(pubkey, repoClass.relays)
+    // Filter out invalid relay URLs to prevent errors
+    const validRelays = (repoClass.relays || []).filter((relay: string) => {
+      try {
+        const url = new URL(relay)
+        return url.protocol === 'ws:' || url.protocol === 'wss:'
+      } catch {
+        console.warn(`Invalid relay URL filtered out: ${relay}`)
+        return false
+      }
+    })
+    
+    if (validRelays.length > 0) {
+      await loadProfile(pubkey, validRelays)
+    }
+    
     const loadedProfile = $profilesByPubkey.get(pubkey)
     if (loadedProfile) {
       return {

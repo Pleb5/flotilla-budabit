@@ -29,8 +29,6 @@
   import {
     userSettingsValues,
     decodeRelay,
-    deriveUserMembershipStatus,
-    deriveChannel,
     REACTION_KINDS,
   } from "@app/core/state"
   import {checked} from "@app/util/notifications"
@@ -40,10 +38,6 @@
   import {pushToast} from "@app/util/toast"
   import {GIT_REPO_ANNOUNCEMENT, type IssueEvent, type PatchEvent} from "@nostr-git/shared-types"
   import ThunkToast from "@app/components/ThunkToast.svelte"
-  import PageBar from "@lib/components/PageBar.svelte"
-  import PageContent from "@lib/components/PageContent.svelte"
-  import ChatRound from "@assets/icons/chat-round.svg?dataurl"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
 
   const {id} = $page.params
@@ -74,36 +68,6 @@
   }
 
   const filter = [roomFilter, statusFilter, commentFilter]
-
-  const join = async () => {
-    joining = true
-
-    try {
-      const message = getThunkError(joinRoom(url, makeRoomMeta({id: room})))
-
-      if (message && !message.startsWith("duplicate:")) {
-        return pushToast({theme: "error", message})
-      } else {
-        // Restart the feed now that we're a member
-        start?.()
-      }
-    } finally {
-      joining = false
-    }
-  }
-
-  const leave = async () => {
-    leaving = true
-    try {
-      const message = getThunkError(leaveRoom(url, makeRoomMeta({id: room})))
-
-      if (message && !message.startsWith("duplicate:")) {
-        pushToast({theme: "error", message})
-      }
-    } finally {
-      leaving = false
-    }
-  }
 
   const replyTo = (event: TrustedEvent) => {
     parent = event
@@ -173,8 +137,6 @@
 
   const scrollToBottom = () => element?.scrollTo({top: 0, behavior: "smooth"})
 
-  let joining = $state(false)
-  let leaving = $state(false)
   let loadingEvents = $state(true)
   let share = $state(popKey<TrustedEvent | undefined>("share"))
   let parent: TrustedEvent | undefined = $state()
@@ -280,6 +242,7 @@
     })
     events = feed.events
     cleanup = feed.cleanup
+
 
     return () => {
       controller.abort()

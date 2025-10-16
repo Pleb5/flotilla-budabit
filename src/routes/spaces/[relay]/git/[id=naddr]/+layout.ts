@@ -93,9 +93,24 @@ export const load: LayoutLoad = async ({params}) => {
   // Get relays from event tags
   const bestRelayList = derived(repoEvent, re => {
     if (re) {
-      const [_, ...relaysList] = re.tags.find(nthEq(0, "relays")) || []
-      return relaysList
+      const relaysTag = re.tags.find(nthEq(0, "relays"))
+      if (relaysTag) {
+        const [_, ...relaysList] = relaysTag
+        // Filter out invalid relay URLs and log warnings
+        const validRelays = relaysList.filter((relay: string) => {
+          try {
+            const url = new URL(relay)
+            return url.protocol === 'ws:' || url.protocol === 'wss:'
+          } catch {
+            console.warn(`Invalid relay URL found in repo event tags: ${relay}`)
+            return false
+          }
+        })
+        console.log(`[Layout] Extracted ${validRelays.length} valid relays from repo event:`, validRelays)
+        return validRelays
+      }
     }
+    console.log(`[Layout] Using fallback relay list:`, relayListFromUrl)
     return relayListFromUrl
   })
 

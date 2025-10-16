@@ -253,30 +253,44 @@
     return thunk
   }
 
-  // Profile functions for PeoplePicker
-  const getProfile = async (pubkey: string) => {
-    const profile = $profilesByPubkey.get(pubkey)
-    if (profile) {
-      return {
-        name: profile.name,
-        picture: profile.picture,
-        nip05: profile.nip05,
-        display_name: profile.display_name,
-      }
+    // Profile functions for PeoplePicker
+    const getProfile = async (pubkey: string) => {
+        const profile = $profilesByPubkey.get(pubkey)
+        if (profile) {
+            return {
+                name: profile.name,
+                picture: profile.picture,
+                nip05: profile.nip05,
+                display_name: profile.display_name,
+            }
+        }
+        // Try to load profile if not in cache
+        // Filter out invalid relay URLs to prevent errors
+        const validRelays = (repoClass.relays || []).filter((relay: string) => {
+            try {
+                const url = new URL(relay)
+                return url.protocol === 'ws:' || url.protocol === 'wss:'
+            } catch {
+                console.warn(`Invalid relay URL filtered out: ${relay}`)
+                return false
+            }
+        })
+        
+        if (validRelays.length > 0) {
+            await loadProfile(pubkey, validRelays)
+        }
+        
+        const loadedProfile = $profilesByPubkey.get(pubkey)
+        if (loadedProfile) {
+            return {
+                name: loadedProfile.name,
+                picture: loadedProfile.picture,
+                nip05: loadedProfile.nip05,
+                display_name: loadedProfile.display_name,
+            }
+        }
+        return null
     }
-    // Try to load profile if not in cache
-    await loadProfile(pubkey, repoClass.relays)
-    const loadedProfile = $profilesByPubkey.get(pubkey)
-    if (loadedProfile) {
-      return {
-        name: loadedProfile.name,
-        picture: loadedProfile.picture,
-        nip05: loadedProfile.nip05,
-        display_name: loadedProfile.display_name,
-      }
-    }
-    return null
-  }
 
   const searchProfiles = async (query: string) => {
     // profileSearch.searchValues returns an array of pubkeys (strings)

@@ -364,6 +364,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>Git Repositories</title>
+</svelte:head>
+
 <PageBar>
   {#snippet icon()}
     <div class="center">
