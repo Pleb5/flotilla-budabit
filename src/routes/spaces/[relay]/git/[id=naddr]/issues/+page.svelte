@@ -317,7 +317,7 @@
       })
       .filter(issue => {
         if (statusFilter === "all") return true
-        const state = currentStateFor(issue.id)
+        const state = statusMap[issue.id] || "open"
         if (statusFilter === "open") return state === "open"
         if (statusFilter === "draft") return state === "draft"
         if (statusFilter === "closed") return state === "closed"

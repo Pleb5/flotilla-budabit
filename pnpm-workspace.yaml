@@ -2,5 +2,8 @@ onlyBuiltDependencies:
   - sharp
 
 packages:
-  - "packages/**"
+  - "packages/nostr-git/packages/core"
+  - "packages/nostr-git/packages/ui"
+  - "packages/nostr-git/packages/shared-types"
+  - "packages/nostr-git/packages/git-wrapper"
   - "packages/nostr-git/packages/*"
