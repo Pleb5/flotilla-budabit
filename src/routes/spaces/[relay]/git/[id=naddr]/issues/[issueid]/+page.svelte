@@ -22,26 +22,30 @@
   import {load} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {normalizeRelayUrl} from "@welshman/util"
+  import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {slide} from "svelte/transition"
   import {getContext, onMount} from "svelte"
-  import {postComment, postStatus, postLabel} from "@lib/budabit/commands.js"
+  import {postComment, postStatus, postLabel, postRoleLabel} from "@lib/budabit"
+  import { PeoplePicker } from "@nostr-git/ui"
   import {
     REPO_RELAYS_KEY,
     deriveEffectiveLabels,
     repoAnnouncements,
     deriveMaintainersForEuc,
     loadRepoAnnouncements,
-  } from "@lib/budabit/state.js"
-
-  const {data} = $props()
-  const {repoClass} = data
+    deriveRoleAssignments,
+  } from "@lib/budabit"
+  import { normalizeEffectiveLabels, toNaturalArray } from "@lib/budabit/labels"
 
   const markdown = markdownit({
     html: true,
     linkify: true,
     typographer: true,
   })
+
+  const {data} = $props()
+  const {repoClass} = data
 
   const issueId = $page.params.issueid
   const issueEvent = repoClass.issues.find(i => i.id === issueId)
@@ -149,19 +153,27 @@
     return deriveEvents(repository, {filters: [getStatusFilter()]})
   })
 
-  // Normalize helper same as issues list page
-  const toNaturalLabel = (s: string): string => {
-    const idx = s.lastIndexOf("/")
-    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
-  }
   // Centralized NIP-32 labels via store; avoid calling .get() in Svelte 5
   const effStore = $derived.by(() => (issue ? deriveEffectiveLabels(issue.id) : undefined))
   const labelsNormalized = $derived.by(() => {
     if (!issue) return [] as string[]
     const eff = $effStore as any
-    const flat = eff && eff.flat ? Array.from(eff.flat) : []
-    return flat.map((v: unknown) => toNaturalLabel(String(v)))
+    const norm = normalizeEffectiveLabels(eff)
+    return toNaturalArray(norm.flat)
   })
+
+  const roleAssignments = $derived.by(() =>
+    issue ? deriveRoleAssignments(issue.id) : undefined
+  )
+  const assignees = $derived.by(() =>
+    Array.from((roleAssignments?.get()?.assignees || new Set()) as Set<string>)
+  )
+
+  let assigneesList = $state<string[]>([]);
+  $effect(() => {
+    assigneesList = assignees;
+  });
+
 
   // Resolve effective status using precedence rules (maintainers > author > others; kind; recency)
   const resolved = $derived.by(() => {
@@ -240,6 +252,48 @@
     console.log("[IssueDetail] Status publish thunk", thunk)
     return thunk
   }
+
+  // Profile functions for PeoplePicker
+  const getProfile = async (pubkey: string) => {
+    const profile = $profilesByPubkey.get(pubkey)
+    if (profile) {
+      return {
+        name: profile.name,
+        picture: profile.picture,
+        nip05: profile.nip05,
+        display_name: profile.display_name,
+      }
+    }
+    // Try to load profile if not in cache
+    await loadProfile(pubkey, repoClass.relays)
+    const loadedProfile = $profilesByPubkey.get(pubkey)
+    if (loadedProfile) {
+      return {
+        name: loadedProfile.name,
+        picture: loadedProfile.picture,
+        nip05: loadedProfile.nip05,
+        display_name: loadedProfile.display_name,
+      }
+    }
+    return null
+  }
+
+  const searchProfiles = async (query: string) => {
+    // profileSearch.searchValues returns an array of pubkeys (strings)
+    const pubkeys = $profileSearch.searchValues(query)
+    
+    // Map each pubkey to a profile object by looking it up in profilesByPubkey
+    return pubkeys.map((pubkey: string) => {
+      const profile = $profilesByPubkey.get(pubkey)
+      return {
+        pubkey: pubkey,
+        name: profile?.name,
+        picture: profile?.picture,
+        nip05: profile?.nip05,
+        display_name: profile?.display_name,
+      }
+    })
+  }
 </script>
 
 <svelte:head>
@@ -309,6 +363,75 @@
               {addingLabel ? "Adding..." : "Add Tag"}
             </button>
           </div>
+        {/if}
+      </div>
+
+      <!-- Assignees Section -->
+      <div class="my-4 space-y-2">
+        <h3 class="text-base font-medium">Assignees</h3>
+        {#if isMaintainerOrAuthor}
+          <PeoplePicker
+            bind:selected={assigneesList}
+            placeholder="Search for assignees..."
+            maxSelections={10}
+            showAvatars={true}
+            compact={false}
+            {getProfile}
+            {searchProfiles}
+            add={async (pubkey: string) => {
+              if (!issue) return;
+              try {
+                const relays = (repoClass.relays || repoRelays || []).map((u: string) =>
+                  normalizeRelayUrl(u)
+                );
+                await postRoleLabel({
+                  rootId: issue.id,
+                  role: "assignee",
+                  pubkeys: [pubkey],
+                  repoAddr: (repoClass as any)?.repoEvent?.id,
+                  relays,
+                });
+                await load({
+                  relays,
+                  filters: [{ kinds: [1985], "#e": [issue.id] }],
+                });
+              } catch (err) {
+                console.error("[IssueDetail] Failed to add assignee", err);
+              }
+            }}
+            remove={async (pubkey: string) => {
+              if (!issue) return;
+              try {
+                const relays = (repoClass.relays || repoRelays || []).map((u: string) =>
+                  normalizeRelayUrl(u)
+                );
+                // Note: postRoleLabel with empty pubkeys array would remove the role
+                await postRoleLabel({
+                  rootId: issue.id,
+                  role: "assignee",
+                  pubkeys: [],
+                  repoAddr: (repoClass as any)?.repoEvent?.id,
+                  relays,
+                });
+                await load({
+                  relays,
+                  filters: [{ kinds: [1985], "#e": [issue.id] }],
+                });
+              } catch (err) {
+                console.error("[IssueDetail] Failed to remove assignee", err);
+              }
+            }}
+          />
+        {:else}
+          {#if assignees.length}
+            <div class="flex flex-wrap gap-2">
+              {#each assignees as pk (pk)}
+                <ProfileLink pubkey={pk} />
+              {/each}
+            </div>
+          {:else}
+            <div class="text-sm text-muted-foreground">No assignees yet.</div>
+          {/if}
         {/if}
       </div>
 

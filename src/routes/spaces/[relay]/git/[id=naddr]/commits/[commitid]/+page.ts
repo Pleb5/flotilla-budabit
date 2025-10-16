@@ -1,6 +1,7 @@
 import type { PageLoad } from './$types';
 import { getInitializedGitWorker } from '@src/lib/budabit/worker-singleton';
 import { pushToast } from '@src/app/util/toast';
+import type { CommitMeta } from '@nostr-git/shared-types';
 
 export interface CommitChange {
   path: string;
@@ -14,18 +15,6 @@ export interface CommitChange {
   }>;
 }
 
-export interface CommitMeta {
-  sha: string;
-  author: string;
-  email: string;
-  date: number;
-  message: string;
-  parents: string[];
-  // Optional Nostr identifiers if available (reserved for future resolver wiring)
-  pubkey?: string;
-  nip05?: string;
-  nip39?: string;
-}
 
 export const load: PageLoad = async ({ params, parent }) => {
   const { commitid } = params;
@@ -46,9 +35,6 @@ export const load: PageLoad = async ({ params, parent }) => {
 
     // Get initialized git worker instance (with EventIO configured)
     const { api } = await getInitializedGitWorker();
-    
-    // Initialization is handled by Repo class constructor (#loadCommitsFromRepo)
-    // Avoid re-initializing here to prevent duplicate worker operations/logs
     
     // Get detailed commit information including file changes
     const commitDetails = await api.getCommitDetails({

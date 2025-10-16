@@ -273,7 +273,7 @@
     }
   })
 
-  const back = () => goto(`/spaces/${relay}/git/`)
+  const back = () => history.back()//goto(`/spaces/${relay}/git/`)
 </script>
 
 <svelte:head>

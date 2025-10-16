@@ -41,7 +41,8 @@
     type StatusEvent,
     type PatchEvent,
   } from "@nostr-git/shared-types"
-  import {postComment, postStatus} from "@lib/budabit/commands"
+  import {postComment, postStatus, postRoleLabel} from "@lib/budabit"
+  import {PeoplePicker} from "@nostr-git/ui"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import type {Commit, MergeAnalysisResult, Patch, PatchTag} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"
@@ -49,9 +50,53 @@
   import type {LayoutProps} from "../../$types"
   import {slideAndFade} from "@src/lib/transition"
   import {normalizeRelayUrl} from "@welshman/util"
+  import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
+  import {deriveRoleAssignments} from "@lib/budabit"
 
   const {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
+
+  // Profile functions for PeoplePicker
+  const getProfile = async (pubkey: string) => {
+    const profile = $profilesByPubkey.get(pubkey)
+    if (profile) {
+      return {
+        name: profile.name,
+        picture: profile.picture,
+        nip05: profile.nip05,
+        display_name: profile.display_name,
+      }
+    }
+    // Try to load profile if not in cache
+    await loadProfile(pubkey, repoClass.relays)
+    const loadedProfile = $profilesByPubkey.get(pubkey)
+    if (loadedProfile) {
+      return {
+        name: loadedProfile.name,
+        picture: loadedProfile.picture,
+        nip05: loadedProfile.nip05,
+        display_name: loadedProfile.display_name,
+      }
+    }
+    return null
+  }
+
+  const searchProfiles = async (query: string) => {
+    // profileSearch.searchValues returns an array of pubkeys (strings)
+    const pubkeys = $profileSearch.searchValues(query)
+
+    // Map each pubkey to a profile object by looking it up in profilesByPubkey
+    return pubkeys.map((pubkey: string) => {
+      const profile = $profilesByPubkey.get(pubkey)
+      return {
+        pubkey: pubkey,
+        name: profile?.name,
+        picture: profile?.picture,
+        nip05: profile?.nip05,
+        display_name: profile?.display_name,
+      }
+    })
+  }
 
   const patchId = $page.params.patchid
 
@@ -246,6 +291,18 @@
       const statusEvent = $statusEvents.sort((a, b) => b.created_at - a.created_at)[0]
       return statusEvent ? parseStatusEvent(statusEvent as StatusEvent) : undefined
     }
+  })
+
+  const reviewersAssignments = $derived.by(() =>
+    selectedPatch ? deriveRoleAssignments(selectedPatch.id) : undefined,
+  )
+  const reviewers = $derived.by(() =>
+    Array.from((reviewersAssignments?.get()?.reviewers || new Set()) as Set<string>),
+  )
+
+  let reviewersList = $state<string[]>([])
+  $effect(() => {
+    reviewersList = reviewers
   })
 
   const md = markdownit({
@@ -796,6 +853,73 @@
                   <div class="text-sm text-muted-foreground">Lines Removed</div>
                 </div>
               </div>
+            {/if}
+          </div>
+        {/if}
+
+        {#if selectedPatch}
+          <div class="my-4 space-y-2">
+            <h3 class="text-base font-medium">Reviewers</h3>
+            {#if repoClass.maintainers.includes($pubkey!) || patch.author.pubkey === $pubkey}
+              <PeoplePicker
+                bind:selected={reviewersList}
+                placeholder="Search for reviewers..."
+                maxSelections={10}
+                showAvatars={true}
+                compact={false}
+                {getProfile}
+                {searchProfiles}
+                add={async (pubkey: string) => {
+                  if (!selectedPatch) return
+                  try {
+                    const relays = (repoClass.relays || repoRelays || [])
+                      .map((u: string) => normalizeRelayUrl(u))
+                      .filter(Boolean)
+                    await postRoleLabel({
+                      rootId: selectedPatch.id,
+                      role: "reviewer",
+                      pubkeys: [pubkey],
+                      repoAddr: (repoClass as any)?.repoEvent?.id,
+                      relays,
+                    })
+                    await load({
+                      relays,
+                      filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
+                    })
+                  } catch (err) {
+                    console.error("[PatchDetail] Failed to add reviewer", err)
+                  }
+                }}
+                remove={async (pubkey: string) => {
+                  if (!selectedPatch) return
+                  try {
+                    const relays = (repoClass.relays || repoRelays || [])
+                      .map((u: string) => normalizeRelayUrl(u))
+                      .filter(Boolean)
+                    // Note: postRoleLabel with empty pubkeys array would remove the role
+                    await postRoleLabel({
+                      rootId: selectedPatch.id,
+                      role: "reviewer",
+                      pubkeys: [],
+                      repoAddr: (repoClass as any)?.repoEvent?.id,
+                      relays,
+                    })
+                    await load({
+                      relays,
+                      filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
+                    })
+                  } catch (err) {
+                    console.error("[PatchDetail] Failed to remove reviewer", err)
+                  }
+                }} />
+            {:else if reviewers.length}
+              <div class="flex flex-wrap gap-2">
+                {#each reviewers as pk (pk)}
+                  <ProfileLink pubkey={pk} />
+                {/each}
+              </div>
+            {:else}
+              <div class="text-sm text-muted-foreground">No reviewers yet.</div>
             {/if}
           </div>
         {/if}

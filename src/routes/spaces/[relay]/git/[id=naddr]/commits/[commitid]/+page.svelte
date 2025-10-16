@@ -8,14 +8,6 @@
   // Extract data from page load
   const { commitMeta, changes, repoClass } = data;
 
-  // Safe repo title name derived from repoEvent content
-  const repoTitleName = $derived(() => {
-    try {
-      const evt: any = (repoClass as any).repoEvent
-      return evt?.content ? JSON.parse(evt.content).name : 'Repository'
-    } catch { return 'Repository' }
-  })
-
   // State for collapsible file panels
   let expandedFiles = $state<Set<string>>(new Set());
 

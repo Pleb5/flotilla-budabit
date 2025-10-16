@@ -293,7 +293,7 @@
   <title>{repoClass.name} - Feed</title>
 </svelte:head>
 
-<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse pt-4">
+<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse">
   <div bind:this={dynamicPadding}></div>
   {#each elements as { type, id, value, showPubkey } (id)}
     {#if type === "new-messages"}
@@ -317,7 +317,7 @@
       </div>
     {/if}
   {/each}
-  <p class="flex h-10 items-center justify-center py-20">
+  <p class="flex h-10 items-center justify-center py-8">
     {#if loadingEvents}
       <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
     {:else}

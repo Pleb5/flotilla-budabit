@@ -137,7 +137,7 @@
 
   const publish = async (permalink: PermalinkEvent) => {
     const thunk = postPermalink(permalink, repoClass.relays)
-    await thunk.results.result
+
     pushToast({
       message: "Permalink published successfully",
     })

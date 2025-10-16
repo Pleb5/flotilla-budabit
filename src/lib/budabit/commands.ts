@@ -1,4 +1,5 @@
 import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent, PermalinkEvent, RepoStateEvent, GraspSetEvent, NostrEvent } from "@nostr-git/shared-types"
+import { buildRoleLabelEvent } from "./labels"
 import { publishThunk } from "@welshman/app"
 import { INDEXER_RELAYS } from "@app/core/state"
 import { Router } from "@welshman/router"
@@ -72,5 +73,29 @@ export const postGraspServersList = (graspServersList: GraspSetEvent) => {
   return publishThunk({
     event: graspServersList,
     relays: merged,
+  })
+}
+
+// Publish a NIP-32 role label event (kind 1985) for assignees/reviewers
+export const postRoleLabel = (params: {
+  rootId: string
+  role: "assignee" | "reviewer"
+  pubkeys: string[]
+  repoAddr?: string
+  relays: string[]
+  created_at?: number
+}) => {
+  const { rootId, role, pubkeys, repoAddr, relays, created_at } = params
+  const event = buildRoleLabelEvent({
+    rootId,
+    role,
+    pubkeys,
+    repoAddr,
+    created_at
+  })
+  const merged = Array.from(new Set([...(relays || []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
+  return publishThunk({
+    relays: merged,
+    event: event,
   })
 }

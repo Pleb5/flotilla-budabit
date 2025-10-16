@@ -24,6 +24,8 @@
     GIT_STATUS_DRAFT,
   } from "@welshman/util"
   import {fly, slide, slideAndFade} from "@lib/transition"
+  import {deriveEffectiveLabels, deriveAssignmentsFor} from "@lib/budabit/state.js"
+  import { normalizeEffectiveLabels, toNaturalArray, groupLabels } from "@lib/budabit/labels"
   import {
     getTags,
     type CommentEvent,
@@ -62,7 +64,28 @@
   // Centralized labels via app state
 
   // Types + helpers to normalize effective labels
-  const labelsData = $derived.by(() => repoClass.patchManager.getLabelsData(repoClass))
+  const labelsData = $derived.by(() => {
+    const byId = new Map<string, string[]>()
+    const groupsById = new Map<string, Record<string, string[]>>()
+    for (const patch of repoClass.patches) {
+      // Use deriveEffectiveLabels to get proper NIP-32 labels
+      const effStore = deriveEffectiveLabels(patch.id)
+      // Subscribe to the store to get its current value
+      const effValue = effStore.get()
+      const eff = normalizeEffectiveLabels(effValue)
+      const naturals = toNaturalArray(eff?.flat)
+      byId.set(patch.id, naturals)
+      const groups = eff ? groupLabels(eff) : {Status: [], Type: [], Area: [], Tags: [], Other: []}
+      groupsById.set(patch.id, groups)
+    }
+    const allLabels = Array.from(new Set(Array.from(byId.values()).flat()))
+    return { byId, groupsById, allLabels }
+  })
+
+  const roleAssignments = $derived.by(() => {
+    const ids = repoClass.patches?.map((p: any) => p.id) || []
+    return deriveAssignmentsFor(ids)
+  })
 
 console.log(repoClass.patches)
 
@@ -460,6 +483,7 @@ console.log(repoClass.patches)
       })
     return result
   })
+
 </script>
 
 <svelte:head>
@@ -564,8 +588,8 @@ console.log(repoClass.patches)
                 repo={repoClass}
                 statusEvents={$statusEventsByRoot?.get(patch.id) || []}
                 actorPubkey={$pubkey}
-                {onCommentCreated} />
-              <!-- Grouped labels below card -->
+                {onCommentCreated}
+                reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0} />
               {#if labelsByPatch.get(patch.id)?.length}
                 <div class="mt-2 flex flex-wrap gap-2 text-xs">
                   {#if patch.groups.Status.length}

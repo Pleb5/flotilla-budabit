@@ -19,7 +19,7 @@
     GIT_STATUS_CLOSED,
     getTag,
   } from "@welshman/util"
-  import {createSearch, pubkey} from "@welshman/app"
+  import {createSearch, pubkey, repository} from "@welshman/app"
   import {now, sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -28,6 +28,7 @@
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
   import {postComment, postIssue, publishEvent} from "@lib/budabit/commands.js"
+  import {deriveEffectiveLabels, deriveAssignmentsFor} from "@lib/budabit/state.js"
   import FilterPanel from "@app/components/FilterPanel.svelte"
   import {isMobile} from "@lib/html"
   import {onMount, onDestroy} from "svelte"
@@ -85,6 +86,7 @@
     return ret
   })
 
+  
   // Alerts: review-request based on Type labels for issues; alert on transition to true
   $effect(() => {
     try {
@@ -108,60 +110,6 @@
     } catch {}
   })
 
-  // Alerts: if current user is tagged via 'p' on an issue, treat as review request; alert on transition
-  $effect(() => {
-    try {
-      const me = $pubkey
-      if (!me) return
-      const arr = repoClass.issues || []
-      for (const it of arr) {
-        if (!it || !it.id) continue
-        const pks = getTags(it as any, "p").map((t: string[]) => t[1])
-        const current = pks.includes(me)
-        const prev = prevReviewStateByIssue.get(it.id) || false
-        if (!prev && current) {
-          pushRepoAlert({
-            repoKey: repoClass.key,
-            kind: "review-request",
-            title: "Review requested",
-            body: getTagValue("subject", it.tags) || "",
-          })
-        }
-        prevReviewStateByIssue.set(it.id, current)
-      }
-    } catch {}
-  })
-
-  // Alerts: thread/comment mentions (p-tag to me) on issue threads; alert once per comment, with debounce window per issue
-  $effect(() => {
-    try {
-      const me = $pubkey
-      if (!me) return
-      for (const issue of issues) {
-        const cmts = commentsOrdered[issue.id] || []
-        for (const c of cmts) {
-          if (!c?.id) continue
-          if (alertedIds.has(`review-issue-cmnt:${c.id}`)) continue
-          const pks = getTags(c as any, "p").map((t: string[]) => t[1])
-          if (pks.includes(me)) {
-            const nowTs = Date.now()
-            const last = lastMentionAlertAtByIssue.get(issue.id) || 0
-            if (nowTs - last > mentionWindowMs) {
-              pushRepoAlert({
-                repoKey: repoClass.key,
-                kind: "review-request",
-                title: "Review requested in comments",
-                body: getTagValue("subject", issue.tags) || "",
-              })
-              lastMentionAlertAtByIssue.set(issue.id, nowTs)
-            }
-            alertedIds.add(`review-issue-cmnt:${c.id}`)
-          }
-        }
-      }
-    } catch {}
-  })
-
   // Filter and sort options
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
   let sortByOrder = $state<string>("newest") // newest, oldest, status, commits
@@ -170,63 +118,46 @@
   // Label filters (NIP-32 normalized labels)
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
-  const toNaturalLabel = (s: string): string => {
-    // normalized strings are typically "namespace/value"
-    const idx = s.lastIndexOf("/")
-    return idx >= 0 ? s.slice(idx + 1) : s.replace(/^#/, "")
-  }
-  // Types + helpers to normalize effective labels and resolved status
-  type EffectiveLabelsView = {byNamespace: Record<string, Set<string>>; flat: Set<string>}
-  const toSet = (x: unknown): Set<string> =>
-    x instanceof Set
-      ? x
-      : new Set<string>(Array.isArray(x) ? x.filter(v => typeof v === "string") : [])
-  const normalizeEff = (eff: any | undefined | null): EffectiveLabelsView | null => {
-    if (!eff) return null
-    const flat = toSet(eff.flat)
-    const byNs: Record<string, Set<string>> = {}
-    if (eff.byNamespace && typeof eff.byNamespace === "object") {
-      for (const ns of Object.keys(eff.byNamespace)) {
-        byNs[ns] = toSet((eff.byNamespace as any)[ns])
-      }
-    }
-    return {byNamespace: byNs, flat}
-  }
+  import { normalizeEffectiveLabels, toNaturalArray, groupLabels } from "@lib/budabit/labels"
   const labelsData = $derived.by(() => {
     const byId = new Map<string, string[]>()
     const groupsById = new Map<string, Record<string, string[]>>()
     for (const issue of issues) {
-      const getter = (repoClass as unknown as {getIssueLabels?: (id: string) => any}).getIssueLabels
-      const eff = normalizeEff(
-        typeof getter === "function" ? getter.call(repoClass, issue.id) : null,
-      )
-      const flat = eff ? Array.from(eff.flat) : []
-      const naturals = flat.map(toNaturalLabel)
+      // Use deriveEffectiveLabels to get proper NIP-32 labels
+      const effStore = deriveEffectiveLabels(issue.id)
+      const effValue = effStore.get()
+      const eff = normalizeEffectiveLabels(effValue)
+      const naturals = toNaturalArray(eff?.flat)
+      
+      // Debug logging
+      console.debug(`[IssuesList] Issue ${issue.id}:`, {
+        effValue,
+        eff,
+        naturals,
+        issueLabels: issue.tags?.filter(t => t[0] === 't').map(t => t[1]) || []
+      })
+      
       byId.set(issue.id, naturals)
-      const groups: Record<string, string[]> = {Status: [], Type: [], Area: [], Tags: [], Other: []}
-      if (eff) {
-        for (const ns of Object.keys(eff.byNamespace)) {
-          const vals = Array.from(eff.byNamespace[ns]).map(toNaturalLabel)
-          if (ns === "org.nostr.git.status") groups.Status.push(...vals)
-          else if (ns === "org.nostr.git.type") groups.Type.push(...vals)
-          else if (ns === "org.nostr.git.area") groups.Area.push(...vals)
-          else if (ns === "#t") groups.Tags.push(...vals)
-          else groups.Other.push(...vals)
-        }
-        for (const k of Object.keys(groups)) groups[k] = Array.from(new Set(groups[k]))
-      }
+      const groups = eff ? groupLabels(eff) : {Status: [], Type: [], Area: [], Tags: [], Other: []}
       groupsById.set(issue.id, groups)
     }
     const res = {byId, groupsById}
     console.debug("[IssuesList] labelsData recomputed", {count: byId.size})
     return res
   })
-  const labelsByIssue = $derived.by(() => labelsData.byId)
+  const labelsByIssue = $derived.by(() => {
+    const result = labelsData.byId
+    console.debug("[IssuesList] labelsByIssue computed:", result)
+    return result
+  })
   const labelGroupsFor = (id: string) =>
     labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
   const allNormalizedLabels = $derived.by(() =>
     Array.from(new Set(Array.from(labelsByIssue.values()).flat())),
   )
+
+  // Role assignments for all issues
+  const roleAssignments = $derived.by(() => deriveAssignmentsFor(issues.map(i => i.id)))
 
   const uniqueAuthors = $derived.by(() => {
     if (!repoClass.patches) return []
@@ -645,7 +576,8 @@
                 extraLabels={labelsByIssue.get(issue.id) || []}
                 repo={repoClass}
                 statusEvents={$statusEventsByRoot?.get(issue.id) || []}
-                actorPubkey={$pubkey} />
+                actorPubkey={$pubkey}
+                assigneeCount={$roleAssignments?.get(issue.id)?.assignees?.size || 0} />
             </div>
           </div>
         {/each}
