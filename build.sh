@@ -23,6 +23,17 @@ if [[ $VITE_PLATFORM_LOGO =~ ^https://* ]]; then
   export VITE_PLATFORM_LOGO=static/logo.png
 fi
 
+# Build nostr-git UI components first
+echo "Building nostr-git UI components..."
+if [ -d "packages/nostr-git/packages/ui" ]; then
+  cd packages/nostr-git/packages/ui
+  pnpm build
+  cd ../../..
+else
+  echo "Warning: nostr-git UI directory not found. Make sure submodules are initialized."
+  echo "Run: git submodule update --init --recursive"
+fi
+
 npx pwa-assets-generator
 npx vite build
 
