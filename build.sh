@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Increase Node.js memory limit globally for this script
+export NODE_OPTIONS="--max-old-space-size=8192"
+
 temp_env=$(declare -p -x)
 
 if [ -f .env.template ]; then
@@ -28,7 +31,7 @@ echo "Building nostr-git UI components..."
 if [ -d "packages/nostr-git/packages/ui" ]; then
   cd packages/nostr-git/packages/ui
   pnpm build
-  cd ../../..
+  cd ../../../..
 else
   echo "Warning: nostr-git UI directory not found. Make sure submodules are initialized."
   echo "Run: git submodule update --init --recursive"
