@@ -39,16 +39,18 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-{#if lastValidModal?.options?.drawer}
-  <Drawer onClose={clearModals} {...lastValidModal.options}>
-    {#key lastValidModal.id}
-      <lastValidModal.component {...lastValidModal.props} />
-    {/key}
-  </Drawer>
-{:else if lastValidModal?.component}
-  <Dialog onClose={clearModals} {...lastValidModal.options}>
-    {#key lastValidModal.id}
-      <lastValidModal.component {...lastValidModal.props} />
-    {/key}
-  </Dialog>
+{#if lastValidModal?.component && lastValidModal?.id}
+  {#if lastValidModal.options?.drawer}
+    <Drawer onClose={clearModals} {...lastValidModal.options}>
+      {#key lastValidModal.id}
+        <lastValidModal.component {...(lastValidModal.props || {})} />
+      {/key}
+    </Drawer>
+  {:else}
+    <Dialog onClose={clearModals} {...lastValidModal.options}>
+      {#key lastValidModal.id}
+        <lastValidModal.component {...(lastValidModal.props || {})} />
+      {/key}
+    </Dialog>
+  {/if}
 {/if}

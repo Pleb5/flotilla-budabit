@@ -8,11 +8,14 @@ git describe --tags --abbrev=0 || true
 export VITE_BUILD_VERSION=$RENDER_GIT_COMMIT
 export VITE_BUILD_HASH=$RENDER_GIT_COMMIT
 
+# Ensure submodules are initialized
+git submodule update --init --recursive || true
+
 # Install dependencies
 CI=0 pnpm i
 
-# Rebuild sharp
-pnpm rebuild
+# Rebuild native deps as needed (e.g., sharp)
+pnpm rebuild || true
 
-# The build runs out of memory at times
-NODE_OPTIONS=--max_old_space_size=16384 pnpm run build
+# Use unified build script (builds core, UI, app, and copies worker libs)
+NODE_OPTIONS=--max_old_space_size=16384 ./build.sh

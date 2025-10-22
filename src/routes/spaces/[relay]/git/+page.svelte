@@ -31,19 +31,17 @@
   import {
     GIT_REPO_ANNOUNCEMENT,
     parseRepoAnnouncementEvent,
-    type BookmarkedRepo,
+    type BookmarkAddress,
   } from "@nostr-git/shared-types"
   import {
-    NewRepoWizard,
     Avatar,
     AvatarImage,
     AvatarFallback,
     RepoPicker,
     bookmarksStore,
     repositoriesStore,
-    signer,
-    RepoTab,
   } from "@nostr-git/ui"
+  import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
   import {
     deriveRepoRefState,
     deriveMaintainersForEuc,
@@ -81,30 +79,56 @@
     ),
   ) as string[]
 
-  // Derive bookmarked addresses from the singleton bookmarksStore
-  const bookmarkedAddresses = $derived(
-    $bookmarksStore?.map(b => ({
+  const normalizeBookmarks = (value: unknown): BookmarkAddress[] => {
+    if (!value) return []
+    if (Array.isArray(value)) return value as BookmarkAddress[]
+    return []
+  }
+
+  const toBookmarkAddresses = (bookmarks: BookmarkAddress[]): BookmarkAddress[] =>
+    bookmarks.map((b: BookmarkAddress): BookmarkAddress => ({
       address: b.address,
-      author: b.address.split(":")[1],
-      identifier: b.address.split(":")[2],
+      author: b.address.split(":")[1] || "",
+      identifier: b.address.split(":")[2] || "",
       relayHint: b.relayHint,
-    })) || [],
-  )
+    }))
+
+  const bookmarkedAddresses = $derived((): BookmarkAddress[] => {
+    const bookmarks = normalizeBookmarks($bookmarksStore)
+    return toBookmarkAddresses(bookmarks)
+  })
+
+  const hasBookmarkedAddresses = $derived(() => bookmarkedAddresses.length > 0)
 
   // Fetch actual repo events for bookmarked addresses
-  const repos = $derived.by(() => {
-    if (bookmarkedAddresses.length === 0) return undefined
+  const attemptedBookmarkLoads = new Set<string>()
 
-    const authors = bookmarkedAddresses.map(b => b.author)
-    const identifiers = bookmarkedAddresses.map(b => b.identifier)
+  const repos = $derived.by(() => {
+    if (!hasBookmarkedAddresses) return undefined
+
+    const addresses = toBookmarkAddresses(normalizeBookmarks($bookmarksStore))
+    if (addresses.length === 0) return undefined
+
+    const authors = addresses.map(b => b.author)
+    const identifiers = addresses.map(b => b.identifier)
     const relayHints = Array.from(
-      new Set(bookmarkedAddresses.map(b => b.relayHint).filter(Boolean)),
+      new Set(addresses.map(b => b.relayHint).filter((hint): hint is string => Boolean(hint))),
     )
 
     const repoFilter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors, "#d": identifiers}
+    const loadKey = `${authors.join(',')}|${identifiers.join(',')}`
+
     return _derived(deriveEvents(repository, {filters: [repoFilter]}), events => {
-      if (events.length !== identifiers.length && relayHints.length > 0) {
-        load({relays: relayHints, filters: [repoFilter]})
+      if (events.length !== identifiers.length) {
+        if (!attemptedBookmarkLoads.has(loadKey)) {
+          attemptedBookmarkLoads.add(loadKey)
+          const relaysToQuery = relayHints.length > 0 ? relayHints : bookmarkRelays
+          if (relaysToQuery.length > 0) {
+            load({relays: relaysToQuery, filters: [repoFilter]})
+          } else {
+            loadRepoAnnouncements()
+          }
+        }
       }
       return events
     })
@@ -112,7 +136,10 @@
 
   // Loaded bookmarked repos - combines bookmark addresses with actual repo events
   const loadedBookmarkedRepos = $derived.by(() => {
-    if (!$repos || !bookmarkedAddresses.length) return []
+    if (!$repos || !hasBookmarkedAddresses) return []
+
+    const addresses = toBookmarkAddresses(normalizeBookmarks($bookmarksStore))
+    if (addresses.length === 0) return []
 
     return $repos.map(repo => {
       let addressString = ""
@@ -130,7 +157,7 @@
         }
       }
 
-      const bookmarkInfo = bookmarkedAddresses.find(b => b.address === addressString)
+      const bookmarkInfo = addresses.find(b => b.address === addressString)
       const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
       const hint = bookmarkInfo?.relayHint || relayHintFromEvent
 
@@ -179,16 +206,17 @@
 
         // Extract a-tags and update the bookmarks store immediately
         const aTags = tags.filter(t => t[0] === "a")
-        const newBookmarks: BookmarkedRepo[] = aTags.map(([_, address, relayHint]) => ({
+        const newBookmarks: BookmarkAddress[] = aTags.map(([_, address, relayHint]) => ({
           address,
-          event: null,
+          author: address.split(":")[1] || "",
+          identifier: address.split(":")[2] || "",
           relayHint: relayHint || "",
         }))
 
         bookmarksStore.set(newBookmarks)
 
         // Then publish to relays in the background
-        const thunk = publishThunk({event: eventToPublish, relays: relays || bookmarkRelays})
+        publishThunk({event: eventToPublish, relays: relays || bookmarkRelays})
 
         return {controller}
       }
@@ -306,60 +334,78 @@
   }
 
   const onNewRepo = async () => {
+    console.log("[+page.svelte] onNewRepo called")
+    
     // Ensure worker is initialized before opening wizard
     if (!workerApi || !workerInstance) {
+      console.log("[+page.svelte] Worker not initialized, initializing...")
       try {
-        const {api, worker} = await getInitializedGitWorker()
+        // Add a timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Worker initialization timeout after 15 seconds')), 15000);
+        });
+        
+        const workerPromise = getInitializedGitWorker();
+        
+        const {api, worker} = await Promise.race([workerPromise, timeoutPromise]) as {api: any, worker: Worker};
         workerApi = api
         workerInstance = worker
         console.log("[+page.svelte] Worker initialized for new repo")
       } catch (error) {
         console.error("[+page.svelte] Failed to initialize worker:", error)
+        pushToast({message: `Failed to initialize Git worker: ${String(error)}`, theme: "error"})
         return
       }
     }
 
-    pushModal(
-      NewRepoWizard,
-      {
-        workerApi, // Pass initialized worker API
-        workerInstance, // Pass worker instance for event signing
-        onRepoCreated: () => {
-          // Reload repos by forcing bookmarks refresh and announcements
-          loadRepoAnnouncements(bookmarkRelays)
-        },
-        onCancel: back,
-        defaultRelays: [...defaultRepoRelays],
-        userPubkey: $pubkey,
-        onPublishEvent: async (repoEvent: NostrEvent) => {
-          // For GRASP repos (kind 30617/30618), publish to the GRASP relay from the event's 'relays' tag
-          let targetRelays = defaultRepoRelays
+    console.log("[+page.svelte] About to push NewRepoWizard modal")
+    try {
+      const modalId = pushModal(
+        NewRepoWizardWrapper,
+        {
+          workerApi, // Pass initialized worker API
+          workerInstance, // Pass worker instance for event signing
+          onRepoCreated: () => {
+            // Reload repos by forcing bookmarks refresh and announcements
+            loadRepoAnnouncements(bookmarkRelays)
+          },
+          onCancel: back,
+          defaultRelays: [...defaultRepoRelays],
+          userPubkey: $pubkey,
+          onPublishEvent: async (repoEvent: NostrEvent) => {
+            // For GRASP repos (kind 30617/30618), publish to the GRASP relay from the event's 'relays' tag
+            let targetRelays = defaultRepoRelays
 
-          // Check if this is a repo announcement or state event
-          if (repoEvent.kind === 30617 || repoEvent.kind === 30618) {
-            // Extract relay URLs from the 'relays' tag if present
-            const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
-            if (relaysTag && relaysTag.length > 1) {
-              // For GRASP events, publish to BOTH the GRASP relay AND default relays
-              const graspRelays = relaysTag.slice(1)
-              targetRelays = [...graspRelays, ...defaultRepoRelays]
-              // Remove duplicates while preserving order
-              targetRelays = [...new Set(targetRelays)]
-              console.log(
-                "🔐 Publishing GRASP event to GRASP relay + default relays:",
-                targetRelays,
-              )
+            // Check if this is a repo announcement or state event
+            if (repoEvent.kind === 30617 || repoEvent.kind === 30618) {
+              // Extract relay URLs from the 'relays' tag if present
+              const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
+              if (relaysTag && relaysTag.length > 1) {
+                // For GRASP events, publish to BOTH the GRASP relay AND default relays
+                const graspRelays = relaysTag.slice(1)
+                targetRelays = [...graspRelays, ...defaultRepoRelays]
+                // Remove duplicates while preserving order
+                targetRelays = [...new Set(targetRelays)]
+                console.log(
+                  "🔐 Publishing GRASP event to GRASP relay + default relays:",
+                  targetRelays,
+                )
+              }
             }
-          }
 
-          const result = publishEventToRelays(repoEvent, targetRelays)
+            const result = publishEventToRelays(repoEvent, targetRelays)
+          },
+          getProfile: getProfileForWizard,
+          searchProfiles: searchProfilesForWizard,
+          searchRelays: searchRelaysForWizard,
         },
-        getProfile: getProfileForWizard,
-        searchProfiles: searchProfilesForWizard,
-        searchRelays: searchRelaysForWizard,
-      },
-      {fullscreen: true},
-    )
+        {fullscreen: true},
+      )
+      console.log("[+page.svelte] NewRepoWizard modal pushed with ID:", modalId)
+    } catch (error) {
+      console.error("[+page.svelte] Failed to push NewRepoWizard modal:", error)
+      pushToast({message: `Failed to open New Repo wizard: ${String(error)}`, theme: "error"})
+    }
   }
 </script>
 

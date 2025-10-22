@@ -26,12 +26,19 @@ if [[ $VITE_PLATFORM_LOGO =~ ^https://* ]]; then
   export VITE_PLATFORM_LOGO=static/logo.png
 fi
 
-# Build nostr-git UI components first
+# Build nostr-git CORE first (required for worker and lib files)
+echo "Building @nostr-git/core..."
+if [ -d "packages/nostr-git/packages/core" ]; then
+  (cd packages/nostr-git/packages/core && pnpm build)
+else
+  echo "Warning: nostr-git core directory not found. Make sure submodules are initialized."
+  echo "Run: git submodule update --init --recursive"
+fi
+
+# Build nostr-git UI components next
 echo "Building nostr-git UI components..."
 if [ -d "packages/nostr-git/packages/ui" ]; then
-  cd packages/nostr-git/packages/ui
-  pnpm build
-  cd ../../../..
+  (cd packages/nostr-git/packages/ui && pnpm build)
 else
   echo "Warning: nostr-git UI directory not found. Make sure submodules are initialized."
   echo "Run: git submodule update --init --recursive"
@@ -39,6 +46,21 @@ fi
 
 npx pwa-assets-generator
 npx vite build
+
+# Copy nostr-git core files to build directory for worker imports
+echo "Copying nostr-git core files to build directory..."
+if [ -d "packages/nostr-git/packages/core/dist/lib" ] && [ "$(ls -A packages/nostr-git/packages/core/dist/lib 2>/dev/null)" ]; then
+  mkdir -p build/_app/lib
+  cp packages/nostr-git/packages/core/dist/lib/*.js build/_app/lib/
+  cp -r packages/nostr-git/packages/core/dist/lib/git build/_app/lib/
+  cp -r packages/nostr-git/packages/core/dist/lib/utils build/_app/lib/
+  cp -r packages/nostr-git/packages/core/dist/lib/vendors build/_app/lib/
+  cp -r packages/nostr-git/packages/core/dist/lib/workers build/_app/lib/
+  echo "Nostr-git core files copied successfully"
+else
+  echo "Warning: Nostr-git core dist/lib directory missing or empty. Did the core build succeed?"
+  echo "Checked path: packages/nostr-git/packages/core/dist/lib"
+fi
 
 # Replace index.html variables with stuff from our env
 perl -i -pe"s|{DESCRIPTION}|$VITE_PLATFORM_DESCRIPTION|g" build/index.html
