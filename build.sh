@@ -62,6 +62,40 @@ else
   echo "Checked path: packages/nostr-git/packages/core/dist/lib"
 fi
 
+# Copy terminal worker bundle from UI package for terminal component
+echo "Copying terminal worker bundle to build directory..."
+TERMINAL_WORKER_SRC="packages/nostr-git/packages/ui/dist/components/terminal/worker"
+if [ -f "$TERMINAL_WORKER_SRC/cli.js" ]; then
+  mkdir -p build/_app/lib/terminal/worker
+  cp "$TERMINAL_WORKER_SRC/cli.js" build/_app/lib/terminal/worker/
+  if [ -f "$TERMINAL_WORKER_SRC/cli.js.map" ]; then
+    cp "$TERMINAL_WORKER_SRC/cli.js.map" build/_app/lib/terminal/worker/
+  fi
+  echo "Terminal worker bundle copied successfully"
+else
+  echo "Warning: Terminal worker bundle not found at $TERMINAL_WORKER_SRC. Did the UI build succeed?"
+fi
+
+# Copy git CLI adapter bundle used by terminal worker
+GIT_CLI_ADAPTER_SRC="packages/nostr-git/packages/ui/dist/components/terminal/git-cli-adapter.js"
+if [ -f "$GIT_CLI_ADAPTER_SRC" ]; then
+  mkdir -p build/_app/immutable
+  cp "$GIT_CLI_ADAPTER_SRC" build/_app/immutable/git-cli-adapter.js
+  if [ -f "${GIT_CLI_ADAPTER_SRC}.map" ]; then
+    cp "${GIT_CLI_ADAPTER_SRC}.map" build/_app/immutable/git-cli-adapter.js.map
+  fi
+
+  # Place alongside worker bundle so relative imports resolve without fallback
+  mkdir -p build/_app/lib/terminal
+  cp "$GIT_CLI_ADAPTER_SRC" build/_app/lib/terminal/git-cli-adapter.js
+  if [ -f "${GIT_CLI_ADAPTER_SRC}.map" ]; then
+    cp "${GIT_CLI_ADAPTER_SRC}.map" build/_app/lib/terminal/git-cli-adapter.js.map
+  fi
+  echo "Git CLI adapter bundle copied successfully"
+else
+  echo "Warning: Git CLI adapter bundle not found at $GIT_CLI_ADAPTER_SRC. Did the UI build succeed?"
+fi
+
 # Replace index.html variables with stuff from our env
 perl -i -pe"s|{DESCRIPTION}|$VITE_PLATFORM_DESCRIPTION|g" build/index.html
 perl -i -pe"s|{ACCENT}|$VITE_PLATFORM_ACCENT|g" build/index.html

@@ -8,7 +8,7 @@
  * - Worker is reused for all Git operations
  * - No manual initialization needed
  */
-import { getGitWorker } from '@nostr-git/core';
+import { getGitWorker } from '@nostr-git/git-worker';
 
 interface GitWorkerInstance {
   api: any;
@@ -49,27 +49,14 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
   
   // Start initialization
   initPromise = (async () => {
-    console.log('[GitWorker] Initializing singleton worker');
-    
     try {
-      // Create worker with progress callback
-      console.log('[GitWorker] Creating worker...');
-      const { api, worker } = getGitWorker((progress) => {
-        console.log('[GitWorker] Progress:', {
-          repoId: progress.repoId,
-          phase: progress.phase,
-          progress: progress.progress,
-          loaded: progress.loaded,
-          total: progress.total
-        });
-      });
-      console.log('[GitWorker] Worker created successfully');
-      
+      // Create worker using the git-worker package's getGitWorker function
+      const { api, worker } = getGitWorker();
+
       // Register event signer for GRASP operations
       //registerEventSigner(worker, signEvent);
       
       workerInstance = { api, worker };
-      console.log('[GitWorker] Singleton worker initialized successfully');
       
       return workerInstance;
     } catch (error) {
@@ -101,7 +88,6 @@ export function terminateGitWorker(): void {
     workerInstance.worker.terminate();
     workerInstance = null;
     initPromise = null;
-    console.log('[GitWorker] Singleton worker terminated');
   }
 }
 

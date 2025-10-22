@@ -366,7 +366,7 @@
     "#a": repoClass.maintainers?.map(m => `${GIT_REPO_ANNOUNCEMENT}:${m}:${repoClass.name}`) || [],
   }
 
-  $effect(() => {
+  onMount(() => {
     console.log("[Effect] makeFeed effect running, repoClass.issues length:", repoClass.issues?.length, "statusEventsByRoot size:", $statusEventsByRoot?.size)
     if (repoClass.issues) {
       const tryStart = () => {

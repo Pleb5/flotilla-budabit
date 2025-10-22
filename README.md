@@ -189,7 +189,7 @@ pnpm install
 pnpm run build
 
 # Serve the built application
-npx serve build
+npx serve -s build
 ```
 
 The build script automatically handles building the nostr-git UI components, so you don't need to build them manually for deployment.

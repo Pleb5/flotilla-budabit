@@ -169,57 +169,74 @@
   let isAnalyzingMerge = $state(false)
 
   async function analyzeMerge() {
+    console.log(`[analyzeMerge] Starting analysis...`);
     const sel = selectedPatch
     if (!sel || !repoClass) {
+      console.warn(`[analyzeMerge] Missing selectedPatch or repoClass`);
       return
     }
 
     // Check if repository is properly initialized before attempting merge analysis
     if (!repoClass.key || !repoClass.mainBranch) {
+      console.warn(`[analyzeMerge] Repo not initialized: key=${repoClass.key}, mainBranch=${repoClass.mainBranch}`);
       return
     }
 
     // Check if WorkerManager is ready
     if (!repoClass.workerManager) {
+      console.warn(`[analyzeMerge] WorkerManager not ready`);
       return
     }
 
     // Use robust branch detection: prefer patch baseBranch, then repo mainBranch
     const targetBranch = sel.baseBranch || repoClass.mainBranch
+    console.log(`[analyzeMerge] Target branch: ${targetBranch}`);
 
     // Resolve the PatchEvent corresponding to the currently selected parsed patch
     const selectedPatchEvent = repoClass.patches.find(p => p.id === sel.id)
     if (!selectedPatchEvent) {
+      console.warn(`[analyzeMerge] Could not find PatchEvent for patch ${sel.id.slice(0, 8)}`);
       return
     }
+    console.log(`[analyzeMerge] Found PatchEvent: ${selectedPatchEvent.id.slice(0, 8)}`);
 
     // First, try to get cached result from repository's merge analysis system
+    console.log(`[analyzeMerge] Checking for cached result...`);
     const cachedResult = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
 
     if (cachedResult) {
+      console.log(`[analyzeMerge] Got cached result:`, cachedResult.analysis);
       mergeAnalysisResult = cachedResult
+      console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis);
       return
     }
 
+    console.log(`[analyzeMerge] No cached result, performing fresh analysis...`);
     isAnalyzingMerge = true
     mergeAnalysisResult = null
     try {
       const result = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
+      console.log(`[analyzeMerge] Fresh analysis result:`, result?.analysis);
 
       if (result) {
         mergeAnalysisResult = result
+        console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis);
       } else {
+        console.warn(`[analyzeMerge] Result was null, trying cache again...`);
         // If still no result, try to get from cache first
         const cachedResult = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
         if (cachedResult) {
+          console.log(`[analyzeMerge] Got result from second cache attempt:`, cachedResult.analysis);
           mergeAnalysisResult = cachedResult
+          console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis);
         } else {
+          console.warn(`[analyzeMerge] Still no result, returning...`);
           // Don't show error immediately, just return and let it retry
           return
         }
       }
     } catch (error) {
-      console.error("❌ Failed to get merge analysis:", error)
+      console.error("❌ [analyzeMerge] Failed to get merge analysis:", error)
       const errorMessage = error instanceof Error ? error.message : "Unknown error"
 
       // Only show toast for non-initialization errors
@@ -244,8 +261,10 @@
       }
 
       mergeAnalysisResult = errorResult
+      console.log(`[analyzeMerge] Set mergeAnalysisResult to error:`, mergeAnalysisResult?.analysis);
     } finally {
       isAnalyzingMerge = false
+      console.log(`[analyzeMerge] Analysis complete. Final mergeAnalysisResult:`, mergeAnalysisResult?.analysis);
     }
   }
 

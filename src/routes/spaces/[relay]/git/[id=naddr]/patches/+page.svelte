@@ -475,7 +475,6 @@
                 repo={repoClass}
                 statusEvents={$statusEventsByRoot?.get(patch.id) || []}
                 actorPubkey={$pubkey}
-                relays={repoRelays}
                 {onCommentCreated}
                 reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0} />
               {#if labelsByPatch.get(patch.id)?.length}

@@ -89,6 +89,9 @@ importers:
       '@nostr-git/core':
         specifier: workspace:*
         version: link:packages/nostr-git/packages/core
+      '@nostr-git/git-worker':
+        specifier: workspace:*
+        version: link:packages/nostr-git/packages/git-worker
       '@nostr-git/shared-types':
         specifier: workspace:*
         version: link:packages/nostr-git/packages/shared-types
@@ -155,6 +158,9 @@ importers:
       '@welshman/util':
         specifier: ^0.5.3
         version: 0.5.3(typescript@5.9.3)
+      comlink:
+        specifier: ^4.4.2
+        version: 4.4.2
       compressorjs:
         specifier: ^1.2.1
         version: 1.2.1
@@ -297,6 +303,9 @@ importers:
 
   packages/nostr-git/packages/core:
     dependencies:
+      '@nostr-git/git-worker':
+        specifier: workspace:*
+        version: link:../git-worker
       '@nostr-git/git-wrapper':
         specifier: workspace:*
         version: link:../git-wrapper
@@ -419,6 +428,85 @@ importers:
       typescript:
         specifier: ^5.8.2
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@24.8.0)(@vitest/browser@3.2.4)(@vitest/ui@3.2.4)(happy-dom@15.11.7)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.44.0)
+
+  packages/nostr-git/packages/git-worker:
+    dependencies:
+      '@nostr-git/git-wrapper':
+        specifier: workspace:*
+        version: link:../git-wrapper
+      '@nostr-git/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+      axios:
+        specifier: ^1.9.0
+        version: 1.12.2
+      buffer:
+        specifier: ^6.0.3
+        version: 6.0.3
+      comlink:
+        specifier: ^4.4.2
+        version: 4.4.2
+      diff:
+        specifier: ^7.0.0
+        version: 7.0.0
+      file-type:
+        specifier: ^20.4.1
+        version: 20.5.0
+      mime-types:
+        specifier: ^3.0.1
+        version: 3.0.1
+      nostr-tools:
+        specifier: ^2.11.0
+        version: 2.17.0(typescript@5.9.3)
+      parse-diff:
+        specifier: ^0.11.1
+        version: 0.11.1
+      parse-git-diff:
+        specifier: ^0.0.19
+        version: 0.0.19
+      parse-patch:
+        specifier: ^0.1.4
+        version: 0.1.4
+    devDependencies:
+      '@eslint/compat':
+        specifier: ^1.2.5
+        version: 1.4.0(eslint@9.37.0(jiti@1.21.7))
+      '@eslint/js':
+        specifier: ^9.18.0
+        version: 9.37.0
+      '@types/diff':
+        specifier: ^7.0.2
+        version: 7.0.2
+      '@types/node':
+        specifier: ^24.2.1
+        version: 24.8.0
+      eslint:
+        specifier: ^9.18.0
+        version: 9.37.0(jiti@1.21.7)
+      eslint-config-prettier:
+        specifier: ^10.0.1
+        version: 10.1.8(eslint@9.37.0(jiti@1.21.7))
+      globals:
+        specifier: ^16.0.0
+        version: 16.4.0
+      jsdom:
+        specifier: ^26.0.0
+        version: 26.1.0
+      prettier:
+        specifier: ^3.4.2
+        version: 3.6.2
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.20.0
+        version: 8.46.1(eslint@9.37.0(jiti@1.21.7))(typescript@5.9.3)
+      vite:
+        specifier: ^5.4.20
+        version: 5.4.20(@types/node@24.8.0)(terser@5.44.0)
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@24.8.0)(@vitest/browser@3.2.4)(@vitest/ui@3.2.4)(happy-dom@15.11.7)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.44.0)
