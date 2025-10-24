@@ -392,7 +392,7 @@ export const checkRelayAccess = async (url: string, claim = "") => {
 export const checkRelayProfile = async (url: string) => {
   const relay = await loadRelay(url)
 
-  if (!relay?.profile) {
+  if (!relay) {
     return "Sorry, we weren't able to find that relay."
   }
 }
