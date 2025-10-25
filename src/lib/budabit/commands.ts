@@ -3,6 +3,7 @@ import { buildRoleLabelEvent } from "./labels"
 import { publishThunk } from "@welshman/app"
 import { INDEXER_RELAYS } from "@app/core/state"
 import { Router } from "@welshman/router"
+import { publishDelete } from "@src/app/core/commands"
 
 export const publishEvent = <T extends NostrEvent>(event: T, relays?: string[]) => {
   const merged = Array.from(new Set([...(relays ?? []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))

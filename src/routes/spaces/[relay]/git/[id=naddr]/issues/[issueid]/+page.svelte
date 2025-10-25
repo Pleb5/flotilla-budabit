@@ -420,7 +420,7 @@
                   normalizeRelayUrl(u)
                 );
                 // Note: postRoleLabel with empty pubkeys array would remove the role
-                await postRoleLabel({
+                postRoleLabel({
                   rootId: issue.id,
                   role: "assignee",
                   pubkeys: [],

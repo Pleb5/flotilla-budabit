@@ -44,6 +44,14 @@ else
   echo "Run: git submodule update --init --recursive"
 fi
 
+echo "Building nostr-git git-worker..."
+if [ -d "packages/nostr-git/packages/git-worker" ]; then
+  (cd packages/nostr-git/packages/git-worker && pnpm build)
+else
+  echo "Warning: nostr-git git-worker directory not found."
+  echo "Run: git submodule update --init --recursive"
+fi
+
 npx pwa-assets-generator
 npx vite build
 

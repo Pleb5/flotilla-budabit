@@ -247,7 +247,6 @@
       for (const [rootId, events] of $statusEventsByRoot) {
         const statusResult = repoClass.resolveStatusFor(rootId)
         map[rootId] = statusResult?.state || "open"
-        console.log(`[StatusMap] ${rootId}: ${map[rootId]}`)
       }
     }
     return map
@@ -259,7 +258,6 @@
       return repoClass.issues.map((issue: IssueEvent) => {
         const commentEvents = comments[issue.id] || []
         const currentState = statusMap[issue.id] || "open"
-        console.log(`[IssueList] Issue ${issue.id} state: ${currentState}`)
         
         return {
           ...issue,
