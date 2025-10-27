@@ -41,8 +41,11 @@
     type StatusEvent,
     type PatchEvent,
   } from "@nostr-git/shared-types"
-  import {postComment, postStatus, postRoleLabel} from "@lib/budabit"
+  import {postComment, postStatus, postRoleLabel, deleteRoleLabelEvent} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
+  import type { LabelEvent } from "@nostr-git/shared-types"
+  import { publishDelete } from "@app/core/commands"
+  import { ROLE_NS } from "@lib/budabit/labels"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import type {Commit, MergeAnalysisResult, Patch, PatchTag} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"
@@ -306,6 +309,20 @@
     return deriveEvents(repository, {filters: [getStatusFilter()]})
   })
 
+  // NIP-32 role label events for this patch (reviewers)
+  const getLabelFilter = () => ({ kinds: [1985], "#e": [selectedPatch?.id ?? ""] })
+  const roleLabelEvents = $derived.by(() => deriveEvents(repository, {filters: [getLabelFilter()]}))
+  const reviewerLabelEvents = $derived.by(() => {
+    const events = ($roleLabelEvents || []) as any[]
+    return events.filter(
+      (ev: any) =>
+        ev?.kind === 1985 &&
+        Array.isArray(ev.tags) &&
+        ev.tags.some((t: string[]) => t[0] === "L" && t[1] === ROLE_NS) &&
+        ev.tags.some((t: string[]) => t[0] === "l" && t[1] === "reviewer" && t[2] === ROLE_NS),
+    ) as unknown as LabelEvent[]
+  })
+
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = ($repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     postComment(comment, relays)
@@ -427,7 +444,6 @@
       mergeStep = "Preparing merge..."
       mergeProgress = 10
 
-      // Simulate progress updates
       setTimeout(() => {
         if (isMerging) {
           mergeStep = "Analyzing patch..."
@@ -895,7 +911,7 @@
             <h3 class="text-base font-medium">Reviewers</h3>
             {#if repoClass.maintainers.includes($pubkey!) || patch.author.pubkey === $pubkey}
               <PeoplePicker
-                bind:selected={reviewersList}
+                selected={reviewerLabelEvents as LabelEvent[]}
                 placeholder="Search for reviewers..."
                 maxSelections={10}
                 showAvatars={true}
@@ -908,7 +924,7 @@
                     const relays = (repoClass.relays || repoRelays || [])
                       .map((u: string) => normalizeRelayUrl(u))
                       .filter(Boolean)
-                    await postRoleLabel({
+                    postRoleLabel({
                       rootId: selectedPatch.id,
                       role: "reviewer",
                       pubkeys: [pubkey],
@@ -923,20 +939,13 @@
                     console.error("[PatchDetail] Failed to add reviewer", err)
                   }
                 }}
-                remove={async (pubkey: string) => {
+                onDeleteLabel={async (evt: LabelEvent) => {
                   if (!selectedPatch) return
                   try {
                     const relays = (repoClass.relays || repoRelays || [])
                       .map((u: string) => normalizeRelayUrl(u))
                       .filter(Boolean)
-                    // Note: postRoleLabel with empty pubkeys array would remove the role
-                    await postRoleLabel({
-                      rootId: selectedPatch.id,
-                      role: "reviewer",
-                      pubkeys: [],
-                      repoAddr: (repoClass as any)?.repoEvent?.id,
-                      relays,
-                    })
+                    deleteRoleLabelEvent({ event: evt as any, relays, protect: false })
                     await load({
                       relays,
                       filters: [{kinds: [1985], "#e": [selectedPatch.id]}],

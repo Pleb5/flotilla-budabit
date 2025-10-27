@@ -1,4 +1,4 @@
-import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent, PermalinkEvent, RepoStateEvent, GraspSetEvent, NostrEvent } from "@nostr-git/shared-types"
+import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent, PermalinkEvent, RepoStateEvent, GraspSetEvent, NostrEvent, TrustedEvent } from "@nostr-git/shared-types"
 import { buildRoleLabelEvent } from "./labels"
 import { publishThunk } from "@welshman/app"
 import { INDEXER_RELAYS } from "@app/core/state"
@@ -100,3 +100,14 @@ export const postRoleLabel = (params: {
     event: event,
   })
 }
+
+export const deleteRoleLabelEvent = ({
+  relays,
+  event,
+  protect = false,
+}: {
+  relays: string[]
+  event: TrustedEvent
+  protect?: boolean
+}) => publishDelete({event, relays, protect})
+
