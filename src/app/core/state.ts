@@ -532,11 +532,11 @@ export const chatSearch = derived(chats, $chats =>
   }),
 )
 
-// Channels
+// Rooms
 
 export const messages = deriveEvents(repository, {filters: [{kinds: [MESSAGE]}]})
 
-export type Channel = {
+export type Room = {
   id: string
   url: string
   h: string
@@ -548,17 +548,17 @@ export type Channel = {
   about?: string
 }
 
-export const makeChannelId = (url: string, h: string) => `${url}'${h}`
+export const makeRoomId = (url: string, h: string) => `${url}'${h}`
 
-export const splitChannelId = (id: string) => id.split("'")
+export const splitRoomId = (id: string) => id.split("'")
 
 export const hasNip29 = (relay?: RelayProfile) =>
   relay?.supported_nips?.map?.(String)?.includes?.("29")
 
-export const channels = derived(
+export const rooms = derived(
   [deriveEvents(repository, {filters: [{kinds: [ROOM_META, ROOM_DELETE]}]}), getUrlsForEvent],
   ([$events, $getUrlsForEvent]) => {
-    const result = new Map<string, Channel>()
+    const result = new Map<string, Room>()
 
     for (const event of sortBy(e => e.created_at, $events)) {
       for (const url of $getUrlsForEvent(event.id)) {
@@ -567,7 +567,7 @@ export const channels = derived(
           const h = meta.d
 
           if (h) {
-            const id = makeChannelId(url, h)
+            const id = makeRoomId(url, h)
 
             result.set(id, {
               id,
@@ -585,7 +585,7 @@ export const channels = derived(
 
         if (event.kind === ROOM_DELETE) {
           for (const h of getTagValues("h", event.tags)) {
-            result.delete(makeChannelId(url, h))
+            result.delete(makeRoomId(url, h))
           }
         }
       }
@@ -595,18 +595,18 @@ export const channels = derived(
   },
 )
 
-export const channelsByUrl = derived(channels, $channels => groupBy(c => c.url, $channels))
+export const roomsByUrl = derived(rooms, $rooms => groupBy(c => c.url, $rooms))
 
 export const {
-  indexStore: channelsById,
-  deriveItem: _deriveChannel,
-  loadItem: _loadChannel,
+  indexStore: roomsById,
+  deriveItem: _deriveRoom,
+  loadItem: _loadRoom,
 } = collection({
-  name: "channels",
-  store: channels,
-  getKey: channel => channel.id,
+  name: "rooms",
+  store: rooms,
+  getKey: room => room.id,
   load: async (id: string) => {
-    const [url, h] = splitChannelId(id)
+    const [url, h] = splitRoomId(id)
 
     await load({
       relays: [url],
@@ -615,12 +615,12 @@ export const {
   },
 })
 
-export const deriveChannel = (url: string, h: string) => _deriveChannel(makeChannelId(url, h))
+export const deriveRoom = (url: string, h: string) => _deriveRoom(makeRoomId(url, h))
 
-export const displayChannel = (url: string, h: string) =>
-  channelsById.get().get(makeChannelId(url, h))?.name || h
+export const displayRoom = (url: string, h: string) =>
+  roomsById.get().get(makeRoomId(url, h))?.name || h
 
-export const roomComparator = (url: string) => (h: string) => displayChannel(url, h).toLowerCase()
+export const roomComparator = (url: string) => (h: string) => displayRoom(url, h).toLowerCase()
 
 // User space/room selections
 
@@ -703,11 +703,11 @@ export const loadUserGroupSelections = makeUserLoader(loadGroupSelections)
 export const userSpaceUrls = derived(userGroupSelections, getSpaceUrlsFromGroupSelections)
 
 export const deriveUserRooms = (url: string) =>
-  derived([userGroupSelections, channelsById], ([$userGroupSelections, $channelsById]) => {
+  derived([userGroupSelections, roomsById], ([$userGroupSelections, $roomsById]) => {
     const rooms: string[] = []
 
     for (const h of getSpaceRoomsFromGroupSelections(url, $userGroupSelections)) {
-      if ($channelsById.has(makeChannelId(url, h))) {
+      if ($roomsById.has(makeRoomId(url, h))) {
         rooms.push(h)
       }
     }
@@ -716,10 +716,10 @@ export const deriveUserRooms = (url: string) =>
   })
 
 export const deriveOtherRooms = (url: string) =>
-  derived([deriveUserRooms(url), channelsByUrl], ([$userRooms, $channelsByUrl]) => {
+  derived([deriveUserRooms(url), roomsByUrl], ([$userRooms, $roomsByUrl]) => {
     const rooms: string[] = []
 
-    for (const {h} of $channelsByUrl.get(url) || []) {
+    for (const {h} of $roomsByUrl.get(url) || []) {
       if (!$userRooms.includes(h)) {
         rooms.push(h)
       }
