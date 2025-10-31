@@ -828,7 +828,7 @@ export const deriveUserSpaceMembershipStatus = (url: string) =>
       const isMember = $members.includes($pubkey)
 
       for (const event of $events) {
-        if (event.pubkey !== $pubkey) {
+        if (!getPubkeyTagValues(event.tags).includes($pubkey!)) {
           continue
         }
 
@@ -856,7 +856,7 @@ export const deriveUserRoomMembershipStatus = (url: string, h: string) =>
       const isMember = $members.includes($pubkey)
 
       for (const event of $events) {
-        if (event.pubkey !== $pubkey) {
+        if (!getPubkeyTagValues(event.tags).includes($pubkey!)) {
           continue
         }
 
