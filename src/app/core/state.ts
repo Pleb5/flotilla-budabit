@@ -98,6 +98,7 @@ import {
   RelayMode,
   verifyEvent,
   readRoomMeta,
+  makeRoomMeta,
 } from "@welshman/util"
 import type {
   TrustedEvent,
@@ -614,7 +615,8 @@ export const {
   },
 })
 
-export const deriveRoom = (url: string, h: string) => _deriveRoom(makeRoomId(url, h))
+export const deriveRoom = (url: string, h: string) =>
+  derived(_deriveRoom(makeRoomId(url, h)), $meta => $meta || makeRoomMeta({h}))
 
 export const displayRoom = (url: string, h: string) =>
   roomsById.get().get(makeRoomId(url, h))?.name || h
