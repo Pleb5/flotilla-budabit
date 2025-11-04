@@ -22,9 +22,10 @@
     url?: string
     showPubkey?: boolean
     avatarSize?: number
+    hideDetails?: boolean
   }
 
-  const {pubkey, url, showPubkey, avatarSize = 10}: Props = $props()
+  const {pubkey, url, showPubkey, avatarSize = 10, hideDetails = false}: Props = $props()
 
   const relays = removeNil([url])
   const profile = deriveProfile(pubkey, relays)
@@ -38,27 +39,29 @@
 
 <div class="flex max-w-full items-start gap-3">
   <Button onclick={openProfile} class="py-1">
-    <Avatar src={$profile?.picture} size={avatarSize} />
+    <Avatar src={$profile?.picture} size={avatarSize} responsive={true} />
   </Button>
-  <div class="flex min-w-0 flex-col">
-    <div class="flex items-center gap-2">
-      <Button onclick={openProfile} class="text-bold overflow-hidden text-ellipsis">
-        {$profileDisplay}
-      </Button>
-      <WotScore {pubkey} />
-    </div>
-    {#if $handle}
-      <div class="overflow-hidden text-ellipsis text-sm opacity-75">
-        {displayHandle($handle)}
-      </div>
-    {/if}
-    {#if showPubkey}
-      <div class="flex items-center gap-1 overflow-hidden text-ellipsis text-xs opacity-60">
-        {displayPubkey(pubkey)}
-        <Button onclick={copyPubkey} class="pt-1">
-          <Icon size={3} icon={Copy} />
+  {#if !hideDetails}
+    <div class="flex min-w-0 flex-col">
+      <div class="flex items-center gap-2">
+        <Button onclick={openProfile} class="text-bold overflow-hidden text-ellipsis">
+          {$profileDisplay}
         </Button>
+        <WotScore {pubkey} />
       </div>
-    {/if}
-  </div>
+      {#if $handle}
+        <div class="overflow-hidden text-ellipsis text-sm opacity-75">
+          {displayHandle($handle)}
+        </div>
+      {/if}
+      {#if showPubkey}
+        <div class="flex items-center gap-1 overflow-hidden text-ellipsis text-xs opacity-60">
+          {displayPubkey(pubkey)}
+          <Button onclick={copyPubkey} class="pt-1">
+            <Icon size={3} icon={Copy} />
+          </Button>
+        </div>
+      {/if}
+    </div>
+  {/if}
 </div>

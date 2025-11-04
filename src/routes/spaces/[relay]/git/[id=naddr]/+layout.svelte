@@ -42,6 +42,10 @@
 
   // Refresh state
   let isRefreshing = $state(false)
+  
+  // Scroll position management
+  let pageContentElement = $state<Element | undefined>()
+  const scrollStorageKey = `repoScroll:${id}`
 
   // --- GRASP servers (user profile) ---
   const graspServersFilter = {
@@ -69,11 +73,39 @@
       if (to.url.pathname.startsWith(base)) {
         updateRepo()
       }
+
+      if (to.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
+        // Restore scroll position for issues page
+        const savedScroll = sessionStorage.getItem(scrollStorageKey)
+        if (savedScroll && pageContentElement) {
+          const scrollPosition = parseInt(savedScroll, 10)
+          // Double requestAnimationFrame ensures the scroll restoration happens after:
+          // 1. First RAF: Schedule callback for next paint cycle
+          // 2. Second RAF: Execute after that paint has completed and content is fully rendered
+          // This prevents scroll jumping and ensures all issue cards are in the DOM
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (pageContentElement) {
+                pageContentElement.scrollTop = scrollPosition
+              }
+            })
+          })
+        }
+      }
     } catch {}
   })
 
   // Pre-emptive refresh when navigating within the same repo scope
-  beforeNavigate(({to}) => {
+  beforeNavigate(({from, to}) => {
+
+    if (from?.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
+      // Save scroll position when leaving issues page
+      if (pageContentElement) {
+        const scrollPosition = pageContentElement.scrollTop
+        sessionStorage.setItem(scrollStorageKey, scrollPosition.toString())
+      }
+    }
+
     try {
       if (!to) return
       const base = repoBasePath()
@@ -299,7 +331,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
+<PageContent bind:element={pageContentElement} class="flex flex-grow flex-col gap-2 overflow-auto p-8">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}
