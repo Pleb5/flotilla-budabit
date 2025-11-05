@@ -284,6 +284,12 @@
     cleanup = feed.cleanup
   }
 
+  const onEscape = () => {
+    clearParent()
+    clearShare()
+    eventToEdit = undefined
+  }
+
   const canEditEvent = (event: TrustedEvent) =>
     event.pubkey === $pubkey && event.created_at >= ago(5, MINUTE)
 
@@ -503,6 +509,7 @@
         {url}
         {h}
         {onSubmit}
+        {onEscape}
         {onEditPrevious}
         content={eventToEdit?.content}
         bind:this={compose} />
