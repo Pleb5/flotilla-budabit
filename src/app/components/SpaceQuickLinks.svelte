@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Git from '@assets/icons/git.svg?dataurl';
   import {deriveRelay} from "@welshman/app"
   import {fade} from "@lib/transition"
   import CompassBig from "@assets/icons/compass-big.svg?dataurl"
@@ -38,6 +39,7 @@
   const goalsPath = makeSpacePath(url, "goals")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
+  const gitPath = makeSpacePath(url, "git")
 
   const addRoom = () => pushModal(RoomCreate, {url})
 
@@ -140,5 +142,17 @@
         </div>
       </Link>
     {/if}
+    <Link href={gitPath} class="btn btn-neutral w-full justify-start">
+      <div class="relative flex items-center gap-2">
+        <Icon icon={Git} />
+        Git
+        {#if $notifications.has(gitPath)}
+          <div
+            class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-neutral-content"
+            transition:fade>
+          </div>
+        {/if}
+      </div>
+    </Link>
   </div>
 </div>
