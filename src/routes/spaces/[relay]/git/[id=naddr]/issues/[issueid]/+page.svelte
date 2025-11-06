@@ -320,20 +320,20 @@
 </svelte:head>
 
 {#if issue}
-  <div class="z-10 sticky top-0 items-center justify-between py-4 backdrop-blur" transition:slide>
-    <Card class="git-card transition-colors">
-      <div class="flex items-start gap-4">
+  <div class="z-10 sticky top-0 items-center justify-between py-2 sm:py-4 backdrop-blur px-2 sm:px-0" transition:slide>
+    <Card class="git-card transition-colors p-4 sm:p-6">
+      <div class="flex items-start gap-2 sm:gap-4">
         {#if statusIcon}
           {@const {icon: Icon, color} = statusIcon()}
-          <div class="mt-1">
-            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
-              <Icon class={`h-6 w-6 ${color}`} />
+          <div class="mt-1 flex-shrink-0">
+            <div class="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-amber-500/10">
+              <Icon class={`h-4 w-4 sm:h-6 sm:w-6 ${color}`} />
             </div>
           </div>
         {/if}
-        <div>
-          <h1 class="break-words text-2xl font-semibold">{issue.subject || "Issue"}</h1>
-          <div class="mt-2 flex items-center gap-2">
+        <div class="min-w-0 flex-1">
+          <h1 class="break-words text-lg sm:text-xl font-semibold">{issue.subject || "Issue"}</h1>
+          <div class="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
             <Status
               repo={repoClass}
               rootId={issue.id}
@@ -343,19 +343,21 @@
               actorPubkey={$pubkey}
               compact={true}
               ProfileComponent={ProfileLink} />
-            <span class="text-sm text-muted-foreground">
+            <span class="text-xs sm:text-sm text-muted-foreground flex flex-wrap items-center gap-1">
               <ProfileLink pubkey={issue?.author.pubkey}></ProfileLink>
-              opened this issue • {new Date(issue?.createdAt).toLocaleString()}
+              <span class="hidden sm:inline">opened this issue •</span>
+              <span class="sm:hidden">opened</span>
+              <span class="text-xs break-all sm:break-normal">{new Date(issue?.createdAt).toLocaleString()}</span>
             </span>
           </div>
         </div>
       </div>
 
-      <div class="prose-sm dark:prose-invert prose mt-8 max-w-none truncate">
+      <div class="prose-sm dark:prose-invert prose mt-6 sm:mt-8 max-w-none break-words [&_*]:break-words [&_pre]:overflow-x-auto [&_code]:break-words">
         {@html markdown.render(issue.content)}
       </div>
 
-      <div class="git-separator my-6"></div>
+      <div class="git-separator my-4 sm:my-6"></div>
 
       <!-- Labels Section -->
       <div class="my-4 space-y-2">
@@ -367,19 +369,19 @@
           </div>
         {/if}
         {#if isMaintainerOrAuthor}
-          <div class="flex items-center gap-2">
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full max-w-full">
             <input
-              class="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              class="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-2 sm:px-2 sm:py-1 text-sm min-h-[44px] sm:min-h-0"
               placeholder="Add tag..."
               bind:value={newLabel}
               onkeydown={e => {
                 if (e.key === "Enter") addLabel()
               }} />
             <button
-              class="rounded-md border border-border px-3 py-1 text-sm"
+              class="flex-shrink-0 rounded-md border border-border px-3 py-2 sm:px-3 sm:py-1 text-sm min-h-[44px] sm:min-h-0"
               onclick={addLabel}
               disabled={addingLabel || !newLabel.trim()}>
-              {addingLabel ? "Adding..." : "Add Tag"}
+              <span class="whitespace-nowrap">{addingLabel ? "Adding..." : "Add Tag"}</span>
             </button>
           </div>
         {/if}
@@ -439,13 +441,13 @@
               {/each}
             </div>
           {:else}
-            <div class="text-sm text-muted-foreground">No assignees yet.</div>
+            <div class="text-xs sm:text-sm text-muted-foreground">No assignees yet.</div>
           {/if}
         {/if}
       </div>
 
       <!-- Status Section -->
-      <div class="my-6">
+      <div class="my-4 sm:my-6">
         <Status
           repo={repoClass}
           rootId={issue.id}
@@ -458,11 +460,11 @@
           onPublish={handleStatusPublish} />
       </div>
 
-      <div class="git-separator my-6"></div>
+      <div class="git-separator my-4 sm:my-6"></div>
 
-      <h2 class="my-2 flex items-center gap-2 text-lg font-medium">
-        <MessageSquare class="h-5 w-5" />
-        Discussion ({$threadComments?.length})
+      <h2 class="my-2 flex items-center gap-2 text-base sm:text-lg font-medium">
+        <MessageSquare class="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
+        <span class="break-words">Discussion ({$threadComments?.length})</span>
       </h2>
 
       <IssueThread
@@ -474,8 +476,8 @@
     </Card>
   </div>
 {:else}
-  <div class="flex flex-col items-center justify-center py-12">
-    <SearchX class="mb-2 h-8 w-8" />
-    No issue found.
+  <div class="flex flex-col items-center justify-center py-8 sm:py-12 px-4">
+    <SearchX class="mb-2 h-6 w-6 sm:h-8 sm:w-8" />
+    <p class="text-sm sm:text-base text-center">No issue found.</p>
   </div>
 {/if}
