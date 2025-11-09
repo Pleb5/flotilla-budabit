@@ -40,6 +40,10 @@
     RepoPicker,
     bookmarksStore,
     repositoriesStore,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
   } from "@nostr-git/ui"
   import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
   import {
@@ -47,15 +51,20 @@
     deriveMaintainersForEuc,
     loadRepoAnnouncements,
     derivePatchGraph,
+    deriveNaddrEvent,
   } from "@lib/budabit/state"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Bookmark from "@assets/icons/bookmark.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
+  import Magnifier from "@assets/icons/magnifier.svg?dataurl"
+  import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
 
   const url = decodeRelay($page.params.relay)
 
   let loading = $state(true)
+  let activeTab = $state<"my-repos" | "bookmarks">("bookmarks")
+  let searchQuery = $state("")
 
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
@@ -69,6 +78,12 @@
       console.log("[+page.svelte] Worker API initialized successfully")
     } catch (error) {
       console.error("[+page.svelte] Failed to initialize worker:", error)
+    }
+    
+    // Load my repos on mount
+    if ($pubkey) {
+      const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
+      load({relays: bookmarkRelays, filters: [filter]})
     }
   })
 
@@ -165,12 +180,131 @@
     })
   })
 
-  // Update repositoriesStore whenever loadedBookmarkedRepos changes
+  const myReposEvents = $derived.by(() => {
+    if (!$pubkey) return undefined
+    const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]} as any
+    return deriveEvents(repository, {filters: [filter]})
+  })
+
+  const loadedMyRepos = $derived.by(() => {
+    if (!$myReposEvents) return []
+    
+    return $myReposEvents.map(repo => {
+      let addressString = ""
+      try {
+        const address = Address.fromEvent(repo)
+        addressString = address.toString()
+      } catch (e) {
+        const dTag = (repo.tags || []).find((t: string[]) => t[0] === "d")?.[1]
+        if (dTag && repo.pubkey && repo.kind) {
+          addressString = `${repo.kind}:${repo.pubkey}:${dTag}`
+        }
+      }
+
+      const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
+      return {address: addressString, event: repo, relayHint: relayHintFromEvent || ""}
+    })
+  })
+
+
+  // Filter repos based on active tab
+  const filteredRepos = $derived.by(() => {
+    if (activeTab === "bookmarks") {
+      return loadedBookmarkedRepos
+    } else {
+      return loadedMyRepos
+    }
+  })
+
+  // Detect if search query is a URI (naddr or nostr:naddr)
+  const isUriSearch = $derived.by(() => {
+    const trimmed = searchQuery.trim()
+    return trimmed.startsWith("naddr1") || trimmed.startsWith("nostr:naddr1")
+  })
+
+  // Extract naddr from search query (handle both naddr1... and nostr:naddr1...)
+  const extractedNaddr = $derived.by(() => {
+    if (!isUriSearch) return null
+    const trimmed = searchQuery.trim()
+    if (trimmed.startsWith("nostr:")) {
+      return trimmed.replace("nostr:", "")
+    }
+    return trimmed
+  })
+
+  // Fetch event for URI search
+  const uriSearchEvent = $derived.by(() => {
+    if (!extractedNaddr) return null
+    const naddr = extractedNaddr
+    
+    try {
+      const decoded = nip19.decode(naddr) as {type: string; data: any}
+      // Only fetch if it's a repo announcement (kind 30617)
+      if (decoded.type === "naddr" && decoded.data.kind === GIT_REPO_ANNOUNCEMENT) {
+        const eventStore = deriveNaddrEvent(naddr, bookmarkRelays)
+        return getStore(eventStore)
+      }
+    } catch (e) {
+      console.error("[+page.svelte] Failed to decode naddr:", e)
+    }
+    return null
+  })
+
+  // Convert URI search event to repo card format if found
+  const uriSearchRepo = $derived.by(() => {
+    const event = uriSearchEvent
+    if (!event) return null
+
+    try {
+      let addressString = ""
+      try {
+        const address = Address.fromEvent(event)
+        addressString = address.toString()
+      } catch (e) {
+        const dTag = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1]
+        if (dTag && event.pubkey && event.kind) {
+          addressString = `${event.kind}:${event.pubkey}:${dTag}`
+        }
+      }
+
+      const relayHintFromEvent = Router.get().getRelaysForPubkey(event.pubkey)?.[0]
+      return {address: addressString, event: event, relayHint: relayHintFromEvent || ""}
+    } catch (e) {
+      console.error("[+page.svelte] Failed to process URI search event:", e)
+      return null
+    }
+  })
+
+  // Filter repos based on search query (from current tab) 
+  const searchFilteredRepos = $derived.by(() => {
+    const repos = filteredRepos
+    // If URI search, don't filter tab repos (URI search shows in separate section)
+    if (isUriSearch) return repos
+    
+    if (!searchQuery.trim()) return repos
+
+    const query = searchQuery.toLowerCase().trim()
+    return repos.filter(repo => {
+      try {
+        // Cast event to RepoAnnouncementEvent for parsing
+        const parsed = parseRepoAnnouncementEvent(repo.event as any)
+        const title = parsed?.name || ""
+        const description = parsed?.description || ""
+        return title.toLowerCase().includes(query) || description.toLowerCase().includes(query)
+      } catch {
+        return false
+      }
+    })
+  })
+
+  // Store for URI search repo card
+  let uriSearchRepoCard = $state<any[]>([])
+
+  // Update URI search repo card
   $effect(() => {
-    if (loadedBookmarkedRepos.length > 0) {
-      loading = false
-      // Compute cards using the store's method
-      const cards = repositoriesStore.computeCards(loadedBookmarkedRepos, {
+    const repo = uriSearchRepo
+    if (repo) {
+      const cards = repositoriesStore.computeCards([repo], {
         deriveMaintainersForEuc,
         deriveRepoRefState,
         derivePatchGraph,
@@ -179,9 +313,32 @@
         nip19,
         Address,
       })
-      repositoriesStore.set(cards)
+      uriSearchRepoCard = cards
     } else {
-      repositoriesStore.clear()
+      uriSearchRepoCard = []
+    }
+  })
+
+  // Update repositoriesStore whenever repos change
+  $effect(() => {
+    const reposToShow = searchFilteredRepos
+    if (reposToShow.length > 0 || !loading) {
+      loading = false
+      if (reposToShow.length > 0) {
+        // Compute cards using the store's method
+        const cards = repositoriesStore.computeCards(reposToShow, {
+          deriveMaintainersForEuc,
+          deriveRepoRefState,
+          derivePatchGraph,
+          parseRepoAnnouncementEvent,
+          Router,
+          nip19,
+          Address,
+        })
+        repositoriesStore.set(cards)
+      } else {
+        repositoriesStore.clear()
+      }
     }
   })
 
@@ -424,41 +581,130 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
-      <nav class="w-full rounded-md bg-muted text-muted-foreground">
-        <div class="scrollbar-hide flex overflow-x-auto">
-          <div class="m-1 flex w-full min-w-max justify-evenly gap-1">
-          </div>
-        </div>
-      </nav>
-      <Button class="btn btn-secondary btn-sm" onclick={() => onNewRepo()}>
+      <Button class="btn btn-primary btn-sm" onclick={() => onNewRepo()}>
         <Icon icon={AddCircle} />
         New Repo
-      </Button>
-      <Button class="btn btn-primary btn-sm" onclick={() => onAddRepo()}>
-        <Icon icon={Bookmark} />
-        My Repos
-      </Button>
-      <Button class="btn btn-primary btn-sm" onclick={() => onAddRepo()}>
-        <Icon icon={Git} />
-        All Repos
       </Button>
     </div>
   {/snippet}
 </PageBar>
 
-<PageContent class="mt-4 flex flex-grow flex-col gap-2 overflow-auto p-2">
+<PageContent class="mt-4 flex flex-grow flex-col gap-4 overflow-auto p-2">
+  <!-- Tabs and Search Bar -->
+  <div class="flex flex-col gap-3">
+    <Tabs bind:value={activeTab} class="w-full">
+      <div class="flex flex-col gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <TabsList class="flex w-full sm:w-auto">
+            <TabsTrigger value="my-repos" class="flex-1 sm:flex-none">
+              <span class="flex items-center gap-2">
+                <Icon icon={FolderWithFiles} />
+                <span>My Repos</span>
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="bookmarks" class="flex-1 sm:flex-none">
+              <span class="flex items-center gap-2">
+                <Icon icon={Bookmark} />
+                <span>Bookmarks</span>
+              </span>
+            </TabsTrigger>
+          </TabsList>
+          <div class="flex flex-col sm:flex-row gap-2 sm:items-center w-full sm:w-auto">
+            {#if activeTab === "bookmarks"}
+              <Button class="btn btn-primary btn-sm order-2 sm:order-1 w-full sm:w-auto" onclick={onAddRepo}>
+                <Icon icon={Bookmark} />
+                <span>Bookmark a Repo</span>
+              </Button>
+            {/if}
+            <label class="input input-bordered flex w-full sm:w-auto sm:max-w-md items-center gap-2 order-1 sm:order-2">
+              <Icon icon={Magnifier} />
+              <input
+                bind:value={searchQuery}
+                class="grow"
+                type="text"
+                placeholder="Search repositories..." />
+            </label>
+          </div>
+        </div>
+      </div>
+    </Tabs>
+  </div>
+
+  <!-- URI Search Result (if found) -->
+  {#if uriSearchRepoCard.length > 0}
+    <div class="flex flex-col gap-2">
+      <h3 class="text-sm font-semibold text-muted-foreground">Found Repository</h3>
+      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {#each uriSearchRepoCard as g (g.repoNaddr || g.euc)}
+          <div class="rounded-md border border-border bg-card p-3" in:fly>
+            {#if g.first}
+              <GitItem
+                {url}
+                event={g.first as any}
+                showActivity={true}
+                showIssues={true}
+                showActions={true} />
+            {/if}
+            <div class="mt-3 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="flex -space-x-2">
+                  {#each g.maintainers.slice(0, 4) as pk (pk)}
+                    {@const prof = $profilesByPubkey.get(pk)}
+                    <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
+                      <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                      <AvatarFallback
+                        >{(prof?.display_name || prof?.name || pk)
+                          .slice(0, 2)
+                          .toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                  {/each}
+                  {#if g.maintainers.length > 4}
+                    <div
+                      class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
+                      +{g.maintainers.length - 4}
+                    </div>
+                  {/if}
+                </div>
+                <span class="text-xs opacity-60"
+                  >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Tab-filtered Repos Grid -->
   <div>
-    {#if loading}
+    {#if loading && !uriSearchRepoCard.length}
       <p class="flex h-10 items-center justify-center py-20" out:fly>
         <Spinner {loading}>
           {#if loading}
             Looking for Your Git Repos...
-          {:else if !$repos || $repos.length === 0}
+          {:else if $repositoriesStore.length === 0}
             No Repos found.
           {/if}
         </Spinner>
       </p>
-    {:else}
+    {:else if $repositoriesStore.length === 0 && !uriSearchRepoCard.length}
+      <p class="flex h-10 items-center justify-center py-20 text-muted-foreground">
+        {#if searchQuery.trim() && !isUriSearch}
+          No repositories found matching "{searchQuery}".
+        {:else if isUriSearch && !uriSearchRepoCard.length}
+          Repository not found. Please check the URI.
+        {:else if activeTab === "my-repos"}
+          You haven't created any repositories yet.
+        {:else}
+          No bookmarked repositories found.
+        {/if}
+      </p>
+    {:else if $repositoriesStore.length > 0}
+      {#if uriSearchRepoCard.length > 0}
+        <h3 class="text-sm font-semibold text-muted-foreground mb-2">
+          {activeTab === "my-repos" ? "My Repositories" : "Bookmarked Repositories"}
+        </h3>
+      {/if}
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {#each $repositoriesStore as g (g.repoNaddr || g.euc)}
           <div class="rounded-md border border-border bg-card p-3" in:fly>
