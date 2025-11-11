@@ -732,7 +732,7 @@ export const deriveSpaceMembers = (url: string) =>
         return getTagValues("member", membersEvent.tags)
       }
 
-      const members = new Set()
+      const members = new Set<string>()
 
       for (const event of sortBy(e => e.created_at, $events)) {
         const pubkeys = getPubkeyTagValues(event.tags)
@@ -767,7 +767,7 @@ export const deriveRoomMembers = (url: string, h: string) =>
         return getPubkeyTagValues(membersEvent.tags)
       }
 
-      const members = new Set()
+      const members = new Set<string>()
 
       for (const event of sortBy(e => -e.created_at, $events)) {
         const pubkeys = getPubkeyTagValues(event.tags)
@@ -827,7 +827,7 @@ export const deriveUserSpaceMembershipStatus = (url: string) =>
       deriveUserIsSpaceAdmin(url),
     ],
     ([$pubkey, $members, $events, $isAdmin]) => {
-      const isMember = $members.includes($pubkey) || $isAdmin
+      const isMember = $members.includes($pubkey!) || $isAdmin
 
       for (const event of $events) {
         if (event.pubkey !== $pubkey) {
@@ -862,7 +862,7 @@ export const deriveUserRoomMembershipStatus = (url: string, h: string) =>
       deriveUserIsRoomAdmin(url, h),
     ],
     ([$pubkey, $members, $events, $isAdmin]) => {
-      const isMember = $members.includes($pubkey) || $isAdmin
+      const isMember = $members.includes($pubkey!) || $isAdmin
 
       for (const event of $events) {
         if (event.pubkey !== $pubkey) {
