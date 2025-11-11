@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {RepoHeader, RepoTab, toast} from "@nostr-git/ui"
+  import {RepoHeader, RepoTab, toast, bookmarksStore} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
   import {FileCode, GitBranch, CircleAlert, GitPullRequest, GitCommit, Layers} from "@lucide/svelte"
   import {page} from "$app/stores"
@@ -17,15 +17,15 @@
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
-  import {derived as _derived} from "svelte/store"
-  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch} from "@welshman/app"
+  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/shared-types"
+  import {derived as _derived, get as getStore} from "svelte/store"
+  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk} from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
-  import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/shared-types"
   import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
   import {onMount} from "svelte"
-  import {normalizeRelayUrl} from "@welshman/util"
+  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address} from "@welshman/util"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -42,6 +42,37 @@
 
   // Refresh state
   let isRefreshing = $state(false)
+  
+  // Bookmark state
+  let isTogglingBookmark = $state(false)
+  let isBookmarked = $state(false)
+  
+  // Check if repo is bookmarked
+  $effect(() => {
+    if (!repoClass || !repoClass.repoEvent) return
+    try {
+      const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
+      const bookmarks = getStore(bookmarksStore)
+      isBookmarked = bookmarks.some((b) => b.address === address)
+    } catch {
+      isBookmarked = false
+    }
+  })
+  
+  // Subscribe to bookmarks store to update bookmark status
+  $effect(() => {
+    const unsubscribe = bookmarksStore.subscribe(() => {
+      if (!repoClass || !repoClass.repoEvent) return
+      try {
+        const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
+        const bookmarks = getStore(bookmarksStore)
+        isBookmarked = bookmarks.some((b) => b.address === address)
+      } catch {
+        isBookmarked = false
+      }
+    })
+    return unsubscribe
+  })
   
   // Scroll position management
   let pageContentElement = $state<Element | undefined>()
@@ -281,6 +312,98 @@
     })
   }
 
+  async function bookmarkRepo() {
+    if (!repoClass || !$pubkey || isTogglingBookmark) return
+
+    isTogglingBookmark = true
+
+    try {
+      if (!repoClass.repoEvent) {
+        throw new Error("Repository event not available")
+      }
+      
+      // Get repo address
+      const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
+      
+      // Get current bookmarks
+      const currentBookmarks = getStore(bookmarksStore)
+      
+      // Determine relay hint
+      const relayHint = repoClass.relays?.[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
+      const normalizedRelayHint = relayHint ? normalizeRelayUrl(relayHint) : ""
+      
+      // Build tags array
+      const tags: string[][] = [["d", GIT_REPO_BOOKMARK_DTAG]]
+      
+      if (isBookmarked) {
+        // Remove bookmark: keep all bookmarks except this one
+        currentBookmarks
+          .filter((b) => b.address !== address)
+          .forEach((b) => {
+            const aTag: string[] = ["a", b.address]
+            if (b.relayHint) {
+              aTag.push(b.relayHint)
+            }
+            tags.push(aTag)
+          })
+      } else {
+        // Add bookmark: keep all existing bookmarks and add this one
+        currentBookmarks.forEach((b) => {
+          const aTag: string[] = ["a", b.address]
+          if (b.relayHint) {
+            aTag.push(b.relayHint)
+          }
+          tags.push(aTag)
+        })
+        
+        // Add the new bookmark
+        const newATag: string[] = ["a", address]
+        if (normalizedRelayHint) {
+          newATag.push(normalizedRelayHint)
+        }
+        tags.push(newATag)
+      }
+      
+      // Create and publish bookmark event
+      const bookmarkEvent = makeEvent(NAMED_BOOKMARKS, { tags, content: "" })
+      
+      // Capture the action before updating store (for toast message)
+      const wasRemoving = isBookmarked
+      
+      // Update store immediately for responsive UI
+      if (isBookmarked) {
+        bookmarksStore.remove(address)
+      } else {
+        bookmarksStore.add({
+          address,
+          event: null,
+          relayHint: normalizedRelayHint,
+        })
+      }
+      
+      // Publish to relays
+      const relaysToPublish = repoClass.relays.length > 0 
+        ? repoClass.relays.map(normalizeRelayUrl).filter(Boolean)
+        : Router.get().FromUser().getUrls().map(normalizeRelayUrl).filter(Boolean)
+      
+      publishThunk({ event: bookmarkEvent, relays: relaysToPublish })
+      
+      pushToast({
+        message: wasRemoving ? "Bookmark removed" : "Repository bookmarked",
+      })
+    } catch (error) {
+      console.error("Failed to toggle bookmark:", error)
+      // Use the current isBookmarked state for error message (before any changes)
+      const action = isBookmarked ? "remove" : "add"
+      pushToast({
+        message: `Failed to ${action} bookmark: ${error instanceof Error ? error.message : "Unknown error"}`,
+        theme: "error",
+      })
+    } finally {
+      isTogglingBookmark = false
+    }
+  }
+
   function overviewRepo() {
     if (!repoClass) return
     goto(`/spaces/${relay}/git/${id}/`)
@@ -345,6 +468,9 @@
       {forkRepo}
       {settingsRepo}
       {overviewRepo}
+      {bookmarkRepo}
+      {isBookmarked}
+      isTogglingBookmark={isTogglingBookmark}
       userPubkey={$pubkey}
       >
       {#snippet children(activeTab: string)}
