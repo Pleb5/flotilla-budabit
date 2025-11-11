@@ -37,15 +37,14 @@
     Avatar,
     AvatarImage,
     AvatarFallback,
-    RepoPicker,
     bookmarksStore,
     repositoriesStore,
     Tabs,
-    TabsContent,
     TabsList,
     TabsTrigger,
   } from "@nostr-git/ui"
   import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
+  import RepoPickerWrapper from "@app/components/RepoPickerWrapper.svelte"
   import {
     deriveRepoRefState,
     deriveMaintainersForEuc,
@@ -387,7 +386,7 @@
           return ""
         }
       }
-      pushModal(RepoPicker, {
+      pushModal(RepoPickerWrapper, {
         selectedRepos: loadedBookmarkedRepos,
         fetchRepos,
         publishBookmarks,
@@ -622,7 +621,7 @@
                 bind:value={searchQuery}
                 class="grow"
                 type="text"
-                placeholder="Search repositories..." />
+                placeholder="Paste naddr or search..." />
             </label>
           </div>
         </div>
