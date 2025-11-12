@@ -414,6 +414,18 @@
               </div>
             {/if}
 
+            <div class="border-t pt-3">
+              <span class="mb-2 block text-sm text-muted-foreground">Repo Address</span>
+              <button
+                type="button"
+                class="flex w-full items-start gap-2 text-left text-sm hover:opacity-80"
+                title="Click to copy"
+                onclick={() => clip(naddr)}>
+                <Link class="mt-0.5 h-3 w-3 flex-shrink-0" />
+                <span class="break-all font-mono text-xs">{naddr}</span>
+              </button>
+            </div>
+
             {#if repoMetadata.relays.length > 0}
               <div class="border-t pt-3">
                 <span class="mb-2 block text-sm text-muted-foreground">Relays</span>
