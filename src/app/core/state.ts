@@ -729,7 +729,7 @@ export const deriveSpaceMembers = (url: string) =>
       const membersEvent = $events.find(spec({kind: RELAY_MEMBERS}))
 
       if (membersEvent) {
-        return getTagValues("member", membersEvent.tags)
+        return uniq(getTagValues("member", membersEvent.tags))
       }
 
       const members = new Set<string>()
@@ -782,7 +782,7 @@ export const deriveRoomMembers = (url: string, h: string) =>
       const membersEvent = $events.find(spec({kind: ROOM_MEMBERS}))
 
       if (membersEvent) {
-        return getPubkeyTagValues(membersEvent.tags)
+        return uniq(getPubkeyTagValues(membersEvent.tags))
       }
 
       const members = new Set<string>()
