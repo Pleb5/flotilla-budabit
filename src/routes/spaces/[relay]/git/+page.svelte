@@ -58,8 +58,11 @@
   import Git from "@assets/icons/git.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
+  import { makeGitPath } from "@src/lib/budabit"
 
   const url = decodeRelay($page.params.relay)
+
+  const gitPath = makeGitPath(url)
 
   let loading = $state(true)
   let activeTab = $state<"my-repos" | "bookmarks">("bookmarks")
@@ -386,6 +389,7 @@
           return ""
         }
       }
+
       pushModal(RepoPickerWrapper, {
         selectedRepos: loadedBookmarkedRepos,
         fetchRepos,
@@ -398,7 +402,7 @@
     } catch (e) {
       // Fallback to settings route if modal fails for any reason
       console.error("Failed to open RepoPicker modal:", e)
-      goto("/settings/repos")
+      goto(gitPath)
     }
   }
 

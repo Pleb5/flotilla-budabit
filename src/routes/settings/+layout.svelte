@@ -46,11 +46,6 @@
         <Icon icon={Bell} /> Alerts
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 100}}>
-      <SecondaryNavItem href="/settings/repos">
-        <Icon icon={Git} /> Repos
-      </SecondaryNavItem>
-    </div>
     <div in:fly|local={{delay: 150}}>
       <SecondaryNavItem href="/settings">
         <Icon icon={Settings} /> Settings
