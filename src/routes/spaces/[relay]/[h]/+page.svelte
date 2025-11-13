@@ -28,7 +28,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import ThunkToast from "@app/components/ThunkToast.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import RoomName from "@app/components/RoomName.svelte"
   import RoomImage from "@app/components/RoomImage.svelte"
   import RoomDetail from "@app/components/RoomDetail.svelte"
@@ -354,6 +354,7 @@
         onclick={showRoomDetail}>
         <Icon size={4} icon={InfoCircle} />
       </Button>
+<<<<<<< HEAD
       <MenuSpaceButton {url} />
       <Button
         class="btn btn-neutral btn-sm tooltip tooltip-left"
@@ -362,6 +363,9 @@
         Panel
       </Button>
       <SlotRenderer slotId="room:header:actions" context={{url, room}} />
+=======
+      <SpaceMenuButton {url} />
+>>>>>>> 997b223e (Rename space menu components)
     </div>
   {/snippet}
 </PageBar>
