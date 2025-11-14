@@ -215,6 +215,7 @@
     const seen = new Set()
 
     let previousDate
+    let previousKind
     let previousPubkey
     let newMessagesSeen = false
 
@@ -251,10 +252,14 @@
           id: event.id,
           type: "note",
           value: event,
-          showPubkey: date !== previousDate || previousPubkey !== event.pubkey,
+          showPubkey:
+            date !== previousDate ||
+            previousPubkey !== event.pubkey ||
+            [ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER].includes(previousKind!),
         })
 
         previousDate = date
+        previousKind = event.kind
         previousPubkey = event.pubkey
         seen.add(event.id)
       }
