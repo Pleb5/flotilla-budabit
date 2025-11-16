@@ -345,6 +345,54 @@
     }
   })
 
+  // Transform CommentEvent[] into DiffViewer Comment[] format
+  const diffComments = $derived.by(() => {
+    const comments = $threadComments
+    if (!comments || comments.length === 0) return []
+    
+    return comments.map((commentEvent: CommentEvent) => {
+      // Parse line number and file path from comment content
+      // Format: "comment text\n\n---\nFile: path\nLine: 123"
+      let lineNumber = 0
+      let filePath = ""
+      let content = commentEvent.content
+      
+      const separatorIndex = content.indexOf('\n\n---\n')
+      if (separatorIndex !== -1) {
+        // Extract the actual comment content (before the separator)
+        content = content.substring(0, separatorIndex).trim()
+        
+        // Extract file path and line number from the metadata section
+        const metadataSection = commentEvent.content.substring(separatorIndex + 6)
+        const fileMatch = metadataSection.match(/File:\s*(.+?)(?:\n|$)/i)
+        if (fileMatch) {
+          filePath = fileMatch[1].trim()
+        }
+        const lineMatch = metadataSection.match(/Line:\s*(\d+)/i)
+        if (lineMatch) {
+          lineNumber = parseInt(lineMatch[1], 10)
+        }
+      }
+      
+      // Get profile information for the author
+      const profile = $profilesByPubkey.get(commentEvent.pubkey)
+      const authorName = profile?.name || profile?.display_name || commentEvent.pubkey.slice(0, 8)
+      const authorAvatar = profile?.picture || ""
+      
+      return {
+        id: commentEvent.id || "",
+        lineNumber,
+        filePath,
+        content,
+        author: {
+          name: authorName,
+          avatar: authorAvatar,
+        },
+        createdAt: new Date(commentEvent.created_at * 1000).toISOString(),
+      }
+    })
+  })
+
   const getStatusFilter = () => ({
     kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
     "#e": [selectedPatch?.id ?? ""],
