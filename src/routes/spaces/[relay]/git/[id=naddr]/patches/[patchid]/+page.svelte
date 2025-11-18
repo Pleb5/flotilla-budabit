@@ -16,7 +16,7 @@
     User,
     X,
   } from "@lucide/svelte"
-  import {Button, Profile, MergeStatus, toast, Status} from "@nostr-git/ui"
+  import {Button, MergeStatus, toast, Status} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {IssueThread, MergeAnalyzer, PatchViewer} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
@@ -57,6 +57,7 @@
   import {normalizeRelayUrl} from "@welshman/util"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import {deriveRoleAssignments} from "@lib/budabit"
+  import Profile from "@src/app/components/Profile.svelte"
   import {preprocessMarkdown} from "@lib/util"
 
   const {data}: LayoutProps = $props()
