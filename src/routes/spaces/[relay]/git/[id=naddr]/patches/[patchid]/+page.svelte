@@ -4,8 +4,10 @@
     AlertCircle,
     Check,
     CheckCircle,
+    ChevronDown,
     ChevronLeft,
     ChevronRight,
+    ChevronUp,
     Copy,
     FileCode,
     GitBranch,
@@ -19,7 +21,7 @@
   } from "@lucide/svelte"
   import {Button, Profile, MergeStatus, toast, Status} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
-  import {DiffViewer, IssueThread, MergeAnalyzer} from "@nostr-git/ui"
+  import {DiffViewer, IssueThread, MergeAnalyzer, PatchViewer} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
   import markdownit from "markdown-it"
   import {deriveEvents} from "@welshman/store"
@@ -40,12 +42,13 @@
     type CommentEvent,
     type StatusEvent,
     type PatchEvent,
+    GIT_STATUS_APPLIED,
   } from "@nostr-git/shared-types"
+  import {createStatusEvent} from "@nostr-git/shared-types"
   import {postComment, postStatus, postRoleLabel, deleteRoleLabelEvent} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
-  import type { LabelEvent } from "@nostr-git/shared-types"
-  import { publishDelete } from "@app/core/commands"
-  import { ROLE_NS } from "@lib/budabit/labels"
+  import type {LabelEvent} from "@nostr-git/shared-types"
+  import {ROLE_NS} from "@lib/budabit/labels"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import type {Commit, MergeAnalysisResult, Patch, PatchTag} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"
@@ -75,17 +78,17 @@
     const validRelays = (repoClass.relays || []).filter((relay: string) => {
       try {
         const url = new URL(relay)
-        return url.protocol === 'ws:' || url.protocol === 'wss:'
+        return url.protocol === "ws:" || url.protocol === "wss:"
       } catch {
         console.warn(`Invalid relay URL filtered out: ${relay}`)
         return false
       }
     })
-    
+
     if (validRelays.length > 0) {
       await loadProfile(pubkey, validRelays)
     }
-    
+
     const loadedProfile = $profilesByPubkey.get(pubkey)
     if (loadedProfile) {
       return {
@@ -170,70 +173,86 @@
   let selectedPatch = $state(patch)
   let mergeAnalysisResult: MergeAnalysisResult | null = $state(null)
   let isAnalyzingMerge = $state(false)
+  let analysisTriggeredManually = $state(false)
+  let isTechnicalDetailsCollapsed = $state(true)
+
+  // Auto-reanalyze when selected branch changes
+  let lastAnalyzedBranch = $state(repoClass.selectedBranch)
+  $effect(() => {
+    if (repoClass.selectedBranch !== lastAnalyzedBranch && patchSet.length > 0) {
+      console.log(
+        `[BranchChange] Selected branch changed from ${lastAnalyzedBranch} to ${repoClass.selectedBranch}, triggering analysis`,
+      )
+      lastAnalyzedBranch = repoClass.selectedBranch
+      // Clear previous analysis and trigger new one
+      mergeAnalysisResult = null
+      analysisTriggeredManually = false // Mark as automatic analysis
+      analyzeMerge()
+    }
+  })
 
   async function analyzeMerge() {
-    console.log(`[analyzeMerge] Starting analysis...`);
-    const sel = selectedPatch
-    if (!sel || !repoClass) {
-      console.warn(`[analyzeMerge] Missing selectedPatch or repoClass`);
+    console.log(`[analyzeMerge] Starting manual analysis...`)
+    analysisTriggeredManually = true
+
+    // For manual analysis, we analyze the entire patch set, not just selected patch
+    if (!patchSet.length || !repoClass) {
+      console.warn(`[analyzeMerge] Missing patchSet or repoClass`)
       return
     }
 
     // Check if repository is properly initialized before attempting merge analysis
     if (!repoClass.key || !repoClass.mainBranch) {
-      console.warn(`[analyzeMerge] Repo not initialized: key=${repoClass.key}, mainBranch=${repoClass.mainBranch}`);
+      console.warn(
+        `[analyzeMerge] Repo not initialized: key=${repoClass.key}, mainBranch=${repoClass.mainBranch}`,
+      )
       return
     }
 
     // Check if WorkerManager is ready
     if (!repoClass.workerManager) {
-      console.warn(`[analyzeMerge] WorkerManager not ready`);
+      console.warn(`[analyzeMerge] WorkerManager not ready`)
       return
     }
 
-    // Use robust branch detection: prefer patch baseBranch, then repo mainBranch
-    const targetBranch = sel.baseBranch || repoClass.mainBranch
-    console.log(`[analyzeMerge] Target branch: ${targetBranch}`);
+    // Use robust branch detection: prefer selected branch, then first patch baseBranch, then repo mainBranch
+    const firstPatch = patchSet[0]
+    const targetBranch = repoClass.selectedBranch || firstPatch?.baseBranch || repoClass.mainBranch
+    console.log(
+      `[analyzeMerge] Target branch: ${targetBranch} (selected: ${repoClass.selectedBranch}, patch base: ${firstPatch?.baseBranch}, repo main: ${repoClass.mainBranch})`,
+    )
 
-    // Resolve the PatchEvent corresponding to the currently selected parsed patch
-    const selectedPatchEvent = repoClass.patches.find(p => p.id === sel.id)
-    if (!selectedPatchEvent) {
-      console.warn(`[analyzeMerge] Could not find PatchEvent for patch ${sel.id.slice(0, 8)}`);
+    // Resolve the PatchEvent corresponding to the first patch in the set
+    const firstPatchEvent = repoClass.patches.find(p => p.id === firstPatch?.id)
+    if (!firstPatchEvent) {
+      console.warn(
+        `[analyzeMerge] Could not find PatchEvent for patch ${firstPatch?.id.slice(0, 8)}`,
+      )
       return
     }
-    console.log(`[analyzeMerge] Found PatchEvent: ${selectedPatchEvent.id.slice(0, 8)}`);
+    console.log(`[analyzeMerge] Found PatchEvent: ${firstPatchEvent.id.slice(0, 8)}`)
 
-    // First, try to get cached result from repository's merge analysis system
-    console.log(`[analyzeMerge] Checking for cached result...`);
-    const cachedResult = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
-
-    if (cachedResult) {
-      console.log(`[analyzeMerge] Got cached result:`, cachedResult.analysis);
-      mergeAnalysisResult = cachedResult
-      console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis);
-      return
-    }
-
-    console.log(`[analyzeMerge] No cached result, performing fresh analysis...`);
+    // For manual analysis, we override any global state and force fresh analysis
+    console.log(`[analyzeMerge] Performing fresh manual analysis...`)
     isAnalyzingMerge = true
     mergeAnalysisResult = null
     try {
-      const result = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
-      console.log(`[analyzeMerge] Fresh analysis result:`, result?.analysis);
+      const result = await repoClass.getMergeAnalysis(firstPatchEvent, targetBranch)
+      console.log(`[analyzeMerge] Manual analysis result:`, result?.analysis)
 
       if (result) {
         mergeAnalysisResult = result
-        console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis);
+        console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis)
       } else {
-        console.warn(`[analyzeMerge] Result was null, trying cache again...`);
-        // If still no result, try to get from cache first
-        const cachedResult = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
+        console.warn(`[analyzeMerge] Result was null, trying cache as fallback...`)
+        // If fresh analysis fails, try to get from cache as fallback
+        const cachedResult = await repoClass.getMergeAnalysis(firstPatchEvent, targetBranch)
         if (cachedResult) {
-          console.log(`[analyzeMerge] Got result from second cache attempt:`, cachedResult.analysis);
+          console.log(`[analyzeMerge] Got result from cache fallback:`, cachedResult.analysis)
           mergeAnalysisResult = cachedResult
-          console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis);
+          console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis)
         } else {
-          console.warn(`[analyzeMerge] Still no result, returning...`);
+          console.warn(`[analyzeMerge] Still no result, returning...`)
           // Don't show error immediately, just return and let it retry
           return
         }
@@ -264,28 +283,18 @@
       }
 
       mergeAnalysisResult = errorResult
-      console.log(`[analyzeMerge] Set mergeAnalysisResult to error:`, mergeAnalysisResult?.analysis);
+      console.log(`[analyzeMerge] Set mergeAnalysisResult to error:`, mergeAnalysisResult?.analysis)
     } finally {
       isAnalyzingMerge = false
-      console.log(`[analyzeMerge] Analysis complete. Final mergeAnalysisResult:`, mergeAnalysisResult?.analysis);
+      console.log(
+        `[analyzeMerge] Analysis complete. Final mergeAnalysisResult:`,
+        mergeAnalysisResult?.analysis,
+      )
     }
   }
 
-  let analysisTimeout: NodeJS.Timeout | null = null
-
-  $effect(() => {
-    if (selectedPatch && repoClass.repoId && repoClass.mainBranch) {
-      // Clear any existing timeout
-      if (analysisTimeout) {
-        clearTimeout(analysisTimeout)
-      }
-
-      // Debounce the analysis call
-      analysisTimeout = setTimeout(() => {
-        analyzeMerge()
-      }, 300) // Wait 300ms before running analysis
-    }
-  })
+  // Analysis is now manual - no automatic effect
+  // Users must click the analyze button to trigger analysis
 
   const threadComments = $derived.by(() => {
     if (repoClass.patches && selectedPatch) {
@@ -310,7 +319,7 @@
   })
 
   // NIP-32 role label events for this patch (reviewers)
-  const getLabelFilter = () => ({ kinds: [1985], "#e": [selectedPatch?.id ?? ""] })
+  const getLabelFilter = () => ({kinds: [1985], "#e": [selectedPatch?.id ?? ""]})
   const roleLabelEvents = $derived.by(() => deriveEvents(repository, {filters: [getLabelFilter()]}))
   const reviewerLabelEvents = $derived.by(() => {
     const events = ($roleLabelEvents || []) as any[]
@@ -376,9 +385,9 @@
   let showMergeDialog = $state(false)
   let mergeCommitMessage = $state("")
 
-  // Apply patch with full GitHub-style merge workflow
+  // Apply patch set with full GitHub-style merge workflow
   const applyPatch = async () => {
-    if (!selectedPatch || !$pubkey) return
+    if (!patchSet.length || !$pubkey) return
 
     // Reset merge state
     isMerging = false
@@ -388,8 +397,9 @@
     mergeSuccess = false
     mergeResult = null
 
-    // Set default merge commit message
-    const defaultMessage = `Merge patch: ${selectedPatch.title || selectedPatch.id.slice(0, 8)}`
+    // Set default merge commit message for the entire patch set
+    const firstPatch = patchSet[0]
+    const defaultMessage = `Merge patch set: ${firstPatch?.title || `${patchSet.length} patches`} (${patchSet.length} patches)`
     mergeCommitMessage = defaultMessage
 
     // Show merge dialog for confirmation
@@ -398,7 +408,7 @@
 
   // Execute the actual merge after confirmation
   const executeMerge = async () => {
-    if (!selectedPatch || !repoClass.workerManager) return
+    if (!patchSet.length || !repoClass.workerManager) return
 
     showMergeDialog = false
     isMerging = true
@@ -411,10 +421,13 @@
     const authorName = "Repository Maintainer" // You might want to get this from user profile
     const authorEmail = "maintainer@nostr-git.local" // You might want to get this from user profile
 
-    // Prepare patch data - ensure all data is serializable
+    // Prepare patch data for the entire patch set - ensure all data is serializable
+    const allCommits = patchSet.flatMap((patch: Patch) => patch.commits || [])
+    const firstPatch = patchSet[0]
+
     const patchData = {
-      id: selectedPatch.id,
-      commits: (selectedPatch.commits || []).map((commit: Commit) => ({
+      id: firstPatch?.id || "",
+      commits: allCommits.map((commit: Commit) => ({
         oid: commit.oid || "",
         message: commit.message || "",
         author: {
@@ -422,8 +435,8 @@
           email: commit.author?.email || "",
         },
       })),
-      baseBranch: selectedPatch.baseBranch || repoClass.mainBranch,
-      rawContent: selectedPatch.raw?.content || "",
+      baseBranch: firstPatch?.baseBranch || repoClass.mainBranch,
+      rawContent: firstPatch?.raw?.content || "",
     }
 
     // Validate patch data before proceeding
@@ -531,6 +544,9 @@
           })
         }
 
+        // Emit status event for applied patch
+        await emitPatchAppliedStatus(result.mergeCommitOid)
+
         // Note: Repository data will be refreshed automatically via reactive stores
       } else {
         mergeError = result.error || "Unknown merge error"
@@ -564,6 +580,41 @@
     }
   }
 
+  // Emit status event when patch is successfully merged
+  const emitPatchAppliedStatus = async (mergeCommitOid?: string) => {
+    if (!patchSet.length || !$pubkey) return
+
+    try {
+      const firstPatch = patchSet[0]
+      const allCommits = patchSet.flatMap((p: Patch) => p.commits || [])
+      const commitIds = allCommits.map((c: Commit) => c.oid).filter(Boolean)
+
+      // Create status event for applied patch
+      const statusEvent = createStatusEvent({
+        kind: GIT_STATUS_APPLIED,
+        content:
+          mergeCommitMessage || `Patch set applied: ${firstPatch?.title || "Multiple patches"}`,
+        rootId: firstPatch?.id || "",
+        recipients: repoClass.maintainers, // Include repo maintainers in p tags
+        repoAddr: repoClass.repoId,
+        relays: repoClass.relays,
+        appliedCommits: commitIds,
+        mergedCommit: mergeCommitOid,
+      })
+
+      // Publish the status event
+      await postStatus(statusEvent, repoClass.relays || [])
+      console.log(`[emitPatchAppliedStatus] Status event published for patch set ${firstPatch?.id}`)
+    } catch (error) {
+      console.error("[emitPatchAppliedStatus] Failed to publish status event:", error)
+      toast.push({
+        message: "Warning: Failed to publish patch status event",
+        timeout: 5000,
+        variant: "destructive",
+      })
+    }
+  }
+
   // Cancel merge dialog
   const cancelMerge = () => {
     showMergeDialog = false
@@ -584,6 +635,39 @@
         message: `Failed to copy ${label}`,
         timeout: 3000,
         theme: "error",
+      })
+    }
+  }
+
+  // Navigation functions for PatchViewer
+  const navigateToPreviousPatch = () => {
+    const currentIndex = patchSet.findIndex((p: Patch) => p.id === selectedPatch?.id)
+    if (currentIndex > 0) {
+      selectedPatch = patchSet[currentIndex - 1]
+    }
+  }
+
+  const navigateToNextPatch = () => {
+    const currentIndex = patchSet.findIndex((p: Patch) => p.id === selectedPatch?.id)
+    if (currentIndex < patchSet.length - 1) {
+      selectedPatch = patchSet[currentIndex + 1]
+    }
+  }
+
+  // Comment handler for PatchViewer
+  const handleCommentSubmit = async (comment: any) => {
+    try {
+      await postComment(comment, repoClass.relays || [])
+      toast.push({
+        message: "Comment posted successfully",
+        timeout: 2000,
+      })
+    } catch (error) {
+      console.error("Failed to post comment:", error)
+      toast.push({
+        message: "Failed to post comment",
+        timeout: 3000,
+        variant: "destructive",
       })
     }
   }
@@ -672,11 +756,36 @@
         </div>
 
         <!-- Technical Metadata -->
-        <div class="mb-6 rounded-lg border bg-muted/30 p-4">
-          <h3 class="mb-3 flex items-center gap-2 text-sm font-medium">
-            <GitCommit class="h-4 w-4" />
-            Technical Details
-          </h3>
+        <div class="mb-6 rounded-lg border bg-muted/30">
+          <button
+            class="flex w-full items-center justify-between p-4 text-left hover:bg-muted/50 transition-colors"
+            onclick={() => isTechnicalDetailsCollapsed = !isTechnicalDetailsCollapsed}
+            aria-expanded={!isTechnicalDetailsCollapsed}
+            aria-controls="technical-details-content">
+            <h3 class="flex items-center gap-2 text-sm font-medium">
+              <GitCommit class="h-4 w-4" />
+              Technical Details
+            </h3>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-muted-foreground">
+                {isTechnicalDetailsCollapsed ? 'Show' : 'Hide'} details
+              </span>
+              {#if isTechnicalDetailsCollapsed}
+                <ChevronDown class="h-4 w-4 text-muted-foreground" />
+              {:else}
+                <ChevronUp class="h-4 w-4 text-muted-foreground" />
+              {/if}
+            </div>
+          </button>
+          
+          <div
+            id="technical-details-content"
+            class="overflow-hidden transition-all duration-200 ease-in-out"
+            class:opacity-0={isTechnicalDetailsCollapsed}
+            class:max-h-0={isTechnicalDetailsCollapsed}
+            class:opacity-100={!isTechnicalDetailsCollapsed}
+            class:max-h-96={!isTechnicalDetailsCollapsed}>
+            <div class="p-4 pt-0">
 
           <div class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
             <!-- Commit Hash -->
@@ -762,7 +871,19 @@
               </div>
             {/if}
           </div>
+            </div>
+          </div>
         </div>
+
+        <!-- Status Section -->
+        <Status
+          repo={repoClass}
+          rootId={selectedPatch?.id ?? ""}
+          rootKind={GIT_PATCH}
+          rootAuthor={selectedPatch?.author.pubkey ?? ""}
+          statusEvents={$statusEvents as StatusEvent[]}
+          actorPubkey={$pubkey}
+          onPublish={handleStatusPublish} />
 
         <!-- Individual Commit Timeline -->
         {#if selectedPatch?.commits && selectedPatch.commits.length > 1}
@@ -834,474 +955,380 @@
             </div>
           </div>
         {/if}
-
-        <!-- File Statistics -->
-        {#if selectedPatch?.diff && selectedPatch.diff.length > 0}
-          <div class="mb-6">
-            <div class="mb-4 flex items-center justify-between">
-              <h3 class="flex items-center gap-2 text-lg font-medium">
-                <FileCode class="h-5 w-5" />
-                File Changes
-              </h3>
-            </div>
-
-            {#if selectedPatch.diff}
-              {@const stats = selectedPatch.diff.reduce(
-                (acc, file) => {
-                  // Accurate calculation using parse-diff structure
-                  const added = (file.chunks ?? []).reduce(
-                    (
-                      a: any,
-                      chunk: {
-                        changes: {
-                          filter: (
-                            arg0: (ch: any) => boolean,
-                          ) => {(): any; new (): any; length: number}
-                        }
-                      },
-                    ) => {
-                      const adds = chunk.changes?.filter((ch: any) => ch.type === "add").length ?? 0
-                      return a + adds
-                    },
-                    0,
-                  )
-                  const removed = (file.chunks ?? []).reduce(
-                    (
-                      a: any,
-                      chunk: {
-                        changes: {
-                          filter: (
-                            arg0: (ch: any) => boolean,
-                          ) => {(): any; new (): any; length: number}
-                        }
-                      },
-                    ) => {
-                      const dels = chunk.changes?.filter((ch: any) => ch.type === "del").length ?? 0
-                      return a + dels
-                    },
-                    0,
-                  )
-                  return {added: acc.added + added, removed: acc.removed + removed}
-                },
-                {added: 0, removed: 0},
-              )}
-
-              <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div class="rounded-lg border bg-muted/20 p-3 text-center">
-                  <div class="text-2xl font-bold text-primary">{selectedPatch.diff.length}</div>
-                  <div class="text-sm text-muted-foreground">Files Changed</div>
-                </div>
-
-                <div class="rounded-lg border bg-green-50 p-3 text-center dark:bg-green-950/20">
-                  <div class="text-2xl font-bold text-green-600">+{stats.added}</div>
-                  <div class="text-sm text-muted-foreground">Lines Added</div>
-                </div>
-
-                <div class="rounded-lg border bg-red-50 p-3 text-center dark:bg-red-950/20">
-                  <div class="text-2xl font-bold text-red-600">-{stats.removed}</div>
-                  <div class="text-sm text-muted-foreground">Lines Removed</div>
-                </div>
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        {#if selectedPatch}
-          <div class="my-4 space-y-2">
-            <h3 class="text-base font-medium">Reviewers</h3>
-            {#if repoClass.maintainers.includes($pubkey!) || patch.author.pubkey === $pubkey}
-              <PeoplePicker
-                selected={reviewerLabelEvents as LabelEvent[]}
-                placeholder="Search for reviewers..."
-                maxSelections={10}
-                showAvatars={true}
-                compact={false}
-                {getProfile}
-                {searchProfiles}
-                add={async (pubkey: string) => {
-                  if (!selectedPatch) return
-                  try {
-                    const relays = (repoClass.relays || repoRelays || [])
-                      .map((u: string) => normalizeRelayUrl(u))
-                      .filter(Boolean)
-                    postRoleLabel({
-                      rootId: selectedPatch.id,
-                      role: "reviewer",
-                      pubkeys: [pubkey],
-                      repoAddr: (repoClass as any)?.repoEvent?.id,
-                      relays,
-                    })
-                    await load({
-                      relays,
-                      filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
-                    })
-                  } catch (err) {
-                    console.error("[PatchDetail] Failed to add reviewer", err)
-                  }
-                }}
-                onDeleteLabel={async (evt: LabelEvent) => {
-                  if (!selectedPatch) return
-                  try {
-                    const relays = (repoClass.relays || repoRelays || [])
-                      .map((u: string) => normalizeRelayUrl(u))
-                      .filter(Boolean)
-                    deleteRoleLabelEvent({ event: evt as any, relays, protect: false })
-                    await load({
-                      relays,
-                      filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
-                    })
-                  } catch (err) {
-                    console.error("[PatchDetail] Failed to remove reviewer", err)
-                  }
-                }} />
-            {:else if reviewers.length}
-              <div class="flex flex-wrap gap-2">
-                {#each reviewers as pk (pk)}
-                  <ProfileLink pubkey={pk} />
-                {/each}
-              </div>
-            {:else}
-              <div class="text-sm text-muted-foreground">No reviewers yet.</div>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- Status Section -->
-        <div class="mb-6">
-          <Status
-            repo={repoClass}
-            rootId={patch.id}
-            rootKind={1617}
-            rootAuthor={patch.author.pubkey}
-            statusEvents={($statusEvents || []) as StatusEvent[]}
-            actorPubkey={$pubkey}
-            compact={false}
-            onPublish={handleStatusPublish} />
-        </div>
-
-        <div class="git-separator my-6"></div>
-
-        <!-- Merge Status Analysis -->
-        <div class="mb-6">
-          <MergeStatus
-            result={mergeAnalysisResult}
-            loading={isAnalyzingMerge}
-            targetBranch={selectedPatch?.baseBranch || repoClass.mainBranch || ""} />
-        </div>
-        {#if mergeAnalysisResult}
-          <div class="mb-6">
-            <MergeAnalyzer
-              analysis={{
-                similarity: mergeAnalysisResult.hasConflicts ? 0.7 : 0.95,
-                autoMergeable: mergeAnalysisResult.canMerge,
-                affectedFiles: (selectedPatch?.diff || []).map(
-                  (f: any) => f.to || f.from || f.file || "unknown",
-                ),
-                conflictCount: (mergeAnalysisResult.conflictFiles || []).length,
-              }}
-              patch={selectedPatch as any}
-              analyzing={isAnalyzingMerge}
-              onAnalyze={() => analyzeMerge()} />
-          </div>
-        {/if}
-
-        <div class="git-separator"></div>
-
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-lg font-medium">Changes</h2>
-
-          <!-- Navigation Controls -->
-          {#if patchSet.length > 1}
-            <div class="flex items-center gap-2">
-              {#key selectedPatch?.id}
-                {@const currentIndex = patchSet.findIndex((p: Patch) => p.id === selectedPatch?.id)}
-                {@const hasPrevious = currentIndex > 0}
-                {@const hasNext = currentIndex < patchSet.length - 1}
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasPrevious}
-                  onclick={() => {
-                    if (hasPrevious) {
-                      selectedPatch = patchSet[currentIndex - 1]
-                    }
-                  }}>
-                  <ChevronLeft class="mr-1 h-4 w-4" />
-                  Previous
-                </Button>
-
-                <span class="text-sm text-muted-foreground">
-                  {currentIndex + 1} of {patchSet.length}
-                </span>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasNext}
-                  onclick={() => {
-                    if (hasNext) {
-                      selectedPatch = patchSet[currentIndex + 1]
-                    }
-                  }}>
-                  Next
-                  <ChevronRight class="ml-1 h-4 w-4" />
-                </Button>
-              {/key}
-            </div>
-          {/if}
-        </div>
-
-        <!-- Patch Set -->
-        <div class="mb-6 overflow-hidden rounded-md border border-border">
-          {#key selectedPatch?.id}
-            <div transition:slideAndFade={{axis: "y", duration: 250}}>
-              {#if selectedPatch}
-                <div
-                  class="flex w-full items-center gap-3 border-b border-border p-3 text-left last:border-b-0 hover:bg-secondary/20">
-                  <div class="flex-shrink-0">
-                    <GitCommit class="h-5 w-5 text-primary" />
-                  </div>
-                  <div class="flex-grow">
-                    <div class="break-words font-semibold">
-                      {selectedPatch.title || `Patch ${selectedPatch.id}`}
-                    </div>
-                    <div class="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span
-                        >{selectedPatch.author.name ||
-                          selectedPatch.author.pubkey.slice(0, 8)}</span>
-                      <span>•</span>
-                      <span>{new Date(selectedPatch.createdAt).toLocaleString()}</span>
-                      {#if selectedPatch.commitHash}
-                        <span>•</span>
-                        <span>{selectedPatch.commitHash.slice(0, 8)}</span>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-              {/if}
-              {#if selectedPatch?.diff}
-                <DiffViewer diff={selectedPatch.diff} />
-              {/if}
-            </div>
-          {/key}
-        </div>
-        {#if repoClass.maintainers.includes($pubkey!)}
-          <!-- GitHub-style Merge Section -->
-          <div class="rounded-lg border bg-card p-6">
-            <div class="mb-4 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <GitMerge class="h-5 w-5 text-primary" />
-                <div>
-                  <h3 class="font-semibold">Merge this patch</h3>
-                  <p class="text-sm text-muted-foreground">
-                    Apply the changes from this patch to the {selectedPatch?.baseBranch ||
-                      repoClass.mainBranch ||
-                      "-"} branch
-                  </p>
-                </div>
-              </div>
-
-              <!-- Merge Status Indicator -->
-              {#if isMerging}
-                <div class="flex items-center gap-2 text-blue-600">
-                  <Loader2 class="h-4 w-4 animate-spin" />
-                  <span class="text-sm font-medium">Merging...</span>
-                </div>
-              {:else if mergeSuccess}
-                <div class="flex items-center gap-2 text-green-600">
-                  <CheckCircle class="h-4 w-4" />
-                  <span class="text-sm font-medium">Merged</span>
-                </div>
-              {:else if mergeError}
-                <div class="flex items-center gap-2 text-red-600">
-                  <AlertCircle class="h-4 w-4" />
-                  <span class="text-sm font-medium">Failed</span>
-                </div>
-              {/if}
-            </div>
-
-            <!-- Merge Progress Bar -->
-            {#if isMerging}
-              <div class="mb-4">
-                <div class="mb-2 flex items-center justify-between text-sm">
-                  <span class="text-muted-foreground">{mergeStep}</span>
-                  <span class="text-muted-foreground">{mergeProgress}%</span>
-                </div>
-                <div class="h-2 w-full rounded-full bg-muted">
-                  <div
-                    class="h-2 rounded-full bg-primary transition-all duration-300 ease-out"
-                    style="width: {mergeProgress}%">
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            <!-- Merge Error Display -->
-            {#if mergeError}
-              <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
-                <div class="flex items-start gap-2">
-                  <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600" />
-                  <div>
-                    <p class="text-sm font-medium text-red-800">Merge failed</p>
-                    <p class="mt-1 text-sm text-red-700">{mergeError}</p>
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            <!-- Merge Success Display -->
-            {#if mergeSuccess && mergeResult}
-              <div class="mb-4 rounded-lg border border-green-200 bg-green-50 p-3">
-                <div class="flex items-start gap-2">
-                  <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
-                  <div class="flex-1">
-                    <p class="text-sm font-medium text-green-800">Patch merged successfully!</p>
-                    {#if mergeResult.mergeCommitOid}
-                      <p class="mt-1 text-sm text-green-700">
-                        Merge commit: <code class="rounded bg-green-100 px-1"
-                          >{mergeResult.mergeCommitOid.slice(0, 8)}</code>
-                      </p>
-                    {/if}
-                    {#if mergeResult.pushedRemotes && mergeResult.pushedRemotes.length > 0}
-                      <p class="mt-1 text-sm text-green-700">
-                        Pushed to: {mergeResult.pushedRemotes.join(", ")}
-                      </p>
-                    {/if}
-                    {#if mergeResult.skippedRemotes && mergeResult.skippedRemotes.length > 0}
-                      <div class="mt-2">
-                        <p class="mb-1 text-sm font-medium text-yellow-700">
-                          ⚠️ Failed to push to {mergeResult.skippedRemotes.length} remote{mergeResult
-                            .skippedRemotes.length > 1
-                            ? "s"
-                            : ""}:
-                        </p>
-                        {#if mergeResult.pushErrors && mergeResult.pushErrors.length > 0}
-                          <!-- Detailed error information -->
-                          <div class="space-y-2">
-                            {#each mergeResult.pushErrors as pushError}
-                              <div class="rounded border border-yellow-200 bg-yellow-50 p-2">
-                                <div class="flex items-start gap-2">
-                                  <div class="flex-1">
-                                    <p class="text-sm font-medium text-yellow-800">
-                                      {pushError.remote} ({pushError.url})
-                                    </p>
-                                    <p class="mt-1 text-sm text-yellow-700">
-                                      <span class="font-medium">Error:</span>
-                                      {pushError.error}
-                                    </p>
-                                    {#if pushError.code && pushError.code !== "UNKNOWN"}
-                                      <p class="mt-1 text-sm text-yellow-600">
-                                        <span class="font-medium">Code:</span>
-                                        {pushError.code}
-                                      </p>
-                                    {/if}
-                                  </div>
-                                </div>
-                              </div>
-                            {/each}
-                          </div>
-                        {:else}
-                          <!-- Fallback to simple list if no detailed errors -->
-                          <p class="text-sm text-yellow-700">
-                            {mergeResult.skippedRemotes.join(", ")}
-                          </p>
-                        {/if}
-                      </div>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {/if}
-
-            <!-- Merge Action Button -->
-            <div class="flex justify-end">
-              <Button
-                onclick={applyPatch}
-                variant="default"
-                disabled={isMerging || mergeSuccess}
-                class="min-w-[120px]">
-                {#if isMerging}
-                  <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-                  Merging...
-                {:else if mergeSuccess}
-                  <CheckCircle class="mr-2 h-4 w-4" />
-                  Merged
-                {:else}
-                  <GitMerge class="mr-2 h-4 w-4" />
-                  Merge Patch
-                {/if}
-              </Button>
-            </div>
-          </div>
-        {/if}
-        <!-- Merge Confirmation Dialog -->
-        {#if showMergeDialog}
-          <div
-            class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
-            transition:slideAndFade>
-            <div class="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-              <div class="mb-4 flex items-center gap-3">
-                <GitBranch class="h-5 w-5 text-primary" />
-                <h3 class="text-lg font-semibold">Confirm Merge</h3>
-              </div>
-
-              <div class="mb-6 space-y-4">
-                <div>
-                  <p class="mb-2 text-sm text-muted-foreground">
-                    This will merge the patch into <code class="rounded bg-muted px-1"
-                      >{selectedPatch?.baseBranch || repoClass.mainBranch || "-"}</code> and push to
-                    all remotes.
-                  </p>
-
-                  <div class="rounded-lg bg-muted/30 p-3 text-sm">
-                    <div class="mb-1 font-medium">Patch Details:</div>
-                    <div>ID: <code>{selectedPatch?.id.slice(0, 16)}...</code></div>
-                    <div>Commits: {selectedPatch?.commits?.length || 0}</div>
-                    <div>Target: {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}</div>
-                  </div>
-                </div>
-
-                <div>
-                  <label for="merge-message" class="mb-2 block text-sm font-medium">
-                    Merge commit message:
-                  </label>
-                  <textarea
-                    id="merge-message"
-                    bind:value={mergeCommitMessage}
-                    class="w-full resize-none rounded-md border p-2 text-sm"
-                    rows="3"
-                    placeholder="Enter merge commit message..."></textarea>
-                </div>
-              </div>
-
-              <div class="flex justify-end gap-3">
-                <Button variant="outline" onclick={cancelMerge}>Cancel</Button>
-                <Button variant="default" onclick={executeMerge}>
-                  <GitMerge class="mr-2 h-4 w-4" />
-                  Confirm Merge
-                </Button>
-              </div>
-            </div>
-          </div>
-        {/if}
-
-        <div class="git-separator my-6"></div>
-
-        <div class="space-y-4">
-          <h2 class="flex items-center gap-2 text-lg font-medium">
-            <MessageSquare class="h-5 w-5" />
-            Discussion ({$threadComments?.length})
-          </h2>
-
-          <IssueThread
-            issueId={selectedPatch?.id ?? ""}
-            issueKind={GIT_PATCH.toString() as "1617"}
-            comments={$threadComments as CommentEvent[]}
-            currentCommenter={$pubkey!}
-            {onCommentCreated} />
-        </div>
       </div>
     </div>
   </div>
 {/if}
+
+{#if selectedPatch}
+  <div class="my-4 space-y-2">
+    <h3 class="text-base font-medium">Reviewers</h3>
+    {#if repoClass.maintainers.includes($pubkey!) || selectedPatch?.author.pubkey === $pubkey}
+      <PeoplePicker
+        selected={reviewerLabelEvents as LabelEvent[]}
+        placeholder="Search for reviewers..."
+        maxSelections={10}
+        showAvatars={true}
+        compact={false}
+        {getProfile}
+        {searchProfiles}
+        add={async (pubkey: string) => {
+          if (!selectedPatch) return
+          try {
+            const relays = (repoClass.relays || repoRelays || [])
+              .map((u: string) => normalizeRelayUrl(u))
+              .filter(Boolean)
+            postRoleLabel({
+              rootId: selectedPatch.id,
+              role: "reviewer",
+              pubkeys: [pubkey],
+              repoAddr: (repoClass as any)?.repoEvent?.id,
+              relays,
+            })
+            await load({
+              relays,
+              filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
+            })
+          } catch (err) {
+            console.error("[PatchDetail] Failed to add reviewer", err)
+          }
+        }}
+        onDeleteLabel={async (evt: LabelEvent) => {
+          if (!selectedPatch) return
+          try {
+            const relays = (repoClass.relays || repoRelays || [])
+              .map((u: string) => normalizeRelayUrl(u))
+              .filter(Boolean)
+            deleteRoleLabelEvent({event: evt as any, relays, protect: false})
+            await load({
+              relays,
+              filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
+            })
+          } catch (err) {
+            console.error("[PatchDetail] Failed to remove reviewer", err)
+          }
+        }} />
+    {:else if reviewers.length}
+      <div class="flex flex-wrap gap-2">
+        {#each reviewers as pk (pk)}
+          <ProfileLink pubkey={pk} />
+        {/each}
+      </div>
+    {:else}
+      <div class="text-sm text-muted-foreground">No reviewers yet.</div>
+    {/if}
+  </div>
+{/if}
+
+<!-- Patch Analysis Section -->
+<div class="mb-6">
+  <div class="mb-4 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <h3 class="text-lg font-medium">Patch Analysis</h3>
+      <span class="rounded bg-muted px-2 py-1 text-sm text-muted-foreground">
+        Target: {repoClass.selectedBranch ||
+          patchSet[0]?.baseBranch ||
+          repoClass.mainBranch ||
+          "default"}
+      </span>
+    </div>
+    <div class="flex items-center gap-2">
+      {#if analysisTriggeredManually}
+        <span class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 text-muted-foreground">
+          Manual Analysis
+        </span>
+      {:else if mergeAnalysisResult}
+        <span class="rounded bg-green-100 px-2 py-1 text-xs text-green-800 text-muted-foreground">
+          Auto Analysis
+        </span>
+      {/if}
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => analyzeMerge()}
+        disabled={isAnalyzingMerge}
+        class="gap-2">
+        {#if isAnalyzingMerge}
+          <Loader2 class="h-4 w-4 animate-spin" />
+          Analyzing...
+        {:else}
+          <Shield class="h-4 w-4" />
+          Analyze Patch Set
+        {/if}
+      </Button>
+    </div>
+  </div>
+
+  <!-- Merge Status Analysis -->
+  <div class="mb-4">
+    <MergeStatus
+      result={mergeAnalysisResult}
+      loading={isAnalyzingMerge}
+      targetBranch={repoClass.selectedBranch ||
+        patchSet[0]?.baseBranch ||
+        repoClass.mainBranch ||
+        ""} />
+  </div>
+  {#if mergeAnalysisResult}
+    <div class="mb-4">
+      <MergeAnalyzer
+        analysis={{
+          similarity: mergeAnalysisResult.hasConflicts ? 0.7 : 0.95,
+          autoMergeable: mergeAnalysisResult.canMerge,
+          affectedFiles: patchSet.flatMap((p: Patch) =>
+            (p.diff || []).map((f: any) => f.to || f.from || f.file || "unknown"),
+          ),
+          conflictCount: (mergeAnalysisResult.conflictFiles || []).length,
+          errorMessage: mergeAnalysisResult.errorMessage,
+          conflictDetails: mergeAnalysisResult.conflictDetails,
+          analysis: mergeAnalysisResult.analysis,
+        }}
+        patch={patchSet[0] as any}
+        analyzing={isAnalyzingMerge}
+        onAnalyze={() => analyzeMerge()} />
+    </div>
+  {/if}
+</div>
+
+<div class="git-separator"></div>
+
+<!-- Unified Patch Viewer Component -->
+<PatchViewer
+  selectedPatch={selectedPatch || null}
+  {patchSet}
+  onNavigatePrevious={navigateToPreviousPatch}
+  onNavigateNext={navigateToNextPatch}
+  showNavigation={true}
+  showFileStats={true}
+  showPatchInfo={true}
+  comments={$threadComments as CommentEvent[]}
+  rootEvent={selectedPatch?.raw}
+  onComment={handleCommentSubmit}
+  currentPubkey={$pubkey}
+  diffViewerProps={{
+    showLineNumbers: true,
+    expandAll: false,
+  }} />
+{#if repoClass.maintainers.includes($pubkey!)}
+  <!-- GitHub-style Merge Section -->
+  <div class="rounded-lg border bg-card p-6">
+    <div class="mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <GitMerge class="h-5 w-5 text-primary" />
+        <div>
+          <h3 class="font-semibold">Merge this patch</h3>
+          <p class="text-sm text-muted-foreground">
+            Apply the changes from this patch to the {repoClass.selectedBranch ||
+              selectedPatch?.baseBranch ||
+              repoClass.mainBranch ||
+              "default"} branch
+          </p>
+        </div>
+      </div>
+
+      <!-- Merge Status Indicator -->
+      {#if isMerging}
+        <div class="flex items-center gap-2 text-blue-600">
+          <Loader2 class="h-4 w-4 animate-spin" />
+          <span class="text-sm font-medium">Merging...</span>
+        </div>
+      {:else if mergeSuccess}
+        <div class="flex items-center gap-2 text-green-600">
+          <CheckCircle class="h-4 w-4" />
+          <span class="text-sm font-medium">Merged</span>
+        </div>
+      {:else if mergeError}
+        <div class="flex items-center gap-2 text-red-600">
+          <AlertCircle class="h-4 w-4" />
+          <span class="text-sm font-medium">Failed</span>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Merge Progress Bar -->
+    {#if isMerging}
+      <div class="mb-4">
+        <div class="mb-2 flex items-center justify-between text-sm">
+          <span class="text-muted-foreground">{mergeStep}</span>
+          <span class="text-muted-foreground">{mergeProgress}%</span>
+        </div>
+        <div class="h-2 w-full rounded-full bg-muted">
+          <div
+            class="h-2 rounded-full bg-primary transition-all duration-300 ease-out"
+            style="width: {mergeProgress}%">
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Merge Error Display -->
+    {#if mergeError}
+      <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
+        <div class="flex items-start gap-2">
+          <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600" />
+          <div>
+            <p class="text-sm font-medium text-red-800">Merge failed</p>
+            <p class="mt-1 text-sm text-red-700">{mergeError}</p>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Merge Success Display -->
+    {#if mergeSuccess && mergeResult}
+      <div class="mb-4 rounded-lg border border-green-200 bg-green-50 p-3">
+        <div class="flex items-start gap-2">
+          <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+          <div class="flex-1">
+            <p class="text-sm font-medium text-green-800">Patch merged successfully!</p>
+            {#if mergeResult.mergeCommitOid}
+              <p class="mt-1 text-sm text-green-700">
+                Merge commit: <code class="rounded bg-green-100 px-1"
+                  >{mergeResult.mergeCommitOid.slice(0, 8)}</code>
+              </p>
+            {/if}
+            {#if mergeResult.pushedRemotes && mergeResult.pushedRemotes.length > 0}
+              <p class="mt-1 text-sm text-green-700">
+                Pushed to: {mergeResult.pushedRemotes.join(", ")}
+              </p>
+            {/if}
+            {#if mergeResult.skippedRemotes && mergeResult.skippedRemotes.length > 0}
+              <div class="mt-2">
+                <p class="mb-1 text-sm font-medium text-yellow-700">
+                  ⚠️ Failed to push to {mergeResult.skippedRemotes.length} remote{mergeResult
+                    .skippedRemotes.length > 1
+                    ? "s"
+                    : ""}:
+                </p>
+                {#if mergeResult.pushErrors && mergeResult.pushErrors.length > 0}
+                  <!-- Detailed error information -->
+                  <div class="space-y-2">
+                    {#each mergeResult.pushErrors as pushError}
+                      <div class="rounded border border-yellow-200 bg-yellow-50 p-2">
+                        <div class="flex items-start gap-2">
+                          <div class="flex-1">
+                            <p class="text-sm font-medium text-yellow-800">
+                              {pushError.remote} ({pushError.url})
+                            </p>
+                            <p class="mt-1 text-sm text-yellow-700">
+                              <span class="font-medium">Error:</span>
+                              {pushError.error}
+                            </p>
+                            {#if pushError.code && pushError.code !== "UNKNOWN"}
+                              <p class="mt-1 text-sm text-yellow-600">
+                                <span class="font-medium">Code:</span>
+                                {pushError.code}
+                              </p>
+                            {/if}
+                          </div>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <!-- Fallback to simple list if no detailed errors -->
+                  <p class="text-sm text-yellow-700">
+                    {mergeResult.skippedRemotes.join(", ")}
+                  </p>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Merge Action Button -->
+    <div class="flex justify-end">
+      <Button
+        onclick={applyPatch}
+        variant="default"
+        disabled={isMerging || mergeSuccess}
+        class="min-w-[120px]">
+        {#if isMerging}
+          <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+          Merging...
+        {:else if mergeSuccess}
+          <CheckCircle class="mr-2 h-4 w-4" />
+          Merged
+        {:else}
+          <GitMerge class="mr-2 h-4 w-4" />
+          Merge Patch Set
+        {/if}
+      </Button>
+    </div>
+  </div>
+{/if}
+<!-- Merge Confirmation Dialog -->
+{#if showMergeDialog}
+  <div
+    class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
+    transition:slideAndFade>
+    <div class="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
+      <div class="mb-4 flex items-center gap-3">
+        <GitBranch class="h-5 w-5 text-primary" />
+        <h3 class="text-lg font-semibold">Confirm Merge</h3>
+      </div>
+
+      <div class="mb-6 space-y-4">
+        <div>
+          <p class="mb-2 text-sm text-muted-foreground">
+            This will merge the entire patch set ({patchSet.length} patch{patchSet.length !== 1
+              ? "es"
+              : ""}) into
+            <code class="rounded bg-muted px-1"
+              >{patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</code> and push to all remotes.
+          </p>
+
+          <div class="rounded-lg bg-muted/30 p-3 text-sm">
+            <div class="mb-1 font-medium">Patch Set Details:</div>
+            <div>Patches: {patchSet.length}</div>
+            <div>Total Commits: {patchSet.flatMap((p: Patch) => p.commits || []).length}</div>
+            <div>Target: {patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</div>
+            {#if patchSet.length > 1}
+              <div class="mt-2 text-xs text-muted-foreground">
+                Includes all patches in the set, not just the currently selected one
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <div>
+          <label for="merge-message" class="mb-2 block text-sm font-medium">
+            Merge commit message:
+          </label>
+          <textarea
+            id="merge-message"
+            bind:value={mergeCommitMessage}
+            class="w-full resize-none rounded-md border p-2 text-sm"
+            rows="3"
+            placeholder="Enter merge commit message..."></textarea>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-3">
+        <Button variant="outline" onclick={cancelMerge}>Cancel</Button>
+        <Button variant="default" onclick={executeMerge}>
+          <GitMerge class="mr-2 h-4 w-4" />
+          Confirm Merge
+        </Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<div class="git-separator my-6"></div>
+
+<div class="space-y-4">
+  <h2 class="flex items-center gap-2 text-lg font-medium">
+    <MessageSquare class="h-5 w-5" />
+    Discussion ({$threadComments?.length})
+  </h2>
+
+  <IssueThread
+    issueId={selectedPatch?.id ?? ""}
+    issueKind={GIT_PATCH.toString() as "1617"}
+    comments={$threadComments as CommentEvent[]}
+    currentCommenter={$pubkey!}
+    {onCommentCreated} />
+</div>
