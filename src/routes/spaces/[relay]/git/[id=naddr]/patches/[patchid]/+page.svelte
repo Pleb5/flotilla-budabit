@@ -58,6 +58,7 @@
   import {normalizeRelayUrl} from "@welshman/util"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import {deriveRoleAssignments} from "@lib/budabit"
+  import {preprocessMarkdown} from "@lib/util"
 
   const {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
@@ -122,6 +123,8 @@
 
   const patchEvent = repoClass.patches.find(p => p.id === patchId)
   const patch = patchEvent ? parseGitPatchFromEvent(patchEvent) : undefined
+
+  console.log("patch", patch)
 
   let rootPatchId = patchId
   let currentPatch = patchEvent as PatchEvent | null
@@ -368,6 +371,7 @@
     html: true,
     linkify: true,
     typographer: true,
+    breaks: true, // Convert line breaks to <br> tags
   })
 
   // Merge state management
@@ -695,6 +699,25 @@
       })
     }
   }
+
+  // Limit title to a maximum number of characters
+  const getTitleDisplay = (title: string | undefined, maxLength: number = 80): string => {
+    if (!title) return ""
+    
+    if (title.length <= maxLength) {
+      return title
+    }
+    
+    // Truncate and add ellipsis
+    return title.substring(0, maxLength).trim() + "..."
+  }
+
+  const displayTitle = $derived(getTitleDisplay(patch?.title))
+  const selectedPatchDisplayTitle = $derived(
+    selectedPatch?.title 
+      ? getTitleDisplay(selectedPatch.title) 
+      : `Patch ${selectedPatch?.id || ""}`
+  )
 </script>
 
 <svelte:head>
@@ -704,8 +727,8 @@
 {#if patch}
   <div class="z-10 sticky top-0 items-center justify-between py-4 backdrop-blur">
     <div>
-      <div class="rounded-lg border border-border bg-card p-6">
-        <div class="mb-4 flex items-start justify-between">
+      <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <div class="mb-4 flex flex-col items-start justify-between gap-2">
           <div class="flex items-start gap-4">
             {#if status?.status === "open"}
               <div class="mt-1">
@@ -729,30 +752,33 @@
               </div>
             {/if}
 
-            <div>
-              <h1 class="break-words text-2xl font-bold">{patch?.title}</h1>
-
-              <div class="mt-1 flex items-center gap-2">
-                <div class="git-tag bg-secondary">
-                  {status?.status === "open"
-                    ? "Open"
-                    : status?.status === "applied"
-                      ? "Applied"
-                      : "Closed"}
-                </div>
-                <span class="text-sm text-muted-foreground">
-                  <ProfileLink pubkey={patch?.author.pubkey} />
-                  opened this patch • {formatTimestamp(patch?.createdAt || "")}
-                </span>
-              </div>
-            </div>
+            <h1 
+              class="line-clamp-2 break-words text-lg md:text-2xl font-bold overflow-hidden"
+              title={patch?.title}
+            >
+              {displayTitle}
+            </h1>
           </div>
 
-          <Profile pubkey={patch.author.pubkey} hideDetails={true}></Profile>
+          <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
+              <div class="git-tag bg-secondary w-fit">
+                {status?.status === "open"
+                  ? "Open"
+                  : status?.status === "applied"
+                    ? "Applied"
+                    : "Closed"}
+              </div>
+              <div class="text-xs sm:text-sm text-muted-foreground flex items-center flex-wrap gap-x-1">
+                <Profile pubkey={patch?.author.pubkey} hideDetails={true}></Profile>
+                <ProfileLink pubkey={patch?.author.pubkey} />
+                <span class="hidden sm:inline">•</span>
+                <span>{formatTimestamp(patch?.createdAt || "")}</span>
+              </div>
+          </div>
         </div>
 
-        <div class="mb-6">
-          <p class="text-muted-foreground">{@html md.render(patch?.description || "")}</p>
+        <div class="mb-6 prose prose-sm dark:prose-invert max-w-none text-muted-foreground markdown-content">
+          {@html md.render(preprocessMarkdown(patch?.description || ""))}
         </div>
 
         <!-- Technical Metadata -->
@@ -790,16 +816,16 @@
           <div class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
             <!-- Commit Hash -->
             {#if selectedPatch?.commitHash}
-              <div class="flex items-center justify-between">
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <span class="text-muted-foreground">Commit:</span>
                 <div class="flex items-center gap-2">
-                  <code class="rounded bg-background px-2 py-1 font-mono text-xs">
+                  <code class="rounded bg-background px-2 py-1 font-mono text-xs break-all">
                     {selectedPatch.commitHash.substring(0, 8)}
                   </code>
                   <Button
                     variant="ghost"
                     size="icon"
-                    class="h-6 w-6"
+                    class="h-6 w-6 flex-shrink-0"
                     onclick={() => copyToClipboard(selectedPatch?.commitHash || "", "Commit hash")}>
                     <Copy class="h-3 w-3" />
                   </Button>
@@ -839,9 +865,9 @@
             {/if}
 
             <!-- Base Branch -->
-            <div class="flex items-center justify-between">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <span class="text-muted-foreground">Target Branch:</span>
-              <code class="rounded bg-background px-2 py-1 text-xs">
+              <code class="rounded bg-background px-2 py-1 text-xs break-all sm:break-normal">
                 {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}
               </code>
             </div>
@@ -856,9 +882,9 @@
             {#if selectedPatch?.raw?.tags && selectedPatch.raw.tags.filter(t => t[0] === "p").length > 0}
               {@const recipients = selectedPatch.raw.tags.filter(t => t[0] === "p")}
               <div class="col-span-full">
-                <div class="flex items-start justify-between">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <span class="text-muted-foreground">Reviewers:</span>
-                  <div class="flex max-w-xs flex-wrap gap-1">
+                  <div class="flex flex-wrap gap-1 sm:max-w-xs">
                     {#each recipients.slice(0, 3) as recipient}
                       <ProfileLink pubkey={recipient[1]} />
                     {/each}

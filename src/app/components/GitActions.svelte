@@ -165,10 +165,25 @@
     try {
       const main = undefined
       await workerApi.resetRepoToRemote({ repoId, branch: main })
-      syncStatus = await workerApi.syncWithRemote({ repoId, cloneUrls })
-      pushToast({ message: "Pulled latest from remote" })
+      const syncResult = await workerApi.syncWithRemote({ repoId, cloneUrls })
+      
+      // Handle warnings like CORS issues gracefully
+      if (syncResult.warning) {
+        console.warn("Sync completed with warning:", syncResult.warning)
+        pushToast({ message: "Pulled latest from remote (with limitations)" })
+      } else {
+        pushToast({ message: "Pulled latest from remote" })
+      }
+      
+      syncStatus = syncResult
     } catch (e) {
-      pushToast({ message: `Pull failed: ${String(e)}`, theme: "error" })
+      const errorMessage = String(e)
+      // Don't show toast for CORS/network errors
+      if (!errorMessage.includes('CORS') && 
+          !errorMessage.includes('NetworkError') && 
+          !errorMessage.includes('Failed to fetch')) {
+        pushToast({ message: `Pull failed: ${errorMessage}`, theme: "error" })
+      }
     } finally {
       syncing = false
     }
@@ -181,10 +196,25 @@
     syncing = true
     try {
       await workerApi.pushToRemote({ repoId, remoteUrl })
-      syncStatus = await workerApi.syncWithRemote({ repoId, cloneUrls })
-      pushToast({ message: "Pushed local changes to remote" })
+      const syncResult = await workerApi.syncWithRemote({ repoId, cloneUrls })
+      
+      // Handle warnings like CORS issues gracefully
+      if (syncResult.warning) {
+        console.warn("Sync completed with warning:", syncResult.warning)
+        pushToast({ message: "Pushed local changes to remote (with limitations)" })
+      } else {
+        pushToast({ message: "Pushed local changes to remote" })
+      }
+      
+      syncStatus = syncResult
     } catch (e) {
-      pushToast({ message: `Push failed: ${String(e)}` , theme: "error" })
+      const errorMessage = String(e)
+      // Don't show toast for CORS/network errors
+      if (!errorMessage.includes('CORS') && 
+          !errorMessage.includes('NetworkError') && 
+          !errorMessage.includes('Failed to fetch')) {
+        pushToast({ message: `Push failed: ${errorMessage}` , theme: "error" })
+      }
     } finally {
       syncing = false
     }

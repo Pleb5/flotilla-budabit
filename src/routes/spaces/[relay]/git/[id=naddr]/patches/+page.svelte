@@ -335,7 +335,8 @@
                 statusEvents={$statusEventsByRoot?.get(patch.id) || []}
                 actorPubkey={$pubkey}
                 {onCommentCreated}
-                reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0} />
+                reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0} 
+              />
               {#if labelsByPatch.get(patch.id)?.length}
                 <div class="mt-2 flex flex-wrap gap-2 text-xs">
                   {#if patch.groups.Status.length}

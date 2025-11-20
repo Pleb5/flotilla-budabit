@@ -174,6 +174,17 @@
   async function updateRepo() {
     if (!repoClass || isRefreshing) return
 
+    // Validate repository state before attempting sync
+    if (!repoClass.key) {
+      console.warn("[updateRepo] Repository key not available, skipping sync")
+      return
+    }
+
+    if (!repoClass.workerManager?.isReady) {
+      console.warn("[updateRepo] WorkerManager not ready, skipping sync")
+      return
+    }
+
     isRefreshing = true
 
     try {
@@ -181,6 +192,51 @@
       const cloneUrls = repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         throw new Error("No clone URLs found for repository")
+      }
+
+      // Check if repository is cloned before attempting sync
+      try {
+        const isCloned = await repoClass.workerManager.isRepoCloned({
+          repoId: repoClass.key
+        })
+        
+        if (!isCloned) {
+          console.log("[updateRepo] Repository not cloned yet, initializing first...")
+          // Initialize the repository before syncing
+          const initResult = await repoClass.workerManager.smartInitializeRepo({
+            repoId: repoClass.key,
+            cloneUrls,
+            forceUpdate: false
+          })
+          
+          if (!initResult.success) {
+            // Handle CORS errors gracefully
+            const errorMessage = initResult.error || "Initialization failed"
+            if (initResult.corsError || 
+                errorMessage.includes('CORS') || 
+                errorMessage.includes('network restrictions') ||
+                errorMessage.includes('security policies')) {
+              console.warn("[updateRepo] Repository initialization failed due to CORS/network restrictions:", errorMessage)
+              // Don't show toast for CORS errors, just return silently
+              return
+            }
+            throw new Error(`Repository initialization failed: ${errorMessage}`)
+          }
+          
+          console.log("[updateRepo] Repository initialized successfully")
+        }
+      } catch (initError) {
+        console.warn("[updateRepo] Failed to check/initialize repository:", initError)
+        // Check if this is a CORS/network error and don't show toast
+        const errorMessage = initError instanceof Error ? initError.message : String(initError)
+        if (errorMessage.includes('CORS') || 
+            errorMessage.includes('NetworkError') || 
+            errorMessage.includes('network restrictions') ||
+            errorMessage.includes('security policies')) {
+          // Don't show toast for CORS errors
+          return
+        }
+        // Don't throw here, continue with sync attempt as it might still work
       }
 
       // Call syncWithRemote through the repo's worker manager
@@ -191,14 +247,36 @@
       })
 
       if (!result.success) {
-        throw new Error(result.error || "Sync failed")
+        // Check for specific error types that should be handled gracefully
+        const errorMessage = result.error || "Sync failed"
+        
+        if (errorMessage.includes("No branches found") || 
+            errorMessage.includes("Repository not cloned locally") ||
+            errorMessage.includes("CORS") ||
+            errorMessage.includes("NetworkError")) {
+          console.warn("[updateRepo] Sync failed with expected error:", errorMessage)
+          // Don't show toast for these common/expected errors
+          return
+        }
+        
+        throw new Error(errorMessage)
       }
+      
+      console.log("[updateRepo] Repository sync completed successfully")
     } catch (error) {
       console.error("Failed to refresh repository:", error)
-      pushToast({
-        message: `Failed to sync repository: ${error instanceof Error ? error.message : "Unknown error"}`,
-        theme: "error",
-      })
+      
+      // Only show toast for unexpected errors, not network/CORS issues
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      if (!errorMessage.includes("CORS") && 
+          !errorMessage.includes("NetworkError") && 
+          !errorMessage.includes("No branches found") &&
+          !errorMessage.includes("Repository not cloned")) {
+        pushToast({
+          message: `Failed to sync repository: ${errorMessage}`,
+          theme: "error",
+        })
+      }
     } finally {
       isRefreshing = false
     }
