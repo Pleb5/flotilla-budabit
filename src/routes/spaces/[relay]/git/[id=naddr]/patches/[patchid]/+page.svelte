@@ -703,20 +703,20 @@
   // Limit title to a maximum number of characters
   const getTitleDisplay = (title: string | undefined, maxLength: number = 80): string => {
     if (!title) return ""
-    
+
     if (title.length <= maxLength) {
       return title
     }
-    
+
     // Truncate and add ellipsis
     return title.substring(0, maxLength).trim() + "..."
   }
 
   const displayTitle = $derived(getTitleDisplay(patch?.title))
   const selectedPatchDisplayTitle = $derived(
-    selectedPatch?.title 
-      ? getTitleDisplay(selectedPatch.title) 
-      : `Patch ${selectedPatch?.id || ""}`
+    selectedPatch?.title
+      ? getTitleDisplay(selectedPatch.title)
+      : `Patch ${selectedPatch?.id || ""}`,
   )
 </script>
 
@@ -752,40 +752,41 @@
               </div>
             {/if}
 
-            <h1 
-              class="line-clamp-2 break-words text-lg md:text-2xl font-bold overflow-hidden"
-              title={patch?.title}
-            >
+            <h1
+              class="line-clamp-2 overflow-hidden break-words text-lg font-bold md:text-2xl"
+              title={patch?.title}>
               {displayTitle}
             </h1>
           </div>
 
           <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
-              <div class="git-tag bg-secondary w-fit">
-                {status?.status === "open"
-                  ? "Open"
-                  : status?.status === "applied"
-                    ? "Applied"
-                    : "Closed"}
-              </div>
-              <div class="text-xs sm:text-sm text-muted-foreground flex items-center flex-wrap gap-x-1">
-                <Profile pubkey={patch?.author.pubkey} hideDetails={true}></Profile>
-                <ProfileLink pubkey={patch?.author.pubkey} />
-                <span class="hidden sm:inline">•</span>
-                <span>{formatTimestamp(patch?.createdAt || "")}</span>
-              </div>
+            <div class="git-tag w-fit bg-secondary">
+              {status?.status === "open"
+                ? "Open"
+                : status?.status === "applied"
+                  ? "Applied"
+                  : "Closed"}
+            </div>
+            <div
+              class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground sm:text-sm">
+              <Profile pubkey={patch?.author.pubkey} hideDetails={true}></Profile>
+              <ProfileLink pubkey={patch?.author.pubkey} />
+              <span class="hidden sm:inline">•</span>
+              <span>{formatTimestamp(patch?.createdAt || "")}</span>
+            </div>
           </div>
         </div>
 
-        <div class="mb-6 prose prose-sm dark:prose-invert max-w-none text-muted-foreground markdown-content">
+        <div
+          class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
           {@html md.render(preprocessMarkdown(patch?.description || ""))}
         </div>
 
         <!-- Technical Metadata -->
         <div class="mb-6 rounded-lg border bg-muted/30">
           <button
-            class="flex w-full items-center justify-between p-4 text-left hover:bg-muted/50 transition-colors"
-            onclick={() => isTechnicalDetailsCollapsed = !isTechnicalDetailsCollapsed}
+            class="flex w-full items-center justify-between p-4 text-left transition-colors hover:bg-muted/50"
+            onclick={() => (isTechnicalDetailsCollapsed = !isTechnicalDetailsCollapsed)}
             aria-expanded={!isTechnicalDetailsCollapsed}
             aria-controls="technical-details-content">
             <h3 class="flex items-center gap-2 text-sm font-medium">
@@ -794,7 +795,7 @@
             </h3>
             <div class="flex items-center gap-2">
               <span class="text-xs text-muted-foreground">
-                {isTechnicalDetailsCollapsed ? 'Show' : 'Hide'} details
+                {isTechnicalDetailsCollapsed ? "Show" : "Hide"} details
               </span>
               {#if isTechnicalDetailsCollapsed}
                 <ChevronDown class="h-4 w-4 text-muted-foreground" />
@@ -803,7 +804,7 @@
               {/if}
             </div>
           </button>
-          
+
           <div
             id="technical-details-content"
             class="overflow-hidden transition-all duration-200 ease-in-out"
@@ -812,91 +813,91 @@
             class:opacity-100={!isTechnicalDetailsCollapsed}
             class:max-h-96={!isTechnicalDetailsCollapsed}>
             <div class="p-4 pt-0">
+              <div class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+                <!-- Commit Hash -->
+                {#if selectedPatch?.commitHash}
+                  <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span class="text-muted-foreground">Commit:</span>
+                    <div class="flex items-center gap-2">
+                      <code class="break-all rounded bg-background px-2 py-1 font-mono text-xs">
+                        {selectedPatch.commitHash.substring(0, 8)}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        class="h-6 w-6 flex-shrink-0"
+                        onclick={() =>
+                          copyToClipboard(selectedPatch?.commitHash || "", "Commit hash")}>
+                        <Copy class="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                {/if}
 
-          <div class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
-            <!-- Commit Hash -->
-            {#if selectedPatch?.commitHash}
-              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <span class="text-muted-foreground">Commit:</span>
-                <div class="flex items-center gap-2">
-                  <code class="rounded bg-background px-2 py-1 font-mono text-xs break-all">
-                    {selectedPatch.commitHash.substring(0, 8)}
+                <!-- Author vs Committer -->
+                {#if selectedPatch?.raw?.tags}
+                  {@const committerTag = selectedPatch.raw.tags.find(t => t[0] === "committer")}
+                  {#if committerTag && committerTag[1] !== selectedPatch?.author.name}
+                    <div class="flex items-center justify-between">
+                      <span class="text-muted-foreground">Committer:</span>
+                      <div class="flex items-center gap-2">
+                        <User class="h-3 w-3" />
+                        <span class="text-xs">{committerTag[1]}</span>
+                      </div>
+                    </div>
+                  {/if}
+                  {#if committerTag && committerTag[3]}
+                    <div class="flex items-center justify-between">
+                      <span class="text-muted-foreground">Committed:</span>
+                      <span class="text-xs">{formatTimestamp(committerTag[3])}</span>
+                    </div>
+                  {/if}
+                {/if}
+
+                <!-- PGP Signature -->
+                {#if selectedPatch?.raw?.tags?.find((t: PatchTag) => t[0] === "commit-pgp-sig")}
+                  <div class="flex items-center justify-between">
+                    <span class="text-muted-foreground">Signed:</span>
+                    <div class="flex items-center gap-2 text-green-600">
+                      <Shield class="h-3 w-3" />
+                      <span class="text-xs">PGP Verified</span>
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- Base Branch -->
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <span class="text-muted-foreground">Target Branch:</span>
+                  <code class="break-all rounded bg-background px-2 py-1 text-xs sm:break-normal">
+                    {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}
                   </code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="h-6 w-6 flex-shrink-0"
-                    onclick={() => copyToClipboard(selectedPatch?.commitHash || "", "Commit hash")}>
-                    <Copy class="h-3 w-3" />
-                  </Button>
                 </div>
-              </div>
-            {/if}
 
-            <!-- Author vs Committer -->
-            {#if selectedPatch?.raw?.tags}
-              {@const committerTag = selectedPatch.raw.tags.find(t => t[0] === "committer")}
-              {#if committerTag && committerTag[1] !== selectedPatch?.author.name}
+                <!-- Commit Count -->
                 <div class="flex items-center justify-between">
-                  <span class="text-muted-foreground">Committer:</span>
-                  <div class="flex items-center gap-2">
-                    <User class="h-3 w-3" />
-                    <span class="text-xs">{committerTag[1]}</span>
+                  <span class="text-muted-foreground">Commits:</span>
+                  <span class="text-xs font-medium">{selectedPatch?.commitCount || 1}</span>
+                </div>
+
+                <!-- Recipients/Reviewers -->
+                {#if selectedPatch?.raw?.tags && selectedPatch.raw.tags.filter(t => t[0] === "p").length > 0}
+                  {@const recipients = selectedPatch.raw.tags.filter(t => t[0] === "p")}
+                  <div class="col-span-full">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <span class="text-muted-foreground">Reviewers:</span>
+                      <div class="flex flex-wrap gap-1 sm:max-w-xs">
+                        {#each recipients.slice(0, 3) as recipient}
+                          <ProfileLink pubkey={recipient[1]} />
+                        {/each}
+                        {#if recipients.length > 3}
+                          <span class="text-xs text-muted-foreground"
+                            >+{recipients.length - 3} more</span>
+                        {/if}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              {/if}
-              {#if committerTag && committerTag[3]}
-                <div class="flex items-center justify-between">
-                  <span class="text-muted-foreground">Committed:</span>
-                  <span class="text-xs">{formatTimestamp(committerTag[3])}</span>
-                </div>
-              {/if}
-            {/if}
-
-            <!-- PGP Signature -->
-            {#if selectedPatch?.raw?.tags?.find((t: PatchTag) => t[0] === "commit-pgp-sig")}
-              <div class="flex items-center justify-between">
-                <span class="text-muted-foreground">Signed:</span>
-                <div class="flex items-center gap-2 text-green-600">
-                  <Shield class="h-3 w-3" />
-                  <span class="text-xs">PGP Verified</span>
-                </div>
+                {/if}
               </div>
-            {/if}
-
-            <!-- Base Branch -->
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <span class="text-muted-foreground">Target Branch:</span>
-              <code class="rounded bg-background px-2 py-1 text-xs break-all sm:break-normal">
-                {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}
-              </code>
-            </div>
-
-            <!-- Commit Count -->
-            <div class="flex items-center justify-between">
-              <span class="text-muted-foreground">Commits:</span>
-              <span class="text-xs font-medium">{selectedPatch?.commitCount || 1}</span>
-            </div>
-
-            <!-- Recipients/Reviewers -->
-            {#if selectedPatch?.raw?.tags && selectedPatch.raw.tags.filter(t => t[0] === "p").length > 0}
-              {@const recipients = selectedPatch.raw.tags.filter(t => t[0] === "p")}
-              <div class="col-span-full">
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <span class="text-muted-foreground">Reviewers:</span>
-                  <div class="flex flex-wrap gap-1 sm:max-w-xs">
-                    {#each recipients.slice(0, 3) as recipient}
-                      <ProfileLink pubkey={recipient[1]} />
-                    {/each}
-                    {#if recipients.length > 3}
-                      <span class="text-xs text-muted-foreground"
-                        >+{recipients.length - 3} more</span>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {/if}
-          </div>
             </div>
           </div>
         </div>
@@ -981,380 +982,386 @@
             </div>
           </div>
         {/if}
-      </div>
-    </div>
-  </div>
-{/if}
 
-{#if selectedPatch}
-  <div class="my-4 space-y-2">
-    <h3 class="text-base font-medium">Reviewers</h3>
-    {#if repoClass.maintainers.includes($pubkey!) || selectedPatch?.author.pubkey === $pubkey}
-      <PeoplePicker
-        selected={reviewerLabelEvents as LabelEvent[]}
-        placeholder="Search for reviewers..."
-        maxSelections={10}
-        showAvatars={true}
-        compact={false}
-        {getProfile}
-        {searchProfiles}
-        add={async (pubkey: string) => {
-          if (!selectedPatch) return
-          try {
-            const relays = (repoClass.relays || repoRelays || [])
-              .map((u: string) => normalizeRelayUrl(u))
-              .filter(Boolean)
-            postRoleLabel({
-              rootId: selectedPatch.id,
-              role: "reviewer",
-              pubkeys: [pubkey],
-              repoAddr: (repoClass as any)?.repoEvent?.id,
-              relays,
-            })
-            await load({
-              relays,
-              filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
-            })
-          } catch (err) {
-            console.error("[PatchDetail] Failed to add reviewer", err)
-          }
-        }}
-        onDeleteLabel={async (evt: LabelEvent) => {
-          if (!selectedPatch) return
-          try {
-            const relays = (repoClass.relays || repoRelays || [])
-              .map((u: string) => normalizeRelayUrl(u))
-              .filter(Boolean)
-            deleteRoleLabelEvent({event: evt as any, relays, protect: false})
-            await load({
-              relays,
-              filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
-            })
-          } catch (err) {
-            console.error("[PatchDetail] Failed to remove reviewer", err)
-          }
-        }} />
-    {:else if reviewers.length}
-      <div class="flex flex-wrap gap-2">
-        {#each reviewers as pk (pk)}
-          <ProfileLink pubkey={pk} />
-        {/each}
-      </div>
-    {:else}
-      <div class="text-sm text-muted-foreground">No reviewers yet.</div>
-    {/if}
-  </div>
-{/if}
-
-<!-- Patch Analysis Section -->
-<div class="mb-6">
-  <div class="mb-4 flex items-center justify-between">
-    <div class="flex items-center gap-2">
-      <h3 class="text-lg font-medium">Patch Analysis</h3>
-      <span class="rounded bg-muted px-2 py-1 text-sm text-muted-foreground">
-        Target: {repoClass.selectedBranch ||
-          patchSet[0]?.baseBranch ||
-          repoClass.mainBranch ||
-          "default"}
-      </span>
-    </div>
-    <div class="flex items-center gap-2">
-      {#if analysisTriggeredManually}
-        <span class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 text-muted-foreground">
-          Manual Analysis
-        </span>
-      {:else if mergeAnalysisResult}
-        <span class="rounded bg-green-100 px-2 py-1 text-xs text-green-800 text-muted-foreground">
-          Auto Analysis
-        </span>
-      {/if}
-      <Button
-        variant="outline"
-        size="sm"
-        onclick={() => analyzeMerge()}
-        disabled={isAnalyzingMerge}
-        class="gap-2">
-        {#if isAnalyzingMerge}
-          <Loader2 class="h-4 w-4 animate-spin" />
-          Analyzing...
-        {:else}
-          <Shield class="h-4 w-4" />
-          Analyze Patch Set
+        {#if selectedPatch}
+          <div class="my-4 space-y-2">
+            <h3 class="text-base font-medium">Reviewers</h3>
+            {#if repoClass.maintainers.includes($pubkey!) || selectedPatch?.author.pubkey === $pubkey}
+              <PeoplePicker
+                selected={reviewerLabelEvents as LabelEvent[]}
+                placeholder="Search for reviewers..."
+                maxSelections={10}
+                showAvatars={true}
+                compact={false}
+                {getProfile}
+                {searchProfiles}
+                add={async (pubkey: string) => {
+                  if (!selectedPatch) return
+                  try {
+                    const relays = (repoClass.relays || repoRelays || [])
+                      .map((u: string) => normalizeRelayUrl(u))
+                      .filter(Boolean)
+                    postRoleLabel({
+                      rootId: selectedPatch.id,
+                      role: "reviewer",
+                      pubkeys: [pubkey],
+                      repoAddr: (repoClass as any)?.repoEvent?.id,
+                      relays,
+                    })
+                    await load({
+                      relays,
+                      filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
+                    })
+                  } catch (err) {
+                    console.error("[PatchDetail] Failed to add reviewer", err)
+                  }
+                }}
+                onDeleteLabel={async (evt: LabelEvent) => {
+                  if (!selectedPatch) return
+                  try {
+                    const relays = (repoClass.relays || repoRelays || [])
+                      .map((u: string) => normalizeRelayUrl(u))
+                      .filter(Boolean)
+                    deleteRoleLabelEvent({event: evt as any, relays, protect: false})
+                    await load({
+                      relays,
+                      filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
+                    })
+                  } catch (err) {
+                    console.error("[PatchDetail] Failed to remove reviewer", err)
+                  }
+                }} />
+            {:else if reviewers.length}
+              <div class="flex flex-wrap gap-2">
+                {#each reviewers as pk (pk)}
+                  <ProfileLink pubkey={pk} />
+                {/each}
+              </div>
+            {:else}
+              <div class="text-sm text-muted-foreground">No reviewers yet.</div>
+            {/if}
+          </div>
         {/if}
-      </Button>
-    </div>
-  </div>
 
-  <!-- Merge Status Analysis -->
-  <div class="mb-4">
-    <MergeStatus
-      result={mergeAnalysisResult}
-      loading={isAnalyzingMerge}
-      targetBranch={repoClass.selectedBranch ||
-        patchSet[0]?.baseBranch ||
-        repoClass.mainBranch ||
-        ""} />
-  </div>
-  {#if mergeAnalysisResult}
-    <div class="mb-4">
-      <MergeAnalyzer
-        analysis={{
-          similarity: mergeAnalysisResult.hasConflicts ? 0.7 : 0.95,
-          autoMergeable: mergeAnalysisResult.canMerge,
-          affectedFiles: patchSet.flatMap((p: Patch) =>
-            (p.diff || []).map((f: any) => f.to || f.from || f.file || "unknown"),
-          ),
-          conflictCount: (mergeAnalysisResult.conflictFiles || []).length,
-          errorMessage: mergeAnalysisResult.errorMessage,
-          conflictDetails: mergeAnalysisResult.conflictDetails,
-          analysis: mergeAnalysisResult.analysis,
-        }}
-        patch={patchSet[0] as any}
-        analyzing={isAnalyzingMerge}
-        onAnalyze={() => analyzeMerge()} />
-    </div>
-  {/if}
-</div>
-
-<div class="git-separator"></div>
-
-<!-- Unified Patch Viewer Component -->
-<PatchViewer
-  selectedPatch={selectedPatch || null}
-  {patchSet}
-  onNavigatePrevious={navigateToPreviousPatch}
-  onNavigateNext={navigateToNextPatch}
-  showNavigation={true}
-  showFileStats={true}
-  showPatchInfo={true}
-  comments={$threadComments as CommentEvent[]}
-  rootEvent={selectedPatch?.raw}
-  onComment={handleCommentSubmit}
-  currentPubkey={$pubkey}
-  diffViewerProps={{
-    showLineNumbers: true,
-    expandAll: false,
-  }} />
-{#if repoClass.maintainers.includes($pubkey!)}
-  <!-- GitHub-style Merge Section -->
-  <div class="rounded-lg border bg-card p-6">
-    <div class="mb-4 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <GitMerge class="h-5 w-5 text-primary" />
-        <div>
-          <h3 class="font-semibold">Merge this patch</h3>
-          <p class="text-sm text-muted-foreground">
-            Apply the changes from this patch to the {repoClass.selectedBranch ||
-              selectedPatch?.baseBranch ||
-              repoClass.mainBranch ||
-              "default"} branch
-          </p>
-        </div>
-      </div>
-
-      <!-- Merge Status Indicator -->
-      {#if isMerging}
-        <div class="flex items-center gap-2 text-blue-600">
-          <Loader2 class="h-4 w-4 animate-spin" />
-          <span class="text-sm font-medium">Merging...</span>
-        </div>
-      {:else if mergeSuccess}
-        <div class="flex items-center gap-2 text-green-600">
-          <CheckCircle class="h-4 w-4" />
-          <span class="text-sm font-medium">Merged</span>
-        </div>
-      {:else if mergeError}
-        <div class="flex items-center gap-2 text-red-600">
-          <AlertCircle class="h-4 w-4" />
-          <span class="text-sm font-medium">Failed</span>
-        </div>
-      {/if}
-    </div>
-
-    <!-- Merge Progress Bar -->
-    {#if isMerging}
-      <div class="mb-4">
-        <div class="mb-2 flex items-center justify-between text-sm">
-          <span class="text-muted-foreground">{mergeStep}</span>
-          <span class="text-muted-foreground">{mergeProgress}%</span>
-        </div>
-        <div class="h-2 w-full rounded-full bg-muted">
-          <div
-            class="h-2 rounded-full bg-primary transition-all duration-300 ease-out"
-            style="width: {mergeProgress}%">
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- Merge Error Display -->
-    {#if mergeError}
-      <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
-        <div class="flex items-start gap-2">
-          <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600" />
-          <div>
-            <p class="text-sm font-medium text-red-800">Merge failed</p>
-            <p class="mt-1 text-sm text-red-700">{mergeError}</p>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- Merge Success Display -->
-    {#if mergeSuccess && mergeResult}
-      <div class="mb-4 rounded-lg border border-green-200 bg-green-50 p-3">
-        <div class="flex items-start gap-2">
-          <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
-          <div class="flex-1">
-            <p class="text-sm font-medium text-green-800">Patch merged successfully!</p>
-            {#if mergeResult.mergeCommitOid}
-              <p class="mt-1 text-sm text-green-700">
-                Merge commit: <code class="rounded bg-green-100 px-1"
-                  >{mergeResult.mergeCommitOid.slice(0, 8)}</code>
-              </p>
-            {/if}
-            {#if mergeResult.pushedRemotes && mergeResult.pushedRemotes.length > 0}
-              <p class="mt-1 text-sm text-green-700">
-                Pushed to: {mergeResult.pushedRemotes.join(", ")}
-              </p>
-            {/if}
-            {#if mergeResult.skippedRemotes && mergeResult.skippedRemotes.length > 0}
-              <div class="mt-2">
-                <p class="mb-1 text-sm font-medium text-yellow-700">
-                  ⚠️ Failed to push to {mergeResult.skippedRemotes.length} remote{mergeResult
-                    .skippedRemotes.length > 1
-                    ? "s"
-                    : ""}:
-                </p>
-                {#if mergeResult.pushErrors && mergeResult.pushErrors.length > 0}
-                  <!-- Detailed error information -->
-                  <div class="space-y-2">
-                    {#each mergeResult.pushErrors as pushError}
-                      <div class="rounded border border-yellow-200 bg-yellow-50 p-2">
-                        <div class="flex items-start gap-2">
-                          <div class="flex-1">
-                            <p class="text-sm font-medium text-yellow-800">
-                              {pushError.remote} ({pushError.url})
-                            </p>
-                            <p class="mt-1 text-sm text-yellow-700">
-                              <span class="font-medium">Error:</span>
-                              {pushError.error}
-                            </p>
-                            {#if pushError.code && pushError.code !== "UNKNOWN"}
-                              <p class="mt-1 text-sm text-yellow-600">
-                                <span class="font-medium">Code:</span>
-                                {pushError.code}
-                              </p>
-                            {/if}
-                          </div>
-                        </div>
-                      </div>
-                    {/each}
-                  </div>
+        <!-- Patch Analysis Section -->
+        <div class="mb-6">
+          <div class="mb-4 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <h3 class="text-lg font-medium">Patch Analysis</h3>
+              <span class="rounded bg-muted px-2 py-1 text-sm text-muted-foreground">
+                Target: {repoClass.selectedBranch ||
+                  patchSet[0]?.baseBranch ||
+                  repoClass.mainBranch ||
+                  "default"}
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              {#if analysisTriggeredManually}
+                <span
+                  class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 text-muted-foreground">
+                  Manual Analysis
+                </span>
+              {:else if mergeAnalysisResult}
+                <span
+                  class="rounded bg-green-100 px-2 py-1 text-xs text-green-800 text-muted-foreground">
+                  Auto Analysis
+                </span>
+              {/if}
+              <Button
+                variant="outline"
+                size="sm"
+                onclick={() => analyzeMerge()}
+                disabled={isAnalyzingMerge}
+                class="gap-2">
+                {#if isAnalyzingMerge}
+                  <Loader2 class="h-4 w-4 animate-spin" />
+                  Analyzing...
                 {:else}
-                  <!-- Fallback to simple list if no detailed errors -->
-                  <p class="text-sm text-yellow-700">
-                    {mergeResult.skippedRemotes.join(", ")}
-                  </p>
+                  <Shield class="h-4 w-4" />
+                  Analyze Patch Set
                 {/if}
+              </Button>
+            </div>
+          </div>
+
+          <!-- Merge Status Analysis -->
+          <div class="mb-4">
+            <MergeStatus
+              result={mergeAnalysisResult}
+              loading={isAnalyzingMerge}
+              targetBranch={repoClass.selectedBranch ||
+                patchSet[0]?.baseBranch ||
+                repoClass.mainBranch ||
+                ""} />
+          </div>
+          {#if mergeAnalysisResult}
+            <div class="mb-4">
+              <MergeAnalyzer
+                analysis={{
+                  similarity: mergeAnalysisResult.hasConflicts ? 0.7 : 0.95,
+                  autoMergeable: mergeAnalysisResult.canMerge,
+                  affectedFiles: patchSet.flatMap((p: Patch) =>
+                    (p.diff || []).map((f: any) => f.to || f.from || f.file || "unknown"),
+                  ),
+                  conflictCount: (mergeAnalysisResult.conflictFiles || []).length,
+                  errorMessage: mergeAnalysisResult.errorMessage,
+                  conflictDetails: mergeAnalysisResult.conflictDetails,
+                  analysis: mergeAnalysisResult.analysis,
+                }}
+                patch={patchSet[0] as any}
+                analyzing={isAnalyzingMerge}
+                onAnalyze={() => analyzeMerge()} />
+            </div>
+          {/if}
+        </div>
+
+        <div class="git-separator"></div>
+
+        <!-- Unified Patch Viewer Component -->
+        <PatchViewer
+          selectedPatch={selectedPatch || null}
+          {patchSet}
+          onNavigatePrevious={navigateToPreviousPatch}
+          onNavigateNext={navigateToNextPatch}
+          showNavigation={true}
+          showFileStats={true}
+          showPatchInfo={true}
+          comments={$threadComments as CommentEvent[]}
+          rootEvent={selectedPatch?.raw}
+          onComment={handleCommentSubmit}
+          currentPubkey={$pubkey}
+          diffViewerProps={{
+            showLineNumbers: true,
+            expandAll: false,
+          }} />
+        {#if repoClass.maintainers.includes($pubkey!)}
+          <!-- GitHub-style Merge Section -->
+          <div class="rounded-lg border bg-card p-6">
+            <div class="mb-4 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <GitMerge class="h-5 w-5 text-primary" />
+                <div>
+                  <h3 class="font-semibold">Merge this patch</h3>
+                  <p class="text-sm text-muted-foreground">
+                    Apply the changes from this patch to the {repoClass.selectedBranch ||
+                      selectedPatch?.baseBranch ||
+                      repoClass.mainBranch ||
+                      "default"} branch
+                  </p>
+                </div>
+              </div>
+
+              <!-- Merge Status Indicator -->
+              {#if isMerging}
+                <div class="flex items-center gap-2 text-blue-600">
+                  <Loader2 class="h-4 w-4 animate-spin" />
+                  <span class="text-sm font-medium">Merging...</span>
+                </div>
+              {:else if mergeSuccess}
+                <div class="flex items-center gap-2 text-green-600">
+                  <CheckCircle class="h-4 w-4" />
+                  <span class="text-sm font-medium">Merged</span>
+                </div>
+              {:else if mergeError}
+                <div class="flex items-center gap-2 text-red-600">
+                  <AlertCircle class="h-4 w-4" />
+                  <span class="text-sm font-medium">Failed</span>
+                </div>
+              {/if}
+            </div>
+
+            <!-- Merge Progress Bar -->
+            {#if isMerging}
+              <div class="mb-4">
+                <div class="mb-2 flex items-center justify-between text-sm">
+                  <span class="text-muted-foreground">{mergeStep}</span>
+                  <span class="text-muted-foreground">{mergeProgress}%</span>
+                </div>
+                <div class="h-2 w-full rounded-full bg-muted">
+                  <div
+                    class="h-2 rounded-full bg-primary transition-all duration-300 ease-out"
+                    style="width: {mergeProgress}%">
+                  </div>
+                </div>
               </div>
             {/if}
-          </div>
-        </div>
-      </div>
-    {/if}
 
-    <!-- Merge Action Button -->
-    <div class="flex justify-end">
-      <Button
-        onclick={applyPatch}
-        variant="default"
-        disabled={isMerging || mergeSuccess}
-        class="min-w-[120px]">
-        {#if isMerging}
-          <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-          Merging...
-        {:else if mergeSuccess}
-          <CheckCircle class="mr-2 h-4 w-4" />
-          Merged
-        {:else}
-          <GitMerge class="mr-2 h-4 w-4" />
-          Merge Patch Set
+            <!-- Merge Error Display -->
+            {#if mergeError}
+              <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
+                <div class="flex items-start gap-2">
+                  <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600" />
+                  <div>
+                    <p class="text-sm font-medium text-red-800">Merge failed</p>
+                    <p class="mt-1 text-sm text-red-700">{mergeError}</p>
+                  </div>
+                </div>
+              </div>
+            {/if}
+
+            <!-- Merge Success Display -->
+            {#if mergeSuccess && mergeResult}
+              <div class="mb-4 rounded-lg border border-green-200 bg-green-50 p-3">
+                <div class="flex items-start gap-2">
+                  <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                  <div class="flex-1">
+                    <p class="text-sm font-medium text-green-800">Patch merged successfully!</p>
+                    {#if mergeResult.mergeCommitOid}
+                      <p class="mt-1 text-sm text-green-700">
+                        Merge commit: <code class="rounded bg-green-100 px-1"
+                          >{mergeResult.mergeCommitOid.slice(0, 8)}</code>
+                      </p>
+                    {/if}
+                    {#if mergeResult.pushedRemotes && mergeResult.pushedRemotes.length > 0}
+                      <p class="mt-1 text-sm text-green-700">
+                        Pushed to: {mergeResult.pushedRemotes.join(", ")}
+                      </p>
+                    {/if}
+                    {#if mergeResult.skippedRemotes && mergeResult.skippedRemotes.length > 0}
+                      <div class="mt-2">
+                        <p class="mb-1 text-sm font-medium text-yellow-700">
+                          ⚠️ Failed to push to {mergeResult.skippedRemotes.length} remote{mergeResult
+                            .skippedRemotes.length > 1
+                            ? "s"
+                            : ""}:
+                        </p>
+                        {#if mergeResult.pushErrors && mergeResult.pushErrors.length > 0}
+                          <!-- Detailed error information -->
+                          <div class="space-y-2">
+                            {#each mergeResult.pushErrors as pushError}
+                              <div class="rounded border border-yellow-200 bg-yellow-50 p-2">
+                                <div class="flex items-start gap-2">
+                                  <div class="flex-1">
+                                    <p class="text-sm font-medium text-yellow-800">
+                                      {pushError.remote} ({pushError.url})
+                                    </p>
+                                    <p class="mt-1 text-sm text-yellow-700">
+                                      <span class="font-medium">Error:</span>
+                                      {pushError.error}
+                                    </p>
+                                    {#if pushError.code && pushError.code !== "UNKNOWN"}
+                                      <p class="mt-1 text-sm text-yellow-600">
+                                        <span class="font-medium">Code:</span>
+                                        {pushError.code}
+                                      </p>
+                                    {/if}
+                                  </div>
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                        {:else}
+                          <!-- Fallback to simple list if no detailed errors -->
+                          <p class="text-sm text-yellow-700">
+                            {mergeResult.skippedRemotes.join(", ")}
+                          </p>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/if}
+
+            <!-- Merge Action Button -->
+            <div class="flex justify-end">
+              <Button
+                onclick={applyPatch}
+                variant="default"
+                disabled={isMerging || mergeSuccess}
+                class="min-w-[120px]">
+                {#if isMerging}
+                  <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                  Merging...
+                {:else if mergeSuccess}
+                  <CheckCircle class="mr-2 h-4 w-4" />
+                  Merged
+                {:else}
+                  <GitMerge class="mr-2 h-4 w-4" />
+                  Merge Patch Set
+                {/if}
+              </Button>
+            </div>
+          </div>
         {/if}
-      </Button>
-    </div>
-  </div>
-{/if}
-<!-- Merge Confirmation Dialog -->
-{#if showMergeDialog}
-  <div
-    class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
-    transition:slideAndFade>
-    <div class="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-      <div class="mb-4 flex items-center gap-3">
-        <GitBranch class="h-5 w-5 text-primary" />
-        <h3 class="text-lg font-semibold">Confirm Merge</h3>
-      </div>
-
-      <div class="mb-6 space-y-4">
-        <div>
-          <p class="mb-2 text-sm text-muted-foreground">
-            This will merge the entire patch set ({patchSet.length} patch{patchSet.length !== 1
-              ? "es"
-              : ""}) into
-            <code class="rounded bg-muted px-1"
-              >{patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</code> and push to all remotes.
-          </p>
-
-          <div class="rounded-lg bg-muted/30 p-3 text-sm">
-            <div class="mb-1 font-medium">Patch Set Details:</div>
-            <div>Patches: {patchSet.length}</div>
-            <div>Total Commits: {patchSet.flatMap((p: Patch) => p.commits || []).length}</div>
-            <div>Target: {patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</div>
-            {#if patchSet.length > 1}
-              <div class="mt-2 text-xs text-muted-foreground">
-                Includes all patches in the set, not just the currently selected one
+        <!-- Merge Confirmation Dialog -->
+        {#if showMergeDialog}
+          <div
+            class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
+            transition:slideAndFade>
+            <div class="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
+              <div class="mb-4 flex items-center gap-3">
+                <GitBranch class="h-5 w-5 text-primary" />
+                <h3 class="text-lg font-semibold">Confirm Merge</h3>
               </div>
-            {/if}
+
+              <div class="mb-6 space-y-4">
+                <div>
+                  <p class="mb-2 text-sm text-muted-foreground">
+                    This will merge the entire patch set ({patchSet.length} patch{patchSet.length !==
+                    1
+                      ? "es"
+                      : ""}) into
+                    <code class="rounded bg-muted px-1"
+                      >{patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</code> and push to all
+                    remotes.
+                  </p>
+
+                  <div class="rounded-lg bg-muted/30 p-3 text-sm">
+                    <div class="mb-1 font-medium">Patch Set Details:</div>
+                    <div>Patches: {patchSet.length}</div>
+                    <div>
+                      Total Commits: {patchSet.flatMap((p: Patch) => p.commits || []).length}
+                    </div>
+                    <div>Target: {patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</div>
+                    {#if patchSet.length > 1}
+                      <div class="mt-2 text-xs text-muted-foreground">
+                        Includes all patches in the set, not just the currently selected one
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+
+                <div>
+                  <label for="merge-message" class="mb-2 block text-sm font-medium">
+                    Merge commit message:
+                  </label>
+                  <textarea
+                    id="merge-message"
+                    bind:value={mergeCommitMessage}
+                    class="w-full resize-none rounded-md border p-2 text-sm"
+                    rows="3"
+                    placeholder="Enter merge commit message..."></textarea>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3">
+                <Button variant="outline" onclick={cancelMerge}>Cancel</Button>
+                <Button variant="default" onclick={executeMerge}>
+                  <GitMerge class="mr-2 h-4 w-4" />
+                  Confirm Merge
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
+        {/if}
 
-        <div>
-          <label for="merge-message" class="mb-2 block text-sm font-medium">
-            Merge commit message:
-          </label>
-          <textarea
-            id="merge-message"
-            bind:value={mergeCommitMessage}
-            class="w-full resize-none rounded-md border p-2 text-sm"
-            rows="3"
-            placeholder="Enter merge commit message..."></textarea>
-        </div>
-      </div>
+        <div class="git-separator my-6"></div>
 
-      <div class="flex justify-end gap-3">
-        <Button variant="outline" onclick={cancelMerge}>Cancel</Button>
-        <Button variant="default" onclick={executeMerge}>
-          <GitMerge class="mr-2 h-4 w-4" />
-          Confirm Merge
-        </Button>
+        <div class="space-y-4">
+          <h2 class="flex items-center gap-2 text-lg font-medium">
+            <MessageSquare class="h-5 w-5" />
+            Discussion ({$threadComments?.length})
+          </h2>
+
+          <IssueThread
+            issueId={selectedPatch?.id ?? ""}
+            issueKind={GIT_PATCH.toString() as "1617"}
+            comments={$threadComments as CommentEvent[]}
+            currentCommenter={$pubkey!}
+            {onCommentCreated} />
+        </div>
       </div>
     </div>
   </div>
 {/if}
-
-<div class="git-separator my-6"></div>
-
-<div class="space-y-4">
-  <h2 class="flex items-center gap-2 text-lg font-medium">
-    <MessageSquare class="h-5 w-5" />
-    Discussion ({$threadComments?.length})
-  </h2>
-
-  <IssueThread
-    issueId={selectedPatch?.id ?? ""}
-    issueKind={GIT_PATCH.toString() as "1617"}
-    comments={$threadComments as CommentEvent[]}
-    currentCommenter={$pubkey!}
-    {onCommentCreated} />
-</div>
