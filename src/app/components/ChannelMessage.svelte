@@ -8,7 +8,7 @@
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Content from "@lib/budabit/components/Content.svelte"
+  import Markdown from "@lib/components/Markdown.svelte"
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
@@ -79,7 +79,7 @@
         </div>
       {/if}
       <div class="text-sm">
-        <Content minimalQuote {event} {url} />
+        <Markdown content={event.content} {event} {url} />
         {#if thunk}
           <ThunkFailure showToastOnRetry {thunk} class="mt-2" />
         {/if}

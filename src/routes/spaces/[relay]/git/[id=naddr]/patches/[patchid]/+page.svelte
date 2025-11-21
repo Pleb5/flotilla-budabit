@@ -1274,7 +1274,7 @@
           showNavigation={true}
           showFileStats={true}
           showPatchInfo={true}
-          comments={$threadComments as CommentEvent[]}
+          comments={diffComments}
           rootEvent={selectedPatch?.raw}
           onComment={handleCommentSubmit}
           currentPubkey={$pubkey}

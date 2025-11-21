@@ -13,6 +13,7 @@
   import {pushToast} from "@src/app/util/toast"
   import EventActions from "@src/app/components/EventActions.svelte"
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
+  import Markdown from "@src/lib/components/Markdown.svelte"
   import {pushModal} from "@app/util/modal"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
@@ -618,7 +619,8 @@
         ProfileLink: ProfileLink as typeof import("@nostr-git/ui").ProfileLink,
         EventActions: EventActions as typeof import("@nostr-git/ui").EventActions,
         ReactionSummary: ReactionSummary as typeof import("@nostr-git/ui").ReactionSummary,
-      }}>
+        Markdown: Markdown as any,
+      } as any}>
       {@render children()}
     </ConfigProvider>
   {/if}

@@ -116,7 +116,7 @@
   }
 
   .markdown :global(img) {
-    @apply my-4 h-auto max-w-full;
+    @apply my-4 h-auto max-w-full rounded-lg;
   }
 
   /* Profile mentions - ensure proper vertical alignment */
@@ -126,7 +126,7 @@
 </style>
 
 <script lang="ts">
-  import {marked, type Token, type Tokens, type TokenizerAndRendererExtension} from "marked"
+  import {Marked, type Token, type Tokens, type TokenizerAndRendererExtension} from "marked"
   import DOMPurify from "dompurify"
   import {nip19, nip05} from "nostr-tools"
   import hljs from "highlight.js"
@@ -137,13 +137,29 @@
   import {normalizeRelayUrl} from "@welshman/util"
   import Profile from "@app/components/Profile.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
+  import ContentLinkBlock from "@app/components/ContentLinkBlock.svelte"
+  import ContentQuote from "@app/components/ContentQuote.svelte"
+  import type {TrustedEvent} from "@welshman/util"
 
   interface Props {
     content?: string
     relays?: string[]
+    event?: TrustedEvent
+    url?: string
+    minimalQuote?: boolean
+    hideMediaAtDepth?: number
+    depth?: number
   }
 
-  let {content = "", relays}: Props = $props()
+  let {
+    content = "",
+    relays,
+    event,
+    url,
+    minimalQuote = false,
+    hideMediaAtDepth = 1,
+    depth = 0,
+  }: Props = $props()
 
   let sanitizedContent = $state("")
   let containerElement: HTMLDivElement | undefined = $state()
@@ -163,7 +179,6 @@
 
   // Helper function to shorten URLs
   function shortenUrl(url: string, text?: string): string {
-    // If custom text is provided and it's not the same as URL, use it
     if (text && text !== url) {
       return text
     }
@@ -176,7 +191,6 @@
       if (pathname && pathname !== "/") {
         const pathParts = pathname.split("/").filter(Boolean)
         if (pathParts.length > 0) {
-          // Show first part of path, truncate if too long
           const firstPath = pathParts[0]
           if (firstPath.length > 20) {
             return `${domain}/${firstPath.substring(0, 15)}...`
@@ -186,7 +200,6 @@
       }
       return domain
     } catch (e) {
-      // Fallback for invalid URLs
       return url.length > 40 ? `${url.substring(0, 20)}...${url.substring(url.length - 15)}` : url
     }
   }
@@ -194,7 +207,6 @@
   // Helper function to shorten Nostr URIs
   function shortenNostrUri(tagType: string, content: string): string {
     const fullUri = `${tagType}${content}`
-    // Show first 8 and last 8 characters
     return `${fullUri.slice(0, 8)}:${fullUri.slice(-8)}`
   }
 
@@ -216,7 +228,6 @@
   // Get profile for a pubkey
   const getPub = async (token: Token) => {
     if (token.type === "nostr") {
-      console.log("[markdown walkTokens getPub]", token)
       const fullId = token.fullId
       if (!fullId) return
 
@@ -224,9 +235,6 @@
         const result: any = nip19.decode(fullId)
         let pubkey: string | undefined
 
-        console.log("[markdown walkTokens getPub result]", result, pubkey)
-
-        // Narrow types properly
         if (result.type === "nprofile") {
           pubkey = result.data.pubkey
         } else if (result.type === "npub") {
@@ -243,8 +251,6 @@
           await loadProfile(pubkey, defaultRelays)
           profile = $profilesByPubkey.get(pubkey)
         }
-
-        console.log("[markdown walkTokens getPub profile]", profile)
 
         if (profile) {
           token.userName = profile.name || profile.display_name || null
@@ -296,8 +302,6 @@
       const match = nostrRegex.exec(src)
       if (match) {
         const [fullMatch, prefix, fullId] = match
-        console.log("[markdown tokenizer match]", match)
-        // fullId is the complete npub1..., note1..., etc.
         return {
           type: "nostr",
           raw: fullMatch,
@@ -316,47 +320,69 @@
 
       try {
         const decoded = nip19.decode(fullId)
+        const decodedType = decoded.type as string
 
-        if (decoded.type === "nevent" || decoded.type === "note") {
-          url = `https://coracle.social/notes/${fullId}`
-          external = true
-        } else if (decoded.type === "nprofile") {
-          external = true
-          url = `https://coracle.social/people/${fullId}`
-
-          // For npub and nprofile, create a placeholder that we'll replace with a Svelte component
-          if (pubkey) {
-            return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
+        // For note, nevent and naddr, use ContentQuote if event is provided
+        if (event && decodedType === "note") {
+          const noteId = decoded.data as unknown as string
+          if (noteId) {
+            return `<span class="markdown-quote-placeholder" data-type="note" data-id="${noteId}" data-relays="[]" data-event-id="${event.id}" data-url="${url || ""}" data-minimal="${minimalQuote}" data-depth="${depth}" data-hide-media="${hideMediaAtDepth}"></span>`
           }
-        } else if (decoded.type === "npub") {
-          url = `/people/${fullId}`
+        }
 
-          // For npub and nprofile, create a placeholder that we'll replace with a Svelte component
-          if (pubkey) {
-            return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
+        if (event && decodedType === "nevent") {
+          const eventData = decoded.data as any
+          const eventId = eventData?.id
+          if (eventId) {
+            const relaysAttr = JSON.stringify(eventData.relays || [])
+            return `<span class="markdown-quote-placeholder" data-type="nevent" data-id="${eventId}" data-relays="${relaysAttr.replace(/"/g, "&quot;")}" data-event-id="${event.id}" data-url="${url || ""}" data-minimal="${minimalQuote}" data-depth="${depth}" data-hide-media="${hideMediaAtDepth}"></span>`
           }
-        } else if (decoded.type === "naddr") {
-          const data = decoded.data
-          // For git repos, use internal routing
-          if (data.kind === 30617) {
-            url = `/${fullId}`
-          } else {
+        }
+
+        if (event && decodedType === "naddr") {
+          const addrData = decoded.data as any
+          if (addrData?.kind && addrData?.pubkey && addrData?.identifier !== undefined) {
+            const relaysAttr = JSON.stringify(addrData.relays || [])
+            return `<span class="markdown-quote-placeholder" data-type="naddr" data-kind="${addrData.kind}" data-pubkey="${addrData.pubkey}" data-identifier="${addrData.identifier}" data-relays="${relaysAttr.replace(/"/g, "&quot;")}" data-event-id="${event.id}" data-url="${url || ""}" data-minimal="${minimalQuote}" data-depth="${depth}" data-hide-media="${hideMediaAtDepth}"></span>`
+          }
+        }
+
+        // Handle other Nostr entity types
+        switch (decodedType) {
+          case "note":
+            url = `https://coracle.social/notes/${fullId}`
+            external = true
+            break
+          case "nevent":
+            url = `https://coracle.social/notes/${fullId}`
+            external = true
+            break
+          case "nprofile":
+            external = true
+            url = `https://coracle.social/people/${fullId}`
+            if (pubkey) {
+              return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
+            }
+            break
+          case "npub":
+            url = `/people/${fullId}`
+            if (pubkey) {
+              return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
+            }
+            break
+          case "naddr":
             external = true
             url = `https://coracle.social/${fullId}`
-          }
+            break
         }
       } catch (err) {
         console.error("Failed to decode in renderer:", err, fullId)
-        // If decoding fails, use default URL
         url = `/${fullId}`
       }
 
-      // For other types, render as simple link
       const linkText = userName ? `@${userName}` : shortenNostrUri("", fullId)
       const externalAttributes = external ? 'target="_blank" rel="noopener noreferrer"' : ""
-      return `<a href="${url}" ${externalAttributes} 
-                    class="link" title="${fullId}">${linkText}
-                    </a>`
+      return `<a href="${url}" ${externalAttributes} class="link" title="${fullId}">${linkText}</a>`
     },
   }
 
@@ -384,7 +410,6 @@
     },
     renderer(token: Tokens.Generic) {
       if (token.isNip05) {
-        // Render as Nostr link - create placeholder for Svelte component
         const {pubkey} = token
         if (pubkey) {
           return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
@@ -396,14 +421,17 @@
     },
   }
 
-  marked.use({
+  // Create a new marked instance for this component
+  const markedInstance = new Marked({
     extensions: [nostrTokenizer, emailTokenizer],
     async: true,
     breaks: true,
     walkTokens: getPub,
     renderer: {
-      image() {
-        return ""
+      image(token) {
+        const {href, title, text} = token
+        const alt = text || title || ""
+        return `<img src="${href}" alt="${alt}" class="my-4 h-auto max-w-full rounded-lg" />`
       },
       link(token) {
         const {href, text} = token
@@ -418,7 +446,6 @@
           try {
             const result: any = nip19.decode(fullId)
 
-            // For npub and nprofile, create placeholder for Profile component
             if (result.type === "nprofile" || result.type === "npub") {
               let pubkey = ""
               if (result.type === "nprofile") {
@@ -432,32 +459,69 @@
               }
             }
 
-            // For other nostr types, create regular links
-            let url = `/${fullId}`
+            // For note, nevent and naddr, use ContentQuote if event is provided
+            if (
+              event &&
+              (result.type === "note" || result.type === "nevent" || result.type === "naddr")
+            ) {
+              if (result.type === "note") {
+                const noteId = result.data as string
+                if (noteId) {
+                  return `<span class="markdown-quote-placeholder" data-type="note" data-id="${noteId}" data-relays="[]" data-event-id="${event.id}" data-url="${url || ""}" data-minimal="${minimalQuote}" data-depth="${depth}" data-hide-media="${hideMediaAtDepth}"></span>`
+                }
+              } else if (result.type === "nevent") {
+                const eventData = result.data as any
+                const eventId = eventData?.id
+                if (eventId) {
+                  const relaysAttr = JSON.stringify(eventData.relays || [])
+                  return `<span class="markdown-quote-placeholder" data-type="nevent" data-id="${eventId}" data-relays="${relaysAttr.replace(/"/g, "&quot;")}" data-event-id="${event.id}" data-url="${url || ""}" data-minimal="${minimalQuote}" data-depth="${depth}" data-hide-media="${hideMediaAtDepth}"></span>`
+                }
+              } else if (result.type === "naddr") {
+                const addrData = result.data as any
+                if (addrData?.kind && addrData?.pubkey && addrData?.identifier !== undefined) {
+                  const relaysAttr = JSON.stringify(addrData.relays || [])
+                  return `<span class="markdown-quote-placeholder" data-type="naddr" data-kind="${addrData.kind}" data-pubkey="${addrData.pubkey}" data-identifier="${addrData.identifier}" data-relays="${relaysAttr.replace(/"/g, "&quot;")}" data-event-id="${event.id}" data-url="${url || ""}" data-minimal="${minimalQuote}" data-depth="${depth}" data-hide-media="${hideMediaAtDepth}"></span>`
+                }
+              }
+            }
+
+            // Fallback to regular link if no event or not nevent/naddr
+            let linkUrl = `/${fullId}`
             let external = false
 
             if (result.type === "nevent" || result.type === "note") {
-              url = `https://coracle.social/notes/${fullId}`
+              linkUrl = `https://coracle.social/notes/${fullId}`
               external = true
             } else if (result.type === "naddr") {
-              const data = result.data
+              const data = result.data as any
               if (data.kind === 30617) {
-                url = `/${fullId}`
+                linkUrl = `/${fullId}`
               } else {
                 external = true
-                url = `https://coracle.social/${fullId}`
+                linkUrl = `https://coracle.social/${fullId}`
               }
             }
 
             const externalAttributes = external ? 'target="_blank" rel="noopener noreferrer"' : ""
             const linkText = text || fullId
-            return `<a href="${url}" ${externalAttributes} class="link" title="${fullId}">${linkText}</a>`
+            return `<a href="${linkUrl}" ${externalAttributes} class="link" title="${fullId}">${linkText}</a>`
           } catch (err) {
             console.error("Failed to decode nostr link:", err, fullId)
           }
         }
 
         // Regular URL handling
+        // Check if this should be rendered as a block (media or standalone URL)
+        const isMediaUrl = /\.(jpe?g|png|gif|webp|svg|bmp|ico|mov|webm|mp4)(\?.*)?$/i.test(href)
+        // Standalone URL: when link text is the same as URL, or very similar (user just pasted URL)
+        const isStandaloneUrl = !text || text === href || text.trim() === href.trim()
+
+        // Use ContentLinkBlock for media URLs or standalone URLs (when event is provided)
+        if (event && (isMediaUrl || isStandaloneUrl)) {
+          return `<span class="markdown-link-block-placeholder" data-url="${href}" data-event-id="${event.id}"></span>`
+        }
+
+        // For inline links, render as regular link
         const displayText = shortenUrl(href, text)
         return `<a href="${href}" class="link" title="${href}" target="_blank" rel="noopener noreferrer">${displayText}</a>`
       },
@@ -481,9 +545,7 @@
           language: validLang,
         }).value
 
-        return `
-                    <pre class="hljs"><code class="language-${validLang}">${highlightedCode}</code></pre>
-                `
+        return `<pre class="hljs"><code class="language-${validLang}">${highlightedCode}</code></pre>`
       },
     },
   })
@@ -491,9 +553,23 @@
   $effect(() => {
     if (content) {
       ;(async () => {
-        const parsed = await marked(content)
+        const parsed = await markedInstance.parse(content)
         sanitizedContent = DOMPurify.sanitize(parsed, {
-          ADD_ATTR: ["target", "title", "data-pubkey", "data-url"],
+          ADD_ATTR: [
+            "target",
+            "title",
+            "data-pubkey",
+            "data-url",
+            "data-event-id",
+            "data-type",
+            "data-id",
+            "data-relays",
+            "data-kind",
+            "data-identifier",
+            "data-minimal",
+            "data-depth",
+            "data-hide-media",
+          ],
           ADD_TAGS: ["span"],
         })
       })()
@@ -519,45 +595,41 @@
       setTimeout(() => {
         if (!containerElement) return
 
-        const placeholders = containerElement.querySelectorAll(".nostr-profile-placeholder")
-        placeholders.forEach(placeholder => {
+        // Mount profile placeholders
+        const profilePlaceholders = containerElement.querySelectorAll(".nostr-profile-placeholder")
+        profilePlaceholders.forEach(placeholder => {
           const pubkey = placeholder.getAttribute("data-pubkey")
-          const url = placeholder.getAttribute("data-url")
+          const profileUrl = placeholder.getAttribute("data-url")
 
           if (pubkey) {
             try {
-              // Create a wrapper div to hold both components
               const wrapper = document.createElement("div")
               wrapper.className = "inline-flex items-center gap-1 align-middle"
               wrapper.style.verticalAlign = "middle"
 
-              // Create containers for each component
               const avatarContainer = document.createElement("span")
               const linkContainer = document.createElement("span")
 
               wrapper.appendChild(avatarContainer)
               wrapper.appendChild(linkContainer)
 
-              // Replace placeholder with wrapper
               placeholder.replaceWith(wrapper)
 
-              // Mount Profile component (avatar only, hideDetails=true)
               const profileComponent = mount(Profile, {
                 target: avatarContainer,
                 props: {
                   pubkey,
-                  url: url || undefined,
+                  url: profileUrl || undefined,
                   avatarSize: 6,
                   hideDetails: true,
                 },
               })
 
-              // Mount ProfileLink component (name only)
               const linkComponent = mount(ProfileLink, {
                 target: linkContainer,
                 props: {
                   pubkey,
-                  url: url || undefined,
+                  url: profileUrl || undefined,
                 },
               })
 
@@ -570,6 +642,130 @@
             }
           }
         })
+
+        // Mount ContentLinkBlock for media/standalone links
+        if (event) {
+          const linkBlockPlaceholders = containerElement.querySelectorAll(
+            ".markdown-link-block-placeholder",
+          )
+          linkBlockPlaceholders.forEach(placeholder => {
+            const linkUrl = placeholder.getAttribute("data-url")
+            const eventId = placeholder.getAttribute("data-event-id")
+
+            if (linkUrl && eventId && event.id === eventId) {
+              try {
+                const container = document.createElement("div")
+                placeholder.replaceWith(container)
+
+                const linkBlockComponent = mount(ContentLinkBlock, {
+                  target: container,
+                  props: {
+                    value: {url: new URL(linkUrl)},
+                    event,
+                  },
+                })
+                mountedComponents.push({target: container, component: linkBlockComponent})
+              } catch (e) {
+                console.error("Failed to mount ContentLinkBlock:", e)
+                // Fallback to regular link
+                const link = document.createElement("a")
+                link.href = linkUrl
+                link.textContent = linkUrl
+                link.className = "link"
+                link.target = "_blank"
+                link.rel = "noopener noreferrer"
+                placeholder.replaceWith(link)
+              }
+            }
+          })
+
+          // Mount ContentQuote for note, nevent and naddr
+          const quotePlaceholders = containerElement.querySelectorAll(".markdown-quote-placeholder")
+          quotePlaceholders.forEach(placeholder => {
+            const quoteType = placeholder.getAttribute("data-type")
+            const eventId = placeholder.getAttribute("data-event-id")
+            const quoteUrl = placeholder.getAttribute("data-url") || url
+            const minimal = placeholder.getAttribute("data-minimal") === "true"
+            const quoteDepth = parseInt(placeholder.getAttribute("data-depth") || "0")
+            const hideMedia = parseInt(placeholder.getAttribute("data-hide-media") || "1")
+
+            if (eventId && event.id === eventId) {
+              try {
+                let quoteValue: any = null
+
+                if (quoteType === "note" || quoteType === "nevent") {
+                  const id = placeholder.getAttribute("data-id")
+                  if (!id) {
+                    console.error(`Missing id for ${quoteType} quote`)
+                    return
+                  }
+                  const relaysAttr = placeholder.getAttribute("data-relays") || "[]"
+                  let relays: string[] = []
+                  try {
+                    relays = JSON.parse(relaysAttr.replace(/&quot;/g, '"'))
+                  } catch (e) {
+                    console.error(`Failed to parse relays for ${quoteType}:`, e)
+                    relays = []
+                  }
+                  quoteValue = {id, relays}
+                } else if (quoteType === "naddr") {
+                  const kindAttr = placeholder.getAttribute("data-kind")
+                  const pubkeyAttr = placeholder.getAttribute("data-pubkey")
+                  const identifierAttr = placeholder.getAttribute("data-identifier")
+
+                  if (!kindAttr || !pubkeyAttr || identifierAttr === null) {
+                    console.error("Missing required fields for naddr quote", {
+                      kindAttr,
+                      pubkeyAttr,
+                      identifierAttr,
+                    })
+                    return
+                  }
+
+                  const kind = parseInt(kindAttr)
+                  if (isNaN(kind)) {
+                    console.error("Invalid kind for naddr quote:", kindAttr)
+                    return
+                  }
+
+                  const relaysAttr = placeholder.getAttribute("data-relays") || "[]"
+                  let relays: string[] = []
+                  try {
+                    relays = JSON.parse(relaysAttr.replace(/&quot;/g, '"'))
+                  } catch (e) {
+                    console.error("Failed to parse relays for naddr:", e)
+                    relays = []
+                  }
+                  quoteValue = {kind, pubkey: pubkeyAttr, identifier: identifierAttr, relays}
+                }
+
+                if (quoteValue) {
+                  const container = document.createElement("div")
+                  placeholder.replaceWith(container)
+
+                  const quoteComponent = mount(ContentQuote, {
+                    target: container,
+                    props: {
+                      value: quoteValue,
+                      event,
+                      url: quoteUrl || undefined,
+                      minimal,
+                      depth: quoteDepth,
+                      hideMediaAtDepth: hideMedia,
+                    },
+                  })
+                  mountedComponents.push({target: container, component: quoteComponent})
+                }
+              } catch (e) {
+                console.error("Failed to mount ContentQuote:", e, {
+                  quoteType,
+                  eventId,
+                  placeholder: placeholder.outerHTML,
+                })
+              }
+            }
+          })
+        }
       }, 0)
     }
 
