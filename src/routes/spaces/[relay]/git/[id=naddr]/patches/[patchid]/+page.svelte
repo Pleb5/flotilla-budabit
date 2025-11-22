@@ -39,9 +39,11 @@
   import {
     getTags,
     parseStatusEvent,
+    parsePullRequestEvent,
     type CommentEvent,
     type StatusEvent,
     type PatchEvent,
+    type PullRequestEvent,
     GIT_STATUS_APPLIED,
   } from "@nostr-git/shared-types"
   import {createStatusEvent} from "@nostr-git/shared-types"
@@ -61,7 +63,7 @@
   import {preprocessMarkdown} from "@lib/util"
 
   const {data}: LayoutProps = $props()
-  const {repoClass, repoRelays} = data
+  const {repoClass, repoRelays, pullRequests} = data as any
 
   // Profile functions for PeoplePicker
   const getProfile = async (pubkey: string) => {
@@ -123,6 +125,40 @@
 
   const patchEvent = repoClass.patches.find(p => p.id === patchId)
   const patch = patchEvent ? parseGitPatchFromEvent(patchEvent) : undefined
+
+  const prEvent = $derived.by(() =>
+    ($pullRequests || []).find((pr: PullRequestEvent) => pr.id === patchId)
+  )
+  const pr = $derived.by(() => (prEvent ? parsePullRequestEvent(prEvent as any) : undefined))
+
+  // PR-specific status and comments (read-only view)
+  const getPrStatusFilter = () => ({
+    kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+    "#e": [prEvent?.id ?? ""],
+  })
+
+  const prStatusEvents = $derived.by(() => {
+    if (!prEvent) return undefined
+    return deriveEvents(repository, {filters: [getPrStatusFilter()]})
+  })
+
+  const prStatus = $derived.by(() => {
+    if (!prEvent || !$prStatusEvents) return undefined
+    const events = $prStatusEvents as any[]
+    if (!events || events.length === 0) return undefined
+    const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
+    return latest ? parseStatusEvent(latest as StatusEvent) : undefined
+  })
+
+  const prThreadComments = $derived.by(() => {
+    if (!prEvent) return undefined
+    const filters: Filter[] = [{kinds: [COMMENT], "#E": [prEvent.id]}]
+    const relays = (repoClass.relays || [])
+      .map((u: string) => normalizeRelayUrl(u))
+      .filter(Boolean)
+    load({relays: relays as string[], filters})
+    return deriveEvents(repository, {filters})
+  })
 
   console.log("patch", patch)
 
@@ -721,8 +757,74 @@
 </script>
 
 <svelte:head>
-  <title>{repoClass.name} - {patch?.title}</title>
+  <title>{repoClass.name} - {patch?.title || pr?.subject || "Patch"}</title>
 </svelte:head>
+
+{#if !patch && pr}
+  <div class="z-10 items-center justify-between py-4 backdrop-blur">
+    <div>
+      <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <div class="mb-4 flex flex-col items-start justify-between gap-2">
+          <div class="flex items-start gap-4">
+            <div class="mt-1">
+              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
+                <GitCommit class="h-5 w-5 text-amber-500" />
+              </div>
+            </div>
+
+            <h1
+              class="line-clamp-2 overflow-hidden break-words text-lg font-bold md:text-2xl"
+              title={pr?.subject || "Untitled"}>
+              {pr?.subject || "Untitled"}
+            </h1>
+          </div>
+
+          <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
+            <div class="git-tag w-fit bg-secondary">
+              {#if prStatus?.status === "open"}
+                Open
+              {:else if prStatus?.status === "applied"}
+                Applied
+              {:else if prStatus?.status === "closed"}
+                Closed
+              {:else}
+                Status unknown
+              {/if}
+            </div>
+            <div
+              class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground sm:text-sm">
+              <Profile pubkey={prEvent?.pubkey} hideDetails={true}></Profile>
+              <ProfileLink pubkey={prEvent?.pubkey} />
+              <span class="hidden sm:inline">•</span>
+              <span>{formatTimestamp(pr?.createdAt || "")}</span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
+          {@html md.render(preprocessMarkdown(pr?.content || ""))}
+        </div>
+
+        <div class="space-y-4">
+          <h2 class="flex items-center gap-2 text-lg font-medium">
+            <MessageSquare class="h-5 w-5" />
+            Discussion ({$prThreadComments?.length || 0})
+          </h2>
+
+          {#if $prThreadComments}
+            <IssueThread
+              issueId={prEvent?.id || ""}
+              issueKind={"1618"}
+              comments={$prThreadComments as CommentEvent[]}
+              currentCommenter={$pubkey!}
+              {onCommentCreated} />
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if patch}
   <div class="z-10 items-center justify-between py-4 backdrop-blur">

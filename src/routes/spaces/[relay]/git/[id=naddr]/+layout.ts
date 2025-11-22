@@ -5,10 +5,12 @@ import {
   type PatchEvent,
   type RepoAnnouncementEvent,
   type RepoStateEvent,
+  type PullRequestEvent,
 } from "@nostr-git/shared-types"
 import {
   GIT_REPO_ANNOUNCEMENT,
   GIT_REPO_STATE,
+  GIT_PULL_REQUEST,
   normalizeRelayUrl,
 } from "@nostr-git/shared-types"
 import {GIT_ISSUE, GIT_PATCH, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE, getTagValue} from "@welshman/util"
@@ -159,6 +161,11 @@ export const load: LayoutLoad = async ({params}) => {
     "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
   }
 
+  const pullRequestFilters = {
+    kinds: [GIT_PULL_REQUEST],
+    "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+  }
+
   const statusFilters = {
     kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
     "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
@@ -166,7 +173,7 @@ export const load: LayoutLoad = async ({params}) => {
   // Load issues and patches
   await load({
     relays: relayListFromUrl as string[],
-    filters: [issueFilters, patchFilters, statusFilters],
+    filters: [issueFilters, patchFilters, pullRequestFilters, statusFilters],
   })
 
   // Create derived stores that will include all issues/patches
@@ -183,6 +190,13 @@ export const load: LayoutLoad = async ({params}) => {
       filters: [patchFilters],
     }),
     events => (events || []) as PatchEvent[],
+  )
+
+  const pullRequests: Readable<PullRequestEvent[]> = derived(
+    deriveEvents(repository, {
+      filters: [pullRequestFilters],
+    }),
+    events => (events || []) as PullRequestEvent[],
   )
 
   const statusEvents: Readable<any[]> = derived(
@@ -226,6 +240,7 @@ export const load: LayoutLoad = async ({params}) => {
     repoClass,
     repoRelays: bestRelayList,
     statusEventsByRoot,
+    pullRequests,
     url,
     repoId,
     ...params,

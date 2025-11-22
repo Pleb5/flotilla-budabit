@@ -9,12 +9,17 @@ import {
   GIT_STATUS_DRAFT,
   GIT_STATUS_OPEN,
 } from "@welshman/util"
-import {isCommentEvent, type CommentEvent, type PatchEvent} from "@nostr-git/shared-types"
+import {
+  GIT_PULL_REQUEST,
+  isCommentEvent,
+  type CommentEvent,
+  type PatchEvent,
+} from "@nostr-git/shared-types"
 import {derived} from "svelte/store"
 import type { PageLoad } from "./$types"
 
 export const load: PageLoad = async ({ parent }) => {
-  const {repoClass} = await parent()
+  const {repoClass, pullRequests} = await parent()
   const {deriveEvents} = await import("@welshman/store")
   const {repository} = await import("@welshman/app")
   const {load} = await import("@welshman/net")
@@ -39,9 +44,14 @@ export const load: PageLoad = async ({ parent }) => {
     "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
   }
 
+  const pullRequestFilter = {
+    kinds: [GIT_PULL_REQUEST],
+    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
+  }
+
   await load({
     relays: repoClass.relays,
-    filters: [commentFilter, statusEventFilter, patchFilter],
+    filters: [commentFilter, statusEventFilter, patchFilter, pullRequestFilter],
   })
 
   const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
@@ -74,6 +84,7 @@ export const load: PageLoad = async ({ parent }) => {
     statusEvents,
     statusEventsByRoot,
     patchFilter,
+    pullRequestFilter,
     uniqueAuthors,
   }
 }

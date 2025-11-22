@@ -20,9 +20,11 @@
     getTags,
     type CommentEvent,
     type PatchEvent,
+    type PullRequestEvent,
     type StatusEvent,
   } from "@nostr-git/shared-types"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
+  import {parsePullRequestEvent} from "@nostr-git/shared-types"
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
   import {postComment} from "@lib/budabit/commands.js"
@@ -30,7 +32,7 @@
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   
   const {data} = $props()
-  const {repoClass, comments, statusEventsByRoot, patchFilter, repoRelays, uniqueAuthors} = data
+  const {repoClass, comments, statusEventsByRoot, patchFilter, pullRequestFilter, repoRelays, uniqueAuthors, pullRequests} = data
 
   // Filter and sort options
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
@@ -100,7 +102,9 @@
   const currentPatchStateFor = (rootId: string): "open" | "draft" | "closed" | "applied" => {
     try {
       const events = ($statusEventsByRoot?.get(rootId) || []) as StatusEvent[]
-      const rootAuthor = repoClass.patches.find((p: any) => p.id === rootId)?.pubkey
+      const rootAuthor =
+        repoClass.patches.find((p: any) => p.id === rootId)?.pubkey ||
+        ($pullRequests || []).find((pr: any) => pr.id === rootId)?.pubkey
       const auth = events.filter(e => e.pubkey === rootAuthor || patchMaintainerSet.has(e.pubkey))
       if (auth.length === 0) return "open"
       const latest = [...auth].sort((a, b) => b.created_at - a.created_at)[0]
@@ -136,6 +140,7 @@
 
           return {
             ...patch,
+            type: "patch" as const,
             patches,
             status,
             parsedPatch,
@@ -145,6 +150,35 @@
             groups: labelGroupsFor(patch.id),
           }
         })
+
+      // Merge in PR roots
+      const prEvents = $pullRequests || []
+      const prItems = prEvents.map((pr: PullRequestEvent) => {
+        const parsedPR: any = parsePullRequestEvent(pr)
+        const commentEvents = $comments?.filter((comment: CommentEvent) => {
+          return getTags(comment, "E").find((tag: string[]) => tag[1] === pr.id)
+        })
+        const status = { kind: kindFromState(statusData.stateById[pr.id]) } as any
+        return {
+          ...pr,
+          type: "pr" as const,
+          patches: [],
+          status,
+          parsedPatch: {
+            title: parsedPR.subject || parsedPR.title || "(no title)",
+            description: parsedPR.description || parsedPR.content || "",
+            baseBranch: parsedPR.branchName || parsedPR.baseBranch,
+            commitCount: 0,
+            createdAt: pr.created_at * 1000,
+            commitHash: parsedPR.tipCommit || parsedPR.commitId,
+          },
+          comments: commentEvents,
+          commitCount: 0,
+          groups: {Status: [], Type: [], Area: [], Tags: [], Other: []},
+        }
+      })
+
+      filteredPatches = [...filteredPatches, ...prItems]
 
       if (statusFilter !== "all") {
         filteredPatches = filteredPatches.filter(patch => {
@@ -200,8 +234,8 @@
           makeFeed({
             element,
             relays: repoClass.relays,
-            feedFilters: [patchFilter],
-            subscriptionFilters: [patchFilter],
+            feedFilters: [patchFilter, pullRequestFilter],
+            subscriptionFilters: [patchFilter, pullRequestFilter],
             initialEvents: patchList,
             onExhausted: () => {
               loading = false
