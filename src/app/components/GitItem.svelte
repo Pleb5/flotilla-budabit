@@ -20,13 +20,26 @@
 
   const name = event.tags.find(nthEq(0, "name"))?.[1]
   const description = event.tags.find(nthEq(0, "description"))?.[1]
-  
+
+  // Validate that a string is a valid hex pubkey (exactly 64 hex characters)
+  const isValidPubkey = (pubkey: string | undefined | null): boolean => {
+    if (!pubkey || typeof pubkey !== 'string') return false;
+    return /^[0-9a-f]{64}$/i.test(pubkey);
+  }
+
   // Get maintainers from the event, or fall back to the event author
   const maintainersTag = event.tags.find(nthEq(0, "maintainers"))
-  const maintainers = maintainersTag ? maintainersTag.slice(1) : [event.pubkey]
+  const maintainers = maintainersTag 
+    ? maintainersTag.slice(1).filter((pk: string) => isValidPubkey(pk))
+    : []
   
-  // Create a modified event with the first maintainer as the pubkey for display
-  const displayEvent = {...event, pubkey: maintainers[0]}
+  // Use first valid maintainer, or fall back to event author if valid
+  const displayPubkey = maintainers.length > 0 && isValidPubkey(maintainers[0])
+    ? maintainers[0]
+    : event.pubkey
+  
+  // Create a modified event with the validated pubkey for display
+  const displayEvent = displayPubkey ? {...event, pubkey: displayPubkey} : event
 </script>
 
 <NoteCard event={displayEvent} class="card2 sm:card2-sm bg-alt">
