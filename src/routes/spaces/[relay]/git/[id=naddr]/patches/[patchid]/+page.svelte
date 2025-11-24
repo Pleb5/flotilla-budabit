@@ -5,11 +5,8 @@
     Check,
     CheckCircle,
     ChevronDown,
-    ChevronLeft,
-    ChevronRight,
     ChevronUp,
     Copy,
-    FileCode,
     GitBranch,
     GitCommit,
     GitMerge,
@@ -21,7 +18,7 @@
   } from "@lucide/svelte"
   import {Button, Profile, MergeStatus, toast, Status} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
-  import {DiffViewer, IssueThread, MergeAnalyzer, PatchViewer} from "@nostr-git/ui"
+  import {IssueThread, MergeAnalyzer, PatchViewer} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
   import markdownit from "markdown-it"
   import {deriveEvents} from "@welshman/store"
@@ -123,7 +120,7 @@
 
   const patchId = $page.params.patchid
 
-  const patchEvent = repoClass.patches.find(p => p.id === patchId)
+  const patchEvent = repoClass.patches.find((p: any) => p.id === patchId)
   const patch = patchEvent ? parseGitPatchFromEvent(patchEvent) : undefined
 
   const prEvent = $derived.by(() =>
@@ -169,7 +166,7 @@
     if (replyTags.length === 0) break
 
     const parentId = replyTags[0][1]
-    const parentPatch = repoClass.patches.find(p => p.id === parentId)
+    const parentPatch = repoClass.patches.find((p: PatchEvent) => p.id === parentId)
     if (!parentPatch) break
 
     rootPatchId = parentId
@@ -177,7 +174,7 @@
   }
 
   const patchSet = repoClass.patches
-    .filter((p): p is PatchEvent => {
+    .filter((p: PatchEvent & { id: string }): p is PatchEvent => {
       if (p.id === patchId) return true
       const directReplyToThis = getTags(p, "e").some(tag => tag[1] === patchId)
       if (directReplyToThis) return true
@@ -205,9 +202,9 @@
       }
       return false
     })
-    .sort((a, b) => a.created_at - b.created_at)
-    .sort((a, b) => (a.id === rootPatchId ? -1 : 1))
-    .map(p => parseGitPatchFromEvent(p))
+    .sort((a: PatchEvent, b: PatchEvent) => a.created_at - b.created_at)
+    .sort((a: PatchEvent, b: PatchEvent) => (a.id === rootPatchId ? -1 : 1))
+    .map((p: PatchEvent) => parseGitPatchFromEvent(p))
 
   let selectedPatch = $state(patch)
   let mergeAnalysisResult: MergeAnalysisResult | null = $state(null)
@@ -262,7 +259,7 @@
     )
 
     // Resolve the PatchEvent corresponding to the first patch in the set
-    const firstPatchEvent = repoClass.patches.find(p => p.id === firstPatch?.id)
+    const firstPatchEvent = repoClass.patches.find((p: PatchEvent) => p.id === firstPatch?.id)
     if (!firstPatchEvent) {
       console.warn(
         `[analyzeMerge] Could not find PatchEvent for patch ${firstPatch?.id.slice(0, 8)}`,

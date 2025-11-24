@@ -118,7 +118,7 @@
     } catch { return "open" }
   }
 
-  const patchList = $derived.by(() => {
+  const patchList = $derived.by((): any[] => {
     if (repoClass.patches && $comments) {
       // First get all root patches
       let filteredPatches = repoClass.patches
@@ -178,7 +178,8 @@
         }
       })
 
-      filteredPatches = [...filteredPatches, ...prItems]
+      // Merge PR items into the unified list; allow heterogeneous rows at runtime
+      filteredPatches = [...filteredPatches, ...(prItems as any[])]
 
       if (statusFilter !== "all") {
         filteredPatches = filteredPatches.filter(patch => {
