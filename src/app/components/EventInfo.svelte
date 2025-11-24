@@ -3,7 +3,7 @@
   import {Router} from "@welshman/router"
   import {LOCALE, secondsToDate} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {displayRelayUrl} from "@welshman/util"
+  import {displayRelayUrl, isReplaceable, Address} from "@welshman/util"
   import FileText from "@assets/icons/file-text.svg?dataurl"
   import Copy from "@assets/icons/copy.svg?dataurl"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
@@ -22,11 +22,14 @@
   const {url, event}: Props = $props()
 
   const relays = url ? [url] : Router.get().Event(event).getUrls()
-  const nevent1 = nip19.neventEncode({...event, relays})
+  const nostrURI = $derived(isReplaceable(event) 
+    ? Address.fromEvent(event).toNaddr()
+    : nip19.neventEncode({...event, relays})
+  )
   const seenOn = $trackerStore.getRelays(event.id)
   const npub1 = nip19.npubEncode(event.pubkey)
   const json = JSON.stringify(event, null, 2)
-  const copyLink = () => clip(nevent1)
+  const copyLink = () => clip(nostrURI)
   const copyPubkey = () => clip(npub1)
   const copyJson = () => clip(json)
 
@@ -60,7 +63,7 @@
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
         <Icon icon={FileText} />
-        <input type="text" class="ellipsize min-w-0 grow" value={nevent1} />
+        <input type="text" class="ellipsize min-w-0 grow" value={nostrURI} />
         <Button onclick={copyLink} class="flex items-center">
           <Icon icon={Copy} />
         </Button>

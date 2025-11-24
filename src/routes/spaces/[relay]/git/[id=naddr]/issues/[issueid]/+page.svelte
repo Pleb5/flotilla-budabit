@@ -28,6 +28,9 @@
   import {getContext, onMount} from "svelte"
   import {postComment, postStatus, postLabel, postRoleLabel} from "@lib/budabit"
   import { PeoplePicker } from "@nostr-git/ui"
+  import { createLabelEvent, type LabelEvent } from "@nostr-git/shared-types"
+  import { publishDelete } from "@app/core/commands"
+  import { ROLE_NS } from "@lib/budabit/labels"
   import {
     REPO_RELAYS_KEY,
     deriveEffectiveLabels,
@@ -53,6 +56,19 @@
 
   // Filter helper used when refreshing labels after publishing a new one
   const getLabelFilter = (): Filter => ({kinds: [1985], "#e": [issue?.id ?? ""]})
+
+  // NIP-32 role label events for this issue (assignees etc)
+  const roleLabelEvents = $derived.by(() => deriveEvents(repository, {filters: [getLabelFilter()]}))
+  const assigneeLabelEvents = $derived.by(() => {
+    const events = ($roleLabelEvents || []) as any[]
+    return events.filter(
+      (ev: any) =>
+        ev?.kind === 1985 &&
+        Array.isArray(ev.tags) &&
+        ev.tags.some((t: string[]) => t[0] === "L" && t[1] === ROLE_NS) &&
+        ev.tags.some((t: string[]) => t[0] === "l" && t[1] === "assignee" && t[2] === ROLE_NS),
+    ) as unknown as LabelEvent[]
+  })
 
   // Repo EUC lookup via announcements (30617) and derived maintainers
   const repoPubkey = (repoClass as any).repoEvent?.pubkey as string | undefined
@@ -101,22 +117,14 @@
         pubkey: $pubkey,
         relays,
       })
-      const labelEvent: any = {
-        kind: 1985,
+      const labelEvent = createLabelEvent({
         content: "",
-        // Reference the issue and include both 'L' (canonical) and 'l' (compat) label tags
-        tags: [
-          ["e", issue.id],
-          ["L", value],
-          ["l", value],
-        ],
-        created_at: Math.floor(Date.now() / 1000),
-        pubkey: $pubkey,
-        id: "",
-        sig: "",
-      }
+        e: [issue.id],
+        namespaces: [value],
+        labels: [{ value }],
+      }) as any
       console.debug("[IssueDetail] addLabel event payload", labelEvent)
-      postLabel(labelEvent, relays)
+      postLabel(labelEvent as any, relays)
       console.debug("[IssueDetail] addLabel published")
       // Refresh labels from relays to reflect the change sooner
       console.debug("[IssueDetail] addLabel refreshing", {filter: getLabelFilter()})
@@ -169,10 +177,7 @@
     Array.from((roleAssignments?.get()?.assignees || new Set()) as Set<string>)
   )
 
-  let assigneesList = $state<string[]>([]);
-  $effect(() => {
-    assigneesList = assignees;
-  });
+  // PeoplePicker will render from LabelEvent[] directly
 
 
   // Resolve effective status using precedence rules (maintainers > author > others; kind; recency)
@@ -315,20 +320,20 @@
 </svelte:head>
 
 {#if issue}
-  <div class="z-10 sticky top-0 items-center justify-between py-4 backdrop-blur" transition:slide>
-    <Card class="git-card transition-colors">
-      <div class="flex items-start gap-4">
+  <div class="z-10 sticky top-0 items-center justify-between py-2 sm:py-4 backdrop-blur px-2 sm:px-0" transition:slide>
+    <Card class="git-card transition-colors p-4 sm:p-6">
+      <div class="flex items-start gap-2 sm:gap-4">
         {#if statusIcon}
           {@const {icon: Icon, color} = statusIcon()}
-          <div class="mt-1">
-            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
-              <Icon class={`h-6 w-6 ${color}`} />
+          <div class="mt-1 flex-shrink-0">
+            <div class="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-amber-500/10">
+              <Icon class={`h-4 w-4 sm:h-6 sm:w-6 ${color}`} />
             </div>
           </div>
         {/if}
-        <div>
-          <h1 class="break-words text-2xl font-semibold">{issue.subject || "Issue"}</h1>
-          <div class="mt-2 flex items-center gap-2">
+        <div class="min-w-0 flex-1">
+          <h1 class="break-words text-lg sm:text-xl font-semibold">{issue.subject || "Issue"}</h1>
+          <div class="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
             <Status
               repo={repoClass}
               rootId={issue.id}
@@ -338,19 +343,21 @@
               actorPubkey={$pubkey}
               compact={true}
               ProfileComponent={ProfileLink} />
-            <span class="text-sm text-muted-foreground">
+            <span class="text-xs sm:text-sm text-muted-foreground flex flex-wrap items-center gap-1">
               <ProfileLink pubkey={issue?.author.pubkey}></ProfileLink>
-              opened this issue • {new Date(issue?.createdAt).toLocaleString()}
+              <span class="hidden sm:inline">opened this issue •</span>
+              <span class="sm:hidden">opened</span>
+              <span class="text-xs break-all sm:break-normal">{new Date(issue?.createdAt).toLocaleString()}</span>
             </span>
           </div>
         </div>
       </div>
 
-      <div class="prose-sm dark:prose-invert prose mt-8 max-w-none truncate">
+      <div class="prose-sm dark:prose-invert prose mt-6 sm:mt-8 max-w-none break-words [&_*]:break-words [&_pre]:overflow-x-auto [&_code]:break-words">
         {@html markdown.render(issue.content)}
       </div>
 
-      <div class="git-separator my-6"></div>
+      <div class="git-separator my-4 sm:my-6"></div>
 
       <!-- Labels Section -->
       <div class="my-4 space-y-2">
@@ -362,19 +369,19 @@
           </div>
         {/if}
         {#if isMaintainerOrAuthor}
-          <div class="flex items-center gap-2">
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full max-w-full">
             <input
-              class="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              class="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-2 sm:px-2 sm:py-1 text-sm min-h-[44px] sm:min-h-0"
               placeholder="Add tag..."
               bind:value={newLabel}
               onkeydown={e => {
                 if (e.key === "Enter") addLabel()
               }} />
             <button
-              class="rounded-md border border-border px-3 py-1 text-sm"
+              class="flex-shrink-0 rounded-md border border-border px-3 py-2 sm:px-3 sm:py-1 text-sm min-h-[44px] sm:min-h-0"
               onclick={addLabel}
               disabled={addingLabel || !newLabel.trim()}>
-              {addingLabel ? "Adding..." : "Add Tag"}
+              <span class="whitespace-nowrap">{addingLabel ? "Adding..." : "Add Tag"}</span>
             </button>
           </div>
         {/if}
@@ -385,7 +392,7 @@
         <h3 class="text-base font-medium">Assignees</h3>
         {#if isMaintainerOrAuthor}
           <PeoplePicker
-            bind:selected={assigneesList}
+            selected={assigneeLabelEvents}
             placeholder="Search for assignees..."
             maxSelections={10}
             showAvatars={true}
@@ -398,7 +405,7 @@
                 const relays = (repoClass.relays || repoRelays || []).map((u: string) =>
                   normalizeRelayUrl(u)
                 );
-                await postRoleLabel({
+                postRoleLabel({
                   rootId: issue.id,
                   role: "assignee",
                   pubkeys: [pubkey],
@@ -413,26 +420,16 @@
                 console.error("[IssueDetail] Failed to add assignee", err);
               }
             }}
-            remove={async (pubkey: string) => {
-              if (!issue) return;
+            onDeleteLabel={async (evt: LabelEvent) => {
+              if (!issue) return
               try {
-                const relays = (repoClass.relays || repoRelays || []).map((u: string) =>
-                  normalizeRelayUrl(u)
-                );
-                // Note: postRoleLabel with empty pubkeys array would remove the role
-                await postRoleLabel({
-                  rootId: issue.id,
-                  role: "assignee",
-                  pubkeys: [],
-                  repoAddr: (repoClass as any)?.repoEvent?.id,
-                  relays,
-                });
-                await load({
-                  relays,
-                  filters: [{ kinds: [1985], "#e": [issue.id] }],
-                });
+                const relays = (repoClass.relays || repoRelays || [])
+                  .map((u: string) => normalizeRelayUrl(u))
+                  .filter(Boolean)
+                publishDelete({ event: evt as any, relays, protect: false })
+                await load({ relays, filters: [{ kinds: [1985], "#e": [issue.id] }] })
               } catch (err) {
-                console.error("[IssueDetail] Failed to remove assignee", err);
+                console.error("[IssueDetail] Failed to delete assignee label", err)
               }
             }}
           />
@@ -444,13 +441,13 @@
               {/each}
             </div>
           {:else}
-            <div class="text-sm text-muted-foreground">No assignees yet.</div>
+            <div class="text-xs sm:text-sm text-muted-foreground">No assignees yet.</div>
           {/if}
         {/if}
       </div>
 
       <!-- Status Section -->
-      <div class="my-6">
+      <div class="my-4 sm:my-6">
         <Status
           repo={repoClass}
           rootId={issue.id}
@@ -463,11 +460,11 @@
           onPublish={handleStatusPublish} />
       </div>
 
-      <div class="git-separator my-6"></div>
+      <div class="git-separator my-4 sm:my-6"></div>
 
-      <h2 class="my-2 flex items-center gap-2 text-lg font-medium">
-        <MessageSquare class="h-5 w-5" />
-        Discussion ({$threadComments?.length})
+      <h2 class="my-2 flex items-center gap-2 text-base sm:text-lg font-medium">
+        <MessageSquare class="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
+        <span class="break-words">Discussion ({$threadComments?.length})</span>
       </h2>
 
       <IssueThread
@@ -479,8 +476,8 @@
     </Card>
   </div>
 {:else}
-  <div class="flex flex-col items-center justify-center py-12">
-    <SearchX class="mb-2 h-8 w-8" />
-    No issue found.
+  <div class="flex flex-col items-center justify-center py-8 sm:py-12 px-4">
+    <SearchX class="mb-2 h-6 w-6 sm:h-8 sm:w-8" />
+    <p class="text-sm sm:text-base text-center">No issue found.</p>
   </div>
 {/if}

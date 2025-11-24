@@ -44,11 +44,9 @@
     loadRelay,
     repository,
     pubkey,
-    session,
     sessions,
     signer,
     signerLog,
-    dropSession,
     loginWithNip01,
     loginWithNip46,
     loadRelaySelections,
@@ -88,11 +86,11 @@
   import * as notifications from "@app/util/notifications"
   import * as storage from "@app/util/storage"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
+  import {loadUserGitData} from "@lib/budabit"
+  import {Router} from "@welshman/router"
 
   // Migration: delete old indexeddb database
   indexedDB?.deleteDatabase("flotilla")
-  import {loadUserGitData} from "@lib/budabit"
-  import {Router} from "@welshman/router"
 
   // Initialize push notification handler asap
   initializePushNotifications()

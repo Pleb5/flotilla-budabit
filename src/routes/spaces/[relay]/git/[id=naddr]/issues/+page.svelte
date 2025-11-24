@@ -3,11 +3,12 @@
   import {
     createStatusEvent,
     GIT_ISSUE,
+    GIT_REPO_ANNOUNCEMENT,
     type CommentEvent,
     type IssueEvent,
     type TrustedEvent,
   } from "@nostr-git/shared-types"
-  import {CalendarDays, Check, Clock, Eye, GitCommit, Plus, SearchX, X} from "@lucide/svelte"
+  import {Eye, Plus, SearchX} from "@lucide/svelte"
   import {
     Address,
     COMMENT,
@@ -18,23 +19,23 @@
     GIT_STATUS_CLOSED,
     getTag,
   } from "@welshman/util"
-  import {createSearch, pubkey, repository} from "@welshman/app"
+  import {createSearch, pubkey} from "@welshman/app"
   import {sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
+  import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import {slideAndFade} from "@lib/transition"
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
   import {postComment, postIssue, publishEvent} from "@lib/budabit/commands.js"
   import {deriveEffectiveLabels, deriveAssignmentsFor} from "@lib/budabit/state.js"
-  import FilterPanel from "@app/components/FilterPanel.svelte"
+  import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import {isMobile} from "@lib/html"
   import {onMount, onDestroy} from "svelte"
-  import {pushToast} from "@src/app/util/toast.js"
-  import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  import {pushToast} from "@src/app/util/toast"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
-  import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
+  
   const {data} = $props()
   const {repoClass, statusEventsByRoot, repoRelays} = data
 
@@ -135,119 +136,27 @@
     } catch {}
   })
 
-  // Persist filters per repo
-  let storageKey = ""
-  onMount(() => {
-    try {
-      storageKey = repoClass ? `issuesFilters:${repoClass.key}` : ""
-    } catch (e) {
-      storageKey = ""
-    }
-    if (!storageKey) return
-    try {
-      const raw = localStorage.getItem(storageKey)
-      if (raw) {
-        const data = JSON.parse(raw)
-        if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
-        if (typeof data.sortByOrder === "string") sortByOrder = data.sortByOrder
-        if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
-        if (typeof data.showFilters === "boolean") showFilters = data.showFilters
-        if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
-        if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
-        if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
-      }
-    } catch (e) {
-      // ignore
-    }
-  })
+  // Persist filters per repo (delegated to FilterPanel)
+  let storageKey = repoClass ? `issuesFilters:${repoClass.key}` : ""
 
-  const persist = () => {
-    if (!storageKey) return
-    try {
-      const data = {
-        statusFilter,
-        sortByOrder,
-        authorFilter,
-        showFilters,
-        searchTerm,
-        selectedLabels,
-        matchAllLabels,
-      }
-      localStorage.setItem(storageKey, JSON.stringify(data))
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  const applyFromData = (data: any) => {
-    if (!data) return
-    if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
-    if (typeof data.sortByOrder === "string") sortByOrder = data.sortByOrder
-    if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
-    if (typeof data.showFilters === "boolean") showFilters = data.showFilters
-    if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
-    if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
-    if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
-  }
-
-  const resetFilters = () => {
-    statusFilter = "open"
-    sortByOrder = "newest"
-    authorFilter = ""
-    showFilters = true
-    searchTerm = ""
-    selectedLabels = []
-    matchAllLabels = false
-    if (storageKey) localStorage.removeItem(storageKey)
-  }
-
-  let storageListener: ((e: StorageEvent) => void) | null = null
-  onMount(() => {
-    storageListener = (e: StorageEvent) => {
-      if (!storageKey) return
-      if (e.key === storageKey) {
-        try {
-          const data = e.newValue ? JSON.parse(e.newValue) : null
-          if (data) applyFromData(data)
-        } catch {}
-      }
-    }
-    window.addEventListener("storage", storageListener)
-  })
-  onDestroy(() => {
-    if (storageListener) window.removeEventListener("storage", storageListener)
-  })
-
-  // Persist on changes (single watcher)
-  $effect(() => {
-    statusFilter
-    sortByOrder
-    authorFilter
-    showFilters
-    searchTerm
-    selectedLabels
-    matchAllLabels
-    persist()
-  })
 
   // Create a reactive status map that depends on statusEventsByRoot
   const statusMap = $derived.by(() => {
     console.log("[StatusMap] Recalculating statusMap, statusEventsByRoot:", $statusEventsByRoot)
     const map: Record<string, string> = {}
-    
+
     // First, set default "open" status for all issues
     if (repoClass.issues) {
       for (const issue of repoClass.issues) {
         map[issue.id] = "open"
       }
     }
-    
+
     // Then override with actual status events
     if ($statusEventsByRoot) {
       for (const [rootId, events] of $statusEventsByRoot) {
         const statusResult = repoClass.resolveStatusFor(rootId)
         map[rootId] = statusResult?.state || "open"
-        console.log(`[StatusMap] ${rootId}: ${map[rootId]}`)
       }
     }
     return map
@@ -259,12 +168,11 @@
       return repoClass.issues.map((issue: IssueEvent) => {
         const commentEvents = comments[issue.id] || []
         const currentState = statusMap[issue.id] || "open"
-        console.log(`[IssueList] Issue ${issue.id} state: ${currentState}`)
-        
+
         return {
           ...issue,
           comments: commentEvents,
-          status: { kind: currentState },
+          status: {kind: currentState},
           currentState,
         }
       })
@@ -362,12 +270,17 @@
 
   // Create combined filter for issues and status events
   const combinedFilter = {
-    kinds: [GIT_ISSUE, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+    kinds: [
+      GIT_ISSUE,
+      GIT_STATUS_OPEN,
+      GIT_STATUS_DRAFT,
+      GIT_STATUS_CLOSED,
+      GIT_STATUS_COMPLETE,
+    ],
     "#a": repoClass.maintainers?.map(m => `${GIT_REPO_ANNOUNCEMENT}:${m}:${repoClass.name}`) || [],
   }
 
-  $effect(() => {
-    console.log("[Effect] makeFeed effect running, repoClass.issues length:", repoClass.issues?.length, "statusEventsByRoot size:", $statusEventsByRoot?.size)
+  onMount(() => {
     if (repoClass.issues) {
       const tryStart = () => {
         if (element) {
@@ -483,38 +396,18 @@
 
   {#if showFilters}
     <FilterPanel
-      statusOptions={[
-        {value: "open", label: "Open", icon: GitCommit},
-        {value: "resolved", label: "Resolved", icon: Check},
-        {value: "closed", label: "Closed", icon: X},
-        {value: "draft", label: "Draft", icon: Clock},
-      ]}
-      selectedStatus={statusFilter}
-      onStatusChange={(v: string) => (statusFilter = v)}
-      on:statusChange={(e: CustomEvent<string>) => (statusFilter = e.detail)}
-      sortOptions={[
-        {value: "newest", label: "Newest", icon: CalendarDays},
-        {value: "oldest", label: "Oldest", icon: CalendarDays},
-        {value: "status", label: "Status", icon: Check},
-      ]}
-      sortBy={sortByOrder}
-      onSortChange={v => (sortByOrder = v)}
+      {storageKey}
       authors={uniqueAuthors}
-      {authorFilter}
-      onAuthorChange={v => (authorFilter = v)}
+      authorFilter={authorFilter}
       allLabels={allNormalizedLabels}
-      {selectedLabels}
-      onToggleLabel={lbl =>
-        (selectedLabels = selectedLabels.includes(lbl)
-          ? selectedLabels.filter(l => l !== lbl)
-          : [...selectedLabels, lbl])}
-      onClearLabels={() => (selectedLabels = [])}
-      {matchAllLabels}
-      onMatchAllToggle={() => (matchAllLabels = !matchAllLabels)}
       labelSearchEnabled={false}
+      on:statusChange={(e) => (statusFilter = e.detail)}
+      on:sortChange={(e) => (sortByOrder = e.detail)}
+      on:authorChange={(e) => (authorFilter = e.detail)}
+      on:labelsChange={(e) => (selectedLabels = e.detail)}
+      on:matchAllChange={(e) => (matchAllLabels = e.detail)}
       showReset={true}
-      onReset={resetFilters}
-      showReviewIndicator={true} />
+    />
   {/if}
 
   {#if loading}

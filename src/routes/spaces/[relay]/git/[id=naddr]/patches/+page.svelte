@@ -2,18 +2,8 @@
   import {
     Button,
     PatchCard,
-    pushRepoAlert,
   } from "@nostr-git/ui"
-  import {
-    CalendarDays,
-    Check,
-    Clock,
-    Eye,
-    GitCommit,
-    SearchX,
-    User,
-    X,
-  } from "@lucide/svelte"
+  import {Eye, SearchX} from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import {makeFeed} from "@src/app/core/requests"
@@ -30,26 +20,19 @@
     getTags,
     type CommentEvent,
     type PatchEvent,
+    type PullRequestEvent,
     type StatusEvent,
   } from "@nostr-git/shared-types"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
+  import {parsePullRequestEvent} from "@nostr-git/shared-types"
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
   import {postComment} from "@lib/budabit/commands.js"
-  import FilterPanel from "@src/app/components/FilterPanel.svelte"
-  import {onMount, onDestroy} from "svelte"
-  import {now} from "@welshman/lib"
+  import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   
   const {data} = $props()
-  const {repoClass, comments, statusEvents, statusEventsByRoot, patchFilter, repoRelays, uniqueAuthors} = data
-  const mounted = now()
-  const alertedIds = new Set<string>()
-  // Track previous review-needed state to only alert on false -> true transitions
-  const prevReviewStateByPatch: Map<string, boolean> = new Map()
-  // Debounce window for comment mention alerts per patch (ms)
-  const mentionWindowMs = 3000
-  const lastMentionAlertAtByPatch: Map<string, number> = new Map()
+  const {repoClass, comments, statusEventsByRoot, patchFilter, pullRequestFilter, repoRelays, uniqueAuthors, pullRequests} = data
 
   // Filter and sort options
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
@@ -91,107 +74,8 @@
   const labelGroupsFor = (id: string) =>
     labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
 
-  // Persist filters per repo
-  let storageKey = ""
-  onMount(() => {
-    try {
-      storageKey = repoClass.key
-        ? `patchesFilters:${repoClass.key}`
-        : ""
-    } catch (e) {
-      storageKey = ""
-    }
-    if (!storageKey) return
-    try {
-      const raw = localStorage.getItem(storageKey)
-      if (raw) {
-        const data = JSON.parse(raw)
-        if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
-        if (typeof data.sortBy === "string") sortBy = data.sortBy
-        if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
-        if (typeof data.showFilters === "boolean") showFilters = data.showFilters
-        if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
-        if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
-        if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
-        if (typeof data.labelSearch === "string") labelSearch = data.labelSearch
-      }
-    } catch (e) {
-      // ignore
-    }
-  })
-
-  const persist = () => {
-    if (!storageKey) return
-    try {
-      const data = {
-        statusFilter,
-        sortBy,
-        authorFilter,
-        showFilters,
-        searchTerm,
-        selectedLabels,
-        matchAllLabels,
-        labelSearch,
-      }
-      localStorage.setItem(storageKey, JSON.stringify(data))
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  // Debounced persist to avoid excessive writes
-  let persistTimer: number | null = null
-  const persistDebounced = () => {
-    if (!storageKey) return
-    if (persistTimer) clearTimeout(persistTimer)
-    persistTimer = window.setTimeout(() => {
-      persist()
-      persistTimer = null
-    }, 150)
-  }
-
-  // Single reactive watcher for all filter inputs
-  $effect(() => {
-    statusFilter
-    sortBy
-    authorFilter
-    showFilters
-    searchTerm
-    selectedLabels
-    matchAllLabels
-    labelSearch
-    persistDebounced()
-  })
-
-  const applyFromData = (data: any) => {
-    if (!data) return
-    if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
-    if (typeof data.sortBy === "string") sortBy = data.sortBy
-    if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
-    if (typeof data.showFilters === "boolean") showFilters = data.showFilters
-    if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
-    if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
-    if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
-    if (typeof data.labelSearch === "string") labelSearch = data.labelSearch
-  }
-
-  let storageListener: ((e: StorageEvent) => void) | null = null
-  onMount(() => {
-    storageListener = (e: StorageEvent) => {
-      if (!storageKey) return
-      if (e.key === storageKey) {
-        try {
-          const data = e.newValue ? JSON.parse(e.newValue) : null
-          if (data) applyFromData(data)
-        } catch {}
-      }
-    }
-    window.addEventListener("storage", storageListener)
-  })
-  onDestroy(() => {
-    if (storageListener) window.removeEventListener("storage", storageListener)
-    if (persistTimer) clearTimeout(persistTimer)
-  })
+  // Persist filters per repo (delegated to FilterPanel)
+  let storageKey = repoClass?.key ? `patchesFilters:${repoClass.key}` : ""
   const allNormalizedLabels = $derived.by(() =>
     Array.from(new Set(Array.from(labelsByPatch.values()).flat())),
   )
@@ -218,7 +102,9 @@
   const currentPatchStateFor = (rootId: string): "open" | "draft" | "closed" | "applied" => {
     try {
       const events = ($statusEventsByRoot?.get(rootId) || []) as StatusEvent[]
-      const rootAuthor = repoClass.patches.find((p: any) => p.id === rootId)?.pubkey
+      const rootAuthor =
+        repoClass.patches.find((p: any) => p.id === rootId)?.pubkey ||
+        ($pullRequests || []).find((pr: any) => pr.id === rootId)?.pubkey
       const auth = events.filter(e => e.pubkey === rootAuthor || patchMaintainerSet.has(e.pubkey))
       if (auth.length === 0) return "open"
       const latest = [...auth].sort((a, b) => b.created_at - a.created_at)[0]
@@ -254,6 +140,7 @@
 
           return {
             ...patch,
+            type: "patch" as const,
             patches,
             status,
             parsedPatch,
@@ -263,6 +150,35 @@
             groups: labelGroupsFor(patch.id),
           }
         })
+
+      // Merge in PR roots
+      const prEvents = $pullRequests || []
+      const prItems = prEvents.map((pr: PullRequestEvent) => {
+        const parsedPR: any = parsePullRequestEvent(pr)
+        const commentEvents = $comments?.filter((comment: CommentEvent) => {
+          return getTags(comment, "E").find((tag: string[]) => tag[1] === pr.id)
+        })
+        const status = { kind: kindFromState(statusData.stateById[pr.id]) } as any
+        return {
+          ...pr,
+          type: "pr" as const,
+          patches: [],
+          status,
+          parsedPatch: {
+            title: parsedPR.subject || parsedPR.title || "(no title)",
+            description: parsedPR.description || parsedPR.content || "",
+            baseBranch: parsedPR.branchName || parsedPR.baseBranch,
+            commitCount: 0,
+            createdAt: pr.created_at * 1000,
+            commitHash: parsedPR.tipCommit || parsedPR.commitId,
+          },
+          comments: commentEvents,
+          commitCount: 0,
+          groups: {Status: [], Type: [], Area: [], Tags: [], Other: []},
+        }
+      })
+
+      filteredPatches = [...filteredPatches, ...prItems]
 
       if (statusFilter !== "all") {
         filteredPatches = filteredPatches.filter(patch => {
@@ -318,8 +234,8 @@
           makeFeed({
             element,
             relays: repoClass.relays,
-            feedFilters: [patchFilter],
-            subscriptionFilters: [patchFilter],
+            feedFilters: [patchFilter, pullRequestFilter],
+            subscriptionFilters: [patchFilter, pullRequestFilter],
             initialEvents: patchList,
             onExhausted: () => {
               loading = false
@@ -407,40 +323,17 @@
 
   {#if showFilters}
     <FilterPanel
-      statusOptions={[
-        { value: "open", label: "Open", icon: GitCommit },
-        { value: "applied", label: "Applied", icon: Check },
-        { value: "closed", label: "Closed", icon: X },
-        { value: "draft", label: "Draft", icon: Clock },
-      ]}
-      selectedStatus={statusFilter}
-      onStatusChange={(v) => (statusFilter = v)}
-
-      sortOptions={[
-        { value: "newest", label: "Newest", icon: CalendarDays },
-        { value: "oldest", label: "Oldest", icon: CalendarDays },
-        { value: "status", label: "Status", icon: Check },
-        { value: "commits", label: "Commits", icon: GitCommit },
-      ]}
-      sortBy={sortBy}
-      onSortChange={(v) => (sortBy = v)}
-
+      mode="patches"
+      {storageKey}
       authors={Array.from(uniqueAuthors)}
       authorFilter={authorFilter}
-      onAuthorChange={(v) => (authorFilter = v)}
-
+      on:authorChange={(e) => (authorFilter = e.detail)}
       allLabels={allNormalizedLabels}
-      selectedLabels={selectedLabels}
-      onToggleLabel={(lbl) => (selectedLabels = selectedLabels.includes(lbl) ? selectedLabels.filter(l => l !== lbl) : [...selectedLabels, lbl])}
-      onClearLabels={() => (selectedLabels = [])}
-      matchAllLabels={matchAllLabels}
-      onMatchAllToggle={() => (matchAllLabels = !matchAllLabels)}
       labelSearchEnabled={true}
-      labelSearch={labelSearch}
-      onLabelSearchChange={(s) => (labelSearch = s)}
-
-      showReset={false}
-      showReviewIndicator={true}
+      on:statusChange={(e) => (statusFilter = e.detail)}
+      on:sortChange={(e) => (sortBy = e.detail)}
+      on:labelsChange={(e) => (selectedLabels = e.detail)}
+      on:matchAllChange={(e) => (matchAllLabels = e.detail)}
     />
   {/if}
 
@@ -475,9 +368,9 @@
                 repo={repoClass}
                 statusEvents={$statusEventsByRoot?.get(patch.id) || []}
                 actorPubkey={$pubkey}
-                relays={repoRelays}
                 {onCommentCreated}
-                reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0} />
+                reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0} 
+              />
               {#if labelsByPatch.get(patch.id)?.length}
                 <div class="mt-2 flex flex-wrap gap-2 text-xs">
                   {#if patch.groups.Status.length}

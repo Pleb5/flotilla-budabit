@@ -8,8 +8,7 @@
  * - Worker is reused for all Git operations
  * - No manual initialization needed
  */
-import { getGitWorker, proxy, type NostrEvent } from '@nostr-git/core';
-import { publishEvent } from './commands';
+import { getGitWorker } from '@nostr-git/git-worker';
 
 interface GitWorkerInstance {
   api: any;
@@ -50,39 +49,22 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
   
   // Start initialization
   initPromise = (async () => {
-    console.log('[GitWorker] Initializing singleton worker');
-    
-    // Create worker with progress callback
-    const { api, worker } = getGitWorker((progress) => {
-      console.log('[GitWorker] Progress:', {
-        repoId: progress.repoId,
-        phase: progress.phase,
-        progress: progress.progress,
-        loaded: progress.loaded,
-        total: progress.total
-      });
-    });
-    
-    // Create EventIO function that can be proxied by Comlink
-    const io = async (event: NostrEvent) => {
-      const thunk = publishEvent(event);
-      // Execute the thunk to actually publish the event
-      return await thunk.complete;
-    };
-    
-    // Configure EventIO for GRASP operations
-    // Wrap EventIO with Comlink proxy to allow async functions to be passed to worker
-    console.log('[GitWorker] Configuring EventIO');
-    await api.setEventIO(proxy(io));
-    console.log('[GitWorker] EventIO configured');
-    
-    // Register event signer for GRASP operations
-    //registerEventSigner(worker, signEvent);
-    
-    workerInstance = { api, worker };
-    console.log('[GitWorker] Singleton worker initialized successfully');
-    
-    return workerInstance;
+    try {
+      // Create worker using the git-worker package's getGitWorker function
+      const { api, worker } = getGitWorker();
+
+      // Register event signer for GRASP operations
+      //registerEventSigner(worker, signEvent);
+      
+      workerInstance = { api, worker };
+      
+      return workerInstance;
+    } catch (error) {
+      console.error('[GitWorker] Failed to initialize worker:', error);
+      // Reset the promise so we can try again
+      initPromise = null;
+      throw error;
+    }
   })();
   
   return await initPromise;
@@ -106,7 +88,6 @@ export function terminateGitWorker(): void {
     workerInstance.worker.terminate();
     workerInstance = null;
     initPromise = null;
-    console.log('[GitWorker] Singleton worker terminated');
   }
 }
 

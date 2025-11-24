@@ -402,3 +402,20 @@ progress[value]::-webkit-progress-value {
 .chat__scroll-down {
   @apply fixed bottom-28 right-4 md:bottom-16;
 }
+
+/* markdown content */
+
+.markdown-content :not(pre) > code {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.markdown-content pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.markdown-content pre code {
+  white-space: pre;
+}

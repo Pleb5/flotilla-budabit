@@ -4,8 +4,10 @@
     AlertCircle,
     Check,
     CheckCircle,
+    ChevronDown,
     ChevronLeft,
     ChevronRight,
+    ChevronUp,
     Copy,
     FileCode,
     GitBranch,
@@ -19,7 +21,7 @@
   } from "@lucide/svelte"
   import {Button, Profile, MergeStatus, toast, Status} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
-  import {DiffViewer, IssueThread, MergeAnalyzer} from "@nostr-git/ui"
+  import {DiffViewer, IssueThread, MergeAnalyzer, PatchViewer} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
   import markdownit from "markdown-it"
   import {deriveEvents} from "@welshman/store"
@@ -37,12 +39,18 @@
   import {
     getTags,
     parseStatusEvent,
+    parsePullRequestEvent,
     type CommentEvent,
     type StatusEvent,
     type PatchEvent,
+    type PullRequestEvent,
+    GIT_STATUS_APPLIED,
   } from "@nostr-git/shared-types"
-  import {postComment, postStatus, postRoleLabel} from "@lib/budabit"
+  import {createStatusEvent} from "@nostr-git/shared-types"
+  import {postComment, postStatus, postRoleLabel, deleteRoleLabelEvent} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
+  import type {LabelEvent} from "@nostr-git/shared-types"
+  import {ROLE_NS} from "@lib/budabit/labels"
   import {parseGitPatchFromEvent} from "@nostr-git/core"
   import type {Commit, MergeAnalysisResult, Patch, PatchTag} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"
@@ -52,9 +60,10 @@
   import {normalizeRelayUrl} from "@welshman/util"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import {deriveRoleAssignments} from "@lib/budabit"
+  import {preprocessMarkdown} from "@lib/util"
 
   const {data}: LayoutProps = $props()
-  const {repoClass, repoRelays} = data
+  const {repoClass, repoRelays, pullRequests} = data as any
 
   // Profile functions for PeoplePicker
   const getProfile = async (pubkey: string) => {
@@ -72,17 +81,17 @@
     const validRelays = (repoClass.relays || []).filter((relay: string) => {
       try {
         const url = new URL(relay)
-        return url.protocol === 'ws:' || url.protocol === 'wss:'
+        return url.protocol === "ws:" || url.protocol === "wss:"
       } catch {
         console.warn(`Invalid relay URL filtered out: ${relay}`)
         return false
       }
     })
-    
+
     if (validRelays.length > 0) {
       await loadProfile(pubkey, validRelays)
     }
-    
+
     const loadedProfile = $profilesByPubkey.get(pubkey)
     if (loadedProfile) {
       return {
@@ -116,6 +125,42 @@
 
   const patchEvent = repoClass.patches.find(p => p.id === patchId)
   const patch = patchEvent ? parseGitPatchFromEvent(patchEvent) : undefined
+
+  const prEvent = $derived.by(() =>
+    ($pullRequests || []).find((pr: PullRequestEvent) => pr.id === patchId)
+  )
+  const pr = $derived.by(() => (prEvent ? parsePullRequestEvent(prEvent as any) : undefined))
+
+  // PR-specific status and comments (read-only view)
+  const getPrStatusFilter = () => ({
+    kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+    "#e": [prEvent?.id ?? ""],
+  })
+
+  const prStatusEvents = $derived.by(() => {
+    if (!prEvent) return undefined
+    return deriveEvents(repository, {filters: [getPrStatusFilter()]})
+  })
+
+  const prStatus = $derived.by(() => {
+    if (!prEvent || !$prStatusEvents) return undefined
+    const events = $prStatusEvents as any[]
+    if (!events || events.length === 0) return undefined
+    const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
+    return latest ? parseStatusEvent(latest as StatusEvent) : undefined
+  })
+
+  const prThreadComments = $derived.by(() => {
+    if (!prEvent) return undefined
+    const filters: Filter[] = [{kinds: [COMMENT], "#E": [prEvent.id]}]
+    const relays = (repoClass.relays || [])
+      .map((u: string) => normalizeRelayUrl(u))
+      .filter(Boolean)
+    load({relays: relays as string[], filters})
+    return deriveEvents(repository, {filters})
+  })
+
+  console.log("patch", patch)
 
   let rootPatchId = patchId
   let currentPatch = patchEvent as PatchEvent | null
@@ -167,59 +212,92 @@
   let selectedPatch = $state(patch)
   let mergeAnalysisResult: MergeAnalysisResult | null = $state(null)
   let isAnalyzingMerge = $state(false)
+  let analysisTriggeredManually = $state(false)
+  let isTechnicalDetailsCollapsed = $state(true)
+
+  // Auto-reanalyze when selected branch changes
+  let lastAnalyzedBranch = $state(repoClass.selectedBranch)
+  $effect(() => {
+    if (repoClass.selectedBranch !== lastAnalyzedBranch && patchSet.length > 0) {
+      console.log(
+        `[BranchChange] Selected branch changed from ${lastAnalyzedBranch} to ${repoClass.selectedBranch}, triggering analysis`,
+      )
+      lastAnalyzedBranch = repoClass.selectedBranch
+      // Clear previous analysis and trigger new one
+      mergeAnalysisResult = null
+      analysisTriggeredManually = false // Mark as automatic analysis
+      analyzeMerge()
+    }
+  })
 
   async function analyzeMerge() {
-    const sel = selectedPatch
-    if (!sel || !repoClass) {
+    console.log(`[analyzeMerge] Starting manual analysis...`)
+    analysisTriggeredManually = true
+
+    // For manual analysis, we analyze the entire patch set, not just selected patch
+    if (!patchSet.length || !repoClass) {
+      console.warn(`[analyzeMerge] Missing patchSet or repoClass`)
       return
     }
 
     // Check if repository is properly initialized before attempting merge analysis
     if (!repoClass.key || !repoClass.mainBranch) {
+      console.warn(
+        `[analyzeMerge] Repo not initialized: key=${repoClass.key}, mainBranch=${repoClass.mainBranch}`,
+      )
       return
     }
 
     // Check if WorkerManager is ready
     if (!repoClass.workerManager) {
+      console.warn(`[analyzeMerge] WorkerManager not ready`)
       return
     }
 
-    // Use robust branch detection: prefer patch baseBranch, then repo mainBranch
-    const targetBranch = sel.baseBranch || repoClass.mainBranch
+    // Use robust branch detection: prefer selected branch, then first patch baseBranch, then repo mainBranch
+    const firstPatch = patchSet[0]
+    const targetBranch = repoClass.selectedBranch || firstPatch?.baseBranch || repoClass.mainBranch
+    console.log(
+      `[analyzeMerge] Target branch: ${targetBranch} (selected: ${repoClass.selectedBranch}, patch base: ${firstPatch?.baseBranch}, repo main: ${repoClass.mainBranch})`,
+    )
 
-    // Resolve the PatchEvent corresponding to the currently selected parsed patch
-    const selectedPatchEvent = repoClass.patches.find(p => p.id === sel.id)
-    if (!selectedPatchEvent) {
+    // Resolve the PatchEvent corresponding to the first patch in the set
+    const firstPatchEvent = repoClass.patches.find(p => p.id === firstPatch?.id)
+    if (!firstPatchEvent) {
+      console.warn(
+        `[analyzeMerge] Could not find PatchEvent for patch ${firstPatch?.id.slice(0, 8)}`,
+      )
       return
     }
+    console.log(`[analyzeMerge] Found PatchEvent: ${firstPatchEvent.id.slice(0, 8)}`)
 
-    // First, try to get cached result from repository's merge analysis system
-    const cachedResult = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
-
-    if (cachedResult) {
-      mergeAnalysisResult = cachedResult
-      return
-    }
-
+    // For manual analysis, we override any global state and force fresh analysis
+    console.log(`[analyzeMerge] Performing fresh manual analysis...`)
     isAnalyzingMerge = true
     mergeAnalysisResult = null
     try {
-      const result = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
+      const result = await repoClass.getMergeAnalysis(firstPatchEvent, targetBranch)
+      console.log(`[analyzeMerge] Manual analysis result:`, result?.analysis)
 
       if (result) {
         mergeAnalysisResult = result
+        console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis)
       } else {
-        // If still no result, try to get from cache first
-        const cachedResult = await repoClass.getMergeAnalysis(selectedPatchEvent, targetBranch)
+        console.warn(`[analyzeMerge] Result was null, trying cache as fallback...`)
+        // If fresh analysis fails, try to get from cache as fallback
+        const cachedResult = await repoClass.getMergeAnalysis(firstPatchEvent, targetBranch)
         if (cachedResult) {
+          console.log(`[analyzeMerge] Got result from cache fallback:`, cachedResult.analysis)
           mergeAnalysisResult = cachedResult
+          console.log(`[analyzeMerge] Set mergeAnalysisResult to:`, mergeAnalysisResult?.analysis)
         } else {
+          console.warn(`[analyzeMerge] Still no result, returning...`)
           // Don't show error immediately, just return and let it retry
           return
         }
       }
     } catch (error) {
-      console.error("❌ Failed to get merge analysis:", error)
+      console.error("❌ [analyzeMerge] Failed to get merge analysis:", error)
       const errorMessage = error instanceof Error ? error.message : "Unknown error"
 
       // Only show toast for non-initialization errors
@@ -244,26 +322,18 @@
       }
 
       mergeAnalysisResult = errorResult
+      console.log(`[analyzeMerge] Set mergeAnalysisResult to error:`, mergeAnalysisResult?.analysis)
     } finally {
       isAnalyzingMerge = false
+      console.log(
+        `[analyzeMerge] Analysis complete. Final mergeAnalysisResult:`,
+        mergeAnalysisResult?.analysis,
+      )
     }
   }
 
-  let analysisTimeout: NodeJS.Timeout | null = null
-
-  $effect(() => {
-    if (selectedPatch && repoClass.repoId && repoClass.mainBranch) {
-      // Clear any existing timeout
-      if (analysisTimeout) {
-        clearTimeout(analysisTimeout)
-      }
-
-      // Debounce the analysis call
-      analysisTimeout = setTimeout(() => {
-        analyzeMerge()
-      }, 300) // Wait 300ms before running analysis
-    }
-  })
+  // Analysis is now manual - no automatic effect
+  // Users must click the analyze button to trigger analysis
 
   const threadComments = $derived.by(() => {
     if (repoClass.patches && selectedPatch) {
@@ -285,6 +355,20 @@
 
   const statusEvents = $derived.by(() => {
     return deriveEvents(repository, {filters: [getStatusFilter()]})
+  })
+
+  // NIP-32 role label events for this patch (reviewers)
+  const getLabelFilter = () => ({kinds: [1985], "#e": [selectedPatch?.id ?? ""]})
+  const roleLabelEvents = $derived.by(() => deriveEvents(repository, {filters: [getLabelFilter()]}))
+  const reviewerLabelEvents = $derived.by(() => {
+    const events = ($roleLabelEvents || []) as any[]
+    return events.filter(
+      (ev: any) =>
+        ev?.kind === 1985 &&
+        Array.isArray(ev.tags) &&
+        ev.tags.some((t: string[]) => t[0] === "L" && t[1] === ROLE_NS) &&
+        ev.tags.some((t: string[]) => t[0] === "l" && t[1] === "reviewer" && t[2] === ROLE_NS),
+    ) as unknown as LabelEvent[]
   })
 
   const onCommentCreated = async (comment: CommentEvent) => {
@@ -323,6 +407,7 @@
     html: true,
     linkify: true,
     typographer: true,
+    breaks: true, // Convert line breaks to <br> tags
   })
 
   // Merge state management
@@ -340,9 +425,9 @@
   let showMergeDialog = $state(false)
   let mergeCommitMessage = $state("")
 
-  // Apply patch with full GitHub-style merge workflow
+  // Apply patch set with full GitHub-style merge workflow
   const applyPatch = async () => {
-    if (!selectedPatch || !$pubkey) return
+    if (!patchSet.length || !$pubkey) return
 
     // Reset merge state
     isMerging = false
@@ -352,8 +437,9 @@
     mergeSuccess = false
     mergeResult = null
 
-    // Set default merge commit message
-    const defaultMessage = `Merge patch: ${selectedPatch.title || selectedPatch.id.slice(0, 8)}`
+    // Set default merge commit message for the entire patch set
+    const firstPatch = patchSet[0]
+    const defaultMessage = `Merge patch set: ${firstPatch?.title || `${patchSet.length} patches`} (${patchSet.length} patches)`
     mergeCommitMessage = defaultMessage
 
     // Show merge dialog for confirmation
@@ -362,7 +448,7 @@
 
   // Execute the actual merge after confirmation
   const executeMerge = async () => {
-    if (!selectedPatch || !repoClass.workerManager) return
+    if (!patchSet.length || !repoClass.workerManager) return
 
     showMergeDialog = false
     isMerging = true
@@ -375,10 +461,13 @@
     const authorName = "Repository Maintainer" // You might want to get this from user profile
     const authorEmail = "maintainer@nostr-git.local" // You might want to get this from user profile
 
-    // Prepare patch data - ensure all data is serializable
+    // Prepare patch data for the entire patch set - ensure all data is serializable
+    const allCommits = patchSet.flatMap((patch: Patch) => patch.commits || [])
+    const firstPatch = patchSet[0]
+
     const patchData = {
-      id: selectedPatch.id,
-      commits: (selectedPatch.commits || []).map((commit: Commit) => ({
+      id: firstPatch?.id || "",
+      commits: allCommits.map((commit: Commit) => ({
         oid: commit.oid || "",
         message: commit.message || "",
         author: {
@@ -386,8 +475,8 @@
           email: commit.author?.email || "",
         },
       })),
-      baseBranch: selectedPatch.baseBranch || repoClass.mainBranch,
-      rawContent: selectedPatch.raw?.content || "",
+      baseBranch: firstPatch?.baseBranch || repoClass.mainBranch,
+      rawContent: firstPatch?.raw?.content || "",
     }
 
     // Validate patch data before proceeding
@@ -408,7 +497,6 @@
       mergeStep = "Preparing merge..."
       mergeProgress = 10
 
-      // Simulate progress updates
       setTimeout(() => {
         if (isMerging) {
           mergeStep = "Analyzing patch..."
@@ -496,6 +584,9 @@
           })
         }
 
+        // Emit status event for applied patch
+        await emitPatchAppliedStatus(result.mergeCommitOid)
+
         // Note: Repository data will be refreshed automatically via reactive stores
       } else {
         mergeError = result.error || "Unknown merge error"
@@ -529,6 +620,41 @@
     }
   }
 
+  // Emit status event when patch is successfully merged
+  const emitPatchAppliedStatus = async (mergeCommitOid?: string) => {
+    if (!patchSet.length || !$pubkey) return
+
+    try {
+      const firstPatch = patchSet[0]
+      const allCommits = patchSet.flatMap((p: Patch) => p.commits || [])
+      const commitIds = allCommits.map((c: Commit) => c.oid).filter(Boolean)
+
+      // Create status event for applied patch
+      const statusEvent = createStatusEvent({
+        kind: GIT_STATUS_APPLIED,
+        content:
+          mergeCommitMessage || `Patch set applied: ${firstPatch?.title || "Multiple patches"}`,
+        rootId: firstPatch?.id || "",
+        recipients: repoClass.maintainers, // Include repo maintainers in p tags
+        repoAddr: repoClass.repoId,
+        relays: repoClass.relays,
+        appliedCommits: commitIds,
+        mergedCommit: mergeCommitOid,
+      })
+
+      // Publish the status event
+      await postStatus(statusEvent, repoClass.relays || [])
+      console.log(`[emitPatchAppliedStatus] Status event published for patch set ${firstPatch?.id}`)
+    } catch (error) {
+      console.error("[emitPatchAppliedStatus] Failed to publish status event:", error)
+      toast.push({
+        message: "Warning: Failed to publish patch status event",
+        timeout: 5000,
+        variant: "destructive",
+      })
+    }
+  }
+
   // Cancel merge dialog
   const cancelMerge = () => {
     showMergeDialog = false
@@ -549,6 +675,39 @@
         message: `Failed to copy ${label}`,
         timeout: 3000,
         theme: "error",
+      })
+    }
+  }
+
+  // Navigation functions for PatchViewer
+  const navigateToPreviousPatch = () => {
+    const currentIndex = patchSet.findIndex((p: Patch) => p.id === selectedPatch?.id)
+    if (currentIndex > 0) {
+      selectedPatch = patchSet[currentIndex - 1]
+    }
+  }
+
+  const navigateToNextPatch = () => {
+    const currentIndex = patchSet.findIndex((p: Patch) => p.id === selectedPatch?.id)
+    if (currentIndex < patchSet.length - 1) {
+      selectedPatch = patchSet[currentIndex + 1]
+    }
+  }
+
+  // Comment handler for PatchViewer
+  const handleCommentSubmit = async (comment: any) => {
+    try {
+      await postComment(comment, repoClass.relays || [])
+      toast.push({
+        message: "Comment posted successfully",
+        timeout: 2000,
+      })
+    } catch (error) {
+      console.error("Failed to post comment:", error)
+      toast.push({
+        message: "Failed to post comment",
+        timeout: 3000,
+        variant: "destructive",
       })
     }
   }
@@ -576,17 +735,102 @@
       })
     }
   }
+
+  // Limit title to a maximum number of characters
+  const getTitleDisplay = (title: string | undefined, maxLength: number = 80): string => {
+    if (!title) return ""
+
+    if (title.length <= maxLength) {
+      return title
+    }
+
+    // Truncate and add ellipsis
+    return title.substring(0, maxLength).trim() + "..."
+  }
+
+  const displayTitle = $derived(getTitleDisplay(patch?.title))
+  const selectedPatchDisplayTitle = $derived(
+    selectedPatch?.title
+      ? getTitleDisplay(selectedPatch.title)
+      : `Patch ${selectedPatch?.id || ""}`,
+  )
 </script>
 
 <svelte:head>
-  <title>{repoClass.name} - {patch?.title}</title>
+  <title>{repoClass.name} - {patch?.title || pr?.subject || "Patch"}</title>
 </svelte:head>
 
-{#if patch}
-  <div class="z-10 sticky top-0 items-center justify-between py-4 backdrop-blur">
+{#if !patch && pr}
+  <div class="z-10 items-center justify-between py-4 backdrop-blur">
     <div>
-      <div class="rounded-lg border border-border bg-card p-6">
-        <div class="mb-4 flex items-start justify-between">
+      <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <div class="mb-4 flex flex-col items-start justify-between gap-2">
+          <div class="flex items-start gap-4">
+            <div class="mt-1">
+              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
+                <GitCommit class="h-5 w-5 text-amber-500" />
+              </div>
+            </div>
+
+            <h1
+              class="line-clamp-2 overflow-hidden break-words text-lg font-bold md:text-2xl"
+              title={pr?.subject || "Untitled"}>
+              {pr?.subject || "Untitled"}
+            </h1>
+          </div>
+
+          <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
+            <div class="git-tag w-fit bg-secondary">
+              {#if prStatus?.status === "open"}
+                Open
+              {:else if prStatus?.status === "applied"}
+                Applied
+              {:else if prStatus?.status === "closed"}
+                Closed
+              {:else}
+                Status unknown
+              {/if}
+            </div>
+            <div
+              class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground sm:text-sm">
+              <Profile pubkey={prEvent?.pubkey} hideDetails={true}></Profile>
+              <ProfileLink pubkey={prEvent?.pubkey} />
+              <span class="hidden sm:inline">•</span>
+              <span>{formatTimestamp(pr?.createdAt || "")}</span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
+          {@html md.render(preprocessMarkdown(pr?.content || ""))}
+        </div>
+
+        <div class="space-y-4">
+          <h2 class="flex items-center gap-2 text-lg font-medium">
+            <MessageSquare class="h-5 w-5" />
+            Discussion ({$prThreadComments?.length || 0})
+          </h2>
+
+          {#if $prThreadComments}
+            <IssueThread
+              issueId={prEvent?.id || ""}
+              issueKind={"1618"}
+              comments={$prThreadComments as CommentEvent[]}
+              currentCommenter={$pubkey!}
+              {onCommentCreated} />
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if patch}
+  <div class="z-10 items-center justify-between py-4 backdrop-blur">
+    <div>
+      <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <div class="mb-4 flex flex-col items-start justify-between gap-2">
           <div class="flex items-start gap-4">
             {#if status?.status === "open"}
               <div class="mt-1">
@@ -610,124 +854,165 @@
               </div>
             {/if}
 
-            <div>
-              <h1 class="break-words text-2xl font-bold">{patch?.title}</h1>
-
-              <div class="mt-1 flex items-center gap-2">
-                <div class="git-tag bg-secondary">
-                  {status?.status === "open"
-                    ? "Open"
-                    : status?.status === "applied"
-                      ? "Applied"
-                      : "Closed"}
-                </div>
-                <span class="text-sm text-muted-foreground">
-                  <ProfileLink pubkey={patch?.author.pubkey} />
-                  opened this patch • {formatTimestamp(patch?.createdAt || "")}
-                </span>
-              </div>
-            </div>
+            <h1
+              class="line-clamp-2 overflow-hidden break-words text-lg font-bold md:text-2xl"
+              title={patch?.title}>
+              {displayTitle}
+            </h1>
           </div>
 
-          <Profile pubkey={patch.author.pubkey} hideDetails={true}></Profile>
+          <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
+            <div class="git-tag w-fit bg-secondary">
+              {status?.status === "open"
+                ? "Open"
+                : status?.status === "applied"
+                  ? "Applied"
+                  : "Closed"}
+            </div>
+            <div
+              class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground sm:text-sm">
+              <Profile pubkey={patch?.author.pubkey} hideDetails={true}></Profile>
+              <ProfileLink pubkey={patch?.author.pubkey} />
+              <span class="hidden sm:inline">•</span>
+              <span>{formatTimestamp(patch?.createdAt || "")}</span>
+            </div>
+          </div>
         </div>
 
-        <div class="mb-6">
-          <p class="text-muted-foreground">{@html md.render(patch?.description || "")}</p>
+        <div
+          class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
+          {@html md.render(preprocessMarkdown(patch?.description || ""))}
         </div>
 
         <!-- Technical Metadata -->
-        <div class="mb-6 rounded-lg border bg-muted/30 p-4">
-          <h3 class="mb-3 flex items-center gap-2 text-sm font-medium">
-            <GitCommit class="h-4 w-4" />
-            Technical Details
-          </h3>
+        <div class="mb-6 rounded-lg border bg-muted/30">
+          <button
+            class="flex w-full items-center justify-between p-4 text-left transition-colors hover:bg-muted/50"
+            onclick={() => (isTechnicalDetailsCollapsed = !isTechnicalDetailsCollapsed)}
+            aria-expanded={!isTechnicalDetailsCollapsed}
+            aria-controls="technical-details-content">
+            <h3 class="flex items-center gap-2 text-sm font-medium">
+              <GitCommit class="h-4 w-4" />
+              Technical Details
+            </h3>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-muted-foreground">
+                {isTechnicalDetailsCollapsed ? "Show" : "Hide"} details
+              </span>
+              {#if isTechnicalDetailsCollapsed}
+                <ChevronDown class="h-4 w-4 text-muted-foreground" />
+              {:else}
+                <ChevronUp class="h-4 w-4 text-muted-foreground" />
+              {/if}
+            </div>
+          </button>
 
-          <div class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
-            <!-- Commit Hash -->
-            {#if selectedPatch?.commitHash}
-              <div class="flex items-center justify-between">
-                <span class="text-muted-foreground">Commit:</span>
-                <div class="flex items-center gap-2">
-                  <code class="rounded bg-background px-2 py-1 font-mono text-xs">
-                    {selectedPatch.commitHash.substring(0, 8)}
+          <div
+            id="technical-details-content"
+            class="overflow-hidden transition-all duration-200 ease-in-out"
+            class:opacity-0={isTechnicalDetailsCollapsed}
+            class:max-h-0={isTechnicalDetailsCollapsed}
+            class:opacity-100={!isTechnicalDetailsCollapsed}
+            class:max-h-96={!isTechnicalDetailsCollapsed}>
+            <div class="p-4 pt-0">
+              <div class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+                <!-- Commit Hash -->
+                {#if selectedPatch?.commitHash}
+                  <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span class="text-muted-foreground">Commit:</span>
+                    <div class="flex items-center gap-2">
+                      <code class="break-all rounded bg-background px-2 py-1 font-mono text-xs">
+                        {selectedPatch.commitHash.substring(0, 8)}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        class="h-6 w-6 flex-shrink-0"
+                        onclick={() =>
+                          copyToClipboard(selectedPatch?.commitHash || "", "Commit hash")}>
+                        <Copy class="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- Author vs Committer -->
+                {#if selectedPatch?.raw?.tags}
+                  {@const committerTag = selectedPatch.raw.tags.find(t => t[0] === "committer")}
+                  {#if committerTag && committerTag[1] !== selectedPatch?.author.name}
+                    <div class="flex items-center justify-between">
+                      <span class="text-muted-foreground">Committer:</span>
+                      <div class="flex items-center gap-2">
+                        <User class="h-3 w-3" />
+                        <span class="text-xs">{committerTag[1]}</span>
+                      </div>
+                    </div>
+                  {/if}
+                  {#if committerTag && committerTag[3]}
+                    <div class="flex items-center justify-between">
+                      <span class="text-muted-foreground">Committed:</span>
+                      <span class="text-xs">{formatTimestamp(committerTag[3])}</span>
+                    </div>
+                  {/if}
+                {/if}
+
+                <!-- PGP Signature -->
+                {#if selectedPatch?.raw?.tags?.find((t: PatchTag) => t[0] === "commit-pgp-sig")}
+                  <div class="flex items-center justify-between">
+                    <span class="text-muted-foreground">Signed:</span>
+                    <div class="flex items-center gap-2 text-green-600">
+                      <Shield class="h-3 w-3" />
+                      <span class="text-xs">PGP Verified</span>
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- Base Branch -->
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <span class="text-muted-foreground">Target Branch:</span>
+                  <code class="break-all rounded bg-background px-2 py-1 text-xs sm:break-normal">
+                    {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}
                   </code>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="h-6 w-6"
-                    onclick={() => copyToClipboard(selectedPatch?.commitHash || "", "Commit hash")}>
-                    <Copy class="h-3 w-3" />
-                  </Button>
                 </div>
-              </div>
-            {/if}
 
-            <!-- Author vs Committer -->
-            {#if selectedPatch?.raw?.tags}
-              {@const committerTag = selectedPatch.raw.tags.find(t => t[0] === "committer")}
-              {#if committerTag && committerTag[1] !== selectedPatch?.author.name}
+                <!-- Commit Count -->
                 <div class="flex items-center justify-between">
-                  <span class="text-muted-foreground">Committer:</span>
-                  <div class="flex items-center gap-2">
-                    <User class="h-3 w-3" />
-                    <span class="text-xs">{committerTag[1]}</span>
+                  <span class="text-muted-foreground">Commits:</span>
+                  <span class="text-xs font-medium">{selectedPatch?.commitCount || 1}</span>
+                </div>
+
+                <!-- Recipients/Reviewers -->
+                {#if selectedPatch?.raw?.tags && selectedPatch.raw.tags.filter(t => t[0] === "p").length > 0}
+                  {@const recipients = selectedPatch.raw.tags.filter(t => t[0] === "p")}
+                  <div class="col-span-full">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <span class="text-muted-foreground">Reviewers:</span>
+                      <div class="flex flex-wrap gap-1 sm:max-w-xs">
+                        {#each recipients.slice(0, 3) as recipient}
+                          <ProfileLink pubkey={recipient[1]} />
+                        {/each}
+                        {#if recipients.length > 3}
+                          <span class="text-xs text-muted-foreground"
+                            >+{recipients.length - 3} more</span>
+                        {/if}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              {/if}
-              {#if committerTag && committerTag[3]}
-                <div class="flex items-center justify-between">
-                  <span class="text-muted-foreground">Committed:</span>
-                  <span class="text-xs">{formatTimestamp(committerTag[3])}</span>
-                </div>
-              {/if}
-            {/if}
-
-            <!-- PGP Signature -->
-            {#if selectedPatch?.raw?.tags?.find((t: PatchTag) => t[0] === "commit-pgp-sig")}
-              <div class="flex items-center justify-between">
-                <span class="text-muted-foreground">Signed:</span>
-                <div class="flex items-center gap-2 text-green-600">
-                  <Shield class="h-3 w-3" />
-                  <span class="text-xs">PGP Verified</span>
-                </div>
+                {/if}
               </div>
-            {/if}
-
-            <!-- Base Branch -->
-            <div class="flex items-center justify-between">
-              <span class="text-muted-foreground">Target Branch:</span>
-              <code class="rounded bg-background px-2 py-1 text-xs">
-                {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}
-              </code>
             </div>
-
-            <!-- Commit Count -->
-            <div class="flex items-center justify-between">
-              <span class="text-muted-foreground">Commits:</span>
-              <span class="text-xs font-medium">{selectedPatch?.commitCount || 1}</span>
-            </div>
-
-            <!-- Recipients/Reviewers -->
-            {#if selectedPatch?.raw?.tags && selectedPatch.raw.tags.filter(t => t[0] === "p").length > 0}
-              {@const recipients = selectedPatch.raw.tags.filter(t => t[0] === "p")}
-              <div class="col-span-full">
-                <div class="flex items-start justify-between">
-                  <span class="text-muted-foreground">Reviewers:</span>
-                  <div class="flex max-w-xs flex-wrap gap-1">
-                    {#each recipients.slice(0, 3) as recipient}
-                      <ProfileLink pubkey={recipient[1]} />
-                    {/each}
-                    {#if recipients.length > 3}
-                      <span class="text-xs text-muted-foreground"
-                        >+{recipients.length - 3} more</span>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {/if}
           </div>
         </div>
+
+        <!-- Status Section -->
+        <Status
+          repo={repoClass}
+          rootId={selectedPatch?.id ?? ""}
+          rootKind={GIT_PATCH}
+          rootAuthor={selectedPatch?.author.pubkey ?? ""}
+          statusEvents={$statusEvents as StatusEvent[]}
+          actorPubkey={$pubkey}
+          onPublish={handleStatusPublish} />
 
         <!-- Individual Commit Timeline -->
         {#if selectedPatch?.commits && selectedPatch.commits.length > 1}
@@ -800,83 +1085,12 @@
           </div>
         {/if}
 
-        <!-- File Statistics -->
-        {#if selectedPatch?.diff && selectedPatch.diff.length > 0}
-          <div class="mb-6">
-            <div class="mb-4 flex items-center justify-between">
-              <h3 class="flex items-center gap-2 text-lg font-medium">
-                <FileCode class="h-5 w-5" />
-                File Changes
-              </h3>
-            </div>
-
-            {#if selectedPatch.diff}
-              {@const stats = selectedPatch.diff.reduce(
-                (acc, file) => {
-                  // Accurate calculation using parse-diff structure
-                  const added = (file.chunks ?? []).reduce(
-                    (
-                      a: any,
-                      chunk: {
-                        changes: {
-                          filter: (
-                            arg0: (ch: any) => boolean,
-                          ) => {(): any; new (): any; length: number}
-                        }
-                      },
-                    ) => {
-                      const adds = chunk.changes?.filter((ch: any) => ch.type === "add").length ?? 0
-                      return a + adds
-                    },
-                    0,
-                  )
-                  const removed = (file.chunks ?? []).reduce(
-                    (
-                      a: any,
-                      chunk: {
-                        changes: {
-                          filter: (
-                            arg0: (ch: any) => boolean,
-                          ) => {(): any; new (): any; length: number}
-                        }
-                      },
-                    ) => {
-                      const dels = chunk.changes?.filter((ch: any) => ch.type === "del").length ?? 0
-                      return a + dels
-                    },
-                    0,
-                  )
-                  return {added: acc.added + added, removed: acc.removed + removed}
-                },
-                {added: 0, removed: 0},
-              )}
-
-              <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div class="rounded-lg border bg-muted/20 p-3 text-center">
-                  <div class="text-2xl font-bold text-primary">{selectedPatch.diff.length}</div>
-                  <div class="text-sm text-muted-foreground">Files Changed</div>
-                </div>
-
-                <div class="rounded-lg border bg-green-50 p-3 text-center dark:bg-green-950/20">
-                  <div class="text-2xl font-bold text-green-600">+{stats.added}</div>
-                  <div class="text-sm text-muted-foreground">Lines Added</div>
-                </div>
-
-                <div class="rounded-lg border bg-red-50 p-3 text-center dark:bg-red-950/20">
-                  <div class="text-2xl font-bold text-red-600">-{stats.removed}</div>
-                  <div class="text-sm text-muted-foreground">Lines Removed</div>
-                </div>
-              </div>
-            {/if}
-          </div>
-        {/if}
-
         {#if selectedPatch}
           <div class="my-4 space-y-2">
             <h3 class="text-base font-medium">Reviewers</h3>
-            {#if repoClass.maintainers.includes($pubkey!) || patch.author.pubkey === $pubkey}
+            {#if repoClass.maintainers.includes($pubkey!) || selectedPatch?.author.pubkey === $pubkey}
               <PeoplePicker
-                bind:selected={reviewersList}
+                selected={reviewerLabelEvents as LabelEvent[]}
                 placeholder="Search for reviewers..."
                 maxSelections={10}
                 showAvatars={true}
@@ -889,7 +1103,7 @@
                     const relays = (repoClass.relays || repoRelays || [])
                       .map((u: string) => normalizeRelayUrl(u))
                       .filter(Boolean)
-                    await postRoleLabel({
+                    postRoleLabel({
                       rootId: selectedPatch.id,
                       role: "reviewer",
                       pubkeys: [pubkey],
@@ -904,20 +1118,13 @@
                     console.error("[PatchDetail] Failed to add reviewer", err)
                   }
                 }}
-                remove={async (pubkey: string) => {
+                onDeleteLabel={async (evt: LabelEvent) => {
                   if (!selectedPatch) return
                   try {
                     const relays = (repoClass.relays || repoRelays || [])
                       .map((u: string) => normalizeRelayUrl(u))
                       .filter(Boolean)
-                    // Note: postRoleLabel with empty pubkeys array would remove the role
-                    await postRoleLabel({
-                      rootId: selectedPatch.id,
-                      role: "reviewer",
-                      pubkeys: [],
-                      repoAddr: (repoClass as any)?.repoEvent?.id,
-                      relays,
-                    })
+                    deleteRoleLabelEvent({event: evt as any, relays, protect: false})
                     await load({
                       relays,
                       filters: [{kinds: [1985], "#e": [selectedPatch.id]}],
@@ -938,126 +1145,97 @@
           </div>
         {/if}
 
-        <!-- Status Section -->
+        <!-- Patch Analysis Section -->
         <div class="mb-6">
-          <Status
-            repo={repoClass}
-            rootId={patch.id}
-            rootKind={1617}
-            rootAuthor={patch.author.pubkey}
-            statusEvents={($statusEvents || []) as StatusEvent[]}
-            actorPubkey={$pubkey}
-            compact={false}
-            onPublish={handleStatusPublish} />
-        </div>
-
-        <div class="git-separator my-6"></div>
-
-        <!-- Merge Status Analysis -->
-        <div class="mb-6">
-          <MergeStatus
-            result={mergeAnalysisResult}
-            loading={isAnalyzingMerge}
-            targetBranch={selectedPatch?.baseBranch || repoClass.mainBranch || ""} />
-        </div>
-        {#if mergeAnalysisResult}
-          <div class="mb-6">
-            <MergeAnalyzer
-              analysis={{
-                similarity: mergeAnalysisResult.hasConflicts ? 0.7 : 0.95,
-                autoMergeable: mergeAnalysisResult.canMerge,
-                affectedFiles: (selectedPatch?.diff || []).map(
-                  (f: any) => f.to || f.from || f.file || "unknown",
-                ),
-                conflictCount: (mergeAnalysisResult.conflictFiles || []).length,
-              }}
-              patch={selectedPatch as any}
-              analyzing={isAnalyzingMerge}
-              onAnalyze={() => analyzeMerge()} />
-          </div>
-        {/if}
-
-        <div class="git-separator"></div>
-
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-lg font-medium">Changes</h2>
-
-          <!-- Navigation Controls -->
-          {#if patchSet.length > 1}
+          <div class="mb-4 flex items-center justify-between">
             <div class="flex items-center gap-2">
-              {#key selectedPatch?.id}
-                {@const currentIndex = patchSet.findIndex((p: Patch) => p.id === selectedPatch?.id)}
-                {@const hasPrevious = currentIndex > 0}
-                {@const hasNext = currentIndex < patchSet.length - 1}
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasPrevious}
-                  onclick={() => {
-                    if (hasPrevious) {
-                      selectedPatch = patchSet[currentIndex - 1]
-                    }
-                  }}>
-                  <ChevronLeft class="mr-1 h-4 w-4" />
-                  Previous
-                </Button>
-
-                <span class="text-sm text-muted-foreground">
-                  {currentIndex + 1} of {patchSet.length}
+              <h3 class="text-lg font-medium">Patch Analysis</h3>
+              <span class="rounded bg-muted px-2 py-1 text-sm text-muted-foreground">
+                Target: {repoClass.selectedBranch ||
+                  patchSet[0]?.baseBranch ||
+                  repoClass.mainBranch ||
+                  "default"}
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              {#if analysisTriggeredManually}
+                <span
+                  class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 text-muted-foreground">
+                  Manual Analysis
                 </span>
+              {:else if mergeAnalysisResult}
+                <span
+                  class="rounded bg-green-100 px-2 py-1 text-xs text-green-800 text-muted-foreground">
+                  Auto Analysis
+                </span>
+              {/if}
+              <Button
+                variant="outline"
+                size="sm"
+                onclick={() => analyzeMerge()}
+                disabled={isAnalyzingMerge}
+                class="gap-2">
+                {#if isAnalyzingMerge}
+                  <Loader2 class="h-4 w-4 animate-spin" />
+                  Analyzing...
+                {:else}
+                  <Shield class="h-4 w-4" />
+                  Analyze Patch Set
+                {/if}
+              </Button>
+            </div>
+          </div>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasNext}
-                  onclick={() => {
-                    if (hasNext) {
-                      selectedPatch = patchSet[currentIndex + 1]
-                    }
-                  }}>
-                  Next
-                  <ChevronRight class="ml-1 h-4 w-4" />
-                </Button>
-              {/key}
+          <!-- Merge Status Analysis -->
+          <div class="mb-4">
+            <MergeStatus
+              result={mergeAnalysisResult}
+              loading={isAnalyzingMerge}
+              targetBranch={repoClass.selectedBranch ||
+                patchSet[0]?.baseBranch ||
+                repoClass.mainBranch ||
+                ""} />
+          </div>
+          {#if mergeAnalysisResult}
+            <div class="mb-4">
+              <MergeAnalyzer
+                analysis={{
+                  similarity: mergeAnalysisResult.hasConflicts ? 0.7 : 0.95,
+                  autoMergeable: mergeAnalysisResult.canMerge,
+                  affectedFiles: patchSet.flatMap((p: Patch) =>
+                    (p.diff || []).map((f: any) => f.to || f.from || f.file || "unknown"),
+                  ),
+                  conflictCount: (mergeAnalysisResult.conflictFiles || []).length,
+                  errorMessage: mergeAnalysisResult.errorMessage,
+                  conflictDetails: mergeAnalysisResult.conflictDetails,
+                  analysis: mergeAnalysisResult.analysis,
+                }}
+                patch={patchSet[0] as any}
+                analyzing={isAnalyzingMerge}
+                onAnalyze={() => analyzeMerge()} />
             </div>
           {/if}
         </div>
 
-        <!-- Patch Set -->
-        <div class="mb-6 overflow-hidden rounded-md border border-border">
-          {#key selectedPatch?.id}
-            <div transition:slideAndFade={{axis: "y", duration: 250}}>
-              {#if selectedPatch}
-                <div
-                  class="flex w-full items-center gap-3 border-b border-border p-3 text-left last:border-b-0 hover:bg-secondary/20">
-                  <div class="flex-shrink-0">
-                    <GitCommit class="h-5 w-5 text-primary" />
-                  </div>
-                  <div class="flex-grow">
-                    <div class="break-words font-semibold">
-                      {selectedPatch.title || `Patch ${selectedPatch.id}`}
-                    </div>
-                    <div class="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span
-                        >{selectedPatch.author.name ||
-                          selectedPatch.author.pubkey.slice(0, 8)}</span>
-                      <span>•</span>
-                      <span>{new Date(selectedPatch.createdAt).toLocaleString()}</span>
-                      {#if selectedPatch.commitHash}
-                        <span>•</span>
-                        <span>{selectedPatch.commitHash.slice(0, 8)}</span>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-              {/if}
-              {#if selectedPatch?.diff}
-                <DiffViewer diff={selectedPatch.diff} />
-              {/if}
-            </div>
-          {/key}
-        </div>
+        <div class="git-separator"></div>
+
+        <!-- Unified Patch Viewer Component -->
+        <PatchViewer
+          selectedPatch={selectedPatch || null}
+          {patchSet}
+          onNavigatePrevious={navigateToPreviousPatch}
+          onNavigateNext={navigateToNextPatch}
+          showNavigation={true}
+          showFileStats={true}
+          showPatchInfo={true}
+          comments={$threadComments as CommentEvent[]}
+          rootEvent={selectedPatch?.raw}
+          onComment={handleCommentSubmit}
+          currentPubkey={$pubkey}
+          diffViewerProps={{
+            showLineNumbers: true,
+            expandAll: false,
+          }} />
         {#if repoClass.maintainers.includes($pubkey!)}
           <!-- GitHub-style Merge Section -->
           <div class="rounded-lg border bg-card p-6">
@@ -1067,9 +1245,10 @@
                 <div>
                   <h3 class="font-semibold">Merge this patch</h3>
                   <p class="text-sm text-muted-foreground">
-                    Apply the changes from this patch to the {selectedPatch?.baseBranch ||
+                    Apply the changes from this patch to the {repoClass.selectedBranch ||
+                      selectedPatch?.baseBranch ||
                       repoClass.mainBranch ||
-                      "-"} branch
+                      "default"} branch
                   </p>
                 </div>
               </div>
@@ -1201,7 +1380,7 @@
                   Merged
                 {:else}
                   <GitMerge class="mr-2 h-4 w-4" />
-                  Merge Patch
+                  Merge Patch Set
                 {/if}
               </Button>
             </div>
@@ -1221,16 +1400,27 @@
               <div class="mb-6 space-y-4">
                 <div>
                   <p class="mb-2 text-sm text-muted-foreground">
-                    This will merge the patch into <code class="rounded bg-muted px-1"
-                      >{selectedPatch?.baseBranch || repoClass.mainBranch || "-"}</code> and push to
-                    all remotes.
+                    This will merge the entire patch set ({patchSet.length} patch{patchSet.length !==
+                    1
+                      ? "es"
+                      : ""}) into
+                    <code class="rounded bg-muted px-1"
+                      >{patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</code> and push to all
+                    remotes.
                   </p>
 
                   <div class="rounded-lg bg-muted/30 p-3 text-sm">
-                    <div class="mb-1 font-medium">Patch Details:</div>
-                    <div>ID: <code>{selectedPatch?.id.slice(0, 16)}...</code></div>
-                    <div>Commits: {selectedPatch?.commits?.length || 0}</div>
-                    <div>Target: {selectedPatch?.baseBranch || repoClass.mainBranch || "-"}</div>
+                    <div class="mb-1 font-medium">Patch Set Details:</div>
+                    <div>Patches: {patchSet.length}</div>
+                    <div>
+                      Total Commits: {patchSet.flatMap((p: Patch) => p.commits || []).length}
+                    </div>
+                    <div>Target: {patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</div>
+                    {#if patchSet.length > 1}
+                      <div class="mt-2 text-xs text-muted-foreground">
+                        Includes all patches in the set, not just the currently selected one
+                      </div>
+                    {/if}
                   </div>
                 </div>
 

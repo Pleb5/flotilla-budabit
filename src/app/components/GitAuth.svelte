@@ -58,8 +58,9 @@
     tokens = $tokensStore
   })
 
-  function del(h: string) {
-    const updatedTokens = tokens.filter(t => t.host !== h)
+  function del(tokenToDelete: TokenEntry) {
+    // Match both host AND token to uniquely identify the token to delete
+    const updatedTokens = tokens.filter(t => !(t.host === tokenToDelete.host && t.token === tokenToDelete.token))
     saveTokens(updatedTokens)
     // Update the reactive store
     tokensStore.clear()
@@ -107,7 +108,7 @@
               <td class="p-2 text-right">
                 <div class="flex gap-2 justify-end">
                   <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}><Icon icon={Pen} /></Button>
-                  <Button class="btn btn-error btn-sm" onclick={() => del(t.host)}
+                  <Button class="btn btn-error btn-sm" onclick={() => del(t)}
                     ><Icon icon={TrashBin2} /></Button>
                 </div>
               </td>

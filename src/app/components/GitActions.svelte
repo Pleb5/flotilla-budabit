@@ -13,11 +13,8 @@
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeGitIssuePath, makeGitPath} from "@lib/budabit"
-  import Button from "@lib/components/Button.svelte"
-  import Spinner from "@lib/components/Spinner.svelte"
   import {deriveEvents} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
-  import {navigating} from "$app/stores"
   import {goto} from "$app/navigation"
   import * as nip19 from "nostr-tools/nip19"
   import type {AddressPointer} from "nostr-tools/nip19"
@@ -25,6 +22,8 @@
   import {pushToast} from "@app/util/toast"
   import {normalizeRelayUrl} from "@welshman/util"
   import Link from "@lib/components/Link.svelte"
+  import { onMount } from "svelte"
+  import { parseRepoAnnouncementEvent } from "@nostr-git/shared-types"
 
   interface Props {
     url: any
@@ -32,9 +31,10 @@
     showIssues?: boolean
     showActivity?: boolean
     showPatches?: boolean
+    workerApi?: any
   }
 
-  const {url, event, showIssues = true, showActivity = true, showPatches = true}: Props = $props()
+  const {url, event, showIssues = true, showActivity = true, showPatches = true, workerApi}: Props = $props()
 
   let loadingIssues = $state(true)
 
@@ -46,7 +46,6 @@
   }
 
   const issues = deriveEvents(repository, {filters: [issueFilter]})
-  const issueCount = $derived($issues.length)
 
   const patchFilter = {
     kinds: [GIT_PATCH],
@@ -54,7 +53,6 @@
   }
 
   const patches = deriveEvents(repository, {filters: [patchFilter]})
-  const patchCount = $derived($patches.length)
 
   const onPublishDelete = (event: TrustedEvent) =>
     publishDelete({relays: [normalizeRelayUrl(url)], event, protect: false})
@@ -133,10 +131,108 @@
   // This might be broken depending on repo owners updating their links or
   // even including one in the first place
   // const web = event.tags.find(nthEq(0, "web"))?.[1]
+
+  let syncStatus: any = $state(null)
+  let syncing: boolean = $state(false)
+  let repoId: string = $state("")
+  let cloneUrls: string[] = $state([])
+
+  onMount(async () => {
+    try {
+      const announcement = parseRepoAnnouncementEvent(event as any)
+      cloneUrls = [...(announcement?.clone || [])]
+
+      const name = announcement?.name || event.tags.find(nthEq(0, "name"))?.[1] || ""
+      const owner = event.pubkey || ""
+      if (owner && name) {
+        repoId = canonicalRepoKey(`${owner}:${name}`)
+      }
+
+      if (!repoId || cloneUrls.length === 0 || !workerApi) return
+      syncing = true
+      try {
+        syncStatus = await workerApi.syncWithRemote({ repoId, cloneUrls })
+      } finally {
+        syncing = false
+      }
+    } catch {}
+  })
+
+  const pullLatest = async () => {
+    if (!repoId) return
+    if (!workerApi) return
+    syncing = true
+    try {
+      const main = undefined
+      await workerApi.resetRepoToRemote({ repoId, branch: main })
+      const syncResult = await workerApi.syncWithRemote({ repoId, cloneUrls })
+      
+      // Handle warnings like CORS issues gracefully
+      if (syncResult.warning) {
+        console.warn("Sync completed with warning:", syncResult.warning)
+        pushToast({ message: "Pulled latest from remote (with limitations)" })
+      } else {
+        pushToast({ message: "Pulled latest from remote" })
+      }
+      
+      syncStatus = syncResult
+    } catch (e) {
+      const errorMessage = String(e)
+      // Don't show toast for CORS/network errors
+      if (!errorMessage.includes('CORS') && 
+          !errorMessage.includes('NetworkError') && 
+          !errorMessage.includes('Failed to fetch')) {
+        pushToast({ message: `Pull failed: ${errorMessage}`, theme: "error" })
+      }
+    } finally {
+      syncing = false
+    }
+  }
+
+  const pushLocal = async () => {
+    if (!repoId || cloneUrls.length === 0) return
+    if (!workerApi) return
+    const remoteUrl = cloneUrls[0]
+    syncing = true
+    try {
+      await workerApi.pushToRemote({ repoId, remoteUrl })
+      const syncResult = await workerApi.syncWithRemote({ repoId, cloneUrls })
+      
+      // Handle warnings like CORS issues gracefully
+      if (syncResult.warning) {
+        console.warn("Sync completed with warning:", syncResult.warning)
+        pushToast({ message: "Pushed local changes to remote (with limitations)" })
+      } else {
+        pushToast({ message: "Pushed local changes to remote" })
+      }
+      
+      syncStatus = syncResult
+    } catch (e) {
+      const errorMessage = String(e)
+      // Don't show toast for CORS/network errors
+      if (!errorMessage.includes('CORS') && 
+          !errorMessage.includes('NetworkError') && 
+          !errorMessage.includes('Failed to fetch')) {
+        pushToast({ message: `Push failed: ${errorMessage}` , theme: "error" })
+      }
+    } finally {
+      syncing = false
+    }
+  }
 </script>
 
 <div class="flex flex-wrap items-center justify-between gap-2">
   <div class="flex flex-grow flex-wrap justify-end gap-2">
+    {#if syncStatus && (syncStatus.needsUpdate || (syncStatus.localCommit && syncStatus.headCommit && syncStatus.localCommit !== syncStatus.headCommit))}
+      <div class="flex items-center gap-2 rounded-full border border-border bg-muted px-2 py-1 text-xs">
+        <span class="opacity-80">Out of sync</span>
+        {#if syncStatus.localCommit && syncStatus.headCommit}
+          <span class="opacity-60">{syncStatus.localCommit?.slice(0,7)} → {syncStatus.headCommit?.slice(0,7)}</span>
+        {/if}
+        <button class="btn btn-neutral btn-2xs" disabled={syncing} onclick={pullLatest}>Pull</button>
+        <button class="btn btn-primary btn-2xs" disabled={syncing} onclick={pushLocal}>Push</button>
+      </div>
+    {/if}
     <Link class="cursor-pointer" href={makeGitPath(url, Address.fromEvent(event).toNaddr())}>
       <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Browse</div>
     </Link>

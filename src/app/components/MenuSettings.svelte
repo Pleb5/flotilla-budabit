@@ -80,10 +80,10 @@
         <div><Icon icon={Settings} size={7} /></div>
       {/snippet}
       {#snippet title()}
-        <div>Settings</div>
+        <div>Content Settings</div>
       {/snippet}
       {#snippet info()}
-        <div>Get into the details about how {PLATFORM_NAME} works</div>
+        <div>Get into the details about how you view and publish content on {PLATFORM_NAME}</div>
       {/snippet}
     </CardButton>
   </Link>

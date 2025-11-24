@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {RepoHeader, RepoTab, toast} from "@nostr-git/ui"
+  import {RepoHeader, RepoTab, toast, bookmarksStore} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
   import {FileCode, GitBranch, CircleAlert, GitPullRequest, GitCommit, Layers} from "@lucide/svelte"
   import {page} from "$app/stores"
@@ -17,15 +17,15 @@
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
   import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
-  import {derived as _derived} from "svelte/store"
-  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch} from "@welshman/app"
+  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/shared-types"
+  import {derived as _derived, get as getStore} from "svelte/store"
+  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk} from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
-  import {GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/shared-types"
   import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
   import {onMount} from "svelte"
-  import {normalizeRelayUrl} from "@welshman/util"
+  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address} from "@welshman/util"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -42,6 +42,41 @@
 
   // Refresh state
   let isRefreshing = $state(false)
+  
+  // Bookmark state
+  let isTogglingBookmark = $state(false)
+  let isBookmarked = $state(false)
+  
+  // Check if repo is bookmarked
+  $effect(() => {
+    if (!repoClass || !repoClass.repoEvent) return
+    try {
+      const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
+      const bookmarks = getStore(bookmarksStore)
+      isBookmarked = bookmarks.some((b) => b.address === address)
+    } catch {
+      isBookmarked = false
+    }
+  })
+  
+  // Subscribe to bookmarks store to update bookmark status
+  $effect(() => {
+    const unsubscribe = bookmarksStore.subscribe(() => {
+      if (!repoClass || !repoClass.repoEvent) return
+      try {
+        const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
+        const bookmarks = getStore(bookmarksStore)
+        isBookmarked = bookmarks.some((b) => b.address === address)
+      } catch {
+        isBookmarked = false
+      }
+    })
+    return unsubscribe
+  })
+  
+  // Scroll position management
+  let pageContentElement = $state<Element | undefined>()
+  const scrollStorageKey = `repoScroll:${id}`
 
   // --- GRASP servers (user profile) ---
   const graspServersFilter = {
@@ -69,11 +104,39 @@
       if (to.url.pathname.startsWith(base)) {
         updateRepo()
       }
+
+      if (to.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
+        // Restore scroll position for issues page
+        const savedScroll = sessionStorage.getItem(scrollStorageKey)
+        if (savedScroll && pageContentElement) {
+          const scrollPosition = parseInt(savedScroll, 10)
+          // Double requestAnimationFrame ensures the scroll restoration happens after:
+          // 1. First RAF: Schedule callback for next paint cycle
+          // 2. Second RAF: Execute after that paint has completed and content is fully rendered
+          // This prevents scroll jumping and ensures all issue cards are in the DOM
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (pageContentElement) {
+                pageContentElement.scrollTop = scrollPosition
+              }
+            })
+          })
+        }
+      }
     } catch {}
   })
 
   // Pre-emptive refresh when navigating within the same repo scope
-  beforeNavigate(({to}) => {
+  beforeNavigate(({from, to}) => {
+
+    if (from?.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
+      // Save scroll position when leaving issues page
+      if (pageContentElement) {
+        const scrollPosition = pageContentElement.scrollTop
+        sessionStorage.setItem(scrollStorageKey, scrollPosition.toString())
+      }
+    }
+
     try {
       if (!to) return
       const base = repoBasePath()
@@ -111,6 +174,17 @@
   async function updateRepo() {
     if (!repoClass || isRefreshing) return
 
+    // Validate repository state before attempting sync
+    if (!repoClass.key) {
+      console.warn("[updateRepo] Repository key not available, skipping sync")
+      return
+    }
+
+    if (!repoClass.workerManager?.isReady) {
+      console.warn("[updateRepo] WorkerManager not ready, skipping sync")
+      return
+    }
+
     isRefreshing = true
 
     try {
@@ -118,6 +192,51 @@
       const cloneUrls = repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         throw new Error("No clone URLs found for repository")
+      }
+
+      // Check if repository is cloned before attempting sync
+      try {
+        const isCloned = await repoClass.workerManager.isRepoCloned({
+          repoId: repoClass.key
+        })
+        
+        if (!isCloned) {
+          console.log("[updateRepo] Repository not cloned yet, initializing first...")
+          // Initialize the repository before syncing
+          const initResult = await repoClass.workerManager.smartInitializeRepo({
+            repoId: repoClass.key,
+            cloneUrls,
+            forceUpdate: false
+          })
+          
+          if (!initResult.success) {
+            // Handle CORS errors gracefully
+            const errorMessage = initResult.error || "Initialization failed"
+            if (initResult.corsError || 
+                errorMessage.includes('CORS') || 
+                errorMessage.includes('network restrictions') ||
+                errorMessage.includes('security policies')) {
+              console.warn("[updateRepo] Repository initialization failed due to CORS/network restrictions:", errorMessage)
+              // Don't show toast for CORS errors, just return silently
+              return
+            }
+            throw new Error(`Repository initialization failed: ${errorMessage}`)
+          }
+          
+          console.log("[updateRepo] Repository initialized successfully")
+        }
+      } catch (initError) {
+        console.warn("[updateRepo] Failed to check/initialize repository:", initError)
+        // Check if this is a CORS/network error and don't show toast
+        const errorMessage = initError instanceof Error ? initError.message : String(initError)
+        if (errorMessage.includes('CORS') || 
+            errorMessage.includes('NetworkError') || 
+            errorMessage.includes('network restrictions') ||
+            errorMessage.includes('security policies')) {
+          // Don't show toast for CORS errors
+          return
+        }
+        // Don't throw here, continue with sync attempt as it might still work
       }
 
       // Call syncWithRemote through the repo's worker manager
@@ -128,14 +247,36 @@
       })
 
       if (!result.success) {
-        throw new Error(result.error || "Sync failed")
+        // Check for specific error types that should be handled gracefully
+        const errorMessage = result.error || "Sync failed"
+        
+        if (errorMessage.includes("No branches found") || 
+            errorMessage.includes("Repository not cloned locally") ||
+            errorMessage.includes("CORS") ||
+            errorMessage.includes("NetworkError")) {
+          console.warn("[updateRepo] Sync failed with expected error:", errorMessage)
+          // Don't show toast for these common/expected errors
+          return
+        }
+        
+        throw new Error(errorMessage)
       }
+      
+      console.log("[updateRepo] Repository sync completed successfully")
     } catch (error) {
       console.error("Failed to refresh repository:", error)
-      pushToast({
-        message: `Failed to sync repository: ${error instanceof Error ? error.message : "Unknown error"}`,
-        theme: "error",
-      })
+      
+      // Only show toast for unexpected errors, not network/CORS issues
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      if (!errorMessage.includes("CORS") && 
+          !errorMessage.includes("NetworkError") && 
+          !errorMessage.includes("No branches found") &&
+          !errorMessage.includes("Repository not cloned")) {
+        pushToast({
+          message: `Failed to sync repository: ${errorMessage}`,
+          theme: "error",
+        })
+      }
     } finally {
       isRefreshing = false
     }
@@ -249,6 +390,98 @@
     })
   }
 
+  async function bookmarkRepo() {
+    if (!repoClass || !$pubkey || isTogglingBookmark) return
+
+    isTogglingBookmark = true
+
+    try {
+      if (!repoClass.repoEvent) {
+        throw new Error("Repository event not available")
+      }
+      
+      // Get repo address
+      const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
+      
+      // Get current bookmarks
+      const currentBookmarks = getStore(bookmarksStore)
+      
+      // Determine relay hint
+      const relayHint = repoClass.relays?.[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
+      const normalizedRelayHint = relayHint ? normalizeRelayUrl(relayHint) : ""
+      
+      // Build tags array
+      const tags: string[][] = [["d", GIT_REPO_BOOKMARK_DTAG]]
+      
+      if (isBookmarked) {
+        // Remove bookmark: keep all bookmarks except this one
+        currentBookmarks
+          .filter((b) => b.address !== address)
+          .forEach((b) => {
+            const aTag: string[] = ["a", b.address]
+            if (b.relayHint) {
+              aTag.push(b.relayHint)
+            }
+            tags.push(aTag)
+          })
+      } else {
+        // Add bookmark: keep all existing bookmarks and add this one
+        currentBookmarks.forEach((b) => {
+          const aTag: string[] = ["a", b.address]
+          if (b.relayHint) {
+            aTag.push(b.relayHint)
+          }
+          tags.push(aTag)
+        })
+        
+        // Add the new bookmark
+        const newATag: string[] = ["a", address]
+        if (normalizedRelayHint) {
+          newATag.push(normalizedRelayHint)
+        }
+        tags.push(newATag)
+      }
+      
+      // Create and publish bookmark event
+      const bookmarkEvent = makeEvent(NAMED_BOOKMARKS, { tags, content: "" })
+      
+      // Capture the action before updating store (for toast message)
+      const wasRemoving = isBookmarked
+      
+      // Update store immediately for responsive UI
+      if (isBookmarked) {
+        bookmarksStore.remove(address)
+      } else {
+        bookmarksStore.add({
+          address,
+          event: null,
+          relayHint: normalizedRelayHint,
+        })
+      }
+      
+      // Publish to relays
+      const relaysToPublish = repoClass.relays.length > 0 
+        ? repoClass.relays.map(normalizeRelayUrl).filter(Boolean)
+        : Router.get().FromUser().getUrls().map(normalizeRelayUrl).filter(Boolean)
+      
+      publishThunk({ event: bookmarkEvent, relays: relaysToPublish })
+      
+      pushToast({
+        message: wasRemoving ? "Bookmark removed" : "Repository bookmarked",
+      })
+    } catch (error) {
+      console.error("Failed to toggle bookmark:", error)
+      // Use the current isBookmarked state for error message (before any changes)
+      const action = isBookmarked ? "remove" : "add"
+      pushToast({
+        message: `Failed to ${action} bookmark: ${error instanceof Error ? error.message : "Unknown error"}`,
+        theme: "error",
+      })
+    } finally {
+      isTogglingBookmark = false
+    }
+  }
+
   function overviewRepo() {
     if (!repoClass) return
     goto(`/spaces/${relay}/git/${id}/`)
@@ -299,7 +532,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-8">
+<PageContent bind:element={pageContentElement} class="flex flex-grow flex-col gap-2 overflow-auto p-8">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}
@@ -313,6 +546,9 @@
       {forkRepo}
       {settingsRepo}
       {overviewRepo}
+      {bookmarkRepo}
+      {isBookmarked}
+      isTogglingBookmark={isTogglingBookmark}
       userPubkey={$pubkey}
       >
       {#snippet children(activeTab: string)}

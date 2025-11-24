@@ -9,9 +9,9 @@ import {
   assembleIssueThread,
   resolveIssueStatus,
   buildRepoSubscriptions,
-  extractSelfLabelsV2,
-  extractLabelEventsV2,
-  mergeEffectiveLabelsV2,
+  extractSelfLabels,
+  extractLabelEvents,
+  mergeEffectiveLabels,
   type RepoGroup
 } from "@nostr-git/core"
 import { repository } from "@welshman/app"
@@ -220,12 +220,12 @@ export const deriveEffectiveLabels = (eventId: string) =>
       ],
       ([$evt, $external]) => {
         if (!$evt) return undefined
-        const self = extractSelfLabelsV2($evt as unknown as any)
-        const external = extractLabelEventsV2($external as unknown as any[])
+        const self = extractSelfLabels($evt as unknown as any)
+        const external = extractLabelEvents($external as unknown as any[])
         const t = (($evt as any).tags || [])
           .filter((t: string[]) => t[0] === "t")
           .map((t: string[]) => t[1])
-        return mergeEffectiveLabelsV2({ self, external, t })
+        return mergeEffectiveLabels({ self, external, t })
       },
     ),
   )

@@ -1,4 +1,5 @@
 import type { EffectiveLabelsV2 } from "@nostr-git/core"
+import { createRoleLabelEvent } from "@nostr-git/shared-types"
 
 export type NormalizedEffectiveLabelsView = {
   flat: Set<string>
@@ -72,23 +73,14 @@ export function buildRoleLabelEvent(params: {
   sig: string
 } {
   const { rootId, role, pubkeys, repoAddr, created_at } = params
-  const tags: string[][] = [
-    ["L", ROLE_NS],
-    ["l", role, ROLE_NS],
-    ["e", rootId, "", "root"],
-  ]
-  if (repoAddr) tags.push(["a", repoAddr])
-  for (const pk of pubkeys) tags.push(["p", pk])
-  const evt = {
-    kind: 1985,
-    content: "",
-    created_at: created_at || Math.floor(Date.now() / 1000),
-    tags,
-    pubkey: "",
-    id: "",
-    sig: "",
-  }
-  return evt
+  return createRoleLabelEvent({
+    rootId,
+    role,
+    pubkeys,
+    repoAddr,
+    created_at,
+    namespace: ROLE_NS,
+  }) as any
 }
 
 /**

@@ -1,8 +1,9 @@
-import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent, PermalinkEvent, RepoStateEvent, GraspSetEvent, NostrEvent } from "@nostr-git/shared-types"
+import type { CommentEvent, IssueEvent, RepoAnnouncementEvent, StatusEvent, PermalinkEvent, RepoStateEvent, GraspSetEvent, NostrEvent, TrustedEvent } from "@nostr-git/shared-types"
 import { buildRoleLabelEvent } from "./labels"
 import { publishThunk } from "@welshman/app"
 import { INDEXER_RELAYS } from "@app/core/state"
 import { Router } from "@welshman/router"
+import { publishDelete } from "@src/app/core/commands"
 
 export const publishEvent = <T extends NostrEvent>(event: T, relays?: string[]) => {
   const merged = Array.from(new Set([...(relays ?? []), ...Router.get().FromUser().getUrls(), ...INDEXER_RELAYS]))
@@ -99,3 +100,14 @@ export const postRoleLabel = (params: {
     event: event,
   })
 }
+
+export const deleteRoleLabelEvent = ({
+  relays,
+  event,
+  protect = false,
+}: {
+  relays: string[]
+  event: TrustedEvent
+  protect?: boolean
+}) => publishDelete({event, relays, protect})
+
