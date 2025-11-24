@@ -562,6 +562,15 @@
           {/snippet}
         </RepoTab>
         <RepoTab
+          tabValue="pipelines"
+          label="Pipelines"
+          href={`/spaces/${encodedRelay}/git/${id}/cicd`}
+          {activeTab}>
+          {#snippet icon()}
+            <FileCode class="h-4 w-4" />
+          {/snippet}
+        </RepoTab>
+        <RepoTab
           tabValue="code"
           label="Code"
           href={`/spaces/${encodedRelay}/git/${id}/code`}
