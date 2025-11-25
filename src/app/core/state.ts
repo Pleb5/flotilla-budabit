@@ -14,7 +14,6 @@ import {
   sortBy,
   append,
   sort,
-  prop,
   uniq,
   indexBy,
   partition,
@@ -310,10 +309,7 @@ export const loadSettings = makeLoadItem(
   getSettings,
 )
 
-export const userSettings = makeUserData({
-  mapStore: settingsByPubkey,
-  loadItem: loadSettings,
-})
+export const userSettings = makeUserData(settingsByPubkey, loadSettings)
 
 export const loadUserSettings = makeUserLoader(loadSettings)
 
@@ -612,10 +608,7 @@ export const getSpaceRoomsFromGroupList = (url: string, groupList: List | undefi
   return sortBy(roomComparator(url), rooms)
 }
 
-export const userGroupList = makeUserData({
-  mapStore: groupListsByPubkey,
-  loadItem: loadGroupList,
-})
+export const userGroupList = makeUserData(groupListsByPubkey, loadGroupList)
 
 export const loadUserGroupList = makeUserLoader(loadGroupList)
 
