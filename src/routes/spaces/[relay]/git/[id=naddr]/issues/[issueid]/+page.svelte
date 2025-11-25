@@ -27,10 +27,10 @@
   import {slide} from "svelte/transition"
   import {getContext, onMount} from "svelte"
   import {postComment, postStatus, postLabel, postRoleLabel} from "@lib/budabit"
-  import { PeoplePicker } from "@nostr-git/ui"
-  import { createLabelEvent, type LabelEvent } from "@nostr-git/shared-types"
-  import { publishDelete } from "@app/core/commands"
-  import { ROLE_NS } from "@lib/budabit/labels"
+  import {PeoplePicker} from "@nostr-git/ui"
+  import {createLabelEvent, type LabelEvent} from "@nostr-git/shared-types"
+  import {publishDelete} from "@app/core/commands"
+  import {ROLE_NS} from "@lib/budabit/labels"
   import {
     REPO_RELAYS_KEY,
     deriveEffectiveLabels,
@@ -39,7 +39,8 @@
     loadRepoAnnouncements,
     deriveRoleAssignments,
   } from "@lib/budabit"
-  import { normalizeEffectiveLabels, toNaturalArray } from "@lib/budabit/labels"
+  import {normalizeEffectiveLabels, toNaturalArray} from "@lib/budabit/labels"
+  import Markdown from "@src/lib/components/Markdown.svelte"
 
   const markdown = markdownit({
     html: true,
@@ -121,7 +122,7 @@
         content: "",
         e: [issue.id],
         namespaces: [value],
-        labels: [{ value }],
+        labels: [{value}],
       }) as any
       console.debug("[IssueDetail] addLabel event payload", labelEvent)
       postLabel(labelEvent as any, relays)
@@ -170,15 +171,12 @@
     return toNaturalArray(norm.flat)
   })
 
-  const roleAssignments = $derived.by(() =>
-    issue ? deriveRoleAssignments(issue.id) : undefined
-  )
+  const roleAssignments = $derived.by(() => (issue ? deriveRoleAssignments(issue.id) : undefined))
   const assignees = $derived.by(() =>
-    Array.from((roleAssignments?.get()?.assignees || new Set()) as Set<string>)
+    Array.from((roleAssignments?.get()?.assignees || new Set()) as Set<string>),
   )
 
   // PeoplePicker will render from LabelEvent[] directly
-
 
   // Resolve effective status using precedence rules (maintainers > author > others; kind; recency)
   const resolved = $derived.by(() => {
@@ -258,49 +256,49 @@
     return thunk
   }
 
-    // Profile functions for PeoplePicker
-    const getProfile = async (pubkey: string) => {
-        const profile = $profilesByPubkey.get(pubkey)
-        if (profile) {
-            return {
-                name: profile.name,
-                picture: profile.picture,
-                nip05: profile.nip05,
-                display_name: profile.display_name,
-            }
-        }
-        // Try to load profile if not in cache
-        // Filter out invalid relay URLs to prevent errors
-        const validRelays = (repoClass.relays || []).filter((relay: string) => {
-            try {
-                const url = new URL(relay)
-                return url.protocol === 'ws:' || url.protocol === 'wss:'
-            } catch {
-                console.warn(`Invalid relay URL filtered out: ${relay}`)
-                return false
-            }
-        })
-        
-        if (validRelays.length > 0) {
-            await loadProfile(pubkey, validRelays)
-        }
-        
-        const loadedProfile = $profilesByPubkey.get(pubkey)
-        if (loadedProfile) {
-            return {
-                name: loadedProfile.name,
-                picture: loadedProfile.picture,
-                nip05: loadedProfile.nip05,
-                display_name: loadedProfile.display_name,
-            }
-        }
-        return null
+  // Profile functions for PeoplePicker
+  const getProfile = async (pubkey: string) => {
+    const profile = $profilesByPubkey.get(pubkey)
+    if (profile) {
+      return {
+        name: profile.name,
+        picture: profile.picture,
+        nip05: profile.nip05,
+        display_name: profile.display_name,
+      }
     }
+    // Try to load profile if not in cache
+    // Filter out invalid relay URLs to prevent errors
+    const validRelays = (repoClass.relays || []).filter((relay: string) => {
+      try {
+        const url = new URL(relay)
+        return url.protocol === "ws:" || url.protocol === "wss:"
+      } catch {
+        console.warn(`Invalid relay URL filtered out: ${relay}`)
+        return false
+      }
+    })
+
+    if (validRelays.length > 0) {
+      await loadProfile(pubkey, validRelays)
+    }
+
+    const loadedProfile = $profilesByPubkey.get(pubkey)
+    if (loadedProfile) {
+      return {
+        name: loadedProfile.name,
+        picture: loadedProfile.picture,
+        nip05: loadedProfile.nip05,
+        display_name: loadedProfile.display_name,
+      }
+    }
+    return null
+  }
 
   const searchProfiles = async (query: string) => {
     // profileSearch.searchValues returns an array of pubkeys (strings)
     const pubkeys = $profileSearch.searchValues(query)
-    
+
     // Map each pubkey to a profile object by looking it up in profilesByPubkey
     return pubkeys.map((pubkey: string) => {
       const profile = $profilesByPubkey.get(pubkey)
@@ -320,20 +318,23 @@
 </svelte:head>
 
 {#if issue}
-  <div class="z-10 sticky top-0 items-center justify-between py-2 sm:py-4 backdrop-blur px-2 sm:px-0" transition:slide>
-    <Card class="git-card transition-colors p-4 sm:p-6">
+  <div
+    class="z-10 sticky top-0 items-center justify-between px-2 py-2 backdrop-blur sm:px-0 sm:py-4"
+    transition:slide>
+    <Card class="git-card p-4 transition-colors sm:p-6">
       <div class="flex items-start gap-2 sm:gap-4">
         {#if statusIcon}
           {@const {icon: Icon, color} = statusIcon()}
           <div class="mt-1 flex-shrink-0">
-            <div class="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-amber-500/10">
+            <div
+              class="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10 sm:h-10 sm:w-10">
               <Icon class={`h-4 w-4 sm:h-6 sm:w-6 ${color}`} />
             </div>
           </div>
         {/if}
         <div class="min-w-0 flex-1">
-          <h1 class="break-words text-lg sm:text-xl font-semibold">{issue.subject || "Issue"}</h1>
-          <div class="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
+          <h1 class="break-words text-lg font-semibold sm:text-xl">{issue.subject || "Issue"}</h1>
+          <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
             <Status
               repo={repoClass}
               rootId={issue.id}
@@ -343,18 +344,22 @@
               actorPubkey={$pubkey}
               compact={true}
               ProfileComponent={ProfileLink} />
-            <span class="text-xs sm:text-sm text-muted-foreground flex flex-wrap items-center gap-1">
+            <span
+              class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground sm:text-sm">
               <ProfileLink pubkey={issue?.author.pubkey}></ProfileLink>
               <span class="hidden sm:inline">opened this issue •</span>
               <span class="sm:hidden">opened</span>
-              <span class="text-xs break-all sm:break-normal">{new Date(issue?.createdAt).toLocaleString()}</span>
+              <span class="break-all text-xs sm:break-normal"
+                >{new Date(issue?.createdAt).toLocaleString()}</span>
             </span>
           </div>
         </div>
       </div>
 
-      <div class="prose-sm dark:prose-invert prose mt-6 sm:mt-8 max-w-none break-words [&_*]:break-words [&_pre]:overflow-x-auto [&_code]:break-words">
-        {@html markdown.render(issue.content)}
+      <div
+        class="prose-sm dark:prose-invert prose mt-6 max-w-none break-words sm:mt-8 [&_*]:break-words [&_code]:break-words [&_pre]:overflow-x-auto">
+        <!-- {@html markdown.render(issue.content)} -->
+        <Markdown content={issue.content} />
       </div>
 
       <div class="git-separator my-4 sm:my-6"></div>
@@ -369,16 +374,17 @@
           </div>
         {/if}
         {#if isMaintainerOrAuthor}
-          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full max-w-full">
+          <div
+            class="flex w-full max-w-full flex-col items-stretch gap-2 sm:flex-row sm:items-center">
             <input
-              class="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-2 sm:px-2 sm:py-1 text-sm min-h-[44px] sm:min-h-0"
+              class="min-h-[44px] min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm sm:min-h-0 sm:px-2 sm:py-1"
               placeholder="Add tag..."
               bind:value={newLabel}
               onkeydown={e => {
                 if (e.key === "Enter") addLabel()
               }} />
             <button
-              class="flex-shrink-0 rounded-md border border-border px-3 py-2 sm:px-3 sm:py-1 text-sm min-h-[44px] sm:min-h-0"
+              class="min-h-[44px] flex-shrink-0 rounded-md border border-border px-3 py-2 text-sm sm:min-h-0 sm:px-3 sm:py-1"
               onclick={addLabel}
               disabled={addingLabel || !newLabel.trim()}>
               <span class="whitespace-nowrap">{addingLabel ? "Adding..." : "Add Tag"}</span>
@@ -400,24 +406,24 @@
             {getProfile}
             {searchProfiles}
             add={async (pubkey: string) => {
-              if (!issue) return;
+              if (!issue) return
               try {
                 const relays = (repoClass.relays || repoRelays || []).map((u: string) =>
-                  normalizeRelayUrl(u)
-                );
+                  normalizeRelayUrl(u),
+                )
                 postRoleLabel({
                   rootId: issue.id,
                   role: "assignee",
                   pubkeys: [pubkey],
                   repoAddr: (repoClass as any)?.repoEvent?.id,
                   relays,
-                });
+                })
                 await load({
                   relays,
-                  filters: [{ kinds: [1985], "#e": [issue.id] }],
-                });
+                  filters: [{kinds: [1985], "#e": [issue.id]}],
+                })
               } catch (err) {
-                console.error("[IssueDetail] Failed to add assignee", err);
+                console.error("[IssueDetail] Failed to add assignee", err)
               }
             }}
             onDeleteLabel={async (evt: LabelEvent) => {
@@ -426,23 +432,20 @@
                 const relays = (repoClass.relays || repoRelays || [])
                   .map((u: string) => normalizeRelayUrl(u))
                   .filter(Boolean)
-                publishDelete({ event: evt as any, relays, protect: false })
-                await load({ relays, filters: [{ kinds: [1985], "#e": [issue.id] }] })
+                publishDelete({event: evt as any, relays, protect: false})
+                await load({relays, filters: [{kinds: [1985], "#e": [issue.id]}]})
               } catch (err) {
                 console.error("[IssueDetail] Failed to delete assignee label", err)
               }
-            }}
-          />
+            }} />
+        {:else if assignees.length}
+          <div class="flex flex-wrap gap-2">
+            {#each assignees as pk (pk)}
+              <ProfileLink pubkey={pk} />
+            {/each}
+          </div>
         {:else}
-          {#if assignees.length}
-            <div class="flex flex-wrap gap-2">
-              {#each assignees as pk (pk)}
-                <ProfileLink pubkey={pk} />
-              {/each}
-            </div>
-          {:else}
-            <div class="text-xs sm:text-sm text-muted-foreground">No assignees yet.</div>
-          {/if}
+          <div class="text-xs text-muted-foreground sm:text-sm">No assignees yet.</div>
         {/if}
       </div>
 
@@ -462,8 +465,8 @@
 
       <div class="git-separator my-4 sm:my-6"></div>
 
-      <h2 class="my-2 flex items-center gap-2 text-base sm:text-lg font-medium">
-        <MessageSquare class="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
+      <h2 class="my-2 flex items-center gap-2 text-base font-medium sm:text-lg">
+        <MessageSquare class="h-4 w-4 flex-shrink-0 sm:h-5 sm:w-5" />
         <span class="break-words">Discussion ({$threadComments?.length})</span>
       </h2>
 
@@ -476,8 +479,8 @@
     </Card>
   </div>
 {:else}
-  <div class="flex flex-col items-center justify-center py-8 sm:py-12 px-4">
+  <div class="flex flex-col items-center justify-center px-4 py-8 sm:py-12">
     <SearchX class="mb-2 h-6 w-6 sm:h-8 sm:w-8" />
-    <p class="text-sm sm:text-base text-center">No issue found.</p>
+    <p class="text-center text-sm sm:text-base">No issue found.</p>
   </div>
 {/if}
