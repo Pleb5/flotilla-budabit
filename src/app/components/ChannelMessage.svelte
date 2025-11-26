@@ -19,6 +19,7 @@
   import {colors, ENABLE_ZAPS} from "@app/core/state"
   import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
+  import {isKnownEventKind, isKnownUnknown, Template, EventRenderer} from "@nostr-git/ui"
 
   interface Props {
     url: string
@@ -79,7 +80,17 @@
         </div>
       {/if}
       <div class="text-sm">
-        <Markdown content={event.content} {event} {url} />
+        {#if isKnownEventKind(event.kind)}
+          <div class="event-renderer">
+            <EventRenderer event={event as any} />
+          </div>
+        {:else if isKnownUnknown(event.kind)}
+          <div class="unknown-kind">
+            {@html new Template(event as any).render()}
+          </div>
+        {:else}
+          <Markdown content={event.content} {event} {url} />
+        {/if}
         {#if thunk}
           <ThunkFailure showToastOnRetry {thunk} class="mt-2" />
         {/if}
