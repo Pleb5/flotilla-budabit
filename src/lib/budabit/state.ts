@@ -16,7 +16,7 @@ import {
 } from "@nostr-git/core"
 import { repository } from "@welshman/app"
 import { collection, deriveEvents, withGetter } from "@welshman/store"
-import { INDEXER_RELAYS, PLATFORM_RELAYS, channelEvents, deriveEvent, getUrlsForEvent, roomComparator, splitChannelId, userRoomsByUrl, type Channel} from "@app/core/state"
+import { PLATFORM_RELAYS, channelEvents, deriveEvent, messages, getUrlsForEvent, memberships, roomComparator, splitChannelId, userRoomsByUrl, type Channel, getMembershipRooms, ROOM, fromCsv } from "@app/core/state"
 import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
 import { fromPairs, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
@@ -32,7 +32,7 @@ export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767
 
-export const GIT_RELAYS = import.meta.env.VITE_GIT_RELAYS
+export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
 export const ROOMS = 10009
 
@@ -82,7 +82,7 @@ export const deriveRepoGroup = (euc: string) =>
 export const deriveMaintainersForEuc = (euc: string) =>
   withGetter(derived(deriveRepoGroup(euc), g => (g ? deriveMaintainers(g) : new Set<string>())))
 
-export const loadRepoAnnouncements = (relays: string[] = INDEXER_RELAYS) =>
+export const loadRepoAnnouncements = (relays: string[] = GIT_RELAYS) =>
   load({
     relays: relays.map(u => normalizeRelayUrl(u)).filter(Boolean) as string[],
     filters: [{ kinds: [30617] }],
@@ -244,7 +244,7 @@ export const loadRepoContext = (args: {
     rootEventId: args.rootId,
     euc: args.euc,
   })
-  const defaults = GIT_RELAYS && GIT_RELAYS.length > 0 ? GIT_RELAYS : INDEXER_RELAYS
+  const defaults = GIT_RELAYS
   const relays = (args.relays || defaults)
     .map((u: string) => normalizeRelayUrl(u))
     .filter(Boolean) as string[]
@@ -254,7 +254,7 @@ export const loadRepoContext = (args: {
 export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   let attempted = false
   const decoded = nip19.decode(naddr).data as nip19.AddressPointer
-  const fallbackRelays = [...hints, ...INDEXER_RELAYS]
+  const fallbackRelays = [...hints, ...GIT_RELAYS]
   const relays = (decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays)
     .map(u => normalizeRelayUrl(u))
     .filter(Boolean)

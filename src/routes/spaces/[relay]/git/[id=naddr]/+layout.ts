@@ -22,7 +22,8 @@ import type {LayoutLoad} from "./$types"
 export const load: LayoutLoad = async ({params}) => {
   const {id, relay} = params
   // Dynamic imports to avoid SSR issues
-  const {decodeRelay, INDEXER_RELAYS} = await import("@app/core/state")
+  const {decodeRelay} = await import("@app/core/state")
+  const {GIT_RELAYS} = await import("@src/lib/budabit/state")
   const {deriveEvents} = await import("@welshman/store")
   const {repository} = await import("@welshman/app")
   const {load} = await import("@welshman/net")
@@ -42,11 +43,11 @@ export const load: LayoutLoad = async ({params}) => {
   }
   const url = decodeRelay(relay)
 
-  const fallbackRelays = INDEXER_RELAYS
+  const fallbackRelays = GIT_RELAYS
   const relayListFromUrl = (
     (decoded.relays?.length ?? 0) > 0 ? (decoded.relays as string[]) : fallbackRelays
   )
-    .map(u => normalizeRelayUrl(u))
+    .map((u: string) => normalizeRelayUrl(u))
     .filter(Boolean) as string[]
 
   const filters = [
