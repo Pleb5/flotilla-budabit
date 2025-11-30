@@ -12,6 +12,8 @@
     Link,
     Eye,
     BookOpen,
+    Copy,
+    Check,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -45,6 +47,7 @@
   let _prevRepoKey = $state<string | undefined>(undefined)
   let _prevMain = $state<string | undefined>(undefined)
   let _prevBranchSig = $state<string | undefined>(undefined)
+  let copiedUrl = $state<string | null>(null)
 
   const stats = $derived([
     {
@@ -106,14 +109,14 @@
   }
 
   const repoMetadata = $derived({
-    name: ((repoClass as any).repo?.name as string) || "Unknown Repository",
-    description: ((repoClass as any).repo?.description as string) || "",
+    name: repoClass.name || "Unknown Repository",
+    description: repoClass.description || "",
     repoId: repoClass.key || "",
     maintainers: maintainers || [],
     relays: $repoRelays,
     cloneUrls: (() => {
-      const rep: any = (repoClass as any).repo
-      let urls = [...(rep?.clone || [])]
+      // Get clone URLs from repoClass directly
+      let urls = [...(repoClass.cloneUrls || [])]
       if (!urls.find(u => u.startsWith("nostr://"))) {
         const def = buildDefaultNgitCloneUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -121,8 +124,8 @@
       return urls
     })(),
     webUrls: (() => {
-      const rep: any = (repoClass as any).repo
-      let urls = [...(rep?.web || [])]
+      // Get web URLs from repoClass directly
+      let urls = [...(repoClass.web || [])]
       if (!urls.find(u => u.startsWith("https://gitworkshop.dev"))) {
         const def = buildDefaultViewRepoUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -130,8 +133,8 @@
       return urls
     })(),
     mainBranch: repoClass.mainBranch,
-    createdAt: (repoClass as any).repoEvent?.created_at
-      ? new Date(((repoClass as any).repoEvent.created_at as number) * 1000)
+    createdAt: repoClass.repoEvent?.created_at
+      ? new Date(repoClass.repoEvent.created_at * 1000)
       : null,
     updatedAt: (repoClass as any).repoStateEvent?.created_at
       ? new Date(((repoClass as any).repoStateEvent.created_at as number) * 1000)
@@ -292,6 +295,18 @@
   function truncateHash(hash: string, length = 8) {
     return hash ? hash.substring(0, length) : ""
   }
+
+  async function copyUrl(url: string) {
+    try {
+      await clip(url)
+      copiedUrl = url
+      setTimeout(() => {
+        copiedUrl = null
+      }, 2000)
+    } catch (e) {
+      console.error("Failed to copy URL", e)
+    }
+  }
 </script>
 
 <svelte:head>
@@ -320,6 +335,36 @@
         </Card>
       {/each}
     </div>
+
+    <!-- Clone URL Section - Prominent Display -->
+    {#if repoMetadata.cloneUrls.length > 0}
+      <div transition:fade>
+        <Card class="p-6">
+          <h3 class="mb-3 text-lg font-semibold flex items-center gap-2">
+            <GitBranch class="h-5 w-5" />
+            Clone Repository
+          </h3>
+          <div class="space-y-2">
+            {#each repoMetadata.cloneUrls as url, index}
+              <button
+                type="button"
+                class="flex w-full items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/50 active:scale-[0.99] cursor-pointer group"
+                title="Click to copy"
+                onclick={() => copyUrl(url)}>
+                <code class="flex-1 font-mono text-sm overflow-x-auto whitespace-nowrap text-left">{url}</code>
+                <div class="flex-shrink-0 p-1 rounded-md transition-colors group-hover:bg-gray-200 dark:group-hover:bg-gray-600">
+                  {#if copiedUrl === url}
+                    <Check class="h-4 w-4 text-green-600 dark:text-green-400" />
+                  {:else}
+                    <Copy class="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                  {/if}
+                </div>
+              </button>
+            {/each}
+          </div>
+        </Card>
+      </div>
+    {/if}
 
     <div class="grid gap-6 md:grid-cols-2" transition:fly>
       <!-- Repository Details -->
