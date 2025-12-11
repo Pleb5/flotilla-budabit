@@ -8,7 +8,7 @@
   import {get, derived} from "svelte/store"
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {dev} from "$app/environment"
-  import {goto} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   import {sync, localStorageProvider} from "@welshman/store"
   import {
     ago,
@@ -67,6 +67,7 @@
   import {setupAnalytics} from "@app/util/analytics"
   import {
     INDEXER_RELAYS,
+    PLATFORM_RELAYS,
     userMembership,
     userSettingsValues,
     relaysPendingTrust,
@@ -88,6 +89,7 @@
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {loadUserGitData} from "@lib/budabit"
   import {Router} from "@welshman/router"
+  import { makeSpacePath } from "@src/app/util/routes"
 
   // Migration: delete old indexeddb database
   indexedDB?.deleteDatabase("flotilla")
@@ -103,6 +105,16 @@
   const ready = $state(defer<void>())
 
   let initialized = false
+
+  beforeNavigate((nav) => {
+    if (!nav.to) return;
+
+    if (nav.to.url.pathname === '/home'
+    && appState.PLATFORM_RELAYS.length > 0) {
+      nav.cancel()
+      goto(makeSpacePath(PLATFORM_RELAYS[0]))
+    }
+  })
 
   onMount(async () => {
     // Preserve window.nostr before overriding window object

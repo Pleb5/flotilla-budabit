@@ -19,13 +19,11 @@
     deriveRelayAuthError,
     relaysPendingTrust,
     deriveSocket,
-    userRoomsByUrl,
   } from "@app/core/state"
   import {pullConservatively} from "@app/core/requests"
-  import {hasBlossomSupport} from "@app/core/commands"
   import {notifications} from "@app/util/notifications"
   import {GIT_ISSUE, GIT_PATCH, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GRASP_SET_KIND} from "@nostr-git/shared-types"
-    import { ROOMS } from "@src/lib/budabit"
+  import { channelsByUrl } from "@src/lib/budabit"
 
   type Props = {
     children?: Snippet
@@ -35,7 +33,7 @@
 
   const url = decodeRelay($page.params.relay!)
 
-  const rooms = Array.from($userRoomsByUrl.get(url) || [])
+  const rooms = Array.from($channelsByUrl.get(url)|| [])
 
   const socket = deriveSocket(url)
 
@@ -74,14 +72,13 @@
     pullConservatively({
       relays: [url],
       filters: [
-        {kinds: [ROOMS]},
         {kinds: [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]},
         {kinds: [GIT_ISSUE, GIT_PATCH]},
         {kinds: [GRASP_SET_KIND]},
         {kinds: [ROOM_META]},
         {kinds: [THREAD, EVENT_TIME, MESSAGE], since},
         {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since},
-        ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room], since})),
+        ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.id], since})),
       ],
     })
   })

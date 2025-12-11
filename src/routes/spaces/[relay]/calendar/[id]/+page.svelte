@@ -17,7 +17,7 @@
   import Button from "@lib/components/Button.svelte"
   import Content from "@lib/budabit/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
   import CalendarEventHeader from "@app/components/CalendarEventHeader.svelte"
   import CalendarEventMeta from "@app/components/CalendarEventMeta.svelte"

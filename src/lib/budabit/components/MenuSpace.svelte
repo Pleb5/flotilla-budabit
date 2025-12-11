@@ -1,13 +1,8 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {displayRelayUrl, getTagValue} from "@welshman/util"
-  import {deriveRelay} from "@welshman/app"
-  import {fly} from "@lib/transition"
+  import {deriveRelay, pubkey} from "@welshman/app"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
-  import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
-  import LinkRound from "@assets/icons/link-round.svg?dataurl"
-  import Exit from "@assets/icons/logout-3.svg?dataurl"
-  import Login from "@assets/icons/login-3.svg?dataurl"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic-2.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
@@ -17,41 +12,30 @@
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
-  import Button from "@lib/components/Button.svelte"
-  import Popover from "@lib/components/Popover.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
-  import SpaceInvite from "@app/components/SpaceInvite.svelte"
-  import SpaceExit from "@app/components/SpaceExit.svelte"
-  import SpaceJoin from "@app/components/SpaceJoin.svelte"
-  import ProfileList from "@app/components/ProfileList.svelte"
   import AlertAdd from "@app/components/AlertAdd.svelte"
   import Alerts from "@app/components/Alerts.svelte"
   import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
-  import MenuSpaceRoomItem from "@lib/budabit/components/MenuSpaceRoomItem.svelte"
   import {
-    userRoomsByUrl,
-    hasMembershipUrl,
-    memberships,
     alerts,
     ENABLE_ZAPS,
   } from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
-  import {deriveUserRooms, deriveOtherRooms} from "@lib/budabit/state"
+  import MenuSpaceRoomItem from "./MenuSpaceRoomItem.svelte"
+  import { channelsByUrl } from "@lib/budabit/state"
 
   const {url} = $props()
 
   const relay = deriveRelay(url)
+  const owner = $derived($relay?.profile?.pubkey)
   const chatPath = makeSpacePath(url, "chat")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
-  const jobsPath = makeSpacePath(url, "jobs")
   const gitPath = makeSpacePath(url, "git")
-  const userRooms = deriveUserRooms(url)
-  const otherRooms = deriveOtherRooms(url)
   const hasAlerts = $derived($alerts.some(a => getTagValue("feed", a.tags)?.includes(url)))
   const goalsPath = makeSpacePath(url, "goals")
 
@@ -59,24 +43,12 @@
     showMenu = true
   }
 
-  const toggleMenu = () => {
-    showMenu = !showMenu
+  const addRoom = () => {
+    // only let owner add a room
+    if ($pubkey && owner && owner === $pubkey) {
+      pushModal(RoomCreate, {url}, {replaceState})
+    }
   }
-
-  const showMembers = () =>
-    pushModal(
-      ProfileList,
-      {url, pubkeys: members, title: `Members of`, subtitle: displayRelayUrl(url)},
-      {replaceState},
-    )
-
-  const createInvite = () => pushModal(SpaceInvite, {url}, {replaceState})
-
-  const leaveSpace = () => pushModal(SpaceExit, {url}, {replaceState})
-
-  const joinSpace = () => pushModal(SpaceJoin, {url}, {replaceState})
-
-  const addRoom = () => pushModal(RoomCreate, {url}, {replaceState})
 
   const manageAlerts = () => {
     const component = hasAlerts ? Alerts : AlertAdd
@@ -89,9 +61,11 @@
   let replaceState = $state(false)
   let element: Element | undefined = $state()
 
-  const members = $derived(
-    $memberships.filter(l => hasMembershipUrl(l, url)).map(l => l.event.pubkey),
-  )
+  const channelNamesByUrl = $derived.by(() => {
+    const channels = $channelsByUrl.get(url) || []
+
+    return channels.map((ch) => ch.name)
+  })
 
   onMount(() => {
     replaceState = Boolean(element?.closest(".drawer"))
@@ -107,39 +81,6 @@
         </strong>
         <Icon icon={AltArrowDown} />
       </SecondaryNavItem>
-      {#if showMenu}
-        <Popover hideOnClick onClose={toggleMenu}>
-          <ul
-            transition:fly
-            class="menu absolute z-popover mt-2 w-full gap-1 rounded-box bg-base-100 p-2 shadow-xl">
-            <li>
-              <Button onclick={showMembers}>
-                <Icon icon={UserRounded} />
-                View Members ({members.length})
-              </Button>
-            </li>
-            <li>
-              <Button onclick={createInvite}>
-                <Icon icon={LinkRound} />
-                Create Invite
-              </Button>
-            </li>
-            <li>
-              {#if $userRoomsByUrl.has(url)}
-                <Button onclick={leaveSpace} class="text-error">
-                  <Icon icon={Exit} />
-                  Leave Space
-                </Button>
-              {:else}
-                <Button onclick={joinSpace} class="bg-primary text-primary-content">
-                  <Icon icon={Login} />
-                  Join Space
-                </Button>
-              {/if}
-            </li>
-          </ul>
-        </Popover>
-      {/if}
     </div>
     <div class="flex min-h-0 flex-col gap-1 overflow-auto">
       <SecondaryNavItem {replaceState} href={makeSpacePath(url)}>
@@ -169,33 +110,21 @@
       <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
         <Icon icon={Git} /> Git
       </SecondaryNavItem>
-      {#if $userRooms.length > 0}
-        <div class="h-2"></div>
-        <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
+      <SecondaryNavHeader>
+        Rooms
+      </SecondaryNavHeader>
+      {#if owner && owner == $pubkey}
+        <SecondaryNavItem {replaceState} onclick={addRoom}>
+          <Icon icon={AddCircle} />
+          Create room
+        </SecondaryNavItem>
       {/if}
-      {#each $userRooms as room, i (room)}
-        <MenuSpaceRoomItem {replaceState} notify {url} {room} />
-      {/each}
-      {#if $otherRooms.length > 0}
-        <div class="h-2"></div>
-        <SecondaryNavHeader>
-          {#if $userRoomsByUrl.has(url)}
-            Other Rooms
-          {:else}
-            Rooms
-          {/if}
-        </SecondaryNavHeader>
-      {/if}
-      {#each $otherRooms as room, i (room)}
-        <MenuSpaceRoomItem {replaceState} {url} {room} />
-      {/each}
-      <SecondaryNavItem {replaceState} onclick={addRoom}>
-        <Icon icon={AddCircle} />
-        Create room
-      </SecondaryNavItem>
       <SecondaryNavItem {replaceState} href={chatPath} notification={$notifications.has(chatPath)}>
         <Icon icon={ChatRound} /> Chat
       </SecondaryNavItem>
+      {#each channelNamesByUrl as room, i (room)}
+        <MenuSpaceRoomItem {replaceState} notify {url} {room} />
+      {/each}
     </div>
   </SecondaryNavSection>
   <div class="p-4">

@@ -15,7 +15,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
   import CalendarEventItem from "@app/components/CalendarEventItem.svelte"
   import CalendarEventCreate from "@app/components/CalendarEventCreate.svelte"
   import {pushModal} from "@app/util/modal"

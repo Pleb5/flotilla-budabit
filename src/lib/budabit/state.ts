@@ -16,10 +16,10 @@ import {
 } from "@nostr-git/core"
 import { repository } from "@welshman/app"
 import { collection, deriveEvents, withGetter } from "@welshman/store"
-import { INDEXER_RELAYS, channelEvents, deriveEvent, messages, getUrlsForEvent, memberships, roomComparator, splitChannelId, userRoomsByUrl, type Channel, getMembershipRooms, ROOM } from "@app/core/state"
+import { INDEXER_RELAYS, channelEvents, deriveEvent, getUrlsForEvent, roomComparator, splitChannelId, userRoomsByUrl, type Channel} from "@app/core/state"
 import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
-import { fromPairs, nthEq, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
+import { fromPairs, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
 import { extractRoleAssignments } from "./labels"
 
 export const shouldReloadRepos = writable(false)
@@ -304,8 +304,8 @@ export const deriveOtherRooms = (url: string) =>
   )
 
 export const channels = derived(
-  [channelEvents, getUrlsForEvent, memberships, messages],
-  ([$channelEvents, $getUrlsForEvent, $memberships, $messages]) => {
+  [channelEvents, getUrlsForEvent],
+  ([$channelEvents, $getUrlsForEvent]) => {
     const $channels: Channel[] = []
     for (const event of $channelEvents) {
       const meta = fromPairs(event.tags)
@@ -329,45 +329,6 @@ export const channels = derived(
       }
     }
 
-    // Add known rooms based on membership events
-    for (const membership of $memberships) {
-      for (const {url, room, name} of getMembershipRooms(membership)) {
-        const id = makeChannelId(url, room)
-
-        $channels.push({
-          id,
-          url,
-          room,
-          name,
-          closed: false,
-          private: false,
-          event: membership.event,
-          picture: undefined,
-          about: undefined,
-        })
-      }
-    }
-
-    // Add rooms based on known messages
-    for (const event of $messages) {
-      const [_, room] = event.tags.find(nthEq(0, ROOM)) || []
-      if (room) {
-        for (const url of $getUrlsForEvent(event.id)) {
-          const id = makeChannelId(url, room)
-
-          $channels.push({
-            id,
-            url,
-            room,
-            name: room,
-            event,
-            closed: false,
-            private: false,
-          })
-        }
-      }
-    }
-
     return uniqBy(c => c.id, $channels)
   },
 )
@@ -386,7 +347,7 @@ export const {
     const [url, room] = splitChannelId(id)
     await load({
       relays: [normalizeRelayUrl(url)],
-      filters: [{kinds: [ROOM_META], "#d": [room]}, {kinds: [ROOMS]}],
+      filters: [{kinds: [ROOM_META], "#d": [room]}],
     })
   },
 })

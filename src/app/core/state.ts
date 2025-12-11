@@ -74,8 +74,9 @@ import {
   makeEvent,
   RelayMode,
   getRelaysFromList,
+  makeRoomEditEvent,
 } from "@welshman/util"
-import type {TrustedEvent, SignedEvent, PublishedList, List, Filter} from "@welshman/util"
+import type {TrustedEvent, SignedEvent, PublishedList, List, Filter, RoomMeta} from "@welshman/util"
 import {Nip59, decrypt} from "@welshman/signer"
 import {routerContext, Router} from "@welshman/router"
 import {
@@ -101,7 +102,7 @@ import {
   userRelaySelections,
   userInboxRelaySelections,
 } from "@welshman/app"
-import type {Thunk, Relay} from "@welshman/app"
+import type {Thunk, Relay, ThunkOptions} from "@welshman/app"
 import {preferencesStorageProvider} from "@src/lib/storage"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
@@ -443,6 +444,31 @@ export const alertStatuses = withGetter(
 export const deriveAlertStatus = (address: string) =>
   derived(alertStatuses, statuses => statuses.find(s => getTagValue("d", s.event.tags) === address))
 
+// BudaBit ROOM create function
+// Create kind 39_000 (ROOM_META) event instea of 9007
+// Normally this event should only be created by the relay owner pubkey
+// but since we do NOT want other ppl to create rooms on BudaBit relay
+// this is fine. Room creation is only enabled for @Five
+export const createBudaBitRoom = (url: string, room: RoomMeta) => {
+  const event = makeRoomEditEvent(room)
+  const roomEventThunkOptions:ThunkOptions = {
+    event,
+    relays: [url]
+  }
+
+  // Hack: welshman does not have makeRoomMetaEvent so kind must be overwritten
+  event.kind = ROOM_META;
+
+  // Replace h-tag with d-tag according to spec
+  event.tags.forEach((t) => {
+    if (t[0] === 'h') {
+      t[0] = 'd'
+    }
+  })
+
+  return publishThunk(roomEventThunkOptions)
+}
+
 // Membership
 
 export const hasMembershipUrl = (list: List | undefined, url: string) =>
@@ -647,7 +673,6 @@ export const {
   getKey: channel => channel.id,
   load: async (id: string) => {
     const [url, room] = splitChannelId(id)
-
     await load({
       relays: [url],
       filters: [{kinds: [ROOM_META], "#d": [room]}],

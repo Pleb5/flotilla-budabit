@@ -17,7 +17,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import ThunkToast from "@app/components/ThunkToast.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import ChannelCompose from "@app/components/ChannelCompose.svelte"
   import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
