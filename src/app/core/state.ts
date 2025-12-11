@@ -859,9 +859,9 @@ export const deriveRelayAuthError = (url: string, claim = "") => {
       if (error) {
         const isIgnored = error.startsWith("mute: ")
         const isEmptyInvite = !claim && error.includes("invite code")
-        const isStrictNip29Relay = error.includes("missing group (`h`) tag")
+        const isStrictNip29Relay = __STRICT_NIP29__ && error.includes("missing group (`h`) tag")
 
-        if (!isStrictNip29Relay && !isIgnored && !isEmptyInvite && !isStrictNip29Relay) {
+        if (!isStrictNip29Relay && !isIgnored && !isEmptyInvite) {
           return stripPrefix(error) || "join request rejected"
         }
       }
