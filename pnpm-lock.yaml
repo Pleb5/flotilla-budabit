@@ -173,6 +173,9 @@ importers:
       date-picker-svelte:
         specifier: ^2.16.0
         version: 2.16.0(svelte@5.43.12)
+      dompurify:
+        specifier: ^3.3.0
+        version: 3.3.0
       dotenv:
         specifier: ^16.6.1
         version: 16.6.1
