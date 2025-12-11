@@ -1,6 +1,6 @@
 <script lang="ts">
   import markdownit from "markdown-it"
-  import {Card, Terminal} from "@nostr-git/ui"
+  import {Card} from "@nostr-git/ui"
   import {
     CircleAlert,
     GitBranch,
@@ -27,6 +27,11 @@
   import {decodeRelay} from "@app/core/state"
   import {nip19} from "nostr-tools"
   import {clip, pushToast} from "@app/util/toast"
+
+  let Terminal = $state<any>(null);
+  if (__TERMINAL__) {
+    import("@nostr-git/ui").then(m => Terminal = m.Terminal);
+  }
 
   let {data}: LayoutProps = $props()
   const {repoClass, repoRelays} = data
@@ -536,10 +541,11 @@
       {/if}
     </div>
     <div class="flex-1" transition:slide>
-      <Terminal
-        fs={undefined}
-        repoRef={repoRefObj}
-        repoEvent={repoClass.repoEvent}
+      {#if __TERMINAL__ && Terminal}
+        <Terminal
+          fs={undefined}
+          repoRef={repoRefObj}
+          repoEvent={repoClass.repoEvent}
         relays={$repoRelays}
         theme="retro"
         height={260}
@@ -557,6 +563,7 @@
         {defaultBranch}
         provider={detectedProvider}
         token={defaultToken} />
+      {/if}
     </div>
 
     <!-- README -->
