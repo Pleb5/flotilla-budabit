@@ -89,6 +89,7 @@
         <p class="ellipsize text-sm opacity-75">{displayRelayUrl(url)}</p>
       </div>
     </div>
+    <RelayDescription {url} />
     {#if $relay?.profile?.terms_of_service || $relay?.profile?.privacy_policy}
       <div class="flex gap-3">
         {#if $relay.profile.terms_of_service}

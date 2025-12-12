@@ -20,7 +20,7 @@
   <div class="column gap-4">
     <div class="py-2">
       <h1 class="heading">Welcome to {PLATFORM_NAME}!</h1>
-      <p class="text-center">The chat app built for self-hosted communities.</p>
+      <p class="text-center">The Community for Builders in Freedom-Tech</p>
     </div>
     <Button onclick={logIn}>
       <CardButton class="btn-primary">
