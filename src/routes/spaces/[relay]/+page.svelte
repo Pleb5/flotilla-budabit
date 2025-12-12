@@ -22,7 +22,7 @@
   import SpaceQuickLinks from "@app/components/SpaceQuickLinks.svelte"
   import SpaceRecentActivity from "@app/components/SpaceRecentActivity.svelte"
   import SpaceRelayStatus from "@app/components/SpaceRelayStatus.svelte"
-  import {decodeRelay} from "@app/core/state"
+  import {decodeRelay, PLATFORM_NAME} from "@app/core/state"
   import {makeThreadPath, makeCalendarPath, makeChatPath, makeRoomPath} from "@app/util/routes"
   import {makeGitPath} from "@lib/budabit/routes"
   import {notifications} from "@app/util/notifications"
@@ -84,7 +84,11 @@
       </div>
       <div class="flex min-w-0 flex-col gap-1">
         <h1 class="ellipsize whitespace-nowrap text-2xl font-bold">
-          <RelayName {url} />
+          {#if PLATFORM_NAME}
+            {PLATFORM_NAME}
+          {:else}
+            <RelayName {url} />
+          {/if}
         </h1>
         <p class="ellipsize text-sm opacity-75">{displayRelayUrl(url)}</p>
       </div>
