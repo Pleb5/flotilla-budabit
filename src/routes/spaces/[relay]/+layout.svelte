@@ -23,7 +23,7 @@
   import {pullConservatively} from "@app/core/requests"
   import {notifications} from "@app/util/notifications"
   import {GIT_ISSUE, GIT_PATCH, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GRASP_SET_KIND} from "@nostr-git/shared-types"
-  import { channelsByUrl } from "@src/lib/budabit"
+  import { channelsByUrl, loadPlatformChannels } from "@src/lib/budabit"
 
   type Props = {
     children?: Snippet
@@ -69,13 +69,14 @@
 
     // Load group meta, threads, calendar events, comments, and recent messages
     // for user rooms to help with a quick page transition
+    loadPlatformChannels()
+
     pullConservatively({
       relays: [url],
       filters: [
         {kinds: [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]},
         {kinds: [GIT_ISSUE, GIT_PATCH]},
         {kinds: [GRASP_SET_KIND]},
-        {kinds: [ROOM_META]},
         {kinds: [THREAD, EVENT_TIME, MESSAGE], since},
         {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since},
         ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.id], since})),

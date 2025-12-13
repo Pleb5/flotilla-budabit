@@ -16,7 +16,7 @@ import {
 } from "@nostr-git/core"
 import { repository } from "@welshman/app"
 import { collection, deriveEvents, withGetter } from "@welshman/store"
-import { INDEXER_RELAYS, channelEvents, deriveEvent, getUrlsForEvent, roomComparator, splitChannelId, userRoomsByUrl, type Channel} from "@app/core/state"
+import { INDEXER_RELAYS, PLATFORM_RELAYS, channelEvents, deriveEvent, getUrlsForEvent, roomComparator, splitChannelId, userRoomsByUrl, type Channel} from "@app/core/state"
 import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
 import { fromPairs, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
@@ -361,3 +361,10 @@ export const channelsByUrl = derived(channelsById, $channelsById => {
 
   return $channelsByUrl
 })
+
+export async function loadPlatformChannels() {
+  await load({
+    relays: PLATFORM_RELAYS,
+    filters: [{kinds: [ROOM_META]}]
+  })
+}
