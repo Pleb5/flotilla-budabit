@@ -1,4 +1,3 @@
-
 import { writable, derived, } from "svelte/store"
 import { load } from "@welshman/net"
 import {
@@ -32,11 +31,31 @@ export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767
 
+export const DEFAULT_WORKER_PUBKEY = "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
+
 export const GIT_RELAYS = import.meta.env.VITE_GIT_RELAYS
 
 export const ROOMS = 10009
 
 export const GENERAL = "_"
+
+// Job-related types and stores
+export interface JobRequestEvent {
+  id: string
+  pubkey: string
+  content: string
+  created_at: number
+  tags: string[][]
+}
+
+export interface JobRequestStatus {
+  status: 'pending' | 'success' | 'error'
+  eventId?: string
+  relays: Array<{url: string, status: 'success' | 'error', error?: string}>
+  error?: string
+}
+
+export const jobRequestStatus = writable<JobRequestStatus | null>(null)
 
 export const jobLink = (naddr: string) => `https://test.satshoot.com/${naddr}`
 export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
@@ -275,7 +294,7 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   })
 }
 
-export const makeChannelId = (url: string, room: string) => {
+export const makeChannelId = (url: string, room: string): string => {
   if (room.startsWith("naddr1")) {
     return "naddr1"
   }
@@ -359,7 +378,7 @@ export const channels = derived(
             id,
             url,
             room,
-            name: room,
+            name,
             event,
             closed: false,
             private: false,

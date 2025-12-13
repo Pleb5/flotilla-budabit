@@ -111,6 +111,7 @@ import {
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
 import {preferencesStorageProvider, Collection} from "@src/lib/storage"
+import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
 
 // Utils
 
@@ -142,6 +143,82 @@ export const prependParent = (parent: TrustedEvent | undefined, {content, tags}:
   }
 
   return {content, tags}
+}
+
+// Job Request System
+
+export interface JobRequestParams {
+  cashuToken: string
+  relays: string[]
+  cmd: string
+  args: string[]
+}
+
+export interface JobRequestResult {
+  event: any
+  successCount: number
+  failureCount: number
+  publishStatus: Array<{
+    relay: string
+    success: boolean
+    error?: string
+  }>
+}
+
+export const publishJobRequest = async (params: JobRequestParams): Promise<JobRequestResult> => {
+  const $signer = signer.get()
+  if (!$signer) {
+    throw new Error("No signer available")
+  }
+
+  // Create kind 5100 event for job request
+  const eventTemplate = {
+    kind: 5100,
+    content: "",
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ["p", "fa84c22dc47c67d9307b6966c992725f70dfcd8a0e5530fd7e3568121f6e1673"], // User pubkey hardcoded
+      ["worker", DEFAULT_WORKER_PUBKEY], // Worker pubkey
+      ["cmd", params.cmd],
+      ["args", ...params.args],
+      ["payment", params.cashuToken]
+    ]
+  }
+
+  const event = await $signer.sign(eventTemplate)
+  
+  const publishStatus: Array<{relay: string, success: boolean, error?: string}> = []
+  let successCount = 0
+  let failureCount = 0
+
+  // Publish to all specified relays
+  for (const relay of params.relays) {
+    try {
+      const thunk = publishThunk({event, relays: [relay]})
+      await thunk.complete
+      
+      publishStatus.push({
+        relay,
+        success: true
+      })
+      successCount++
+    } catch (error) {
+      console.error(`Failed to publish to relay ${relay}:`, error)
+      publishStatus.push({
+        relay,
+        success: false,
+        error: String(error)
+      })
+      failureCount++
+    }
+  }
+
+  return {
+    event,
+    successCount,
+    failureCount,
+    publishStatus
+  }
 }
 
 // Log out
@@ -302,7 +379,7 @@ export const checkRelayAccess = async (url: string, claim = "") => {
     // TODO: remove this if relay29 ever gets less strict
     if (message === "missing group (`h`) tag") return
 
-    // Ignore messages about the relay ignoring ours
+    // Ignore messages about relay ignoring ours
     if (error?.startsWith("mute: ")) return
 
     // Ignore rejected empty claims

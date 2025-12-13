@@ -30,6 +30,8 @@
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  import {pushModal} from "@app/util/modal"
+  import JobRequest from "@app/components/JobRequest.svelte"
 
   const {data} = $props()
   const {repoClass, repoRelays} = data
@@ -396,9 +398,9 @@
 
   let pipelineRun = $state<PipelineRun>(getMockPipelineRun(runId))
   let selectedJob = $state<Job | null>(pipelineRun.jobs[0] || null)
-  let selectedStep = $state<Step | null>(selectedJob?.steps[0] || null)
-  let expandedJobs = $state<Set<string>>(new Set([selectedJob?.id].filter(Boolean)))
-  let expandedSteps = $state<Set<string>>(new Set([selectedStep?.id].filter(Boolean)))
+  let selectedStep = $state<Step | null>(() => selectedJob?.steps[0] || null)
+  let expandedJobs = $state<Set<string>>(() => new Set([selectedJob?.id].filter(Boolean)))
+  let expandedSteps = $state<Set<string>>(() => new Set([selectedStep?.id].filter(Boolean)))
   let loading = $state(false)
 
   const getStatusIcon = (status: string) => {
@@ -510,20 +512,9 @@
   }
 
   const onRerunPipeline = () => {
-    loading = true
-    toast.push({
-      message: "Re-running pipeline...",
-      variant: "default",
-    })
-
-    // Simulate rerun
-    setTimeout(() => {
-      loading = false
-      toast.push({
-        message: "Pipeline run started successfully",
-        variant: "default",
-      })
-    }, 2000)
+    // Open JobRequest modal with correct relay URL
+    const relayUrl = $page.params.relay
+    pushModal(JobRequest, {url: relayUrl})
   }
 
   const onCopyLogs = () => {
@@ -578,7 +569,8 @@
               {#if pipelineRun.status === "in_progress"}
                 <Loader2 class="h-3 w-3 animate-spin" />
               {:else}
-                <svelte:component this={getStatusIcon(pipelineRun.status)} class="h-3 w-3" />
+                {@const StatusIcon = getStatusIcon(pipelineRun.status)}
+                <StatusIcon class="h-3 w-3" />
               {/if}
               {pipelineRun.status.replace("_", " ")}
             </span>
@@ -647,7 +639,8 @@
                   {#if job.status === "in_progress"}
                     <Loader2 class="h-5 w-5 animate-spin" />
                   {:else}
-                    <svelte:component this={getStatusIcon(job.status)} class="h-5 w-5" />
+                    {@const JobStatusIcon = getStatusIcon(job.status)}
+                    <JobStatusIcon class="h-5 w-5" />
                   {/if}
                 </div>
                 <div class="flex-1 min-w-0 space-y-1">
@@ -690,7 +683,8 @@
                         {#if step.status === "in_progress"}
                           <Loader2 class="h-4 w-4 animate-spin" />
                         {:else}
-                          <svelte:component this={getStatusIcon(step.status)} class="h-4 w-4" />
+                          {@const StepStatusIcon = getStatusIcon(step.status)}
+                          <StepStatusIcon class="h-4 w-4" />
                         {/if}
                       </div>
                       <div class="flex-1 min-w-0">
