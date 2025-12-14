@@ -14,6 +14,11 @@
   let error: string | null = $state(null)
   let files: Promise<FileEntry[]> = $state(Promise.resolve([]))
   let path = $state<string | undefined>(undefined)
+  
+  // Clone progress state - only show when actually cloning
+  let isCloning = $state(false)
+  let cloneProgress = $state<string>("")
+  let cloneProgressPercent = $state<number | undefined>(undefined)
 
   const rootDir: FileEntry = $state({
     name: ".",
@@ -45,9 +50,68 @@
     $state([])
   let loadingRefs = $state(true)
 
+  // Check if repo is cloned and clone if needed (only on code tab)
+  $effect(() => {
+    if (!repoClass || !repoClass.workerManager?.isReady) return
+    
+    ;(async () => {
+      try {
+        const isCloned = await repoClass.workerManager.isRepoCloned({
+          repoId: repoClass.key
+        })
+        
+        if (!isCloned) {
+          // Show clone progress
+          isCloning = true
+          cloneProgress = "Initializing repository..."
+          
+          // Set up progress callback using WorkerManager's API
+          const originalCallback = repoClass.workerManager.setProgressCallback.bind(repoClass.workerManager)
+          repoClass.workerManager.setProgressCallback((progressEvent) => {
+            if (progressEvent.repoId === repoClass.key) {
+              cloneProgress = progressEvent.phase || "Cloning repository..."
+              cloneProgressPercent = progressEvent.progress
+            }
+          })
+          
+          try {
+            const cloneUrls = repoClass.cloneUrls
+            if (cloneUrls.length === 0) {
+              throw new Error("No clone URLs found for repository")
+            }
+            
+            const result = await repoClass.workerManager.smartInitializeRepo({
+              repoId: repoClass.key,
+              cloneUrls,
+              forceUpdate: false
+            })
+            
+            if (!result.success) {
+              throw new Error(result.error || "Repository initialization failed")
+            }
+          } finally {
+            // Restore original callback (or clear it)
+            repoClass.workerManager.setProgressCallback(() => {})
+            isCloning = false
+            cloneProgress = ""
+            cloneProgressPercent = undefined
+          }
+        }
+      } catch (error) {
+        console.error("Failed to initialize repository:", error)
+        pushToast({
+          message: `Failed to initialize repository: ${error instanceof Error ? error.message : "Unknown error"}`,
+          theme: "error",
+        })
+        isCloning = false
+        error = error instanceof Error ? error.message : "Failed to initialize repository"
+      }
+    })()
+  })
+
   // Load refs using the unified API
   $effect(() => {
-    if (repoClass) {
+    if (repoClass && !isCloning) {
       loadingRefs = true
       repoClass
         .getAllRefsWithFallback()
@@ -161,7 +225,23 @@
 
 <div class="mt-2 rounded-lg border border-border bg-card">
   <div class="p-4">
-    {#if loading}
+    {#if isCloning}
+      <div class="flex flex-col items-center justify-center py-12 space-y-4">
+        <Spinner>Cloning repository...</Spinner>
+        <div class="text-center space-y-2">
+          <p class="text-lg font-medium">{cloneProgress}</p>
+          {#if cloneProgressPercent !== undefined}
+            <div class="w-64 bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+              <div 
+                class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                style="width: {Math.round(cloneProgressPercent * 100)}%"
+              ></div>
+            </div>
+            <p class="text-sm text-muted-foreground">{Math.round(cloneProgressPercent * 100)}%</p>
+          {/if}
+        </div>
+      </div>
+    {:else if loading}
       <Spinner {loading}>Loading files...</Spinner>
     {:else if error}
       <div class="text-red-500">{error}</div>

@@ -25,7 +25,6 @@
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
   import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
-  import {onMount} from "svelte"
   import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address} from "@welshman/util"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
@@ -86,25 +85,14 @@
     "#d": [DEFAULT_GRASP_SET_ID],
   }
 
-  // Initial refresh on mount
-  onMount(() => {
-    // Fire and forget; guard prevents overlap
-    updateRepo()
-  })
-
   // Helper to compute base path for this repo scope
   function repoBasePath() {
     return `/spaces/${encodeURIComponent(relay)}/git/${id}`
   }
 
-  // Refresh after navigation into any sub-route under this layout
   afterNavigate(({to}) => {
     try {
       if (!to) return
-      const base = repoBasePath()
-      if (to.url.pathname.startsWith(base)) {
-        updateRepo()
-      }
 
       if (to.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
         // Restore scroll position for issues page
@@ -127,9 +115,7 @@
     } catch {}
   })
 
-  // Pre-emptive refresh when navigating within the same repo scope
   beforeNavigate(({from, to}) => {
-
     if (from?.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
       // Save scroll position when leaving issues page
       if (pageContentElement) {
@@ -137,15 +123,6 @@
         sessionStorage.setItem(scrollStorageKey, scrollPosition.toString())
       }
     }
-
-    try {
-      if (!to) return
-      const base = repoBasePath()
-      if (to.url.pathname.startsWith(base)) {
-        // Kick off without awaiting to avoid blocking navigation
-        Promise.resolve().then(() => updateRepo())
-      }
-    } catch {}
   })
 
   const graspServersEvent = _derived(

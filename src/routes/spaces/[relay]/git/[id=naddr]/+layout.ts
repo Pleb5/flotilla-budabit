@@ -6,6 +6,10 @@ import {
   type RepoAnnouncementEvent,
   type RepoStateEvent,
   type PullRequestEvent,
+  type StatusEvent,
+  type CommentEvent,
+  type LabelEvent,
+  isCommentEvent,
 } from "@nostr-git/shared-types"
 import {
   GIT_REPO_ANNOUNCEMENT,
@@ -13,7 +17,7 @@ import {
   GIT_PULL_REQUEST,
   normalizeRelayUrl,
 } from "@nostr-git/shared-types"
-import {GIT_ISSUE, GIT_PATCH, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE, getTagValue} from "@welshman/util"
+import {GIT_ISSUE, GIT_PATCH, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE, getTagValue, COMMENT, type TrustedEvent} from "@welshman/util"
 import {nthEq} from "@welshman/lib"
 import {nip19} from "nostr-tools"
 import type {AddressPointer} from "nostr-tools/nip19"
@@ -50,14 +54,15 @@ export const load: LayoutLoad = async ({params}) => {
     .map((u: string) => normalizeRelayUrl(u))
     .filter(Boolean) as string[]
 
-  const filters = [
+  const repoFilters = [
     {
       authors: [decoded.pubkey],
       kinds: [GIT_REPO_STATE, GIT_REPO_ANNOUNCEMENT],
     },
   ]
 
-  await load({relays: relayListFromUrl as string[], filters})
+  // Start loading repo events immediately (will be used later)
+  const repoLoadPromise = load({relays: relayListFromUrl as string[], filters: repoFilters})
 
   const repoEvent = derived(
     deriveEvents(repository, {
@@ -122,96 +127,182 @@ export const load: LayoutLoad = async ({params}) => {
     return relayListFromUrl
   })
 
-  // First, load all repo announcements with the same name to get all related repos
-  const allReposFilter = {
-    kinds: [GIT_REPO_ANNOUNCEMENT],
-    "#d": [repoName],
-  }
-
-  await load({
-    relays: relayListFromUrl as string[],
-    filters: [allReposFilter],
-  })
-
-  // Extract maintainers and author from repo event for filtering
+  // Don't block on repo load - start loading in background and return immediately
+  // The page will render with what we have, and reactive stores will update as data arrives
+  
+  // Extract maintainers reactively (non-blocking)
   const {parseRepoAnnouncementEvent} = await import("@nostr-git/shared-types")
-
-  // Wait for repo event to be available
-  let repoAuthors: string[] = [decoded.pubkey]
-  const unsubscribe = repoEvent.subscribe(repo => {
-    if (repo) {
+  
+  // Create reactive repoAuthors that updates when repo event loads
+  const repoAuthors = derived(repoEvent, (repo) => {
+    if (!repo) {
+      // Fallback to just the pubkey if repo event not loaded yet
+      return [decoded.pubkey]
+    }
+    try {
       const parsed = parseRepoAnnouncementEvent(repo)
       const authors = new Set<string>()
       authors.add(repo.pubkey) // Author of the repo announcement
       if (parsed.maintainers) {
         parsed.maintainers.forEach(m => authors.add(m))
       }
-      repoAuthors = Array.from(authors)
+      return Array.from(authors)
+    } catch {
+      return [decoded.pubkey]
     }
   })
-  unsubscribe()
 
-  // Filter issues and patches by authors (maintainers + repo author)
-  const issueFilters = {
-    kinds: [GIT_ISSUE],
-    "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
-  }
-
-  const patchFilters = {
-    kinds: [GIT_PATCH],
-    "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
-  }
-
-  const pullRequestFilters = {
-    kinds: [GIT_PULL_REQUEST],
-    "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
-  }
-
-  const statusFilters = {
-    kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
-    "#a": repoAuthors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
-  }
-  // Load issues and patches
-  await load({
-    relays: relayListFromUrl as string[],
-    filters: [issueFilters, patchFilters, pullRequestFilters, statusFilters],
+  // Create event stores that watch the repository
+  // These stores watch for events matching the repo address pattern
+  // When maintainer events are loaded (via the load() call below), they're added to the repository
+  // The derived stores (issues, patches, etc.) then filter these events based on current authors
+  const allIssueEvents = deriveEvents(repository, {
+    filters: [{
+      kinds: [GIT_ISSUE],
+      // Note: We filter by repo address in the derived store below, not here
+      // This allows us to see all events loaded for this repo (owner + maintainers)
+    }],
   })
 
-  // Create derived stores that will include all issues/patches
-  // The Repo class will filter to only those matching its canonical identity
-  const issues: Readable<IssueEvent[]> = derived(
-    deriveEvents(repository, {
-      filters: [issueFilters],
+  const allPatchEvents = deriveEvents(repository, {
+    filters: [{
+      kinds: [GIT_PATCH],
+    }],
+  })
+
+  const allPullRequestEvents = deriveEvents(repository, {
+    filters: [{
+      kinds: [GIT_PULL_REQUEST],
+    }],
+  })
+
+  const allStatusEvents = deriveEvents(repository, {
+    filters: [{
+      kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+    }],
+  })
+
+  // Load initial data in background (don't await - let it load asynchronously)
+  const allReposFilter = {
+    kinds: [GIT_REPO_ANNOUNCEMENT],
+    "#d": [repoName],
+  }
+
+  // Start loading with initial authors
+  Promise.all([
+    repoLoadPromise,
+    load({
+      relays: relayListFromUrl as string[],
+      filters: [allReposFilter],
     }),
-    events => (events || []) as IssueEvent[],
+    load({
+      relays: relayListFromUrl as string[],
+      filters: [
+        {
+          kinds: [GIT_ISSUE],
+          "#a": [`${GIT_REPO_ANNOUNCEMENT}:${decoded.pubkey}:${repoName}`],
+        },
+        {
+          kinds: [GIT_PATCH],
+          "#a": [`${GIT_REPO_ANNOUNCEMENT}:${decoded.pubkey}:${repoName}`],
+        },
+        {
+          kinds: [GIT_PULL_REQUEST],
+          "#a": [`${GIT_REPO_ANNOUNCEMENT}:${decoded.pubkey}:${repoName}`],
+        },
+        {
+          kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+          "#a": [`${GIT_REPO_ANNOUNCEMENT}:${decoded.pubkey}:${repoName}`],
+        },
+      ],
+    }),
+  ]).then(() => {
+    // Reactively load data when authors change (including when maintainers are discovered)
+    // This subscription will be cleaned up automatically when the route changes
+    repoAuthors.subscribe((authors) => {
+      // Only load if we have more than just the initial pubkey
+      if (authors.length > 1) {
+        // Maintainers loaded, load with full author list
+        load({
+          relays: relayListFromUrl as string[],
+          filters: [
+            {
+              kinds: [GIT_ISSUE],
+              "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+            },
+            {
+              kinds: [GIT_PATCH],
+              "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+            },
+            {
+              kinds: [GIT_PULL_REQUEST],
+              "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+            },
+            {
+              kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+              "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+            },
+          ],
+        }).catch(() => {}) // Ignore errors - this is background loading
+      }
+    })
+  }).catch(() => {}) // Don't block on errors
+
+  // Create derived stores that filter events reactively based on current authors
+  // This ensures we include events from maintainers when they're discovered
+  // Layer 2: Filter events by repo address (owner + maintainers)
+  // The address tag format is: ["a", "kind:pubkey:identifier"]
+  // So we check if the event's address matches any of our current authors' addresses
+  const issues: Readable<IssueEvent[]> = derived(
+    [allIssueEvents, repoAuthors],
+    ([events, authors]) => {
+      const authorAddresses = new Set(authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+      return (events || []).filter((event: TrustedEvent) => {
+        const addressTag = event.tags.find((t: string[]) => t[0] === "a")
+        // Check if event's address matches any of our current authors (owner + maintainers)
+        return addressTag && authorAddresses.has(addressTag[1])
+      }) as IssueEvent[]
+    },
   )
 
   const patches: Readable<PatchEvent[]> = derived(
-    deriveEvents(repository, {
-      filters: [patchFilters],
-    }),
-    events => (events || []) as PatchEvent[],
+    [allPatchEvents, repoAuthors],
+    ([events, authors]) => {
+      const authorAddresses = new Set(authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+      return (events || []).filter((event: TrustedEvent) => {
+        const addressTag = event.tags.find((t: string[]) => t[0] === "a")
+        return addressTag && authorAddresses.has(addressTag[1])
+      }) as PatchEvent[]
+    },
   )
 
   const pullRequests: Readable<PullRequestEvent[]> = derived(
-    deriveEvents(repository, {
-      filters: [pullRequestFilters],
-    }),
-    events => (events || []) as PullRequestEvent[],
+    [allPullRequestEvents, repoAuthors],
+    ([events, authors]) => {
+      const authorAddresses = new Set(authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+      return (events || []).filter((event: TrustedEvent) => {
+        const addressTag = event.tags.find((t: string[]) => t[0] === "a")
+        return addressTag && authorAddresses.has(addressTag[1])
+      }) as PullRequestEvent[]
+    },
   )
 
-  const statusEvents: Readable<any[]> = derived(
-    deriveEvents(repository, {
-      filters: [statusFilters],
-    }),
-    events => events || [],
+  const statusEvents: Readable<StatusEvent[]> = derived(
+    [allStatusEvents, repoAuthors],
+    ([events, authors]) => {
+      const authorAddresses = new Set(authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+      return (events || []).filter((event: TrustedEvent) => {
+        const addressTag = event.tags.find((t: string[]) => t[0] === "a")
+        return addressTag && authorAddresses.has(addressTag[1])
+      }) as StatusEvent[]
+    },
   )
 
   // Create statusEventsByRoot map
-  const statusEventsByRoot: Readable<Map<string, any[]>> = derived(
+  const statusEventsByRoot: Readable<Map<string, StatusEvent[]>> = derived(
     statusEvents,
     events => {
-      const map = new Map<string, any[]>()
+      const map = new Map<string, StatusEvent[]>()
       for (const event of events) {
         const rootId = getTagValue("e", event.tags)
         if (rootId) {
@@ -225,16 +316,73 @@ export const load: LayoutLoad = async ({params}) => {
     }
   )
 
-  const emptyArr = derived([], () => [] as any[])
+  // Get all root IDs from issues, patches, and PRs reactively
+  const allRootIds = derived([issues, patches, pullRequests], ([issueEvents, patchEvents, prEvents]) => {
+    const ids: string[] = []
+    if (issueEvents) ids.push(...issueEvents.map((issue: IssueEvent) => issue.id))
+    if (patchEvents) ids.push(...patchEvents.map((patch: PatchEvent) => patch.id))
+    if (prEvents) ids.push(...prEvents.map((pr: PullRequestEvent) => pr.id))
+    return ids
+  })
+
+  // Create comment events store that filters comments by root IDs
+  // We use a broad filter and then filter reactively based on root IDs
+  const allCommentEvents = deriveEvents(repository, {
+    filters: [{
+      kinds: [COMMENT],
+    }],
+  })
+
+  const commentEvents: Readable<CommentEvent[]> = derived(
+    [allCommentEvents, allRootIds],
+    ([events, rootIds]) => {
+      if (rootIds.length === 0) return []
+      // Filter to only comments that reference our root IDs
+      return (events || []).filter((event) => {
+        const eTags = event.tags.filter((t: string[]) => t[0] === "E" || t[0] === "e")
+        return eTags.some((tag: string[]) => rootIds.includes(tag[1]))
+      }).filter(isCommentEvent) as CommentEvent[]
+    },
+  )
+
+  // Load comments reactively when root IDs are available
+  // Use a derived store with a side effect to trigger loading
+  let lastLoadedIds = new Set<string>()
+  const commentLoadTrigger = derived(allRootIds, (rootIds) => {
+    if (rootIds.length > 0) {
+      const idsKey = rootIds.sort().join(',')
+      if (!lastLoadedIds.has(idsKey)) {
+        lastLoadedIds.add(idsKey)
+        // Trigger load in background (non-blocking)
+        load({
+          relays: relayListFromUrl as string[],
+          filters: [{
+            kinds: [COMMENT],
+            "#E": rootIds,
+          }],
+        }).catch(() => {}) // Ignore errors - this is background loading
+      }
+    }
+    return rootIds
+  })
+
+  // Subscribe to trigger the load (this is necessary to trigger the derived store)
+  // This subscription will be cleaned up automatically when the route changes
+  commentLoadTrigger.subscribe(() => {
+    // The actual loading is handled in the derived store above
+  })
+
+  const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
+  const emptyLabelEvents = derived([], () => [] as LabelEvent[])
   const repoClass = new Repo({
     repoEvent,
     repoStateEvent,
     issues,
     patches,
-    repoStateEvents: emptyArr as unknown as Readable<any[]>,
+    repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
     statusEvents,
-    commentEvents: emptyArr as unknown as Readable<any[]>,
-    labelEvents: emptyArr as unknown as Readable<any[]>,
+    commentEvents,
+    labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
   })
 
   return {

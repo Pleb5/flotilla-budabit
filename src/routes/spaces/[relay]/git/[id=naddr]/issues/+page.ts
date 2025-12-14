@@ -17,12 +17,6 @@ export const load: PageLoad = async ({ parent }) => {
   const {repoClass} = await parent()
   const {deriveEvents} = await import("@welshman/store")
   const {repository} = await import("@welshman/app")
-  const {load} = await import("@welshman/net")
-
-  const commentFilter = {
-    kinds: [COMMENT],
-    "#E": [...repoClass.issues.map((issue: IssueEvent) => issue.id)],
-  }
 
   const statusEventFilter = {
     kinds: [
@@ -34,22 +28,20 @@ export const load: PageLoad = async ({ parent }) => {
     "#e": [...repoClass.issues.map((issue: IssueEvent) => issue.id)],
   }
 
-
-  console.log(repoClass.repoEvent)
-  const issueFilter = {
-    kinds: [GIT_ISSUE],
-    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
-  }
-
   const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
 
   const comments = derived(
-    deriveEvents(repository, {filters: [commentFilter]}),
+    deriveEvents(repository, {
+      filters: [{
+        kinds: [COMMENT],
+        "#E": [...repoClass.issues.map((issue: IssueEvent) => issue.id)],
+      }],
+    }),
     events => events.filter(isCommentEvent) as CommentEvent[],
   )
 
-  // Group status events by root ID for easier lookup
-  const statusEventsByRoot = derived(statusEvents, events => {
+  // Group status events by root ID for easier lookup (reactive, loads as events arrive)
+  const localStatusEventsByRoot = derived(statusEvents, events => {
     const map = new Map<string, any[]>()
     for (const event of events) {
       const rootTag = event.tags.find((t: string[]) => t[0] === "e" && t[3] === "root")
@@ -64,18 +56,10 @@ export const load: PageLoad = async ({ parent }) => {
     return map
   })
 
-  await load({
-    relays: repoClass.relays,
-    filters: [commentFilter, statusEventFilter, issueFilter],
-  })
-
   return {
     comments,
     statusEvents,
-    statusEventsByRoot,
-    issueFilter,
-    commentFilter,
-    statusEventFilter,
+    statusEventsByRoot: localStatusEventsByRoot, // Reactive store that loads as events arrive
     repoRelays: repoClass.relays,
   }
 }

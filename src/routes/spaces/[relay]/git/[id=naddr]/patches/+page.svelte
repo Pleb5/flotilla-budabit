@@ -229,7 +229,7 @@
   }
 
   $effect(() => {
-    if (repoClass.patches) {
+    if (repoClass.patches && patchFilter && pullRequestFilter) {
       const tryStart = () => {
         if (element) {
           makeFeed({
@@ -247,6 +247,13 @@
         }
       }
       tryStart()
+      // Set loading to false immediately if we have patches already
+      // makeFeed will handle incremental loading
+      if (patchList.length > 0) {
+        loading = false
+      }
+    } else if (repoClass.patches && repoClass.patches.length === 0) {
+      // No patches, so we're done loading
       loading = false
     }
   })

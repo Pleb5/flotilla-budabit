@@ -22,12 +22,6 @@ export const load: PageLoad = async ({ parent }) => {
   const {repoClass, pullRequests} = await parent()
   const {deriveEvents} = await import("@welshman/store")
   const {repository} = await import("@welshman/app")
-  const {load} = await import("@welshman/net")
-
-  const commentFilter = {
-    kinds: [COMMENT],
-    "#E": [...repoClass.patches.map((patch: PatchEvent) => patch.id)],
-  }
 
   const statusEventFilter = {
     kinds: [
@@ -39,25 +33,15 @@ export const load: PageLoad = async ({ parent }) => {
     "#e": [...repoClass.patches.map((patch: PatchEvent) => patch.id)],
   }
 
-  const patchFilter = {
-    kinds: [GIT_PATCH],
-    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
-  }
-
-  const pullRequestFilter = {
-    kinds: [GIT_PULL_REQUEST],
-    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
-  }
-
-  await load({
-    relays: repoClass.relays,
-    filters: [commentFilter, statusEventFilter, patchFilter, pullRequestFilter],
-  })
-
   const statusEvents = deriveEvents(repository, {filters: [statusEventFilter]})
 
   const comments = derived(
-    deriveEvents(repository, {filters: [commentFilter]}),
+    deriveEvents(repository, {
+      filters: [{
+        kinds: [COMMENT],
+        "#E": [...repoClass.patches.map((patch: PatchEvent) => patch.id)],
+      }],
+    }),
     events => events.filter(isCommentEvent) as CommentEvent[],
   )
 
@@ -79,6 +63,17 @@ export const load: PageLoad = async ({ parent }) => {
 
   const uniqueAuthors = new Set(repoClass.patches.map((patch: PatchEvent) => patch.pubkey))
 
+  // Create filters for makeFeed (needed for incremental loading)
+  const patchFilter = {
+    kinds: [GIT_PATCH],
+    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
+  }
+
+  const pullRequestFilter = {
+    kinds: [GIT_PULL_REQUEST],
+    "#a": [Address.fromEvent(repoClass.repoEvent!).toString()],
+  }
+
   return {
     comments,
     statusEvents,
@@ -86,5 +81,6 @@ export const load: PageLoad = async ({ parent }) => {
     patchFilter,
     pullRequestFilter,
     uniqueAuthors,
+    repoRelays: repoClass.relays,
   }
 }

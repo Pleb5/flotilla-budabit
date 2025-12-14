@@ -499,9 +499,34 @@
     showMergeDialog = false
     isMerging = true
     mergeProgress = 0
-    mergeStep = "Preparing merge..."
+    mergeStep = "Ensuring latest repository state..."
     mergeError = null
     mergeSuccess = false
+
+    // Strategic sync point: Ensure we have latest state before merging
+    try {
+      const cloneUrls = repoClass.cloneUrls
+      if (cloneUrls.length > 0) {
+        mergeStep = "Syncing with remote..."
+        mergeProgress = 5
+        const syncResult = await repoClass.workerManager.syncWithRemote({
+          repoId: repoClass.key,
+          cloneUrls,
+          branch: repoClass.mainBranch,
+        })
+        
+        if (!syncResult.success && !syncResult.error?.includes("Repository not cloned")) {
+          console.warn("Sync before merge had issues, but continuing:", syncResult.error)
+          // Don't fail merge if sync has issues - continue with current state
+        }
+      }
+    } catch (syncError) {
+      console.warn("Failed to sync before merge, but continuing:", syncError)
+      // Don't fail merge if sync fails - continue with current state
+    }
+
+    mergeStep = "Preparing merge..."
+    mergeProgress = 10
 
     // Get user profile for commit author
     const authorName = "Repository Maintainer" // You might want to get this from user profile

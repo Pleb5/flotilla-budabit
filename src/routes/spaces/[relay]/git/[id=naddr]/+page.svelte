@@ -184,7 +184,7 @@
   $effect(() => {
     if (repoClass) {
       // Load async data in parallel
-      loadRepoInfo()
+        loadRepoInfo()
     }
   })
 
@@ -228,6 +228,8 @@
 
   async function loadReadme() {
     try {
+      // Try to get README - if repo not cloned, that's okay (overview doesn't need clone)
+      // The getFileContent will attempt to fetch, but won't block if it fails
       const readmeContent = await repoClass.getFileContent({
         path: "README.md",
         branch: repoClass.mainBranch?.split("/").pop() || "master",
@@ -236,6 +238,9 @@
       readme = readmeContent.content
       renderedReadme = readme ? md.render(readme) : ""
     } catch (e) {
+      // Silently fail - README is optional and shouldn't block page load
+      // If repo not cloned, user can still see overview without README
+      console.debug("README: Failed to load (repo may not be cloned, which is fine for overview)", e)
     } finally {
       readmeLoading = false
     }
@@ -243,45 +248,41 @@
 
   async function loadLastCommit() {
     try {
-      // Assume Repo already initialized; avoid triggering repo updates here
-      // Build candidate branches to try in order
-      const shortMain = repoClass.mainBranch
-        ? repoClass.mainBranch.split("/").pop() || repoClass.mainBranch
-        : undefined
-      const fullMain = repoClass.mainBranch || undefined
-      const firstBranch = repoClass.branches?.[0]?.name
-      const candidates = Array.from(new Set([shortMain, fullMain, firstBranch].filter(Boolean))) as string[]
-      console.debug("LatestCommit candidates", { shortMain, fullMain, firstBranch, candidates })
+      // Use main branch directly - no need to try multiple branches
+      // Start with small depth (5) for faster loading, only increase if needed
+      const mainBranch = repoClass.mainBranch
+      if (!mainBranch) {
+        commitLoading = false
+        return
+      }
 
-      // Try a few depths to accommodate shallow clones
+      // Try depth 5 first (fast), then 10 if needed, then 25 as fallback
       const depths = [5, 10, 25]
-
-      for (const branchName of candidates) {
-        for (const depth of depths) {
-          try {
-            const res = await repoClass.getCommitHistory({ branch: branchName, depth })
-            const list = Array.isArray(res) ? res : res?.commits
-            console.debug("LatestCommit attempt", { branchName, depth, count: list?.length })
-            if (Array.isArray(list) && list.length > 0) {
-              lastCommit = list[0]
-              return
-            }
-          } catch (e) {
-            console.debug("LatestCommit attempt failed", { branchName, depth, error: String(e) })
+      
+      for (const depth of depths) {
+        try {
+          const res = await repoClass.getCommitHistory({ branch: mainBranch, depth })
+          const list = Array.isArray(res) ? res : res?.commits
+          if (Array.isArray(list) && list.length > 0) {
+            lastCommit = list[0]
+            commitLoading = false
+            return
           }
+        } catch (e) {
+          // If repo not cloned, that's okay - commit history is optional for overview
+          // Don't trigger clone just for commit history
+          if (String(e).includes("not cloned") || String(e).includes("Repository not")) {
+            console.debug("LatestCommit: Repository not cloned, skipping (overview page doesn't need clone)")
+            commitLoading = false
+            return
+          }
+          // Try next depth on other errors
+          console.debug("LatestCommit attempt failed", { depth, error: String(e) })
         }
       }
-      // Final fallback: let Repo resolve the branch internally
-      try {
-        const res = await repoClass.getCommitHistory({ depth: 25 } as any)
-        const list = Array.isArray(res) ? res : res?.commits
-        console.debug("LatestCommit final fallback", { count: list?.length })
-        if (Array.isArray(list) && list.length > 0) {
-          lastCommit = list[0]
-          return
-        }
-      } catch {}
     } catch (e) {
+      // Silently fail - commit history is optional
+      console.debug("LatestCommit: Failed to load", e)
     } finally {
       commitLoading = false
     }
@@ -734,3 +735,4 @@
     {/if}
   {/if}
 </div>
+
