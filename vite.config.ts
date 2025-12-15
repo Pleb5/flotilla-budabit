@@ -48,6 +48,15 @@ export default defineConfig({
       "@codemirror/theme-one-dark"
     ],
   },
+
+  worker: {
+    format: "es", // avoid 'iife' so code-splitting is allowed
+    // If you want to be extra explicit:
+    // rollupOptions: {
+    //   output: { format: "es" },
+    // },
+  },
+
   plugins: [
     sveltekit(),
     SvelteKitPWA({
