@@ -23,9 +23,20 @@
   import {isMobile} from "@lib/html"
   import {onMount} from "svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  import {getContext} from "svelte"
+  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import type {Readable} from "svelte/store"
+  import type {Repo} from "@nostr-git/ui"
 
-  const {data} = $props()
-  const {repoClass, repoRelays} = data
+  const repoClass = getContext<Repo>(REPO_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+  
+  // Get relays reactively
+  const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
 
   // Mock workflow runs data structure (replace with actual data fetching)
   interface WorkflowRun {

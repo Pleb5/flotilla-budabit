@@ -2,11 +2,25 @@
   import { ChevronDown, ChevronRight, FileText, FilePlus, FileMinus, FileX } from '@lucide/svelte';
   import { CommitHeader, SplitDiff } from '@nostr-git/ui';
   import type { PageData } from './$types';
+  import {getContext} from "svelte"
+  import {REPO_KEY} from "@lib/budabit/state"
+  import type {Repo} from "@nostr-git/ui"
 
   const { data }: { data: PageData } = $props();
   
   // Extract data from page load
-  const { commitMeta, changes, repoClass } = data;
+  const { commitMeta, changes } = data;
+  
+  // Get repoClass from context
+  const repoClass = getContext<Repo>(REPO_KEY)
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+  
+  if (!commitMeta || !changes) {
+    throw new Error("Commit data not available")
+  }
 
   // State for collapsible file panels
   let expandedFiles = $state<Set<string>>(new Set());

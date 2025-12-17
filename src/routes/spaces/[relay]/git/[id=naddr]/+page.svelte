@@ -30,13 +30,28 @@
   import {nip19} from "nostr-tools"
   import {clip, pushToast} from "@app/util/toast"
 
+  import {getContext} from "svelte"
+  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import type {Readable} from "svelte/store"
+  import type {Repo} from "@nostr-git/ui"
+
   let Terminal = $state<any>(null);
   if (__TERMINAL__) {
     import("@nostr-git/ui").then(m => Terminal = m.Terminal);
   }
 
   let {data}: LayoutProps = $props()
-  const {repoClass, repoRelays} = data
+  
+  // Get repoClass and repoRelays from context
+  const repoClass = getContext<Repo>(REPO_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+  
+  // Get relays reactively
+  const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
 
   // Progressive loading states - show immediate content right away
   let initialLoading = $state(false)
@@ -76,8 +91,10 @@
     },
   ])
 
-  const maintainers = repoClass.maintainers.map(
-    m => $profilesByPubkey.get(m) ?? {display_name: truncateHash(m), name: truncateHash(m)},
+  const maintainers = $derived.by(() => 
+    (repoClass?.maintainers || []).map(
+      m => $profilesByPubkey.get(m) ?? {display_name: truncateHash(m), name: truncateHash(m)},
+    )
   )
 
   function buildDefaultNgitCloneUrl(): string | undefined {
@@ -113,7 +130,7 @@
     description: repoClass.description || "",
     repoId: repoClass.key || "",
     maintainers: maintainers || [],
-    relays: $repoRelays,
+    relays: repoRelays,
     cloneUrls: (() => {
       // Get clone URLs from repoClass directly
       let urls = [...(repoClass.cloneUrls || [])]
@@ -311,7 +328,7 @@
 </script>
 
 <svelte:head>
-  <title>{repoClass.name}</title>
+  <title>{repoClass.name || 'Repository'}</title>
 </svelte:head>
 
 <div class="relative flex flex-col gap-6 py-2">
@@ -592,7 +609,7 @@
           fs={undefined}
           repoRef={repoRefObj}
           repoEvent={repoClass.repoEvent}
-        relays={$repoRelays}
+        relays={repoRelays}
         theme="retro"
         height={260}
         initialCwd="/"

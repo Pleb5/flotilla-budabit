@@ -6,11 +6,18 @@
   import {pushToast} from "@src/app/util/toast"
   import {postPermalink} from "@lib/budabit/commands.js"
   import {nip19} from "nostr-tools"
+  import {getContext} from "svelte"
+  import {REPO_KEY} from "@lib/budabit/state"
+  import type {Repo} from "@nostr-git/ui"
 
-  const {data} = $props()
-  const {repoClass} = data
+  const repoClass = getContext<Repo>(REPO_KEY)
 
-  let loading = $state(true)
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+
+  // Start with false - show content immediately, only show loading when actually loading
+  let loading = $state(false)
   let error: string | null = $state(null)
   let files: Promise<FileEntry[]> = $state(Promise.resolve([]))
   let path = $state<string | undefined>(undefined)
@@ -48,109 +55,139 @@
 
   let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
     $state([])
-  let loadingRefs = $state(true)
+  // Start with false - only show loading when actually loading refs
+  let loadingRefs = $state(false)
 
   // Check if repo is cloned and clone if needed (only on code tab)
+  // Defer this heavy operation until after initial render
   $effect(() => {
     if (!repoClass || !repoClass.workerManager?.isReady) return
     
-    ;(async () => {
-      try {
-        const isCloned = await repoClass.workerManager.isRepoCloned({
-          repoId: repoClass.key
-        })
-        
-        if (!isCloned) {
-          // Show clone progress
-          isCloning = true
-          cloneProgress = "Initializing repository..."
-          
-          // Set up progress callback using WorkerManager's API
-          const originalCallback = repoClass.workerManager.setProgressCallback.bind(repoClass.workerManager)
-          repoClass.workerManager.setProgressCallback((progressEvent) => {
-            if (progressEvent.repoId === repoClass.key) {
-              cloneProgress = progressEvent.phase || "Cloning repository..."
-              cloneProgressPercent = progressEvent.progress
-            }
+    // Defer cloning check to avoid blocking initial render
+    const timeout = setTimeout(() => {
+      ;(async () => {
+        try {
+          const isCloned = await repoClass.workerManager.isRepoCloned({
+            repoId: repoClass.key
           })
           
-          try {
-            const cloneUrls = repoClass.cloneUrls
-            if (cloneUrls.length === 0) {
-              throw new Error("No clone URLs found for repository")
-            }
+          if (!isCloned) {
+            // Show clone progress
+            isCloning = true
+            cloneProgress = "Initializing repository..."
             
-            const result = await repoClass.workerManager.smartInitializeRepo({
-              repoId: repoClass.key,
-              cloneUrls,
-              forceUpdate: false
+            // Set up progress callback using WorkerManager's API
+            const originalCallback = repoClass.workerManager.setProgressCallback.bind(repoClass.workerManager)
+            repoClass.workerManager.setProgressCallback((progressEvent) => {
+              if (progressEvent.repoId === repoClass.key) {
+                cloneProgress = progressEvent.phase || "Cloning repository..."
+                cloneProgressPercent = progressEvent.progress
+              }
             })
             
-            if (!result.success) {
-              throw new Error(result.error || "Repository initialization failed")
+            try {
+              const cloneUrls = repoClass.cloneUrls
+              if (cloneUrls.length === 0) {
+                throw new Error("No clone URLs found for repository")
+              }
+              
+              const result = await repoClass.workerManager.smartInitializeRepo({
+                repoId: repoClass.key,
+                cloneUrls,
+                forceUpdate: false
+              })
+              
+              if (!result.success) {
+                throw new Error(result.error || "Repository initialization failed")
+              }
+            } finally {
+              // Restore original callback (or clear it)
+              repoClass.workerManager.setProgressCallback(() => {})
+              isCloning = false
+              cloneProgress = ""
+              cloneProgressPercent = undefined
             }
-          } finally {
-            // Restore original callback (or clear it)
-            repoClass.workerManager.setProgressCallback(() => {})
-            isCloning = false
-            cloneProgress = ""
-            cloneProgressPercent = undefined
           }
-        }
-      } catch (error) {
-        console.error("Failed to initialize repository:", error)
-        pushToast({
-          message: `Failed to initialize repository: ${error instanceof Error ? error.message : "Unknown error"}`,
-          theme: "error",
-        })
-        isCloning = false
-        error = error instanceof Error ? error.message : "Failed to initialize repository"
-      }
-    })()
-  })
-
-  // Load refs using the unified API
-  $effect(() => {
-    if (repoClass && !isCloning) {
-      loadingRefs = true
-      repoClass
-        .getAllRefsWithFallback()
-        .then(loadedRefs => {
-          refs = loadedRefs
-          loadingRefs = false
-          branchLoadTrigger++ // Trigger reactivity for dependent effects
-        })
-        .catch((error: Error) => {
-          console.error("Failed to load repository references:", error)
+        } catch (error) {
+          console.error("Failed to initialize repository:", error)
           pushToast({
-            message: "Failed to load branches from git repository: " + error,
+            message: `Failed to initialize repository: ${error instanceof Error ? error.message : "Unknown error"}`,
             theme: "error",
           })
-          refs = []
-          loadingRefs = false
-        })
+          isCloning = false
+          error = error instanceof Error ? error.message : "Failed to initialize repository"
+        }
+      })()
+    }, 100)
+    
+    return () => {
+      clearTimeout(timeout)
+    }
+  })
+
+  // Load refs using the unified API - defer to avoid blocking render
+  $effect(() => {
+    if (repoClass && !isCloning) {
+      // Defer ref loading to avoid blocking initial render
+      const timeout = setTimeout(() => {
+        loadingRefs = true
+        repoClass
+          .getAllRefsWithFallback()
+          .then(loadedRefs => {
+            refs = loadedRefs
+            loadingRefs = false
+            branchLoadTrigger++ // Trigger reactivity for dependent effects
+          })
+          .catch((error: Error) => {
+            console.error("Failed to load repository references:", error)
+            pushToast({
+              message: "Failed to load branches from git repository: " + error,
+              theme: "error",
+            })
+            refs = []
+            loadingRefs = false
+          })
+      }, 100)
+      
+      return () => {
+        clearTimeout(timeout)
+      }
     }
   })
 
   $effect(() => {
-    if (selectedBranch) {
-      files = repoClass
-        .listRepoFiles({
-          branch: selectedBranch?.split("/").pop() || "master",
-          path,
-        })
-        .then(result =>
-          result.files.map(
-            file =>
-              ({
-                name: file.path.split("/").pop() || file.path,
-                path: file.path,
-                type: file.type as "file" | "directory" | "submodule" | "symlink",
-                oid: file.lastCommit,
-              }) as FileEntry,
-          ),
-        )
-      loading = false
+    if (selectedBranch && !isCloning) {
+      // Show loading only when actually fetching
+      loading = true
+      // Defer file loading slightly to avoid blocking render
+      const timeout = setTimeout(() => {
+        files = repoClass
+          .listRepoFiles({
+            branch: selectedBranch?.split("/").pop() || "master",
+            path,
+          })
+            .then(result => {
+              loading = false
+              return result.files.map(
+                file =>
+                  ({
+                    name: file.path.split("/").pop() || file.path,
+                    path: file.path,
+                    type: file.type as "file" | "directory" | "submodule" | "symlink",
+                    oid: file.lastCommit,
+                  }) as FileEntry,
+              )
+            })
+            .catch((e) => {
+              loading = false
+              error = e instanceof Error ? e.message : "Failed to load files"
+              return []
+            })
+      }, 100)
+      
+      return () => {
+        clearTimeout(timeout)
+      }
     }
   })
 

@@ -28,6 +28,10 @@ export const REPO_KEY = Symbol("repo")
 
 export const REPO_RELAYS_KEY = Symbol("repo-relays")
 
+export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")
+
+export const PULL_REQUESTS_KEY = Symbol("pull-requests")
+
 export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767

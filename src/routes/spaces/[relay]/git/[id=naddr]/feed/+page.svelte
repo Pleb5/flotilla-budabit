@@ -1,6 +1,6 @@
 <script lang="ts">
   import {readable, type Readable} from "svelte/store"
-  import {onMount} from "svelte"
+  import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
   import {makeFeed} from "@app/core/requests"
   import {now, formatTimestampAsDate} from "@welshman/lib"
@@ -34,11 +34,17 @@
   import {GIT_REPO_ANNOUNCEMENT, type IssueEvent, type PatchEvent} from "@nostr-git/shared-types"
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
+  import {getContext} from "svelte"
+  import {REPO_KEY} from "@lib/budabit/state"
+  import type {Repo} from "@nostr-git/ui"
 
   const {id} = $page.params
-  const {data} = $props()
-  const {repoClass} = data
+  const repoClass = getContext<Repo>(REPO_KEY)
   const room = id
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
 
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
@@ -46,25 +52,26 @@
 
   const roomFilter = {kinds: [MESSAGE], "#h": [room]}
 
-  const statusFilter = {
+  // Memoize filters to avoid recreating on every render
+  const statusFilter = $derived.by(() => {
+    const issueIds = repoClass.issues.map((issue: IssueEvent) => issue.id)
+    const patchIds = repoClass.patches.map((patch: PatchEvent) => patch.id)
+    return {
     kinds: [GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT, GIT_STATUS_OPEN],
-    "#e": [
-      ...repoClass.issues.map((issue: IssueEvent) => issue.id),
-      ...repoClass.patches.map((patch: PatchEvent) => patch.id),
-    ],
-  }
+      "#e": [...issueIds, ...patchIds],
+    }
+  })
 
-console.log("statusFilter", statusFilter)
-
-  const commentFilter = {
+  const commentFilter = $derived.by(() => {
+    const issueIds = repoClass.issues.map((issue: IssueEvent) => issue.id)
+    const patchIds = repoClass.patches.map((patch: PatchEvent) => patch.id)
+    return {
     kinds: [COMMENT],
-    "#E": [
-      ...repoClass.issues.map((issue: IssueEvent) => issue.id),
-      ...repoClass.patches.map((patch: PatchEvent) => patch.id),
-    ],
+      "#E": [...issueIds, ...patchIds],
   }
+  })
 
-  const filter = [roomFilter, statusFilter, commentFilter]
+  const filter = $derived.by(() => [roomFilter, statusFilter, commentFilter])
 
   const replyTo = (event: TrustedEvent) => {
     parent = event
@@ -137,7 +144,8 @@ console.log("statusFilter", statusFilter)
     chatCompose?.scrollIntoView({behavior: "smooth", block: "end"})
   }
 
-  let loadingEvents = $state(true)
+  // Start with false to show content immediately - will update when feed loads
+  let loadingEvents = $state(false)
   let share = $state(popKey<TrustedEvent | undefined>("share"))
   let parent: TrustedEvent | undefined = $state()
   let element: HTMLElement | undefined = $state()
@@ -207,12 +215,14 @@ console.log("statusFilter", statusFilter)
     return elements
   })
 
-  const initialEvents = $state<TrustedEvent[]>([])
-  initialEvents.push(
-    ...repoClass.issues,
-    ...repoClass.patches.filter(p => p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root")),
-  )
-  initialEvents.sort((a, b) => b.created_at - a.created_at)
+  // Memoize initialEvents to avoid recreating on every render
+  const initialEvents = $derived.by(() => {
+    const events: TrustedEvent[] = [
+      ...repoClass.issues,
+      ...repoClass.patches.filter(p => p.tags.some((t: string[]) => t[0] === "t" && t[1] === "root")),
+    ]
+    return [...events].sort((a, b) => b.created_at - a.created_at)
+  })
 
   onMount(() => {
     const controller = new AbortController()
@@ -226,35 +236,43 @@ console.log("statusFilter", statusFilter)
     observer.observe(chatCompose!)
     observer.observe(dynamicPadding!)
 
-    const feed = makeFeed({
-      element: element!,
-      relays: [url],
-      feedFilters: filter,
-      subscriptionFilters: [
-        ...filter,
-        statusFilter,
-        commentFilter,
-        {kinds: [DELETE, MESSAGE, ...REACTION_KINDS], since: now()},
-        {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
-      ],
-      initialEvents: initialEvents,
-      onExhausted: () => {
-        loadingEvents = false
-      },
-    })
-    events = feed.events
-    cleanup = feed.cleanup
+    // Defer feed creation to avoid blocking initial render
+    const timeout = setTimeout(() => {
+      const feed = makeFeed({
+        element: element!,
+        relays: [url],
+        feedFilters: filter,
+        subscriptionFilters: [
+          ...filter,
+          statusFilter,
+          commentFilter,
+          {kinds: [DELETE, MESSAGE, ...REACTION_KINDS], since: now()},
+          {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
+        ],
+        initialEvents: initialEvents,
+        onExhausted: () => {
+          loadingEvents = false
+        },
+      })
+      events = feed.events
+      cleanup = feed.cleanup
 
-    // Scroll to bottom after a short delay to ensure content is rendered
-    setTimeout(() => {
-      scrollToBottom()
+      // Scroll to bottom after a short delay to ensure content is rendered
+      setTimeout(() => {
+        scrollToBottom()
+      }, 100)
     }, 100)
 
     return () => {
+      clearTimeout(timeout)
       controller.abort()
       observer.unobserve(chatCompose!)
       observer.unobserve(dynamicPadding!)
     }
+  })
+
+  onDestroy(() => {
+    cleanup?.()
   })
 </script>
 

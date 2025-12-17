@@ -13,15 +13,23 @@
   } from "@nostr-git/ui"
   import Spinner from "@src/lib/components/Spinner.svelte"
     import { slide } from 'svelte/transition'
-  let {data} = $props()
-  const {repoClass} = data
+  import {getContext} from "svelte"
+  import {REPO_KEY} from "@lib/budabit/state"
+  import type {Repo} from "@nostr-git/ui"
+
+  const repoClass = getContext<Repo>(REPO_KEY)
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
 
   // Reactive state for UI
   let searchQuery = $state("")
   let selectedAuthor = $state([])
 
   // Get commits from the repo class (lazy-loaded and reactive)
-  let commitsLoading = $state(true)
+  // Start with false - only show loading when actually fetching
+  let commitsLoading = $state(false)
   let commitsError = $state<string | undefined>(undefined)
   let commits = $state<any[]>([])
   let totalCommits = $state<number | undefined>(undefined)
