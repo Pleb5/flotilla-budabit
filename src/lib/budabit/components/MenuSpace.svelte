@@ -86,14 +86,9 @@
       <SecondaryNavItem {replaceState} href={makeSpacePath(url)}>
         <Icon icon={HomeSmile} /> Home
       </SecondaryNavItem>
-      {#if ENABLE_ZAPS}
-        <SecondaryNavItem
-          {replaceState}
-          href={goalsPath}
-          notification={$notifications.has(goalsPath)}>
-          <Icon icon={StarFallMinimalistic} /> Goals
-        </SecondaryNavItem>
-      {/if}
+      <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
+        <Icon icon={Git} /> Git
+      </SecondaryNavItem>
       <SecondaryNavItem
         {replaceState}
         href={threadsPath}
@@ -106,10 +101,14 @@
         notification={$notifications.has(calendarPath)}>
         <Icon icon={CalendarMinimalistic} /> Calendar
       </SecondaryNavItem>
-
-      <SecondaryNavItem href={gitPath} notification={$notifications.has(gitPath)}>
-        <Icon icon={Git} /> Git
-      </SecondaryNavItem>
+      {#if ENABLE_ZAPS}
+        <SecondaryNavItem
+          {replaceState}
+          href={goalsPath}
+          notification={$notifications.has(goalsPath)}>
+          <Icon icon={StarFallMinimalistic} /> Goals
+        </SecondaryNavItem>
+      {/if}
       <SecondaryNavHeader>
         Rooms
       </SecondaryNavHeader>

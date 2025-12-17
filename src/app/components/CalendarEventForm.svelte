@@ -16,10 +16,8 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
-  import {PROTECTED} from "@app/core/state"
   import {makeEditor} from "@app/editor"
   import {pushToast} from "@app/util/toast"
-  import {canEnforceNip70} from "@app/core/commands"
 
   type Props = {
     url: string
@@ -35,8 +33,6 @@
   }
 
   const {url, header, initialValues}: Props = $props()
-
-  const shouldProtect = canEnforceNip70(url)
 
   const uploading = writable(false)
 
@@ -79,10 +75,6 @@
       ...daysBetween(start, end).map(D => ["D", D.toString()]),
       ...ed.storage.nostr.getEditorTags(),
     ]
-
-    if (await shouldProtect) {
-      tags.push(PROTECTED)
-    }
 
     const event = makeEvent(EVENT_TIME, {content, tags})
 

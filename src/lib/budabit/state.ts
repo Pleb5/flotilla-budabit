@@ -1,6 +1,6 @@
 
 import { writable, derived, } from "svelte/store"
-import { load } from "@welshman/net"
+import { load, request } from "@welshman/net"
 import {
   groupByEuc,
   deriveMaintainers,
@@ -16,7 +16,7 @@ import {
 } from "@nostr-git/core"
 import { repository } from "@welshman/app"
 import { collection, deriveEvents, withGetter } from "@welshman/store"
-import { PLATFORM_RELAYS, channelEvents, deriveEvent, messages, getUrlsForEvent, memberships, roomComparator, splitChannelId, userRoomsByUrl, type Channel, getMembershipRooms, ROOM, fromCsv } from "@app/core/state"
+import { PLATFORM_RELAYS, channelEvents, deriveEvent, getUrlsForEvent, roomComparator, splitChannelId, userRoomsByUrl, type Channel, fromCsv } from "@app/core/state"
 import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
 import { fromPairs, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
@@ -363,8 +363,9 @@ export const channelsByUrl = derived(channelsById, $channelsById => {
 })
 
 export async function loadPlatformChannels() {
-  await load({
+  await request({
     relays: PLATFORM_RELAYS,
-    filters: [{kinds: [ROOM_META]}]
+    filters: [{kinds: [ROOM_META]}],
+    autoClose: true
   })
 }
