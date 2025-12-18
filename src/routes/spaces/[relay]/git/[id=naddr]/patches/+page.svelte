@@ -65,19 +65,24 @@
   $effect(() => {
     if (!repoClass) return
 
+    // Access reactive dependencies synchronously to ensure they're tracked
+    const currentPatches = repoClass.patches
+    const currentPullRequests = pullRequests
+    const currentRepoRelays = repoRelays
+
     const controller = new AbortController()
     abortControllers.push(controller)
 
     // Defer comment loading to avoid blocking initial render
     const timeout = setTimeout(() => {
       const allRootIds = [
-        ...repoClass.patches.map((p: PatchEvent) => p.id),
-        ...pullRequests.map((pr: PullRequestEvent) => pr.id),
+        ...currentPatches.map((p: PatchEvent) => p.id),
+        ...currentPullRequests.map((pr: PullRequestEvent) => pr.id),
       ]
 
       if (allRootIds.length > 0) {
         request({
-          relays: repoRelays,
+          relays: currentRepoRelays,
           signal: controller.signal,
           filters: [{kinds: [COMMENT], "#E": allRootIds}],
           onEvent: e => {
@@ -147,8 +152,11 @@
   $effect(() => {
     if (!repoClass) return
 
+    // Access reactive dependency synchronously to ensure it's tracked
+    const currentPatches = repoClass.patches
+
     // Create cache key from patch IDs to detect changes
-    const currentKey = repoClass.patches
+    const currentKey = currentPatches
       .map(p => p.id)
       .sort()
       .join(",")
@@ -158,18 +166,10 @@
 
     // Defer heavy computation to avoid blocking initial render
     const timeout = setTimeout(() => {
-      // Double-check key hasn't changed during deferral
-      if (!repoClass) return
-      const checkKey = repoClass.patches
-        .map(p => p.id)
-        .sort()
-        .join(",")
-      if (checkKey !== currentKey) return
-
       const byId = new Map<string, string[]>()
       const groupsById = new Map<string, Record<string, string[]>>()
 
-      for (const patch of repoClass.patches) {
+      for (const patch of currentPatches) {
         try {
           // Use deriveEffectiveLabels to get proper NIP-32 labels
           // Only get value once - don't subscribe to avoid memory leaks
@@ -276,38 +276,50 @@
   let patchListCacheKey = $state<string>("")
 
   $effect(() => {
+    // Access all reactive dependencies synchronously to ensure they're tracked
+    if (!repoClass) return
+    
+    const currentPatches = repoClass.patches
+    const currentComments = comments
+    const currentStatusData = statusData
+    const currentPullRequests = pullRequests
+    const currentStatusFilter = statusFilter
+    const currentAuthorFilter = authorFilter
+    const currentSortBy = sortBy
+    const currentPatchListCacheKey = patchListCacheKey
+
     const timeout = setTimeout(() => {
-      if (!repoClass || !repoClass.patches) {
+      if (!currentPatches || currentPatches.length === 0) {
         patchList = []
         return
       }
 
       // Create cache key from patch IDs, comments, status, filters, and sort to detect changes
       const currentKey = [
-        repoClass.patches
+        currentPatches
           .map(p => p.id)
           .sort()
           .join(","),
-        comments
+        currentComments
           .map(c => c.id)
           .sort()
           .join(","),
-        statusData.stateById ? Object.keys(statusData.stateById).sort().join(",") : "",
-        pullRequests
+        currentStatusData.stateById ? Object.keys(currentStatusData.stateById).sort().join(",") : "",
+        currentPullRequests
           .map(pr => pr.id)
           .sort()
           .join(","),
-        statusFilter,
-        authorFilter,
-        sortBy,
+        currentStatusFilter,
+        currentAuthorFilter,
+        currentSortBy,
       ].join("|")
 
-      if (patchListCacheKey === currentKey) return
+      if (currentPatchListCacheKey === currentKey) return
 
       // Pre-build indexes for O(1) lookups instead of O(n) filtering per patch
       // Map of root ID -> child patches
       const childPatchesByRoot = new Map<string, PatchEvent[]>()
-      for (const patch of repoClass.patches) {
+      for (const patch of currentPatches) {
         const rootTag = getTags(patch, "e").find((tag: string[]) => tag[1])
         if (rootTag && rootTag[1]) {
           const rootId = rootTag[1]
@@ -320,7 +332,7 @@
 
       // Map of patch ID -> comments (reuse for PRs too)
       const commentsByPatch = new Map<string, CommentEvent[]>()
-      for (const comment of comments) {
+      for (const comment of currentComments) {
         const patchTag = getTags(comment, "E").find((tag: string[]) => tag[1])
         if (patchTag && patchTag[1]) {
           const patchId = patchTag[1]
@@ -332,7 +344,7 @@
       }
 
       // Get all root patches first
-      const rootPatches = repoClass.patches.filter((patch: PatchEvent) => {
+      const rootPatches = currentPatches.filter((patch: PatchEvent) => {
         return getTags(patch, "t").find((tag: string[]) => tag[1] === "root")
       })
 
@@ -340,7 +352,7 @@
       const processed: any[] = []
       for (const patch of rootPatches) {
         // Use manager-provided state and derive kind for UI
-        const status = {kind: kindFromState((statusData.stateById as any)[patch.id])} as any
+        const status = {kind: kindFromState((currentStatusData.stateById as any)[patch.id])} as any
 
         // O(1) lookup instead of O(n) filter
         const patches = childPatchesByRoot.get(patch.id) || []
@@ -368,12 +380,12 @@
         commentsByPatch: Map<string, CommentEvent[]>,
       ) => {
         // Merge in PR roots
-        const prEvents = pullRequests || []
+        const prEvents = currentPullRequests || []
         const prItems = prEvents.map((pr: PullRequestEvent) => {
           const parsedPR: any = parsePullRequestEvent(pr)
           // O(1) lookup instead of O(c) filter
           const commentEvents = commentsByPatch.get(pr.id) || []
-          const status = {kind: kindFromState((statusData.stateById as any)[pr.id])} as any
+          const status = {kind: kindFromState((currentStatusData.stateById as any)[pr.id])} as any
           return {
             ...pr,
             type: "pr" as const,
@@ -397,36 +409,36 @@
         let filteredPatches = [...allPatches, ...(prItems as any[])]
 
         // Apply status filter
-        if (statusFilter !== "all") {
+        if (currentStatusFilter !== "all") {
           filteredPatches = filteredPatches.filter(patch => {
             const state = currentPatchStateFor(patch.id)
-            if (statusFilter === "open") return state === "open"
-            if (statusFilter === "applied") return state === "applied"
-            if (statusFilter === "closed") return state === "closed"
-            if (statusFilter === "draft") return state === "draft"
+            if (currentStatusFilter === "open") return state === "open"
+            if (currentStatusFilter === "applied") return state === "applied"
+            if (currentStatusFilter === "closed") return state === "closed"
+            if (currentStatusFilter === "draft") return state === "draft"
             return true
           })
         }
 
         // Apply author filter
-        if (authorFilter) {
-          filteredPatches = filteredPatches.filter(patch => patch.pubkey === authorFilter)
+        if (currentAuthorFilter) {
+          filteredPatches = filteredPatches.filter(patch => patch.pubkey === currentAuthorFilter)
         }
 
         // Apply sorting
         const sortedPatches = [...filteredPatches]
-        if (sortBy === "newest") {
+        if (currentSortBy === "newest") {
           sortedPatches.sort((a, b) => b.created_at - a.created_at)
-        } else if (sortBy === "oldest") {
+        } else if (currentSortBy === "oldest") {
           sortedPatches.sort((a, b) => a.created_at - b.created_at)
-        } else if (sortBy === "status") {
+        } else if (currentSortBy === "status") {
           // Sort by current state priority using Status.svelte semantics
           const prio = (id: string) => {
             const s = currentPatchStateFor(id)
             return s === "open" ? 0 : s === "draft" ? 1 : s === "applied" ? 2 : 3
           }
           sortedPatches.sort((a, b) => prio(a.id) - prio(b.id))
-        } else if (sortBy === "commits") {
+        } else if (currentSortBy === "commits") {
           // Sort by commit count (highest first)
           sortedPatches.sort((a, b) => b.commitCount - a.commitCount)
         }
@@ -459,24 +471,33 @@
 
   // Initialize feed asynchronously - don't block render
   $effect(() => {
+    // Access reactive dependencies synchronously to ensure they're tracked
+    const currentRepoClass = repoClass
+    const currentPatchFilter = patchFilter
+    const currentPullRequestFilter = pullRequestFilter
+    const currentRepoRelays = repoRelays
+    const currentPatchList = patchList
+    const currentElement = element
+    const currentFeedInitialized = feedInitialized
+
     // Defer makeFeed to avoid blocking initial render
     const timeout = setTimeout(() => {
-      if (repoClass && repoClass.patches && patchFilter && pullRequestFilter && !feedInitialized) {
-        const tryStart = () => {
-          if (element && !feedInitialized) {
+      if (currentRepoClass && currentRepoClass.patches && currentPatchFilter && currentPullRequestFilter && !currentFeedInitialized) {
+        const tryStart = () => {          
+          if (currentElement && !currentFeedInitialized) {
             feedInitialized = true
             const feed = makeFeed({
-              element,
-              relays: repoRelays,
-              feedFilters: [patchFilter, pullRequestFilter],
-              subscriptionFilters: [patchFilter, pullRequestFilter],
-              initialEvents: patchList,
+              element: currentElement,
+              relays: currentRepoRelays,
+              feedFilters: [currentPatchFilter, currentPullRequestFilter],
+              subscriptionFilters: [currentPatchFilter, currentPullRequestFilter],
+              initialEvents: currentPatchList,
               onExhausted: () => {
                 // Feed exhausted, but we already showed content
               },
             })
             feedCleanup = feed.cleanup
-          } else if (!element) {
+          } else if (!currentElement) {
             requestAnimationFrame(tryStart)
           }
         }

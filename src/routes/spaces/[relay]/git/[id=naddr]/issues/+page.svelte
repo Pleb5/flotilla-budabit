@@ -85,22 +85,21 @@
   
   // Compute labelsData asynchronously to avoid blocking render
   $effect(() => {
+    // Access reactive dependency synchronously to ensure it's tracked
+    const currentIssues = issues
+    
     // Create cache key from issue IDs to detect changes
-    const currentKey = issues.map(i => i.id).sort().join(",")
+    const currentKey = currentIssues.map(i => i.id).sort().join(",")
     
     // Skip if already computed for this set of issues
     if (labelsDataCacheKey === currentKey) return
     
     // Defer heavy computation to avoid blocking initial render
     const timeout = setTimeout(() => {
-      // Double-check key hasn't changed during deferral
-      const checkKey = issues.map(i => i.id).sort().join(",")
-      if (checkKey !== currentKey) return
-      
     const byId = new Map<string, string[]>()
     const groupsById = new Map<string, Record<string, string[]>>()
       
-    for (const issue of issues) {
+    for (const issue of currentIssues) {
         try {
       // Use deriveEffectiveLabels to get proper NIP-32 labels
           // Only get value once - don't subscribe to avoid memory leaks
@@ -161,16 +160,20 @@
   // NIP-32 labels are derived centrally via deriveEffectiveLabels(); proactively load 1985 for all issues
   // Defer to avoid blocking initial render
   $effect(() => {
+    // Access reactive dependencies synchronously to ensure they're tracked
+    const currentIssues = repoClass.issues || []
+    const currentRepoRelays = repoRelays
+    
     // Defer label loading to avoid blocking initial render
     const controller = new AbortController()
     abortControllers.push(controller)
     
     const timeout = setTimeout(() => {
       try {
-        const ids = (repoClass.issues || []).map((i: any) => i.id).filter(Boolean)
+        const ids = currentIssues.map((i: any) => i.id).filter(Boolean)
         if (ids.length) {
           request({
-            relays: repoRelays,
+            relays: currentRepoRelays,
             signal: controller.signal,
             filters: [{kinds: [1985], "#e": ids}],
             onEvent: () => {},
@@ -193,31 +196,38 @@
   let statusMapCacheKey = $state<string>("")
 
   $effect(() => {
+    // Access reactive dependencies synchronously to ensure they're tracked
+    if (!repoClass) return
+    
+    const currentIssues = repoClass.issues
+    const currentStatusEventsByRoot = statusEventsByRoot
+    const currentStatusMapCacheKey = statusMapCacheKey
+
     const timeout = setTimeout(() => {
-      if (!repoClass || !repoClass.issues) {
+      if (!currentIssues) {
         statusMap = {}
         return
       }
 
       // Create cache key from issue IDs and statusEventsByRoot to detect changes
-      const issueIds = repoClass.issues.map(i => i.id).sort().join(",")
-      const statusEventIds = statusEventsByRoot 
-        ? Array.from(statusEventsByRoot.keys()).sort().join(",")
+      const issueIds = currentIssues.map(i => i.id).sort().join(",")
+      const statusEventIds = currentStatusEventsByRoot 
+        ? Array.from(currentStatusEventsByRoot.keys()).sort().join(",")
         : ""
       const currentKey = `${issueIds}|${statusEventIds}`
 
-      if (statusMapCacheKey === currentKey) return
+      if (currentStatusMapCacheKey === currentKey) return
 
       const map: Record<string, string> = {}
 
       // First, set default "open" status for all issues
-      for (const issue of repoClass.issues) {
+      for (const issue of currentIssues) {
         map[issue.id] = "open"
       }
 
       // Then override with actual status events
-      if (statusEventsByRoot) {
-        for (const [rootId, events] of statusEventsByRoot) {
+      if (currentStatusEventsByRoot) {
+        for (const [rootId, events] of currentStatusEventsByRoot) {
           const statusResult = repoClass.resolveStatusFor(rootId)
           map[rootId] = statusResult?.state || "open"
         }
@@ -225,7 +235,7 @@
 
       statusMap = map
       statusMapCacheKey = currentKey
-    })
+    }, 100)
 
     return () => {
       clearTimeout(timeout)
@@ -237,26 +247,34 @@
   let issueListCacheKey = $state<string>("")
 
   $effect(() => {
+    // Access reactive dependencies synchronously to ensure they're tracked
+    if (!repoClass) return
+    
+    const currentIssues = repoClass.issues
+    const currentComments = comments
+    const currentStatusMap = statusMap
+    const currentIssueListCacheKey = issueListCacheKey
+
     const timeout = setTimeout(() => {
-      if (!repoClass || !repoClass.issues) {
+      if (!currentIssues) {
         issueList = []
         return
       }
 
       // Create cache key from issues, comments, and statusMap to detect changes
-      const issueIds = repoClass.issues.map(i => i.id).sort().join(",")
-      const commentIds = Object.keys(comments)
-        .flatMap(id => comments[id].map(c => c.id))
+      const issueIds = currentIssues.map(i => i.id).sort().join(",")
+      const commentIds = Object.keys(currentComments)
+        .flatMap(id => currentComments[id].map(c => c.id))
         .sort()
         .join(",")
-      const statusMapKeys = Object.keys(statusMap).sort().join(",")
+      const statusMapKeys = Object.keys(currentStatusMap).sort().join(",")
       const currentKey = `${issueIds}|${commentIds}|${statusMapKeys}`
 
-      if (issueListCacheKey === currentKey) return
+      if (currentIssueListCacheKey === currentKey) return
 
-      const processed = repoClass.issues.map((issue: IssueEvent) => {
-        const commentEvents = comments[issue.id] || []
-        const currentState = statusMap[issue.id] || "open"
+      const processed = currentIssues.map((issue: IssueEvent) => {
+        const commentEvents = currentComments[issue.id] || []
+        const currentState = currentStatusMap[issue.id] || "open"
 
         return {
           ...issue,
@@ -281,32 +299,44 @@
   let searchedIssuesCacheKey = $state<string>("")
 
   $effect(() => {
+    // Access all reactive dependencies synchronously to ensure they're tracked
+    const currentIssueList = issueList
+    const currentSearchTerm = searchTerm
+    const currentStatusFilter = statusFilter
+    const currentAuthorFilter = authorFilter
+    const currentSelectedLabels = selectedLabels
+    const currentMatchAllLabels = matchAllLabels
+    const currentSortByOrder = sortByOrder
+    const currentLabelsByIssue = labelsByIssue
+    const currentStatusMap = statusMap
+    const currentCacheKey = searchedIssuesCacheKey
+
     const timeout = setTimeout(() => {
-      if (!issueList || issueList.length === 0) {
+      if (!currentIssueList || currentIssueList.length === 0) {
         searchedIssues = []
         return
       }
 
       // Create cache key from issueList, searchTerm, filters, and sort options
-      const issueIds = issueList.map(i => i.id).sort().join(",")
-      const labelsKey = Array.from(labelsByIssue.values())
+      const issueIds = currentIssueList.map(i => i.id).sort().join(",")
+      const labelsKey = Array.from(currentLabelsByIssue.values())
         .flat()
         .sort()
         .join(",")
       const currentKey = [
         issueIds,
-        searchTerm,
-        statusFilter,
-        authorFilter,
-        selectedLabels.sort().join(","),
-        matchAllLabels.toString(),
-        sortByOrder,
+        currentSearchTerm,
+        currentStatusFilter,
+        currentAuthorFilter,
+        [...currentSelectedLabels].sort().join(","),
+        currentMatchAllLabels.toString(),
+        currentSortByOrder,
         labelsKey,
       ].join("|")
 
-      if (searchedIssuesCacheKey === currentKey) return
+      if (currentCacheKey === currentKey) return
 
-      const issuesToSearch = issueList.map(issue => {
+      const issuesToSearch = currentIssueList.map(issue => {
         return {
           id: issue.id,
           subject: getTagValue("subject", issue.tags) ?? "",
@@ -332,33 +362,33 @@
           return item.subject
         },
       })
-      const searchResults = issueSearch.searchOptions(searchTerm)
-      const result = issueList
+      const searchResults = issueSearch.searchOptions(currentSearchTerm)
+      const result = currentIssueList
         .filter(r => searchResults.find(res => res.id === r.id))
         .filter(issue => {
-          if (authorFilter) {
-            return issue.pubkey === authorFilter
+          if (currentAuthorFilter) {
+            return issue.pubkey === currentAuthorFilter
           }
           return true
         })
         .filter(issue => {
-          if (selectedLabels.length === 0) return true
-          const labs = labelsByIssue.get(issue.id) || []
-          return matchAllLabels
-            ? selectedLabels.every(l => labs.includes(l))
-            : selectedLabels.some(l => labs.includes(l))
+          if (currentSelectedLabels.length === 0) return true
+          const labs = currentLabelsByIssue.get(issue.id) || []
+          return currentMatchAllLabels
+            ? currentSelectedLabels.every(l => labs.includes(l))
+            : currentSelectedLabels.some(l => labs.includes(l))
         })
         .filter(issue => {
-          if (statusFilter === "all") return true
-          const state = statusMap[issue.id] || "open"
-          if (statusFilter === "open") return state === "open"
-          if (statusFilter === "draft") return state === "draft"
-          if (statusFilter === "closed") return state === "closed"
-          if (statusFilter === "resolved") return state === "resolved"
+          if (currentStatusFilter === "all") return true
+          const state = currentStatusMap[issue.id] || "open"
+          if (currentStatusFilter === "open") return state === "open"
+          if (currentStatusFilter === "draft") return state === "draft"
+          if (currentStatusFilter === "closed") return state === "closed"
+          if (currentStatusFilter === "resolved") return state === "resolved"
           return true
         })
         .sort((a, b) =>
-          sortByOrder === "newest" ? b.created_at - a.created_at : a.created_at - b.created_at,
+          currentSortByOrder === "newest" ? b.created_at - a.created_at : a.created_at - b.created_at,
         )
 
       searchedIssues = result
@@ -376,29 +406,51 @@
   })
 
   $effect(() => {
-    // Defer comment loading to avoid blocking initial render
-    requestAnimationFrame(() => {
-    for (const issue of issues) {
-      if (!comments[issue.id]) {
-        comments[issue.id] = []
-        requestComments(issue)
-      }
-    }
-    })
-  })
-
-  const requestComments = async (issue: TrustedEvent) => {
+    // Access reactive dependencies synchronously to ensure they're tracked
+    const currentIssues = issues
+    const currentRepoRelays = repoRelays
+    const currentComments = comments
+    
+    // Create abort controller for this effect run BEFORE the timeout
+    // to ensure it can be properly cleaned up if the effect re-runs
     const controller = new AbortController()
     abortControllers.push(controller)
     
+    // Defer comment loading to avoid blocking initial render
+    const timeout = setTimeout(() => {
+      for (const issue of currentIssues) {
+        // Check synchronously using captured comments state to avoid race conditions
+        // Only request if comments haven't been loaded yet (key doesn't exist in comments)
+        if (!(issue.id in currentComments)) {
+          // Initialize empty array immediately to prevent duplicate requests
+          comments[issue.id] = []
+          requestComments(issue, currentRepoRelays, controller)
+        }
+      }
+    }, 100)
+    
+    // Cleanup: cancel timeout and abort controller when effect re-runs
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
+  const requestComments = async (
+    issue: TrustedEvent,
+    relays: string[],
+    controller: AbortController,
+  ) => {
     request({
-      relays: repoRelays,
+      relays,
       signal: controller.signal,
       filters: [{kinds: [COMMENT], "#E": [issue.id], since: issue.created_at}],
       onEvent: e => {
-        if (!comments[issue.id].some(c => c.id === e.id)) {
+        // Access comments reactively - this will get the current value
+        const currentComments = comments[issue.id] || []
+        if (!currentComments.some(c => c.id === e.id)) {
           // Create a new array to trigger reactivity
-          comments[issue.id] = [...comments[issue.id], e as CommentEvent]
+          comments[issue.id] = [...currentComments, e as CommentEvent]
         }
       },
     })
