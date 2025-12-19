@@ -16,7 +16,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
-  import {makeEditor} from "@app/editor"
+  import {makeEditor, plainTextToTiptapHTML} from "@app/editor"
   import {pushToast} from "@app/util/toast"
 
   type Props = {
@@ -66,6 +66,7 @@
 
     const ed = await editor
     const content = ed.getText({blockSeparator: "\n"}).trim()
+    console.log("editor content to submit: ", content)
     const tags = [
       ["d", initialValues?.d || randomId()],
       ["title", title],
@@ -84,7 +85,8 @@
   }
 
   const content = initialValues?.content || ""
-  const editor = makeEditor({url, submit, uploading, content})
+  const tiptapContent = plainTextToTiptapHTML(content)
+  const editor = makeEditor({url, submit, uploading, content: tiptapContent})
 
   let title = $state(initialValues?.title || "")
   let location = $state(initialValues?.location || "")
@@ -122,13 +124,13 @@
         <div class="input-editor flex-grow overflow-hidden">
           <EditorContent {editor} />
         </div>
-        <Button data-tip="Add an image" class="center btn tooltip" onclick={selectFiles}>
-          {#if $uploading}
-            <span class="loading loading-spinner loading-xs"></span>
-          {:else}
-            <Icon icon={GallerySend} />
-          {/if}
-        </Button>
+        <!-- <Button data-tip="Add an image" class="center btn tooltip" onclick={selectFiles}> -->
+        <!--   {#if $uploading} -->
+        <!--     <span class="loading loading-spinner loading-xs"></span> -->
+        <!--   {:else} -->
+        <!--     <Icon icon={GallerySend} /> -->
+        <!--   {/if} -->
+        <!-- </Button> -->
       </div>
     {/snippet}
   </Field>

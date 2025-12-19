@@ -101,3 +101,22 @@ export const makeEditor = async ({
     },
   })
 }
+// Convert plain text (with \n) into HTML that Tiptap will keep as line breaks.
+const escapeHtml = (s: string) =>
+  s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+
+export const plainTextToTiptapHTML = (text: string) => {
+  const normalized = (text ?? "").replace(/\r\n?/g, "\n")
+
+  // blank line(s) => new paragraph
+  const paragraphs = normalized.split(/\n{2,}/)
+
+  return paragraphs
+    .map(p => {
+      // single newline inside a paragraph => hard break
+      const inner = escapeHtml(p).replaceAll("\n", "<br>")
+      // ensure empty paragraphs still render
+      return `<p>${inner || "<br>"}</p>`
+    })
+    .join("")
+}
