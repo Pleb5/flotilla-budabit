@@ -25,6 +25,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import {slideAndFade} from "@lib/transition"
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
@@ -41,7 +42,17 @@
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/shared-types"
+  import { fade } from "svelte/transition"
+
+  let showScrollButton = $state(false)
   
+  const onScroll = () => {
+    console.log("scroll", element?.scrollTop)
+    showScrollButton = Math.abs(element?.scrollTop || 0) > 1500
+  }
+
+
+
   const repoClass = getContext<Repo>(REPO_KEY)
   const statusEventsByRootStore = getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
@@ -573,14 +584,16 @@
   const onCommentCreated = async (comment: CommentEvent) => {
     postComment(comment, repoRelays)
   }
+
+  const scrollToTop = () => element?.scrollTo({top: 0, behavior: "smooth"})
 </script>
 
 <svelte:head>
   <title>{repoClass?.name || 'Repository'} - Issues</title>
 </svelte:head>
 
-<div bind:this={element}>
-  <div class="sticky -top-8 z-nav my-4 max-w-full space-y-2 backdrop-blur">
+<div bind:this={element} onscroll={onScroll}>
+  <div class="my-4 max-w-full space-y-2">
     <div class=" flex items-center justify-between">
       <div>
         <h2 class="text-xl font-semibold">Issues</h2>
@@ -664,3 +677,11 @@
     </div>
   {/if}
 </div>
+
+{#if showScrollButton}
+  <div in:fade class="chat__scroll-down">
+  <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
+    <Icon icon={AltArrowUp} />
+  </Button>
+  </div>
+{/if}
