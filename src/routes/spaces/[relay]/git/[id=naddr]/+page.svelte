@@ -486,7 +486,7 @@
               <span class="mb-2 block text-sm text-muted-foreground">Repo Address</span>
               <button
                 type="button"
-                class="flex w-full items-start gap-2 text-left text-sm hover:opacity-80"
+                class="flex w-full min-w-0 max-w-full items-start gap-2 text-left text-sm hover:opacity-80"
                 title="Click to copy"
                 onclick={() => clip(naddr)}>
                 <Link class="mt-0.5 h-3 w-3 flex-shrink-0" />
@@ -520,11 +520,11 @@
                   {#each repoMetadata.cloneUrls as url}
                     <button
                       type="button"
-                      class="flex w-full items-center gap-2 text-left text-sm hover:opacity-80"
+                      class="grid grid-cols-[auto_1fr] w-full items-center gap-2 text-left text-sm hover:opacity-80"
                       title="Click to copy"
                       onclick={() => clip(url)}>
                       <Link class="h-3 w-3" />
-                      <span class="truncate font-mono text-xs">{url}</span>
+                      <span class="font-mono text-xs overflow-auto">{url}</span>
                     </button>
                   {/each}
                 </div>
@@ -536,9 +536,9 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Web URLs</span>
                 <div class="space-y-1">
                   {#each repoMetadata.webUrls as url}
-                    <div class="flex items-center gap-2 text-sm">
+                    <div class="grid grid-cols-[auto_1fr] items-center gap-2 text-sm max-w-full overflow-x-auto">
                       <Link class="h-3 w-3" />
-                      <a href={url} target="_blank" class="truncate font-mono text-xs">{url}</a>
+                      <a href={url} target="_blank" class="font-mono text-xs overflow-x-auto">{url}</a>
                     </div>
                   {/each}
                 </div>
@@ -653,7 +653,7 @@
             <BookOpen class="h-5 w-5" />
             README
           </h3>
-          <div class="prose max-w-2xl bg-white dark:bg-zinc-900" in:fly>
+          <div class="prose max-w-2xl overflow-x-scroll bg-white dark:bg-zinc-900" in:fly>
             {@html renderedReadme}
             <style>
               .prose {
