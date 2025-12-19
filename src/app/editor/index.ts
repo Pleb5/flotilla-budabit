@@ -107,16 +107,27 @@ const escapeHtml = (s: string) =>
 
 export const plainTextToTiptapHTML = (text: string) => {
   const normalized = (text ?? "").replace(/\r\n?/g, "\n")
+  const lines = normalized.split("\n") // keeps empty lines as "" entries
 
-  // blank line(s) => new paragraph
-  const paragraphs = normalized.split(/\n{2,}/)
+  const paragraphs: string[] = []
+  let current: string[] = []
 
-  return paragraphs
-    .map(p => {
-      // single newline inside a paragraph => hard break
-      const inner = escapeHtml(p).replaceAll("\n", "<br>")
-      // ensure empty paragraphs still render
-      return `<p>${inner || "<br>"}</p>`
-    })
-    .join("")
+  for (const line of lines) {
+    if (line === "") {
+      // end current paragraph (if any)
+      if (current.length) {
+        paragraphs.push(current.join("<br>"))
+        current = []
+      }
+      // represent the empty line as an empty paragraph
+      paragraphs.push("")
+    } else {
+      current.push(escapeHtml(line))
+    }
+  }
+
+  if (current.length) paragraphs.push(current.join("<br>"))
+
+  // <p><br></p> ensures the empty paragraph is “real” in the editor
+  return paragraphs.map(p => `<p>${p}</p>`).join("")
 }
