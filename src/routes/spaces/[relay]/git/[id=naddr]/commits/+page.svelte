@@ -56,10 +56,51 @@
     return `/spaces/${encodeURIComponent($page.params.relay)}/git/${encodeURIComponent($page.params.id)}/commits/${commitId}`;
   };
 
-  // Set initial page size and load commits when the component mounts or when the repo changes
+  // Track the previous branch to detect changes
+  let previousBranch = $state<string | undefined>(undefined);
+  let wasJustSwitching = $state(false);
+
+  // Handle branch switching state changes
   $effect(() => {
-    if (repoClass && repoClass.repoId && (repoClass.selectedBranch || repoClass.mainBranch)) {
-      loadCommits()
+    const isSwitching = repoClass.isBranchSwitching;
+    
+    if (isSwitching) {
+      // Show loading state while switching
+      commitsLoading = true;
+      wasJustSwitching = true;
+    } else if (wasJustSwitching) {
+      // Switch just completed - commits are already loaded by setSelectedBranch
+      // Just clear the flag, don't reload
+      wasJustSwitching = false;
+      commitsLoading = false;
+    }
+  });
+
+  // Load commits when branch changes (but not during active switching)
+  $effect(() => {
+    const selectedBranch = repoClass.selectedBranch;
+    const mainBranch = repoClass.mainBranch;
+    const currentBranch = selectedBranch || mainBranch;
+    const isSwitching = repoClass.isBranchSwitching;
+    
+    // Skip if actively switching (setSelectedBranch will handle loading)
+    if (isSwitching || wasJustSwitching) {
+      return;
+    }
+    
+    if (repoClass && repoClass.repoId && currentBranch) {
+      // Detect branch changes (e.g., from navigation, not from selector)
+      if (previousBranch !== undefined && previousBranch !== currentBranch) {
+        console.log(`🔄 Branch changed from "${previousBranch}" to "${currentBranch}", resetting to page 1`);
+        currentPage = 1;
+        initialLoadComplete = false;
+        previousBranch = currentBranch;
+        loadCommits();
+      } else if (previousBranch === undefined) {
+        // Initial load
+        previousBranch = currentBranch;
+        loadCommits();
+      }
     }
   })
 
@@ -193,7 +234,7 @@
   </div>
 
   <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-    <div>
+    <div class="flex-1">
       <h2 class="text-lg font-medium">
         {#if totalCommits !== undefined}
           {totalCommits.toLocaleString()} {totalCommits === 1 ? "commit" : "commits"}

@@ -33,10 +33,16 @@
     type: "directory",
   })
 
+  // Initialize selectedBranch first
+  let selectedBranch = $state(repoClass.selectedBranch || repoClass.mainBranch)
+
   // Keep local selectedBranch in sync with repoClass changes (e.g., BranchSelector)
   $effect(() => {
     if (repoClass) {
-      const next = repoClass.selectedBranch || repoClass.mainBranch || selectedBranch
+      // Explicitly track selectedBranch and mainBranch for reactivity
+      const repoSelectedBranch = repoClass.selectedBranch;
+      const repoMainBranch = repoClass.mainBranch;
+      const next = repoSelectedBranch || repoMainBranch || selectedBranch
       if (next && next !== selectedBranch) {
         selectedBranch = next
       }
@@ -49,9 +55,20 @@
     type: "directory",
   })
 
-  let selectedBranch = $state(repoClass.selectedBranch)
-
   let branchLoadTrigger = $state(0)
+  let branchSwitchComplete = $state(0) // Increments when branch switch finishes
+  
+  // Track when branch switching completes
+  let wasSwitching = $state(false)
+  $effect(() => {
+    const isSwitching = repoClass.isBranchSwitching
+    if (wasSwitching && !isSwitching) {
+      // Branch switch just completed
+      console.log("✅ Branch switch completed, triggering reload")
+      branchSwitchComplete++
+    }
+    wasSwitching = isSwitching
+  })
 
   let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
     $state([])
@@ -100,12 +117,29 @@
               if (!result.success) {
                 throw new Error(result.error || "Repository initialization failed")
               }
+              
+              // After cloning, sync with remote to ensure we have latest content
+              console.log("🔄 Syncing with remote after clone...")
+              cloneProgress = "Syncing with remote..."
+              try {
+                await repoClass.workerManager.syncWithRemote({
+                  repoId: repoClass.key,
+                  cloneUrls,
+                  branch: selectedBranch?.split("/").pop()
+                })
+                console.log("✅ Sync complete")
+              } catch (syncErr) {
+                console.warn("Sync with remote failed:", syncErr)
+                // Don't throw - repo is still usable even if sync fails
+              }
             } finally {
               // Restore original callback (or clear it)
               repoClass.workerManager.setProgressCallback(() => {})
               isCloning = false
               cloneProgress = ""
               cloneProgressPercent = undefined
+              // Trigger file reload after clone+sync completes
+              branchSwitchComplete++
             }
           }
         } catch (error) {
@@ -156,18 +190,33 @@
   })
 
   $effect(() => {
-    if (selectedBranch && !isCloning) {
+    const isSwitching = repoClass.isBranchSwitching;
+    
+    // Don't load files while branch is still switching, but show loading state
+    if (isSwitching) {
+      console.log("⏳ Branch is switching, showing loading state...");
+      loading = true;
+      return;
+    }
+    
+    // Explicitly track branchSwitchComplete and selectedBranch to ensure effect re-runs after branch changes
+    const currentBranch = selectedBranch;
+    const switchTrigger = branchSwitchComplete; // This increments when branch switch completes
+    
+    if (currentBranch && !isCloning && !path) {
       // Show loading only when actually fetching
       loading = true
       // Defer file loading slightly to avoid blocking render
       const timeout = setTimeout(() => {
+        console.log("🔄 Loading files for branch:", currentBranch, "trigger:", switchTrigger);
         files = repoClass
           .listRepoFiles({
-            branch: selectedBranch?.split("/").pop() || "master",
-            path,
+            branch: currentBranch?.split("/").pop() || "master",
+            path: undefined,
           })
             .then(result => {
               loading = false
+              console.log("✅ Files loaded:", result.files.length, "files");
               return result.files.map(
                 file =>
                   ({
@@ -181,6 +230,7 @@
             .catch((e) => {
               loading = false
               error = e instanceof Error ? e.message : "Failed to load files"
+              console.error("❌ Failed to load files:", e);
               return []
             })
       }, 100)
@@ -192,15 +242,23 @@
   })
 
   $effect(() => {
-    if (path) {
-      curDir.path = path.split("/").slice(0, -1).join("/")
+    const currentBranch = selectedBranch;
+    const currentPath = path;
+    const switchTrigger = branchSwitchComplete; // Track branch switches
+    
+    if (currentPath && currentBranch && !isCloning) {
+      curDir.path = currentPath.split("/").slice(0, -1).join("/")
+      loading = true
+      console.log("🔄 Loading files for branch:", currentBranch, "path:", currentPath, "trigger:", switchTrigger);
       files = repoClass
         .listRepoFiles({
-          branch: selectedBranch?.split("/").pop() || "master",
-          path,
+          branch: currentBranch?.split("/").pop() || "master",
+          path: currentPath,
         })
-        .then(result =>
-          result.files.map(
+        .then(result => {
+          loading = false
+          console.log("✅ Files loaded:", result.files.length, "files");
+          return result.files.map(
             file =>
               ({
                 name: file.path.split("/").pop() || file.path,
@@ -208,8 +266,14 @@
                 type: file.type as "file" | "directory" | "submodule" | "symlink",
                 oid: file.lastCommit,
               }) as FileEntry,
-          ),
-        )
+          )
+        })
+        .catch((e) => {
+          loading = false
+          error = e instanceof Error ? e.message : "Failed to load files"
+          console.error("❌ Failed to load files:", e);
+          return []
+        })
     }
   })
 
