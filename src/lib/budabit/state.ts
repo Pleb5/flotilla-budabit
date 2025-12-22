@@ -1,5 +1,5 @@
 
-import { writable, derived, } from "svelte/store"
+import { writable, derived, get as getStore, type Writable } from "svelte/store"
 import { load, request } from "@welshman/net"
 import {
   groupByEuc,
@@ -21,8 +21,11 @@ import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshm
 import { nip19 } from "nostr-tools"
 import { fromPairs, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
 import { extractRoleAssignments } from "./labels"
+import type { Repo } from "@nostr-git/ui"
 
 export const shouldReloadRepos = writable(false)
+
+export const activeRepoClass = writable<Repo | undefined>(undefined)
 
 export const REPO_KEY = Symbol("repo")
 

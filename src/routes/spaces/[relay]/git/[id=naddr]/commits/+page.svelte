@@ -59,6 +59,7 @@
   // Track the previous branch to detect changes
   let previousBranch = $state<string | undefined>(undefined);
   let wasJustSwitching = $state(false);
+  let branchSwitchComplete = $state(false);
 
   // Handle branch switching state changes
   $effect(() => {
@@ -68,23 +69,33 @@
       // Show loading state while switching
       commitsLoading = true;
       wasJustSwitching = true;
+      branchSwitchComplete = false;
     } else if (wasJustSwitching) {
       // Switch just completed - commits are already loaded by setSelectedBranch
-      // Just clear the flag, don't reload
+      // Mark as complete and wait a tick to ensure state is fully updated
       wasJustSwitching = false;
-      commitsLoading = false;
+      branchSwitchComplete = true;
+      // Use a microtask to ensure reactive state is fully updated
+      Promise.resolve().then(() => {
+        branchSwitchComplete = false;
+        commitsLoading = false;
+        // Update commits from repoClass after switch completes
+        commits = repoClass.commits || [];
+        totalCommits = repoClass.totalCommits;
+        hasMoreCommits = repoClass.hasMoreCommits;
+      });
     }
   });
 
-  // Load commits when branch changes (but not during active switching)
+  // Load commits when branch changes (but not during active switching or right after)
   $effect(() => {
     const selectedBranch = repoClass.selectedBranch;
     const mainBranch = repoClass.mainBranch;
     const currentBranch = selectedBranch || mainBranch;
     const isSwitching = repoClass.isBranchSwitching;
     
-    // Skip if actively switching (setSelectedBranch will handle loading)
-    if (isSwitching || wasJustSwitching) {
+    // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
+    if (isSwitching || wasJustSwitching || branchSwitchComplete) {
       return;
     }
     
@@ -161,10 +172,44 @@
 
   // Branch list removed
 
+  // Sync commits from repoClass reactively (especially after branch switches)
   $effect(() => {
-    if (repoClass.commits && repoClass.commits.length > 0) {
-      authors = new Set(repoClass.commits.map((commit: any) => commit.commit.author.name))
-      commitsLoading = false
+    const repoCommits = repoClass.commits;
+    const repoTotalCommits = repoClass.totalCommits;
+    const repoHasMore = repoClass.hasMoreCommits;
+    const currentBranch = repoClass.selectedBranch || repoClass.mainBranch;
+    const isSwitching = repoClass.isBranchSwitching;
+    
+    // Don't sync during active switching to avoid race conditions
+    if (isSwitching) {
+      return;
+    }
+    
+    // Update commits from repoClass (especially after branch switches)
+    if (repoCommits) {
+      // If branch changed, update previousBranch to match
+      if (previousBranch !== undefined && currentBranch !== previousBranch) {
+        previousBranch = currentBranch;
+      }
+      
+      commits = repoCommits;
+      totalCommits = repoTotalCommits;
+      hasMoreCommits = repoHasMore;
+      
+      // Update authors list
+      const newAuthors = new Set<string>();
+      repoCommits.forEach((commit: any) => {
+        if (commit.commit?.author?.name) {
+          newAuthors.add(commit.commit.author.name);
+        }
+      });
+      authors = newAuthors;
+      
+      // Mark as loaded if we have commits
+      if (repoCommits.length > 0) {
+        initialLoadComplete = true;
+        commitsLoading = false;
+      }
     }
   })
 

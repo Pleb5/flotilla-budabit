@@ -29,7 +29,7 @@
   import {isCommentEvent} from "@nostr-git/shared-types"
   import {nthEq} from "@welshman/lib"
   import {setContext, getContext, onDestroy} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass} from "@lib/budabit/state"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -43,8 +43,8 @@
   const layoutData = data as unknown as {repoId: string, repoName: string, repoPubkey: string, fallbackRelays: string[], naddrRelays: string[], url: string}
   const {repoId, repoName, repoPubkey, fallbackRelays, naddrRelays, url} = layoutData
   
-  // Store for repoClass - will be created in effect
-  let repoClass = $state<Repo | undefined>(undefined)
+  // Derive repoClass from activeRepoClass store
+  const repoClass = $derived($activeRepoClass)
 
   // Make activeTab reactive to avoid lag on navigation - memoize the calculation
   const activeTab = $derived.by(() => {
@@ -266,21 +266,47 @@
   const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
 
-  // Create Repo instance
-  const repoInstance = new Repo({
-    repoEvent: repoEventStore as Readable<RepoAnnouncementEvent>,
-    repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
-    issues: issuesStore,
-    patches: patchesStore,
-    repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
-    statusEvents: statusEventsStore,
-    commentEvents: commentEventsStore,
-    labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
-  })
-  repoClass = repoInstance
+  // Get or create Repo instance (reuse existing instance if available)
+  // This ensures branch selection and other state persists across navigations
+  // The store-based cache persists across component re-initializations  
+  if (!$activeRepoClass) {
+    $activeRepoClass = new Repo({
+      repoEvent: repoEventStore as Readable<RepoAnnouncementEvent>,
+      repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
+      issues: issuesStore,
+      patches: patchesStore,
+      repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
+      statusEvents: statusEventsStore,
+      commentEvents: commentEventsStore,
+      labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
+    })
+  } else {
+    // Check if the existing repoInstance is for a different repository
+    // Compare repoPubkey:repoName to determine if it's a different repoInstance
+    const existingRepo = $activeRepoClass
 
+    const expectedAddress = `${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`
+    const isDifferentRepo = existingRepo.address !== expectedAddress
+    console.log('isDifferentRepo', isDifferentRepo)
+    if (isDifferentRepo) {
+      existingRepo.dispose()
+      $activeRepoClass = new Repo({
+        repoEvent: repoEventStore as Readable<RepoAnnouncementEvent>,
+        repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
+        issues: issuesStore,
+        patches: patchesStore,
+        repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
+        statusEvents: statusEventsStore,
+        commentEvents: commentEventsStore,
+        labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
+      })
+    } else {
+      console.log("♻️  [LAYOUT INIT] REUSING existing Repo instance")
+    }
+  }
+    
   // Set context for child components (only once, not in effect)
-  setContext(REPO_KEY, repoInstance)
+  setContext(REPO_KEY, $activeRepoClass)
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
