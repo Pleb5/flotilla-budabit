@@ -4,7 +4,7 @@
   import NoteContentEventTime from "@app/components/NoteContentEventTime.svelte"
   import NoteContentThread from "@app/components/NoteContentThread.svelte"
   import NoteContentGoal from "@app/components/NoteContentGoal.svelte"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
 
   const props: ComponentProps<typeof Content> = $props()
 </script>

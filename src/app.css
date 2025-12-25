@@ -1,4 +1,5 @@
 @import "@welshman/editor/index.css";
+@import '@nostr-git/ui/index.css';
 
 @tailwind base;
 @tailwind components;
@@ -26,7 +27,7 @@
 
 @font-face {
   font-family: "Lato";
-  font-style: bold;
+  font-style: normal;
   font-weight: 600;
   src:
     local(""),
@@ -39,7 +40,7 @@
   font-weight: 400;
   src:
     local(""),
-    url("/fonts/Italic.ttf") format("truetype");
+    url("/fonts/Lato-Italic.ttf") format("truetype");
 }
 
 /* root */
@@ -410,4 +411,21 @@ body.keyboard-open .hide-on-keyboard {
 
 .chat__scroll-down {
   @apply fixed bottom-28 right-4 z-feature md:bottom-16;
+}
+
+/* markdown content */
+
+.markdown-content :not(pre) > code {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.markdown-content pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.markdown-content pre code {
+  white-space: pre;
 }

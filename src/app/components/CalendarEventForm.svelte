@@ -16,10 +16,8 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
-  import {PROTECTED} from "@app/core/state"
-  import {makeEditor} from "@app/editor"
+  import {makeEditor, plainTextToTiptapHTML} from "@app/editor"
   import {pushToast} from "@app/util/toast"
-  import {canEnforceNip70} from "@app/core/commands"
 
   type Props = {
     url: string
@@ -36,8 +34,6 @@
   }
 
   const {url, h, header, initialValues}: Props = $props()
-
-  const shouldProtect = canEnforceNip70(url)
 
   const uploading = writable(false)
 
@@ -71,6 +67,7 @@
 
     const ed = await editor
     const content = ed.getText({blockSeparator: "\n"}).trim()
+    console.log("editor content to submit: ", content)
     const tags = [
       ["d", initialValues?.d || randomId()],
       ["title", title],
@@ -80,10 +77,6 @@
       ...daysBetween(start, end).map(D => ["D", D.toString()]),
       ...ed.storage.nostr.getEditorTags(),
     ]
-
-    if (await shouldProtect) {
-      tags.push(PROTECTED)
-    }
 
     if (h) {
       tags.push(["h", h])
@@ -97,7 +90,8 @@
   }
 
   const content = initialValues?.content || ""
-  const editor = makeEditor({url, submit, uploading, content})
+  const tiptapContent = plainTextToTiptapHTML(content)
+  const editor = makeEditor({url, submit, uploading, content: tiptapContent})
 
   let title = $state(initialValues?.title || "")
   let location = $state(initialValues?.location || "")
@@ -135,13 +129,13 @@
         <div class="input-editor flex-grow overflow-hidden">
           <EditorContent {editor} />
         </div>
-        <Button data-tip="Add an image" class="center btn tooltip" onclick={selectFiles}>
-          {#if $uploading}
-            <span class="loading loading-spinner loading-xs"></span>
-          {:else}
-            <Icon icon={GallerySend} />
-          {/if}
-        </Button>
+        <!-- <Button data-tip="Add an image" class="center btn tooltip" onclick={selectFiles}> -->
+        <!--   {#if $uploading} -->
+        <!--     <span class="loading loading-spinner loading-xs"></span> -->
+        <!--   {:else} -->
+        <!--     <Icon icon={GallerySend} /> -->
+        <!--   {/if} -->
+        <!-- </Button> -->
       </div>
     {/snippet}
   </Field>

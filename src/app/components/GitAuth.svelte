@@ -1,0 +1,123 @@
+<script lang="ts">
+  import {onMount} from "svelte"
+  import Icon from "@lib/components/Icon.svelte"
+  import Button from "@lib/components/Button.svelte"
+  import {pushModal} from "@app/util/modal"
+  import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
+  import {tokens as tokensStore} from "@nostr-git/ui"
+  import AddCircle from "@assets/icons/add-circle.svg?dataurl"
+  import {
+    loadTokensFromStorage,
+    saveTokensToStorage,
+    type TokenEntry
+  } from "@nostr-git/ui"
+  import Git from "@assets/icons/git.svg?dataurl"
+  import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
+  import Pen from "@assets/icons/pen.svg?dataurl"
+
+  type Props = {
+    tokenKey: string
+  }
+
+  const {tokenKey}: Props = $props()
+
+
+  async function loadTokens(): Promise<TokenEntry[]> {
+    return await loadTokensFromStorage(tokenKey)
+  }
+
+  async function saveTokens(toks: TokenEntry[]) {
+    await saveTokensToStorage(tokenKey, toks)
+  }
+
+  function mask(t: string) {
+    return t.length <= 8 ? "••••••••" : `${t.slice(0, 4)}…${t.slice(-4)}`
+  }
+
+  // Use reactive token store instead of local state
+  let tokens = $state($tokensStore)
+
+  onMount(async () => {
+    // Tokens are now loaded at app level - just ensure they're loaded
+    // If tokens aren't loaded yet, wait for them
+    if (tokens.length === 0) {
+      try {
+        const loadedTokens = await loadTokens()
+        if (loadedTokens.length > 0) {
+          tokensStore.clear()
+          loadedTokens.forEach(token => tokensStore.push(token))
+        }
+      } catch (error) {
+        console.warn('GitAuth: Failed to load tokens as fallback:', error)
+      }
+    }
+  })
+
+  // Subscribe to store changes
+  $effect(() => {
+    tokens = $tokensStore
+  })
+
+  function del(tokenToDelete: TokenEntry) {
+    // Match both host AND token to uniquely identify the token to delete
+    const updatedTokens = tokens.filter(t => !(t.host === tokenToDelete.host && t.token === tokenToDelete.token))
+    saveTokens(updatedTokens)
+    // Update the reactive store
+    tokensStore.clear()
+    updatedTokens.forEach(token => tokensStore.push(token))
+  }
+
+  const openDialog = () => {
+    pushModal(GitAuthAdd, {tokenKey})
+    // No need for polling - the reactive token store will automatically update the UI
+  }
+
+  const editToken = (token: TokenEntry) => {
+    pushModal(GitAuthAdd, {tokenKey, editToken: token})
+    // The reactive token store will automatically update the UI when editing is complete
+  }
+</script>
+
+<div class="card2 bg-alt flex flex-col gap-6 shadow-xl">
+  <div class="flex items-center justify-between">
+    <strong class="flex items-center gap-3">
+      <Icon icon={Git} />
+      Git Authentication Tokens
+    </strong>
+    <Button class="btn btn-primary btn-sm" onclick={openDialog}>
+      <Icon icon={AddCircle} />
+      Add Token
+    </Button>
+  </div>
+
+  {#if tokens.length}
+    <div class="w-full">
+      <table class="w-full table-fixed">
+        <thead>
+          <tr>
+            <th class="p-2 text-left w-1/3">Host</th>
+            <th class="p-2 text-left w-1/3">Token</th>
+            <th class="p-2 text-right w-1/3">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each tokens as t}
+            <tr class="hover:bg-neutral">
+              <td class="p-2 text-left">{t.host}</td>
+              <td class="p-2 text-left">{mask(t.token)}</td>
+              <td class="p-2 text-right">
+                <div class="flex gap-2 justify-end">
+                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}><Icon icon={Pen} /></Button>
+                  <Button class="btn btn-error btn-sm" onclick={() => del(t)}
+                    ><Icon icon={TrashBin2} /></Button>
+                </div>
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {:else}
+    <p class="py-12 text-center opacity-75">No tokens saved yet!</p>
+  {/if}
+</div>

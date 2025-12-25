@@ -1,8 +1,9 @@
 <script lang="ts">
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
-  import RoomNameWithImage from "@app/components/RoomNameWithImage.svelte"
+  import RoomNameWithImage from "@lib/budabit/components/RoomNameWithImage.svelte"
   import {makeRoomPath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
+  import {deriveChannel} from "@app/core/state"
 
   interface Props {
     url: any

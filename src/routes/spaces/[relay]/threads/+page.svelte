@@ -22,7 +22,7 @@
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
 
-  const url = decodeRelay($page.params.relay!)
+  const url = decodeRelay($page.params.relay!!)
 
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()

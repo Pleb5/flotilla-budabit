@@ -43,7 +43,6 @@
     ENABLE_ZAPS,
     CONTENT_KINDS,
     deriveSpaceMembers,
-    deriveUserRooms,
     deriveOtherRooms,
     userSpaceUrls,
     hasNip29,
@@ -55,6 +54,7 @@
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath, makeChatPath} from "@app/util/routes"
+  import {deriveUserRooms} from "@lib/budabit/state"
 
   const {url} = $props()
 

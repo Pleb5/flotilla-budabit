@@ -1,0 +1,33 @@
+{
+  "extends": "./.svelte-kit/tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strict": true,
+    "moduleResolution": "bundler"
+  },
+  "include": [
+    "src",
+
+    "packages/nostr-git/packages/ui/tests/**/*.ts"
+  ],
+  "exclude": [
+    "packages/**/dist",
+    "packages/**/dist/**",
+    "packages/nostr-git/packages/ui/src/lib/components/ui",
+    "packages/nostr-git/packages/ui/src/lib/components/ui/**",
+    "packages/nostr-git/packages/ui/src/lib/examples",
+    "packages/nostr-git/packages/ui/src/lib/examples/**",
+    "packages/**/src/**/examples",
+    "packages/**/src/**/examples/**",
+    "packages/**/storybook",
+    "packages/**/storybook/**",
+    "**/*.stories.*",
+    "src/service-worker.js"
+  ]
+}

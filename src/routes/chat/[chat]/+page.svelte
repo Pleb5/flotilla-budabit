@@ -3,12 +3,15 @@
   import type {MakeNonOptional} from "@welshman/lib"
   import {append, uniq} from "@welshman/lib"
   import {pubkey} from "@welshman/app"
+  import type {MakeNonOptional} from "@welshman/lib"
   import Chat from "@app/components/Chat.svelte"
   import {notifications, setChecked} from "@app/util/notifications"
   import {splitChatId} from "@app/core/state"
 
   const {chat} = $page.params as MakeNonOptional<typeof $page.params>
   const pubkeys = uniq(append($pubkey!, splitChatId(chat)))
+
+  const {chat} = $page.params as MakeNonOptional<typeof $page.params>
 
   // We have to watch this one, since on mobile the badge will be visible when active
   $effect(() => {

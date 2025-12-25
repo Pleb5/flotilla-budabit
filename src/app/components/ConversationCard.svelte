@@ -4,11 +4,11 @@
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
-  import NoteContentMinimal from "@app/components/NoteContentMinimal.svelte"
+  import NoteContentMinimal from "@lib/budabit/components/NoteContentMinimal.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileCircles from "@app/components/ProfileCircles.svelte"
   import {goToEvent} from "@app/util/routes"
-  import {displayRoom} from "@app/core/state"
+  import {displayRoom} from "@lib/budabit/state"
 
   type Props = {
     url: string

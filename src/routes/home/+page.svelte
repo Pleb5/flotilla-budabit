@@ -1,6 +1,5 @@
 <script lang="ts">
-  import {onMount} from "svelte"
-  import {goto} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   import {shouldUnwrap} from "@welshman/app"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"

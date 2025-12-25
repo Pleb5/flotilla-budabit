@@ -16,6 +16,7 @@ import {
   ZAP_GOAL,
   EVENT_TIME,
   getPubkeyTagValues,
+  Address,
 } from "@welshman/util"
 import {
   makeChatId,
@@ -26,6 +27,40 @@ import {
   hasNip29,
   ROOM,
 } from "@app/core/state"
+import {
+  GIT_REPO_ANNOUNCEMENT,
+  GIT_REPO_STATE,
+  GIT_PATCH,
+  GIT_PULL_REQUEST,
+  GIT_PULL_REQUEST_UPDATE,
+  GIT_ISSUE,
+  GIT_COMMENT,
+  GIT_PERMALINK,
+  GIT_STATUS_OPEN,
+  GIT_STATUS_APPLIED,
+  GIT_STATUS_CLOSED,
+  GIT_STATUS_DRAFT,
+} from "@nostr-git/shared-types"
+
+// Repository event kinds (use Address directly)
+const GIT_REPO_KINDS = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]
+
+// Collaboration event kinds (reference repository via 'a' tag)
+const GIT_COLLABORATION_KINDS = [
+  GIT_PATCH,
+  GIT_PULL_REQUEST,
+  GIT_PULL_REQUEST_UPDATE,
+  GIT_ISSUE,
+  GIT_COMMENT,
+  GIT_PERMALINK,
+  GIT_STATUS_OPEN,
+  GIT_STATUS_APPLIED,
+  GIT_STATUS_CLOSED,
+  GIT_STATUS_DRAFT,
+]
+
+// All Git event kinds handled by BudaBit
+const GIT_EVENT_KINDS = [...GIT_REPO_KINDS, ...GIT_COLLABORATION_KINDS]
 import {lastPageBySpaceUrl} from "@app/util/history"
 
 export const makeSpacePath = (url: string, ...extra: (string | undefined)[]) => {
@@ -113,6 +148,62 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
   }
 
   const h = getTagValue(ROOM, event.tags)
+
+  // Handle Git-related events - route them to BudaBit's internal Git pages
+  if (GIT_EVENT_KINDS.includes(event.kind)) {
+    // For repository announcements (30617) and state (30618), use naddr
+    if (GIT_REPO_KINDS.includes(event.kind)) {
+      const address = Address.fromEvent(event)
+      const naddr = address.toNaddr()
+      const url = urls.length > 0 ? urls[0] : ""
+
+      if (url) {
+        return `/spaces/${encodeRelay(url)}/git/${naddr}`
+      }
+    }
+
+    // For patches, pull requests, issues, comments, and status events
+    // These reference a repository via 'a' tag
+    if (GIT_COLLABORATION_KINDS.includes(event.kind)) {
+      // Get the repository address from 'a' tag
+      const repoAddress = getTagValue("a", event.tags)
+
+      if (repoAddress) {
+        try {
+          // Parse the coordinate to get pubkey and identifier
+          const [kind, pubkey, identifier] = repoAddress.split(":")
+
+          if (pubkey && identifier) {
+            // Create naddr for the repository
+            const address = new Address(parseInt(kind), pubkey, identifier, urls)
+            const naddr = address.toNaddr()
+            const url = urls.length > 0 ? urls[0] : ""
+
+            if (url) {
+              // Route to specific sub-pages based on event kind
+              if (
+                event.kind === GIT_PATCH ||
+                event.kind === GIT_PULL_REQUEST ||
+                event.kind === GIT_PULL_REQUEST_UPDATE
+              ) {
+                return `/spaces/${encodeRelay(url)}/git/${naddr}/patches/${event.id}`
+              }
+
+              if (event.kind === GIT_ISSUE) {
+                return `/spaces/${encodeRelay(url)}/git/${naddr}/issues/${event.id}`
+              }
+
+              // Comments and status events go to the feed view of the repository
+              return `/spaces/${encodeRelay(url)}/git/${naddr}/feed`
+            }
+          }
+        } catch (e) {
+          // If parsing fails, fall through to default handling
+          console.error("Failed to parse repository address for Git event:", e)
+        }
+      }
+    }
+  }
 
   if (urls.length > 0) {
     const url = urls[0]

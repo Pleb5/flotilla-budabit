@@ -3,6 +3,7 @@
   import {page} from "$app/stores"
   import {sleep} from "@welshman/lib"
   import type {MakeNonOptional} from "@welshman/lib"
+  import type {MakeNonOptional} from "@welshman/lib"
   import {COMMENT, getTagValue} from "@welshman/util"
   import {repository} from "@welshman/app"
   import {request} from "@welshman/net"
@@ -15,7 +16,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Content from "@app/components/Content.svelte"
+  import ChannelContent from "@app/components/ChannelMessage.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import GoalSummary from "@app/components/GoalSummary.svelte"
@@ -85,7 +86,7 @@
     <div class="flex flex-col gap-3">
       <NoteCard event={$event} {url} class="card2 bg-alt z-feature w-full">
         <div class="col-3 ml-12">
-          <Content showEntire event={{...$event, content: summary}} {url} />
+          <ChannelContent {url} event={{...$event, content: summary || ""}} />
           <GoalSummary event={$event} {url} />
           <GoalActions showRoom event={$event} {url} />
         </div>
@@ -101,7 +102,7 @@
       {#each $replies.slice(0, showAll ? undefined : 4) as reply (reply.id)}
         <NoteCard event={reply} {url} class="card2 bg-alt z-feature w-full">
           <div class="col-3 ml-12">
-            <Content showEntire event={reply} {url} />
+            <ChannelContent {url} event={reply} />
             <CommentActions event={reply} {url} />
           </div>
         </NoteCard>

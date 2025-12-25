@@ -1,7 +1,7 @@
 <script lang="ts">
   import {removeUndefined} from "@welshman/lib"
   import {deriveProfile} from "@welshman/app"
-  import ContentMinimal from "@app/components/ContentMinimal.svelte"
+  import ContentMinimal from "@lib/budabit/components/ContentMinimal.svelte"
 
   export type Props = {
     pubkey: string

@@ -1,17 +1,57 @@
 <script lang="ts">
   import "@src/app.css"
   import "@capacitor-community/safe-area"
+  import "@src/lib/crypto-polyfill" // Import crypto polyfill early
   import {throttle} from "throttle-debounce"
   import * as nip19 from "nostr-tools/nip19"
   import type {Unsubscriber} from "svelte/store"
   import {get} from "svelte/store"
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {dev} from "$app/environment"
-  import {goto} from "$app/navigation"
-  import {sync} from "@welshman/store"
-  import {call, spec} from "@welshman/lib"
-  import {defaultSocketPolicies} from "@welshman/net"
-  import {pubkey, sessions, signerLog, shouldUnwrap, SignerLogEntryStatus} from "@welshman/app"
+  import {beforeNavigate, goto} from "$app/navigation"
+  import {sync, localStorageProvider} from "@welshman/store"
+  import {
+    ago,
+    assoc,
+    call,
+    defer,
+    dissoc,
+    identity,
+    memoize,
+    on,
+    sleep,
+    spec,
+    TaskQueue,
+    WEEK,
+  } from "@welshman/lib"
+  import type {TrustedEvent, StampedEvent} from "@welshman/util"
+  import {WRAP} from "@welshman/util"
+  import {Nip46Broker, makeSecret} from "@welshman/signer"
+  import type {Socket, RelayMessage, ClientMessage} from "@welshman/net"
+  import {
+    request,
+    defaultSocketPolicies,
+    makeSocketPolicyAuth,
+    SocketEvent,
+    isRelayEvent,
+    isRelayOk,
+    isRelayClosed,
+    isClientReq,
+    isClientEvent,
+    isClientClose,
+  } from "@welshman/net"
+  import {
+    loadRelay,
+    repository,
+    pubkey,
+    sessions,
+    signer,
+    signerLog,
+    loginWithNip01,
+    loginWithNip46,
+    loadRelaySelections,
+    SignerLogEntryStatus,
+  } from "@welshman/app"
   import * as lib from "@welshman/lib"
   import * as util from "@welshman/util"
   import * as feeds from "@welshman/feeds"
@@ -25,44 +65,78 @@
   import {setupHistory} from "@app/util/history"
   import {setupTracking} from "@app/util/tracking"
   import {setupAnalytics} from "@app/util/analytics"
-  import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
-  import {kv, db} from "@app/core/storage"
-  import {userSettingsValues} from "@app/core/state"
-  import {syncApplicationData} from "@app/core/sync"
+  import {
+    INDEXER_RELAYS,
+    PLATFORM_RELAYS,
+    userMembership,
+    userSettingsValues,
+    relaysPendingTrust,
+    ensureUnwrapped,
+    canDecrypt,
+    getSetting,
+    relaysMostlyRestricted,
+    userInboxRelays,
+  } from "@app/core/state"
+  import {loadUserData, listenForNotifications} from "@app/core/requests"
+  import {theme} from "@app/util/theme"
+  import {initializePushNotifications} from "@app/push"
+  import {toast, pushToast} from "@app/util/toast"
   import * as commands from "@app/core/commands"
   import * as requests from "@app/core/requests"
   import * as appState from "@app/core/state"
-  import {theme} from "@app/util/theme"
-  import {toast, pushToast} from "@app/util/toast"
-  import {initializePushNotifications} from "@app/util/push"
   import * as notifications from "@app/util/notifications"
   import * as storage from "@app/util/storage"
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
-  import {ExtensionProvider} from "@app/extensions"
+  import {loadUserGitData} from "@lib/budabit"
+  import {Router} from "@welshman/router"
+  import { makeSpacePath } from "@src/app/util/routes"
+
+  // Migration: delete old indexeddb database
+  indexedDB?.deleteDatabase("flotilla")
+
+  // Initialize push notification handler asap
+  initializePushNotifications()
+
+  // Initialize push notification handler asap
+  initializePushNotifications()
 
   const {children} = $props()
 
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
 
-  // Add stuff to window for convenience
-  Object.assign(window, {
-    get,
-    nip19,
-    theme,
-    ...lib,
-    ...welshmanSigner,
-    ...router,
-    ...store,
-    ...util,
-    ...feeds,
-    ...net,
-    ...app,
-    ...appState,
-    ...commands,
-    ...requests,
-    ...notifications,
+  let initialized = false
+
+  beforeNavigate((nav) => {
+    if (!nav.to) return;
+
+    if (nav.to.url.pathname === '/home'
+    && appState.PLATFORM_RELAYS.length > 0) {
+      nav.cancel()
+      goto(makeSpacePath(PLATFORM_RELAYS[0]))
+    }
   })
+
+  onMount(async () => {
+    // Preserve window.nostr before overriding window object
+    const originalNostr = (window as any).nostr
+    
+    Object.assign(window, {
+      get,
+      nip19,
+      theme,
+      ...lib,
+      ...welshmanSigner,
+      ...router,
+      ...util,
+      ...feeds,
+      ...net,
+      ...app,
+      ...appState,
+      ...commands,
+      ...requests,
+      ...notifications,
+    })
 
   // Initialize push notification handler asap
   initializePushNotifications()

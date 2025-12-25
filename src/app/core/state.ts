@@ -102,8 +102,9 @@ import {
   readRoomMeta,
   makeRoomMeta,
   ManagementMethod,
+  makeRoomEditEvent,
 } from "@welshman/util"
-import type {TrustedEvent, RelayProfile, PublishedRoomMeta, List, Filter} from "@welshman/util"
+import type {TrustedEvent, RelayProfile, PublishedRoomMeta, List, Filter, RoomMeta} from "@welshman/util"
 import {decrypt} from "@welshman/signer"
 import {routerContext, Router} from "@welshman/router"
 import {
@@ -125,6 +126,8 @@ import {
   manageRelay,
   displayProfileByPubkey,
 } from "@welshman/app"
+import type {Thunk, Relay, ThunkOptions} from "@welshman/app"
+import {preferencesStorageProvider} from "@src/lib/storage"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
@@ -383,98 +386,99 @@ export const alertStatusesByAddress = deriveItemsByKey<AlertStatus>({
   },
 })
 
-export const deriveAlertStatus = makeDeriveItem(alertStatusesByAddress)
+export const deriveAlertStatus = (address: string) =>
+  derived(alertStatuses, statuses => statuses.find(s => getTagValue("d", s.event.tags) === address))
 
-// Chats
-
-export type Chat = {
-  id: string
-  pubkeys: string[]
-  messages: TrustedEvent[]
-  last_activity: number
-  search_text: string
-}
-
-export const makeChatId = (pubkeys: string[]) => sort(uniq(pubkeys)).join(",")
-
-export const splitChatId = (id: string) => id.split(",")
-
-export const chatsById = call(() => {
-  const chatsById = new Map<string, Chat>()
-  const chatsByPubkey = new Map<string, Chat[]>()
-
-  const addSearchText = (chat: Override<Chat, {search_text?: string}>) => {
-    chat.search_text =
-      chat.pubkeys.length === 1
-        ? displayProfileByPubkey(chat.pubkeys[0]) + " note to self"
-        : chat.pubkeys.map(displayProfileByPubkey).join(" ")
-
-    return chat as Chat
+// BudaBit ROOM create function
+// Create kind 39_000 (ROOM_META) event instea of 9007
+// Normally this event should only be created by the relay owner pubkey
+// but since we do NOT want other ppl to create rooms on BudaBit relay
+// this is fine. Room creation is only enabled for @Five
+export const createBudaBitRoom = (url: string, room: RoomMeta) => {
+  const event = makeRoomEditEvent(room)
+  const roomEventThunkOptions:ThunkOptions = {
+    event,
+    relays: [url]
   }
 
-  return readable(chatsById, set => {
-    const addEvents = (events: TrustedEvent[]) => {
-      let dirty = false
-      for (const event of events) {
-        if ([DIRECT_MESSAGE, DIRECT_MESSAGE_FILE].includes(event.kind)) {
-          const pubkeys = getPubkeyTagValues(event.tags).concat(event.pubkey)
-          const id = makeChatId(pubkeys)
-          const chat = chatsById.get(id)
-          const messages = append(event, chat?.messages || [])
-          const last_activity = Math.max(chat?.last_activity || 0, event.created_at)
-          const updatedChat = addSearchText({id, pubkeys, messages, last_activity})
+  // Hack: welshman does not have makeRoomMetaEvent so kind must be overwritten
+  event.kind = ROOM_META;
 
-          chatsById.set(id, updatedChat)
+  // Replace h-tag with d-tag according to spec
+  event.tags.forEach((t) => {
+    if (t[0] === 'h') {
+      t[0] = 'd'
+    }
+  })
 
-          for (const pubkey of pubkeys) {
-            const pubkeyChats = chatsByPubkey.get(pubkey) || []
-            const uniqueChats = uniqBy(chat => chat.id, append(updatedChat, pubkeyChats))
+  return publishThunk(roomEventThunkOptions)
+}
 
-            chatsByPubkey.set(pubkey, uniqueChats)
-          }
+// Membership
 
-          dirty = true
-        }
+export const hasMembershipUrl = (list: List | undefined, url: string) =>
+  getListTags(list).some(t => {
+    if (t[0] === "r") return t[1] === url
+    if (t[0] === "group") return t[2] === url
 
-        if (event.kind === PROFILE) {
-          for (const chat of chatsByPubkey.get(event.pubkey) || []) {
-            addSearchText(chat)
-            dirty = true
-          }
-        }
-      }
+    return false
+  })
 
-      if (dirty) {
-        set(chatsById)
+export const getMembershipUrls = (list?: List) => {
+  const tags = getListTags(list)
+
+  return sort(
+    uniq([...getRelayTagValues(tags), ...getGroupTags(tags).map(nth(2))]).map(url =>
+      normalizeRelayUrl(url),
+    ),
+  )
+}
+
+export const getMembershipRooms = (list?: List) =>
+  getGroupTags(getListTags(list)).map(([_, room, url, name = ""]) => ({url, room, name}))
+
+export const getMembershipRoomsByUrl = (url: string, list?: List) =>
+  sort(getGroupTags(getListTags(list)).filter(nthEq(2, url)).map(nth(1)))
+
+export const memberships = deriveEventsMapped<PublishedList>(repository, {
+  filters: [{kinds: [ROOMS]}],
+  itemToEvent: item => item.event,
+  eventToItem: (event: TrustedEvent) => readList(asDecryptedEvent(event)),
+})
+
+export const {
+  indexStore: membershipsByPubkey,
+  deriveItem: deriveMembership,
+  loadItem: loadMembership,
+} = collection({
+  name: "memberships",
+  store: memberships,
+  getKey: list => list.event.pubkey,
+  load: makeOutboxLoader(ROOMS),
+})
+
+export const membersByUrl = derived(
+  [defaultPubkeys, membershipsByPubkey],
+  ([$defaultPubkeys, $membershipsByPubkey]) => {
+    const $membersByUrl = new Map<string, Set<string>>()
+
+    for (const pubkey of $defaultPubkeys) {
+      for (const url of getMembershipUrls($membershipsByPubkey.get(pubkey))) {
+        addToMapKey($membersByUrl, url, pubkey)
       }
     }
 
-    addEvents(repository.query([{kinds: [DIRECT_MESSAGE, PROFILE]}]))
+    return $membersByUrl
+  },
+)
 
-    const unsubscribers = [
-      on(repository, "update", ({added}: RepositoryUpdate) => addEvents(added)),
-    ]
+// Chats
 
-    return () => unsubscribers.forEach(call)
-  })
+export const chatMessages = deriveEvents(repository, {
+  filters: [{kinds: [DIRECT_MESSAGE, DIRECT_MESSAGE_FILE]}],
 })
 
-export const deriveChat = call(() => {
-  const _deriveChat = makeDeriveItem(chatsById)
-
-  return (pubkeys: string[]) => _deriveChat(makeChatId(pubkeys))
-})
-
-export const chatSearch = derived(throttled(800, chatsById), $chatsByPubkey => {
-  return createSearch(Array.from($chatsByPubkey.values()), {
-    getValue: (chat: Chat) => chat.id,
-    fuseOptions: {keys: ["search_text"]},
-  })
-})
-
-// Rooms
-
-export type Room = PublishedRoomMeta & {
+export type Chat = {
   id: string
   url: string
 }
@@ -998,8 +1002,9 @@ export const deriveRelayAuthError = (url: string, claim = "") => {
 
       if (error) {
         const isEmptyInvite = !claim && error.includes("invite code")
+        const isStrictNip29Relay = error.includes("missing group (`h`) tag")
 
-        if (!shouldIgnoreError(error) && !isEmptyInvite) {
+        if (!isStrictNip29Relay && !isIgnored && !isEmptyInvite && !isStrictNip29Relay) {
           return stripPrefix(error) || "join request rejected"
         }
       }

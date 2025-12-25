@@ -3,6 +3,7 @@
   import {page} from "$app/stores"
   import {sortBy, sleep} from "@welshman/lib"
   import type {MakeNonOptional} from "@welshman/lib"
+  import type {MakeNonOptional} from "@welshman/lib"
   import {COMMENT, getTagValue} from "@welshman/util"
   import {request} from "@welshman/net"
   import {repository} from "@welshman/app"
@@ -15,7 +16,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
@@ -25,7 +26,9 @@
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
+    import Markdown from "@src/lib/components/Markdown.svelte"
 
+  const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
   const event = deriveEvent(id, [url])
@@ -89,7 +92,7 @@
           <div class="flex py-2 opacity-50">
             <div class="h-px flex-grow bg-base-content opacity-25"></div>
           </div>
-          <Content showEntire event={$event} {url} />
+          <Markdown content={$event.content} />
         </div>
       </div>
       <div class="flex w-full flex-col justify-end sm:flex-row">

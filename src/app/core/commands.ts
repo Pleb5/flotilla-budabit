@@ -109,7 +109,7 @@ import {
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
-import {preferencesStorageProvider, collectionStorageProvider} from "@src/lib/storage"
+import {preferencesStorageProvider, Collection} from "@src/lib/storage"
 import {extensionSettings} from "@app/extensions/settings"
 import {extensionRegistry} from "@app/extensions/registry"
 import {request} from "@welshman/net"
@@ -348,12 +348,48 @@ export const setMessagingRelayPolicy = (url: string, enabled: boolean) => {
 export const canEnforceNip70 = async (url: string) => {
   const socket = Pool.get().get(url)
 
-  await socket.auth.attemptAuth(sign)
+  await socket.auth.attemptAuth(e => signer.get()?.sign(e))
 
   return socket.auth.status !== AuthStatus.None
 }
 
-export const attemptRelayAccess = async (url: string, claim = "") => {
+export const checkRelayAccess = async (url: string, claim = "") => {
+  const socket = Pool.get().get(url)
+
+  await attemptAuth(url)
+
+  const thunk = publishJoinRequest({url, claim})
+  const error = await waitForThunkError(thunk)
+
+  if (error) {
+    const message =
+      socket.auth.details?.replace(/^\w+: /, "") ||
+      error.replace(/^\w+: /, "") ||
+      "join request rejected"
+
+    // If it's a strict NIP 29 relay don't worry about requesting access
+    // TODO: remove this if relay29 ever gets less strict
+    if (message === "missing group (`h`) tag") return
+
+    // Ignore messages about the relay ignoring ours
+    if (error?.startsWith("mute: ")) return
+
+    // Ignore rejected empty claims
+    if (!claim && error?.includes("invite code")) return
+
+    return message
+  }
+}
+
+export const checkRelayProfile = async (url: string) => {
+  const relay = await loadRelay(url)
+
+  if (!relay?.profile) {
+    return "Sorry, we weren't able to find that relay."
+  }
+}
+
+export const checkRelayConnection = async (url: string) => {
   const socket = Pool.get().get(url)
 
   socket.attemptToOpen()

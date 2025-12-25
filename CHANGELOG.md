@@ -167,6 +167,30 @@
 * Add chat quick link
 
 # 1.1.0
+# Unreleased
+
+* Add NIP-34 alignment scaffolding (no breaking changes):
+  * Core stubs in `packages/nostr-git/packages/core/src/lib/`: `repositories.ts`, `repoState.ts`, `patchGraph.ts`, `issues.ts`, `labels.ts`, `subscriptions.ts`, `status-resolver.ts`.
+  * NIP-32 helpers in `@nostr-git/shared-types` and exported via its public barrel.
+  * Public exports added in `@nostr-git/core` barrel to make scaffolding available.
+* Add canonical repo key helper `canonicalRepoKey(npub, name?)` and deprecation warning for legacy event-id-based keys.
+* Docs: alignment plan at `docs/plan/nip34-align-plan.md`.
+
+# 1.2.0
+
+* Fix sort order of thread comments
+* Fix link display when no title is available
+* Fix making profiles non-protected
+* Replace bunker url with relay claims for notifier auth
+* Add push notifications on all platforms
+* Add "mark all as read" on desktop
+* Re-design space dashboard
+
+# 1.1.1
+
+* Add chat quick link
+
+# 1.1.0
 
 * Add better theming support
 * Improve forms for entering invite codes

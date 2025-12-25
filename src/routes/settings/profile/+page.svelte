@@ -25,6 +25,8 @@
   import {PLATFORM_NAME} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
+  import GraspServersPanel from "@app/components/GraspServersPanel.svelte";
+  import GitAuth from "@app/components/GitAuth.svelte";
 
   const npub = nip19.npubEncode($pubkey!)
   const profile = deriveProfile($pubkey!)
@@ -140,7 +142,16 @@
     {/if}
     <SignerStatus />
   </div>
-  <div class="card2 bg-alt shadow-md">
+
+  <GitAuth tokenKey="gh_tokens" />
+
+  <!-- GRASP Servers Settings -->
+  <div class="card2 bg-alt shadow-xl">
+    <GraspServersPanel></GraspServersPanel>
+  </div>
+
+
+  <div class="card2 bg-alt shadow-xl">
     <div class="flex items-center justify-between">
       <strong class="flex items-center gap-3">
         <Icon icon={Settings} />

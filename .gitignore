@@ -5,6 +5,11 @@
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Web/JavaScript
+node_modules/
+build/
+.svelte-kit/
+
 # Generated assets
 static/favicon.ico
 static/pwa-64x64.png
@@ -13,6 +18,7 @@ static/pwa-512x512.png
 static/apple-touch-icon-180x180.png
 static/maskable-icon-512x512.png
 src/assets/icons/*.webp
+src/assets/icons/*.png
 manifest.webmanifest
 
 # Capacitor
@@ -20,12 +26,11 @@ ios/App/public/
 ios/App/Pods/
 ios/App/Podfile.lock
 ios/DerivedData/
+ios/App/App/Assets.xcassets/Splash.imageset/
+ios/App/App/Assets.xcassets/Splash.imageset/
 android/app/src/main/assets/public/
+android/app/src/main/res/
 
-# Web/JavaScript
-node_modules/
-build/
-.svelte-kit/
 
 # iOS
 ios/App/App/public
@@ -61,6 +66,12 @@ GoogleService-Info.plist
 
 # IDEs and editors
 .roo
+.idea/
+.vscode/
+
+.direnv/
+
+# IDEs and editors
 .idea/
 .vscode/
 

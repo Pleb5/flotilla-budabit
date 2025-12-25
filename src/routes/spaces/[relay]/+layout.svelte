@@ -11,6 +11,8 @@
   import {setChecked} from "@app/util/notifications"
   import {decodeRelay, deriveRelayAuthError, relaysPendingTrust} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
+  import {GIT_ISSUE, GIT_PATCH, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GRASP_SET_KIND} from "@nostr-git/shared-types"
+  import { channelsByUrl, loadPlatformChannels } from "@src/lib/budabit"
 
   type Props = {
     children?: Snippet
@@ -19,6 +21,10 @@
   const {children}: Props = $props()
 
   const url = decodeRelay($page.params.relay!)
+
+  const rooms = Array.from($channelsByUrl.get(url)|| [])
+
+  const socket = deriveSocket(url)
 
   const authError = deriveRelayAuthError(url)
 
@@ -39,9 +45,36 @@
   $effect(() => {
     if ($authError) {
       showAuthError()
-    } else if ($relaysPendingTrust.includes(url)) {
-      showPendingTrust()
     }
+  })
+
+  onMount(() => {
+    const since = ago(MONTH)
+
+    sleep(2000).then(() => {
+      if ($socket.status !== SocketStatus.Open) {
+        pushToast({
+          theme: "error",
+          message: `Failed to connect to ${displayRelayUrl(url)}`,
+        })
+      }
+    })
+
+    // Load group meta, threads, calendar events, comments, and recent messages
+    // for user rooms to help with a quick page transition
+    loadPlatformChannels()
+
+    pullConservatively({
+      relays: [url],
+      filters: [
+        {kinds: [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]},
+        {kinds: [GIT_ISSUE, GIT_PATCH]},
+        {kinds: [GRASP_SET_KIND]},
+        {kinds: [THREAD, EVENT_TIME, MESSAGE], since},
+        {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since},
+        ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.id], since})),
+      ],
+    })
   })
 </script>
 
