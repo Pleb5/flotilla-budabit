@@ -31,6 +31,7 @@
   import {getRoomItemPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
+  import { Thunk } from "@welshman/app"
 
   interface Props {
     url: string
@@ -56,7 +57,7 @@
   const shouldProtect = canEnforceNip70(url)
   const today = formatTimestampAsDate(now())
   const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
-  const thunk = mergeThunks($thunks.filter(t => t.event.id === event.id))
+  const thunk = mergeThunks($thunks.filter((t: Thunk) => t.event.id === event.id))
   const [_, colorValue] = colors[hash(event.pubkey) % colors.length]
   const comments = deriveEventsForUrl(url, [{kinds: [COMMENT], "#e": [event.id]}])
 
@@ -121,9 +122,9 @@
       {createReaction}
       reactionClass="tooltip-right" />
     {#if path && $comments.length > 0}
-      {@const pubkeys = $comments.map(e => e.pubkey)}
+      {@const pubkeys = $comments.map((e: TrustedEvent) => e.pubkey)}
       {@const isOwn = $pubkey && pubkeys.includes($pubkey)}
-      {@const info = displayList(pubkeys.map(pubkey => displayProfileByPubkey(pubkey)))}
+      {@const info = displayList(pubkeys.map((pubkey: string) => displayProfileByPubkey(pubkey)))}
       {@const tooltip = `${info} commented`}
       <div data-tip={tooltip} class="tooltip tooltip-right flex">
         <Link
@@ -156,7 +157,6 @@
           <Icon icon={Pen} size={4} />
         </Button>
       {/if}
-      <ChannelItemMenuButton {url} {event} />
       <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
     </button>
   {/if}

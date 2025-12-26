@@ -6,7 +6,7 @@ import CalendarEventItem from "@src/app/components/CalendarEventItem.svelte"
 import { onMount } from "svelte"
 import { requestOne } from "@welshman/net"
 import { EVENT_TIME, getTagValue } from "@welshman/util"
-import type { TrustedEvent } from "@nostr-git/shared-types"
+import type { TrustedEvent } from "@welshman/util"
 import { now, sortBy } from "@welshman/lib"
 
 const {url} = $props()
@@ -44,9 +44,9 @@ $effect(() => {
 
 const loadCalendarEvents = async () => {
   const eventsFilter = [{kinds: [EVENT_TIME]}]
-  const events = await requestOne(
+  const events = (await requestOne(
     {relay: url, filters: eventsFilter, autoClose:true}
-  )
+  )) as TrustedEvent[]
   calendarEvents.push(...events)
 }
 

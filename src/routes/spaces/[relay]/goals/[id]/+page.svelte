@@ -2,12 +2,9 @@
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {sleep} from "@welshman/lib"
-  import type {MakeNonOptional} from "@welshman/lib"
-  import type {MakeNonOptional} from "@welshman/lib"
   import {COMMENT, getTagValue} from "@welshman/util"
   import {repository} from "@welshman/app"
   import {request} from "@welshman/net"
-  import {deriveEventsById, deriveEventsDesc} from "@welshman/store"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import SortVertical from "@assets/icons/sort-vertical.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
@@ -25,6 +22,8 @@
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
+  import {type MakeNonOptional} from "@welshman/lib"
+  import {deriveEventsById, deriveEventsDesc} from "@welshman/store"
 
   const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)

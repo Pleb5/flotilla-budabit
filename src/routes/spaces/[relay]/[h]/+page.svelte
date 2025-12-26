@@ -6,6 +6,7 @@
   import type {MakeNonOptional} from "@welshman/lib"
   import {now, int, formatTimestampAsDate, ago, MINUTE} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
+  import cx from "classnames"
   import {
     makeEvent,
     makeRoomMeta,
@@ -61,10 +62,8 @@
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
-  import ChannelComposeEdit from "@src/app/components/ChannelComposeEdit.svelte"
-  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
-  const {h, relay, relay} = $page.params as MakeNonOptional<typeof $page.params> as MakeNonOptional<typeof $page.params>
+  const {h, relay} = $page.params as MakeNonOptional<typeof $page.params> as MakeNonOptional<typeof $page.params>
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay(relay)
@@ -278,9 +277,10 @@
     cleanup?.()
 
     const feed = makeFeed({
-      url,
       element: element!,
-      filters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]}],
+      relays: [url],
+      feedFilters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]}],
+      subscriptionFilters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]}],
       onExhausted: () => {
         loadingEvents = false
       },

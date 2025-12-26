@@ -23,8 +23,8 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
-  import ChannelCompose from "@app/components/ChannelCompose.svelte"
-  import ChannelComposeParent from "@app/components/ChannelComposeParent.svelte"
+  import RoomCompose from "@app/components/RoomCompose.svelte"
+  import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
   import {userSettingsValues, decodeRelay, REACTION_KINDS} from "@app/core/state"
   import {checked} from "@app/util/notifications"
   import {prependParent} from "@app/core/commands"
@@ -158,7 +158,7 @@
   let cleanup: () => void
   let start: (() => void) | undefined = $state()
   let events: Readable<TrustedEvent[]> = $state(readable([]))
-  let compose: ChannelCompose | undefined = $state()
+  let compose: RoomCompose | undefined = $state()
 
   const elements = $derived.by(() => {
     const elements = []
@@ -316,13 +316,13 @@
 <div class="chat__compose bg-base-200" bind:this={chatCompose}>
   <div>
     {#if parent}
-      <ChannelComposeParent event={parent} clear={clearParent} verb="Replying to" />
+      <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
     {/if}
     {#if share}
-      <ChannelComposeParent event={share} clear={clearShare} verb="Sharing" />
+      <RoomComposeParent event={share} clear={clearShare} verb="Sharing" />
     {/if}
   </div>
-  <ChannelCompose bind:this={compose} {onSubmit} {url} />
+  <RoomCompose bind:this={compose} {onSubmit} {url} />
 </div>
 
 {#if showScrollButton}

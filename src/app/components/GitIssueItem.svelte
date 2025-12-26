@@ -11,7 +11,7 @@
     type Filter,
     type TrustedEvent,
   } from "@welshman/util"
-  import {userMutes} from "@welshman/app"
+  import {userMuteList} from "@welshman/app"
   import {formatTimestampRelative} from "@welshman/lib"
   import {load, request} from "@welshman/net"
   import {now, nthEq, sortBy} from "@welshman/lib"
@@ -20,7 +20,7 @@
     GitIssueStatus,
   } from "@nostr-git/shared-types"
   import NoteCard from "./NoteCard.svelte"
-  import Content from "./Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import {nip19} from "nostr-tools"
   import Link from "@src/lib/components/Link.svelte"
   import Button from "@src/lib/components/Button.svelte"
@@ -69,7 +69,7 @@
 
   const lastActive = $derived(latestStatus?.created_at ?? issue.created_at)
 
-  const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
+  const mutedPubkeys = getPubkeyTagValues(getListTags($userMuteList))
 
   let statusColor = $state("badge-success")
   let displayedStatus = $state(GitIssueStatus.OPEN)
@@ -81,7 +81,7 @@
   // Maintainers via RepoGroup (preferred when available)
   let repoEuc: string | undefined = $derived.by(() => {
     const match = $repoAnnouncements?.find?.(
-      evt =>
+      (evt: TrustedEvent) =>
         evt.pubkey === pubkey &&
         (evt.tags as string[][]).some(t => t[0] === "d" && t[1] === repoDtag),
     )

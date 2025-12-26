@@ -1,8 +1,7 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {page} from "$app/stores"
-  import {sleep, type MakeNonOptional} from "@welshman/lib"
-  import type {MakeNonOptional} from "@welshman/lib"
+  import {sleep, sortBy, type MakeNonOptional} from "@welshman/lib"
   import {
     COMMENT,
     getTag,
@@ -13,7 +12,6 @@
   } from "@welshman/util"
   import {repository} from "@welshman/app"
   import {load, request} from "@welshman/net"
-  import {deriveEventsById, deriveEventsDesc} from "@welshman/store"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import SortVertical from "@assets/icons/sort-vertical.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -32,6 +30,7 @@
   import GitIssueItem from "@src/app/components/GitIssueItem.svelte"
   import ChannelContent from "@app/components/ChannelMessage.svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
+  import {deriveEventsById, deriveEventsDesc} from "@welshman/store"
   
   const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
@@ -151,7 +150,7 @@
           </Button>
         </div>
       {/if}
-      {#each sortBy(e => -e.created_at, $replies).slice(0, showAll ? undefined : 4) as reply (reply.id)}
+      {#each sortBy((e: TrustedEvent) => -e.created_at, $replies).slice(0, showAll ? undefined : 4) as reply (reply.id)}
         <NoteCard event={reply} class="card2 bg-alt z-feature w-full">
           <div class="col-3 ml-12">
             <ChannelContent {url} event={reply} />

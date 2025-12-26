@@ -21,7 +21,7 @@
   const conversations = derived(messages, $messages => {
     const convs = []
 
-    for (const [h, messages] of groupBy(e => getTagValue("h", e.tags), $messages).entries()) {
+    for (const [h, messages] of groupBy((e: TrustedEvent) => getTagValue("h", e.tags), $messages).entries()) {
       const avgTime = avg(overlappingPairs(messages).map(([a, b]) => a.created_at - b.created_at))
       const groups: TrustedEvent[][] = []
       const group: TrustedEvent[] = []

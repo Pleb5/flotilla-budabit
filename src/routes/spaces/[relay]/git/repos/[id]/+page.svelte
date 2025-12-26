@@ -15,7 +15,7 @@
     import {load} from "@welshman/net"
     import {Router} from "@welshman/router"
     import PageContent from "@src/lib/components/PageContent.svelte"
-    import {deriveEvents} from "@welshman/store"
+    import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
     import {derived as _derived} from "svelte/store"
     import {onMount} from "svelte"
     import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
@@ -30,7 +30,7 @@
         kinds: [GIT_REPO_ANNOUNCEMENT],
         authors: [id]
     }]
-    const repoEvents = deriveEvents(repository, {filters})
+    const repoEvents = deriveEventsAsc(deriveEventsById({repository, filters}))
   
     const repos = $derived.by(() => {
       const elements = []

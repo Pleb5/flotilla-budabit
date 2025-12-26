@@ -47,9 +47,10 @@
 
   onMount(() => {
     const feed = makeFeed({
-      url,
       element: element!,
-      filters: [{kinds: [THREAD]}, makeCommentFilter([THREAD])],
+      relays: [url],
+      feedFilters: [{kinds: [THREAD]}, makeCommentFilter([THREAD])],
+      subscriptionFilters: [{kinds: [THREAD]}, makeCommentFilter([THREAD])],
       onExhausted: () => {
         loading = false
       },

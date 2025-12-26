@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {waitForThunkError, removeRoomMember} from "@welshman/app"
+  import {removeRoomMember, waitForThunkError} from "@welshman/app"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import MinusCircle from "@assets/icons/minus-circle.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"

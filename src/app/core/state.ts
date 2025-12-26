@@ -6,13 +6,10 @@ import {
   on,
   gt,
   max,
-  find,
   spec,
   call,
   first,
-  uniqBy,
   sortBy,
-  append,
   sort,
   uniq,
   indexBy,
@@ -25,9 +22,10 @@ import {
   always,
   tryCatch,
   fromPairs,
+  find,
+  nth,
+  nthEq,
 } from "@welshman/lib"
-import type {Override} from "@welshman/lib"
-import type {RepositoryUpdate} from "@welshman/net"
 import {
   Pool,
   load,
@@ -38,16 +36,18 @@ import {
   netContext,
 } from "@welshman/net"
 import {
-  getter,
-  throttled,
-  deriveArray,
-  makeDeriveEvent,
-  makeLoadItem,
-  makeDeriveItem,
   deriveItemsByKey,
+  getter,
+  makeDeriveEvent,
+  makeDeriveItem,
+  makeLoadItem,
+  throttled,
+  deriveEventsById,
+  deriveEventsAsc,
   deriveEventsByIdByUrl,
-  deriveEventsByIdForUrl,
+  deriveArray,
   getEventsByIdForUrl,
+  deriveEventsByIdForUrl,
 } from "@welshman/store"
 import {isKindFeed, findFeed} from "@welshman/feeds"
 import {
@@ -65,25 +65,16 @@ import {
   EVENT_TIME,
   MESSAGE,
   REACTION,
-  RELAY_ADD_MEMBER,
-  RELAY_JOIN,
-  RELAY_LEAVE,
-  RELAY_MEMBERS,
-  RELAY_REMOVE_MEMBER,
   REPORT,
-  ROOM_ADD_MEMBER,
   ROOM_CREATE_PERMISSION,
   ROOM_JOIN,
   ROOM_LEAVE,
-  ROOM_MEMBERS,
   ROOM_ADMINS,
   ROOM_META,
   ROOM_DELETE,
-  ROOM_REMOVE_MEMBER,
   ROOMS,
   THREAD,
   WRAP,
-  PROFILE,
   ZAP_GOAL,
   ZAP_REQUEST,
   ZAP_RESPONSE,
@@ -103,31 +94,40 @@ import {
   makeRoomMeta,
   ManagementMethod,
   makeRoomEditEvent,
+  ROOM_REMOVE_MEMBER,
+  ROOM_ADD_MEMBER,
+  ROOM_MEMBERS,
+  RELAY_ADD_MEMBER,
+  RELAY_REMOVE_MEMBER,
+  RELAY_MEMBERS,
+  RELAY_JOIN,
+  RELAY_LEAVE,
 } from "@welshman/util"
-import type {TrustedEvent, RelayProfile, PublishedRoomMeta, List, Filter, RoomMeta} from "@welshman/util"
+import type {TrustedEvent, List, Filter, RoomMeta, PublishedList, RelayProfile} from "@welshman/util"
 import {decrypt} from "@welshman/signer"
 import {routerContext, Router} from "@welshman/router"
 import {
   pubkey,
   repository,
   tracker,
-  createSearch,
-  userFollowList,
   ensurePlaintext,
-  sign,
   signer,
   makeOutboxLoader,
   appContext,
+  createSearch,
   getThunkError,
   publishThunk,
   deriveRelay,
-  makeUserData,
-  makeUserLoader,
   manageRelay,
-  displayProfileByPubkey,
+  sign,
+  makeUserLoader,
+  makeUserData,
+  userFollowList,
 } from "@welshman/app"
-import type {Thunk, Relay, ThunkOptions} from "@welshman/app"
-import {preferencesStorageProvider} from "@src/lib/storage"
+import type {ThunkOptions} from "@welshman/app"
+import type {RepositoryUpdate} from "@welshman/net"
+
+export type Room = RoomMeta & {url: string; id: string}
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
@@ -215,6 +215,11 @@ export const bootstrapPubkeys = derived(userFollowList, $userFollowList => {
   return userPubkeys.length > 5 ? userPubkeys : [...userPubkeys, ...appPubkeys]
 })
 
+export const defaultPubkeys = derived(
+  [pubkey, bootstrapPubkeys],
+  ([$pubkey, $bootstrapPubkeys]) => uniq([$pubkey, ...$bootstrapPubkeys].filter(identity)),
+)
+
 export const deriveEvent = makeDeriveEvent({
   repository,
   includeDeleted: true,
@@ -222,7 +227,7 @@ export const deriveEvent = makeDeriveEvent({
 })
 
 export const getEventsForUrl = (url: string, filters: Filter[]) =>
-  getEventsByIdForUrl({url, tracker, repository, filters}).values()
+  Array.from(getEventsByIdForUrl({url, tracker, repository, filters}).values())
 
 export const deriveEventsForUrl = (url: string, filters: Filter[]) =>
   deriveArray(deriveEventsByIdForUrl({url, tracker, repository, filters}))
@@ -387,7 +392,7 @@ export const alertStatusesByAddress = deriveItemsByKey<AlertStatus>({
 })
 
 export const deriveAlertStatus = (address: string) =>
-  derived(alertStatuses, statuses => statuses.find(s => getTagValue("d", s.event.tags) === address))
+  derived(alertStatusesByAddress, statuses => statuses.get(address))
 
 // BudaBit ROOM create function
 // Create kind 39_000 (ROOM_META) event instea of 9007
@@ -440,22 +445,31 @@ export const getMembershipRooms = (list?: List) =>
 export const getMembershipRoomsByUrl = (url: string, list?: List) =>
   sort(getGroupTags(getListTags(list)).filter(nthEq(2, url)).map(nth(1)))
 
-export const memberships = deriveEventsMapped<PublishedList>(repository, {
+export const memberships = derived(
+  deriveEventsAsc(
+    deriveEventsById({
+      repository,
+      filters: [{kinds: [ROOMS]}],
+    }),
+  ),
+  $events => $events.map(e => readList(asDecryptedEvent(e))).filter(identity) as PublishedList[],
+)
+
+
+export const membershipsByPubkey = deriveItemsByKey({
+  repository,
   filters: [{kinds: [ROOMS]}],
-  itemToEvent: item => item.event,
-  eventToItem: (event: TrustedEvent) => readList(asDecryptedEvent(event)),
+  getKey: (list: PublishedList) => list.event.pubkey,
+  eventToItem: (event: TrustedEvent) => readList(asDecryptedEvent(event)) as PublishedList,
 })
 
-export const {
-  indexStore: membershipsByPubkey,
-  deriveItem: deriveMembership,
-  loadItem: loadMembership,
-} = collection({
-  name: "memberships",
-  store: memberships,
-  getKey: list => list.event.pubkey,
-  load: makeOutboxLoader(ROOMS),
-})
+export const getMembershipsByPubkey = getter(membershipsByPubkey)
+
+export const getMembership = (pubkey: string) => getMembershipsByPubkey().get(pubkey)
+
+export const loadMembership = makeLoadItem(makeOutboxLoader(ROOMS), getMembership)
+
+export const deriveMembership = makeDeriveItem(membershipsByPubkey, loadMembership)
 
 export const membersByUrl = derived(
   [defaultPubkeys, membershipsByPubkey],
@@ -474,14 +488,93 @@ export const membersByUrl = derived(
 
 // Chats
 
-export const chatMessages = deriveEvents(repository, {
-  filters: [{kinds: [DIRECT_MESSAGE, DIRECT_MESSAGE_FILE]}],
-})
+export const chatMessages = deriveEventsAsc(
+  deriveEventsById({
+    repository,
+    filters: [{kinds: [DIRECT_MESSAGE, DIRECT_MESSAGE_FILE]}],
+  }),
+)
 
 export type Chat = {
   id: string
-  url: string
+  pubkeys: string[]
+  messages: TrustedEvent[]
+  last_activity: number
+  search_text: string
 }
+
+export const makeChatId = (pubkeys: string[]) => sort(uniq(pubkeys)).join(",")
+
+export const splitChatId = (id: string) => id.split(",")
+
+export const makeChannelId = (url: string, room: string) => makeRoomId(url, room)
+
+export const splitChannelId = (id: string) => splitRoomId(id)
+
+
+export const chatsById = call(() => {
+  const chatsById = new Map<string, Chat>()
+
+  const addChat = (chat: Chat) => {
+    chatsById.set(chat.id, chat)
+  }
+
+  return readable(chatsById, set => {
+    const publish = () => set(chatsById)
+
+    const addEvents = (events: TrustedEvent[]) => {
+      let changed = false
+
+      for (const event of events) {
+        if ([DIRECT_MESSAGE, DIRECT_MESSAGE_FILE].includes(event.kind)) {
+          const pubkeys = getPubkeyTagValues(event.tags).concat(event.pubkey)
+          const id = makeChatId(pubkeys)
+
+          if (!chatsById.has(id)) {
+            addChat({
+              id,
+              pubkeys,
+              messages: [event],
+              last_activity: event.created_at,
+              search_text: pubkeys.join(" "),
+            })
+            changed = true
+          } else {
+            const chat = chatsById.get(id)!
+
+            if (!chat.messages.some(e => e.id === event.id)) {
+              chat.messages.push(event)
+              chat.last_activity = Math.max(chat.last_activity, event.created_at)
+              changed = true
+            }
+          }
+        }
+      }
+
+      if (changed) {
+        publish()
+      }
+    }
+
+    addEvents(repository.query([{kinds: [DIRECT_MESSAGE, DIRECT_MESSAGE_FILE]}]) as TrustedEvent[])
+
+    const unsubscribers = [
+      on(repository, "update", ({added}: RepositoryUpdate) => addEvents(Array.from(added))),
+    ]
+
+    return () => unsubscribers.forEach(call)
+  })
+})
+
+export const chatSearch = derived(throttled(800, chatsById), $chatsById =>
+  createSearch(Array.from($chatsById.values()), {
+    getValue: (chat: Chat) => chat.id,
+    fuseOptions: {keys: ["search_text"]},
+  }),
+)
+
+export const deriveChat = (pubkeys: string[]) =>
+  derived(chatsById, $chatsById => $chatsById.get(makeChatId(pubkeys)))
 
 export const makeRoomId = (url: string, h: string) => `${url}'${h}`
 
@@ -510,7 +603,27 @@ export const roomsByUrl = derived(roomMetaEventsByIdByUrl, roomMetaEventsByIdByU
     }
 
     for (const event of metaEvents) {
-      const meta = readRoomMeta(event)
+      let meta: any
+
+      try {
+        meta = readRoomMeta(event)
+      } catch {
+        const h = getTagValue("d", event.tags) || getTagValue("h", event.tags)
+
+        if (!h) continue
+
+        const tags = fromPairs(event.tags as any)
+
+        meta = {
+          h,
+          event,
+          name: (tags as any).name || h,
+          about: (tags as any).about,
+          picture: (tags as any).picture,
+          isClosed: Boolean(getTagValue("closed", event.tags)),
+          isPrivate: Boolean(getTagValue("private", event.tags)),
+        }
+      }
 
       if (gt(deletedByH.get(meta.h), meta.event.created_at)) {
         continue
@@ -541,7 +654,7 @@ export const roomsById = derived(roomsByUrl, roomsByUrl =>
   indexBy(room => room.id, Array.from(roomsByUrl.values()).flatMap(identity)),
 )
 
-export const getRoomsById = getter(roomsById)
+export const getRoomsById = () => get(roomsById) || new Map<string, Room>()
 
 export const getRoom = (id: string) => getRoomsById().get(id)
 
@@ -686,7 +799,7 @@ export const deriveSpaceMembers = (url: string) =>
 
       const members = new Set<string>()
 
-      for (const event of sortBy(e => e.created_at, $events)) {
+      for (const event of sortBy((e: TrustedEvent) => e.created_at, $events)) {
         const pubkeys = getPubkeyTagValues(event.tags)
 
         if (event.kind === RELAY_ADD_MEMBER) {
@@ -739,7 +852,7 @@ export const deriveRoomMembers = (url: string, h: string) => {
 
     const members = new Set<string>()
 
-    for (const event of sortBy(e => -e.created_at, $events)) {
+    for (const event of sortBy((e: TrustedEvent) => -e.created_at, $events)) {
       const pubkeys = getPubkeyTagValues(event.tags)
 
       if (event.kind === ROOM_ADD_MEMBER) {
@@ -1002,9 +1115,8 @@ export const deriveRelayAuthError = (url: string, claim = "") => {
 
       if (error) {
         const isEmptyInvite = !claim && error.includes("invite code")
-        const isStrictNip29Relay = error.includes("missing group (`h`) tag")
 
-        if (!isStrictNip29Relay && !isIgnored && !isEmptyInvite && !isStrictNip29Relay) {
+        if (!shouldIgnoreError(error) && !isEmptyInvite) {
           return stripPrefix(error) || "join request rejected"
         }
       }

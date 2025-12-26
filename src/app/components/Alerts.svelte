@@ -10,6 +10,7 @@
   import Button from "@lib/components/Button.svelte"
   import AlertAdd from "@app/components/AlertAdd.svelte"
   import AlertItem from "@app/components/AlertItem.svelte"
+  import type {Alert} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {
@@ -33,7 +34,7 @@
   const dmStatus = $derived($dmAlert ? deriveAlertStatus(getAddress($dmAlert.event)) : undefined)
 
   const filteredAlerts = $derived(
-    filter(alert => {
+    filter((alert: Alert) => {
       const feed = getAlertFeed(alert)
 
       // Skip non-feeds and DM alerts
@@ -102,7 +103,7 @@
     </div>
     <div class="col-4">
       {#each filteredAlerts as alert (alert.event.id)}
-        <AlertItem {alert} />
+        <AlertItem alert={alert} />
       {:else}
         <p class="text-center opacity-75 py-12">Nothing here yet!</p>
       {/each}

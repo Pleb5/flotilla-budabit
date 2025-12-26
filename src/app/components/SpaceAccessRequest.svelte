@@ -14,8 +14,8 @@
   import SpaceJoinConfirm, {confirmSpaceJoin} from "@app/components/SpaceJoinConfirm.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
-  import {attemptRelayAccess} from "@app/core/commands"
   import {deriveSocket} from "@app/core/state"
+  import {attemptRelayAccess} from "@app/core/commands"
 
   type Props = {
     url: string

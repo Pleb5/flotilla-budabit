@@ -20,13 +20,12 @@
   import ProfileLatest from "@app/components/ProfileLatest.svelte"
   import RelayName from "@app/components/RelayName.svelte"
   import RelayDescription from "@app/components/RelayDescription.svelte"
-  import SpaceRecentActivity from "@app/components/SpaceRecentActivity.svelte"
   import {decodeRelay, PLATFORM_NAME} from "@app/core/state"
   import {makeThreadPath, makeCalendarPath, makeChatPath, makeRoomPath, makeSpacePath} from "@app/util/routes"
   import {makeGitPath} from "@lib/budabit/routes"
   import {notifications} from "@app/util/notifications"
   import {fade} from "@lib/transition"
-  import MenuSpaceButton from "@src/lib/budabit/components/MenuSpaceButton.svelte"
+  import SpaceMenuButton from "@src/lib/budabit/components/SpaceMenuButton.svelte"
   import { channelsByUrl } from "@lib/budabit/state"
   import ChannelName from "@src/lib/budabit/components/ChannelName.svelte"
   import DemoDayPromo from "@src/lib/budabit/components/DemoDayPromo.svelte"
@@ -37,7 +36,7 @@
   const threadsPath = makeThreadPath(url)
   const calendarPath = makeCalendarPath(url)
   const gitPath = makeGitPath(url)
-  const owner = $derived($relay?.profile?.pubkey)
+  const owner = $derived($relay?.pubkey)
 
   const channelNamesByUrl = $derived.by(() => {
     const channels = $channelsByUrl.get(url) || []
@@ -63,7 +62,7 @@
           Contact Owner
         </Link>
       {/if}
-      <MenuSpaceButton {url} />
+      <SpaceMenuButton {url} />
     </div>
   {/snippet}
 </PageBar>
@@ -75,8 +74,8 @@
         <div class="avatar relative">
           <div
             class="center !flex h-20 w-20 min-w-16 rounded-full border-2 border-solid border-base-300 bg-base-300">
-            {#if $relay?.profile?.icon}
-              <img alt="" src={$relay.profile.icon} />
+            {#if $relay?.icon}
+              <img alt="" src={$relay.icon} />
             {:else}
               <Icon icon={Ghost} size={6} />
             {/if}
@@ -97,16 +96,16 @@
     <div class="md:text-xl">
       <RelayDescription {url} />
     </div>
-    {#if $relay?.profile?.terms_of_service || $relay?.profile?.privacy_policy}
+    {#if $relay?.terms_of_service || $relay?.privacy_policy}
       <div class="flex gap-3">
-        {#if $relay.profile.terms_of_service}
-          <Link href={$relay.profile.terms_of_service} class="badge badge-neutral flex gap-2">
+        {#if $relay.terms_of_service}
+          <Link href={$relay.terms_of_service} class="badge badge-neutral flex gap-2">
             <Icon icon={BillList} size={4} />
             Terms of Service
           </Link>
         {/if}
-        {#if $relay.profile.privacy_policy}
-          <Link href={$relay?.profile?.privacy_policy} class="badge badge-neutral flex gap-2">
+        {#if $relay.privacy_policy}
+          <Link href={$relay?.privacy_policy} class="badge badge-neutral flex gap-2">
             <Icon icon={ShieldUser} size={4} />
             Privacy Policy
           </Link>

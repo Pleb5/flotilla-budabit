@@ -26,7 +26,7 @@
   } from "@welshman/lib"
   import type {TrustedEvent, StampedEvent} from "@welshman/util"
   import {WRAP} from "@welshman/util"
-  import {Nip46Broker, makeSecret} from "@welshman/signer"
+  import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
   import type {Socket, RelayMessage, ClientMessage} from "@welshman/net"
   import {
     request,
@@ -49,7 +49,7 @@
     signerLog,
     loginWithNip01,
     loginWithNip46,
-    loadRelaySelections,
+    shouldUnwrap,
     SignerLogEntryStatus,
   } from "@welshman/app"
   import * as lib from "@welshman/lib"
@@ -68,16 +68,14 @@
   import {
     INDEXER_RELAYS,
     PLATFORM_RELAYS,
-    userMembership,
+    memberships,
     userSettingsValues,
     relaysPendingTrust,
-    ensureUnwrapped,
-    canDecrypt,
     getSetting,
     relaysMostlyRestricted,
-    userInboxRelays,
   } from "@app/core/state"
-  import {loadUserData, listenForNotifications} from "@app/core/requests"
+  import {db, kv} from "@app/core/storage"
+  import {syncApplicationData} from "@app/core/sync"
   import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
   import {toast, pushToast} from "@app/util/toast"
@@ -88,55 +86,32 @@
   import * as storage from "@app/util/storage"
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
-  import {loadUserGitData} from "@lib/budabit"
+  import {syncBudabitData} from "@lib/budabit"
   import {Router} from "@welshman/router"
   import { makeSpacePath } from "@src/app/util/routes"
-
-  // Migration: delete old indexeddb database
-  indexedDB?.deleteDatabase("flotilla")
-
-  // Initialize push notification handler asap
-  initializePushNotifications()
-
-  // Initialize push notification handler asap
-  initializePushNotifications()
+  import {ExtensionProvider} from "@src/app/extensions"
 
   const {children} = $props()
 
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
 
-  let initialized = false
-
-  beforeNavigate((nav) => {
-    if (!nav.to) return;
-
-    if (nav.to.url.pathname === '/home'
-    && appState.PLATFORM_RELAYS.length > 0) {
-      nav.cancel()
-      goto(makeSpacePath(PLATFORM_RELAYS[0]))
-    }
+  // Add stuff to window for convenience
+  Object.assign(window, {
+    get,
+    nip19,
+    theme,
+    ...lib,
+    ...welshmanSigner,
+    ...router,
+    ...util,
+    ...feeds,
+    ...net,
+    ...app,
+    ...appState,
+    ...commands,
+    ...requests,
+    ...notifications,
   })
-
-  onMount(async () => {
-    // Preserve window.nostr before overriding window object
-    const originalNostr = (window as any).nostr
-    
-    Object.assign(window, {
-      get,
-      nip19,
-      theme,
-      ...lib,
-      ...welshmanSigner,
-      ...router,
-      ...util,
-      ...feeds,
-      ...net,
-      ...app,
-      ...appState,
-      ...commands,
-      ...requests,
-      ...notifications,
-    })
 
   // Initialize push notification handler asap
   initializePushNotifications()
@@ -205,7 +180,7 @@
     unsubscribers.push(() => defaultSocketPolicies.splice(-policies.length))
 
     // History, navigation, bug tracking, application data
-    unsubscribers.push(setupHistory(), setupAnalytics(), setupTracking(), syncApplicationData())
+    unsubscribers.push(setupHistory(), setupAnalytics(), setupTracking(), syncApplicationData(), syncBudabitData())
 
     // Subscribe to badge count for changes
     unsubscribers.push(notifications.badgeCount.subscribe(notifications.handleBadgeCountChanges))

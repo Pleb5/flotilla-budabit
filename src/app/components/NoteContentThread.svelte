@@ -2,7 +2,7 @@
   import type {ComponentProps} from "svelte"
   import {formatTimestamp} from "@welshman/lib"
   import {getTagValue} from "@welshman/util"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
 
   const props: ComponentProps<typeof Content> = $props()
 

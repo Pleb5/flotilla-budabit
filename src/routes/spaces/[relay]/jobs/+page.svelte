@@ -2,17 +2,18 @@
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {sortBy, min, nthEq} from "@welshman/lib"
+  import {readable, type Readable} from "svelte/store"
   import type {TrustedEvent} from "@welshman/util"
   import {FREELANCE_JOB} from "@lib/budabit"
   import {COMMENT, getListTags, getPubkeyTagValues} from "@welshman/util"
-  import {userMutes} from "@welshman/app"
+  import {userMuteList} from "@welshman/app"
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
-  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import JobItem from "@app/components/JobItem.svelte"
   import Link from "@lib/components/Link.svelte"
   import {decodeRelay, getEventsForUrl, INDEXER_RELAYS} from "@app/core/state"
@@ -22,23 +23,26 @@
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   
   const url = decodeRelay($page.params.relay)
-  const mutedPubkeys = getPubkeyTagValues(getListTags($userMutes))
-  const jobs: TrustedEvent[] = $state([])
-  const comments: TrustedEvent[] = $state([])
+  const mutedPubkeys = getPubkeyTagValues(getListTags($userMuteList))
   const jobFilter = {kinds: [FREELANCE_JOB], "#s": ["0"]}
   const commentFilter = {kinds: [COMMENT], "#K": [String(FREELANCE_JOB)]}
 
   let loading = $state(true)
   let element: HTMLElement | undefined = $state()
+  let feedEvents = $state<Readable<TrustedEvent[]>>(readable([]))
 
   const events = $derived.by(() => {
     const scores = new Map<string, number>()
+    const jobs = $feedEvents.filter(e => e.kind === FREELANCE_JOB)
+    const comments = $feedEvents.filter(e => e.kind === COMMENT)
+
     for (const comment of comments) {
       const id = comment.tags.find(nthEq(0, "E"))?.[1]
       if (id) {
         scores.set(id, min([scores.get(id), -comment.created_at]))
       }
     }
+
     return sortBy(
       (e: TrustedEvent) => min([scores.get(e.id), -e.created_at]),
       jobs.filter((e: TrustedEvent) => !mutedPubkeys.includes(e.pubkey)),
@@ -46,7 +50,7 @@
   })
 
   onMount(() => {
-    const {cleanup} = makeFeed({
+    const feed = makeFeed({
       element: element!,
       relays: INDEXER_RELAYS,
       feedFilters: [jobFilter, commentFilter],
@@ -54,20 +58,15 @@
       initialEvents: getEventsForUrl(url, [
         {kinds: [FREELANCE_JOB, COMMENT], "#s": ["0"], limit: 10},
       ]),
-      onEvent: (event: TrustedEvent) => {
-        if (event.kind === FREELANCE_JOB && !mutedPubkeys.includes(event.pubkey)) {
-          jobs.push(event)
-        }
-        if (event.kind === COMMENT) {
-          comments.push(event)
-        }
-      },
       onExhausted: () => {
         loading = false
       },
     })
+
+    feedEvents = feed.events
+
     return () => {
-      cleanup?.()
+      feed.cleanup?.()
       setChecked($page.url.pathname)
     }
   })
@@ -93,7 +92,7 @@
           <span class="">Create Job</span>
         </Link>
       </Button>
-      <MenuSpaceButton {url} />
+      <SpaceMenuButton {url} />
     </div>
   {/snippet}
 </PageBar>

@@ -4,7 +4,7 @@
   import {thunks, deriveProfile, deriveProfileDisplay} from "@welshman/app"
   import {isMobile} from "@lib/html"
   import TapTarget from "@lib/components/TapTarget.svelte"
-  import Avatar from "@lib/components/Avatar.svelte"
+  import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -32,12 +32,12 @@
 
   const {url, event, replyTo = undefined, showPubkey = false, inert = false}: Props = $props()
 
-  const thunk = $thunks[event.id]
+  const thunk = $derived($thunks.find(t => t.event.id === event.id))
   const shouldProtect = canEnforceNip70(url)
   const today = formatTimestampAsDate(now())
   const profile = deriveProfile(event.pubkey, [url])
   const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
-  const [_, colorValue] = colors[parseInt(hash(event.pubkey)) % colors.length]
+  const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
 
   const reply = () => replyTo!(event)
 
@@ -59,7 +59,7 @@
   <div class="flex w-full gap-3 overflow-auto">
     {#if showPubkey}
       <Button onclick={openProfile} class="flex items-start">
-        <Avatar src={$profile?.picture} class="border border-solid border-base-content" size={8} />
+        <ImageIcon alt="" src={$profile?.picture || ""} class="border border-solid border-base-content rounded-full" size={8} />
       </Button>
     {:else}
       <div class="w-8 min-w-8 max-w-8"></div>

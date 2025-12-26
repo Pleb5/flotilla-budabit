@@ -63,7 +63,7 @@
         </div>
         <div class="flex justify-center gap-4">
           <div class="tooltip" data-tip="Source Code">
-            <Link external href="https://github.com/coracle-social/flotilla">
+            <Link external href="https://github.com/Pleb5/flotilla-budabit">
               <Icon icon={Code} />
             </Link>
           </div>

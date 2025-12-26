@@ -1,13 +1,27 @@
 <script lang="ts">
-  import {RepoHeader, RepoTab, toast, bookmarksStore, Repo} from "@nostr-git/ui"
+  import {
+    RepoHeader,
+    RepoTab,
+    toast,
+    bookmarksStore,
+    Repo,
+    AvatarImage,
+  } from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
-  import {FileCode, GitBranch, CircleAlert, GitPullRequest, GitCommit, Layers} from "@lucide/svelte"
+  import {
+    FileCode,
+    GitBranch,
+    CircleAlert,
+    GitPullRequest,
+    GitCommit,
+    Layers,
+  } from "@lucide/svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
-  import Avatar from "@lib/components/Avatar.svelte"
   import Profile from "@src/app/components/Profile.svelte"
   import ProfileLink from "@src/app/components/ProfileLink.svelte"
   import Divider from "@lib/components/Divider.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {pushToast} from "@src/app/util/toast"
@@ -17,15 +31,48 @@
   import {pushModal} from "@app/util/modal"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
-  import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/shared-types"
-  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, normalizeRelayUrl as normalizeRelayUrlShared, parseRepoAnnouncementEvent} from "@nostr-git/shared-types"
+  import type {
+    RepoAnnouncementEvent,
+    RepoStateEvent,
+    IssueEvent,
+    PatchEvent,
+    PullRequestEvent,
+    StatusEvent,
+    CommentEvent,
+    LabelEvent
+  } from "@nostr-git/shared-types"
+  import {
+    GIT_REPO_BOOKMARK_DTAG,
+    GRASP_SET_KIND,
+    DEFAULT_GRASP_SET_ID,
+    parseGraspServersEvent,
+    GIT_REPO_ANNOUNCEMENT,
+    GIT_REPO_STATE,
+    GIT_PULL_REQUEST,
+    normalizeRelayUrl as normalizeRelayUrlShared,
+    parseRepoAnnouncementEvent
+  } from "@nostr-git/shared-types"
   import {derived, get as getStore, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk} from "@welshman/app"
-  import {deriveEvents} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
   import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
-  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address, GIT_ISSUE, GIT_PATCH, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE, getTagValue, COMMENT, type TrustedEvent} from "@welshman/util"
+  import {
+    normalizeRelayUrl,
+    NAMED_BOOKMARKS,
+    makeEvent,
+    Address,
+    GIT_ISSUE,
+    GIT_PATCH,
+    GIT_STATUS_OPEN,
+    GIT_STATUS_DRAFT,
+    GIT_STATUS_CLOSED,
+    GIT_STATUS_COMPLETE,
+    getTagValue,
+    COMMENT,
+    type TrustedEvent
+  } from "@welshman/util"
   import {isCommentEvent} from "@nostr-git/shared-types"
   import {nthEq} from "@welshman/lib"
   import {setContext, getContext, onDestroy} from "svelte"
@@ -33,7 +80,6 @@
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
-  import MenuSpaceButton from "@src/app/components/MenuSpaceButton.svelte"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   
   const {id, relay} = $page.params
@@ -63,30 +109,36 @@
 
   function deriveRepoEvent(repoPubkey: string, repoName: string) {
     return derived(
-      deriveEvents(repository, {
-        filters: [
-          {
-            authors: [repoPubkey],
-            kinds: [GIT_REPO_ANNOUNCEMENT],
-            "#d": [repoName],
-          },
-        ],
-      }),
+      deriveEventsAsc(
+        deriveEventsById({
+          repository,
+          filters: [
+            {
+              authors: [repoPubkey],
+              kinds: [GIT_REPO_ANNOUNCEMENT],
+              "#d": [repoName],
+            },
+          ],
+        }),
+      ),
       (events: TrustedEvent[]) => events[0] as RepoAnnouncementEvent | undefined,
     ) as Readable<RepoAnnouncementEvent | undefined>
   }
 
   function deriveRepoStateEvent(repoPubkey: string, repoName: string) {
     return derived(
-      deriveEvents(repository, {
-        filters: [
-          {
-            authors: [repoPubkey],
-            kinds: [GIT_REPO_STATE],
-            "#d": [repoName],
-          },
-        ],
-      }),
+      deriveEventsAsc(
+        deriveEventsById({
+          repository,
+          filters: [
+            {
+              authors: [repoPubkey],
+              kinds: [GIT_REPO_STATE],
+              "#d": [repoName],
+            },
+          ],
+        }),
+      ),
       (events: TrustedEvent[]) => events?.[0] as RepoStateEvent | undefined,
     ) as Readable<RepoStateEvent | undefined>
   }
@@ -136,9 +188,9 @@
   }
 
   function deriveIssues(repoAuthors: Readable<string[]>, repoName: string) {
-    const allIssueEvents = deriveEvents(repository, {
-      filters: [{ kinds: [GIT_ISSUE] }],
-    })
+    const allIssueEvents = deriveEventsAsc(
+      deriveEventsById({repository, filters: [{kinds: [GIT_ISSUE]}]}),
+    )
 
     return derived(
       [allIssueEvents, repoAuthors],
@@ -153,9 +205,9 @@
   }
 
   function derivePatches(repoAuthors: Readable<string[]>, repoName: string) {
-    const allPatchEvents = deriveEvents(repository, {
-      filters: [{ kinds: [GIT_PATCH] }],
-    })
+    const allPatchEvents = deriveEventsAsc(
+      deriveEventsById({repository, filters: [{kinds: [GIT_PATCH]}]}),
+    )
 
     return derived(
       [allPatchEvents, repoAuthors],
@@ -170,9 +222,9 @@
   }
 
   function derivePullRequests(repoAuthors: Readable<string[]>, repoName: string) {
-    const allPullRequestEvents = deriveEvents(repository, {
-      filters: [{ kinds: [GIT_PULL_REQUEST] }],
-    })
+    const allPullRequestEvents = deriveEventsAsc(
+      deriveEventsById({repository, filters: [{kinds: [GIT_PULL_REQUEST]}]}),
+    )
 
     return derived(
       [allPullRequestEvents, repoAuthors],
@@ -187,9 +239,14 @@
   }
 
   function deriveStatusEvents(repoAuthors: Readable<string[]>, repoName: string) {
-    const allStatusEvents = deriveEvents(repository, {
-      filters: [{ kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE] }],
-    })
+    const allStatusEvents = deriveEventsAsc(
+      deriveEventsById({
+        repository,
+        filters: [
+          {kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE]},
+        ],
+      }),
+    )
 
     return derived(
       [allStatusEvents, repoAuthors],
@@ -233,9 +290,9 @@
   }
 
   function deriveComments(allRootIds: Readable<string[]>) {
-    const allCommentEvents = deriveEvents(repository, {
-      filters: [{ kinds: [COMMENT] }],
-    })
+    const allCommentEvents = deriveEventsAsc(
+      deriveEventsById({repository, filters: [{kinds: [COMMENT]}]}),
+    )
 
     return derived(
       [allCommentEvents, allRootIds],
@@ -527,7 +584,7 @@
   
   // GRASP servers subscription - create derived store once, subscribe in effect
   const graspServersEventStore = derived(
-      deriveEvents(repository, {filters: [graspServersFilter]}),
+      deriveEventsAsc(deriveEventsById({repository, filters: [graspServersFilter]})),
       (events: TrustedEvent[]) => {
         if (events.length === 0) {
           const relays = Router.get()
@@ -812,7 +869,7 @@
   <title>{repoClass?.name}</title>
 </svelte:head>
 
-<PageBar class="!mx-0 flex items-center my-2">
+<PageBar class="w-full my-2">
   {#snippet icon()}
     <div>
       <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
@@ -826,7 +883,7 @@
   {/snippet}
   {#snippet action()}
     <div>
-      <MenuSpaceButton url={id} />
+      <SpaceMenuButton url={url} />
     </div>
   {/snippet}
 </PageBar>
@@ -909,7 +966,7 @@
     </RepoHeader>
     <ConfigProvider
       components={{
-        AvatarImage: Avatar as typeof import("@nostr-git/ui").AvatarImage,
+        AvatarImage: AvatarImage as typeof import("@nostr-git/ui").AvatarImage,
         Separator: Divider as typeof import("@nostr-git/ui").Separator,
         Input: Input as typeof import("@nostr-git/ui").Input,
         Alert: Dialog as typeof import("@nostr-git/ui").Alert,

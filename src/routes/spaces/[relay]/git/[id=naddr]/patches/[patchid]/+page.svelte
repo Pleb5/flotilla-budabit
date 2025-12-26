@@ -20,8 +20,7 @@
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {IssueThread, MergeAnalyzer, PatchViewer} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
-  import markdownit from "markdown-it"
-  import {deriveEvents} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {
     COMMENT,
@@ -57,7 +56,7 @@
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import {deriveRoleAssignments} from "@lib/budabit"
   import Profile from "@src/app/components/Profile.svelte"
-  import {preprocessMarkdown} from "@lib/util"
+  import Markdown from "@src/lib/components/Markdown.svelte"
   import {getContext} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY, PULL_REQUESTS_KEY} from "@lib/budabit/state"
   import {get} from "svelte/store"
@@ -151,7 +150,7 @@
 
   const prStatusEvents = $derived.by(() => {
     if (!prEvent) return undefined
-    return deriveEvents(repository, {filters: [getPrStatusFilter()]})
+    return deriveEventsAsc(deriveEventsById({repository, filters: [getPrStatusFilter()]}))
   })
 
   const prStatus = $derived.by(() => {
@@ -169,7 +168,7 @@
       .map((u: string) => normalizeRelayUrl(u))
       .filter(Boolean)
     load({relays: relays as string[], filters})
-    return deriveEvents(repository, {filters})
+    return deriveEventsAsc(deriveEventsById({repository, filters}))
   })
   
   // Derived values for PR comments for template usage
@@ -369,7 +368,7 @@
         .map((u: string) => normalizeRelayUrl(u))
         .filter(Boolean)
       load({relays: relays as string[], filters})
-      return _derived(deriveEvents(repository, {filters}), (events: TrustedEvent[]) => {
+      return _derived(deriveEventsAsc(deriveEventsById({repository, filters})), (events: TrustedEvent[]) => {
         return sortBy(e => -e.created_at, events) as CommentEvent[]
       })
     }
@@ -437,12 +436,14 @@
   })
 
   const statusEvents = $derived.by(() => {
-    return deriveEvents(repository, {filters: [getStatusFilter()]})
+    return deriveEventsAsc(deriveEventsById({repository, filters: [getStatusFilter()]}))
   })
 
   // NIP-32 role label events for this patch (reviewers)
   const getLabelFilter = () => ({kinds: [1985], "#e": [selectedPatch?.id ?? ""]})
-  const roleLabelEvents = $derived.by(() => deriveEvents(repository, {filters: [getLabelFilter()]}))
+  const roleLabelEvents = $derived.by(() =>
+    deriveEventsAsc(deriveEventsById({repository, filters: [getLabelFilter()]})),
+  )
   const reviewerLabelEvents = $derived.by(() => {
     if (!roleLabelEvents) return [] as LabelEvent[]
     const events = $roleLabelEvents as any[]
@@ -496,13 +497,6 @@
   let reviewersList = $state<string[]>([])
   $effect(() => {
     reviewersList = reviewers
-  })
-
-  const md = markdownit({
-    html: true,
-    linkify: true,
-    typographer: true,
-    breaks: true, // Convert line breaks to <br> tags
   })
 
   // Merge state management
@@ -925,7 +919,7 @@
 
         <div
           class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
-          {@html md.render(preprocessMarkdown(pr?.content || ""))}
+          <Markdown content={pr?.content || ""} />
         </div>
 
         <div class="space-y-4">
@@ -1003,7 +997,7 @@
 
         <div
           class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
-          {@html md.render(preprocessMarkdown(patch?.description || ""))}
+          <Markdown content={patch?.description || ""} />
         </div>
 
         <!-- Technical Metadata -->

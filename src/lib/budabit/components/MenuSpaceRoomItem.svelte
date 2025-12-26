@@ -6,7 +6,7 @@
   import ChannelName from "@lib/budabit/components/ChannelName.svelte"
   import {makeRoomPath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
-  import {deriveChannel} from "@app/core/state"
+  import {deriveRoom} from "@app/core/state"
 
   interface Props {
     url: any
@@ -18,14 +18,14 @@
   const {url, room, notify = false, replaceState = false}: Props = $props()
 
   const path = makeRoomPath(url, room)
-  const channel = deriveChannel(url, room)
+  const channel = deriveRoom(url, room)
 </script>
 
 <SecondaryNavItem
   href={path}
   {replaceState}
   notification={notify ? $notifications.has(path) : false}>
-  {#if $channel?.closed || $channel?.private}
+  {#if $channel?.isClosed || $channel?.isPrivate}
     <Icon icon={Lock} size={4} />
   {:else}
     <Icon icon={Hashtag} />

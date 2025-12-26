@@ -46,9 +46,10 @@
 
   onMount(() => {
     const feed = makeFeed({
-      url,
       element: element!,
-      filters: [{kinds: [ZAP_GOAL]}, makeCommentFilter([ZAP_GOAL])],
+      relays: [url],
+      feedFilters: [{kinds: [ZAP_GOAL]}, makeCommentFilter([ZAP_GOAL])],
+      subscriptionFilters: [{kinds: [ZAP_GOAL]}, makeCommentFilter([ZAP_GOAL])],
       onExhausted: () => {
         loading = false
       },

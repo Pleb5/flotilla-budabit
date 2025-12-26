@@ -28,25 +28,25 @@ export function createNostrTokenizer(
   const {event, url, minimalQuote = false, depth = 0, hideMediaAtDepth = 1} = options
 
   // Bech32 characters are alphanumeric excluding '1', 'b', 'i', 'o'
-  const nostrRegex = /^(nostr:)?(n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,})/
+  const nostrRegex = /^(?:nostr:\s*)?(n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,})/
 
   return {
     name: "nostr",
     level: "inline",
     start(src: string) {
-      const match = src.match(/(nostr:)?n(?:event|ote|pub|profile|addr)1/)
+      const match = src.match(/(?:nostr:\s*)?n(?:event|ote|pub|profile|addr)1/)
       return match ? match.index! : -1
     },
     tokenizer(src: string) {
       const match = nostrRegex.exec(src)
       if (match) {
-        const [fullMatch, prefix, fullId] = match
+        const [fullMatch, fullId] = match
         return {
           type: "nostr",
           raw: fullMatch,
           text: fullMatch,
           fullId: fullId,
-          prefix: prefix || "",
+          prefix: "",
           userName: null,
           tokens: [],
         }

@@ -9,7 +9,7 @@
   import Button from "@lib/components/Button.svelte"
   import ChannelContent from "@app/components/ChannelMessage.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
-  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import JobActions from "@app/components/JobActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay, getEventsForUrl} from "@app/core/state"
@@ -56,7 +56,7 @@
   let element: HTMLElement | undefined = $state()
 
   onMount(() => {
-    const {cleanup} = makeFeed({
+    const feed = makeFeed({
       element: element!,
       relays: [url],
       feedFilters: [{kinds: [COMMENT], "#E": [id]}],
@@ -66,6 +66,10 @@
         loadingEvents = false
       },
     })
+
+    events = feed.events
+    cleanup = feed.cleanup
+
     return () => {
       cleanup?.()
       setChecked($page.url.pathname)
@@ -86,7 +90,7 @@
   {/snippet}
   {#snippet action()}
     <div>
-      <MenuSpaceButton {url} />
+      <SpaceMenuButton {url} />
     </div>
   {/snippet}
 </PageBar>

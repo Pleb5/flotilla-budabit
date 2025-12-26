@@ -47,6 +47,11 @@
         <Icon icon={Bell} /> Alerts
       </SecondaryNavItem>
     </div>
+    <div in:fly|local={{delay: 100}}>
+      <SecondaryNavItem href="/settings/wallet">
+        <Icon icon={Wallet} /> Wallet
+      </SecondaryNavItem>
+    </div>
     <div in:fly|local={{delay: 150}}>
       <SecondaryNavItem href="/settings/relays">
         <Icon icon={Server} /> Relays

@@ -153,7 +153,7 @@
     let previousPubkey
     let previousCreatedAt = 0
 
-    for (const event of sortBy(e => e.created_at, $chat?.messages || [])) {
+    for (const event of sortBy((e: TrustedEvent) => e.created_at, $chat?.messages || [])) {
       const {id, pubkey, created_at} = event
       const date = formatTimestampAsDate(created_at)
 

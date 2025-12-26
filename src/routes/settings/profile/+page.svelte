@@ -18,14 +18,14 @@
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ContentMinimal from "@app/components/ContentMinimal.svelte"
-  import ProfileEdit from "@app/components/ProfileEdit.svelte"
+  import ProfileEdit from "@lib/budabit/components/ProfileEdit.svelte"
   import ProfileDelete from "@app/components/ProfileDelete.svelte"
   import SignerStatus from "@app/components/SignerStatus.svelte"
   import InfoKeys from "@app/components/InfoKeys.svelte"
   import {PLATFORM_NAME} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
-  import GraspServersPanel from "@app/components/GraspServersPanel.svelte";
+  import GraspServersPanel from "@lib/budabit/components/GraspServersPanel.svelte";
   import GitAuth from "@app/components/GitAuth.svelte";
 
   const npub = nip19.npubEncode($pubkey!)

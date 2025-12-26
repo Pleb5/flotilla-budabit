@@ -1,4 +1,4 @@
-<style>
+<style lang="postcss">
   .markdown {
     @apply text-base leading-relaxed;
   }

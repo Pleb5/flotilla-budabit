@@ -58,18 +58,6 @@
   let branchLoadTrigger = $state(0)
   let branchSwitchComplete = $state(0) // Increments when branch switch finishes
   
-  // Track when branch switching completes
-  let wasSwitching = $state(false)
-  $effect(() => {
-    const isSwitching = repoClass.isBranchSwitching
-    if (wasSwitching && !isSwitching) {
-      // Branch switch just completed
-      console.log("✅ Branch switch completed, triggering reload")
-      branchSwitchComplete++
-    }
-    wasSwitching = isSwitching
-  })
-
   let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
     $state([])
   // Start with false - only show loading when actually loading refs
@@ -190,15 +178,6 @@
   })
 
   $effect(() => {
-    const isSwitching = repoClass.isBranchSwitching;
-    
-    // Don't load files while branch is still switching, but show loading state
-    if (isSwitching) {
-      console.log("⏳ Branch is switching, showing loading state...");
-      loading = true;
-      return;
-    }
-    
     // Explicitly track branchSwitchComplete and selectedBranch to ensure effect re-runs after branch changes
     const currentBranch = selectedBranch;
     const switchTrigger = branchSwitchComplete; // This increments when branch switch completes

@@ -31,12 +31,9 @@ import {
   DELETE,
   REPORT,
   PROFILE,
-  MESSAGING_RELAYS,
   RELAYS,
   FOLLOWS,
   REACTION,
-  RELAY_JOIN,
-  RELAY_LEAVE,
   ROOMS,
   COMMENT,
   ALERT_EMAIL,
@@ -68,6 +65,9 @@ import {
   editProfile,
   createProfile,
   uniqTags,
+  MESSAGING_RELAYS,
+  RELAY_LEAVE,
+  RELAY_JOIN,
 } from "@welshman/util"
 import {Pool, AuthStatus, SocketStatus} from "@welshman/net"
 import {Router} from "@welshman/router"
@@ -80,16 +80,17 @@ import {
   publishThunk,
   tagEvent,
   tagEventForReaction,
-  userRelayList,
-  userMessagingRelayList,
   nip44EncryptToSelf,
   dropSession,
   tagEventForComment,
   tagEventForQuote,
   waitForThunkError,
   getPubkeyRelays,
-  userBlossomServerList,
   shouldUnwrap,
+  loadRelay,
+  userMessagingRelayList,
+  userRelayList,
+  userBlossomServerList,
 } from "@welshman/app"
 import {compressFile} from "@lib/html"
 import {kv, db} from "@app/core/storage"
@@ -109,11 +110,11 @@ import {
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
-import {preferencesStorageProvider, Collection} from "@src/lib/storage"
 import {extensionSettings} from "@app/extensions/settings"
 import {extensionRegistry} from "@app/extensions/registry"
 import {request} from "@welshman/net"
 import type {ExtensionManifest} from "@app/extensions/types"
+import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
 
 // Utils
 
@@ -238,6 +239,82 @@ export const prependParent = (parent: TrustedEvent | undefined, {content, tags}:
   return {content, tags}
 }
 
+// Job Request System
+
+export interface JobRequestParams {
+  cashuToken: string
+  relays: string[]
+  cmd: string
+  args: string[]
+}
+
+export interface JobRequestResult {
+  event: any
+  successCount: number
+  failureCount: number
+  publishStatus: Array<{
+    relay: string
+    success: boolean
+    error?: string
+  }>
+}
+
+export const publishJobRequest = async (params: JobRequestParams): Promise<JobRequestResult> => {
+  const $signer = signer.get()
+  if (!$signer) {
+    throw new Error("No signer available")
+  }
+
+  // Create kind 5100 event for job request
+  const eventTemplate = {
+    kind: 5100,
+    content: "",
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ["p", "fa84c22dc47c67d9307b6966c992725f70dfcd8a0e5530fd7e3568121f6e1673"], // User pubkey hardcoded
+      ["worker", DEFAULT_WORKER_PUBKEY], // Worker pubkey
+      ["cmd", params.cmd],
+      ["args", ...params.args],
+      ["payment", params.cashuToken]
+    ]
+  }
+
+  const event = await $signer.sign(eventTemplate)
+  
+  const publishStatus: Array<{relay: string, success: boolean, error?: string}> = []
+  let successCount = 0
+  let failureCount = 0
+
+  // Publish to all specified relays
+  for (const relay of params.relays) {
+    try {
+      const thunk = publishThunk({event, relays: [relay]})
+      await thunk.complete
+      
+      publishStatus.push({
+        relay,
+        success: true
+      })
+      successCount++
+    } catch (error) {
+      console.error(`Failed to publish to relay ${relay}:`, error)
+      publishStatus.push({
+        relay,
+        success: false,
+        error: String(error)
+      })
+      failureCount++
+    }
+  }
+
+  return {
+    event,
+    successCount,
+    failureCount,
+    publishStatus
+  }
+}
+
 // Log out
 
 export const logout = async () => {
@@ -353,6 +430,14 @@ export const canEnforceNip70 = async (url: string) => {
   return socket.auth.status !== AuthStatus.None
 }
 
+export const attemptRelayAccess = async (url: string, claim = "") => {
+  return checkRelayAccess(url, claim)
+}
+
+const attemptAuth = async (url: string) => {
+  await Pool.get().get(url).auth.attemptAuth(sign)
+}
+
 export const checkRelayAccess = async (url: string, claim = "") => {
   const socket = Pool.get().get(url)
 
@@ -371,7 +456,7 @@ export const checkRelayAccess = async (url: string, claim = "") => {
     // TODO: remove this if relay29 ever gets less strict
     if (message === "missing group (`h`) tag") return
 
-    // Ignore messages about the relay ignoring ours
+    // Ignore messages about relay ignoring ours
     if (error?.startsWith("mute: ")) return
 
     // Ignore rejected empty claims
@@ -384,12 +469,12 @@ export const checkRelayAccess = async (url: string, claim = "") => {
 export const checkRelayProfile = async (url: string) => {
   const relay = await loadRelay(url)
 
-  if (!relay?.profile) {
+  if (!relay) {
     return "Sorry, we weren't able to find that relay."
   }
 }
 
-export const checkRelayConnection = async (url: string) => {
+export const checkRelayConnection = async (url: string, claim = "") => {
   const socket = Pool.get().get(url)
 
   socket.attemptToOpen()

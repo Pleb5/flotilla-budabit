@@ -17,7 +17,7 @@
     GIT_STATUS_OPEN,
     type Filter,
   } from "@welshman/util"
-  import {deriveEvents} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {normalizeRelayUrl} from "@welshman/util"
@@ -64,7 +64,9 @@
   const getLabelFilter = (): Filter => ({kinds: [1985], "#e": [issue?.id ?? ""]})
 
   // NIP-32 role label events for this issue (assignees etc)
-  const roleLabelEvents = $derived.by(() => deriveEvents(repository, {filters: [getLabelFilter()]}))
+  const roleLabelEvents = $derived.by(() =>
+    deriveEventsAsc(deriveEventsById({repository, filters: [getLabelFilter()]})),
+  )
   const assigneeLabelEvents = $derived.by(() => {
     const events = ($roleLabelEvents || []) as any[]
     return events.filter(
@@ -148,13 +150,13 @@
   }
 
   const threadComments = $derived.by(() => {
-    if (repoClass.issues && issue) {
+    if (issue) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [issue.id]}]
       const relays = (repoRelays || [])
         .map((u: string) => normalizeRelayUrl(u))
         .filter(Boolean)
       load({relays: relays as string[], filters})
-      return deriveEvents(repository, {filters})
+      return deriveEventsAsc(deriveEventsById({repository, filters}))
     }
   })
 
@@ -164,7 +166,7 @@
   })
 
   const statusEvents = $derived.by(() => {
-    return deriveEvents(repository, {filters: [getStatusFilter()]})
+    return deriveEventsAsc(deriveEventsById({repository, filters: [getStatusFilter()]}))
   })
 
   // Centralized NIP-32 labels via store; avoid calling .get() in Svelte 5

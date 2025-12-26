@@ -36,21 +36,30 @@ import {NOTIFIER_RELAY, getEventsForUrl} from "@app/core/state"
 
 // Utils
 
-export const makeFeed = ({
-  url,
-  filters,
-  element,
-  onExhausted,
-}: {
-  url: string
-  filters: Filter[]
+export interface FeedOptions {
   element: HTMLElement
+  relays: string[]
+  feedFilters: Filter[]
+  subscriptionFilters?: Filter[]
+  initialEvents?: TrustedEvent[]
   onExhausted?: () => void
-}) => {
+}
+
+export const makeFeed = ({
+  element,
+  relays,
+  feedFilters,
+  subscriptionFilters,
+  initialEvents,
+  onExhausted,
+}: FeedOptions) => {
   const seen = new Set<string>()
   const controller = new AbortController()
   const buffer = writable<TrustedEvent[]>([])
   const events = writable<TrustedEvent[]>([])
+
+  const relaysSet = new Set(relays)
+  const liveFilters = subscriptionFilters || feedFilters
 
   const insertEvent = (event: TrustedEvent) => {
     let handled = false
@@ -92,18 +101,35 @@ export const makeFeed = ({
     }
 
     for (const event of added) {
-      if (matchFilters(filters, event) && tracker.getRelays(event.id).has(url)) {
-        insertEvent(event)
+      if (!matchFilters(liveFilters, event)) {
+        continue
+      }
+
+      const eventRelays = tracker.getRelays(event.id)
+      for (const url of eventRelays) {
+        if (relaysSet.has(url)) {
+          insertEvent(event)
+          break
+        }
       }
     }
   })
 
-  const ctrl = makeFeedController({
-    useWindowing: true,
-    signal: controller.signal,
-    feed: makeIntersectionFeed(makeRelayFeed(url), feedFromFilters(filters)),
-    onExhausted,
-  })
+  let exhausted = 0
+
+  const controllers = relays.map(url =>
+    makeFeedController({
+      useWindowing: true,
+      signal: controller.signal,
+      feed: makeIntersectionFeed(makeRelayFeed(url), feedFromFilters(feedFilters)),
+      onExhausted: () => {
+        exhausted += 1
+        if (exhausted >= relays.length) {
+          onExhausted?.()
+        }
+      },
+    }),
+  )
 
   const scroller = createScroller({
     element,
@@ -115,13 +141,27 @@ export const makeFeed = ({
       events.update($events => [...$events, ...$buffer.splice(0, 30)])
 
       if ($buffer.length < 100) {
-        ctrl.load(100)
+        for (const ctrl of controllers) {
+          ctrl.load(100)
+        }
       }
     },
   })
 
-  for (const event of getEventsForUrl(url, filters)) {
-    insertEvent(event)
+  if (initialEvents && initialEvents.length > 0) {
+    for (const event of [...initialEvents].sort((a, b) => b.created_at - a.created_at)) {
+      insertEvent(event)
+    }
+  } else {
+    for (const url of relays) {
+      for (const event of getEventsForUrl(url, feedFilters)) {
+        insertEvent(event)
+      }
+    }
+  }
+
+  if (relays.length === 0) {
+    setTimeout(() => onExhausted?.(), 0)
   }
 
   return {

@@ -33,9 +33,9 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
       const {href, text} = token
 
       // Check if href is a nostr URI
-      const nostrMatch = href.match(/^(nostr:)?(n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,})$/)
+      const nostrMatch = href.match(/^(?:nostr:\s*)?(n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,})$/)
       if (nostrMatch) {
-        return renderNostrLink(nostrMatch[2], text, event, url, minimalQuote, depth, hideMediaAtDepth)
+        return renderNostrLink(nostrMatch[1], text, event, url, minimalQuote, depth, hideMediaAtDepth)
       }
 
       // Regular URL handling
@@ -55,7 +55,15 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
     list(this: Renderer, token: Tokens.List): string {
       const listItems: string = token.items
         .map((item): string => {
-          const itemContent: string = this.parser.parseInline(item.tokens)
+          let itemContent = ""
+
+          try {
+            itemContent = this.parser.parseInline(item.tokens)
+          } catch {
+            itemContent = this.parser.parse(item.tokens as any)
+            itemContent = itemContent.replace(/^<p>([\s\S]*)<\/p>\n?$/, "$1")
+          }
+
           return `<li>${itemContent}</li>`
         })
         .join("\n")

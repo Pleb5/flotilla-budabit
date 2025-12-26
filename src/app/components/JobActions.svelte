@@ -12,6 +12,7 @@
   import {jobLink} from "@lib/budabit"
   import {pushModal} from "@app/util/modal"
   import ThreadCreate from "./ThreadCreate.svelte"
+  import JobRequest from "./JobRequest.svelte"
   import {Router} from "@welshman/router"
   
   interface Props {
@@ -47,6 +48,9 @@
   const startThread = () =>
     pushModal(ThreadCreate, {url: url, jobOrGitIssue: event, relayHint: relayHint})
 
+  const runJob = () =>
+    pushModal(JobRequest, {url: url})
+
   const onPublishDelete = (event: TrustedEvent) => publishDelete({relays: [url], event, protect: false})
 
   const onPublishReaction = (eventContent: EventContent) => {
@@ -73,6 +77,9 @@
         <span class="">+Thread</span>
       </Button>
     {/if}
+    <Button class="btn btn-warning btn-sm" onclick={runJob}>
+      <span class="">Run Job</span>
+    </Button>
     {#if showExternal}
       <Button class="btn btn-info btn-sm">
         <Link

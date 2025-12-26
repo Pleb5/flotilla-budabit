@@ -1,11 +1,10 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {derived} from "svelte/store"
-  import {displayRelayUrl, getTagValue, EVENT_TIME, ZAP_GOAL, THREAD, REPORT} from "@welshman/util"
+  import {displayRelayUrl, getTagValue, REPORT} from "@welshman/util"
   import {deriveRelay, pubkey} from "@welshman/app"
-  import type {TrustedEvent} from "@welshman/util"
   import {fly} from "@lib/transition"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
+  import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import RemoteControllerMinimalistic from "@assets/icons/remote-controller-minimalistic.svg?dataurl"
   import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
   import Danger from "@assets/icons/danger.svg?dataurl"
@@ -20,6 +19,7 @@
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
+  import Git from "@assets/icons/git.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -36,46 +36,48 @@
   import SpaceReports from "@app/components/SpaceReports.svelte"
   import AlertAdd from "@app/components/AlertAdd.svelte"
   import Alerts from "@app/components/Alerts.svelte"
-  import RoomCreate from "@app/components/RoomCreate.svelte"
-  import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
+  import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
+  import MenuSpaceRoomItem from "@lib/budabit/components/MenuSpaceRoomItem.svelte"
   import {
     ENABLE_ZAPS,
     CONTENT_KINDS,
     deriveSpaceMembers,
-    deriveOtherRooms,
     userSpaceUrls,
     hasNip29,
     alertsById,
-    deriveUserCanCreateRoom,
     deriveUserIsSpaceAdmin,
     deriveEventsForUrl,
   } from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath, makeChatPath} from "@app/util/routes"
-  import {deriveUserRooms} from "@lib/budabit/state"
-  
+  import {channelsByUrl} from "@lib/budabit/state"
+
   const {url} = $props()
 
   const relay = deriveRelay(url)
+  const owner = $derived($relay?.pubkey)
+
   const chatPath = makeSpacePath(url, "chat")
+  const gitPath = makeSpacePath(url, "git")
   const goalsPath = makeSpacePath(url, "goals")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
-  const userRooms = deriveUserRooms(url)
-  const otherRooms = deriveOtherRooms(url)
+
   const members = deriveSpaceMembers(url)
   const userIsAdmin = deriveUserIsSpaceAdmin(url)
   const reports = deriveEventsForUrl(url, [{kinds: [REPORT]}])
+
   const hasAlerts = $derived(
     Array.from($alertsById.values()).some(a => getTagValue("feed", a.tags)?.includes(url)),
   )
 
-  const spaceKinds = derived(
-    deriveEventsForUrl(url, [{kinds: CONTENT_KINDS}]),
-    $events => new Set($events.map((e: TrustedEvent) => e.kind)),
-  )
+  const channelNamesByUrl = $derived.by(() => {
+    const channels = $channelsByUrl.get(url) || []
+
+    return channels.map(ch => ch.name)
+  })
 
   const openMenu = () => {
     showMenu = true
@@ -91,15 +93,17 @@
 
   const showReports = () => pushModal(SpaceReports, {url}, {replaceState})
 
-  const canCreateRoom = deriveUserCanCreateRoom(url)
-
   const createInvite = () => pushModal(SpaceInvite, {url}, {replaceState})
 
   const leaveSpace = () => pushModal(SpaceExit, {url}, {replaceState})
 
   const joinSpace = () => pushModal(SpaceJoin, {url}, {replaceState})
 
-  const addRoom = () => pushModal(RoomCreate, {url}, {replaceState})
+  const addRoom = () => {
+    if ($pubkey && owner && owner === $pubkey) {
+      pushModal(RoomCreate, {url}, {replaceState})
+    }
+  }
 
   const manageAlerts = () => {
     const component = hasAlerts ? Alerts : AlertAdd
@@ -187,73 +191,55 @@
         </Popover>
       {/if}
     </div>
+
     <div class="flex max-h-[calc(100vh-250px)] min-h-0 flex-col gap-1 overflow-auto">
+      <SecondaryNavItem {replaceState} href={makeSpacePath(url)}>
+        <Icon icon={HomeSmile} /> Home
+      </SecondaryNavItem>
+
+      <SecondaryNavItem {replaceState} href={gitPath} notification={$notifications.has(gitPath)}>
+        <Icon icon={Git} /> Git
+      </SecondaryNavItem>
+
+      <SecondaryNavItem {replaceState} href={threadsPath} notification={$notifications.has(threadsPath)}>
+        <Icon icon={NotesMinimalistic} /> Threads
+      </SecondaryNavItem>
+
+      <SecondaryNavItem {replaceState} href={calendarPath} notification={$notifications.has(calendarPath)}>
+        <Icon icon={CalendarMinimalistic} /> Calendar
+      </SecondaryNavItem>
+
+      {#if ENABLE_ZAPS}
+        <SecondaryNavItem {replaceState} href={goalsPath} notification={$notifications.has(goalsPath)}>
+          <Icon icon={StarFallMinimalistic} /> Goals
+        </SecondaryNavItem>
+      {/if}
+
+      <SecondaryNavHeader>Rooms</SecondaryNavHeader>
+
       {#if hasNip29($relay)}
         <SecondaryNavItem {replaceState} href={makeSpacePath(url, "recent")}>
           <Icon icon={History} /> Recent Activity
         </SecondaryNavItem>
       {:else}
-        <SecondaryNavItem
-          {replaceState}
-          href={chatPath}
-          notification={$notifications.has(chatPath)}>
+        <SecondaryNavItem {replaceState} href={chatPath} notification={$notifications.has(chatPath)}>
           <Icon icon={ChatRound} /> Chat
         </SecondaryNavItem>
       {/if}
-      {#if ENABLE_ZAPS && $spaceKinds.has(ZAP_GOAL)}
-        <SecondaryNavItem
-          {replaceState}
-          href={goalsPath}
-          notification={$notifications.has(goalsPath)}>
-          <Icon icon={StarFallMinimalistic} /> Goals
+
+      {#if owner && owner == $pubkey}
+        <SecondaryNavItem {replaceState} onclick={addRoom}>
+          <Icon icon={AddCircle} />
+          Create room
         </SecondaryNavItem>
       {/if}
-      {#if $spaceKinds.has(THREAD)}
-        <SecondaryNavItem
-          {replaceState}
-          href={threadsPath}
-          notification={$notifications.has(threadsPath)}>
-          <Icon icon={NotesMinimalistic} /> Threads
-        </SecondaryNavItem>
-      {/if}
-      {#if $spaceKinds.has(EVENT_TIME)}
-        <SecondaryNavItem
-          {replaceState}
-          href={calendarPath}
-          notification={$notifications.has(calendarPath)}>
-          <Icon icon={CalendarMinimalistic} /> Calendar
-        </SecondaryNavItem>
-      {/if}
-      {#if hasNip29($relay)}
-        {#if $userRooms.length > 0}
-          <div class="h-2"></div>
-          <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
-        {/if}
-        {#each $userRooms as h, i (h)}
-          <MenuSpaceRoomItem {replaceState} notify {url} {h} />
-        {/each}
-        {#if $otherRooms.length > 0}
-          <div class="h-2"></div>
-          <SecondaryNavHeader>
-            {#if $userRooms.length > 0}
-              Other Rooms
-            {:else}
-              Rooms
-            {/if}
-          </SecondaryNavHeader>
-        {/if}
-        {#each $otherRooms as h, i (h)}
-          <MenuSpaceRoomItem {replaceState} {url} {h} />
-        {/each}
-        {#if $canCreateRoom}
-          <SecondaryNavItem {replaceState} onclick={addRoom}>
-            <Icon icon={AddCircle} />
-            Create room
-          </SecondaryNavItem>
-        {/if}
-      {/if}
+
+      {#each channelNamesByUrl as room, i (room)}
+        <MenuSpaceRoomItem {replaceState} notify {url} {room} />
+      {/each}
     </div>
   </SecondaryNavSection>
+
   <div class="flex flex-col gap-2 p-4">
     <Button class="btn btn-neutral btn-sm" onclick={showDetail}>
       <SocketStatusIndicator {url} />

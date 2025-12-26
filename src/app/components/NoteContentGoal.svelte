@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {ComponentProps} from "svelte"
   import {getTagValue} from "@welshman/util"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import GoalSummary from "@app/components/GoalSummary.svelte"
 
   const props: ComponentProps<typeof Content> = $props()

@@ -24,12 +24,15 @@
   import {makeSpacePath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
   import Git from "@assets/icons/git.svg?dataurl"
+  import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   type Props = {
     children?: Snippet
   }
 
   const {children}: Props = $props()
+
+  const spaceUrls = $derived($userSpaceUrls)
 
   const showOtherSpacesMenu = () => pushModal(MenuOtherSpaces, {urls: secondarySpaceUrls})
 
@@ -38,10 +41,6 @@
   const openChat = () => ($shouldUnwrap ? goto("/chat") : pushModal(ChatEnable, {next: "/chat"}))
 
   const openGit = () => {
-    // Try to get current space from route params
-    
-    console.log('page', $page)
-    console.log('spaceUrls', spaceUrls)
     const currentRelay = $page.params.relay
     if (currentRelay) {
       const url = decodeRelay(currentRelay)
@@ -53,8 +52,8 @@
       goto(makeSpacePath(spaceUrls[0], "git"))
       return
     }
-    // If no spaces available, show spaces menu
-    showSpacesMenu()
+
+    showOtherSpacesMenu()
   }
 
   const hasNotification = (url: string) => {
@@ -63,20 +62,20 @@
     return !$page.url.pathname.startsWith(path) && $notifications.has(path)
   }
 
-  const gitNotification = $derived(() => {
-    // Check if current space has git notifications
-    const currentRelay = $page.params.relay
-    if (currentRelay) {
-      const url = decodeRelay(currentRelay)
-      const gitPath = makeSpacePath(url, "git")
-      return $notifications.has(gitPath)
-    }
-    // Check if any space has git notifications
-    return spaceUrls.some(url => {
-      const gitPath = makeSpacePath(url, "git")
-      return $notifications.has(gitPath)
-    })
-  })
+  const gitNotification = $derived(
+    (() => {
+      const currentRelay = $page.params.relay
+      if (currentRelay) {
+        const url = decodeRelay(currentRelay)
+        const gitPath = makeSpacePath(url, "git")
+        return $notifications.has(gitPath)
+      }
+      return spaceUrls.some((url: string) => {
+        const gitPath = makeSpacePath(url, "git")
+        return $notifications.has(gitPath)
+      })
+    })(),
+  )
 
   let windowHeight = $state(0)
 
@@ -166,14 +165,14 @@
       <PrimaryNavItem
         title="Git"
         onclick={openGit}
-        notification={gitNotification()}>
-        <Avatar icon={Git} class="!h-10 !w-10" />
+        notification={gitNotification}>
+        <ImageIcon alt="Git" src={Git} size={7} />
       </PrimaryNavItem>
       <PrimaryNavItem
         title="Git"
         onclick={openGit}
-        notification={gitNotification()}>
-        <Avatar icon={Git} class="!h-10 !w-10" />
+        notification={gitNotification}>
+        <ImageIcon alt="Git" src={Git} size={7} />
       </PrimaryNavItem>
       {#if PLATFORM_RELAYS.length !== 1}
         <PrimaryNavItem title="Spaces" href="/spaces" notification={anySpaceNotifications}>

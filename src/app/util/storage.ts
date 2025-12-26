@@ -1,16 +1,11 @@
 import {
-  always,
   on,
-  hash,
-  last,
-  groupBy,
   throttle,
   fromPairs,
   batch,
-  sortBy,
-  concat,
+  indexBy,
 } from "@welshman/lib"
-import {throttled, freshness} from "@welshman/store"
+import {throttled} from "@welshman/store"
 import {
   ALERT_ANDROID,
   ALERT_EMAIL,
@@ -23,47 +18,42 @@ import {
   DIRECT_MESSAGE,
   EVENT_TIME,
   FOLLOWS,
-  MESSAGING_RELAYS,
   MESSAGE,
   MUTES,
   PROFILE,
-  RELAY_ADD_MEMBER,
-  RELAY_JOIN,
-  RELAY_LEAVE,
-  RELAY_MEMBERS,
-  RELAY_REMOVE_MEMBER,
   RELAYS,
-  ROOM_ADD_MEMBER,
   ROOM_CREATE_PERMISSION,
-  ROOM_MEMBERS,
   ROOM_ADMINS,
   ROOM_META,
   ROOM_DELETE,
-  ROOM_REMOVE_MEMBER,
   ROOMS,
   THREAD,
   ZAP_GOAL,
   verifiedSymbol,
-  verifiedSymbol,
+  MESSAGING_RELAYS,
+  RELAY_ADD_MEMBER,
+  RELAY_REMOVE_MEMBER,
+  RELAY_MEMBERS,
+  RELAY_JOIN,
+  RELAY_LEAVE,
 } from "@welshman/util"
 import type {Zapper, TrustedEvent, RelayProfile} from "@welshman/util"
-import type {RepositoryUpdate, WrapItem} from "@welshman/net"
 import type {Handle, RelayStats} from "@welshman/app"
+import type {WrapItem, RepositoryUpdate} from "@welshman/net"
 import {
   tracker,
   plaintext,
   repository,
+  wrapManager,
   relaysByUrl,
-  relayStatsByUrl,
-  onRelayStats,
   handlesByNip05,
   zappersByLnurl,
   onZapper,
   onHandle,
-  wrapManager,
   onRelay,
+  relayStatsByUrl,
+  onRelayStats,
 } from "@welshman/app"
-import {Collection} from "@lib/storage"
 import {isMobile} from "@lib/html"
 import type {IDBTable} from "@lib/indexeddb"
 
@@ -75,9 +65,6 @@ const kinds = {
     ROOM_META,
     ROOM_DELETE,
     ROOM_ADMINS,
-    ROOM_MEMBERS,
-    ROOM_ADD_MEMBER,
-    ROOM_REMOVE_MEMBER,
     ROOM_CREATE_PERMISSION,
   ],
   content: [EVENT_TIME, THREAD, MESSAGE, ZAP_GOAL, DIRECT_MESSAGE, DIRECT_MESSAGE_FILE],
@@ -219,7 +206,7 @@ const handlesAdapter = {
   name: "handles",
   keyPath: "nip05",
   init: async (table: IDBTable<Handle>) => {
-    handlesByNip05.set(indexBy(r => r.nip05, await table.getAll()))
+    handlesByNip05.set(indexBy((r: Handle) => r.nip05, await table.getAll()))
 
     return onHandle(batch(1000, table.bulkPut))
   },

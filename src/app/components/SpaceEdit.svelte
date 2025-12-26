@@ -2,7 +2,7 @@
   import {ifLet} from "@welshman/lib"
   import type {RelayProfile} from "@welshman/util"
   import {displayRelayUrl, ManagementMethod} from "@welshman/util"
-  import {manageRelay, relaysByUrl, notifyRelay, fetchRelayDirectly} from "@welshman/app"
+  import {fetchRelayDirectly, manageRelay, notifyRelay, relaysByUrl} from "@welshman/app"
   import StickerSmileSquare from "@assets/icons/sticker-smile-square.svg?dataurl"
   import SettingsMinimalistic from "@assets/icons/settings-minimalistic.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"

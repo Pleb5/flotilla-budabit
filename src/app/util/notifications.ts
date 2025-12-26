@@ -124,18 +124,18 @@ export const notifications = call(() => {
         for (const [goalId, [comment]] of commentsByGoalId.entries()) {
           const goalItemPath = makeGoalPath(url, goalId)
 
-          if (hasNotification(goalPath, comment)) {
+          if (hasNotification(goalPath, comment as TrustedEvent)) {
             paths.add(spacePathMobile)
             paths.add(goalPath)
           }
 
-          if (hasNotification(goalItemPath, comment)) {
+          if (hasNotification(goalItemPath, comment as TrustedEvent)) {
             paths.add(goalItemPath)
           }
         }
 
         const commentsByThreadId = groupBy(
-          e => getTagValue("E", e.tags),
+          (e: TrustedEvent) => getTagValue("E", e.tags),
           threadComments.filter(spec({kind: COMMENT})),
         )
 
@@ -173,7 +173,7 @@ export const notifications = call(() => {
         if (hasNip29($relaysByUrl.get(url))) {
           for (const h of getSpaceRoomsFromGroupList(url, $userGroupList)) {
             const roomPath = makeRoomPath(url, h)
-            const latestEvent = find(e => e.tags.some(spec(["h", h])), messages)
+            const latestEvent = find((e: TrustedEvent) => e.tags.some(spec(["h", h])), messages)
 
             if (hasNotification(roomPath, latestEvent)) {
               paths.add(spacePathMobile)

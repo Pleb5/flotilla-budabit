@@ -1,32 +1,12 @@
 import { GIT_REPO_BOOKMARK_SET, GRASP_SET_KIND, GIT_REPO_BOOKMARK_DTAG, DEFAULT_GRASP_SET_ID } from "@nostr-git/shared-types"
 import { loadTokensFromStorage, tokens, type Token, bookmarksStore } from "@nostr-git/ui"
 import { graspServersStore } from "@nostr-git/ui"
-import { loadRelaySelections, repository } from "@welshman/app"
-import { sleep } from "@welshman/lib"
+import { repository } from "@welshman/app"
 import { load } from "@welshman/net"
-import { deriveEvents } from "@welshman/store"
+import { deriveEventsAsc, deriveEventsById } from "@welshman/store"
 import { NAMED_BOOKMARKS, getAddressTags, normalizeRelayUrl } from "@welshman/util"
 import { validateGraspServerUrl } from "@nostr-git/shared-types"
-import { GIT_RELAYS } from "./state"
 
-export const loadUserGitData = async (pubkey: string, relays: string[] = GIT_RELAYS) => {
-    await Promise.race([sleep(3000), loadRelaySelections(pubkey, relays)])
-
-    // Start centralized syncs (idempotent)
-    setupBookmarksSync(pubkey, relays)
-    setupGraspServersSync(pubkey, relays)
-
-    const promise = Promise.race([
-        sleep(3000),
-        Promise.all([
-            loadRepositories(pubkey, relays),
-            loadGraspServers(pubkey, relays),
-            loadTokens(pubkey, relays),
-        ]),
-    ])
-
-    return promise
-}
 
 export const loadRepositories = async (pubkey: string, relays: string[] = []) => {
     // Load both the named bookmark list and any legacy/set variants
@@ -65,7 +45,7 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
   try { bookmarksUnsub?.() } catch {}
 
   const filter = { kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG] }
-  const store = deriveEvents(repository, { filters: [filter] })
+  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
 
   bookmarksUnsub = store.subscribe((events: any[]) => {
     if (!events || events.length === 0) return
@@ -94,7 +74,7 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
   try { graspUnsub?.() } catch {}
 
   const filter = { kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID] }
-  const store = deriveEvents(repository, { filters: [filter] })
+  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
 
   graspUnsub = store.subscribe((events: any[]) => {
     if (!events || events.length === 0) return

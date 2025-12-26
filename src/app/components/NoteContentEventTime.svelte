@@ -1,6 +1,6 @@
 <script lang="ts">
   import type {ComponentProps} from "svelte"
-  import Content from "@app/components/Content.svelte"
+  import Content from "@lib/budabit/components/Content.svelte"
   import CalendarEventDate from "@app/components/CalendarEventDate.svelte"
   import CalendarEventHeader from "@app/components/CalendarEventHeader.svelte"
 

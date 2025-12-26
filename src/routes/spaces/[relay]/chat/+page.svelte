@@ -5,7 +5,7 @@
   import {readable} from "svelte/store"
   import {now, int, formatTimestampAsDate, MINUTE, ago} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
-  import {makeEvent, MESSAGE, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER} from "@welshman/util"
+  import {makeEvent, getTag, DELETE, MESSAGE, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER} from "@welshman/util"
   import {pubkey, publishThunk} from "@welshman/app"
   import {fade, fly} from "@lib/transition"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
@@ -24,7 +24,7 @@
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import RoomComposeEdit from "@src/app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
-  import {userSettingsValues, decodeRelay, PROTECTED, MESSAGE_KINDS} from "@app/core/state"
+  import {userSettingsValues, decodeRelay, PROTECTED, REACTION_KINDS} from "@app/core/state"
   import {prependParent, canEnforceNip70, publishDelete} from "@app/core/commands"
   import {setChecked, checked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
@@ -153,6 +153,12 @@
           continue
         }
 
+        // Only show messages for this chat. Messages tagged with "h" belong to a room.
+        // The space chat intentionally excludes room-scoped messages.
+        if (getTag("h", event.tags)) {
+          continue
+        }
+
         const date = formatTimestampAsDate(event.created_at)
 
         if (
@@ -231,9 +237,12 @@
     observer.observe(dynamicPadding!)
 
     const feed = makeFeed({
-      url,
       element: element!,
-      filters: [{kinds: [...MESSAGE_KINDS, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER]}],
+      relays: [url],
+      feedFilters: [{kinds: [MESSAGE, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER]}],
+      subscriptionFilters: [
+        {kinds: [DELETE, MESSAGE, ...REACTION_KINDS, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER], since: now()},
+      ],
       onExhausted: () => {
         loadingEvents = false
       },

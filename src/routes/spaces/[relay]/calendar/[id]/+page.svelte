@@ -3,7 +3,6 @@
   import {page} from "$app/stores"
   import {sortBy, sleep} from "@welshman/lib"
   import type {MakeNonOptional} from "@welshman/lib"
-  import type {MakeNonOptional} from "@welshman/lib"
   import {COMMENT, getTagValue} from "@welshman/util"
   import {request} from "@welshman/net"
   import {repository} from "@welshman/app"
@@ -26,9 +25,9 @@
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
-    import Markdown from "@src/lib/components/Markdown.svelte"
+  import Markdown from "@src/lib/components/Markdown.svelte"
+  import type {TrustedEvent} from "@welshman/util"
 
-  const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
   const event = deriveEvent(id, [url])
@@ -107,7 +106,7 @@
         </Button>
       </div>
     {/if}
-    {#each sortBy(e => e.created_at, $replies).slice(0, showAll ? undefined : 4) as reply (reply.id)}
+    {#each sortBy((e: TrustedEvent) => e.created_at, $replies).slice(0, showAll ? undefined : 4) as reply (reply.id)}
       <NoteCard event={reply} {url} class="card2 bg-alt z-feature w-full">
         <div class="col-3 ml-12">
           <Content showEntire event={reply} {url} />

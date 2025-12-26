@@ -11,7 +11,7 @@
     relaySearch,
     pubkey,
   } from "@welshman/app"
-  import {deriveEvents} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {Router} from "@welshman/router"
   import {load} from "@welshman/net"
   import {fly} from "@lib/transition"
@@ -32,6 +32,7 @@
     GIT_REPO_ANNOUNCEMENT,
     parseRepoAnnouncementEvent,
     type BookmarkAddress,
+    type RepoAnnouncementEvent,
   } from "@nostr-git/shared-types"
   import {
     Avatar,
@@ -135,7 +136,7 @@
     const repoFilter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors, "#d": identifiers}
     const loadKey = `${authors.join(',')}|${identifiers.join(',')}`
 
-    return _derived(deriveEvents(repository, {filters: [repoFilter]}), events => {
+    return _derived(deriveEventsAsc(deriveEventsById({repository, filters: [repoFilter]})), events => {
       if (events.length !== identifiers.length) {
         if (!attemptedBookmarkLoads.has(loadKey)) {
           attemptedBookmarkLoads.add(loadKey)
@@ -158,7 +159,7 @@
     const addresses = toBookmarkAddresses(normalizeBookmarks($bookmarksStore))
     if (addresses.length === 0) return []
 
-    return $repos.map(repo => {
+    return ($repos as any[]).map((repo: RepoAnnouncementEvent) => {
       let addressString = ""
       try {
         const address = Address.fromEvent(repo)
@@ -185,13 +186,13 @@
   const myReposEvents = $derived.by(() => {
     if (!$pubkey) return undefined
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]} as any
-    return deriveEvents(repository, {filters: [filter]})
+    return deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
   })
 
   const loadedMyRepos = $derived.by(() => {
     if (!$myReposEvents) return []
     
-    return $myReposEvents.map(repo => {
+    return ($myReposEvents as any[]).map((repo: RepoAnnouncementEvent) => {
       let addressString = ""
       try {
         const address = Address.fromEvent(repo)
@@ -286,10 +287,9 @@
     if (!searchQuery.trim()) return repos
 
     const query = searchQuery.toLowerCase().trim()
-    return repos.filter(repo => {
+    return repos.filter((repo: any) => {
       try {
-        // Cast event to RepoAnnouncementEvent for parsing
-        const parsed = parseRepoAnnouncementEvent(repo.event as any)
+        const parsed = parseRepoAnnouncementEvent((repo.event ?? repo) as any)
         const title = parsed?.name || ""
         const description = parsed?.description || ""
         return title.toLowerCase().includes(query) || description.toLowerCase().includes(query)
@@ -352,7 +352,7 @@
       // Inject closures matching ThunkFunction signature
       const fetchRepos = (evt: {filters: any[]; onResult: (events: any[]) => void}) => {
         const controller = new AbortController()
-        const store = deriveEvents(repository, {filters: evt.filters})
+        const store = deriveEventsAsc(deriveEventsById({repository, filters: evt.filters}))
         store.subscribe((events: any[]) => {
           evt.onResult(events as any[])
         })

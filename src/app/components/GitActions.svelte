@@ -13,14 +13,14 @@
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeGitIssuePath, makeGitPath} from "@lib/budabit"
-  import {deriveEvents} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
   import {goto} from "$app/navigation"
   import * as nip19 from "nostr-tools/nip19"
   import type {AddressPointer} from "nostr-tools/nip19"
   import {canonicalRepoKey, sanitizeRelays} from "@nostr-git/core"
   import {pushToast} from "@app/util/toast"
-  import {normalizeRelayUrl} from "@welshman/util"
+  import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
   import Link from "@lib/components/Link.svelte"
   import { onMount } from "svelte"
   import { parseRepoAnnouncementEvent } from "@nostr-git/shared-types"
@@ -47,14 +47,14 @@
     "#a": [Address.fromEvent(event).toString()],
   }
 
-  const issues = deriveEvents(repository, {filters: [issueFilter]})
+  const issues = deriveEventsAsc(deriveEventsById({repository, filters: [issueFilter]}))
 
   const patchFilter = {
     kinds: [GIT_PATCH],
     "#a": [Address.fromEvent(event).toString()],
   }
 
-  const patches = deriveEvents(repository, {filters: [patchFilter]})
+  const patches = deriveEventsAsc(deriveEventsById({repository, filters: [patchFilter]}))
 
   const onPublishDelete = (event: TrustedEvent) =>
     publishDelete({relays: [normalizeRelayUrl(url)], event, protect: false})
@@ -71,7 +71,10 @@
   $effect(() => {
     if (event) {
       if (showIssues) {
-        const cleanRelays = (relays || []).map(u => normalizeRelayUrl(u)).filter(Boolean)
+        const cleanRelays = (relays || [])
+          .map(u => normalizeRelayUrl(u))
+          .filter(u => isRelayUrl(u))
+
         load({relays: cleanRelays as string[], filters: [issueFilter]}).then(() => {
           loadingIssues = false
         })
@@ -213,13 +216,13 @@
         hostname = ''
       }
       const tokens = await tokensStore.waitForInitialization()
-      const matchingTokens = getTokensForHost(tokens, hostname)
+      const matchingTokens = getTokensForHost(tokens, (h: string) => h === hostname)
 
       // Try all tokens for this host until one succeeds, or push without token if none available
       if (matchingTokens.length > 0) {
         await tryTokensForHost(
           tokens,
-          hostname,
+          (h: string) => h === hostname,
           async (token: string, host: string) => {
             return await workerApi.pushToRemote({ repoId, remoteUrl, token })
           }

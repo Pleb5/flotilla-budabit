@@ -13,7 +13,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {createBudaBitRoom, loadChannel} from "@app/core/state"
+  import {createBudaBitRoom, loadRoom} from "@app/core/state"
   import {makeSpacePath} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
 
@@ -24,7 +24,7 @@
   const back = () => history.back()
 
   const tryCreate = async () => {
-    room.tags = uniqBy(nth(0), [...room.tags, ["name", name]])
+    room.name = name
 
     const createMessage = await waitForThunkError(createBudaBitRoom(url, room))
 
@@ -32,9 +32,9 @@
       return pushToast({theme: "error", message: createMessage})
     }
 
-    await loadChannel(url, room.id)
+    await loadRoom(url, room.h)
 
-    goto(makeSpacePath(url, room.id))
+    goto(makeSpacePath(url, room.h))
   }
 
   const create = async () => {

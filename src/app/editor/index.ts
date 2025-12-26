@@ -12,7 +12,8 @@ import {
   handlesByNip05,
   getMaxWot,
   getWotGraph,
-, signer} from "@welshman/app"
+  signer,
+} from "@welshman/app"
 import type {FileAttributes} from "@welshman/editor"
 import {Editor, MentionSuggestion, WelshmanExtension, editorProps} from "@welshman/editor"
 import {makeMentionNodeView} from "@app/editor/MentionNodeView"

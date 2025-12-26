@@ -1,18 +1,24 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
   import {page} from "$app/stores"
-  import {once} from "@welshman/lib"
+  import {once, ago, MONTH, sleep} from "@welshman/lib"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
-  import SpaceMenu from "@app/components/SpaceMenu.svelte"
+  import SpaceMenu from "@lib/budabit/components/SpaceMenu.svelte"
   import SpaceAuthError from "@app/components/SpaceAuthError.svelte"
   import SpaceTrustRelay from "@app/components/SpaceTrustRelay.svelte"
   import {pushModal} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
-  import {decodeRelay, deriveRelayAuthError, relaysPendingTrust} from "@app/core/state"
+  import {decodeRelay, deriveRelayAuthError, relaysPendingTrust, deriveSocket} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {GIT_ISSUE, GIT_PATCH, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GRASP_SET_KIND} from "@nostr-git/shared-types"
   import { channelsByUrl, loadPlatformChannels } from "@src/lib/budabit"
+  import {SocketStatus} from "@welshman/net"
+  import {request} from "@welshman/net"
+  import {onMount} from "svelte"
+  import {pushToast} from "@app/util/toast"
+  import {displayRelayUrl} from "@welshman/util"
+  import {THREAD, EVENT_TIME, MESSAGE, COMMENT} from "@welshman/util"
 
   type Props = {
     children?: Snippet
@@ -64,7 +70,7 @@
     // for user rooms to help with a quick page transition
     loadPlatformChannels()
 
-    pullConservatively({
+    request({
       relays: [url],
       filters: [
         {kinds: [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]},

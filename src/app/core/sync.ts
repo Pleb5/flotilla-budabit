@@ -5,17 +5,17 @@ import {partition, call, sortBy, assoc, chunk, sleep, identity, WEEK, ago} from 
 import {
   getListTags,
   getRelayTagValues,
+  RELAY_ADD_MEMBER,
+  RELAY_REMOVE_MEMBER,
+  RELAY_MEMBERS,
   WRAP,
   ROOM_META,
   ROOM_DELETE,
   ROOM_ADMINS,
   ROOM_MEMBERS,
+  ROOM_CREATE_PERMISSION,
   ROOM_ADD_MEMBER,
   ROOM_REMOVE_MEMBER,
-  ROOM_CREATE_PERMISSION,
-  RELAY_MEMBERS,
-  RELAY_ADD_MEMBER,
-  RELAY_REMOVE_MEMBER,
   isSignedEvent,
   unionFilters,
 } from "@welshman/util"
@@ -24,19 +24,19 @@ import {request, load, pull} from "@welshman/net"
 import {
   pubkey,
   loadRelay,
-  userFollowList,
-  userRelayList,
-  userMessagingRelayList,
-  loadRelayList,
-  loadMessagingRelayList,
-  loadBlossomServerList,
-  loadFollowList,
-  loadMuteList,
   loadProfile,
   tracker,
   repository,
-  shouldUnwrap,
   hasNegentropy,
+  shouldUnwrap,
+  userRelayList,
+  userFollowList,
+  userMessagingRelayList,
+  loadUserRelayList,
+  loadUserMessagingRelayList,
+  loadUserBlossomServerList,
+  loadUserFollowList,
+  loadUserMuteList,
 } from "@welshman/app"
 import {
   REACTION_KINDS,
@@ -199,31 +199,31 @@ const syncUserData = () => {
     }
   })
 
-  const unsubscribeRelayList = userRelayList.subscribe($userRelayList => {
+  const unsubscribeRelayList = userRelayList.subscribe(($userRelayList: any) => {
     if ($userRelayList) {
       loadAlerts($userRelayList.event.pubkey)
       loadAlertStatuses($userRelayList.event.pubkey)
-      loadBlossomServerList($userRelayList.event.pubkey)
-      loadFollowList($userRelayList.event.pubkey)
+      loadUserBlossomServerList($userRelayList.event.pubkey)
+      loadUserFollowList($userRelayList.event.pubkey)
       loadGroupList($userRelayList.event.pubkey)
-      loadMuteList($userRelayList.event.pubkey)
+      loadUserMuteList($userRelayList.event.pubkey)
       loadProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
     }
   })
 
-  const unsubscribeFollows = userFollowList.subscribe(async $userFollowList => {
+  const unsubscribeFollows = userFollowList.subscribe(async (_$userFollowList: any) => {
     for (const pubkeys of chunk(10, get(bootstrapPubkeys))) {
       // This isn't urgent, avoid clogging other stuff up
       await sleep(1000)
 
       await Promise.all(
         pubkeys.map(async pk => {
-          await loadRelayList(pk)
+          await loadUserRelayList(pk)
           await loadGroupList(pk)
           await loadProfile(pk)
-          await loadFollowList(pk)
-          await loadMuteList(pk)
+          await loadUserFollowList(pk)
+          await loadUserMuteList(pk)
         }),
       )
     }
@@ -355,9 +355,7 @@ const syncDMs = () => {
 
       // If we have a pubkey, refresh our user's relay list then sync our subscriptions
       if ($pubkey && $shouldUnwrap) {
-        loadRelayList($pubkey)
-          .then(() => loadMessagingRelayList($pubkey))
-          .then($l => subscribeAll($pubkey, getRelayTagValues(getListTags($l))))
+        loadUserRelayList($pubkey).then(() => loadUserMessagingRelayList($pubkey))
       }
 
       currentPubkey = $pubkey

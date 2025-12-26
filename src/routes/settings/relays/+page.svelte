@@ -1,6 +1,6 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {pubkey, getRelayLists, getMessagingRelayLists, derivePubkeyRelays} from "@welshman/app"
+  import {pubkey, derivePubkeyRelays} from "@welshman/app"
   import {RelayMode} from "@welshman/util"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -45,7 +45,7 @@
   const removeMessagingRelay = (url: string) => setMessagingRelayPolicy(url, false)
 
   onMount(() => {
-    discoverRelays([...getRelayLists(), ...getMessagingRelayLists()])
+    discoverRelays([])
   })
 </script>
 

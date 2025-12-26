@@ -1,4 +1,3 @@
-
 import { writable, derived, get as getStore, type Writable } from "svelte/store"
 import { load, request } from "@welshman/net"
 import {
@@ -14,10 +13,16 @@ import {
   mergeEffectiveLabels,
   type RepoGroup
 } from "@nostr-git/core"
-import { repository } from "@welshman/app"
-import { collection, deriveEvents, withGetter } from "@welshman/store"
-import { PLATFORM_RELAYS, channelEvents, deriveEvent, getUrlsForEvent, roomComparator, splitChannelId, userRoomsByUrl, type Channel, fromCsv } from "@app/core/state"
-import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
+import { repository, pubkey } from "@welshman/app"
+import { deriveEventsAsc, deriveEventsById, withGetter } from "@welshman/store"
+import {
+  PLATFORM_RELAYS,
+  deriveEvent,
+  roomComparator,
+  membershipsByPubkey,
+  getMembershipRoomsByUrl,
+} from "@app/core/state"
+import { isRelayUrl, normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
 import { fromPairs, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
 import { extractRoleAssignments } from "./labels"
@@ -39,11 +44,37 @@ export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767
 
+export const DEFAULT_WORKER_PUBKEY = "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
+
+export const fromCsv = (s: string) =>
+  (s || "")
+    .split(",")
+    .map(u => normalizeRelayUrl(u))
+    .filter(isRelayUrl)
+
 export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
 export const ROOMS = 10009
 
 export const GENERAL = "_"
+
+// Job-related types and stores
+export interface JobRequestEvent {
+  id: string
+  pubkey: string
+  content: string
+  created_at: number
+  tags: string[][]
+}
+
+export interface JobRequestStatus {
+  status: 'pending' | 'success' | 'error'
+  eventId?: string
+  relays: Array<{url: string, status: 'success' | 'error', error?: string}>
+  error?: string
+}
+
+export const jobRequestStatus = writable<JobRequestStatus | null>(null)
 
 export const jobLink = (naddr: string) => `https://test.satshoot.com/${naddr}`
 export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
@@ -53,7 +84,9 @@ export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
 // - group by r:euc using core's groupByEuc
 // - expose lookups and maintainer derivation helpers
 
-export const repoAnnouncements = deriveEvents(repository, { filters: [{ kinds: [30617] }] })
+export const repoAnnouncements = deriveEventsAsc(
+  deriveEventsById({repository, filters: [{kinds: [30617]}]}),
+)
 
 export const repoGroups = derived(repoAnnouncements, ($events): RepoGroup[] => {
   return groupByEuc($events as any)
@@ -91,7 +124,7 @@ export const deriveMaintainersForEuc = (euc: string) =>
 
 export const loadRepoAnnouncements = (relays: string[] = GIT_RELAYS) =>
   load({
-    relays: relays.map(u => normalizeRelayUrl(u)).filter(Boolean) as string[],
+    relays: relays.map(u => normalizeRelayUrl(u)).filter(isRelayUrl) as string[],
     filters: [{ kinds: [30617] }],
   })
 
@@ -104,7 +137,7 @@ export const loadRepoAnnouncements = (relays: string[] = GIT_RELAYS) =>
 export const deriveRepoRefState = (euc: string) =>
   withGetter(
     derived(
-      [deriveEvents(repository, { filters: [{ kinds: [30618] }] }), deriveRepoGroup(euc)],
+      [deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [30618]}]})), deriveRepoGroup(euc)],
       ([$states, $group]) => {
         const maintainers = $group ? deriveMaintainers($group) : new Set<string>()
         return mergeRepoStateByMaintainers({ states: $states as unknown as any[], maintainers })
@@ -118,7 +151,7 @@ export const deriveRepoRefState = (euc: string) =>
 export const deriveRoleAssignments = (rootId: string) =>
   withGetter(
     derived(
-      deriveEvents(repository, { filters: [{ kinds: [1985], "#e": [rootId] }] }),
+      deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1985], "#e": [rootId]}]})),
       ($events) => extractRoleAssignments($events as any[], rootId)
     )
   )
@@ -129,7 +162,7 @@ export const deriveRoleAssignments = (rootId: string) =>
 export const deriveAssignmentsFor = (rootIds: string[]) =>
   withGetter(
     derived(
-      deriveEvents(repository, { filters: [{ kinds: [1985], "#e": rootIds }] }),
+      deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1985], "#e": rootIds}]})),
       ($events) => {
         const assignmentsByRoot = new Map<string, { assignees: Set<string>; reviewers: Set<string> }>()
         
@@ -176,7 +209,9 @@ export const deriveAssignmentsFor = (rootIds: string[]) =>
  */
 export const derivePatchGraph = (addressA: string) =>
   withGetter(
-    derived(deriveEvents(repository, { filters: [{ kinds: [1617], "#a": [addressA] }] }), $patches =>
+    derived(
+      deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1617], "#a": [addressA]}]})),
+      $patches =>
       buildPatchGraph($patches as unknown as any[]),
     ),
   )
@@ -189,8 +224,10 @@ export const deriveIssueThread = (rootId: string) =>
     derived(
       [
         deriveEvent(rootId),
-        deriveEvents(repository, { filters: [{ kinds: [1111], "#e": [rootId] }] }),
-        deriveEvents(repository, { filters: [{ kinds: [1630, 1631, 1632, 1633], "#e": [rootId] }] }),
+        deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1111], "#e": [rootId]}]})),
+        deriveEventsAsc(
+          deriveEventsById({repository, filters: [{kinds: [1630, 1631, 1632, 1633], "#e": [rootId]}]}),
+        ),
       ],
       ([$root, $comments, $statuses]) =>
         $root
@@ -223,7 +260,7 @@ export const deriveEffectiveLabels = (eventId: string) =>
     derived(
       [
         deriveEvent(eventId),
-        deriveEvents(repository, { filters: [{ kinds: [1985], "#e": [eventId] }] }),
+        deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1985], "#e": [eventId]}]})),
       ],
       ([$evt, $external]) => {
         if (!$evt) return undefined
@@ -254,9 +291,42 @@ export const loadRepoContext = (args: {
   const defaults = GIT_RELAYS
   const relays = (args.relays || defaults)
     .map((u: string) => normalizeRelayUrl(u))
-    .filter(Boolean) as string[]
+    .filter(isRelayUrl) as string[]
   return load({ relays, filters })
 }
+
+export type Channel = {
+  id: string
+  url: string
+  room: string
+  event: TrustedEvent
+  name: string
+  closed: boolean
+  private: boolean
+  picture?: string
+  about?: string
+}
+
+export const splitChannelId = (id: string) => id.split("'")
+
+export const channelEvents = deriveEventsAsc(
+  deriveEventsById({repository, filters: [{kinds: [ROOM_META]}]}),
+)
+
+export const getUrlsForEvent = withGetter(
+  derived([], () => (id: string) => PLATFORM_RELAYS as string[]),
+)
+
+export const userRoomsByUrl = derived([pubkey, membershipsByPubkey], ([$pubkey, $mb]) => {
+  const result = new Map<string, Set<string>>()
+  const list = $pubkey ? $mb.get($pubkey) : undefined
+
+  for (const url of PLATFORM_RELAYS) {
+    result.set(url, new Set(getMembershipRoomsByUrl(url, list)))
+  }
+
+  return result
+})
 
 export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   let attempted = false
@@ -264,7 +334,7 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   const fallbackRelays = [...hints, ...GIT_RELAYS]
   const relays = (decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays)
     .map(u => normalizeRelayUrl(u))
-    .filter(Boolean)
+    .filter(isRelayUrl)
   const filters = [
     {
       authors: [decoded.pubkey],
@@ -273,7 +343,7 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
     },
   ]
 
-  return derived(deriveEvents(repository, { filters }), (events: TrustedEvent[]) => {
+  return derived(deriveEventsAsc(deriveEventsById({repository, filters})), (events: TrustedEvent[]) => {
     if (!attempted && events.length === 0) {
       load({ relays: relays as string[], filters })
       attempted = true
@@ -282,7 +352,7 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   })
 }
 
-export const makeChannelId = (url: string, room: string) => {
+export const makeChannelId = (url: string, room: string): string => {
   if (room.startsWith("naddr1")) {
     return "naddr1"
   }
@@ -340,24 +410,23 @@ export const channels = derived(
   },
 )
 
-export const {
-  indexStore: channelsById,
-  deriveItem: _deriveChannel,
-  loadItem: _loadChannel,
-} = collection({
-  name: "channels",
-  store: channels,
-  getKey: channel => {
-    return channel.id
-  },
-  load: async (id: string) => {
-    const [url, room] = splitChannelId(id)
-    await load({
-      relays: [normalizeRelayUrl(url)],
-      filters: [{kinds: [ROOM_META], "#d": [room]}],
-    })
-  },
-})
+export const channelsById = withGetter(
+  derived(channels, $channels => {
+    const m = new Map<string, Channel>()
+    for (const c of $channels) m.set(c.id, c)
+    return m
+  }),
+)
+
+export const _loadChannel = async (id: string) => {
+  const [url, room] = splitChannelId(id)
+  await load({
+    relays: [normalizeRelayUrl(url)],
+    filters: [{kinds: [ROOM_META], "#d": [room]}],
+  })
+}
+
+export const _deriveChannel = (id: string) => withGetter(derived(channelsById, $m => $m.get(id)))
 
 export const channelsByUrl = derived(channelsById, $channelsById => {
   const $channelsByUrl = new Map<string, Channel[]>()

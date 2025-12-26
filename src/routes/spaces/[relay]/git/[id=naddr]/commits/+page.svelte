@@ -12,7 +12,7 @@
     context,
   } from "@nostr-git/ui"
   import Spinner from "@src/lib/components/Spinner.svelte"
-    import { slide } from 'svelte/transition'
+  import { slide } from 'svelte/transition'
   import {getContext} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
@@ -63,43 +63,43 @@
 
   // Handle branch switching state changes
   $effect(() => {
-    const isSwitching = repoClass.isBranchSwitching;
-    
+    const isSwitching = repoClass.isBranchSwitching
+
     if (isSwitching) {
       // Show loading state while switching
-      commitsLoading = true;
-      wasJustSwitching = true;
-      branchSwitchComplete = false;
+      commitsLoading = true
+      wasJustSwitching = true
+      branchSwitchComplete = false
     } else if (wasJustSwitching) {
       // Switch just completed - commits are already loaded by setSelectedBranch
       // Mark as complete and wait a tick to ensure state is fully updated
-      wasJustSwitching = false;
-      branchSwitchComplete = true;
+      wasJustSwitching = false
+      branchSwitchComplete = true
+
       // Use a microtask to ensure reactive state is fully updated
       Promise.resolve().then(() => {
-        branchSwitchComplete = false;
-        commitsLoading = false;
-        // Update commits from repoClass after switch completes
-        commits = repoClass.commits || [];
-        totalCommits = repoClass.totalCommits;
-        hasMoreCommits = repoClass.hasMoreCommits;
-      });
+        branchSwitchComplete = false
+        commitsLoading = false
+        commits = repoClass.commits || []
+        totalCommits = repoClass.totalCommits
+        hasMoreCommits = repoClass.hasMoreCommits
+      })
     }
-  });
+  })
 
   // Load commits when branch changes (but not during active switching or right after)
   $effect(() => {
     const selectedBranch = repoClass.selectedBranch;
     const mainBranch = repoClass.mainBranch;
     const currentBranch = selectedBranch || mainBranch;
-    const isSwitching = repoClass.isBranchSwitching;
-    
-    // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
-    if (isSwitching || wasJustSwitching || branchSwitchComplete) {
-      return;
-    }
+    const isSwitching = repoClass.isBranchSwitching
     
     if (repoClass && repoClass.repoId && currentBranch) {
+      // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
+      if (isSwitching || wasJustSwitching || branchSwitchComplete) {
+        return
+      }
+
       // Detect branch changes (e.g., from navigation, not from selector)
       if (previousBranch !== undefined && previousBranch !== currentBranch) {
         console.log(`🔄 Branch changed from "${previousBranch}" to "${currentBranch}", resetting to page 1`);
@@ -178,11 +178,11 @@
     const repoTotalCommits = repoClass.totalCommits;
     const repoHasMore = repoClass.hasMoreCommits;
     const currentBranch = repoClass.selectedBranch || repoClass.mainBranch;
-    const isSwitching = repoClass.isBranchSwitching;
-    
+    const isSwitching = repoClass.isBranchSwitching
+
     // Don't sync during active switching to avoid race conditions
     if (isSwitching) {
-      return;
+      return
     }
     
     // Update commits from repoClass (especially after branch switches)
