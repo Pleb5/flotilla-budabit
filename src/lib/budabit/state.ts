@@ -21,6 +21,7 @@ import {
   roomComparator,
   membershipsByPubkey,
   getMembershipRoomsByUrl,
+  fromCsv,
 } from "@app/core/state"
 import { isRelayUrl, normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
@@ -45,12 +46,6 @@ export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 export const FREELANCE_JOB = 32767
 
 export const DEFAULT_WORKER_PUBKEY = "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
-
-export const fromCsv = (s: string) =>
-  (s || "")
-    .split(",")
-    .map(u => normalizeRelayUrl(u))
-    .filter(isRelayUrl)
 
 export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
