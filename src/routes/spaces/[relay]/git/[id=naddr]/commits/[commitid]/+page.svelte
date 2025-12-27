@@ -12,6 +12,7 @@
 </style>
 
 <script lang="ts">
+  import { page } from '$app/stores';
   import {
     ChevronDown,
     ChevronRight,
@@ -36,6 +37,11 @@
 
   // Get repoClass from context
   const repoClass = getContext<Repo>(REPO_KEY)
+
+  // Create navigation helper for parent commits
+  const getParentHref = (commitId: string) => {
+    return `/spaces/${encodeURIComponent($page.params.relay)}/git/${encodeURIComponent($page.params.id)}/commits/${commitId}`;
+  };
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -168,7 +174,8 @@
     email={commitMeta.email}
     date={commitMeta.date}
     message={commitMeta.message}
-    parents={commitMeta.parents} />
+    parents={commitMeta.parents}
+    getParentHref={getParentHref} />
 
   <!-- Diff Summary -->
   <div>
