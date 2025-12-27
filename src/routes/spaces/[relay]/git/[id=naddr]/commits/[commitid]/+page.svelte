@@ -222,7 +222,7 @@
   </div>
 
   <div
-    class="z-10 sticky top-0 border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6 sm:py-4">
+    class="border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6 sm:py-4">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <!-- Expand/Collapse Controls -->
       <div class="flex items-center gap-2">
@@ -246,12 +246,6 @@
           <ChevronsUp class="h-4 w-4" />
           <span>Collapse all</span>
         </button>
-        {#if changes.length > 0}
-          <span class="ml-2 text-sm text-muted-foreground">
-            ({expandedCount} of {changes.length}
-            {expandedCount === 1 ? "file" : "files"} expanded)
-          </span>
-        {/if}
       </div>
     </div>
   </div>

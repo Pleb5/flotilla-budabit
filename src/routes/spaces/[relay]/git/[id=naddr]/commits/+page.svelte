@@ -332,13 +332,13 @@
         {#if commits}
           <div class="space-y-4" transition:slide>
             {#each filteredCommits as commit (commit.oid)}
-              <CommitCard 
-                {commit} 
-                onReact={handleReact} 
+              <CommitCard
+                {commit}
+                onReact={handleReact}
                 onComment={handleComment}
                 href={getCommitUrl(commit.oid)}
-                displayName={commit?.commit?.author?.name || undefined}
-              />
+                getParentHref={getCommitUrl}
+                displayName={commit?.commit?.author?.name || undefined} />
             {/each}
           </div>
           <div class="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
