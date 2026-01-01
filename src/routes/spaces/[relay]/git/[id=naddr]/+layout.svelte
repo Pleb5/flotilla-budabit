@@ -582,10 +582,11 @@
       }
 
       // Call syncWithRemote through the repo's worker manager
-      const result = await repoClass.workerManager.syncWithRemote({
+      const result = await repoClass.workerManager.smartInitializeRepo({
         repoId: repoClass.key,
         cloneUrls,
-        branch: repoClass.mainBranch,
+        forceUpdate: true,
+        timeoutMs: 2 * 60 * 1000, // 2 minutes
       })
 
       if (result.success) {
