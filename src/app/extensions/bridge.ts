@@ -29,9 +29,11 @@ export class ExtensionBridge {
   private allowedActions: Set<string> = new Set()
 
   constructor(private extension: LoadedExtension) {
-    // Precompute allowed permissions from manifest + granted policy
-    if (extension.manifest.permissions) {
-      extension.manifest.permissions.forEach(p => this.allowedActions.add(p))
+    // Precompute allowed permissions from manifest or widget; widgets default to empty (deny privileged)
+    const permissions =
+      extension.type === "nip89" ? extension.manifest.permissions : extension.widget.permissions
+    if (permissions) {
+      permissions.forEach(p => this.allowedActions.add(p))
     }
   }
 
@@ -117,7 +119,7 @@ export class ExtensionBridge {
 
 // Example host-side actions registration (used by extensions)
 registerBridgeHandler("nostr:publish", async (payload, ext) => {
-  if (ext) console.log(`[bridge] nostr:publish from ${ext.manifest.id}`, payload)
+  if (ext) console.log(`[bridge] nostr:publish from ${ext.id}`, payload)
   try {
     const result = await publishThunk(payload)
     return {status: "ok", result}
@@ -128,7 +130,7 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
 })
 
 registerBridgeHandler("ui:toast", (payload, ext) => {
-  if (ext) console.log(`[bridge] ui:toast from ${ext.manifest.id}`, payload)
+  if (ext) console.log(`[bridge] ui:toast from ${ext.id}`, payload)
   try {
     const {message, type = "info"} = payload || {}
     if (message) pushToast({theme: type, message})

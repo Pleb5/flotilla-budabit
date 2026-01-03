@@ -110,13 +110,20 @@ import {
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
-import {extensionSettings} from "@app/extensions/settings"
-import {extensionRegistry} from "@app/extensions/registry"
+import {
+  extensionSettings,
+  getInstalledExtensions,
+  getInstalledExtension,
+} from "@app/extensions/settings"
+import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {request} from "@welshman/net"
-import type {ExtensionManifest} from "@app/extensions/types"
+import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
 
 // Utils
+
+const SMART_WIDGET_KIND = 30033
+const SMART_WIDGET_RELAYS = ["wss://relay.yakihonne.com"]
 
 export const installExtension = async (manifestUrl: string) => {
   // Fetch + validate + register the manifest in the registry
@@ -124,7 +131,11 @@ export const installExtension = async (manifestUrl: string) => {
 
   // Persist into settings.installed and leave enablement to the user
   extensionSettings.update(s => {
-    s.installed = {...s.installed, [manifest.id]: manifest}
+    s.installed = {
+      nip89: {...(s.installed?.nip89 || {}), [manifest.id]: manifest},
+      widget: s.installed?.widget || {},
+      legacy: s.installed?.legacy,
+    }
     return s
   })
 
@@ -136,9 +147,8 @@ export const uninstallExtension = (id: string) => {
   extensionRegistry.unloadExtension(id)
 
   extensionSettings.update(s => {
-    if (s.installed && s.installed[id]) {
-      delete s.installed[id]
-    }
+    if (s.installed?.nip89?.[id]) delete s.installed.nip89[id]
+    if (s.installed?.widget?.[id]) delete s.installed.widget[id]
     s.enabled = s.enabled.filter(e => e !== id)
     return s
   })
@@ -147,10 +157,47 @@ export const uninstallExtension = (id: string) => {
 export const installExtensionFromManifest = (manifest: ExtensionManifest) => {
   extensionRegistry.register(manifest)
   extensionSettings.update(s => {
-    s.installed = {...s.installed, [manifest.id]: manifest}
+    s.installed = {
+      nip89: {...(s.installed?.nip89 || {}), [manifest.id]: manifest},
+      widget: s.installed?.widget || {},
+      legacy: s.installed?.legacy,
+    }
     return s
   })
   return manifest
+}
+
+export const installWidgetFromEvent = (event: TrustedEvent) => {
+  const widget = parseSmartWidget(event)
+  extensionRegistry.registerWidget(widget)
+  extensionSettings.update(s => {
+    s.installed = {
+      nip89: s.installed?.nip89 || {},
+      widget: {...(s.installed?.widget || {}), [widget.identifier]: widget},
+      legacy: s.installed?.legacy,
+    }
+    return s
+  })
+  return widget
+}
+
+export const installWidgetByNaddr = async (naddr: string) => {
+  const decoded = nip19.decode(naddr)
+  if (decoded.type !== "naddr") throw new Error("Invalid naddr")
+  const data = decoded.data as nip19.AddressPointer
+  const relays = data.relays?.length ? data.relays : SMART_WIDGET_RELAYS
+  const kind = data.kind || SMART_WIDGET_KIND
+  const filters = [{kinds: [kind], authors: [data.pubkey], "#d": [data.identifier], limit: 1}]
+  try {
+    await request({relays, filters})
+  } catch (e) {
+    console.warn("Widget fetch error", e)
+  }
+  const events = repository.query(filters)
+  if (!events.length) {
+    throw new Error("Widget not found")
+  }
+  return installWidgetFromEvent(events[0] as TrustedEvent)
 }
 
 // NIP-89 discovery (kind 31990)
@@ -186,6 +233,35 @@ export const discoverExtensions = async (): Promise<ExtensionManifest[]> => {
   return Array.from(byId.values())
 }
 
+export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
+  try {
+    await request({
+      relays: SMART_WIDGET_RELAYS,
+      filters: [{kinds: [SMART_WIDGET_KIND], limit: 200}],
+    })
+  } catch (e) {
+    console.warn("Smart widget discovery errored:", e)
+  }
+
+  const events = repository.query([{kinds: [SMART_WIDGET_KIND]}])
+  const widgets: SmartWidgetEvent[] = []
+
+  for (const ev of events) {
+    try {
+      widgets.push(parseSmartWidget(ev))
+    } catch (_e) {
+      // ignore malformed widget
+    }
+  }
+
+  const byId = new Map<string, SmartWidgetEvent>()
+  for (const widget of widgets) {
+    if (!byId.has(widget.identifier)) byId.set(widget.identifier, widget)
+  }
+
+  return Array.from(byId.values())
+}
+
 export const enableExtension = async (id: string) => {
   // Persist enabled flag
   extensionSettings.update(s => {
@@ -196,12 +272,21 @@ export const enableExtension = async (id: string) => {
   })
 
   // Load the extension iframe/runtime
-  const manifest = get(extensionSettings).installed[id]
+  const installed = getInstalledExtensions()
+  const manifest = installed.nip89[id]
+  const widget = installed.widget[id]
+
   if (manifest) {
     try {
       await extensionRegistry.loadIframeExtension(manifest)
     } catch (e) {
       console.warn("Failed to load extension", id, e)
+    }
+  } else if (widget) {
+    try {
+      await extensionRegistry.loadWidget(widget)
+    } catch (e) {
+      console.warn("Failed to load widget", id, e)
     }
   }
 }
@@ -275,13 +360,13 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
       ["worker", DEFAULT_WORKER_PUBKEY], // Worker pubkey
       ["cmd", params.cmd],
       ["args", ...params.args],
-      ["payment", params.cashuToken]
-    ]
+      ["payment", params.cashuToken],
+    ],
   }
 
   const event = await $signer.sign(eventTemplate)
-  
-  const publishStatus: Array<{relay: string, success: boolean, error?: string}> = []
+
+  const publishStatus: Array<{relay: string; success: boolean; error?: string}> = []
   let successCount = 0
   let failureCount = 0
 
@@ -290,10 +375,10 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
     try {
       const thunk = publishThunk({event, relays: [relay]})
       await thunk.complete
-      
+
       publishStatus.push({
         relay,
-        success: true
+        success: true,
       })
       successCount++
     } catch (error) {
@@ -301,7 +386,7 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
       publishStatus.push({
         relay,
         success: false,
-        error: String(error)
+        error: String(error),
       })
       failureCount++
     }
@@ -311,7 +396,7 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
     event,
     successCount,
     failureCount,
-    publishStatus
+    publishStatus,
   }
 }
 

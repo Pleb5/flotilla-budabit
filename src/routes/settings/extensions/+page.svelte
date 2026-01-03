@@ -8,9 +8,12 @@
     installExtension,
     uninstallExtension,
     installExtensionFromManifest,
+    installWidgetFromEvent,
+    installWidgetByNaddr,
+    discoverSmartWidgets,
   } from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
-  import type {ExtensionManifest} from "@app/extensions/types"
+  import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
   import {load, request} from "@welshman/net"
   import {INDEXER_RELAYS} from "@app/core/state"
   import FieldInline from "@lib/components/FieldInline.svelte"
@@ -18,8 +21,15 @@
   import Icon from "@lib/components/Icon.svelte"
   import BoxMinimalistic from "@assets/icons/box-minimalistic.svg?dataurl"
   import LinkRound from "@assets/icons/link-round.svg?dataurl"
+
+  type InstalledItem =
+    | {type: "nip89"; id: string; manifest: ExtensionManifest}
+    | {type: "widget"; id: string; manifest: SmartWidgetEvent}
+
   // Installed/Enabled (from settings)
-  let installed = $state<ExtensionManifest[]>([])
+  let installedNip89 = $state<ExtensionManifest[]>([])
+  let installedWidgets = $state<SmartWidgetEvent[]>([])
+  let installed = $state<InstalledItem[]>([])
   let enabledIds = $state<string[]>([])
 
   // Discovery state
@@ -27,9 +37,14 @@
   let discovered = $state<ExtensionManifest[]>([])
   let loadingDiscovery = $state(false)
 
+  let discoveredWidgets = $state<SmartWidgetEvent[]>([])
+  let loadingWidgetDiscovery = $state(false)
+
   // Install by URL
   let manifestUrl = $state("")
   let installing = $state(false)
+  let widgetNaddr = $state("")
+  let installingWidget = $state(false)
 
   // Curated recommended
   const recommended: {name: string; url: string; description?: string}[] = [
@@ -42,7 +57,12 @@
 
   onMount(async () => {
     unsub = extensionSettings.subscribe(s => {
-      installed = Object.values(s.installed || {}) as ExtensionManifest[]
+      installedNip89 = Object.values(s.installed?.nip89 || {})
+      installedWidgets = Object.values(s.installed?.widget || {})
+      installed = [
+        ...installedNip89.map(m => ({type: "nip89", id: m.id, manifest: m})),
+        ...installedWidgets.map(w => ({type: "widget", id: w.identifier, manifest: w})),
+      ]
       enabledIds = s.enabled || []
     })
 
@@ -74,6 +94,15 @@
       pushToast({theme: "error", message: "Failed to discover extensions"})
     } finally {
       loadingDiscovery = false
+    }
+
+    loadingWidgetDiscovery = true
+    try {
+      discoveredWidgets = await discoverSmartWidgets()
+    } catch (e) {
+      pushToast({theme: "error", message: "Failed to discover smart widgets"})
+    } finally {
+      loadingWidgetDiscovery = false
     }
   })
 
@@ -112,6 +141,37 @@
     }
   }
 
+  const onInstallWidget = (w: SmartWidgetEvent) => {
+    try {
+      installWidgetFromEvent(w as any)
+      enableExtension(w.identifier)
+      pushToast({
+        theme: "success",
+        message: `Installed and enabled widget ${w.content || w.identifier}`,
+      })
+    } catch (e: any) {
+      pushToast({theme: "error", message: e?.message || "Install failed"})
+    }
+  }
+
+  const onInstallWidgetByNaddr = async () => {
+    if (!widgetNaddr) return
+    installingWidget = true
+    try {
+      const widget = await installWidgetByNaddr(widgetNaddr)
+      enableExtension(widget.identifier)
+      pushToast({
+        theme: "success",
+        message: `Installed and enabled widget ${widget.content || widget.identifier}`,
+      })
+      widgetNaddr = ""
+    } catch (e: any) {
+      pushToast({theme: "error", message: e?.message || "Install failed"})
+    } finally {
+      installingWidget = false
+    }
+  }
+
   const onUninstall = (id: string) => {
     uninstallExtension(id)
     pushToast({theme: "info", message: "Uninstalled"})
@@ -145,6 +205,36 @@
         disabled={!manifestUrl || installing}
         onclick={onInstallByUrl}>
         {installing ? "Installing..." : "Install"}
+      </Button>
+    </div>
+  </div>
+
+  <!-- Install by naddr -->
+  <div class="card2 bg-alt col-4 shadow-xl">
+    <strong class="text-lg">Install Smart Widget (naddr)</strong>
+    <FieldInline>
+      {#snippet label()}
+        <p class="flex items-center gap-3">
+          <Icon icon={LinkRound} />
+          Widget naddr
+        </p>
+      {/snippet}
+      {#snippet input()}
+        <label class="input input-bordered flex w-full items-center gap-2">
+          <Icon icon={LinkRound} />
+          <input class="grow" placeholder="naddr1..." bind:value={widgetNaddr} />
+        </label>
+      {/snippet}
+      {#snippet info()}
+        <p>Paste a Smart Widget naddr to install.</p>
+      {/snippet}
+    </FieldInline>
+    <div class="mt-3 flex justify-end">
+      <Button
+        class="btn btn-primary btn-sm"
+        disabled={!widgetNaddr || installingWidget}
+        onclick={onInstallWidgetByNaddr}>
+        {installingWidget ? "Installing..." : "Install Widget"}
       </Button>
     </div>
   </div>
@@ -188,7 +278,7 @@
               <div class="text-xs opacity-50">{m.entrypoint}</div>
             </div>
             <div class="row-2 items-center gap-3">
-              {#if installed.some((i: ExtensionManifest) => i.id === m.id)}
+              {#if installedNip89.some((i: ExtensionManifest) => i.id === m.id)}
                 <label class="row-2 items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -211,20 +301,60 @@
     {/if}
   </div>
 
+  <!-- Discovered Smart Widgets -->
+  <div class="card2 bg-alt col-8 shadow-xl">
+    <strong class="text-lg">Discovered Smart Widgets</strong>
+    {#if loadingWidgetDiscovery}
+      <p class="opacity-70">Discovering...</p>
+    {:else if discoveredWidgets.length === 0}
+      <p class="opacity-70">No smart widgets discovered.</p>
+    {:else}
+      <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+        {#each discoveredWidgets as w (w.identifier)}
+          <div class="card2 row-2 items-center justify-between p-3">
+            <div>
+              <div class="font-medium">{w.content || w.identifier}</div>
+              <div class="text-xs opacity-70">Type: {w.widgetType}</div>
+              <div class="text-xs opacity-50">{w.appUrl || w.imageUrl}</div>
+            </div>
+            <div class="row-2 items-center gap-3">
+              {#if installedWidgets.some((i: SmartWidgetEvent) => i.identifier === w.identifier)}
+                <label class="row-2 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-primary"
+                    checked={enabledIds.includes(w.identifier)}
+                    onchange={e =>
+                      (e.currentTarget as HTMLInputElement).checked
+                        ? enableExtension(w.identifier)
+                        : disableExtension(w.identifier)} />
+                  <span class="opacity-70">Enabled</span>
+                </label>
+              {:else}
+                <Button class="btn btn-primary btn-sm" onclick={() => onInstallWidget(w)}
+                  >Install</Button>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
   <!-- Installed List -->
   <div class="card2 bg-alt col-8 shadow-xl">
     <strong class="text-lg">Installed</strong>
     {#if installed.length > 0}
       <div class="flex flex-col gap-3">
-        {#each installed as manifest (manifest.id)}
+        {#each installed as item (item.id)}
           <div class="row-2 items-start justify-between">
             <ExtensionCard
-              {manifest}
-              enabled={enabledIds.includes(manifest.id)}
-              on:toggle={({detail}) => toggle(manifest.id, detail.enabled)} />
-            <Button
-              class="btn btn-outline btn-error btn-sm"
-              onclick={() => onUninstall(manifest.id)}>Uninstall</Button>
+              manifest={item.manifest}
+              type={item.type}
+              enabled={enabledIds.includes(item.id)}
+              on:toggle={({detail}) => toggle(item.id, detail.enabled)} />
+            <Button class="btn btn-outline btn-error btn-sm" onclick={() => onUninstall(item.id)}
+              >Uninstall</Button>
           </div>
         {/each}
       </div>

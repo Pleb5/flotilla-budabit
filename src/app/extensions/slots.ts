@@ -10,10 +10,13 @@ export const registerSlotHandler = (slot: ExtensionSlotId, handler: ExtensionSlo
 
 export const getSlotHandlers = (slot: ExtensionSlotId) => slotHandlers.get(slot) || []
 
-export const invokeSlot = (slot: ExtensionSlotId, args: any) => {
+export const invokeSlot = (
+  slot: ExtensionSlotId,
+  args: {root?: HTMLElement; context: Record<string, unknown>; extension?: LoadedExtension},
+) => {
   for (const handler of getSlotHandlers(slot)) {
     try {
-      handler(args)
+      handler(args as any)
     } catch (e) {
       console.error("Slot handler error:", e)
     }

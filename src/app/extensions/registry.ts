@@ -1,5 +1,85 @@
 import {writable, get, derived} from "svelte/store"
-import type {ExtensionManifest, LoadedExtension} from "./types"
+import type {
+  ExtensionManifest,
+  LoadedExtension,
+  LoadedNip89Extension,
+  LoadedWidgetExtension,
+  SmartWidgetEvent,
+  WidgetButtonType,
+} from "./types"
+
+const getTag = (tags: string[][], name: string) => tags.find(t => t[0] === name)
+const getTags = (tags: string[][], name: string) => tags.filter(t => t[0] === name)
+
+export const parseSmartWidget = (event: any): SmartWidgetEvent => {
+  if (!event || event.kind !== 30033 || !Array.isArray(event.tags)) {
+    throw new Error("Invalid smart widget event: wrong kind or missing tags")
+  }
+  const tags: string[][] = event.tags
+  const identifier = getTag(tags, "d")?.[1] || event.id
+  const widgetTypeRaw = (getTag(tags, "l")?.[1] || "basic") as SmartWidgetEvent["widgetType"]
+  const widgetType: SmartWidgetEvent["widgetType"] =
+    widgetTypeRaw === "action" || widgetTypeRaw === "tool" ? widgetTypeRaw : "basic"
+
+  const imageUrl = getTag(tags, "image")?.[1]
+  if (!imageUrl) throw new Error("Smart widget missing required image tag")
+
+  const iconUrl = getTag(tags, "icon")?.[1]
+  const inputLabel = getTag(tags, "input")?.[1]
+
+  const permissions =
+    getTags(tags, "permission")
+      .map(t => t[1])
+      .filter(Boolean) ||
+    getTags(tags, "perm")
+      .map(t => t[1])
+      .filter(Boolean)
+
+  const buttons = getTags(tags, "button").reduce<SmartWidgetEvent["buttons"]>((acc, t, idx) => {
+    const [, label, typeRaw, url] = t
+    if (!label || !typeRaw || !url) return acc
+    const type = typeRaw as WidgetButtonType
+    acc.push({index: idx + 1, label, type, url})
+    return acc
+  }, [])
+
+  const appUrl = buttons.find(b => b.type === "app")?.url
+  if (widgetType !== "basic" && !appUrl) {
+    throw new Error("Action/Tool widget missing app URL")
+  }
+
+  const originHint = getTag(tags, "client")?.[2]
+
+  return {
+    id: event.id,
+    kind: 30033,
+    content: event.content || "",
+    pubkey: event.pubkey,
+    created_at: event.created_at,
+    tags,
+    identifier,
+    widgetType,
+    imageUrl,
+    iconUrl,
+    inputLabel,
+    buttons,
+    appUrl,
+    permissions,
+    originHint,
+  }
+}
+
+const deriveWidgetOrigin = (widget: SmartWidgetEvent): string => {
+  const candidates = [widget.appUrl, widget.originHint, widget.iconUrl, widget.imageUrl].filter(Boolean) as string[]
+  for (const url of candidates) {
+    try {
+      return new URL(url).origin
+    } catch {
+      // ignore invalid URL
+    }
+  }
+  return window.location.origin
+}
 
 class ExtensionRegistry {
   private store = writable<Map<string, LoadedExtension>>(new Map())
@@ -13,10 +93,32 @@ class ExtensionRegistry {
     return ExtensionRegistry.instance
   }
 
-  register(manifest: ExtensionManifest): void {
+  register(manifest: ExtensionManifest): LoadedNip89Extension {
     const extensions = new Map(get(this.store))
     const origin = new URL(manifest.entrypoint).origin
-    extensions.set(manifest.id, {manifest, origin})
+    const ext: LoadedNip89Extension = {type: "nip89", id: manifest.id, manifest, origin}
+    extensions.set(manifest.id, ext)
+    this.store.set(extensions)
+    return ext
+  }
+
+  registerWidget(event: SmartWidgetEvent): LoadedWidgetExtension {
+    const extensions = new Map(get(this.store))
+    const ext: LoadedWidgetExtension = {
+      type: "widget",
+      id: event.identifier,
+      widget: event,
+      origin: deriveWidgetOrigin(event),
+    }
+    extensions.set(ext.id, ext)
+    this.store.set(extensions)
+    return ext
+  }
+
+  // Helper method for updating the internal extension store.
+  private setExtension(ext: LoadedExtension): void {
+    const extensions = new Map(get(this.store))
+    extensions.set(ext.id, ext)
     this.store.set(extensions)
   }
 
@@ -59,33 +161,70 @@ class ExtensionRegistry {
     return manifest
   }
 
-  async loadIframeExtension(manifest: ExtensionManifest): Promise<LoadedExtension> {
-    // If already loaded, return existing to avoid duplicate iframes
-    const existing = this.get(manifest.id)
+  private async loadRuntime(ext: LoadedExtension): Promise<LoadedExtension> {
+    if (ext.type === "nip89") {
+      const existing = this.get(ext.id) as LoadedNip89Extension | undefined
+      if (existing?.iframe) return existing
+      const iframe = document.createElement("iframe")
+      iframe.src = ext.manifest.entrypoint
+      iframe.sandbox.add("allow-scripts", "allow-same-origin")
+      iframe.classList.add("extension-frame")
+
+      document.body.appendChild(iframe)
+
+      const {ExtensionBridge} = await import("./bridge")
+      const bridge = new ExtensionBridge(ext)
+      bridge.attachHandlers(iframe.contentWindow)
+
+      const updated: LoadedNip89Extension = {...ext, iframe, bridge}
+      this.setExtension(updated)
+      return updated
+    }
+
+    // Smart Widget path
+    if (ext.widget.widgetType === "basic") {
+      // No iframe needed; just ensure registration is present
+      this.setExtension(ext)
+      return ext
+    }
+
+    // action/tool widgets require an appUrl
+    if (!ext.widget.appUrl) {
+      throw new Error("Action/Tool widget missing app URL")
+    }
+    const existing = this.get(ext.id) as LoadedWidgetExtension | undefined
     if (existing?.iframe) return existing
 
-    // TODO: Integrate actual policy approval flow (kind 31993)
-    const policyApproved = true
-    if (!policyApproved) throw new Error("Extension policy not approved")
-
-    const origin = new URL(manifest.entrypoint).origin
     const iframe = document.createElement("iframe")
-    iframe.src = manifest.entrypoint
+    iframe.src = ext.widget.appUrl
     iframe.sandbox.add("allow-scripts", "allow-same-origin")
     iframe.classList.add("extension-frame")
 
     document.body.appendChild(iframe)
 
-    const ext: LoadedExtension = {manifest, origin, iframe}
     const {ExtensionBridge} = await import("./bridge")
-    ext.bridge = new ExtensionBridge(ext)
-    ext.bridge!.attachHandlers(iframe.contentWindow)
+    const bridge = new ExtensionBridge(ext)
+    bridge.attachHandlers(iframe.contentWindow)
 
-    const extensions = new Map(get(this.store))
-    extensions.set(manifest.id, ext)
-    this.store.set(extensions)
+    const updated: LoadedWidgetExtension = {...ext, iframe, bridge}
+    this.setExtension(updated)
+    return updated
+  }
 
-    return ext
+  async loadWidget(event: SmartWidgetEvent): Promise<LoadedWidgetExtension> {
+    const existing = this.get(event.identifier)
+    if (existing && existing.type === "widget") {
+      return existing as LoadedWidgetExtension
+    }
+    const ext = this.registerWidget(event)
+    const loaded = await this.loadRuntime(ext)
+    return loaded as LoadedWidgetExtension
+  }
+
+  async loadIframeExtension(manifest: ExtensionManifest): Promise<LoadedExtension> {
+    const existing = this.get(manifest.id)
+    const base = existing && existing.type === "nip89" ? (existing as LoadedNip89Extension) : this.register(manifest)
+    return this.loadRuntime(base)
   }
 
   async unloadExtension(id: string): Promise<void> {
@@ -104,3 +243,4 @@ class ExtensionRegistry {
 }
 
 export const extensionRegistry = ExtensionRegistry.get()
+export {parseSmartWidget}

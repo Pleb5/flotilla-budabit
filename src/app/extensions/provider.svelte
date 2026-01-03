@@ -4,39 +4,51 @@
   import {extensionSettings} from "./settings"
   import type {LoadedExtension} from "./types"
 
-  // Svelte 5 runes-based state variables
   let enabledIds = $state<Set<string>>(new Set())
-  const loaded = $state<LoadedExtension[]>([])
+  let loadedIds = $state<Set<string>>(new Set())
 
   let unsubRegistry: (() => void) | null = null
   let unsubSettings: (() => void) | null = null
 
   onMount(() => {
-    // Subscribe to extensionSettings to maintain enabled ID set
+    // Track enabled IDs
     unsubSettings = extensionSettings.subscribe(settings => {
-      enabledIds = new Set(settings.enabled)
+      enabledIds = new Set(settings.enabled || [])
     })
 
-    // Subscribe to registry; load only enabled extensions
+    // Load runtime for enabled extensions of any type
     unsubRegistry = extensionRegistry.asStore().subscribe(async extensions => {
-      for (const ext of extensions) {
-        if (!enabledIds.has(ext.manifest.id)) continue
-        if (loaded.find(l => l.manifest.id === ext.manifest.id)) continue
+      const presentIds = new Set((extensions as LoadedExtension[]).map(ext => ext.id))
+
+      for (const ext of extensions as LoadedExtension[]) {
+        if (!enabledIds.has(ext.id)) continue
+        if (loadedIds.has(ext.id)) continue
+
         try {
-          await extensionRegistry.loadIframeExtension(ext.manifest)
+          if (ext.type === "nip89") {
+            await extensionRegistry.loadIframeExtension(ext.manifest)
+          } else if (ext.type === "widget") {
+            await extensionRegistry.loadWidget(ext.widget)
+          }
+          loadedIds = new Set([...loadedIds, ext.id])
         } catch (e) {
-          console.error("Failed to load extension iframe:", e)
+          console.error("Failed to load extension runtime:", e)
         }
       }
+
+      // Drop ids that are no longer enabled or no longer registered
+      loadedIds = new Set(
+        [...loadedIds].filter(id => enabledIds.has(id) && presentIds.has(id)),
+      )
     })
   })
 
   onDestroy(() => {
     unsubRegistry?.()
     unsubSettings?.()
-    for (const ext of loaded) {
-      extensionRegistry.unloadExtension(ext.manifest.id)
-    }
+    loadedIds.forEach(id => {
+      extensionRegistry.unloadExtension(id)
+    })
   })
 </script>
 
