@@ -111,6 +111,7 @@ import {
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
 import {preferencesStorageProvider, Collection} from "@src/lib/storage"
+import { deleteIndexedDB } from "@src/lib/util"
 
 // Utils
 
@@ -157,6 +158,18 @@ export const logout = async () => {
 
   await preferencesStorageProvider.clear()
   await Collection.clearAll()
+  await nostrGitLogoutCleanup()
+}
+
+export async function nostrGitLogoutCleanup(): Promise<void> {
+  try {
+    await Promise.all([
+      deleteIndexedDB('nostr-git'),
+      deleteIndexedDB('nostr-git-cache')
+    ])
+  } catch (err) {
+    console.error('Nostr-Git IndexedDB cleanup failed', err)
+  }
 }
 
 // Synchronization
