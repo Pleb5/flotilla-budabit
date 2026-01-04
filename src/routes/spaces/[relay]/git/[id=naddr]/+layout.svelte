@@ -75,7 +75,7 @@
   } from "@welshman/util"
   import {isCommentEvent} from "@nostr-git/shared-types"
   import {nthEq} from "@welshman/lib"
-  import {setContext, getContext, onDestroy} from "svelte"
+  import {setContext, onDestroy} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass} from "@lib/budabit/state"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
@@ -671,9 +671,7 @@
   function settingsRepo() {
     if (!repoClass) return
     
-    // Get repoRelays from context
-    const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
-    const repoRelays = repoRelaysStore ? getStore(repoRelaysStore) : []
+    const repoRelays = getStore(repoRelaysStore)
     if (repoRelays.length === 0) {
       pushToast({
         message: "Repository relays not ready. Please wait...",
@@ -698,8 +696,7 @@
           }
         }
         // Try to load profile if not in cache
-        const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
-        const repoRelays = repoRelaysStore ? getStore(repoRelaysStore) : (repoClass?.relays || [])
+        const repoRelays = getStore(repoRelaysStore) || (repoClass?.relays || [])
         await loadProfile(pubkey, repoRelays)
         const loadedProfile = $profilesByPubkey.get(pubkey)
         if (loadedProfile) {
@@ -745,9 +742,7 @@
         throw new Error("Repository event not available")
       }
       
-      // Get repoRelays from context
-      const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
-      const repoRelays = repoRelaysStore ? getStore(repoRelaysStore) : (repoClass?.relays || [])
+      const repoRelays = getStore(repoRelaysStore) || (repoClass?.relays || [])
       
       // Get repo address
       const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
