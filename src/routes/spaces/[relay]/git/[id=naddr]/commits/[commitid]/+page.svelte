@@ -1,15 +1,18 @@
 <style>
+  /* Ensure proper font rendering for code */
   .font-mono {
     font-family:
       ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   }
 
+  /* Touch-friendly interactions */
   .touch-manipulation {
     touch-action: manipulation;
   }
 </style>
 
 <script lang="ts">
+  import { page } from '$app/stores';
   import {
     ChevronDown,
     ChevronRight,
@@ -28,17 +31,22 @@
   import type {Repo} from "@nostr-git/ui"
 
   const {data}: {data: PageData} = $props()
-  
+
   // Extract data from page load
   const {commitMeta, changes} = data
-  
+
   // Get repoClass from context
   const repoClass = getContext<Repo>(REPO_KEY)
-  
+
+  // Create navigation helper for parent commits
+  const getParentHref = (commitId: string) => {
+    return `/spaces/${encodeURIComponent($page.params.relay)}/git/${encodeURIComponent($page.params.id)}/commits/${commitId}`;
+  };
+
   if (!repoClass) {
     throw new Error("Repo context not available")
   }
-  
+
   if (!commitMeta || !changes) {
     throw new Error("Commit data not available")
   }
@@ -99,6 +107,9 @@
         const t = patch.type
         if (t === "+" || t === "add") additions++
         else if (t === "-" || t === "del") deletions++
+        const t = patch.type
+        if (t === "+" || t === "add") additions++
+        else if (t === "-" || t === "del") deletions++
       }
     }
     
@@ -148,6 +159,7 @@
     }
   })
 
+  // Calculate expanded files count
   const expandedCount = $derived(expandedFiles.size)
   const allExpanded = $derived(expandedCount === changes.length && changes.length > 0)
   const allCollapsed = $derived(expandedCount === 0)
@@ -166,7 +178,7 @@
     date={commitMeta.date}
     message={commitMeta.message}
     parents={commitMeta.parents}
-  />
+    getParentHref={getParentHref} />
 
   <!-- Diff Summary -->
   <div>
@@ -177,6 +189,7 @@
       </h3>
     </div>
 
+    <!-- Statistics Grid -->
     <div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
       <div class="rounded-lg border bg-muted/20 p-3 text-center">
         <div class="text-2xl font-bold text-primary">{changes.length}</div>
@@ -219,8 +232,9 @@
   </div>
 
   <div
-    class="z-10 sticky top-0 border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6 sm:py-4">
+    class="border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6 sm:py-4">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <!-- Expand/Collapse Controls -->
       <div class="flex items-center gap-2">
         <button
           onclick={() => {
@@ -263,7 +277,8 @@
         <button
           onclick={() => toggleFile(change.path)}
           class="min-h-[44px] w-full touch-manipulation px-4 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
-          <div class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <div
+            class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <div class="flex min-w-fit items-center gap-2 sm:gap-3">
               <!-- Expand/Collapse Icon -->
               {#if isExpanded}
@@ -271,18 +286,18 @@
               {:else}
                 <ChevronRight class="h-4 w-4 flex-shrink-0 text-muted-foreground" />
               {/if}
-              
+
               <!-- File Status Icon -->
               {#if statusInfo.icon}
                 {@const IconComponent = statusInfo.icon}
                 <IconComponent class="h-4 w-4 {statusInfo.class} flex-shrink-0" />
               {/if}
-              
+
               <!-- File Path -->
-              <span class="whitespace-nowrap font-mono text-xs text-foreground sm:text-sm" title={change.path}>
-                {change.path}
-              </span>
-              
+              <span
+                class="whitespace-nowrap font-mono text-xs text-foreground sm:text-sm"
+                title={change.path}>{change.path}</span>
+
               <!-- Status Badge -->
               <span
                 class="flex-shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium {getStatusBadgeClass(
@@ -291,9 +306,10 @@
                 {change.status}
               </span>
             </div>
-            
+
             <!-- File Stats -->
-            <div class="ml-6 flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground sm:ml-0">
+            <div
+              class="ml-6 flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground sm:ml-0">
               {#if stats.additions > 0}
                 <span class="text-green-600">+{stats.additions}</span>
               {/if}

@@ -27,3 +27,31 @@ export const preprocessMarkdown = (text: string): string => {
   // Convert literal \n (escaped newlines) to actual newlines
   return text.replace(/\\n/g, "\n")
 }
+
+export function deleteIndexedDB(name: string, timeoutMs = 1000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request: IDBOpenDBRequest = indexedDB.deleteDatabase(name)
+    let done = false
+
+    const finish = () => {
+      if (!done) {
+        done = true
+        resolve()
+      }
+    }
+
+    request.onsuccess = finish
+
+    request.onerror = () => finish
+
+    request.onblocked = () => {
+      console.warn(`Deletion of IndexedDB '${name}' is blocked`)
+    }
+
+    setTimeout(() => {
+      console.warn(`IndexedDB '${name}' deletion timed out`)
+      finish()
+    }, timeoutMs)
+  })
+}
+

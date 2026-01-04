@@ -31,27 +31,20 @@
   import {pushModal} from "@app/util/modal"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
-  import type {
-    RepoAnnouncementEvent,
-    RepoStateEvent,
-    IssueEvent,
-    PatchEvent,
-    PullRequestEvent,
-    StatusEvent,
-    CommentEvent,
-    LabelEvent
-  } from "@nostr-git/shared-types"
-  import {
-    GIT_REPO_BOOKMARK_DTAG,
-    GRASP_SET_KIND,
-    DEFAULT_GRASP_SET_ID,
-    parseGraspServersEvent,
-    GIT_REPO_ANNOUNCEMENT,
-    GIT_REPO_STATE,
-    GIT_PULL_REQUEST,
-    normalizeRelayUrl as normalizeRelayUrlShared,
-    parseRepoAnnouncementEvent
-  } from "@nostr-git/shared-types"
+  import {nip19} from "nostr-tools"
+  
+  // ForkResult type definition (matches @nostr-git/ui)
+  interface ForkResult {
+    repoId: string
+    forkUrl: string
+    defaultBranch: string
+    branches: string[]
+    tags: string[]
+    announcementEvent: RepoAnnouncementEvent
+    stateEvent: RepoStateEvent
+  }
+  import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/shared-types"
+  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, normalizeRelayUrl as normalizeRelayUrlShared, parseRepoAnnouncementEvent} from "@nostr-git/shared-types"
   import {derived, get as getStore, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -627,10 +620,11 @@
       }
 
       // Call syncWithRemote through the repo's worker manager
-      const result = await repoClass.workerManager.syncWithRemote({
+      const result = await repoClass.workerManager.smartInitializeRepo({
         repoId: repoClass.key,
         cloneUrls,
-        branch: repoClass.mainBranch,
+        forceUpdate: true,
+        timeoutMs: 2 * 60 * 1000, // 2 minutes
       })
 
       if (result.success) {
@@ -655,16 +649,68 @@
     }
   }
 
+  function navigateToForkedRepo(result: ForkResult) {
+    try {
+      const parsed = parseRepoAnnouncementEvent(result.announcementEvent)
+      const repoName = parsed.name
+      
+      if (!repoName || !$pubkey) {
+        console.warn("Cannot navigate: missing repo name or pubkey", { repoName, $pubkey })
+        return
+      }
+
+      // Extract relays from announcement event or use current relay
+      const relays = parsed.relays && parsed.relays.length > 0 
+        ? parsed.relays 
+        : relay 
+          ? [relay] 
+          : []
+
+      // Use current relay or first relay from announcement
+      const effectiveRelay = relay || relays[0]
+      if (!effectiveRelay) {
+        console.warn("Cannot navigate: no relay URL available")
+        pushToast({ message: "Fork completed, but cannot navigate without a relay URL.", theme: "error" })
+        return
+      }
+
+      // Create naddr
+      const naddr = nip19.naddrEncode({
+        kind: 30617, // GIT_REPO_ANNOUNCEMENT
+        pubkey: $pubkey || "",
+        identifier: repoName,
+        relays: relays.length > 0 ? relays : undefined,
+      })
+
+      // Encode relay URL for the route
+      const encodedRelay = encodeURIComponent(effectiveRelay)
+      
+      // Navigate to the forked repo page
+      const targetPath = `/spaces/${encodedRelay}/git/${naddr}`
+      console.log("🚀 Navigating to forked repo:", targetPath)
+      
+      goto(targetPath)
+    } catch (error) {
+      console.error("Failed to navigate to forked repo:", error)
+      pushToast({ 
+        message: "Fork completed, but navigation failed. Please manually navigate to the repository.", 
+        theme: "error" 
+      })
+    }
+  }
+
   function forkRepo() {
     if (!repoClass) return
 
     pushModal(ForkRepoDialog, {
       repo: repoClass,
+      pubkey: $pubkey || "",
       onPublishEvent: (event: any) => {
         // Handle event publishing
         postRepoAnnouncement(event, [])
       },
       graspServerUrls: graspServerUrls,
+      navigateToForkedRepo: navigateToForkedRepo,
     })
   }
 

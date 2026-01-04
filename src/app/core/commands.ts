@@ -413,6 +413,18 @@ export const logout = async () => {
 
   await kv.clear()
   await db.clear()
+  await nostrGitLogoutCleanup()
+}
+
+export async function nostrGitLogoutCleanup(): Promise<void> {
+  try {
+    await Promise.all([
+      deleteIndexedDB('nostr-git'),
+      deleteIndexedDB('nostr-git-cache')
+    ])
+  } catch (err) {
+    console.error('Nostr-Git IndexedDB cleanup failed', err)
+  }
 }
 
 // Synchronization

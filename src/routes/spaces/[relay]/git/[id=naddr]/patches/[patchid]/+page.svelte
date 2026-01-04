@@ -62,6 +62,7 @@
   import {get} from "svelte/store"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
+    import Markdown from "@src/lib/components/Markdown.svelte"
   
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
@@ -919,6 +920,7 @@
 
         <div
           class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
+          <!-- {@html md.render(preprocessMarkdown(pr?.content || ""))} -->
           <Markdown content={pr?.content || ""} />
         </div>
 
@@ -997,6 +999,7 @@
 
         <div
           class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
+          <!-- {@html md.render(preprocessMarkdown(patch?.description || ""))} -->
           <Markdown content={patch?.description || ""} />
         </div>
 
