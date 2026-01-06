@@ -59,10 +59,8 @@
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {getContext} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY, PULL_REQUESTS_KEY} from "@lib/budabit/state"
-  import {get} from "svelte/store"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
-    import Markdown from "@src/lib/components/Markdown.svelte"
   
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)

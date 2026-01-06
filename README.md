@@ -91,7 +91,7 @@ cd ../../..
 pnpm dev
 ```
 
-The application will be available at `http://localhost:5173` (or the next available port).
+The application will be available at `http://localhost:1847` (or the next available port).
 
 ## Features
 
@@ -175,6 +175,30 @@ pnpm lint
 # Format code
 pnpm format
 ```
+
+### E2E (Playwright)
+
+Install Playwright browsers (Chromium) used for E2E tests:
+
+```bash
+pnpm e2e:install
+```
+
+Run the E2E suite:
+
+```bash
+pnpm e2e
+```
+
+Optionally run in UI mode or headed mode:
+
+```bash
+pnpm e2e:ui
+pnpm e2e:headed
+```
+
+Playwright will start (or reuse) the dev server at `http://127.0.0.1:1847`.
+
 
 ## Deployment
 

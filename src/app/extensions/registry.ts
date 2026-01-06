@@ -243,4 +243,3 @@ class ExtensionRegistry {
 }
 
 export const extensionRegistry = ExtensionRegistry.get()
-export {parseSmartWidget}

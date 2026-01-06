@@ -36,7 +36,13 @@
   {#snippet input()}
     <label class="input input-bordered flex w-full items-center gap-2">
       <Icon icon={CpuBolt} />
-      <input disabled={$loading} bind:value={$bunker} class="grow" placeholder="bunker://" />
+      <input
+        disabled={$loading}
+        bind:value={$bunker}
+        class="grow"
+        placeholder="bunker://"
+        data-testid="login-bunker-url"
+      />
       <Button onclick={toggleScanner}>
         <Icon icon={QrCode} />
       </Button>

@@ -85,7 +85,7 @@
   })
 </script>
 
-<div class="column gap-4">
+<div class="column gap-4" data-testid="login-modal">
   <h1 class="heading">Log in with Nostr</h1>
   <p class="m-auto max-w-sm text-center">
     {PLATFORM_NAME} is built using the
@@ -125,6 +125,7 @@
   <Button
     onclick={loginWithBunker}
     {disabled}
+    data-testid="login-option-bunker"
     class="btn {hasSigner || BURROW_URL ? 'btn-neutral' : 'btn-primary'}">
     <Icon icon={Cpu} />
     Log in with Remote Signer

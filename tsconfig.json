@@ -9,11 +9,12 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "strict": true,
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "types": ["node"]
   },
   "include": [
     "src",
-
+    "tests/**/*.ts",
     "packages/nostr-git/packages/ui/tests/**/*.ts",
     "src/lib/signerContextAdapter.ts",
     "packages/nostr-git/packages/ui/src/lib/utils/tokenLoader.ts"  ],

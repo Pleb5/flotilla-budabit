@@ -12,6 +12,12 @@ node_modules/
 build/
 .svelte-kit/
 
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
 # Generated assets
 static/favicon.ico
 static/pwa-64x64.png

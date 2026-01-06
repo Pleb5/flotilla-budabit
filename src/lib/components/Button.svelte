@@ -1,12 +1,7 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
 
-  const {
-    children,
-    onclick,
-    type = "button",
-    ...restProps
-  }: {
+  type ButtonProps = {
     children: Snippet
     onclick?: (event: Event) => any
     type?: "button" | "submit"
@@ -14,7 +9,15 @@
     style?: string
     disabled?: boolean
     "data-tip"?: string
-  } = $props()
+    [key: string]: any
+  }
+
+  const {
+    children,
+    onclick,
+    type = "button",
+    ...restProps
+  }: ButtonProps = $props()
 
   const className = $derived(`text-left ${restProps.class}`)
 

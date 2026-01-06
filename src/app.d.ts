@@ -13,6 +13,18 @@ declare global {
     }
     // interface Platform {}
   }
+
+  interface ImportMetaEnv {
+    readonly DEV: boolean
+    readonly PROD: boolean
+    readonly SSR: boolean
+    // Additional Vite env vars can be declared here as needed
+    readonly [key: string]: any
+  }
+
+  interface ImportMeta {
+    readonly env: ImportMetaEnv
+  }
 }
 
 export {}

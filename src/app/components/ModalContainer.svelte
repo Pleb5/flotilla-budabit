@@ -52,4 +52,4 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<div bind:this={element}></div>
+<div bind:this={element} data-testid="modal-root"></div>

@@ -17,12 +17,12 @@
 </script>
 
 <Dialog>
-  <div class="column gap-4">
+  <div class="column gap-4" data-testid="login-screen">
     <div class="py-2">
       <h1 class="heading">Welcome to {PLATFORM_NAME}!</h1>
       <p class="text-center">The Community for Builders in Freedom-Tech</p>
     </div>
-    <Button onclick={logIn}>
+    <Button onclick={logIn} data-testid="identity-cta-login">
       <CardButton class="btn-primary">
         {#snippet icon()}
           <div><Icon icon={Login} size={7} /></div>

@@ -168,12 +168,6 @@
         notification={gitNotification}>
         <ImageIcon alt="Git" src={Git} size={7} />
       </PrimaryNavItem>
-      <PrimaryNavItem
-        title="Git"
-        onclick={openGit}
-        notification={gitNotification}>
-        <ImageIcon alt="Git" src={Git} size={7} />
-      </PrimaryNavItem>
       {#if PLATFORM_RELAYS.length !== 1}
         <PrimaryNavItem title="Spaces" href="/spaces" notification={anySpaceNotifications}>
           <ImageIcon alt="Spaces" src={SettingsMinimalistic} size={7} />

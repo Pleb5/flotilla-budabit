@@ -107,9 +107,6 @@
         const t = patch.type
         if (t === "+" || t === "add") additions++
         else if (t === "-" || t === "del") deletions++
-        const t = patch.type
-        if (t === "+" || t === "add") additions++
-        else if (t === "-" || t === "del") deletions++
       }
     }
     

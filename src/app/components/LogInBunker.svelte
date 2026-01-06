@@ -104,10 +104,15 @@
 
   let mode: string = $state("bunker")
 
+  const DEV_LOGIN_TOKEN = "reviewkey"
+  const DEV_LOGIN_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
   $effect(() => {
-    // For testing and for play store reviewers
-    if ($bunker === "reviewkey") {
-      loginWithNip01(makeSecret())
+    // For testing and automated review flows. Guard to non-production builds.
+    if (!import.meta.env.DEV) return
+
+    if ($bunker === DEV_LOGIN_TOKEN) {
+      loginWithNip01(DEV_LOGIN_SECRET)
     }
   })
 
@@ -120,7 +125,7 @@
   })
 </script>
 
-<form class="column gap-4" onsubmit={preventDefault(onSubmit)}>
+<form class="column gap-4" data-testid="login-bunker" onsubmit={preventDefault(onSubmit)}>
   <ModalHeader>
     {#snippet title()}
       <div>Log In with a Signer</div>
@@ -143,7 +148,11 @@
       Go back
     </Button>
     {#if mode === "bunker"}
-      <Button type="submit" class="btn btn-primary" disabled={$loading || !$bunker}>
+      <Button
+        type="submit"
+        class="btn btn-primary"
+        data-testid="login-bunker-submit"
+        disabled={$loading || !$bunker}>
         <Spinner loading={$loading}>Next</Spinner>
         <Icon icon={AltArrowRight} />
       </Button>

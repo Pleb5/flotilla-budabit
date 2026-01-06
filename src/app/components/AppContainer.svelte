@@ -9,6 +9,7 @@
   import PasswordReset from "@app/components/PasswordReset.svelte"
   import {BURROW_URL} from "@app/core/state"
   import {modals, pushModal} from "@app/util/modal"
+  import * as nip19 from "nostr-tools/nip19"
 
   interface Props {
     children: Snippet
@@ -31,11 +32,17 @@
       })
     }
   }
+  const identityStatus = $derived(() => ($pubkey ? nip19.npubEncode($pubkey) : undefined))
 </script>
 
 <div class="flex h-screen overflow-hidden">
   {#if $pubkey}
     <PrimaryNav>
+      {#if identityStatus}
+        <div class="px-3 py-2 text-xs text-base-content/70" data-testid="identity-status">
+          {identityStatus}
+        </div>
+      {/if}
       {@render children?.()}
     </PrimaryNav>
   {:else if !$modals[$page.url.hash.slice(1)]}
