@@ -1,4 +1,4 @@
-import { createRepoAnnouncementEvent as createAnnouncement, createRepoStateEvent as createState } from '@nostr-git/shared-types';
+import { createRepoAnnouncementEvent as createAnnouncement, createRepoStateEvent as createState } from '@nostr-git/core/events';
 
 function ensureNoGitSuffix(url) {
   return url?.replace(/\.git$/, '') ?? '';

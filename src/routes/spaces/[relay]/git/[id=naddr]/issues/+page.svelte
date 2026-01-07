@@ -6,8 +6,8 @@
     GIT_REPO_ANNOUNCEMENT,
     type CommentEvent,
     type IssueEvent,
-    type TrustedEvent,
-  } from "@nostr-git/shared-types"
+  } from "@nostr-git/core/events"
+  import type {TrustedEvent} from "@welshman/util"
   import {Eye, Plus, SearchX} from "@lucide/svelte"
   import {
     Address,
@@ -41,7 +41,7 @@
   import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY} from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
-  import type {StatusEvent} from "@nostr-git/shared-types"
+  import type {StatusEvent} from "@nostr-git/core/events"
   import { fade } from "svelte/transition"
 
   let showScrollButton = $state(false)

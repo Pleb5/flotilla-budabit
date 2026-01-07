@@ -2,7 +2,7 @@
   import {FileView} from "@nostr-git/ui"
   import {fade, fly} from "svelte/transition"
   import Spinner from "@src/lib/components/Spinner.svelte"
-  import {type FileEntry, type PermalinkEvent} from "@nostr-git/core"
+  import {type FileEntry, type PermalinkEvent} from "@nostr-git/core/types"
   import {pushToast} from "@src/app/util/toast"
   import {postPermalink} from "@lib/budabit/commands.js"
   import {nip19} from "nostr-tools"

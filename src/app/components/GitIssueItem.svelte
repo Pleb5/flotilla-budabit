@@ -18,7 +18,7 @@
   import {
     GIT_REPO_ANNOUNCEMENT,
     GitIssueStatus,
-  } from "@nostr-git/shared-types"
+  } from "@nostr-git/core/events"
   import NoteCard from "./NoteCard.svelte"
   import Content from "@lib/budabit/components/Content.svelte"
   import {nip19} from "nostr-tools"
@@ -34,7 +34,7 @@
     repoAnnouncements,
   } from "@lib/budabit"
   import {Router} from "@welshman/router"
-  import {resolveIssueStatus} from "@nostr-git/core"
+  import {resolveIssueStatus} from "@nostr-git/core/events"
   import { deriveEffectiveLabels } from "@lib/budabit"
 
   const {

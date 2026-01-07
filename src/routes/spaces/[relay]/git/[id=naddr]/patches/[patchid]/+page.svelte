@@ -41,14 +41,15 @@
     type PatchEvent,
     type PullRequestEvent,
     GIT_STATUS_APPLIED,
-  } from "@nostr-git/shared-types"
-  import {createStatusEvent} from "@nostr-git/shared-types"
+    createStatusEvent,
+    type LabelEvent,
+  } from "@nostr-git/core/events"
   import {postComment, postStatus, postRoleLabel, deleteRoleLabelEvent} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
-  import type {LabelEvent} from "@nostr-git/shared-types"
   import {ROLE_NS} from "@lib/budabit/labels"
-  import {parseGitPatchFromEvent} from "@nostr-git/core"
-  import type {Commit, MergeAnalysisResult, Patch, PatchTag} from "@nostr-git/core"
+  import {parseGitPatchFromEvent, type MergeAnalysisResult} from "@nostr-git/core/git"
+  import type {Commit, Patch} from "@nostr-git/core/types"
+  import type {PatchTag} from "@nostr-git/core/events"
   import {sortBy} from "@welshman/lib"
   import {derived as _derived} from "svelte/store"
   import {slideAndFade} from "@src/lib/transition"
@@ -1055,7 +1056,7 @@
 
                 <!-- Author vs Committer -->
                 {#if selectedPatch?.raw?.tags}
-                  {@const committerTag = selectedPatch.raw.tags.find(t => t[0] === "committer")}
+                  {@const committerTag = selectedPatch.raw.tags.find((t: PatchTag) => t[0] === "committer")}
                   {#if committerTag && committerTag[1] !== selectedPatch?.author.name}
                     <div class="flex items-center justify-between">
                       <span class="text-muted-foreground">Committer:</span>
@@ -1099,8 +1100,8 @@
                 </div>
 
                 <!-- Recipients/Reviewers -->
-                {#if selectedPatch?.raw?.tags && selectedPatch.raw.tags.filter(t => t[0] === "p").length > 0}
-                  {@const recipients = selectedPatch.raw.tags.filter(t => t[0] === "p")}
+                {#if selectedPatch?.raw?.tags && selectedPatch.raw.tags.filter((t: string[]) => t[0] === "p").length > 0}
+                  {@const recipients = selectedPatch.raw.tags.filter((t: string[]) => t[0] === "p")}
                   <div class="col-span-full">
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <span class="text-muted-foreground">Reviewers:</span>
@@ -1144,7 +1145,7 @@
             <div class="space-y-3">
               {#each selectedPatch.commits.slice(0, 5) as commitHash, index}
                 {@const commitTag = selectedPatch?.raw?.tags?.find(
-                  t => t[0] === "commit" && t[1] === commitHash,
+                  (t: PatchTag) => t[0] === "commit" && t[1] === (commitHash as any as string),
                 )}
                 <div class="flex items-start gap-3 rounded-lg border bg-muted/20 p-3">
                   <div class="mt-1 flex-shrink-0">
@@ -1154,13 +1155,13 @@
                   <div class="min-w-0 flex-1">
                     <div class="mb-1 flex items-center gap-2">
                       <code class="rounded bg-background px-2 py-1 font-mono text-xs">
-                        {commitHash.substring(0, 8)}
+                        {(commitHash as any as string).substring(0, 8)}
                       </code>
                       <Button
                         variant="ghost"
                         size="icon"
                         class="h-5 w-5"
-                        onclick={() => copyToClipboard(commitHash, "Commit hash")}>
+                        onclick={() => copyToClipboard(commitHash as any as string, "Commit hash")}>
                         <Copy class="h-3 w-3" />
                       </Button>
                       <span class="text-xs text-muted-foreground">

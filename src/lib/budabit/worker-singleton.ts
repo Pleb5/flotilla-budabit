@@ -8,7 +8,7 @@
  * - Worker is reused for all Git operations
  * - No manual initialization needed
  */
-import { getGitWorker } from '@nostr-git/git-worker';
+import { getGitWorker } from '@nostr-git/core/worker';
 
 interface GitWorkerInstance {
   api: any;

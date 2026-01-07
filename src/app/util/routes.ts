@@ -34,13 +34,12 @@ import {
   GIT_PULL_REQUEST,
   GIT_PULL_REQUEST_UPDATE,
   GIT_ISSUE,
-  GIT_COMMENT,
-  GIT_PERMALINK,
   GIT_STATUS_OPEN,
   GIT_STATUS_APPLIED,
   GIT_STATUS_CLOSED,
   GIT_STATUS_DRAFT,
-} from "@nostr-git/shared-types"
+} from "@nostr-git/core/events"
+import { COMMENT } from "@welshman/util"
 
 // Repository event kinds (use Address directly)
 const GIT_REPO_KINDS = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]
@@ -51,8 +50,7 @@ const GIT_COLLABORATION_KINDS = [
   GIT_PULL_REQUEST,
   GIT_PULL_REQUEST_UPDATE,
   GIT_ISSUE,
-  GIT_COMMENT,
-  GIT_PERMALINK,
+  COMMENT,
   GIT_STATUS_OPEN,
   GIT_STATUS_APPLIED,
   GIT_STATUS_CLOSED,

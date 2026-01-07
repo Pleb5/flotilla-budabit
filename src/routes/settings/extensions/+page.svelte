@@ -60,8 +60,8 @@
       installedNip89 = Object.values(s.installed?.nip89 || {})
       installedWidgets = Object.values(s.installed?.widget || {})
       installed = [
-        ...installedNip89.map(m => ({type: "nip89", id: m.id, manifest: m})),
-        ...installedWidgets.map(w => ({type: "widget", id: w.identifier, manifest: w})),
+        ...installedNip89.map(m => ({type: "nip89" as const, id: m.id, manifest: m})),
+        ...installedWidgets.map(w => ({type: "widget" as const, id: w.identifier, manifest: w})),
       ]
       enabledIds = s.enabled || []
     })

@@ -3,16 +3,15 @@ import { load, request } from "@welshman/net"
 import {
   groupByEuc,
   deriveMaintainers,
-  mergeRepoStateByMaintainers,
   buildPatchGraph,
   assembleIssueThread,
   resolveIssueStatus,
-  buildRepoSubscriptions,
   extractSelfLabels,
   extractLabelEvents,
   mergeEffectiveLabels,
   type RepoGroup
-} from "@nostr-git/core"
+} from "@nostr-git/core/events"
+import { RepoCore } from "@nostr-git/core/git"
 import { repository, pubkey } from "@welshman/app"
 import { deriveEventsAsc, deriveEventsById, withGetter } from "@welshman/store"
 import {
@@ -135,7 +134,8 @@ export const deriveRepoRefState = (euc: string) =>
       [deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [30618]}]})), deriveRepoGroup(euc)],
       ([$states, $group]) => {
         const maintainers = $group ? deriveMaintainers($group) : new Set<string>()
-        return mergeRepoStateByMaintainers({ states: $states as unknown as any[], maintainers })
+        const ctx = { maintainers: Array.from(maintainers) }
+        return RepoCore.mergeRepoStateByMaintainers(ctx as any, $states as unknown as any[])
       },
     ),
   )
@@ -278,7 +278,7 @@ export const loadRepoContext = (args: {
   euc?: string
   relays?: string[]
 }) => {
-  const { filters } = buildRepoSubscriptions({
+  const { filters } = RepoCore.buildRepoSubscriptions({
     addressA: args.addressA,
     rootEventId: args.rootId,
     euc: args.euc,

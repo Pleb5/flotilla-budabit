@@ -1,11 +1,10 @@
-import { GIT_REPO_BOOKMARK_SET, GRASP_SET_KIND, GIT_REPO_BOOKMARK_DTAG, DEFAULT_GRASP_SET_ID } from "@nostr-git/shared-types"
+import { GIT_REPO_BOOKMARK_SET, GRASP_SET_KIND, GIT_REPO_BOOKMARK_DTAG, DEFAULT_GRASP_SET_ID, validateGraspServerUrl } from "@nostr-git/core/events"
 import { loadTokensFromStorage, tokens, type Token, bookmarksStore } from "@nostr-git/ui"
 import { graspServersStore } from "@nostr-git/ui"
 import { repository } from "@welshman/app"
 import { load } from "@welshman/net"
 import { deriveEventsAsc, deriveEventsById } from "@welshman/store"
 import { NAMED_BOOKMARKS, getAddressTags, normalizeRelayUrl } from "@welshman/util"
-import { validateGraspServerUrl } from "@nostr-git/shared-types"
 
 
 export const loadRepositories = async (pubkey: string, relays: string[] = []) => {
@@ -57,6 +56,8 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
       address,
       event: null,
       relayHint: relayHint ? normalizeRelayUrl(relayHint) : "",
+      author: latest.pubkey,
+      identifier: GIT_REPO_BOOKMARK_DTAG,
     }))
     bookmarksStore.set(mapped)
   })

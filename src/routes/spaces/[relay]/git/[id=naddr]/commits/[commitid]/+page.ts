@@ -1,7 +1,7 @@
 import type { PageLoad } from './$types';
 import { getInitializedGitWorker } from '@src/lib/budabit/worker-singleton';
 import { pushToast } from '@src/app/util/toast';
-import type { CommitMeta } from '@nostr-git/shared-types';
+import type { CommitMeta } from '@nostr-git/core/types';
 
 export interface CommitChange {
   path: string;

@@ -1,5 +1,5 @@
-import type { EffectiveLabelsV2 } from "@nostr-git/core"
-import { createRoleLabelEvent } from "@nostr-git/shared-types"
+import type { EffectiveLabelsV2 } from "@nostr-git/core/git"
+import { createRoleLabelEvent } from "@nostr-git/core/events"
 
 export type NormalizedEffectiveLabelsView = {
   flat: Set<string>

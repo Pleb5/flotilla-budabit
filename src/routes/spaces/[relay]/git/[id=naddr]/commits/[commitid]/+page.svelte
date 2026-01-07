@@ -175,7 +175,8 @@
     date={commitMeta.date}
     message={commitMeta.message}
     parents={commitMeta.parents}
-    getParentHref={getParentHref} />
+    getParentHref={getParentHref}
+  />
 
   <!-- Diff Summary -->
   <div>

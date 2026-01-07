@@ -31,7 +31,7 @@
   import {PROTECTED} from "@app/core/state"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
-  import {GIT_REPO_ANNOUNCEMENT, type IssueEvent, type PatchEvent} from "@nostr-git/shared-types"
+  import {GIT_REPO_ANNOUNCEMENT, type IssueEvent, type PatchEvent} from "@nostr-git/core/events"
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import {getContext} from "svelte"

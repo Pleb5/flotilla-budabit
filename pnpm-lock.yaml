@@ -95,17 +95,11 @@ importers:
         specifier: ^1.4.0
         version: 1.8.0
       '@nostr-git/core':
-        specifier: workspace:*
-        version: link:packages/nostr-git/packages/core
-      '@nostr-git/git-worker':
-        specifier: workspace:*
-        version: link:packages/nostr-git/packages/git-worker
-      '@nostr-git/shared-types':
-        specifier: workspace:*
-        version: link:packages/nostr-git/packages/shared-types
+        specifier: git+https://github.com/chebizarro/nostr-git.git#064272582dad710b527864e1f8e499e01d3aecdf
+        version: https://codeload.github.com/chebizarro/nostr-git/tar.gz/064272582dad710b527864e1f8e499e01d3aecdf(typescript@5.9.3)
       '@nostr-git/ui':
-        specifier: workspace:*
-        version: link:packages/nostr-git/packages/ui
+        specifier: git+https://github.com/chebizarro/nostr-git-ui.git#5a0dd12562fc622edee02663c9797f3b274e28e0
+        version: https://codeload.github.com/chebizarro/nostr-git-ui/tar.gz/5a0dd12562fc622edee02663c9797f3b274e28e0(codemirror@6.0.2)(svelte@5.39.12)(typescript@5.9.3)
       '@octokit/auth-oauth-device':
         specifier: ^8.0.1
         version: 8.0.3
@@ -563,7 +557,7 @@ importers:
     devDependencies:
       '@vitest/browser':
         specifier: ^3.2.4
-        version: 3.2.4(playwright@1.57.0)(vite@6.3.3(@types/node@22.19.3)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))(vitest@3.2.4)
+        version: 3.2.4(playwright@1.57.0)(vite@6.3.3(@types/node@24.7.2)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))(vitest@3.2.4)
       cross-env:
         specifier: ^7.0.3
         version: 7.0.3
@@ -575,13 +569,13 @@ importers:
         version: 26.1.0
       ts-node:
         specifier: ^10.9.2
-        version: 10.9.2(@types/node@22.19.3)(typescript@5.9.3)
+        version: 10.9.2(@types/node@24.7.2)(typescript@5.9.3)
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/node@22.19.3)(@vitest/browser@3.2.4)(@vitest/ui@3.2.4)(happy-dom@15.11.7)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.44.1)(yaml@2.7.1)
+        version: 3.2.4(@types/node@24.7.2)(@vitest/browser@3.2.4)(@vitest/ui@3.2.4)(happy-dom@15.11.7)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.44.1)(yaml@2.7.1)
 
   packages/nostr-git/packages/shared-types:
     dependencies:
@@ -2329,6 +2323,11 @@ packages:
     peerDependencies:
       svelte: ^5
 
+  '@lucide/svelte@0.562.0':
+    resolution: {integrity: sha512-wDMULwtTFN2Sc/TFBm6gfuVCNb4Y5P9LDrwxNnUbV52+IEU7NXZmvxwXoz+vrrpad6Xupq+Hw5eUlqIHEGhouw==}
+    peerDependencies:
+      svelte: ^5
+
   '@marijn/find-cluster-break@1.0.2':
     resolution: {integrity: sha512-l0h88YhZFyKdXIFNfSWpyjStDjGHwZ/U7iobcK1cQQD8sejsONdQtTVU+1wVN1PBw40PiiHB1vA5S7VTfQiP9g==}
 
@@ -2378,6 +2377,16 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@nostr-git/core@https://codeload.github.com/chebizarro/nostr-git/tar.gz/064272582dad710b527864e1f8e499e01d3aecdf':
+    resolution: {tarball: https://codeload.github.com/chebizarro/nostr-git/tar.gz/064272582dad710b527864e1f8e499e01d3aecdf}
+    version: 1.0.0-alpha.1
+
+  '@nostr-git/ui@https://codeload.github.com/chebizarro/nostr-git-ui/tar.gz/5a0dd12562fc622edee02663c9797f3b274e28e0':
+    resolution: {tarball: https://codeload.github.com/chebizarro/nostr-git-ui/tar.gz/5a0dd12562fc622edee02663c9797f3b274e28e0}
+    version: 1.0.0-alpha.1
+    peerDependencies:
+      svelte: ^5.28.2
 
   '@octokit/auth-oauth-device@8.0.3':
     resolution: {integrity: sha512-zh2W0mKKMh/VWZhSqlaCzY7qFyrgd9oTWmTmHaXnHNeQRCZr/CXy2jCgHo4e4dJVTiuxP5dLa0YM5p5QVhJHbw==}
@@ -4408,6 +4417,10 @@ packages:
     resolution: {integrity: sha512-PJWHUb1RFevKCwaFA9RlG5tCd+FO5iRh9A8HEtkmBH2Li03iJriB6m6JIN4rGz3K3JLawI7/veA1xzRKP6ISBw==}
     engines: {node: '>=0.3.1'}
 
+  diff@8.0.2:
+    resolution: {integrity: sha512-sSuxWU5j5SR9QQji/o2qMvqRNYRDOcBTgsJ/DeCf4iSN4gW+gNMXM7wFIP+fdXZxoNiAnHUTGjCr+TSWXdRDKg==}
+    engines: {node: '>=0.3.1'}
+
   dijkstrajs@1.0.3:
     resolution: {integrity: sha512-qiSlmBq9+BCdCA/L46dw8Uy93mloxsPSbwnm5yrKn2vMPiy8KyAskTF6zuV/j5BMsmOGZDPs7KjU+mjb670kfA==}
 
@@ -5421,6 +5434,11 @@ packages:
   isobject@3.0.1:
     resolution: {integrity: sha512-WhB9zCku7EGTj/HQQRz5aUQEUeoQZH2bWcltRErOpymJ4boYE6wL9Tbr23krRPSZ+C5zqNSrSw+Cc7sZZ4b7vg==}
     engines: {node: '>=0.10.0'}
+
+  isomorphic-git@1.36.1:
+    resolution: {integrity: sha512-fC8SRT8MwoaXDK8G4z5biPEbqf2WyEJUb2MJ2ftSd39/UIlsnoZxLGux+lae0poLZO4AEcx6aUVOh5bV+P8zFA==}
+    engines: {node: '>=14.17'}
+    hasBin: true
 
   isomorphic-git@https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz:
     resolution: {tarball: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz}
@@ -8082,6 +8100,9 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.3.5:
+    resolution: {integrity: sha512-k7Nwx6vuWx1IJ9Bjuf4Zt1PEllcwe7cls3VNzm4CQ1/hgtFUK2bRNG3rvnpPUhFjmqJKAKtjV576KnUkHocg/g==}
+
 snapshots:
 
   '@adobe/css-tools@4.4.4': {}
@@ -9791,6 +9812,10 @@ snapshots:
     dependencies:
       svelte: 5.39.12
 
+  '@lucide/svelte@0.562.0(svelte@5.39.12)':
+    dependencies:
+      svelte: 5.39.12
+
   '@marijn/find-cluster-break@1.0.2': {}
 
   '@mdx-js/react@3.1.1(@types/react@19.2.7)(react@19.2.3)':
@@ -9832,6 +9857,63 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.19.1
+
+  '@nostr-git/core@https://codeload.github.com/chebizarro/nostr-git/tar.gz/064272582dad710b527864e1f8e499e01d3aecdf(typescript@5.9.3)':
+    dependencies:
+      '@isomorphic-git/lightning-fs': 4.6.2
+      buffer: 6.0.3
+      comlink: 4.4.2
+      diff: 8.0.2
+      file-type: 20.5.0
+      isomorphic-git: 1.36.1
+      nostr-tools: 2.19.1(typescript@5.9.3)
+      parse-diff: 0.11.1
+      parse-patch: 0.1.4
+      zod: 4.3.5
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+
+  '@nostr-git/ui@https://codeload.github.com/chebizarro/nostr-git-ui/tar.gz/5a0dd12562fc622edee02663c9797f3b274e28e0(codemirror@6.0.2)(svelte@5.39.12)(typescript@5.9.3)':
+    dependencies:
+      '@codemirror/lang-cpp': 6.0.3
+      '@codemirror/lang-css': 6.3.1
+      '@codemirror/lang-go': 6.0.1
+      '@codemirror/lang-html': 6.4.11
+      '@codemirror/lang-java': 6.0.2
+      '@codemirror/lang-javascript': 6.2.4
+      '@codemirror/lang-json': 6.0.2
+      '@codemirror/lang-markdown': 6.5.0
+      '@codemirror/lang-python': 6.2.1
+      '@codemirror/lang-rust': 6.0.2
+      '@codemirror/lang-sql': 6.10.0
+      '@codemirror/lang-xml': 6.1.0
+      '@codemirror/lang-yaml': 6.1.2
+      '@codemirror/state': 6.5.3
+      '@codemirror/theme-one-dark': 6.1.3
+      '@codemirror/view': 6.39.7
+      '@lucide/svelte': 0.562.0(svelte@5.39.12)
+      '@nostr-git/core': https://codeload.github.com/chebizarro/nostr-git/tar.gz/064272582dad710b527864e1f8e499e01d3aecdf(typescript@5.9.3)
+      '@tiptap/core': 2.27.1(@tiptap/pm@2.27.1)
+      '@tiptap/extension-code-block': 2.27.1(@tiptap/core@2.27.1(@tiptap/pm@2.27.1))(@tiptap/pm@2.27.1)
+      '@tiptap/pm': 2.27.1
+      '@tiptap/starter-kit': 2.27.1
+      '@xterm/addon-fit': 0.10.0(@xterm/xterm@5.5.0)
+      '@xterm/xterm': 5.5.0
+      buffer: 6.0.3
+      date-fns: 4.1.0
+      debug: 4.4.3(supports-color@5.5.0)
+      markdown-it: 14.1.0
+      parse-diff: 0.11.1
+      parse-git-diff: 0.0.19
+      parse-patch: 0.1.4
+      svelte: 5.39.12
+      svelte-codemirror-editor: 2.1.0(codemirror@6.0.2)(svelte@5.39.12)
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - codemirror
+      - supports-color
+      - typescript
 
   '@octokit/auth-oauth-device@8.0.3':
     dependencies:
@@ -11069,36 +11151,16 @@ snapshots:
       - vite
     optional: true
 
-  '@vitest/browser@3.2.4(playwright@1.57.0)(vite@5.4.20(@types/node@24.7.2)(terser@5.44.1))(vitest@3.2.4)':
+  '@vitest/browser@3.2.4(playwright@1.57.0)(vite@6.3.3(@types/node@24.7.2)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))(vitest@3.2.4)':
     dependencies:
       '@testing-library/dom': 10.4.1
       '@testing-library/user-event': 14.6.1(@testing-library/dom@10.4.1)
-      '@vitest/mocker': 3.2.4(vite@5.4.20(@types/node@24.7.2)(terser@5.44.1))
+      '@vitest/mocker': 3.2.4(vite@6.3.3(@types/node@24.7.2)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))
       '@vitest/utils': 3.2.4
       magic-string: 0.30.19
       sirv: 3.0.2
       tinyrainbow: 2.0.0
       vitest: 3.2.4(@types/node@24.7.2)(@vitest/browser@3.2.4)(@vitest/ui@3.2.4)(happy-dom@15.11.7)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.44.1)(yaml@2.7.1)
-      ws: 8.18.3
-    optionalDependencies:
-      playwright: 1.57.0
-    transitivePeerDependencies:
-      - bufferutil
-      - msw
-      - utf-8-validate
-      - vite
-    optional: true
-
-  '@vitest/browser@3.2.4(playwright@1.57.0)(vite@6.3.3(@types/node@22.19.3)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))(vitest@3.2.4)':
-    dependencies:
-      '@testing-library/dom': 10.4.1
-      '@testing-library/user-event': 14.6.1(@testing-library/dom@10.4.1)
-      '@vitest/mocker': 3.2.4(vite@6.3.3(@types/node@22.19.3)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))
-      '@vitest/utils': 3.2.4
-      magic-string: 0.30.19
-      sirv: 3.0.2
-      tinyrainbow: 2.0.0
-      vitest: 3.2.4(@types/node@22.19.3)(@vitest/browser@3.2.4)(@vitest/ui@3.2.4)(happy-dom@15.11.7)(jiti@1.21.7)(jsdom@26.1.0)(terser@5.44.1)(yaml@2.7.1)
       ws: 8.18.3
     optionalDependencies:
       playwright: 1.57.0
@@ -11166,15 +11228,6 @@ snapshots:
       magic-string: 0.30.19
     optionalDependencies:
       vite: 5.4.20(@types/node@22.19.3)(terser@5.44.1)
-    optional: true
-
-  '@vitest/mocker@3.2.4(vite@5.4.20(@types/node@24.7.2)(terser@5.44.1))':
-    dependencies:
-      '@vitest/spy': 3.2.4
-      estree-walker: 3.0.3
-      magic-string: 0.30.19
-    optionalDependencies:
-      vite: 5.4.20(@types/node@24.7.2)(terser@5.44.1)
     optional: true
 
   '@vitest/mocker@3.2.4(vite@6.3.3(@types/node@22.19.3)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))':
@@ -12315,6 +12368,8 @@ snapshots:
   diff@5.2.0: {}
 
   diff@7.0.0: {}
+
+  diff@8.0.2: {}
 
   dijkstrajs@1.0.3: {}
 
@@ -13492,6 +13547,20 @@ snapshots:
   isexe@2.0.0: {}
 
   isobject@3.0.1: {}
+
+  isomorphic-git@1.36.1:
+    dependencies:
+      async-lock: 1.4.1
+      clean-git-ref: 2.0.1
+      crc-32: 1.2.2
+      diff3: 0.0.3
+      ignore: 5.3.2
+      minimisted: 2.0.1
+      pako: 1.0.11
+      pify: 4.0.1
+      readable-stream: 4.7.0
+      sha.js: 2.4.12
+      simple-get: 4.0.1
 
   isomorphic-git@https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz:
     dependencies:
@@ -15700,6 +15769,24 @@ snapshots:
       yn: 3.1.1
     optional: true
 
+  ts-node@10.9.2(@types/node@24.7.2)(typescript@5.9.3):
+    dependencies:
+      '@cspotcode/source-map-support': 0.8.1
+      '@tsconfig/node10': 1.0.11
+      '@tsconfig/node12': 1.0.11
+      '@tsconfig/node14': 1.0.3
+      '@tsconfig/node16': 1.0.4
+      '@types/node': 24.7.2
+      acorn: 8.15.0
+      acorn-walk: 8.3.4
+      arg: 4.1.3
+      create-require: 1.1.1
+      diff: 4.0.2
+      make-error: 1.3.6
+      typescript: 5.9.3
+      v8-compile-cache-lib: 3.0.1
+      yn: 3.1.1
+
   tsd@0.31.2:
     dependencies:
       '@tsd/typescript': 5.4.5
@@ -16092,7 +16179,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.19.3
-      '@vitest/browser': 3.2.4(playwright@1.57.0)(vite@6.3.3(@types/node@22.19.3)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))(vitest@3.2.4)
+      '@vitest/browser': 3.2.4(playwright@1.57.0)(vite@5.4.20(@types/node@22.19.3)(terser@5.44.1))(vitest@3.2.4)
       '@vitest/ui': 3.2.4(vitest@3.2.4)
       happy-dom: 15.11.7
       jsdom: 26.1.0
@@ -16137,7 +16224,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 24.7.2
-      '@vitest/browser': 3.2.4(playwright@1.57.0)(vite@5.4.20(@types/node@24.7.2)(terser@5.44.1))(vitest@3.2.4)
+      '@vitest/browser': 3.2.4(playwright@1.57.0)(vite@6.3.3(@types/node@24.7.2)(jiti@1.21.7)(terser@5.44.1)(yaml@2.7.1))(vitest@3.2.4)
       '@vitest/ui': 3.2.4(vitest@3.2.4)
       happy-dom: 15.11.7
       jsdom: 26.1.0
@@ -16516,3 +16603,5 @@ snapshots:
       readable-stream: 4.7.0
 
   zod@3.25.76: {}
+
+  zod@4.3.5: {}

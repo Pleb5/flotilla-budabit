@@ -4,8 +4,8 @@
     parseIssueEvent,
     type CommentEvent,
     type StatusEvent,
-  } from "@nostr-git/shared-types"
-  import {resolveIssueStatus} from "@nostr-git/core"
+  } from "@nostr-git/core/events"
+  import {resolveIssueStatus} from "@nostr-git/core/events"
   import {Card, IssueThread, Status} from "@nostr-git/ui"
   import {page} from "$app/stores"
   import {CircleCheck, CircleDot, FileCode, MessageSquare, SearchX} from "@lucide/svelte"
@@ -27,7 +27,7 @@
   import {getContext, onMount} from "svelte"
   import {postComment, postStatus, postLabel, postRoleLabel} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
-  import {createLabelEvent, type LabelEvent} from "@nostr-git/shared-types"
+  import {createLabelEvent, type LabelEvent} from "@nostr-git/core/events"
   import {publishDelete} from "@app/core/commands"
   import {ROLE_NS} from "@lib/budabit/labels"
   import {

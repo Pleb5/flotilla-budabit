@@ -14,7 +14,7 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {derived as _derived} from "svelte/store"
   import {onMount} from "svelte"
-  import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/shared-types"
+  import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
   import Git from "@assets/icons/git.svg?dataurl"
   
   const url = decodeRelay($page.params.relay)

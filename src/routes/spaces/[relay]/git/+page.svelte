@@ -33,7 +33,7 @@
     parseRepoAnnouncementEvent,
     type BookmarkAddress,
     type RepoAnnouncementEvent,
-  } from "@nostr-git/shared-types"
+  } from "@nostr-git/core/events"
   import {
     Avatar,
     AvatarImage,

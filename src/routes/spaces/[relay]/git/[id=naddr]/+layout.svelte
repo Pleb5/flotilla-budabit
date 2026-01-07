@@ -43,8 +43,9 @@
     announcementEvent: RepoAnnouncementEvent
     stateEvent: RepoStateEvent
   }
-  import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/shared-types"
-  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, normalizeRelayUrl as normalizeRelayUrlShared, parseRepoAnnouncementEvent} from "@nostr-git/shared-types"
+  import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
+  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, parseRepoAnnouncementEvent, isCommentEvent} from "@nostr-git/core/events"
+  import {normalizeRelayUrl as normalizeRelayUrlShared} from "@nostr-git/core"
   import {derived, get as getStore, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -66,7 +67,6 @@
     COMMENT,
     type TrustedEvent
   } from "@welshman/util"
-  import {isCommentEvent} from "@nostr-git/shared-types"
   import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass} from "@lib/budabit/state"
@@ -624,7 +624,7 @@
         repoId: repoClass.key,
         cloneUrls,
         forceUpdate: true,
-        timeoutMs: 2 * 60 * 1000, // 2 minutes
+        // timeoutMs: 2 * 60 * 1000, // 2 minutes
       })
 
       if (result.success) {
@@ -844,8 +844,9 @@
       } else {
         bookmarksStore.add({
           address,
-          event: null,
           relayHint: normalizedRelayHint,
+          author: repoClass.repoEvent.pubkey,
+          identifier: GIT_REPO_BOOKMARK_DTAG,
         })
       }
       

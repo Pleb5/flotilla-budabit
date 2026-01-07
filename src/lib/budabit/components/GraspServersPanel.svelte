@@ -3,7 +3,7 @@
   import {graspServersStore} from "@nostr-git/ui"
   import {CirclePlus, Trash} from "@lucide/svelte"
   import {pubkey} from "@welshman/app"
-  import {createGraspServersEvent} from "@nostr-git/shared-types"
+  import {createGraspServersEvent} from "@nostr-git/core/events"
   import {postGraspServersList} from "@src/lib/budabit"
 
   let newUrl = $state("")

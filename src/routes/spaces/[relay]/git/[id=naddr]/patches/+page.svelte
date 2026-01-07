@@ -19,11 +19,11 @@
     type PatchEvent,
     type PullRequestEvent,
     type StatusEvent,
-  } from "@nostr-git/shared-types"
+  } from "@nostr-git/core/events"
   import {Address, COMMENT} from "@welshman/util"
-  import {parseGitPatchFromEvent} from "@nostr-git/core"
+  import {parseGitPatchFromEvent} from "@nostr-git/core/git"
   import {request} from "@welshman/net"
-  import {parsePullRequestEvent} from "@nostr-git/shared-types"
+  import {parsePullRequestEvent} from "@nostr-git/core/events"
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
   import {postComment} from "@lib/budabit/commands.js"
