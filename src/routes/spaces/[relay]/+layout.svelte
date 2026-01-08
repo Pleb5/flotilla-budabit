@@ -9,9 +9,15 @@
   import SpaceTrustRelay from "@app/components/SpaceTrustRelay.svelte"
   import {pushModal} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
-  import {decodeRelay, deriveRelayAuthError, relaysPendingTrust, deriveSocket} from "@app/core/state"
+  import {decodeRelay, deriveRelayAuthError, deriveSocket} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
-  import {GIT_ISSUE, GIT_PATCH, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GRASP_SET_KIND} from "@nostr-git/core/events"
+  import {
+    GIT_ISSUE,
+    GIT_PATCH,
+    GIT_REPO_ANNOUNCEMENT,
+    GIT_REPO_STATE,
+    GRASP_SET_KIND,
+  } from "@nostr-git/core/events"
   import { channelsByUrl, loadPlatformChannels } from "@src/lib/budabit"
   import {SocketStatus} from "@welshman/net"
   import {request} from "@welshman/net"

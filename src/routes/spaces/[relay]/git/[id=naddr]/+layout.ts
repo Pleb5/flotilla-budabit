@@ -8,7 +8,7 @@ export const load: LayoutLoad = async ({params}) => {
   // Dynamic imports to avoid SSR issues
   const {decodeRelay} = await import("@app/core/state")
   const {GIT_RELAYS} = await import("@src/lib/budabit/state")
-  const {normalizeRelayUrl} = await import("@nostr-git/core")
+  const {normalizeRelayUrl} = await import("@nostr-git/core/utils")
   const {canonicalRepoKey} = await import("@nostr-git/core/events")
 
   const decoded = nip19.decode(id).data as AddressPointer

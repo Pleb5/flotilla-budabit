@@ -9,24 +9,6 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "strict": true,
-    "moduleResolution": "bundler",
-    "types": ["node"]
-  },
-  "include": [
-    "src",
-    "tests/**/*.ts",
-    "packages/nostr-git/packages/ui/tests/**/*.ts",
-    "src/lib/signerContextAdapter.ts",
-    "packages/nostr-git/packages/ui/src/lib/utils/tokenLoader.ts"  ],
-  "exclude": [
-    "packages/**/dist",
-    "packages/**/dist/**",
-    "packages/**/src/**/examples",
-    "packages/**/src/**/examples/**",
-    "packages/**/src/**",
-    "packages/**/storybook",
-    "packages/**/storybook/**",
-    "**/*.stories.*",
-    "src/service-worker.js"
-  ]
+    "moduleResolution": "bundler"
+  }
 }

@@ -18,7 +18,7 @@
   import {goto} from "$app/navigation"
   import * as nip19 from "nostr-tools/nip19"
   import type {AddressPointer} from "nostr-tools/nip19"
-  import {sanitizeRelays} from "@nostr-git/core"
+  import {sanitizeRelays} from "@nostr-git/core/utils"
   import {canonicalRepoKey} from "@nostr-git/core/utils"
   import {pushToast} from "@app/util/toast"
   import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"

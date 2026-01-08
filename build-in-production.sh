@@ -8,9 +8,6 @@ git describe --tags --abbrev=0 || true
 export VITE_BUILD_VERSION=$RENDER_GIT_COMMIT
 export VITE_BUILD_HASH=$RENDER_GIT_COMMIT
 
-# Ensure submodules are initialized
-git submodule update --init --recursive || true
-
 # Install dependencies
 CI=0 pnpm i
 

@@ -1,5 +1,4 @@
 import {config} from "dotenv"
-import path from "path"
 import {defineConfig} from "vite"
 import {SvelteKitPWA} from "@vite-pwa/sveltekit"
 import {sveltekit} from "@sveltejs/kit/vite"
@@ -11,13 +10,6 @@ config({path: ".env.template"})
 export default defineConfig({
   server: {
     port: 1847,
-    // local serving of package files
-    fs: {
-      allow: [
-        '.',
-        path.resolve(__dirname, '../'),
-      ]
-    }
     // host: "0.0.0.0",
     // strictPort: true,
     // allowedHosts: ["coracle-client.ngrok.io"],
@@ -56,6 +48,13 @@ export default defineConfig({
       "@codemirror/view",
       "@codemirror/theme-one-dark"
     ],
+    include: ["@nostr-git/core", "@nostr-git/ui"],
+  },
+  ssr: {
+    noExternal: ["@nostr-git/core", "@nostr-git/ui"],
+  },
+  resolve: {
+    conditions: ["import", "module", "browser", "default"],
   },
 
   worker: {
