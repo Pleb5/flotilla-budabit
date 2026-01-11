@@ -19,7 +19,8 @@
   import * as nip19 from "nostr-tools/nip19"
   import type {AddressPointer} from "nostr-tools/nip19"
   import {sanitizeRelays} from "@nostr-git/core/utils"
-  import {canonicalRepoKey} from "@nostr-git/core/utils"
+  import {parseRepoId} from "@nostr-git/core/utils"
+  import {buildRepoKey} from "@nostr-git/core/events"
   import {pushToast} from "@app/util/toast"
   import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
   import Link from "@lib/components/Link.svelte"
@@ -88,7 +89,7 @@
     try {
       const decoded = nip19.decode(naddr).data as AddressPointer
       const repoId = `${decoded.pubkey}:${decoded.identifier}`
-      canonicalRepoKey(repoId)
+      parseRepoId(repoId)
     } catch (e) {
       pushToast({
         message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open patches until repo is fixed: ${e}`,
@@ -105,7 +106,7 @@
     try {
       const decoded = nip19.decode(naddr).data as AddressPointer
       const repoId = `${decoded.pubkey}:${decoded.identifier}`
-      canonicalRepoKey(repoId)
+      parseRepoId(repoId)
     } catch (e) {
       pushToast({
         message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open repo until it is fixed: ${e}`,
@@ -122,7 +123,7 @@
     try {
       const decoded = nip19.decode(naddr).data as AddressPointer
       const repoId = `${decoded.pubkey}:${decoded.identifier}`
-      canonicalRepoKey(repoId)
+      parseRepoId(repoId)
     } catch (e) {
       pushToast({
         message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open issues until repo is fixed.`,
@@ -151,7 +152,7 @@
       const name = announcement?.name || event.tags.find(nthEq(0, "name"))?.[1] || ""
       const owner = event.pubkey || ""
       if (owner && name) {
-        repoId = canonicalRepoKey(`${owner}:${name}`)
+        repoId = buildRepoKey(owner, name)
       }
 
       if (!repoId || cloneUrls.length === 0 || !workerApi) return

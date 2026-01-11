@@ -93,6 +93,13 @@
     const mainBranch = repoClass.mainBranch;
     const currentBranch = selectedBranch || mainBranch;
     const isSwitching = repoClass.isBranchSwitching
+    const repoKey = repoClass.key;
+    
+    // Guard: wait for repoClass.key to be populated (not empty string)
+    if (!repoKey || repoKey.trim() === "") {
+      console.debug("[commits] Waiting for repoClass.key to be populated");
+      return;
+    }
     
     if (repoClass && repoClass.repoId && currentBranch) {
       // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
@@ -129,6 +136,14 @@
   async function loadCommits() {
     if (!initialLoadComplete) {
       commitsLoading = true
+    }
+
+    // Check if WorkerManager is ready before attempting operations
+    if (!repoClass.workerManager?.isReady) {
+      console.debug("Commits: WorkerManager not ready, skipping")
+      commitsError = "Repository worker not initialized. Please refresh the page."
+      commitsLoading = false
+      return
     }
 
     try {

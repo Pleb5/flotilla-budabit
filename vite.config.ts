@@ -10,6 +10,9 @@ config({path: ".env.template"})
 export default defineConfig({
   server: {
     port: 1847,
+    fs: {
+      allow: ['.', '../packages'],
+    },
     // host: "0.0.0.0",
     // strictPort: true,
     // allowedHosts: ["coracle-client.ngrok.io"],
@@ -46,9 +49,9 @@ export default defineConfig({
       "@codemirror/lang-sql",
       "@codemirror/state",
       "@codemirror/view",
-      "@codemirror/theme-one-dark"
+      "@codemirror/theme-one-dark",
+      "@nostr-git/core",
     ],
-    include: ["@nostr-git/core", "@nostr-git/ui"],
   },
   ssr: {
     noExternal: ["@nostr-git/core", "@nostr-git/ui"],
@@ -57,12 +60,17 @@ export default defineConfig({
     conditions: ["import", "module", "browser", "default"],
   },
 
+  assetsInclude: ['**/*.wasm', '**/*.worker.js', '**/*.worker.ts'],
+  
   worker: {
     format: "es", // avoid 'iife' so code-splitting is allowed
-    // If you want to be extra explicit:
-    // rollupOptions: {
-    //   output: { format: "es" },
-    // },
+    rollupOptions: {
+      output: { 
+        format: "es",
+        // Ensure workers from node_modules are properly handled
+        entryFileNames: '_app/[name].js',
+      },
+    },
   },
 
   plugins: [

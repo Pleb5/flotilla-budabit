@@ -1,5 +1,7 @@
 <script lang="ts">
-  import {beforeNavigate, goto} from "$app/navigation"
+  import {onMount} from "svelte"
+  import {goto} from "$app/navigation"
+  import {shouldUnwrap} from "@welshman/app"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
@@ -12,9 +14,6 @@
   import {pushModal} from "@app/util/modal"
   import {goToSpace} from "@app/util/routes"
   import {PLATFORM_NAME, PLATFORM_RELAYS} from "@app/core/state"
-  import {shouldUnwrap} from "@welshman/app"
-  import {onMount} from "svelte"
-  import {pushToast} from "@app/util/toast"
 
   const addSpace = () => pushModal(SpaceAdd)
 

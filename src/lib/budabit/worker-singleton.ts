@@ -9,6 +9,8 @@
  * - No manual initialization needed
  */
 import { getGitWorker } from '@nostr-git/core/worker';
+// @ts-ignore - Vite ?url import for correct worker URL resolution
+import gitWorkerUrl from '@nostr-git/core/worker/worker.js?url';
 
 interface GitWorkerInstance {
   api: any;
@@ -51,10 +53,23 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
   initPromise = (async () => {
     try {
       // Create worker using the git-worker package's getGitWorker function
-      const { api, worker } = getGitWorker();
+      // Use injected worker URL to ensure Vite resolves it correctly
+      const { api, worker } = getGitWorker({
+        workerUrl: gitWorkerUrl,
+        onError: (ev: ErrorEvent | MessageEvent) => {
+          console.error('[GitWorker] Worker load error:', ev);
+        },
+      });
 
-      // Register event signer for GRASP operations
-      //registerEventSigner(worker, signEvent);
+      // Ping the worker to verify it's alive (fast failure detection)
+      const pingTimeout = 5000;
+      const pingPromise = api.ping();
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Worker ping timed out")), pingTimeout);
+      });
+      
+      const pingResult = await Promise.race([pingPromise, timeoutPromise]);
+      console.log('[GitWorker] Worker ping successful:', pingResult);
       
       workerInstance = { api, worker };
       

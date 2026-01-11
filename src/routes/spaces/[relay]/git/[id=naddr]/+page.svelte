@@ -273,6 +273,13 @@
         return
       }
 
+      // Check if WorkerManager is ready before attempting operations
+      if (!repoClass.workerManager?.isReady) {
+        console.debug("LatestCommit: WorkerManager not ready, skipping")
+        commitLoading = false
+        return
+      }
+
       // Try depth 5 first (fast), then 10 if needed, then 25 as fallback
       const depths = [5, 10, 25]
       

@@ -9,7 +9,7 @@ export const load: LayoutLoad = async ({params}) => {
   const {decodeRelay} = await import("@app/core/state")
   const {GIT_RELAYS} = await import("@src/lib/budabit/state")
   const {normalizeRelayUrl} = await import("@nostr-git/core/utils")
-  const {canonicalRepoKey} = await import("@nostr-git/core/events")
+  const {parseRepoId} = await import("@nostr-git/core/utils")
 
   const decoded = nip19.decode(id).data as AddressPointer
   const repoId = `${decoded.pubkey}:${decoded.identifier}`
@@ -18,7 +18,7 @@ export const load: LayoutLoad = async ({params}) => {
   
   // Enforce canonical repo key at routing layer (fail fast)
   try {
-    canonicalRepoKey(repoId)
+    parseRepoId(repoId)
   } catch (e) {
     throw new Error(
       `Invalid repoId: "${repoId}". Expected canonical repoId in the form "owner/name" or "owner:name".`,

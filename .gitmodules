@@ -1,3 +1,11 @@
 [submodule "packages/nostr-git"]
 	path = packages/nostr-git
 	url = https://github.com/chebizarro/nostr-git.git
+[submodule "packages/nostr-git-core"]
+	path = packages/nostr-git-core
+	url = https://github.com/chebizarro/nostr-git.git
+	branch = v1
+[submodule "packages/nostr-git-ui"]
+	path = packages/nostr-git-ui
+	url = https://github.com/chebizarro/nostr-git-ui.git
+	branch = master

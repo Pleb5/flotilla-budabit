@@ -26,6 +26,9 @@
   let isCloning = $state(false)
   let cloneProgress = $state<string>("")
   let cloneProgressPercent = $state<number | undefined>(undefined)
+  
+  // Guard to prevent multiple concurrent clone checks
+  let cloneCheckInProgress = $state(false)
 
   const rootDir: FileEntry = $state({
     name: ".",
@@ -63,26 +66,33 @@
   // Start with false - only show loading when actually loading refs
   let loadingRefs = $state(false)
 
+  // Track if we've already attempted clone check to prevent infinite retries
+  let cloneCheckAttempted = $state(false)
+  
   // Check if repo is cloned and clone if needed (only on code tab)
-  // Defer this heavy operation until after initial render
   $effect(() => {
-    if (!repoClass || !repoClass.workerManager?.isReady) return
+    if (!repoClass) return
+    // Wait for repo key to be populated (set when repoEvent is processed)
+    if (!repoClass.key) return
+    // Only attempt clone check once per page load
+    if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
     
-    // Defer cloning check to avoid blocking initial render
     const timeout = setTimeout(() => {
       ;(async () => {
+        if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
+        if (!repoClass.key) return // Double-check key is still valid
+        cloneCheckInProgress = true
+        cloneCheckAttempted = true
+        
         try {
           const isCloned = await repoClass.workerManager.isRepoCloned({
             repoId: repoClass.key
           })
           
           if (!isCloned) {
-            // Show clone progress
             isCloning = true
             cloneProgress = "Initializing repository..."
             
-            // Set up progress callback using WorkerManager's API
-            const originalCallback = repoClass.workerManager.setProgressCallback.bind(repoClass.workerManager)
             repoClass.workerManager.setProgressCallback((progressEvent) => {
               if (progressEvent.repoId === repoClass.key) {
                 cloneProgress = progressEvent.phase || "Cloning repository..."
@@ -106,7 +116,6 @@
                 throw new Error(result.error || "Repository initialization failed")
               }
               
-              // After cloning, sync with remote to ensure we have latest content
               console.log("🔄 Syncing with remote after clone...")
               cloneProgress = "Syncing with remote..."
               try {
@@ -118,33 +127,37 @@
                 console.log("✅ Sync complete")
               } catch (syncErr) {
                 console.warn("Sync with remote failed:", syncErr)
-                // Don't throw - repo is still usable even if sync fails
               }
             } finally {
-              // Restore original callback (or clear it)
               repoClass.workerManager.setProgressCallback(() => {})
               isCloning = false
               cloneProgress = ""
               cloneProgressPercent = undefined
-              // Trigger file reload after clone+sync completes
               branchSwitchComplete++
             }
           }
-        } catch (error) {
-          console.error("Failed to initialize repository:", error)
-          pushToast({
-            message: `Failed to initialize repository: ${error instanceof Error ? error.message : "Unknown error"}`,
-            theme: "error",
-          })
+        } catch (err) {
+          console.error("Failed to initialize repository:", err)
+          const errorMessage = err instanceof Error ? err.message : "Unknown error"
+          // Only show toast for non-transient errors
+          if (!errorMessage.includes("No clone URLs")) {
+            // Silently fail - file loading will handle it
+            console.warn("Clone check failed, file loading will handle:", errorMessage)
+          } else {
+            pushToast({
+              message: `Failed to initialize repository: ${errorMessage}`,
+              theme: "error",
+            })
+            error = errorMessage
+          }
           isCloning = false
-          error = error instanceof Error ? error.message : "Failed to initialize repository"
+        } finally {
+          cloneCheckInProgress = false
         }
       })()
-    }, 100)
+    }, 200) // Slightly longer delay to ensure worker is ready
     
-    return () => {
-      clearTimeout(timeout)
-    }
+    return () => clearTimeout(timeout)
   })
 
   // Load refs using the unified API - defer to avoid blocking render
@@ -160,12 +173,18 @@
             loadingRefs = false
             branchLoadTrigger++ // Trigger reactivity for dependent effects
           })
-          .catch((error: Error) => {
-            console.error("Failed to load repository references:", error)
-            pushToast({
-              message: "Failed to load branches from git repository: " + error,
-              theme: "error",
-            })
+          .catch((err: Error) => {
+            console.error("Failed to load repository references:", err)
+            // Don't show toast for transient worker initialization errors
+            const errorMessage = err.message || String(err)
+            if (!errorMessage.includes("Cannot read properties of undefined") && 
+                !errorMessage.includes("Worker operation") &&
+                !errorMessage.includes("apply")) {
+              pushToast({
+                message: "Failed to load branches from git repository: " + errorMessage,
+                theme: "error",
+              })
+            }
             refs = []
             loadingRefs = false
           })
