@@ -55,24 +55,14 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
     list(this: Renderer, token: Tokens.List): string {
       const listItems: string = token.items
         .map((item): string => {
-          let itemContent = ""
-
-          try {
-            itemContent = this.parser.parseInline(item.tokens)
-          } catch {
-            itemContent = this.parser.parse(item.tokens as any)
-            itemContent = itemContent.replace(/^<p>([\s\S]*)<\/p>\n?$/, "$1")
-          }
-
+          const itemContent: string = this.parser.parse(item.tokens)
           return `<li>${itemContent}</li>`
         })
         .join("\n")
 
-      const listClass = token.ordered ? "list-decimal list-inside" : "list-disc list-inside"
-
       return token.ordered
-        ? `<ol class="${listClass}">${listItems}</ol>`
-        : `<ul class="${listClass}">${listItems}</ul>`
+        ? `<ol>${listItems}</ol>`
+        : `<ul>${listItems}</ul>`
     },
 
     code(token: Tokens.Code): string {
