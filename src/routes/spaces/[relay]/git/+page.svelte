@@ -52,6 +52,7 @@
     loadRepoAnnouncements,
     derivePatchGraph,
     deriveNaddrEvent,
+    GIT_RELAYS,
   } from "@lib/budabit/state"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -61,7 +62,7 @@
   import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
   import { makeGitPath } from "@src/lib/budabit"
 
-  const url = decodeRelay($page.params.relay)
+  const url = decodeRelay($page.params.relay!)
 
   const gitPath = makeGitPath(url)
 
@@ -91,9 +92,10 @@
   })
 
   // Normalize all relay URLs to avoid whitespace/trailing-slash/socket issues
+  // Include GIT_RELAYS to ensure we fetch repos from git-specific relays
   const bookmarkRelays = Array.from(
     new Set(
-      [url, ...Router.get().FromUser().getUrls()].map(u => normalizeRelayUrl(u)).filter(Boolean),
+      [url, ...Router.get().FromUser().getUrls(), ...GIT_RELAYS].map(u => normalizeRelayUrl(u)).filter(Boolean),
     ),
   ) as string[]
 
@@ -111,12 +113,12 @@
       relayHint: b.relayHint,
     }))
 
-  const bookmarkedAddresses = $derived((): BookmarkAddress[] => {
+  const bookmarkedAddresses = $derived.by((): BookmarkAddress[] => {
     const bookmarks = normalizeBookmarks($bookmarksStore)
     return toBookmarkAddresses(bookmarks)
   })
 
-  const hasBookmarkedAddresses = $derived(() => bookmarkedAddresses.length > 0)
+  const hasBookmarkedAddresses = $derived(bookmarkedAddresses.length > 0)
 
   // Fetch actual repo events for bookmarked addresses
   const attemptedBookmarkLoads = new Set<string>()
@@ -360,8 +362,12 @@
         return {controller}
       }
       const publishBookmarks = ({tags, relays}: {tags: string[][]; relays?: string[]}) => {
-        const controller = new AbortController()
         const eventToPublish = makeEvent(NAMED_BOOKMARKS, {tags, content: ""})
+        const targetRelays = relays || bookmarkRelays
+
+        console.log("[publishBookmarks] Creating bookmark event:", eventToPublish)
+        console.log("[publishBookmarks] Tags:", tags)
+        console.log("[publishBookmarks] Target relays:", targetRelays)
 
         // Extract a-tags and update the bookmarks store immediately
         const aTags = tags.filter(t => t[0] === "a")
@@ -374,10 +380,24 @@
 
         bookmarksStore.set(newBookmarks)
 
-        // Then publish to relays in the background
-        publishThunk({event: eventToPublish, relays: relays || bookmarkRelays})
+        // Publish to relays and return the thunk for awaiting
+        const thunk = publishThunk({
+          event: eventToPublish,
+          relays: targetRelays,
+          onSuccess: (result) => {
+            console.log("[publishBookmarks] Success on relay:", result.relay, result)
+          },
+          onFailure: (result) => {
+            console.error("[publishBookmarks] Failed on relay:", result.relay, result.detail)
+          },
+          onComplete: (result) => {
+            console.log("[publishBookmarks] Complete:", result)
+          },
+        })
+        
+        console.log("[publishBookmarks] Thunk created, event id:", thunk.event?.id)
 
-        return {controller}
+        return {controller: new AbortController(), complete: thunk.complete}
       }
       const makeRelayHint = (event: any) => {
         try {

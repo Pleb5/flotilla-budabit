@@ -10,7 +10,11 @@
   import {GithubIcon} from "@lucide/svelte"
   import {pushToast} from "@app/util/toast"
   import {toast, tokens as tokensStore} from "@nostr-git/ui"
-  import {signer, pubkey} from "@welshman/app"
+  import {signer, pubkey, publishThunk} from "@welshman/app"
+  import {Router} from "@welshman/router"
+  import {APP_DATA, makeEvent} from "@welshman/util"
+  import {GIT_AUTH_DTAG} from "@src/lib/budabit/requests"
+  import {get} from "svelte/store"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
 
@@ -20,8 +24,6 @@
   }
 
   const {tokenKey, editToken}: Props = $props()
-
-  const key = tokenKey
 
   const back = () => history.back()
   const disabled = $state(true)
@@ -49,44 +51,36 @@
     if (!$signer) {
       throw new Error("Signer is not available")
     }
-    if (!$signer.nip04) {
-      throw new Error("Signer does not support NIP-04 encryption")
+    if (!$signer.nip44) {
+      throw new Error("Signer does not support NIP-44 encryption")
     }
     if (!$pubkey) {
       throw new Error("Public key is not available")
     }
     
     try {
-      let allTokens: TokenEntry[] = [];
+      // Get current tokens from store
+      let currentTokens: TokenEntry[] = get(tokensStore)
+      let allTokens: TokenEntry[]
       
-      const existing = localStorage.getItem(key)
-      
-      if (existing) {
-        const decrypted = await $signer.nip04.decrypt($pubkey!, existing)
-        if (!decrypted) {
-          throw new Error("Failed to decrypt existing tokens")
-        }
-        const parsed = JSON.parse(JSON.parse(decrypted))
-        
-        if (editToken) {
-          // Edit mode: replace the existing token with the same host
-          const existingTokens = parsed.filter((t: TokenEntry) => t.host !== editToken.host)
-          allTokens = [...existingTokens, ...toks]
-        } else {
-          // Add mode: append new tokens
-          allTokens = [...parsed, ...toks]
-        }
+      if (editToken) {
+        // Edit mode: replace the existing token with the same host AND token
+        const existingTokens = currentTokens.filter(
+          (t: TokenEntry) => !(t.host === editToken.host && t.token === editToken.token)
+        )
+        allTokens = [...existingTokens, ...toks]
       } else {
-        allTokens = toks
+        // Add mode: append new tokens
+        allTokens = [...currentTokens, ...toks]
       }
       
       // Clean the data to ensure it's properly formatted
-      const cleanTokens = allTokens.map(token => ({
-        host: String(token.host).trim(),
-        token: String(token.token).trim()
-      }));
+      const cleanTokens = allTokens.map(t => ({
+        host: String(t.host).trim(),
+        token: String(t.token).trim()
+      }))
       
-      const dataToEncrypt = JSON.stringify(cleanTokens);
+      const dataToEncrypt = JSON.stringify(cleanTokens)
       
       // Create a promise that rejects after timeout (longer for NIP-46 signers)
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -95,26 +89,28 @@
           15000)
       })
       
-      // Race the encryption against the timeout
+      // Encrypt with NIP-44 (self-encryption)
       const encrypted = await Promise.race([
-        // HACK: double stringify bc welshman cannot handle strings with [].
-        // it does not escape the token array properly when used with nip46
-        $signer.nip04.encrypt($pubkey!, JSON.stringify(dataToEncrypt)),
+        $signer.nip44.encrypt($pubkey!, dataToEncrypt),
         timeoutPromise
       ]) as string
       
-      localStorage.setItem(key, encrypted)
+      // Create and publish the event
+      const event = makeEvent(APP_DATA, {
+        content: encrypted,
+        tags: [["d", GIT_AUTH_DTAG]]
+      })
       
-      // Update the reactive store only after successful save
-      if (editToken) {
-        // Edit mode: remove old token and add new one
-        // First, clear and repopulate the entire store with updated tokens
-        tokensStore.clear()
-        cleanTokens.forEach(token => tokensStore.push(token))
-      } else {
-        // Add mode: just add the new token
-        tokensStore.push(toks[0])
-      }
+      // Publish to user's relays
+      const relays = Router.get().FromUser().getUrls()
+      console.log("[GitAuthAdd] Publishing token event to relays:", relays)
+      publishThunk({event, relays})
+      
+      // Update the reactive store immediately for responsive UI
+      tokensStore.clear()
+      cleanTokens.forEach(t => tokensStore.push(t))
+      
+      console.log("[GitAuthAdd] Tokens saved successfully, count:", cleanTokens.length)
       
     } catch (e) {
       error = "Failed to save tokens: " + e

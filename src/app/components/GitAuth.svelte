@@ -1,16 +1,15 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import {pushModal} from "@app/util/modal"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
   import {tokens as tokensStore} from "@nostr-git/ui"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
-  import {
-    loadTokensFromStorage,
-    saveTokensToStorage,
-    type TokenEntry
-  } from "@nostr-git/ui"
+  import {signer, pubkey, publishThunk} from "@welshman/app"
+  import {Router} from "@welshman/router"
+  import {APP_DATA, makeEvent} from "@welshman/util"
+  import {GIT_AUTH_DTAG} from "@src/lib/budabit/requests"
+  import {get} from "svelte/store"
   import Git from "@assets/icons/git.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
@@ -19,16 +18,12 @@
     tokenKey: string
   }
 
+  interface TokenEntry {
+    host: string
+    token: string
+  }
+
   const {tokenKey}: Props = $props()
-
-
-  async function loadTokens(): Promise<TokenEntry[]> {
-    return await loadTokensFromStorage(tokenKey)
-  }
-
-  async function saveTokens(toks: TokenEntry[]) {
-    await saveTokensToStorage(tokenKey, toks)
-  }
 
   function mask(t: string) {
     return t.length <= 8 ? "••••••••" : `${t.slice(0, 4)}…${t.slice(-4)}`
@@ -37,34 +32,43 @@
   // Use reactive token store instead of local state
   let tokens = $state($tokensStore)
 
-  onMount(async () => {
-    // Tokens are now loaded at app level - just ensure they're loaded
-    // If tokens aren't loaded yet, wait for them
-    if (tokens.length === 0) {
-      try {
-        const loadedTokens = await loadTokens()
-        if (loadedTokens.length > 0) {
-          tokensStore.clear()
-          loadedTokens.forEach(token => tokensStore.push(token))
-        }
-      } catch (error) {
-        console.warn('GitAuth: Failed to load tokens as fallback:', error)
-      }
-    }
-  })
-
   // Subscribe to store changes
   $effect(() => {
     tokens = $tokensStore
   })
 
-  function del(tokenToDelete: TokenEntry) {
+  async function del(tokenToDelete: TokenEntry) {
+    const currentSigner = get(signer)
+    const currentPubkey = get(pubkey)
+    
+    if (!currentSigner?.nip44 || !currentPubkey) {
+      console.error("[GitAuth] Cannot delete token: signer or pubkey not available")
+      return
+    }
+
     // Match both host AND token to uniquely identify the token to delete
     const updatedTokens = tokens.filter(t => !(t.host === tokenToDelete.host && t.token === tokenToDelete.token))
-    saveTokens(updatedTokens)
-    // Update the reactive store
-    tokensStore.clear()
-    updatedTokens.forEach(token => tokensStore.push(token))
+    
+    try {
+      // Encrypt and publish updated token list
+      const dataToEncrypt = JSON.stringify(updatedTokens)
+      const encrypted = await currentSigner.nip44.encrypt(currentPubkey, dataToEncrypt)
+      
+      const event = makeEvent(APP_DATA, {
+        content: encrypted,
+        tags: [["d", GIT_AUTH_DTAG]]
+      })
+      
+      const relays = Router.get().FromUser().getUrls()
+      console.log("[GitAuth] Publishing updated token list after delete to relays:", relays)
+      publishThunk({event, relays})
+      
+      // Update the reactive store
+      tokensStore.clear()
+      updatedTokens.forEach(token => tokensStore.push(token))
+    } catch (error) {
+      console.error("[GitAuth] Failed to delete token:", error)
+    }
   }
 
   const openDialog = () => {

@@ -64,6 +64,10 @@
   // Handle branch switching state changes
   $effect(() => {
     const isSwitching = repoClass.isBranchSwitching
+    // Also track commits from repoClass to trigger re-render when they change
+    const repoCommits = repoClass.commits
+    
+    console.log("[commits] Effect triggered - isSwitching:", isSwitching, "wasJustSwitching:", wasJustSwitching, "repoCommits:", repoCommits?.length)
 
     if (isSwitching) {
       // Show loading state while switching
@@ -72,18 +76,21 @@
       branchSwitchComplete = false
     } else if (wasJustSwitching) {
       // Switch just completed - commits are already loaded by setSelectedBranch
-      // Mark as complete and wait a tick to ensure state is fully updated
       wasJustSwitching = false
       branchSwitchComplete = true
-
-      // Use a microtask to ensure reactive state is fully updated
-      Promise.resolve().then(() => {
+      commitsLoading = false
+      
+      // Immediately sync commits from repoClass (which is now reactive)
+      commits = repoCommits || []
+      totalCommits = repoClass.totalCommits
+      hasMoreCommits = repoClass.hasMoreCommits
+      
+      console.log("[commits] Branch switch complete, synced commits:", commits.length)
+      
+      // Reset branchSwitchComplete after a tick
+      setTimeout(() => {
         branchSwitchComplete = false
-        commitsLoading = false
-        commits = repoClass.commits || []
-        totalCommits = repoClass.totalCommits
-        hasMoreCommits = repoClass.hasMoreCommits
-      })
+      }, 0)
     }
   })
 
