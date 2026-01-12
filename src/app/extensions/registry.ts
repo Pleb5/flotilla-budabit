@@ -170,7 +170,8 @@ class ExtensionRegistry {
       iframe.sandbox.add("allow-scripts", "allow-same-origin")
       iframe.classList.add("extension-frame")
 
-      document.body.appendChild(iframe)
+      const container = document.getElementById("flotilla-extension-container") ?? document.body
+      container.appendChild(iframe)
 
       const {ExtensionBridge} = await import("./bridge")
       const bridge = new ExtensionBridge(ext)
@@ -200,7 +201,8 @@ class ExtensionRegistry {
     iframe.sandbox.add("allow-scripts", "allow-same-origin")
     iframe.classList.add("extension-frame")
 
-    document.body.appendChild(iframe)
+    const container = document.getElementById("flotilla-extension-container") ?? document.body
+    container.appendChild(iframe)
 
     const {ExtensionBridge} = await import("./bridge")
     const bridge = new ExtensionBridge(ext)
