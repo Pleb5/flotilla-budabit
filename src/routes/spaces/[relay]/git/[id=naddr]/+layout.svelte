@@ -6,6 +6,7 @@
     bookmarksStore,
     Repo,
     AvatarImage,
+    WorkerManager,
   } from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
   // Import worker URL using Vite's ?url suffix for correct asset resolution
@@ -322,8 +323,12 @@
   // Get or create Repo instance (reuse existing instance if available)
   // This ensures branch selection and other state persists across navigations
   // The store-based cache persists across component re-initializations  
-  // Create worker config with Vite-resolved URL
-  const workerConfig = { workerUrl: gitWorkerUrl }
+  // Create a shared WorkerManager to avoid duplicate workers
+  // This is created once and reused across all Repo instances
+  const sharedWorkerManager = new WorkerManager(
+    undefined, // progress callback - will be set by Repo instances
+    { workerUrl: gitWorkerUrl }
+  )
   
   if (!$activeRepoClass) {
     $activeRepoClass = new Repo({
@@ -336,7 +341,7 @@
       commentEvents: commentEventsStore,
       labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
       viewerPubkey: pubkey,
-      workerConfig,
+      workerManager: sharedWorkerManager,
     })
   } else {
     // Check if the existing repoInstance is for a different repository
@@ -358,7 +363,7 @@
         commentEvents: commentEventsStore,
         labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
         viewerPubkey: pubkey,
-        workerConfig,
+        workerManager: sharedWorkerManager,
       })
     } else {
       console.log("♻️  [LAYOUT INIT] REUSING existing Repo instance")

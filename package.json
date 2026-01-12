@@ -141,6 +141,9 @@
     ],
     "onlyBuiltDependencies": [
       "sharp"
-    ]
+    ],
+    "patchedDependencies": {
+      "@welshman/util@0.7.1": "patches/@welshman__util@0.7.1.patch"
+    }
   }
 }

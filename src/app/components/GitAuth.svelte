@@ -29,13 +29,8 @@
     return t.length <= 8 ? "••••••••" : `${t.slice(0, 4)}…${t.slice(-4)}`
   }
 
-  // Use reactive token store instead of local state
-  let tokens = $state($tokensStore)
-
-  // Subscribe to store changes
-  $effect(() => {
-    tokens = $tokensStore
-  })
+  // Use the store directly for reactivity
+  // $tokensStore is reactive and will update when tokens are loaded
 
   async function del(tokenToDelete: TokenEntry) {
     const currentSigner = get(signer)
@@ -47,7 +42,7 @@
     }
 
     // Match both host AND token to uniquely identify the token to delete
-    const updatedTokens = tokens.filter(t => !(t.host === tokenToDelete.host && t.token === tokenToDelete.token))
+    const updatedTokens = $tokensStore.filter((t: TokenEntry) => !(t.host === tokenToDelete.host && t.token === tokenToDelete.token))
     
     try {
       // Encrypt and publish updated token list
@@ -94,7 +89,7 @@
     </Button>
   </div>
 
-  {#if tokens.length}
+  {#if $tokensStore.length}
     <div class="w-full">
       <table class="w-full table-fixed">
         <thead>
@@ -105,7 +100,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each tokens as t}
+          {#each $tokensStore as t}
             <tr class="hover:bg-neutral">
               <td class="p-2 text-left">{t.host}</td>
               <td class="p-2 text-left">{mask(t.token)}</td>

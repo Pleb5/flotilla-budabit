@@ -20,7 +20,7 @@
     repoRelays,
     maintainers = [],
     userPubkey,
-    widgetAppUrl = "http://localhost:5178",
+    widgetAppUrl = "http://localhost:5177",
   }: Props = $props()
 
   let iframeEl: HTMLIFrameElement | null = $state(null)
