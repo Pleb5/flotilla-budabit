@@ -24,6 +24,8 @@
   import Link from "@lib/components/Link.svelte"
   import { onMount } from "svelte"
   import { parseRepoAnnouncementEvent } from "@nostr-git/shared-types"
+  import {tokens as tokensStore} from "@nostr-git/ui"
+  import {tryTokensForHost, getTokensForHost} from "@nostr-git/ui"
 
   interface Props {
     url: any
@@ -195,7 +197,38 @@
     const remoteUrl = cloneUrls[0]
     syncing = true
     try {
-      await workerApi.pushToRemote({ repoId, remoteUrl })
+      // Extract hostname for token matching
+      let hostname: string
+      try {
+        // Handle SSH URLs like git@github.com:owner/repo.git
+        if (remoteUrl.startsWith('git@')) {
+          const match = remoteUrl.match(/git@([^:]+):/)
+          hostname = match ? match[1] : ''
+        } else {
+          // Handle HTTPS URLs
+          const urlObj = new URL(remoteUrl)
+          hostname = urlObj.hostname
+        }
+      } catch {
+        hostname = ''
+      }
+      const tokens = await tokensStore.waitForInitialization()
+      const matchingTokens = getTokensForHost(tokens, hostname)
+
+      // Try all tokens for this host until one succeeds, or push without token if none available
+      if (matchingTokens.length > 0) {
+        await tryTokensForHost(
+          tokens,
+          hostname,
+          async (token: string, host: string) => {
+            return await workerApi.pushToRemote({ repoId, remoteUrl, token })
+          }
+        )
+      } else {
+        // No tokens available - try pushing without authentication (may fail for private repos)
+        await workerApi.pushToRemote({ repoId, remoteUrl })
+      }
+
       const syncResult = await workerApi.syncWithRemote({ repoId, cloneUrls })
       
       // Handle warnings like CORS issues gracefully

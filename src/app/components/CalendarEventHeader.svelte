@@ -26,7 +26,7 @@
   <p class="text-xl">{meta.title || meta.name}</p>
   <div class="flex items-center gap-2 text-sm">
     <Icon icon={ClockCircle} size={4} />
-    <span class="sm:hidden">{formatTimestampAsDate(start)}</span>
+    <span class="">{formatTimestampAsDate(start)}</span>
     {formatTimestampAsTime(start)} — {isSingleDay
       ? formatTimestampAsTime(end)
       : formatTimestamp(end)}

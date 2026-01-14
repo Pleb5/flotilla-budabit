@@ -9,7 +9,6 @@
   import {Card, IssueThread, Status} from "@nostr-git/ui"
   import {page} from "$app/stores"
   import {CircleCheck, CircleDot, FileCode, MessageSquare, SearchX} from "@lucide/svelte"
-  import markdownit from "markdown-it"
   import {
     COMMENT,
     GIT_STATUS_CLOSED,
@@ -41,19 +40,25 @@
   } from "@lib/budabit"
   import {normalizeEffectiveLabels, toNaturalArray} from "@lib/budabit/labels"
   import Markdown from "@src/lib/components/Markdown.svelte"
-
-  const markdown = markdownit({
-    html: true,
-    linkify: true,
-    typographer: true,
-  })
-
-  const {data} = $props()
-  const {repoClass} = data
+  import {REPO_KEY} from "@lib/budabit/state"
+  import type {Repo} from "@nostr-git/ui"
+  import type {Readable} from "svelte/store"
+  
+  const repoClass = getContext<Repo>(REPO_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+  
+  // Get relays reactively
+  const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
 
   const issueId = $page.params.issueid
-  const issueEvent = repoClass.issues.find(i => i.id === issueId)
-  const issue = issueEvent ? parseIssueEvent(issueEvent) : undefined
+  
+  // Make issue lookup reactive to handle data loading
+  const issueEvent = $derived.by(() => repoClass.issues.find(i => i.id === issueId))
+  const issue = $derived.by(() => issueEvent ? parseIssueEvent(issueEvent) : undefined)
 
   // Filter helper used when refreshing labels after publishing a new one
   const getLabelFilter = (): Filter => ({kinds: [1985], "#e": [issue?.id ?? ""]})
@@ -109,7 +114,7 @@
     if (existing.has(value)) return
     try {
       addingLabel = true
-      const relays = (repoClass.relays || repoRelays || [])
+      const relays = (repoRelays || [])
         .map((u: string) => normalizeRelayUrl(u))
         .filter(Boolean)
       console.debug("[IssueDetail] addLabel start", {
@@ -145,7 +150,7 @@
   const threadComments = $derived.by(() => {
     if (repoClass.issues && issue) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [issue.id]}]
-      const relays = (repoClass.relays || [])
+      const relays = (repoRelays || [])
         .map((u: string) => normalizeRelayUrl(u))
         .filter(Boolean)
       load({relays: relays as string[], filters})
@@ -226,7 +231,6 @@
 
   // Remove inline status state and auto-publish; Status component handles publishing
 
-  const repoRelays = getContext<string[]>(REPO_RELAYS_KEY)
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = (repoClass.relays || repoRelays || [])
       .map((u: string) => normalizeRelayUrl(u))
@@ -269,7 +273,7 @@
     }
     // Try to load profile if not in cache
     // Filter out invalid relay URLs to prevent errors
-    const validRelays = (repoClass.relays || []).filter((relay: string) => {
+    const validRelays = (repoRelays || []).filter((relay: string) => {
       try {
         const url = new URL(relay)
         return url.protocol === "ws:" || url.protocol === "wss:"

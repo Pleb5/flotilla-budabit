@@ -66,7 +66,7 @@
         if (!decrypted) {
           throw new Error("Failed to decrypt existing tokens")
         }
-        const parsed = JSON.parse(decrypted)
+        const parsed = JSON.parse(JSON.parse(decrypted))
         
         if (editToken) {
           // Edit mode: replace the existing token with the same host
@@ -90,12 +90,16 @@
       
       // Create a promise that rejects after timeout (longer for NIP-46 signers)
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('NIP-46 encryption timeout. Please try logging out and back in with your signer.')), 15000)
+        setTimeout(() => reject(new Error(
+          'NIP-44 encryption timeout. Please try logging out and back in with your signer.')),
+          15000)
       })
       
       // Race the encryption against the timeout
       const encrypted = await Promise.race([
-        $signer.nip04.encrypt($pubkey!, dataToEncrypt),
+        // HACK: double stringify bc welshman cannot handle strings with [].
+        // it does not escape the token array properly when used with nip46
+        $signer.nip04.encrypt($pubkey!, JSON.stringify(dataToEncrypt)),
         timeoutPromise
       ]) as string
       

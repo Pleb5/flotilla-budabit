@@ -1,5 +1,5 @@
-import { writable, derived, } from "svelte/store"
-import { load } from "@welshman/net"
+import { writable, derived, get as getStore, type Writable } from "svelte/store"
+import { load, request } from "@welshman/net"
 import {
   groupByEuc,
   deriveMaintainers,
@@ -15,25 +15,36 @@ import {
 } from "@nostr-git/core"
 import { repository } from "@welshman/app"
 import { collection, deriveEvents, withGetter } from "@welshman/store"
-import { INDEXER_RELAYS, channelEvents, deriveEvent, messages, getUrlsForEvent, memberships, roomComparator, splitChannelId, userRoomsByUrl, type Channel, getMembershipRooms, ROOM } from "@app/core/state"
+import { PLATFORM_RELAYS, channelEvents, deriveEvent, getUrlsForEvent, roomComparator, splitChannelId, userRoomsByUrl, type Channel, fromCsv } from "@app/core/state"
 import { normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
 import { nip19 } from "nostr-tools"
-import { fromPairs, nthEq, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
+import { fromPairs, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
 import { extractRoleAssignments } from "./labels"
+import type { Repo } from "@nostr-git/ui"
 
 export const shouldReloadRepos = writable(false)
+
+export const activeRepoClass = writable<Repo | undefined>(undefined)
 
 export const REPO_KEY = Symbol("repo")
 
 export const REPO_RELAYS_KEY = Symbol("repo-relays")
 
+export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")
+
+export const PULL_REQUESTS_KEY = Symbol("pull-requests")
+
 export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767
 
+<<<<<<< HEAD
 export const DEFAULT_WORKER_PUBKEY = "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
 
 export const GIT_RELAYS = import.meta.env.VITE_GIT_RELAYS
+=======
+export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
+>>>>>>> dev
 
 export const ROOMS = 10009
 
@@ -101,7 +112,7 @@ export const deriveRepoGroup = (euc: string) =>
 export const deriveMaintainersForEuc = (euc: string) =>
   withGetter(derived(deriveRepoGroup(euc), g => (g ? deriveMaintainers(g) : new Set<string>())))
 
-export const loadRepoAnnouncements = (relays: string[] = INDEXER_RELAYS) =>
+export const loadRepoAnnouncements = (relays: string[] = GIT_RELAYS) =>
   load({
     relays: relays.map(u => normalizeRelayUrl(u)).filter(Boolean) as string[],
     filters: [{ kinds: [30617] }],
@@ -144,40 +155,40 @@ export const deriveAssignmentsFor = (rootIds: string[]) =>
       deriveEvents(repository, { filters: [{ kinds: [1985], "#e": rootIds }] }),
       ($events) => {
         const assignmentsByRoot = new Map<string, { assignees: Set<string>; reviewers: Set<string> }>()
-        
+
         // Initialize empty sets for each root ID
         for (const rootId of rootIds) {
           assignmentsByRoot.set(rootId, { assignees: new Set<string>(), reviewers: new Set<string>() })
         }
-        
+
         // Parse events and assign to appropriate root IDs
         for (const ev of $events) {
           if (!ev || ev.kind !== 1985 || !Array.isArray(ev.tags)) continue
-          
+
           const hasRoleNs = ev.tags.some(
             (t: string[]) => t[0] === "L" && t[1] === "org.nostr.git.role"
           )
           if (!hasRoleNs) continue
-          
+
           const rootTags = ev.tags.filter((t: string[]) => t[0] === "e" && t[1] === "root")
           const roleTags = ev.tags.filter(
             (t: string[]) => t[0] === "l" && t[2] === "org.nostr.git.role"
           )
           const people = ev.tags.filter((t: string[]) => t[0] === "p").map((t: string[]) => t[1])
-          
+
           for (const rootTag of rootTags) {
             const rootId = rootTag[1]
             if (!rootId || !assignmentsByRoot.has(rootId)) continue
-            
+
             const assignment = assignmentsByRoot.get(rootId)!
             const hasAssignee = roleTags.some((t: string[]) => t[1] === "assignee")
             const hasReviewer = roleTags.some((t: string[]) => t[1] === "reviewer")
-            
+
             if (hasAssignee) for (const p of people) assignment.assignees.add(p)
             if (hasReviewer) for (const p of people) assignment.reviewers.add(p)
           }
         }
-        
+
         return assignmentsByRoot
       }
     )
@@ -263,7 +274,7 @@ export const loadRepoContext = (args: {
     rootEventId: args.rootId,
     euc: args.euc,
   })
-  const defaults = GIT_RELAYS && GIT_RELAYS.length > 0 ? GIT_RELAYS : INDEXER_RELAYS
+  const defaults = GIT_RELAYS
   const relays = (args.relays || defaults)
     .map((u: string) => normalizeRelayUrl(u))
     .filter(Boolean) as string[]
@@ -273,7 +284,7 @@ export const loadRepoContext = (args: {
 export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   let attempted = false
   const decoded = nip19.decode(naddr).data as nip19.AddressPointer
-  const fallbackRelays = [...hints, ...INDEXER_RELAYS]
+  const fallbackRelays = [...hints, ...GIT_RELAYS]
   const relays = (decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays)
     .map(u => normalizeRelayUrl(u))
     .filter(Boolean)
@@ -323,8 +334,8 @@ export const deriveOtherRooms = (url: string) =>
   )
 
 export const channels = derived(
-  [channelEvents, getUrlsForEvent, memberships, messages],
-  ([$channelEvents, $getUrlsForEvent, $memberships, $messages]) => {
+  [channelEvents, getUrlsForEvent],
+  ([$channelEvents, $getUrlsForEvent]) => {
     const $channels: Channel[] = []
     for (const event of $channelEvents) {
       const meta = fromPairs(event.tags)
@@ -348,6 +359,7 @@ export const channels = derived(
       }
     }
 
+<<<<<<< HEAD
     // Add known rooms based on membership events
     for (const membership of $memberships) {
       for (const {url, room, name} of getMembershipRooms(membership)) {
@@ -387,6 +399,8 @@ export const channels = derived(
       }
     }
 
+=======
+>>>>>>> dev
     return uniqBy(c => c.id, $channels)
   },
 )
@@ -405,7 +419,7 @@ export const {
     const [url, room] = splitChannelId(id)
     await load({
       relays: [normalizeRelayUrl(url)],
-      filters: [{kinds: [ROOM_META], "#d": [room]}, {kinds: [ROOMS]}],
+      filters: [{kinds: [ROOM_META], "#d": [room]}],
     })
   },
 })
@@ -419,3 +433,11 @@ export const channelsByUrl = derived(channelsById, $channelsById => {
 
   return $channelsByUrl
 })
+
+export async function loadPlatformChannels() {
+  await request({
+    relays: PLATFORM_RELAYS,
+    filters: [{kinds: [ROOM_META]}],
+    autoClose: true
+  })
+}

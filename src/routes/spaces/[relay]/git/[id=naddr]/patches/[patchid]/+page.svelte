@@ -16,7 +16,7 @@
     User,
     X,
   } from "@lucide/svelte"
-  import {Button, Profile, MergeStatus, toast, Status} from "@nostr-git/ui"
+  import {Button, MergeStatus, toast, Status} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {IssueThread, MergeAnalyzer, PatchViewer} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
@@ -52,15 +52,30 @@
   import type {Commit, MergeAnalysisResult, Patch, PatchTag} from "@nostr-git/core"
   import {sortBy} from "@welshman/lib"
   import {derived as _derived} from "svelte/store"
-  import type {LayoutProps} from "../../$types"
   import {slideAndFade} from "@src/lib/transition"
   import {normalizeRelayUrl} from "@welshman/util"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import {deriveRoleAssignments} from "@lib/budabit"
+  import Profile from "@src/app/components/Profile.svelte"
   import {preprocessMarkdown} from "@lib/util"
-
-  const {data}: LayoutProps = $props()
-  const {repoClass, repoRelays, pullRequests} = data as any
+  import {getContext} from "svelte"
+  import {REPO_KEY, REPO_RELAYS_KEY, PULL_REQUESTS_KEY} from "@lib/budabit/state"
+  import {get} from "svelte/store"
+  import type {Readable} from "svelte/store"
+  import type {Repo} from "@nostr-git/ui"
+    import Markdown from "@src/lib/components/Markdown.svelte"
+  
+  const repoClass = getContext<Repo>(REPO_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+  
+  // Get store values reactively using $ rune
+  const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
+  const pullRequests = $derived.by(() => pullRequestsStore ? $pullRequestsStore : [])
 
   // Profile functions for PeoplePicker
   const getProfile = async (pubkey: string) => {
@@ -120,11 +135,12 @@
 
   const patchId = $page.params.patchid
 
-  const patchEvent = repoClass.patches.find((p: any) => p.id === patchId)
-  const patch = patchEvent ? parseGitPatchFromEvent(patchEvent) : undefined
+  // Make patch lookup reactive to handle data loading
+  const patchEvent = $derived.by(() => repoClass.patches.find((p: any) => p.id === patchId))
+  const patch = $derived.by(() => patchEvent ? parseGitPatchFromEvent(patchEvent) : undefined)
 
   const prEvent = $derived.by(() =>
-    ($pullRequests || []).find((pr: PullRequestEvent) => pr.id === patchId)
+    (pullRequests || []).find((pr: PullRequestEvent) => pr.id === patchId)
   )
   const pr = $derived.by(() => (prEvent ? parsePullRequestEvent(prEvent as any) : undefined))
 
@@ -140,7 +156,7 @@
   })
 
   const prStatus = $derived.by(() => {
-    if (!prEvent || !$prStatusEvents) return undefined
+    if (!prEvent || !prStatusEvents) return undefined
     const events = $prStatusEvents as any[]
     if (!events || events.length === 0) return undefined
     const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
@@ -150,30 +166,39 @@
   const prThreadComments = $derived.by(() => {
     if (!prEvent) return undefined
     const filters: Filter[] = [{kinds: [COMMENT], "#E": [prEvent.id]}]
-    const relays = (repoClass.relays || [])
+    const relays = (repoRelays || [])
       .map((u: string) => normalizeRelayUrl(u))
       .filter(Boolean)
     load({relays: relays as string[], filters})
     return deriveEvents(repository, {filters})
   })
+  
+  // Derived values for PR comments for template usage
+  const prThreadCommentsArray = $derived.by(() => {
+    if (!prThreadComments) return []
+    return $prThreadComments as CommentEvent[]
+  })
+  const prThreadCommentsCount = $derived.by(() => prThreadCommentsArray.length)
 
-  console.log("patch", patch)
+  // Find root patch ID reactively
+  const rootPatchId = $derived.by(() => {
+    let rootId = patchId
+    let currentPatch = patchEvent as PatchEvent | null
+    while (currentPatch) {
+      const replyTags = getTags(currentPatch, "e")
+      if (replyTags.length === 0) break
 
-  let rootPatchId = patchId
-  let currentPatch = patchEvent as PatchEvent | null
-  while (currentPatch) {
-    const replyTags = getTags(currentPatch, "e")
-    if (replyTags.length === 0) break
+      const parentId = replyTags[0][1]
+      const parentPatch = repoClass.patches.find((p: PatchEvent) => p.id === parentId)
+      if (!parentPatch) break
 
-    const parentId = replyTags[0][1]
-    const parentPatch = repoClass.patches.find((p: PatchEvent) => p.id === parentId)
-    if (!parentPatch) break
+      rootId = parentId
+      currentPatch = parentPatch
+    }
+    return rootId
+  })
 
-    rootPatchId = parentId
-    currentPatch = parentPatch
-  }
-
-  const patchSet = repoClass.patches
+  const patchSet = $derived.by(() => repoClass.patches
     .filter((p: PatchEvent & { id: string }): p is PatchEvent => {
       if (p.id === patchId) return true
       const directReplyToThis = getTags(p, "e").some(tag => tag[1] === patchId)
@@ -205,8 +230,14 @@
     .sort((a: PatchEvent, b: PatchEvent) => a.created_at - b.created_at)
     .sort((a: PatchEvent, b: PatchEvent) => (a.id === rootPatchId ? -1 : 1))
     .map((p: PatchEvent) => parseGitPatchFromEvent(p))
+  )
 
-  let selectedPatch = $state(patch)
+  let selectedPatch = $state<Patch | undefined>(undefined)
+  
+  // Update selectedPatch when patch changes
+  $effect(() => {
+    selectedPatch = patch
+  })
   let mergeAnalysisResult: MergeAnalysisResult | null = $state(null)
   let isAnalyzingMerge = $state(false)
   let analysisTriggeredManually = $state(false)
@@ -335,7 +366,7 @@
   const threadComments = $derived.by(() => {
     if (repoClass.patches && selectedPatch) {
       const filters: Filter[] = [{kinds: [COMMENT], "#E": [selectedPatch.id]}]
-      const relays = (repoClass.relays || [])
+      const relays = (repoRelays || [])
         .map((u: string) => normalizeRelayUrl(u))
         .filter(Boolean)
       load({relays: relays as string[], filters})
@@ -343,6 +374,62 @@
         return sortBy(e => -e.created_at, events) as CommentEvent[]
       })
     }
+  })
+  
+  // Derived values for thread comments for template usage
+  const threadCommentsArray = $derived.by(() => {
+    if (!threadComments) return []
+    return $threadComments as CommentEvent[]
+  })
+  const threadCommentsCount = $derived.by(() => threadCommentsArray.length)
+
+  // Transform CommentEvent[] into DiffViewer Comment[] format
+  const diffComments = $derived.by(() => {
+    if (!threadComments) return []
+    const comments = $threadComments as CommentEvent[]
+    if (!comments || comments.length === 0) return []
+    
+    return comments.map((commentEvent: CommentEvent) => {
+      // Parse line number and file path from comment content
+      // Format: "comment text\n\n---\nFile: path\nLine: 123"
+      let lineNumber = 0
+      let filePath = ""
+      let content = commentEvent.content
+      
+      const separatorIndex = content.indexOf('\n\n---\n')
+      if (separatorIndex !== -1) {
+        // Extract the actual comment content (before the separator)
+        content = content.substring(0, separatorIndex).trim()
+        
+        // Extract file path and line number from the metadata section
+        const metadataSection = commentEvent.content.substring(separatorIndex + 6)
+        const fileMatch = metadataSection.match(/File:\s*(.+?)(?:\n|$)/i)
+        if (fileMatch) {
+          filePath = fileMatch[1].trim()
+        }
+        const lineMatch = metadataSection.match(/Line:\s*(\d+)/i)
+        if (lineMatch) {
+          lineNumber = parseInt(lineMatch[1], 10)
+        }
+      }
+      
+      // Get profile information for the author
+      const profile = $profilesByPubkey.get(commentEvent.pubkey)
+      const authorName = profile?.name || profile?.display_name || commentEvent.pubkey.slice(0, 8)
+      const authorAvatar = profile?.picture || ""
+      
+      return {
+        id: commentEvent.id || "",
+        lineNumber,
+        filePath,
+        content,
+        author: {
+          name: authorName,
+          avatar: authorAvatar,
+        },
+        createdAt: new Date(commentEvent.created_at * 1000).toISOString(),
+      }
+    })
   })
 
   const getStatusFilter = () => ({
@@ -358,7 +445,8 @@
   const getLabelFilter = () => ({kinds: [1985], "#e": [selectedPatch?.id ?? ""]})
   const roleLabelEvents = $derived.by(() => deriveEvents(repository, {filters: [getLabelFilter()]}))
   const reviewerLabelEvents = $derived.by(() => {
-    const events = ($roleLabelEvents || []) as any[]
+    if (!roleLabelEvents) return [] as LabelEvent[]
+    const events = $roleLabelEvents as any[]
     return events.filter(
       (ev: any) =>
         ev?.kind === 1985 &&
@@ -369,31 +457,42 @@
   })
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    const relays = ($repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     postComment(comment, relays)
   }
 
   const handleStatusPublish = async (statusEvent: StatusEvent) => {
     console.log("[PatchDetail] Publishing status", statusEvent)
-    const relays = ($repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     const thunk = postStatus(statusEvent as any, relays)
     console.log("[PatchDetail] Status publish thunk", thunk)
     return thunk
   }
 
   const status = $derived.by(() => {
-    if ($statusEvents) {
-      const statusEvent = $statusEvents.sort((a, b) => b.created_at - a.created_at)[0]
+    if (!statusEvents) return undefined
+    const events = $statusEvents as StatusEvent[]
+    if (events && events.length > 0) {
+      const statusEvent = events.sort((a, b) => b.created_at - a.created_at)[0]
       return statusEvent ? parseStatusEvent(statusEvent as StatusEvent) : undefined
     }
+    return undefined
+  })
+  
+  // Derived value for statusEvents array for template usage
+  const statusEventsArray = $derived.by(() => {
+    if (!statusEvents) return []
+    return $statusEvents as StatusEvent[]
   })
 
   const reviewersAssignments = $derived.by(() =>
     selectedPatch ? deriveRoleAssignments(selectedPatch.id) : undefined,
   )
-  const reviewers = $derived.by(() =>
-    Array.from((reviewersAssignments?.get()?.reviewers || new Set()) as Set<string>),
-  )
+  const reviewers = $derived.by(() => {
+    if (!reviewersAssignments) return []
+    const assignments = $reviewersAssignments
+    return Array.from((assignments?.reviewers || new Set()) as Set<string>)
+  })
 
   let reviewersList = $state<string[]>([])
   $effect(() => {
@@ -450,9 +549,34 @@
     showMergeDialog = false
     isMerging = true
     mergeProgress = 0
-    mergeStep = "Preparing merge..."
+    mergeStep = "Ensuring latest repository state..."
     mergeError = null
     mergeSuccess = false
+
+    // Strategic sync point: Ensure we have latest state before merging
+    try {
+      const cloneUrls = repoClass.cloneUrls
+      if (cloneUrls.length > 0) {
+        mergeStep = "Syncing with remote..."
+        mergeProgress = 5
+        const syncResult = await repoClass.workerManager.syncWithRemote({
+          repoId: repoClass.key,
+          cloneUrls,
+          branch: repoClass.mainBranch,
+        })
+        
+        if (!syncResult.success && !syncResult.error?.includes("Repository not cloned")) {
+          console.warn("Sync before merge had issues, but continuing:", syncResult.error)
+          // Don't fail merge if sync has issues - continue with current state
+        }
+      }
+    } catch (syncError) {
+      console.warn("Failed to sync before merge, but continuing:", syncError)
+      // Don't fail merge if sync fails - continue with current state
+    }
+
+    mergeStep = "Preparing merge..."
+    mergeProgress = 10
 
     // Get user profile for commit author
     const authorName = "Repository Maintainer" // You might want to get this from user profile
@@ -790,8 +914,10 @@
             </div>
             <div
               class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground sm:text-sm">
-              <Profile pubkey={prEvent?.pubkey} hideDetails={true}></Profile>
-              <ProfileLink pubkey={prEvent?.pubkey} />
+              {#if prEvent?.pubkey}
+                <Profile pubkey={prEvent.pubkey} hideDetails={true}></Profile>
+                <ProfileLink pubkey={prEvent.pubkey} />
+              {/if}
               <span class="hidden sm:inline">•</span>
               <span>{formatTimestamp(pr?.createdAt || "")}</span>
             </div>
@@ -800,20 +926,21 @@
 
         <div
           class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
-          {@html md.render(preprocessMarkdown(pr?.content || ""))}
+          <!-- {@html md.render(preprocessMarkdown(pr?.content || ""))} -->
+          <Markdown content={pr?.content || ""} />
         </div>
 
         <div class="space-y-4">
           <h2 class="flex items-center gap-2 text-lg font-medium">
             <MessageSquare class="h-5 w-5" />
-            Discussion ({$prThreadComments?.length || 0})
+            Discussion ({prThreadCommentsCount})
           </h2>
 
-          {#if $prThreadComments}
+          {#if prThreadComments}
             <IssueThread
               issueId={prEvent?.id || ""}
               issueKind={"1618"}
-              comments={$prThreadComments as CommentEvent[]}
+              comments={prThreadCommentsArray}
               currentCommenter={$pubkey!}
               {onCommentCreated} />
           {/if}
@@ -878,7 +1005,8 @@
 
         <div
           class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
-          {@html md.render(preprocessMarkdown(patch?.description || ""))}
+          <!-- {@html md.render(preprocessMarkdown(patch?.description || ""))} -->
+          <Markdown content={patch?.description || ""} />
         </div>
 
         <!-- Technical Metadata -->
@@ -1007,7 +1135,7 @@
           rootId={selectedPatch?.id ?? ""}
           rootKind={GIT_PATCH}
           rootAuthor={selectedPatch?.author.pubkey ?? ""}
-          statusEvents={$statusEvents as StatusEvent[]}
+          statusEvents={statusEventsArray}
           actorPubkey={$pubkey}
           onPublish={handleStatusPublish} />
 
@@ -1225,7 +1353,7 @@
           showNavigation={true}
           showFileStats={true}
           showPatchInfo={true}
-          comments={$threadComments as CommentEvent[]}
+          comments={diffComments}
           rootEvent={selectedPatch?.raw}
           onComment={handleCommentSubmit}
           currentPubkey={$pubkey}
@@ -1450,13 +1578,13 @@
         <div class="space-y-4">
           <h2 class="flex items-center gap-2 text-lg font-medium">
             <MessageSquare class="h-5 w-5" />
-            Discussion ({$threadComments?.length})
+            Discussion ({threadCommentsCount})
           </h2>
 
           <IssueThread
             issueId={selectedPatch?.id ?? ""}
             issueKind={GIT_PATCH.toString() as "1617"}
-            comments={$threadComments as CommentEvent[]}
+            comments={threadCommentsArray}
             currentCommenter={$pubkey!}
             {onCommentCreated} />
         </div>

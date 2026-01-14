@@ -25,9 +25,31 @@
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import {goto} from "$app/navigation"
   import {page} from "$app/stores"
+  import {getContext} from "svelte"
+  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import type {Readable} from "svelte/store"
+  import type {Repo} from "@nostr-git/ui"
 
+  // Try to get data from props first (newer approach)
   const {data} = $props()
-  const {repoClass, repoRelays} = data
+  let repoClass: Repo, repoRelays: string[]
+
+  if (data) {
+    // New approach using data props
+    ({repoClass, repoRelays} = data)
+  } else {
+    // Fallback to context (older approach)
+    repoClass = getContext<Repo>(REPO_KEY)
+    const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+
+    if (!repoClass) {
+      throw new Error("Repo context not available")
+    }
+
+    // Get relays reactively
+    repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
+  }
+
   const {relay, id} = $page.params
 
   // Mock workflow runs data structure (replace with actual data fetching)

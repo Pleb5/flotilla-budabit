@@ -8,7 +8,7 @@
   import {get, derived} from "svelte/store"
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {dev} from "$app/environment"
-  import {goto} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   import {sync, localStorageProvider} from "@welshman/store"
   import {
     ago,
@@ -67,6 +67,7 @@
   import {setupAnalytics} from "@app/util/analytics"
   import {
     INDEXER_RELAYS,
+    PLATFORM_RELAYS,
     userMembership,
     userSettingsValues,
     relaysPendingTrust,
@@ -88,6 +89,7 @@
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {loadUserGitData} from "@lib/budabit"
   import {Router} from "@welshman/router"
+  import { makeSpacePath } from "@src/app/util/routes"
 
   // Migration: delete old indexeddb database
   indexedDB?.deleteDatabase("flotilla")
@@ -103,6 +105,16 @@
   const ready = $state(defer<void>())
 
   let initialized = false
+
+  beforeNavigate((nav) => {
+    if (!nav.to) return;
+
+    if (nav.to.url.pathname === '/home'
+    && appState.PLATFORM_RELAYS.length > 0) {
+      nav.cancel()
+      goto(makeSpacePath(PLATFORM_RELAYS[0]))
+    }
+  })
 
   onMount(async () => {
     // Preserve window.nostr before overriding window object
@@ -386,11 +398,40 @@
         await loadUserData($pubkey)
       }
 
-      // Load user git data
-      if ($pubkey) {
-        //gitSigner.set($signer)
-        await loadUserGitData($pubkey, Router.get().FromUser().getUrls())
-      }
+      // Reactively load user git data when pubkey changes (e.g., after login)
+      let gitDataLoadController: AbortController | undefined
+      pubkey.subscribe(async ($pubkey) => {
+        // Cancel any pending git data load
+        gitDataLoadController?.abort()
+        gitDataLoadController = new AbortController()
+
+        if ($pubkey) {
+          try {
+            // Get user relays - if empty after login, wait a bit for relay selections to load
+            let userRelays = Router.get().FromUser().getUrls()
+            
+            // If relays are empty (common after fresh login), wait for relay selections to load
+            if (userRelays.length === 0) {
+              // Wait up to 2 seconds for relay selections to become available
+              // This handles the case where relay selections haven't loaded yet after login
+              for (let i = 0; i < 20; i++) {
+                await sleep(100)
+                userRelays = Router.get().FromUser().getUrls()
+                if (userRelays.length > 0) break
+              }
+            }
+            
+            // Load git data reactively when pubkey is set (login) or changes (user switch)
+            // Pass undefined if still empty to use GIT_RELAYS default from loadUserGitData
+            await loadUserGitData($pubkey, userRelays.length > 0 ? userRelays : undefined)
+          } catch (error) {
+            // Ignore errors (e.g., if aborted or network issues)
+            if (error instanceof Error && error.name !== 'AbortError') {
+              console.warn('Failed to load user git data:', error)
+            }
+          }
+        }
+      })
 
       // Listen for space data, populate space-based notifications
       let unsubSpaces: any

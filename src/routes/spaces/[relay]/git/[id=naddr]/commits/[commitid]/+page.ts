@@ -20,11 +20,11 @@ export const load: PageLoad = async ({ params, parent }) => {
   const { commitid } = params;
   
   try {
-    // Get parent data which includes repoClass
+    // Get parent data for repo info
     const parentData = await parent();
-    const { repoClass } = parentData;
+    const { repoId, repoPubkey, repoName } = parentData;
     
-    if (!repoClass || !repoClass.repoId) {
+    if (!repoId) {
       pushToast({
         message: 'Repository not found',
         theme: 'error',
@@ -38,7 +38,7 @@ export const load: PageLoad = async ({ params, parent }) => {
     
     // Get detailed commit information including file changes
     const commitDetails = await api.getCommitDetails({
-      repoId: repoClass.key,
+      repoId: repoId,
       commitId: commitid
     });
 
@@ -75,7 +75,7 @@ export const load: PageLoad = async ({ params, parent }) => {
     // Debug: log commit details and change summary
     try {
       console.debug('[commit/+page] Loaded commit', {
-        repoId: repoClass.key,
+        repoId: repoId,
         commitId: commitid,
         meta: commitMeta,
         changeCount: changes.length,
@@ -88,7 +88,6 @@ export const load: PageLoad = async ({ params, parent }) => {
     return {
       commitMeta,
       changes,
-      repoClass,
       commitid
     };
   } catch (err) {

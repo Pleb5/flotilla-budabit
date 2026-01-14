@@ -12,7 +12,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
   import JobItem from "@app/components/JobItem.svelte"
   import Link from "@lib/components/Link.svelte"
   import {decodeRelay, getEventsForUrl, INDEXER_RELAYS} from "@app/core/state"

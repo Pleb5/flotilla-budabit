@@ -112,6 +112,7 @@ import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
 import {preferencesStorageProvider, Collection} from "@src/lib/storage"
 import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
+import {deleteIndexedDB} from "@src/lib/util"
 
 // Utils
 
@@ -181,13 +182,13 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
       ["worker", DEFAULT_WORKER_PUBKEY], // Worker pubkey
       ["cmd", params.cmd],
       ["args", ...params.args],
-      ["payment", params.cashuToken]
-    ]
+      ["payment", params.cashuToken],
+    ],
   }
 
   const event = await $signer.sign(eventTemplate)
-  
-  const publishStatus: Array<{relay: string, success: boolean, error?: string}> = []
+
+  const publishStatus: Array<{relay: string; success: boolean; error?: string}> = []
   let successCount = 0
   let failureCount = 0
 
@@ -196,10 +197,10 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
     try {
       const thunk = publishThunk({event, relays: [relay]})
       await thunk.complete
-      
+
       publishStatus.push({
         relay,
-        success: true
+        success: true,
       })
       successCount++
     } catch (error) {
@@ -207,7 +208,7 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
       publishStatus.push({
         relay,
         success: false,
-        error: String(error)
+        error: String(error),
       })
       failureCount++
     }
@@ -217,7 +218,7 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
     event,
     successCount,
     failureCount,
-    publishStatus
+    publishStatus,
   }
 }
 
@@ -234,6 +235,15 @@ export const logout = async () => {
 
   await preferencesStorageProvider.clear()
   await Collection.clearAll()
+  await nostrGitLogoutCleanup()
+}
+
+export async function nostrGitLogoutCleanup(): Promise<void> {
+  try {
+    await Promise.all([deleteIndexedDB("nostr-git"), deleteIndexedDB("nostr-git-cache")])
+  } catch (err) {
+    console.error("Nostr-Git IndexedDB cleanup failed", err)
+  }
 }
 
 // Synchronization

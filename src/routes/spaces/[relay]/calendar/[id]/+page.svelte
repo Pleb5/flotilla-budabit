@@ -17,7 +17,7 @@
   import Button from "@lib/components/Button.svelte"
   import Content from "@lib/budabit/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
   import CalendarEventHeader from "@app/components/CalendarEventHeader.svelte"
   import CalendarEventMeta from "@app/components/CalendarEventMeta.svelte"
@@ -25,6 +25,7 @@
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
+    import Markdown from "@src/lib/components/Markdown.svelte"
 
   const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
@@ -89,7 +90,7 @@
           <div class="flex py-2 opacity-50">
             <div class="h-px flex-grow bg-base-content opacity-25"></div>
           </div>
-          <Content showEntire event={$event} {url} />
+          <Markdown content={$event.content} />
         </div>
       </div>
       <div class="flex w-full flex-col justify-end sm:flex-row">

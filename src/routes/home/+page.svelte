@@ -1,6 +1,5 @@
 <script lang="ts">
-  import {onMount} from "svelte"
-  import {goto} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
@@ -11,18 +10,12 @@
   import SpaceAdd from "@app/components/SpaceAdd.svelte"
   import ChatEnable from "@app/components/ChatEnable.svelte"
   import {pushModal} from "@app/util/modal"
-  import {makeSpacePath} from "@app/util/routes"
-  import {PLATFORM_NAME, PLATFORM_RELAYS, canDecrypt} from "@app/core/state"
+  import {PLATFORM_NAME, canDecrypt} from "@app/core/state"
 
   const addSpace = () => pushModal(SpaceAdd)
 
   const openChat = () => ($canDecrypt ? goto("/chat") : pushModal(ChatEnable, {next: "/chat"}))
 
-  onMount(() => {
-    if (PLATFORM_RELAYS.length > 0) {
-      goto(makeSpacePath(PLATFORM_RELAYS[0]))
-    }
-  })
 </script>
 
 <div class="hero min-h-screen overflow-auto pb-8">

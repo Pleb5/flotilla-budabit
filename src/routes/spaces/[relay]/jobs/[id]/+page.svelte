@@ -9,7 +9,7 @@
   import Button from "@lib/components/Button.svelte"
   import ChannelContent from "@app/components/ChannelMessage.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
   import JobActions from "@app/components/JobActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay, getEventsForUrl} from "@app/core/state"
