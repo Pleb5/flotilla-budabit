@@ -2,8 +2,9 @@
   import {Card} from "@nostr-git/ui"
   import KanbanPanel from "../KanbanPanel.svelte"
   import {pubkey} from "@welshman/app"
+  import {Router} from "@welshman/router"
   import {getContext} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, GIT_RELAYS} from "@lib/budabit/state"
   import {extensionSettings} from "@app/extensions/settings"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
@@ -17,7 +18,17 @@
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
 
   const naddr = $page.params.id
-  const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
+  
+  // Combine repo relays with user's relays and GIT_RELAYS for better coverage
+  const repoRelays = $derived.by(() => {
+    const repoR = repoRelaysStore ? $repoRelaysStore : []
+    // Get user's relays from the router
+    const router = Router.get()
+    const userRelays = router.FromUser().getUrls()
+    // Combine and dedupe: repo relays + user relays + GIT_RELAYS
+    const combined = [...repoR, ...userRelays, ...GIT_RELAYS]
+    return [...new Set(combined)]
+  })
 
   // Check if extension is installed and enabled
   const isInstalled = $derived.by(() => {
