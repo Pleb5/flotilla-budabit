@@ -74,6 +74,7 @@
   import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass} from "@lib/budabit/state"
+  import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -88,6 +89,15 @@
   
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
+
+  // Check if Kanban extension is enabled
+  const KANBAN_EXTENSION_ID = "budabit-kanban"
+  const isKanbanEnabled = $derived.by(() => {
+    const settings = $extensionSettings
+    const installed = settings.installed
+    const isInstalled = !!(installed.nip89[KANBAN_EXTENSION_ID] ?? installed.widget[KANBAN_EXTENSION_ID])
+    return isInstalled && settings.enabled.includes(KANBAN_EXTENSION_ID)
+  })
 
   // Make activeTab reactive to avoid lag on navigation - memoize the calculation
   const activeTab = $derived.by(() => {
@@ -1019,6 +1029,7 @@
             <GitCommit class="h-4 w-4" />
           {/snippet}
         </RepoTab>
+        {#if isKanbanEnabled}
         <RepoTab
           tabValue="kanban"
           label="Kanban"
@@ -1028,6 +1039,7 @@
             <LayoutGrid class="h-4 w-4" />
           {/snippet}
         </RepoTab>
+        {/if}
       {/snippet}
     </RepoHeader>
     <ConfigProvider

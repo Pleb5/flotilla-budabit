@@ -60,6 +60,16 @@ export const getInstalledExtension = (id: string) => {
   return installed.nip89[id] ?? installed.widget[id]
 }
 
+export const isExtensionEnabled = (id: string): boolean => {
+  const settings = get(extensionSettings)
+  return settings.enabled.includes(id)
+}
+
+export const isExtensionInstalled = (id: string): boolean => {
+  const installed = get(extensionSettings).installed
+  return !!(installed.nip89[id] ?? installed.widget[id])
+}
+
 extensionSettings.update(s => {
   return {
     enabled: s.enabled || [],

@@ -1,6 +1,7 @@
 <script lang="ts">
   import {createEventDispatcher} from "svelte"
   import ExtensionPermissions from "./ExtensionPermissions.svelte"
+  import ExtensionIcon from "./ExtensionIcon.svelte"
   import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 
   type Props = {
@@ -34,7 +35,7 @@
   <div class="flex w-full items-center justify-between">
     <div class="flex min-w-0 items-center gap-2">
       {#if iconUrl}
-        <img src={iconUrl} alt="icon" class="h-6 w-6 rounded" />
+        <ExtensionIcon icon={iconUrl} size={24} class="h-6 w-6 rounded" />
       {/if}
       <h3 class="font-semibold">{displayName}</h3>
       {#if version}

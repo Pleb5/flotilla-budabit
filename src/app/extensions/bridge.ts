@@ -267,9 +267,41 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
   try {
     const {relays, filter} = parseNostrQueryPayload(payload)
 
-    // nostr-tools v2 uses querySync instead of list
-    const events = await pool.querySync(relays, filter)
-    return {status: "ok", events}
+    // Use subscribeMany with a timeout for faster response
+    // querySync waits for all relays which is slow
+    const events: any[] = []
+    const seenIds = new Set<string>()
+    let eoseCount = 0
+    const relayCount = relays.length
+
+    return new Promise((resolve) => {
+      let resolved = false
+      const finish = () => {
+        if (resolved) return
+        resolved = true
+        clearTimeout(timeout)
+        sub.close()
+        resolve({status: "ok", events})
+      }
+
+      const timeout = setTimeout(finish, 3000) // 3 second max timeout
+
+      const sub = pool.subscribeMany(relays, [filter], {
+        onevent(event) {
+          if (!seenIds.has(event.id)) {
+            seenIds.add(event.id)
+            events.push(event)
+          }
+        },
+        oneose() {
+          // oneose fires per-relay, wait for all relays
+          eoseCount++
+          if (eoseCount >= relayCount) {
+            finish()
+          }
+        },
+      })
+    })
   } catch (err: any) {
     console.error("Error in nostr:query bridge handler:", err)
     return {error: err.message}

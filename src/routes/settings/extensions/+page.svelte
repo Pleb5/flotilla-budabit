@@ -49,6 +49,7 @@
   // Curated recommended
   const recommended: {name: string; url: string; description?: string}[] = [
     {name: "Huddle", url: "/extensions/huddle.json", description: "Audio/room collaboration"},
+    {name: "Repo Kanban", url: "/extensions/kanban.json", description: "NIP-100 Kanban board for repos"},
     {name: "Hello World", url: "/extensions/example.json", description: "Minimal sample"},
   ]
 
@@ -179,6 +180,28 @@
 </script>
 
 <div class="content column gap-4">
+  <!-- Installed List -->
+  <div class="card2 bg-alt col-8 shadow-xl">
+    <strong class="text-lg">Installed</strong>
+    {#if installed.length > 0}
+      <div class="flex flex-col gap-3">
+        {#each installed as item (item.id)}
+          <div class="row-2 items-start justify-between">
+            <ExtensionCard
+              manifest={item.manifest}
+              type={item.type}
+              enabled={enabledIds.includes(item.id)}
+              on:toggle={({detail}) => toggle(item.id, detail.enabled)} />
+            <Button class="btn btn-outline btn-error btn-sm" onclick={() => onUninstall(item.id)}
+              >Uninstall</Button>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <p class="opacity-70">No extensions installed.</p>
+    {/if}
+  </div>
+
   <!-- Install by URL -->
   <div class="card2 bg-alt col-4 shadow-xl">
     <strong class="text-lg">Install by URL</strong>
@@ -341,25 +364,4 @@
     {/if}
   </div>
 
-  <!-- Installed List -->
-  <div class="card2 bg-alt col-8 shadow-xl">
-    <strong class="text-lg">Installed</strong>
-    {#if installed.length > 0}
-      <div class="flex flex-col gap-3">
-        {#each installed as item (item.id)}
-          <div class="row-2 items-start justify-between">
-            <ExtensionCard
-              manifest={item.manifest}
-              type={item.type}
-              enabled={enabledIds.includes(item.id)}
-              on:toggle={({detail}) => toggle(item.id, detail.enabled)} />
-            <Button class="btn btn-outline btn-error btn-sm" onclick={() => onUninstall(item.id)}
-              >Uninstall</Button>
-          </div>
-        {/each}
-      </div>
-    {:else}
-      <p class="opacity-70">No extensions installed.</p>
-    {/if}
-  </div>
 </div>

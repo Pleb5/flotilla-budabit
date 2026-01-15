@@ -1,0 +1,13 @@
+{
+  "id": "budabit-kanban",
+  "kind": 31990,
+  "name": "Repo Kanban",
+  "description": "NIP-100 Kanban board for repository issue tracking and project management.",
+  "author": "Budabit",
+  "homepage": "https://budabit.dev/extensions/kanban",
+  "version": "1.0.0",
+  "permissions": ["nostr:publish", "nostr:query", "ui:toast"],
+  "entrypoint": "http://localhost:5178",
+  "icon": "LayoutGrid",
+  "sha256": ""
+}
