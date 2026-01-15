@@ -266,42 +266,26 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:query from ${ext.id}`, payload)
   try {
     const {relays, filter} = parseNostrQueryPayload(payload)
+    console.log(`[bridge] nostr:query querying ${relays.length} relays:`, relays, filter)
 
-    // Use subscribeMany with a timeout for faster response
-    // querySync waits for all relays which is slow
-    const events: any[] = []
-    const seenIds = new Set<string>()
-    let eoseCount = 0
-    const relayCount = relays.length
-
-    return new Promise((resolve) => {
-      let resolved = false
-      const finish = () => {
-        if (resolved) return
-        resolved = true
-        clearTimeout(timeout)
-        sub.close()
-        resolve({status: "ok", events})
-      }
-
-      const timeout = setTimeout(finish, 3000) // 3 second max timeout
-
-      const sub = pool.subscribeMany(relays, [filter], {
-        onevent(event) {
-          if (!seenIds.has(event.id)) {
-            seenIds.add(event.id)
-            events.push(event)
-          }
-        },
-        oneose() {
-          // oneose fires per-relay, wait for all relays
-          eoseCount++
-          if (eoseCount >= relayCount) {
-            finish()
-          }
-        },
-      })
+    // Use querySync but with a race against a timeout
+    // This ensures we don't wait forever for slow relays
+    const queryPromise = pool.querySync(relays, filter as any)
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("timeout")), 8000)
     })
+
+    try {
+      const events = await Promise.race([queryPromise, timeoutPromise])
+      console.log(`[bridge] nostr:query got ${events.length} events`)
+      return {status: "ok", events}
+    } catch (err: any) {
+      if (err.message === "timeout") {
+        console.log(`[bridge] nostr:query timeout, returning empty`)
+        return {status: "ok", events: []}
+      }
+      throw err
+    }
   } catch (err: any) {
     console.error("Error in nostr:query bridge handler:", err)
     return {error: err.message}
