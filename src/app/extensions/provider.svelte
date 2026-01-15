@@ -53,4 +53,10 @@
 </script>
 
 <!-- Hidden container for extension iframes -->
-<div id="flotilla-extension-container"></div>
+<div id="flotilla-extension-container" class="extension-container"></div>
+
+<style>
+  .extension-container {
+    display: none;
+  }
+</style>
