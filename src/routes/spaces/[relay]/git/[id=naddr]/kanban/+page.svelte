@@ -4,9 +4,8 @@
   import {pubkey} from "@welshman/app"
   import {Router} from "@welshman/router"
   import {getContext} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, GIT_RELAYS} from "@lib/budabit/state"
+  import {REPO_KEY} from "@lib/budabit/state"
   import {extensionSettings} from "@app/extensions/settings"
-  import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
@@ -15,19 +14,14 @@
   const KANBAN_EXTENSION_ID = "budabit-kanban"
 
   const repoClass = getContext<Repo>(REPO_KEY)
-  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
 
   const naddr = $page.params.id
   
-  // Combine repo relays with user's relays and GIT_RELAYS for better coverage
+  // Use ONLY user's relays for speed - Kanban events should be on user's relays
   const repoRelays = $derived.by(() => {
-    const repoR = repoRelaysStore ? $repoRelaysStore : []
-    // Get user's relays from the router
     const router = Router.get()
     const userRelays = router.FromUser().getUrls()
-    // Combine and dedupe: repo relays + user relays + GIT_RELAYS
-    const combined = [...repoR, ...userRelays, ...GIT_RELAYS]
-    return [...new Set(combined)]
+    return userRelays.length > 0 ? userRelays : []
   })
 
   // Check if extension is installed and enabled
