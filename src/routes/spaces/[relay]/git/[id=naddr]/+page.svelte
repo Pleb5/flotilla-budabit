@@ -1,7 +1,6 @@
 <script lang="ts">
   import markdownit from "markdown-it"
   import {Card} from "@nostr-git/ui"
-  import KanbanPanel from "./KanbanPanel.svelte"
   import {
     CircleAlert,
     GitBranch,
@@ -611,20 +610,6 @@
         </Card>
       {/if}
     </div>
-
-    <!-- Kanban Board -->
-    {#if repoClass.repoEvent?.pubkey && repoMetadata.name}
-      <Card class="p-0 overflow-hidden">
-        <KanbanPanel
-          repoPubkey={repoClass.repoEvent.pubkey}
-          repoName={repoMetadata.name}
-          repoNaddr={naddr}
-          repoRelays={repoRelays}
-          maintainers={repoClass.maintainers ?? []}
-          userPubkey={$pubkey}
-        />
-      </Card>
-    {/if}
 
     <div class="flex-1" transition:slide>
       {#if __TERMINAL__ && Terminal}

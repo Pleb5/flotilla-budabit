@@ -18,7 +18,7 @@
     CircleAlert,
     GitPullRequest,
     GitCommit,
-    Layers,
+    LayoutGrid,
   } from "@lucide/svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
@@ -1017,6 +1017,15 @@
           {activeTab}>
           {#snippet icon()}
             <GitCommit class="h-4 w-4" />
+          {/snippet}
+        </RepoTab>
+        <RepoTab
+          tabValue="kanban"
+          label="Kanban"
+          href={`${basePath}/kanban`}
+          {activeTab}>
+          {#snippet icon()}
+            <LayoutGrid class="h-4 w-4" />
           {/snippet}
         </RepoTab>
       {/snippet}
