@@ -102,6 +102,7 @@ import {
   NOTIFIER_PUBKEY,
   NOTIFIER_RELAY,
   DEFAULT_BLOSSOM_SERVERS,
+  SMART_WIDGET_RELAYS,
   userSpaceUrls,
   userSettingsValues,
   getSetting,
@@ -124,7 +125,6 @@ import { deleteIndexedDB } from "@lib/util"
 // Utils
 
 const SMART_WIDGET_KIND = 30033
-const SMART_WIDGET_RELAYS = ["wss://relay.yakihonne.com"]
 
 export const installExtension = async (manifestUrl: string) => {
   // Fetch + validate + register the manifest in the registry

@@ -1,3 +1,10 @@
+export type ExtensionSlotConfig = {
+  type: "repo-tab"
+  label: string
+  path: string // URL path segment (e.g., "kanban", "pipelines")
+  builtinRoute?: string // For built-in extensions, the actual route path (e.g., "cicd")
+}
+
 export type ExtensionManifest = {
   id: string
   name: string
@@ -10,6 +17,7 @@ export type ExtensionManifest = {
   icon?: string
   sha256?: string
   kind?: number
+  slot?: ExtensionSlotConfig
 }
 
 export type WidgetButtonType = "redirect" | "nostr" | "zap" | "post" | "app"
@@ -30,7 +38,7 @@ export type SmartWidgetEvent = {
   tags: string[][]
   identifier: string
   widgetType: "basic" | "action" | "tool"
-  imageUrl: string
+  imageUrl?: string // Optional for basic widgets per YakiHonne spec
   iconUrl?: string
   inputLabel?: string
   buttons: WidgetButton[]

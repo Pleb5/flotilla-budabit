@@ -22,7 +22,10 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
     widgetTypeRaw === "action" || widgetTypeRaw === "tool" ? widgetTypeRaw : "basic"
 
   const imageUrl = getTag(tags, "image")?.[1]
-  if (!imageUrl) throw new Error("Smart widget missing required image tag")
+  // YakiHonne spec: image is only required for action/tool widgets, not basic
+  if (!imageUrl && widgetType !== "basic") {
+    throw new Error("Action/Tool widget missing required image tag")
+  }
 
   const iconUrl = getTag(tags, "icon")?.[1]
   const inputLabel = getTag(tags, "input")?.[1]
@@ -95,7 +98,15 @@ class ExtensionRegistry {
 
   register(manifest: ExtensionManifest): LoadedNip89Extension {
     const extensions = new Map(get(this.store))
-    const origin = new URL(manifest.entrypoint).origin
+    // Handle empty entrypoint (for built-in extensions like Pipelines)
+    let origin = window.location.origin
+    if (manifest.entrypoint) {
+      try {
+        origin = new URL(manifest.entrypoint).origin
+      } catch {
+        // Keep default origin for invalid URLs
+      }
+    }
     const ext: LoadedNip89Extension = {type: "nip89", id: manifest.id, manifest, origin}
     extensions.set(manifest.id, ext)
     this.store.set(extensions)

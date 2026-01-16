@@ -165,6 +165,11 @@ export const PLATFORM_DESCRIPTION = import.meta.env.VITE_PLATFORM_DESCRIPTION
 
 export const DEFAULT_BLOSSOM_SERVERS = fromCsv(import.meta.env.VITE_DEFAULT_BLOSSOM_SERVERS)
 
+// Smart Widget relays - defaults to YakiHonne relay for compatibility
+const envSmartWidgetRelays = fromCsv(import.meta.env.VITE_SMART_WIDGET_RELAYS)
+export const SMART_WIDGET_RELAYS =
+  envSmartWidgetRelays.length > 0 ? envSmartWidgetRelays : ["wss://relay.yakihonne.com"]
+
 export const BURROW_URL = import.meta.env.VITE_BURROW_URL
 
 export const DEFAULT_PUBKEYS = import.meta.env.VITE_DEFAULT_PUBKEYS
