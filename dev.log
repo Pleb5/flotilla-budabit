@@ -1,0 +1,588 @@
+
+> flotilla-budabit@1.3.1 dev /home/shepherd/Nextcloud/Projects/lab/flotilla-budabit
+> vite dev
+
+Port 1847 is in use, trying another one...
+Port 1848 is in use, trying another one...
+Port 1849 is in use, trying another one...
+Port 1850 is in use, trying another one...
+Port 1851 is in use, trying another one...
+Port 1852 is in use, trying another one...
+Port 1853 is in use, trying another one...
+Port 1854 is in use, trying another one...
+Port 1855 is in use, trying another one...
+
+  VITE v5.4.21  ready in 1884 ms
+
+  ➜  Local:   http://localhost:1856/
+  ➜  Network: use --host to expose
+
+🌼   daisyUI 4.12.24
+├─ ✔︎ 2 themes added		https://daisyui.com/docs/themes
+╰─ ❤︎ Support daisyUI project:	https://opencollective.com/daisyui
+
+
+🌼   daisyUI 4.12.24
+├─ ✔︎ 2 themes added		https://daisyui.com/docs/themes
+╰─ ★ Star daisyUI on GitHub	https://github.com/saadeghi/daisyui
+
+
+[1;31m[404] GET /icons/apple-touch-icon-180x180.png[0m
+
+[1;31m[404] GET /icons/apple-touch-icon-180x180.png[0m
+
+[1;31m[404] GET /icons/apple-touch-icon-180x180.png[0m
+
+[1;31m[404] GET /icons/apple-touch-icon-180x180.png[0m
+
+[1;31m[404] GET /icons/apple-touch-icon-180x180.png[0m
+
+[1;31m[404] GET /icons/apple-touch-icon-180x180.png[0m
+1:37:55 PM [vite] .env changed, restarting server...
+1:37:55 PM [vite] server restarted.
+1:43:13 PM [vite] vite.config.ts changed, restarting server...
+Forced re-optimization of dependencies
+Failed to resolve dependency: @codemirror/view, present in 'optimizeDeps.include'
+1:43:13 PM [vite] server restarted.
+2:09:48 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:10:10 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:11:54 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:11:54 PM [vite] page reload .svelte-kit/generated/root.js
+2:14:41 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:15:13 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:15:13 PM [vite] page reload .svelte-kit/generated/root.js
+2:15:24 PM [vite] hmr update /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/app.css
+2:15:44 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:15:52 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:16:16 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:16:16 PM [vite] page reload .svelte-kit/generated/root.js
+2:16:49 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:17:04 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:17:09 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:17:09 PM [vite] page reload .svelte-kit/generated/root.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:17:48 PM [vite] page reload .svelte-kit/generated/root.js
+2:18:13 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:18:34 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:18:43 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:19:05 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:19:05 PM [vite] page reload .svelte-kit/generated/root.js
+2:19:32 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:19:57 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:20:26 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:20:39 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:20:46 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:20:57 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:21:08 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:21:32 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:21:32 PM [vite] page reload .svelte-kit/generated/root.js
+2:21:53 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:22:25 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:22:44 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:22:52 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:23:05 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:23:11 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:23:11 PM [vite] page reload .svelte-kit/generated/root.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:29:22 PM [vite] page reload .svelte-kit/generated/root.js
+2:30:00 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:30:05 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:30:05 PM [vite] page reload .svelte-kit/generated/root.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:30:39 PM [vite] page reload .svelte-kit/generated/root.js
+2:30:57 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:31:08 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:31:16 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:31:37 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:31:52 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:32:27 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:32:37 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:32:53 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:33:11 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:33:24 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:33:36 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:34:01 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:34:11 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:34:52 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:35:04 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:35:04 PM [vite] page reload .svelte-kit/generated/root.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:35:36 PM [vite] page reload .svelte-kit/generated/root.js
+2:37:52 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/+page.svelte
+2:40:23 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+2:40:42 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:40:42 PM [vite] page reload .svelte-kit/generated/root.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:41:44 PM [vite] page reload .svelte-kit/generated/root.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/client/nodes/0.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/client/nodes/1.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/client/nodes/4.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/client/nodes/5.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/client/nodes/6.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/client/nodes/27.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/client/app.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/client/matchers.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/server/internal.js
+2:42:17 PM [vite] page reload .svelte-kit/generated/root.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/vendor-providers.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/vendors/github-provider.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/vendors/gitlab-provider.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/vendors/generic-provider.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/vendors/grasp-provider.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/vendor-provider-factory.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/multi-vendor-git-provider.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/nostr-git-provider.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/grasp-api.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/nostr-git-factory.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git-provider.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/utils/canonicalRepoKey.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/permalink.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/event.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/fork-handler.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/event-publisher.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/eventio.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/validation.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/files.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/branches.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/repo.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/patches.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/merge-analysis.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/merge.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/commits.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/remotes.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/status.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/nip34.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/status-resolver.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/issues.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/repoState.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/subscriptions.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/repo-core.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/api.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/github.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/gitlab.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/gitea.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/bitbucket.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/grasp-capabilities.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/grasp-state.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/grasp-fs.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/providers/grasp.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/factory.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/git/index.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/utils/binaryUtils.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/repositories.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/patchGraph.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/labels.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/repoKeys.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/repoDAG.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/status163x.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/labels32.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/grasp.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/lib/utils/groupByRepoIdentity.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/keys/normalize.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/keys/deprecation.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/keys/index.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/errors/types.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/errors/factory.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/errors/index.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/retry/index.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/retry/timeout.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/trace/index.js
+2:44:28 PM [vite] page reload packages/nostr-git/packages/core/dist/index.js
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/AdvancedSettingsStep.svelte, /packages/nostr-git/packages/ui/dist/components/git/EditRepoPanel.svelte, /src/lib/budabit/components/Content.svelte
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/AdvancedSettingsStep.svelte, /packages/nostr-git/packages/ui/dist/components/git/EditRepoPanel.svelte, /src/lib/budabit/components/Content.svelte
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/AdvancedSettingsStep.svelte, /packages/nostr-git/packages/ui/dist/components/git/EditRepoPanel.svelte, /src/lib/budabit/components/Content.svelte, /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte, /packages/nostr-git/packages/ui/dist/components/git/ConflictVisualizer.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/editor/PermalinkNodeView.svelte.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/editor/PermalinkNodeViewWrapper.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/editor/Spinner.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/EventRenderer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitCommentComponent.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitIssueComponent.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitPatchComponent.svelte, /packages/nostr-git/packages/ui/dist/components/events/GitPatchComponent.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitRepoComponent.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitRepoStateComponent.svelte, /packages/nostr-git/packages/ui/dist/components/events/GitRepoStateComponent.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitStatusComponent.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/UnknownEventComponent.svelte, /packages/nostr-git/packages/ui/dist/components/events/UnknownEventComponent.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/feed/FeedItem.svelte, /packages/nostr-git/packages/ui/dist/components/feed/FeedItem.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/feed/GitCommentFeed.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/feed/GitStatusFeed.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/AdvancedSettingsStep.svelte
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/EditRepoPanel.svelte, /src/lib/budabit/components/Content.svelte, /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte, /packages/nostr-git/packages/ui/dist/components/git/ConflictVisualizer.svelte, /packages/nostr-git/packages/ui/dist/components/git/ForkRepoDialog.svelte, /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/BranchSelector.svelte
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/EditRepoPanel.svelte, /src/lib/budabit/components/Content.svelte, /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte, /packages/nostr-git/packages/ui/dist/components/git/ConflictVisualizer.svelte, /packages/nostr-git/packages/ui/dist/components/git/ForkRepoDialog.svelte, /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/CommitCard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/CommitDiff.svelte, /packages/nostr-git/packages/ui/dist/components/git/CommitDiff.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/CommitHeader.svelte, /packages/nostr-git/packages/ui/dist/components/git/CommitHeader.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/EditRepoPanel.svelte, /src/lib/budabit/components/Content.svelte, /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte, /packages/nostr-git/packages/ui/dist/components/git/ConflictVisualizer.svelte, /packages/nostr-git/packages/ui/dist/components/git/ForkRepoDialog.svelte, /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/CommitSelector.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/ConflictVisualizer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/DiffViewer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/EditRepoPanel.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/FileDiff.svelte, /packages/nostr-git/packages/ui/dist/components/git/FileDiff.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /src/lib/budabit/components/Content.svelte, /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte, /packages/nostr-git/packages/ui/dist/components/git/ForkRepoDialog.svelte, /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/FileMetadataPanel.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/FileView.svelte, /packages/nostr-git/packages/ui/dist/components/git/FileView.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/ForkRepoDialog.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/IssueCard.svelte, /packages/nostr-git/packages/ui/dist/components/git/IssueCard.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/IssueThread.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/LiveSessionCard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/MaintainerBadge.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/MergeAnalyzer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/MergeStatus.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/NewIssueForm.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/NewRepoWizard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/NostrAvatar.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/PatchCard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/PatchDagSummary.svelte
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /src/lib/budabit/components/Content.svelte, /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte, /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/PatchSelector.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/ProviderSelectionStep.svelte
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /src/lib/budabit/components/Content.svelte, /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte, /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoAlertBadge.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoDetailsStep.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte, /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoPatchStatus.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoPicker.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoProgressStep.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoTab.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/SplitDiff.svelte, /packages/nostr-git/packages/ui/dist/components/git/SplitDiff.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/StackedDiff.svelte, /packages/nostr-git/packages/ui/dist/components/git/StackedDiff.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/Status.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/StatusChip.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/terminal/Terminal.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/steps/StepChooseService.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/useDiffStore.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/AudioViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/AudioViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/BinaryViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/BinaryViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/ImageViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/ImageViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/PDFViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/PDFViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/VideoViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/VideoViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/viewers/index.js
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /src/lib/budabit/components/Content.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/people/PeoplePicker.svelte, /packages/nostr-git/packages/ui/dist/components/people/PeoplePicker.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/terminal/Terminal.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/terminal/feed-bridge.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/thread/ThreadCommit.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/thread/ThreadComposer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/thread/ThreadIssue.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/thread/ThreadMessage.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/thread/ThreadPatch.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/alert/alert-description.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/alert/alert-title.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/alert/alert.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/alert/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/avatar/avatar-fallback.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/avatar/avatar-image.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/avatar/avatar.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/avatar/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/badge/badge.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/badge/index.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/button/button.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/button/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/card/card-content.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/card/card-description.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/card/card-footer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/card/card-header.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/card/card-title.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/card/card.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/card/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/checkbox/checkbox.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/checkbox/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/ConfigProvider.svelte, /packages/nostr-git/packages/ui/dist/components/UserAvatar.svelte, /packages/nostr-git/packages/ui/dist/components/BaseItemCard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dialog/dialog-content.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dialog/dialog-description.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dialog/dialog-footer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dialog/dialog-header.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dialog/dialog-overlay.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dialog/dialog-title.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/dialog/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-checkbox-item.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-content.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-group-heading.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-item.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-label.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-radio-item.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-separator.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-shortcut.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-sub-content.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/dropdown-menu-sub-trigger.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/dropdown-menu/index.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/input/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/input/input.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/label/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/label/label.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/profile/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/profile/profile-link.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/profile/profile.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/progress/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/progress/progress.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/scroll-area/scroll-area.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/scroll-area/scroll-area-scrollbar.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/scroll-area/scroll-area.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/select/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/select/select-content.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/select/select-group-heading.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/select/select-item.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/select/select-scroll-down-button.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/select/select-scroll-up-button.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/select/select-separator.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/select/select-trigger.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/separator/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/separator/separator.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/tabs/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/tabs/tabs-content.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/tabs/tabs-list.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/tabs/tabs-trigger.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/ui/textarea/index.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ui/textarea/textarea.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/hooks/useForkRepo.svelte.js
+2:44:50 PM [vite] hmr update /src/routes/+layout.svelte, /src/app.css, /src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte, /src/routes/spaces/[relay]/git/[id=naddr]/+page.svelte, /src/routes/spaces/[relay]/+layout.svelte, /src/lib/components/Markdown.svelte, /src/lib/budabit/components/Content.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/ConfigProvider.svelte, /packages/nostr-git/packages/ui/dist/components/UserAvatar.svelte, /packages/nostr-git/packages/ui/dist/components/BaseItemCard.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/internal/function-registry.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/internal/signer-context.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/ContextMessages.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/stores/graspServers.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/stores/hashtags.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/stores/repositories.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/stores/signer.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/stores/toast.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/stores/tokens.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/types/signer.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/useFunctions.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/useNewRepo.svelte.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/UserAvatar.svelte, /packages/nostr-git/packages/ui/dist/components/BaseItemCard.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/utils/eventKinds.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/utils/fileTypeDetection.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/utils/hash.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/utils/signer-context.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/utils/tokenHelpers.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/utils/tokenLoader.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/utils.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/editor/PermalinkExtension.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/editor/PermalinkNodeView.svelte.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/editor/PermalinkNodeViewWrapper.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/editor/Spinner.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/EventRenderer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitCommentComponent.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitIssueComponent.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitPatchComponent.svelte, /packages/nostr-git/packages/ui/dist/components/events/GitPatchComponent.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitRepoComponent.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitRepoStateComponent.svelte, /packages/nostr-git/packages/ui/dist/components/events/GitRepoStateComponent.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/GitStatusComponent.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/events/UnknownEventComponent.svelte, /packages/nostr-git/packages/ui/dist/components/events/UnknownEventComponent.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/feed/FeedItem.svelte, /packages/nostr-git/packages/ui/dist/components/feed/FeedItem.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/feed/GitCommentFeed.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/feed/GitStatusFeed.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/AdvancedSettingsStep.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/BranchManager.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/BranchSelector.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/CacheManager.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/CommitCard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/CommitDiff.svelte, /packages/nostr-git/packages/ui/dist/components/git/CommitDiff.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/CommitHeader.svelte, /packages/nostr-git/packages/ui/dist/components/git/CommitHeader.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/CommitManager.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/CommitSelector.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/ConflictVisualizer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/DiffViewer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/EditRepoPanel.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/FileDiff.svelte, /packages/nostr-git/packages/ui/dist/components/git/FileDiff.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/FileManager.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/FileMetadataPanel.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/FileView.svelte, /packages/nostr-git/packages/ui/dist/components/git/FileView.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/ForkRepoDialog.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/IssueCard.svelte, /packages/nostr-git/packages/ui/dist/components/git/IssueCard.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/IssueThread.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/LiveSessionCard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/MaintainerBadge.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/MergeAnalyzer.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/MergeStatus.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/NewIssueForm.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/NewRepoWizard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/NostrAvatar.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/PatchCard.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/PatchDagSummary.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/PatchManager.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/PatchSelector.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/PatchViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/ProviderSelectionStep.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/Repo.svelte.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoAlertBadge.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoDetailsStep.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte, /packages/nostr-git/packages/ui/dist/components/git/RepoHeader.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoPatchStatus.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoPicker.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoProgressStep.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/RepoTab.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/SplitDiff.svelte, /packages/nostr-git/packages/ui/dist/components/git/SplitDiff.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/StackedDiff.svelte, /packages/nostr-git/packages/ui/dist/components/git/StackedDiff.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/Status.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/StatusChip.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/WikiSidebar.svelte
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/WorkerManager.js
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/useDiffStore.js
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/steps/StepChooseService.svelte
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/AudioViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/AudioViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/BinaryViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/BinaryViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/ImageViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/ImageViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/PDFViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/PDFViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] hmr update /packages/nostr-git/packages/ui/dist/components/git/viewers/VideoViewer.svelte, /packages/nostr-git/packages/ui/dist/components/git/viewers/VideoViewer.svelte?svelte&type=style&lang.css
+2:44:50 PM [vite] page reload packages/nostr-git/packages/ui/dist/components/git/viewers/index.js
+2:46:28 PM [vite] page reload src/routes/spaces/[relay]/git/[id=naddr]/cicd/[runId]/+page.svelte
+svelte config changed, restarting vite dev-server. changed file: /home/shepherd/Nextcloud/Projects/lab/flotilla-budabit/packages/nostr-git/packages/storybook/svelte.config.js
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/editor/PermalinkNodeView.svelte.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/events/EventRenderer.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/feed/GitStatusFeed.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/AdvancedSettingsStep.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/BranchSelector.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/CommitCard.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/EditRepoPanel.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/ForkRepoDialog.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/IssueThread.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/NewRepoWizard.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/NostrAvatar.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/Repo.svelte.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/SplitDiff.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/WorkerManager.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/git/viewers/ImageViewer.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/people/PeoplePicker.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/components/terminal/Terminal.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/examples/EditRepoExample.svelte
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/hooks/useCloneRepo.svelte.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/hooks/useEditRepo.svelte.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/hooks/useForkRepo.svelte.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/index.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/internal/component-registry.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/stores/repositories.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/utils/tokenHelpers.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/utils/tokenLoader.ts
+2:58:02 PM [vite] page reload packages/nostr-git/packages/ui/src/lib/useNewRepo.svelte.ts
+2:58:02 PM [vite] server restarted.
+3:02:09 PM [vite] page reload build/index.html
+3:02:10 PM [vite] page reload android/app/src/main/assets/public/index.html
+3:02:11 PM [vite] page reload ios/App/App/public/index.html
+3:02:11 PM [vite] page reload ios/App/App/public/index.html
+3:12:36 PM [vite] page reload build/index.html
+3:12:37 PM [vite] page reload android/app/src/main/assets/public/index.html
+3:12:37 PM [vite] page reload ios/App/App/public/index.html

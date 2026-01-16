@@ -645,7 +645,6 @@ export const createAlert = async (params: CreateAlertParams): Promise<CreateAler
     const cadence = params.email.cron.endsWith("1") ? "Weekly" : "Daily"
     const handler = [
       "31990:97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322:1737058597050",
-      "wss://relay.nostr.band/",
       "web",
     ]
 

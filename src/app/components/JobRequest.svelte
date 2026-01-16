@@ -43,7 +43,7 @@
     } catch (error) {
       console.error("Failed to copy to clipboard:", error)
       pushToast({
-        theme: "error", 
+        theme: "error",
         message: "Failed to copy to clipboard",
       })
     }
@@ -156,7 +156,7 @@
     {#if result}
       <div class="border border-base-200 rounded-lg p-4 space-y-3">
         <h3 class="font-semibold text-lg">Publish Results</h3>
-        
+
         <div class="space-y-2">
           <div class="flex items-center justify-between">
             <span>Success:</span>
@@ -188,9 +188,9 @@
         <div class="space-y-2">
           <div class="flex items-center justify-between">
             <span class="font-medium">Event ID:</span>
-            <Button 
-              class="btn btn-sm btn-outline" 
-              onclick={() => copyToClipboard(result.event.id)}
+            <Button
+              class="btn btn-sm btn-outline"
+              onclick={() => result && copyToClipboard(result.event.id)}
             >
               Copy ID
             </Button>
@@ -203,8 +203,8 @@
         <div class="space-y-2">
           <div class="flex items-center justify-between">
             <span class="font-medium">Raw Event:</span>
-            <Button 
-              class="btn btn-sm" 
+            <Button
+              class="btn btn-sm"
               onclick={() => showRawEvent = !showRawEvent}
             >
               {showRawEvent ? 'Hide' : 'Show'}
@@ -215,9 +215,9 @@
               <pre class="block w-full p-3 bg-base-100 rounded text-xs overflow-auto max-h-64 whitespace-pre-wrap">
                 {formatEvent(result.event)}
               </pre>
-              <Button 
-                class="btn btn-sm btn-outline absolute top-2 right-2" 
-                onclick={() => copyToClipboard(formatEvent(result.event))}
+              <Button
+                class="btn btn-sm btn-outline absolute top-2 right-2"
+                onclick={() => result && copyToClipboard(formatEvent(result.event))}
               >
                 Copy Event
               </Button>

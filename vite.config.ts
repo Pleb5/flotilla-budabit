@@ -13,11 +13,8 @@ export default defineConfig({
     port: 1847,
     // local serving of package files
     fs: {
-      allow: [
-        '.',
-        path.resolve(__dirname, '../'),
-      ]
-    }
+      allow: [".", path.resolve(__dirname, "../")],
+    },
   },
   build: {
     sourcemap: true,
@@ -32,6 +29,7 @@ export default defineConfig({
     __STRICT_NIP29__: JSON.stringify(process.env.FEATURE_STRICT_NIP29 === "1"),
   },
   optimizeDeps: {
+    include: ["@codemirror/state", "@codemirror/view"],
     exclude: [
       "svelte-codemirror-editor",
       "codemirror",
@@ -43,9 +41,7 @@ export default defineConfig({
       "@codemirror/lang-xml",
       "@codemirror/lang-markdown",
       "@codemirror/lang-sql",
-      "@codemirror/state",
-      "@codemirror/view",
-      "@codemirror/theme-one-dark"
+      "@codemirror/theme-one-dark",
     ],
   },
 
@@ -88,11 +84,7 @@ export default defineConfig({
     svg({
       svgoOptions: {
         multipass: true,
-        plugins: [
-          "preset-default",
-          "removeViewBox",
-          "removeDimensions",
-        ],
+        plugins: ["preset-default", "removeViewBox", "removeDimensions"],
       },
     }),
   ],

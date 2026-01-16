@@ -32,9 +32,25 @@
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import {pushModal} from "@app/util/modal"
   import JobRequest from "@app/components/JobRequest.svelte"
+  import type {LayoutProps} from "../../$types.js"
+  import {getContext} from "svelte"
+  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import type {Readable} from "svelte/store"
+  import type {Repo} from "@nostr-git/ui"
 
-  const {data} = $props()
-  const {repoClass, repoRelays} = data
+  let {data}: LayoutProps = $props()
+
+  // Get repo data from context
+  const repoClass = getContext<Repo>(REPO_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+
+  // Get relays reactively
+  const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
+
   const {runId} = $page.params
 
   // Mock pipeline run data
@@ -122,7 +138,7 @@
                   "2024-01-15T10:30:05.000Z [INFO]  Fetch completed",
                   "2024-01-15T10:30:06.000Z [INFO]  Running: git checkout FETCH_HEAD",
                   "2024-01-15T10:30:07.000Z [INFO]  Checked out commit ghi789",
-                ]
+                ],
               },
               {
                 id: "step-2",
@@ -137,7 +153,7 @@
                   "2024-01-15T10:31:01.000Z [INFO]  npm version: 9.8.1",
                   "2024-01-15T10:31:02.000Z [INFO]  Installing dependencies...",
                   "2024-01-15T10:31:10.000Z [INFO]  Dependencies installed successfully",
-                ]
+                ],
               },
               {
                 id: "step-3",
@@ -152,7 +168,7 @@
                   "2024-01-15T10:32:05.000Z [INFO]  Build started",
                   "2024-01-15T10:32:30.000Z [INFO]  Build completed",
                   "2024-01-15T10:32:31.000Z [INFO]  Build artifacts ready",
-                ]
+                ],
               },
               {
                 id: "step-4",
@@ -169,16 +185,16 @@
                   "2024-01-15T10:33:31.000Z [INFO]  Restarting application server",
                   "2024-01-15T10:33:45.000Z [INFO]  Application restarted",
                   "2024-01-15T10:33:46.000Z [INFO]  Health check passed",
-                ]
-              }
+                ],
+              },
             ],
             logs: [
               "[act] Starting job: deploy",
               "Total runtime: 3m 0s",
               "Job completed successfully",
-            ]
-          }
-        ]
+            ],
+          },
+        ],
       }
     } else if (id.includes("ci")) {
       return {
@@ -210,7 +226,7 @@
                   "2024-01-15T10:20:00.000Z [INFO]  Using Docker image: node:18-alpine",
                   "2024-01-15T10:20:01.000Z [INFO]  Container started",
                   "2024-01-15T10:20:02.000Z [INFO]  Repository checked out successfully",
-                ]
+                ],
               },
               {
                 id: "step-2",
@@ -223,7 +239,7 @@
                   "[act] Starting step: Install dependencies",
                   "2024-01-15T10:21:00.000Z [INFO]  Running: npm ci",
                   "2024-01-15T10:21:15.000Z [INFO]  Dependencies installed",
-                ]
+                ],
               },
               {
                 id: "step-3",
@@ -240,7 +256,7 @@
                   "2024-01-15T10:22:45.000Z [INFO]  ✓ Integration tests (12/12 passed)",
                   "2024-01-15T10:22:59.000Z [INFO]  ✓ E2E tests (8/8 passed)",
                   "2024-01-15T10:23:00.000Z [INFO]  All tests passed!",
-                ]
+                ],
               },
               {
                 id: "step-4",
@@ -254,7 +270,7 @@
                   "2024-01-15T10:23:00.000Z [INFO]  Running: npm run lint",
                   "2024-01-15T10:23:05.000Z [INFO]  Linting source files...",
                   "2024-01-15T10:23:10.000Z [INFO]  No linting errors found",
-                ]
+                ],
               },
               {
                 id: "step-5",
@@ -268,16 +284,16 @@
                   "2024-01-15T10:23:00.000Z [INFO]  Running: npm run type-check",
                   "2024-01-15T10:23:05.000Z [INFO]  Type checking completed",
                   "2024-01-15T10:23:10.000Z [INFO]  No type errors found",
-                ]
-              }
+                ],
+              },
             ],
             logs: [
               "[act] Starting job: test",
               "Total runtime: 2m 0s",
               "Job completed successfully",
-            ]
-          }
-        ]
+            ],
+          },
+        ],
       }
     } else {
       // Build and Test
@@ -310,7 +326,7 @@
                   "2024-01-15T10:15:00.000Z [INFO]  Using Docker image: node:18-alpine",
                   "2024-01-15T10:15:01.000Z [INFO]  Container started",
                   "2024-01-15T10:15:02.000Z [INFO]  Repository checked out successfully",
-                ]
+                ],
               },
               {
                 id: "step-2",
@@ -323,7 +339,7 @@
                   "[act] Starting step: Install dependencies",
                   "2024-01-15T10:16:00.000Z [INFO]  Running: npm ci",
                   "2024-01-15T10:16:10.000Z [INFO]  Dependencies installed",
-                ]
+                ],
               },
               {
                 id: "step-3",
@@ -336,14 +352,10 @@
                   "[act] Starting step: Build project",
                   "2024-01-15T10:17:00.000Z [INFO]  Running: npm run build",
                   "2024-01-15T10:17:15.000Z [INFO]  Build completed successfully",
-                ]
-              }
+                ],
+              },
             ],
-            logs: [
-              "[act] Starting job: build",
-              "Total runtime: 30s",
-              "Job completed successfully",
-            ]
+            logs: ["[act] Starting job: build", "Total runtime: 30s", "Job completed successfully"],
           },
           {
             id: "test-job-1",
@@ -362,7 +374,7 @@
                 logs: [
                   "[act] Starting step: Checkout repository",
                   "2024-01-15T10:18:00.000Z [INFO]  Repository checked out successfully",
-                ]
+                ],
               },
               {
                 id: "step-2",
@@ -381,26 +393,26 @@
                   "2024-01-15T10:18:23.000Z [ERROR]   At: NewComponent.test.ts:23:5",
                   "2024-01-15T10:18:24.000Z [INFO]  ✓ Other tests (44/45 passed)",
                   "2024-01-15T10:18:25.000Z [ERROR]  Test suite failed with 1 error",
-                ]
-              }
+                ],
+              },
             ],
             logs: [
               "[act] Starting job: test",
               "2024-01-15T10:18:30.000Z [ERROR] Job failed: Test suite failed",
               "Total runtime: 30s",
               "Job completed with failure",
-            ]
-          }
-        ]
+            ],
+          },
+        ],
       }
     }
   }
 
   let pipelineRun = $state<PipelineRun>(getMockPipelineRun(runId))
   let selectedJob = $state<Job | null>(pipelineRun.jobs[0] || null)
-  let selectedStep = $state<Step | null>(() => selectedJob?.steps[0] || null)
-  let expandedJobs = $state<Set<string>>(() => new Set([selectedJob?.id].filter(Boolean)))
-  let expandedSteps = $state<Set<string>>(() => new Set([selectedStep?.id].filter(Boolean)))
+  let selectedStep = $state<Step | null>(selectedJob?.steps[0] || null)
+  let expandedJobs = $state<Set<string>>(new Set([selectedJob?.id].filter(Boolean) as string[]))
+  let expandedSteps = $state<Set<string>>(new Set([selectedStep?.id].filter(Boolean) as string[]))
   let loading = $state(false)
 
   const getStatusIcon = (status: string) => {
@@ -519,8 +531,8 @@
 
   const onCopyLogs = () => {
     if (!selectedStep) return
-    
-    const logs = selectedStep.logs.join('\n')
+
+    const logs = selectedStep.logs.join("\n")
     navigator.clipboard.writeText(logs).then(() => {
       toast.push({
         message: "Logs copied to clipboard",
@@ -531,11 +543,11 @@
 
   const onDownloadLogs = () => {
     if (!selectedStep) return
-    
-    const logs = selectedStep.logs.join('\n')
-    const blob = new Blob([logs], { type: 'text/plain' })
+
+    const logs = selectedStep.logs.join("\n")
+    const blob = new Blob([logs], {type: "text/plain"})
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+    const a = document.createElement("a")
     a.href = url
     a.download = `pipeline-${pipelineRun.name}-${selectedStep.name}-logs.txt`
     document.body.appendChild(a)
@@ -563,9 +575,10 @@
           Back to Pipelines
         </Button>
         <div>
-          <h2 class="text-xl font-semibold flex items-center gap-2">
+          <h2 class="flex items-center gap-2 text-xl font-semibold">
             {pipelineRun.name}
-            <span class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBgColor(pipelineRun.status)} ${getStatusColor(pipelineRun.status)}`}>
+            <span
+              class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBgColor(pipelineRun.status)} ${getStatusColor(pipelineRun.status)}`}>
               {#if pipelineRun.status === "in_progress"}
                 <Loader2 class="h-3 w-3 animate-spin" />
               {:else}
@@ -581,7 +594,12 @@
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <Button size="sm" variant="outline" onclick={onRerunPipeline} class="gap-2" disabled={loading}>
+        <Button
+          size="sm"
+          variant="outline"
+          onclick={onRerunPipeline}
+          class="gap-2"
+          disabled={loading}>
           {#if loading}
             <Loader2 class="h-4 w-4 animate-spin" />
           {:else}
@@ -607,7 +625,7 @@
           <p class="text-xs text-muted-foreground">Commit</p>
           <div class="flex items-center gap-1">
             <GitCommit class="h-3 w-3" />
-            <span class="text-sm font-mono">{pipelineRun.commit.slice(0, 7)}</span>
+            <span class="font-mono text-sm">{pipelineRun.commit.slice(0, 7)}</span>
           </div>
         </div>
         <div class="space-y-1">
@@ -622,18 +640,16 @@
     </div>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
     <!-- Jobs List -->
     <div class="lg:col-span-1">
       <div class="space-y-2">
         <h3 class="text-lg font-semibold">Jobs</h3>
         {#each pipelineRun.jobs as job (job.id)}
           <div
-            class="rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors"
+            class="rounded-lg border border-border bg-card transition-colors hover:bg-accent/50"
             class:border-primary={selectedJob?.id === job.id}>
-            <button
-              class="w-full p-4 text-left"
-              onclick={() => selectJob(job)}>
+            <button class="w-full p-4 text-left" onclick={() => selectJob(job)}>
               <div class="flex items-start gap-3">
                 <div class={`mt-1 flex-shrink-0 ${getStatusColor(job.status)}`}>
                   {#if job.status === "in_progress"}
@@ -643,7 +659,7 @@
                     <JobStatusIcon class="h-5 w-5" />
                   {/if}
                 </div>
-                <div class="flex-1 min-w-0 space-y-1">
+                <div class="min-w-0 flex-1 space-y-1">
                   <div class="flex items-center gap-2">
                     <h4 class="font-medium">{job.name}</h4>
                     <span
@@ -671,12 +687,12 @@
         <div class="space-y-4">
           <!-- Job Steps -->
           <div>
-            <h3 class="text-lg font-semibold mb-3">Steps for {selectedJob.name}</h3>
+            <h3 class="mb-3 text-lg font-semibold">Steps for {selectedJob.name}</h3>
             <div class="space-y-2">
               {#each selectedJob.steps as step (step.id)}
                 <div class="rounded-lg border border-border bg-card">
                   <button
-                    class="w-full p-4 text-left hover:bg-accent/50 transition-colors"
+                    class="w-full p-4 text-left transition-colors hover:bg-accent/50"
                     onclick={() => selectStep(step)}>
                     <div class="flex items-center gap-3">
                       <div class={`flex-shrink-0 ${getStatusColor(step.status)}`}>
@@ -687,7 +703,7 @@
                           <StepStatusIcon class="h-4 w-4" />
                         {/if}
                       </div>
-                      <div class="flex-1 min-w-0">
+                      <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2">
                           <span class="text-sm font-medium">Step {step.number}</span>
                           <span class="text-sm">{step.name}</span>
@@ -697,7 +713,7 @@
                           </span>
                         </div>
                         <p class="text-xs text-muted-foreground">
-                          {formatTimestamp(step.startedAt)} - 
+                          {formatTimestamp(step.startedAt)} -
                           {#if step.completedAt}
                             {formatTimestamp(step.completedAt)}
                           {:else}
@@ -715,7 +731,7 @@
           <!-- Step Logs -->
           {#if selectedStep}
             <div>
-              <div class="flex items-center justify-between mb-3">
+              <div class="mb-3 flex items-center justify-between">
                 <h3 class="text-lg font-semibold">Logs: {selectedStep.name}</h3>
                 <div class="flex items-center gap-2">
                   <Button size="sm" variant="outline" onclick={onCopyLogs} class="gap-2">
@@ -728,7 +744,8 @@
                   </Button>
                 </div>
               </div>
-              <div class="rounded-lg border border-border bg-black/50 p-4 font-mono text-sm text-green-400 max-h-96 overflow-auto">
+              <div
+                class="max-h-96 overflow-auto rounded-lg border border-border bg-black/50 p-4 font-mono text-sm text-green-400">
                 {#each selectedStep.logs as log}
                   <div class="mb-1">{log}</div>
                 {/each}
@@ -738,7 +755,7 @@
 
           <!-- Job Logs -->
           <div>
-            <div class="flex items-center justify-between mb-3">
+            <div class="mb-3 flex items-center justify-between">
               <h3 class="text-lg font-semibold">Job Logs</h3>
               <div class="flex items-center gap-2">
                 <Button size="sm" variant="outline" class="gap-2">
@@ -747,7 +764,8 @@
                 </Button>
               </div>
             </div>
-            <div class="rounded-lg border border-border bg-black/50 p-4 font-mono text-sm text-green-400 max-h-64 overflow-auto">
+            <div
+              class="max-h-64 overflow-auto rounded-lg border border-border bg-black/50 p-4 font-mono text-sm text-green-400">
               {#each selectedJob.logs as log}
                 <div class="mb-1">{log}</div>
               {/each}
