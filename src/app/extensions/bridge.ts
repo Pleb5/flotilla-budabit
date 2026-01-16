@@ -1,7 +1,8 @@
 import {publishThunk} from "@welshman/app"
 import {pushToast} from "@app/util/toast"
 import {SimplePool} from "nostr-tools/pool"
-import type {LoadedExtension} from "./types"
+import type {LoadedExtension, RepoContext} from "./types"
+import {getRepoAddress} from "./types"
 
 export type ExtensionMessage = {
   id?: string
@@ -308,22 +309,38 @@ registerBridgeHandler("ui:toast", (payload, ext) => {
   }
 })
 
-// Storage handlers - scoped by extension ID to prevent cross-extension data access
+// Storage handlers - scoped by extension ID and optionally by repository
 const STORAGE_PREFIX = "flotilla:ext:"
 const MAX_STORAGE_KEY_LENGTH = 256
 const MAX_STORAGE_VALUE_SIZE = 1024 * 1024 // 1MB per value
 
+/**
+ * Compute the storage key prefix for an extension.
+ * If repoContext is present, keys are scoped to that repository.
+ * Format: "flotilla:ext:{extId}:{key}" or "flotilla:ext:{extId}:repo:{pubkey}:{name}:{key}"
+ */
+const getStorageKeyPrefix = (ext: LoadedExtension, repoScoped: boolean): string => {
+  const base = `${STORAGE_PREFIX}${ext.id}:`
+  if (repoScoped && ext.repoContext) {
+    return `${base}repo:${ext.repoContext.pubkey}:${ext.repoContext.name}:`
+  }
+  return base
+}
+
 registerBridgeHandler("storage:get", (payload, ext) => {
   if (ext) console.log(`[bridge] storage:get from ${ext.id}`, payload)
   try {
-    const {key} = payload || {}
+    const {key, repoScoped = false} = payload || {}
     if (typeof key !== "string" || key.length === 0) {
       throw new Error("Invalid key: expected non-empty string")
     }
     if (key.length > MAX_STORAGE_KEY_LENGTH) {
       throw new Error(`Key exceeds maximum length of ${MAX_STORAGE_KEY_LENGTH}`)
     }
-    const scopedKey = `${STORAGE_PREFIX}${ext.id}:${key}`
+    if (repoScoped && !ext.repoContext) {
+      throw new Error("repoScoped requested but no repository context available")
+    }
+    const scopedKey = `${getStorageKeyPrefix(ext, repoScoped)}${key}`
     const raw = localStorage.getItem(scopedKey)
     const data = raw ? JSON.parse(raw) : null
     return {status: "ok", data}
@@ -336,14 +353,17 @@ registerBridgeHandler("storage:get", (payload, ext) => {
 registerBridgeHandler("storage:set", (payload, ext) => {
   if (ext) console.log(`[bridge] storage:set from ${ext.id}`, payload)
   try {
-    const {key, data} = payload || {}
+    const {key, data, repoScoped = false} = payload || {}
     if (typeof key !== "string" || key.length === 0) {
       throw new Error("Invalid key: expected non-empty string")
     }
     if (key.length > MAX_STORAGE_KEY_LENGTH) {
       throw new Error(`Key exceeds maximum length of ${MAX_STORAGE_KEY_LENGTH}`)
     }
-    const scopedKey = `${STORAGE_PREFIX}${ext.id}:${key}`
+    if (repoScoped && !ext.repoContext) {
+      throw new Error("repoScoped requested but no repository context available")
+    }
+    const scopedKey = `${getStorageKeyPrefix(ext, repoScoped)}${key}`
     if (data === null || data === undefined) {
       localStorage.removeItem(scopedKey)
       return {status: "ok"}
@@ -363,11 +383,14 @@ registerBridgeHandler("storage:set", (payload, ext) => {
 registerBridgeHandler("storage:remove", (payload, ext) => {
   if (ext) console.log(`[bridge] storage:remove from ${ext.id}`, payload)
   try {
-    const {key} = payload || {}
+    const {key, repoScoped = false} = payload || {}
     if (typeof key !== "string" || key.length === 0) {
       throw new Error("Invalid key: expected non-empty string")
     }
-    const scopedKey = `${STORAGE_PREFIX}${ext.id}:${key}`
+    if (repoScoped && !ext.repoContext) {
+      throw new Error("repoScoped requested but no repository context available")
+    }
+    const scopedKey = `${getStorageKeyPrefix(ext, repoScoped)}${key}`
     localStorage.removeItem(scopedKey)
     return {status: "ok"}
   } catch (err: any) {
@@ -379,7 +402,11 @@ registerBridgeHandler("storage:remove", (payload, ext) => {
 registerBridgeHandler("storage:keys", (payload, ext) => {
   if (ext) console.log(`[bridge] storage:keys from ${ext.id}`)
   try {
-    const prefix = `${STORAGE_PREFIX}${ext.id}:`
+    const {repoScoped = false} = payload || {}
+    if (repoScoped && !ext.repoContext) {
+      throw new Error("repoScoped requested but no repository context available")
+    }
+    const prefix = getStorageKeyPrefix(ext, repoScoped)
     const keys: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
@@ -390,6 +417,29 @@ registerBridgeHandler("storage:keys", (payload, ext) => {
     return {status: "ok", keys}
   } catch (err: any) {
     console.error("Error in storage:keys bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+// Handler to get current repo context (if available)
+registerBridgeHandler("context:getRepo", (payload, ext) => {
+  if (ext) console.log(`[bridge] context:getRepo from ${ext.id}`)
+  try {
+    if (!ext.repoContext) {
+      return {status: "ok", repoContext: null}
+    }
+    return {
+      status: "ok",
+      repoContext: {
+        pubkey: ext.repoContext.pubkey,
+        name: ext.repoContext.name,
+        naddr: ext.repoContext.naddr,
+        relays: ext.repoContext.relays,
+        address: getRepoAddress(ext.repoContext), // Canonical "30617:pubkey:name" format
+      },
+    }
+  } catch (err: any) {
+    console.error("Error in context:getRepo bridge handler:", err)
     return {error: err.message}
   }
 })

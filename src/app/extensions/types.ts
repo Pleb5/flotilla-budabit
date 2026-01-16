@@ -54,6 +54,28 @@ export type ExtensionPolicy = {
   granted: boolean
 }
 
+/**
+ * Repository context for repo-scoped extensions/widgets.
+ * Used to scope storage and Nostr queries to a specific repository.
+ */
+export type RepoContext = {
+  /** Repository owner's pubkey */
+  pubkey: string
+  /** Repository name (d-tag identifier) */
+  name: string
+  /** Full naddr for the repository */
+  naddr?: string
+  /** Relays associated with this repository */
+  relays?: string[]
+}
+
+/**
+ * Get the canonical repo address tag value (for use in #a tag filters).
+ * Format: "30617:pubkey:name"
+ */
+export const getRepoAddress = (ctx: RepoContext): string =>
+  `30617:${ctx.pubkey}:${ctx.name}`
+
 export type LoadedNip89Extension = {
   type: "nip89"
   id: string
@@ -61,6 +83,8 @@ export type LoadedNip89Extension = {
   origin: string
   iframe?: HTMLIFrameElement
   bridge?: import("./bridge").ExtensionBridge
+  /** Repository context when loaded as a repo-tab extension */
+  repoContext?: RepoContext
 }
 
 export type LoadedWidgetExtension = {
@@ -70,6 +94,8 @@ export type LoadedWidgetExtension = {
   origin: string
   iframe?: HTMLIFrameElement
   bridge?: import("./bridge").ExtensionBridge
+  /** Repository context when loaded for a specific repository */
+  repoContext?: RepoContext
 }
 
 export type LoadedExtension = LoadedNip89Extension | LoadedWidgetExtension

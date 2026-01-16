@@ -6,7 +6,9 @@ import type {
   LoadedWidgetExtension,
   SmartWidgetEvent,
   WidgetButtonType,
+  RepoContext,
 } from "./types"
+import {getRepoAddress} from "./types"
 
 const getTag = (tags: string[][], name: string) => tags.find(t => t[0] === name)
 const getTags = (tags: string[][], name: string) => tags.filter(t => t[0] === name)
@@ -148,6 +150,30 @@ class ExtensionRegistry {
   }
 
   /**
+   * Set or update the repository context for an extension.
+   * This scopes storage and provides repo info to the widget.
+   * Call this before loadRuntime to have context available in widget:init.
+   */
+  setRepoContext(id: string, repoContext: RepoContext | undefined): void {
+    const ext = this.get(id)
+    if (!ext) return
+
+    const updated = {...ext, repoContext}
+    this.setExtension(updated as LoadedExtension)
+
+    // If the extension has a bridge, notify it of the context update
+    if (ext.bridge && repoContext) {
+      ext.bridge.post("context:repoUpdate", {
+        pubkey: repoContext.pubkey,
+        name: repoContext.name,
+        naddr: repoContext.naddr,
+        relays: repoContext.relays,
+        address: getRepoAddress(repoContext),
+      })
+    }
+  }
+
+  /**
    * Fetch and validate an extension manifest before registering.
    */
   async load(manifestUrl: string): Promise<ExtensionManifest> {
@@ -231,6 +257,17 @@ class ExtensionRegistry {
         name: ext.manifest.name,
         version: ext.manifest.version,
         permissions: ext.manifest.permissions,
+      }
+    }
+
+    // Include repo context if available (for repo-scoped extensions)
+    if (ext.repoContext) {
+      initPayload.repoContext = {
+        pubkey: ext.repoContext.pubkey,
+        name: ext.repoContext.name,
+        naddr: ext.repoContext.naddr,
+        relays: ext.repoContext.relays,
+        address: getRepoAddress(ext.repoContext),
       }
     }
 
