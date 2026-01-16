@@ -172,10 +172,84 @@ class ExtensionRegistry {
     return manifest
   }
 
+  /**
+   * Wait for an iframe to load with timeout.
+   */
+  private waitForIframeLoad(iframe: HTMLIFrameElement, timeoutMs = 10000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("Iframe load timeout"))
+      }, timeoutMs)
+
+      const onLoad = () => {
+        clearTimeout(timeout)
+        iframe.removeEventListener("load", onLoad)
+        iframe.removeEventListener("error", onError)
+        resolve()
+      }
+
+      const onError = () => {
+        clearTimeout(timeout)
+        iframe.removeEventListener("load", onLoad)
+        iframe.removeEventListener("error", onError)
+        reject(new Error("Iframe failed to load"))
+      }
+
+      iframe.addEventListener("load", onLoad)
+      iframe.addEventListener("error", onError)
+    })
+  }
+
+  /**
+   * Send lifecycle events to the extension after bridge is attached.
+   */
+  private sendLifecycleInit(ext: LoadedExtension): void {
+    if (!ext.bridge) return
+
+    // Build init payload with extension metadata
+    const initPayload: Record<string, unknown> = {
+      extensionId: ext.id,
+      type: ext.type,
+      origin: ext.origin,
+      hostVersion: "1.0.0", // Could be pulled from package.json
+    }
+
+    if (ext.type === "widget") {
+      initPayload.widget = {
+        identifier: ext.widget.identifier,
+        widgetType: ext.widget.widgetType,
+        content: ext.widget.content,
+        imageUrl: ext.widget.imageUrl,
+        iconUrl: ext.widget.iconUrl,
+        inputLabel: ext.widget.inputLabel,
+        buttons: ext.widget.buttons,
+        permissions: ext.widget.permissions,
+      }
+    } else {
+      initPayload.manifest = {
+        id: ext.manifest.id,
+        name: ext.manifest.name,
+        version: ext.manifest.version,
+        permissions: ext.manifest.permissions,
+      }
+    }
+
+    // Send init event followed by mounted
+    ext.bridge.post("widget:init", initPayload)
+    ext.bridge.post("widget:mounted", {timestamp: Date.now()})
+  }
+
   private async loadRuntime(ext: LoadedExtension): Promise<LoadedExtension> {
     if (ext.type === "nip89") {
       const existing = this.get(ext.id) as LoadedNip89Extension | undefined
       if (existing?.iframe) return existing
+
+      // Skip iframe loading for built-in extensions without entrypoint
+      if (!ext.manifest.entrypoint) {
+        this.setExtension(ext)
+        return ext
+      }
+
       const iframe = document.createElement("iframe")
       iframe.src = ext.manifest.entrypoint
       iframe.sandbox.add("allow-scripts", "allow-same-origin")
@@ -184,12 +258,28 @@ class ExtensionRegistry {
       const container = document.getElementById("flotilla-extension-container") ?? document.body
       container.appendChild(iframe)
 
+      // Wait for iframe to load before attaching bridge
+      try {
+        await this.waitForIframeLoad(iframe)
+      } catch (err) {
+        // Clean up on failure
+        if (iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe)
+        }
+        console.error(`[registry] Failed to load extension ${ext.id}:`, err)
+        throw err
+      }
+
       const {ExtensionBridge} = await import("./bridge")
       const bridge = new ExtensionBridge(ext)
       bridge.attachHandlers(iframe.contentWindow)
 
       const updated: LoadedNip89Extension = {...ext, iframe, bridge}
       this.setExtension(updated)
+
+      // Send lifecycle events after bridge is ready
+      this.sendLifecycleInit(updated)
+
       return updated
     }
 
@@ -215,12 +305,28 @@ class ExtensionRegistry {
     const container = document.getElementById("flotilla-extension-container") ?? document.body
     container.appendChild(iframe)
 
+    // Wait for iframe to load before attaching bridge
+    try {
+      await this.waitForIframeLoad(iframe)
+    } catch (err) {
+      // Clean up on failure
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe)
+      }
+      console.error(`[registry] Failed to load widget ${ext.id}:`, err)
+      throw err
+    }
+
     const {ExtensionBridge} = await import("./bridge")
     const bridge = new ExtensionBridge(ext)
     bridge.attachHandlers(iframe.contentWindow)
 
     const updated: LoadedWidgetExtension = {...ext, iframe, bridge}
     this.setExtension(updated)
+
+    // Send lifecycle events after bridge is ready
+    this.sendLifecycleInit(updated)
+
     return updated
   }
 
@@ -243,7 +349,19 @@ class ExtensionRegistry {
   async unloadExtension(id: string): Promise<void> {
     const ext = this.get(id)
     if (!ext) return
-    if (ext.bridge) ext.bridge.detach()
+
+    // Send unmounting lifecycle event before cleanup
+    if (ext.bridge) {
+      try {
+        ext.bridge.post("widget:unmounting", {timestamp: Date.now()})
+        // Brief delay to allow widget to perform cleanup
+        await new Promise(resolve => setTimeout(resolve, 100))
+      } catch {
+        // Ignore errors during unmount notification
+      }
+      ext.bridge.detach()
+    }
+
     if (ext.iframe && ext.iframe.parentNode) {
       ext.iframe.parentNode.removeChild(ext.iframe)
     }

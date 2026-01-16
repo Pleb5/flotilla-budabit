@@ -207,9 +207,13 @@ export class ExtensionBridge {
 
   post(action: string, payload: any): void {
     this.enforcePolicy(action)
-    this.extension.iframe?.contentWindow?.postMessage(
+    // Use targetWindow if available (for sandboxed iframes), otherwise fall back to iframe.contentWindow
+    const targetWindow = this.targetWindow ?? this.extension.iframe?.contentWindow
+    // Use '*' for sandboxed iframes since their origin is 'null'
+    const targetOrigin = this.targetWindow ? '*' : this.extension.origin
+    targetWindow?.postMessage(
       {type: "event", action, payload},
-      this.extension.origin,
+      targetOrigin,
     )
   }
 
@@ -300,6 +304,92 @@ registerBridgeHandler("ui:toast", (payload, ext) => {
     return {status: "ok"}
   } catch (err: any) {
     console.error("Error in ui:toast bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+// Storage handlers - scoped by extension ID to prevent cross-extension data access
+const STORAGE_PREFIX = "flotilla:ext:"
+const MAX_STORAGE_KEY_LENGTH = 256
+const MAX_STORAGE_VALUE_SIZE = 1024 * 1024 // 1MB per value
+
+registerBridgeHandler("storage:get", (payload, ext) => {
+  if (ext) console.log(`[bridge] storage:get from ${ext.id}`, payload)
+  try {
+    const {key} = payload || {}
+    if (typeof key !== "string" || key.length === 0) {
+      throw new Error("Invalid key: expected non-empty string")
+    }
+    if (key.length > MAX_STORAGE_KEY_LENGTH) {
+      throw new Error(`Key exceeds maximum length of ${MAX_STORAGE_KEY_LENGTH}`)
+    }
+    const scopedKey = `${STORAGE_PREFIX}${ext.id}:${key}`
+    const raw = localStorage.getItem(scopedKey)
+    const data = raw ? JSON.parse(raw) : null
+    return {status: "ok", data}
+  } catch (err: any) {
+    console.error("Error in storage:get bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+registerBridgeHandler("storage:set", (payload, ext) => {
+  if (ext) console.log(`[bridge] storage:set from ${ext.id}`, payload)
+  try {
+    const {key, data} = payload || {}
+    if (typeof key !== "string" || key.length === 0) {
+      throw new Error("Invalid key: expected non-empty string")
+    }
+    if (key.length > MAX_STORAGE_KEY_LENGTH) {
+      throw new Error(`Key exceeds maximum length of ${MAX_STORAGE_KEY_LENGTH}`)
+    }
+    const scopedKey = `${STORAGE_PREFIX}${ext.id}:${key}`
+    if (data === null || data === undefined) {
+      localStorage.removeItem(scopedKey)
+      return {status: "ok"}
+    }
+    const serialized = JSON.stringify(data)
+    if (serialized.length > MAX_STORAGE_VALUE_SIZE) {
+      throw new Error(`Value exceeds maximum size of ${MAX_STORAGE_VALUE_SIZE} bytes`)
+    }
+    localStorage.setItem(scopedKey, serialized)
+    return {status: "ok"}
+  } catch (err: any) {
+    console.error("Error in storage:set bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+registerBridgeHandler("storage:remove", (payload, ext) => {
+  if (ext) console.log(`[bridge] storage:remove from ${ext.id}`, payload)
+  try {
+    const {key} = payload || {}
+    if (typeof key !== "string" || key.length === 0) {
+      throw new Error("Invalid key: expected non-empty string")
+    }
+    const scopedKey = `${STORAGE_PREFIX}${ext.id}:${key}`
+    localStorage.removeItem(scopedKey)
+    return {status: "ok"}
+  } catch (err: any) {
+    console.error("Error in storage:remove bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+registerBridgeHandler("storage:keys", (payload, ext) => {
+  if (ext) console.log(`[bridge] storage:keys from ${ext.id}`)
+  try {
+    const prefix = `${STORAGE_PREFIX}${ext.id}:`
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(prefix)) {
+        keys.push(key.slice(prefix.length))
+      }
+    }
+    return {status: "ok", keys}
+  } catch (err: any) {
+    console.error("Error in storage:keys bridge handler:", err)
     return {error: err.message}
   }
 })
