@@ -53,7 +53,7 @@
   let envVars = $state<{key: string; value: string}[]>([{key: "", value: ""}])
   let maxDuration = $state(600)
   let cashuToken = $state("cashuTEST")
-  let worker = $state("fa84c22dc47c67d9307b6966c992725f70dfcd8a0e5530fd7e3568121f6e1673")
+  let worker = $state("b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710")
 
   // Keyboard handler for Escape key
   $effect(() => {
@@ -745,7 +745,12 @@
       kind: 5100,
       created_at: Math.floor(Date.now() / 1000),
       content: "",
-      tags: [["p", worker], ["bash", bashCommand], ["args"], ["payment", cashuToken]],
+      tags: [
+        ["p", worker],
+        ["cmd", "bash"],
+        ["args", "-c", bashCommand],
+        ["payment", cashuToken],
+      ],
       pubkey: $pubkey,
     }
 
@@ -755,7 +760,7 @@
       console.log("Signed event:", signedEvent)
 
       const pool = new SimplePool()
-      await pool.publish(repoRelays, signedEvent)
+      await pool.publish(["wss://relay.damus.io", "wss://nos.lol"], signedEvent)
 
       console.log("Published event to relays:", repoRelays)
 
@@ -772,7 +777,7 @@
       cashuToken = "cashuTEST"
       selectedWorkflow = null
       selectedBranch = "master"
-      worker = "fa84c22dc47c67d9307b6966c992725f70dfcd8a0e5530fd7e3568121f6e1673"
+      worker = "b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710"
     } catch (e) {
       console.error("Failed to submit workflow:", e)
       toast.push({
