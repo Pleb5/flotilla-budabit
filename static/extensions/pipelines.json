@@ -1,0 +1,19 @@
+{
+  "id": "budabit-pipelines",
+  "kind": 31990,
+  "name": "CI/CD Pipelines",
+  "description": "View and manage CI/CD pipeline runs for your repository.",
+  "author": "Budabit",
+  "homepage": "https://budabit.dev/extensions/pipelines",
+  "version": "1.0.0",
+  "permissions": ["nostr:query", "ui:toast"],
+  "entrypoint": "",
+  "icon": "Play",
+  "sha256": "",
+  "slot": {
+    "type": "repo-tab",
+    "label": "Pipelines",
+    "path": "pipelines",
+    "builtinRoute": "cicd"
+  }
+}

@@ -9,5 +9,10 @@
   "permissions": ["nostr:publish", "nostr:query", "ui:toast"],
   "entrypoint": "http://localhost:5178",
   "icon": "LayoutGrid",
-  "sha256": ""
+  "sha256": "",
+  "slot": {
+    "type": "repo-tab",
+    "label": "Kanban",
+    "path": "kanban"
+  }
 }

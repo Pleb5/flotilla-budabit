@@ -47,11 +47,18 @@
   let installingWidget = $state(false)
 
   // Curated recommended
-  const recommended: {name: string; url: string; description?: string}[] = [
-    {name: "Huddle", url: "/extensions/huddle.json", description: "Audio/room collaboration"},
-    {name: "Repo Kanban", url: "/extensions/kanban.json", description: "NIP-100 Kanban board for repos"},
-    {name: "Hello World", url: "/extensions/example.json", description: "Minimal sample"},
+  const recommended: {name: string; url: string; description?: string; id: string}[] = [
+    {name: "Huddle", url: "/extensions/huddle.json", description: "Audio/room collaboration", id: "huddle"},
+    {name: "Repo Kanban", url: "/extensions/kanban.json", description: "NIP-100 Kanban board for repos", id: "budabit-kanban"},
+    {name: "CI/CD Pipelines", url: "/extensions/pipelines.json", description: "View and manage CI/CD pipeline runs", id: "budabit-pipelines"},
+    {name: "Hello World", url: "/extensions/example.json", description: "Minimal sample", id: "hello-world"},
   ]
+
+  // Check if a recommended extension is already installed
+  const isRecommendedInstalled = (id: string) => {
+    return installedNip89.some((m: ExtensionManifest) => m.id === id) || 
+           installedWidgets.some((w: SmartWidgetEvent) => w.identifier === id)
+  }
 
   let unsub: (() => void) | null = null
   let controller: AbortController | null = null
@@ -273,12 +280,16 @@
             {#if r.description}<div class="text-xs opacity-70">{r.description}</div>{/if}
             <div class="text-xs opacity-50">{r.url}</div>
           </div>
-          <Button
-            class="btn btn-primary btn-sm"
-            onclick={() => {
-              manifestUrl = r.url
-              onInstallByUrl()
-            }}>Install</Button>
+          {#if isRecommendedInstalled(r.id)}
+            <span class="text-sm text-success opacity-70">Installed</span>
+          {:else}
+            <Button
+              class="btn btn-primary btn-sm"
+              onclick={() => {
+                manifestUrl = r.url
+                onInstallByUrl()
+              }}>Install</Button>
+          {/if}
         </div>
       {/each}
     </div>

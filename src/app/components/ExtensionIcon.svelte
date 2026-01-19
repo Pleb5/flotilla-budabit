@@ -31,6 +31,7 @@
     AlertCircle,
     Info,
     HelpCircle,
+    Play,
   } from "@lucide/svelte"
 
   type Props = {
@@ -127,6 +128,8 @@
     <Info class={className} {size} />
   {:else if iconName === "HelpCircle"}
     <HelpCircle class={className} {size} />
+  {:else if iconName === "Play"}
+    <Play class={className} {size} />
   {:else}
     <!-- Fallback: show a placeholder -->
     <Puzzle class={className} {size} />

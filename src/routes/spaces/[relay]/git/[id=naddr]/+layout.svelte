@@ -18,8 +18,8 @@
     CircleAlert,
     GitPullRequest,
     GitCommit,
-    LayoutGrid,
   } from "@lucide/svelte"
+  import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import Profile from "@src/app/components/Profile.svelte"
@@ -90,13 +90,26 @@
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
 
-  // Check if Kanban extension is enabled
-  const KANBAN_EXTENSION_ID = "budabit-kanban"
-  const isKanbanEnabled = $derived.by(() => {
+  // Get enabled extensions with repo-tab slots
+  const repoTabExtensions = $derived.by(() => {
     const settings = $extensionSettings
-    const installed = settings.installed
-    const isInstalled = !!(installed.nip89[KANBAN_EXTENSION_ID] ?? installed.widget[KANBAN_EXTENSION_ID])
-    return isInstalled && settings.enabled.includes(KANBAN_EXTENSION_ID)
+    const enabledIds = settings.enabled
+    const extensions: Array<{id: string; label: string; path: string; icon?: string; builtinRoute?: string}> = []
+    
+    // Check NIP-89 extensions
+    for (const [extId, manifest] of Object.entries(settings.installed.nip89)) {
+      if (enabledIds.includes(extId) && manifest.slot?.type === "repo-tab") {
+        extensions.push({
+          id: extId,
+          label: manifest.slot.label,
+          path: manifest.slot.path,
+          icon: manifest.icon,
+          builtinRoute: manifest.slot.builtinRoute,
+        })
+      }
+    }
+    
+    return extensions
   })
 
   // Make activeTab reactive to avoid lag on navigation - memoize the calculation
@@ -985,15 +998,6 @@
           {/snippet}
         </RepoTab>
         <RepoTab
-          tabValue="pipelines"
-          label="Pipelines"
-          href={`${basePath}/cicd`}
-          {activeTab}>
-          {#snippet icon()}
-            <FileCode class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
           tabValue="code"
           label="Code"
           href={`${basePath}/code`}
@@ -1029,17 +1033,17 @@
             <GitCommit class="h-4 w-4" />
           {/snippet}
         </RepoTab>
-        {#if isKanbanEnabled}
+        {#each repoTabExtensions as ext (ext.id)}
         <RepoTab
-          tabValue="kanban"
-          label="Kanban"
-          href={`${basePath}/kanban`}
+          tabValue={ext.builtinRoute ?? ext.path}
+          label={ext.label}
+          href={ext.builtinRoute ? `${basePath}/${ext.builtinRoute}` : `${basePath}/extensions/${ext.id}`}
           {activeTab}>
           {#snippet icon()}
-            <LayoutGrid class="h-4 w-4" />
+            <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
           {/snippet}
         </RepoTab>
-        {/if}
+        {/each}
       {/snippet}
     </RepoHeader>
     <ConfigProvider
