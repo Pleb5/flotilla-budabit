@@ -19,14 +19,16 @@
     ChevronDown,
     ChevronRight,
     Loader2,
+    Code,
+    Hash,
   } from "@lucide/svelte"
   import {getTagValue} from "@welshman/util"
-  import {pubkey} from "@welshman/app"
+  import {pubkey, signer} from "@welshman/app"
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import {slideAndFade} from "@lib/transition"
   import {isMobile} from "@lib/html"
-  import {onMount} from "svelte"
+  import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
@@ -37,6 +39,8 @@
   import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
+  import {getEventsForUrl} from "@app/core/state"
+  import {makeFeed} from "@app/core/requests"
 
   let {data}: LayoutProps = $props()
 
@@ -49,9 +53,35 @@
   }
 
   // Get relays reactively
-  const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
+  // const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
+  const repoRelays = ["wss://relay.damus.io"]
 
   const {runId} = $page.params
+
+  // Workflow event data from Nostr kind 5100
+  interface WorkflowEvent {
+    id: string
+    kind: number
+    content: string
+    created_at: number
+    pubkey: string
+    tags: string[][]
+    sig?: string
+  }
+
+  // Status event data from Nostr kind 30100
+  interface StatusEvent {
+    id: string
+    workflowId: string
+    status: string
+    content: string
+    created_at: number
+    pubkey: string
+  }
+
+  // Cleanup functions for feeds
+  let workflowFeedCleanup: (() => void) | undefined = undefined
+  let statusFeedCleanup: (() => void) | undefined = undefined
 
   // Mock pipeline run data
   interface Job {
@@ -94,326 +124,172 @@
   }
 
   // Mock act runner output data based on pipeline type
-  const getMockPipelineRun = (id: string): PipelineRun => {
-    const baseRun = {
-      id,
-      runNumber: parseInt(id.replace("run-", "")) || Math.floor(Math.random() * 1000),
-      actor: $pubkey || "unknown",
-      createdAt: Date.now() - 3600000,
-      updatedAt: Date.now() - 3000000,
+  // Mock pipeline run data interface kept for type reference only
+  interface PipelineRun {
+    id: string
+    name: string
+    status: "success" | "failure" | "in_progress" | "cancelled" | "pending" | "skipped"
+    conclusion?: string
+    branch: string
+    commit: string
+    commitMessage: string
+    actor: string
+    event: string
+    createdAt: number
+    updatedAt: number
+    duration?: number
+    runNumber: number
+    jobs: Job[]
+  }
+
+  // State for fetching and displaying event data
+  let workflowEvent = $state<WorkflowEvent | null>(null)
+  let statusEvent = $state<StatusEvent | null>(null)
+  let loading = $state(true)
+  let error = $state<string | null>(null)
+
+  // Parse workflow event data
+  const parseWorkflowEvent = (event: WorkflowEvent) => {
+    const argsTag = event.tags.find(t => t[0] === "args")
+    const args = argsTag ? argsTag.slice(1) : []
+    const workerTag = event.tags.find(t => t[0] === "worker")
+    const worker = workerTag ? workerTag[1] : "unknown"
+    const cmdTag = event.tags.find(t => t[0] === "cmd")
+    const cmd = cmdTag ? cmdTag[1] : "bash"
+    const paymentTag = event.tags.find(t => t[0] === "payment")
+    const payment = paymentTag ? paymentTag[1] : ""
+    const aTag = event.tags.find(t => t[0] === "a")
+    const repoNaddr = aTag ? aTag[1] : ""
+
+    // Extract workflow name from args
+    let workflowName = "Unknown Workflow"
+    const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
+    if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
+      const path = args[workflowPathIndex]
+      workflowName =
+        path
+          .split("/")
+          .pop()
+          ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
     }
 
-    if (id.includes("deploy")) {
-      return {
-        ...baseRun,
-        name: "Deploy",
-        status: "success",
-        branch: "main",
-        commit: "ghi789",
-        commitMessage: "Deploy: Production release",
-        event: "workflow_dispatch",
-        duration: 180,
-        jobs: [
-          {
-            id: "deploy-job-1",
-            name: "deploy",
-            status: "success",
-            startedAt: Date.now() - 180000,
-            completedAt: Date.now(),
-            steps: [
-              {
-                id: "step-1",
-                name: "Checkout repository",
-                status: "success",
-                startedAt: Date.now() - 180000,
-                completedAt: Date.now() - 170000,
-                number: 1,
-                logs: [
-                  "[act] Starting step: Checkout repository",
-                  "2024-01-15T10:30:00.000Z [INFO]  Using Docker image: node:18-alpine",
-                  "2024-01-15T10:30:01.000Z [INFO]  Container started",
-                  "2024-01-15T10:30:02.000Z [INFO]  Running: git init",
-                  "2024-01-15T10:30:03.000Z [INFO]  Repository initialized",
-                  "2024-01-15T10:30:04.000Z [INFO]  Running: git fetch --depth=1 origin main",
-                  "2024-01-15T10:30:05.000Z [INFO]  Fetch completed",
-                  "2024-01-15T10:30:06.000Z [INFO]  Running: git checkout FETCH_HEAD",
-                  "2024-01-15T10:30:07.000Z [INFO]  Checked out commit ghi789",
-                ],
-              },
-              {
-                id: "step-2",
-                name: "Setup Node.js",
-                status: "success",
-                startedAt: Date.now() - 170000,
-                completedAt: Date.now() - 150000,
-                number: 2,
-                logs: [
-                  "[act] Starting step: Setup Node.js",
-                  "2024-01-15T10:31:00.000Z [INFO]  Using Node.js version 18.x",
-                  "2024-01-15T10:31:01.000Z [INFO]  npm version: 9.8.1",
-                  "2024-01-15T10:31:02.000Z [INFO]  Installing dependencies...",
-                  "2024-01-15T10:31:10.000Z [INFO]  Dependencies installed successfully",
-                ],
-              },
-              {
-                id: "step-3",
-                name: "Build application",
-                status: "success",
-                startedAt: Date.now() - 150000,
-                completedAt: Date.now() - 120000,
-                number: 3,
-                logs: [
-                  "[act] Starting step: Build application",
-                  "2024-01-15T10:32:00.000Z [INFO]  Running: npm run build",
-                  "2024-01-15T10:32:05.000Z [INFO]  Build started",
-                  "2024-01-15T10:32:30.000Z [INFO]  Build completed",
-                  "2024-01-15T10:32:31.000Z [INFO]  Build artifacts ready",
-                ],
-              },
-              {
-                id: "step-4",
-                name: "Deploy to production",
-                status: "success",
-                startedAt: Date.now() - 120000,
-                completedAt: Date.now() - 60000,
-                number: 4,
-                logs: [
-                  "[act] Starting step: Deploy to production",
-                  "2024-01-15T10:33:00.000Z [INFO]  Connecting to production server",
-                  "2024-01-15T10:33:01.000Z [INFO]  Uploading build artifacts",
-                  "2024-01-15T10:33:30.000Z [INFO]  Artifacts uploaded successfully",
-                  "2024-01-15T10:33:31.000Z [INFO]  Restarting application server",
-                  "2024-01-15T10:33:45.000Z [INFO]  Application restarted",
-                  "2024-01-15T10:33:46.000Z [INFO]  Health check passed",
-                ],
-              },
-            ],
-            logs: [
-              "[act] Starting job: deploy",
-              "Total runtime: 3m 0s",
-              "Job completed successfully",
-            ],
-          },
-        ],
+    // Extract env vars from args
+    const envVars: string[] = []
+    const actIndex = args.indexOf("act")
+    if (actIndex > 0) {
+      for (let i = 0; i < actIndex; i++) {
+        if (args[i].includes("=")) {
+          envVars.push(args[i])
+        }
       }
-    } else if (id.includes("ci")) {
-      return {
-        ...baseRun,
-        name: "CI",
-        status: "success",
-        branch: "main",
-        commit: "abc123",
-        commitMessage: "Fix: Update dependencies",
-        event: "push",
-        duration: 120,
-        jobs: [
-          {
-            id: "ci-job-1",
-            name: "test",
-            status: "success",
-            startedAt: Date.now() - 120000,
-            completedAt: Date.now(),
-            steps: [
-              {
-                id: "step-1",
-                name: "Checkout repository",
-                status: "success",
-                startedAt: Date.now() - 120000,
-                completedAt: Date.now() - 110000,
-                number: 1,
-                logs: [
-                  "[act] Starting step: Checkout repository",
-                  "2024-01-15T10:20:00.000Z [INFO]  Using Docker image: node:18-alpine",
-                  "2024-01-15T10:20:01.000Z [INFO]  Container started",
-                  "2024-01-15T10:20:02.000Z [INFO]  Repository checked out successfully",
-                ],
-              },
-              {
-                id: "step-2",
-                name: "Install dependencies",
-                status: "success",
-                startedAt: Date.now() - 110000,
-                completedAt: Date.now() - 90000,
-                number: 2,
-                logs: [
-                  "[act] Starting step: Install dependencies",
-                  "2024-01-15T10:21:00.000Z [INFO]  Running: npm ci",
-                  "2024-01-15T10:21:15.000Z [INFO]  Dependencies installed",
-                ],
-              },
-              {
-                id: "step-3",
-                name: "Run tests",
-                status: "success",
-                startedAt: Date.now() - 90000,
-                completedAt: Date.now() - 60000,
-                number: 3,
-                logs: [
-                  "[act] Starting step: Run tests",
-                  "2024-01-15T10:22:00.000Z [INFO]  Running: npm test",
-                  "2024-01-15T10:22:10.000Z [INFO]  Running test suite...",
-                  "2024-01-15T10:22:30.000Z [INFO]  ✓ Unit tests (45/45 passed)",
-                  "2024-01-15T10:22:45.000Z [INFO]  ✓ Integration tests (12/12 passed)",
-                  "2024-01-15T10:22:59.000Z [INFO]  ✓ E2E tests (8/8 passed)",
-                  "2024-01-15T10:23:00.000Z [INFO]  All tests passed!",
-                ],
-              },
-              {
-                id: "step-4",
-                name: "Run linting",
-                status: "success",
-                startedAt: Date.now() - 60000,
-                completedAt: Date.now() - 45000,
-                number: 4,
-                logs: [
-                  "[act] Starting step: Run linting",
-                  "2024-01-15T10:23:00.000Z [INFO]  Running: npm run lint",
-                  "2024-01-15T10:23:05.000Z [INFO]  Linting source files...",
-                  "2024-01-15T10:23:10.000Z [INFO]  No linting errors found",
-                ],
-              },
-              {
-                id: "step-5",
-                name: "Type checking",
-                status: "success",
-                startedAt: Date.now() - 45000,
-                completedAt: Date.now() - 30000,
-                number: 5,
-                logs: [
-                  "[act] Starting step: Type checking",
-                  "2024-01-15T10:23:00.000Z [INFO]  Running: npm run type-check",
-                  "2024-01-15T10:23:05.000Z [INFO]  Type checking completed",
-                  "2024-01-15T10:23:10.000Z [INFO]  No type errors found",
-                ],
-              },
-            ],
-            logs: [
-              "[act] Starting job: test",
-              "Total runtime: 2m 0s",
-              "Job completed successfully",
-            ],
-          },
-        ],
-      }
-    } else {
-      // Build and Test
-      return {
-        ...baseRun,
-        name: "Build and Test",
-        status: "failure",
-        branch: "develop",
-        commit: "def456",
-        commitMessage: "Feature: Add new component",
-        event: "pull_request",
-        duration: 90,
-        jobs: [
-          {
-            id: "build-job-1",
-            name: "build",
-            status: "success",
-            startedAt: Date.now() - 90000,
-            completedAt: Date.now() - 60000,
-            steps: [
-              {
-                id: "step-1",
-                name: "Checkout repository",
-                status: "success",
-                startedAt: Date.now() - 90000,
-                completedAt: Date.now() - 85000,
-                number: 1,
-                logs: [
-                  "[act] Starting step: Checkout repository",
-                  "2024-01-15T10:15:00.000Z [INFO]  Using Docker image: node:18-alpine",
-                  "2024-01-15T10:15:01.000Z [INFO]  Container started",
-                  "2024-01-15T10:15:02.000Z [INFO]  Repository checked out successfully",
-                ],
-              },
-              {
-                id: "step-2",
-                name: "Install dependencies",
-                status: "success",
-                startedAt: Date.now() - 85000,
-                completedAt: Date.now() - 70000,
-                number: 2,
-                logs: [
-                  "[act] Starting step: Install dependencies",
-                  "2024-01-15T10:16:00.000Z [INFO]  Running: npm ci",
-                  "2024-01-15T10:16:10.000Z [INFO]  Dependencies installed",
-                ],
-              },
-              {
-                id: "step-3",
-                name: "Build project",
-                status: "success",
-                startedAt: Date.now() - 70000,
-                completedAt: Date.now() - 60000,
-                number: 3,
-                logs: [
-                  "[act] Starting step: Build project",
-                  "2024-01-15T10:17:00.000Z [INFO]  Running: npm run build",
-                  "2024-01-15T10:17:15.000Z [INFO]  Build completed successfully",
-                ],
-              },
-            ],
-            logs: ["[act] Starting job: build", "Total runtime: 30s", "Job completed successfully"],
-          },
-          {
-            id: "test-job-1",
-            name: "test",
-            status: "failure",
-            startedAt: Date.now() - 60000,
-            completedAt: Date.now() - 30000,
-            steps: [
-              {
-                id: "step-1",
-                name: "Checkout repository",
-                status: "success",
-                startedAt: Date.now() - 60000,
-                completedAt: Date.now() - 55000,
-                number: 1,
-                logs: [
-                  "[act] Starting step: Checkout repository",
-                  "2024-01-15T10:18:00.000Z [INFO]  Repository checked out successfully",
-                ],
-              },
-              {
-                id: "step-2",
-                name: "Run unit tests",
-                status: "failure",
-                startedAt: Date.now() - 55000,
-                completedAt: Date.now() - 30000,
-                number: 2,
-                logs: [
-                  "[act] Starting step: Run unit tests",
-                  "2024-01-15T10:18:00.000Z [INFO]  Running: npm test",
-                  "2024-01-15T10:18:10.000Z [INFO]  Running test suite...",
-                  "2024-01-15T10:18:20.000Z [ERROR] ✗ Test failed: NewComponent.test.ts",
-                  "2024-01-15T10:18:21.000Z [ERROR]   Expected: true",
-                  "2024-01-15T10:18:22.000Z [ERROR]   Received: false",
-                  "2024-01-15T10:18:23.000Z [ERROR]   At: NewComponent.test.ts:23:5",
-                  "2024-01-15T10:18:24.000Z [INFO]  ✓ Other tests (44/45 passed)",
-                  "2024-01-15T10:18:25.000Z [ERROR]  Test suite failed with 1 error",
-                ],
-              },
-            ],
-            logs: [
-              "[act] Starting job: test",
-              "2024-01-15T10:18:30.000Z [ERROR] Job failed: Test suite failed",
-              "Total runtime: 30s",
-              "Job completed with failure",
-            ],
-          },
-        ],
-      }
+    }
+
+    return {
+      id: event.id,
+      name: workflowName,
+      status: statusEvent?.status || "pending",
+      cmd,
+      args,
+      worker,
+      payment,
+      repoNaddr,
+      envVars,
+      content: event.content,
+      createdAt: event.created_at * 1000,
+      updatedAt: statusEvent ? statusEvent.created_at * 1000 : event.created_at * 1000,
+      pubkey: event.pubkey,
+      tags: event.tags,
+      conclusion: statusEvent?.content,
     }
   }
 
-  let pipelineRun = $state<PipelineRun>(getMockPipelineRun(runId))
-  let selectedJob = $state<Job | null>(pipelineRun.jobs[0] || null)
-  let selectedStep = $state<Step | null>(selectedJob?.steps[0] || null)
-  let expandedJobs = $state<Set<string>>(new Set([selectedJob?.id].filter(Boolean) as string[]))
-  let expandedSteps = $state<Set<string>>(new Set([selectedStep?.id].filter(Boolean) as string[]))
-  let loading = $state(false)
+  // Fetch workflow event on mount
+  onMount(() => {
+    if (repoRelays.length === 0) {
+      error = "No relays available"
+      loading = false
+      return
+    }
+
+    console.log("Fetching workflow event:", runId)
+    console.log("Relays:", repoRelays)
+    console.log("Run ID from params:", runId)
+
+    // Fetch workflow event using makeFeed
+    const workflowFilter = {kinds: [5100], ids: [runId]}
+    console.log("Workflow filter:", JSON.stringify(workflowFilter, null, 2))
+
+    const workflowFeedResult = makeFeed({
+      element: document.body,
+      relays: repoRelays,
+      feedFilters: [workflowFilter],
+      subscriptionFilters: [workflowFilter],
+      initialEvents: [],
+      onEvent: event => {
+        console.log("✅ Received workflow event:", event.id, event.kind)
+        workflowEvent = event as WorkflowEvent
+        loading = false
+      },
+      onExhausted: () => {
+        console.log(`🎉 Workflow feed exhausted`)
+        console.log("   Workflow event found:", !!workflowEvent)
+        console.log("   Workflow event ID:", workflowEvent?.id)
+        loading = false
+        if (!workflowEvent) {
+          error = `Workflow event ${runId} not found on any relay`
+        }
+      },
+    })
+    workflowFeedCleanup = workflowFeedResult.cleanup
+
+    // Fetch status events using makeFeed
+    console.log("=== Setting up status feed ===")
+    const statusFilter = {kinds: [30100], "#e": [runId]}
+    console.log("Status filter:", JSON.stringify(statusFilter, null, 2))
+    console.log("Looking for workflow ID:", runId)
+
+    const statusFeedResult = makeFeed({
+      element: document.body,
+      relays: repoRelays,
+      feedFilters: [statusFilter],
+      subscriptionFilters: [statusFilter],
+      initialEvents: [],
+      onEvent: event => {
+        console.log("📊 Received status event:", event.id, event.kind)
+        console.log("   Full event:", JSON.stringify(event, null, 2))
+
+        // Find the status tag directly
+        const statusTag = event.tags?.find((t: string[]) => t[0] === "status")
+        const status = statusTag ? statusTag[1] : "unknown"
+        console.log("   Status from tag:", status)
+
+        statusEvent = {
+          id: event.id,
+          workflowId: runId,
+          status,
+          content: event.content,
+          created_at: event.created_at,
+          pubkey: event.pubkey,
+        }
+        console.log("   ✅ Status event updated:", statusEvent)
+      },
+      onExhausted: () => {
+        console.log(`🎉 Status feed exhausted`)
+        console.log("   Final status event:", statusEvent)
+      },
+    })
+    statusFeedCleanup = statusFeedResult.cleanup
+  })
+
+  // Cleanup on unmount
+  onDestroy(() => {
+    if (workflowFeedCleanup) {
+      workflowFeedCleanup()
+    }
+    if (statusFeedCleanup) {
+      statusFeedCleanup()
+    }
+  })
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -494,66 +370,10 @@
     return new Date(timestamp).toLocaleString()
   }
 
-  const toggleJobExpansion = (jobId: string) => {
-    const newExpanded = new Set(expandedJobs)
-    if (newExpanded.has(jobId)) {
-      newExpanded.delete(jobId)
-    } else {
-      newExpanded.add(jobId)
-    }
-    expandedJobs = newExpanded
-  }
-
-  const toggleStepExpansion = (stepId: string) => {
-    const newExpanded = new Set(expandedSteps)
-    if (newExpanded.has(stepId)) {
-      newExpanded.delete(stepId)
-    } else {
-      newExpanded.add(stepId)
-    }
-    expandedSteps = newExpanded
-  }
-
-  const selectJob = (job: Job) => {
-    selectedJob = job
-    selectedStep = job.steps[0] || null
-  }
-
-  const selectStep = (step: Step) => {
-    selectedStep = step
-  }
-
   const onRerunPipeline = () => {
     // Open JobRequest modal with correct relay URL
     const relayUrl = $page.params.relay
     pushModal(JobRequest, {url: relayUrl})
-  }
-
-  const onCopyLogs = () => {
-    if (!selectedStep) return
-
-    const logs = selectedStep.logs.join("\n")
-    navigator.clipboard.writeText(logs).then(() => {
-      toast.push({
-        message: "Logs copied to clipboard",
-        variant: "default",
-      })
-    })
-  }
-
-  const onDownloadLogs = () => {
-    if (!selectedStep) return
-
-    const logs = selectedStep.logs.join("\n")
-    const blob = new Blob([logs], {type: "text/plain"})
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `pipeline-${pipelineRun.name}-${selectedStep.name}-logs.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
   }
 
   const goBack = () => {
@@ -562,217 +382,225 @@
 </script>
 
 <svelte:head>
-  <title>{repoClass?.name} - Pipeline Run #{pipelineRun.runNumber}</title>
+  <title>{repoClass?.name} - Workflow Run</title>
 </svelte:head>
 
 <div class="space-y-4">
-  <!-- Header -->
-  <div class="sticky -top-8 z-nav my-4 max-w-full space-y-2 backdrop-blur">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-4">
-        <Button size="sm" variant="outline" onclick={goBack} class="gap-2">
-          <ArrowLeft class="h-4 w-4" />
-          Back to Pipelines
-        </Button>
-        <div>
-          <h2 class="flex items-center gap-2 text-xl font-semibold">
-            {pipelineRun.name}
-            <span
-              class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBgColor(pipelineRun.status)} ${getStatusColor(pipelineRun.status)}`}>
-              {#if pipelineRun.status === "in_progress"}
-                <Loader2 class="h-3 w-3 animate-spin" />
-              {:else}
-                {@const StatusIcon = getStatusIcon(pipelineRun.status)}
-                <StatusIcon class="h-3 w-3" />
-              {/if}
-              {pipelineRun.status.replace("_", " ")}
-            </span>
-          </h2>
-          <p class="text-sm text-muted-foreground">
-            Run #{pipelineRun.runNumber} • {formatTimeAgo(pipelineRun.createdAt)}
-          </p>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onclick={onRerunPipeline}
-          class="gap-2"
-          disabled={loading}>
-          {#if loading}
-            <Loader2 class="h-4 w-4 animate-spin" />
-          {:else}
-            <RotateCw class="h-4 w-4" />
-          {/if}
-          Re-run jobs
-        </Button>
-      </div>
+  {#if loading}
+    <div class="flex items-center justify-center py-12">
+      <Spinner {loading} />
     </div>
-
-    <!-- Pipeline Info -->
-    <div class="rounded-lg border border-border bg-card p-4">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Triggered by</p>
-          <p class="text-sm font-medium">{pipelineRun.event.replace("_", " ")}</p>
-        </div>
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Branch</p>
-          <p class="text-sm font-medium">{pipelineRun.branch}</p>
-        </div>
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Commit</p>
-          <div class="flex items-center gap-1">
-            <GitCommit class="h-3 w-3" />
-            <span class="font-mono text-sm">{pipelineRun.commit.slice(0, 7)}</span>
+  {:else if error || !workflowEvent}
+    <div class="flex flex-col items-center justify-center py-12 text-gray-500">
+      <AlertCircle class="mb-2 h-8 w-8" />
+      <p class="text-sm">{error || "Workflow not found"}</p>
+      <Button size="sm" variant="outline" onclick={goBack} class="mt-4">
+        <ArrowLeft class="mr-2 h-4 w-4" />
+        Back to Pipelines
+      </Button>
+    </div>
+  {:else}
+    {@const parsedWorkflow = parseWorkflowEvent(workflowEvent)}
+    <!-- Header -->
+    <div class="sticky -top-8 z-nav my-4 max-w-full space-y-2 backdrop-blur">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-4">
+          <Button size="sm" variant="outline" onclick={goBack} class="gap-2">
+            <ArrowLeft class="h-4 w-4" />
+            Back to Pipelines
+          </Button>
+          <div>
+            <h2 class="flex items-center gap-2 text-xl font-semibold">
+              {parsedWorkflow.name}
+              <span
+                class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBgColor(parsedWorkflow.status)} ${getStatusColor(parsedWorkflow.status)}`}>
+                {#if parsedWorkflow.status === "in_progress"}
+                  <Loader2 class="h-3 w-3 animate-spin" />
+                {:else}
+                  {@const StatusIcon = getStatusIcon(parsedWorkflow.status)}
+                  <StatusIcon class="h-3 w-3" />
+                {/if}
+                {parsedWorkflow.status.replace("_", " ")}
+              </span>
+            </h2>
+            <p class="text-sm text-muted-foreground">
+              Submitted {formatTimeAgo(parsedWorkflow.createdAt)}
+            </p>
           </div>
         </div>
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Duration</p>
-          <p class="text-sm font-medium">{formatDuration(pipelineRun.duration)}</p>
+        <div class="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onclick={() => {
+              navigator.clipboard.writeText(parsedWorkflow.id)
+              toast.push({message: "Event ID copied", variant: "default"})
+            }}
+            class="gap-2">
+            <Copy class="h-4 w-4" />
+            Event ID
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onclick={onRerunPipeline}
+            class="gap-2"
+            disabled={loading}>
+            {#if loading}
+              <Loader2 class="h-4 w-4 animate-spin" />
+            {:else}
+              <RotateCw class="h-4 w-4" />
+            {/if}
+            Re-run jobs
+          </Button>
         </div>
       </div>
-      <div class="mt-3">
-        <p class="text-xs text-muted-foreground">Commit message</p>
-        <p class="text-sm">{pipelineRun.commitMessage}</p>
-      </div>
-    </div>
-  </div>
 
-  <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-    <!-- Jobs List -->
-    <div class="lg:col-span-1">
-      <div class="space-y-2">
-        <h3 class="text-lg font-semibold">Jobs</h3>
-        {#each pipelineRun.jobs as job (job.id)}
-          <div
-            class="rounded-lg border border-border bg-card transition-colors hover:bg-accent/50"
-            class:border-primary={selectedJob?.id === job.id}>
-            <button class="w-full p-4 text-left" onclick={() => selectJob(job)}>
-              <div class="flex items-start gap-3">
-                <div class={`mt-1 flex-shrink-0 ${getStatusColor(job.status)}`}>
-                  {#if job.status === "in_progress"}
-                    <Loader2 class="h-5 w-5 animate-spin" />
-                  {:else}
-                    {@const JobStatusIcon = getStatusIcon(job.status)}
-                    <JobStatusIcon class="h-5 w-5" />
-                  {/if}
-                </div>
-                <div class="min-w-0 flex-1 space-y-1">
-                  <div class="flex items-center gap-2">
-                    <h4 class="font-medium">{job.name}</h4>
-                    <span
-                      class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBgColor(job.status)} ${getStatusColor(job.status)}`}>
-                      {job.status.replace("_", " ")}
-                    </span>
-                  </div>
-                  <p class="text-xs text-muted-foreground">
-                    Started {formatTimeAgo(job.startedAt)}
-                    {#if job.completedAt}
-                      • {formatDuration(Math.floor((job.completedAt - job.startedAt) / 1000))}
-                    {/if}
-                  </p>
-                </div>
-              </div>
-            </button>
+      <!-- Workflow Event Information -->
+      <div class="rounded-lg border border-border bg-card p-4">
+        <h3 class="mb-3 text-lg font-semibold">Workflow Details</h3>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Event ID</p>
+            <div class="flex items-center gap-2">
+              <Hash class="h-3 w-3" />
+              <span class="font-mono text-sm">{parsedWorkflow.id}</span>
+            </div>
           </div>
-        {/each}
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Kind</p>
+            <div class="flex items-center gap-2">
+              <Code class="h-3 w-3" />
+              <span class="text-sm">5100</span>
+            </div>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Submitted by</p>
+            <div class="flex items-center gap-2">
+              <GitCommit class="h-3 w-3" />
+              <span class="font-mono text-sm">{parsedWorkflow.pubkey.slice(0, 16)}...</span>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <!-- Job Details and Logs -->
-    <div class="lg:col-span-2">
-      {#if selectedJob}
+      <!-- Command Information -->
+      <div class="rounded-lg border border-border bg-card p-4">
+        <h3 class="mb-3 text-lg font-semibold">Command Details</h3>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Command</p>
+            <code class="rounded bg-muted px-2 py-1 text-sm">{parsedWorkflow.cmd}</code>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Worker</p>
+            <div class="flex items-center gap-2">
+              <GitCommit class="h-3 w-3" />
+              <span class="font-mono text-sm">{parsedWorkflow.worker.slice(0, 16)}...</span>
+            </div>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Payment</p>
+            <span class="text-sm">{parsedWorkflow.payment || "N/A"}</span>
+          </div>
+        </div>
+
+        {#if parsedWorkflow.args.length > 0}
+          <div class="mt-4">
+            <p class="mb-2 text-xs text-muted-foreground">Arguments</p>
+            <div class="flex flex-wrap gap-2">
+              {#each parsedWorkflow.args as arg}
+                <code class="rounded bg-muted px-2 py-1 text-xs">{arg}</code>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        {#if parsedWorkflow.envVars.length > 0}
+          <div class="mt-4">
+            <p class="mb-2 text-xs text-muted-foreground">Environment Variables</p>
+            <div class="space-y-1">
+              {#each parsedWorkflow.envVars as envVar}
+                <code class="block rounded bg-muted px-2 py-1 text-xs">{envVar}</code>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Status Information -->
+      <div class="rounded-lg border border-border bg-card p-4">
+        <h3 class="mb-3 text-lg font-semibold">Job Status</h3>
         <div class="space-y-4">
-          <!-- Job Steps -->
-          <div>
-            <h3 class="mb-3 text-lg font-semibold">Steps for {selectedJob.name}</h3>
-            <div class="space-y-2">
-              {#each selectedJob.steps as step (step.id)}
-                <div class="rounded-lg border border-border bg-card">
-                  <button
-                    class="w-full p-4 text-left transition-colors hover:bg-accent/50"
-                    onclick={() => selectStep(step)}>
-                    <div class="flex items-center gap-3">
-                      <div class={`flex-shrink-0 ${getStatusColor(step.status)}`}>
-                        {#if step.status === "in_progress"}
-                          <Loader2 class="h-4 w-4 animate-spin" />
-                        {:else}
-                          {@const StepStatusIcon = getStatusIcon(step.status)}
-                          <StepStatusIcon class="h-4 w-4" />
-                        {/if}
-                      </div>
-                      <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-2">
-                          <span class="text-sm font-medium">Step {step.number}</span>
-                          <span class="text-sm">{step.name}</span>
-                          <span
-                            class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBgColor(step.status)} ${getStatusColor(step.status)}`}>
-                            {step.status.replace("_", " ")}
-                          </span>
-                        </div>
-                        <p class="text-xs text-muted-foreground">
-                          {formatTimestamp(step.startedAt)} -
-                          {#if step.completedAt}
-                            {formatTimestamp(step.completedAt)}
-                          {:else}
-                            Running...
-                          {/if}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                </div>
-              {/each}
-            </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm">Current Status:</span>
+            <span
+              class={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium ${getStatusBgColor(parsedWorkflow.status)} ${getStatusColor(parsedWorkflow.status)}`}>
+              {#if parsedWorkflow.status === "in_progress"}
+                <Loader2 class="h-4 w-4 animate-spin" />
+              {:else}
+                {@const StatusIcon = getStatusIcon(parsedWorkflow.status)}
+                <StatusIcon class="h-4 w-4" />
+              {/if}
+              {parsedWorkflow.status.replace("_", " ")}
+            </span>
           </div>
 
-          <!-- Step Logs -->
-          {#if selectedStep}
+          {#if parsedWorkflow.conclusion}
             <div>
-              <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-lg font-semibold">Logs: {selectedStep.name}</h3>
-                <div class="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onclick={onCopyLogs} class="gap-2">
-                    <Copy class="h-4 w-4" />
-                    Copy
-                  </Button>
-                  <Button size="sm" variant="outline" onclick={onDownloadLogs} class="gap-2">
-                    <Download class="h-4 w-4" />
-                    Download
-                  </Button>
-                </div>
-              </div>
-              <div
-                class="max-h-96 overflow-auto rounded-lg border border-border bg-black/50 p-4 font-mono text-sm text-green-400">
-                {#each selectedStep.logs as log}
-                  <div class="mb-1">{log}</div>
-                {/each}
-              </div>
+              <p class="mb-2 text-xs text-muted-foreground">Status Message</p>
+              <p class="rounded bg-muted p-3 text-sm">{parsedWorkflow.conclusion}</p>
             </div>
           {/if}
 
-          <!-- Job Logs -->
-          <div>
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="text-lg font-semibold">Job Logs</h3>
-              <div class="flex items-center gap-2">
-                <Button size="sm" variant="outline" class="gap-2">
-                  <Terminal class="h-4 w-4" />
-                  Full Logs
-                </Button>
+          {#if statusEvent}
+            <div class="space-y-2">
+              <p class="text-xs text-muted-foreground">Status Event Details</p>
+              <div class="grid grid-cols-1 gap-2 text-sm">
+                <div class="flex justify-between">
+                  <span class="text-muted-foreground">Status Event ID:</span>
+                  <span class="font-mono">{statusEvent.id.slice(0, 16)}...</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-muted-foreground">Updated:</span>
+                  <span>{formatTimeAgo(statusEvent.created_at * 1000)}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-muted-foreground">Reported by:</span>
+                  <span class="font-mono">{statusEvent.pubkey.slice(0, 16)}...</span>
+                </div>
               </div>
             </div>
-            <div
-              class="max-h-64 overflow-auto rounded-lg border border-border bg-black/50 p-4 font-mono text-sm text-green-400">
-              {#each selectedJob.logs as log}
-                <div class="mb-1">{log}</div>
-              {/each}
+          {:else}
+            <p class="text-sm text-muted-foreground">
+              No status updates received yet. The job is pending or in progress.
+            </p>
+          {/if}
+        </div>
+      </div>
+
+      <!-- Raw Event Data -->
+      <div class="rounded-lg border border-border bg-card p-4">
+        <h3 class="mb-3 text-lg font-semibold">Raw Event Data</h3>
+        <div class="space-y-2">
+          <div class="grid grid-cols-1 gap-2 text-sm">
+            <div class="flex justify-between">
+              <span class="text-muted-foreground">Content:</span>
+              <span class="max-w-lg truncate text-right"
+                >{parsedWorkflow.content || "(empty)"}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-muted-foreground">Tags Count:</span>
+              <span>{parsedWorkflow.tags.length}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-muted-foreground">Repo Naddr:</span>
+              <span class="max-w-lg truncate text-right font-mono"
+                >{parsedWorkflow.repoNaddr || "N/A"}</span>
             </div>
           </div>
         </div>
-      {/if}
+      </div>
     </div>
-  </div>
+  {/if}
 </div>

@@ -153,6 +153,7 @@ export interface JobRequestParams {
   relays: string[]
   cmd: string
   args: string[]
+  repoNaddr?: string
 }
 
 export interface JobRequestResult {
@@ -178,11 +179,12 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
     content: "",
     created_at: Math.floor(Date.now() / 1000),
     tags: [
-      ["p", "fa84c22dc47c67d9307b6966c992725f70dfcd8a0e5530fd7e3568121f6e1673"], // User pubkey hardcoded
+      ["p", "b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710"], // User pubkey hardcoded
       ["worker", DEFAULT_WORKER_PUBKEY], // Worker pubkey
       ["cmd", params.cmd],
       ["args", ...params.args],
       ["payment", params.cashuToken],
+      ...(params.repoNaddr ? [["a", params.repoNaddr]] : []),
     ],
   }
 

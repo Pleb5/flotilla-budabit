@@ -24,7 +24,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import {slideAndFade} from "@lib/transition"
   import {isMobile} from "@lib/html"
-  import {onMount} from "svelte"
+  import {onMount, onDestroy} from "svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import {goto} from "$app/navigation"
   import {page} from "$app/stores"
@@ -33,6 +33,7 @@
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {LayoutProps} from "../$types.js"
+  import {makeFeed} from "@app/core/requests"
 
   let {data}: LayoutProps = $props()
 
@@ -160,7 +161,10 @@
 
   const {relay, id} = $page.params
 
-  // Mock workflow runs data structure (replace with actual data fetching)
+  // Get the naddr for filtering
+  const repoNaddr = $derived(id)
+
+  // Mock workflow runs data structure
   interface WorkflowRun {
     id: string
     name: string
@@ -177,10 +181,67 @@
     runNumber: number
   }
 
+  // Parse job event into WorkflowRun format
+  const parseJobEvent = (event: any): WorkflowRun => {
+    const argsTag = event.tags.find((t: string[]) => t[0] === "args")
+    const args = argsTag ? argsTag.slice(1) : []
+
+    const workerTag = event.tags.find((t: string[]) => t[0] === "worker")
+    const worker = workerTag ? workerTag[1] : "unknown"
+
+    const cmdTag = event.tags.find((t: string[]) => t[0] === "cmd")
+    const cmd = cmdTag ? cmdTag[1] : "bash"
+
+    const paymentTag = event.tags.find((t: string[]) => t[0] === "payment")
+    const payment = paymentTag ? paymentTag[1] : ""
+
+    const aTag = event.tags.find((t: string[]) => t[0] === "a")
+    const repoNaddr = aTag ? aTag[1] : ""
+
+    // Extract workflow name from args
+    let workflowName = "Unknown Workflow"
+    const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
+    if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
+      const path = args[workflowPathIndex]
+      workflowName =
+        path
+          .split("/")
+          .pop()
+          ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+    }
+
+    // Extract env vars from args
+    const envVars: string[] = []
+    const actIndex = args.indexOf("act")
+    if (actIndex > 0) {
+      for (let i = 0; i < actIndex; i++) {
+        if (args[i].includes("=")) {
+          envVars.push(args[i])
+        }
+      }
+    }
+
+    // For listing page, we use default values since we don't have status events
+    return {
+      id: event.id,
+      name: workflowName,
+      status: "pending" as WorkflowRun["status"],
+      branch: "main",
+      commit: event.id.substring(0, 7),
+      commitMessage: `Workflow run: ${workflowName}`,
+      actor: worker,
+      event: "workflow_dispatch",
+      createdAt: event.created_at * 1000,
+      updatedAt: event.created_at * 1000,
+      duration: undefined,
+      runNumber: 0,
+      _originalEvent: event, // Store original event for direct comparison
+    }
+  }
+
   // Navigate to pipeline run details
   const navigateToRun = (run: WorkflowRun) => {
-    const runId = `${run.name.toLowerCase().replace(/\s+/g, "-")}-run-${run.runNumber}`
-    goto(`/spaces/${encodeURIComponent(relay)}/git/${id}/cicd/${runId}`)
+    goto(`/spaces/${encodeURIComponent(relay)}/git/${id}/cicd/${run.id}`)
   }
 
   let workflowRuns = $state<WorkflowRun[]>([
@@ -193,8 +254,8 @@
       commitMessage: "Fix: Update dependencies",
       actor: $pubkey || "",
       event: "push",
-      createdAt: Date.now() - 3600000,
-      updatedAt: Date.now() - 3000000,
+      createdAt: Date.now() - 1209600000 - 300000,
+      updatedAt: Date.now() - 1209600000 - 300000 + 600000,
       duration: 600,
       runNumber: 42,
     },
@@ -207,8 +268,8 @@
       commitMessage: "Feature: Add new component",
       actor: $pubkey || "",
       event: "pull_request",
-      createdAt: Date.now() - 7200000,
-      updatedAt: Date.now() - 6600000,
+      createdAt: Date.now() - 1209600000 - 3600000,
+      updatedAt: Date.now() - 1209600000 - 3600000 + 600000,
       duration: 600,
       runNumber: 41,
     },
@@ -221,11 +282,291 @@
       commitMessage: "Deploy: Production release",
       actor: $pubkey || "",
       event: "workflow_dispatch",
-      createdAt: Date.now() - 300000,
-      updatedAt: Date.now() - 60000,
+      createdAt: Date.now() - 1209600000 - 7200000,
+      updatedAt: Date.now() - 1209600000 - 7200000 + 600000,
+      duration: 600,
       runNumber: 40,
     },
+    {
+      id: "4",
+      name: "Lint and Format",
+      status: "success",
+      branch: "feature/new-ui",
+      commit: "jkl012",
+      commitMessage: "Refactor: Update UI components",
+      actor: $pubkey || "",
+      event: "push",
+      createdAt: Date.now() - 1209600000 - 14400000,
+      updatedAt: Date.now() - 1209600000 - 14400000 + 600000,
+      duration: 600,
+      runNumber: 39,
+    },
   ])
+
+  // Set loading to false immediately if we have data - don't wait for makeFeed
+  let loadingJobs = $state(false)
+  let loadingStatus = $state(false)
+  let element: HTMLElement | undefined = $state()
+  let feedInitialized = $state(false)
+  let statusFeedInitialized = $state(false)
+  let feedCleanup: (() => void) | undefined = $state(undefined)
+  let statusFeedCleanup: (() => void) | undefined = $state(undefined)
+
+  // Create filter for job events (kind 5100) from Damus relay
+  const jobFilter = $derived.by(() => {
+    const filter = {
+      kinds: [5100],
+      "#a": [repoNaddr],
+    }
+    console.log("jobFilter derived:", JSON.stringify(filter, null, 2))
+    console.log("repoNaddr:", repoNaddr)
+    return filter
+  })
+
+  // Initialize feed asynchronously - don't block render
+  onMount(() => {
+    console.log("=== CICD onMount called ===")
+    console.log("feedInitialized:", feedInitialized)
+    console.log("jobFilter:", JSON.stringify(jobFilter, null, 2))
+
+    if (!feedInitialized) {
+      // Defer makeFeed to avoid blocking initial render
+      const timeout = setTimeout(() => {
+        console.log("=== Starting makeFeed initialization ===")
+        const tryStart = () => {
+          console.log("tryStart - element:", !!element, "feedInitialized:", feedInitialized)
+          if (element && !feedInitialized) {
+            console.log("=== Creating makeFeed ===")
+            feedInitialized = true
+            const damusRelay = "wss://relay.damus.io"
+            console.log("Using relay:", damusRelay)
+            console.log("Filter:", JSON.stringify(jobFilter, null, 2))
+
+            const feed = makeFeed({
+              element,
+              relays: [damusRelay],
+              feedFilters: [jobFilter],
+              subscriptionFilters: [jobFilter],
+              initialEvents: [],
+              onEvent: event => {
+                console.log("=== onEvent called ===")
+                console.log("Event:", event)
+                // Add new job events
+                const existingIndex = jobEvents.findIndex(e => e.id === event.id)
+                if (existingIndex >= 0) {
+                  // Update existing event
+                  console.log("Updating existing event:", event.id)
+                  jobEvents[existingIndex] = event
+                } else {
+                  // Add new event
+                  console.log("Adding new event:", event.id)
+                  jobEvents = [...jobEvents, event]
+                }
+                console.log("jobEvents count:", jobEvents.length)
+              },
+              onExhausted: () => {
+                console.log("=== Feed exhausted ===")
+                console.log("Job events received:", jobEvents.length)
+
+                // After job events are loaded, query for status events (kind 30100)
+                if (!statusFeedInitialized && jobEvents.length > 0) {
+                  console.log("=== Setting up status feed ===")
+                  statusFeedInitialized = true
+                  loadingStatus = true
+
+                  // Query for status events that reference our workflow runs via "e" tag
+                  const statusFilter = {
+                    kinds: [30100],
+                    "#e": jobEvents.map(e => e.id),
+                  }
+
+                  console.log("Status filter:", JSON.stringify(statusFilter, null, 2))
+                  console.log(
+                    "Job events for status query:",
+                    jobEvents.map(e => e.id),
+                  )
+
+                  const statusFeed = makeFeed({
+                    element,
+                    relays: [damusRelay],
+                    feedFilters: [statusFilter],
+                    subscriptionFilters: [statusFilter],
+                    initialEvents: [],
+                    onEvent: event => {
+                      console.log("=== Status event received ===")
+                      console.log("Status event:", event)
+                      console.log("Status event tags:", event.tags)
+                      console.log("Status event kind:", event.kind)
+                      console.log("Status event id:", event.id)
+                      console.log("Status event created_at:", event.created_at)
+
+                      // Check for 'e' tag to see which workflow this status is for
+                      const eTag = event.tags.find((t: string[]) => t[0] === "e")
+                      if (eTag) {
+                        console.log("Status event references workflow ID:", eTag[1])
+                      }
+
+                      // Check for 'status' tag
+                      const statusTag = event.tags.find((t: string[]) => t[0] === "status")
+                      if (statusTag) {
+                        console.log("Status value:", statusTag[1])
+                      }
+
+                      // Add new status event
+                      const existingIndex = statusEvents.findIndex(e => e.id === event.id)
+                      if (existingIndex >= 0) {
+                        // Update existing event
+                        console.log("Updating existing status event:", event.id)
+                        statusEvents[existingIndex] = event
+                      } else {
+                        // Add new event
+                        console.log("Adding new status event:", event.id)
+                        statusEvents = [...statusEvents, event]
+                      }
+                      console.log("Total statusEvents count:", statusEvents.length)
+                      console.log("--- End of status event handler ---")
+                    },
+                    onExhausted: () => {
+                      console.log("=== Status feed exhausted ===")
+                      loadingStatus = false
+                    },
+                  })
+                  statusFeedCleanup = statusFeed.cleanup.cleanup
+                  console.log("=== Status feed created ===")
+                }
+              },
+            })
+            feedCleanup = feed.cleanup
+            console.log("=== makeFeed created ===")
+          } else if (!element) {
+            console.log("Element not ready, retrying...")
+            requestAnimationFrame(tryStart)
+          }
+        }
+        tryStart()
+      }, 100)
+
+      return () => {
+        clearTimeout(timeout)
+      }
+    }
+  })
+
+  // CRITICAL: Cleanup on destroy to prevent memory leaks and blocking navigation
+  onDestroy(() => {
+    console.log("=== CICD onDestroy called ===")
+    // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
+    feedCleanup?.()
+    statusFeedCleanup?.()
+  })
+
+  // Get events from makeFeed
+  let jobEvents = $state<any[]>([])
+  let statusEvents = $state<any[]>([])
+
+  // Debug: Watch jobEvents changes
+  $effect(() => {
+    console.log("jobEvents changed, count:", jobEvents.length)
+    if (jobEvents.length > 0) {
+      console.log("jobEvents:", jobEvents)
+    }
+  })
+
+  // Combine test data and real job events
+  const allWorkflowRuns = $derived.by(() => {
+    const parsedJobRuns = jobEvents.map(parseJobEvent)
+    return [...workflowRuns, ...parsedJobRuns].sort((a, b) => b.createdAt - a.createdAt)
+  })
+
+  // Match status events to workflow runs and update status
+  const workflowRunsWithStatus = $derived.by(() => {
+    console.log("=== workflowRunsWithStatus derived ===")
+    console.log("allWorkflowRuns:", allWorkflowRuns)
+    console.log("statusEvents:", statusEvents)
+
+    return allWorkflowRuns.map(run => {
+      console.log("Processing workflow run:", run.id, "-", run.name)
+
+      // Find all matching status events for this workflow run (most recent first)
+      const matchingStatusEvents = statusEvents.filter(statusEvent => {
+        // Status event should have an "e" tag pointing to the workflow event ID
+        const eTag = statusEvent.tags.find((t: string[]) => t[0] === "e")
+
+        // Log comparison details for debugging
+        if (eTag) {
+          const eTagValue = eTag[1] as string
+          const runIdValue = run.id as string
+
+          console.log("  - Comparing status event eTag value:")
+          console.log("    Value:", JSON.stringify(eTagValue))
+          console.log("    Length:", eTagValue.length)
+          console.log(
+            "    Chars:",
+            Array.from(eTagValue)
+              .map(c => `${c} (${c.charCodeAt(0)})`)
+              .join(" "),
+          )
+          console.log("    Bytes:", new TextEncoder().encode(eTagValue))
+          console.log("")
+
+          console.log("  - With workflow run id:")
+          console.log("    Value:", JSON.stringify(runIdValue))
+          console.log("    Length:", runIdValue.length)
+          console.log(
+            "    Chars:",
+            Array.from(runIdValue)
+              .map(c => `${c} (${c.charCodeAt(0)})`)
+              .join(" "),
+          )
+          console.log("    Bytes:", new TextEncoder().encode(runIdValue))
+          console.log("")
+
+          console.log("  - Comparison:")
+          console.log("    Strict equality:", eTagValue === runIdValue)
+          console.log("    Trimmed equality:", eTagValue.trim() === runIdValue.trim())
+          console.log("    Trimmed lengths:", eTagValue.trim().length, runIdValue.trim().length)
+        }
+
+        const matches = eTag && eTag[1] === run._originalEvent?.id
+        return matches
+      })
+
+      if (matchingStatusEvents.length > 0) {
+        // Sort by created_at descending to get most recent status first
+        matchingStatusEvents.sort((a, b) => b.created_at - a.created_at)
+        const mostRecentStatusEvent = matchingStatusEvents[0]
+
+        console.log(`  ✓ Found ${matchingStatusEvents.length} matching status events for:`, run.id)
+        console.log(
+          "  - Most recent status event:",
+          mostRecentStatusEvent.id,
+          mostRecentStatusEvent.created_at,
+        )
+        console.log(
+          "  - All status events:",
+          matchingStatusEvents.map(e => ({
+            id: e.id,
+            status: e.tags.find(t => t[0] === "status")?.[1],
+            created_at: e.created_at,
+          })),
+        )
+
+        // Extract status from most recent status event
+        const statusTag = mostRecentStatusEvent.tags.find((t: string[]) => t[0] === "status")
+        const status = statusTag ? statusTag[1] : "pending"
+        console.log("  - Extracted status:", status)
+
+        return {
+          ...run,
+          status: status as WorkflowRun["status"],
+        }
+      } else {
+        console.log("  ✗ No matching status events found for run:", run.id)
+      }
+
+      return run
+    })
+  })
 
   // Filter and sort options
   let statusFilter = $state<string>("all") // all, success, failure, in_progress, cancelled
@@ -234,11 +575,10 @@
   let eventFilter = $state<string>("all") // all, push, pull_request, workflow_dispatch
   let showFilters = $state(false)
   let searchTerm = $state("")
-  let loading = $state(false)
 
   const uniqueBranches = $derived.by(() => {
     const branches = new Set<string>()
-    workflowRuns.forEach(run => {
+    workflowRunsWithStatus.forEach(run => {
       if (run.branch) branches.add(run.branch)
     })
     return Array.from(branches)
@@ -246,14 +586,14 @@
 
   const uniqueActors = $derived.by(() => {
     const actors = new Set<string>()
-    workflowRuns.forEach(run => {
+    workflowRunsWithStatus.forEach(run => {
       if (run.actor) actors.add(run.actor)
     })
     return Array.from(actors)
   })
 
   const filteredRuns = $derived.by(() => {
-    return workflowRuns
+    const result = workflowRunsWithStatus
       .filter(run => {
         // Search filter
         if (searchTerm) {
@@ -281,6 +621,8 @@
         return true
       })
       .sort((a, b) => b.createdAt - a.createdAt)
+
+    return result
   })
 
   const getStatusIcon = (status: string) => {
@@ -288,6 +630,7 @@
       case "success":
         return Check
       case "failure":
+      case "failed":
         return X
       case "in_progress":
         return RotateCw
@@ -307,6 +650,7 @@
       case "success":
         return "text-green-500"
       case "failure":
+      case "failed":
         return "text-red-500"
       case "in_progress":
         return "text-yellow-500"
@@ -496,7 +840,7 @@
   <title>{repoClass.name} - CI/CD</title>
 </svelte:head>
 
-<div class="space-y-4">
+<div class="space-y-4" bind:this={element}>
   <!-- Header -->
   <div class="sticky -top-8 z-nav my-4 max-w-full space-y-2 backdrop-blur">
     <div class="flex items-center justify-between">
@@ -638,17 +982,7 @@
   {/if}
 
   <!-- Workflow Runs List -->
-  {#if loading}
-    <div class="flex flex-col items-center justify-center py-12">
-      <Spinner {loading}>
-        {#if loading}
-          Loading workflow runs...
-        {:else}
-          End of workflow runs
-        {/if}
-      </Spinner>
-    </div>
-  {:else if filteredRuns.length === 0}
+  {#if filteredRuns.length === 0}
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       <p class="text-sm">No workflow runs found</p>
@@ -657,6 +991,12 @@
       {/if}
     </div>
   {:else}
+    {#if loadingJobs}
+      <div class="flex items-center justify-center py-4">
+        <Spinner loading={loadingJobs}>Loading more workflow runs...</Spinner>
+      </div>
+    {/if}
+
     <div class="space-y-2">
       {#each filteredRuns as run (run.id)}
         {@const StatusIcon = getStatusIcon(run.status)}
