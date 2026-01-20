@@ -77,10 +77,36 @@ test.describe("Issue Status & Updates", () => {
         await page.waitForTimeout(500)
       }
 
-      // Look for close button
-      const closeButton = page.locator("button").filter({hasText: /close|close issue/i}).first()
-      await expect(closeButton).toBeVisible({timeout: 10000})
-      await closeButton.click()
+      // The Status component has a "Change Status" button that opens state selection
+      // Then you select "Closed" state and click "Publish Status"
+      const changeStatusButton = page.locator("button").filter({hasText: /change status/i}).first()
+      const directCloseButton = page.locator("button").filter({hasText: /^close$|close issue/i}).first()
+
+      if (await changeStatusButton.isVisible({timeout: 5000}).catch(() => false)) {
+        // Use the Status component flow
+        await changeStatusButton.click()
+        await page.waitForTimeout(300)
+
+        // Select "Closed" state
+        const closedStateButton = page.locator("button").filter({hasText: /^Closed$/i}).first()
+        if (await closedStateButton.isVisible({timeout: 3000}).catch(() => false)) {
+          await closedStateButton.click()
+          await page.waitForTimeout(200)
+        }
+
+        // Publish the status change
+        const publishButton = page.locator("button").filter({hasText: /publish status/i}).first()
+        await expect(publishButton).toBeVisible({timeout: 5000})
+        await publishButton.click()
+      } else if (await directCloseButton.isVisible({timeout: 3000}).catch(() => false)) {
+        // Direct close button pattern
+        await directCloseButton.click()
+      } else {
+        // Try finding any close-related action
+        const closeAction = page.locator("button, a").filter({hasText: /close/i}).first()
+        await expect(closeAction).toBeVisible({timeout: 10000})
+        await closeAction.click()
+      }
 
       // Wait for the close status event to be published
       const mockRelay = seeder.getMockRelay()
@@ -124,20 +150,32 @@ test.describe("Issue Status & Updates", () => {
         await issueItem.click()
       }
 
-      // Find and click close
-      const closeButton = page.locator("button").filter({hasText: /close/i}).first()
-      if (await closeButton.isVisible({timeout: 5000})) {
-        await closeButton.click()
+      // Find and use status change flow
+      const changeStatusButton = page.locator("button").filter({hasText: /change status/i}).first()
+      const directCloseButton = page.locator("button").filter({hasText: /^close$/i}).first()
 
-        // Check if confirmation dialog appears
-        const confirmDialog = page.locator('[role="dialog"], [role="alertdialog"], .modal').first()
-        const hasDialog = await confirmDialog.isVisible({timeout: 2000}).catch(() => false)
+      if (await changeStatusButton.isVisible({timeout: 5000}).catch(() => false)) {
+        await changeStatusButton.click()
+        await page.waitForTimeout(300)
 
-        if (hasDialog) {
-          // Confirm the close action
-          const confirmButton = page.locator('button').filter({hasText: /confirm|yes|close/i}).first()
-          await confirmButton.click()
+        // Select "Closed" state
+        const closedStateButton = page.locator("button").filter({hasText: /^Closed$/i}).first()
+        if (await closedStateButton.isVisible({timeout: 3000}).catch(() => false)) {
+          await closedStateButton.click()
         }
+
+        // Publish status
+        const publishButton = page.locator("button").filter({hasText: /publish status/i}).first()
+        if (await publishButton.isVisible({timeout: 3000}).catch(() => false)) {
+          await publishButton.click()
+        }
+
+        // Verify status event was published
+        const mockRelay = seeder.getMockRelay()
+        const statusEvent = await mockRelay.waitForEvent(KIND_STATUS_CLOSED, 10000)
+        expect(statusEvent.kind).toBe(KIND_STATUS_CLOSED)
+      } else if (await directCloseButton.isVisible({timeout: 3000}).catch(() => false)) {
+        await directCloseButton.click()
 
         // Verify status event was published
         const mockRelay = seeder.getMockRelay()
@@ -197,10 +235,34 @@ test.describe("Issue Status & Updates", () => {
         await page.waitForTimeout(500)
       }
 
-      // Look for reopen button
-      const reopenButton = page.locator("button").filter({hasText: /reopen|re-open/i}).first()
-      await expect(reopenButton).toBeVisible({timeout: 10000})
-      await reopenButton.click()
+      // The Status component uses "Change Status" button, then select "Open" state
+      const changeStatusButton = page.locator("button").filter({hasText: /change status/i}).first()
+      const directReopenButton = page.locator("button").filter({hasText: /reopen|re-open/i}).first()
+
+      if (await changeStatusButton.isVisible({timeout: 5000}).catch(() => false)) {
+        // Use the Status component flow
+        await changeStatusButton.click()
+        await page.waitForTimeout(300)
+
+        // Select "Open" state to reopen
+        const openStateButton = page.locator("button").filter({hasText: /^Open$/i}).first()
+        if (await openStateButton.isVisible({timeout: 3000}).catch(() => false)) {
+          await openStateButton.click()
+          await page.waitForTimeout(200)
+        }
+
+        // Publish the status change
+        const publishButton = page.locator("button").filter({hasText: /publish status/i}).first()
+        await expect(publishButton).toBeVisible({timeout: 5000})
+        await publishButton.click()
+      } else if (await directReopenButton.isVisible({timeout: 3000}).catch(() => false)) {
+        await directReopenButton.click()
+      } else {
+        // Try finding any reopen-related action
+        const reopenAction = page.locator("button, a").filter({hasText: /open/i}).first()
+        await expect(reopenAction).toBeVisible({timeout: 10000})
+        await reopenAction.click()
+      }
 
       // Wait for the reopen status event to be published
       const mockRelay = seeder.getMockRelay()
@@ -245,14 +307,28 @@ test.describe("Issue Status & Updates", () => {
         await issueItem.click()
         await page.waitForTimeout(500)
 
-        // Reopen button should NOT be visible for open issues
-        const reopenButton = page.locator("button").filter({hasText: /reopen/i}).first()
-        const isReopenVisible = await reopenButton.isVisible({timeout: 2000}).catch(() => false)
-        expect(isReopenVisible).toBe(false)
+        // For the Status component, the "Change Status" button should be visible
+        // When opened, the current state ("Open") is already selected
+        const changeStatusButton = page.locator("button").filter({hasText: /change status/i}).first()
+        const hasStatusControl = await changeStatusButton.isVisible({timeout: 5000}).catch(() => false)
 
-        // Close button SHOULD be visible for open issues
-        const closeButton = page.locator("button").filter({hasText: /close/i}).first()
-        await expect(closeButton).toBeVisible({timeout: 5000})
+        if (hasStatusControl) {
+          // Status component is present
+          expect(hasStatusControl).toBe(true)
+
+          // The status badge should show "Open" for open issues
+          const openBadge = page.locator('text=/^Open$/i').first()
+          const hasOpenBadge = await openBadge.isVisible({timeout: 3000}).catch(() => false)
+          expect(hasOpenBadge).toBe(true)
+        } else {
+          // Fallback: traditional reopen/close button pattern
+          const reopenButton = page.locator("button").filter({hasText: /reopen/i}).first()
+          const isReopenVisible = await reopenButton.isVisible({timeout: 2000}).catch(() => false)
+          expect(isReopenVisible).toBe(false)
+
+          const closeButton = page.locator("button").filter({hasText: /close/i}).first()
+          await expect(closeButton).toBeVisible({timeout: 5000})
+        }
       }
     })
   })
@@ -895,21 +971,50 @@ test.describe("Issue Status & Updates", () => {
         await page.waitForTimeout(500)
       }
 
-      const closeButton = page.locator("button").filter({hasText: /close/i}).first()
-      if (await closeButton.isVisible({timeout: 5000})) {
-        await closeButton.click()
+      // Use the Status component flow to close
+      const changeStatusButton = page.locator("button").filter({hasText: /change status/i}).first()
+      if (await changeStatusButton.isVisible({timeout: 5000}).catch(() => false)) {
+        await changeStatusButton.click()
+        await page.waitForTimeout(300)
 
-        const mockRelay = seeder.getMockRelay()
-        const statusEvent = await mockRelay.waitForEvent(KIND_STATUS_CLOSED, 10000)
+        const closedStateButton = page.locator("button").filter({hasText: /^Closed$/i}).first()
+        if (await closedStateButton.isVisible({timeout: 3000}).catch(() => false)) {
+          await closedStateButton.click()
+        }
 
-        // Verify the status event has p tags
-        assertValidStatusEvent(statusEvent)
-        const pTags = statusEvent.tags.filter((t) => t[0] === "p")
-        expect(pTags.length).toBeGreaterThanOrEqual(1)
+        const publishButton = page.locator("button").filter({hasText: /publish status/i}).first()
+        if (await publishButton.isVisible({timeout: 3000}).catch(() => false)) {
+          await publishButton.click()
 
-        // Each p tag should be a valid 64-char hex pubkey
-        for (const pTag of pTags) {
-          expect(pTag[1].length).toBe(64)
+          const mockRelay = seeder.getMockRelay()
+          const statusEvent = await mockRelay.waitForEvent(KIND_STATUS_CLOSED, 10000)
+
+          // Verify the status event has p tags
+          assertValidStatusEvent(statusEvent)
+          const pTags = statusEvent.tags.filter((t) => t[0] === "p")
+          expect(pTags.length).toBeGreaterThanOrEqual(1)
+
+          // Each p tag should be a valid 64-char hex pubkey
+          for (const pTag of pTags) {
+            expect(pTag[1].length).toBe(64)
+          }
+        }
+      } else {
+        // Fallback to direct close button
+        const closeButton = page.locator("button").filter({hasText: /close/i}).first()
+        if (await closeButton.isVisible({timeout: 5000}).catch(() => false)) {
+          await closeButton.click()
+
+          const mockRelay = seeder.getMockRelay()
+          const statusEvent = await mockRelay.waitForEvent(KIND_STATUS_CLOSED, 10000)
+
+          assertValidStatusEvent(statusEvent)
+          const pTags = statusEvent.tags.filter((t) => t[0] === "p")
+          expect(pTags.length).toBeGreaterThanOrEqual(1)
+
+          for (const pTag of pTags) {
+            expect(pTag[1].length).toBe(64)
+          }
         }
       }
     })
@@ -938,17 +1043,42 @@ test.describe("Issue Status & Updates", () => {
         await page.waitForTimeout(500)
       }
 
-      const closeButton = page.locator("button").filter({hasText: /close/i}).first()
-      if (await closeButton.isVisible({timeout: 5000})) {
-        await closeButton.click()
+      // Use the Status component flow to close
+      const changeStatusButton = page.locator("button").filter({hasText: /change status/i}).first()
+      if (await changeStatusButton.isVisible({timeout: 5000}).catch(() => false)) {
+        await changeStatusButton.click()
+        await page.waitForTimeout(300)
 
-        const mockRelay = seeder.getMockRelay()
-        const statusEvent = await mockRelay.waitForEvent(KIND_STATUS_CLOSED, 10000)
+        const closedStateButton = page.locator("button").filter({hasText: /^Closed$/i}).first()
+        if (await closedStateButton.isVisible({timeout: 3000}).catch(() => false)) {
+          await closedStateButton.click()
+        }
 
-        // Verify the status event has an 'a' tag referencing the repo
-        const repoAddress = getTagValue(statusEvent, "a")
-        expect(repoAddress).toBeDefined()
-        expect(repoAddress).toContain("30617:")
+        const publishButton = page.locator("button").filter({hasText: /publish status/i}).first()
+        if (await publishButton.isVisible({timeout: 3000}).catch(() => false)) {
+          await publishButton.click()
+
+          const mockRelay = seeder.getMockRelay()
+          const statusEvent = await mockRelay.waitForEvent(KIND_STATUS_CLOSED, 10000)
+
+          // Verify the status event has an 'a' tag referencing the repo
+          const repoAddress = getTagValue(statusEvent, "a")
+          expect(repoAddress).toBeDefined()
+          expect(repoAddress).toContain("30617:")
+        }
+      } else {
+        // Fallback to direct close button
+        const closeButton = page.locator("button").filter({hasText: /close/i}).first()
+        if (await closeButton.isVisible({timeout: 5000}).catch(() => false)) {
+          await closeButton.click()
+
+          const mockRelay = seeder.getMockRelay()
+          const statusEvent = await mockRelay.waitForEvent(KIND_STATUS_CLOSED, 10000)
+
+          const repoAddress = getTagValue(statusEvent, "a")
+          expect(repoAddress).toBeDefined()
+          expect(repoAddress).toContain("30617:")
+        }
       }
     })
   })

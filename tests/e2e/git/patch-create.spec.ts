@@ -229,8 +229,9 @@ test.describe("Patch Creation & Submission", () => {
       // Wait for patches to load
       await page.waitForTimeout(2000)
 
-      // Check for patch card elements
-      const patchCards = page.locator("[class*='PatchCard'], [data-testid='patch-card'], [class*='patch-item']")
+      // Check for patch card elements - PatchCard is from @nostr-git/ui library
+      // The app wraps PatchCard in a div with relative class inside flex container
+      const patchCards = page.locator("[class*='PatchCard'], div.relative:has([class*='patch']), a[href*='/patches/']")
       const cardCount = await patchCards.count()
 
       // Should have patch content visible
@@ -724,7 +725,8 @@ test.describe("Patch Creation & Submission", () => {
       }
 
       // Find the patch and look for status toggle
-      const patchCard = page.locator("[class*='PatchCard'], [data-testid='patch-card']").first()
+      // PatchCard is from @nostr-git/ui; app wraps it in div.relative
+      const patchCard = page.locator("[class*='PatchCard'], div.relative:has([class*='patch']), a[href*='/patches/']").first()
       if (await patchCard.isVisible({timeout: 3000}).catch(() => false)) {
         await patchCard.click()
         await page.waitForLoadState("networkidle")

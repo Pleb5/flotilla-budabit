@@ -82,19 +82,18 @@ test.describe("Patch Status Workflow", () => {
         await page.waitForTimeout(1000)
       }
 
-      // Look for apply/merge button
-      const applyButton = page.locator("button").filter({hasText: /apply|merge/i})
-        .or(page.locator("[data-testid='apply-patch']"))
-        .or(page.locator("[data-testid='merge-patch']"))
-        .or(page.locator("button[aria-label*='apply' i]"))
+      // Look for apply/merge button - app uses "Merge Patch Set" button text
+      const applyButton = page.locator("button").filter({hasText: /Merge Patch Set|merge|apply/i})
+        .or(page.locator("button:has-text('Merge Patch Set')"))
         .or(page.locator("button[aria-label*='merge' i]"))
+        .or(page.locator("button[aria-label*='apply' i]"))
         .first()
 
       if (await applyButton.isVisible({timeout: 5000}).catch(() => false)) {
         await applyButton.click()
 
-        // Wait for confirmation dialog if present
-        const confirmButton = page.locator("button").filter({hasText: /confirm|yes|apply/i}).first()
+        // Wait for confirmation dialog if present - app uses "Confirm Merge" button
+        const confirmButton = page.locator("button").filter({hasText: /Confirm Merge|confirm|yes|apply/i}).first()
         if (await confirmButton.isVisible({timeout: 2000}).catch(() => false)) {
           await confirmButton.click()
         }
@@ -299,11 +298,10 @@ test.describe("Patch Status Workflow", () => {
         await page.waitForTimeout(1000)
       }
 
-      // Look for close button
-      const closeButton = page.locator("button").filter({hasText: /close|reject/i})
-        .or(page.locator("[data-testid='close-patch']"))
-        .or(page.locator("[data-testid='reject-patch']"))
+      // Look for close button - app uses Status component with close/reject actions
+      const closeButton = page.locator("button").filter({hasText: /close|reject|closed/i})
         .or(page.locator("button[aria-label*='close' i]"))
+        .or(page.locator("button[aria-label*='reject' i]"))
         .first()
 
       if (await closeButton.isVisible({timeout: 5000}).catch(() => false)) {
@@ -502,10 +500,10 @@ test.describe("Patch Status Workflow", () => {
         await page.waitForTimeout(1000)
       }
 
-      // Look for publish/ready for review button
-      const publishButton = page.locator("button").filter({hasText: /publish|ready|open|submit/i})
-        .or(page.locator("[data-testid='publish-patch']"))
-        .or(page.locator("[data-testid='ready-for-review']"))
+      // Look for publish/ready for review button - Status component handles state changes
+      const publishButton = page.locator("button").filter({hasText: /publish|ready|open|submit|mark as open/i})
+        .or(page.locator("button[aria-label*='open' i]"))
+        .or(page.locator("button[aria-label*='ready' i]"))
         .first()
 
       if (await publishButton.isVisible({timeout: 5000}).catch(() => false)) {
@@ -656,10 +654,10 @@ test.describe("Patch Status Workflow", () => {
         await page.waitForTimeout(1000)
       }
 
-      // Look for reopen button
-      const reopenButton = page.locator("button").filter({hasText: /reopen|re-open/i})
-        .or(page.locator("[data-testid='reopen-patch']"))
+      // Look for reopen button - Status component handles state changes
+      const reopenButton = page.locator("button").filter({hasText: /reopen|re-open|open again/i})
         .or(page.locator("button[aria-label*='reopen' i]"))
+        .or(page.locator("button[aria-label*='open' i]"))
         .first()
 
       if (await reopenButton.isVisible({timeout: 5000}).catch(() => false)) {
@@ -801,10 +799,10 @@ test.describe("Patch Status Workflow", () => {
         await page.waitForTimeout(1000)
       }
 
-      // Look for apply/merge button
-      const applyButton = page.locator("button").filter({hasText: /apply|merge/i})
-        .or(page.locator("[data-testid='apply-patch']"))
-        .or(page.locator("[data-testid='merge-patch']"))
+      // Look for apply/merge button - app uses "Merge Patch Set" button text
+      const applyButton = page.locator("button").filter({hasText: /Merge Patch Set|merge|apply/i})
+        .or(page.locator("button:has-text('Merge Patch Set')"))
+        .or(page.locator("button[aria-label*='merge' i]"))
         .first()
 
       // For non-maintainer, apply button should either:

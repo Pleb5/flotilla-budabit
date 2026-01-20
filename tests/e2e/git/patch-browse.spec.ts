@@ -61,8 +61,9 @@ test.describe("Patch Browse & Filter", () => {
 
       // Verify patches are visible in the list
       // The seeder creates patches with titles like "Fix null pointer exception", "Add new utility function", etc.
-      const patchList = page.locator("[data-testid='patch-list'], [class*='patch-list'], [class*='PatchList'], main, [class*='content']").first()
-      await expect(patchList).toBeVisible({timeout: 10000})
+      // The app uses PatchCard components in a flex container with gap-y-4
+      const patchListContainer = page.locator("div.flex.flex-col.gap-y-4, [class*='PatchCard'], main").first()
+      await expect(patchListContainer).toBeVisible({timeout: 10000})
 
       // Verify at least some patch titles are visible
       const patchTitles = [
@@ -586,11 +587,12 @@ test.describe("Patch Browse & Filter", () => {
       await repoDetail.goToPatches()
       await page.waitForTimeout(1000)
 
-      // Look for search input
+      // Look for search input - the app uses placeholder "Search patches..."
       const searchInput = page.locator(
+        "input[placeholder='Search patches...'], " +
         "input[type='search'], input[placeholder*='search' i], " +
         "input[placeholder*='filter' i], input[name='search'], " +
-        "[data-testid='patch-search'], input[aria-label*='search' i]"
+        "input[aria-label*='search' i]"
       ).first()
 
       if (await searchInput.isVisible({timeout: 5000}).catch(() => false)) {
@@ -697,10 +699,11 @@ test.describe("Patch Browse & Filter", () => {
       await repoDetail.goToPatches()
       await page.waitForTimeout(1000)
 
-      // Look for search input
+      // Look for search input - the app uses placeholder "Search patches..."
       const searchInput = page.locator(
+        "input[placeholder='Search patches...'], " +
         "input[type='search'], input[placeholder*='search' i], " +
-        "input[placeholder*='filter' i], [data-testid='patch-search']"
+        "input[placeholder*='filter' i]"
       ).first()
 
       if (await searchInput.isVisible({timeout: 5000}).catch(() => false)) {
@@ -802,11 +805,11 @@ test.describe("Patch Browse & Filter", () => {
         await searchInput.fill("xyznonexistentpatch123")
         await page.waitForTimeout(500)
 
-        // Look for empty state indicator
+        // Look for empty state indicator - app shows "No patches found." with SearchX icon
         const emptyState = page.locator(
+          "div:has-text('No patches found.'), " +
           "[class*='empty'], [class*='no-results'], " +
-          "p:has-text('No patches'), p:has-text('No results'), " +
-          "[data-testid='empty-state']"
+          "p:has-text('No patches'), p:has-text('No results')"
         )
 
         const hasEmptyState = await emptyState.count() > 0

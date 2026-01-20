@@ -18,6 +18,14 @@
  *
  * Note: Actual git operations are mocked since they require external services.
  * These tests verify the UI flow and event publication behavior.
+ *
+ * The ForkRepoDialog component (from @nostr-git/ui) provides:
+ * - #git-service selector dropdown
+ * - #fork-name input
+ * - #relay-url input (for GRASP)
+ * - #earliest-commit input
+ * - Submit button in footer
+ * - Progress display during fork
  */
 import {test, expect} from "@playwright/test"
 import {
@@ -40,6 +48,28 @@ const ENCODED_RELAY = encodeURIComponent(TEST_RELAY)
 
 // Apply clean state to ensure test isolation
 useCleanState(test)
+
+/**
+ * Helper to navigate to a repository and open the fork dialog
+ * Returns true if fork dialog opened successfully
+ */
+async function tryOpenForkDialog(page: any, repoName: string): Promise<boolean> {
+  // First find and click the repo card to enter repo detail
+  const repoCard = page.getByText(repoName).first()
+  if (await repoCard.isVisible().catch(() => false)) {
+    await repoCard.click()
+    await page.waitForLoadState("networkidle")
+
+    // Look for fork button in header
+    const forkButton = page.locator("button").filter({hasText: /fork/i}).first()
+    if (await forkButton.isVisible().catch(() => false)) {
+      await forkButton.click()
+      await page.waitForTimeout(500)
+      return true
+    }
+  }
+  return false
+}
 
 test.describe("Repository Fork Flow", () => {
   test.describe("Fork Dialog UI", () => {

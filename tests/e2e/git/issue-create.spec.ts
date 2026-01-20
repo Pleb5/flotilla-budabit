@@ -72,18 +72,18 @@ test.describe("Issue Creation", () => {
       // Wait for modal to appear
       await page.waitForTimeout(500)
 
-      // Fill in issue title
+      // Fill in issue title (subject field)
       const titleInput = page.locator(
-        'input[placeholder*="title" i], input[name="title"], input[type="text"]'
+        'input#subject, input[placeholder*="brief description" i], input[placeholder*="subject" i], input[type="text"]'
       ).first()
       await expect(titleInput).toBeVisible({timeout: 5000})
       await titleInput.fill("Test Issue Title")
 
-      // Fill in issue description
+      // Fill in issue description (content field)
       const descriptionInput = page.locator(
-        'textarea[placeholder*="description" i], textarea[name="description"], textarea[name="content"], textarea'
+        'textarea#content, textarea[placeholder*="describe" i], textarea[placeholder*="detail" i], textarea'
       ).first()
-      if (await descriptionInput.isVisible()) {
+      if (await descriptionInput.isVisible().catch(() => false)) {
         await descriptionInput.fill("This is a test issue description.\n\n## Steps to Reproduce\n1. Do something\n2. See error")
       }
 
@@ -144,13 +144,13 @@ test.describe("Issue Creation", () => {
       await page.locator("button").filter({hasText: /new issue/i}).click()
       await page.waitForTimeout(500)
 
-      // Fill title
-      const titleInput = page.locator('input[type="text"]').first()
+      // Fill title (subject field)
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
       await titleInput.fill("Markdown Issue Test")
 
-      // Fill description with markdown
-      const descriptionInput = page.locator("textarea").first()
-      if (await descriptionInput.isVisible()) {
+      // Fill description with markdown (content field)
+      const descriptionInput = page.locator('textarea#content, textarea[placeholder*="describe" i], textarea').first()
+      if (await descriptionInput.isVisible().catch(() => false)) {
         await descriptionInput.fill("## Bug Description\n\nThis is **bold** and this is _italic_.\n\n```js\nconst x = 1;\n```")
       }
 
@@ -186,25 +186,15 @@ test.describe("Issue Creation", () => {
       await page.locator("button").filter({hasText: /new issue/i}).click()
       await page.waitForTimeout(500)
 
-      // Fill title
-      const titleInput = page.locator('input[type="text"]').first()
+      // Fill title (subject field)
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
       await titleInput.fill("Priority Issue")
 
-      // Look for label/priority selector
-      const prioritySelector = page.locator(
-        '[data-testid="priority-select"], select[name="priority"], [role="combobox"]:has-text("priority")'
-      ).first()
-
-      if (await prioritySelector.isVisible()) {
-        await prioritySelector.click()
-        // Select high priority
-        await page.locator('[role="option"]:has-text("high"), option:has-text("high")').first().click()
-      } else {
-        // Try clicking a priority label button if available
-        const highPriorityLabel = page.locator('button:has-text("high"), [data-label="high"]').first()
-        if (await highPriorityLabel.isVisible()) {
-          await highPriorityLabel.click()
-        }
+      // The NewIssueForm has checkbox labels (bug, enhancement, etc.) but not priority levels
+      // Try to find and check any available label checkbox
+      const labelCheckbox = page.locator('label').filter({hasText: /bug|enhancement|priority/i}).first()
+      if (await labelCheckbox.isVisible().catch(() => false)) {
+        await labelCheckbox.click()
       }
 
       // Submit
@@ -249,25 +239,14 @@ test.describe("Issue Creation", () => {
       await page.locator("button").filter({hasText: /new issue/i}).click()
       await page.waitForTimeout(500)
 
-      // Fill title
-      const titleInput = page.locator('input[type="text"]').first()
+      // Fill title (subject field)
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
       await titleInput.fill("Bug Report: Application Crash")
 
-      // Look for type selector
-      const typeSelector = page.locator(
-        '[data-testid="type-select"], select[name="type"], [role="combobox"]:has-text("type")'
-      ).first()
-
-      if (await typeSelector.isVisible()) {
-        await typeSelector.click()
-        // Select bug type
-        await page.locator('[role="option"]:has-text("bug"), option:has-text("bug")').first().click()
-      } else {
-        // Try clicking a bug label button if available
-        const bugLabel = page.locator('button:has-text("bug"), [data-label="bug"]').first()
-        if (await bugLabel.isVisible()) {
-          await bugLabel.click()
-        }
+      // Look for bug type label checkbox
+      const bugLabel = page.locator('label').filter({hasText: /bug/i}).first()
+      if (await bugLabel.isVisible().catch(() => false)) {
+        await bugLabel.click()
       }
 
       // Submit
@@ -309,19 +288,18 @@ test.describe("Issue Creation", () => {
       await page.locator("button").filter({hasText: /new issue/i}).click()
       await page.waitForTimeout(500)
 
-      const titleInput = page.locator('input[type="text"]').first()
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
       await titleInput.fill("Multi-Label Issue")
 
-      // Try to add multiple labels if the UI supports it
-      const labelInput = page.locator(
-        'input[placeholder*="label" i], input[name="labels"], [data-testid="label-input"]'
-      ).first()
+      // The NewIssueForm uses checkbox labels - try to check multiple
+      const enhancementLabel = page.locator('label').filter({hasText: /enhancement/i}).first()
+      const questionLabel = page.locator('label').filter({hasText: /question/i}).first()
 
-      if (await labelInput.isVisible()) {
-        await labelInput.fill("enhancement")
-        await page.keyboard.press("Enter")
-        await labelInput.fill("ui")
-        await page.keyboard.press("Enter")
+      if (await enhancementLabel.isVisible().catch(() => false)) {
+        await enhancementLabel.click()
+      }
+      if (await questionLabel.isVisible().catch(() => false)) {
+        await questionLabel.click()
       }
 
       await page.locator("button").filter({hasText: /create|submit|save/i}).first().click()
@@ -356,18 +334,22 @@ test.describe("Issue Creation", () => {
       await page.locator("button").filter({hasText: /new issue/i}).click()
       await page.waitForTimeout(500)
 
-      const titleInput = page.locator('input[type="text"]').first()
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
       await titleInput.fill("Assigned Issue")
 
-      // Look for assignee selector
+      // The NewIssueForm may have an assignee selector - look for common patterns
       const assigneeSelector = page.locator(
-        '[data-testid="assignee-select"], select[name="assignee"], [role="combobox"]:has-text("assign"), button:has-text("assign")'
+        'button:has-text("assign"), [aria-label*="assign" i], select[name="assignee"]'
       ).first()
 
-      if (await assigneeSelector.isVisible()) {
+      if (await assigneeSelector.isVisible().catch(() => false)) {
         await assigneeSelector.click()
+        await page.waitForTimeout(300)
         // Select the first available user
-        await page.locator('[role="option"], option').first().click()
+        const userOption = page.locator('[role="option"], option, li').first()
+        if (await userOption.isVisible().catch(() => false)) {
+          await userOption.click()
+        }
       }
 
       await page.locator("button").filter({hasText: /create|submit|save/i}).first().click()
@@ -423,23 +405,28 @@ test.describe("Issue Creation", () => {
       await page.locator("button").filter({hasText: /new issue/i}).click()
       await page.waitForTimeout(500)
 
-      const titleInput = page.locator('input[type="text"]').first()
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
       await titleInput.fill("Team Issue")
 
-      // Try to add multiple assignees
+      // Try to add multiple assignees if the UI supports it
       const assigneeSelector = page.locator(
-        '[data-testid="assignee-select"], [role="combobox"]:has-text("assign")'
+        'button:has-text("assign"), [aria-label*="assign" i], select[name="assignee"]'
       ).first()
 
-      if (await assigneeSelector.isVisible()) {
+      if (await assigneeSelector.isVisible().catch(() => false)) {
         await assigneeSelector.click()
+        await page.waitForTimeout(300)
         // Try to select multiple users
-        const options = page.locator('[role="option"], option')
+        const options = page.locator('[role="option"], option, li')
         const count = await options.count()
         if (count >= 2) {
           await options.nth(0).click()
+          await page.waitForTimeout(200)
           await assigneeSelector.click()
+          await page.waitForTimeout(200)
           await options.nth(1).click()
+        } else if (count >= 1) {
+          await options.nth(0).click()
         }
       }
 
@@ -531,7 +518,7 @@ test.describe("Issue Creation", () => {
       )
 
       // Fill in title and check that button becomes enabled
-      const titleInput = page.locator('input[type="text"]').first()
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
       await titleInput.fill("Valid Title")
       await page.waitForTimeout(200)
 
@@ -561,7 +548,7 @@ test.describe("Issue Creation", () => {
 
       // Check for required indicator (* or "required" label)
       const requiredIndicator = page.locator('label:has-text("*"), [aria-required="true"], input[required]')
-      const titleInput = page.locator('input[type="text"]').first()
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
 
       const hasRequired = await titleInput.getAttribute("required") !== null
       const hasAriaRequired = await titleInput.getAttribute("aria-required") === "true"
@@ -590,22 +577,22 @@ test.describe("Issue Creation", () => {
       await page.locator("button").filter({hasText: /new issue/i}).click()
       await page.waitForTimeout(500)
 
-      const titleInput = page.locator('input[type="text"]').first()
+      const titleInput = page.locator('input#subject, input[placeholder*="brief description" i], input[type="text"]').first()
       await titleInput.fill("Draft Issue Title")
 
       // Look for save as draft option
       const draftButton = page.locator(
-        'button:has-text("draft"), button:has-text("save as draft"), [data-testid="save-draft"]'
+        'button:has-text("draft"), button:has-text("save as draft")'
       ).first()
 
       const draftCheckbox = page.locator(
-        'input[type="checkbox"]:near(:text("draft")), [data-testid="draft-checkbox"]'
+        'input[type="checkbox"]:near(:text("draft")), label:has-text("draft")'
       ).first()
 
-      if (await draftButton.isVisible()) {
+      if (await draftButton.isVisible().catch(() => false)) {
         await draftButton.click()
-      } else if (await draftCheckbox.isVisible()) {
-        await draftCheckbox.check()
+      } else if (await draftCheckbox.isVisible().catch(() => false)) {
+        await draftCheckbox.click()
         // Then submit normally
         await page.locator("button").filter({hasText: /create|submit|save/i}).first().click()
       } else {

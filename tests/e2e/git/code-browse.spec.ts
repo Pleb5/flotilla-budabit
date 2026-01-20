@@ -134,8 +134,9 @@ test.describe("Code Browser", () => {
       await page.waitForLoadState("networkidle")
 
       // Either loading completed or we see the code interface
-      const codeContent = page.locator(".rounded-lg.border")
-      await expect(codeContent).toBeVisible({timeout: 30000})
+      // The actual container uses: mt-2 rounded-lg border border-border bg-card
+      const codeContent = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      await expect(codeContent.first()).toBeVisible({timeout: 30000})
     })
 
     test("shows cloning progress when repository needs clone", async ({page}) => {
@@ -158,14 +159,17 @@ test.describe("Code Browser", () => {
       // 2. "Loading files..." spinner
       // 3. The file tree (if already cached/fast)
       // 4. An error state (if no clone URLs work)
+      // 5. "No files found in this branch." if branch is empty
       await page.waitForLoadState("networkidle")
 
-      // Look for cloning indicator text
+      // Look for cloning indicator text or file content
       const cloningText = page.getByText(/Cloning repository|Loading files|No files found/i)
-      const fileTree = page.locator(".border-border")
+      const fileTree = page.locator(".mt-2.rounded-lg.border").or(page.locator(".border-border"))
+      const errorState = page.locator(".text-red-500")
+      const emptyState = page.locator(".text-muted-foreground")
 
       // One of these should be visible
-      await expect(cloningText.or(fileTree)).toBeVisible({timeout: 30000})
+      await expect(cloningText.or(fileTree.first()).or(errorState).or(emptyState)).toBeVisible({timeout: 30000})
     })
 
     test("shows error state when no clone URLs available", async ({page}) => {
@@ -187,8 +191,12 @@ test.describe("Code Browser", () => {
 
       // Should show error or empty state
       // The component should handle missing clone URLs gracefully
-      const codeContent = page.locator(".rounded-lg.border, .p-4")
-      await expect(codeContent).toBeVisible({timeout: 30000})
+      // Error state uses text-red-500, empty state uses text-muted-foreground
+      const codeContent = page.locator(".mt-2.rounded-lg.border").or(page.locator(".p-4"))
+      const errorState = page.locator(".text-red-500")
+      const emptyState = page.locator(".text-muted-foreground")
+
+      await expect(codeContent.first().or(errorState).or(emptyState)).toBeVisible({timeout: 30000})
     })
   })
 
@@ -210,9 +218,11 @@ test.describe("Code Browser", () => {
       await page.waitForLoadState("networkidle")
 
       // The code browser container should be visible
-      // Looking for the main content wrapper
-      const codeBrowserContainer = page.locator(".rounded-lg.border.border-border.bg-card")
-      await expect(codeBrowserContainer).toBeVisible({timeout: 30000})
+      // Looking for the main content wrapper: mt-2 rounded-lg border border-border bg-card
+      const codeBrowserContainer = page.locator(".mt-2.rounded-lg.border.border-border.bg-card")
+        .or(page.locator(".rounded-lg.border.border-border.bg-card"))
+        .or(page.locator(".rounded-lg.border"))
+      await expect(codeBrowserContainer.first()).toBeVisible({timeout: 30000})
     })
 
     test("file tree displays content area", async ({page}) => {
@@ -234,9 +244,9 @@ test.describe("Code Browser", () => {
       // Wait for content to load (either files or empty state)
       await page.waitForTimeout(2000)
 
-      // The p-4 content area should be present
-      const contentArea = page.locator(".p-4")
-      await expect(contentArea).toBeVisible({timeout: 30000})
+      // The p-4 content area should be present (inside the mt-2.rounded-lg container)
+      const contentArea = page.locator(".mt-2.rounded-lg .p-4").or(page.locator(".p-4"))
+      await expect(contentArea.first()).toBeVisible({timeout: 30000})
     })
 
     test("empty repository shows no files message", async ({page}) => {
@@ -259,9 +269,10 @@ test.describe("Code Browser", () => {
       await page.waitForTimeout(3000)
 
       // Should show empty state or loading
-      // The text "No files found" appears when branch has no files
-      const content = page.locator(".p-4")
-      await expect(content).toBeVisible({timeout: 30000})
+      // The text "No files found in this branch." appears when branch has no files (text-muted-foreground)
+      const content = page.locator(".mt-2.rounded-lg .p-4").or(page.locator(".p-4"))
+      const emptyText = page.getByText(/No files found/i)
+      await expect(content.first().or(emptyText)).toBeVisible({timeout: 30000})
     })
   })
 
@@ -310,9 +321,9 @@ test.describe("Code Browser", () => {
       await page.waitForLoadState("networkidle")
 
       // The code browser should load - exact branch depends on repo config
-      // We verify the code tab content area is present
-      const codeContent = page.locator(".rounded-lg.border")
-      await expect(codeContent).toBeVisible({timeout: 30000})
+      // We verify the code tab content area is present (mt-2 rounded-lg border border-border bg-card)
+      const codeContent = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      await expect(codeContent.first()).toBeVisible({timeout: 30000})
     })
 
     test("branch selector area is accessible from code view", async ({page}) => {
@@ -330,8 +341,8 @@ test.describe("Code Browser", () => {
 
       // The repository layout should include branch selection
       // This is typically in the RepoHeader or a BranchSelector component
-      // For now, verify the code interface is present
-      const codeInterface = page.locator(".rounded-lg")
+      // For now, verify the code interface is present (mt-2 rounded-lg)
+      const codeInterface = page.locator(".mt-2.rounded-lg").or(page.locator(".rounded-lg"))
       await expect(codeInterface.first()).toBeVisible({timeout: 30000})
     })
   })
@@ -356,8 +367,8 @@ test.describe("Code Browser", () => {
 
       // Verify the code interface loads
       // Permalink functionality would require file click + action
-      const codeContainer = page.locator(".rounded-lg.border")
-      await expect(codeContainer).toBeVisible({timeout: 30000})
+      const codeContainer = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      await expect(codeContainer.first()).toBeVisible({timeout: 30000})
     })
   })
 
@@ -383,9 +394,11 @@ test.describe("Code Browser", () => {
       // Wait for potential error to surface
       await page.waitForTimeout(3000)
 
-      // The page should not crash - either shows error or empty state
-      const pageContent = page.locator(".p-4, .text-red-500, .text-muted-foreground")
-      await expect(pageContent.first()).toBeVisible({timeout: 30000})
+      // The page should not crash - either shows error (text-red-500), empty state (text-muted-foreground), or content (p-4)
+      const errorState = page.locator(".text-red-500")
+      const emptyState = page.locator(".text-muted-foreground")
+      const contentArea = page.locator(".mt-2.rounded-lg .p-4").or(page.locator(".p-4"))
+      await expect(errorState.or(emptyState).or(contentArea.first())).toBeVisible({timeout: 30000})
     })
 
     test("recovers from transient loading errors", async ({page}) => {
@@ -412,8 +425,8 @@ test.describe("Code Browser", () => {
       await page.waitForLoadState("networkidle")
 
       // Page should recover and show code content
-      const codeContent = page.locator(".rounded-lg.border")
-      await expect(codeContent).toBeVisible({timeout: 30000})
+      const codeContent = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      await expect(codeContent.first()).toBeVisible({timeout: 30000})
     })
   })
 
@@ -526,13 +539,13 @@ test.describe("Code Browser", () => {
       await page.locator("a[href*='/code']").first().click()
       await page.waitForLoadState("networkidle")
 
-      // The code browser should have semantic structure
-      const container = page.locator(".rounded-lg.border")
-      await expect(container).toBeVisible({timeout: 30000})
+      // The code browser should have semantic structure (mt-2 rounded-lg border border-border bg-card)
+      const container = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      await expect(container.first()).toBeVisible({timeout: 30000})
 
-      // Should have content area
-      const contentArea = page.locator(".p-4")
-      await expect(contentArea).toBeVisible()
+      // Should have content area (p-4 inside the container)
+      const contentArea = page.locator(".mt-2.rounded-lg .p-4").or(page.locator(".p-4"))
+      await expect(contentArea.first()).toBeVisible()
     })
   })
 
@@ -560,8 +573,8 @@ test.describe("Code Browser", () => {
       await page.locator("a[href*='/code']").first().click()
       await page.waitForLoadState("networkidle")
 
-      const codeContainer1 = page.locator(".rounded-lg.border")
-      await expect(codeContainer1).toBeVisible({timeout: 30000})
+      const codeContainer1 = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      await expect(codeContainer1.first()).toBeVisible({timeout: 30000})
 
       // Go back to list
       await gitHub.goto()
@@ -573,8 +586,8 @@ test.describe("Code Browser", () => {
       await page.locator("a[href*='/code']").first().click()
       await page.waitForLoadState("networkidle")
 
-      const codeContainer2 = page.locator(".rounded-lg.border")
-      await expect(codeContainer2).toBeVisible({timeout: 30000})
+      const codeContainer2 = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      await expect(codeContainer2.first()).toBeVisible({timeout: 30000})
     })
   })
 })

@@ -144,11 +144,11 @@ test.describe("Patch Comments & Review", () => {
         await patchTitle.click()
         await page.waitForTimeout(1000)
 
-        // Look for comment input area
+        // Look for comment input area - app uses IssueThread component for comments
         const commentInput = page.locator(
           "textarea[placeholder*='comment' i], " +
           "textarea[placeholder*='reply' i], " +
-          "[data-testid='comment-input'], " +
+          "textarea[placeholder*='Add a comment' i], " +
           "[class*='comment-input'], " +
           "textarea[name='comment']"
         ).first()
@@ -456,12 +456,14 @@ test.describe("Patch Comments & Review", () => {
         await page.waitForTimeout(1000)
 
         // Look for diff view with line numbers or add comment buttons
+        // App uses PatchViewer component which contains diff lines
         const diffLine = page.locator(
           "[class*='diff-line'], " +
           "[class*='line-content'], " +
           "[data-line-number], " +
           "tr[class*='diff'], " +
-          "[class*='hunk'] [class*='line']"
+          "[class*='hunk'] [class*='line'], " +
+          "[class*='PatchViewer'] [class*='line']"
         ).first()
 
         if (await diffLine.isVisible({timeout: 5000}).catch(() => false)) {
@@ -587,11 +589,12 @@ test.describe("Patch Comments & Review", () => {
         await page.waitForTimeout(1000)
 
         // Look for "Request review" or "Add reviewer" button
+        // App uses PeoplePicker component with "Search for reviewers..." placeholder
         const reviewerButton = page.locator(
           "button:has-text('Request review'), " +
           "button:has-text('Add reviewer'), " +
           "button:has-text('Reviewers'), " +
-          "[data-testid='request-review'], " +
+          "input[placeholder*='reviewer' i], " +
           "[aria-label*='reviewer' i]"
         ).first()
 
@@ -679,10 +682,10 @@ test.describe("Patch Comments & Review", () => {
         await patchTitle.click()
         await page.waitForTimeout(1000)
 
-        // Look for reviewer display
+        // Look for reviewer display - app has h3 "Reviewers" heading with PeoplePicker
         const reviewerSection = page.locator(
+          "h3:has-text('Reviewers'), " +
           "[class*='reviewer'], " +
-          "[data-testid='reviewers'], " +
           "[aria-label*='reviewer' i], " +
           "div:has-text('Reviewers')"
         )
@@ -1131,9 +1134,9 @@ test.describe("Patch Comments & Review", () => {
         await patchTitle.click()
         await page.waitForTimeout(1000)
 
-        // 1. Check that patch detail loaded
+        // 1. Check that patch detail loaded - app uses PatchViewer and Status components
         const patchDetailVisible = await page
-          .locator("[class*='patch-detail'], [class*='PatchDetail'], main")
+          .locator("[class*='PatchViewer'], [class*='patch-detail'], [class*='rounded-lg.border'], main")
           .first()
           .isVisible({timeout: 5000})
           .catch(() => false)

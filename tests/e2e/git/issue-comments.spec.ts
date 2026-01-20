@@ -83,19 +83,22 @@ test.describe("Issue Comments", () => {
         await page.waitForTimeout(1000)
 
         // Verify comment form or input is visible
+        // The IssueThread component uses Textarea with placeholder="Write a comment..."
         const commentForm = page.locator(
+          'textarea[placeholder*="write a comment" i], ' +
           'textarea[placeholder*="comment" i], ' +
           'textarea[placeholder*="reply" i], ' +
           'textarea[name="comment"], ' +
-          '[data-testid="comment-input"], ' +
           '[class*="comment-form"], ' +
-          '[class*="reply-form"]'
+          'textarea'
         ).first()
 
+        // The IssueThread component uses a button with "Comment" text and MessageSquare icon
         const addCommentButton = page.locator(
           'button:has-text("Comment"), ' +
           'button:has-text("Add comment"), ' +
-          'button:has-text("Reply")'
+          'button:has-text("Reply"), ' +
+          'button[type="submit"]'
         ).first()
 
         const hasCommentInput = await commentForm.isVisible({timeout: 5000}).catch(() => false)
@@ -138,7 +141,9 @@ test.describe("Issue Comments", () => {
         await page.waitForTimeout(1000)
 
         // Find and fill comment textarea
+        // The IssueThread component uses Textarea with placeholder="Write a comment..."
         const commentInput = page.locator(
+          'textarea[placeholder*="write a comment" i], ' +
           'textarea[placeholder*="comment" i], ' +
           'textarea[placeholder*="reply" i], ' +
           'textarea'
@@ -149,11 +154,13 @@ test.describe("Issue Comments", () => {
           await commentInput.fill(testComment)
 
           // Submit the comment
+          // The IssueThread component uses a button with "Comment" text
           const submitButton = page.locator(
             'button:has-text("Comment"), ' +
             'button:has-text("Submit"), ' +
             'button:has-text("Post"), ' +
-            'button:has-text("Send")'
+            'button:has-text("Send"), ' +
+            'button[type="submit"]'
           ).first()
 
           if (await submitButton.isVisible()) {
@@ -233,7 +240,7 @@ test.describe("Issue Comments", () => {
           await commentInput.fill("Testing comment structure")
 
           const submitButton = page.locator(
-            'button:has-text("Comment"), button:has-text("Submit"), button:has-text("Post")'
+            'button:has-text("Comment"), button:has-text("Submit"), button:has-text("Post"), button[type="submit"]'
           ).first()
 
           if (await submitButton.isVisible()) {
@@ -558,7 +565,7 @@ test.describe("Issue Comments", () => {
         const commentInput = page.locator('textarea').first()
         if (await commentInput.isVisible({timeout: 5000})) {
           await commentInput.fill("Original comment text")
-          const submitButton = page.locator('button:has-text("Comment"), button:has-text("Submit")').first()
+          const submitButton = page.locator('button:has-text("Comment"), button:has-text("Submit"), button[type="submit"]').first()
           if (await submitButton.isVisible()) {
             await submitButton.click()
             await page.waitForTimeout(2000)
@@ -648,7 +655,7 @@ test.describe("Issue Comments", () => {
         const commentInput = page.locator('textarea').first()
         if (await commentInput.isVisible({timeout: 5000})) {
           await commentInput.fill("Comment to edit")
-          const submitButton = page.locator('button:has-text("Comment"), button:has-text("Submit")').first()
+          const submitButton = page.locator('button:has-text("Comment"), button:has-text("Submit"), button[type="submit"]').first()
 
           if (await submitButton.isVisible()) {
             await submitButton.click()
@@ -777,7 +784,7 @@ test.describe("Issue Comments", () => {
           const commentToDelete = "This comment will be deleted"
           await commentInput.fill(commentToDelete)
 
-          const submitButton = page.locator('button:has-text("Comment"), button:has-text("Submit")').first()
+          const submitButton = page.locator('button:has-text("Comment"), button:has-text("Submit"), button[type="submit"]').first()
           if (await submitButton.isVisible()) {
             await submitButton.click()
             await page.waitForTimeout(2000)
@@ -1059,7 +1066,7 @@ test.describe("Issue Comments", () => {
           }
 
           // Submit the comment
-          const submitButton = page.locator('button:has-text("Comment"), button:has-text("Submit")').first()
+          const submitButton = page.locator('button:has-text("Comment"), button:has-text("Submit"), button[type="submit"]').first()
           if (await submitButton.isVisible()) {
             await submitButton.click()
 
