@@ -65,8 +65,9 @@ export {
   assertGitPageLoaded,
 } from "./git"
 
-// Re-export storage state path for tests that need authenticated state
-export {STORAGE_STATE} from "../auth.setup"
+// Storage state path for tests that need authenticated state
+// Must match playwright.config.ts and auth.setup.ts
+export const STORAGE_STATE = "./test-results/.auth/user.json"
 
 // Mock relay for intercepting Nostr connections
 export {

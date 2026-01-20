@@ -1,7 +1,9 @@
 import {defineConfig, devices} from "@playwright/test"
-import {STORAGE_STATE} from "./tests/e2e/auth.setup"
 
 const baseURL = "http://localhost:1847"
+
+// Storage state file path - must match auth.setup.ts
+const STORAGE_STATE = "./test-results/.auth/user.json"
 
 /**
  * Playwright configuration with multiple test projects:
