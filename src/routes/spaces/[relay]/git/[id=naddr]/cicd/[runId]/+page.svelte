@@ -79,9 +79,27 @@
     pubkey: string
   }
 
+  // Job result event data from Nostr kind 5101
+  interface JobResultEvent {
+    id: string
+    kind: number
+    content: string
+    created_at: number
+    pubkey: string
+    tags: string[][]
+    sig?: string
+    success?: string
+    exitCode?: string
+    duration?: string
+    stdout?: string
+    stderr?: string
+    change?: string
+  }
+
   // Cleanup functions for feeds
   let workflowFeedCleanup: (() => void) | undefined = undefined
   let statusFeedCleanup: (() => void) | undefined = undefined
+  let jobResultFeedCleanup: (() => void) | undefined = undefined
 
   // Mock pipeline run data
   interface Job {
@@ -145,8 +163,22 @@
   // State for fetching and displaying event data
   let workflowEvent = $state<WorkflowEvent | null>(null)
   let statusEvent = $state<StatusEvent | null>(null)
+  let jobResultEvent = $state<JobResultEvent | null>(null)
+  let stdout = $state<string>("")
+  let stderr = $state<string>("")
   let loading = $state(true)
   let error = $state<string | null>(null)
+  let pollingTimer: ReturnType<typeof setInterval> | null = null
+
+  // Debug effect to track when stdout/stderr change
+  $effect(() => {
+    if (jobResultEvent) {
+      console.log("🖥️ Job Output state changed:")
+      console.log("   jobResultEvent:", jobResultEvent)
+      console.log("   stdout length:", stdout.length)
+      console.log("   stderr length:", stderr.length)
+    }
+  })
 
   // Parse workflow event data
   const parseWorkflowEvent = (event: WorkflowEvent) => {
@@ -163,23 +195,52 @@
 
     // Extract workflow name from args
     let workflowName = "Unknown Workflow"
-    const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
-    if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
-      const path = args[workflowPathIndex]
-      workflowName =
-        path
-          .split("/")
-          .pop()
-          ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+
+    // Handle new args structure: ["-c", "git clone ... && act -W workflow.yml"]
+    if (args.length >= 2 && args[0] === "-c") {
+      const bashCommand = args[1]
+      const match = bashCommand.match(/act -W (\S+\.(?:yml|yaml))/)
+      if (match && match[1]) {
+        workflowName =
+          match[1]
+            .split("/")
+            .pop()
+            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+      }
+    } else if (args.length > 0) {
+      // Handle old args structure: ["git", "clone", "...", "act", "-W", "workflow.yml"]
+      const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
+      if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
+        const path = args[workflowPathIndex]
+        workflowName =
+          path
+            .split("/")
+            .pop()
+            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+      }
     }
 
     // Extract env vars from args
     const envVars: string[] = []
-    const actIndex = args.indexOf("act")
-    if (actIndex > 0) {
-      for (let i = 0; i < actIndex; i++) {
-        if (args[i].includes("=")) {
-          envVars.push(args[i])
+    if (args.length >= 2 && args[0] === "-c") {
+      // Handle new args structure: extract env vars from bash command string
+      const bashCommand = args[1]
+      const envVarPattern = /(\w+=\S+)/g
+      let match
+      while ((match = envVarPattern.exec(bashCommand)) !== null) {
+        // Only include env vars before "git clone"
+        if (bashCommand.indexOf(match[1]) < bashCommand.indexOf("git clone")) {
+          envVars.push(match[1])
+        }
+      }
+    } else {
+      // Handle old args structure
+      const actIndex = args.indexOf("act")
+      if (actIndex > 0) {
+        for (let i = 0; i < actIndex; i++) {
+          if (args[i].includes("=")) {
+            envVars.push(args[i])
+          }
         }
       }
     }
@@ -242,6 +303,89 @@
     })
     workflowFeedCleanup = workflowFeedResult.cleanup
 
+    // Fetch job result event (kind 5101) immediately - don't wait for status
+    console.log("=== Setting up job result feed (kind 5101) ===")
+    const jobResultFilter = {kinds: [5101], "#e": [runId]}
+    console.log("Job result filter:", JSON.stringify(jobResultFilter, null, 2))
+
+    const jobResultFeedResult = makeFeed({
+      element: document.body,
+      relays: repoRelays,
+      feedFilters: [jobResultFilter],
+      subscriptionFilters: [jobResultFilter],
+      initialEvents: [],
+      onEvent: event => {
+        console.log("📄 Received job result event:", event.id, event.kind)
+
+        // Parse the job result event
+        const successTag = event.tags?.find((t: string[]) => t[0] === "success")
+        const exitCodeTag = event.tags?.find((t: string[]) => t[0] === "exit_code")
+        const durationTag = event.tags?.find((t: string[]) => t[0] === "duration")
+        const stdoutTag = event.tags?.find((t: string[]) => t[0] === "stdout")
+        const stderrTag = event.tags?.find((t: string[]) => t[0] === "stderr")
+        const changeTag = event.tags?.find((t: string[]) => t[0] === "change")
+
+        jobResultEvent = {
+          id: event.id,
+          kind: event.kind,
+          content: event.content,
+          created_at: event.created_at,
+          pubkey: event.pubkey,
+          tags: event.tags,
+          sig: event.sig,
+          success: successTag ? successTag[1] : undefined,
+          exitCode: exitCodeTag ? exitCodeTag[1] : undefined,
+          duration: durationTag ? durationTag[1] : undefined,
+          stdout: stdoutTag ? stdoutTag[1] : undefined,
+          stderr: stderrTag ? stderrTag[1] : undefined,
+          change: changeTag ? changeTag[1] : undefined,
+        }
+
+        console.log("✅ Job result event parsed:", jobResultEvent)
+
+        // Update status based on job result
+        const actualStatus =
+          jobResultEvent.success === "true" || jobResultEvent.exitCode === "0"
+            ? "success"
+            : "failure"
+        console.log(actualStatus === "success" ? "✅ Job completed successfully" : "❌ Job failed")
+
+        // Only update statusEvent if it exists, otherwise it will be set by status feed
+        if (statusEvent) {
+          statusEvent = {
+            ...statusEvent,
+            status: actualStatus,
+          }
+        }
+
+        // Stop polling since we've successfully fetched the job result
+        if (pollingTimer) {
+          clearInterval(pollingTimer)
+          pollingTimer = null
+          console.log("⏹️ Stopped polling - job result received")
+        }
+
+        // Fetch stdout and stderr files if URLs are provided
+        console.log("📥 Checking for stdout/stderr URLs...")
+        console.log("   stdout URL:", stdoutTag?.[1])
+        console.log("   stderr URL:", stderrTag?.[1])
+
+        if (stdoutTag?.[1]) {
+          console.log("   → Fetching stdout...")
+          fetchOutputFile(stdoutTag[1], "stdout")
+        }
+        if (stderrTag?.[1]) {
+          console.log("   → Fetching stderr...")
+          fetchOutputFile(stderrTag[1], "stderr")
+        }
+      },
+      onExhausted: () => {
+        console.log("🎉 Job result feed exhausted")
+        console.log("   Job result found:", !!jobResultEvent)
+      },
+    })
+    jobResultFeedCleanup = jobResultFeedResult.cleanup
+
     // Fetch status events using makeFeed
     console.log("=== Setting up status feed ===")
     const statusFilter = {kinds: [30100], "#e": [runId]}
@@ -279,7 +423,46 @@
       },
     })
     statusFeedCleanup = statusFeedResult.cleanup
+
+    // Start polling for status updates every 10 seconds
+    // Job result (kind 5101) is fetched immediately, so polling is mainly for status updates
+    pollingTimer = setInterval(() => {
+      console.log("🔄 Polling for status updates...")
+      console.log("   Current status:", statusEvent?.status)
+      console.log("   Job result found:", !!jobResultEvent)
+    }, 10000) // Poll every 10 seconds
   })
+
+  // Function to fetch output file content from URL
+  const fetchOutputFile = async (url: string, type: "stdout" | "stderr") => {
+    try {
+      console.log(`📥 Fetching ${type} from:`, url)
+      const response = await fetch(url)
+      console.log(`   Response status: ${response.status}`)
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const content = await response.text()
+      console.log(`   Content length: ${content.length} bytes`)
+      console.log(
+        `   Content preview: ${content.substring(0, 200)}${content.length > 200 ? "..." : ""}`,
+      )
+
+      if (type === "stdout") {
+        stdout = content
+        console.log(`   ✅ stdout updated, length: ${stdout.length}`)
+      } else {
+        stderr = content
+        console.log(`   ✅ stderr updated, length: ${stderr.length}`)
+      }
+
+      console.log(`✅ Successfully fetched ${type} (${content.length} bytes)`)
+    } catch (err) {
+      console.error(`❌ Failed to fetch ${type}:`, err)
+    }
+  }
 
   // Cleanup on unmount
   onDestroy(() => {
@@ -288,6 +471,12 @@
     }
     if (statusFeedCleanup) {
       statusFeedCleanup()
+    }
+    if (jobResultFeedCleanup) {
+      jobResultFeedCleanup()
+    }
+    if (pollingTimer) {
+      clearInterval(pollingTimer)
     }
   })
 
@@ -402,7 +591,7 @@
   {:else}
     {@const parsedWorkflow = parseWorkflowEvent(workflowEvent)}
     <!-- Header -->
-    <div class="sticky -top-8 z-nav my-4 max-w-full space-y-2 backdrop-blur">
+    <div class="sticky -top-8 my-4 max-w-full space-y-2 backdrop-blur">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-4">
           <Button size="sm" variant="outline" onclick={goBack} class="gap-2">
@@ -455,149 +644,238 @@
           </Button>
         </div>
       </div>
+    </div>
 
-      <!-- Workflow Event Information -->
+    <!-- Job Output (stdout/stderr) -->
+    {#if jobResultEvent}
       <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-3 text-lg font-semibold">Workflow Details</h3>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Event ID</p>
-            <div class="flex items-center gap-2">
-              <Hash class="h-3 w-3" />
-              <span class="font-mono text-sm">{parsedWorkflow.id}</span>
-            </div>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Kind</p>
-            <div class="flex items-center gap-2">
-              <Code class="h-3 w-3" />
-              <span class="text-sm">5100</span>
-            </div>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Submitted by</p>
-            <div class="flex items-center gap-2">
-              <GitCommit class="h-3 w-3" />
-              <span class="font-mono text-sm">{parsedWorkflow.pubkey.slice(0, 16)}...</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Command Information -->
-      <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-3 text-lg font-semibold">Command Details</h3>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Command</p>
-            <code class="rounded bg-muted px-2 py-1 text-sm">{parsedWorkflow.cmd}</code>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Worker</p>
-            <div class="flex items-center gap-2">
-              <GitCommit class="h-3 w-3" />
-              <span class="font-mono text-sm">{parsedWorkflow.worker.slice(0, 16)}...</span>
-            </div>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Payment</p>
-            <span class="text-sm">{parsedWorkflow.payment || "N/A"}</span>
-          </div>
-        </div>
-
-        {#if parsedWorkflow.args.length > 0}
-          <div class="mt-4">
-            <p class="mb-2 text-xs text-muted-foreground">Arguments</p>
-            <div class="flex flex-wrap gap-2">
-              {#each parsedWorkflow.args as arg}
-                <code class="rounded bg-muted px-2 py-1 text-xs">{arg}</code>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        {#if parsedWorkflow.envVars.length > 0}
-          <div class="mt-4">
-            <p class="mb-2 text-xs text-muted-foreground">Environment Variables</p>
-            <div class="space-y-1">
-              {#each parsedWorkflow.envVars as envVar}
-                <code class="block rounded bg-muted px-2 py-1 text-xs">{envVar}</code>
-              {/each}
-            </div>
-          </div>
-        {/if}
-      </div>
-
-      <!-- Status Information -->
-      <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-3 text-lg font-semibold">Job Status</h3>
+        <h3 class="mb-3 text-lg font-semibold">Job Output</h3>
         <div class="space-y-4">
-          <div class="flex items-center justify-between">
-            <span class="text-sm">Current Status:</span>
-            <span
-              class={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium ${getStatusBgColor(parsedWorkflow.status)} ${getStatusColor(parsedWorkflow.status)}`}>
-              {#if parsedWorkflow.status === "in_progress"}
-                <Loader2 class="h-4 w-4 animate-spin" />
-              {:else}
-                {@const StatusIcon = getStatusIcon(parsedWorkflow.status)}
-                <StatusIcon class="h-4 w-4" />
-              {/if}
-              {parsedWorkflow.status.replace("_", " ")}
-            </span>
+          <!-- Job result summary -->
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {#if jobResultEvent.success !== undefined}
+              <div class="space-y-1">
+                <p class="text-xs text-muted-foreground">Success</p>
+                <span class="text-sm font-medium">{jobResultEvent.success}</span>
+              </div>
+            {/if}
+            {#if jobResultEvent.exitCode !== undefined}
+              <div class="space-y-1">
+                <p class="text-xs text-muted-foreground">Exit Code</p>
+                <span class="font-mono text-sm">{jobResultEvent.exitCode}</span>
+              </div>
+            {/if}
+            {#if jobResultEvent.duration !== undefined}
+              <div class="space-y-1">
+                <p class="text-xs text-muted-foreground">Duration</p>
+                <span class="text-sm">{jobResultEvent.duration}s</span>
+              </div>
+            {/if}
           </div>
 
-          {#if parsedWorkflow.conclusion}
-            <div>
-              <p class="mb-2 text-xs text-muted-foreground">Status Message</p>
-              <p class="rounded bg-muted p-3 text-sm">{parsedWorkflow.conclusion}</p>
-            </div>
-          {/if}
-
-          {#if statusEvent}
+          <!-- Stdout -->
+          {#if stdout}
             <div class="space-y-2">
-              <p class="text-xs text-muted-foreground">Status Event Details</p>
-              <div class="grid grid-cols-1 gap-2 text-sm">
-                <div class="flex justify-between">
-                  <span class="text-muted-foreground">Status Event ID:</span>
-                  <span class="font-mono">{statusEvent.id.slice(0, 16)}...</span>
+              <div class="flex items-center justify-between">
+                <h4 class="text-sm font-medium">Standard Output</h4>
+                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{stdout.length} bytes</span>
                 </div>
-                <div class="flex justify-between">
-                  <span class="text-muted-foreground">Updated:</span>
-                  <span>{formatTimeAgo(statusEvent.created_at * 1000)}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="text-muted-foreground">Reported by:</span>
-                  <span class="font-mono">{statusEvent.pubkey.slice(0, 16)}...</span>
-                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onclick={() => {
+                    navigator.clipboard.writeText(stdout)
+                    toast.push({message: "Stdout copied to clipboard", variant: "default"})
+                  }}
+                  class="gap-1 text-xs">
+                  <Copy class="h-3 w-3" />
+                  Copy
+                </Button>
               </div>
+              <pre
+                class="max-h-96 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs">{stdout}</pre>
             </div>
           {:else}
-            <p class="text-sm text-muted-foreground">
-              No status updates received yet. The job is pending or in progress.
-            </p>
+            <div class="space-y-2 text-sm text-muted-foreground">
+              <p>Standard Output</p>
+              <p class="text-xs">No output yet</p>
+            </div>
+          {/if}
+
+          <!-- Stderr -->
+          {#if stderr}
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <h4 class="text-sm font-medium text-red-500">Standard Error</h4>
+                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{stderr.length} bytes</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onclick={() => {
+                    navigator.clipboard.writeText(stderr)
+                    toast.push({message: "Stderr copied to clipboard", variant: "default"})
+                  }}
+                  class="gap-1 text-xs">
+                  <Copy class="h-3 w-3" />
+                  Copy
+                </Button>
+              </div>
+              <pre
+                class="max-h-96 overflow-auto rounded-lg border border-red-500/20 bg-red-500/5 p-4 font-mono text-xs text-red-900">{stderr}</pre>
+            </div>
+          {:else}
+            <div class="space-y-2 text-sm text-muted-foreground">
+              <p class="text-red-500">Standard Error</p>
+              <p class="text-xs">No error output</p>
+            </div>
           {/if}
         </div>
       </div>
+    {/if}
 
-      <!-- Raw Event Data -->
-      <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-3 text-lg font-semibold">Raw Event Data</h3>
-        <div class="space-y-2">
-          <div class="grid grid-cols-1 gap-2 text-sm">
-            <div class="flex justify-between">
-              <span class="text-muted-foreground">Content:</span>
-              <span class="max-w-lg truncate text-right"
-                >{parsedWorkflow.content || "(empty)"}</span>
+    <!-- Workflow Event Information -->
+    <div class="rounded-lg border border-border bg-card p-4">
+      <h3 class="mb-3 text-lg font-semibold">Workflow Details</h3>
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="space-y-1">
+          <p class="text-xs text-muted-foreground">Event ID</p>
+          <div class="flex items-center gap-2">
+            <Hash class="h-3 w-3" />
+            <span class="font-mono text-sm">{parsedWorkflow.id}</span>
+          </div>
+        </div>
+        <div class="space-y-1">
+          <p class="text-xs text-muted-foreground">Kind</p>
+          <div class="flex items-center gap-2">
+            <Code class="h-3 w-3" />
+            <span class="text-sm">5100</span>
+          </div>
+        </div>
+        <div class="space-y-1">
+          <p class="text-xs text-muted-foreground">Submitted by</p>
+          <div class="flex items-center gap-2">
+            <GitCommit class="h-3 w-3" />
+            <span class="font-mono text-sm">{parsedWorkflow.pubkey.slice(0, 16)}...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Command Information -->
+    <div class="rounded-lg border border-border bg-card p-4">
+      <h3 class="mb-3 text-lg font-semibold">Command Details</h3>
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="space-y-1">
+          <p class="text-xs text-muted-foreground">Command</p>
+          <code class="rounded bg-muted px-2 py-1 text-sm">{parsedWorkflow.cmd}</code>
+        </div>
+        <div class="space-y-1">
+          <p class="text-xs text-muted-foreground">Worker</p>
+          <div class="flex items-center gap-2">
+            <GitCommit class="h-3 w-3" />
+            <span class="font-mono text-sm">{parsedWorkflow.worker.slice(0, 16)}...</span>
+          </div>
+        </div>
+        <div class="space-y-1">
+          <p class="text-xs text-muted-foreground">Payment</p>
+          <span class="text-sm">{parsedWorkflow.payment || "N/A"}</span>
+        </div>
+      </div>
+
+      {#if parsedWorkflow.args.length > 0}
+        <div class="mt-4">
+          <p class="mb-2 text-xs text-muted-foreground">Arguments</p>
+          <div class="flex flex-wrap gap-2">
+            {#each parsedWorkflow.args as arg}
+              <code class="rounded bg-muted px-2 py-1 text-xs">{arg}</code>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if parsedWorkflow.envVars.length > 0}
+        <div class="mt-4">
+          <p class="mb-2 text-xs text-muted-foreground">Environment Variables</p>
+          <div class="space-y-1">
+            {#each parsedWorkflow.envVars as envVar}
+              <code class="block rounded bg-muted px-2 py-1 text-xs">{envVar}</code>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Status Information -->
+    <div class="rounded-lg border border-border bg-card p-4">
+      <h3 class="mb-3 text-lg font-semibold">Job Status</h3>
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <span class="text-sm">Current Status:</span>
+          <span
+            class={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium ${getStatusBgColor(parsedWorkflow.status)} ${getStatusColor(parsedWorkflow.status)}`}>
+            {#if parsedWorkflow.status === "in_progress"}
+              <Loader2 class="h-4 w-4 animate-spin" />
+            {:else}
+              {@const StatusIcon = getStatusIcon(parsedWorkflow.status)}
+              <StatusIcon class="h-4 w-4" />
+            {/if}
+            {parsedWorkflow.status.replace("_", " ")}
+          </span>
+        </div>
+
+        {#if parsedWorkflow.conclusion}
+          <div>
+            <p class="mb-2 text-xs text-muted-foreground">Status Message</p>
+            <p class="rounded bg-muted p-3 text-sm">{parsedWorkflow.conclusion}</p>
+          </div>
+        {/if}
+
+        {#if statusEvent}
+          <div class="space-y-2">
+            <p class="text-xs text-muted-foreground">Status Event Details</p>
+            <div class="grid grid-cols-1 gap-2 text-sm">
+              <div class="flex justify-between">
+                <span class="text-muted-foreground">Status Event ID:</span>
+                <span class="font-mono">{statusEvent.id.slice(0, 16)}...</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-muted-foreground">Updated:</span>
+                <span>{formatTimeAgo(statusEvent.created_at * 1000)}</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-muted-foreground">Reported by:</span>
+                <span class="font-mono">{statusEvent.pubkey.slice(0, 16)}...</span>
+              </div>
             </div>
-            <div class="flex justify-between">
-              <span class="text-muted-foreground">Tags Count:</span>
-              <span>{parsedWorkflow.tags.length}</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-muted-foreground">Repo Naddr:</span>
-              <span class="max-w-lg truncate text-right font-mono"
-                >{parsedWorkflow.repoNaddr || "N/A"}</span>
-            </div>
+          </div>
+        {:else}
+          <p class="text-sm text-muted-foreground">
+            No status updates received yet. The job is pending or in progress.
+          </p>
+        {/if}
+      </div>
+    </div>
+
+    <!-- Raw Event Data -->
+    <div class="rounded-lg border border-border bg-card p-4">
+      <h3 class="mb-3 text-lg font-semibold">Raw Event Data</h3>
+      <div class="space-y-2">
+        <div class="grid grid-cols-1 gap-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-muted-foreground">Content:</span>
+            <span class="max-w-lg truncate text-right">{parsedWorkflow.content || "(empty)"}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-muted-foreground">Tags Count:</span>
+            <span>{parsedWorkflow.tags.length}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-muted-foreground">Repo Naddr:</span>
+            <span class="max-w-lg truncate text-right font-mono"
+              >{parsedWorkflow.repoNaddr || "N/A"}</span>
           </div>
         </div>
       </div>

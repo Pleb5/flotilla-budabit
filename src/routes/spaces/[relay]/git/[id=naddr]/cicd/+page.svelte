@@ -200,14 +200,29 @@
 
     // Extract workflow name from args
     let workflowName = "Unknown Workflow"
-    const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
-    if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
-      const path = args[workflowPathIndex]
-      workflowName =
-        path
-          .split("/")
-          .pop()
-          ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+
+    // Handle new args structure: ["-c", "git clone ... && act -W workflow.yml"]
+    if (args.length >= 2 && args[0] === "-c") {
+      const bashCommand = args[1]
+      const match = bashCommand.match(/act -W (\S+\.(?:yml|yaml))/)
+      if (match && match[1]) {
+        workflowName =
+          match[1]
+            .split("/")
+            .pop()
+            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+      }
+    } else if (args.length > 0) {
+      // Handle old args structure: ["git", "clone", "...", "act", "-W", "workflow.yml"]
+      const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
+      if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
+        const path = args[workflowPathIndex]
+        workflowName =
+          path
+            .split("/")
+            .pop()
+            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+      }
     }
 
     // Extract env vars from args
@@ -429,6 +444,12 @@
                     onExhausted: () => {
                       console.log("=== Status feed exhausted ===")
                       loadingStatus = false
+
+                      // After status events are fully loaded, fetch job results for completed jobs
+                      if (statusEvents.length > 0) {
+                        console.log("=== Fetching job results for completed jobs ===")
+                        fetchJobResultsForCompletedJobs()
+                      }
                     },
                   })
                   statusFeedCleanup = statusFeed.cleanup.cleanup
@@ -451,6 +472,72 @@
       }
     }
   })
+
+  // Fetch job results (kind 5101) for completed jobs to determine actual success/failure
+  const fetchJobResultsForCompletedJobs = async () => {
+    const damusRelay = "wss://relay.damus.io"
+
+    for (const statusEvent of statusEvents) {
+      const statusTag = statusEvent.tags.find((t: string[]) => t[0] === "status")
+      const status = statusTag ? statusTag[1] : ""
+      const eTag = statusEvent.tags.find((t: string[]) => t[0] === "e")
+      const workflowId = eTag ? eTag[1] : ""
+
+      // Only fetch job results for completed or success status
+      if (status === "completed" || status === "success") {
+        console.log(`Fetching job result for workflow ${workflowId} with status ${status}`)
+
+        try {
+          const jobResultFilter = {kinds: [5101], "#e": [workflowId]}
+
+          const jobResultFeed = makeFeed({
+            element,
+            relays: [damusRelay],
+            feedFilters: [jobResultFilter],
+            subscriptionFilters: [jobResultFilter],
+            initialEvents: [],
+            onEvent: event => {
+              console.log("Job result event received:", event.id)
+
+              const successTag = event.tags.find((t: string[]) => t[0] === "success")
+              const exitCodeTag = event.tags.find((t: string[]) => t[0] === "exit_code")
+
+              const isSuccess = successTag?.[1] === "true" || exitCodeTag?.[1] === "0"
+              const actualStatus = isSuccess ? "success" : "failure"
+
+              console.log(
+                `Job result: success=${successTag?.[1]}, exitCode=${exitCodeTag?.[1]}, actualStatus=${actualStatus}`,
+              )
+
+              // Update the status event with the actual status from job result
+              const statusIndex = statusEvents.findIndex(e => e.id === statusEvent.id)
+              if (statusIndex >= 0) {
+                statusEvents[statusIndex] = {
+                  ...statusEvents[statusIndex],
+                  tags: statusEvents[statusIndex].tags.map(t => {
+                    if (t[0] === "status") {
+                      return ["status", actualStatus]
+                    }
+                    return t
+                  }),
+                }
+              }
+            },
+            onExhausted: () => {
+              console.log("Job result feed exhausted")
+            },
+          })
+
+          // Cleanup after a short timeout
+          setTimeout(() => {
+            jobResultFeed.cleanup()
+          }, 5000)
+        } catch (err) {
+          console.error("Failed to fetch job result:", err)
+        }
+      }
+    }
+  }
 
   // CRITICAL: Cleanup on destroy to prevent memory leaks and blocking navigation
   onDestroy(() => {
@@ -735,10 +822,14 @@
       .map(e => `${e.key}=${e.value}`)
       .join(" ")
 
-    // Build bash command with env vars and workflow (only add space if envVarsString is not empty)
-    const bashCommand = envVarsString
-      ? `${envVarsString} act -W ${selectedWorkflow?.path}`
-      : `act -W ${selectedWorkflow?.path}`
+    // Get clone URL and repo name
+    const cloneUrl = repoClass?.cloneUrls?.[0] || ""
+    const repoName = repoClass?.name || "repo"
+    const uniqueDir = `/tmp/${repoName}-${Date.now()}`
+
+    // Build bash command with git clone, cd, env vars and workflow
+    const baseCommand = `git clone ${cloneUrl} ${uniqueDir} && cd ${uniqueDir} && act -W ${selectedWorkflow?.path}`
+    const bashCommand = envVarsString ? `${envVarsString} ${baseCommand}` : baseCommand
 
     // Create Nostr event
     const unsignedEvent = {
@@ -747,6 +838,7 @@
       content: "",
       tags: [
         ["p", worker],
+        ["a", repoNaddr],
         ["cmd", "bash"],
         ["args", "-c", bashCommand],
         ["payment", cashuToken],
