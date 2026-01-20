@@ -20,7 +20,10 @@
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
     "e2e:ui": "playwright test --ui",
-    "e2e:check": "tsc -p tsconfig.e2e.json --noEmit"
+    "e2e:check": "tsc -p tsconfig.e2e.json --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:git": "playwright test --project=git",
+    "test:e2e:ui": "playwright test --ui"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
