@@ -152,8 +152,10 @@ export function useCleanState(
 
   testInstance.beforeEach(async ({page, context}) => {
     if (finalConfig.clearStorage) {
-      // Navigate to a blank page first to ensure we have a context
-      await page.goto("about:blank")
+      // Navigate to the app first to get a proper origin for localStorage access
+      // about:blank doesn't allow localStorage access due to security restrictions
+      await page.goto("/")
+      await page.waitForLoadState("domcontentloaded")
       await clearBrowserStorage(page)
       await clearCookies(context)
     }
@@ -163,9 +165,13 @@ export function useCleanState(
     // Clean up after test
     if (finalConfig.clearStorage) {
       try {
-        await clearBrowserStorage(page)
+        // Only try to clear if we're on a valid page
+        const url = page.url()
+        if (url && !url.startsWith("about:")) {
+          await clearBrowserStorage(page)
+        }
       } catch {
-        // Page may have been closed, ignore
+        // Page may have been closed or on invalid origin, ignore
       }
     }
   })
