@@ -37,62 +37,80 @@ export async function loginAndAssertIdentity(page: Page, options: LoginOptions =
 async function loginWithLocalDev(page: Page, options: LoginOptions): Promise<string> {
   const {phaseHooks} = options
 
-  // Wait for the app to fully initialize - the landing page may take time to render
-  // especially on first load when Svelte hydrates
+  // Wait for the app to fully initialize
   await page.waitForLoadState("networkidle")
 
+  // Clear any cached state that might cause issues
+  await page.evaluate(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+
+  // Reload to ensure clean state
+  await page.reload()
+  await page.waitForLoadState("networkidle")
+
+  // Wait for SvelteKit to hydrate - look for any content that indicates the app loaded
+  await page.waitForFunction(() => {
+    // Check if there's any rendered content (not just the loading script)
+    const body = document.body
+    return body && body.innerText && body.innerText.length > 50
+  }, {timeout: 30000})
+
+  // Additional wait for app to stabilize
+  await page.waitForTimeout(2000)
+
   phaseHooks?.changePhase?.(PHASE_A_LOGIN_SCREEN)
+
+  // Wait for Landing component with login-screen testid
   const loginScreen = page.getByTestId("login-screen")
-  // Increased timeout for initial load
   await expect(loginScreen).toBeVisible({timeout: 15000})
   phaseHooks?.recordPhaseSnapshot?.(PHASE_A_LOGIN_SCREEN)
 
   phaseHooks?.changePhase?.(PHASE_B_LOGIN_SUBMIT)
+
+  // Click the login button
   const loginCta = page.getByTestId("identity-cta-login")
   await expect(loginCta).toBeVisible()
-
-  const initialHash = await page.evaluate(() => window.location.hash)
   await loginCta.click()
-  await page.waitForFunction(previous => window.location.hash !== previous, initialHash)
+
+  // Wait for login modal to appear (triggered by hash change)
+  await page.waitForTimeout(500)
 
   const loginModal = page.getByTestId("login-modal")
-  await expect(loginModal).toBeVisible()
+  await expect(loginModal).toBeVisible({timeout: 5000})
 
+  // Click bunker/remote signer option
   const remoteSignerOption = page.getByTestId("login-option-bunker")
   await expect(remoteSignerOption).toBeVisible()
-
-  const hashBeforeRemote = await page.evaluate(() => window.location.hash)
   await remoteSignerOption.click()
-  await page.waitForFunction(previous => window.location.hash !== previous, hashBeforeRemote)
+  await page.waitForTimeout(500)
 
-  const bunkerModal = page.getByTestId("login-bunker")
-  await expect(bunkerModal).toBeVisible()
-
+  // Enter dev login token in bunker input
+  // The app has a dev shortcut: when bunker value === "reviewkey", it auto-logs in
   const bunkerInput = page.getByTestId("login-bunker-url")
-  await expect(bunkerInput).toBeVisible()
-  await bunkerInput.fill(DEV_LOGIN_TOKEN)
+  await expect(bunkerInput).toBeVisible({timeout: 5000})
 
-  const bunkerSubmit = page.getByTestId("login-bunker-submit")
-  if ((await bunkerSubmit.count()) > 0) {
-    await expect(bunkerSubmit).toBeVisible()
-    await expect(bunkerSubmit).toBeEnabled()
-    await bunkerSubmit.click()
-  }
+  // Type the token character by character to ensure reactivity triggers
+  await bunkerInput.clear()
+  await bunkerInput.type(DEV_LOGIN_TOKEN, {delay: 50})
+
+  // Wait for the Svelte $effect to detect "reviewkey" and trigger loginWithNip01
+  await page.waitForTimeout(2000)
+
   phaseHooks?.recordPhaseSnapshot?.(PHASE_B_LOGIN_SUBMIT)
 
-  // Wait for login modal to close and app to transition to logged-in state
-  await expect(loginModal).toBeHidden({timeout: 10000})
+  // Wait for login to complete - the $effect should have called loginWithNip01
+  await page.waitForTimeout(5000)
 
   phaseHooks?.changePhase?.(PHASE_C_IDENTITY_VISIBLE)
 
-  // The app shows PrimaryNav when logged in (when $pubkey is truthy)
-  // Wait for the navigation to appear as confirmation of successful login
-  // We look for the settings button which is always present in the nav
-  const navElement = page.locator("nav, [class*='nav'], [class*='sidebar']").first()
-  await expect(navElement).toBeVisible({timeout: 10000})
+  // Verify logged in by checking for logged-in UI content
+  // PrimaryNav uses <div> not <nav>, so we check for content that only appears when logged in
+  // The desktop nav has "Settings" link which only shows when user is authenticated
+  const settingsLink = page.locator('a[href="/settings/profile"]')
+  await expect(settingsLink).toBeVisible({timeout: 10000})
   phaseHooks?.recordPhaseSnapshot?.(PHASE_C_IDENTITY_VISIBLE)
 
-  // Return a placeholder since we don't have a visible npub element
-  // Tests that need the actual pubkey should query localStorage directly
   return "logged-in"
 }

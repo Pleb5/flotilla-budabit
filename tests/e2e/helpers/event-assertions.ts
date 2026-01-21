@@ -458,9 +458,11 @@ export function assertValidStatusEvent(event: NostrEvent): void {
   // Must have an 'e' tag referencing the target event
   assertEventReference(event)
 
-  // Should have at least one 'p' tag
+  // Should have at least one 'p' tag (except for draft status which is private)
   const pTags = getTags(event, "p")
-  expect(pTags.length, "Status event should have at least one 'p' tag").toBeGreaterThanOrEqual(1)
+  if (event.kind !== KIND_STATUS_DRAFT) {
+    expect(pTags.length, "Status event should have at least one 'p' tag").toBeGreaterThanOrEqual(1)
+  }
 
   // For applied status, check for merge-related tags
   if (event.kind === KIND_STATUS_APPLIED) {
