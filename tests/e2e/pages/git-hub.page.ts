@@ -32,9 +32,10 @@ export class GitHubPage {
     this.pageTitle = page.locator("strong").filter({hasText: "Git Repositories"})
     this.newRepoButton = page.locator("button").filter({hasText: "New Repo"})
 
-    // Tab navigation
-    this.myReposTab = page.getByRole("tab").filter({hasText: "My Repos"})
-    this.bookmarksTab = page.getByRole("tab").filter({hasText: "Bookmarks"})
+    // Tab navigation - use button selector as TabsTrigger renders as buttons
+    // Try role="tab" first, fallback to button with text
+    this.myReposTab = page.locator('button:has-text("My Repos")').first()
+    this.bookmarksTab = page.locator('button:has-text("Bookmarks")').first()
 
     // Search
     this.searchInput = page.locator('input[placeholder*="naddr"]')
@@ -62,10 +63,19 @@ export class GitHubPage {
   async waitForLoad(): Promise<void> {
     // Give the page more time to load, especially on slower CI runners
     await expect(this.pageTitle).toBeVisible({timeout: 15000})
-    // Wait for loading spinner to disappear (if present)
+    // Wait for either:
+    // 1. Loading spinner to disappear, OR
+    // 2. Empty state message to appear, OR
+    // 3. Repo grid to appear with content
     await this.page.waitForFunction(() => {
-      const spinner = document.body.textContent
-      return !spinner?.includes("Looking for Your Git Repos...")
+      const bodyText = document.body.textContent || ""
+      const hasSpinner = bodyText.includes("Looking for Your Git Repos...")
+      const hasEmptyState = bodyText.includes("No bookmarked repositories") ||
+                           bodyText.includes("You haven't created any") ||
+                           bodyText.includes("No Repos found") ||
+                           bodyText.includes("No repositories found")
+      const hasRepoGrid = document.querySelector(".grid.gap-3")?.children?.length > 0
+      return !hasSpinner || hasEmptyState || hasRepoGrid
     }, {timeout: 30000}).catch(() => {
       // Spinner may have already disappeared or never appeared
     })
@@ -112,6 +122,7 @@ export class GitHubPage {
    * Switch to the "Bookmarks" tab
    */
   async goToBookmarks(): Promise<void> {
+    await expect(this.bookmarksTab).toBeVisible({timeout: 10000})
     await this.bookmarksTab.click()
     await this.waitForTabContent()
   }

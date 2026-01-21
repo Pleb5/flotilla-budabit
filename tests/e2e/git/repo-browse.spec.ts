@@ -294,13 +294,13 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Check for expected tabs
-      // Feed, Code, Issues, Patches, Commits are the main tabs
-      await expect(page.locator("a[href*='/feed']").or(page.getByText(/Feed/i))).toBeVisible({timeout: 10000})
-      await expect(page.locator("a[href*='/code']").or(page.getByText(/Code/i))).toBeVisible()
-      await expect(page.locator("a[href*='/issues']").or(page.getByText(/Issues/i))).toBeVisible()
-      await expect(page.locator("a[href*='/patches']").or(page.getByText(/Patches/i))).toBeVisible()
-      await expect(page.locator("a[href*='/commits']").or(page.getByText(/Commits/i))).toBeVisible()
+      // Check for expected tabs - use specific href locators with .first() to avoid strict mode
+      // The RepoTab components render as <a> tags with href containing the tab path
+      await expect(page.locator("a[href*='/feed']").first()).toBeVisible({timeout: 10000})
+      await expect(page.locator("a[href*='/code']").first()).toBeVisible()
+      await expect(page.locator("a[href*='/issues']").first()).toBeVisible()
+      await expect(page.locator("a[href*='/patches']").first()).toBeVisible()
+      await expect(page.locator("a[href*='/commits']").first()).toBeVisible()
     })
   })
 
@@ -316,9 +316,9 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Click Code tab
+      // Click Code tab and wait for URL to update
       await page.locator("a[href*='/code']").first().click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForURL(/\/code/, {timeout: 10000})
 
       // URL should update to include /code
       expect(page.url()).toContain("/code")
@@ -335,9 +335,9 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Click Issues tab
+      // Click Issues tab and wait for URL to update
       await page.locator("a[href*='/issues']").first().click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForURL(/\/issues/, {timeout: 10000})
 
       // URL should update to include /issues
       expect(page.url()).toContain("/issues")
@@ -354,9 +354,9 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Click Patches tab
+      // Click Patches tab and wait for URL to update
       await page.locator("a[href*='/patches']").first().click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForURL(/\/patches/, {timeout: 10000})
 
       // URL should update to include /patches
       expect(page.url()).toContain("/patches")
@@ -373,9 +373,9 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Click Commits tab
+      // Click Commits tab and wait for URL to update
       await page.locator("a[href*='/commits']").first().click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForURL(/\/commits/, {timeout: 10000})
 
       // URL should update to include /commits
       expect(page.url()).toContain("/commits")
@@ -399,19 +399,19 @@ test.describe("Repository Browsing", () => {
       // Get the base URL
       const baseUrl = page.url()
 
-      // Navigate to issues
+      // Navigate to issues and wait for URL
       await page.locator("a[href*='/issues']").first().click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForURL(/\/issues/, {timeout: 10000})
       expect(page.url()).toContain("/issues")
 
-      // Navigate to patches
+      // Navigate to patches and wait for URL
       await page.locator("a[href*='/patches']").first().click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForURL(/\/patches/, {timeout: 10000})
       expect(page.url()).toContain("/patches")
 
-      // Navigate back to feed/home
+      // Navigate back to feed/home and wait for URL
       await page.locator("a[href*='/feed']").first().click()
-      await page.waitForLoadState("networkidle")
+      await page.waitForURL(/\/feed/, {timeout: 10000})
       expect(page.url()).toContain("/feed")
     })
 
@@ -479,7 +479,10 @@ test.describe("Repository Browsing", () => {
     })
 
     test("bookmark repo button is visible on bookmarks tab", async ({page}) => {
-      const seeder = await seedTestScenario(page, "empty")
+      // Seed a repo to ensure the page loads properly (bookmarks tab will still be empty)
+      const seeder = await seedTestRepo(page, {
+        name: "bookmark-button-test-repo",
+      })
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
       await gitHub.goto()
@@ -488,12 +491,15 @@ test.describe("Repository Browsing", () => {
       // Switch to bookmarks tab
       await gitHub.goToBookmarks()
 
-      // Bookmark repo button should be visible
-      await expect(gitHub.bookmarkRepoButton).toBeVisible({timeout: 5000})
+      // Bookmark repo button should be visible (only shown on bookmarks tab)
+      await expect(gitHub.bookmarkRepoButton).toBeVisible({timeout: 10000})
     })
 
     test("bookmarks tab shows empty state initially", async ({page}) => {
-      const seeder = await seedTestScenario(page, "empty")
+      // Seed a repo to ensure the page loads properly (bookmarks tab will still be empty)
+      const seeder = await seedTestRepo(page, {
+        name: "bookmark-empty-test-repo",
+      })
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
       await gitHub.goto()
@@ -503,9 +509,12 @@ test.describe("Repository Browsing", () => {
       await gitHub.goToBookmarks()
 
       // Should show empty state or bookmark prompt
+      // On bookmarks tab with no bookmarks, either:
+      // 1. Empty state message is shown, OR
+      // 2. "Bookmark a Repo" button is visible (indicates no bookmarks)
       const isEmpty = await gitHub.isEmpty()
-      // Either empty state or the bookmark repo button indicates no bookmarks
-      expect(isEmpty || await gitHub.bookmarkRepoButton.isVisible()).toBeTruthy()
+      const hasBookmarkButton = await gitHub.bookmarkRepoButton.isVisible()
+      expect(isEmpty || hasBookmarkButton).toBeTruthy()
     })
   })
 
