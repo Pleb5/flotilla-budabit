@@ -70,6 +70,8 @@ export interface PatchOptions {
   pubkey?: string;
   /** Event timestamp (seconds) */
   created_at?: number;
+  /** Whether this is a root patch (first in a series). Defaults to true */
+  isRoot?: boolean;
 }
 
 /**
@@ -146,6 +148,12 @@ export function createPatch(opts: PatchOptions): UnsignedEvent {
 
   if (opts.inReplyTo) {
     tags.push(['in-reply-to', opts.inReplyTo]);
+  }
+
+  // Add 'root' tag for root patches (default to true unless explicitly set to false)
+  // This is required by the patches page which filters for root patches only
+  if (opts.isRoot !== false) {
+    tags.push(['t', 'root']);
   }
 
   return {

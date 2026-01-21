@@ -23,6 +23,8 @@ export const TEST_PRIVATE_KEYS = {
   bob: '0202020202020202020202020202020202020202020202020202020202020202',
   charlie: '0303030303030303030303030303030303030303030303030303030303030303',
   maintainer: '0404040404040404040404040404040404040404040404040404040404040404',
+  // Dev login key used in E2E tests (matches LogInBunker.svelte DEV_LOGIN_SECRET)
+  devUser: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
 } as const;
 
 // Test pubkeys derived from the private keys above
@@ -32,6 +34,8 @@ export const TEST_PUBKEYS = {
   bob: getPublicKey(hexToBytes(TEST_PRIVATE_KEYS.bob)),
   charlie: getPublicKey(hexToBytes(TEST_PRIVATE_KEYS.charlie)),
   maintainer: getPublicKey(hexToBytes(TEST_PRIVATE_KEYS.maintainer)),
+  // Dev login pubkey - use this for repos that should appear in "My Repos" tab
+  devUser: getPublicKey(hexToBytes(TEST_PRIVATE_KEYS.devUser)),
 } as const;
 
 /**

@@ -213,12 +213,15 @@ test.describe("Patch Comments & Review", () => {
               const commentEvent = commentEvents[0]
               expect(commentEvent.content).toContain(commentText)
 
-              // Verify NIP-10 threading: should have root e tag pointing to patch
-              const eTags = getTags(commentEvent, "e")
-              expect(eTags.length).toBeGreaterThan(0)
+              // Verify threading: should have E tag (uppercase, per NIP-E) or e tag pointing to patch
+              // The app uses uppercase E tags for comment threading per NIP-E
+              const eTags = getTags(commentEvent, "E")
+              const lowerETags = getTags(commentEvent, "e")
+              const allETags = [...eTags, ...lowerETags]
+              expect(allETags.length).toBeGreaterThan(0)
 
-              // At least one e tag should reference the patch
-              const hasRootRef = eTags.some(
+              // At least one E/e tag should reference the patch
+              const hasRootRef = allETags.some(
                 (tag) => tag[1] === patchResult.eventId || tag[3] === "root"
               )
               // Event structure varies by implementation

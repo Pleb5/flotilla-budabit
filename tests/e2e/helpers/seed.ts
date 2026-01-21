@@ -213,9 +213,10 @@ function slugify(str: string): string {
 
 /**
  * Pick a random test user pubkey
+ * Includes devUser to ensure the logged-in test user has some content
  */
 function randomTestPubkey(): string {
-  const users = [TEST_PUBKEYS.alice, TEST_PUBKEYS.bob, TEST_PUBKEYS.charlie]
+  const users = [TEST_PUBKEYS.devUser, TEST_PUBKEYS.alice, TEST_PUBKEYS.bob, TEST_PUBKEYS.charlie]
   return users[Math.floor(Math.random() * users.length)]
 }
 
@@ -391,7 +392,8 @@ export class TestSeeder {
     const opts = options || {}
     const name = opts.name || `test-repo-${++this.repoCounter}`
     const identifier = opts.identifier || slugify(name)
-    const pubkey = opts.pubkey || TEST_PUBKEYS.alice
+    // Use devUser as default so repos appear in "My Repos" for the logged-in test user
+    const pubkey = opts.pubkey || TEST_PUBKEYS.devUser
 
     this.log(`Seeding repo: ${name} (${identifier})`)
 
@@ -785,7 +787,7 @@ export async function seedTestScenario(page: Page, scenario: TestScenario): Prom
       seeder.seedRepo({
         name: "test-project",
         description: "A test project for E2E testing",
-        maintainers: [TEST_PUBKEYS.alice],
+        maintainers: [TEST_PUBKEYS.devUser],
         topics: ["test", "nostr"],
       })
       break
@@ -794,7 +796,7 @@ export async function seedTestScenario(page: Page, scenario: TestScenario): Prom
       seeder.seedRepo({
         name: "test-project",
         description: "A test project with issues",
-        maintainers: [TEST_PUBKEYS.alice],
+        maintainers: [TEST_PUBKEYS.devUser],
         withIssues: 5,
       })
       break
@@ -803,7 +805,7 @@ export async function seedTestScenario(page: Page, scenario: TestScenario): Prom
       seeder.seedRepo({
         name: "test-project",
         description: "A test project with patches",
-        maintainers: [TEST_PUBKEYS.alice],
+        maintainers: [TEST_PUBKEYS.devUser],
         withPatches: 5,
       })
       break
@@ -812,7 +814,7 @@ export async function seedTestScenario(page: Page, scenario: TestScenario): Prom
       seeder.seedRepo({
         name: "flotilla-budabit",
         description: "A Discord-like Nostr client with git collaboration",
-        maintainers: [TEST_PUBKEYS.alice, TEST_PUBKEYS.bob],
+        maintainers: [TEST_PUBKEYS.devUser, TEST_PUBKEYS.bob],
         topics: ["nostr", "git", "collaboration", "svelte"],
         cloneUrls: ["https://github.com/example/flotilla-budabit.git"],
         webUrls: ["https://flotilla.dev"],

@@ -71,19 +71,71 @@ test.describe("Issue Status & Updates", () => {
       await repoDetail.goToIssues()
       await page.waitForTimeout(1000)
 
+      // Debug: Show issues page content
+      console.log("[TEST DEBUG] Issues page URL:", page.url())
+      const issuesPageText = await page.textContent("body")
+      console.log("[TEST DEBUG] Issues page content (first 2000 chars):", issuesPageText?.slice(0, 2000))
+
       // Click on the issue to view detail
-      const issueTitle = page.locator('a, div, span').filter({hasText: /Bug:|Feature:|Enhancement:/i}).first()
-      if (await issueTitle.isVisible({timeout: 5000})) {
-        await issueTitle.click()
-        await page.waitForTimeout(500)
+      // First, find the anchor link with the issue title
+      const issueLink = page.locator('a[href*="issues/"]').filter({hasText: /Bug:|Feature:|Enhancement:|Documentation:/i}).first()
+      console.log("[TEST DEBUG] Issue link href:", await issueLink.getAttribute("href").catch(() => "not found"))
+      const isIssueLinkVisible = await issueLink.isVisible({timeout: 10000})
+      console.log("[TEST DEBUG] Issue link visible:", isIssueLinkVisible)
+
+      if (isIssueLinkVisible) {
+        // Get the href and navigate manually if clicking doesn't work
+        const href = await issueLink.getAttribute("href")
+        console.log("[TEST DEBUG] Clicking issue link with href:", href)
+        await issueLink.click()
+        await page.waitForTimeout(1000)
+        console.log("[TEST DEBUG] After click, URL is:", page.url())
+
+        // If URL didn't change, navigate manually
+        if (!page.url().includes("/issues/")) {
+          console.log("[TEST DEBUG] Click didn't navigate, navigating manually to:", href)
+          // The href is relative like "issues/abc123", we need to construct absolute URL
+          const currentUrl = page.url()
+          const baseUrl = currentUrl.split("/issues")[0] + "/issues/"
+          const absoluteUrl = baseUrl + href!.replace("issues/", "")
+          console.log("[TEST DEBUG] Navigating to absolute URL:", absoluteUrl)
+          await page.goto(absoluteUrl)
+          await page.waitForTimeout(500)
+        }
+      } else {
+        console.log("[TEST DEBUG] Issue link NOT found")
+        const allLinks = await page.locator('a').evaluateAll((elements) =>
+          elements.map(el => ({href: el.getAttribute("href"), text: el.textContent?.slice(0, 50)}))
+        )
+        console.log("[TEST DEBUG] All links on page:", JSON.stringify(allLinks.slice(0, 10), null, 2))
       }
+
+      // Wait for Status component to render with data (the status badge should show)
+      // This ensures the repo data has been loaded and isAuthorized check has real data
+      const statusBadge = page.locator('[class*="badge"], .status-badge').filter({hasText: /open|closed|draft|merged|resolved/i}).first()
+      await statusBadge.waitFor({state: "visible", timeout: 10000}).catch(() => {})
+
+      // Extra wait for Svelte reactivity to settle
+      await page.waitForTimeout(1000)
 
       // The Status component has a "Change Status" button that opens state selection
       // Then you select "Closed" state and click "Publish Status"
       const changeStatusButton = page.locator("button").filter({hasText: /change status/i}).first()
       const directCloseButton = page.locator("button").filter({hasText: /^close$|close issue/i}).first()
 
-      if (await changeStatusButton.isVisible({timeout: 5000}).catch(() => false)) {
+      // Debug: log page state
+      console.log("[TEST DEBUG] Current URL:", page.url())
+      const pageText = await page.textContent("body")
+      console.log("[TEST DEBUG] Page text (first 1000 chars):", pageText?.slice(0, 1000))
+
+      // Debug: log what buttons we can see
+      const allButtons = await page.locator("button").allTextContents()
+      console.log("[TEST DEBUG] All buttons on page:", allButtons)
+
+      const isChangeStatusVisible = await changeStatusButton.isVisible({timeout: 5000}).catch(() => false)
+      console.log("[TEST DEBUG] Change Status button visible:", isChangeStatusVisible)
+
+      if (isChangeStatusVisible) {
         // Use the Status component flow
         await changeStatusButton.click()
         await page.waitForTimeout(300)

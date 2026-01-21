@@ -25,6 +25,9 @@ import {
   getTagValue,
   getTagValues,
   hasTag,
+  getRepoPatchesUrl,
+  getRepoUrl,
+  encodeRepoNaddr,
 } from "../helpers"
 import {RepoDetailPage} from "../pages/repo-detail.page"
 import {
@@ -32,6 +35,22 @@ import {
   SAMPLE_PATCH_CONTENT,
   SAMPLE_BUGFIX_PATCH,
 } from "../fixtures/events"
+
+/**
+ * Helper function to get the naddr from a seeded repo
+ */
+function getSeededRepoNaddr(seeder: TestSeeder): string {
+  const repos = seeder.getRepos()
+  if (repos.length === 0) {
+    throw new Error("No repos seeded")
+  }
+  const repo = repos[0]
+  const dTag = repo.tags.find((t: string[]) => t[0] === "d")?.[1]
+  if (!dTag) {
+    throw new Error("Repo has no d tag")
+  }
+  return encodeRepoNaddr(repo.pubkey, dTag)
+}
 
 // Test relay URL configuration
 const TEST_RELAY = "ws://localhost:7000"
@@ -131,18 +150,12 @@ test.describe("Patch Creation & Submission", () => {
       })
 
       const mockRelay = seeder.getMockRelay()
+      const naddr = getSeededRepoNaddr(seeder)
 
-      // Navigate to the repository's patches tab
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
+      // Navigate directly to the repository's patches tab using the naddr
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
-
-      // Click on the repository
-      await page.getByText("patch-test-repo").click()
-      await page.waitForLoadState("networkidle")
-
-      // Navigate to patches tab
-      const repoDetailPage = new RepoDetailPage(page, ENCODED_RELAY, "")
-      await repoDetailPage.goToPatches()
 
       // Look for create patch button
       const createPatchButton = page.locator("button").filter({hasText: /create|new|add/i}).filter({hasText: /patch/i})
@@ -208,19 +221,12 @@ test.describe("Patch Creation & Submission", () => {
         withPatches: 2,
       })
 
-      // Navigate to repository patches
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
-      await page.waitForLoadState("networkidle")
+      const naddr = getSeededRepoNaddr(seeder)
 
-      await page.getByText("patch-list-repo").click()
+      // Navigate directly to the repository's patches tab using the naddr
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
-
-      // Go to patches tab
-      const patchesTab = page.locator("a[href*='/patches']").filter({hasText: "Patches"})
-      if (await patchesTab.isVisible()) {
-        await patchesTab.click()
-        await page.waitForLoadState("networkidle")
-      }
 
       // Verify the seeded patches are visible
       const patches = seeder.getPatches()
@@ -283,20 +289,12 @@ test.describe("Patch Creation & Submission", () => {
       })
 
       const mockRelay = seeder.getMockRelay()
+      const naddr = getSeededRepoNaddr(seeder)
 
-      // Navigate to patches
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
+      // Navigate directly to the repository's patches tab using the naddr
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
-
-      await page.getByText("metadata-patch-repo").click()
-      await page.waitForLoadState("networkidle")
-
-      // Go to patches tab
-      const patchesTab = page.locator("a[href*='/patches']")
-      if (await patchesTab.isVisible()) {
-        await patchesTab.click()
-        await page.waitForLoadState("networkidle")
-      }
 
       // Look for create patch button
       const createButton = page.locator("button").filter({hasText: /create|new|add/i})
@@ -444,8 +442,15 @@ test.describe("Patch Creation & Submission", () => {
       expect(patchEvent.tags.find((t: string[]) => t[0] === "commit")).toBeDefined()
 
       // Verify labels (t tags)
+      // Note: The seeder automatically adds a 'root' t tag, so we have 3 total:
+      // 2 from labels + 1 'root' tag
       const tTags = patchEvent.tags.filter((t: string[]) => t[0] === "t")
-      expect(tTags.length).toBe(2)
+      expect(tTags.length).toBe(3)
+      // Verify our specific labels are present
+      const labelValues = tTags.map((t: string[]) => t[1])
+      expect(labelValues).toContain("enhancement")
+      expect(labelValues).toContain("ready-for-review")
+      expect(labelValues).toContain("root")
 
       // Navigate
       await page.goto(`/spaces/${ENCODED_RELAY}/git`)
@@ -459,19 +464,12 @@ test.describe("Patch Creation & Submission", () => {
         name: "validation-empty-repo",
       })
 
-      // Navigate to patches
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
-      await page.waitForLoadState("networkidle")
+      const naddr = getSeededRepoNaddr(seeder)
 
-      await page.getByText("validation-empty-repo").click()
+      // Navigate directly to the repository's patches tab using the naddr
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
-
-      // Go to patches tab
-      const patchesTab = page.locator("a[href*='/patches']")
-      if (await patchesTab.isVisible()) {
-        await patchesTab.click()
-        await page.waitForLoadState("networkidle")
-      }
 
       // Try to create patch button
       const createButton = page.locator("button").filter({hasText: /create|new|add/i}).first()
@@ -504,20 +502,12 @@ test.describe("Patch Creation & Submission", () => {
       })
 
       const mockRelay = seeder.getMockRelay()
+      const naddr = getSeededRepoNaddr(seeder)
 
-      // Navigate to patches
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
+      // Navigate directly to the repository's patches tab using the naddr
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
-
-      await page.getByText("validation-invalid-repo").click()
-      await page.waitForLoadState("networkidle")
-
-      // Go to patches tab
-      const patchesTab = page.locator("a[href*='/patches']")
-      if (await patchesTab.isVisible()) {
-        await patchesTab.click()
-        await page.waitForLoadState("networkidle")
-      }
 
       // Create patch with invalid content
       const createButton = page.locator("button").filter({hasText: /create|new|add/i}).first()
@@ -564,19 +554,12 @@ test.describe("Patch Creation & Submission", () => {
         name: "validation-required-repo",
       })
 
-      // Navigate to patches
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
-      await page.waitForLoadState("networkidle")
+      const naddr = getSeededRepoNaddr(seeder)
 
-      await page.getByText("validation-required-repo").click()
+      // Navigate directly to the repository's patches tab using the naddr
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
-
-      // Go to patches tab
-      const patchesTab = page.locator("a[href*='/patches']")
-      if (await patchesTab.isVisible()) {
-        await patchesTab.click()
-        await page.waitForLoadState("networkidle")
-      }
 
       // Open create form
       const createButton = page.locator("button").filter({hasText: /create|new|add/i}).first()
@@ -656,19 +639,11 @@ test.describe("Patch Creation & Submission", () => {
 
       await seeder.setup(page)
 
-      // Navigate to repository
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
+      // Navigate directly to the repository's patches tab using the naddr
+      const naddr = encodeRepoNaddr(repoResult.pubkey, repoResult.identifier)
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
-
-      await page.getByText("draft-filter-repo").click()
-      await page.waitForLoadState("networkidle")
-
-      // Go to patches tab
-      const patchesTab = page.locator("a[href*='/patches']")
-      if (await patchesTab.isVisible()) {
-        await patchesTab.click()
-        await page.waitForLoadState("networkidle")
-      }
 
       // Wait for patches to load
       await page.waitForTimeout(2000)
@@ -703,11 +678,10 @@ test.describe("Patch Creation & Submission", () => {
 
       const mockRelay = seeder.getMockRelay()
 
-      // Navigate to repository
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
-      await page.waitForLoadState("networkidle")
-
-      await page.getByText("draft-toggle-repo").click()
+      // Navigate directly to the repository's patches tab using the naddr
+      const naddr = encodeRepoNaddr(repoResult.pubkey, repoResult.identifier)
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
 
       // Go to patches tab
@@ -811,19 +785,11 @@ test.describe("Patch Creation & Submission", () => {
 
       await seeder.setup(page)
 
-      // Navigate to repository
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
+      // Navigate directly to the repository's patches tab using the naddr
+      const naddr = encodeRepoNaddr(repoResult.pubkey, repoResult.identifier)
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
-
-      await page.getByText("patch-display-repo").click()
-      await page.waitForLoadState("networkidle")
-
-      // Go to patches tab
-      const patchesTab = page.locator("a[href*='/patches']")
-      if (await patchesTab.isVisible()) {
-        await patchesTab.click()
-        await page.waitForLoadState("networkidle")
-      }
 
       // Wait for content
       await page.waitForTimeout(2000)
@@ -864,11 +830,10 @@ test.describe("Patch Creation & Submission", () => {
 
       await seeder.setup(page)
 
-      // Navigate to repository
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
-      await page.waitForLoadState("networkidle")
-
-      await page.getByText("patch-status-repo").click()
+      // Navigate directly to the repository's patches tab using the naddr
+      const naddr = encodeRepoNaddr(repoResult.pubkey, repoResult.identifier)
+      const patchesUrl = getRepoPatchesUrl(naddr)
+      await page.goto(patchesUrl)
       await page.waitForLoadState("networkidle")
 
       // Go to patches tab

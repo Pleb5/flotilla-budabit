@@ -878,11 +878,10 @@ test.describe("Issue Comments", () => {
         await page.waitForTimeout(1000)
 
         // Look for any deleted comment indicators that might already exist
-        const deletedIndicator = page.locator(
-          'text=/deleted|removed|hidden/i, ' +
-          '[class*="deleted"], ' +
-          '[data-deleted="true"]'
-        )
+        // Use .or() to combine different locator types properly
+        const deletedTextIndicator = page.locator('text=/deleted|removed|hidden/i')
+        const deletedClassIndicator = page.locator('[class*="deleted"], [data-deleted="true"]')
+        const deletedIndicator = deletedTextIndicator.or(deletedClassIndicator)
 
         const indicatorCount = await deletedIndicator.count()
 

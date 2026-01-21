@@ -100,8 +100,15 @@ async function loginWithLocalDev(page: Page, options: LoginOptions): Promise<str
 
   phaseHooks?.recordPhaseSnapshot?.(PHASE_B_LOGIN_SUBMIT)
 
-  // Wait for login to complete - the $effect should have called loginWithNip01
-  await page.waitForTimeout(5000)
+  // Wait for login to complete by checking localStorage for pubkey
+  // The loginWithNip01 function stores the pubkey in CapacitorStorage.pubkey
+  await page.waitForFunction(() => {
+    const pubkeyStored = localStorage.getItem("CapacitorStorage.pubkey")
+    return pubkeyStored && pubkeyStored.length > 10
+  }, {timeout: 15000})
+
+  // Give the app time to react to the pubkey change and render PrimaryNav
+  await page.waitForTimeout(1000)
 
   phaseHooks?.changePhase?.(PHASE_C_IDENTITY_VISIBLE)
 

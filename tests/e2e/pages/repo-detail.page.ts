@@ -65,12 +65,14 @@ export class RepoDetailPage {
     this.settingsButton = page.locator("button[title*='Settings'], button[aria-label*='settings' i]").first()
     this.bookmarkButton = page.locator("button").filter({hasText: /bookmark/i}).first()
 
-    // Tab navigation (using RepoTab components with links)
-    this.feedTab = page.locator("a[href*='/feed']").filter({hasText: "Feed"})
-    this.codeTab = page.locator("a[href*='/code']").filter({hasText: "Code"})
-    this.issuesTab = page.locator("a[href*='/issues']").filter({hasText: "Issues"})
-    this.patchesTab = page.locator("a[href*='/patches']").filter({hasText: "Patches"})
-    this.commitsTab = page.locator("a[href*='/commits']").filter({hasText: "Commits"})
+    // Tab navigation (using RepoTab components with links inside RepoHeader nav)
+    // Use nav selector to target only the tab navigation bar, not repo card action buttons
+    const tabNav = page.locator("nav")
+    this.feedTab = tabNav.locator("a[href*='/feed']").filter({hasText: "Feed"})
+    this.codeTab = tabNav.locator("a[href*='/code']").filter({hasText: "Code"})
+    this.issuesTab = tabNav.locator("a[href*='/issues']").filter({hasText: "Issues"})
+    this.patchesTab = tabNav.locator("a[href*='/patches']").filter({hasText: "Patches"})
+    this.commitsTab = tabNav.locator("a[href*='/commits']").filter({hasText: "Commits"})
   }
 
   /**
@@ -92,6 +94,18 @@ export class RepoDetailPage {
     }, {timeout: 30000}).catch(() => {
       // May have already loaded
     })
+
+    // Wait for tabs to be rendered (indicates RepoHeader is ready)
+    // Target tabs within the nav element to ensure we're on the repo detail page, not the repo list
+    try {
+      await this.page.waitForSelector(
+        "nav a[href*='/feed'], nav a[href*='/code'], nav a[href*='/issues'], nav a[href*='/patches'], nav a[href*='/commits']",
+        {state: "visible", timeout: 15000}
+      )
+    } catch {
+      // If tabs don't appear, the page may have a different structure
+      // Continue anyway and let subsequent operations fail with more specific errors
+    }
   }
 
   /**
@@ -148,8 +162,25 @@ export class RepoDetailPage {
 
   /**
    * Get the currently active tab
+   *
+   * Determines the active tab primarily by URL path, with fallback to DOM attributes.
+   * URL is the most reliable source since the app's tab components may not use
+   * standard accessibility attributes.
    */
   async getActiveTab(): Promise<RepoTab | null> {
+    // Primary method: determine from URL (most reliable)
+    const url = this.page.url()
+
+    // Check URL in order of specificity (longer paths first to avoid false matches)
+    if (url.includes("/commits")) return "commits"
+    if (url.includes("/patches")) return "patches"
+    if (url.includes("/issues")) return "issues"
+    if (url.includes("/workbench")) return "workbench"
+    if (url.includes("/cicd")) return "cicd"
+    if (url.includes("/code")) return "code"
+    if (url.includes("/feed")) return "feed"
+
+    // Fallback: check DOM attributes
     const tabs: Array<{locator: Locator; name: RepoTab}> = [
       {locator: this.feedTab, name: "feed"},
       {locator: this.codeTab, name: "code"},
@@ -173,16 +204,6 @@ export class RepoDetailPage {
         return name
       }
     }
-
-    // Try to determine from URL
-    const url = this.page.url()
-    if (url.includes("/feed")) return "feed"
-    if (url.includes("/code")) return "code"
-    if (url.includes("/issues")) return "issues"
-    if (url.includes("/patches")) return "patches"
-    if (url.includes("/commits")) return "commits"
-    if (url.includes("/cicd")) return "cicd"
-    if (url.includes("/workbench")) return "workbench"
 
     return null
   }

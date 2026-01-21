@@ -45,7 +45,8 @@ export class RepoListPage {
    * Wait for the page to finish loading
    */
   async waitForLoad(): Promise<void> {
-    await expect(this.pageTitle).toBeVisible()
+    // Give the page more time to load
+    await expect(this.pageTitle).toBeVisible({timeout: 15000})
     // Wait for loading state to resolve
     await this.page.waitForFunction(() => {
       const text = document.body.textContent

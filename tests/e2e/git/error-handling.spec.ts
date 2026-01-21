@@ -110,7 +110,18 @@ test.describe("Network Errors", () => {
     test("can retry after connection issue", async ({page}) => {
       // First, set up with no data (simulating disconnected state)
       const seeder = new TestSeeder({debug: true})
-      await seeder.setup(page)
+      // Seed a repo that will appear after "reconnection" (page reload)
+      // Must use devUser pubkey so repo appears in "My Repos" tab for logged-in user
+      seeder.seedRepo({
+        name: "reconnect-repo",
+        description: "Appeared after reconnection",
+        pubkey: TEST_PUBKEYS.devUser,
+      })
+      // Don't call seeder.setup yet - simulate disconnection
+
+      // Set up mock relay first with no events
+      const emptySeeder = new TestSeeder({debug: true})
+      await emptySeeder.setup(page)
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
       await gitHub.goto()
@@ -121,29 +132,15 @@ test.describe("Network Errors", () => {
       const repoCount = await gitHub.getRepoCount()
       expect(isEmpty || repoCount === 0).toBeTruthy()
 
-      // Now inject events to simulate reconnection
-      const mockRelay = seeder.getMockRelay()
-      const repoEvent: NostrEvent = {
-        id: randomHex(64),
-        pubkey: TEST_PUBKEYS.alice,
-        created_at: nowSeconds(),
-        kind: NIP34_KINDS.REPO_ANNOUNCEMENT,
-        tags: [
-          ["d", "reconnect-repo"],
-          ["name", "reconnect-repo"],
-          ["description", "Appeared after reconnection"],
-        ],
-        content: "",
-        sig: randomHex(128),
-      }
-
-      await mockRelay.injectEvents([repoEvent])
+      // Now set up the seeder with the repo data and reload
+      // This simulates "reconnection" where data becomes available
+      await seeder.setup(page)
 
       // Refresh the page to simulate retry
       await page.reload()
       await gitHub.waitForLoad()
 
-      // The injected repo should now be visible
+      // The repo should now be visible
       await expect(page.getByText("reconnect-repo")).toBeVisible({timeout: 10000})
     })
   })
@@ -171,9 +168,14 @@ test.describe("Network Errors", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
+      // Wait for repo detail page to load and show tabs
+      // Target the issues tab within nav to avoid matching other links
+      const issuesTab = page.locator("nav a[href*='/issues']").first()
+      await expect(issuesTab).toBeVisible({timeout: 10000})
+
       // Should be able to navigate to issues tab without crashing
-      await page.locator("a[href*='/issues']").first().click()
-      await page.waitForLoadState("networkidle")
+      await issuesTab.click()
+      await page.waitForURL(/\/issues/, {timeout: 10000})
 
       // Page should remain functional
       expect(page.url()).toContain("/issues")
@@ -188,13 +190,12 @@ test.describe("Network Errors", () => {
         description: "A properly formed repo",
       })
 
-      await seeder.setup(page)
-
-      // Inject a malformed event
+      // Seed a malformed event before setup (will be included in initial data)
+      // The app should handle this gracefully and not crash
       const mockRelay = seeder.getMockRelay()
       const malformedEvent: NostrEvent = {
         id: randomHex(64),
-        pubkey: TEST_PUBKEYS.alice,
+        pubkey: TEST_PUBKEYS.devUser, // Use devUser so it would appear in "My Repos" if valid
         created_at: nowSeconds(),
         kind: NIP34_KINDS.REPO_ANNOUNCEMENT,
         tags: [
@@ -205,7 +206,10 @@ test.describe("Network Errors", () => {
         sig: randomHex(128),
       }
 
-      await mockRelay.injectEvents([malformedEvent])
+      // Seed the malformed event before setup
+      mockRelay.seedEvents([malformedEvent])
+
+      await seeder.setup(page)
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
       await gitHub.goto()
@@ -242,13 +246,16 @@ test.describe("Empty States", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
+      // Wait for repo detail page tabs to appear
+      const commitsTab = page.locator("nav a[href*='/commits']").first()
+      await expect(commitsTab).toBeVisible({timeout: 10000})
+
       // Navigate to commits tab
-      await page.locator("a[href*='/commits']").first().click()
-      await page.waitForLoadState("networkidle")
+      await commitsTab.click()
+      await page.waitForURL(/\/commits/, {timeout: 10000})
 
       // Should show some indication of no commits or empty state
       // The exact message depends on implementation
-      const pageContent = await page.content()
       // Page should not crash and should show commits tab
       expect(page.url()).toContain("/commits")
     })
@@ -270,9 +277,13 @@ test.describe("Empty States", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
+      // Wait for repo detail page tabs to appear
+      const issuesTab = page.locator("nav a[href*='/issues']").first()
+      await expect(issuesTab).toBeVisible({timeout: 10000})
+
       // Navigate to issues tab
-      await page.locator("a[href*='/issues']").first().click()
-      await page.waitForLoadState("networkidle")
+      await issuesTab.click()
+      await page.waitForURL(/\/issues/, {timeout: 10000})
 
       // Should be on issues page
       expect(page.url()).toContain("/issues")
@@ -305,15 +316,18 @@ test.describe("Empty States", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
+      // Wait for repo detail page tabs to appear
+      const patchesTab = page.locator("nav a[href*='/patches']").first()
+      await expect(patchesTab).toBeVisible({timeout: 10000})
+
       // Navigate to patches tab
-      await page.locator("a[href*='/patches']").first().click()
-      await page.waitForLoadState("networkidle")
+      await patchesTab.click()
+      await page.waitForURL(/\/patches/, {timeout: 10000})
 
       // Should be on patches page
       expect(page.url()).toContain("/patches")
 
-      // Page should be functional
-      const patchesTab = page.locator("a[href*='/patches']").first()
+      // Page should be functional - tab should still be visible
       await expect(patchesTab).toBeVisible()
     })
 
@@ -450,9 +464,11 @@ test.describe("Data Edge Cases", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
-      // Navigate to issues
-      await page.locator("a[href*='/issues']").first().click()
-      await page.waitForLoadState("networkidle")
+      // Navigate to issues tab
+      const issuesTab = page.locator("nav a[href*='/issues']").first()
+      await expect(issuesTab).toBeVisible({timeout: 10000})
+      await issuesTab.click()
+      await page.waitForURL(/\/issues/, {timeout: 10000})
 
       // Page should handle unicode without crashing
       expect(page.url()).toContain("/issues")
@@ -527,8 +543,11 @@ test.describe("Data Edge Cases", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
-      await page.locator("a[href*='/issues']").first().click()
-      await page.waitForLoadState("networkidle")
+      // Navigate to issues tab
+      const issuesTab = page.locator("nav a[href*='/issues']").first()
+      await expect(issuesTab).toBeVisible({timeout: 10000})
+      await issuesTab.click()
+      await page.waitForURL(/\/issues/, {timeout: 10000})
 
       // Page should handle without breaking
       expect(page.url()).toContain("/issues")
@@ -567,8 +586,11 @@ ${manyLines}
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
-      await page.locator("a[href*='/patches']").first().click()
-      await page.waitForLoadState("networkidle")
+      // Navigate to patches tab
+      const patchesTab = page.locator("nav a[href*='/patches']").first()
+      await expect(patchesTab).toBeVisible({timeout: 10000})
+      await patchesTab.click()
+      await page.waitForURL(/\/patches/, {timeout: 10000})
 
       // Page should handle without crashing
       expect(page.url()).toContain("/patches")
@@ -907,8 +929,10 @@ test.describe("Permission Scenarios", () => {
       await page.waitForLoadState("networkidle")
 
       // Should be able to navigate to issues
-      await page.locator("a[href*='/issues']").first().click()
-      await page.waitForLoadState("networkidle")
+      const issuesTab = page.locator("nav a[href*='/issues']").first()
+      await expect(issuesTab).toBeVisible({timeout: 10000})
+      await issuesTab.click()
+      await page.waitForURL(/\/issues/, {timeout: 10000})
 
       expect(page.url()).toContain("/issues")
     })
@@ -936,8 +960,10 @@ test.describe("Permission Scenarios", () => {
       await page.waitForLoadState("networkidle")
 
       // Should be able to navigate to patches
-      await page.locator("a[href*='/patches']").first().click()
-      await page.waitForLoadState("networkidle")
+      const patchesTab = page.locator("nav a[href*='/patches']").first()
+      await expect(patchesTab).toBeVisible({timeout: 10000})
+      await patchesTab.click()
+      await page.waitForURL(/\/patches/, {timeout: 10000})
 
       expect(page.url()).toContain("/patches")
     })
@@ -1150,10 +1176,13 @@ test.describe("Recovery Scenarios", () => {
     // Navigate to repo
     await gitHub.clickRepoByName("navigation-test-repo")
     await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
-
-    // Navigate to issues
-    await page.locator("a[href*='/issues']").first().click()
     await page.waitForLoadState("networkidle")
+
+    // Navigate to issues tab
+    const issuesTab = page.locator("nav a[href*='/issues']").first()
+    await expect(issuesTab).toBeVisible({timeout: 10000})
+    await issuesTab.click()
+    await page.waitForURL(/\/issues/, {timeout: 10000})
     expect(page.url()).toContain("/issues")
 
     // Go back

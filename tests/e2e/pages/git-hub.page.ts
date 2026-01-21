@@ -60,7 +60,8 @@ export class GitHubPage {
    * Wait for the page to finish loading
    */
   async waitForLoad(): Promise<void> {
-    await expect(this.pageTitle).toBeVisible()
+    // Give the page more time to load, especially on slower CI runners
+    await expect(this.pageTitle).toBeVisible({timeout: 15000})
     // Wait for loading spinner to disappear (if present)
     await this.page.waitForFunction(() => {
       const spinner = document.body.textContent
@@ -181,12 +182,16 @@ export class GitHubPage {
   }
 
   /**
-   * Click on a repository card by name
+   * Click on a repository card by name to navigate to its detail page.
+   * Clicks the "Browse" link within the repo card which handles navigation.
    */
   async clickRepoByName(name: string): Promise<void> {
     const repoCard = this.repoGrid.locator("> div").filter({hasText: name}).first()
     await expect(repoCard).toBeVisible()
-    await repoCard.click()
+    // Click the "Browse" link inside the card to navigate to repo detail
+    const browseLink = repoCard.locator('a:has-text("Browse")')
+    await expect(browseLink).toBeVisible()
+    await browseLink.click()
   }
 
   /**

@@ -138,7 +138,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -146,10 +149,9 @@ test.describe("Commit History and Diff Viewing", () => {
       await page.locator("a[href*='/commits']").first().click()
       await page.waitForURL(/\/commits/, {timeout: 10000})
 
-      // Should show commits heading or commit count
-      await expect(
-        page.getByText(/commits?/i).or(page.locator("h2"))
-      ).toBeVisible({timeout: 10000})
+      // Should show commits heading (h2 with "Commits" or "X commits")
+      const commitsHeading = page.locator("h2.text-lg")
+      await expect(commitsHeading).toBeVisible({timeout: 10000})
     })
 
     test("displays search input for filtering commits", async ({page}) => {
@@ -159,7 +161,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -181,7 +186,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -204,7 +212,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -229,7 +240,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
 
       // Navigate directly to commits - may see loading state
@@ -272,7 +286,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -297,7 +314,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -321,7 +341,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -345,7 +368,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -370,7 +396,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -403,7 +432,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -438,7 +470,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -472,7 +507,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -506,7 +544,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -545,7 +586,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -582,7 +626,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -623,7 +670,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -664,7 +714,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -698,7 +751,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -731,7 +787,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -764,7 +823,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -798,7 +860,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -826,7 +891,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -852,7 +920,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -877,7 +948,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -904,7 +978,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -931,7 +1008,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -958,7 +1038,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -985,7 +1068,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -1016,7 +1102,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -1056,7 +1145,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
 
       // Extract naddr from URL
@@ -1081,7 +1173,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
 
       const url = page.url()
@@ -1103,7 +1198,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
 
       const url = page.url()
@@ -1161,7 +1259,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -1181,7 +1282,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
@@ -1212,7 +1316,10 @@ test.describe("Commit History and Diff Viewing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await page.getByText("flotilla-budabit").click()
+      // Find the repo card and click the Browse button to navigate
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
