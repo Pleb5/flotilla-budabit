@@ -3,6 +3,7 @@ import {
   TestSeeder,
   seedTestRepo,
   useCleanState,
+  encodeRepoNaddr,
 } from "../helpers"
 import {RepoDetailPage} from "../pages"
 import {TEST_PUBKEYS} from "../fixtures"
@@ -44,7 +45,7 @@ test.describe("Issue Browse & Filter", () => {
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || "browse-test-repo"
 
       // Navigate to the repository issues tab
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.waitForLoad()
@@ -65,19 +66,8 @@ test.describe("Issue Browse & Filter", () => {
       const seededIssues = seeder.getIssues()
       expect(seededIssues.length).toBe(5)
 
-      // Check that issue titles are visible
+      // Wait for issues to load - look for issue links that contain known issue titles
       // The seed helper generates titles like "Bug: Application crashes on startup", etc.
-      const issueItems = page.locator('[class*="issue"], [data-testid*="issue"], article, li').filter({
-        has: page.locator('a, span, div')
-      })
-
-      // Should have multiple issues displayed
-      const issueCount = await issueItems.count()
-      // We expect at least some issues to be visible (may be filtered)
-      expect(issueCount).toBeGreaterThanOrEqual(1)
-
-      // Verify at least one issue title is visible
-      // Seed helper creates issues with titles from a predefined list
       const possibleTitles = [
         "Bug: Application crashes on startup",
         "Feature: Add dark mode support",
@@ -86,14 +76,26 @@ test.describe("Issue Browse & Filter", () => {
         "Bug: Memory leak in event handler",
       ]
 
+      // Wait for at least one issue to be visible
       let foundIssue = false
       for (const title of possibleTitles) {
-        const issueTitle = page.locator(`text=${title}`).first()
-        if (await issueTitle.isVisible({timeout: 1000}).catch(() => false)) {
+        const issueTitle = page.getByRole('link', { name: title }).first()
+        if (await issueTitle.isVisible({timeout: 2000}).catch(() => false)) {
           foundIssue = true
           break
         }
       }
+
+      expect(foundIssue).toBe(true)
+
+      // Count visible issue links (links that point to issues/{id})
+      // Note: href may be relative (issues/...) or absolute (/spaces/.../issues/...)
+      const issueLinks = page.locator('a[href*="issues/"]').filter({
+        hasNot: page.locator('[href$="/issues"]') // Exclude links ending with just "/issues"
+      })
+      const issueCount = await issueLinks.count()
+      // We expect at least some issues to be visible (may be filtered)
+      expect(issueCount).toBeGreaterThanOrEqual(1)
 
       // At least check that the page has some content indicating issues
       const issueContent = page.locator('text=/bug|feature|enhancement|issue/i').first()
@@ -112,7 +114,7 @@ test.describe("Issue Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -148,7 +150,7 @@ test.describe("Issue Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -164,23 +166,18 @@ test.describe("Issue Browse & Filter", () => {
         await page.waitForTimeout(500)
 
         // Verify that only open issues are shown
-        // Check for open status indicators
-        const openIndicators = page.locator(
-          '[class*="open"], [data-status="open"], text=/open/i'
-        )
-
-        // Check that closed status indicators are not visible (or fewer than before)
-        const closedIndicators = page.locator(
-          '[class*="closed"], [data-status="closed"]'
-        )
+        // Check for open status indicators (use separate locators to avoid CSS parsing issues)
+        const openIndicatorsCss = page.locator('[class*="open"], [data-status="open"]')
+        const openIndicatorsText = page.locator('text=/open/i')
 
         // At minimum, we should see some indication of filtering
         const currentUrl = page.url()
         const hasFilterInUrl = currentUrl.includes('status=open') || currentUrl.includes('filter=open')
 
         // Either URL reflects filter or page content shows open issues
-        const openCount = await openIndicators.count()
-        expect(openCount >= 0 || hasFilterInUrl).toBeTruthy()
+        const openCountCss = await openIndicatorsCss.count()
+        const openCountText = await openIndicatorsText.count()
+        expect(openCountCss >= 0 || openCountText > 0 || hasFilterInUrl).toBeTruthy()
       }
     })
 
@@ -195,7 +192,7 @@ test.describe("Issue Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -210,16 +207,16 @@ test.describe("Issue Browse & Filter", () => {
         await closedFilter.click()
         await page.waitForTimeout(500)
 
-        // Verify closed issues are shown
-        const closedIndicators = page.locator(
-          '[class*="closed"], [data-status="closed"], text=/closed/i'
-        )
+        // Verify closed issues are shown (use separate locators to avoid CSS parsing issues)
+        const closedIndicatorsCss = page.locator('[class*="closed"], [data-status="closed"]')
+        const closedIndicatorsText = page.locator('text=/closed/i')
 
         const currentUrl = page.url()
         const hasFilterInUrl = currentUrl.includes('status=closed') || currentUrl.includes('filter=closed')
 
-        const closedCount = await closedIndicators.count()
-        expect(closedCount >= 0 || hasFilterInUrl).toBeTruthy()
+        const closedCountCss = await closedIndicatorsCss.count()
+        const closedCountText = await closedIndicatorsText.count()
+        expect(closedCountCss >= 0 || closedCountText > 0 || hasFilterInUrl).toBeTruthy()
       }
     })
 
@@ -234,7 +231,7 @@ test.describe("Issue Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -274,7 +271,7 @@ test.describe("Issue Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -347,7 +344,7 @@ An error message appears and settings are not saved.
       expect(repos.length).toBeGreaterThan(0)
       const repo = repos[0]
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -389,7 +386,7 @@ An error message appears and settings are not saved.
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -462,7 +459,7 @@ An error message appears and settings are not saved.
 
       await seeder.setup(page)
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -537,7 +534,7 @@ An error message appears and settings are not saved.
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -625,7 +622,7 @@ An error message appears and settings are not saved.
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -702,7 +699,7 @@ An error message appears and settings are not saved.
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -786,7 +783,7 @@ An error message appears and settings are not saved.
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -839,7 +836,7 @@ An error message appears and settings are not saved.
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()

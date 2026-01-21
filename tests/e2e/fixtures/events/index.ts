@@ -27,9 +27,14 @@ export {
   createRepoAnnouncement,
   createRepoState,
   getRepoAddress,
+  encodeRepoNaddr,
+  addressToNaddr,
+  signTestEvent,
+  getPrivateKeyForPubkey,
 
   // Types
   type UnsignedEvent,
+  type SignedEvent,
   type RepoAnnouncementOptions,
   type RepoStateOptions,
   type RepoRef,
@@ -46,6 +51,7 @@ export {
 
   // Test constants
   TEST_PUBKEYS,
+  TEST_PRIVATE_KEYS,
   TEST_COMMITS,
   BASE_TIMESTAMP,
 } from './repo';

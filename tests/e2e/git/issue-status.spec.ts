@@ -4,6 +4,7 @@ import {
   seedTestRepo,
   useCleanState,
   encodeRelay,
+  encodeRepoNaddr,
   KIND_ISSUE,
   KIND_STATUS_OPEN,
   KIND_STATUS_CLOSED,
@@ -61,7 +62,7 @@ test.describe("Issue Status & Updates", () => {
       const issue = issues[0]
 
       // Navigate to the repository issues tab
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.waitForLoad()
@@ -138,7 +139,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -212,7 +213,7 @@ test.describe("Issue Status & Updates", () => {
       const issue = issues[0]
 
       // Navigate to the repository issues tab
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.waitForLoad()
@@ -295,7 +296,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -344,7 +345,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -418,7 +419,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -481,7 +482,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -542,7 +543,7 @@ test.describe("Issue Status & Updates", () => {
       const issues = seeder.getIssues()
       const issue = issues[0]
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -617,7 +618,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -667,7 +668,7 @@ test.describe("Issue Status & Updates", () => {
       const issues = seeder.getIssues()
       const issue = issues[0]
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -735,7 +736,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -784,7 +785,7 @@ test.describe("Issue Status & Updates", () => {
       const issues = seeder.getIssues()
       const issue = issues[0]
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -845,7 +846,7 @@ test.describe("Issue Status & Updates", () => {
       const issues = seeder.getIssues()
       const issue = issues[0]
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -900,7 +901,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -958,7 +959,7 @@ test.describe("Issue Status & Updates", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -1030,7 +1031,7 @@ test.describe("Issue Status & Updates", () => {
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
       const expectedRepoAddress = `30617:${repo.pubkey}:${repoIdentifier}`
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()

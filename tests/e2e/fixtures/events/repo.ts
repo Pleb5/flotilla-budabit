@@ -3,14 +3,48 @@
  * Kind 30617: Repository Announcement
  * Kind 30618: Repository State
  */
+import { nip19, getPublicKey, getEventHash, finalizeEvent } from 'nostr-tools';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 
-// Test pubkeys (32-byte hex strings)
-export const TEST_PUBKEYS = {
-  alice: 'a'.repeat(64),
-  bob: 'b'.repeat(64),
-  charlie: 'c'.repeat(64),
-  maintainer: 'd'.repeat(64),
+// ============================================================================
+// Test Keypairs
+// ============================================================================
+// These are deterministic test private keys (32 bytes each, hex encoded).
+// Using real cryptographic keys allows events to pass signature verification.
+// NEVER use these keys for real applications - they are public test keys.
+
+/**
+ * Pre-defined test private keys (hex-encoded 32-byte keys)
+ * These generate valid Nostr keypairs for testing.
+ */
+export const TEST_PRIVATE_KEYS = {
+  // Deterministic keys derived from simple patterns for reproducibility
+  alice: '0101010101010101010101010101010101010101010101010101010101010101',
+  bob: '0202020202020202020202020202020202020202020202020202020202020202',
+  charlie: '0303030303030303030303030303030303030303030303030303030303030303',
+  maintainer: '0404040404040404040404040404040404040404040404040404040404040404',
 } as const;
+
+// Test pubkeys derived from the private keys above
+// These are the actual public keys corresponding to the private keys
+export const TEST_PUBKEYS = {
+  alice: getPublicKey(hexToBytes(TEST_PRIVATE_KEYS.alice)),
+  bob: getPublicKey(hexToBytes(TEST_PRIVATE_KEYS.bob)),
+  charlie: getPublicKey(hexToBytes(TEST_PRIVATE_KEYS.charlie)),
+  maintainer: getPublicKey(hexToBytes(TEST_PRIVATE_KEYS.maintainer)),
+} as const;
+
+/**
+ * Get the private key for a given pubkey
+ */
+export function getPrivateKeyForPubkey(pubkey: string): Uint8Array | null {
+  for (const [name, pk] of Object.entries(TEST_PUBKEYS)) {
+    if (pk === pubkey) {
+      return hexToBytes(TEST_PRIVATE_KEYS[name as keyof typeof TEST_PRIVATE_KEYS]);
+    }
+  }
+  return null;
+}
 
 // Test commit hashes (40-char hex)
 export const TEST_COMMITS = {
@@ -286,6 +320,37 @@ export function getRepoAddress(pubkey: string, identifier: string): string {
 }
 
 /**
+ * Encodes a repository address as an naddr bech32 string
+ * This is required for URL routing in the app which uses [id=naddr] param matcher
+ */
+export function encodeRepoNaddr(pubkey: string, identifier: string, relays: string[] = []): string {
+  return nip19.naddrEncode({
+    kind: 30617,
+    pubkey,
+    identifier,
+    relays,
+  });
+}
+
+/**
+ * Encodes an "a" tag address string to naddr
+ * @param address - Format: "30617:pubkey:identifier"
+ */
+export function addressToNaddr(address: string, relays: string[] = []): string {
+  const parts = address.split(':');
+  if (parts.length !== 3) {
+    throw new Error(`Invalid address format: ${address}. Expected "kind:pubkey:identifier"`);
+  }
+  const [kind, pubkey, identifier] = parts;
+  return nip19.naddrEncode({
+    kind: parseInt(kind, 10),
+    pubkey,
+    identifier,
+    relays,
+  });
+}
+
+/**
  * Test fixture for a complete repository with announcement and state
  */
 export const TEST_REPO = {
@@ -293,3 +358,54 @@ export const TEST_REPO = {
   state: FULL_REPO_STATE,
   address: getRepoAddress(TEST_PUBKEYS.alice, 'flotilla-budabit'),
 };
+
+// ============================================================================
+// Event Signing for E2E Tests
+// ============================================================================
+
+/**
+ * Signed Nostr event with id and sig
+ */
+export interface SignedEvent {
+  id: string;
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  sig: string;
+}
+
+/**
+ * Sign an unsigned event using the appropriate test private key.
+ *
+ * If the event's pubkey matches one of our test pubkeys, the corresponding
+ * private key is used. Otherwise, a default key (alice) is used.
+ *
+ * @param event - The unsigned event to sign
+ * @returns A fully signed event with id and sig
+ */
+export function signTestEvent(event: UnsignedEvent): SignedEvent {
+  const pubkey = event.pubkey || TEST_PUBKEYS.alice;
+
+  // Get the corresponding private key
+  let privateKey = getPrivateKeyForPubkey(pubkey);
+  if (!privateKey) {
+    // If we don't have a matching private key, use alice's key
+    // and update the pubkey to match
+    privateKey = hexToBytes(TEST_PRIVATE_KEYS.alice);
+  }
+
+  // Create the event template
+  const eventTemplate = {
+    kind: event.kind,
+    created_at: event.created_at,
+    tags: event.tags,
+    content: event.content,
+  };
+
+  // Use nostr-tools' finalizeEvent to sign it properly
+  const signedEvent = finalizeEvent(eventTemplate, privateKey);
+
+  return signedEvent as SignedEvent;
+}

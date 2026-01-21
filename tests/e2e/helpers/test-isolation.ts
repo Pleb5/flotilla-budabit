@@ -63,25 +63,59 @@ const DEFAULT_CONFIG: Required<TestIsolationConfig> = {
 /**
  * Clear browser storage (localStorage, sessionStorage, IndexedDB)
  * Ensures each test starts with a clean slate
+ *
+ * Preserves auth-related keys that are needed for authenticated tests
  */
-export async function clearBrowserStorage(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    // Clear localStorage
-    localStorage.clear()
+export async function clearBrowserStorage(page: Page, preserveAuth: boolean = true): Promise<void> {
+  await page.evaluate((preserveAuthKeys) => {
+    // Auth keys to preserve when preserveAuth is true
+    const authKeys = [
+      'nostr-key',
+      'nostr:key',
+      'nsec',
+      'npub',
+      'pubkey',
+      'privateKey',
+      'secretKey',
+      'loginMethod',
+      'identity',
+      'auth',
+      'session',
+      'user',
+    ]
+
+    // Clear localStorage (preserving auth keys if needed)
+    if (preserveAuthKeys) {
+      const keysToRemove: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && !authKeys.some(authKey => key.toLowerCase().includes(authKey.toLowerCase()))) {
+          keysToRemove.push(key)
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key))
+    } else {
+      localStorage.clear()
+    }
 
     // Clear sessionStorage
     sessionStorage.clear()
 
-    // Clear IndexedDB databases
+    // Clear IndexedDB databases (but preserve auth-related ones)
     const databases = indexedDB.databases ? indexedDB.databases() : Promise.resolve([])
     databases.then((dbs: Array<{name?: string}>) => {
       dbs.forEach((db: {name?: string}) => {
         if (db.name) {
-          indexedDB.deleteDatabase(db.name)
+          const isAuthDb = preserveAuthKeys && authKeys.some(authKey =>
+            db.name!.toLowerCase().includes(authKey.toLowerCase())
+          )
+          if (!isAuthDb) {
+            indexedDB.deleteDatabase(db.name)
+          }
         }
       })
     })
-  })
+  }, preserveAuth)
 }
 
 /**
@@ -150,14 +184,16 @@ export function useCleanState(
 ): void {
   const finalConfig = {...DEFAULT_CONFIG, ...config}
 
-  testInstance.beforeEach(async ({page, context}) => {
+  testInstance.beforeEach(async ({page}) => {
     if (finalConfig.clearStorage) {
       // Navigate to the app first to get a proper origin for localStorage access
       // about:blank doesn't allow localStorage access due to security restrictions
       await page.goto("/")
       await page.waitForLoadState("domcontentloaded")
-      await clearBrowserStorage(page)
-      await clearCookies(context)
+      // Clear browser storage but preserve auth-related keys and cookies
+      // to maintain the authenticated state from the setup project
+      await clearBrowserStorage(page, true)
+      // DO NOT clear cookies - they contain authentication state loaded from storageState
     }
   })
 

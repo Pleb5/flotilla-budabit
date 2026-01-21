@@ -17,6 +17,7 @@ import {
   TestSeeder,
   seedTestRepo,
   useCleanState,
+  encodeRepoNaddr,
   KIND_PATCH,
   KIND_STATUS_OPEN,
   KIND_STATUS_APPLIED,
@@ -66,7 +67,7 @@ test.describe("Patch Status Workflow", () => {
       // Get repo info for navigation
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       // Navigate to the repository patches tab
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -158,7 +159,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -283,7 +284,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -378,7 +379,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -474,7 +475,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -628,7 +629,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -707,7 +708,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -784,7 +785,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -853,7 +854,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -919,7 +920,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       // Verify the maintainer relationship in seeded data
       const maintainerTag = repo.tags.find((t) => t[0] === "p" && t[3] === "maintainer")
@@ -1137,7 +1138,7 @@ test.describe("Patch Status Workflow", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()

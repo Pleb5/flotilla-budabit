@@ -45,6 +45,9 @@ import {
   createAppliedStatus,
   createDraftStatus,
   getRepoAddress,
+  encodeRepoNaddr,
+  addressToNaddr,
+  signTestEvent,
   TEST_PUBKEYS,
   BASE_TIMESTAMP,
   STATUS_KINDS,
@@ -141,8 +144,12 @@ export interface SeedPatchOptions {
 export interface SeedRepoResult {
   /** The naddr-style address for the repo (kind:pubkey:identifier) */
   address: string
+  /** The bech32-encoded naddr for URL routing */
+  naddr: string
   /** The repo identifier (d tag) */
   identifier: string
+  /** The pubkey of the repo owner */
+  pubkey: string
   /** The repo announcement event */
   announcement: UnsignedEvent
   /** All events created for this repo (including issues and patches) */
@@ -304,16 +311,14 @@ index abc123..def456 100644
 }
 
 /**
- * Convert UnsignedEvent to NostrEvent by adding id and sig
+ * Convert UnsignedEvent to NostrEvent by properly signing it.
+ *
+ * Uses the signTestEvent function which uses real cryptographic
+ * signatures that will pass welshman's event validation.
  */
 function toSignedEvent(event: UnsignedEvent): NostrEvent {
-  const id = randomHex(64)
-  return {
-    ...event,
-    id,
-    pubkey: event.pubkey || TEST_PUBKEYS.alice,
-    sig: randomHex(128),
-  } as NostrEvent
+  // Sign the event with the appropriate test private key
+  return signTestEvent(event) as NostrEvent
 }
 
 // =============================================================================
@@ -407,10 +412,13 @@ export class TestSeeder {
 
     events.push(announcement)
 
+    // Sign and add the repo announcement
+    this.seededEvents.push(toSignedEvent(announcement))
+
     // Calculate the repo address
     const address = getRepoAddress(pubkey, identifier)
 
-    // Add issues if requested
+    // Add issues if requested (seedIssue adds its own events to seededEvents)
     if (opts.withIssues && opts.withIssues > 0) {
       for (let i = 0; i < opts.withIssues; i++) {
         const issueResult = this.seedIssue({
@@ -423,7 +431,7 @@ export class TestSeeder {
       }
     }
 
-    // Add patches if requested
+    // Add patches if requested (seedPatch adds its own events to seededEvents)
     if (opts.withPatches && opts.withPatches > 0) {
       for (let i = 0; i < opts.withPatches; i++) {
         const patchResult = this.seedPatch({
@@ -436,15 +444,14 @@ export class TestSeeder {
       }
     }
 
-    // Convert to signed events and add to seeded list
-    for (const event of events) {
-      const signed = toSignedEvent(event)
-      this.seededEvents.push(signed)
-    }
+    // Generate the naddr for URL routing
+    const naddr = encodeRepoNaddr(pubkey, identifier)
 
     return {
       address,
+      naddr,
       identifier,
+      pubkey,
       announcement,
       events,
     }
@@ -475,10 +482,12 @@ export class TestSeeder {
 
     events.push(issue)
 
-    // Generate an event ID for the issue
-    const eventId = randomHex(64)
+    // Sign the issue first to get its real event ID
+    const signedIssue = toSignedEvent(issue)
+    this.seededEvents.push(signedIssue)
+    const eventId = signedIssue.id
 
-    // Create status event based on requested status
+    // Create status event based on requested status (now using real issue ID)
     if (options.status) {
       const statusTimestamp = this.nextTimestamp()
       let statusEvent: UnsignedEvent
@@ -519,6 +528,7 @@ export class TestSeeder {
       }
 
       events.push(statusEvent)
+      this.seededEvents.push(toSignedEvent(statusEvent))
     }
 
     // Add comments if requested
@@ -538,17 +548,8 @@ export class TestSeeder {
           pubkey: commentPubkey,
         }
         events.push(comment)
+        this.seededEvents.push(toSignedEvent(comment))
       }
-    }
-
-    // Add to seeded events
-    for (const event of events) {
-      const signed = toSignedEvent(event)
-      // Use our pre-generated eventId for the issue
-      if (event === issue) {
-        signed.id = eventId
-      }
-      this.seededEvents.push(signed)
     }
 
     return {
@@ -587,10 +588,12 @@ export class TestSeeder {
 
     events.push(patch)
 
-    // Generate an event ID for the patch
-    const eventId = randomHex(64)
+    // Sign the patch first to get its real event ID
+    const signedPatch = toSignedEvent(patch)
+    this.seededEvents.push(signedPatch)
+    const eventId = signedPatch.id
 
-    // Create status event based on requested status
+    // Create status event based on requested status (now using real patch ID)
     if (options.status) {
       const statusTimestamp = this.nextTimestamp()
       let statusEvent: UnsignedEvent
@@ -632,6 +635,7 @@ export class TestSeeder {
       }
 
       events.push(statusEvent)
+      this.seededEvents.push(toSignedEvent(statusEvent))
     }
 
     // Add reviews if requested
@@ -650,17 +654,8 @@ export class TestSeeder {
           pubkey: reviewerPubkey,
         }
         events.push(review)
+        this.seededEvents.push(toSignedEvent(review))
       }
-    }
-
-    // Add to seeded events
-    for (const event of events) {
-      const signed = toSignedEvent(event)
-      // Use our pre-generated eventId for the patch
-      if (event === patch) {
-        signed.id = eventId
-      }
-      this.seededEvents.push(signed)
     }
 
     return {
@@ -858,8 +853,82 @@ export async function seedMultipleRepos(
 }
 
 // =============================================================================
+// URL Generation Helpers
+// =============================================================================
+
+/**
+ * Default relay URL used in test URLs
+ */
+export const TEST_RELAY = "ws://localhost:7000"
+export const TEST_RELAY_ENCODED = encodeURIComponent(TEST_RELAY)
+
+/**
+ * Generate a repository detail URL for testing
+ */
+export function getRepoUrl(naddr: string, relay: string = TEST_RELAY): string {
+  const encodedRelay = encodeURIComponent(relay)
+  return `/spaces/${encodedRelay}/git/${naddr}/`
+}
+
+/**
+ * Generate a repository issues URL
+ */
+export function getRepoIssuesUrl(naddr: string, relay: string = TEST_RELAY): string {
+  const encodedRelay = encodeURIComponent(relay)
+  return `/spaces/${encodedRelay}/git/${naddr}/issues`
+}
+
+/**
+ * Generate a repository patches URL
+ */
+export function getRepoPatchesUrl(naddr: string, relay: string = TEST_RELAY): string {
+  const encodedRelay = encodeURIComponent(relay)
+  return `/spaces/${encodedRelay}/git/${naddr}/patches`
+}
+
+/**
+ * Generate a repository code URL
+ */
+export function getRepoCodeUrl(naddr: string, relay: string = TEST_RELAY): string {
+  const encodedRelay = encodeURIComponent(relay)
+  return `/spaces/${encodedRelay}/git/${naddr}/code`
+}
+
+/**
+ * Generate a repository commits URL
+ */
+export function getRepoCommitsUrl(naddr: string, relay: string = TEST_RELAY): string {
+  const encodedRelay = encodeURIComponent(relay)
+  return `/spaces/${encodedRelay}/git/${naddr}/commits`
+}
+
+/**
+ * Generate a specific issue detail URL
+ */
+export function getIssueDetailUrl(naddr: string, issueId: string, relay: string = TEST_RELAY): string {
+  const encodedRelay = encodeURIComponent(relay)
+  return `/spaces/${encodedRelay}/git/${naddr}/issues/${issueId}`
+}
+
+/**
+ * Generate a specific patch detail URL
+ */
+export function getPatchDetailUrl(naddr: string, patchId: string, relay: string = TEST_RELAY): string {
+  const encodedRelay = encodeURIComponent(relay)
+  return `/spaces/${encodedRelay}/git/${naddr}/patches/${patchId}`
+}
+
+/**
+ * Generate the git repos list URL
+ */
+export function getGitReposUrl(relay: string = TEST_RELAY): string {
+  const encodedRelay = encodeURIComponent(relay)
+  return `/spaces/${encodedRelay}/git`
+}
+
+// =============================================================================
 // Re-exports for convenience
 // =============================================================================
 
-export {TEST_PUBKEYS, BASE_TIMESTAMP} from "../fixtures/events"
+export {TEST_PUBKEYS, BASE_TIMESTAMP, encodeRepoNaddr, addressToNaddr} from "../fixtures/events"
 export {NIP34_KINDS, type NostrEvent} from "./mock-relay"

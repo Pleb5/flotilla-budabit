@@ -17,6 +17,7 @@ import {test, expect} from "@playwright/test"
 import {
   TestSeeder,
   useCleanState,
+  encodeRepoNaddr,
   KIND_PATCH,
   KIND_LABEL,
   KIND_STATUS_OPEN,
@@ -113,7 +114,7 @@ async function setupPatchScenario(
 
   const repo = seeder.getRepos()[0]
   const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-  const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+  const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
   return {
     seeder,

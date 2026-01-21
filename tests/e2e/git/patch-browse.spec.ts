@@ -16,6 +16,7 @@ import {
   TestSeeder,
   seedTestRepo,
   useCleanState,
+  encodeRepoNaddr,
   KIND_PATCH,
   KIND_STATUS_OPEN,
   KIND_STATUS_APPLIED,
@@ -50,7 +51,7 @@ test.describe("Patch Browse & Filter", () => {
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || "patch-browse-repo"
 
       // Navigate to the repository patches tab
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.waitForLoad()
@@ -96,7 +97,7 @@ test.describe("Patch Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToPatches()
@@ -121,7 +122,7 @@ test.describe("Patch Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToPatches()
@@ -147,7 +148,7 @@ test.describe("Patch Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToPatches()
@@ -186,7 +187,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -238,7 +239,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -284,7 +285,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -329,7 +330,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -379,7 +380,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -412,7 +413,7 @@ test.describe("Patch Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToPatches()
@@ -478,7 +479,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -523,7 +524,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -544,7 +545,7 @@ test.describe("Patch Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToPatches()
@@ -580,7 +581,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -649,7 +650,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -692,7 +693,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -748,7 +749,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
@@ -790,7 +791,7 @@ test.describe("Patch Browse & Filter", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToPatches()
@@ -838,7 +839,7 @@ test.describe("Patch Browse & Filter", () => {
 
       const repo = seeder.getRepos()[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()

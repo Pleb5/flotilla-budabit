@@ -10,6 +10,7 @@ import {
   getTagValues,
   getTags,
   hasTag,
+  encodeRepoNaddr,
 } from "../helpers"
 import {RepoDetailPage} from "../pages"
 import {TEST_PUBKEYS} from "../fixtures"
@@ -67,7 +68,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -128,7 +129,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -224,7 +225,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -300,7 +301,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -353,7 +354,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -440,7 +441,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -497,7 +498,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -550,7 +551,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -636,7 +637,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -715,7 +716,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -767,7 +768,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -859,7 +860,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -912,7 +913,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -975,7 +976,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -1032,7 +1033,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -1123,7 +1124,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -1178,7 +1179,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -1258,7 +1259,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()
@@ -1327,7 +1328,7 @@ test.describe("Issue Comments", () => {
       const repo = repos[0]
       const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
 
-      const naddr = `30617:${repo.pubkey}:${repoIdentifier}`
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
       await repoDetail.goto()
       await repoDetail.goToIssues()

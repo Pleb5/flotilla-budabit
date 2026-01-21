@@ -11,7 +11,7 @@ export default defineConfig({
   server: {
     port: 1847,
     fs: {
-      allow: ['.', '../packages'],
+      allow: ['.', '../packages', '../../node_modules'],
     },
     // host: "0.0.0.0",
     // strictPort: true,

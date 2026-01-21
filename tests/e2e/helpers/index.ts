@@ -153,6 +153,20 @@ export {
   seedTestRepo,
   seedTestScenario,
   seedMultipleRepos,
+  // URL generation helpers
+  TEST_RELAY,
+  TEST_RELAY_ENCODED,
+  getRepoUrl,
+  getRepoIssuesUrl,
+  getRepoPatchesUrl,
+  getRepoCodeUrl,
+  getRepoCommitsUrl,
+  getIssueDetailUrl,
+  getPatchDetailUrl,
+  getGitReposUrl,
+  // naddr encoding helpers
+  encodeRepoNaddr,
+  addressToNaddr,
   // Types
   type SeedRepoOptions,
   type SeedIssueOptions,
