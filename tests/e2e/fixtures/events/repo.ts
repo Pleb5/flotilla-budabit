@@ -242,7 +242,7 @@ export const FULL_REPO_ANNOUNCEMENT = createRepoAnnouncement({
     'https://github.com/example/flotilla-budabit.git',
     'git@github.com:example/flotilla-budabit.git',
   ],
-  relays: ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band'],
+  relays: ['wss://relay.damus.io', 'wss://nos.lol'],
   maintainers: [TEST_PUBKEYS.alice, TEST_PUBKEYS.bob],
   earliestUniqueCommit: TEST_COMMITS.initial,
   hashtags: ['nostr', 'git', 'collaboration', 'svelte'],
