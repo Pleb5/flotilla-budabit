@@ -12,3 +12,6 @@
 [submodule "packages/flotilla-extension-template"]
 	path = packages/flotilla-extension-template
 	url = https://github.com/chebizarro/flotilla-extension-template.git
+[submodule "packages/budabit-kanban-extension"]
+	path = packages/budabit-kanban-extension
+	url = https://github.com/chebizarro/budabit-kanban-extension.git
