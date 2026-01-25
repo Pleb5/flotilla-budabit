@@ -141,6 +141,11 @@
 
   // Load commits with pagination
   async function loadCommits() {
+    const selectedBranch = repoClass.selectedBranch;
+    const storedBranch = repoClass.commitManager?.getCurrentBranch?.();
+    console.log(`[commits/loadCommits] Called! currentPage=${currentPage}, selectedBranch=${selectedBranch}, storedBranch=${storedBranch}, previousBranch=${previousBranch}`);
+    console.trace("[commits/loadCommits] Stack trace:");
+
     if (!initialLoadComplete) {
       commitsLoading = true
     }

@@ -13,6 +13,14 @@ import {
   setupTokensSync,
 } from "./requests"
 
+// Helper to compare relay arrays
+const arraysEqual = (a: string[], b: string[]) => {
+    if (a.length !== b.length) return false
+    const sortedA = [...a].sort()
+    const sortedB = [...b].sort()
+    return sortedA.every((v, i) => v === sortedB[i])
+}
+
 const syncUserGitData = () => {
     const unsubscribersByKey = new Map<string, Unsubscriber>()
 
@@ -83,7 +91,7 @@ const syncUserGitData = () => {
     // Subscribe to pubkey changes only - bookmarks and git data are public, don't need shouldUnwrap
     const unsubscribePubkey = pubkey.subscribe(($pubkey) => {
         console.log("[syncUserGitData] Subscription fired - pubkey:", $pubkey, "currentPubkey:", currentPubkey)
-        
+
         if ($pubkey !== currentPubkey) {
             unsubscribeAll()
         }
@@ -94,6 +102,12 @@ const syncUserGitData = () => {
             const controller = new AbortController()
             loadController = controller
 
+            // Immediately set up subscriptions and load with fallback relays
+            // This ensures data is available as soon as possible
+            console.log("[syncUserGitData] Setting up subscriptions immediately with GIT_RELAYS fallback")
+            subscribeAll($pubkey, GIT_RELAYS)
+
+            // Then also try to resolve user relays and reload if different
             void (async () => {
                 try {
                     ensureNotAborted(controller.signal)
@@ -101,7 +115,14 @@ const syncUserGitData = () => {
                     const resolvedRelays = await resolveUserRelays(controller.signal)
                     console.log("[syncUserGitData] Resolved relays:", resolvedRelays)
                     ensureNotAborted(controller.signal)
-                    subscribeAll($pubkey, resolvedRelays)
+
+                    // Only reload if user relays are different from GIT_RELAYS
+                    if (resolvedRelays.length > 0 && !arraysEqual(resolvedRelays, GIT_RELAYS)) {
+                        console.log("[syncUserGitData] Reloading with user relays")
+                        loadRepositories($pubkey, resolvedRelays)
+                        loadGraspServers($pubkey, resolvedRelays)
+                        loadTokens($pubkey, resolvedRelays)
+                    }
                 } catch (error) {
                     if (error instanceof DOMException && error.name === "AbortError") {
                         return
