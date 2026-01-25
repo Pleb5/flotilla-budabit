@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "./build.sh",
+    "build-in-production": "./build-in-production.sh",
     "sourcemaps": "./build.sh && ./sourcemaps.sh",
     "release:android": "./build.sh && cap build android --androidreleasetype APK --signing-type apksigner",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json",
