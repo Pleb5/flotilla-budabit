@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {createEventDispatcher} from "svelte"
   import ExtensionPermissions from "./ExtensionPermissions.svelte"
   import ExtensionIcon from "./ExtensionIcon.svelte"
   import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
@@ -8,12 +7,12 @@
     manifest: ExtensionManifest | SmartWidgetEvent
     enabled?: boolean
     type?: "nip89" | "widget"
+    ontoggle?: (detail: {enabled: boolean}) => void
   }
 
-  const {manifest, enabled = false, type = "nip89"}: Props = $props()
-  const dispatch = createEventDispatcher<{toggle: {enabled: boolean}}>()
+  const {manifest, enabled = false, type = "nip89", ontoggle}: Props = $props()
 
-  const onToggle = (value: boolean) => dispatch("toggle", {enabled: value})
+  const onToggle = (value: boolean) => ontoggle?.({enabled: value})
 
   const isWidget = type === "widget"
   const widget = isWidget ? (manifest as SmartWidgetEvent) : null

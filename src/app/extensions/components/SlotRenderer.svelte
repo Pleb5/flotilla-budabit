@@ -8,7 +8,6 @@
 </style>
 
 <script lang="ts">
-  import {onMount, onDestroy} from "svelte"
   import {renderSlot} from "../slots"
   import type {ExtensionSlotId} from "../types"
 
@@ -19,15 +18,16 @@
 
   const {slotId, context = {}}: Props = $props()
 
-  let container: HTMLElement
+  let container: HTMLElement | undefined = $state()
 
-  // Confirmed Svelte 5 compliant — retains explicit lifecycle, no $store usage
-  onMount(() => {
-    renderSlot(slotId, container, context)
-  })
-
-  onDestroy(() => {
-    if (container) container.innerHTML = ""
+  // Render slot when container is available; cleanup on destroy
+  $effect(() => {
+    if (container) {
+      renderSlot(slotId, container, context)
+      return () => {
+        if (container) container.innerHTML = ""
+      }
+    }
   })
 </script>
 

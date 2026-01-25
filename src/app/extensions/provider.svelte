@@ -1,29 +1,32 @@
 <script lang="ts">
-  import {onMount, onDestroy} from "svelte"
+  import {onDestroy} from "svelte"
   import {extensionRegistry} from "./registry"
   import {extensionSettings} from "./settings"
   import type {LoadedExtension} from "./types"
 
-  let enabledIds = $state<Set<string>>(new Set())
+  // Get store from registry
+  const registryStore = extensionRegistry.asStore()
+
+  // Track enabled IDs from settings store
+  const settings = $derived($extensionSettings)
+  const enabledIds = $derived(new Set(settings.enabled || []))
+
+  // Track loaded extension IDs
   let loadedIds = $state<Set<string>>(new Set())
 
-  let unsubRegistry: (() => void) | null = null
-  let unsubSettings: (() => void) | null = null
+  // Load/unload extensions when registry or enabled state changes
+  const extensions = $derived($registryStore as LoadedExtension[])
 
-  onMount(() => {
-    // Track enabled IDs
-    unsubSettings = extensionSettings.subscribe(settings => {
-      enabledIds = new Set(settings.enabled || [])
-    })
+  $effect(() => {
+    const presentIds = new Set(extensions.map(ext => ext.id))
 
-    // Load runtime for enabled extensions of any type
-    unsubRegistry = extensionRegistry.asStore().subscribe(async extensions => {
-      const presentIds = new Set((extensions as LoadedExtension[]).map(ext => ext.id))
+    // Load newly enabled extensions
+    for (const ext of extensions) {
+      if (!enabledIds.has(ext.id)) continue
+      if (loadedIds.has(ext.id)) continue
 
-      for (const ext of extensions as LoadedExtension[]) {
-        if (!enabledIds.has(ext.id)) continue
-        if (loadedIds.has(ext.id)) continue
-
+      // Use async IIFE to handle loading
+      ;(async () => {
         try {
           if (ext.type === "nip89") {
             await extensionRegistry.loadIframeExtension(ext.manifest)
@@ -34,18 +37,16 @@
         } catch (e) {
           console.error("Failed to load extension runtime:", e)
         }
-      }
+      })()
+    }
 
-      // Drop ids that are no longer enabled or no longer registered
-      loadedIds = new Set(
-        [...loadedIds].filter(id => enabledIds.has(id) && presentIds.has(id)),
-      )
-    })
+    // Drop ids that are no longer enabled or no longer registered
+    loadedIds = new Set(
+      [...loadedIds].filter(id => enabledIds.has(id) && presentIds.has(id)),
+    )
   })
 
   onDestroy(() => {
-    unsubRegistry?.()
-    unsubSettings?.()
     loadedIds.forEach(id => {
       extensionRegistry.unloadExtension(id)
     })

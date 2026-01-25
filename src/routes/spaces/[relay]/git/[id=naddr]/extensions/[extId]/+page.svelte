@@ -1,6 +1,6 @@
 <script lang="ts">
   import {Card, Button} from "@nostr-git/ui"
-  import {onDestroy, getContext} from "svelte"
+  import {getContext} from "svelte"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import {pubkey} from "@welshman/app"
@@ -124,14 +124,15 @@
     }
   }
 
+  // Send context updates when ready, cleanup bridge on destroy
   $effect(() => {
     if (!ready || !bridge) return
     sendContext()
-  })
 
-  onDestroy(() => {
-    bridge?.detach()
-    bridge = null
+    return () => {
+      bridge?.detach()
+      bridge = null
+    }
   })
 </script>
 

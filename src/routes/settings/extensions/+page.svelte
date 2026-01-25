@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {onMount, onDestroy} from "svelte"
   import {extensionSettings} from "@app/extensions/settings"
   import ExtensionCard from "@app/components/ExtensionCard.svelte"
   import {
@@ -26,11 +25,15 @@
     | {type: "nip89"; id: string; manifest: ExtensionManifest}
     | {type: "widget"; id: string; manifest: SmartWidgetEvent}
 
-  // Installed/Enabled (from settings)
-  let installedNip89 = $state<ExtensionManifest[]>([])
-  let installedWidgets = $state<SmartWidgetEvent[]>([])
-  let installed = $state<InstalledItem[]>([])
-  let enabledIds = $state<string[]>([])
+  // Derived from settings store
+  const settings = $derived($extensionSettings)
+  const installedNip89 = $derived<ExtensionManifest[]>(Object.values(settings.installed?.nip89 || {}))
+  const installedWidgets = $derived<SmartWidgetEvent[]>(Object.values(settings.installed?.widget || {}))
+  const installed = $derived<InstalledItem[]>([
+    ...installedNip89.map(m => ({type: "nip89" as const, id: m.id, manifest: m})),
+    ...installedWidgets.map(w => ({type: "widget" as const, id: w.identifier, manifest: w})),
+  ])
+  const enabledIds = $derived<string[]>(settings.enabled || [])
 
   // Discovery state
   const discoveredMap = new Map<string, ExtensionManifest>()
@@ -56,67 +59,61 @@
 
   // Check if a recommended extension is already installed
   const isRecommendedInstalled = (id: string) => {
-    return installedNip89.some((m: ExtensionManifest) => m.id === id) || 
+    return installedNip89.some((m: ExtensionManifest) => m.id === id) ||
            installedWidgets.some((w: SmartWidgetEvent) => w.identifier === id)
   }
 
-  let unsub: (() => void) | null = null
   let controller: AbortController | null = null
 
-  onMount(async () => {
-    unsub = extensionSettings.subscribe(s => {
-      installedNip89 = Object.values(s.installed?.nip89 || {})
-      installedWidgets = Object.values(s.installed?.widget || {})
-      installed = [
-        ...installedNip89.map(m => ({type: "nip89" as const, id: m.id, manifest: m})),
-        ...installedWidgets.map(w => ({type: "widget" as const, id: w.identifier, manifest: w})),
-      ]
-      enabledIds = s.enabled || []
-    })
-
+  // Discovery effect - runs on mount, cleans up on destroy
+  $effect(() => {
     // Live discovery (initial load + subscription)
     loadingDiscovery = true
     controller = new AbortController()
-    try {
-      const filters = [{kinds: [31990], limit: 200}]
-      // Initial load
-      await load({relays: INDEXER_RELAYS, filters})
-      // Live updates
-      request({
-        relays: INDEXER_RELAYS,
-        filters: [{kinds: [31990]}],
-        signal: controller.signal,
-        onEvent: e => {
-          try {
-            const m = JSON.parse(e.content)
-            if (m && m.id && m.name && m.entrypoint) {
-              discoveredMap.set(m.id, m as ExtensionManifest)
-              discovered = Array.from(discoveredMap.values())
+
+    ;(async () => {
+      try {
+        const filters = [{kinds: [31990], limit: 200}]
+        // Initial load
+        await load({relays: INDEXER_RELAYS, filters})
+        // Live updates
+        request({
+          relays: INDEXER_RELAYS,
+          filters: [{kinds: [31990]}],
+          signal: controller!.signal,
+          onEvent: e => {
+            try {
+              const m = JSON.parse(e.content)
+              if (m && m.id && m.name && m.entrypoint) {
+                discoveredMap.set(m.id, m as ExtensionManifest)
+                discovered = Array.from(discoveredMap.values())
+              }
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore
-          }
-        },
-      })
-    } catch (e) {
-      pushToast({theme: "error", message: "Failed to discover extensions"})
-    } finally {
-      loadingDiscovery = false
-    }
+          },
+        })
+      } catch (e) {
+        pushToast({theme: "error", message: "Failed to discover extensions"})
+      } finally {
+        loadingDiscovery = false
+      }
+    })()
 
-    loadingWidgetDiscovery = true
-    try {
-      discoveredWidgets = await discoverSmartWidgets()
-    } catch (e) {
-      pushToast({theme: "error", message: "Failed to discover smart widgets"})
-    } finally {
-      loadingWidgetDiscovery = false
-    }
-  })
+    ;(async () => {
+      loadingWidgetDiscovery = true
+      try {
+        discoveredWidgets = await discoverSmartWidgets()
+      } catch (e) {
+        pushToast({theme: "error", message: "Failed to discover smart widgets"})
+      } finally {
+        loadingWidgetDiscovery = false
+      }
+    })()
 
-  onDestroy(() => {
-    unsub?.()
-    controller?.abort()
+    return () => {
+      controller?.abort()
+    }
   })
 
   const toggle = (id: string, value: boolean) => {
@@ -198,7 +195,7 @@
               manifest={item.manifest}
               type={item.type}
               enabled={enabledIds.includes(item.id)}
-              on:toggle={({detail}) => toggle(item.id, detail.enabled)} />
+              ontoggle={({enabled}) => toggle(item.id, enabled)} />
             <Button class="btn btn-outline btn-error btn-sm" onclick={() => onUninstall(item.id)}
               >Uninstall</Button>
           </div>
