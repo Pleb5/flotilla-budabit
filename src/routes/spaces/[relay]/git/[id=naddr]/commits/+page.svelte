@@ -31,6 +31,12 @@
   // Start with false - only show loading when actually fetching
   let commitsLoading = $state(false)
   let commitsError = $state<string | undefined>(undefined)
+  // Use $derived to directly track repoClass.commits - this ensures reactivity
+  // through the context boundary that $effect doesn't handle well
+  const repoCommits = $derived(repoClass.commits || [])
+  // Also track branchChangeTrigger to force re-derivation on branch switch
+  const commitsTrigger = $derived(repoClass.branchChangeTrigger)
+  // Local commits for filtering/pagination - synced from repoCommits
   let commits = $state<any[]>([])
   let totalCommits = $state<number | undefined>(undefined)
   let currentPage = $state(1)
@@ -64,11 +70,6 @@
   // Handle branch switching state changes
   $effect(() => {
     const isSwitching = repoClass.isBranchSwitching
-    // Track branchChangeTrigger to ensure we re-run when switch completes
-    const branchTrigger = repoClass.branchChangeTrigger
-    // Also track commits from repoClass to trigger re-render when they change
-    const repoCommits = repoClass.commits
-    const selectedBranch = repoClass.selectedBranch
 
     if (isSwitching) {
       // Show loading state while switching
@@ -81,18 +82,41 @@
       branchSwitchComplete = true
       commitsLoading = false
 
-      // Immediately sync commits from repoClass (which is now reactive)
-      // IMPORTANT: Create a new array reference to ensure Svelte 5 reactivity detects the change
-      // This is critical because $derived only re-runs when dependencies change by reference
-      const newCommits = [...(repoCommits || [])];
-      commits = newCommits
-      totalCommits = repoClass.totalCommits
-      hasMoreCommits = repoClass.hasMoreCommits
-
       // Reset branchSwitchComplete after a tick
       setTimeout(() => {
         branchSwitchComplete = false
       }, 0)
+    }
+  })
+
+  // Sync commits from repoCommits $derived whenever it changes
+  // This is separate from the branch switching effect to avoid circular dependencies
+  $effect(() => {
+    // Read the derived values - this creates the dependency
+    const currentRepoCommits = repoCommits
+    const trigger = commitsTrigger
+    const isSwitching = repoClass.isBranchSwitching
+
+    // Don't sync during active switching
+    if (isSwitching) return
+
+    // Sync commits to local state
+    if (currentRepoCommits && currentRepoCommits.length > 0) {
+      commits = [...currentRepoCommits]
+      totalCommits = repoClass.totalCommits
+      hasMoreCommits = repoClass.hasMoreCommits
+
+      // Update authors
+      const newAuthors = new Set<string>()
+      currentRepoCommits.forEach((commit: any) => {
+        if (commit.commit?.author?.name) {
+          newAuthors.add(commit.commit.author.name)
+        }
+      })
+      authors = newAuthors
+
+      initialLoadComplete = true
+      commitsLoading = false
     }
   })
 
