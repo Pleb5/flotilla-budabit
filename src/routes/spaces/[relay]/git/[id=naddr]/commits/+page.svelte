@@ -84,11 +84,14 @@
       commitsLoading = false
 
       // Immediately sync commits from repoClass (which is now reactive)
-      commits = repoCommits || []
+      // IMPORTANT: Create a new array reference to ensure Svelte 5 reactivity detects the change
+      // This is critical because $derived only re-runs when dependencies change by reference
+      const newCommits = [...(repoCommits || [])];
+      commits = newCommits
       totalCommits = repoClass.totalCommits
       hasMoreCommits = repoClass.hasMoreCommits
 
-      console.log("[commits] Branch switch complete, synced commits:", commits.length, "for branch:", selectedBranch)
+      console.log("[commits] Branch switch complete, synced commits:", commits.length, "for branch:", selectedBranch, "firstOid:", commits[0]?.oid?.substring(0, 7))
 
       // Reset branchSwitchComplete after a tick
       setTimeout(() => {
@@ -163,15 +166,19 @@
 
     try {
       const result = await repoClass.loadPage(currentPage);
-      
+
       // Check if the result indicates an error
       if (result && !result.success) {
         throw new Error(result.error || "Failed to load commits");
       }
-      
-      commits = repoClass.commits
+
+      // IMPORTANT: Create a new array reference to ensure Svelte 5 reactivity
+      // detects the change. This is critical for $derived to re-run.
+      commits = [...repoClass.commits]
       totalCommits = repoClass.totalCommits
       hasMoreCommits = repoClass.hasMoreCommits
+
+      console.log("[loadCommits] Updated local commits:", commits.length, "firstOid:", commits[0]?.oid?.substring(0, 7));
 
       // Update authors list with new commits
       const newAuthors = new Set(authors)
@@ -217,18 +224,24 @@
     if (isSwitching) {
       return;
     }
-    
+
     // Update commits from repoClass (especially after branch switches)
     if (repoCommits) {
       // If branch changed, update previousBranch to match
       if (previousBranch !== undefined && currentBranch !== previousBranch) {
         previousBranch = currentBranch;
       }
-      
-      commits = repoCommits;
+
+      // IMPORTANT: Create a new array reference to ensure Svelte 5 reactivity
+      // detects the change. Even though repoCommits is already a new array from
+      // Repo.syncCommitsState(), we spread again to guarantee the reference changes
+      // for the local $state variable.
+      commits = [...repoCommits];
       totalCommits = repoTotalCommits;
       hasMoreCommits = repoHasMore;
-      
+
+      console.log("[commits sync effect] Updated local commits:", commits.length, "branchTrigger:", branchTrigger, "firstOid:", commits[0]?.oid?.substring(0, 7));
+
       // Update authors list
       const newAuthors = new Set<string>();
       repoCommits.forEach((commit: any) => {
@@ -237,7 +250,7 @@
         }
       });
       authors = newAuthors;
-      
+
       // Mark as loaded if we have commits
       if (repoCommits.length > 0) {
         initialLoadComplete = true;
@@ -247,7 +260,17 @@
   })
 
   // Filter commits based on search and filters
+  // IMPORTANT: Track branchChangeTrigger to force re-derivation after branch switches
+  // This is necessary because Svelte 5's fine-grained reactivity may not detect
+  // changes to class-based $state fields accessed via getters through context
   const filteredCommits = $derived.by(() => {
+    // Force dependency tracking on branchChangeTrigger to ensure re-calculation
+    // when branch switches complete (even if commits array reference tracking fails)
+    const _branchTrigger = repoClass.branchChangeTrigger;
+
+    // Log for debugging UI rendering issues
+    console.log("[filteredCommits] Re-calculating, branchTrigger:", _branchTrigger, "commits:", commits?.length, "firstOid:", commits?.[0]?.oid?.substring(0, 7));
+
     if (commits) {
       let filtered = commits
 
