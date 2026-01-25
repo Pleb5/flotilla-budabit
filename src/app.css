@@ -11,6 +11,7 @@
   font-family: "Satoshis";
   font-style: normal;
   font-weight: 400;
+  font-display: swap;
   src:
     local(""),
     url("/fonts/Satoshi Symbol.ttf") format("truetype");
@@ -20,6 +21,7 @@
   font-family: "Lato";
   font-style: normal;
   font-weight: 400;
+  font-display: swap;
   src:
     local(""),
     url("/fonts/Lato-Regular.ttf") format("truetype");
@@ -29,6 +31,7 @@
   font-family: "Lato";
   font-style: normal;
   font-weight: 600;
+  font-display: swap;
   src:
     local(""),
     url("/fonts/Lato-Bold.ttf") format("truetype");
@@ -38,6 +41,7 @@
   font-family: "Lato";
   font-style: italic;
   font-weight: 400;
+  font-display: swap;
   src:
     local(""),
     url("/fonts/Lato-Italic.ttf") format("truetype");
