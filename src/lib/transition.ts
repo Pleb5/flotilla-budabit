@@ -78,3 +78,33 @@ export function slideAndFade(
 export const conditionalTransition =
   (condition: any, transition: any) => (node: any, args?: any) =>
     condition ? transition(node, args) : null
+
+export type StaggeredFadeParams = {
+  delay?: number
+  duration?: number
+  easing?: (t: number) => number
+  staggerDelay?: number
+  index?: number
+}
+
+/**
+ * Staggered fade transition for list items.
+ * Each item fades in with a slight delay based on its index.
+ */
+export const staggeredFade = (
+  node: Element,
+  {
+    delay = 0,
+    duration = 300,
+    easing = cubicOut,
+    staggerDelay = 50,
+    index = 0,
+  }: StaggeredFadeParams = {},
+) => {
+  return {
+    delay: delay + index * staggerDelay,
+    duration,
+    easing,
+    css: (t: number) => `opacity: ${t}; transform: translateY(${(1 - t) * 10}px)`,
+  }
+}

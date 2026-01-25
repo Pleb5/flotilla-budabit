@@ -14,7 +14,8 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {Router} from "@welshman/router"
   import {load} from "@welshman/net"
-  import {fly} from "@lib/transition"
+  import {fly, staggeredFade} from "@lib/transition"
+  import {fade} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
@@ -69,6 +70,8 @@
   let loading = $state(true)
   let activeTab = $state<"my-repos" | "bookmarks">("my-repos")
   let searchQuery = $state("")
+  // Track when cards are ready to be shown (after initial load completes)
+  let cardsReady = $state(false)
 
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
@@ -212,6 +215,18 @@
   })
 
 
+  // Reset cardsReady when tab changes to trigger fresh animation
+  $effect(() => {
+    const tab = activeTab
+    cardsReady = false
+    // Re-trigger animation after brief delay
+    setTimeout(() => {
+      if ($repositoriesStore.length > 0) {
+        cardsReady = true
+      }
+    }, 50)
+  })
+
   // Filter repos based on active tab
   const filteredRepos = $derived.by(() => {
     if (activeTab === "bookmarks") {
@@ -340,8 +355,15 @@
           Address,
         })
         repositoriesStore.set(cards)
+        // Trigger smooth animation after a brief delay to batch all cards
+        if (!cardsReady) {
+          setTimeout(() => {
+            cardsReady = true
+          }, 100)
+        }
       } else {
         repositoriesStore.clear()
+        cardsReady = false
       }
     }
   })
@@ -655,11 +677,13 @@
 
   <!-- URI Search Result (if found) -->
   {#if uriSearchRepoCard.length > 0}
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-2" in:fade={{duration: 200}}>
       <h3 class="text-sm font-semibold text-muted-foreground">Found Repository</h3>
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each uriSearchRepoCard as g (g.repoNaddr || g.euc)}
-          <div class="rounded-md border border-border bg-card p-3" in:fly>
+        {#each uriSearchRepoCard as g, i (g.repoNaddr || g.euc)}
+          <div
+            class="rounded-md border border-border bg-card p-3"
+            in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
             {#if g.first}
               <GitItem
                 {url}
@@ -728,47 +752,51 @@
           {activeTab === "my-repos" ? "My Repositories" : "Bookmarked Repositories"}
         </h3>
       {/if}
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each $repositoriesStore as g (g.repoNaddr || g.euc)}
-          <div class="rounded-md border border-border bg-card p-3" in:fly>
-            <!-- Use GitItem for consistent repo card rendering -->
-            {#if g.first}
-              <GitItem
-                {url}
-                event={g.first as any}
-                showActivity={true}
-                showIssues={true}
-                showActions={true} />
-            {/if}
+      {#if cardsReady}
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3" in:fade={{duration: 150}}>
+          {#each $repositoriesStore as g, i (g.repoNaddr || g.euc)}
+            <div
+              class="rounded-md border border-border bg-card p-3"
+              in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
+              <!-- Use GitItem for consistent repo card rendering -->
+              {#if g.first}
+                <GitItem
+                  {url}
+                  event={g.first as any}
+                  showActivity={true}
+                  showIssues={true}
+                  showActions={true} />
+              {/if}
 
-            <!-- Maintainers avatars -->
-            <div class="mt-3 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div class="flex -space-x-2">
-                  {#each g.maintainers.slice(0, 4) as pk (pk)}
-                    {@const prof = $profilesByPubkey.get(pk)}
-                    <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
-                      <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
-                      <AvatarFallback
-                        >{(prof?.display_name || prof?.name || pk)
-                          .slice(0, 2)
-                          .toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                  {/each}
-                  {#if g.maintainers.length > 4}
-                    <div
-                      class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                      +{g.maintainers.length - 4}
-                    </div>
-                  {/if}
+              <!-- Maintainers avatars -->
+              <div class="mt-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="flex -space-x-2">
+                    {#each g.maintainers.slice(0, 4) as pk (pk)}
+                      {@const prof = $profilesByPubkey.get(pk)}
+                      <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
+                        <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                        <AvatarFallback
+                          >{(prof?.display_name || prof?.name || pk)
+                            .slice(0, 2)
+                            .toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                    {/each}
+                    {#if g.maintainers.length > 4}
+                      <div
+                        class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
+                        +{g.maintainers.length - 4}
+                      </div>
+                    {/if}
+                  </div>
+                  <span class="text-xs opacity-60"
+                    >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
                 </div>
-                <span class="text-xs opacity-60"
-                  >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
               </div>
             </div>
-          </div>
-        {/each}
-      </div>
+          {/each}
+        </div>
+      {/if}
     {/if}
   </div>
 </PageContent>
