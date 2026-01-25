@@ -64,10 +64,13 @@
   // Handle branch switching state changes
   $effect(() => {
     const isSwitching = repoClass.isBranchSwitching
+    // Track branchChangeTrigger to ensure we re-run when switch completes
+    const branchTrigger = repoClass.branchChangeTrigger
     // Also track commits from repoClass to trigger re-render when they change
     const repoCommits = repoClass.commits
-    
-    console.log("[commits] Effect triggered - isSwitching:", isSwitching, "wasJustSwitching:", wasJustSwitching, "repoCommits:", repoCommits?.length)
+    const selectedBranch = repoClass.selectedBranch
+
+    console.log("[commits] Effect triggered - isSwitching:", isSwitching, "wasJustSwitching:", wasJustSwitching, "repoCommits:", repoCommits?.length, "branchTrigger:", branchTrigger, "selectedBranch:", selectedBranch)
 
     if (isSwitching) {
       // Show loading state while switching
@@ -79,14 +82,14 @@
       wasJustSwitching = false
       branchSwitchComplete = true
       commitsLoading = false
-      
+
       // Immediately sync commits from repoClass (which is now reactive)
       commits = repoCommits || []
       totalCommits = repoClass.totalCommits
       hasMoreCommits = repoClass.hasMoreCommits
-      
-      console.log("[commits] Branch switch complete, synced commits:", commits.length)
-      
+
+      console.log("[commits] Branch switch complete, synced commits:", commits.length, "for branch:", selectedBranch)
+
       // Reset branchSwitchComplete after a tick
       setTimeout(() => {
         branchSwitchComplete = false
@@ -188,12 +191,13 @@
     }
   }
 
-  // Handle loading more commits
+  // Handle loading more commits (next page)
   async function loadMore() {
-    if (currentPage === 1 && !commitsLoading && !isLoadingMore) {
+    if (hasMoreCommits && !commitsLoading && !isLoadingMore) {
       isLoadingMore = true
       currentPage++
       await loadCommits()
+      isLoadingMore = false
     }
   }
 
