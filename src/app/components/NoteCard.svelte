@@ -1,6 +1,5 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
-  import {formatTimestampAsDate} from "@welshman/lib"
   import {getListTags, getPubkeyTagValues} from "@welshman/util"
   import type {TrustedEvent} from "@welshman/util"
   import {userMuteList} from "@welshman/app"
@@ -31,10 +30,19 @@
     muted = false
   }
 
+  // Format date as dd/mm/yy
+  const formatShortDate = (timestamp: number) => {
+    const date = new Date(timestamp * 1000)
+    const dd = String(date.getDate()).padStart(2, '0')
+    const mm = String(date.getMonth() + 1).padStart(2, '0')
+    const yy = String(date.getFullYear()).slice(-2)
+    return `${dd}/${mm}/${yy}`
+  }
+
   let muted = $state(getPubkeyTagValues(getListTags($userMuteList)).includes(event.pubkey))
 </script>
 
-<div class="flex flex-col gap-2 {restProps.class}">
+<div class="relative flex flex-col gap-2 {restProps.class}">
   {#if muted}
     <div class="flex items-center justify-between">
       <div class="row-2 relative">
@@ -44,7 +52,12 @@
       <Button class="link ml-8" onclick={ignoreMute}>Show anyway</Button>
     </div>
   {:else}
-    <div class="flex justify-between gap-2">
+    <Button
+      class="absolute right-1 top-0 shrink-0 whitespace-nowrap text-xs opacity-75"
+      onclick={() => goToEvent(event)}>
+      {formatShortDate(event.created_at)}
+    </Button>
+    <div class="flex gap-2 pr-16">
       {#if !hideProfile}
         {#if minimal}
           @<ProfileName pubkey={event.pubkey} {url} />
@@ -52,11 +65,6 @@
           <Profile pubkey={event.pubkey} {url} />
         {/if}
       {/if}
-      <Button
-        class="shrink-0 whitespace-nowrap text-xs opacity-75"
-        onclick={() => goToEvent(event)}>
-        {formatTimestampAsDate(event.created_at)}
-      </Button>
     </div>
     {@render children()}
   {/if}
