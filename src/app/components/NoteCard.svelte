@@ -54,7 +54,7 @@
         {/if}
       {/if}
       <Button
-        class={cx("text-sm opacity-75", {"text-xs": minimal})}
+        class={cx("shrink-0 whitespace-nowrap text-sm opacity-75", {"text-xs": minimal})}
         onclick={() => goToEvent(event)}>
         {formatTimestamp(event.created_at)}
       </Button>
