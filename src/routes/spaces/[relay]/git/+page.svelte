@@ -480,12 +480,20 @@
     }
   })
 
-  const publishEventToRelays = (event: any, relays: string[] = defaultRepoRelays) => {
+  const publishEventToRelays = async (event: any, relays: string[] = defaultRepoRelays) => {
     try {
       console.log("🔐 publishing event to relays", event, relays)
-      const result = publishThunk({event, relays})
-      console.log("📡 Published event to relays:", result)
-      return result
+      const thunk = publishThunk({event, relays})
+      // Wait for the thunk to complete - this ensures events are actually sent to relays
+      // before we proceed with the git push
+      if (thunk && thunk.complete) {
+        console.log("📡 Waiting for thunk.complete...")
+        await thunk.complete
+        console.log("📡 Published event to relays (completed):", thunk.event?.id)
+      } else {
+        console.log("📡 Published event to relays (no complete promise):", thunk)
+      }
+      return thunk
     } catch (err) {
       console.error("[git/+page] Failed to publish repo event", err)
       pushToast({message: `Failed to publish repository event: ${String(err)}`, theme: "error"})
@@ -598,8 +606,10 @@
 
             // Check if this is a repo announcement or state event
             if (repoEvent.kind === 30617 || repoEvent.kind === 30618) {
+              console.log("🔐 Processing GRASP event kind:", repoEvent.kind, "tags:", repoEvent.tags)
               // Extract relay URLs from the 'relays' tag if present
               const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
+              console.log("🔐 Found relays tag:", relaysTag)
               if (relaysTag && relaysTag.length > 1) {
                 // For GRASP events, publish to BOTH the GRASP relay AND default relays
                 const graspRelays = relaysTag.slice(1)
@@ -610,6 +620,8 @@
                   "🔐 Publishing GRASP event to GRASP relay + default relays:",
                   targetRelays,
                 )
+              } else {
+                console.warn("🔐 No relays tag found in GRASP event, using default relays:", defaultRepoRelays)
               }
             }
 
