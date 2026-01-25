@@ -27,6 +27,14 @@ export const modal = derived([page, modals], ([$page, $modals]) => {
   return $modals[$page.url.hash.slice(1)]
 })
 
+function isValidModalPath(path: string): boolean {
+  // Must be empty, start with /, or be a relative path without protocol
+  if (!path) return true;
+  if (path.includes('://')) return false;
+  if (path.startsWith('//')) return false;
+  return true;
+}
+
 export const pushModal = (
   component: Component<any>,
   props: Record<string, any> = {},
@@ -34,6 +42,11 @@ export const pushModal = (
 ) => {
   const id = randomId()
   const path = options.path || ""
+
+  if (!isValidModalPath(path)) {
+    console.error('Invalid modal path:', path)
+    return null
+  }
 
   modals.update(assoc(id, {id, component, props, options}))
 
