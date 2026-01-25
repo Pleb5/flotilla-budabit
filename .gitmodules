@@ -9,3 +9,6 @@
 	path = packages/nostr-git-ui
 	url = https://github.com/chebizarro/nostr-git-ui.git
 	branch = master
+[submodule "packages/flotilla-extension-template"]
+	path = packages/flotilla-extension-template
+	url = https://github.com/chebizarro/flotilla-extension-template.git
