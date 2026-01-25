@@ -36,21 +36,10 @@
     type: "directory",
   })
 
-  // Initialize selectedBranch first
-  let selectedBranch = $state(repoClass.selectedBranch || repoClass.mainBranch)
-
-  // Keep local selectedBranch in sync with repoClass changes (e.g., BranchSelector)
-  $effect(() => {
-    if (repoClass) {
-      // Explicitly track selectedBranch and mainBranch for reactivity
-      const repoSelectedBranch = repoClass.selectedBranch;
-      const repoMainBranch = repoClass.mainBranch;
-      const next = repoSelectedBranch || repoMainBranch || selectedBranch
-      if (next && next !== selectedBranch) {
-        selectedBranch = next
-      }
-    }
-  })
+  // Derive selectedBranch from repoClass to avoid circular effect dependencies.
+  // Using $derived instead of $effect + $state prevents the read-write cycle
+  // that was causing effect_update_depth_exceeded errors.
+  const selectedBranch = $derived(repoClass.selectedBranch || repoClass.mainBranch || "")
 
   let curDir: FileEntry = $state({
     name: "..",

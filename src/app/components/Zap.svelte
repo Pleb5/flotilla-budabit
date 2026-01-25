@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {untrack} from "svelte"
   import type {NativeEmoji} from "emoji-picker-element/shared"
   import {signer, deriveZapperForPubkey} from "@welshman/app"
   import {load} from "@welshman/net"
@@ -97,13 +98,22 @@
   let content = $state("⚡️")
   let loading = $state(false)
 
+  // When slider (pos) changes, update amount.
+  // Use untrack on amount to prevent this effect from re-running when amount changes.
   $effect(() => {
-    amount = posToAmount(pos)
+    const newAmount = posToAmount(pos)
+    // Only update if significantly different to avoid jitter
+    if (untrack(() => Math.abs(amount - newAmount) > 0)) {
+      amount = newAmount
+    }
   })
 
+  // When user types an amount, update pos to match.
+  // Use untrack on pos to prevent this effect from re-running when pos changes.
   $effect(() => {
     const newPos = amountToPos(amount)
-    if (newPos !== pos) {
+    // Only update if different to avoid jitter
+    if (untrack(() => newPos !== pos)) {
       pos = newPos
     }
   })
