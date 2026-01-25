@@ -210,54 +210,10 @@
 
   // Branch list removed
 
-  // Sync commits from repoClass reactively (especially after branch switches)
-  $effect(() => {
-    const repoCommits = repoClass.commits;
-    const repoTotalCommits = repoClass.totalCommits;
-    const repoHasMore = repoClass.hasMoreCommits;
-    const currentBranch = repoClass.selectedBranch || repoClass.mainBranch;
-    const isSwitching = repoClass.isBranchSwitching;
-    // Track branchChangeTrigger to ensure effect re-runs after branch switch completes
-    const branchTrigger = repoClass.branchChangeTrigger;
-
-    // Don't sync during active switching to avoid race conditions
-    if (isSwitching) {
-      return;
-    }
-
-    // Update commits from repoClass (especially after branch switches)
-    if (repoCommits) {
-      // If branch changed, update previousBranch to match
-      if (previousBranch !== undefined && currentBranch !== previousBranch) {
-        previousBranch = currentBranch;
-      }
-
-      // IMPORTANT: Create a new array reference to ensure Svelte 5 reactivity
-      // detects the change. Even though repoCommits is already a new array from
-      // Repo.syncCommitsState(), we spread again to guarantee the reference changes
-      // for the local $state variable.
-      commits = [...repoCommits];
-      totalCommits = repoTotalCommits;
-      hasMoreCommits = repoHasMore;
-
-      console.log("[commits sync effect] Updated local commits:", commits.length, "branchTrigger:", branchTrigger, "firstOid:", commits[0]?.oid?.substring(0, 7));
-
-      // Update authors list
-      const newAuthors = new Set<string>();
-      repoCommits.forEach((commit: any) => {
-        if (commit.commit?.author?.name) {
-          newAuthors.add(commit.commit.author.name);
-        }
-      });
-      authors = newAuthors;
-
-      // Mark as loaded if we have commits
-      if (repoCommits.length > 0) {
-        initialLoadComplete = true;
-        commitsLoading = false;
-      }
-    }
-  })
+  // NOTE: Removed duplicate sync effect that was causing infinite loop
+  // The branch switching effect (line 65-101) and loadCommits() already handle
+  // syncing commits from repoClass. Having a second effect that reads repoClass.commits
+  // and writes to commits caused effect_update_depth_exceeded error.
 
   // Filter commits based on search and filters
   // IMPORTANT: Track branchChangeTrigger to force re-derivation after branch switches
