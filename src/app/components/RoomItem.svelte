@@ -58,7 +58,7 @@
   const today = formatTimestampAsDate(now())
   const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
   const thunk = mergeThunks($thunks.filter((t: Thunk) => t.event.id === event.id))
-  const [_, colorValue] = colors[hash(event.pubkey) % colors.length]
+  const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
   const comments = deriveEventsForUrl(url, [{kinds: [COMMENT], "#e": [event.id]}])
 
   const reply = () => replyTo!(event)

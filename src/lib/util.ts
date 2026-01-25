@@ -42,7 +42,7 @@ export function deleteIndexedDB(name: string, timeoutMs = 1000): Promise<void> {
 
     request.onsuccess = finish
 
-    request.onerror = () => finish
+    request.onerror = () => finish()
 
     request.onblocked = () => {
       console.warn(`Deletion of IndexedDB '${name}' is blocked`)
