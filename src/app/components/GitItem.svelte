@@ -56,7 +56,7 @@
   {/if}
   {#if description}
     <div class="flex w-full items-start">
-      <p class="text-lg break-words overflow-wrap-anywhere">{description}</p>
+      <p class="text-sm break-words overflow-wrap-anywhere">{description}</p>
     </div>
   {:else}
     <p class="mb-3 h-0 text-xs opacity-75">
