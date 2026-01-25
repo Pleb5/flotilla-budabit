@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
+  import {get} from "svelte/store"
   import {page} from "$app/stores"
   import {once, ago, MONTH, sleep} from "@welshman/lib"
   import Page from "@lib/components/Page.svelte"
@@ -64,7 +65,7 @@
     const since = ago(MONTH)
 
     sleep(2000).then(() => {
-      if ($socket.status !== SocketStatus.Open) {
+      if (get(socket).status !== SocketStatus.Open) {
         pushToast({
           theme: "error",
           message: `Failed to connect to ${displayRelayUrl(url)}`,

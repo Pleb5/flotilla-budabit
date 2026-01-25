@@ -199,7 +199,6 @@ export const colors = [
   ["purple", twColors.purple[600]],
   ["red", twColors.red[600]],
   ["rose", twColors.rose[600]],
-  ["sky", twColors.sky[600]],
   ["teal", twColors.teal[600]],
   ["violet", twColors.violet[600]],
   ["yellow", twColors.yellow[600]],

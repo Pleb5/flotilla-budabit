@@ -67,15 +67,19 @@
   const editor = makeEditor({url, content, autofocus, submit, uploading, aggressive: true})
 
   let popover: Instance | undefined = $state()
+  let editorInstance: Awaited<typeof editor> | null = null
+  let isDestroyed = false
 
   onMount(async () => {
     const ed = await editor
+    if (isDestroyed) return
+    editorInstance = ed
     ed.view.dom.addEventListener("keydown", handleKeyDown)
   })
 
-  onDestroy(async () => {
-    const ed = await editor
-    ed?.view?.dom.removeEventListener("keydown", handleKeyDown)
+  onDestroy(() => {
+    isDestroyed = true
+    editorInstance?.view?.dom.removeEventListener("keydown", handleKeyDown)
   })
 </script>
 
