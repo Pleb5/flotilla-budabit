@@ -151,7 +151,17 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
 
       const loadedTokens = JSON.parse(plaintext) as Token[]
       console.log("[setupTokensSync] Decrypted", loadedTokens.length, "tokens")
-      
+
+      // Validate and log token info for debugging (without exposing full token)
+      loadedTokens.forEach((t: Token, i: number) => {
+        const tokenPreview = t.token ? `${t.token.substring(0, 4)}...${t.token.substring(t.token.length - 4)}` : 'empty'
+        const isValidFormat = t.token && t.token.length >= 20 && !t.token.includes('\n') && !t.token.includes(' ')
+        console.log(`[setupTokensSync] Token ${i + 1}: host="${t.host}", token=${tokenPreview}, length=${t.token?.length || 0}, validFormat=${isValidFormat}`)
+        if (!isValidFormat) {
+          console.warn(`[setupTokensSync] Token ${i + 1} may be invalid - check for whitespace, newlines, or incorrect format`)
+        }
+      })
+
       tokens.clear()
       loadedTokens.forEach((token: Token) => tokens.push(token))
     } catch (error) {
