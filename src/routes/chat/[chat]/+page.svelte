@@ -9,12 +9,8 @@
 
   const {chat} = $page.params as MakeNonOptional<typeof $page.params>
 
-  if (!$pubkey) {
-    // Handle unauthenticated state - user must be logged in for chat
-    return
-  }
-
-  const pubkeys = uniq(append($pubkey, splitChatId(chat)))
+  // Derive pubkeys reactively - only valid when user is logged in
+  const pubkeys = $derived($pubkey ? uniq(append($pubkey, splitChatId(chat))) : [])
 
   // We have to watch this one, since on mobile the badge will be visible when active
   $effect(() => {
@@ -24,4 +20,10 @@
   })
 </script>
 
-<Chat {pubkeys} />
+{#if $pubkey && pubkeys.length > 0}
+  <Chat {pubkeys} />
+{:else}
+  <div class="flex items-center justify-center h-full">
+    <p class="text-muted-foreground">Please log in to access chat.</p>
+  </div>
+{/if}
