@@ -70,8 +70,6 @@
     const repoCommits = repoClass.commits
     const selectedBranch = repoClass.selectedBranch
 
-    console.log("[commits] Effect triggered - isSwitching:", isSwitching, "wasJustSwitching:", wasJustSwitching, "repoCommits:", repoCommits?.length, "branchTrigger:", branchTrigger, "selectedBranch:", selectedBranch)
-
     if (isSwitching) {
       // Show loading state while switching
       commitsLoading = true
@@ -91,8 +89,6 @@
       totalCommits = repoClass.totalCommits
       hasMoreCommits = repoClass.hasMoreCommits
 
-      console.log("[commits] Branch switch complete, synced commits:", commits.length, "for branch:", selectedBranch, "firstOid:", commits[0]?.oid?.substring(0, 7))
-
       // Reset branchSwitchComplete after a tick
       setTimeout(() => {
         branchSwitchComplete = false
@@ -110,7 +106,6 @@
     
     // Guard: wait for repoClass.key to be populated (not empty string)
     if (!repoKey || repoKey.trim() === "") {
-      console.debug("[commits] Waiting for repoClass.key to be populated");
       return;
     }
     
@@ -122,7 +117,6 @@
 
       // Detect branch changes (e.g., from navigation, not from selector)
       if (previousBranch !== undefined && previousBranch !== currentBranch) {
-        console.log(`🔄 Branch changed from "${previousBranch}" to "${currentBranch}", resetting to page 1`);
         currentPage = 1;
         initialLoadComplete = false;
         previousBranch = currentBranch;
@@ -149,8 +143,6 @@
   async function loadCommits() {
     const selectedBranch = repoClass.selectedBranch;
     const storedBranch = repoClass.commitManager?.getCurrentBranch?.();
-    console.log(`[commits/loadCommits] Called! currentPage=${currentPage}, selectedBranch=${selectedBranch}, storedBranch=${storedBranch}, previousBranch=${previousBranch}`);
-    console.trace("[commits/loadCommits] Stack trace:");
 
     if (!initialLoadComplete) {
       commitsLoading = true
@@ -158,7 +150,6 @@
 
     // Check if WorkerManager is ready before attempting operations
     if (!repoClass.workerManager?.isReady) {
-      console.debug("Commits: WorkerManager not ready, skipping")
       commitsError = "Repository worker not initialized. Please refresh the page."
       commitsLoading = false
       return
@@ -177,8 +168,6 @@
       commits = [...repoClass.commits]
       totalCommits = repoClass.totalCommits
       hasMoreCommits = repoClass.hasMoreCommits
-
-      console.log("[loadCommits] Updated local commits:", commits.length, "firstOid:", commits[0]?.oid?.substring(0, 7));
 
       // Update authors list with new commits
       const newAuthors = new Set(authors)
@@ -223,9 +212,6 @@
     // Force dependency tracking on branchChangeTrigger to ensure re-calculation
     // when branch switches complete (even if commits array reference tracking fails)
     const _branchTrigger = repoClass.branchChangeTrigger;
-
-    // Log for debugging UI rendering issues
-    console.log("[filteredCommits] Re-calculating, branchTrigger:", _branchTrigger, "commits:", commits?.length, "firstOid:", commits?.[0]?.oid?.substring(0, 7));
 
     if (commits) {
       let filtered = commits
