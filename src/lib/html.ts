@@ -5,16 +5,29 @@ export const copyToClipboard = (text: string) => {
   const {activeElement} = document
   const input = document.createElement("textarea")
 
-  input.innerHTML = text
-  document.body.appendChild(input)
-  input.select()
+  try {
+    input.innerHTML = text
+    document.body.appendChild(input)
+    input.select()
 
-  const result = document.execCommand("copy")
+    const result = document.execCommand("copy")
 
-  document.body.removeChild(input)
-  ;(activeElement as HTMLElement).focus()
+    document.body.removeChild(input)
 
-  return result
+    // Only focus if activeElement exists and has a focus method
+    if (activeElement && typeof (activeElement as HTMLElement).focus === 'function') {
+      (activeElement as HTMLElement).focus()
+    }
+
+    return result
+  } catch (error) {
+    // Clean up input if it was added to the DOM
+    if (input.parentNode) {
+      document.body.removeChild(input)
+    }
+    console.error("Failed to copy to clipboard:", error)
+    return false
+  }
 }
 
 export type ScrollerOpts = {
