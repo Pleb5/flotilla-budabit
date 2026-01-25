@@ -200,11 +200,13 @@
     const repoTotalCommits = repoClass.totalCommits;
     const repoHasMore = repoClass.hasMoreCommits;
     const currentBranch = repoClass.selectedBranch || repoClass.mainBranch;
-    const isSwitching = repoClass.isBranchSwitching
+    const isSwitching = repoClass.isBranchSwitching;
+    // Track branchChangeTrigger to ensure effect re-runs after branch switch completes
+    const branchTrigger = repoClass.branchChangeTrigger;
 
     // Don't sync during active switching to avoid race conditions
     if (isSwitching) {
-      return
+      return;
     }
     
     // Update commits from repoClass (especially after branch switches)

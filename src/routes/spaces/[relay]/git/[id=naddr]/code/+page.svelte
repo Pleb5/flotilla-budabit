@@ -48,7 +48,6 @@
   })
 
   let branchLoadTrigger = $state(0)
-  let branchSwitchComplete = $state(0) // Increments when branch switch finishes
   
   let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
     $state([])
@@ -122,7 +121,6 @@
               isCloning = false
               cloneProgress = ""
               cloneProgressPercent = undefined
-              branchSwitchComplete++
             }
           }
         } catch (err) {
@@ -186,10 +184,10 @@
   })
 
   $effect(() => {
-    // Explicitly track branchSwitchComplete and selectedBranch to ensure effect re-runs after branch changes
+    // Track branchChangeTrigger from Repo class to ensure effect re-runs after branch changes
     const currentBranch = selectedBranch;
-    const switchTrigger = branchSwitchComplete; // This increments when branch switch completes
-    
+    const switchTrigger = repoClass.branchChangeTrigger; // Increments when branch switch completes
+
     if (currentBranch && !isCloning && !path) {
       // Show loading only when actually fetching
       loading = true
@@ -231,8 +229,8 @@
   $effect(() => {
     const currentBranch = selectedBranch;
     const currentPath = path;
-    const switchTrigger = branchSwitchComplete; // Track branch switches
-    
+    const switchTrigger = repoClass.branchChangeTrigger; // Track branch switches via Repo class
+
     if (currentPath && currentBranch && !isCloning) {
       curDir.path = currentPath.split("/").slice(0, -1).join("/")
       loading = true
