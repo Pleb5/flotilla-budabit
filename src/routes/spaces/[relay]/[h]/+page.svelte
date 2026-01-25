@@ -325,8 +325,8 @@
     start()
 
     return () => {
-      observer.unobserve(chatCompose!)
-      observer.unobserve(dynamicPadding!)
+      if (chatCompose) observer.unobserve(chatCompose)
+      if (dynamicPadding) observer.unobserve(dynamicPadding)
     }
   })
 

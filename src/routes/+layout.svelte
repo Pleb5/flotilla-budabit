@@ -196,7 +196,7 @@
           const success = recent.filter(spec({status: SignerLogEntryStatus.Success}))
           const failure = recent.filter(spec({status: SignerLogEntryStatus.Failure}))
 
-          if (!$toast && failure.length > 5 && success.length === 0) {
+          if (!get(toast) && failure.length > 5 && success.length === 0) {
             pushToast({
               theme: "error",
               timeout: 60_000,

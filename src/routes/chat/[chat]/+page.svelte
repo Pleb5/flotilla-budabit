@@ -8,7 +8,13 @@
   import {splitChatId} from "@app/core/state"
 
   const {chat} = $page.params as MakeNonOptional<typeof $page.params>
-  const pubkeys = uniq(append($pubkey!, splitChatId(chat)))
+
+  if (!$pubkey) {
+    // Handle unauthenticated state - user must be logged in for chat
+    return
+  }
+
+  const pubkeys = uniq(append($pubkey, splitChatId(chat)))
 
   // We have to watch this one, since on mobile the badge will be visible when active
   $effect(() => {
