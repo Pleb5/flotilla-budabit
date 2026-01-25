@@ -707,7 +707,8 @@
                 event={g.first as any}
                 showActivity={true}
                 showIssues={true}
-                showActions={true} />
+                showActions={true}
+                hideDate={true} />
             {/if}
             <div class="mt-3 flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -732,6 +733,12 @@
                 <span class="text-xs opacity-60"
                   >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
               </div>
+              {#if g.first}
+                {@const date = new Date(g.first.created_at * 1000)}
+                <span class="text-xs opacity-60">
+                  {String(date.getDate()).padStart(2, '0')}/{String(date.getMonth() + 1).padStart(2, '0')}/{String(date.getFullYear()).slice(-2)}
+                </span>
+              {/if}
             </div>
           </div>
         {/each}
@@ -790,10 +797,11 @@
                   event={g.first as any}
                   showActivity={true}
                   showIssues={true}
-                  showActions={true} />
+                  showActions={true}
+                  hideDate={true} />
               {/if}
 
-              <!-- Maintainers avatars -->
+              <!-- Maintainers avatars and date -->
               <div class="mt-3 flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <div class="flex -space-x-2">
@@ -817,6 +825,12 @@
                   <span class="text-xs opacity-60"
                     >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
                 </div>
+                {#if g.first}
+                  {@const date = new Date(g.first.created_at * 1000)}
+                  <span class="text-xs opacity-60">
+                    {String(date.getDate()).padStart(2, '0')}/{String(date.getMonth() + 1).padStart(2, '0')}/{String(date.getFullYear()).slice(-2)}
+                  </span>
+                {/if}
               </div>
             </div>
           {/each}

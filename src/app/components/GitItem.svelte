@@ -9,13 +9,15 @@
     event,
     showActivity = true,
     showIssues = true,
-    showActions = true
+    showActions = true,
+    hideDate = false
   }: {
     url: string
     event: TrustedEvent
     showActivity?: boolean
     showIssues?: boolean
     showActions?: boolean
+    hideDate?: boolean
   } = $props()
 
   const name = event.tags.find(nthEq(0, "name"))?.[1]
@@ -42,7 +44,7 @@
   const displayEvent = displayPubkey ? {...event, pubkey: displayPubkey} : event
 </script>
 
-<NoteCard event={displayEvent} class="card2 sm:card2-sm bg-alt">
+<NoteCard event={displayEvent} class="card2 sm:card2-sm bg-alt" {hideDate}>
   {#if name}
     <div class="flex w-full items-center justify-between gap-2">
       <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>

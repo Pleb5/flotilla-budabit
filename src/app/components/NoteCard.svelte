@@ -15,6 +15,7 @@
     children,
     minimal = false,
     hideProfile = false,
+    hideDate = false,
     url,
     ...restProps
   }: {
@@ -22,6 +23,7 @@
     children: Snippet
     minimal?: boolean
     hideProfile?: boolean
+    hideDate?: boolean
     url?: string
     class?: string
   } = $props()
@@ -42,7 +44,7 @@
   let muted = $state(getPubkeyTagValues(getListTags($userMuteList)).includes(event.pubkey))
 </script>
 
-<div class="relative flex flex-col gap-2 {restProps.class}">
+<div class="flex flex-col gap-2 {restProps.class}">
   {#if muted}
     <div class="flex items-center justify-between">
       <div class="row-2 relative">
@@ -52,18 +54,22 @@
       <Button class="link ml-8" onclick={ignoreMute}>Show anyway</Button>
     </div>
   {:else}
-    <Button
-      class="absolute right-1 top-0 shrink-0 whitespace-nowrap text-xs opacity-75"
-      onclick={() => goToEvent(event)}>
-      {formatShortDate(event.created_at)}
-    </Button>
-    <div class="flex gap-2 pr-16">
+    <div class="flex justify-between gap-2">
       {#if !hideProfile}
-        {#if minimal}
-          @<ProfileName pubkey={event.pubkey} {url} />
-        {:else}
-          <Profile pubkey={event.pubkey} {url} />
-        {/if}
+        <div class="flex gap-2">
+          {#if minimal}
+            @<ProfileName pubkey={event.pubkey} {url} />
+          {:else}
+            <Profile pubkey={event.pubkey} {url} />
+          {/if}
+        </div>
+      {/if}
+      {#if !hideDate}
+        <Button
+          class="shrink-0 whitespace-nowrap text-xs opacity-75"
+          onclick={() => goToEvent(event)}>
+          {formatShortDate(event.created_at)}
+        </Button>
       {/if}
     </div>
     {@render children()}
