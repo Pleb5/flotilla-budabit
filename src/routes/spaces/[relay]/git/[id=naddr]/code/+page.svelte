@@ -322,6 +322,33 @@
   <title>{repoClass.name} - Code</title>
 </svelte:head>
 
+<!-- Breadcrumb navigation -->
+{#if path}
+  <nav class="mt-2 mb-2 flex items-center gap-1 text-sm text-muted-foreground overflow-x-auto" aria-label="Breadcrumb">
+    <button
+      type="button"
+      class="hover:text-foreground hover:underline transition-colors flex-shrink-0"
+      onclick={() => setDirectory("")}
+    >
+      {repoClass.name}
+    </button>
+    {#each path.split("/") as segment, i}
+      <span class="text-muted-foreground/50 flex-shrink-0">/</span>
+      {#if i === path.split("/").length - 1}
+        <span class="text-foreground font-medium truncate">{segment}</span>
+      {:else}
+        <button
+          type="button"
+          class="hover:text-foreground hover:underline transition-colors truncate max-w-[150px]"
+          onclick={() => setDirectory(path.split("/").slice(0, i + 1).join("/"))}
+        >
+          {segment}
+        </button>
+      {/if}
+    {/each}
+  </nav>
+{/if}
+
 <div class="mt-2 rounded-lg border border-border bg-card">
   <div class="p-4">
     {#if isCloning}

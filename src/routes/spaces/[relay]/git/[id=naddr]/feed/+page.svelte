@@ -280,22 +280,24 @@
   <title>{repoClass.name} - Feed</title>
 </svelte:head>
 
-<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse overflow-y-auto overflow-x-hidden">
+<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse overflow-y-auto overflow-x-hidden w-full">
   <div bind:this={dynamicPadding}></div>
   {#each elements as { type, id, value, showPubkey } (id)}
     {#if type === "new-messages"}
       <div
         bind:this={newMessages}
-        class="flex items-center py-2 text-xs transition-colors"
+        class="flex items-center py-2 text-xs transition-colors px-2 sm:px-4"
         class:opacity-0={showFixedNewMessages}>
         <div class="h-px flex-grow bg-primary"></div>
-        <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
+        <p class="rounded-full bg-primary px-2 py-1 text-primary-content text-center whitespace-nowrap">New Messages</p>
         <div class="h-px flex-grow bg-primary"></div>
       </div>
     {:else if type === "date"}
-      <Divider>{value}</Divider>
+      <div class="px-2 sm:px-4">
+        <Divider>{value}</Divider>
+      </div>
     {:else}
-      <div in:slide class:-mt-1={!showPubkey}>
+      <div in:slide class:-mt-1={!showPubkey} class="px-1 sm:px-2 md:px-4">
         <ChannelMessage
           {url}
           {replyTo}
@@ -304,7 +306,7 @@
       </div>
     {/if}
   {/each}
-  <p class="flex h-10 items-center justify-center py-8">
+  <p class="flex h-10 items-center justify-center py-4 sm:py-8 text-sm sm:text-base">
     {#if loadingEvents}
       <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
     {:else}
@@ -313,8 +315,8 @@
   </p>
 </div>
 
-<div class="chat__compose bg-base-200" bind:this={chatCompose}>
-  <div>
+<div class="chat__compose bg-base-200 px-2 sm:px-4 py-2" bind:this={chatCompose}>
+  <div class="max-w-full overflow-hidden">
     {#if parent}
       <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
     {/if}
@@ -326,8 +328,8 @@
 </div>
 
 {#if showScrollButton}
-  <div in:fade class="chat__scroll-down">
-    <Button class="btn btn-circle btn-neutral" onclick={scrollToBottom}>
+  <div in:fade class="chat__scroll-down right-2 sm:right-4 bottom-16 sm:bottom-20">
+    <Button class="btn btn-circle btn-neutral btn-sm sm:btn-md" onclick={scrollToBottom}>
       <Icon icon={AltArrowDown} />
     </Button>
   </div>
