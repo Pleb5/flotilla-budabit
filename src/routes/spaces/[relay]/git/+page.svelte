@@ -70,8 +70,11 @@
   let loading = $state(true)
   let activeTab = $state<"my-repos" | "bookmarks">("my-repos")
   let searchQuery = $state("")
-  // Track when cards are ready to be shown (after initial load completes)
+  // Track when cards are ready to be shown (after all repos have loaded)
   let cardsReady = $state(false)
+  // Debounce timer for settling repo count before showing cards
+  let settleTimer: ReturnType<typeof setTimeout> | null = null
+  let lastRepoCount = $state(0)
 
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
@@ -219,12 +222,12 @@
   $effect(() => {
     const tab = activeTab
     cardsReady = false
-    // Re-trigger animation after brief delay
-    setTimeout(() => {
-      if ($repositoriesStore.length > 0) {
-        cardsReady = true
-      }
-    }, 50)
+    lastRepoCount = 0
+    // Clear any pending settle timer
+    if (settleTimer) {
+      clearTimeout(settleTimer)
+      settleTimer = null
+    }
   })
 
   // Filter repos based on active tab
@@ -339,6 +342,7 @@
   })
 
   // Update repositoriesStore whenever repos change
+  // Uses debouncing to wait for all repos to load before showing cards
   $effect(() => {
     const reposToShow = searchFilteredRepos
     if (reposToShow.length > 0 || !loading) {
@@ -355,15 +359,28 @@
           Address,
         })
         repositoriesStore.set(cards)
-        // Trigger smooth animation after a brief delay to batch all cards
-        if (!cardsReady) {
-          setTimeout(() => {
+
+        // Debounce: wait for repo count to stabilize before showing cards
+        // This ensures all repos are loaded before the animation starts
+        const currentCount = cards.length
+        if (currentCount !== lastRepoCount) {
+          lastRepoCount = currentCount
+          // Reset cardsReady while more repos are loading
+          cardsReady = false
+          // Clear previous timer
+          if (settleTimer) {
+            clearTimeout(settleTimer)
+          }
+          // Wait for count to stabilize (no new repos for 400ms)
+          settleTimer = setTimeout(() => {
             cardsReady = true
-          }, 100)
+            settleTimer = null
+          }, 400)
         }
       } else {
         repositoriesStore.clear()
         cardsReady = false
+        lastRepoCount = 0
       }
     }
   })
@@ -751,6 +768,14 @@
         <h3 class="text-sm font-semibold text-muted-foreground mb-2">
           {activeTab === "my-repos" ? "My Repositories" : "Bookmarked Repositories"}
         </h3>
+      {/if}
+      {#if !cardsReady}
+        <!-- Show subtle loading while waiting for all repos to load -->
+        <p class="flex h-10 items-center justify-center py-20" out:fade={{duration: 150}}>
+          <Spinner loading={true}>
+            Loading repositories...
+          </Spinner>
+        </p>
       {/if}
       {#if cardsReady}
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3" in:fade={{duration: 150}}>
