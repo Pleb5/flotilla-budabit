@@ -131,14 +131,14 @@ export const installExtension = async (manifestUrl: string) => {
   const manifest = await extensionRegistry.load(manifestUrl)
 
   // Persist into settings.installed and leave enablement to the user
-  extensionSettings.update(s => {
-    s.installed = {
+  extensionSettings.update(s => ({
+    ...s,
+    installed: {
       nip89: {...(s.installed?.nip89 || {}), [manifest.id]: manifest},
       widget: s.installed?.widget || {},
       legacy: s.installed?.legacy,
-    }
-    return s
-  })
+    },
+  }))
 
   return manifest
 }
@@ -148,37 +148,46 @@ export const uninstallExtension = (id: string) => {
   extensionRegistry.unloadExtension(id)
 
   extensionSettings.update(s => {
-    if (s.installed?.nip89?.[id]) delete s.installed.nip89[id]
-    if (s.installed?.widget?.[id]) delete s.installed.widget[id]
-    s.enabled = s.enabled.filter(e => e !== id)
-    return s
+    const nip89 = {...(s.installed?.nip89 || {})}
+    const widget = {...(s.installed?.widget || {})}
+    delete nip89[id]
+    delete widget[id]
+    return {
+      ...s,
+      installed: {
+        nip89,
+        widget,
+        legacy: s.installed?.legacy,
+      },
+      enabled: s.enabled.filter(e => e !== id),
+    }
   })
 }
 
 export const installExtensionFromManifest = (manifest: ExtensionManifest) => {
   extensionRegistry.register(manifest)
-  extensionSettings.update(s => {
-    s.installed = {
+  extensionSettings.update(s => ({
+    ...s,
+    installed: {
       nip89: {...(s.installed?.nip89 || {}), [manifest.id]: manifest},
       widget: s.installed?.widget || {},
       legacy: s.installed?.legacy,
-    }
-    return s
-  })
+    },
+  }))
   return manifest
 }
 
 export const installWidgetFromEvent = (event: TrustedEvent) => {
   const widget = parseSmartWidget(event)
   extensionRegistry.registerWidget(widget)
-  extensionSettings.update(s => {
-    s.installed = {
+  extensionSettings.update(s => ({
+    ...s,
+    installed: {
       nip89: s.installed?.nip89 || {},
       widget: {...(s.installed?.widget || {}), [widget.identifier]: widget},
       legacy: s.installed?.legacy,
-    }
-    return s
-  })
+    },
+  }))
   return widget
 }
 
@@ -265,12 +274,10 @@ export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
 
 export const enableExtension = async (id: string) => {
   // Persist enabled flag
-  extensionSettings.update(s => {
-    if (!s.enabled.includes(id)) {
-      s.enabled = [...s.enabled, id]
-    }
-    return s
-  })
+  extensionSettings.update(s => ({
+    ...s,
+    enabled: s.enabled.includes(id) ? s.enabled : [...s.enabled, id],
+  }))
 
   // Load the extension iframe/runtime
   const installed = getInstalledExtensions()
@@ -296,10 +303,10 @@ export const disableExtension = (id: string) => {
   // Unload runtime
   extensionRegistry.unloadExtension(id)
 
-  extensionSettings.update(s => {
-    s.enabled = s.enabled.filter(e => e !== id)
-    return s
-  })
+  extensionSettings.update(s => ({
+    ...s,
+    enabled: s.enabled.filter(e => e !== id),
+  }))
 }
 
 export const getPubkeyHints = (pubkey: string) => {
