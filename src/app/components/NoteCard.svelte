@@ -1,7 +1,7 @@
 <script lang="ts">
   import cx from "classnames"
   import type {Snippet} from "svelte"
-  import {formatTimestamp} from "@welshman/lib"
+  import {formatTimestampAsDate} from "@welshman/lib"
   import {getListTags, getPubkeyTagValues} from "@welshman/util"
   import type {TrustedEvent} from "@welshman/util"
   import {userMuteList} from "@welshman/app"
@@ -56,7 +56,7 @@
       <Button
         class={cx("shrink-0 whitespace-nowrap text-sm opacity-75", {"text-xs": minimal})}
         onclick={() => goToEvent(event)}>
-        {formatTimestamp(event.created_at)}
+        {formatTimestampAsDate(event.created_at)}
       </Button>
     </div>
     {@render children()}
