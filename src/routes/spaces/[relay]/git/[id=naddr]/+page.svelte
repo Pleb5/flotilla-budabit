@@ -457,7 +457,7 @@
                     <span
                       class="truncate rounded outline outline-1 outline-gray-200 px-2 py-1 text-xs text-white dark:bg-blue-900/30 dark:text-blue-200">
                       {branch.name}
-                      {#if branch.isHead}
+                      {#if 'isHead' in branch && branch.isHead}
                         <span class="ml-1">•</span>
                       {/if}
                     </span>

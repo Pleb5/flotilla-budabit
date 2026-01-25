@@ -343,6 +343,9 @@
   const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
 
+  // Convert pubkey store to the type expected by Repo (Readable<string | null>)
+  const viewerPubkeyStore: Readable<string | null> = derived(pubkey, $p => $p ?? null)
+
   // Get or create Repo instance (reuse existing instance if available)
   // This ensures branch selection and other state persists across navigations
   // The store-based cache persists across component re-initializations  
@@ -363,7 +366,7 @@
       statusEvents: statusEventsStore,
       commentEvents: commentEventsStore,
       labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
-      viewerPubkey: pubkey,
+      viewerPubkey: viewerPubkeyStore,
       workerManager: sharedWorkerManager,
     })
   } else {
@@ -385,7 +388,7 @@
         statusEvents: statusEventsStore,
         commentEvents: commentEventsStore,
         labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
-        viewerPubkey: pubkey,
+        viewerPubkey: viewerPubkeyStore,
         workerManager: sharedWorkerManager,
       })
     } else {
@@ -985,7 +988,6 @@
       {bookmarkRepo}
       {isBookmarked}
       isTogglingBookmark={isTogglingBookmark}
-      userPubkey={$pubkey}
       >
       {#snippet children(activeTab: string)}
         <RepoTab

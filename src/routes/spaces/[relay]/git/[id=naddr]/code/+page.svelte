@@ -340,7 +340,7 @@
         <button
           type="button"
           class="hover:text-foreground hover:underline transition-colors truncate max-w-[150px]"
-          onclick={() => setDirectory(path.split("/").slice(0, i + 1).join("/"))}
+          onclick={() => path && setDirectory(path.split("/").slice(0, i + 1).join("/"))}
         >
           {segment}
         </button>
