@@ -22,9 +22,8 @@
   const className = $derived(`text-left ${restProps.class}`)
 
   const onClick = (e: Event) => {
-    e.preventDefault()
-    e.stopPropagation()
-
+    // Call handler immediately without blocking default behavior
+    // Let the handler decide if preventDefault/stopPropagation is needed
     onclick?.(e)
   }
 </script>
