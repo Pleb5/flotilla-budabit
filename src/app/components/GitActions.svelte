@@ -42,7 +42,8 @@
 
   let loadingIssues = $state(true)
 
-  const [tagId, ...relays] = sanitizeRelays(event.tags.find(nthEq(0, "relays")) || [])
+  const relaysTag = event.tags.find(nthEq(0, "relays")) || []
+  const relays = sanitizeRelays(relaysTag.slice(1)) // Skip the "relays" tag name, pass only URLs
 
   const issueFilter = {
     kinds: [GIT_ISSUE],

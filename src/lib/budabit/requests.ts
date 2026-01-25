@@ -101,12 +101,25 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
 
     const latest = events.reduce((acc, cur) => (cur.created_at > acc.created_at ? cur : acc))
     const urls = new Set<string>()
-    const tags = latest.tags || []
 
-    for (const t of tags) {
-      if ((t[0] === "relay" || t[0] === "r") && t[1]) {
-        const normalized = normalizeRelayUrl(t[1])
-        if (validateGraspServerUrl(normalized)) urls.add(normalized)
+    // Parse URLs from content JSON (format: { urls: [...] })
+    try {
+      if (latest.content) {
+        const parsed = JSON.parse(latest.content)
+        const contentUrls = Array.isArray(parsed?.urls) ? parsed.urls : []
+        for (const url of contentUrls) {
+          const normalized = normalizeRelayUrl(url)
+          if (validateGraspServerUrl(normalized)) urls.add(normalized)
+        }
+      }
+    } catch {
+      // Fallback: try parsing from tags for backwards compatibility
+      const tags = latest.tags || []
+      for (const t of tags) {
+        if ((t[0] === "relay" || t[0] === "r") && t[1]) {
+          const normalized = normalizeRelayUrl(t[1])
+          if (validateGraspServerUrl(normalized)) urls.add(normalized)
+        }
       }
     }
 

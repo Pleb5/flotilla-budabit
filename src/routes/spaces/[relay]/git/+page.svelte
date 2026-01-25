@@ -56,6 +56,7 @@
     GIT_RELAYS,
   } from "@lib/budabit/state"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
+  import {createNip98AuthHeader} from "@src/lib/budabit/event-io"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Bookmark from "@assets/icons/bookmark.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
@@ -617,6 +618,7 @@
           getProfile: getProfileForWizard,
           searchProfiles: searchProfilesForWizard,
           searchRelays: searchRelaysForWizard,
+          createAuthHeader: createNip98AuthHeader, // For GRASP NIP-98 authentication
         },
         {fullscreen: true},
       )

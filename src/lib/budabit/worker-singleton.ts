@@ -8,9 +8,10 @@
  * - Worker is reused for all Git operations
  * - No manual initialization needed
  */
-import { getGitWorker } from '@nostr-git/core/worker';
+import { getGitWorker, configureWorkerEventIO } from '@nostr-git/core/worker';
 // @ts-ignore - Vite ?url import for correct worker URL resolution
 import gitWorkerUrl from '@nostr-git/core/worker/worker.js?url';
+import { createEventIO } from './event-io';
 
 interface GitWorkerInstance {
   api: any;
@@ -70,6 +71,16 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
       
       const pingResult = await Promise.race([pingPromise, timeoutPromise]);
       console.log('[GitWorker] Worker ping successful:', pingResult);
+      
+      // Configure EventIO for GRASP/Nostr operations
+      try {
+        const eventIO = createEventIO();
+        await configureWorkerEventIO(api, eventIO);
+        console.log('[GitWorker] EventIO configured successfully');
+      } catch (err) {
+        console.warn('[GitWorker] Failed to configure EventIO:', err);
+        // Continue without EventIO - GRASP operations won't work but basic git will
+      }
       
       workerInstance = { api, worker };
       
