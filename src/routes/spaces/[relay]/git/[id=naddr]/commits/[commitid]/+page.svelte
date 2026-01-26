@@ -47,9 +47,8 @@
     throw new Error("Repo context not available")
   }
 
-  if (!commitMeta || !changes) {
-    throw new Error("Commit data not available")
-  }
+  // Handle missing data gracefully - show loading or error state instead of throwing
+  const hasData = $derived(!!commitMeta && !!changes)
 
   // State for collapsible file panels
   let expandedFiles = $state<Set<string>>(new Set())
@@ -113,8 +112,9 @@
     return {additions, deletions}
   }
 
-  // Calculate total diff stats
+  // Calculate total diff stats (safe for missing data)
   const totalStats = $derived(() => {
+    if (!changes) return {totalAdditions: 0, totalDeletions: 0}
     let totalAdditions = 0
     let totalDeletions = 0
     
@@ -151,30 +151,38 @@
 
   // Expand all files by default if there are few changes
   $effect(() => {
-    if (changes.length <= 5) {
+    if (changes && changes.length <= 5) {
       expandedFiles = new Set(changes.map(change => change.path))
     }
   })
 
-  // Calculate expanded files count
+  // Calculate expanded files count (safe for missing data)
   const expandedCount = $derived(expandedFiles.size)
-  const allExpanded = $derived(expandedCount === changes.length && changes.length > 0)
+  const allExpanded = $derived(changes ? expandedCount === changes.length && changes.length > 0 : false)
   const allCollapsed = $derived(expandedCount === 0)
 </script>
 
 <svelte:head>
-  <title>{repoClass.name} - Commit {commitMeta.sha.slice(0, 7)}</title>
+  <title>{repoClass.name} - Commit {hasData ? commitMeta?.sha.slice(0, 7) : 'Loading...'}</title>
 </svelte:head>
 
+{#if !hasData}
+  <div class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
+    <div class="text-center text-muted-foreground">
+      <p class="text-lg">Loading commit details...</p>
+      <p class="text-sm">If this persists, the commit may not be available.</p>
+    </div>
+  </div>
+{:else}
 <div class="flex min-h-screen flex-col gap-4 bg-background">
   <!-- Commit Header -->
   <CommitHeader
-    sha={commitMeta.sha}
-    author={commitMeta.author}
-    email={commitMeta.email}
-    date={commitMeta.date}
-    message={commitMeta.message}
-    parents={commitMeta.parents}
+    sha={commitMeta!.sha}
+    author={commitMeta!.author}
+    email={commitMeta!.email}
+    date={commitMeta!.date}
+    message={commitMeta!.message}
+    parents={commitMeta!.parents}
     getParentHref={getParentHref}
   />
 
@@ -190,12 +198,12 @@
     <!-- Statistics Grid -->
     <div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
       <div class="rounded-lg border bg-muted/20 p-3 text-center">
-        <div class="text-2xl font-bold text-primary">{changes.length}</div>
+        <div class="text-2xl font-bold text-primary">{changes!.length}</div>
         <div class="text-sm text-muted-foreground">
-          {changes.length === 1 ? "file" : "files"} changed
+          {changes!.length === 1 ? "file" : "files"} changed
         </div>
         <div class="mt-1 text-xs text-muted-foreground">
-          {changes.length === 1 ? "Single file" : "Multiple files"}
+          {changes!.length === 1 ? "Single file" : "Multiple files"}
         </div>
       </div>
 
@@ -236,7 +244,7 @@
       <div class="flex items-center gap-2">
         <button
           onclick={() => {
-            expandedFiles = new Set(changes.map(change => change.path))
+            expandedFiles = new Set(changes!.map(change => change.path))
           }}
           disabled={allExpanded}
           aria-label="Expand all files"
@@ -254,9 +262,9 @@
           <ChevronsUp class="h-4 w-4" />
           <span>Collapse all</span>
         </button>
-        {#if changes.length > 0}
+        {#if changes!.length > 0}
           <span class="ml-2 text-sm text-muted-foreground">
-            ({expandedCount} of {changes.length} {expandedCount === 1 ? "file" : "files"} expanded)
+            ({expandedCount} of {changes!.length} {expandedCount === 1 ? "file" : "files"} expanded)
           </span>
         {/if}
       </div>
@@ -329,7 +337,7 @@
   </div>
 
   <!-- Empty State -->
-  {#if changes.length === 0}
+  {#if changes!.length === 0}
     <div class="px-4 py-12 text-center sm:px-6">
       <FileText class="mx-auto h-12 w-12 text-muted-foreground" />
       <h3 class="mt-4 text-lg font-medium text-foreground">No file changes</h3>
@@ -339,3 +347,4 @@
     </div>
   {/if}
 </div>
+{/if}
