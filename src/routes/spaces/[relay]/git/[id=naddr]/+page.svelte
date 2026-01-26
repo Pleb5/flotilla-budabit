@@ -200,8 +200,10 @@
 
   $effect(() => {
     if (repoClass) {
-      // Load async data in parallel
+      // Wait for repo initialization before loading data that requires git operations
+      repoClass.waitForReady().then(() => {
         loadRepoInfo()
+      })
     }
   })
 
@@ -228,6 +230,8 @@
     commitLoading = true
     lastCommit = null
     ;(async () => {
+      // Wait for repo to be ready before loading commits
+      await repoClass.waitForReady()
       await loadLastCommit()
       // Only apply result if this is the latest request
       if (seq !== lastCommitReqSeq) return
