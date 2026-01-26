@@ -51,7 +51,7 @@
   import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, parseRepoAnnouncementEvent, isCommentEvent} from "@nostr-git/core/events"
   import {normalizeRelayUrl as normalizeRelayUrlShared} from "@nostr-git/core/utils"
   import {derived, get as getStore, type Readable} from "svelte/store"
-  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk} from "@welshman/app"
+  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
@@ -346,6 +346,31 @@
   // Convert pubkey store to the type expected by Repo (Readable<string | null>)
   const viewerPubkeyStore: Readable<string | null> = derived(pubkey, $p => $p ?? null)
 
+  // Helper to generate author email from nip-05 or npub
+  const getAuthorEmail = (profile: any, pk: string | null | undefined) => {
+    if (profile?.nip05) return profile.nip05
+    if (pk) {
+      try {
+        const npub = nip19.npubEncode(pk)
+        return `${npub.slice(0, 12)}@nostr.git`
+      } catch {
+        return `${pk.slice(0, 12)}@nostr.git`
+      }
+    }
+    return ""
+  }
+  
+  // Helper to get author name from profile
+  const getAuthorName = (profile: any) => {
+    return profile?.display_name || profile?.name || "Anonymous"
+  }
+  
+  // Get user profile for git author info
+  const userProfileStore = $pubkey ? deriveProfile($pubkey) : null
+  const userProfile = userProfileStore ? getStore(userProfileStore) : null
+  const authorName = getAuthorName(userProfile)
+  const authorEmail = getAuthorEmail(userProfile, $pubkey)
+
   // Get or create Repo instance (reuse existing instance if available)
   // This ensures branch selection and other state persists across navigations
   // The store-based cache persists across component re-initializations  
@@ -368,6 +393,8 @@
       labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
       viewerPubkey: viewerPubkeyStore,
       workerManager: sharedWorkerManager,
+      authorName,
+      authorEmail,
     })
   } else {
     // Check if the existing repoInstance is for a different repository
@@ -390,6 +417,8 @@
         labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
         viewerPubkey: viewerPubkeyStore,
         workerManager: sharedWorkerManager,
+        authorName,
+        authorEmail,
       })
     } else {
       console.log("♻️  [LAYOUT INIT] REUSING existing Repo instance")

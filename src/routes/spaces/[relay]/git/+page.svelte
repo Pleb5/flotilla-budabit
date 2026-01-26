@@ -10,6 +10,7 @@
     loadProfile,
     relaySearch,
     pubkey,
+    deriveProfile,
   } from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {Router} from "@welshman/router"
@@ -67,6 +68,28 @@
   const url = decodeRelay($page.params.relay!)
 
   const gitPath = makeGitPath(url)
+
+  // Derive current user's profile for git commit author info
+  const userProfile = $derived($pubkey ? deriveProfile($pubkey) : null)
+  
+  // Helper to generate author email from nip-05 or npub
+  const getAuthorEmail = (profile: any, pk: string | null | undefined) => {
+    if (profile?.nip05) return profile.nip05
+    if (pk) {
+      try {
+        const npub = nip19.npubEncode(pk)
+        return `${npub.slice(0, 12)}@nostr.git`
+      } catch {
+        return `${pk.slice(0, 12)}@nostr.git`
+      }
+    }
+    return ""
+  }
+  
+  // Helper to get author name from profile
+  const getAuthorName = (profile: any) => {
+    return profile?.display_name || profile?.name || "Anonymous"
+  }
 
   let loading = $state(true)
   let activeTab = $state<"my-repos" | "bookmarks">("my-repos")
@@ -587,6 +610,12 @@
     }
 
     console.log("[+page.svelte] About to push NewRepoWizard modal")
+    
+    // Get user profile for git author info
+    const profile = userProfile ? getStore(userProfile) : null
+    const authorName = getAuthorName(profile)
+    const authorEmail = getAuthorEmail(profile, $pubkey)
+    
     try {
       const modalId = pushModal(
         NewRepoWizardWrapper,
@@ -600,6 +629,8 @@
           onCancel: back,
           defaultRelays: [...defaultRepoRelays],
           userPubkey: $pubkey,
+          defaultAuthorName: authorName,
+          defaultAuthorEmail: authorEmail,
           onPublishEvent: async (repoEvent: NostrEvent) => {
             // For GRASP repos (kind 30617/30618), publish to the GRASP relay from the event's 'relays' tag
             let targetRelays = defaultRepoRelays
