@@ -16,6 +16,8 @@
   import {getContext} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
+  import {createCommentEvent, type CommentEvent} from "@nostr-git/core/events"
+  import {postComment} from "@lib/budabit/commands"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   
@@ -262,12 +264,28 @@
   })
 
   const handleReact = (commitId: string, type: "heart") => {
-
+    // TODO: Implement reactions for commits (NIP-25)
   }
 
   const handleComment = (commitId: string, comment: string) => {
-
-    // TODO: Implement Nostr comments for commits
+    if (!comment.trim()) return
+    
+    // Create a NIP-22 comment event referencing the commit by its OID
+    // Using "I" (external identifier) tag since commits are git objects, not Nostr events
+    const repoAddr = repoClass.address // e.g., "30617:pubkey:repo-name"
+    const commentEvent = createCommentEvent({
+      content: comment,
+      root: {
+        type: "I",
+        value: `git:commit:${commitId}`, // External identifier for git commit
+        kind: "commit", // Descriptive kind for the external resource
+      },
+      extraTags: repoAddr ? [["a", repoAddr] as any] : undefined, // Link to repo for context
+    })
+    
+    // Publish the comment to repo relays
+    const relays = repoClass.relays || []
+    postComment(commentEvent as CommentEvent, relays)
   }
 </script>
 

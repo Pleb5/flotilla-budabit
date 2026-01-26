@@ -11,23 +11,10 @@
   import {beforeNavigate, goto} from "$app/navigation"
   import {sync, localStorageProvider} from "@welshman/store"
   import {
-    ago,
-    assoc,
     call,
-    defer,
-    dissoc,
-    identity,
-    memoize,
-    on,
-    sleep,
     spec,
-    TaskQueue,
-    WEEK,
   } from "@welshman/lib"
-  import type {TrustedEvent, StampedEvent} from "@welshman/util"
-  import {WRAP} from "@welshman/util"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
-  import type {Socket, RelayMessage, ClientMessage} from "@welshman/net"
   import {
     request,
     defaultSocketPolicies,
