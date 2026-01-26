@@ -26,26 +26,136 @@
   } from "@lucide/svelte"
   import {CommitHeader, SplitDiff} from "@nostr-git/ui"
   import type {PageData} from "./$types"
-  import {getContext} from "svelte"
+  import {getContext, onMount} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
+  import type {CommitMeta} from "@nostr-git/core/types"
+  import type {CommitChange} from "./+page"
 
   const {data}: {data: PageData} = $props()
-
-  // Extract data from page load
-  const {commitMeta, changes} = data
 
   // Get repoClass from context
   const repoClass = getContext<Repo>(REPO_KEY)
 
   // Create navigation helper for parent commits
   const getParentHref = (commitId: string) => {
-    return `/spaces/${encodeURIComponent($page.params.relay)}/git/${encodeURIComponent($page.params.id)}/commits/${commitId}`;
+    return `/spaces/${encodeURIComponent($page.params.relay as string)}/git/${encodeURIComponent($page.params.id as string)}/commits/${commitId}`;
   };
 
   if (!repoClass) {
     throw new Error("Repo context not available")
   }
+
+  // Component-level state for commit data (loaded after repo is ready)
+  let commitMeta = $state<CommitMeta | undefined>(data?.commitMeta)
+  let changes = $state<CommitChange[] | undefined>(data?.changes)
+  let isLoading = $state(!data?.commitMeta)
+  let loadError = $state<string | undefined>(undefined)
+
+  // Load commit details after ensuring repo is cloned
+  async function loadCommitDetails() {
+    const commitid = $page.params.commitid
+    if (!commitid) return
+
+    // Wait for repoClass.key to be available (set when repo event is received)
+    if (!repoClass.key) {
+      // Poll for key availability
+      let attempts = 0
+      while (!repoClass.key && attempts < 50) {
+        await new Promise(r => setTimeout(r, 200))
+        attempts++
+      }
+      if (!repoClass.key) {
+        loadError = "Repository information not available"
+        isLoading = false
+        return
+      }
+    }
+    isLoading = true
+    loadError = undefined
+
+    try {
+      // Ensure repo is cloned first
+      const isCloned = await repoClass.workerManager.isRepoCloned({
+        repoId: repoClass.key
+      })
+
+      if (!isCloned) {
+        // Clone the repo
+        const cloneUrls = repoClass.cloneUrls
+        if (cloneUrls.length === 0) {
+          loadError = "No clone URLs available for this repository"
+          isLoading = false
+          return
+        }
+
+        const result = await repoClass.workerManager.smartInitializeRepo({
+          repoId: repoClass.key,
+          cloneUrls,
+          forceUpdate: false
+        })
+
+        if (!result.success) {
+          loadError = result.error || "Failed to initialize repository"
+          isLoading = false
+          return
+        }
+      }
+
+      // Now load commit details
+      const commitDetails = await repoClass.workerManager.getCommitDetails({
+        repoId: repoClass.key,
+        commitId: commitid
+      })
+
+      if (!commitDetails.success) {
+        loadError = commitDetails.error || "Failed to load commit details"
+        isLoading = false
+        return
+      }
+
+      // Set the data
+      commitMeta = {
+        sha: commitDetails.meta.sha,
+        author: commitDetails.meta.author,
+        email: commitDetails.meta.email,
+        date: commitDetails.meta.date,
+        message: commitDetails.meta.message,
+        parents: commitDetails.meta.parents,
+        pubkey: undefined,
+        nip05: undefined,
+        nip39: undefined
+      }
+
+      changes = commitDetails.changes.map((change: any) => ({
+        path: change.path,
+        status: change.status,
+        diffHunks: change.diffHunks
+      }))
+
+      isLoading = false
+    } catch (err: any) {
+      console.error("Error loading commit details:", err)
+      loadError = err?.message || "Failed to load commit details"
+      isLoading = false
+    }
+  }
+
+  // Load commit details when component mounts if not already loaded from +page.ts
+  onMount(() => {
+    if (!commitMeta || !changes) {
+      // Wait for repo to be ready, then load
+      repoClass.waitForReady().then(() => loadCommitDetails())
+    }
+  })
+
+  // Also try loading when repoClass.key becomes available
+  $effect(() => {
+    const key = repoClass.key
+    if (key && !commitMeta && !changes && !isLoading && !loadError) {
+      loadCommitDetails()
+    }
+  })
 
   // Handle missing data gracefully - show loading or error state instead of throwing
   const hasData = $derived(!!commitMeta && !!changes)
@@ -166,11 +276,23 @@
   <title>{repoClass.name} - Commit {hasData ? commitMeta?.sha.slice(0, 7) : 'Loading...'}</title>
 </svelte:head>
 
-{#if !hasData}
+{#if loadError}
+  <div class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
+    <div class="text-center text-muted-foreground">
+      <p class="text-lg text-red-500">Failed to load commit</p>
+      <p class="text-sm">{loadError}</p>
+      <button 
+        onclick={() => loadCommitDetails()}
+        class="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90">
+        Retry
+      </button>
+    </div>
+  </div>
+{:else if !hasData}
   <div class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
     <div class="text-center text-muted-foreground">
       <p class="text-lg">Loading commit details...</p>
-      <p class="text-sm">If this persists, the commit may not be available.</p>
+      <p class="text-sm">Initializing repository...</p>
     </div>
   </div>
 {:else}

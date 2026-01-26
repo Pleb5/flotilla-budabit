@@ -37,6 +37,7 @@ export const load: PageLoad = async ({ params, parent }) => {
     // Convert repoId to canonical format (pubkey/name) that the worker expects
     // The layout provides "pubkey:name" format, but worker uses "pubkey/name"
     const canonicalRepoId = parseRepoId(repoId);
+    console.log('[commit/+page] repoId conversion:', { original: repoId, canonical: canonicalRepoId });
 
     // Get initialized git worker instance (with EventIO configured)
     const { api } = await getInitializedGitWorker();

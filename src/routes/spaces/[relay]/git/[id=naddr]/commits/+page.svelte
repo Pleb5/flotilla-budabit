@@ -59,6 +59,11 @@
   // Track if we're currently loading more commits
   let isLoadingMore = $state(true)
 
+  // Track clone state
+  let isCloning = $state(false)
+  let cloneProgress = $state("")
+  let cloneCheckAttempted = $state(false)
+
   // Create navigation helper
   const getCommitUrl = (commitId: string) => {
     return `/spaces/${encodeURIComponent($page.params.relay as string)}/git/${encodeURIComponent($page.params.id as string)}/commits/${commitId}`;
@@ -68,6 +73,49 @@
   let previousBranch = $state<string | undefined>(undefined);
   let wasJustSwitching = $state(false);
   let branchSwitchComplete = $state(false);
+
+  // Ensure repo is cloned before loading commits
+  async function ensureRepoCloned(): Promise<boolean> {
+    if (!repoClass.key || !repoClass.workerManager) return false
+    
+    try {
+      const isCloned = await repoClass.workerManager.isRepoCloned({
+        repoId: repoClass.key
+      })
+      
+      if (isCloned) return true
+      
+      // Need to clone
+      isCloning = true
+      cloneProgress = "Initializing repository..."
+      
+      const cloneUrls = repoClass.cloneUrls
+      if (cloneUrls.length === 0) {
+        console.warn("No clone URLs found for repository")
+        isCloning = false
+        return false
+      }
+      
+      const result = await repoClass.workerManager.smartInitializeRepo({
+        repoId: repoClass.key,
+        cloneUrls,
+        forceUpdate: false
+      })
+      
+      if (!result.success) {
+        console.error("Repository initialization failed:", result.error)
+        isCloning = false
+        return false
+      }
+      
+      isCloning = false
+      return true
+    } catch (err) {
+      console.error("Failed to ensure repo cloned:", err)
+      isCloning = false
+      return false
+    }
+  }
 
   // Handle branch switching state changes
   $effect(() => {
@@ -179,6 +227,17 @@
     // This handles cases where loadCommits is called directly (e.g., pagination, retry)
     if (!repoClass.isInitialized) {
       await repoClass.waitForReady()
+    }
+
+    // Ensure repo is cloned before loading commits
+    if (!cloneCheckAttempted) {
+      cloneCheckAttempted = true
+      const cloned = await ensureRepoCloned()
+      if (!cloned) {
+        commitsError = "Repository not cloned. Please visit the Code tab first."
+        commitsLoading = false
+        return
+      }
     }
 
     try {
