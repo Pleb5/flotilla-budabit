@@ -58,6 +58,10 @@
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
   const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
 
+  $effect(() => {
+    console.log("pullRequests", pullRequests)
+  })
+
   // Comments are managed locally, similar to issues page
   let comments = $state<CommentEvent[]>([])
 
@@ -93,7 +97,7 @@
         })
       }
     }, 100)
-    
+
     return () => {
       clearTimeout(timeout)
       controller.abort()
@@ -278,7 +282,7 @@
   $effect(() => {
     // Access all reactive dependencies synchronously to ensure they're tracked
     if (!repoClass) return
-    
+
     const currentPatches = repoClass.patches
     const currentComments = comments
     const currentStatusData = statusData
@@ -304,7 +308,9 @@
           .map(c => c.id)
           .sort()
           .join(","),
-        currentStatusData.stateById ? Object.keys(currentStatusData.stateById).sort().join(",") : "",
+        currentStatusData.stateById
+          ? Object.keys(currentStatusData.stateById).sort().join(",")
+          : "",
         currentPullRequests
           .map(pr => pr.id)
           .sort()
@@ -482,8 +488,14 @@
 
     // Defer makeFeed to avoid blocking initial render
     const timeout = setTimeout(() => {
-      if (currentRepoClass && currentRepoClass.patches && currentPatchFilter && currentPullRequestFilter && !currentFeedInitialized) {
-        const tryStart = () => {          
+      if (
+        currentRepoClass &&
+        currentRepoClass.patches &&
+        currentPatchFilter &&
+        currentPullRequestFilter &&
+        !currentFeedInitialized
+      ) {
+        const tryStart = () => {
           if (currentElement && !currentFeedInitialized) {
             feedInitialized = true
             const feed = makeFeed({
@@ -504,7 +516,7 @@
         tryStart()
       }
     }, 100)
-    
+
     return () => {
       clearTimeout(timeout)
     }
@@ -514,7 +526,7 @@
   onDestroy(() => {
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
-    
+
     // Abort all network requests
     abortControllers.forEach(controller => controller.abort())
     abortControllers.length = 0 // Clear array without reassignment

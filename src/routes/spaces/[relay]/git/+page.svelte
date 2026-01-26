@@ -10,6 +10,7 @@
     loadProfile,
     relaySearch,
     pubkey,
+    session,
     deriveProfile,
   } from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -23,7 +24,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import GitItem from "@app/components/GitItem.svelte"
-  import {pushModal} from "@app/util/modal"
+  import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {decodeRelay} from "@app/core/state"
   import {goto} from "$app/navigation"
@@ -48,6 +49,8 @@
   } from "@nostr-git/ui"
   import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
   import RepoPickerWrapper from "@app/components/RepoPickerWrapper.svelte"
+  import ImportRepoDialogWrapper from "@app/components/ImportRepoDialogWrapper.svelte"
+  import type {ImportResult} from "@nostr-git/ui"
   import {
     deriveRepoRefState,
     deriveMaintainersForEuc,
@@ -63,7 +66,8 @@
   import Git from "@assets/icons/git.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
-  import { makeGitPath } from "@src/lib/budabit"
+  import Download from "@assets/icons/download.svg?dataurl"
+  import {makeGitPath} from "@src/lib/budabit"
 
   const url = decodeRelay($page.params.relay!)
 
@@ -113,7 +117,7 @@
     } catch (error) {
       console.error("[+page.svelte] Failed to initialize worker:", error)
     }
-    
+
     // Load my repos on mount
     if ($pubkey) {
       const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
@@ -136,12 +140,14 @@
   }
 
   const toBookmarkAddresses = (bookmarks: BookmarkAddress[]): BookmarkAddress[] =>
-    bookmarks.map((b: BookmarkAddress): BookmarkAddress => ({
-      address: b.address,
-      author: b.address.split(":")[1] || "",
-      identifier: b.address.split(":")[2] || "",
-      relayHint: b.relayHint,
-    }))
+    bookmarks.map(
+      (b: BookmarkAddress): BookmarkAddress => ({
+        address: b.address,
+        author: b.address.split(":")[1] || "",
+        identifier: b.address.split(":")[2] || "",
+        relayHint: b.relayHint,
+      }),
+    )
 
   const bookmarkedAddresses = $derived.by((): BookmarkAddress[] => {
     const bookmarks = normalizeBookmarks($bookmarksStore)
@@ -166,7 +172,7 @@
     )
 
     const repoFilter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors, "#d": identifiers}
-    const loadKey = `${authors.join(',')}|${identifiers.join(',')}`
+    const loadKey = `${authors.join(",")}|${identifiers.join(",")}`
 
     return _derived(deriveEventsAsc(deriveEventsById({repository, filters: [repoFilter]})), events => {
       if (events.length !== identifiers.length) {
@@ -283,7 +289,7 @@
   const uriSearchEvent = $derived.by(() => {
     if (!extractedNaddr) return null
     const naddr = extractedNaddr
-    
+
     try {
       const decoded = nip19.decode(naddr) as {type: string; data: any}
       // Only fetch if it's a repo announcement (kind 30617)
@@ -322,12 +328,12 @@
     }
   })
 
-  // Filter repos based on search query (from current tab) 
+  // Filter repos based on search query (from current tab)
   const searchFilteredRepos = $derived.by(() => {
     const repos = filteredRepos
     // If URI search, don't filter tab repos (URI search shows in separate section)
     if (isUriSearch) return repos
-    
+
     if (!searchQuery.trim()) return repos
 
     const query = searchQuery.toLowerCase().trim()
@@ -586,19 +592,25 @@
 
   const onNewRepo = async () => {
     console.log("[+page.svelte] onNewRepo called")
-    
+
     // Ensure worker is initialized before opening wizard
     if (!workerApi || !workerInstance) {
       console.log("[+page.svelte] Worker not initialized, initializing...")
       try {
         // Add a timeout to prevent hanging
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Worker initialization timeout after 15 seconds')), 15000);
-        });
-        
-        const workerPromise = getInitializedGitWorker();
-        
-        const {api, worker} = await Promise.race([workerPromise, timeoutPromise]) as {api: any, worker: Worker};
+          setTimeout(
+            () => reject(new Error("Worker initialization timeout after 15 seconds")),
+            15000,
+          )
+        })
+
+        const workerPromise = getInitializedGitWorker()
+
+        const {api, worker} = (await Promise.race([workerPromise, timeoutPromise])) as {
+          api: any
+          worker: Worker
+        }
         workerApi = api
         workerInstance = worker
         console.log("[+page.svelte] Worker initialized for new repo")
@@ -671,6 +683,104 @@
       pushToast({message: `Failed to open New Repo wizard: ${String(error)}`, theme: "error"})
     }
   }
+
+  const onImportRepo = async () => {
+    console.log("[+page.svelte] onImportRepo called")
+
+    if (!$session || !$pubkey) {
+      pushToast({
+        theme: "error",
+        message: "Please log in to import a repository.",
+      })
+      return
+    }
+
+    // Get signer for event signing (supports NIP-07, NIP-46, NIP-01)
+    const {getSigner} = await import("@welshman/app")
+    const signer = getSigner($session)
+
+    if (!signer) {
+      pushToast({
+        theme: "error",
+        message:
+          "No signer available. Please log in with a supported signer (NIP-01, NIP-07, or NIP-46).",
+      })
+      return
+    }
+
+    // Create onSignEvent callback that works with any signer
+    const onSignEvent = async (
+      event: Omit<NostrEvent, "id" | "sig" | "pubkey">,
+    ): Promise<NostrEvent> => {
+      return await signer.sign(event)
+    }
+
+    try {
+      const modalId = pushModal(
+        ImportRepoDialogWrapper,
+        {
+          pubkey: $pubkey!,
+          onSignEvent: onSignEvent, // Primary signing method (works with all signers)
+          onClose: () => {
+            clearModals()
+          },
+          onPublishEvent: async (repoEvent: NostrEvent) => {
+            // For GRASP repos (kind 30617/30618), publish to the GRASP relay from the event's 'relays' tag
+            let targetRelays = defaultRepoRelays
+
+            // Check if this is a repo announcement or state event
+            if (repoEvent.kind === 30617 || repoEvent.kind === 30618) {
+              // Extract relay URLs from the 'relays' tag if present
+              const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
+              if (relaysTag && relaysTag.length > 1) {
+                // For GRASP events, publish to BOTH the GRASP relay AND default relays
+                const graspRelays = relaysTag.slice(1)
+                targetRelays = [...graspRelays, ...defaultRepoRelays]
+                // Remove duplicates while preserving order
+                targetRelays = [...new Set(targetRelays)]
+                console.log(
+                  "🔐 Publishing GRASP event to GRASP relay + default relays:",
+                  targetRelays,
+                )
+              }
+            }
+
+            const result = publishEventToRelays(repoEvent, targetRelays)
+          },
+          onImportComplete: (result: ImportResult) => {
+            // Reload repos by forcing bookmarks refresh and announcements
+            loadRepoAnnouncements(bookmarkRelays)
+            pushToast({
+              message: `Successfully imported repository! Imported ${result.issuesImported} issues, ${result.commentsImported} comments, ${result.prsImported} PRs, and created ${result.profilesCreated} profiles.`,
+            })
+          },
+          onNavigateToRepo: (result: ImportResult) => {
+            try {
+              // Convert announcement event to naddr and navigate
+              const naddr = Address.fromEvent(result.announcementEvent as any).toNaddr()
+              const destination = makeGitPath(url, naddr)
+              goto(destination)
+            } catch (error) {
+              console.error("[+page.svelte] Failed to navigate to imported repo:", error)
+              pushToast({
+                message: `Failed to navigate to repository: ${String(error)}`,
+                theme: "error",
+              })
+            }
+          },
+          defaultRelays: [...defaultRepoRelays],
+        },
+        {fullscreen: true},
+      )
+      console.log("[+page.svelte] ImportRepoDialog modal pushed with ID:", modalId)
+    } catch (error) {
+      console.error("[+page.svelte] Failed to push ImportRepoDialog modal:", error)
+      pushToast({
+        message: `Failed to open Import Repo dialog: ${String(error)}`,
+        theme: "error",
+      })
+    }
+  }
 </script>
 
 <svelte:head>
@@ -692,6 +802,10 @@
         <Icon icon={AddCircle} />
         New Repo
       </Button>
+      <Button class="btn btn-secondary btn-sm" onclick={() => onImportRepo()}>
+        <Icon icon={Download} />
+        Import Repo
+      </Button>
     </div>
   {/snippet}
 </PageBar>
@@ -701,7 +815,7 @@
   <div class="flex flex-col gap-3">
     <Tabs bind:value={activeTab} class="w-full">
       <div class="flex flex-col gap-3">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <TabsList class="flex w-full sm:w-auto">
             <TabsTrigger value="my-repos" class="flex-1 sm:flex-none">
               <span class="flex items-center gap-2">
@@ -716,14 +830,17 @@
               </span>
             </TabsTrigger>
           </TabsList>
-          <div class="flex flex-col sm:flex-row gap-2 sm:items-center w-full sm:w-auto">
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {#if activeTab === "bookmarks"}
-              <Button class="btn btn-primary btn-sm order-2 sm:order-1 w-full sm:w-auto" onclick={onAddRepo}>
+              <Button
+                class="btn btn-primary btn-sm order-2 w-full sm:order-1 sm:w-auto"
+                onclick={onAddRepo}>
                 <Icon icon={Bookmark} />
                 <span>Bookmark a Repo</span>
               </Button>
             {/if}
-            <label class="input input-bordered flex w-full sm:w-auto sm:max-w-md items-center gap-2 order-1 sm:order-2">
+            <label
+              class="input input-bordered order-1 flex w-full items-center gap-2 sm:order-2 sm:w-auto sm:max-w-md">
               <Icon icon={Magnifier} />
               <input
                 bind:value={searchQuery}
@@ -817,7 +934,7 @@
       </p>
     {:else if $repositoriesStore.length > 0}
       {#if uriSearchRepoCard.length > 0}
-        <h3 class="text-sm font-semibold text-muted-foreground mb-2">
+        <h3 class="mb-2 text-sm font-semibold text-muted-foreground">
           {activeTab === "my-repos" ? "My Repositories" : "Bookmarked Repositories"}
         </h3>
       {/if}
