@@ -251,9 +251,16 @@
     try {
       // Try to get README - if repo not cloned, that's okay (overview doesn't need clone)
       // The getFileContent will attempt to fetch, but won't block if it fails
+      // Don't attempt to load README without a valid branch
+      const branchName = repoClass.mainBranch?.split("/").pop();
+      if (!branchName) {
+        console.debug("README: Cannot load - branch not yet determined");
+        return;
+      }
+      
       const readmeContent = await repoClass.getFileContent({
         path: "README.md",
-        branch: repoClass.mainBranch?.split("/").pop() || "master",
+        branch: branchName,
         commit: undefined as any,
       })
       readme = readmeContent.content

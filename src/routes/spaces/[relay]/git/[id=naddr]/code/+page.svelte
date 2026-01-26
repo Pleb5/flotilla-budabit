@@ -188,57 +188,20 @@
     const currentBranch = selectedBranch;
     const switchTrigger = repoClass.branchChangeTrigger; // Increments when branch switch completes
 
-    if (currentBranch && !isCloning && !path) {
-      // Show loading only when actually fetching
-      loading = true
-      // Defer file loading slightly to avoid blocking render
-      const timeout = setTimeout(() => {
-        console.log("🔄 Loading files for branch:", currentBranch, "trigger:", switchTrigger);
-        files = repoClass
-          .listRepoFiles({
-            branch: currentBranch?.split("/").pop() || "master",
-            path: undefined,
-          })
-            .then(result => {
-              loading = false
-              console.log("✅ Files loaded:", result.files.length, "files");
-              return result.files.map(
-                file =>
-                  ({
-                    name: file.path.split("/").pop() || file.path,
-                    path: file.path,
-                    type: file.type as "file" | "directory" | "submodule" | "symlink",
-                    oid: file.lastCommit,
-                  }) as FileEntry,
-              )
-            })
-            .catch((e) => {
-              loading = false
-              error = e instanceof Error ? e.message : "Failed to load files"
-              console.error("❌ Failed to load files:", e);
-              return []
-            })
-      }, 100)
-      
-      return () => {
-        clearTimeout(timeout)
-      }
-    }
-  })
+    // Don't attempt to load files until we have a valid branch name
+    // Branch should come from repo state event or git clone, not hardcoded
+    const branchName = currentBranch?.split("/").pop();
+    if (!branchName || !currentBranch || isCloning || path) return;
 
-  $effect(() => {
-    const currentBranch = selectedBranch;
-    const currentPath = path;
-    const switchTrigger = repoClass.branchChangeTrigger; // Track branch switches via Repo class
-
-    if (currentPath && currentBranch && !isCloning) {
-      curDir.path = currentPath.split("/").slice(0, -1).join("/")
-      loading = true
-      console.log("🔄 Loading files for branch:", currentBranch, "path:", currentPath, "trigger:", switchTrigger);
+    // Show loading only when actually fetching
+    loading = true
+    // Defer file loading slightly to avoid blocking render
+    const timeout = setTimeout(() => {
+      console.log("🔄 Loading files for branch:", currentBranch, "trigger:", switchTrigger);
       files = repoClass
         .listRepoFiles({
-          branch: currentBranch?.split("/").pop() || "master",
-          path: currentPath,
+          branch: branchName,
+          path: undefined,
         })
         .then(result => {
           loading = false
@@ -259,14 +222,66 @@
           console.error("❌ Failed to load files:", e);
           return []
         })
+    }, 100)
+    
+    return () => {
+      clearTimeout(timeout)
     }
   })
 
-  const getFileContent = async (path: string) => {
+  $effect(() => {
+    const currentBranch = selectedBranch;
+    const currentPath = path;
+    const switchTrigger = repoClass.branchChangeTrigger; // Track branch switches via Repo class
+
+    // Don't attempt to load files until we have a valid branch name
+    const branchName = currentBranch?.split("/").pop();
+    if (!branchName || !currentPath || !currentBranch || isCloning) return;
+
+    curDir.path = currentPath.split("/").slice(0, -1).join("/")
+    loading = true
+    console.log("🔄 Loading files for branch:", currentBranch, "path:", currentPath, "trigger:", switchTrigger);
+    files = repoClass
+      .listRepoFiles({
+        branch: branchName,
+        path: currentPath,
+      })
+        .then(result => {
+          loading = false
+          console.log("✅ Files loaded:", result.files.length, "files");
+          return result.files.map(
+            file =>
+              ({
+                name: file.path.split("/").pop() || file.path,
+                path: file.path,
+                type: file.type as "file" | "directory" | "submodule" | "symlink",
+                oid: file.lastCommit,
+              }) as FileEntry,
+          )
+        })
+        .catch((e) => {
+          loading = false
+          error = e instanceof Error ? e.message : "Failed to load files"
+          console.error("❌ Failed to load files:", e);
+          return []
+        })
+  })
+
+  const getFileContent = async (filePath: string) => {
+    // Don't attempt to get file content without a valid branch
+    const branchName = selectedBranch?.split("/").pop();
+    if (!branchName) {
+      pushToast({
+        message: "Cannot load file: branch not yet determined",
+        theme: "error",
+      })
+      return ""
+    }
+    
     try {
       const result = await repoClass.getFileContent({
-        branch: selectedBranch?.split("/").pop() || "master",
-        path,
+        branch: branchName,
+        path: filePath,
         commit: undefined as any,
       })
       return result.content
