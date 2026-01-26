@@ -61,7 +61,7 @@
 
   // Create navigation helper
   const getCommitUrl = (commitId: string) => {
-    return `/spaces/${encodeURIComponent($page.params.relay)}/git/${encodeURIComponent($page.params.id)}/commits/${commitId}`;
+    return `/spaces/${encodeURIComponent($page.params.relay as string)}/git/${encodeURIComponent($page.params.id as string)}/commits/${commitId}`;
   };
 
   // Track the previous branch to detect changes

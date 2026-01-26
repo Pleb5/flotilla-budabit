@@ -1,41 +1,22 @@
 <script lang="ts">
   import "@src/app.css"
   import "@capacitor-community/safe-area"
-  import "@src/lib/crypto-polyfill" // Import crypto polyfill early
+  import "@src/lib/crypto-polyfill"
   import {throttle} from "throttle-debounce"
   import * as nip19 from "nostr-tools/nip19"
   import type {Unsubscriber} from "svelte/store"
   import {get} from "svelte/store"
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {dev} from "$app/environment"
-  import {beforeNavigate, goto} from "$app/navigation"
-  import {sync, localStorageProvider} from "@welshman/store"
-  import {
-    call,
-    spec,
-  } from "@welshman/lib"
+  import {goto} from "$app/navigation"
+  import {sync} from "@welshman/store"
+  import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
+  import {defaultSocketPolicies} from "@welshman/net"
   import {
-    request,
-    defaultSocketPolicies,
-    makeSocketPolicyAuth,
-    SocketEvent,
-    isRelayEvent,
-    isRelayOk,
-    isRelayClosed,
-    isClientReq,
-    isClientEvent,
-    isClientClose,
-  } from "@welshman/net"
-  import {
-    loadRelay,
-    repository,
     pubkey,
     sessions,
-    signer,
     signerLog,
-    loginWithNip01,
-    loginWithNip46,
     shouldUnwrap,
     SignerLogEntryStatus,
   } from "@welshman/app"
@@ -43,7 +24,6 @@
   import * as util from "@welshman/util"
   import * as feeds from "@welshman/feeds"
   import * as router from "@welshman/router"
-  import * as store from "@welshman/store"
   import * as welshmanSigner from "@welshman/signer"
   import * as net from "@welshman/net"
   import * as app from "@welshman/app"
@@ -53,13 +33,7 @@
   import {setupTracking} from "@app/util/tracking"
   import {setupAnalytics} from "@app/util/analytics"
   import {
-    INDEXER_RELAYS,
-    PLATFORM_RELAYS,
-    memberships,
     userSettingsValues,
-    relaysPendingTrust,
-    getSetting,
-    relaysMostlyRestricted,
   } from "@app/core/state"
   import {db, kv} from "@app/core/storage"
   import {syncApplicationData} from "@app/core/sync"
@@ -74,8 +48,6 @@
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {syncBudabitData} from "@lib/budabit"
-  import {Router} from "@welshman/router"
-  import { makeSpacePath } from "@src/app/util/routes"
   import {ExtensionProvider} from "@src/app/extensions"
 
   const {children} = $props()
