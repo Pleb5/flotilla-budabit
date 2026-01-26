@@ -2,6 +2,7 @@ import type { PageLoad } from './$types';
 import { getInitializedGitWorker } from '@src/lib/budabit/worker-singleton';
 import { pushToast } from '@src/app/util/toast';
 import type { CommitMeta } from '@nostr-git/core/types';
+import { parseRepoId } from '@nostr-git/core/utils';
 
 export interface CommitChange {
   path: string;
@@ -33,12 +34,16 @@ export const load: PageLoad = async ({ params, parent }) => {
       return;
     }
 
+    // Convert repoId to canonical format (pubkey/name) that the worker expects
+    // The layout provides "pubkey:name" format, but worker uses "pubkey/name"
+    const canonicalRepoId = parseRepoId(repoId);
+
     // Get initialized git worker instance (with EventIO configured)
     const { api } = await getInitializedGitWorker();
     
     // Get detailed commit information including file changes
     const commitDetails = await api.getCommitDetails({
-      repoId: repoId,
+      repoId: canonicalRepoId,
       commitId: commitid
     });
 
@@ -75,7 +80,7 @@ export const load: PageLoad = async ({ params, parent }) => {
     // Debug: log commit details and change summary
     try {
       console.debug('[commit/+page] Loaded commit', {
-        repoId: repoId,
+        repoId: canonicalRepoId,
         commitId: commitid,
         meta: commitMeta,
         changeCount: changes.length,
