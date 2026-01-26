@@ -146,11 +146,12 @@
         currentPage = 1;
         initialLoadComplete = false;
         previousBranch = currentBranch;
-        loadCommits();
+        // Wait for repo to be ready before loading commits
+        repoClass.waitForReady().then(() => loadCommits());
       } else if (previousBranch === undefined) {
-        // Initial load
+        // Initial load - wait for repo to be ready
         previousBranch = currentBranch;
-        loadCommits();
+        repoClass.waitForReady().then(() => loadCommits());
       }
     }
   })
@@ -174,11 +175,10 @@
       commitsLoading = true
     }
 
-    // Check if WorkerManager is ready before attempting operations
-    if (!repoClass.workerManager?.isReady) {
-      commitsError = "Repository worker not initialized. Please refresh the page."
-      commitsLoading = false
-      return
+    // Ensure repo is ready before attempting operations
+    // This handles cases where loadCommits is called directly (e.g., pagination, retry)
+    if (!repoClass.isInitialized) {
+      await repoClass.waitForReady()
     }
 
     try {

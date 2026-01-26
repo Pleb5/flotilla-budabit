@@ -37,6 +37,16 @@
   let selectedCommit = $state<any>(null)
   let mergeAnalysis = $state<any>(null)
   let isAnalyzing = $state(false)
+  let isRepoReady = $state(false)
+
+  // Wait for repo to be ready before showing workbench content
+  $effect(() => {
+    if (repoClass && !isRepoReady) {
+      repoClass.waitForReady().then(() => {
+        isRepoReady = true
+      })
+    }
+  })
 
   $effect(() => {
     if ($selectedPatch && $selectedCommit) {
@@ -85,6 +95,14 @@
   }
 </script>
 
+{#if !isRepoReady}
+  <div class="flex items-center justify-center py-12">
+    <div class="text-center text-muted-foreground">
+      <Layers class="mx-auto mb-4 h-12 w-12 animate-pulse opacity-50" />
+      <p>Loading repository...</p>
+    </div>
+  </div>
+{:else}
 <div>
   <div class="mt-6">
     <div class="mb-6">
@@ -262,3 +280,4 @@
     {/if}
   </div>
 </div>
+{/if}
