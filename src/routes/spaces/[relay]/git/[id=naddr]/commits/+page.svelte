@@ -437,6 +437,7 @@
                 onComment={handleComment}
                 href={getCommitUrl(commit.oid)}
                 getParentHref={getCommitUrl}
+                disablePrefetch={true}
                 displayName={commit?.commit?.author?.name || undefined} />
             {/each}
           </div>
