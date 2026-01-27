@@ -58,12 +58,23 @@
   let cloneCheckAttempted = $state(false)
   
   // Check if repo is cloned and clone if needed (only on code tab)
+  // Skip this entirely if vendor API is available - files can be loaded directly from API
   $effect(() => {
     if (!repoClass) return
     // Wait for repo key to be populated (set when repoEvent is processed)
     if (!repoClass.key) return
     // Only attempt clone check once per page load
     if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
+    
+    // Check if vendor API is available - if so, skip clone entirely
+    // The vendor API (GitHub, GitLab, etc.) can provide files immediately
+    const cloneUrls = repoClass.cloneUrls
+    const hasVendorApi = repoClass.vendorReadRouter?.hasVendorSupport(cloneUrls) ?? false
+    if (hasVendorApi) {
+      console.log("[code/+page] Vendor API available, skipping git clone check for fast UI")
+      cloneCheckAttempted = true
+      return
+    }
     
     const timeout = setTimeout(() => {
       ;(async () => {
@@ -89,7 +100,6 @@
             })
             
             try {
-              const cloneUrls = repoClass.cloneUrls
               if (cloneUrls.length === 0) {
                 throw new Error("No clone URLs found for repository")
               }
@@ -104,18 +114,9 @@
                 throw new Error(result.error || "Repository initialization failed")
               }
               
-              console.log("🔄 Syncing with remote after clone...")
-              cloneProgress = "Syncing with remote..."
-              try {
-                await repoClass.workerManager.syncWithRemote({
-                  repoId: repoClass.key,
-                  cloneUrls,
-                  branch: selectedBranch?.split("/").pop()
-                })
-                console.log("✅ Sync complete")
-              } catch (syncErr) {
-                console.warn("Sync with remote failed:", syncErr)
-              }
+              // Skip syncWithRemote - it's slow and not needed for initial display
+              // The vendor API or cached data will be used for file display
+              console.log("✅ Repository initialized (skipping sync for faster UI)")
             } finally {
               repoClass.workerManager.setProgressCallback(() => {})
               isCloning = false

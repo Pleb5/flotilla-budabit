@@ -63,6 +63,10 @@
   let _prevMain = $state<string | undefined>(undefined)
   let _prevBranchSig = $state<string | undefined>(undefined)
   let copiedUrl = $state<string | null>(null)
+  
+  // Expandable sections state
+  let showAllRelays = $state(false)
+  let showAllBranches = $state(false)
 
   const stats = $derived([
     {
@@ -464,7 +468,7 @@
               <div class="border-t pt-3">
                 <span class="mb-2 block text-sm text-muted-foreground ">Branches</span>
                 <div class="flex flex-wrap gap-1">
-                  {#each repoClass.branches.slice(0, 5) as branch}
+                  {#each showAllBranches ? repoClass.branches : repoClass.branches.slice(0, 5) as branch}
                     <span
                       class="truncate rounded outline outline-1 outline-gray-200 px-2 py-1 text-xs text-white dark:bg-blue-900/30 dark:text-blue-200">
                       {branch.name}
@@ -474,9 +478,13 @@
                     </span>
                   {/each}
                   {#if repoClass.branches.length > 5}
-                    <span class="px-2 py-1 text-xs text-muted-foreground">
-                      +{repoClass.branches.length - 5} more
-                    </span>
+                    <button
+                      type="button"
+                      class="px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
+                      onclick={() => showAllBranches = !showAllBranches}
+                    >
+                      {showAllBranches ? 'Show less' : `+${repoClass.branches.length - 5} more`}
+                    </button>
                   {/if}
                 </div>
               </div>
@@ -516,16 +524,20 @@
               <div class="border-t pt-3">
                 <span class="mb-2 block text-sm text-muted-foreground">Relays</span>
                 <div class="space-y-1">
-                  {#each repoMetadata.relays.slice(0, 3) as relay}
+                  {#each showAllRelays ? repoMetadata.relays : repoMetadata.relays.slice(0, 3) as relay}
                     <div class="flex items-center gap-2 text-sm">
                       <Globe class="h-3 w-3" />
                       <span class="truncate">{relay}</span>
                     </div>
                   {/each}
                   {#if repoMetadata.relays.length > 3}
-                    <span class="text-xs text-muted-foreground">
-                      +{repoMetadata.relays.length - 3} more relays
-                    </span>
+                    <button
+                      type="button"
+                      class="text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
+                      onclick={() => showAllRelays = !showAllRelays}
+                    >
+                      {showAllRelays ? 'Show less' : `+${repoMetadata.relays.length - 3} more relays`}
+                    </button>
                   {/if}
                 </div>
               </div>
