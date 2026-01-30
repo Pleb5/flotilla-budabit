@@ -14,6 +14,7 @@
   import EventMenu from "@app/components/EventMenu.svelte"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {stopPropagation} from "@lib/html"
 
   type Props = {
     url: string
@@ -39,10 +40,13 @@
       protect: await shouldProtect,
     })
 
+  // Stop right-click from bubbling up to parent context menu handlers
+  const onContextMenu = stopPropagation(() => {})
+
   let popover: Instance | undefined = $state()
 </script>
 
-<Button class="join rounded-full">
+<div class="join rounded-full" role="group" oncontextmenu={onContextMenu}>
   {#if ENABLE_ZAPS && !hideZap}
     <ZapButton {url} {event} class="btn join-item btn-neutral btn-xs">
       <Icon icon={Bolt} size={4} />
@@ -60,4 +64,4 @@
       <Icon icon={MenuDots} size={4} />
     </Button>
   </Tippy>
-</Button>
+</div>
