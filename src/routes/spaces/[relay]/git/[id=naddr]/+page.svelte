@@ -1,6 +1,6 @@
 <script lang="ts">
   import markdownit from "markdown-it"
-  import {Card, Terminal} from "@nostr-git/ui"
+  import {Card} from "@nostr-git/ui"
   import {
     CircleAlert,
     GitBranch,
@@ -12,6 +12,8 @@
     Link,
     Eye,
     BookOpen,
+    Copy,
+    Check,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -28,8 +30,28 @@
   import {nip19} from "nostr-tools"
   import {clip, pushToast} from "@app/util/toast"
 
+  import {getContext} from "svelte"
+  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import type {Readable} from "svelte/store"
+  import type {Repo} from "@nostr-git/ui"
+
+  let Terminal = $state<any>(null);
+  if (__TERMINAL__) {
+    import("@nostr-git/ui").then(m => Terminal = m.Terminal);
+  }
+
   let {data}: LayoutProps = $props()
-  const {repoClass, repoRelays} = data
+  
+  // Get repoClass and repoRelays from context
+  const repoClass = getContext<Repo>(REPO_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+  
+  // Get relays reactively
+  const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
 
   // Progressive loading states - show immediate content right away
   let initialLoading = $state(false)
@@ -40,6 +62,7 @@
   let _prevRepoKey = $state<string | undefined>(undefined)
   let _prevMain = $state<string | undefined>(undefined)
   let _prevBranchSig = $state<string | undefined>(undefined)
+  let copiedUrl = $state<string | null>(null)
 
   const stats = $derived([
     {
@@ -68,8 +91,10 @@
     },
   ])
 
-  const maintainers = repoClass.maintainers.map(
-    m => $profilesByPubkey.get(m) ?? {display_name: truncateHash(m), name: truncateHash(m)},
+  const maintainers = $derived.by(() => 
+    (repoClass?.maintainers || []).map(
+      m => $profilesByPubkey.get(m) ?? {display_name: truncateHash(m), name: truncateHash(m)},
+    )
   )
 
   function buildDefaultNgitCloneUrl(): string | undefined {
@@ -101,14 +126,14 @@
   }
 
   const repoMetadata = $derived({
-    name: ((repoClass as any).repo?.name as string) || "Unknown Repository",
-    description: ((repoClass as any).repo?.description as string) || "",
+    name: repoClass.name || "Unknown Repository",
+    description: repoClass.description || "",
     repoId: repoClass.key || "",
     maintainers: maintainers || [],
-    relays: $repoRelays,
+    relays: repoRelays,
     cloneUrls: (() => {
-      const rep: any = (repoClass as any).repo
-      let urls = [...(rep?.clone || [])]
+      // Get clone URLs from repoClass directly
+      let urls = [...(repoClass.cloneUrls || [])]
       if (!urls.find(u => u.startsWith("nostr://"))) {
         const def = buildDefaultNgitCloneUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -116,8 +141,8 @@
       return urls
     })(),
     webUrls: (() => {
-      const rep: any = (repoClass as any).repo
-      let urls = [...(rep?.web || [])]
+      // Get web URLs from repoClass directly
+      let urls = [...(repoClass.web || [])]
       if (!urls.find(u => u.startsWith("https://gitworkshop.dev"))) {
         const def = buildDefaultViewRepoUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -125,8 +150,8 @@
       return urls
     })(),
     mainBranch: repoClass.mainBranch,
-    createdAt: (repoClass as any).repoEvent?.created_at
-      ? new Date(((repoClass as any).repoEvent.created_at as number) * 1000)
+    createdAt: repoClass.repoEvent?.created_at
+      ? new Date(repoClass.repoEvent.created_at * 1000)
       : null,
     updatedAt: (repoClass as any).repoStateEvent?.created_at
       ? new Date(((repoClass as any).repoStateEvent.created_at as number) * 1000)
@@ -176,7 +201,7 @@
   $effect(() => {
     if (repoClass) {
       // Load async data in parallel
-      loadRepoInfo()
+        loadRepoInfo()
     }
   })
 
@@ -220,6 +245,8 @@
 
   async function loadReadme() {
     try {
+      // Try to get README - if repo not cloned, that's okay (overview doesn't need clone)
+      // The getFileContent will attempt to fetch, but won't block if it fails
       const readmeContent = await repoClass.getFileContent({
         path: "README.md",
         branch: repoClass.mainBranch?.split("/").pop() || "master",
@@ -228,6 +255,9 @@
       readme = readmeContent.content
       renderedReadme = readme ? md.render(readme) : ""
     } catch (e) {
+      // Silently fail - README is optional and shouldn't block page load
+      // If repo not cloned, user can still see overview without README
+      console.debug("README: Failed to load (repo may not be cloned, which is fine for overview)", e)
     } finally {
       readmeLoading = false
     }
@@ -235,45 +265,41 @@
 
   async function loadLastCommit() {
     try {
-      // Assume Repo already initialized; avoid triggering repo updates here
-      // Build candidate branches to try in order
-      const shortMain = repoClass.mainBranch
-        ? repoClass.mainBranch.split("/").pop() || repoClass.mainBranch
-        : undefined
-      const fullMain = repoClass.mainBranch || undefined
-      const firstBranch = repoClass.branches?.[0]?.name
-      const candidates = Array.from(new Set([shortMain, fullMain, firstBranch].filter(Boolean))) as string[]
-      console.debug("LatestCommit candidates", { shortMain, fullMain, firstBranch, candidates })
+      // Use main branch directly - no need to try multiple branches
+      // Start with small depth (5) for faster loading, only increase if needed
+      const mainBranch = repoClass.mainBranch
+      if (!mainBranch) {
+        commitLoading = false
+        return
+      }
 
-      // Try a few depths to accommodate shallow clones
+      // Try depth 5 first (fast), then 10 if needed, then 25 as fallback
       const depths = [5, 10, 25]
-
-      for (const branchName of candidates) {
-        for (const depth of depths) {
-          try {
-            const res = await repoClass.getCommitHistory({ branch: branchName, depth })
-            const list = Array.isArray(res) ? res : res?.commits
-            console.debug("LatestCommit attempt", { branchName, depth, count: list?.length })
-            if (Array.isArray(list) && list.length > 0) {
-              lastCommit = list[0]
-              return
-            }
-          } catch (e) {
-            console.debug("LatestCommit attempt failed", { branchName, depth, error: String(e) })
+      
+      for (const depth of depths) {
+        try {
+          const res = await repoClass.getCommitHistory({ branch: mainBranch, depth })
+          const list = Array.isArray(res) ? res : res?.commits
+          if (Array.isArray(list) && list.length > 0) {
+            lastCommit = list[0]
+            commitLoading = false
+            return
           }
+        } catch (e) {
+          // If repo not cloned, that's okay - commit history is optional for overview
+          // Don't trigger clone just for commit history
+          if (String(e).includes("not cloned") || String(e).includes("Repository not")) {
+            console.debug("LatestCommit: Repository not cloned, skipping (overview page doesn't need clone)")
+            commitLoading = false
+            return
+          }
+          // Try next depth on other errors
+          console.debug("LatestCommit attempt failed", { depth, error: String(e) })
         }
       }
-      // Final fallback: let Repo resolve the branch internally
-      try {
-        const res = await repoClass.getCommitHistory({ depth: 25 } as any)
-        const list = Array.isArray(res) ? res : res?.commits
-        console.debug("LatestCommit final fallback", { count: list?.length })
-        if (Array.isArray(list) && list.length > 0) {
-          lastCommit = list[0]
-          return
-        }
-      } catch {}
     } catch (e) {
+      // Silently fail - commit history is optional
+      console.debug("LatestCommit: Failed to load", e)
     } finally {
       commitLoading = false
     }
@@ -287,10 +313,22 @@
   function truncateHash(hash: string, length = 8) {
     return hash ? hash.substring(0, length) : ""
   }
+
+  async function copyUrl(url: string) {
+    try {
+      await clip(url)
+      copiedUrl = url
+      setTimeout(() => {
+        copiedUrl = null
+      }, 2000)
+    } catch (e) {
+      console.error("Failed to copy URL", e)
+    }
+  }
 </script>
 
 <svelte:head>
-  <title>{repoClass.name}</title>
+  <title>{repoClass.name || 'Repository'}</title>
 </svelte:head>
 
 <div class="relative flex flex-col gap-6 py-2">
@@ -315,6 +353,36 @@
         </Card>
       {/each}
     </div>
+
+    <!-- Clone URL Section - Prominent Display -->
+    {#if repoMetadata.cloneUrls.length > 0}
+      <div transition:fade>
+        <Card class="p-6">
+          <h3 class="mb-3 text-lg font-semibold flex items-center gap-2">
+            <GitBranch class="h-5 w-5" />
+            Clone Repository
+          </h3>
+          <div class="space-y-2">
+            {#each repoMetadata.cloneUrls as url, index}
+              <button
+                type="button"
+                class="flex w-full items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/50 active:scale-[0.99] cursor-pointer group"
+                title="Click to copy"
+                onclick={() => copyUrl(url)}>
+                <code class="flex-1 font-mono text-sm overflow-x-auto whitespace-nowrap text-left">{url}</code>
+                <div class="flex-shrink-0 p-1 rounded-md transition-colors group-hover:bg-gray-200 dark:group-hover:bg-gray-600">
+                  {#if copiedUrl === url}
+                    <Check class="h-4 w-4 text-green-600 dark:text-green-400" />
+                  {:else}
+                    <Copy class="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                  {/if}
+                </div>
+              </button>
+            {/each}
+          </div>
+        </Card>
+      </div>
+    {/if}
 
     <div class="grid gap-6 md:grid-cols-2" transition:fly>
       <!-- Repository Details -->
@@ -418,7 +486,7 @@
               <span class="mb-2 block text-sm text-muted-foreground">Repo Address</span>
               <button
                 type="button"
-                class="flex w-full items-start gap-2 text-left text-sm hover:opacity-80"
+                class="flex w-full min-w-0 max-w-full items-start gap-2 text-left text-sm hover:opacity-80"
                 title="Click to copy"
                 onclick={() => clip(naddr)}>
                 <Link class="mt-0.5 h-3 w-3 flex-shrink-0" />
@@ -452,11 +520,11 @@
                   {#each repoMetadata.cloneUrls as url}
                     <button
                       type="button"
-                      class="flex w-full items-center gap-2 text-left text-sm hover:opacity-80"
+                      class="grid grid-cols-[auto_1fr] w-full items-center gap-2 text-left text-sm hover:opacity-80"
                       title="Click to copy"
                       onclick={() => clip(url)}>
                       <Link class="h-3 w-3" />
-                      <span class="truncate font-mono text-xs">{url}</span>
+                      <span class="font-mono text-xs overflow-auto">{url}</span>
                     </button>
                   {/each}
                 </div>
@@ -468,9 +536,9 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Web URLs</span>
                 <div class="space-y-1">
                   {#each repoMetadata.webUrls as url}
-                    <div class="flex items-center gap-2 text-sm">
+                    <div class="grid grid-cols-[auto_1fr] items-center gap-2 text-sm max-w-full overflow-x-auto">
                       <Link class="h-3 w-3" />
-                      <a href={url} target="_blank" class="truncate font-mono text-xs">{url}</a>
+                      <a href={url} target="_blank" class="font-mono text-xs overflow-x-auto">{url}</a>
                     </div>
                   {/each}
                 </div>
@@ -536,11 +604,12 @@
       {/if}
     </div>
     <div class="flex-1" transition:slide>
-      <Terminal
-        fs={undefined}
-        repoRef={repoRefObj}
-        repoEvent={repoClass.repoEvent}
-        relays={$repoRelays}
+      {#if __TERMINAL__ && Terminal}
+        <Terminal
+          fs={undefined}
+          repoRef={repoRefObj}
+          repoEvent={repoClass.repoEvent}
+        relays={repoRelays}
         theme="retro"
         height={260}
         initialCwd="/"
@@ -557,6 +626,7 @@
         {defaultBranch}
         provider={detectedProvider}
         token={defaultToken} />
+      {/if}
     </div>
 
     <!-- README -->
@@ -583,7 +653,7 @@
             <BookOpen class="h-5 w-5" />
             README
           </h3>
-          <div class="prose max-w-2xl bg-white dark:bg-zinc-900" in:fly>
+          <div class="prose max-w-2xl overflow-x-scroll bg-white dark:bg-zinc-900" in:fly>
             {@html renderedReadme}
             <style>
               .prose {
@@ -682,3 +752,4 @@
     {/if}
   {/if}
 </div>
+

@@ -196,7 +196,7 @@ importers:
         version: 8.0.3
       isomorphic-git:
         specifier: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
-        version: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
+        version: https://release-assets.githubusercontent.com/github-production-release-asset/1036952120/f3048c03-50ce-4349-af3e-acb3ab02c74d?sp=r&sv=2018-11-09&sr=b&spr=https&se=2025-11-19T20%3A07%3A44Z&rscd=attachment%3B+filename%3Disomorphic-git-2.0.0-alpha.tgz&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2025-11-19T19%3A06%3A55Z&ske=2025-11-19T20%3A07%3A44Z&sks=b&skv=2018-11-09&sig=P%2B2Q%2FFrYDbCl0TWlY66EO2FbpObPBNtJcJCcZwFPLw0%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc2MzU3OTY2OCwibmJmIjoxNzYzNTc5MzY4LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.Lh-Ofv0oBFTSPMoHyo51rblSIGoct9kxmQrQhioh3bE&response-content-disposition=attachment%3B%20filename%3Disomorphic-git-2.0.0-alpha.tgz&response-content-type=application%2Foctet-stream
       markdown-it:
         specifier: ^14.1.0
         version: 14.1.0
@@ -341,7 +341,7 @@ importers:
         version: 20.5.0
       isomorphic-git:
         specifier: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
-        version: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
+        version: https://release-assets.githubusercontent.com/github-production-release-asset/1036952120/f3048c03-50ce-4349-af3e-acb3ab02c74d?sp=r&sv=2018-11-09&sr=b&spr=https&se=2025-11-19T20%3A07%3A44Z&rscd=attachment%3B+filename%3Disomorphic-git-2.0.0-alpha.tgz&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2025-11-19T19%3A06%3A55Z&ske=2025-11-19T20%3A07%3A44Z&sks=b&skv=2018-11-09&sig=P%2B2Q%2FFrYDbCl0TWlY66EO2FbpObPBNtJcJCcZwFPLw0%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc2MzU3OTY2OCwibmJmIjoxNzYzNTc5MzY4LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.Lh-Ofv0oBFTSPMoHyo51rblSIGoct9kxmQrQhioh3bE&response-content-disposition=attachment%3B%20filename%3Disomorphic-git-2.0.0-alpha.tgz&response-content-type=application%2Foctet-stream
       mime-types:
         specifier: ^3.0.1
         version: 3.0.1
@@ -472,7 +472,7 @@ importers:
         version: 20.5.0
       isomorphic-git:
         specifier: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
-        version: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
+        version: https://release-assets.githubusercontent.com/github-production-release-asset/1036952120/f3048c03-50ce-4349-af3e-acb3ab02c74d?sp=r&sv=2018-11-09&sr=b&spr=https&se=2025-11-19T20%3A07%3A44Z&rscd=attachment%3B+filename%3Disomorphic-git-2.0.0-alpha.tgz&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2025-11-19T19%3A06%3A55Z&ske=2025-11-19T20%3A07%3A44Z&sks=b&skv=2018-11-09&sig=P%2B2Q%2FFrYDbCl0TWlY66EO2FbpObPBNtJcJCcZwFPLw0%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc2MzU3OTY2OCwibmJmIjoxNzYzNTc5MzY4LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.Lh-Ofv0oBFTSPMoHyo51rblSIGoct9kxmQrQhioh3bE&response-content-disposition=attachment%3B%20filename%3Disomorphic-git-2.0.0-alpha.tgz&response-content-type=application%2Foctet-stream
       mime-types:
         specifier: ^3.0.1
         version: 3.0.1
@@ -548,7 +548,7 @@ importers:
         version: 16.6.1
       isomorphic-git:
         specifier: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
-        version: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz
+        version: https://release-assets.githubusercontent.com/github-production-release-asset/1036952120/f3048c03-50ce-4349-af3e-acb3ab02c74d?sp=r&sv=2018-11-09&sr=b&spr=https&se=2025-11-19T20%3A07%3A44Z&rscd=attachment%3B+filename%3Disomorphic-git-2.0.0-alpha.tgz&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2025-11-19T19%3A06%3A55Z&ske=2025-11-19T20%3A07%3A44Z&sks=b&skv=2018-11-09&sig=P%2B2Q%2FFrYDbCl0TWlY66EO2FbpObPBNtJcJCcZwFPLw0%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc2MzU3OTY2OCwibmJmIjoxNzYzNTc5MzY4LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.Lh-Ofv0oBFTSPMoHyo51rblSIGoct9kxmQrQhioh3bE&response-content-disposition=attachment%3B%20filename%3Disomorphic-git-2.0.0-alpha.tgz&response-content-type=application%2Foctet-stream
       nostr-tools:
         specifier: ^2.17.0
         version: 2.17.3(typescript@5.9.3)
@@ -1447,6 +1447,7 @@ packages:
 
   '@capacitor-community/safe-area@7.0.0-alpha.1':
     resolution: {integrity: sha512-N6ktkRiofqrt+N/vQzh4jcWY8IzJ4TVw1tKAPssvbddWFTyZzXzSdBeX/l/nracJF0PZqmLdA7JYTBfnOxXQYw==}
+    deprecated: This plugin has undergone significant changes. Please read the readme and upgrade to the latest beta version for continued support.
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
@@ -5363,8 +5364,8 @@ packages:
     resolution: {integrity: sha512-WhB9zCku7EGTj/HQQRz5aUQEUeoQZH2bWcltRErOpymJ4boYE6wL9Tbr23krRPSZ+C5zqNSrSw+Cc7sZZ4b7vg==}
     engines: {node: '>=0.10.0'}
 
-  isomorphic-git@https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz:
-    resolution: {tarball: https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz}
+  isomorphic-git@https://release-assets.githubusercontent.com/github-production-release-asset/1036952120/f3048c03-50ce-4349-af3e-acb3ab02c74d?sp=r&sv=2018-11-09&sr=b&spr=https&se=2025-11-19T20%3A07%3A44Z&rscd=attachment%3B+filename%3Disomorphic-git-2.0.0-alpha.tgz&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2025-11-19T19%3A06%3A55Z&ske=2025-11-19T20%3A07%3A44Z&sks=b&skv=2018-11-09&sig=P%2B2Q%2FFrYDbCl0TWlY66EO2FbpObPBNtJcJCcZwFPLw0%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc2MzU3OTY2OCwibmJmIjoxNzYzNTc5MzY4LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.Lh-Ofv0oBFTSPMoHyo51rblSIGoct9kxmQrQhioh3bE&response-content-disposition=attachment%3B%20filename%3Disomorphic-git-2.0.0-alpha.tgz&response-content-type=application%2Foctet-stream:
+    resolution: {tarball: https://release-assets.githubusercontent.com/github-production-release-asset/1036952120/f3048c03-50ce-4349-af3e-acb3ab02c74d?sp=r&sv=2018-11-09&sr=b&spr=https&se=2025-11-19T20%3A07%3A44Z&rscd=attachment%3B+filename%3Disomorphic-git-2.0.0-alpha.tgz&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2025-11-19T19%3A06%3A55Z&ske=2025-11-19T20%3A07%3A44Z&sks=b&skv=2018-11-09&sig=P%2B2Q%2FFrYDbCl0TWlY66EO2FbpObPBNtJcJCcZwFPLw0%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc2MzU3OTY2OCwibmJmIjoxNzYzNTc5MzY4LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.Lh-Ofv0oBFTSPMoHyo51rblSIGoct9kxmQrQhioh3bE&response-content-disposition=attachment%3B%20filename%3Disomorphic-git-2.0.0-alpha.tgz&response-content-type=application%2Foctet-stream}
     version: 2.0.0-alpha
     engines: {node: '>=14.17'}
     hasBin: true
@@ -13327,7 +13328,7 @@ snapshots:
 
   isobject@3.0.1: {}
 
-  isomorphic-git@https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz:
+  isomorphic-git@https://release-assets.githubusercontent.com/github-production-release-asset/1036952120/f3048c03-50ce-4349-af3e-acb3ab02c74d?sp=r&sv=2018-11-09&sr=b&spr=https&se=2025-11-19T20%3A07%3A44Z&rscd=attachment%3B+filename%3Disomorphic-git-2.0.0-alpha.tgz&rsct=application%2Foctet-stream&skoid=96c2d410-5711-43a1-aedd-ab1947aa7ab0&sktid=398a6654-997b-47e9-b12b-9515b896b4de&skt=2025-11-19T19%3A06%3A55Z&ske=2025-11-19T20%3A07%3A44Z&sks=b&skv=2018-11-09&sig=P%2B2Q%2FFrYDbCl0TWlY66EO2FbpObPBNtJcJCcZwFPLw0%3D&jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmVsZWFzZS1hc3NldHMuZ2l0aHVidXNlcmNvbnRlbnQuY29tIiwia2V5Ijoia2V5MSIsImV4cCI6MTc2MzU3OTY2OCwibmJmIjoxNzYzNTc5MzY4LCJwYXRoIjoicmVsZWFzZWFzc2V0cHJvZHVjdGlvbi5ibG9iLmNvcmUud2luZG93cy5uZXQifQ.Lh-Ofv0oBFTSPMoHyo51rblSIGoct9kxmQrQhioh3bE&response-content-disposition=attachment%3B%20filename%3Disomorphic-git-2.0.0-alpha.tgz&response-content-type=application%2Foctet-stream:
     dependencies:
       async-lock: 1.4.1
       clean-git-ref: 2.0.1

@@ -65,7 +65,7 @@
   const gitPath = makeGitPath(url)
 
   let loading = $state(true)
-  let activeTab = $state<"my-repos" | "bookmarks">("bookmarks")
+  let activeTab = $state<"my-repos" | "bookmarks">("my-repos")
   let searchQuery = $state("")
 
   // Initialize worker for Git operations

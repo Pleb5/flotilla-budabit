@@ -6,14 +6,26 @@
   import {pushToast} from "@src/app/util/toast"
   import {postPermalink} from "@lib/budabit/commands.js"
   import {nip19} from "nostr-tools"
+  import {getContext} from "svelte"
+  import {REPO_KEY} from "@lib/budabit/state"
+  import type {Repo} from "@nostr-git/ui"
 
-  const {data} = $props()
-  const {repoClass} = data
+  const repoClass = getContext<Repo>(REPO_KEY)
 
-  let loading = $state(true)
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+
+  // Start with false - show content immediately, only show loading when actually loading
+  let loading = $state(false)
   let error: string | null = $state(null)
   let files: Promise<FileEntry[]> = $state(Promise.resolve([]))
   let path = $state<string | undefined>(undefined)
+  
+  // Clone progress state - only show when actually cloning
+  let isCloning = $state(false)
+  let cloneProgress = $state<string>("")
+  let cloneProgressPercent = $state<number | undefined>(undefined)
 
   const rootDir: FileEntry = $state({
     name: ".",
@@ -21,10 +33,16 @@
     type: "directory",
   })
 
+  // Initialize selectedBranch first
+  let selectedBranch = $state(repoClass.selectedBranch || repoClass.mainBranch)
+
   // Keep local selectedBranch in sync with repoClass changes (e.g., BranchSelector)
   $effect(() => {
     if (repoClass) {
-      const next = repoClass.selectedBranch || repoClass.mainBranch || selectedBranch
+      // Explicitly track selectedBranch and mainBranch for reactivity
+      const repoSelectedBranch = repoClass.selectedBranch;
+      const repoMainBranch = repoClass.mainBranch;
+      const next = repoSelectedBranch || repoMainBranch || selectedBranch
       if (next && next !== selectedBranch) {
         selectedBranch = next
       }
@@ -37,46 +55,210 @@
     type: "directory",
   })
 
-  let selectedBranch = $state(repoClass.selectedBranch)
-
   let branchLoadTrigger = $state(0)
+  let branchSwitchComplete = $state(0) // Increments when branch switch finishes
+  
+  // Track when branch switching completes
+  let wasSwitching = $state(false)
+  $effect(() => {
+    const isSwitching = repoClass.isBranchSwitching
+    if (wasSwitching && !isSwitching) {
+      // Branch switch just completed
+      console.log("✅ Branch switch completed, triggering reload")
+      branchSwitchComplete++
+    }
+    wasSwitching = isSwitching
+  })
 
   let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
     $state([])
-  let loadingRefs = $state(true)
+  // Start with false - only show loading when actually loading refs
+  let loadingRefs = $state(false)
 
-  // Load refs using the unified API
+  // Check if repo is cloned and clone if needed (only on code tab)
+  // Defer this heavy operation until after initial render
   $effect(() => {
-    if (repoClass) {
-      loadingRefs = true
-      repoClass
-        .getAllRefsWithFallback()
-        .then(loadedRefs => {
-          refs = loadedRefs
-          loadingRefs = false
-          branchLoadTrigger++ // Trigger reactivity for dependent effects
-        })
-        .catch((error: Error) => {
-          console.error("Failed to load repository references:", error)
+    if (!repoClass || !repoClass.workerManager?.isReady) return
+    
+    // Defer cloning check to avoid blocking initial render
+    const timeout = setTimeout(() => {
+      ;(async () => {
+        try {
+          const isCloned = await repoClass.workerManager.isRepoCloned({
+            repoId: repoClass.key
+          })
+          
+          if (!isCloned) {
+            // Show clone progress
+            isCloning = true
+            cloneProgress = "Initializing repository..."
+            
+            // Set up progress callback using WorkerManager's API
+            const originalCallback = repoClass.workerManager.setProgressCallback.bind(repoClass.workerManager)
+            repoClass.workerManager.setProgressCallback((progressEvent) => {
+              if (progressEvent.repoId === repoClass.key) {
+                cloneProgress = progressEvent.phase || "Cloning repository..."
+                cloneProgressPercent = progressEvent.progress
+              }
+            })
+            
+            try {
+              const cloneUrls = repoClass.cloneUrls
+              if (cloneUrls.length === 0) {
+                throw new Error("No clone URLs found for repository")
+              }
+              
+              const result = await repoClass.workerManager.smartInitializeRepo({
+                repoId: repoClass.key,
+                cloneUrls,
+                forceUpdate: false
+              })
+              
+              if (!result.success) {
+                throw new Error(result.error || "Repository initialization failed")
+              }
+              
+              // After cloning, sync with remote to ensure we have latest content
+              console.log("🔄 Syncing with remote after clone...")
+              cloneProgress = "Syncing with remote..."
+              try {
+                await repoClass.workerManager.syncWithRemote({
+                  repoId: repoClass.key,
+                  cloneUrls,
+                  branch: selectedBranch?.split("/").pop()
+                })
+                console.log("✅ Sync complete")
+              } catch (syncErr) {
+                console.warn("Sync with remote failed:", syncErr)
+                // Don't throw - repo is still usable even if sync fails
+              }
+            } finally {
+              // Restore original callback (or clear it)
+              repoClass.workerManager.setProgressCallback(() => {})
+              isCloning = false
+              cloneProgress = ""
+              cloneProgressPercent = undefined
+              // Trigger file reload after clone+sync completes
+              branchSwitchComplete++
+            }
+          }
+        } catch (error) {
+          console.error("Failed to initialize repository:", error)
           pushToast({
-            message: "Failed to load branches from git repository: " + error,
+            message: `Failed to initialize repository: ${error instanceof Error ? error.message : "Unknown error"}`,
             theme: "error",
           })
-          refs = []
-          loadingRefs = false
-        })
+          isCloning = false
+          error = error instanceof Error ? error.message : "Failed to initialize repository"
+        }
+      })()
+    }, 100)
+    
+    return () => {
+      clearTimeout(timeout)
+    }
+  })
+
+  // Load refs using the unified API - defer to avoid blocking render
+  $effect(() => {
+    if (repoClass && !isCloning) {
+      // Defer ref loading to avoid blocking initial render
+      const timeout = setTimeout(() => {
+        loadingRefs = true
+        repoClass
+          .getAllRefsWithFallback()
+          .then(loadedRefs => {
+            refs = loadedRefs
+            loadingRefs = false
+            branchLoadTrigger++ // Trigger reactivity for dependent effects
+          })
+          .catch((error: Error) => {
+            console.error("Failed to load repository references:", error)
+            pushToast({
+              message: "Failed to load branches from git repository: " + error,
+              theme: "error",
+            })
+            refs = []
+            loadingRefs = false
+          })
+      }, 100)
+      
+      return () => {
+        clearTimeout(timeout)
+      }
     }
   })
 
   $effect(() => {
-    if (selectedBranch) {
+    const isSwitching = repoClass.isBranchSwitching;
+    
+    // Don't load files while branch is still switching, but show loading state
+    if (isSwitching) {
+      console.log("⏳ Branch is switching, showing loading state...");
+      loading = true;
+      return;
+    }
+    
+    // Explicitly track branchSwitchComplete and selectedBranch to ensure effect re-runs after branch changes
+    const currentBranch = selectedBranch;
+    const switchTrigger = branchSwitchComplete; // This increments when branch switch completes
+    
+    if (currentBranch && !isCloning && !path) {
+      // Show loading only when actually fetching
+      loading = true
+      // Defer file loading slightly to avoid blocking render
+      const timeout = setTimeout(() => {
+        console.log("🔄 Loading files for branch:", currentBranch, "trigger:", switchTrigger);
+        files = repoClass
+          .listRepoFiles({
+            branch: currentBranch?.split("/").pop() || "master",
+            path: undefined,
+          })
+            .then(result => {
+              loading = false
+              console.log("✅ Files loaded:", result.files.length, "files");
+              return result.files.map(
+                file =>
+                  ({
+                    name: file.path.split("/").pop() || file.path,
+                    path: file.path,
+                    type: file.type as "file" | "directory" | "submodule" | "symlink",
+                    oid: file.lastCommit,
+                  }) as FileEntry,
+              )
+            })
+            .catch((e) => {
+              loading = false
+              error = e instanceof Error ? e.message : "Failed to load files"
+              console.error("❌ Failed to load files:", e);
+              return []
+            })
+      }, 100)
+      
+      return () => {
+        clearTimeout(timeout)
+      }
+    }
+  })
+
+  $effect(() => {
+    const currentBranch = selectedBranch;
+    const currentPath = path;
+    const switchTrigger = branchSwitchComplete; // Track branch switches
+    
+    if (currentPath && currentBranch && !isCloning) {
+      curDir.path = currentPath.split("/").slice(0, -1).join("/")
+      loading = true
+      console.log("🔄 Loading files for branch:", currentBranch, "path:", currentPath, "trigger:", switchTrigger);
       files = repoClass
         .listRepoFiles({
-          branch: selectedBranch?.split("/").pop() || "master",
-          path,
+          branch: currentBranch?.split("/").pop() || "master",
+          path: currentPath,
         })
-        .then(result =>
-          result.files.map(
+        .then(result => {
+          loading = false
+          console.log("✅ Files loaded:", result.files.length, "files");
+          return result.files.map(
             file =>
               ({
                 name: file.path.split("/").pop() || file.path,
@@ -84,31 +266,14 @@
                 type: file.type as "file" | "directory" | "submodule" | "symlink",
                 oid: file.lastCommit,
               }) as FileEntry,
-          ),
-        )
-      loading = false
-    }
-  })
-
-  $effect(() => {
-    if (path) {
-      curDir.path = path.split("/").slice(0, -1).join("/")
-      files = repoClass
-        .listRepoFiles({
-          branch: selectedBranch?.split("/").pop() || "master",
-          path,
+          )
         })
-        .then(result =>
-          result.files.map(
-            file =>
-              ({
-                name: file.path.split("/").pop() || file.path,
-                path: file.path,
-                type: file.type as "file" | "directory" | "submodule" | "symlink",
-                oid: file.lastCommit,
-              }) as FileEntry,
-          ),
-        )
+        .catch((e) => {
+          loading = false
+          error = e instanceof Error ? e.message : "Failed to load files"
+          console.error("❌ Failed to load files:", e);
+          return []
+        })
     }
   })
 
@@ -161,7 +326,23 @@
 
 <div class="mt-2 rounded-lg border border-border bg-card">
   <div class="p-4">
-    {#if loading}
+    {#if isCloning}
+      <div class="flex flex-col items-center justify-center py-12 space-y-4">
+        <Spinner>Cloning repository...</Spinner>
+        <div class="text-center space-y-2">
+          <p class="text-lg font-medium">{cloneProgress}</p>
+          {#if cloneProgressPercent !== undefined}
+            <div class="w-64 bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+              <div 
+                class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                style="width: {Math.round(cloneProgressPercent * 100)}%"
+              ></div>
+            </div>
+            <p class="text-sm text-muted-foreground">{Math.round(cloneProgressPercent * 100)}%</p>
+          {/if}
+        </div>
+      </div>
+    {:else if loading}
       <Spinner {loading}>Loading files...</Spinner>
     {:else if error}
       <div class="text-red-500">{error}</div>

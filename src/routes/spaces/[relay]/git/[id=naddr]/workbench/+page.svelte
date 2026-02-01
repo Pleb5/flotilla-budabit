@@ -23,9 +23,15 @@
     ConflictVisualizer,
     StackedDiff,
   } from "@nostr-git/ui"
+  import {getContext} from "svelte"
+  import {REPO_KEY} from "@lib/budabit/state"
+  import type {Repo} from "@nostr-git/ui"
 
-  const {data} = $props()
-  const {repoClass} = data
+  const repoClass = getContext<Repo>(REPO_KEY)
+
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
 
   let selectedPatch = $state<any>(null)
   let selectedCommit = $state<any>(null)

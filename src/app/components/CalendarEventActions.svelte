@@ -12,6 +12,8 @@
   import {makeCalendarPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import Pen2 from "@assets/icons/pen-2.svg?dataurl"
+    import { goto } from "$app/navigation"
+    import Link from "@src/lib/components/Link.svelte"
 
   const {
     url,
@@ -37,7 +39,10 @@
 </script>
 
 <div class="flex flex-wrap items-center justify-between gap-2">
-  <div class="flex flex-grow flex-wrap justify-end gap-2">
+  <div class="flex items-center flex-grow flex-wrap justify-end gap-2">
+    <Link class="cursor-pointer" href={path}>
+      <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Details</div>
+    </Link>
     <ReactionSummary {url} {event} {deleteReaction} {createReaction} reactionClass="tooltip-left" />
     <ThunkStatusOrDeleted {event} />
     {#if showActivity}

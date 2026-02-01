@@ -22,6 +22,15 @@ export default defineConfig({
   build: {
     sourcemap: true,
   },
+  define: {
+    __PRODUCTION__: JSON.stringify(process.env.NODE_ENV === "production"),
+    __DEVELOPMENT__: JSON.stringify(process.env.NODE_ENV !== "production"),
+    __GRASP__: JSON.stringify(process.env.FEATURE_GRASP !== "0"),
+    __NIP34_PR__: JSON.stringify(process.env.FEATURE_NIP34_PR === "1"),
+    __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
+    __TERMINAL__: JSON.stringify(process.env.FEATURE_TERMINAL !== "0"),
+    __STRICT_NIP29__: JSON.stringify(process.env.FEATURE_STRICT_NIP29 === "1"),
+  },
   optimizeDeps: {
     exclude: [
       "svelte-codemirror-editor",
@@ -39,6 +48,15 @@ export default defineConfig({
       "@codemirror/theme-one-dark"
     ],
   },
+
+  worker: {
+    format: "es", // avoid 'iife' so code-splitting is allowed
+    // If you want to be extra explicit:
+    // rollupOptions: {
+    //   output: { format: "es" },
+    // },
+  },
+
   plugins: [
     sveltekit(),
     SvelteKitPWA({

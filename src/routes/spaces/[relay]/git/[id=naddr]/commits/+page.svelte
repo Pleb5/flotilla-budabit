@@ -13,15 +13,23 @@
   } from "@nostr-git/ui"
   import Spinner from "@src/lib/components/Spinner.svelte"
     import { slide } from 'svelte/transition'
-  let {data} = $props()
-  const {repoClass} = data
+  import {getContext} from "svelte"
+  import {REPO_KEY} from "@lib/budabit/state"
+  import type {Repo} from "@nostr-git/ui"
+
+  const repoClass = getContext<Repo>(REPO_KEY)
+  
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
 
   // Reactive state for UI
   let searchQuery = $state("")
   let selectedAuthor = $state([])
 
   // Get commits from the repo class (lazy-loaded and reactive)
-  let commitsLoading = $state(true)
+  // Start with false - only show loading when actually fetching
+  let commitsLoading = $state(false)
   let commitsError = $state<string | undefined>(undefined)
   let commits = $state<any[]>([])
   let totalCommits = $state<number | undefined>(undefined)
@@ -48,10 +56,62 @@
     return `/spaces/${encodeURIComponent($page.params.relay)}/git/${encodeURIComponent($page.params.id)}/commits/${commitId}`;
   };
 
-  // Set initial page size and load commits when the component mounts or when the repo changes
+  // Track the previous branch to detect changes
+  let previousBranch = $state<string | undefined>(undefined);
+  let wasJustSwitching = $state(false);
+  let branchSwitchComplete = $state(false);
+
+  // Handle branch switching state changes
   $effect(() => {
-    if (repoClass && repoClass.repoId && (repoClass.selectedBranch || repoClass.mainBranch)) {
-      loadCommits()
+    const isSwitching = repoClass.isBranchSwitching;
+    
+    if (isSwitching) {
+      // Show loading state while switching
+      commitsLoading = true;
+      wasJustSwitching = true;
+      branchSwitchComplete = false;
+    } else if (wasJustSwitching) {
+      // Switch just completed - commits are already loaded by setSelectedBranch
+      // Mark as complete and wait a tick to ensure state is fully updated
+      wasJustSwitching = false;
+      branchSwitchComplete = true;
+      // Use a microtask to ensure reactive state is fully updated
+      Promise.resolve().then(() => {
+        branchSwitchComplete = false;
+        commitsLoading = false;
+        // Update commits from repoClass after switch completes
+        commits = repoClass.commits || [];
+        totalCommits = repoClass.totalCommits;
+        hasMoreCommits = repoClass.hasMoreCommits;
+      });
+    }
+  });
+
+  // Load commits when branch changes (but not during active switching or right after)
+  $effect(() => {
+    const selectedBranch = repoClass.selectedBranch;
+    const mainBranch = repoClass.mainBranch;
+    const currentBranch = selectedBranch || mainBranch;
+    const isSwitching = repoClass.isBranchSwitching;
+    
+    // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
+    if (isSwitching || wasJustSwitching || branchSwitchComplete) {
+      return;
+    }
+    
+    if (repoClass && repoClass.repoId && currentBranch) {
+      // Detect branch changes (e.g., from navigation, not from selector)
+      if (previousBranch !== undefined && previousBranch !== currentBranch) {
+        console.log(`🔄 Branch changed from "${previousBranch}" to "${currentBranch}", resetting to page 1`);
+        currentPage = 1;
+        initialLoadComplete = false;
+        previousBranch = currentBranch;
+        loadCommits();
+      } else if (previousBranch === undefined) {
+        // Initial load
+        previousBranch = currentBranch;
+        loadCommits();
+      }
     }
   })
 
@@ -112,10 +172,44 @@
 
   // Branch list removed
 
+  // Sync commits from repoClass reactively (especially after branch switches)
   $effect(() => {
-    if (repoClass.commits && repoClass.commits.length > 0) {
-      authors = new Set(repoClass.commits.map((commit: any) => commit.commit.author.name))
-      commitsLoading = false
+    const repoCommits = repoClass.commits;
+    const repoTotalCommits = repoClass.totalCommits;
+    const repoHasMore = repoClass.hasMoreCommits;
+    const currentBranch = repoClass.selectedBranch || repoClass.mainBranch;
+    const isSwitching = repoClass.isBranchSwitching;
+    
+    // Don't sync during active switching to avoid race conditions
+    if (isSwitching) {
+      return;
+    }
+    
+    // Update commits from repoClass (especially after branch switches)
+    if (repoCommits) {
+      // If branch changed, update previousBranch to match
+      if (previousBranch !== undefined && currentBranch !== previousBranch) {
+        previousBranch = currentBranch;
+      }
+      
+      commits = repoCommits;
+      totalCommits = repoTotalCommits;
+      hasMoreCommits = repoHasMore;
+      
+      // Update authors list
+      const newAuthors = new Set<string>();
+      repoCommits.forEach((commit: any) => {
+        if (commit.commit?.author?.name) {
+          newAuthors.add(commit.commit.author.name);
+        }
+      });
+      authors = newAuthors;
+      
+      // Mark as loaded if we have commits
+      if (repoCommits.length > 0) {
+        initialLoadComplete = true;
+        commitsLoading = false;
+      }
     }
   })
 
@@ -185,7 +279,7 @@
   </div>
 
   <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-    <div>
+    <div class="flex-1">
       <h2 class="text-lg font-medium">
         {#if totalCommits !== undefined}
           {totalCommits.toLocaleString()} {totalCommits === 1 ? "commit" : "commits"}
@@ -238,13 +332,13 @@
         {#if commits}
           <div class="space-y-4" transition:slide>
             {#each filteredCommits as commit (commit.oid)}
-              <CommitCard 
-                {commit} 
-                onReact={handleReact} 
+              <CommitCard
+                {commit}
+                onReact={handleReact}
                 onComment={handleComment}
                 href={getCommitUrl(commit.oid)}
-                displayName={commit?.commit?.author?.name || undefined}
-              />
+                getParentHref={getCommitUrl}
+                displayName={commit?.commit?.author?.name || undefined} />
             {/each}
           </div>
           <div class="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">

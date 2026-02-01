@@ -7,9 +7,9 @@ import { load } from "@welshman/net"
 import { deriveEvents } from "@welshman/store"
 import { NAMED_BOOKMARKS, getAddressTags, normalizeRelayUrl } from "@welshman/util"
 import { validateGraspServerUrl } from "@nostr-git/shared-types"
-import { INDEXER_RELAYS } from "@app/core/state"
+import { GIT_RELAYS } from "./state"
 
-export const loadUserGitData = async (pubkey: string, relays: string[] = INDEXER_RELAYS) => {
+export const loadUserGitData = async (pubkey: string, relays: string[] = GIT_RELAYS) => {
     await Promise.race([sleep(3000), loadRelaySelections(pubkey, relays)])
 
     // Start centralized syncs (idempotent)

@@ -23,9 +23,34 @@
   import {isMobile} from "@lib/html"
   import {onMount} from "svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  import {goto} from "$app/navigation"
+  import {page} from "$app/stores"
+  import {getContext} from "svelte"
+  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import type {Readable} from "svelte/store"
+  import type {Repo} from "@nostr-git/ui"
 
+  // Try to get data from props first (newer approach)
   const {data} = $props()
-  const {repoClass, repoRelays} = data
+  let repoClass: Repo, repoRelays: string[]
+
+  if (data) {
+    // New approach using data props
+    ({repoClass, repoRelays} = data)
+  } else {
+    // Fallback to context (older approach)
+    repoClass = getContext<Repo>(REPO_KEY)
+    const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+
+    if (!repoClass) {
+      throw new Error("Repo context not available")
+    }
+
+    // Get relays reactively
+    repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
+  }
+
+  const {relay, id} = $page.params
 
   // Mock workflow runs data structure (replace with actual data fetching)
   interface WorkflowRun {
@@ -42,6 +67,12 @@
     updatedAt: number
     duration?: number
     runNumber: number
+  }
+
+  // Navigate to pipeline run details
+  const navigateToRun = (run: WorkflowRun) => {
+    const runId = `${run.name.toLowerCase().replace(/\s+/g, '-')}-run-${run.runNumber}`
+    goto(`/spaces/${encodeURIComponent(relay)}/git/${id}/cicd/${runId}`)
   }
 
   let workflowRuns = $state<WorkflowRun[]>([
@@ -315,7 +346,6 @@
       <div class="row-2 input grow overflow-x-hidden">
         <Icon icon={Magnifer} />
         <input
-          autofocus={!isMobile}
           class="w-full"
           bind:value={searchTerm}
           type="text"
@@ -336,8 +366,9 @@
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <!-- Status Filter -->
         <div class="space-y-2">
-          <label class="text-sm font-medium">Status</label>
+          <label for="status-filter" class="text-sm font-medium">Status</label>
           <select
+            id="status-filter"
             bind:value={statusFilter}
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
             <option value="all">All statuses</option>
@@ -351,8 +382,9 @@
 
         <!-- Branch Filter -->
         <div class="space-y-2">
-          <label class="text-sm font-medium">Branch</label>
+          <label for="branch-filter" class="text-sm font-medium">Branch</label>
           <select
+            id="branch-filter"
             bind:value={branchFilter}
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
             <option value="">All branches</option>
@@ -364,8 +396,9 @@
 
         <!-- Event Filter -->
         <div class="space-y-2">
-          <label class="text-sm font-medium">Event</label>
+          <label for="event-filter" class="text-sm font-medium">Event</label>
           <select
+            id="event-filter"
             bind:value={eventFilter}
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
             <option value="all">All events</option>
@@ -377,8 +410,9 @@
 
         <!-- Actor Filter -->
         <div class="space-y-2">
-          <label class="text-sm font-medium">Actor</label>
+          <label for="actor-filter" class="text-sm font-medium">Actor</label>
           <select
+            id="actor-filter"
             bind:value={actorFilter}
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
             <option value="">All actors</option>
@@ -419,21 +453,20 @@
   {:else}
     <div class="space-y-2">
       {#each filteredRuns as run (run.id)}
+        {@const StatusIcon = getStatusIcon(run.status)}
         <div
           in:slideAndFade={{duration: 200}}
           class="group rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors">
           <button
             class="w-full p-4 text-left"
-            onclick={() => {
-              toast.push({message: `Opening workflow run #${run.runNumber}`, variant: "default"})
-            }}>
+            onclick={() => navigateToRun(run)}>
             <div class="flex items-start gap-4">
               <!-- Status Icon -->
               <div class={`mt-1 flex-shrink-0 ${getStatusColor(run.status)}`}>
                 {#if run.status === "in_progress"}
                   <RotateCw class="h-5 w-5 animate-spin" />
                 {:else}
-                  <svelte:component this={getStatusIcon(run.status)} class="h-5 w-5" />
+                  <StatusIcon class="h-5 w-5" />
                 {/if}
               </div>
 

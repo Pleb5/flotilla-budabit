@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {RepoHeader, RepoTab, toast, bookmarksStore} from "@nostr-git/ui"
+  import {RepoHeader, RepoTab, toast, bookmarksStore, Repo} from "@nostr-git/ui"
   import {ConfigProvider} from "@nostr-git/ui"
   import {FileCode, GitBranch, CircleAlert, GitPullRequest, GitCommit, Layers} from "@lucide/svelte"
   import {page} from "$app/stores"
@@ -13,19 +13,35 @@
   import {pushToast} from "@src/app/util/toast"
   import EventActions from "@src/app/components/EventActions.svelte"
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
+  import Markdown from "@src/lib/components/Markdown.svelte"
   import {pushModal} from "@app/util/modal"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
-  import type {RepoAnnouncementEvent} from "@nostr-git/shared-types"
-  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent} from "@nostr-git/shared-types"
-  import {derived as _derived, get as getStore} from "svelte/store"
+  import {nip19} from "nostr-tools"
+  
+  // ForkResult type definition (matches @nostr-git/ui)
+  interface ForkResult {
+    repoId: string
+    forkUrl: string
+    defaultBranch: string
+    branches: string[]
+    tags: string[]
+    announcementEvent: RepoAnnouncementEvent
+    stateEvent: RepoStateEvent
+  }
+  import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/shared-types"
+  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, normalizeRelayUrl as normalizeRelayUrlShared, parseRepoAnnouncementEvent} from "@nostr-git/shared-types"
+  import {derived, get as getStore, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk} from "@welshman/app"
   import {deriveEvents} from "@welshman/store"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
   import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
-  import {onMount} from "svelte"
-  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address} from "@welshman/util"
+  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address, GIT_ISSUE, GIT_PATCH, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE, getTagValue, COMMENT, type TrustedEvent} from "@welshman/util"
+  import {isCommentEvent} from "@nostr-git/shared-types"
+  import {nthEq} from "@welshman/lib"
+  import {setContext, onDestroy} from "svelte"
+  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass} from "@lib/budabit/state"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -35,10 +51,401 @@
   const {id, relay} = $page.params
 
   let {data, children} = $props()
-  const {repoClass} = data
+  // Type assertion needed because TypeScript infers old layout return type
+  const layoutData = data as unknown as {repoId: string, repoName: string, repoPubkey: string, fallbackRelays: string[], naddrRelays: string[], url: string}
+  const {repoId, repoName, repoPubkey, fallbackRelays, naddrRelays, url} = layoutData
+  
+  // Derive repoClass from activeRepoClass store
+  const repoClass = $derived($activeRepoClass)
 
-  let activeTab: string | undefined = $page.url.pathname.split("/").pop()
-  const encodedRelay = encodeURIComponent(relay)
+  // Make activeTab reactive to avoid lag on navigation - memoize the calculation
+  const activeTab = $derived.by(() => {
+    // Only recalculate if pathname actually changed
+    const pathname = $page.url.pathname
+    const lastSegment = pathname.split("/").pop() || undefined
+    // Handle empty path (root) - default to undefined which maps to overview
+    return lastSegment === id ? undefined : lastSegment
+  })
+  
+  // Memoize encodedRelay - it only changes if relay param changes
+  const encodedRelay = $derived(encodeURIComponent(relay))
+  
+  // Memoize base path to avoid recalculating on every render
+  const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
+
+  function deriveRepoEvent(repoPubkey: string, repoName: string) {
+    return derived(
+      deriveEvents(repository, {
+        filters: [
+          {
+            authors: [repoPubkey],
+            kinds: [GIT_REPO_ANNOUNCEMENT],
+            "#d": [repoName],
+          },
+        ],
+      }),
+      (events: TrustedEvent[]) => events[0] as RepoAnnouncementEvent | undefined,
+    ) as Readable<RepoAnnouncementEvent | undefined>
+  }
+
+  function deriveRepoStateEvent(repoPubkey: string, repoName: string) {
+    return derived(
+      deriveEvents(repository, {
+        filters: [
+          {
+            authors: [repoPubkey],
+            kinds: [GIT_REPO_STATE],
+            "#d": [repoName],
+          },
+        ],
+      }),
+      (events: TrustedEvent[]) => events?.[0] as RepoStateEvent | undefined,
+    ) as Readable<RepoStateEvent | undefined>
+  }
+
+  function deriveRepoAuthors(repoEvent: Readable<RepoAnnouncementEvent | undefined>, fallbackPubkey: string) {
+    return derived(repoEvent, (repo: RepoAnnouncementEvent | undefined) => {
+      if (!repo) {
+        return [fallbackPubkey]
+      }
+      try {
+        const parsed = parseRepoAnnouncementEvent(repo)
+        const authors = new Set<string>()
+        authors.add(repo.pubkey)
+        if (parsed.maintainers) {
+          parsed.maintainers.forEach((m: string) => authors.add(m))
+        }
+        return Array.from(authors)
+      } catch {
+        return [fallbackPubkey]
+      }
+    })
+  }
+
+  function deriveRepoRelays(repoEvent: Readable<RepoAnnouncementEvent | undefined>, naddrRelays: string[], fallbackRelays: string[]) {
+    return derived(repoEvent, (re: RepoAnnouncementEvent | undefined) => {
+      if (re) {
+        const relaysTag = re.tags.find(nthEq(0, "relays"))
+        if (relaysTag) {
+          const [_, ...relaysList] = relaysTag
+          const validRelays = relaysList.filter((relay: string) => {
+            try {
+              const url = new URL(relay)
+              return url.protocol === 'ws:' || url.protocol === 'wss:'
+            } catch {
+              return false
+            }
+          }).map((u: string) => normalizeRelayUrlShared(u)).filter(Boolean) as string[]
+          if (validRelays.length > 0) {
+            return validRelays
+          }
+        }
+      }
+      // Fallback to naddr relays or final fallback
+      const relays = naddrRelays.length > 0 ? naddrRelays : fallbackRelays
+      return relays.map((u: string) => normalizeRelayUrlShared(u)).filter(Boolean) as string[]
+    })
+  }
+
+  function deriveIssues(repoAuthors: Readable<string[]>, repoName: string) {
+    const allIssueEvents = deriveEvents(repository, {
+      filters: [{ kinds: [GIT_ISSUE] }],
+    })
+
+    return derived(
+      [allIssueEvents, repoAuthors],
+      ([events, authors]: [TrustedEvent[], string[]]) => {
+        const authorAddresses = new Set(authors.map((a: string) => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+        return (events || []).filter((event: TrustedEvent) => {
+          const addressTag = event.tags.find((t: string[]) => t[0] === "a")
+          return addressTag && authorAddresses.has(addressTag[1])
+        }) as IssueEvent[]
+      },
+    ) as Readable<IssueEvent[]>
+  }
+
+  function derivePatches(repoAuthors: Readable<string[]>, repoName: string) {
+    const allPatchEvents = deriveEvents(repository, {
+      filters: [{ kinds: [GIT_PATCH] }],
+    })
+
+    return derived(
+      [allPatchEvents, repoAuthors],
+      ([events, authors]: [TrustedEvent[], string[]]) => {
+        const authorAddresses = new Set(authors.map((a: string) => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+        return (events || []).filter((event: TrustedEvent) => {
+          const addressTag = event.tags.find((t: string[]) => t[0] === "a")
+          return addressTag && authorAddresses.has(addressTag[1])
+        }) as PatchEvent[]
+      },
+    ) as Readable<PatchEvent[]>
+  }
+
+  function derivePullRequests(repoAuthors: Readable<string[]>, repoName: string) {
+    const allPullRequestEvents = deriveEvents(repository, {
+      filters: [{ kinds: [GIT_PULL_REQUEST] }],
+    })
+
+    return derived(
+      [allPullRequestEvents, repoAuthors],
+      ([events, authors]: [TrustedEvent[], string[]]) => {
+        const authorAddresses = new Set(authors.map((a: string) => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+        return (events || []).filter((event: TrustedEvent) => {
+          const addressTag = event.tags.find((t: string[]) => t[0] === "a")
+          return addressTag && authorAddresses.has(addressTag[1])
+        }) as PullRequestEvent[]
+      },
+    ) as Readable<PullRequestEvent[]>
+  }
+
+  function deriveStatusEvents(repoAuthors: Readable<string[]>, repoName: string) {
+    const allStatusEvents = deriveEvents(repository, {
+      filters: [{ kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE] }],
+    })
+
+    return derived(
+      [allStatusEvents, repoAuthors],
+      ([events, authors]: [TrustedEvent[], string[]]) => {
+        const authorAddresses = new Set(authors.map((a: string) => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+        return (events || []).filter((event: TrustedEvent) => {
+          const addressTag = event.tags.find((t: string[]) => t[0] === "a")
+          return addressTag && authorAddresses.has(addressTag[1])
+        }) as StatusEvent[]
+      },
+    ) as Readable<StatusEvent[]>
+  }
+
+  function deriveStatusEventsByRoot(statusEvents: Readable<StatusEvent[]>) {
+    return derived(
+      statusEvents,
+      (events: StatusEvent[]) => {
+        const map = new Map<string, StatusEvent[]>()
+        for (const event of events) {
+          const rootId = getTagValue("e", event.tags)
+          if (rootId) {
+            if (!map.has(rootId)) {
+              map.set(rootId, [])
+            }
+            map.get(rootId)!.push(event)
+          }
+        }
+        return map
+      }
+    ) as Readable<Map<string, StatusEvent[]>>
+  }
+
+  function deriveAllRootIds(issues: Readable<IssueEvent[]>, patches: Readable<PatchEvent[]>, pullRequests: Readable<PullRequestEvent[]>) {
+    return derived([issues, patches, pullRequests], ([issueEvents, patchEvents, prEvents]: [IssueEvent[], PatchEvent[], PullRequestEvent[]]) => {
+      const ids: string[] = []
+      if (issueEvents) ids.push(...issueEvents.map((issue: IssueEvent) => issue.id))
+      if (patchEvents) ids.push(...patchEvents.map((patch: PatchEvent) => patch.id))
+      if (prEvents) ids.push(...prEvents.map((pr: PullRequestEvent) => pr.id))
+      return ids
+    })
+  }
+
+  function deriveComments(allRootIds: Readable<string[]>) {
+    const allCommentEvents = deriveEvents(repository, {
+      filters: [{ kinds: [COMMENT] }],
+    })
+
+    return derived(
+      [allCommentEvents, allRootIds],
+      ([events, rootIds]: [TrustedEvent[], string[]]) => {
+        if (rootIds.length === 0) return []
+        return (events || []).filter((event: TrustedEvent) => {
+          const eTags = event.tags.filter((t: string[]) => t[0] === "E" || t[0] === "e")
+          return eTags.some((tag: string[]) => rootIds.includes(tag[1]))
+        }).filter(isCommentEvent) as CommentEvent[]
+      },
+    ) as Readable<CommentEvent[]>
+  }
+
+  // Create stores at top level (not inside effect to avoid infinite loops)
+  const repoEventStore = deriveRepoEvent(repoPubkey, repoName)
+  const repoStateEventStore = deriveRepoStateEvent(repoPubkey, repoName)
+  const repoAuthorsStore = deriveRepoAuthors(repoEventStore, repoPubkey)
+  const repoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays, fallbackRelays)
+  const issuesStore = deriveIssues(repoAuthorsStore, repoName)
+  const patchesStore = derivePatches(repoAuthorsStore, repoName)
+  const pullRequestsStore = derivePullRequests(repoAuthorsStore, repoName)
+  const statusEventsStore = deriveStatusEvents(repoAuthorsStore, repoName)
+  const statusEventsByRootStore = deriveStatusEventsByRoot(statusEventsStore)
+  const allRootIdsStore = deriveAllRootIds(issuesStore, patchesStore, pullRequestsStore)
+  const commentEventsStore = deriveComments(allRootIdsStore)
+
+  // Create empty stores for Repo class
+  const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
+  const emptyLabelEvents = derived([], () => [] as LabelEvent[])
+
+  // Get or create Repo instance (reuse existing instance if available)
+  // This ensures branch selection and other state persists across navigations
+  // The store-based cache persists across component re-initializations  
+  if (!$activeRepoClass) {
+    $activeRepoClass = new Repo({
+      repoEvent: repoEventStore as Readable<RepoAnnouncementEvent>,
+      repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
+      issues: issuesStore,
+      patches: patchesStore,
+      repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
+      statusEvents: statusEventsStore,
+      commentEvents: commentEventsStore,
+      labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
+    })
+  } else {
+    // Check if the existing repoInstance is for a different repository
+    // Compare repoPubkey:repoName to determine if it's a different repoInstance
+    const existingRepo = $activeRepoClass
+
+    const expectedAddress = `${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`
+    const isDifferentRepo = existingRepo.address !== expectedAddress
+    console.log('isDifferentRepo', isDifferentRepo)
+    if (isDifferentRepo) {
+      existingRepo.dispose()
+      $activeRepoClass = new Repo({
+        repoEvent: repoEventStore as Readable<RepoAnnouncementEvent>,
+        repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
+        issues: issuesStore,
+        patches: patchesStore,
+        repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
+        statusEvents: statusEventsStore,
+        commentEvents: commentEventsStore,
+        labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
+      })
+    } else {
+      console.log("♻️  [LAYOUT INIT] REUSING existing Repo instance")
+    }
+  }
+    
+  // Set context for child components (only once, not in effect)
+  setContext(REPO_KEY, $activeRepoClass)
+  setContext(REPO_RELAYS_KEY, repoRelaysStore)
+  setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
+  setContext(PULL_REQUESTS_KEY, pullRequestsStore)
+
+  // Initialize tracking for data loading
+  let unsubscribers: (() => void)[] = []
+  let lastLoadedIds = new Set<string>()
+  let dataLoadInitialized = $state(false)
+  
+  // Use effect only for data loading, not for store/context creation
+  // Only run once when component mounts, not on every navigation
+  $effect(() => {
+    // Prevent re-running on navigation - only initialize once
+    if (dataLoadInitialized) return
+    
+    // Mark as initialized immediately to prevent re-runs
+    dataLoadInitialized = true
+
+    // Load initial data
+    const repoFilters = [
+      {
+        authors: [repoPubkey],
+        kinds: [GIT_REPO_STATE, GIT_REPO_ANNOUNCEMENT],
+      },
+    ]
+
+    const relayListFromUrl = getStore(repoRelaysStore)
+    const repoLoadPromise = load({relays: relayListFromUrl, filters: repoFilters})
+
+    const allReposFilter = {
+      kinds: [GIT_REPO_ANNOUNCEMENT],
+      "#d": [repoName],
+    }
+
+    // Start loading with initial authors
+    Promise.all([
+      repoLoadPromise,
+      load({
+        relays: relayListFromUrl,
+        filters: [allReposFilter],
+      }),
+      load({
+        relays: relayListFromUrl,
+        filters: [
+          {
+            kinds: [GIT_ISSUE],
+            "#a": [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`],
+          },
+          {
+            kinds: [GIT_PATCH],
+            "#a": [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`],
+          },
+          {
+            kinds: [GIT_PULL_REQUEST],
+            "#a": [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`],
+          },
+          {
+            kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+            "#a": [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`],
+          },
+        ],
+      }),
+    ]).then(() => {
+      // Reactively load data when authors change
+      const repoAuthorsUnsubscribe = repoAuthorsStore.subscribe((authors: string[]) => {
+        if (authors.length > 1) {
+          const currentRelays = getStore(repoRelaysStore)
+          load({
+            relays: currentRelays,
+            filters: [
+              {
+                kinds: [GIT_ISSUE],
+                "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+              },
+              {
+                kinds: [GIT_PATCH],
+                "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+              },
+              {
+                kinds: [GIT_PULL_REQUEST],
+                "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+              },
+              {
+                kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+                "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+              },
+            ],
+          }).catch(() => {})
+        }
+      })
+      unsubscribers.push(repoAuthorsUnsubscribe)
+    }).catch(() => {})
+
+    // Load comments reactively when root IDs are available
+    const commentLoadTrigger = derived(allRootIdsStore, (rootIds: string[]) => {
+      if (rootIds.length > 0) {
+        const idsKey = rootIds.sort().join(',')
+        if (!lastLoadedIds.has(idsKey)) {
+          lastLoadedIds.add(idsKey)
+          const currentRelays = getStore(repoRelaysStore)
+          load({
+            relays: currentRelays,
+            filters: [{
+              kinds: [COMMENT],
+              "#E": rootIds,
+            }],
+          }).catch(() => {})
+        }
+      }
+      return rootIds
+    })
+
+    const commentLoadTriggerUnsubscribe = commentLoadTrigger.subscribe(() => {
+      // Trigger the load
+    })
+    unsubscribers.push(commentLoadTriggerUnsubscribe)
+
+    // No cleanup needed - subscriptions should persist across navigation
+    // Only cleanup on component destroy (handled by onDestroy)
+  })
+
+  // Cleanup on component destroy
+  onDestroy(() => {
+    unsubscribers.forEach(unsub => unsub())
+    unsubscribers = []
+    lastLoadedIds.clear()
+  })
 
   // Refresh state
   let isRefreshing = $state(false)
@@ -47,8 +454,14 @@
   let isTogglingBookmark = $state(false)
   let isBookmarked = $state(false)
   
-  // Check if repo is bookmarked
+  // Subscribe to bookmarks store to update bookmark status reactively
   $effect(() => {
+    if (!repoClass || !repoClass.repoEvent) {
+      isBookmarked = false
+      return
+    }
+    
+    const unsubscribe = bookmarksStore.subscribe(() => {
     if (!repoClass || !repoClass.repoEvent) return
     try {
       const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
@@ -59,10 +472,7 @@
     }
   })
   
-  // Subscribe to bookmarks store to update bookmark status
-  $effect(() => {
-    const unsubscribe = bookmarksStore.subscribe(() => {
-      if (!repoClass || !repoClass.repoEvent) return
+    // Initial check
       try {
         const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
         const bookmarks = getStore(bookmarksStore)
@@ -70,7 +480,7 @@
       } catch {
         isBookmarked = false
       }
-    })
+    
     return unsubscribe
   })
   
@@ -85,25 +495,14 @@
     "#d": [DEFAULT_GRASP_SET_ID],
   }
 
-  // Initial refresh on mount
-  onMount(() => {
-    // Fire and forget; guard prevents overlap
-    updateRepo()
-  })
-
   // Helper to compute base path for this repo scope
   function repoBasePath() {
     return `/spaces/${encodeURIComponent(relay)}/git/${id}`
   }
 
-  // Refresh after navigation into any sub-route under this layout
   afterNavigate(({to}) => {
     try {
       if (!to) return
-      const base = repoBasePath()
-      if (to.url.pathname.startsWith(base)) {
-        updateRepo()
-      }
 
       if (to.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
         // Restore scroll position for issues page
@@ -126,9 +525,7 @@
     } catch {}
   })
 
-  // Pre-emptive refresh when navigating within the same repo scope
   beforeNavigate(({from, to}) => {
-
     if (from?.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
       // Save scroll position when leaving issues page
       if (pageContentElement) {
@@ -136,151 +533,40 @@
         sessionStorage.setItem(scrollStorageKey, scrollPosition.toString())
       }
     }
-
-    try {
-      if (!to) return
-      const base = repoBasePath()
-      if (to.url.pathname.startsWith(base)) {
-        // Kick off without awaiting to avoid blocking navigation
-        Promise.resolve().then(() => updateRepo())
-      }
-    } catch {}
   })
-
-  const graspServersEvent = _derived(
-    deriveEvents(repository, {filters: [graspServersFilter]}),
-    events => {
-      if (events.length === 0) {
-        const relays = Router.get()
-          .FromUser()
-          .getUrls()
-          .map(u => normalizeRelayUrl(u))
-          .filter(Boolean)
-        load({relays: relays as string[], filters: [graspServersFilter]})
-      }
-      return events[0]
-    },
-  )
 
   let graspServerUrls = $state<string[]>([])
-  graspServersEvent.subscribe(ev => {
-    try {
-      graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
-    } catch {
-      graspServerUrls = []
+  
+  // GRASP servers subscription - create derived store once, subscribe in effect
+  const graspServersEventStore = derived(
+      deriveEvents(repository, {filters: [graspServersFilter]}),
+      (events: TrustedEvent[]) => {
+        if (events.length === 0) {
+          const relays = Router.get()
+            .FromUser()
+            .getUrls()
+            .map(u => normalizeRelayUrl(u))
+            .filter(Boolean)
+          load({relays: relays as string[], filters: [graspServersFilter]})
+        }
+        return events[0]
+      },
+    )
+
+  // GRASP servers subscription - track for cleanup
+  $effect(() => {
+    const graspServersUnsubscribe = graspServersEventStore.subscribe((ev: TrustedEvent | undefined) => {
+      try {
+        graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
+      } catch {
+        graspServerUrls = []
+      }
+    })
+    
+    return () => {
+      graspServersUnsubscribe()
     }
   })
-
-  async function updateRepo() {
-    if (!repoClass || isRefreshing) return
-
-    // Validate repository state before attempting sync
-    if (!repoClass.key) {
-      console.warn("[updateRepo] Repository key not available, skipping sync")
-      return
-    }
-
-    if (!repoClass.workerManager?.isReady) {
-      console.warn("[updateRepo] WorkerManager not ready, skipping sync")
-      return
-    }
-
-    isRefreshing = true
-
-    try {
-      // Get clone URLs from the repo event
-      const cloneUrls = repoClass.cloneUrls
-      if (cloneUrls.length === 0) {
-        throw new Error("No clone URLs found for repository")
-      }
-
-      // Check if repository is cloned before attempting sync
-      try {
-        const isCloned = await repoClass.workerManager.isRepoCloned({
-          repoId: repoClass.key
-        })
-        
-        if (!isCloned) {
-          console.log("[updateRepo] Repository not cloned yet, initializing first...")
-          // Initialize the repository before syncing
-          const initResult = await repoClass.workerManager.smartInitializeRepo({
-            repoId: repoClass.key,
-            cloneUrls,
-            forceUpdate: false
-          })
-          
-          if (!initResult.success) {
-            // Handle CORS errors gracefully
-            const errorMessage = initResult.error || "Initialization failed"
-            if (initResult.corsError || 
-                errorMessage.includes('CORS') || 
-                errorMessage.includes('network restrictions') ||
-                errorMessage.includes('security policies')) {
-              console.warn("[updateRepo] Repository initialization failed due to CORS/network restrictions:", errorMessage)
-              // Don't show toast for CORS errors, just return silently
-              return
-            }
-            throw new Error(`Repository initialization failed: ${errorMessage}`)
-          }
-          
-          console.log("[updateRepo] Repository initialized successfully")
-        }
-      } catch (initError) {
-        console.warn("[updateRepo] Failed to check/initialize repository:", initError)
-        // Check if this is a CORS/network error and don't show toast
-        const errorMessage = initError instanceof Error ? initError.message : String(initError)
-        if (errorMessage.includes('CORS') || 
-            errorMessage.includes('NetworkError') || 
-            errorMessage.includes('network restrictions') ||
-            errorMessage.includes('security policies')) {
-          // Don't show toast for CORS errors
-          return
-        }
-        // Don't throw here, continue with sync attempt as it might still work
-      }
-
-      // Call syncWithRemote through the repo's worker manager
-      const result = await repoClass.workerManager.syncWithRemote({
-        repoId: repoClass.key,
-        cloneUrls,
-        branch: repoClass.selectedBranch,
-      })
-
-      if (!result.success) {
-        // Check for specific error types that should be handled gracefully
-        const errorMessage = result.error || "Sync failed"
-        
-        if (errorMessage.includes("No branches found") || 
-            errorMessage.includes("Repository not cloned locally") ||
-            errorMessage.includes("CORS") ||
-            errorMessage.includes("NetworkError")) {
-          console.warn("[updateRepo] Sync failed with expected error:", errorMessage)
-          // Don't show toast for these common/expected errors
-          return
-        }
-        
-        throw new Error(errorMessage)
-      }
-      
-      console.log("[updateRepo] Repository sync completed successfully")
-    } catch (error) {
-      console.error("Failed to refresh repository:", error)
-      
-      // Only show toast for unexpected errors, not network/CORS issues
-      const errorMessage = error instanceof Error ? error.message : "Unknown error"
-      if (!errorMessage.includes("CORS") && 
-          !errorMessage.includes("NetworkError") && 
-          !errorMessage.includes("No branches found") &&
-          !errorMessage.includes("Repository not cloned")) {
-        pushToast({
-          message: `Failed to sync repository: ${errorMessage}`,
-          theme: "error",
-        })
-      }
-    } finally {
-      isRefreshing = false
-    }
-  }
 
   // Refresh repository function
   async function refreshRepo() {
@@ -296,10 +582,11 @@
       }
 
       // Call syncWithRemote through the repo's worker manager
-      const result = await repoClass.workerManager.syncWithRemote({
+      const result = await repoClass.workerManager.smartInitializeRepo({
         repoId: repoClass.key,
         cloneUrls,
-        branch: repoClass.mainBranch,
+        forceUpdate: true,
+        timeoutMs: 2 * 60 * 1000, // 2 minutes
       })
 
       if (result.success) {
@@ -324,25 +611,87 @@
     }
   }
 
+  function navigateToForkedRepo(result: ForkResult) {
+    try {
+      const parsed = parseRepoAnnouncementEvent(result.announcementEvent)
+      const repoName = parsed.name
+      
+      if (!repoName || !$pubkey) {
+        console.warn("Cannot navigate: missing repo name or pubkey", { repoName, $pubkey })
+        return
+      }
+
+      // Extract relays from announcement event or use current relay
+      const relays = parsed.relays && parsed.relays.length > 0 
+        ? parsed.relays 
+        : relay 
+          ? [relay] 
+          : []
+
+      // Use current relay or first relay from announcement
+      const effectiveRelay = relay || relays[0]
+      if (!effectiveRelay) {
+        console.warn("Cannot navigate: no relay URL available")
+        pushToast({ message: "Fork completed, but cannot navigate without a relay URL.", theme: "error" })
+        return
+      }
+
+      // Create naddr
+      const naddr = nip19.naddrEncode({
+        kind: 30617, // GIT_REPO_ANNOUNCEMENT
+        pubkey: $pubkey || "",
+        identifier: repoName,
+        relays: relays.length > 0 ? relays : undefined,
+      })
+
+      // Encode relay URL for the route
+      const encodedRelay = encodeURIComponent(effectiveRelay)
+      
+      // Navigate to the forked repo page
+      const targetPath = `/spaces/${encodedRelay}/git/${naddr}`
+      console.log("🚀 Navigating to forked repo:", targetPath)
+      
+      goto(targetPath)
+    } catch (error) {
+      console.error("Failed to navigate to forked repo:", error)
+      pushToast({ 
+        message: "Fork completed, but navigation failed. Please manually navigate to the repository.", 
+        theme: "error" 
+      })
+    }
+  }
+
   function forkRepo() {
     if (!repoClass) return
 
     pushModal(ForkRepoDialog, {
       repo: repoClass,
+      pubkey: $pubkey || "",
       onPublishEvent: (event: any) => {
         // Handle event publishing
         postRepoAnnouncement(event, [])
       },
       graspServerUrls: graspServerUrls,
+      navigateToForkedRepo: navigateToForkedRepo,
     })
   }
 
   function settingsRepo() {
     if (!repoClass) return
+    
+    const repoRelays = getStore(repoRelaysStore)
+    if (repoRelays.length === 0) {
+      pushToast({
+        message: "Repository relays not ready. Please wait...",
+        theme: "error",
+      })
+      return
+    }
+    
     pushModal(EditRepoPanel, {
       repo: repoClass,
       onPublishEvent: (event: RepoAnnouncementEvent) => {
-        postRepoAnnouncement(event, repoClass.relays)
+        postRepoAnnouncement(event, repoRelays)
       },
       getProfile: async (pubkey: string) => {
         const profile = $profilesByPubkey.get(pubkey)
@@ -355,7 +704,8 @@
           }
         }
         // Try to load profile if not in cache
-        await loadProfile(pubkey, repoClass.relays)
+        const repoRelays = getStore(repoRelaysStore) || (repoClass?.relays || [])
+        await loadProfile(pubkey, repoRelays)
         const loadedProfile = $profilesByPubkey.get(pubkey)
         if (loadedProfile) {
           return {
@@ -400,6 +750,8 @@
         throw new Error("Repository event not available")
       }
       
+      const repoRelays = getStore(repoRelaysStore) || (repoClass?.relays || [])
+      
       // Get repo address
       const address = repoClass.address || Address.fromEvent(repoClass.repoEvent).toString()
       
@@ -407,7 +759,7 @@
       const currentBookmarks = getStore(bookmarksStore)
       
       // Determine relay hint
-      const relayHint = repoClass.relays?.[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
+      const relayHint = repoRelays[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
       const normalizedRelayHint = relayHint ? normalizeRelayUrl(relayHint) : ""
       
       // Build tags array
@@ -460,8 +812,8 @@
       }
       
       // Publish to relays
-      const relaysToPublish = repoClass.relays.length > 0 
-        ? repoClass.relays.map(normalizeRelayUrl).filter(Boolean)
+      const relaysToPublish = repoRelays.length > 0 
+        ? repoRelays.map(normalizeRelayUrl).filter(Boolean)
         : Router.get().FromUser().getUrls().map(normalizeRelayUrl).filter(Boolean)
       
       publishThunk({ event: bookmarkEvent, relays: relaysToPublish })
@@ -489,20 +841,27 @@
 
   // Connect the nostr-git toast store to the toast component
   $effect(() => {
-    if ($toast.length > 0) {
-      $toast.forEach(t => {
-        // The toast store now handles format conversion internally
-        pushToast({
-          message:
-            t.message ||
-            (t.title && t.description
-              ? `${t.title}: ${t.description}`
-              : t.title || t.description || ""),
-          timeout: t.timeout || t.duration,
-          theme: t.theme || (t.variant === "destructive" ? "error" : undefined),
+    // Subscribe to toast store explicitly for proper cleanup
+    const unsubscribe = toast.subscribe((toasts) => {
+      if (toasts.length > 0) {
+        toasts.forEach(t => {
+          // The toast store now handles format conversion internally
+          pushToast({
+            message:
+              t.message ||
+              (t.title && t.description
+                ? `${t.title}: ${t.description}`
+                : t.title || t.description || ""),
+            timeout: t.timeout || t.duration,
+            theme: t.theme || (t.variant === "destructive" ? "error" : undefined),
+          })
         })
-      })
-      toast.clear()
+        toast.clear()
+      }
+    })
+    
+    return () => {
+      unsubscribe()
     }
   })
 
@@ -555,7 +914,7 @@
         <RepoTab
           tabValue="feed"
           label="Feed"
-          href={`/spaces/${encodedRelay}/git/${id}/feed`}
+          href={`${basePath}/feed`}
           {activeTab}>
           {#snippet icon()}
             <FileCode class="h-4 w-4" />
@@ -564,7 +923,7 @@
         <RepoTab
           tabValue="pipelines"
           label="Pipelines"
-          href={`/spaces/${encodedRelay}/git/${id}/cicd`}
+          href={`${basePath}/cicd`}
           {activeTab}>
           {#snippet icon()}
             <FileCode class="h-4 w-4" />
@@ -573,7 +932,7 @@
         <RepoTab
           tabValue="code"
           label="Code"
-          href={`/spaces/${encodedRelay}/git/${id}/code`}
+          href={`${basePath}/code`}
           {activeTab}>
           {#snippet icon()}
             <GitBranch class="h-4 w-4" />
@@ -582,7 +941,7 @@
         <RepoTab
           tabValue="issues"
           label="Issues"
-          href={`/spaces/${encodedRelay}/git/${id}/issues`}
+          href={`${basePath}/issues`}
           {activeTab}>
           {#snippet icon()}
             <CircleAlert class="h-4 w-4" />
@@ -591,7 +950,7 @@
         <RepoTab
           tabValue="patches"
           label="Patches"
-          href={`/spaces/${encodedRelay}/git/${id}/patches`}
+          href={`${basePath}/patches`}
           {activeTab}>
           {#snippet icon()}
             <GitPullRequest class="h-4 w-4" />
@@ -600,7 +959,7 @@
         <RepoTab
           tabValue="commits"
           label="Commits"
-          href={`/spaces/${encodedRelay}/git/${id}/commits`}
+          href={`${basePath}/commits`}
           {activeTab}>
           {#snippet icon()}
             <GitCommit class="h-4 w-4" />
@@ -618,7 +977,8 @@
         ProfileLink: ProfileLink as typeof import("@nostr-git/ui").ProfileLink,
         EventActions: EventActions as typeof import("@nostr-git/ui").EventActions,
         ReactionSummary: ReactionSummary as typeof import("@nostr-git/ui").ReactionSummary,
-      }}>
+        Markdown: Markdown as any,
+      } as any}>
       {@render children()}
     </ConfigProvider>
   {/if}

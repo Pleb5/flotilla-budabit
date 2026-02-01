@@ -44,6 +44,11 @@
   const initialMinutes = initialTime ? initialTime.slice(-2) : "00"
 
   let date: Date | undefined = $state(initialDate)
+  // Let the user select a date max 2 years in the future
+  const today = new Date()
+  const max = new Date(today)
+  max.setFullYear(max.getFullYear() + 2)
+
   let time: string | undefined = $state(initialTime)
   let minutes: string = $state(initialMinutes)
   let element: HTMLElement
@@ -70,7 +75,7 @@
 
 <div class="relative grid grid-cols-2 gap-2" bind:this={element}>
   <div class="relative">
-    <DateInput format="yyyy-MM-dd" placeholder="" bind:value={date} />
+    <DateInput format="yyyy-MM-dd" placeholder="" bind:value={date} {max} />
     <div class="absolute right-2 top-0 flex h-12 cursor-pointer items-center gap-2">
       {#if date}
         <Button onclick={clear} class="h-5">

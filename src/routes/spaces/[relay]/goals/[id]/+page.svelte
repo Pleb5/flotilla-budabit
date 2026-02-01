@@ -17,7 +17,7 @@
   import Button from "@lib/components/Button.svelte"
   import ChannelContent from "@app/components/ChannelMessage.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
-  import MenuSpaceButton from "@app/components/MenuSpaceButton.svelte"
+  import MenuSpaceButton from "@lib/budabit/components/MenuSpaceButton.svelte"
   import GoalSummary from "@app/components/GoalSummary.svelte"
   import GoalActions from "@app/components/GoalActions.svelte"
   import CommentActions from "@app/components/CommentActions.svelte"
