@@ -7,7 +7,6 @@ description = ''A flake that creates a devShell containing the following:
 inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    nvim.url = "github:Pleb5/neovim-flake/master";
 };
 
 outputs = { nixpkgs, flake-utils, ... }:
