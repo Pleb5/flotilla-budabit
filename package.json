@@ -94,6 +94,7 @@
     "@poppanator/sveltekit-svg": "^4.2.1",
     "@sentry/browser": "^8.55.0",
     "@sveltejs/adapter-static": "^3.0.10",
+    "@tanstack/svelte-virtual": "^3.13.18",
     "@tiptap/core": "^2.27.1",
     "@types/qrcode": "^1.5.5",
     "@types/throttle-debounce": "^5.0.2",

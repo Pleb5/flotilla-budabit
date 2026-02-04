@@ -33,7 +33,7 @@
   import {deriveEffectiveLabels, deriveAssignmentsFor} from "@lib/budabit/state.js"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import {isMobile} from "@lib/html"
-  import {onMount, onDestroy} from "svelte"
+  import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
   
@@ -43,12 +43,105 @@
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
   import { fade } from "svelte/transition"
+  import { createVirtualizer } from "@tanstack/svelte-virtual"
+  import { untrack } from "svelte"
 
   let showScrollButton = $state(false)
-  
-  const onScroll = () => {
-    console.log("scroll", element?.scrollTop)
-    showScrollButton = Math.abs(element?.scrollTop || 0) > 1500
+  let pageContainerRef: HTMLElement | undefined = $state()
+  let virtualListContainerRef: HTMLElement | undefined = $state()
+  let scrollParent: HTMLElement | null = $state(null)
+
+  // Find the scrollable parent element (for window-based scrolling)
+  const findScrollParent = (element: HTMLElement | null): HTMLElement | null => {
+    if (!element) return null
+    let parent = element.parentElement
+    while (parent) {
+      const style = getComputedStyle(parent)
+      if (style.overflow === 'auto' || style.overflow === 'scroll' || 
+          style.overflowY === 'auto' || style.overflowY === 'scroll') {
+        return parent
+      }
+      parent = parent.parentElement
+    }
+    // Fallback to documentElement for window scrolling
+    return document.documentElement
+  }
+
+  // Stable key function for virtualizer - prevents issues when items reorder/filter
+  const getItemKey = (index: number) => searchedIssues[index]?.id ?? `fallback-${index}`
+
+  const virtualizerStore = createVirtualizer({
+    count: 0,
+    getScrollElement: () => scrollParent,
+    estimateSize: () => 160, // Slightly higher estimate for cards with labels/comments
+    overscan: 10, // Higher overscan for smoother scrolling with dynamic content
+    gap: 16,
+    getItemKey,
+  })
+
+  // Find scroll parent when virtual list container is mounted
+  $effect(() => {
+    const container = virtualListContainerRef
+    if (!container) return
+    
+    // Find scrollable parent on mount
+    scrollParent = findScrollParent(container)
+  })
+
+  // Update virtualizer when scroll parent or count changes
+  $effect(() => {
+    // Access reactive dependencies OUTSIDE untrack so they're tracked
+    const scrollEl = scrollParent
+    const container = virtualListContainerRef
+    const count = searchedIssues.length
+    
+    // Early return if prerequisites not met
+    if (!scrollEl || !container || count === 0) return
+    
+    // Calculate scroll margin (offset from top of scroll container to the list)
+    const scrollMargin = container.offsetTop
+    
+    // Update options in untrack to avoid infinite loops from store access
+    untrack(() => {
+      $virtualizerStore?.setOptions({
+        count,
+        getScrollElement: () => scrollEl,
+        scrollMargin,
+        getItemKey,
+      })
+    })
+    
+    // Schedule measurement after DOM updates
+    tick().then(() => {
+      untrack(() => {
+        $virtualizerStore?.measure()
+      })
+    })
+  })
+
+  // Handle scroll events for showing scroll-to-top button
+  $effect(() => {
+    const scrollEl = scrollParent
+    if (!scrollEl) return
+    
+    const handleScroll = () => {
+      showScrollButton = scrollEl.scrollTop > 1500
+    }
+    
+    scrollEl.addEventListener('scroll', handleScroll, { passive: true })
+    return () => scrollEl.removeEventListener('scroll', handleScroll)
+  })
+
+  function measureElement(
+    node: HTMLElement,
+    virtualizer: { measureElement: (el: HTMLElement | null) => void } | undefined,
+  ) {
+    virtualizer?.measureElement(node)
+    return {
+      update(v: typeof virtualizer) {
+        v?.measureElement(node)
+      },
+    }
   }
 
 
@@ -469,7 +562,6 @@
 
   // Set loading to false immediately if we have data - don't wait for makeFeed
   let loading = $state(false)
-  let element: HTMLElement | undefined = $state()
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
   // Use non-reactive array to avoid infinite loops when pushing in effects
@@ -493,10 +585,10 @@
       // Defer makeFeed to avoid blocking initial render
       const timeout = setTimeout(() => {
         const tryStart = () => {
-          if (element && !feedInitialized) {
+          if (pageContainerRef && !feedInitialized) {
             feedInitialized = true
             const feed = makeFeed({
-              element,
+              element: pageContainerRef,
               relays: repoClass.relays,
               feedFilters: [combinedFilter],
               subscriptionFilters: [combinedFilter],
@@ -506,7 +598,7 @@
               },
             })
             feedCleanup = feed.cleanup
-          } else if (!element) {
+          } else if (!pageContainerRef) {
             requestAnimationFrame(tryStart)
           }
         }
@@ -585,14 +677,19 @@
     postComment(comment, repoRelays)
   }
 
-  const scrollToTop = () => element?.scrollTo({top: 0, behavior: "smooth"})
+  const scrollToTop = () => {
+    // Use virtualizer's scrollToIndex for consistent behavior
+    $virtualizerStore?.scrollToIndex(0, { align: "start", behavior: "smooth" })
+    // Also scroll the parent container
+    scrollParent?.scrollTo({ top: 0, behavior: "smooth" })
+  }
 </script>
 
 <svelte:head>
   <title>{repoClass?.name || 'Repository'} - Issues</title>
 </svelte:head>
 
-<div bind:this={element} onscroll={onScroll}>
+<div bind:this={pageContainerRef}>
   <div class="my-4 max-w-full space-y-2">
     <div class=" flex items-center justify-between">
       <div>
@@ -654,27 +751,46 @@
       No issues found.
     </div>
   {:else}
-    <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#key repoClass.issues}
-        {#each searchedIssues as issue (issue.id)}
-          <div in:slideAndFade={{duration: 200}} class="space-y-1">
-            <div class="relative">
-              <IssueCard
-                event={issue}
-                comments={commentsOrdered[issue.id]}
-                currentCommenter={$pubkey!}
-                {onCommentCreated}
-                extraLabels={labelsByIssue.get(issue.id) || []}
-                repo={repoClass}
-                statusEvents={statusEventsByRoot?.get(issue.id) || []}
-                actorPubkey={$pubkey}
-                assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
+    <!-- Virtualized list container - uses parent scroll container for window-based scrolling -->
+    <div bind:this={virtualListContainerRef}>
+      {#if $virtualizerStore}
+        {@const totalSize = $virtualizerStore.getTotalSize()}
+        {@const virtualItems = $virtualizerStore.getVirtualItems()}
+        {@const scrollMargin = $virtualizerStore.options.scrollMargin ?? 0}
+        <div
+          class="relative w-full"
+          style="height: {totalSize}px;"
+          data-virtualized="true"
+          data-visible-count={virtualItems.length}
+          data-total-count={searchedIssues.length}
+        >
+          {#each virtualItems as virtualRow (virtualRow.key)}
+            {@const issue = searchedIssues[virtualRow.index]}
+            {#if issue}
+              <div
+                data-index={virtualRow.index}
+                use:measureElement={$virtualizerStore}
+                class="absolute top-0 left-0 w-full pr-2"
+                style="transform: translateY({virtualRow.start - scrollMargin}px);"
+              >
+                <IssueCard
+                  event={issue}
+                  comments={commentsOrdered[issue.id]}
+                  currentCommenter={$pubkey!}
+                  {onCommentCreated}
+                  extraLabels={labelsByIssue.get(issue.id) || []}
+                  repo={repoClass}
+                  statusEvents={statusEventsByRoot?.get(issue.id) || []}
+                  actorPubkey={$pubkey}
+                  assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
                 assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
-                relays={repoRelays} />
-            </div>
-          </div>
-        {/each}
-      {/key}
+                  relays={repoRelays}
+                />
+              </div>
+            {/if}
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
