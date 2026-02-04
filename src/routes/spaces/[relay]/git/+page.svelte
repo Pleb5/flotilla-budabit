@@ -51,6 +51,7 @@
   import RepoPickerWrapper from "@app/components/RepoPickerWrapper.svelte"
   import ImportRepoDialogWrapper from "@app/components/ImportRepoDialogWrapper.svelte"
   import type {ImportResult} from "@nostr-git/ui"
+  import type {NostrFilter} from "@nostr-git/core"
   import {
     deriveRepoRefState,
     deriveMaintainersForEuc,
@@ -750,6 +751,15 @@
         {
           pubkey: $pubkey!,
           onSignEvent: onSignEvent, // Primary signing method (works with all signers)
+          onFetchEvents: async (filters: NostrFilter[]) => {
+            const events: NostrEvent[] = [];
+            await load({
+              relays: Router.get().FromUser().getUrls(),
+              filters: filters as any,
+              onEvent: (e) => events.push(e as NostrEvent),
+            });
+            return events;
+          },
           onClose: () => {
             clearModals()
           },
