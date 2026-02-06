@@ -29,6 +29,7 @@ import {
 import {
   Pool,
   load,
+  request,
   SocketStatus,
   AuthStateEvent,
   AuthStatus,
@@ -103,7 +104,14 @@ import {
   RELAY_JOIN,
   RELAY_LEAVE,
 } from "@welshman/util"
-import type {TrustedEvent, List, Filter, RoomMeta, PublishedList, RelayProfile} from "@welshman/util"
+import type {
+  TrustedEvent,
+  List,
+  Filter,
+  RoomMeta,
+  PublishedList,
+  RelayProfile,
+} from "@welshman/util"
 import {decrypt} from "@welshman/signer"
 import {routerContext, Router} from "@welshman/router"
 import {
@@ -158,6 +166,11 @@ export const PLATFORM_LOGO = PLATFORM_URL + "/logo.png"
 export const PLATFORM_NAME = import.meta.env.VITE_PLATFORM_NAME
 
 export const PLATFORM_RELAYS = fromCsv(import.meta.env.VITE_PLATFORM_RELAYS)
+
+const normalizedPlatformRelays = PLATFORM_RELAYS.map(normalizeRelayUrl)
+
+export const isPlatformRelay = (url: string) =>
+  normalizedPlatformRelays.includes(normalizeRelayUrl(url))
 
 export const PLATFORM_ACCENT = import.meta.env.VITE_PLATFORM_ACCENT
 
@@ -219,9 +232,8 @@ export const bootstrapPubkeys = derived(userFollowList, $userFollowList => {
   return userPubkeys.length > 5 ? userPubkeys : [...userPubkeys, ...appPubkeys]
 })
 
-export const defaultPubkeys = derived(
-  [pubkey, bootstrapPubkeys],
-  ([$pubkey, $bootstrapPubkeys]) => uniq([$pubkey, ...$bootstrapPubkeys].filter(identity)),
+export const defaultPubkeys = derived([pubkey, bootstrapPubkeys], ([$pubkey, $bootstrapPubkeys]) =>
+  uniq([$pubkey, ...$bootstrapPubkeys].filter(identity)),
 )
 
 export const deriveEvent = makeDeriveEvent({
@@ -405,18 +417,18 @@ export const deriveAlertStatus = (address: string) =>
 // this is fine. Room creation is only enabled for @Five
 export const createBudaBitRoom = (url: string, room: RoomMeta) => {
   const event = makeRoomEditEvent(room)
-  const roomEventThunkOptions:ThunkOptions = {
+  const roomEventThunkOptions: ThunkOptions = {
     event,
-    relays: [url]
+    relays: [url],
   }
 
   // Hack: welshman does not have makeRoomMetaEvent so kind must be overwritten
-  event.kind = ROOM_META;
+  event.kind = ROOM_META
 
   // Replace h-tag with d-tag according to spec
-  event.tags.forEach((t) => {
-    if (t[0] === 'h') {
-      t[0] = 'd'
+  event.tags.forEach(t => {
+    if (t[0] === "h") {
+      t[0] = "d"
     }
   })
 
@@ -458,7 +470,6 @@ export const memberships = derived(
   ),
   $events => $events.map(e => readList(asDecryptedEvent(e))).filter(identity) as PublishedList[],
 )
-
 
 export const membershipsByPubkey = deriveItemsByKey({
   repository,
@@ -514,7 +525,6 @@ export const splitChatId = (id: string) => id.split(",")
 export const makeChannelId = (url: string, room: string) => makeRoomId(url, room)
 
 export const splitChannelId = (id: string) => splitRoomId(id)
-
 
 export const chatsById = call(() => {
   const chatsById = new Map<string, Chat>()
@@ -666,9 +676,14 @@ export const loadRoom = call(() => {
   const _fetchRoom = async (id: string) => {
     const [url, h] = splitRoomId(id)
 
-    await load({
+    if (!isPlatformRelay(url)) {
+      return
+    }
+
+    await request({
       relays: [url],
       filters: [{kinds: [ROOM_META], "#d": [h]}],
+      autoClose: true,
     })
   }
 

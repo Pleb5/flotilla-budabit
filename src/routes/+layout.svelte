@@ -8,7 +8,7 @@
   import {get} from "svelte/store"
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {dev} from "$app/environment"
-  import {goto} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
@@ -32,11 +32,11 @@
   import {setupHistory} from "@app/util/history"
   import {setupTracking} from "@app/util/tracking"
   import {setupAnalytics} from "@app/util/analytics"
+  import {makeSpacePath} from "@app/util/routes"
   import {
     userSettingsValues,
   } from "@app/core/state"
   import {db, kv} from "@app/core/storage"
-  import {syncApplicationData} from "@app/core/sync"
   import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
   import {toast, pushToast} from "@app/util/toast"
@@ -47,7 +47,7 @@
   import * as storage from "@app/util/storage"
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
-  import {syncBudabitData} from "@lib/budabit"
+  import {syncBudabitApplicationData, syncBudabitData} from "@lib/budabit/sync"
   import {ExtensionProvider} from "@src/app/extensions"
 
   const {children} = $props()
@@ -79,6 +79,15 @@
   navigator.serviceWorker?.addEventListener("message", event => {
     if (event.data && event.data.type === "NAVIGATE") {
       goto(event.data.url)
+    }
+  })
+
+  beforeNavigate(nav => {
+    if (!nav.to) return
+
+    if (nav.to.url.pathname === "/home" && appState.PLATFORM_RELAYS.length > 0) {
+      nav.cancel()
+      goto(makeSpacePath(appState.PLATFORM_RELAYS[0]))
     }
   })
 
@@ -139,7 +148,13 @@
     unsubscribers.push(() => defaultSocketPolicies.splice(-policies.length))
 
     // History, navigation, bug tracking, application data
-    unsubscribers.push(setupHistory(), setupAnalytics(), setupTracking(), syncApplicationData(), syncBudabitData())
+    unsubscribers.push(
+      setupHistory(),
+      setupAnalytics(),
+      setupTracking(),
+      syncBudabitApplicationData(),
+      syncBudabitData(),
+    )
 
     // Subscribe to badge count for changes
     unsubscribers.push(notifications.badgeCount.subscribe(notifications.handleBadgeCountChanges))

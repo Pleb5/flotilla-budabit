@@ -6,7 +6,6 @@
   import type {MakeNonOptional} from "@welshman/lib"
   import {now, int, formatTimestampAsDate, ago, MINUTE} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
-  import cx from "classnames"
   import {
     makeEvent,
     makeRoomMeta,
@@ -16,11 +15,9 @@
   } from "@welshman/util"
   import {pubkey, publishThunk, waitForThunkError, joinRoom, leaveRoom} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
-  import InfoCircle from "@assets/icons/info-circle.svg?dataurl"
   import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
   import Login2 from "@assets/icons/login-3.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
-  import Bookmark from "@assets/icons/bookmark.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -28,10 +25,9 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import ThunkToast from "@app/components/ThunkToast.svelte"
-  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import RoomName from "@app/components/RoomName.svelte"
   import RoomImage from "@app/components/RoomImage.svelte"
-  import RoomDetail from "@app/components/RoomDetail.svelte"
   import RoomItem from "@app/components/RoomItem.svelte"
   import RoomItemAddMember from "@src/app/components/RoomItemAddMember.svelte"
   import RoomItemRemoveMember from "@src/app/components/RoomItemRemoveMember.svelte"
@@ -39,7 +35,6 @@
   import RoomComposeEdit from "@src/app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
   import {
-    deriveUserRooms,
     userSettingsValues,
     decodeRelay,
     deriveUserRoomMembershipStatus,
@@ -47,12 +42,11 @@
     MembershipStatus,
     PROTECTED,
     MESSAGE_KINDS,
+    isPlatformRelay,
   } from "@app/core/state"
   import {setChecked, checked} from "@app/util/notifications"
   import {
-    addRoomMembership,
     canEnforceNip70,
-    removeRoomMembership,
     prependParent,
     publishDelete,
   } from "@app/core/commands"
@@ -60,24 +54,16 @@
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
-  import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
 
   const {h, relay} = $page.params as MakeNonOptional<typeof $page.params> as MakeNonOptional<typeof $page.params>
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay(relay)
+  const isPlatform = isPlatformRelay(url)
   const room = deriveRoom(url, h)
   const shouldProtect = canEnforceNip70(url)
-  const userRooms = deriveUserRooms(url)
-  const isFavorite = $derived($userRooms.includes(h))
   const membershipStatus = deriveUserRoomMembershipStatus(url, h)
-
-  const showRoomDetail = () => pushModal(RoomDetail, {url, h})
-
-  const addFavorite = () => addRoomMembership(url, h)
-
-  const removeFavorite = () => removeRoomMembership(url, h)
 
   const join = async () => {
     joining = true
@@ -276,6 +262,13 @@
   const start = () => {
     cleanup?.()
 
+    if (!isPlatform) {
+      loadingEvents = false
+      events = readable([])
+      cleanup = () => {}
+      return
+    }
+
     const feed = makeFeed({
       element: element!,
       relays: [url],
@@ -349,25 +342,7 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
-      <Button
-        class="btn btn-neutral btn-sm tooltip tooltip-left"
-        data-tip={isFavorite ? "Remove Favorite" : "Add Favorite"}
-        onclick={isFavorite ? removeFavorite : addFavorite}>
-        <Icon size={4} icon={Bookmark} class={cx({"text-primary": isFavorite})} />
-      </Button>
-      <Button
-        class="btn btn-neutral btn-sm tooltip tooltip-left"
-        data-tip="Room information"
-        onclick={showRoomDetail}>
-        <Icon size={4} icon={InfoCircle} />
-      </Button>
       <SpaceMenuButton {url} />
-      <Button
-        class="btn btn-neutral btn-sm tooltip tooltip-left"
-        data-tip={showRightPanel ? "Hide Extensions Panel" : "Show Extensions Panel"}
-        onclick={() => (showRightPanel = !showRightPanel)}>
-        Panel
-      </Button>
       <SlotRenderer slotId="room:header:actions" context={{url, room}} />
     </div>
   {/snippet}

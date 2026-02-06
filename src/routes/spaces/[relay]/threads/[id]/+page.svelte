@@ -20,7 +20,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
-  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/core/state"

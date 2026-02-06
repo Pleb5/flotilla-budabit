@@ -39,7 +39,7 @@ import {
   GIT_STATUS_CLOSED,
   GIT_STATUS_DRAFT,
 } from "@nostr-git/core/events"
-import { COMMENT } from "@welshman/util"
+import {COMMENT} from "@welshman/util"
 
 // Repository event kinds (use Address directly)
 const GIT_REPO_KINDS = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]

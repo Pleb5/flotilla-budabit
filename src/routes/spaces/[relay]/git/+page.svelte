@@ -797,7 +797,7 @@
     <strong>Git Repositories</strong>
   {/snippet}
   {#snippet action()}
-    <div class="row-2">
+    <div class="hidden items-center gap-2 sm:flex">
       <Button class="btn btn-primary btn-sm" onclick={() => onNewRepo()}>
         <Icon icon={AddCircle} />
         New Repo
@@ -811,6 +811,16 @@
 </PageBar>
 
 <PageContent class="mt-4 flex flex-grow flex-col gap-4 overflow-auto p-2">
+  <div class="flex flex-col gap-2 sm:hidden">
+    <Button class="btn btn-primary btn-sm w-full" onclick={() => onNewRepo()}>
+      <Icon icon={AddCircle} />
+      New Repo
+    </Button>
+    <Button class="btn btn-secondary btn-sm w-full" onclick={() => onImportRepo()}>
+      <Icon icon={Download} />
+      Import Repo
+    </Button>
+  </div>
   <!-- Tabs and Search Bar -->
   <div class="flex flex-col gap-3">
     <Tabs bind:value={activeTab} class="w-full">

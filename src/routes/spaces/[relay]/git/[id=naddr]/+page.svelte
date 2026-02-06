@@ -548,14 +548,14 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Clone URLs</span>
                 <div class="space-y-1">
                   {#each repoMetadata.cloneUrls as url}
-                    <button
-                      type="button"
-                      class="grid grid-cols-[auto_1fr] w-full items-center gap-2 text-left text-sm hover:opacity-80"
-                      title="Click to copy"
-                      onclick={() => clip(url)}>
-                      <Link class="h-3 w-3" />
-                      <span class="font-mono text-xs overflow-auto">{url}</span>
-                    </button>
+                  <button
+                    type="button"
+                    class="grid grid-cols-[auto_1fr] w-full items-center gap-2 text-left text-sm hover:opacity-80"
+                    title="Click to copy"
+                    onclick={() => clip(url)}>
+                    <Link class="h-3 w-3" />
+                    <span class="font-mono text-xs overflow-auto">{url}</span>
+                  </button>
                   {/each}
                 </div>
               </div>
@@ -566,10 +566,10 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Web URLs</span>
                 <div class="space-y-1">
                   {#each repoMetadata.webUrls as url}
-                    <div class="grid grid-cols-[auto_1fr] items-center gap-2 text-sm max-w-full overflow-x-auto">
-                      <Link class="h-3 w-3" />
-                      <a href={url} target="_blank" class="font-mono text-xs overflow-x-auto">{url}</a>
-                    </div>
+                  <div class="grid grid-cols-[auto_1fr] items-center gap-2 text-sm max-w-full overflow-x-auto">
+                    <Link class="h-3 w-3" />
+                    <a href={url} target="_blank" class="font-mono text-xs overflow-x-auto">{url}</a>
+                  </div>
                   {/each}
                 </div>
               </div>
@@ -783,4 +783,3 @@
     {/if}
   {/if}
 </div>
-

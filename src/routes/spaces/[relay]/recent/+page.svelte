@@ -10,7 +10,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import ConversationCard from "@app/components/ConversationCard.svelte"
   import {decodeRelay, deriveEventsForUrl} from "@app/core/state"
 

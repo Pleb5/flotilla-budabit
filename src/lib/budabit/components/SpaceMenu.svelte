@@ -1,17 +1,9 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {displayRelayUrl, getTagValue, REPORT} from "@welshman/util"
+  import {goto} from "$app/navigation"
+  import {displayRelayUrl, getTagValue} from "@welshman/util"
   import {deriveRelay, pubkey} from "@welshman/app"
-  import {fly} from "@lib/transition"
-  import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
-  import RemoteControllerMinimalistic from "@assets/icons/remote-controller-minimalistic.svg?dataurl"
-  import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
-  import Danger from "@assets/icons/danger.svg?dataurl"
-  import LinkRound from "@assets/icons/link-round.svg?dataurl"
-  import Exit from "@assets/icons/logout-3.svg?dataurl"
-  import Letter from "@assets/icons/letter.svg?dataurl"
-  import Login from "@assets/icons/login-3.svg?dataurl"
   import History from "@assets/icons/history.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic-2.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
@@ -21,19 +13,12 @@
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
-  import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Popover from "@lib/components/Popover.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import SpaceDetail from "@app/components/SpaceDetail.svelte"
-  import SpaceInvite from "@app/components/SpaceInvite.svelte"
-  import SpaceExit from "@app/components/SpaceExit.svelte"
-  import SpaceJoin from "@app/components/SpaceJoin.svelte"
   import RelayName from "@app/components/RelayName.svelte"
-  import SpaceMembers from "@app/components/SpaceMembers.svelte"
-  import SpaceReports from "@app/components/SpaceReports.svelte"
   import AlertAdd from "@app/components/AlertAdd.svelte"
   import Alerts from "@app/components/Alerts.svelte"
   import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
@@ -42,16 +27,12 @@
   import {
     ENABLE_ZAPS,
     CONTENT_KINDS,
-    deriveSpaceMembers,
-    userSpaceUrls,
     hasNip29,
     alertsById,
-    deriveUserIsSpaceAdmin,
-    deriveEventsForUrl,
   } from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
-  import {makeSpacePath, makeChatPath} from "@app/util/routes"
+  import {makeSpacePath} from "@app/util/routes"
   import {channelsByUrl} from "@lib/budabit/state"
 
   const {url} = $props()
@@ -65,10 +46,6 @@
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
 
-  const members = deriveSpaceMembers(url)
-  const userIsAdmin = deriveUserIsSpaceAdmin(url)
-  const reports = deriveEventsForUrl(url, [{kinds: [REPORT]}])
-
   const hasAlerts = $derived(
     Array.from($alertsById.values()).some(a => getTagValue("feed", a.tags)?.includes(url)),
   )
@@ -79,25 +56,9 @@
     return channels.map(ch => ch.name)
   })
 
-  const openMenu = () => {
-    showMenu = true
-  }
-
-  const toggleMenu = () => {
-    showMenu = !showMenu
-  }
-
   const showDetail = () => pushModal(SpaceDetail, {url}, {replaceState})
 
-  const showMembers = () => pushModal(SpaceMembers, {url}, {replaceState})
-
-  const showReports = () => pushModal(SpaceReports, {url}, {replaceState})
-
-  const createInvite = () => pushModal(SpaceInvite, {url}, {replaceState})
-
-  const leaveSpace = () => pushModal(SpaceExit, {url}, {replaceState})
-
-  const joinSpace = () => pushModal(SpaceJoin, {url}, {replaceState})
+  const goHome = () => goto(makeSpacePath(url))
 
   const addRoom = () => {
     if ($pubkey && owner && owner === $pubkey) {
@@ -112,7 +73,6 @@
     pushModal(component, params, {replaceState})
   }
 
-  let showMenu = $state(false)
   let replaceState = $state(false)
   let element: Element | undefined = $state()
 
@@ -126,70 +86,14 @@
     <div>
       <Button
         class="flex w-full flex-col rounded-xl p-3 transition-all hover:bg-base-100"
-        onclick={openMenu}>
-        <div class="flex items-center justify-between">
+        onclick={goHome}>
+        <div class="flex items-center">
           <strong class="ellipsize flex items-center gap-1">
             <RelayName {url} />
           </strong>
-          <Icon icon={AltArrowDown} />
         </div>
         <span class="text-xs text-primary">{displayRelayUrl(url)}</span>
       </Button>
-      {#if showMenu}
-        <Popover hideOnClick onClose={toggleMenu}>
-          <ul
-            transition:fly
-            class="menu absolute z-popover mt-2 w-full gap-1 rounded-box bg-base-100 p-2 shadow-md">
-            <li>
-              <Button onclick={createInvite}>
-                <Icon icon={LinkRound} />
-                Create Invite
-              </Button>
-            </li>
-            <li>
-              <Button onclick={showDetail}>
-                <Icon icon={RemoteControllerMinimalistic} />
-                Space Information
-              </Button>
-            </li>
-            <li>
-              <Button onclick={showMembers}>
-                <Icon icon={UserRounded} />
-                View Members ({$members.length})
-              </Button>
-            </li>
-            {#if $userIsAdmin}
-              <li>
-                <Button onclick={showReports}>
-                  <Icon icon={Danger} />
-                  View Reports ({$reports.length})
-                </Button>
-              </li>
-            {/if}
-            {#if $relay?.pubkey && $relay.pubkey !== $pubkey}
-              <li>
-                <Link href={makeChatPath([$relay.pubkey])}>
-                  <Icon icon={Letter} />
-                  Contact Owner
-                </Link>
-              </li>
-            {/if}
-            <li>
-              {#if $userSpaceUrls.includes(url)}
-                <Button onclick={leaveSpace} class="text-error">
-                  <Icon icon={Exit} />
-                  Leave Space
-                </Button>
-              {:else}
-                <Button onclick={joinSpace} class="bg-primary text-primary-content">
-                  <Icon icon={Login} />
-                  Join Space
-                </Button>
-              {/if}
-            </li>
-          </ul>
-        </Popover>
-      {/if}
     </div>
 
     <div class="flex max-h-[calc(100vh-250px)] min-h-0 flex-col gap-1 overflow-auto">

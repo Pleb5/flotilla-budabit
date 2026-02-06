@@ -17,14 +17,14 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import ThunkToast from "@app/components/ThunkToast.svelte"
-  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import RoomItem from "@app/components/RoomItem.svelte"
   import RoomItemAddMember from "@src/app/components/RoomItemAddMember.svelte"
   import RoomItemRemoveMember from "@src/app/components/RoomItemRemoveMember.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import RoomComposeEdit from "@src/app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
-  import {userSettingsValues, decodeRelay, PROTECTED, REACTION_KINDS} from "@app/core/state"
+  import {userSettingsValues, decodeRelay, PROTECTED, REACTION_KINDS, isPlatformRelay} from "@app/core/state"
   import {prependParent, canEnforceNip70, publishDelete} from "@app/core/commands"
   import {setChecked, checked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
@@ -34,6 +34,7 @@
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay($page.params.relay!!)
+  const isPlatform = isPlatformRelay(url)
   const shouldProtect = canEnforceNip70(url)
 
   const replyTo = (event: TrustedEvent) => {
@@ -235,6 +236,21 @@
 
     observer.observe(chatCompose!)
     observer.observe(dynamicPadding!)
+
+    if (!isPlatform) {
+      loadingEvents = false
+      events = readable([])
+
+      return () => {
+        controller.abort()
+        observer.unobserve(chatCompose!)
+        observer.unobserve(dynamicPadding!)
+
+        setTimeout(() => {
+          setChecked($page.url.pathname)
+        }, 800)
+      }
+    }
 
     const feed = makeFeed({
       element: element!,

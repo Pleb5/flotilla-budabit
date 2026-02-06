@@ -10,7 +10,7 @@
   import SpaceTrustRelay from "@app/components/SpaceTrustRelay.svelte"
   import {pushModal} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
-  import {decodeRelay, deriveRelayAuthError, deriveSocket} from "@app/core/state"
+  import {decodeRelay, deriveRelayAuthError, deriveSocket, isPlatformRelay} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {
     GIT_ISSUE,
@@ -34,6 +34,7 @@
   const {children}: Props = $props()
 
   const url = decodeRelay($page.params.relay!)
+  const isPlatform = isPlatformRelay(url)
 
   const rooms = Array.from($channelsByUrl.get(url)|| [])
 
@@ -77,15 +78,19 @@
     // for user rooms to help with a quick page transition
     loadPlatformChannels()
 
+    const messageFilters = isPlatform
+      ? [{kinds: [MESSAGE], since}, ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.id], since}))]
+      : []
+
     request({
       relays: [url],
       filters: [
         {kinds: [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]},
         {kinds: [GIT_ISSUE, GIT_PATCH]},
         {kinds: [GRASP_SET_KIND]},
-        {kinds: [THREAD, EVENT_TIME, MESSAGE], since},
+        {kinds: [THREAD, EVENT_TIME], since},
         {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since},
-        ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.id], since})),
+        ...messageFilters,
       ],
     })
   })

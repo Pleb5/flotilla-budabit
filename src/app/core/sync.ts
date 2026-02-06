@@ -9,8 +9,6 @@ import {
   RELAY_REMOVE_MEMBER,
   RELAY_MEMBERS,
   WRAP,
-  ROOM_META,
-  ROOM_DELETE,
   ROOM_ADMINS,
   ROOM_MEMBERS,
   ROOM_CREATE_PERMISSION,
@@ -43,6 +41,7 @@ import {
   MESSAGE_KINDS,
   CONTENT_KINDS,
   INDEXER_RELAYS,
+  isPlatformRelay,
   loadSettings,
   loadGroupList,
   userSpaceUrls,
@@ -241,20 +240,22 @@ const syncUserData = () => {
 
 const syncSpace = (url: string) => {
   const controller = new AbortController()
+  const includeRooms = isPlatformRelay(url)
+  const messageKinds = includeRooms ? MESSAGE_KINDS : CONTENT_KINDS
+
+  const filters: Filter[] = [
+    {kinds: [RELAY_MEMBERS]},
+    ...(includeRooms ? [{kinds: [ROOM_ADMINS, ROOM_MEMBERS]}] : []),
+    ...(includeRooms ? [{kinds: [ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER]}] : []),
+    ...messageKinds.map(kind => ({kinds: [kind]})),
+    makeCommentFilter(CONTENT_KINDS),
+    {kinds: REACTION_KINDS, limit: 0},
+  ]
 
   pullAndListen({
     relays: [url],
     signal: controller.signal,
-    filters: [
-      {kinds: [RELAY_MEMBERS]},
-      {kinds: [ROOM_ADMINS, ROOM_MEMBERS]},
-      {kinds: [ROOM_META, ROOM_DELETE], limit: 1000},
-      {kinds: [ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER]},
-      {kinds: [RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER]},
-      ...MESSAGE_KINDS.map(kind => ({kinds: [kind]})),
-      makeCommentFilter(CONTENT_KINDS),
-      {kinds: REACTION_KINDS, limit: 0},
-    ],
+    filters: [...filters, {kinds: [RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER]}],
   })
 
   return () => controller.abort()

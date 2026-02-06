@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {goto} from "$app/navigation"
   import {shouldUnwrap} from "@welshman/app"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -12,18 +11,12 @@
   import SpaceAdd from "@app/components/SpaceAdd.svelte"
   import ChatEnable from "@app/components/ChatEnable.svelte"
   import {pushModal} from "@app/util/modal"
-  import {goToSpace} from "@app/util/routes"
-  import {PLATFORM_NAME, PLATFORM_RELAYS} from "@app/core/state"
+  import {PLATFORM_NAME} from "@app/core/state"
 
   const addSpace = () => pushModal(SpaceAdd)
 
   const openChat = () => ($shouldUnwrap ? goto("/chat") : pushModal(ChatEnable, {next: "/chat"}))
 
-  onMount(async () => {
-    if (PLATFORM_RELAYS.length > 0) {
-      goToSpace(PLATFORM_RELAYS[0])
-    }
-  })
 </script>
 
 <div class="hero min-h-screen overflow-auto pb-8">
