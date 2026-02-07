@@ -1,5 +1,5 @@
-import { writable, derived, get as getStore, type Writable } from "svelte/store"
-import { load, request } from "@welshman/net"
+import {writable, derived, get as getStore, type Writable} from "svelte/store"
+import {load, request} from "@welshman/net"
 import {
   groupByEuc,
   deriveMaintainers,
@@ -9,11 +9,11 @@ import {
   extractSelfLabels,
   extractLabelEvents,
   mergeEffectiveLabels,
-  type RepoGroup
+  type RepoGroup,
 } from "@nostr-git/core/events"
-import { RepoCore } from "@nostr-git/core/git"
-import { repository, pubkey } from "@welshman/app"
-import { deriveEventsAsc, deriveEventsById, withGetter } from "@welshman/store"
+import {RepoCore} from "@nostr-git/core/git"
+import {repository, pubkey} from "@welshman/app"
+import {deriveEventsAsc, deriveEventsById, withGetter} from "@welshman/store"
 import {
   PLATFORM_RELAYS,
   deriveEvent,
@@ -22,11 +22,11 @@ import {
   getMembershipRoomsByUrl,
   fromCsv,
 } from "@app/core/state"
-import { isRelayUrl, normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag } from "@welshman/util"
-import { nip19 } from "nostr-tools"
-import { fromPairs, pushToMapKey, sortBy, uniq, uniqBy } from "@welshman/lib"
-import { extractRoleAssignments } from "./labels"
-import type { Repo } from "@nostr-git/ui"
+import {isRelayUrl, normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag} from "@welshman/util"
+import {nip19} from "nostr-tools"
+import {fromPairs, pushToMapKey, sortBy, uniq, uniqBy} from "@welshman/lib"
+import {extractRoleAssignments} from "./labels"
+import type {Repo} from "@nostr-git/ui"
 
 export const shouldReloadRepos = writable(false)
 
@@ -44,7 +44,8 @@ export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767
 
-export const DEFAULT_WORKER_PUBKEY = "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
+export const DEFAULT_WORKER_PUBKEY =
+  "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
 
 export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
@@ -62,9 +63,9 @@ export interface JobRequestEvent {
 }
 
 export interface JobRequestStatus {
-  status: 'pending' | 'success' | 'error'
+  status: "pending" | "success" | "error"
   eventId?: string
-  relays: Array<{url: string, status: 'success' | 'error', error?: string}>
+  relays: Array<{url: string; status: "success" | "error"; error?: string}>
   error?: string
 }
 
@@ -119,7 +120,7 @@ export const deriveMaintainersForEuc = (euc: string) =>
 export const loadRepoAnnouncements = (relays: string[] = GIT_RELAYS) =>
   load({
     relays: relays.map(u => normalizeRelayUrl(u)).filter(isRelayUrl) as string[],
-    filters: [{ kinds: [30617] }],
+    filters: [{kinds: [30617]}],
   })
 
 // ---------------------------------------------------------------------------
@@ -131,10 +132,13 @@ export const loadRepoAnnouncements = (relays: string[] = GIT_RELAYS) =>
 export const deriveRepoRefState = (euc: string) =>
   withGetter(
     derived(
-      [deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [30618]}]})), deriveRepoGroup(euc)],
+      [
+        deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [30618]}]})),
+        deriveRepoGroup(euc),
+      ],
       ([$states, $group]) => {
         const maintainers = $group ? deriveMaintainers($group) : new Set<string>()
-        const ctx = { maintainers: Array.from(maintainers) }
+        const ctx = {maintainers: Array.from(maintainers)}
         return RepoCore.mergeRepoStateByMaintainers(ctx as any, $states as unknown as any[])
       },
     ),
@@ -147,8 +151,8 @@ export const deriveRoleAssignments = (rootId: string) =>
   withGetter(
     derived(
       deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1985], "#e": [rootId]}]})),
-      ($events) => extractRoleAssignments($events as any[], rootId)
-    )
+      $events => extractRoleAssignments($events as any[], rootId),
+    ),
   )
 
 /**
@@ -158,45 +162,51 @@ export const deriveAssignmentsFor = (rootIds: string[]) =>
   withGetter(
     derived(
       deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1985], "#e": rootIds}]})),
-      ($events) => {
-        const assignmentsByRoot = new Map<string, { assignees: Set<string>; reviewers: Set<string> }>()
-        
+      $events => {
+        const assignmentsByRoot = new Map<
+          string,
+          {assignees: Set<string>; reviewers: Set<string>}
+        >()
+
         // Initialize empty sets for each root ID
         for (const rootId of rootIds) {
-          assignmentsByRoot.set(rootId, { assignees: new Set<string>(), reviewers: new Set<string>() })
+          assignmentsByRoot.set(rootId, {
+            assignees: new Set<string>(),
+            reviewers: new Set<string>(),
+          })
         }
-        
+
         // Parse events and assign to appropriate root IDs
         for (const ev of $events) {
           if (!ev || ev.kind !== 1985 || !Array.isArray(ev.tags)) continue
-          
+
           const hasRoleNs = ev.tags.some(
-            (t: string[]) => t[0] === "L" && t[1] === "org.nostr.git.role"
+            (t: string[]) => t[0] === "L" && t[1] === "org.nostr.git.role",
           )
           if (!hasRoleNs) continue
-          
-          const rootTags = ev.tags.filter((t: string[]) => t[0] === "e" && t[1] === "root")
+
+          const rootTags = ev.tags.filter((t: string[]) => t[0] === "e")
           const roleTags = ev.tags.filter(
-            (t: string[]) => t[0] === "l" && t[2] === "org.nostr.git.role"
+            (t: string[]) => t[0] === "l" && t[2] === "org.nostr.git.role",
           )
           const people = ev.tags.filter((t: string[]) => t[0] === "p").map((t: string[]) => t[1])
-          
+
           for (const rootTag of rootTags) {
             const rootId = rootTag[1]
             if (!rootId || !assignmentsByRoot.has(rootId)) continue
-            
+
             const assignment = assignmentsByRoot.get(rootId)!
             const hasAssignee = roleTags.some((t: string[]) => t[1] === "assignee")
             const hasReviewer = roleTags.some((t: string[]) => t[1] === "reviewer")
-            
+
             if (hasAssignee) for (const p of people) assignment.assignees.add(p)
             if (hasReviewer) for (const p of people) assignment.reviewers.add(p)
           }
         }
-        
+
         return assignmentsByRoot
-      }
-    )
+      },
+    ),
   )
 
 /**
@@ -206,8 +216,7 @@ export const derivePatchGraph = (addressA: string) =>
   withGetter(
     derived(
       deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1617], "#a": [addressA]}]})),
-      $patches =>
-      buildPatchGraph($patches as unknown as any[]),
+      $patches => buildPatchGraph($patches as unknown as any[]),
     ),
   )
 
@@ -221,16 +230,19 @@ export const deriveIssueThread = (rootId: string) =>
         deriveEvent(rootId),
         deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1111], "#e": [rootId]}]})),
         deriveEventsAsc(
-          deriveEventsById({repository, filters: [{kinds: [1630, 1631, 1632, 1633], "#e": [rootId]}]}),
+          deriveEventsById({
+            repository,
+            filters: [{kinds: [1630, 1631, 1632, 1633], "#e": [rootId]}],
+          }),
         ),
       ],
       ([$root, $comments, $statuses]) =>
         $root
           ? assembleIssueThread({
-            root: $root as unknown as any,
-            comments: $comments as unknown as any[],
-            statuses: $statuses as unknown as any[],
-          })
+              root: $root as unknown as any,
+              comments: $comments as unknown as any[],
+              statuses: $statuses as unknown as any[],
+            })
           : undefined,
     ),
   )
@@ -255,7 +267,9 @@ export const deriveEffectiveLabels = (eventId: string) =>
     derived(
       [
         deriveEvent(eventId),
-        deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1985], "#e": [eventId]}]})),
+        deriveEventsAsc(
+          deriveEventsById({repository, filters: [{kinds: [1985], "#e": [eventId]}]}),
+        ),
       ],
       ([$evt, $external]) => {
         if (!$evt) return undefined
@@ -264,7 +278,7 @@ export const deriveEffectiveLabels = (eventId: string) =>
         const t = (($evt as any).tags || [])
           .filter((t: string[]) => t[0] === "t")
           .map((t: string[]) => t[1])
-        return mergeEffectiveLabels({ self, external, t })
+        return mergeEffectiveLabels({self, external, t})
       },
     ),
   )
@@ -278,7 +292,7 @@ export const loadRepoContext = (args: {
   euc?: string
   relays?: string[]
 }) => {
-  const { filters } = RepoCore.buildRepoSubscriptions({
+  const {filters} = RepoCore.buildRepoSubscriptions({
     addressA: args.addressA,
     rootEventId: args.rootId,
     euc: args.euc,
@@ -287,7 +301,7 @@ export const loadRepoContext = (args: {
   const relays = (args.relays || defaults)
     .map((u: string) => normalizeRelayUrl(u))
     .filter(isRelayUrl) as string[]
-  return load({ relays, filters })
+  return load({relays, filters})
 }
 
 export type Channel = {
@@ -338,13 +352,16 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
     },
   ]
 
-  return derived(deriveEventsAsc(deriveEventsById({repository, filters})), (events: TrustedEvent[]) => {
-    if (!attempted && events.length === 0) {
-      load({ relays: relays as string[], filters })
-      attempted = true
-    }
-    return events[0]
-  })
+  return derived(
+    deriveEventsAsc(deriveEventsById({repository, filters})),
+    (events: TrustedEvent[]) => {
+      if (!attempted && events.length === 0) {
+        load({relays: relays as string[], filters})
+        attempted = true
+      }
+      return events[0]
+    },
+  )
 }
 
 export const makeChannelId = (url: string, room: string): string => {
@@ -353,7 +370,6 @@ export const makeChannelId = (url: string, room: string): string => {
   }
   return `${url}'${room}`
 }
-
 
 export const displayChannel = (url: string, room: string) => {
   if (room === GENERAL) {
@@ -437,6 +453,6 @@ export async function loadPlatformChannels() {
   await request({
     relays: PLATFORM_RELAYS,
     filters: [{kinds: [ROOM_META]}],
-    autoClose: true
+    autoClose: true,
   })
 }

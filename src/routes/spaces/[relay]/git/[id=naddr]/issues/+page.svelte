@@ -668,6 +668,7 @@
                 repo={repoClass}
                 statusEvents={statusEventsByRoot?.get(issue.id) || []}
                 actorPubkey={$pubkey}
+                assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
                 assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
                 relays={repoRelays} />
             </div>
