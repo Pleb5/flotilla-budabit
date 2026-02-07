@@ -332,8 +332,35 @@
       // Then override with actual status events
       if (currentStatusEventsByRoot) {
         for (const [rootId, events] of currentStatusEventsByRoot) {
-          const statusResult = repoClass.resolveStatusFor(rootId)
-          map[rootId] = statusResult?.state || "open"
+          // Check if this issue is mirrored
+          const issue = currentIssues.find(i => i.id === rootId)
+          const isMirrored = issue ? 
+            (issue.tags as Array<[string, string]> | undefined)?.some((t) => t[0] === "imported") ?? false :
+            false
+
+          if (isMirrored && events && events.length > 0) {
+            // For mirrored issues, use ALL status events (not just authorized ones)
+            // Sort by created_at descending and take the most recent
+            const sortedEvents = [...events].sort((a, b) => b.created_at - a.created_at)
+            const latestEvent = sortedEvents[0]
+            
+            // Map status event kinds to status strings
+            const statusKindToState = (kind: number): string => {
+              switch (kind) {
+                case GIT_STATUS_OPEN: return "open"
+                case GIT_STATUS_DRAFT: return "draft"
+                case GIT_STATUS_CLOSED: return "closed"
+                case GIT_STATUS_COMPLETE: return "resolved"
+                default: return "open"
+              }
+            }
+            
+            map[rootId] = statusKindToState(latestEvent.kind)
+          } else {
+            // For non-mirrored issues, use the existing authorization logic
+            const statusResult = repoClass.resolveStatusFor(rootId)
+            map[rootId] = statusResult?.state || "open"
+          }
         }
       }
 

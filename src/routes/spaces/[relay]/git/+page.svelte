@@ -1,6 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address} from "@welshman/util"
+  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address, getTagValue} from "@welshman/util"
   import {
     repository,
     publishThunk,
@@ -50,7 +50,7 @@
   import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
   import RepoPickerWrapper from "@app/components/RepoPickerWrapper.svelte"
   import ImportRepoDialogWrapper from "@app/components/ImportRepoDialogWrapper.svelte"
-  import type {ImportResult} from "@nostr-git/ui"
+  import type {ImportResult, NewRepoResult} from "@nostr-git/ui"
   import type {NostrFilter} from "@nostr-git/core"
   import {
     deriveRepoRefState,
@@ -639,27 +639,13 @@
             // Reload repos by forcing bookmarks refresh and announcements
             loadRepoAnnouncements(bookmarkRelays)
           },
-          onNavigateToRepo: (result: any) => {
+          onNavigateToRepo: (result: NewRepoResult) => {
             try {
-              if (!$pubkey) {
-                throw new Error("Missing user pubkey")
-              }
-
-              const dTag = result?.announcementEvent?.tags?.find((t: string[]) => t[0] === "d")?.[1]
-              const repoId = result?.localRepo?.repoId || ""
-              const fallbackId = repoId ? repoId.split("/").pop()?.split(":").pop() : ""
-              const identifier = dTag || fallbackId
-
-              if (!identifier) {
-                throw new Error("Missing repository identifier")
-              }
-
-              const relaysTag = result?.announcementEvent?.tags?.find((t: string[]) => t[0] === "relays")
-              const relays = relaysTag && relaysTag.length > 1 ? relaysTag.slice(1) : bookmarkRelays
-              const address = new Address(GIT_REPO_ANNOUNCEMENT, $pubkey, identifier, relays)
+              const d =
+                getTagValue("d", result.announcementEvent.tags) || result.localRepo.repoId
+              const address = new Address(GIT_REPO_ANNOUNCEMENT, $pubkey!, d, [url])
               const naddr = address.toNaddr()
-              const destination = makeGitPath(url, naddr)
-              goto(destination)
+              goto(makeGitPath(url, naddr))
             } catch (error) {
               console.error("[+page.svelte] Failed to navigate to new repo:", error)
               pushToast({
