@@ -638,6 +638,35 @@
             // Reload repos by forcing bookmarks refresh and announcements
             loadRepoAnnouncements(bookmarkRelays)
           },
+          onNavigateToRepo: (result: any) => {
+            try {
+              if (!$pubkey) {
+                throw new Error("Missing user pubkey")
+              }
+
+              const dTag = result?.announcementEvent?.tags?.find((t: string[]) => t[0] === "d")?.[1]
+              const repoId = result?.localRepo?.repoId || ""
+              const fallbackId = repoId ? repoId.split("/").pop()?.split(":").pop() : ""
+              const identifier = dTag || fallbackId
+
+              if (!identifier) {
+                throw new Error("Missing repository identifier")
+              }
+
+              const relaysTag = result?.announcementEvent?.tags?.find((t: string[]) => t[0] === "relays")
+              const relays = relaysTag && relaysTag.length > 1 ? relaysTag.slice(1) : bookmarkRelays
+              const address = new Address(GIT_REPO_ANNOUNCEMENT, $pubkey, identifier, relays)
+              const naddr = address.toNaddr()
+              const destination = makeGitPath(url, naddr)
+              goto(destination)
+            } catch (error) {
+              console.error("[+page.svelte] Failed to navigate to new repo:", error)
+              pushToast({
+                message: `Failed to navigate to repository: ${String(error)}`,
+                theme: "error",
+              })
+            }
+          },
           onCancel: back,
           defaultRelays: [...defaultRepoRelays],
           userPubkey: $pubkey,
