@@ -101,32 +101,35 @@
     )
   )
 
-  function buildDefaultNgitCloneUrl(): string | undefined {
-    try {
-      const evt: any = (repoClass as any).repoEvent
-      const rep: any = (repoClass as any).repo
-      const owner = evt?.pubkey
-      const name = rep?.name
-      if (!owner || !name) return undefined
-      const npub = nip19.npubEncode(owner)
-      return `nostr://${npub}/${name}`
-    } catch {
-      return undefined
+  function getNostrOwnerAndName(): {ownerNpub: string; name: string} | undefined {
+    const key = (repoClass.key || '').trim()
+    const [keyOwner, keyName] = key.includes('/') ? key.split('/', 2) : [undefined, undefined]
+    const name = (repoClass.name || keyName || '').trim()
+    const owner = repoClass.repoEvent?.pubkey || keyOwner
+    if (!owner || !name) return undefined
+
+    let ownerNpub = owner
+    if (!owner.startsWith('npub1')) {
+      try {
+        ownerNpub = nip19.npubEncode(owner)
+      } catch {
+        ownerNpub = owner
+      }
     }
+
+    return {ownerNpub, name}
+  }
+
+  function buildDefaultNgitCloneUrl(): string | undefined {
+    const resolved = getNostrOwnerAndName()
+    if (!resolved) return undefined
+    return `nostr://${resolved.ownerNpub}/${resolved.name}`
   }
 
   function buildDefaultViewRepoUrl(): string | undefined {
-    try {
-      const evt: any = (repoClass as any).repoEvent
-      const rep: any = (repoClass as any).repo
-      const owner = evt?.pubkey
-      const name = rep?.name
-      if (!owner || !name) return undefined
-      const npub = nip19.npubEncode(owner)
-      return `https://gitworkshop.dev/${npub}/${name}`
-    } catch {
-      return undefined
-    }
+    const resolved = getNostrOwnerAndName()
+    if (!resolved) return undefined
+    return `https://gitworkshop.dev/${resolved.ownerNpub}/${resolved.name}`
   }
 
   const repoMetadata = $derived({
