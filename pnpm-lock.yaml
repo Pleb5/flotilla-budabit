@@ -243,6 +243,9 @@ importers:
       tippy.js:
         specifier: ^6.3.7
         version: 6.3.7
+      workbox-window:
+        specifier: ^7.3.0
+        version: 7.4.0
     devDependencies:
       '@capacitor/assets':
         specifier: ^3.0.5
