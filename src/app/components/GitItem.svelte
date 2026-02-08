@@ -1,8 +1,10 @@
 <script lang="ts">
   import {nthEq} from "@welshman/lib"
-  import {type TrustedEvent} from "@welshman/util"
+  import {Address, type TrustedEvent} from "@welshman/util"
   import NoteCard from "./NoteCard.svelte"
   import GitActions from "./GitActions.svelte"
+  import Link from "@lib/components/Link.svelte"
+  import {makeGitPath} from "@lib/budabit"
 
   const {
     url,
@@ -22,6 +24,7 @@
 
   const name = event.tags.find(nthEq(0, "name"))?.[1]
   const description = event.tags.find(nthEq(0, "description"))?.[1]
+  const browseHref = $derived.by(() => makeGitPath(url, Address.fromEvent(event).toNaddr()))
 
   // Validate that a string is a valid hex pubkey (exactly 64 hex characters)
   const isValidPubkey = (pubkey: string | undefined | null): boolean => {
@@ -46,18 +49,22 @@
 
 <NoteCard event={displayEvent} class="card2 sm:card2-sm bg-alt" {hideDate}>
   {#if name}
-    <div class="flex w-full items-center justify-between gap-2">
-      <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>
-    </div>
+    <Link href={browseHref} class="block w-full">
+      <div class="flex w-full items-center justify-between gap-2">
+        <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>
+      </div>
+    </Link>
   {:else}
     <p class="mb-3 h-0 text-xs opacity-75">
       Name missing!
     </p>
   {/if}
   {#if description}
-    <div class="flex w-full items-start">
-      <p class="text-sm break-words overflow-wrap-anywhere">{description}</p>
-    </div>
+    <Link href={browseHref} class="block w-full">
+      <div class="flex w-full items-start">
+        <p class="text-sm break-words overflow-wrap-anywhere">{description}</p>
+      </div>
+    </Link>
   {:else}
     <p class="mb-3 h-0 text-xs opacity-75">
       Description missing!
@@ -69,4 +76,3 @@
     </div>
   {/if}
 </NoteCard>
-
