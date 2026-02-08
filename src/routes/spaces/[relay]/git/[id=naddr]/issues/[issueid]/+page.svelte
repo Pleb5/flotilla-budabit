@@ -60,6 +60,33 @@
   const issueEvent = $derived.by(() => repoClass.issues.find(i => i.id === issueId))
   const issue = $derived.by(() => issueEvent ? parseIssueEvent(issueEvent) : undefined)
 
+  // Mirrored issues (from import) have "imported" and "original_date" tags — show original date
+  const isMirrored = $derived.by(
+    () =>
+      (issueEvent?.tags as Array<[string, string]> | undefined)?.some(
+        (t) => t[0] === "imported",
+      ) ?? false,
+  )
+  const originalDateTag = $derived.by(
+    () =>
+      (issueEvent?.tags as Array<[string, string]> | undefined)?.find(
+        (t) => t[0] === "original_date",
+      )?.[1],
+  )
+  const displayDate = $derived.by(() => {
+    if (isMirrored && originalDateTag) {
+      const sec = parseInt(originalDateTag, 10)
+      if (!Number.isNaN(sec)) return new Date(sec * 1000).toISOString()
+    }
+    return issue?.createdAt ?? ""
+  })
+  const displayDateFormatted = $derived.by(() =>
+    displayDate ? new Date(displayDate).toLocaleString() : "",
+  )
+  const importedDateFormatted = $derived.by(() =>
+    issue?.createdAt ? new Date(issue.createdAt).toLocaleString() : "",
+  )
+
   // Filter helper used when refreshing labels after publishing a new one
   const getLabelFilter = (): Filter => ({kinds: [1985], "#e": [issue?.id ?? ""]})
 
@@ -168,6 +195,7 @@
   const statusEvents = $derived.by(() => {
     return deriveEventsAsc(deriveEventsById({repository, filters: [getStatusFilter()]}))
   })
+
 
   // Centralized NIP-32 labels via store; avoid calling .get() in Svelte 5
   const effStore = $derived.by(() => (issue ? deriveEffectiveLabels(issue.id) : undefined))
@@ -349,14 +377,14 @@
               statusEvents={($statusEvents || []) as StatusEvent[]}
               actorPubkey={$pubkey}
               compact={true}
-              ProfileComponent={ProfileLink} />
+              ProfileComponent={ProfileLink}
+              isMirrored={isMirrored} />
             <span
               class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground sm:text-sm">
               <ProfileLink pubkey={issue?.author.pubkey}></ProfileLink>
               <span class="hidden sm:inline">opened this issue •</span>
               <span class="sm:hidden">opened</span>
-              <span class="break-all text-xs sm:break-normal"
-                >{new Date(issue?.createdAt).toLocaleString()}</span>
+              <span class="break-all text-xs sm:break-normal">{displayDateFormatted}</span>
             </span>
           </div>
         </div>
@@ -466,7 +494,8 @@
           actorPubkey={$pubkey}
           compact={false}
           ProfileComponent={ProfileLink}
-          onPublish={handleStatusPublish} />
+          onPublish={handleStatusPublish}
+          isMirrored={isMirrored} />
       </div>
 
       <div class="git-separator my-4 sm:my-6"></div>
