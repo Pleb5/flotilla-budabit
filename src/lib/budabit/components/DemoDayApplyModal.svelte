@@ -20,11 +20,67 @@ const {url} = $props()
 
 let title = $state("")
 let pitch = $state("")
+let post = $state("")
+let postEdited = $state(false)
 let broadCast = $state(true)
 let posting = $state(false)
 
 let budabitThunk: Thunk | undefined = $state()
 let noteThunk: Thunk | undefined = $state()
+let lastTitle: string | null = $state(null)
+let lastPitch: string | null = $state(null)
+
+const buildDefaultPost = (title: string, pitch: string) => {
+  return `## BudaBit Demo Day application\n### Title: ${title}\n\nPitch:\n${pitch}`
+}
+
+const replaceFirst = (text: string, search: string, replacement: string) => {
+  if (!search) return text
+
+  const index = text.indexOf(search)
+  if (index === -1) return text
+
+  return `${text.slice(0, index)}${replacement}${text.slice(index + search.length)}`
+}
+
+const updatePostWithFields = (
+  text: string,
+  title: string,
+  pitch: string,
+  lastTitle: string | null,
+  lastPitch: string | null
+) => {
+  let updated = text
+
+  const titleLineRegex = /^(#{0,6}\s*Title:\s*).*/m
+
+  if (titleLineRegex.test(updated)) {
+    updated = updated.replace(titleLineRegex, `$1${title}`)
+  } else if (lastTitle) {
+    updated = replaceFirst(updated, lastTitle, title)
+  } else if (title) {
+    updated = `### Title: ${title}\n\n${updated}`
+  }
+
+  if (lastPitch) {
+    const replaced = replaceFirst(updated, lastPitch, pitch)
+    if (replaced !== updated) {
+      return replaced
+    }
+  }
+
+  const pitchBlockRegex = /^(Pitch:\s*\n)([\s\S]*?)(\n#{1,6}\s|\n*$)/m
+
+  if (pitchBlockRegex.test(updated)) {
+    return updated.replace(pitchBlockRegex, `$1${pitch}$3`)
+  }
+
+  return `${updated.trimEnd()}\n\nPitch:\n${pitch}`
+}
+
+const markPostEdited = () => {
+  postEdited = true
+}
 
 const validate = ():boolean => {
   if (!title) return false
@@ -32,6 +88,22 @@ const validate = ():boolean => {
 
   return true
 }
+
+$effect(() => {
+  const titleChanged = title !== lastTitle
+  const pitchChanged = pitch !== lastPitch
+
+  if (!titleChanged && !pitchChanged) return
+
+  if (!postEdited) {
+    post = buildDefaultPost(title, pitch)
+  } else {
+    post = updatePostWithFields(post, title, pitch, lastTitle, lastPitch)
+  }
+
+  lastTitle = title
+  lastPitch = pitch
+})
 
 const apply = async () => {
   if (!validate()) {
@@ -45,9 +117,7 @@ const apply = async () => {
   posting = true
   await tick()
 
-  let content = "## BudaBit Demo Day application\n"
-  content += `### Title: ${title}\n\n`
-  content += `Pitch:\n${pitch}`
+  const content = post.trim() ? post : buildDefaultPost(title, pitch)
 
   const roomTag = ["h", "Demo Day"]
   const tTag = ["t", "budabitdemoday"]
@@ -142,6 +212,23 @@ const apply = async () => {
       </textarea>
     {/snippet}
   </Field>
+  <Field>
+    {#snippet label()}
+      <p>Your post</p>
+    {/snippet}
+    {#snippet input()}
+      <textarea
+        class="textarea textarea-bordered leading-4"
+        rows="8"
+        bind:value={post}
+        on:input={markPostEdited}>
+      </textarea>
+    {/snippet}
+  </Field>
+  <p class="text-warning">
+    Required tag:
+    <span class='text-blue-500'>#budabitdemoday</span>
+  </p>
   <FieldInline>
     {#snippet label()}
       <p>Broadcast to Nostr</p>
