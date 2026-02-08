@@ -7,7 +7,7 @@
   import type {Unsubscriber} from "svelte/store"
   import {get} from "svelte/store"
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
-  import {dev} from "$app/environment"
+  import {browser, dev} from "$app/environment"
   import {beforeNavigate, goto} from "$app/navigation"
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
@@ -53,6 +53,10 @@
   const {children} = $props()
 
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
+  const PWA_UPDATE_INTERVAL = 2 * 60 * 1000
+  let swUpdateInterval: number | null = null
+  let updateToastShown = false
+  let waitingWorker: ServiceWorker | null = null
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -74,6 +78,64 @@
 
   // Initialize push notification handler asap
   initializePushNotifications()
+
+  const requestAppReload = () => {
+    if (!waitingWorker) {
+      window.location.reload()
+      return
+    }
+
+    const onControllerChange = () => {
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
+      window.location.reload()
+    }
+
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange)
+    waitingWorker.postMessage({type: "SKIP_WAITING"})
+  }
+
+  const notifyUpdateReady = (worker: ServiceWorker | null) => {
+    if (updateToastShown) return
+
+    updateToastShown = true
+    waitingWorker = worker
+    pushToast({
+      message: "New app version is available",
+      timeout: 0,
+      action: {
+        message: "Reload",
+        onclick: requestAppReload,
+      },
+    })
+  }
+
+  const setupServiceWorkerUpdates = async () => {
+    if (!browser || dev || !("serviceWorker" in navigator)) return
+
+    const registration = await navigator.serviceWorker.ready
+
+    if (registration.waiting && navigator.serviceWorker.controller) {
+      notifyUpdateReady(registration.waiting)
+    }
+
+    registration.addEventListener("updatefound", () => {
+      const installing = registration.installing
+
+      if (!installing) return
+
+      installing.addEventListener("statechange", () => {
+        if (installing.state === "installed" && navigator.serviceWorker.controller) {
+          notifyUpdateReady(registration.waiting || installing)
+        }
+      })
+    })
+
+    swUpdateInterval = window.setInterval(() => {
+      registration.update()
+    }, PWA_UPDATE_INTERVAL)
+  }
+
+  setupServiceWorkerUpdates()
 
   // Listen for navigation messages from service worker
   navigator.serviceWorker?.addEventListener("message", event => {
@@ -203,6 +265,11 @@
   import.meta.hot?.dispose(() => {
     App.removeAllListeners()
     unsubscribe.then(call)
+
+    if (swUpdateInterval) {
+      clearInterval(swUpdateInterval)
+      swUpdateInterval = null
+    }
   })
 </script>
 

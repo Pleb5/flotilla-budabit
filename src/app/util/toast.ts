@@ -28,7 +28,11 @@ export const pushToast = (params: ToastParams) => {
 
   toast.set({id, ...params})
 
-  setTimeout(() => popToast(id), params.timeout || 5000)
+  const timeout = params.timeout ?? 5000
+
+  if (timeout > 0) {
+    setTimeout(() => popToast(id), timeout)
+  }
 
   return id
 }

@@ -2,8 +2,12 @@
 
 import * as nip19 from "nostr-tools/nip19"
 
-self.addEventListener("install", event => {
-  self.skipWaiting()
+self.__SW_VERSION__ = import.meta.env.VITE_BUILD_HASH || "dev"
+
+self.addEventListener("message", event => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting()
+  }
 })
 
 self.addEventListener("activate", event => {

@@ -11,7 +11,7 @@ export default defineConfig({
   server: {
     port: 1847,
     fs: {
-      allow: ['.', '../packages', '../../node_modules'],
+      allow: [".", "../packages", "../../node_modules"],
     },
     // host: "0.0.0.0",
     // strictPort: true,
@@ -60,15 +60,15 @@ export default defineConfig({
     conditions: ["import", "module", "browser", "default"],
   },
 
-  assetsInclude: ['**/*.wasm', '**/*.worker.js', '**/*.worker.ts'],
-  
+  assetsInclude: ["**/*.wasm", "**/*.worker.js", "**/*.worker.ts"],
+
   worker: {
     format: "es", // avoid 'iife' so code-splitting is allowed
     rollupOptions: {
-      output: { 
+      output: {
         format: "es",
         // Ensure workers from node_modules are properly handled
-        entryFileNames: '_app/[name].js',
+        entryFileNames: "_app/[name].js",
       },
     },
   },
@@ -76,8 +76,8 @@ export default defineConfig({
   plugins: [
     sveltekit(),
     SvelteKitPWA({
-      registerType: "autoUpdate",
-      injectRegister: "auto",
+      registerType: "prompt",
+      injectRegister: false,
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 ** 2, // 5 MB or set to something else
       },
@@ -104,11 +104,7 @@ export default defineConfig({
     svg({
       svgoOptions: {
         multipass: true,
-        plugins: [
-          "preset-default",
-          "removeViewBox",
-          "removeDimensions",
-        ],
+        plugins: ["preset-default", "removeViewBox", "removeDimensions"],
       },
     }),
   ],
