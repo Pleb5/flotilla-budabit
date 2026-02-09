@@ -83,7 +83,7 @@
       <div class="text-sm">
         {#if isKnownEventKind(event.kind)}
           <div class="event-renderer">
-            <EventRenderer event={event as any} />
+            <EventRenderer event={event as any} relay={url} />
           </div>
         {:else if isKnownUnknown(event.kind)}
           <div class="unknown-kind">

@@ -26,10 +26,11 @@
   } from "@lucide/svelte"
   import {CommitHeader, SplitDiff, toast} from "@nostr-git/ui"
   import type {PageData} from "./$types"
-  import {getContext, onMount} from "svelte"
+  import {getContext, onMount, tick} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
   import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
+  import { githubPermalinkDiffId } from "@nostr-git/core/git"
   import {nip19} from "nostr-tools"
   import {postPermalink} from "@lib/budabit"
   import type {CommitChange} from "./+page"
@@ -183,6 +184,21 @@
 
   // State for collapsible file panels
   let expandedFiles = $state<Set<string>>(new Set())
+  let diffAnchors = $state<Record<string, string>>({})
+
+  const getDiffHashFromLocation = () => {
+    if (typeof window === "undefined") return null
+    const match = window.location.hash.match(/^#diff-([a-f0-9]+)/i)
+    return match ? match[1] : null
+  }
+
+  const scrollToDiffHash = async () => {
+    const hash = getDiffHashFromLocation()
+    if (!hash) return
+    await tick()
+    const el = document.getElementById(`diff-${hash}`)
+    if (el) el.scrollIntoView({ block: "start" })
+  }
 
   // Toggle file expansion
   const toggleFile = (filepath: string) => {
@@ -193,6 +209,38 @@
     }
     expandedFiles = new Set(expandedFiles) // Trigger reactivity
   }
+
+  $effect(() => {
+    if (!changes || changes.length === 0) {
+      diffAnchors = {}
+      return
+    }
+    const paths = Array.from(new Set(changes.map(change => change.path).filter(Boolean)))
+    let cancelled = false
+    Promise.all(paths.map(async path => [path, await githubPermalinkDiffId(path)] as const))
+      .then(entries => {
+        if (!cancelled) diffAnchors = Object.fromEntries(entries)
+      })
+      .catch(() => {
+        if (!cancelled) diffAnchors = {}
+      })
+    return () => {
+      cancelled = true
+    }
+  })
+
+  $effect(() => {
+    const anchors = diffAnchors
+    if (Object.keys(anchors).length === 0) return
+    void scrollToDiffHash()
+  })
+
+  $effect(() => {
+    if (typeof window === "undefined") return
+    const handler = () => void scrollToDiffHash()
+    window.addEventListener("hashchange", handler)
+    return () => window.removeEventListener("hashchange", handler)
+  })
 
   // Get file status icon and styling
   const getFileStatusIcon = (status: string) => {
@@ -421,7 +469,10 @@
       {@const statusInfo = getFileStatusIcon(change.status)}
       {@const stats = getFileStats(change.diffHunks)}
 
-      <div class="w-full overflow-x-auto bg-background">
+      <div
+        class="w-full overflow-x-auto bg-background"
+        id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}
+      >
         <!-- File Header -->
         <button
           onclick={() => toggleFile(change.path)}

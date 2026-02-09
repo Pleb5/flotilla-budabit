@@ -9,6 +9,7 @@
   import {getContext} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
+  import { page } from "$app/stores"
 
   const repoClass = getContext<Repo>(REPO_KEY)
 
@@ -21,6 +22,7 @@
   let error: string | null = $state(null)
   let files: Promise<FileEntry[]> = $state(Promise.resolve([]))
   let path = $state<string | undefined>(undefined)
+  let autoOpenPath = $state<string | undefined>(undefined)
   
   // Clone progress state - only show when actually cloning
   let isCloning = $state(false)
@@ -49,6 +51,17 @@
 
   let branchLoadTrigger = $state(0)
   
+  $effect(() => {
+    const queryPath = $page.url.searchParams.get("path")
+    if (!queryPath) return
+    const normalized = queryPath.replace(/^\/+/, "")
+    autoOpenPath = normalized || undefined
+    const dir = normalized.split("/").slice(0, -1).join("/")
+    if (dir !== path) {
+      path = dir
+    }
+  })
+
   let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
     $state([])
   // Start with false - only show loading when actually loading refs
@@ -188,11 +201,15 @@
     // Track branchChangeTrigger from Repo class to ensure effect re-runs after branch changes
     const currentBranch = selectedBranch;
     const switchTrigger = repoClass.branchChangeTrigger; // Increments when branch switch completes
+    const refs = repoClass.refs;
 
     // Don't attempt to load files until we have a valid branch name
     // Branch should come from repo state event or git clone, not hardcoded
     const branchName = currentBranch?.split("/").pop();
     if (!branchName || !currentBranch || isCloning || path) return;
+    if (!refs || refs.length === 0) return;
+    const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name);
+    if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return;
 
     // Show loading only when actually fetching
     loading = true
@@ -219,7 +236,11 @@
         })
         .catch((e) => {
           loading = false
-          error = e instanceof Error ? e.message : "Failed to load files"
+          const message = e instanceof Error ? e.message : "Failed to load files"
+          const activeBranch = selectedBranch?.split("/").pop()
+          if (activeBranch && activeBranch !== branchName) return []
+          if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
+          error = message
           console.error("❌ Failed to load files:", e);
           return []
         })
@@ -234,10 +255,14 @@
     const currentBranch = selectedBranch;
     const currentPath = path;
     const switchTrigger = repoClass.branchChangeTrigger; // Track branch switches via Repo class
+    const refs = repoClass.refs;
 
     // Don't attempt to load files until we have a valid branch name
     const branchName = currentBranch?.split("/").pop();
     if (!branchName || !currentPath || !currentBranch || isCloning) return;
+    if (!refs || refs.length === 0) return;
+    const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name);
+    if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return;
 
     curDir.path = currentPath.split("/").slice(0, -1).join("/")
     loading = true
@@ -262,7 +287,11 @@
         })
         .catch((e) => {
           loading = false
-          error = e instanceof Error ? e.message : "Failed to load files"
+          const message = e instanceof Error ? e.message : "Failed to load files"
+          const activeBranch = selectedBranch?.split("/").pop()
+          if (activeBranch && activeBranch !== branchName) return []
+          if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
+          error = message
           console.error("❌ Failed to load files:", e);
           return []
         })
@@ -385,11 +414,18 @@
                 <div class="text-muted-foreground">No files found in this branch.</div>
               {:else}
                 {#if path}
-                  <FileView file={rootDir} {getFileContent} {setDirectory} />
-                  <FileView file={curDir} {getFileContent} {setDirectory} />
+                  <FileView file={rootDir} {getFileContent} {setDirectory} autoOpenPath={autoOpenPath} />
+                  <FileView file={curDir} {getFileContent} {setDirectory} autoOpenPath={autoOpenPath} />
                 {/if}
                 {#each files as file (file)}
-                  <FileView {file} {getFileContent} {setDirectory} {publish} repo={repoClass} />
+                  <FileView
+                    {file}
+                    {getFileContent}
+                    {setDirectory}
+                    {publish}
+                    repo={repoClass}
+                    autoOpenPath={autoOpenPath}
+                  />
                 {/each}
               {/if}
             {/await}
