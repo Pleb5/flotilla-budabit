@@ -13,7 +13,7 @@
     session,
     deriveProfile,
   } from "@welshman/app"
-  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById, deriveEventsDesc} from "@welshman/store"
   import {Router} from "@welshman/router"
   import {load} from "@welshman/net"
   import {fly, staggeredFade} from "@lib/transition"
@@ -175,7 +175,7 @@
     const repoFilter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors, "#d": identifiers}
     const loadKey = `${authors.join(",")}|${identifiers.join(",")}`
 
-    return _derived(deriveEventsAsc(deriveEventsById({repository, filters: [repoFilter]})), events => {
+    return _derived(deriveEventsDesc(deriveEventsById({repository, filters: [repoFilter]})), events => {
       if (events.length !== identifiers.length) {
         if (!attemptedBookmarkLoads.has(loadKey)) {
           attemptedBookmarkLoads.add(loadKey)
@@ -225,7 +225,7 @@
   const myReposEvents = $derived.by(() => {
     if (!$pubkey) return undefined
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]} as any
-    return deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
+    return deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
   })
 
   const loadedMyRepos = $derived.by(() => {
