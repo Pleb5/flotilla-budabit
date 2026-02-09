@@ -1,5 +1,5 @@
 @import "@welshman/editor/index.css";
-@import '@nostr-git/ui/index.css';
+@import "@nostr-git/ui/index.css";
 
 @tailwind base;
 @tailwind components;
@@ -164,6 +164,16 @@
 .bg-alt.hover\:bg-alt:hover,
 .bg-alt .bg-alt .bg-alt.hover\:bg-alt:hover {
   @apply bg-base-300 text-base-content transition-colors;
+}
+
+@media (hover: none) {
+  .git-card:hover {
+    background-color: hsl(var(--card));
+  }
+  .git-card:hover .hover\:text-accent,
+  .git-card:hover .hover\:text-foreground {
+    color: inherit;
+  }
 }
 
 .card2 {

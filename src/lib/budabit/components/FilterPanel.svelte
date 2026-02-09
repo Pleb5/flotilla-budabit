@@ -122,6 +122,17 @@
     if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
   }
 
+  const syncToParent = () => {
+    onStatusChange?.(statusFilter)
+    onSortChange?.(sortByOrder)
+    onAuthorChange?.(authorFilter)
+    dispatch("statusChange", statusFilter)
+    dispatch("sortChange", sortByOrder)
+    dispatch("authorChange", authorFilter)
+    dispatch("labelsChange", selectedLabels)
+    dispatch("matchAllChange", matchAllLabels)
+  }
+
   const resetFilters = () => {
     statusFilter = "open"
     sortByOrder = "newest"
@@ -141,23 +152,21 @@
       const raw = localStorage.getItem(storageKey)
       if (raw) {
         const data = JSON.parse(raw)
-        if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
-        if (typeof data.sortByOrder === "string") sortByOrder = data.sortByOrder
-        if (typeof data.authorFilter === "string") authorFilter = data.authorFilter
-        if (typeof data.showFilters === "boolean") showFilters = data.showFilters
-        if (typeof data.searchTerm === "string") searchTerm = data.searchTerm
-        if (Array.isArray(data.selectedLabels)) selectedLabels = data.selectedLabels
-        if (typeof data.matchAllLabels === "boolean") matchAllLabels = data.matchAllLabels
+        applyFromData(data)
       }
     } catch (e) {
       // ignore
     }
+    syncToParent()
     storageListener = (e: StorageEvent) => {
       if (!storageKey) return
       if (e.key === storageKey) {
         try {
           const data = e.newValue ? JSON.parse(e.newValue) : null
-          if (data) applyFromData(data)
+          if (data) {
+            applyFromData(data)
+            syncToParent()
+          }
         } catch {}
       }
     }
@@ -169,6 +178,11 @@
   })
 
   const onMatchAllToggle = () => (matchAllLabels = !matchAllLabels)
+
+  const blurOnPointerUp = (event: PointerEvent) => {
+    const target = event.currentTarget as HTMLElement | null
+    target?.blur()
+  }
 
   const persist = () => {
     if (!storageKey) return
@@ -267,7 +281,7 @@
     {#if authors.length > 1}
       <div class="md:col-span-2">
         <h3 class="mb-2 text-sm font-medium">Author</h3>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
           <Button
             variant={authorFilter === "" ? "default" : "outline"}
             size="sm"
@@ -310,13 +324,15 @@
               placeholder="Search labels..." />
           </div>
         {/if}
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
           {#each labelSearchEnabled ? allLabels.filter(l => l
                   .toLowerCase()
                   .includes(labelSearch.toLowerCase())) : allLabels as lbl (lbl)}
             <Button
               variant={selectedLabels.includes(lbl) ? "default" : "outline"}
               size="sm"
+              class={`label-filter-button${selectedLabels.includes(lbl) ? " label-selected" : ""}`}
+              onpointerup={blurOnPointerUp}
               onclick={() => {
                 if (selectedLabels.includes(lbl)) {
                   selectedLabels = selectedLabels.filter(l => l !== lbl)
@@ -332,13 +348,20 @@
           <Button
             variant={matchAllLabels ? "default" : "outline"}
             size="sm"
+            class="label-filter-button"
+            onpointerup={blurOnPointerUp}
             onclick={() => {
               matchAllLabels = !matchAllLabels
               onMatchAllToggle?.()
               dispatch("matchAllChange", matchAllLabels)
             }}>Match all</Button>
           {#if selectedLabels.length > 0}
-            <Button variant="ghost" size="sm" onclick={() => {
+            <Button
+              variant="ghost"
+              size="sm"
+              class="label-filter-button"
+              onpointerup={blurOnPointerUp}
+              onclick={() => {
               selectedLabels = []
               onClearLabels?.()
               dispatch("labelsChange", selectedLabels)
@@ -364,3 +387,12 @@
     </div>
   {/if}
 </div>
+
+<style>
+  @media (hover: none) {
+    :global(.label-filter-button:not(.label-selected):hover) {
+      background-color: hsl(var(--background));
+      color: inherit;
+    }
+  }
+</style>
