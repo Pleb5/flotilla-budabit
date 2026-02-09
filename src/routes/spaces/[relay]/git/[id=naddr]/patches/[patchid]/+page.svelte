@@ -44,11 +44,12 @@
     createStatusEvent,
     type LabelEvent,
   } from "@nostr-git/core/events"
-  import {postComment, postStatus, postRoleLabel, deleteRoleLabelEvent} from "@lib/budabit"
+  import {postComment, postStatus, postRoleLabel, deleteRoleLabelEvent, postPermalink} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
   import {ROLE_NS} from "@lib/budabit/labels"
   import {parseGitPatchFromEvent, type MergeAnalysisResult} from "@nostr-git/core/git"
-  import type {Commit, Patch} from "@nostr-git/core/types"
+  import type {Commit, Patch, PermalinkEvent} from "@nostr-git/core/types"
+  import {nip19} from "nostr-tools"
   import type {PatchTag} from "@nostr-git/core/events"
   import {sortBy} from "@welshman/lib"
   import {derived as _derived} from "svelte/store"
@@ -467,6 +468,25 @@
     const thunk = postStatus(statusEvent as any, relays)
     console.log("[PatchDetail] Status publish thunk", thunk)
     return thunk
+  }
+
+  const publishPermalink = async (permalink: PermalinkEvent) => {
+    const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const thunk = postPermalink(permalink, relays)
+    toast.push({
+      message: "Permalink published successfully",
+      timeout: 2000,
+    })
+    const nevent = nip19.neventEncode({
+      id: thunk.event.id,
+      kind: thunk.event.kind,
+      relays,
+    })
+    await navigator.clipboard.writeText(nevent)
+    toast.push({
+      message: "Permalink copied to clipboard",
+      timeout: 2000,
+    })
   }
 
   const status = $derived.by(() => {
@@ -1350,6 +1370,8 @@
           rootEvent={selectedPatch?.raw}
           onComment={handleCommentSubmit}
           currentPubkey={$pubkey}
+          repo={repoClass}
+          publish={publishPermalink}
           diffViewerProps={{
             showLineNumbers: true,
             expandAll: false,

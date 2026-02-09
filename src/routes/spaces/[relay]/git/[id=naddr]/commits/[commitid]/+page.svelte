@@ -24,12 +24,14 @@
     FileX,
     FileCode,
   } from "@lucide/svelte"
-  import {CommitHeader, SplitDiff} from "@nostr-git/ui"
+  import {CommitHeader, SplitDiff, toast} from "@nostr-git/ui"
   import type {PageData} from "./$types"
   import {getContext, onMount} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
-  import type {CommitMeta} from "@nostr-git/core/types"
+  import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
+  import {nip19} from "nostr-tools"
+  import {postPermalink} from "@lib/budabit"
   import type {CommitChange} from "./+page"
 
   const {data}: {data: PageData} = $props()
@@ -139,6 +141,25 @@
       loadError = err?.message || "Failed to load commit details"
       isLoading = false
     }
+  }
+
+  const publishPermalink = async (permalink: PermalinkEvent) => {
+    const relays = repoClass.relays || []
+    const thunk = postPermalink(permalink, relays)
+    toast.push({
+      message: "Permalink published successfully",
+      timeout: 2000,
+    })
+    const nevent = nip19.neventEncode({
+      id: thunk.event.id,
+      kind: thunk.event.kind,
+      relays,
+    })
+    await navigator.clipboard.writeText(nevent)
+    toast.push({
+      message: "Permalink copied to clipboard",
+      timeout: 2000,
+    })
   }
 
   // Load commit details when component mounts if not already loaded from +page.ts
@@ -451,7 +472,14 @@
         <!-- File Diff Content -->
         {#if isExpanded}
           <div class="px-4 pb-4 sm:px-6 sm:pb-6">
-            <SplitDiff hunks={normalizeHunks(change.diffHunks)} filepath={change.path} />
+            <SplitDiff
+              hunks={normalizeHunks(change.diffHunks)}
+              filepath={change.path}
+              repo={repoClass}
+              publish={publishPermalink}
+              commitSha={commitMeta!.sha}
+              parentSha={commitMeta!.parents?.[0]}
+            />
           </div>
         {/if}
       </div>
