@@ -32,7 +32,7 @@ export const pushModal = (
   options: ModalOptions = {},
 ) => {
   const id = randomId()
-  const path = options.path || ""
+  const path = options.path || window.location.pathname
 
   modals.update(assoc(id, {id, component, props, options}))
 
