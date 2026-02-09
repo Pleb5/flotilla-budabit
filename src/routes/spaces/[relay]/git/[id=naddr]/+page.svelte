@@ -100,6 +100,22 @@
     }
   }
 
+  /**
+   * Sorts clone URLs so SSH URLs come before HTTPS for GitHub/GitLab repos.
+   * Priority: SSH (git@...) > nostr:// > HTTPS > other
+   */
+  function sortCloneUrls(urls: string[]): string[] {
+    return [...urls].sort((a, b) => {
+      const priority = (url: string): number => {
+        if (url.startsWith("git@")) return 0
+        if (url.startsWith("nostr://")) return 1
+        if (url.startsWith("https://") || url.startsWith("http://")) return 2
+        return 3
+      }
+      return priority(a) - priority(b)
+    })
+  }
+
   const repoMetadata = $derived({
     name: ((repoClass as any).repo?.name as string) || "Unknown Repository",
     description: ((repoClass as any).repo?.description as string) || "",
@@ -113,7 +129,7 @@
         const def = buildDefaultNgitCloneUrl()
         if (def && !urls.includes(def)) urls.push(def)
       }
-      return urls
+      return sortCloneUrls(urls)
     })(),
     webUrls: (() => {
       const rep: any = (repoClass as any).repo
@@ -150,9 +166,15 @@
     repoId: repoClass.key,
   })
 
-  // Simple provider detection from URL
+  // Simple provider detection from URL (handles both HTTPS and SSH formats)
   function detectProviderFromUrl(url: string | undefined): string | undefined {
     if (!url) return undefined
+    // Handle SSH URLs like git@github.com:user/repo.git
+    if (url.startsWith("git@")) {
+      if (url.includes("github.com")) return "github"
+      if (url.includes("gitlab.com")) return "gitlab"
+      return undefined
+    }
     try {
       const u = new URL(url)
       const host = u.hostname
