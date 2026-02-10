@@ -396,7 +396,7 @@ progress[value]::-webkit-progress-value {
 /* content width for fixed elements */
 
 .cw {
-  @apply w-full md:left-[18.5rem] md:w-[calc(100%-18.5rem-var(--sair))];
+  @apply w-full md:left-[4rem] md:w-[calc(100%-4rem-var(--sair))] lg:left-[18.5rem] lg:w-[calc(100%-18.5rem-var(--sair))];
 }
 
 .cw-full {

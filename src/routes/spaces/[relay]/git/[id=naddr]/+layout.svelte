@@ -1023,7 +1023,7 @@
   {/snippet}
   {#snippet title()}
     {#if activeTab === "code"}
-      <div class="flex min-w-0 items-center gap-2 lg:hidden">
+      <div class="flex min-w-0 items-center gap-2 md:hidden">
         {#if codeCanGoUp}
           <button
             type="button"
@@ -1036,12 +1036,12 @@
           </button>
         {/if}
         <nav
-          class="flex min-w-0 items-center gap-1 text-xs sm:text-sm text-muted-foreground overflow-x-auto"
+          class="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto text-xs sm:text-sm text-muted-foreground whitespace-nowrap"
           aria-label="Breadcrumb"
         >
           <button
             type="button"
-            class="hover:text-foreground hover:underline transition-colors flex-shrink-0"
+            class="hover:text-foreground hover:underline transition-colors flex-shrink-0 whitespace-nowrap"
             onclick={() => setCodeDirectory("")}
           >
             {repoClass?.name || repoName}
@@ -1049,13 +1049,13 @@
           {#each codeBreadcrumbSegments as segment, i}
             <span class="text-muted-foreground/50 flex-shrink-0">/</span>
             {#if i === codeBreadcrumbSegments.length - 1}
-              <span class="text-foreground font-medium truncate max-w-[180px]" title={segment}>
+              <span class="text-foreground font-medium whitespace-nowrap" title={segment}>
                 {segment}
               </span>
             {:else}
               <button
                 type="button"
-                class="hover:text-foreground hover:underline transition-colors truncate max-w-[180px]"
+                class="hover:text-foreground hover:underline transition-colors whitespace-nowrap"
                 onclick={() => setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}
               >
                 {segment}
@@ -1064,7 +1064,7 @@
           {/each}
         </nav>
       </div>
-      <h1 class="hidden lg:block text-xl">{""}</h1>
+      <h1 class="hidden md:block text-xl">{""}</h1>
     {:else}
       <h1 class="text-xl">{""}</h1>
     {/if}
@@ -1075,7 +1075,7 @@
         <SpaceMenuButton url={url} />
       </div>
     {:else}
-      <div class="hidden lg:block">
+      <div class="lg:hidden">
         <SpaceMenuButton url={url} />
       </div>
     {/if}

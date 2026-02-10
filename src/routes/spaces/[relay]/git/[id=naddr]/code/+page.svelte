@@ -472,7 +472,7 @@
   <title>{repoClass.name} - Code</title>
 </svelte:head>
 
-<div class="hidden lg:flex items-center justify-between px-1 text-sm text-muted-foreground">
+<div class="hidden md:flex items-center justify-between px-1 text-sm text-muted-foreground">
   <div class="flex min-w-0 items-center gap-2">
     {#if canGoUp}
       <button
@@ -485,10 +485,13 @@
         <span class="hidden xl:inline">Up</span>
       </button>
     {/if}
-    <nav class="flex min-w-0 items-center gap-1 overflow-x-auto" aria-label="Breadcrumb">
+    <nav
+      class="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap"
+      aria-label="Breadcrumb"
+    >
       <button
         type="button"
-        class="hover:text-foreground hover:underline transition-colors flex-shrink-0"
+        class="hover:text-foreground hover:underline transition-colors flex-shrink-0 whitespace-nowrap"
         onclick={() => setDirectory("")}
       >
         {repoClass.name}
@@ -496,13 +499,13 @@
       {#each breadcrumbSegments as segment, i}
         <span class="text-muted-foreground/50 flex-shrink-0">/</span>
         {#if i === breadcrumbSegments.length - 1}
-          <span class="text-foreground font-medium truncate max-w-[240px]" title={segment}>
+          <span class="text-foreground font-medium whitespace-nowrap" title={segment}>
             {segment}
           </span>
         {:else}
           <button
             type="button"
-            class="hover:text-foreground hover:underline transition-colors truncate max-w-[240px]"
+            class="hover:text-foreground hover:underline transition-colors whitespace-nowrap"
             onclick={() => setDirectory(breadcrumbSegments.slice(0, i + 1).join("/"))}
           >
             {segment}
@@ -536,20 +539,20 @@
     <div
       class={
         isBrowserOpen
-          ? "grid lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]"
-          : "grid lg:grid-cols-[48px_minmax(0,1fr)]"
+          ? "grid md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]"
+          : "grid md:grid-cols-[48px_minmax(0,1fr)]"
       }
     >
       <div
         class={
           isBrowserOpen
-            ? "border-b border-border lg:border-b-0 lg:border-r"
-            : "border-b border-border lg:border-b-0 lg:border-r"
+            ? "border-b border-border md:border-b-0 md:border-r"
+            : "border-b border-border md:border-b-0 md:border-r"
         }
       >
         <div class="p-2 sm:p-3" data-component="code-browser-list">
           {#if !isBrowserOpen}
-            <div class="hidden lg:flex h-full items-start justify-center pt-2">
+            <div class="hidden md:flex h-full items-start justify-center pt-2">
               <Button
                 class="btn btn-ghost btn-sm"
                 onclick={() => (isBrowserOpen = true)}
@@ -559,7 +562,7 @@
               </Button>
             </div>
           {:else}
-            <div class="hidden lg:flex items-center justify-between pb-2">
+            <div class="hidden md:flex items-center justify-between pb-2">
               <span class="text-xs font-medium text-muted-foreground">Files</span>
               <Button
                 class="btn btn-ghost btn-sm gap-2"
@@ -604,7 +607,7 @@
           {/if}
         </div>
       </div>
-      <div class="hidden lg:block p-3">
+      <div class="hidden md:block p-3">
         {#if selectedFile}
           <FileView
             file={selectedFile}
@@ -629,7 +632,7 @@
 
 {#if selectedFile}
     <div
-      class="fixed left-0 right-0 top-[calc(var(--sait)+3rem)] cb z-40 bg-background lg:hidden overflow-y-auto overscroll-contain"
+      class="fixed left-0 right-0 top-[calc(var(--sait)+3rem)] cb z-40 bg-background md:hidden overflow-y-auto overscroll-contain"
       bind:this={overlayScrollParent}
       in:fly={{y: 24, duration: 200}}
       out:fly={{y: 24, duration: 200}}
@@ -665,7 +668,7 @@
 {/if}
 
 {#if selectedFile && showOverlayScrollButton}
-  <div class="chat__scroll-down z-50 lg:hidden" in:fade>
+  <div class="chat__scroll-down z-50 md:hidden" in:fade>
     <Button class="btn btn-circle btn-neutral" onclick={scrollOverlayToTop}>
       <Icon icon={AltArrowUp} />
     </Button>
