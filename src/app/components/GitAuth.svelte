@@ -11,6 +11,7 @@
   import {GIT_AUTH_DTAG} from "@src/lib/budabit/requests"
   import {get} from "svelte/store"
   import Git from "@assets/icons/git.svg?dataurl"
+  import DangerTriangle from "@assets/icons/danger-triangle.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
 
@@ -87,6 +88,17 @@
       <Icon icon={AddCircle} />
       Add Token
     </Button>
+  </div>
+
+  <div class="rounded border border-warning/30 bg-warning/10 p-3 text-warning">
+    <div class="flex items-start gap-2">
+      <Icon icon={DangerTriangle} class="mt-0.5 text-warning" size={4} />
+      <p class="text-sm leading-5">
+        Tokens are sent in cleartext through the BudaBit CORS proxy, and are stored encrypted in
+        browser local storage. DO NOT PUT CRITICAL ACCESS TOKENS HERE! SCOPE TOKEN PERMISSIONS TO
+        REDUCE RISK.
+      </p>
+    </div>
   </div>
 
   {#if $tokensStore.length}
