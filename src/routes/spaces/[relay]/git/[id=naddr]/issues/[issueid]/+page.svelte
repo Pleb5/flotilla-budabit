@@ -510,7 +510,9 @@
         issueKind={GIT_ISSUE.toString() as "1621"}
         comments={$threadComments as CommentEvent[]}
         currentCommenter={$pubkey!}
-        {onCommentCreated} />
+        {onCommentCreated}
+        relays={repoClass.relays || repoRelays || []}
+        repoAddress={repoClass.address || ""} />
     </Card>
   </div>
 {:else}

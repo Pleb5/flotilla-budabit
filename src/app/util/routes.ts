@@ -164,7 +164,10 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
     // These reference a repository via 'a' tag
     if (GIT_COLLABORATION_KINDS.includes(event.kind)) {
       // Get the repository address from 'a' tag
-      const repoAddress = getTagValue("a", event.tags)
+      const repoAddress =
+        event.kind === COMMENT
+          ? getTagValue("repo", event.tags) || getTagValue("a", event.tags)
+          : getTagValue("a", event.tags)
 
       if (repoAddress) {
         try {

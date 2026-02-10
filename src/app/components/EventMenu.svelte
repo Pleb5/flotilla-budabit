@@ -1,26 +1,23 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import type {Snippet} from "svelte"
-  import {goto} from "$app/navigation"
   import type {TrustedEvent} from "@welshman/util"
-  import {COMMENT, ManagementMethod} from "@welshman/util"
-  import {pubkey, repository, relaysByUrl, manageRelay} from "@welshman/app"
+  import {Address, COMMENT, ManagementMethod, isReplaceable} from "@welshman/util"
+  import * as nip19 from "nostr-tools/nip19"
+  import {pubkey, repository, manageRelay} from "@welshman/app"
   import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Danger from "@assets/icons/danger.svg?dataurl"
-  import {setKey} from "@lib/implicit"
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import Report from "@app/components/Report.svelte"
-  import EventShare from "@app/components/EventShare.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
-  import {hasNip29, deriveUserIsSpaceAdmin} from "@app/core/state"
+  import {deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
-  import {pushToast} from "@app/util/toast"
-  import {makeSpaceChatPath} from "@app/util/routes"
+  import {clip, pushToast} from "@app/util/toast"
 
   type Props = {
     url: string
@@ -39,13 +36,13 @@
 
   const showInfo = () => pushModal(EventInfo, {url, event})
 
-  const share = async () => {
-    if (hasNip29($relaysByUrl.get(url))) {
-      pushModal(EventShare, {url, event})
-    } else {
-      setKey("share", event)
-      goto(makeSpaceChatPath(url))
-    }
+  const share = () => {
+    const relays = url ? [url] : []
+    const nostrURI = isReplaceable(event)
+      ? Address.fromEvent(event).toNaddr()
+      : nip19.neventEncode({...event, relays})
+
+    clip(nostrURI)
   }
 
   const showDelete = () => pushModal(EventDeleteConfirm, {url, event})
@@ -82,7 +79,7 @@
     <li>
       <Button onclick={share}>
         <Icon size={4} icon={ShareCircle} />
-        Share to Chat
+        Share
       </Button>
     </li>
   {/if}

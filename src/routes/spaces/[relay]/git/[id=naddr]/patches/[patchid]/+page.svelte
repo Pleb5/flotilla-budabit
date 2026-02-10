@@ -955,7 +955,9 @@
               issueKind={"1618"}
               comments={prThreadCommentsArray}
               currentCommenter={$pubkey!}
-              {onCommentCreated} />
+              {onCommentCreated}
+              relays={repoClass.relays || repoRelays || []}
+              repoAddress={repoClass.address || ""} />
           {/if}
         </div>
       </div>
@@ -1601,7 +1603,9 @@
             issueKind={GIT_PATCH.toString() as "1617"}
             comments={threadCommentsArray}
             currentCommenter={$pubkey!}
-            {onCommentCreated} />
+            {onCommentCreated}
+            relays={repoClass.relays || repoRelays || []}
+            repoAddress={repoClass.address || ""} />
         </div>
       </div>
     </div>
