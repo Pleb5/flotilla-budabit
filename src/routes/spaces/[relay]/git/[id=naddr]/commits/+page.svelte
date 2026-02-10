@@ -12,7 +12,10 @@
     context,
   } from "@nostr-git/ui"
   import Spinner from "@src/lib/components/Spinner.svelte"
-  import { slide } from 'svelte/transition'
+  import Button from "@lib/components/Button.svelte"
+  import Icon from "@lib/components/Icon.svelte"
+  import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
+  import { fade, slide } from "svelte/transition"
   import {getContext} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
@@ -28,6 +31,9 @@
   // Reactive state for UI
   let searchQuery = $state("")
   let selectedAuthor = $state([])
+  let showScrollButton = $state(false)
+  let pageContainerRef: HTMLElement | undefined = $state()
+  let scrollParent: HTMLElement | null = $state(null)
 
   // Get commits from the repo class (lazy-loaded and reactive)
   // Start with false - only show loading when actually fetching
@@ -68,6 +74,26 @@
   const getCommitUrl = (commitId: string) => {
     return `/spaces/${encodeURIComponent($page.params.relay as string)}/git/${encodeURIComponent($page.params.id as string)}/commits/${commitId}`;
   };
+
+  $effect(() => {
+    const container = pageContainerRef
+    if (!container) return
+
+    scrollParent = container.closest(".scroll-container") as HTMLElement | null
+  })
+
+  $effect(() => {
+    const scrollEl = scrollParent
+    if (!scrollEl) return
+
+    const handleScroll = () => {
+      showScrollButton = scrollEl.scrollTop > 1500
+    }
+
+    handleScroll()
+    scrollEl.addEventListener("scroll", handleScroll, {passive: true})
+    return () => scrollEl.removeEventListener("scroll", handleScroll)
+  })
 
   // Track the previous branch to detect changes
   let previousBranch = $state<string | undefined>(undefined);
@@ -346,13 +372,17 @@
     const relays = repoClass.relays || []
     postComment(commentEvent as CommentEvent, relays)
   }
+
+  const scrollToTop = () => {
+    scrollParent?.scrollTo({top: 0, behavior: "smooth"})
+  }
 </script>
 
 <svelte:head>
   <title>{repoClass.name} - Commits</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6">
+<div class="flex flex-col gap-6" bind:this={pageContainerRef}>
   <div class="mt-2 flex flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:flex-row">
     <div class="flex-1">
       <div class="relative">
@@ -496,3 +526,11 @@
     </div>
   {/if}
 </div>
+
+{#if showScrollButton}
+  <div in:fade class="chat__scroll-down">
+    <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
+      <Icon icon={AltArrowUp} />
+    </Button>
+  </div>
+{/if}

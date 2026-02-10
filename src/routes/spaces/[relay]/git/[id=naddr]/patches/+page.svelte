@@ -1,8 +1,9 @@
 <script lang="ts">
-  import {Button, PatchCard} from "@nostr-git/ui"
+  import {Button as GitButton, PatchCard} from "@nostr-git/ui"
   import {Eye, SearchX} from "@lucide/svelte"
   import {createSearch, pubkey} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
+  import Button from "@lib/components/Button.svelte"
   import {makeFeed} from "@src/app/core/requests"
   import {
     GIT_STATUS_OPEN,
@@ -10,7 +11,7 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
   } from "@welshman/util"
-  import {fly, slideAndFade} from "@lib/transition"
+  import {fade, fly, slideAndFade} from "@lib/transition"
   import {deriveEffectiveLabels, deriveAssignmentsFor} from "@lib/budabit/state.js"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
   import {
@@ -29,6 +30,7 @@
   import {postComment} from "@lib/budabit/commands.js"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
+  import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
 
   import {getContext} from "svelte"
   import {onDestroy} from "svelte"
@@ -466,13 +468,39 @@
   // Set loading to false immediately - show content right away
   let loading = $state(false)
   let element: HTMLElement | undefined = $state()
+  let showScrollButton = $state(false)
+  let scrollParent: HTMLElement | null = $state(null)
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
   // Use non-reactive array to avoid infinite loops when pushing in effects
   const abortControllers: AbortController[] = []
 
+  $effect(() => {
+    const container = element
+    if (!container) return
+
+    scrollParent = container.closest(".scroll-container") as HTMLElement | null
+  })
+
+  $effect(() => {
+    const scrollEl = scrollParent
+    if (!scrollEl) return
+
+    const handleScroll = () => {
+      showScrollButton = scrollEl.scrollTop > 1500
+    }
+
+    handleScroll()
+    scrollEl.addEventListener("scroll", handleScroll, {passive: true})
+    return () => scrollEl.removeEventListener("scroll", handleScroll)
+  })
+
   const onCommentCreated = async (comment: CommentEvent) => {
     postComment(comment, repoRelays)
+  }
+
+  const scrollToTop = () => {
+    scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
 
   // Initialize feed asynchronously - don't block render
@@ -591,14 +619,14 @@
         bind:value={searchTerm}
         type="text"
         placeholder="Search patches..." />
-      <Button
+      <GitButton
         variant="outline"
         size="sm"
         class="gap-2"
         onclick={() => (showFilters = !showFilters)}>
         <Eye class="h-4 w-4" />
         {showFilters ? "Hide Filters" : "Filter"}
-      </Button>
+      </GitButton>
     </div>
   </div>
 
@@ -691,3 +719,11 @@
     </div>
   {/if}
 </div>
+
+{#if showScrollButton}
+  <div in:fade class="chat__scroll-down">
+    <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
+      <Icon icon={AltArrowUp} />
+    </Button>
+  </div>
+{/if}

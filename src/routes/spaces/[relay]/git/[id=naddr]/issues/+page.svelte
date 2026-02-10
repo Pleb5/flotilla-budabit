@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {IssueCard, NewIssueForm, Button, toast, pushRepoAlert} from "@nostr-git/ui"
+  import {IssueCard, NewIssueForm, Button as GitButton, toast, pushRepoAlert} from "@nostr-git/ui"
   import {
     createStatusEvent,
     GIT_ISSUE,
@@ -23,6 +23,7 @@
   import {sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
   import Spinner from "@lib/components/Spinner.svelte"
+  import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
@@ -51,22 +52,6 @@
   let virtualListContainerRef: HTMLElement | undefined = $state()
   let scrollParent: HTMLElement | null = $state(null)
 
-  // Find the scrollable parent element (for window-based scrolling)
-  const findScrollParent = (element: HTMLElement | null): HTMLElement | null => {
-    if (!element) return null
-    let parent = element.parentElement
-    while (parent) {
-      const style = getComputedStyle(parent)
-      if (style.overflow === 'auto' || style.overflow === 'scroll' || 
-          style.overflowY === 'auto' || style.overflowY === 'scroll') {
-        return parent
-      }
-      parent = parent.parentElement
-    }
-    // Fallback to documentElement for window scrolling
-    return document.documentElement
-  }
-
   // Stable key function for virtualizer - prevents issues when items reorder/filter
   const getItemKey = (index: number) => searchedIssues[index]?.id ?? `fallback-${index}`
 
@@ -79,13 +64,12 @@
     getItemKey,
   })
 
-  // Find scroll parent when virtual list container is mounted
+  // Find scroll parent when page container is mounted
   $effect(() => {
-    const container = virtualListContainerRef
+    const container = pageContainerRef
     if (!container) return
-    
-    // Find scrollable parent on mount
-    scrollParent = findScrollParent(container)
+
+    scrollParent = container.closest(".scroll-container") as HTMLElement | null
   })
 
   // Update virtualizer when scroll parent or count changes
@@ -128,6 +112,7 @@
       showScrollButton = scrollEl.scrollTop > 1500
     }
     
+    handleScroll()
     scrollEl.addEventListener('scroll', handleScroll, { passive: true })
     return () => scrollEl.removeEventListener('scroll', handleScroll)
   })
@@ -724,10 +709,10 @@
         <p class="text-sm text-muted-foreground max-sm:hidden">Track bugs and feature requests</p>
       </div>
       <div class="flex items-center gap-2">
-        <Button class="gap-2" variant="git" size="sm" onclick={onNewIssue}>
+        <GitButton class="gap-2" variant="git" size="sm" onclick={onNewIssue}>
           <Plus class="h-4 w-4" />
           <span class="">New Issue</span>
-        </Button>
+        </GitButton>
       </div>
     </div>
     <div class="row-2 input mt-4 grow overflow-x-hidden">
@@ -739,10 +724,10 @@
         bind:value={searchTerm}
         type="text"
         placeholder="Search issues..." />
-      <Button size="sm" class="gap-2" onclick={() => (showFilters = !showFilters)}>
+      <GitButton size="sm" class="gap-2" onclick={() => (showFilters = !showFilters)}>
         <Eye class="h-4 w-4" />
         {showFilters ? "Hide Filters" : "Filter"}
-      </Button>
+      </GitButton>
     </div>
   </div>
 
