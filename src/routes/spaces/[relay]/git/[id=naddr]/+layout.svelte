@@ -18,6 +18,7 @@
     CircleAlert,
     GitPullRequest,
     GitCommit,
+    ChevronLeft,
   } from "@lucide/svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
@@ -126,6 +127,36 @@
   
   // Memoize base path to avoid recalculating on every render
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
+
+  const normalizePath = (value: string | null | undefined) =>
+    (value ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
+
+  const dirFromPath = (value: string) => value.split("/").slice(0, -1).join("/")
+
+  const codeFileParam = $derived.by(() => normalizePath($page.url.searchParams.get("path")))
+  const codeDirParam = $derived.by(() => normalizePath($page.url.searchParams.get("dir")))
+  const codeCurrentDir = $derived.by(() =>
+    codeFileParam ? dirFromPath(codeFileParam) : codeDirParam
+  )
+  const codeBreadcrumbPath = $derived.by(() => codeFileParam || codeDirParam)
+  const codeBreadcrumbSegments = $derived.by(() =>
+    codeBreadcrumbPath ? codeBreadcrumbPath.split("/") : []
+  )
+  const codeCanGoUp = $derived.by(() => codeCurrentDir.length > 0)
+  const codeParentPath = $derived.by(() => (codeCurrentDir ? dirFromPath(codeCurrentDir) : ""))
+
+  const setCodeDirectory = (dir: string) => {
+    const normalized = normalizePath(dir)
+    const next = new URL($page.url)
+    if (normalized) next.searchParams.set("dir", normalized)
+    else next.searchParams.delete("dir")
+    next.searchParams.delete("path")
+    const nextUrl = `${next.pathname}${next.search}${next.hash}`
+    const currentUrl = `${$page.url.pathname}${$page.url.search}${$page.url.hash}`
+    if (nextUrl !== currentUrl) {
+      goto(nextUrl, {replaceState: true, keepfocus: true, noScroll: true})
+    }
+  }
 
   function deriveRepoEvent(repoPubkey: string, repoName: string) {
     return derived(
@@ -974,7 +1005,7 @@
     }
   })
 
-  const back = () => history.back()//goto(`/spaces/${relay}/git/`)
+  const back = () => (activeTab === "code" ? overviewRepo() : history.back())
 </script>
 
 <svelte:head>
@@ -991,16 +1022,67 @@
     </div>
   {/snippet}
   {#snippet title()}
-    <h1 class="text-xl">{""}</h1>
+    {#if activeTab === "code"}
+      <div class="flex min-w-0 items-center gap-2 lg:hidden">
+        {#if codeCanGoUp}
+          <button
+            type="button"
+            class="flex items-center gap-1 rounded-md px-2 py-1 text-xs sm:text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors"
+            onclick={() => setCodeDirectory(codeParentPath)}
+            title="Up"
+          >
+            <ChevronLeft class="h-4 w-4" />
+            <span class="hidden sm:inline">Up</span>
+          </button>
+        {/if}
+        <nav
+          class="flex min-w-0 items-center gap-1 text-xs sm:text-sm text-muted-foreground overflow-x-auto"
+          aria-label="Breadcrumb"
+        >
+          <button
+            type="button"
+            class="hover:text-foreground hover:underline transition-colors flex-shrink-0"
+            onclick={() => setCodeDirectory("")}
+          >
+            {repoClass?.name || repoName}
+          </button>
+          {#each codeBreadcrumbSegments as segment, i}
+            <span class="text-muted-foreground/50 flex-shrink-0">/</span>
+            {#if i === codeBreadcrumbSegments.length - 1}
+              <span class="text-foreground font-medium truncate max-w-[180px]" title={segment}>
+                {segment}
+              </span>
+            {:else}
+              <button
+                type="button"
+                class="hover:text-foreground hover:underline transition-colors truncate max-w-[180px]"
+                onclick={() => setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}
+              >
+                {segment}
+              </button>
+            {/if}
+          {/each}
+        </nav>
+      </div>
+      <h1 class="hidden lg:block text-xl">{""}</h1>
+    {:else}
+      <h1 class="text-xl">{""}</h1>
+    {/if}
   {/snippet}
   {#snippet action()}
-    <div>
-      <SpaceMenuButton url={url} />
-    </div>
+    {#if activeTab !== "code"}
+      <div>
+        <SpaceMenuButton url={url} />
+      </div>
+    {:else}
+      <div class="hidden lg:block">
+        <SpaceMenuButton url={url} />
+      </div>
+    {/if}
   {/snippet}
 </PageBar>
 
-<PageContent bind:element={pageContentElement} class="flex flex-grow flex-col gap-2 overflow-auto p-8">
+<PageContent bind:element={pageContentElement} class="flex flex-grow flex-col gap-2 overflow-auto p-4 sm:p-6 lg:p-8">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}

@@ -1,10 +1,5 @@
 import {test, expect, type Page} from "@playwright/test"
-import {
-  TestSeeder,
-  seedTestRepo,
-  seedTestScenario,
-  useCleanState,
-} from "../helpers"
+import {TestSeeder, seedTestRepo, seedTestScenario, useCleanState} from "../helpers"
 import {GitHubPage, RepoDetailPage} from "../pages"
 
 /**
@@ -31,7 +26,9 @@ const ENCODED_RELAY = encodeURIComponent(TEST_RELAY)
  */
 async function navigateToRepo(page: Page, repoName: string): Promise<void> {
   // Find the repo card containing the repo name, then click the Browse button within it
-  const repoCard = page.locator(".rounded-md.border.border-border.bg-card").filter({hasText: repoName})
+  const repoCard = page
+    .locator(".rounded-md.border.border-border.bg-card")
+    .filter({hasText: repoName})
   const browseButton = repoCard.locator('a:has-text("Browse"), button:has-text("Browse")').first()
   await browseButton.click()
   await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
@@ -142,7 +139,9 @@ test.describe("Code Browser", () => {
 
       // Either loading completed or we see the code interface
       // The actual container uses: mt-2 rounded-lg border border-border bg-card
-      const codeContent = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      const codeContent = page
+        .locator(".mt-2.rounded-lg.border")
+        .or(page.locator(".rounded-lg.border"))
       await expect(codeContent.first()).toBeVisible({timeout: 30000})
     })
 
@@ -219,8 +218,9 @@ test.describe("Code Browser", () => {
       await page.waitForLoadState("networkidle")
 
       // The code browser container should be visible
-      // Looking for the main content wrapper: mt-2 rounded-lg border border-border bg-card
-      const codeBrowserContainer = page.locator(".mt-2.rounded-lg.border.border-border.bg-card")
+      const codeBrowserContainer = page
+        .locator('[data-component="code-browser"]')
+        .or(page.locator(".mt-2.rounded-lg.border.border-border.bg-card"))
         .or(page.locator(".rounded-lg.border.border-border.bg-card"))
         .or(page.locator(".rounded-lg.border"))
       await expect(codeBrowserContainer.first()).toBeVisible({timeout: 30000})
@@ -244,8 +244,11 @@ test.describe("Code Browser", () => {
       // Wait for content to load (either files or empty state)
       await page.waitForTimeout(2000)
 
-      // The p-4 content area should be present (inside the mt-2.rounded-lg container)
-      const contentArea = page.locator(".mt-2.rounded-lg .p-4").or(page.locator(".p-4"))
+      // The content area should be present (inside the code browser container)
+      const contentArea = page
+        .locator('[data-component="code-browser-list"]')
+        .or(page.locator(".mt-2.rounded-lg .p-4"))
+        .or(page.locator(".p-4"))
       await expect(contentArea.first()).toBeVisible({timeout: 30000})
     })
 
@@ -269,7 +272,10 @@ test.describe("Code Browser", () => {
 
       // Should show empty state or loading
       // The text "No files found in this branch." appears when branch has no files (text-muted-foreground)
-      const content = page.locator(".mt-2.rounded-lg .p-4").or(page.locator(".p-4"))
+      const content = page
+        .locator('[data-component="code-browser-list"]')
+        .or(page.locator(".mt-2.rounded-lg .p-4"))
+        .or(page.locator(".p-4"))
       const emptyText = page.getByText(/No files found/i)
       await expect(content.first().or(emptyText)).toBeVisible({timeout: 30000})
     })
@@ -319,7 +325,9 @@ test.describe("Code Browser", () => {
 
       // The code browser should load - exact branch depends on repo config
       // We verify the code tab content area is present (mt-2 rounded-lg border border-border bg-card)
-      const codeContent = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      const codeContent = page
+        .locator(".mt-2.rounded-lg.border")
+        .or(page.locator(".rounded-lg.border"))
       await expect(codeContent.first()).toBeVisible({timeout: 30000})
     })
 
@@ -362,7 +370,9 @@ test.describe("Code Browser", () => {
 
       // Verify the code interface loads
       // Permalink functionality would require file click + action
-      const codeContainer = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      const codeContainer = page
+        .locator(".mt-2.rounded-lg.border")
+        .or(page.locator(".rounded-lg.border"))
       await expect(codeContainer.first()).toBeVisible({timeout: 30000})
     })
   })
@@ -417,7 +427,9 @@ test.describe("Code Browser", () => {
       await page.waitForLoadState("networkidle")
 
       // Page should recover and show code content
-      const codeContent = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      const codeContent = page
+        .locator(".mt-2.rounded-lg.border")
+        .or(page.locator(".rounded-lg.border"))
       await expect(codeContent.first()).toBeVisible({timeout: 30000})
     })
   })
@@ -532,7 +544,9 @@ test.describe("Code Browser", () => {
       await page.waitForLoadState("networkidle")
 
       // The code browser should have semantic structure (mt-2 rounded-lg border border-border bg-card)
-      const container = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      const container = page
+        .locator(".mt-2.rounded-lg.border")
+        .or(page.locator(".rounded-lg.border"))
       await expect(container.first()).toBeVisible({timeout: 30000})
 
       // Should have content area (p-4 inside the container)
@@ -564,7 +578,9 @@ test.describe("Code Browser", () => {
       await page.locator("a[href*='/code']").first().click()
       await page.waitForLoadState("networkidle")
 
-      const codeContainer1 = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      const codeContainer1 = page
+        .locator(".mt-2.rounded-lg.border")
+        .or(page.locator(".rounded-lg.border"))
       await expect(codeContainer1.first()).toBeVisible({timeout: 30000})
 
       // Go back to list
@@ -576,7 +592,9 @@ test.describe("Code Browser", () => {
       await page.locator("a[href*='/code']").first().click()
       await page.waitForLoadState("networkidle")
 
-      const codeContainer2 = page.locator(".mt-2.rounded-lg.border").or(page.locator(".rounded-lg.border"))
+      const codeContainer2 = page
+        .locator(".mt-2.rounded-lg.border")
+        .or(page.locator(".rounded-lg.border"))
       await expect(codeContainer2.first()).toBeVisible({timeout: 30000})
     })
   })
