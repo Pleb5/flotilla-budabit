@@ -42,7 +42,7 @@
     autofocus,
     submit,
     uploading,
-    aggressive: true,
+    aggressive: !isMobile,
     encryptFiles: true,
   })
 </script>

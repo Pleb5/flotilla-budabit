@@ -64,7 +64,7 @@
     ed.chain().clearContent().run()
   }
 
-  const editor = makeEditor({url, content, autofocus, submit, uploading, aggressive: true})
+  const editor = makeEditor({url, content, autofocus, submit, uploading, aggressive: !isMobile})
 
   let popover: Instance | undefined = $state()
   let editorInstance: Awaited<typeof editor> | null = null
