@@ -19,7 +19,7 @@
     GIT_STATUS_CLOSED,
     getTag,
   } from "@welshman/util"
-  import {createSearch, pubkey} from "@welshman/app"
+  import {createSearch, pubkey, repository} from "@welshman/app"
   import {sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -51,6 +51,11 @@
   let pageContainerRef: HTMLElement | undefined = $state()
   let virtualListContainerRef: HTMLElement | undefined = $state()
   let scrollParent: HTMLElement | null = $state(null)
+
+  const LABEL_PREFETCH_LIMIT = 200
+  const LABEL_PREFETCH_IDLE_MS = 2000
+  const LABEL_PREFETCH_DELAY_MS = 150
+  const LABEL_PREFETCH_CHUNK_SIZE = 50
 
   // Stable key function for virtualizer - prevents issues when items reorder/filter
   const getItemKey = (index: number) => searchedIssues[index]?.id ?? `fallback-${index}`
@@ -143,7 +148,7 @@
   const statusEventsByRoot = $derived.by(() => statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>())
   const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
 
-  const issues = repoClass.issues
+  const issues = $derived.by(() => repoClass.issues || [])
 
   const comments = $state<Record<string, CommentEvent[]>>({})
 
@@ -164,56 +169,66 @@
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
 
-  // Optimize labelsData: compute lazily and cache results to avoid blocking render
-  // Use a Map to track subscriptions and clean them up properly
-  let labelsDataCache = $state<{byId: Map<string, string[]>, groupsById: Map<string, Record<string, string[]>>}>({
-    byId: new Map<string, string[]>(),
-    groupsById: new Map<string, Record<string, string[]>>()
-  })
-  let labelsDataCacheKey = $state<string>("")
-  
-  // Compute labelsData asynchronously to avoid blocking render
-  $effect(() => {
-    // Access reactive dependency synchronously to ensure it's tracked
-    const currentIssues = issues
-    
-    // Create cache key from issue IDs to detect changes
-    const currentKey = currentIssues.map(i => i.id).sort().join(",")
-    
-    // Skip if already computed for this set of issues
-    if (labelsDataCacheKey === currentKey) return
-    
-    // Defer heavy computation to avoid blocking initial render
-    const timeout = setTimeout(() => {
-    const byId = new Map<string, string[]>()
-    const groupsById = new Map<string, Record<string, string[]>>()
-      
-    for (const issue of currentIssues) {
-        try {
-      // Use deriveEffectiveLabels to get proper NIP-32 labels
-          // Only get value once - don't subscribe to avoid memory leaks
-      const effStore = deriveEffectiveLabels(issue.id)
-      const effValue = effStore.get()
-      const eff = normalizeEffectiveLabels(effValue)
-      const naturals = toNaturalArray(eff?.flat)
+  let labelsPrefetchKey = ""
+  let labelsPrefetchTimeout: ReturnType<typeof setTimeout> | null = null
+  let labelsPrefetchController: AbortController | null = null
 
-      byId.set(issue.id, naturals)
-      const groups = eff ? groupLabels(eff) : {Status: [], Type: [], Area: [], Tags: [], Other: []}
-      groupsById.set(issue.id, groups)
-        } catch (e) {
-          // Fallback to empty labels if computation fails
-          byId.set(issue.id, [])
-          groupsById.set(issue.id, {Status: [], Type: [], Area: [], Tags: [], Other: []})
-        }
-      }
-      
-      labelsDataCache = {byId, groupsById}
-      labelsDataCacheKey = currentKey
-    }, 100)
-    
-    // Cleanup function to cancel RAF
-    return () => {
-      clearTimeout(timeout)
+  const chunkIds = (ids: string[], size: number) => {
+    const chunks: string[][] = []
+    for (let i = 0; i < ids.length; i += size) {
+      chunks.push(ids.slice(i, i + size))
+    }
+    return chunks
+  }
+
+  // Labels cache keyed by issue id, kept in sync with NIP-32 updates
+  let labelsDataCache = $state<{
+    byId: Map<string, string[]>
+    groupsById: Map<string, Record<string, string[]>>
+  }>({
+    byId: new Map<string, string[]>(),
+    groupsById: new Map<string, Record<string, string[]>>(),
+  })
+  const labelSubscriptions = new Map<string, () => void>()
+
+  const updateLabelsCache = (issueId: string, effValue: any) => {
+    const eff = normalizeEffectiveLabels(effValue)
+    const naturals = toNaturalArray(eff.flat)
+    const groups = groupLabels(eff)
+    const byId = labelsDataCache.byId
+    const groupsById = labelsDataCache.groupsById
+    byId.set(issueId, naturals)
+    groupsById.set(issueId, groups)
+    labelsDataCache = {byId, groupsById}
+  }
+
+  const removeLabelsCache = (issueId: string) => {
+    const byId = labelsDataCache.byId
+    const groupsById = labelsDataCache.groupsById
+    if (!byId.has(issueId) && !groupsById.has(issueId)) return
+    byId.delete(issueId)
+    groupsById.delete(issueId)
+    labelsDataCache = {byId, groupsById}
+  }
+
+  $effect(() => {
+    const currentIssues = issues || []
+    const currentIds = new Set(currentIssues.map(i => i.id))
+
+    for (const issue of currentIssues) {
+      if (labelSubscriptions.has(issue.id)) continue
+      const effStore = deriveEffectiveLabels(issue.id)
+      const unsubscribe = effStore.subscribe(value => {
+        updateLabelsCache(issue.id, value)
+      })
+      labelSubscriptions.set(issue.id, unsubscribe)
+    }
+
+    for (const [id, unsubscribe] of labelSubscriptions) {
+      if (currentIds.has(id)) continue
+      unsubscribe()
+      labelSubscriptions.delete(id)
+      removeLabelsCache(id)
     }
   })
   
@@ -246,35 +261,66 @@
 
   let searchTerm = $state("")
 
-  // NIP-32 labels are derived centrally via deriveEffectiveLabels(); proactively load 1985 for all issues
-  // Defer to avoid blocking initial render
+  // NIP-32 labels are derived centrally via deriveEffectiveLabels(); prefetch newest labels
   $effect(() => {
-    // Access reactive dependencies synchronously to ensure they're tracked
     const currentIssues = repoClass.issues || []
     const currentRepoRelays = repoRelays
-    
-    // Defer label loading to avoid blocking initial render
-    const controller = new AbortController()
-    abortControllers.push(controller)
-    
-    const timeout = setTimeout(() => {
-      try {
-        const ids = currentIssues.map((i: any) => i.id).filter(Boolean)
-        if (ids.length) {
-          request({
-            relays: currentRepoRelays,
-            signal: controller.signal,
-            filters: [{kinds: [1985], "#e": ids}],
-            onEvent: () => {},
-          })
-        }
-      } catch {}
-    }, 100)
-    
-    return () => {
-      clearTimeout(timeout)
-      controller.abort()
+    const relayList = (currentRepoRelays.length ? currentRepoRelays : repoClass?.relays || []).filter(Boolean)
+
+    if (!relayList.length || currentIssues.length === 0) {
+      if (labelsPrefetchTimeout) {
+        clearTimeout(labelsPrefetchTimeout)
+        labelsPrefetchTimeout = null
+      }
+      labelsPrefetchController?.abort()
+      labelsPrefetchController = null
+      labelsPrefetchKey = ""
+      return
     }
+
+    const sortedIssues = [...currentIssues].sort((a, b) => {
+      if (b.created_at !== a.created_at) return b.created_at - a.created_at
+      return a.id.localeCompare(b.id)
+    })
+    const selectedIssues = sortedIssues.slice(0, LABEL_PREFETCH_LIMIT)
+    const ids = selectedIssues.map(issue => issue.id).filter(Boolean)
+
+    if (ids.length === 0) return
+
+    const key = ids.join(",")
+    if (labelsPrefetchKey === key) return
+
+    if (labelsPrefetchTimeout) {
+      clearTimeout(labelsPrefetchTimeout)
+      labelsPrefetchTimeout = null
+    }
+    labelsPrefetchController?.abort()
+    labelsPrefetchController = new AbortController()
+    labelsPrefetchKey = key
+
+    const delayMs =
+      currentIssues.length >= LABEL_PREFETCH_LIMIT
+        ? LABEL_PREFETCH_DELAY_MS
+        : LABEL_PREFETCH_IDLE_MS
+
+    labelsPrefetchTimeout = setTimeout(() => {
+      const controller = labelsPrefetchController
+      if (!controller) return
+
+      const filters = chunkIds(ids, LABEL_PREFETCH_CHUNK_SIZE).map(chunk => ({
+        kinds: [1985],
+        "#e": chunk,
+      }))
+
+      request({
+        relays: relayList,
+        signal: controller.signal,
+        filters,
+        onEvent: event => {
+          repository.publish(event)
+        },
+      })
+    }, delayMs)
   })
 
   // Persist filters per repo (delegated to FilterPanel)
@@ -627,6 +673,17 @@
   onDestroy(() => {
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
+
+    labelSubscriptions.forEach(unsubscribe => unsubscribe())
+    labelSubscriptions.clear()
+
+    if (labelsPrefetchTimeout) {
+      clearTimeout(labelsPrefetchTimeout)
+      labelsPrefetchTimeout = null
+    }
+    labelsPrefetchController?.abort()
+    labelsPrefetchController = null
+    labelsPrefetchKey = ""
     
     // Abort all network requests
     abortControllers.forEach(controller => controller.abort())
