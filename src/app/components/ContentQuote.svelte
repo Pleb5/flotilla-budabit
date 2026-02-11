@@ -4,6 +4,7 @@
   import type {TrustedEvent} from "@welshman/util"
   import {Address, MESSAGE} from "@welshman/util"
   import {FileCode, GitCommit} from "@lucide/svelte"
+  import {githubPermalinkDiffId} from "@nostr-git/core/git"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
@@ -386,7 +387,7 @@
     return null
   }
 
-  const buildPermalinkHref = (evt: TrustedEvent, relay?: string) => {
+  const buildPermalinkHref = (evt: TrustedEvent, relay?: string, diffHash = "") => {
     const repoAddress = getTagValue(evt, "a")
     const base = buildRepoHrefFromAddress(repoAddress, relay)
     if (!base) return ""
@@ -396,11 +397,15 @@
     const {start, end} = getLineRange(evt)
     const lineAnchor = start ? `#L${start}${end && end !== start ? `-L${end}` : ""}` : ""
     const patchId = getTagValue(evt, "e")
+    const diffAnchor = diffHash
+      ? `#diff-${diffHash}${start ? `R${start}${end && end !== start ? `-R${end}` : ""}` : ""}`
+      : ""
 
     if (parentCommit) {
-      if (commit) return `${base}/commits/${commit}`
-      if (patchId) return `${base}/patches/${patchId}`
-      return base
+      if (filePath && !diffHash) return ""
+      if (commit) return `${base}/commits/${commit}${diffAnchor}`
+      if (patchId) return `${base}/patches/${patchId}${diffAnchor}`
+      return `${base}${diffAnchor}`
     }
     if (filePath) return `${base}/code?path=${encodeURIComponent(filePath)}${lineAnchor}`
     if (commit) return `${base}/commits/${commit}`
@@ -408,11 +413,34 @@
     return base
   }
 
+  let diffHash = $state("")
+
+  $effect(() => {
+    if (!$quote) return
+    const parentCommit = getTagValue($quote, "parent-commit")
+    const filePath = getFilePath($quote)
+    if (!parentCommit || !filePath) {
+      diffHash = ""
+      return
+    }
+    let cancelled = false
+    githubPermalinkDiffId(filePath)
+      .then(hash => {
+        if (!cancelled) diffHash = hash
+      })
+      .catch(() => {
+        if (!cancelled) diffHash = ""
+      })
+    return () => {
+      cancelled = true
+    }
+  })
+
   const gitCard = $derived.by(() => ($quote ? getGitShareCard($quote, url) : null))
 </script>
 
 {#if $quote && $quote.kind === 1623}
-  {@const permalinkHref = buildPermalinkHref($quote, url)}
+  {@const permalinkHref = buildPermalinkHref($quote, url, diffHash)}
   {@const displayRepo = getDisplayRepo($quote)}
   {@const filePath = getFilePath($quote)}
   {@const lineLabel = getLineLabel($quote)}

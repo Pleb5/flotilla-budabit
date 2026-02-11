@@ -196,9 +196,22 @@
     return match ? match[1] : null
   }
 
+  const hasDiffLineAnchor = () => {
+    if (typeof window === "undefined") return false
+    return /^#diff-[a-f0-9]+[LR]\d+(?:-[LR]\d+)?$/i.test(window.location.hash || "")
+  }
+
   const scrollToDiffHash = async () => {
     const hash = getDiffHashFromLocation()
     if (!hash) return
+    const path = Object.keys(diffAnchors).find(key => diffAnchors[key] === hash)
+    if (path && !expandedFiles.has(path)) {
+      expandedFiles = new Set(expandedFiles).add(path)
+      await tick()
+    }
+    if (hasDiffLineAnchor()) {
+      return
+    }
     await tick()
     const el = document.getElementById(`diff-${hash}`)
     if (el) el.scrollIntoView({ block: "start" })
@@ -334,7 +347,7 @@
 
   // Expand all files by default if there are few changes
   $effect(() => {
-    if (changes && changes.length <= 5) {
+    if (changes && changes.length <= 5 && !getDiffHashFromLocation()) {
       expandedFiles = new Set(changes.map(change => change.path))
     }
   })
