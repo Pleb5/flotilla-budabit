@@ -3,6 +3,7 @@
   import {Router} from "@welshman/router"
   import type {TrustedEvent} from "@welshman/util"
   import {Address, MESSAGE} from "@welshman/util"
+  import {FileCode, GitCommit} from "@lucide/svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
@@ -416,6 +417,15 @@
   {@const filePath = getFilePath($quote)}
   {@const lineLabel = getLineLabel($quote)}
   {@const commitShort = getCommitShort($quote)}
+  {@const parentCommit = getTagValue($quote, "parent-commit")}
+  {@const isDiff = Boolean(parentCommit)}
+  {@const kindLabel = isDiff ? "Diff" : "Code"}
+  {@const kindTitle = isDiff ? "Diff permalink" : "Code permalink"}
+  {@const kindIcon = isDiff ? GitCommit : FileCode}
+  {@const kindIconClass = isDiff ? "text-amber-500" : "text-blue-500"}
+  {@const kindBadgeClass = isDiff
+    ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20"
+    : "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/20"}
   {@const contentPreview = getContentPreview($quote)}
   {@const isTruncated = isContentTruncated($quote)}
   {@const highlightLanguage = filePath ? getFileLanguage(filePath) : "plaintext"}
@@ -423,9 +433,18 @@
   <div class="my-2 block w-full max-w-full text-left">
     <div class="rounded-lg border bg-card p-3 shadow-sm">
       <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-sm font-semibold">Permalink</div>
-          <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <div class="min-w-0 flex items-start gap-2">
+          <svelte:component this={kindIcon} class={`h-4 w-4 mt-0.5 ${kindIconClass}`} />
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="text-sm font-semibold">{kindTitle}</div>
+              <span
+                class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${kindBadgeClass}`}
+              >
+                {kindLabel}
+              </span>
+            </div>
+            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {#if displayRepo}
               <span class="font-mono">{displayRepo}</span>
             {/if}
@@ -438,6 +457,7 @@
             {#if commitShort}
               <span class="font-mono">{commitShort}</span>
             {/if}
+            </div>
           </div>
         </div>
         <div class="flex items-center gap-2">
