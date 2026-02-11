@@ -9,6 +9,7 @@
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import {type FileEntry, type PermalinkEvent} from "@nostr-git/core/types"
   import {pushToast} from "@src/app/util/toast"
+  import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {postPermalink} from "@lib/budabit/commands.js"
   import {nip19} from "nostr-tools"
   import {getContext} from "svelte"
@@ -243,6 +244,7 @@
               })
               
               if (!result.success) {
+                notifyCorsProxyIssue(result)
                 throw new Error(result.error || "Repository initialization failed")
               }
               
@@ -258,6 +260,7 @@
           }
         } catch (err) {
           console.error("Failed to initialize repository:", err)
+          notifyCorsProxyIssue(err)
           const errorMessage = err instanceof Error ? err.message : "Unknown error"
           // Only show toast for non-transient errors
           if (!errorMessage.includes("No clone URLs")) {
@@ -295,6 +298,7 @@
           })
           .catch((err: Error) => {
             console.error("Failed to load repository references:", err)
+            notifyCorsProxyIssue(err)
             // Don't show toast for transient worker initialization errors
             const errorMessage = err.message || String(err)
             if (!errorMessage.includes("Cannot read properties of undefined") && 

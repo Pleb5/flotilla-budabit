@@ -21,7 +21,8 @@
         class="alert flex justify-center whitespace-normal text-left"
         class:bg-base-100={theme === "info"}
         class:text-base-content={theme === "info"}
-        class:alert-error={theme === "error"}>
+        class:alert-error={theme === "error"}
+        class:alert-warning={theme === "warning"}>
         <p class:welshman-content-error={theme === "error"}>
           {#if $toast.message}
             {@html renderAsHtml(parse({content: $toast.message}))}

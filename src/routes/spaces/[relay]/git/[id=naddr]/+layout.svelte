@@ -30,6 +30,7 @@
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {pushToast} from "@src/app/util/toast"
+  import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import EventActions from "@src/app/components/EventActions.svelte"
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
@@ -741,6 +742,7 @@
       }
     } catch (error) {
       console.error("Failed to refresh repository:", error)
+      notifyCorsProxyIssue(error)
       pushToast({
         message: `Failed to sync repository: ${error instanceof Error ? error.message : "Unknown error"}`,
         theme: "error",

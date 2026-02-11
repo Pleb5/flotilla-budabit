@@ -21,6 +21,7 @@
   import type {Repo} from "@nostr-git/ui"
   import {createCommentEvent, type CommentEvent} from "@nostr-git/core/events"
   import {postComment} from "@lib/budabit/commands"
+  import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   
@@ -130,6 +131,7 @@
       
       if (!result.success) {
         console.error("Repository initialization failed:", result.error)
+        notifyCorsProxyIssue(result)
         isCloning = false
         return false
       }
@@ -138,6 +140,7 @@
       return true
     } catch (err) {
       console.error("Failed to ensure repo cloned:", err)
+      notifyCorsProxyIssue(err)
       isCloning = false
       return false
     }

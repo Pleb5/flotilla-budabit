@@ -32,6 +32,7 @@
   import {setupHistory} from "@app/util/history"
   import {setupTracking} from "@app/util/tracking"
   import {setupAnalytics} from "@app/util/analytics"
+  import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
   import {makeSpacePath} from "@app/util/routes"
   import {
     userSettingsValues,
@@ -214,6 +215,7 @@
       setupHistory(),
       setupAnalytics(),
       setupTracking(),
+      setupGitCorsProxy(),
       syncBudabitApplicationData(),
       syncBudabitData(),
     )

@@ -25,6 +25,7 @@
     FileCode,
   } from "@lucide/svelte"
   import {CommitHeader, SplitDiff, toast} from "@nostr-git/ui"
+  import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import type {PageData} from "./$types"
   import {getContext, onMount, tick} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
@@ -99,6 +100,7 @@
         })
 
         if (!result.success) {
+          notifyCorsProxyIssue(result)
           loadError = result.error || "Failed to initialize repository"
           isLoading = false
           return
@@ -112,6 +114,7 @@
       })
 
       if (!commitDetails.success) {
+        notifyCorsProxyIssue(commitDetails)
         loadError = commitDetails.error || "Failed to load commit details"
         isLoading = false
         return
@@ -139,6 +142,7 @@
       isLoading = false
     } catch (err: any) {
       console.error("Error loading commit details:", err)
+      notifyCorsProxyIssue(err)
       loadError = err?.message || "Failed to load commit details"
       isLoading = false
     }
