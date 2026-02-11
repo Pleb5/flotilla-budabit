@@ -67,6 +67,15 @@
     showEntire = true
   }
 
+  const stopTapFromInteractive = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null
+    if (!target) return
+    const interactive = target.closest("button, a, [role='button'], [data-stop-tap]")
+    if (interactive) {
+      event.stopPropagation()
+    }
+  }
+
   const isBlock = (i: number) => {
     const parsed = fullContent[i]
 
@@ -134,7 +143,7 @@
     </div>
   {:else}
     {#if isKnownEventKind(event.kind)}
-      <div class="event-renderer">
+      <div class="event-renderer" onclick={stopTapFromInteractive}>
         <EventRenderer {event} relay={url} />
       </div>
     {:else if isKnownUnknown(event.kind)}
