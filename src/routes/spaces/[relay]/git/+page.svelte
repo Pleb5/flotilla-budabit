@@ -37,6 +37,7 @@
     type BookmarkAddress,
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
+  import {GIT_PERMALINK} from "@nostr-git/core/types"
   import {
     Avatar,
     AvatarImage,
@@ -46,6 +47,7 @@
     Tabs,
     TabsList,
     TabsTrigger,
+    EventRenderer,
   } from "@nostr-git/ui"
   import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
   import RepoPickerWrapper from "@app/components/RepoPickerWrapper.svelte"
@@ -68,6 +70,7 @@
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
   import Download from "@assets/icons/download.svg?dataurl"
+  import Code from "@assets/icons/code.svg?dataurl"
   import {makeGitPath} from "@src/lib/budabit"
 
   const url = decodeRelay($page.params.relay!)
@@ -96,14 +99,29 @@
     return profile?.display_name || profile?.name || "Anonymous"
   }
 
+  const getPermalinkTagValue = (evt: NostrEvent, name: string) =>
+    evt.tags?.find(tag => tag[0] === name)?.[1] || ""
+
+  const getPermalinkTagValueAny = (evt: NostrEvent, names: string[]) => {
+    for (const name of names) {
+      const value = getPermalinkTagValue(evt, name)
+      if (value) return value
+    }
+    return ""
+  }
+
+  const getSnippetFilePath = (evt: NostrEvent) =>
+    getPermalinkTagValueAny(evt, ["file", "path", "f"]) || getPermalinkTagValue(evt, "p")
+
   let loading = $state(true)
-  let activeTab = $state<"my-repos" | "bookmarks">("my-repos")
+  let activeTab = $state<"my-repos" | "bookmarks" | "snippets">("my-repos")
   let searchQuery = $state("")
   // Track when cards are ready to be shown (after all repos have loaded)
   let cardsReady = $state(false)
   // Debounce timer for settling repo count before showing cards
   let settleTimer: ReturnType<typeof setTimeout> | null = null
   let lastRepoCount = $state(0)
+  let snippetsLoadedFor = $state<string | null>(null)
 
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
@@ -124,6 +142,15 @@
       const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
       load({relays: bookmarkRelays, filters: [filter]})
     }
+  })
+
+  $effect(() => {
+    if (activeTab !== "snippets") return
+    if (!$pubkey) return
+    if (snippetsLoadedFor === $pubkey) return
+    const filter = {kinds: [GIT_PERMALINK], authors: [$pubkey]} as NostrFilter
+    load({relays: bookmarkRelays, filters: [filter]})
+    snippetsLoadedFor = $pubkey
   })
 
   // Normalize all relay URLs to avoid whitespace/trailing-slash/socket issues
@@ -248,6 +275,36 @@
     })
   })
 
+  const mySnippetsEvents = $derived.by(() => {
+    if (!$pubkey) return undefined
+    const filter = {kinds: [GIT_PERMALINK], authors: [$pubkey]} as NostrFilter
+    return deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
+  })
+
+  const snippets = $derived.by(() => ($mySnippetsEvents ? ($mySnippetsEvents as NostrEvent[]) : []))
+
+  const snippetQuery = $derived.by(() => searchQuery.trim().toLowerCase())
+
+  const filteredSnippets = $derived.by(() => {
+    const items = snippets
+    if (activeTab !== "snippets") return items
+    if (!snippetQuery) return items
+    return items.filter(evt => {
+      const haystack = [
+        getPermalinkTagValue(evt, "a"),
+        getPermalinkTagValue(evt, "repo"),
+        getPermalinkTagValue(evt, "commit"),
+        getPermalinkTagValue(evt, "parent-commit"),
+        getSnippetFilePath(evt),
+        evt.content,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+      return haystack.includes(snippetQuery)
+    })
+  })
+
 
   // Reset cardsReady when tab changes to trigger fresh animation
   $effect(() => {
@@ -263,6 +320,9 @@
 
   // Filter repos based on active tab
   const filteredRepos = $derived.by(() => {
+    if (activeTab === "snippets") {
+      return []
+    }
     if (activeTab === "bookmarks") {
       return loadedBookmarkedRepos
     } else {
@@ -272,6 +332,7 @@
 
   // Detect if search query is a URI (naddr or nostr:naddr)
   const isUriSearch = $derived.by(() => {
+    if (activeTab === "snippets") return false
     const trimmed = searchQuery.trim()
     return trimmed.startsWith("naddr1") || trimmed.startsWith("nostr:naddr1")
   })
@@ -864,6 +925,12 @@
                 <span>Bookmarks</span>
               </span>
             </TabsTrigger>
+            <TabsTrigger value="snippets" class="flex-1 sm:flex-none">
+              <span class="flex items-center gap-2">
+                <Icon icon={Code} />
+                <span>Snippets</span>
+              </span>
+            </TabsTrigger>
           </TabsList>
           <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {#if activeTab === "bookmarks"}
@@ -881,7 +948,7 @@
                 bind:value={searchQuery}
                 class="grow"
                 type="text"
-                placeholder="Paste naddr or search..." />
+                placeholder={activeTab === "snippets" ? "Search snippets..." : "Paste naddr or search..."} />
             </label>
           </div>
         </div>
@@ -889,6 +956,29 @@
     </Tabs>
   </div>
 
+  {#if activeTab === "snippets"}
+    <div class="flex flex-col gap-3" in:fade={{duration: 150}}>
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-muted-foreground">Your Snippets</h3>
+        {#if $pubkey}
+          <span class="text-xs text-muted-foreground">{filteredSnippets.length}</span>
+        {/if}
+      </div>
+      {#if !$pubkey}
+        <p class="text-sm text-muted-foreground">Sign in to view your snippets.</p>
+      {:else if filteredSnippets.length === 0}
+        <p class="text-sm text-muted-foreground">
+          No snippets yet. Create a permalink from a code file or diff.
+        </p>
+      {:else}
+        <div class="flex flex-col gap-3">
+          {#each filteredSnippets as snippet (snippet.id)}
+            <EventRenderer event={snippet as any} relay={url} />
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {:else}
   <!-- URI Search Result (if found) -->
   {#if uriSearchRepoCard.length > 0}
     <div class="flex flex-col gap-2" in:fade={{duration: 200}}>
@@ -1035,4 +1125,5 @@
       {/if}
     {/if}
   </div>
+  {/if}
 </PageContent>
