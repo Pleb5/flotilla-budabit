@@ -11,17 +11,8 @@ export default defineConfig({
   server: {
     port: 1847,
     fs: {
-      allow: [".", "../packages", "../../node_modules"],
+      allow: [".", path.resolve(__dirname, "../")],
     },
-    // host: "0.0.0.0",
-    // strictPort: true,
-    // allowedHosts: ["coracle-client.ngrok.io"],
-    // hmr: {
-    //   protocol: "wss",
-    //   host: "coracle-client.ngrok.io",
-    //   clientPort: 443,
-    // },
-    // cors: true,
   },
   build: {
     sourcemap: true,
@@ -36,6 +27,7 @@ export default defineConfig({
     __STRICT_NIP29__: JSON.stringify(process.env.FEATURE_STRICT_NIP29 === "1"),
   },
   optimizeDeps: {
+    include: ["@codemirror/state", "@codemirror/view"],
     exclude: [
       "svelte-codemirror-editor",
       "codemirror",
@@ -47,10 +39,8 @@ export default defineConfig({
       "@codemirror/lang-xml",
       "@codemirror/lang-markdown",
       "@codemirror/lang-sql",
-      "@codemirror/state",
-      "@codemirror/view",
       "@codemirror/theme-one-dark",
-      "@nostr-git/core",
+      "@nostr-git/core",,
     ],
   },
   ssr: {

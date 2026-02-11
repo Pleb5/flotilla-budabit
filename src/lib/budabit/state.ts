@@ -1,5 +1,7 @@
 import {writable, derived, get as getStore, type Writable} from "svelte/store"
 import {load, request} from "@welshman/net"
+import {writable, derived, get as getStore, type Writable} from "svelte/store"
+import {load, request} from "@welshman/net"
 import {
   groupByEuc,
   deriveMaintainers,
@@ -47,11 +49,32 @@ export const FREELANCE_JOB = 32767
 export const DEFAULT_WORKER_PUBKEY =
   "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
 
+export const DEFAULT_WORKER_PUBKEY =
+  "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
+
 export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
 export const ROOMS = 10009
 
 export const GENERAL = "_"
+
+// Job-related types and stores
+export interface JobRequestEvent {
+  id: string
+  pubkey: string
+  content: string
+  created_at: number
+  tags: string[][]
+}
+
+export interface JobRequestStatus {
+  status: "pending" | "success" | "error"
+  eventId?: string
+  relays: Array<{url: string; status: "success" | "error"; error?: string}>
+  error?: string
+}
+
+export const jobRequestStatus = writable<JobRequestStatus | null>(null)
 
 // Job-related types and stores
 export interface JobRequestEvent {
@@ -243,6 +266,10 @@ export const deriveIssueThread = (rootId: string) =>
               comments: $comments as unknown as any[],
               statuses: $statuses as unknown as any[],
             })
+              root: $root as unknown as any,
+              comments: $comments as unknown as any[],
+              statuses: $statuses as unknown as any[],
+            })
           : undefined,
     ),
   )
@@ -278,6 +305,7 @@ export const deriveEffectiveLabels = (eventId: string) =>
         const t = (($evt as any).tags || [])
           .filter((t: string[]) => t[0] === "t")
           .map((t: string[]) => t[1])
+        return mergeEffectiveLabels({self, external, t})
         return mergeEffectiveLabels({self, external, t})
       },
     ),
@@ -365,6 +393,7 @@ export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
 }
 
 export const makeChannelId = (url: string, room: string): string => {
+export const makeChannelId = (url: string, room: string): string => {
   if (room.startsWith("naddr1")) {
     return "naddr1"
   }
@@ -417,6 +446,9 @@ export const channels = derived(
       }
     }
 
+    // These variables aren't defined in the current scope, so we'll skip this code block
+    // TODO: Fix the undefined variables ($memberships, getMembershipRooms, $messages, nthEq, ROOM)
+
     return uniqBy(c => c.id, $channels)
   },
 )
@@ -453,6 +485,7 @@ export async function loadPlatformChannels() {
   await request({
     relays: PLATFORM_RELAYS,
     filters: [{kinds: [ROOM_META]}],
+    autoClose: true,
     autoClose: true,
   })
 }

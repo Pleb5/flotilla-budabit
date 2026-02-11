@@ -120,7 +120,8 @@ import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
-import { deleteIndexedDB } from "@lib/util"
+import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
+import {deleteIndexedDB} from "@lib/util"
 
 // Utils
 
@@ -339,6 +340,7 @@ export interface JobRequestParams {
   relays: string[]
   cmd: string
   args: string[]
+  repoNaddr?: string
 }
 
 export interface JobRequestResult {
@@ -364,11 +366,12 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
     content: "",
     created_at: Math.floor(Date.now() / 1000),
     tags: [
-      ["p", "fa84c22dc47c67d9307b6966c992725f70dfcd8a0e5530fd7e3568121f6e1673"], // User pubkey hardcoded
+      ["p", "b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710"], // User pubkey hardcoded
       ["worker", DEFAULT_WORKER_PUBKEY], // Worker pubkey
       ["cmd", params.cmd],
       ["args", ...params.args],
       ["payment", params.cashuToken],
+      ...(params.repoNaddr ? [["a", params.repoNaddr]] : []),
     ],
   }
 
@@ -426,12 +429,9 @@ export const logout = async () => {
 
 export async function nostrGitLogoutCleanup(): Promise<void> {
   try {
-    await Promise.all([
-      deleteIndexedDB('nostr-git'),
-      deleteIndexedDB('nostr-git-cache')
-    ])
+    await Promise.all([deleteIndexedDB("nostr-git"), deleteIndexedDB("nostr-git-cache")])
   } catch (err) {
-    console.error('Nostr-Git IndexedDB cleanup failed', err)
+    console.error("Nostr-Git IndexedDB cleanup failed", err)
   }
 }
 
@@ -808,7 +808,6 @@ export const createAlert = async (params: CreateAlertParams): Promise<CreateAler
     const cadence = params.email.cron.endsWith("1") ? "Weekly" : "Daily"
     const handler = [
       "31990:97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322:1737058597050",
-      "wss://purplepag.es/",
       "web",
     ]
 

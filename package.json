@@ -122,7 +122,7 @@
     "highlight.js": "^11.11.1",
     "husky": "^9.1.7",
     "idb": "^8.0.3",
-    "isomorphic-git": "https://github.com/chebizarro/isomorphic-git/releases/download/v2.0.0-alpha/isomorphic-git-2.0.0-alpha.tgz",
+    "isomorphic-git": "^1.36.1",
     "markdown-it": "^14.1.0",
     "marked": "^17.0.0",
     "mustache": "^4.2.0",
