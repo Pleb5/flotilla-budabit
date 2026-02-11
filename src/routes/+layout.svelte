@@ -56,6 +56,8 @@
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
   const PWA_UPDATE_INTERVAL = 2 * 60 * 1000
   let swUpdateInterval: number | null = null
+  let swUpdateOnFocus: (() => void) | null = null
+  let swUpdateOnVisibilityChange: (() => void) | null = null
   let updateToastShown = false
   let waitingWorker: ServiceWorker | null = null
 
@@ -115,9 +117,21 @@
 
     const registration = await navigator.serviceWorker.ready
 
-    if (registration.waiting && navigator.serviceWorker.controller) {
-      notifyUpdateReady(registration.waiting)
+    const checkForWaitingWorker = () => {
+      if (registration.waiting && navigator.serviceWorker.controller) {
+        notifyUpdateReady(registration.waiting)
+      }
     }
+
+    const checkForUpdate = async () => {
+      try {
+        await registration.update()
+      } finally {
+        checkForWaitingWorker()
+      }
+    }
+
+    checkForWaitingWorker()
 
     registration.addEventListener("updatefound", () => {
       const installing = registration.installing
@@ -131,9 +145,21 @@
       })
     })
 
+    void checkForUpdate()
+
     swUpdateInterval = window.setInterval(() => {
-      registration.update()
+      void checkForUpdate()
     }, PWA_UPDATE_INTERVAL)
+
+    swUpdateOnFocus = () => void checkForUpdate()
+    window.addEventListener("focus", swUpdateOnFocus)
+
+    swUpdateOnVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void checkForUpdate()
+      }
+    }
+    document.addEventListener("visibilitychange", swUpdateOnVisibilityChange)
   }
 
   setupServiceWorkerUpdates()
@@ -271,6 +297,16 @@
     if (swUpdateInterval) {
       clearInterval(swUpdateInterval)
       swUpdateInterval = null
+    }
+
+    if (swUpdateOnFocus) {
+      window.removeEventListener("focus", swUpdateOnFocus)
+      swUpdateOnFocus = null
+    }
+
+    if (swUpdateOnVisibilityChange) {
+      document.removeEventListener("visibilitychange", swUpdateOnVisibilityChange)
+      swUpdateOnVisibilityChange = null
     }
   })
 </script>
