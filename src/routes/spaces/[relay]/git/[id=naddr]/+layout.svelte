@@ -976,7 +976,7 @@
 
   function overviewRepo() {
     if (!repoClass) return
-    goto(`/spaces/${relay}/git/${id}/`)
+    goto(`${basePath}/`)
   }
 
   // Connect the nostr-git toast store to the toast component
