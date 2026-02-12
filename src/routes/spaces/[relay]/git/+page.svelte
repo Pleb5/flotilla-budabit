@@ -48,6 +48,7 @@
     TabsList,
     TabsTrigger,
     EventRenderer,
+    toast,
   } from "@nostr-git/ui"
   import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
   import RepoPickerWrapper from "@app/components/RepoPickerWrapper.svelte"
@@ -98,6 +99,30 @@
   const getAuthorName = (profile: any) => {
     return profile?.display_name || profile?.name || "Anonymous"
   }
+
+  // Connect the nostr-git toast store to the app toast component
+  $effect(() => {
+    const unsubscribe = toast.subscribe((toasts) => {
+      if (toasts.length > 0) {
+        toasts.forEach(t => {
+          pushToast({
+            message:
+              t.message ||
+              (t.title && t.description
+                ? `${t.title}: ${t.description}`
+                : t.title || t.description || ""),
+            timeout: t.timeout || t.duration,
+            theme: t.theme || (t.variant === "destructive" ? "error" : undefined),
+          })
+        })
+        toast.clear()
+      }
+    })
+
+    return () => {
+      unsubscribe()
+    }
+  })
 
   const getPermalinkTagValue = (evt: NostrEvent, name: string) =>
     evt.tags?.find(tag => tag[0] === name)?.[1] || ""
