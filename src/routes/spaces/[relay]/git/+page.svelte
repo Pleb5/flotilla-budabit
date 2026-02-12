@@ -696,8 +696,16 @@
         {
           workerApi, // Pass initialized worker API
           workerInstance, // Pass worker instance for event signing
-          onRepoCreated: () => {
-            // Reload repos by forcing bookmarks refresh and announcements
+          onRepoCreated: (result: any) => {
+            // Add announcement event to local store so repo appears immediately
+            if (result?.announcementEvent) {
+              try {
+                repository.publish(result.announcementEvent)
+              } catch (e) {
+                console.warn("[git/+page] Failed to add announcement to local store:", e)
+              }
+            }
+            // Also reload from relays for completeness
             loadRepoAnnouncements(bookmarkRelays)
           },
           onNavigateToRepo: (result: NewRepoResult) => {
