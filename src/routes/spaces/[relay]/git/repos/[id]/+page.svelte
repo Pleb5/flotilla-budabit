@@ -10,6 +10,7 @@
     import Icon from "@lib/components/Icon.svelte"
     import PageBar from "@lib/components/PageBar.svelte"
     import Spinner from "@lib/components/Spinner.svelte"
+    import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
     import GitItem from "@app/components/GitItem.svelte"
     import {decodeRelay} from "@app/core/state"
     import {load} from "@welshman/net"
@@ -81,6 +82,9 @@
     {/snippet}
     {#snippet title()}
       <strong>Git Repos</strong>
+    {/snippet}
+    {#snippet action()}
+      <SpaceMenuButton {url} />
     {/snippet}
   </PageBar>
   

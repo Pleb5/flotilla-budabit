@@ -23,6 +23,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
@@ -908,15 +909,18 @@
     <strong>Git Repositories</strong>
   {/snippet}
   {#snippet action()}
-    <div class="hidden items-center gap-2 sm:flex">
-      <Button class="btn btn-primary btn-sm" onclick={() => onNewRepo()}>
-        <Icon icon={AddCircle} />
-        New Repo
-      </Button>
-      <Button class="btn btn-secondary btn-sm" onclick={() => onImportRepo()}>
-        <Icon icon={Download} />
-        Import Repo
-      </Button>
+    <div class="row-2">
+      <div class="hidden items-center gap-2 sm:flex">
+        <Button class="btn btn-primary btn-sm" onclick={() => onNewRepo()}>
+          <Icon icon={AddCircle} />
+          New Repo
+        </Button>
+        <Button class="btn btn-secondary btn-sm" onclick={() => onImportRepo()}>
+          <Icon icon={Download} />
+          Import Repo
+        </Button>
+      </div>
+      <SpaceMenuButton {url} />
     </div>
   {/snippet}
 </PageBar>
