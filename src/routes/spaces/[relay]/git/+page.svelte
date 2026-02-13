@@ -80,6 +80,12 @@
   import Download from "@assets/icons/download.svg?dataurl"
   import Code from "@assets/icons/code.svg?dataurl"
   import {makeGitPath} from "@src/lib/budabit"
+  import {
+    type BranchChange,
+    diffBranchHeads,
+    buildBranchUpdateDedupeKey,
+    overlayLatestRepoStates,
+  } from "@src/lib/budabit/branch-update"
 
   const url = decodeRelay($page.params.relay!)
 
@@ -144,13 +150,6 @@
 
   const getSnippetFilePath = (evt: NostrEvent) =>
     getPermalinkTagValueAny(evt, ["file", "path", "f"]) || getPermalinkTagValue(evt, "p")
-
-  type BranchChange = {
-    name: string
-    oldOid?: string
-    newOid?: string
-    change: "added" | "updated" | "removed"
-  }
 
   type RepoBranchUpdate = {
     repoId: string
@@ -460,15 +459,7 @@
       if (!repoId || map.has(repoId)) continue
       map.set(repoId, ev)
     }
-    for (const [repoId, optimistic] of Object.entries(optimisticRepoStates)) {
-      const existing = map.get(repoId)
-      const existingTime = existing?.created_at || 0
-      const optimisticTime = optimistic?.created_at || 0
-      if (!existing || optimisticTime >= existingTime) {
-        map.set(repoId, optimistic)
-      }
-    }
-    return map
+    return overlayLatestRepoStates(map, optimisticRepoStates)
   })
 
   $effect(() => {
@@ -714,25 +705,6 @@
       const to = change.newOid || "<missing>"
       logBranchUpdate(`${repoLabel}: diff ${change.change} ${ref} ${from} -> ${to}`)
     }
-  }
-
-  const diffBranchHeads = (current: Map<string, string>, remote: Map<string, string>) => {
-    const updates: BranchChange[] = []
-    for (const [ref, newOid] of remote.entries()) {
-      const oldOid = current.get(ref)
-      const name = ref.replace("refs/heads/", "")
-      if (!oldOid) {
-        updates.push({name, newOid, change: "added"})
-      } else if (oldOid !== newOid) {
-        updates.push({name, oldOid, newOid, change: "updated"})
-      }
-    }
-    for (const [ref, oldOid] of current.entries()) {
-      if (remote.has(ref)) continue
-      const name = ref.replace("refs/heads/", "")
-      updates.push({name, oldOid, change: "removed"})
-    }
-    return updates
   }
 
   const isNotFoundError = (error: unknown) => {
@@ -1002,18 +974,7 @@
 
       pendingBranchUpdates = updates
       if (updates.length > 0) {
-        const key = updates
-          .map(repo => {
-            const sortedUpdates = [...repo.updates].sort((a, b) => a.name.localeCompare(b.name))
-            const updateKey = sortedUpdates
-              .map(update =>
-                [update.name, update.change, update.oldOid || "", update.newOid || ""].join(":"),
-              )
-              .join("|")
-            return `${repo.repoId}:${updateKey}`
-          })
-          .sort()
-          .join("||")
+        const key = buildBranchUpdateDedupeKey(updates)
         logBranchUpdate("computed update dedupe key", key)
         logBranchUpdate("previous update dedupe key", branchUpdateToastLastKey || "<none>")
 
