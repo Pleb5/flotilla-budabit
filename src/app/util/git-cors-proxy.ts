@@ -85,8 +85,8 @@ export const notifyCorsProxyIssue = (error?: unknown): void => {
   if (error && !isCorsProxyIssue(error)) return
   const now = Date.now()
   if (now - lastCorsProxyToastAt < CORS_PROXY_TOAST_COOLDOWN_MS) return
-  const currentToast = get(toast)
-  if (currentToast?.message?.includes("CORS proxy")) return
+  const currentToasts = get(toast)
+  if (currentToasts.some(item => item.message?.includes("CORS proxy"))) return
   lastCorsProxyToastAt = now
   pushToast({
     theme: "warning",

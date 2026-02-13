@@ -1,6 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address, getTagValue} from "@welshman/util"
+  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address, getTagValue, type Filter} from "@welshman/util"
   import {
     repository,
     publishThunk,
@@ -26,7 +26,7 @@
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
-  import {pushToast} from "@app/util/toast"
+  import {pushToast, popToast} from "@app/util/toast"
   import {decodeRelay} from "@app/core/state"
   import {goto} from "$app/navigation"
   import {onMount} from "svelte"
@@ -34,10 +34,14 @@
   import {nip19, type NostrEvent} from "nostr-tools"
   import {
     GIT_REPO_ANNOUNCEMENT,
+    GIT_REPO_STATE,
+    createRepoStateEvent,
     parseRepoAnnouncementEvent,
     type BookmarkAddress,
     type RepoAnnouncementEvent,
+    type RepoStateEvent,
   } from "@nostr-git/core/events"
+  import {filterValidCloneUrls} from "@nostr-git/core/utils"
   import {GIT_PERMALINK} from "@nostr-git/core/types"
   import {
     Avatar,
@@ -52,6 +56,7 @@
     toast,
   } from "@nostr-git/ui"
   import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
+  import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
   import RepoPickerWrapper from "@app/components/RepoPickerWrapper.svelte"
   import ImportRepoDialogWrapper from "@app/components/ImportRepoDialogWrapper.svelte"
   import type {ImportResult, NewRepoResult} from "@nostr-git/ui"
@@ -63,6 +68,7 @@
     derivePatchGraph,
     deriveNaddrEvent,
     GIT_RELAYS,
+    getRepoAnnouncementRelays,
   } from "@lib/budabit/state"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
   import {createNip98AuthHeader} from "@src/lib/budabit/event-io"
@@ -139,6 +145,30 @@
   const getSnippetFilePath = (evt: NostrEvent) =>
     getPermalinkTagValueAny(evt, ["file", "path", "f"]) || getPermalinkTagValue(evt, "p")
 
+  type BranchChange = {
+    name: string
+    oldOid?: string
+    newOid?: string
+    change: "added" | "updated" | "removed"
+  }
+
+  type RepoBranchUpdate = {
+    repoId: string
+    repoName: string
+    cloneUrl: string
+    relays: string[]
+    headBranch?: string
+    updates: BranchChange[]
+    refs: Array<{type: "heads"; name: string; commit: string}>
+  }
+
+  type ServerRef = {
+    ref?: string
+    oid?: string
+    symref?: string
+    target?: string
+  }
+
   let loading = $state(true)
   let activeTab = $state<"my-repos" | "bookmarks" | "snippets">("my-repos")
   let searchQuery = $state("")
@@ -148,33 +178,66 @@
   let settleTimer: ReturnType<typeof setTimeout> | null = null
   let lastRepoCount = $state(0)
   let snippetsLoadedFor = $state<string | null>(null)
+  let repoStateLoadKey = $state("")
+  let myRepoStateEvents = $state<RepoStateEvent[]>([])
+  let optimisticRepoStates = $state<Record<string, RepoStateEvent>>({})
+  let repoStateSettled = $state(false)
+  let repoStateSettleTimer: ReturnType<typeof setTimeout> | null = null
+  // Per-page-load guard (reset on refresh/navigation remount)
+  let branchUpdateCheckDone = $state(false)
+  let branchUpdateChecking = $state(false)
+  let pendingBranchUpdates = $state<RepoBranchUpdate[]>([])
+  let branchUpdateToastLastKey = ""
+  let branchUpdateToastId: string | null = null
+  const logBranchUpdate = (message: string, details?: unknown) => {
+    if (details === undefined) {
+      console.warn(`[branch-update] ${message}`)
+    } else {
+      console.warn(`[branch-update] ${message}`, details)
+    }
+  }
 
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
   let workerApi: any = null
   let workerInstance: Worker | null = null
+  let workerReady = $state(false)
   onMount(async () => {
     try {
       const {api, worker} = await getInitializedGitWorker()
       workerApi = api
       workerInstance = worker
+      workerReady = true
       console.log("[+page.svelte] Worker API initialized successfully")
     } catch (error) {
       console.error("[+page.svelte] Failed to initialize worker:", error)
+      workerReady = false
     }
+
+    branchUpdateCheckDone = false
+    logBranchUpdate("session start: check flag reset for this page load")
+    branchUpdateToastLastKey = ""
+    logBranchUpdate("toast dedupe key reset for this page load")
 
     // Load my repos on mount
     if ($pubkey) {
       const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
-      load({relays: bookmarkRelays, filters: [filter]})
+      load({relays: repoAnnouncementRelays, filters: [filter]})
     }
+  })
+
+  $effect(() => {
+    if (!$pubkey) return
+    if (!repoAnnouncementRelays.length) return
+    const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
+    load({relays: repoAnnouncementRelays, filters: [filter]})
   })
 
   $effect(() => {
     if (activeTab !== "snippets") return
     if (!$pubkey) return
     if (snippetsLoadedFor === $pubkey) return
-    const filter = {kinds: [GIT_PERMALINK], authors: [$pubkey]} as NostrFilter
+    const filter = {kinds: [GIT_PERMALINK], authors: [$pubkey]} as Filter
     load({relays: bookmarkRelays, filters: [filter]})
     snippetsLoadedFor = $pubkey
   })
@@ -186,6 +249,12 @@
       [url, ...Router.get().FromUser().getUrls(), ...GIT_RELAYS].map(u => normalizeRelayUrl(u)).filter(Boolean),
     ),
   ) as string[]
+
+  // Repo announcements should always be fetched from user outbox + GIT_RELAYS
+  let repoAnnouncementRelays = $state<string[]>([])
+  $effect(() => {
+    repoAnnouncementRelays = getRepoAnnouncementRelays()
+  })
 
   const normalizeBookmarks = (value: unknown): BookmarkAddress[] => {
     if (!value) return []
@@ -232,7 +301,7 @@
       if (events.length !== identifiers.length) {
         if (!attemptedBookmarkLoads.has(loadKey)) {
           attemptedBookmarkLoads.add(loadKey)
-          const relaysToQuery = relayHints.length > 0 ? relayHints : bookmarkRelays
+          const relaysToQuery = repoAnnouncementRelays.length > 0 ? repoAnnouncementRelays : GIT_RELAYS
           if (relaysToQuery.length > 0) {
             load({relays: relaysToQuery, filters: [repoFilter]})
           } else {
@@ -283,7 +352,7 @@
 
   const loadedMyRepos = $derived.by(() => {
     if (!$myReposEvents) return []
-    
+
     return ($myReposEvents as any[]).map((repo: RepoAnnouncementEvent) => {
       let addressString = ""
       try {
@@ -296,14 +365,143 @@
         }
       }
 
-      const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
-      return {address: addressString, event: repo, relayHint: relayHintFromEvent || ""}
+    const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
+    return {address: addressString, event: repo, relayHint: relayHintFromEvent || ""}
     })
+  })
+
+  const latestMyRepos = $derived.by(() => {
+    if (!$myReposEvents || !$pubkey) return []
+    const repoIds = new Set<string>()
+    for (const repo of $myReposEvents as RepoAnnouncementEvent[]) {
+      const repoId = getTagValue("d", repo.tags) || ""
+      if (repoId) repoIds.add(repoId)
+    }
+
+    const latest: Array<{address: string; event: RepoAnnouncementEvent; relayHint: string}> = []
+    for (const repoId of repoIds) {
+      const address = `${GIT_REPO_ANNOUNCEMENT}:${$pubkey}:${repoId}`
+      const event = repository.getEvent(address) as RepoAnnouncementEvent | undefined
+      if (!event) continue
+
+      let addressString = ""
+      try {
+        const parsedAddress = Address.fromEvent(event)
+        addressString = parsedAddress.toString()
+      } catch {
+        addressString = address
+      }
+
+      const relayHintFromEvent = Router.get().getRelaysForPubkey(event.pubkey)?.[0]
+      latest.push({address: addressString, event, relayHint: relayHintFromEvent || ""})
+    }
+
+    return latest
+  })
+
+  const myRepoIds = $derived.by(() => {
+    if (!latestMyRepos || latestMyRepos.length === 0) return []
+    const ids = new Set<string>()
+    for (const repo of latestMyRepos) {
+      try {
+        const parsed = parseRepoAnnouncementEvent(repo.event as RepoAnnouncementEvent)
+        if (parsed.repoId) ids.add(parsed.repoId)
+      } catch (error) {
+        console.warn("[git/+page] Failed to parse repo announcement for state lookup:", error)
+      }
+    }
+    return Array.from(ids)
+  })
+
+  const myRepoRelays = $derived.by(() => {
+    if (!latestMyRepos || latestMyRepos.length === 0) return []
+    const relays = new Set<string>()
+    for (const repo of latestMyRepos) {
+      try {
+        const parsed = parseRepoAnnouncementEvent(repo.event as RepoAnnouncementEvent)
+        for (const relay of parsed.relays || []) {
+          const normalized = normalizeRelayUrl(relay)
+          if (normalized) relays.add(normalized)
+        }
+      } catch (error) {
+        console.warn("[git/+page] Failed to parse repo announcement relays:", error)
+      }
+    }
+    return Array.from(relays)
+  })
+
+  const branchStateRelays = $derived.by(() => {
+    const relays = new Set<string>()
+    for (const relay of [...myRepoRelays, ...GIT_RELAYS]) {
+      const normalized = normalizeRelayUrl(relay)
+      if (normalized) relays.add(normalized)
+    }
+    return Array.from(relays)
+  })
+
+  $effect(() => {
+    if (!$pubkey || myRepoIds.length === 0) {
+      myRepoStateEvents = []
+      optimisticRepoStates = {}
+      return
+    }
+    const filter = {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": myRepoIds} as Filter
+    const store = deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
+    const unsubscribe = store.subscribe(events => {
+      myRepoStateEvents = events as RepoStateEvent[]
+    })
+    return () => unsubscribe()
+  })
+
+  const latestMyRepoStates = $derived.by(() => {
+    const map = new Map<string, RepoStateEvent>()
+    for (const ev of myRepoStateEvents) {
+      const repoId = getTagValue("d", ev.tags) || ""
+      if (!repoId || map.has(repoId)) continue
+      map.set(repoId, ev)
+    }
+    for (const [repoId, optimistic] of Object.entries(optimisticRepoStates)) {
+      const existing = map.get(repoId)
+      const existingTime = existing?.created_at || 0
+      const optimisticTime = optimistic?.created_at || 0
+      if (!existing || optimisticTime >= existingTime) {
+        map.set(repoId, optimistic)
+      }
+    }
+    return map
+  })
+
+  $effect(() => {
+    if (!$pubkey) return
+    if (myRepoIds.length === 0) {
+      repoStateSettled = false
+      logBranchUpdate("repo-state unset: no repo ids yet")
+      return
+    }
+    const ids = [...myRepoIds].sort()
+    const relayKey = [...branchStateRelays].sort().join(",")
+    const key = `${$pubkey}:${ids.join(",")}:${relayKey}`
+    if (repoStateLoadKey === key) return
+    repoStateLoadKey = key
+    repoStateSettled = false
+    logBranchUpdate("repo-state settle timer armed", {key, waitMs: 2500})
+    if (repoStateSettleTimer) {
+      clearTimeout(repoStateSettleTimer)
+      repoStateSettleTimer = null
+    }
+    repoStateSettleTimer = setTimeout(() => {
+      repoStateSettled = true
+      repoStateSettleTimer = null
+      logBranchUpdate("repo-state settled")
+    }, 2500)
+    const filter = {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": ids} as Filter
+    const relays = branchStateRelays
+    load({relays, filters: [filter]})
   })
 
   const mySnippetsEvents = $derived.by(() => {
     if (!$pubkey) return undefined
-    const filter = {kinds: [GIT_PERMALINK], authors: [$pubkey]} as NostrFilter
+    const filter = {kinds: [GIT_PERMALINK], authors: [$pubkey]} as Filter
     return deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
   })
 
@@ -382,7 +580,7 @@
       const decoded = nip19.decode(naddr) as {type: string; data: any}
       // Only fetch if it's a repo announcement (kind 30617)
       if (decoded.type === "naddr" && decoded.data.kind === GIT_REPO_ANNOUNCEMENT) {
-        const eventStore = deriveNaddrEvent(naddr, bookmarkRelays)
+        const eventStore = deriveNaddrEvent(naddr, repoAnnouncementRelays)
         return getStore(eventStore)
       }
     } catch (e) {
@@ -436,6 +634,426 @@
       }
     })
   })
+
+  const hasRepoStateRefs = (state?: RepoStateEvent) => {
+    if (!state?.tags) return false
+    return state.tags.some((t: string[]) => typeof t[0] === "string" && t[0].startsWith("refs/"))
+  }
+
+  const getRepoStateHeads = (state?: RepoStateEvent) => {
+    const heads = new Map<string, string>()
+    if (!state?.tags) return heads
+    for (const tag of state.tags) {
+      const [ref, commit] = tag
+      if (!ref || typeof ref !== "string") continue
+      if (!ref.startsWith("refs/heads/")) continue
+      if (!commit || typeof commit !== "string") continue
+      heads.set(ref, commit)
+    }
+    return heads
+  }
+
+  const parseHeadBranchFromRefs = (refs: ServerRef[]) => {
+    const headRef = refs.find(r => r?.ref === "HEAD")
+    const symref = typeof headRef?.symref === "string" ? headRef.symref : headRef?.target
+    if (typeof symref === "string" && symref.startsWith("refs/heads/")) {
+      return symref.replace("refs/heads/", "")
+    }
+    return undefined
+  }
+
+  const parseRemoteHeads = (refs: ServerRef[]) => {
+    const heads = new Map<string, string>()
+    for (const ref of refs) {
+      if (!ref?.ref || typeof ref.ref !== "string") continue
+      if (!ref.ref.startsWith("refs/heads/")) continue
+      if (!ref.oid || typeof ref.oid !== "string") continue
+      heads.set(ref.ref, ref.oid)
+    }
+    let headBranch = parseHeadBranchFromRefs(refs)
+    if (!headBranch) {
+      if (heads.has("refs/heads/main")) headBranch = "main"
+      else if (heads.has("refs/heads/master")) headBranch = "master"
+    }
+    return {heads, headBranch}
+  }
+
+  const logBranchComparisons = (
+    repoLabel: string,
+    currentHeads: Map<string, string>,
+    remoteHeads: Map<string, string>,
+  ) => {
+    for (const [ref, newOid] of remoteHeads.entries()) {
+      const oldOid = currentHeads.get(ref) || "<none>"
+      logBranchUpdate(`${repoLabel}: comparing ${ref} ${oldOid} -> ${newOid}`)
+    }
+    for (const [ref, oldOid] of currentHeads.entries()) {
+      if (remoteHeads.has(ref)) continue
+      logBranchUpdate(`${repoLabel}: comparing ${ref} ${oldOid} -> <missing>`)
+    }
+  }
+
+  const logHeadMap = (repoLabel: string, prefix: "local" | "remote", heads: Map<string, string>) => {
+    if (heads.size === 0) {
+      logBranchUpdate(`${repoLabel}: ${prefix} heads: <none>`)
+      return
+    }
+    for (const [ref, oid] of Array.from(heads.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+      logBranchUpdate(`${repoLabel}: ${prefix} ${ref} = ${oid}`)
+    }
+  }
+
+  const logBranchChanges = (repoLabel: string, changes: BranchChange[]) => {
+    if (changes.length === 0) {
+      logBranchUpdate(`${repoLabel}: diff result: no changes`)
+      return
+    }
+    for (const change of changes) {
+      const ref = `refs/heads/${change.name}`
+      const from = change.oldOid || "<none>"
+      const to = change.newOid || "<missing>"
+      logBranchUpdate(`${repoLabel}: diff ${change.change} ${ref} ${from} -> ${to}`)
+    }
+  }
+
+  const diffBranchHeads = (current: Map<string, string>, remote: Map<string, string>) => {
+    const updates: BranchChange[] = []
+    for (const [ref, newOid] of remote.entries()) {
+      const oldOid = current.get(ref)
+      const name = ref.replace("refs/heads/", "")
+      if (!oldOid) {
+        updates.push({name, newOid, change: "added"})
+      } else if (oldOid !== newOid) {
+        updates.push({name, oldOid, newOid, change: "updated"})
+      }
+    }
+    for (const [ref, oldOid] of current.entries()) {
+      if (remote.has(ref)) continue
+      const name = ref.replace("refs/heads/", "")
+      updates.push({name, oldOid, change: "removed"})
+    }
+    return updates
+  }
+
+  const isNotFoundError = (error: unknown) => {
+    const anyError = error as {status?: number; code?: number; data?: {status?: number}; message?: string}
+    const status = anyError?.status ?? anyError?.code ?? anyError?.data?.status
+    const message = String(anyError?.message ?? error ?? "")
+    return status === 404 || message.includes("404") || message.includes("Not Found")
+  }
+
+  const buildCloneCandidates = (cloneUrl: string) => {
+    const raw = String(cloneUrl || "").trim()
+    const valid = filterValidCloneUrls([raw])
+    if (valid.length === 0) return []
+
+    const candidates: string[] = []
+    const add = (url: string) => {
+      const cleaned = url.replace(/\/+$/, "")
+      if (cleaned && !candidates.includes(cleaned)) {
+        candidates.push(cleaned)
+      }
+    }
+
+    const base = valid[0]
+    if (/^https?:\/\//i.test(base)) {
+      add(base)
+    } else if (/^git@/i.test(base)) {
+      const match = base.match(/^git@([^:]+):(.+)$/)
+      if (match) add(`https://${match[1]}/${match[2]}`)
+    } else if (/^ssh:\/\//i.test(base)) {
+      const match = base.match(/^ssh:\/\/(?:.+@)?([^/]+)\/(.+)$/)
+      if (match) add(`https://${match[1]}/${match[2]}`)
+    } else if (/^git:\/\//i.test(base)) {
+      const match = base.match(/^git:\/\/([^/]+)\/(.+)$/)
+      if (match) add(`https://${match[1]}/${match[2]}`)
+    } else {
+      add(base)
+    }
+
+    const withGit: string[] = []
+    for (const url of candidates) {
+      withGit.push(url)
+      if (!url.endsWith(".git")) {
+        withGit.push(`${url}.git`)
+      }
+    }
+
+    return Array.from(new Set(withGit))
+  }
+
+  const listServerRefsWithFallback = async (cloneUrl: string) => {
+    const candidates = buildCloneCandidates(cloneUrl)
+    logBranchUpdate("remote ref lookup candidates", {cloneUrl, candidates})
+    let lastError: unknown = null
+    let sawNotFound = false
+    for (const candidate of candidates) {
+      try {
+        logBranchUpdate("remote ref lookup attempt", candidate)
+        const result = await workerApi.listServerRefs({url: candidate, symrefs: true})
+        if (Array.isArray(result)) {
+          logBranchUpdate("remote ref lookup success", {candidate, count: result.length})
+          return result as ServerRef[]
+        }
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          sawNotFound = true
+          logBranchUpdate("remote ref lookup not found", candidate)
+          continue
+        }
+        lastError = error
+        logBranchUpdate("remote ref lookup failed", {candidate, error})
+      }
+    }
+    if (lastError) throw lastError
+    if (sawNotFound) return []
+    return []
+  }
+
+  const openBranchSyncModal = () => {
+    if (!pendingBranchUpdates.length) return
+    pushModal(BranchStateSyncModal, {
+      repos: pendingBranchUpdates,
+      onCancel: () => clearModals(),
+      onUpdate: async (
+        selected: RepoBranchUpdate[],
+        onProgress?: (completed: number, total: number) => void,
+      ) => {
+        if (!selected.length) {
+          clearModals()
+          return {total: 0, completed: 0, failures: []}
+        }
+        const total = selected.length
+        let completed = 0
+        const failures: Array<{repoId: string; repoName: string; error: string}> = []
+        onProgress?.(completed, total)
+
+        for (const repo of selected) {
+          try {
+            const baseRelays = repo.relays && repo.relays.length > 0 ? repo.relays : repoAnnouncementRelays
+            if (!baseRelays || baseRelays.length === 0) {
+              throw new Error(`No relays configured for ${repo.repoName || repo.repoId}`)
+            }
+            const targetRelays = Array.from(new Set([...baseRelays, ...GIT_RELAYS]))
+              .map(relay => normalizeRelayUrl(relay))
+              .filter(Boolean) as string[]
+            const stateEvent = createRepoStateEvent({
+              repoId: repo.repoId,
+              head: repo.headBranch,
+              refs: repo.refs,
+            })
+            const thunk = await publishEventToRelays(stateEvent, targetRelays)
+            if (thunk?.event) {
+              const published = thunk.event as RepoStateEvent
+              optimisticRepoStates = {
+                ...optimisticRepoStates,
+                [repo.repoId]: published,
+              }
+              myRepoStateEvents = [
+                published,
+                ...myRepoStateEvents.filter(event => event.id !== published.id),
+              ]
+              logBranchUpdate(`${repo.repoName || repo.repoId}: optimistic repo state applied`, {
+                stateEventId: published.id,
+                created_at: published.created_at,
+              })
+            }
+          } catch (error) {
+            failures.push({
+              repoId: repo.repoId,
+              repoName: repo.repoName || repo.repoId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          } finally {
+            completed += 1
+            onProgress?.(completed, total)
+          }
+        }
+
+        if (failures.length > 0) {
+          const failedNames = failures.map(f => f.repoName || f.repoId)
+          const summary =
+            failedNames.length > 3
+              ? `${failedNames.slice(0, 3).join(", ")} +${failedNames.length - 3} more`
+              : failedNames.join(", ")
+          pushToast({
+            message: `Branch state update failed for: ${summary}`,
+            theme: "error",
+          })
+          pendingBranchUpdates = pendingBranchUpdates.filter(repo =>
+            failures.some(failure => failure.repoId === repo.repoId),
+          )
+        } else {
+          pushToast({message: "Branches synchronized to Nostr", theme: "success"})
+          pendingBranchUpdates = []
+        }
+        const updatedCount = total - failures.length
+        return {total, completed: updatedCount, failures}
+      },
+    })
+  }
+
+  const checkRepoBranchUpdates = async () => {
+    if (!workerApi || !$pubkey) {
+      logBranchUpdate("check aborted: worker or pubkey missing")
+      return
+    }
+    if (branchUpdateChecking) {
+      logBranchUpdate("check aborted: already in progress")
+      return
+    }
+    if (!latestMyRepos || latestMyRepos.length === 0) {
+      logBranchUpdate("check aborted: no repos in latestMyRepos")
+      return
+    }
+
+    branchUpdateChecking = true
+    logBranchUpdate("check start", {
+      repoCount: latestMyRepos.length,
+      knownStateCount: latestMyRepoStates.size,
+    })
+    try {
+      const updates: RepoBranchUpdate[] = []
+      for (const repo of latestMyRepos) {
+        const repoEvent = repo.event as RepoAnnouncementEvent
+        let parsed
+        try {
+          parsed = parseRepoAnnouncementEvent(repoEvent)
+        } catch (error) {
+          console.warn("[git/+page] Failed to parse repo announcement:", error)
+          logBranchUpdate("repo parse failed", error)
+          continue
+        }
+
+        const repoId = parsed.repoId
+        if (!repoId) {
+          logBranchUpdate("repo skipped: missing repoId", parsed)
+          continue
+        }
+
+        const repoLabel = parsed.name || repoId
+
+        const cloneUrl = parsed.clone?.[0]
+        if (!cloneUrl) {
+          logBranchUpdate(`${repoLabel}: skipped, missing clone URL`)
+          continue
+        }
+
+        const relays = parsed.relays || []
+        const latestState = latestMyRepoStates.get(repoId)
+        logBranchUpdate(`${repoLabel}: evaluation start`, {
+          repoId,
+          cloneUrl,
+          relayCount: relays.length,
+          stateEventId: latestState?.id || "<none>",
+        })
+        if (latestState && !hasRepoStateRefs(latestState)) {
+          logBranchUpdate(`${repoLabel}: skipping, latest state has no refs tags`)
+          continue
+        }
+
+        let refs: ServerRef[] = []
+        try {
+          refs = await listServerRefsWithFallback(cloneUrl)
+        } catch (error) {
+          console.warn("[git/+page] listServerRefs failed:", error)
+          logBranchUpdate(`${repoLabel}: failed to list remote refs`, error)
+          continue
+        }
+
+        if (refs.length === 0) {
+          logBranchUpdate(`${repoLabel}: no remote refs found for ${cloneUrl}`)
+        }
+
+        const {heads, headBranch} = parseRemoteHeads(refs)
+        if (heads.size === 0) {
+          logBranchUpdate(`${repoLabel}: skipped, remote has zero heads`)
+          continue
+        }
+
+        const currentHeads = getRepoStateHeads(latestState)
+        logHeadMap(repoLabel, "local", currentHeads)
+        logHeadMap(repoLabel, "remote", heads)
+        logBranchComparisons(repoLabel, currentHeads, heads)
+        const changes = diffBranchHeads(currentHeads, heads)
+        logBranchChanges(repoLabel, changes)
+        if (changes.length === 0) {
+          logBranchUpdate(`${repoLabel}: no branch changes`)
+          continue
+        }
+        logBranchUpdate(`${repoLabel}: detected ${changes.length} branch change(s)`)
+
+        const refsForEvent = Array.from(heads.entries()).map(([ref, commit]) => ({
+          type: "heads" as const,
+          name: ref.replace("refs/heads/", ""),
+          commit,
+        }))
+
+        updates.push({
+          repoId,
+          repoName: repoLabel,
+          cloneUrl,
+          relays,
+          headBranch,
+          updates: changes,
+          refs: refsForEvent,
+        })
+      }
+
+      pendingBranchUpdates = updates
+      if (updates.length > 0) {
+        const key = updates
+          .map(repo => {
+            const sortedUpdates = [...repo.updates].sort((a, b) => a.name.localeCompare(b.name))
+            const updateKey = sortedUpdates
+              .map(update =>
+                [update.name, update.change, update.oldOid || "", update.newOid || ""].join(":"),
+              )
+              .join("|")
+            return `${repo.repoId}:${updateKey}`
+          })
+          .sort()
+          .join("||")
+        logBranchUpdate("computed update dedupe key", key)
+        logBranchUpdate("previous update dedupe key", branchUpdateToastLastKey || "<none>")
+
+        if (key && key !== branchUpdateToastLastKey) {
+          branchUpdateToastLastKey = key
+          logBranchUpdate("showing update toast (new dedupe key)")
+          if (branchUpdateToastId) {
+            popToast(branchUpdateToastId)
+            branchUpdateToastId = null
+          }
+          const toastId = pushToast({
+            message: "Some branches need to be updated",
+            timeout: 0,
+            action: {
+              message: "Review",
+              onclick: () => {
+                if (branchUpdateToastId) {
+                  popToast(branchUpdateToastId)
+                  branchUpdateToastId = null
+                }
+                openBranchSyncModal()
+              },
+            },
+          })
+          branchUpdateToastId = toastId
+        } else {
+          logBranchUpdate("toast suppressed by dedupe key match")
+        }
+      } else {
+        logBranchUpdate("no repos require branch updates")
+        if (branchUpdateToastId) {
+          popToast(branchUpdateToastId)
+          branchUpdateToastId = null
+        }
+      }
+    } finally {
+      branchUpdateChecking = false
+      logBranchUpdate("check complete")
+    }
+  }
 
   // Store for URI search repo card
   let uriSearchRepoCard = $state<any[]>([])
@@ -501,6 +1119,46 @@
         lastRepoCount = 0
       }
     }
+  })
+
+  $effect(() => {
+    if (!workerReady) {
+      logBranchUpdate("skip check trigger: worker not ready")
+      return
+    }
+    if (!$pubkey) {
+      logBranchUpdate("skip check trigger: no pubkey")
+      return
+    }
+    if (myRepoIds.length === 0) {
+      logBranchUpdate("skip check trigger: no repo ids")
+      return
+    }
+    if (!repoStateLoadKey) {
+      logBranchUpdate("skip check trigger: repoStateLoadKey empty")
+      return
+    }
+    if (!repoStateSettled) {
+      logBranchUpdate("skip check trigger: repo-state not settled yet")
+      return
+    }
+    if (branchUpdateCheckDone) {
+      logBranchUpdate("skip check: already ran on this page load")
+      return
+    }
+    if (branchUpdateChecking) {
+      logBranchUpdate("skip check trigger: check already in progress")
+      return
+    }
+    logBranchUpdate("triggering check after settle gate")
+    void (async () => {
+      try {
+        await checkRepoBranchUpdates()
+      } finally {
+        branchUpdateCheckDone = true
+        logBranchUpdate("check marked done for current page load")
+      }
+    })()
   })
 
   const back = () => history.back()
@@ -572,7 +1230,7 @@
         fetchRepos,
         publishBookmarks,
         filters: [{kinds: [30617]}],
-        relays: bookmarkRelays,
+        relays: repoAnnouncementRelays,
         makeRelayHint,
         onClose: back,
       })
@@ -585,16 +1243,7 @@
 
   let defaultRepoRelays = $state<string[]>([])
   $effect(() => {
-    try {
-      defaultRepoRelays = Router.get()
-        .FromUser()
-        .getUrls()
-        .map(u => normalizeRelayUrl(u))
-        .filter(Boolean) as string[]
-    } catch (error) {
-      console.warn("Failed to get default repo relays:", error)
-      defaultRepoRelays = []
-    }
+    defaultRepoRelays = repoAnnouncementRelays
   })
 
   const publishEventToRelays = async (event: any, relays: string[] = defaultRepoRelays) => {
@@ -724,7 +1373,7 @@
           workerInstance, // Pass worker instance for event signing
           onRepoCreated: () => {
             // Reload repos by forcing bookmarks refresh and announcements
-            loadRepoAnnouncements(bookmarkRelays)
+            loadRepoAnnouncements(repoAnnouncementRelays)
           },
           onNavigateToRepo: (result: NewRepoResult) => {
             try {
@@ -861,7 +1510,7 @@
           },
           onImportComplete: (result: ImportResult) => {
             // Reload repos by forcing bookmarks refresh and announcements
-            loadRepoAnnouncements(bookmarkRelays)
+            loadRepoAnnouncements(repoAnnouncementRelays)
             pushToast({
               message: `Successfully imported repository! Imported ${result.issuesImported} issues, ${result.commentsImported} comments, ${result.prsImported} PRs, and created ${result.profilesCreated} profiles.`,
             })
