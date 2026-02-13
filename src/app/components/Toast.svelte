@@ -6,17 +6,18 @@
   import Button from "@lib/components/Button.svelte"
   import {toast, popToast} from "@app/util/toast"
 
-  const onActionClick = () => {
-    $toast!.action!.onclick()
-    popToast($toast!.id)
+  const onActionClick = (item: typeof $toast[number]) => {
+    item.action?.onclick()
+    popToast(item.id)
   }
 </script>
 
-{#if $toast}
-  {@const theme = $toast.theme || "info"}
-  <div transition:fly class="bottom-sai right-sai toast z-toast">
-    {#key $toast.id}
+{#if $toast.length > 0}
+  <div class="bottom-sai right-sai toast z-toast flex flex-col gap-2">
+    {#each $toast as item (item.id)}
+      {@const theme = item.theme || "info"}
       <div
+        transition:fly
         role="alert"
         class="alert flex justify-center whitespace-normal text-left"
         class:bg-base-100={theme === "info"}
@@ -24,22 +25,22 @@
         class:alert-error={theme === "error"}
         class:alert-warning={theme === "warning"}>
         <p class:welshman-content-error={theme === "error"}>
-          {#if $toast.message}
-            {@html renderAsHtml(parse({content: $toast.message}))}
-            {#if $toast.action}
-              <Button class="cursor-pointer underline" onclick={onActionClick}>
-                {$toast.action.message}
+          {#if item.message}
+            {@html renderAsHtml(parse({content: item.message}))}
+            {#if item.action}
+              <Button class="cursor-pointer underline" onclick={() => onActionClick(item)}>
+                {item.action.message}
               </Button>
             {/if}
-          {:else if $toast.children}
-            {@const {component: Component, props} = $toast?.children || {}}
-            <Component toast={$toast} {...props} />
+          {:else if item.children}
+            {@const {component: Component, props} = item.children}
+            <Component toast={item} {...props} />
           {/if}
         </p>
-        <Button class="flex items-center opacity-75" onclick={() => popToast($toast.id)}>
+        <Button class="flex items-center opacity-75" onclick={() => popToast(item.id)}>
           <Icon icon={CloseCircle} />
         </Button>
       </div>
-    {/key}
+    {/each}
   </div>
 {/if}

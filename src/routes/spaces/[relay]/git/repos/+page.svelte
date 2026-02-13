@@ -9,6 +9,7 @@
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {decodeRelay} from "@app/core/state"
+  import {getRepoAnnouncementRelays} from "@lib/budabit/state"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
   import PageContent from "@src/lib/components/PageContent.svelte"
@@ -58,7 +59,7 @@
   })
 
   onMount(() => {
-    const relays = [url, ...Router.get().FromUser().getUrls()]
+    const relays = getRepoAnnouncementRelays()
     load({
       relays,
       filters,

@@ -139,7 +139,7 @@ const getLatestTopicList = async (logDecrypted = false) => {
     console.warn("Failed to decrypt topic list", error)
   }
 
-  return readList(event)
+  return readList(asDecryptedEvent(event))
 }
 
 const updateFollowStatus = async (logDecrypted = false) => {

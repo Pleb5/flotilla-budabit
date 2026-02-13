@@ -21,12 +21,20 @@ export type Toast = ToastParams & {
   id: string
 }
 
-export const toast = writable<Toast | null>(null)
+export const toast = writable<Toast[]>([])
+
+const MAX_TOASTS = 3
 
 export const pushToast = (params: ToastParams) => {
   const id = randomId()
 
-  toast.set({id, ...params})
+  toast.update(list => {
+    const next = [...list, {id, ...params}]
+    if (next.length > MAX_TOASTS) {
+      return next.slice(next.length - MAX_TOASTS)
+    }
+    return next
+  })
 
   const timeout = params.timeout ?? 5000
 
@@ -37,7 +45,7 @@ export const pushToast = (params: ToastParams) => {
   return id
 }
 
-export const popToast = (id: string) => toast.update($t => ($t?.id === id ? null : $t))
+export const popToast = (id: string) => toast.update(list => list.filter(item => item.id !== id))
 
 export const clip = (value: string) => {
   copyToClipboard(value)

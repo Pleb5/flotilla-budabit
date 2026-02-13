@@ -74,7 +74,7 @@
     const nextUrl = `${next.pathname}${next.search}${next.hash}`
     const currentUrl = `${$page.url.pathname}${$page.url.search}${$page.url.hash}`
     if (nextUrl !== currentUrl) {
-      goto(nextUrl, {replaceState: true, keepfocus: true, noScroll: true})
+      goto(nextUrl, {replaceState: true, keepFocus: true, noScroll: true})
     }
   }
 

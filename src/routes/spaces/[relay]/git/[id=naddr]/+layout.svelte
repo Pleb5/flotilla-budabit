@@ -75,7 +75,7 @@
   } from "@welshman/util"
   import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass, GIT_RELAYS} from "@lib/budabit/state"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
@@ -124,7 +124,7 @@
   })
   
   // Memoize encodedRelay - it only changes if relay param changes
-  const encodedRelay = $derived(encodeURIComponent(relay))
+  const encodedRelay = $derived(encodeURIComponent(relay ?? ""))
   
   // Memoize base path to avoid recalculating on every render
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
@@ -155,7 +155,7 @@
     const nextUrl = `${next.pathname}${next.search}${next.hash}`
     const currentUrl = `${$page.url.pathname}${$page.url.search}${$page.url.hash}`
     if (nextUrl !== currentUrl) {
-      goto(nextUrl, {replaceState: true, keepfocus: true, noScroll: true})
+      goto(nextUrl, {replaceState: true, keepFocus: true, noScroll: true})
     }
   }
 
@@ -593,6 +593,7 @@
   // Bookmark state
   let isTogglingBookmark = $state(false)
   let isBookmarked = $state(false)
+  let relaysWarningKey = $state("")
   
   // Subscribe to bookmarks store to update bookmark status reactively
   $effect(() => {
@@ -637,7 +638,7 @@
 
   // Helper to compute base path for this repo scope
   function repoBasePath() {
-    return `/spaces/${encodeURIComponent(relay)}/git/${id}`
+    return `/spaces/${encodeURIComponent(relay ?? "")}/git/${id}`
   }
 
   afterNavigate(({to}) => {
@@ -802,8 +803,63 @@
     }
   }
 
+  const getRepoRelaysForModal = () => getStore(repoRelaysStore) || (repoClass?.relays || [])
+
+  const getRepoAnnouncementRelays = () => {
+    if (!repoClass?.repoEvent) return []
+    try {
+      const parsed = parseRepoAnnouncementEvent(repoClass.repoEvent)
+      return parsed.relays || []
+    } catch {
+      return []
+    }
+  }
+
+  const getRepoProfile = async (pubkey: string) => {
+    const profile = $profilesByPubkey.get(pubkey)
+    if (profile) {
+      return {
+        name: profile.name,
+        picture: profile.picture,
+        nip05: profile.nip05,
+        display_name: profile.display_name,
+      }
+    }
+    const relays = getRepoRelaysForModal()
+    await loadProfile(pubkey, relays)
+    const loadedProfile = $profilesByPubkey.get(pubkey)
+    if (loadedProfile) {
+      return {
+        name: loadedProfile.name,
+        picture: loadedProfile.picture,
+        nip05: loadedProfile.nip05,
+        display_name: loadedProfile.display_name,
+      }
+    }
+    return null
+  }
+
+  const searchRepoProfiles = async (query: string) => {
+    const pubkeys = $profileSearch.searchValues(query)
+    return pubkeys.map((pubkey: string) => {
+      const profile = $profilesByPubkey.get(pubkey)
+      return {
+        pubkey: pubkey,
+        name: profile?.name,
+        picture: profile?.picture,
+        nip05: profile?.nip05,
+        display_name: profile?.display_name,
+      }
+    })
+  }
+
+  const searchRepoRelays = async (query: string) => $relaySearch.searchValues(query)
+
   function forkRepo() {
     if (!repoClass) return
+
+    const repoRelays = getRepoAnnouncementRelays()
+    const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
 
     pushModal(ForkRepoDialog, {
       repo: repoClass,
@@ -814,6 +870,10 @@
       },
       graspServerUrls: graspServerUrls,
       navigateToForkedRepo: navigateToForkedRepo,
+      defaultRelays,
+      getProfile: getRepoProfile,
+      searchProfiles: searchRepoProfiles,
+      searchRelays: searchRepoRelays,
     })
   }
 
@@ -821,7 +881,8 @@
     if (!repoClass) return
     
     const repoRelays = getStore(repoRelaysStore)
-    if (repoRelays.length === 0) {
+    const relaysForPublish = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
+    if (relaysForPublish.length === 0) {
       pushToast({
         message: "Repository relays not ready. Please wait...",
         theme: "error",
@@ -832,54 +893,35 @@
     pushModal(EditRepoPanel, {
       repo: repoClass,
       onPublishEvent: (event: RepoAnnouncementEvent) => {
-        postRepoAnnouncement(event, repoRelays)
+        postRepoAnnouncement(event, relaysForPublish)
       },
-      getProfile: async (pubkey: string) => {
-        const profile = $profilesByPubkey.get(pubkey)
-        if (profile) {
-          return {
-            name: profile.name,
-            picture: profile.picture,
-            nip05: profile.nip05,
-            display_name: profile.display_name,
-          }
-        }
-        // Try to load profile if not in cache
-        const repoRelays = getStore(repoRelaysStore) || (repoClass?.relays || [])
-        await loadProfile(pubkey, repoRelays)
-        const loadedProfile = $profilesByPubkey.get(pubkey)
-        if (loadedProfile) {
-          return {
-            name: loadedProfile.name,
-            picture: loadedProfile.picture,
-            nip05: loadedProfile.nip05,
-            display_name: loadedProfile.display_name,
-          }
-        }
-        return null
-      },
-      searchProfiles: async (query: string) => {
-        // profileSearch.searchValues returns an array of pubkeys (strings)
-        const pubkeys = $profileSearch.searchValues(query)
-        
-        // Map each pubkey to a profile object by looking it up in profilesByPubkey
-        return pubkeys.map((pubkey: string) => {
-          const profile = $profilesByPubkey.get(pubkey)
-          return {
-            pubkey: pubkey,
-            name: profile?.name,
-            picture: profile?.picture,
-            nip05: profile?.nip05,
-            display_name: profile?.display_name,
-          }
-        })
-      },
-      searchRelays: async (query: string) => {
-        // relaySearch.searchValues returns an array of relay URLs (strings)
-        return $relaySearch.searchValues(query)
-      },
+      getProfile: getRepoProfile,
+      searchProfiles: searchRepoProfiles,
+      searchRelays: searchRepoRelays,
     })
   }
+
+  $effect(() => {
+    if (!repoClass?.repoEvent) return
+    let parsed
+    try {
+      parsed = parseRepoAnnouncementEvent(repoClass.repoEvent)
+    } catch {
+      return
+    }
+    const relays = parsed.relays || []
+    if (relays.length > 0) return
+    const key = repoClass.repoEvent.id
+    if (relaysWarningKey === key) return
+    relaysWarningKey = key
+    pushToast({
+      message:
+        "This repository announcement has no relays defined. Add preferred relays so others can discover updates.",
+      theme: "warning",
+      timeout: 0,
+      action: {message: "Repo settings", onclick: () => settingsRepo()},
+    })
+  })
 
   async function bookmarkRepo() {
     if (!repoClass || !$pubkey || isTogglingBookmark) return
