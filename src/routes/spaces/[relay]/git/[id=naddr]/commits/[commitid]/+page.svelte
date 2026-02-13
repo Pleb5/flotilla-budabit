@@ -493,7 +493,7 @@
         <!-- File Header -->
         <button
           onclick={() => toggleFile(change.path)}
-          class="min-h-[44px] w-full touch-manipulation px-4 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
+          class="min-h-[44px] w-full touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
           <div
             class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <div class="flex min-w-fit items-center gap-2 sm:gap-3">
@@ -539,7 +539,7 @@
 
         <!-- File Diff Content -->
         {#if isExpanded}
-          <div class="px-4 pb-4 sm:px-6 sm:pb-6">
+          <div class="px-1 pb-3 sm:px-6 sm:pb-6">
             <SplitDiff
               hunks={normalizeHunks(change.diffHunks)}
               filepath={change.path}
