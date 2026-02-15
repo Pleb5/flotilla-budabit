@@ -195,16 +195,16 @@
     const eff = normalizeEffectiveLabels(effValue)
     const naturals = toNaturalArray(eff.flat)
     const groups = groupLabels(eff)
-    const byId = labelsDataCache.byId
-    const groupsById = labelsDataCache.groupsById
+    const byId = new Map(labelsDataCache.byId)
+    const groupsById = new Map(labelsDataCache.groupsById)
     byId.set(issueId, naturals)
     groupsById.set(issueId, groups)
     labelsDataCache = {byId, groupsById}
   }
 
   const removeLabelsCache = (issueId: string) => {
-    const byId = labelsDataCache.byId
-    const groupsById = labelsDataCache.groupsById
+    const byId = new Map(labelsDataCache.byId)
+    const groupsById = new Map(labelsDataCache.groupsById)
     if (!byId.has(issueId) && !groupsById.has(issueId)) return
     byId.delete(issueId)
     groupsById.delete(issueId)
