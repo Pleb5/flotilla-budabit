@@ -457,7 +457,7 @@
                     {truncateHash(lastCommit.oid)}
                   </span>
                 </div>
-                <p class="text-sm">{lastCommit.commit.message}</p>
+                <p class="text-sm break-all whitespace-normal">{lastCommit.commit.message}</p>
                 <div class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                   <User class="h-3 w-3" />
                   <span>{lastCommit.commit.author.name}</span>
