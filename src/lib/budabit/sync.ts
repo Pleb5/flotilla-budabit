@@ -13,6 +13,8 @@ import {
   ROOM_REMOVE_MEMBER,
   isSignedEvent,
   unionFilters,
+  isRelayUrl,
+  normalizeRelayUrl,
 } from "@welshman/util"
 import type {Filter, TrustedEvent} from "@welshman/util"
 import {request, load, pull} from "@welshman/net"
@@ -52,7 +54,6 @@ import {
 } from "@app/core/state"
 import {GIT_RELAYS} from "./state"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
-import {hasBlossomSupport} from "@app/core/commands"
 import {
   loadGraspServers,
   loadRepositories,
@@ -104,6 +105,29 @@ const pullAndListen = ({relays, filters, signal}: PullOpts) => {
   })
 }
 
+const sanitizeRelayList = (relays: string[]) => {
+  const out: string[] = []
+  const seen = new Set<string>()
+
+  for (const url of relays || []) {
+    let normalized = ""
+    try {
+      normalized = normalizeRelayUrl(url)
+    } catch {
+      normalized = ""
+    }
+
+    if (!normalized || !isRelayUrl(normalized) || seen.has(normalized)) {
+      continue
+    }
+
+    seen.add(normalized)
+    out.push(normalized)
+  }
+
+  return out
+}
+
 // Relays
 
 const syncRelays = () => {
@@ -113,10 +137,16 @@ const syncRelays = () => {
 
   const unsubscribePage = page.subscribe($page => {
     if ($page.params.relay) {
-      const url = decodeRelay($page.params.relay)
+      let url = ""
+      try {
+        url = decodeRelay($page.params.relay)
+      } catch {
+        url = ""
+      }
 
-      loadRelay(url)
-      hasBlossomSupport(url)
+      if (url) {
+        loadRelay(url)
+      }
     }
   })
 
@@ -272,19 +302,30 @@ const syncBudabitSpaces = () => {
     const urls = Array.from($userSpaceUrls)
 
     if ($page.params.relay) {
-      urls.push(decodeRelay($page.params.relay))
+      let decoded = ""
+      try {
+        decoded = decodeRelay($page.params.relay)
+      } catch {
+        decoded = ""
+      }
+
+      if (decoded) {
+        urls.push(decoded)
+      }
     }
+
+    const sanitizedUrls = sanitizeRelayList(urls)
 
     // stop syncing removed spaces
     for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
-      if (!urls.includes(url)) {
+      if (!sanitizedUrls.includes(url)) {
         unsubscribersByUrl.delete(url)
         unsubscribe()
       }
     }
 
     // Start syncing newly added spaces
-    for (const url of urls) {
+    for (const url of sanitizedUrls) {
       if (!unsubscribersByUrl.has(url)) {
         unsubscribersByUrl.set(url, syncBudabitSpace(url))
       }
@@ -335,8 +376,9 @@ const syncDMs = () => {
   }
 
   const subscribeAll = (pubkey: string, urls: string[]) => {
+    const sanitizedUrls = sanitizeRelayList(urls)
     // Start syncing newly added relays
-    for (const url of urls) {
+    for (const url of sanitizedUrls) {
       if (!unsubscribersByUrl.has(url)) {
         unsubscribersByUrl.set(url, syncDMRelay(url, pubkey))
       }
@@ -344,7 +386,7 @@ const syncDMs = () => {
 
     // Stop syncing removed spaces
     for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
-      if (!urls.includes(url)) {
+      if (!sanitizedUrls.includes(url)) {
         unsubscribersByUrl.delete(url)
         unsubscribe()
       }
@@ -373,7 +415,8 @@ const syncDMs = () => {
     const $shouldUnwrap = shouldUnwrap.get()
 
     if ($pubkey && $shouldUnwrap) {
-      subscribeAll($pubkey, getRelayTagValues(getListTags($userMessagingRelayList)))
+      const relayUrls = sanitizeRelayList(getRelayTagValues(getListTags($userMessagingRelayList)))
+      subscribeAll($pubkey, relayUrls)
     }
   })
 
@@ -415,7 +458,8 @@ const syncUserGitData = () => {
   }
 
   const subscribeAll = (pk: string, relays: string[]) => {
-    const mergedRelays = relays.length > 0 ? relays : GIT_RELAYS
+    const fallbackRelays = sanitizeRelayList(GIT_RELAYS)
+    const mergedRelays = sanitizeRelayList(relays.length > 0 ? relays : fallbackRelays)
     console.log(
       "[syncUserGitData] subscribeAll called with pk:",
       pk,
@@ -456,7 +500,7 @@ const syncUserGitData = () => {
   }
 
   const resolveUserRelays = async (signal: AbortSignal) => {
-    const baseRelays = () => router.FromUser().getUrls()
+    const baseRelays = () => sanitizeRelayList(router.FromUser().getUrls())
 
     let userRelays = baseRelays()
 
@@ -496,7 +540,7 @@ const syncUserGitData = () => {
       // Immediately set up subscriptions and load with fallback relays
       // This ensures data is available as soon as possible
       console.log("[syncUserGitData] Setting up subscriptions immediately with GIT_RELAYS fallback")
-      subscribeAll($pubkey, GIT_RELAYS)
+      subscribeAll($pubkey, sanitizeRelayList(GIT_RELAYS))
 
       // Then also try to resolve user relays and reload if different
       void (async () => {
@@ -508,7 +552,8 @@ const syncUserGitData = () => {
           ensureNotAborted(controller.signal)
 
           // Only reload if user relays are different from GIT_RELAYS
-          if (resolvedRelays.length > 0 && !arraysEqual(resolvedRelays, GIT_RELAYS)) {
+          const fallbackRelays = sanitizeRelayList(GIT_RELAYS)
+          if (resolvedRelays.length > 0 && !arraysEqual(resolvedRelays, fallbackRelays)) {
             console.log("[syncUserGitData] Reloading with user relays")
             loadRepositories($pubkey, resolvedRelays)
             loadGraspServers($pubkey, resolvedRelays)

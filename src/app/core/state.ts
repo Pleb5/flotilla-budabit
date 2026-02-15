@@ -1,5 +1,6 @@
 import twColors from "tailwindcss/colors"
 import {Capacitor} from "@capacitor/core"
+import {browser} from "$app/environment"
 import {get, derived, readable, writable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
 import {
@@ -138,6 +139,34 @@ import type {RepositoryUpdate} from "@welshman/net"
 export type Room = RoomMeta & {url: string; id: string}
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
+
+const safeNormalizeRelayUrl = (url: string) => {
+  try {
+    return normalizeRelayUrl(url)
+  } catch {
+    return ""
+  }
+}
+
+const isLocalHost = (host: string) => host === "localhost" || host === "127.0.0.1"
+
+const canManageRelayFromBrowser = (url: string) => {
+  if (!browser) return false
+  const normalized = safeNormalizeRelayUrl(url)
+  if (!normalized) return false
+
+  try {
+    const relayHost = new URL(normalized.replace(/^ws/, "http")).hostname
+    const pageHost = window.location.hostname
+    if (!pageHost || !relayHost) return false
+    if (pageHost === relayHost) return true
+    if (isLocalHost(pageHost) && isLocalHost(relayHost)) return true
+  } catch {
+    return false
+  }
+
+  return false
+}
 
 export const ROOM = "h"
 
@@ -727,14 +756,17 @@ export const groupListPubkeysByUrl = derived(groupListsByPubkey, $groupListsByPu
     const tags = getListTags(list)
 
     for (const url of getRelayTagValues(tags)) {
-      addToMapKey(result, url, list.event.pubkey)
+      const normalized = safeNormalizeRelayUrl(url)
+      if (isRelayUrl(normalized)) {
+        addToMapKey(result, normalized, list.event.pubkey)
+      }
     }
 
     for (const tag of getGroupTags(tags)) {
-      const url = tag[2] || ""
+      const normalized = safeNormalizeRelayUrl(tag[2] || "")
 
-      if (isRelayUrl(url)) {
-        addToMapKey(result, url, list.event.pubkey)
+      if (isRelayUrl(normalized)) {
+        addToMapKey(result, normalized, list.event.pubkey)
       }
     }
   }
@@ -747,17 +779,24 @@ export const deriveGroupListPubkeys = (url: string) =>
 
 export const getSpaceUrlsFromGroupList = (groupList: List | undefined) => {
   const tags = getListTags(groupList)
-  const urls = getRelayTagValues(tags)
+  const urls: string[] = []
 
-  for (const tag of getGroupTags(tags)) {
-    const url = tag[2] || ""
-
-    if (isRelayUrl(url)) {
-      urls.push(url)
+  for (const url of getRelayTagValues(tags)) {
+    const normalized = safeNormalizeRelayUrl(url)
+    if (isRelayUrl(normalized)) {
+      urls.push(normalized)
     }
   }
 
-  return uniq(urls.map(normalizeRelayUrl))
+  for (const tag of getGroupTags(tags)) {
+    const normalized = safeNormalizeRelayUrl(tag[2] || "")
+
+    if (isRelayUrl(normalized)) {
+      urls.push(normalized)
+    }
+  }
+
+  return uniq(urls)
 }
 
 export const getSpaceRoomsFromGroupList = (url: string, groupList: List | undefined) => {
@@ -848,10 +887,14 @@ export const spaceBannedPubkeyItems = new Map<string, BannedPubkeyItem[]>()
 export const deriveSpaceBannedPubkeyItems = (url: string) => {
   const store = writable(spaceBannedPubkeyItems.get(url) || [])
 
-  manageRelay(url, {method: ManagementMethod.ListBannedPubkeys, params: []}).then(res => {
-    spaceBannedPubkeyItems.set(url, res.result)
-    store.set(res.result)
-  })
+  if (canManageRelayFromBrowser(url)) {
+    manageRelay(url, {method: ManagementMethod.ListBannedPubkeys, params: []})
+      .then(res => {
+        spaceBannedPubkeyItems.set(url, res.result)
+        store.set(res.result)
+      })
+      .catch(() => undefined)
+  }
 
   return store
 }
@@ -916,10 +959,10 @@ export enum MembershipStatus {
 export const deriveUserIsSpaceAdmin = memoize((url?: string) => {
   const store = writable(false)
 
-  if (url) {
-    manageRelay(url, {method: ManagementMethod.SupportedMethods, params: []}).then(res =>
-      store.set(Boolean(res.result?.length)),
-    )
+  if (url && canManageRelayFromBrowser(url)) {
+    manageRelay(url, {method: ManagementMethod.SupportedMethods, params: []})
+      .then(res => store.set(Boolean(res.result?.length)))
+      .catch(() => store.set(false))
   }
 
   return store
