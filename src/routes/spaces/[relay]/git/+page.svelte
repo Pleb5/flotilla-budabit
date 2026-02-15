@@ -151,6 +151,9 @@
   const getSnippetFilePath = (evt: NostrEvent) =>
     getPermalinkTagValueAny(evt, ["file", "path", "f"]) || getPermalinkTagValue(evt, "p")
 
+  const isDeletedRepoAnnouncement = (event?: {tags?: string[][]} | null) =>
+    (event?.tags || []).some(tag => tag[0] === "deleted")
+
   type RepoBranchUpdate = {
     repoId: string
     repoName: string
@@ -335,38 +338,28 @@
         }
       }
 
+      if (addressString) {
+        const latest = repository.getEvent(addressString) as RepoAnnouncementEvent | undefined
+        if (latest && isDeletedRepoAnnouncement(latest)) {
+          return null
+        }
+      }
+
       const bookmarkInfo = addresses.find(b => b.address === addressString)
       const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
       const hint = bookmarkInfo?.relayHint || relayHintFromEvent
 
       return {address: addressString, event: repo, relayHint: hint}
-    })
+    }).filter(
+      (item): item is {address: string; event: RepoAnnouncementEvent; relayHint: string} =>
+        Boolean(item),
+    )
   })
 
   const myReposEvents = $derived.by(() => {
     if (!$pubkey) return undefined
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]} as any
     return deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
-  })
-
-  const loadedMyRepos = $derived.by(() => {
-    if (!$myReposEvents) return []
-
-    return ($myReposEvents as any[]).map((repo: RepoAnnouncementEvent) => {
-      let addressString = ""
-      try {
-        const address = Address.fromEvent(repo)
-        addressString = address.toString()
-      } catch (e) {
-        const dTag = (repo.tags || []).find((t: string[]) => t[0] === "d")?.[1]
-        if (dTag && repo.pubkey && repo.kind) {
-          addressString = `${repo.kind}:${repo.pubkey}:${dTag}`
-        }
-      }
-
-    const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
-    return {address: addressString, event: repo, relayHint: relayHintFromEvent || ""}
-    })
   })
 
   const latestMyRepos = $derived.by(() => {
@@ -382,6 +375,7 @@
       const address = `${GIT_REPO_ANNOUNCEMENT}:${$pubkey}:${repoId}`
       const event = repository.getEvent(address) as RepoAnnouncementEvent | undefined
       if (!event) continue
+      if (isDeletedRepoAnnouncement(event)) continue
 
       let addressString = ""
       try {
@@ -541,7 +535,7 @@
     if (activeTab === "bookmarks") {
       return loadedBookmarkedRepos
     } else {
-      return loadedMyRepos
+      return latestMyRepos
     }
   })
 
@@ -583,7 +577,7 @@
   // Convert URI search event to repo card format if found
   const uriSearchRepo = $derived.by(() => {
     const event = uriSearchEvent
-    if (!event) return null
+    if (!event || isDeletedRepoAnnouncement(event)) return null
 
     try {
       let addressString = ""

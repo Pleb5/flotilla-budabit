@@ -10,6 +10,7 @@ import {
   extractLabelEvents,
   mergeEffectiveLabels,
   type RepoGroup,
+  type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
 import {RepoCore} from "@nostr-git/core/git"
 import {repository, pubkey} from "@welshman/app"
@@ -23,7 +24,14 @@ import {
   fromCsv,
 } from "@app/core/state"
 import {Router} from "@welshman/router"
-import {isRelayUrl, normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag} from "@welshman/util"
+import {
+  isRelayUrl,
+  normalizeRelayUrl,
+  type TrustedEvent,
+  ROOM_META,
+  getTag,
+  getAddress,
+} from "@welshman/util"
 import {nip19} from "nostr-tools"
 import {fromPairs, pushToMapKey, sortBy, uniq, uniqBy} from "@welshman/lib"
 import {extractRoleAssignments} from "./labels"
@@ -50,6 +58,14 @@ export const DEFAULT_WORKER_PUBKEY =
 
 export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
+const safeNormalizeRelayUrl = (url: string) => {
+  try {
+    return normalizeRelayUrl(url)
+  } catch {
+    return ""
+  }
+}
+
 export const getRepoAnnouncementRelays = (extra: string[] = []) => {
   let userRelays: string[] = []
   try {
@@ -58,7 +74,9 @@ export const getRepoAnnouncementRelays = (extra: string[] = []) => {
     userRelays = []
   }
   const merged = [...userRelays, ...GIT_RELAYS, ...extra]
-  return Array.from(new Set(merged.map(u => normalizeRelayUrl(u)).filter(isRelayUrl))) as string[]
+  return Array.from(
+    new Set(merged.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)),
+  ) as string[]
 }
 
 export const ROOMS = 10009
@@ -91,9 +109,20 @@ export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
 // - group by r:euc using core's groupByEuc
 // - expose lookups and maintainer derivation helpers
 
-export const repoAnnouncements = deriveEventsAsc(
+const repoAnnouncementsRaw = deriveEventsAsc(
   deriveEventsById({repository, filters: [{kinds: [30617]}]}),
 )
+
+export const repoAnnouncements = derived(repoAnnouncementsRaw, $events => {
+  const isDeletedRepoAnnouncement = (event: {tags?: string[][]}) =>
+    (event.tags || []).some(tag => tag[0] === "deleted")
+  const latestByAddress = new Map<string, RepoAnnouncementEvent>()
+  for (const event of ($events as RepoAnnouncementEvent[]) || []) {
+    const address = getAddress(event)
+    latestByAddress.set(address, event)
+  }
+  return Array.from(latestByAddress.values()).filter(event => !isDeletedRepoAnnouncement(event))
+})
 
 export const repoGroups = derived(repoAnnouncements, ($events): RepoGroup[] => {
   return groupByEuc($events as any)
@@ -131,7 +160,7 @@ export const deriveMaintainersForEuc = (euc: string) =>
 
 export const loadRepoAnnouncements = (relays?: string[]) => {
   const targetRelays = (relays && relays.length > 0 ? relays : getRepoAnnouncementRelays())
-    .map(u => normalizeRelayUrl(u))
+    .map(u => safeNormalizeRelayUrl(u))
     .filter(isRelayUrl) as string[]
   return load({
     relays: targetRelays,

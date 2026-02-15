@@ -35,6 +35,7 @@
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {pushModal} from "@app/util/modal"
+  import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
   import {nip19} from "nostr-tools"
@@ -594,6 +595,7 @@
   let isTogglingBookmark = $state(false)
   let isBookmarked = $state(false)
   let relaysWarningKey = $state("")
+  let suppressRelaysWarning = $state(false)
   
   // Subscribe to bookmarks store to update bookmark status reactively
   $effect(() => {
@@ -895,13 +897,40 @@
       onPublishEvent: (event: RepoAnnouncementEvent) => {
         postRepoAnnouncement(event, relaysForPublish)
       },
+      canDelete: !!$pubkey && repoPubkey === $pubkey,
+      onRequestDelete: () => openDeleteRepoModal(),
       getProfile: getRepoProfile,
       searchProfiles: searchRepoProfiles,
       searchRelays: searchRepoRelays,
     })
   }
 
+  function openDeleteRepoModal() {
+    if (!repoClass) return
+    const repoEvent = getStore(repoEventStore)
+    if (!repoEvent) {
+      pushToast({
+        message: "Repository event not available. Please try again.",
+        theme: "error",
+      })
+      return
+    }
+    const relays = getRepoRelaysForModal()
+    suppressRelaysWarning = true
+    pushModal(DeleteRepoConfirm, {
+      repoClass,
+      repoEvent,
+      repoName,
+      repoRelays: relays,
+      backPath: `/spaces/${encodedRelay}/git`,
+      onClose: () => {
+        suppressRelaysWarning = false
+      },
+    })
+  }
+
   $effect(() => {
+    if (suppressRelaysWarning) return
     if (!repoClass?.repoEvent) return
     let parsed
     try {
