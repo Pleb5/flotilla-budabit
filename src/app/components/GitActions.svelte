@@ -145,13 +145,40 @@
   let repoId: string = $state("")
   let cloneUrls: string[] = $state([])
 
+  /**
+   * Sorts clone URLs so SSH URLs come before HTTPS for GitHub/GitLab repos.
+   * Priority: SSH (git@...) > nostr:// > HTTPS > other
+   */
+  function sortCloneUrls(urls: string[]): string[] {
+    return [...urls].sort((a, b) => {
+      const priority = (url: string): number => {
+        if (url.startsWith("git@")) return 0
+        if (url.startsWith("nostr://")) return 1
+        if (url.startsWith("https://") || url.startsWith("http://")) return 2
+        return 3
+      }
+      return priority(a) - priority(b)
+    })
+  }
+
   onMount(async () => {
     try {
       const announcement = parseRepoAnnouncementEvent(event as any)
-      cloneUrls = [...(announcement?.clone || [])]
+      let urls = [...(announcement?.clone || [])]
 
       const name = announcement?.name || event.tags.find(nthEq(0, "name"))?.[1] || ""
       const owner = event.pubkey || ""
+
+      // Add nostr:// clone URL if not already present
+      if (!urls.find(u => u.startsWith("nostr://")) && owner && name) {
+        try {
+          const npub = nip19.npubEncode(owner)
+          urls.push(`nostr://${npub}/${name}`)
+        } catch {}
+      }
+
+      cloneUrls = sortCloneUrls(urls)
+
       if (owner && name) {
         repoId = buildRepoKey(owner, name)
       }
