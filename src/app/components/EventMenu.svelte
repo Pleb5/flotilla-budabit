@@ -15,6 +15,7 @@
   import EventInfo from "@app/components/EventInfo.svelte"
   import Report from "@app/components/Report.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
+  import IssueDeleteConfirm from "@app/components/IssueDeleteConfirm.svelte"
   import {deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip, pushToast} from "@app/util/toast"
@@ -25,9 +26,10 @@
     event: TrustedEvent
     onClick: () => void
     customActions?: Snippet
+    relays?: string[]
   }
 
-  const {url, noun, event, onClick, customActions}: Props = $props()
+  const {url, noun, event, onClick, customActions, relays = []}: Props = $props()
 
   const isRoot = event.kind !== COMMENT
   const userIsAdmin = deriveUserIsSpaceAdmin(url)
@@ -45,7 +47,14 @@
     clip(nostrURI)
   }
 
-  const showDelete = () => pushModal(EventDeleteConfirm, {url, event})
+  const showDelete = () => {
+    if (event.kind === 1621) {
+      const deleteRelays = relays.length > 0 ? relays : url ? [url] : []
+      pushModal(IssueDeleteConfirm, {event, relays: deleteRelays})
+      return
+    }
+    pushModal(EventDeleteConfirm, {url, event})
+  }
 
   const showAdminDelete = () =>
     pushModal(Confirm, {
