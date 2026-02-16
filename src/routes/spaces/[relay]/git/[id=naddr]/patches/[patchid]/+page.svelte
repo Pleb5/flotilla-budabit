@@ -422,6 +422,7 @@
         lineNumber,
         filePath,
         content,
+        rawEvent: commentEvent,
         author: {
           name: authorName,
           avatar: authorAvatar,
