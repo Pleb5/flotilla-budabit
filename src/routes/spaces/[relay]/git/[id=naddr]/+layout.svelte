@@ -54,7 +54,7 @@
   }
   import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
   import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, parseRepoAnnouncementEvent, isCommentEvent} from "@nostr-git/core/events"
-  import {normalizeRelayUrl as normalizeRelayUrlShared} from "@nostr-git/core/utils"
+  import {normalizeRelayUrl as normalizeRelayUrlShared, parseRepoId} from "@nostr-git/core/utils"
   import {derived, get as getStore, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -95,6 +95,21 @@
   
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
+
+  $effect(() => {
+    if (!repoClass) return
+    if (!repoClass.name && repoName) {
+      repoClass.name = repoName
+    }
+    if (!repoClass.key && repoPubkey && repoName) {
+      try {
+        repoClass.key = parseRepoId(`${repoPubkey}:${repoName}`)
+      } catch {}
+    }
+    if (!repoClass.address && repoPubkey && repoName) {
+      repoClass.address = `${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`
+    }
+  })
 
   // Get enabled extensions with repo-tab slots
   const repoTabExtensions = $derived.by(() => {
