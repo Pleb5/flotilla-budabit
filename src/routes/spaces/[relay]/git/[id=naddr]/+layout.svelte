@@ -60,7 +60,7 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
-  import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
+  import {goto, beforeNavigate} from "$app/navigation"
   import {
     normalizeRelayUrl,
     NAMED_BOOKMARKS,
@@ -651,9 +651,6 @@
     return unsubscribe
   })
   
-  // Scroll position management
-  let pageContentElement = $state<Element | undefined>()
-  const scrollStorageKey = `repoScroll:${id}`
 
   // --- GRASP servers (user profile) ---
   const graspServersFilter = {
@@ -667,38 +664,13 @@
     return `/spaces/${encodeURIComponent(relay ?? "")}/git/${id}`
   }
 
-  afterNavigate(({to}) => {
-    try {
-      if (!to) return
+  const issuesScrollStorageKey = `repoScroll:${id}:issues`
 
-      if (to.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
-        // Restore scroll position for issues page
-        const savedScroll = sessionStorage.getItem(scrollStorageKey)
-        if (savedScroll && pageContentElement) {
-          const scrollPosition = parseInt(savedScroll, 10)
-          // Double requestAnimationFrame ensures the scroll restoration happens after:
-          // 1. First RAF: Schedule callback for next paint cycle
-          // 2. Second RAF: Execute after that paint has completed and content is fully rendered
-          // This prevents scroll jumping and ensures all issue cards are in the DOM
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              if (pageContentElement) {
-                pageContentElement.scrollTop = scrollPosition
-              }
-            })
-          })
-        }
-      }
-    } catch {}
-  })
-
-  beforeNavigate(({from, to}) => {
-    if (from?.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
-      // Save scroll position when leaving issues page
-      if (pageContentElement) {
-        const scrollPosition = pageContentElement.scrollTop
-        sessionStorage.setItem(scrollStorageKey, scrollPosition.toString())
-      }
+  beforeNavigate(({to}) => {
+    if (!to || typeof sessionStorage === "undefined") return
+    const nextPath = to.url.pathname
+    if (!nextPath.startsWith(repoBasePath())) {
+      sessionStorage.removeItem(issuesScrollStorageKey)
     }
   })
 
@@ -1179,7 +1151,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent bind:element={pageContentElement} class="flex flex-grow flex-col gap-2 overflow-auto p-4 sm:p-6 lg:p-8">
+<PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-4 sm:p-6 lg:p-8">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}

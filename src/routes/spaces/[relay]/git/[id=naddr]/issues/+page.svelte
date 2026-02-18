@@ -37,6 +37,8 @@
   import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
+  import {page} from "$app/stores"
+  import {beforeNavigate} from "$app/navigation"
   
   import {getContext} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY} from "@lib/budabit/state"
@@ -51,6 +53,22 @@
   let pageContainerRef: HTMLElement | undefined = $state()
   let virtualListContainerRef: HTMLElement | undefined = $state()
   let scrollParent: HTMLElement | null = $state(null)
+  let lastKnownIssueIndex = $state(0)
+  let lastKnownIssueOffset = $state(0)
+  let lastKnownIssueId = $state("")
+  let lastKnownIssueTitle = $state("")
+  let pendingScrollRestore = $state<{
+    index: number
+    offset: number
+    id: string
+    title: string
+  } | null>(null)
+  let didRestoreScroll = $state(false)
+  let restoreAttemptCount = 0
+  let restoreInProgress = $state(false)
+
+  const maxRestoreAttempts = 12
+  const scrollStorageKey = $derived.by(() => `repoScroll:${$page.params.id}:issues`)
 
   const LABEL_PREFETCH_LIMIT = 200
   const LABEL_PREFETCH_IDLE_MS = 2000
@@ -108,6 +126,37 @@
     })
   })
 
+  const updateVisibleAnchor = () => {
+    const virtualizer = $virtualizerStore
+    const scrollEl = scrollParent
+    const currentIssues = searchedIssues
+    if (!virtualizer || !scrollEl || currentIssues.length === 0) return
+
+    const virtualItems = virtualizer.getVirtualItems()
+    if (virtualItems.length === 0) return
+
+    const scrollTop = scrollEl.scrollTop
+    let bestItem = virtualItems[0]
+    let bestDelta = Number.POSITIVE_INFINITY
+
+    for (const item of virtualItems) {
+      const top = item.start
+      const delta = scrollTop - top
+      if (delta >= 0 && delta < bestDelta) {
+        bestDelta = delta
+        bestItem = item
+      }
+    }
+
+    const issue = currentIssues[bestItem.index]
+    const anchorOffset = bestItem.start - scrollTop
+
+    lastKnownIssueIndex = bestItem.index
+    lastKnownIssueOffset = anchorOffset
+    lastKnownIssueId = issue?.id ?? ""
+    lastKnownIssueTitle = issue ? getTagValue("subject", issue.tags) ?? "" : ""
+  }
+
   // Handle scroll events for showing scroll-to-top button
   $effect(() => {
     const scrollEl = scrollParent
@@ -115,11 +164,231 @@
     
     const handleScroll = () => {
       showScrollButton = scrollEl.scrollTop > 1500
+      updateVisibleAnchor()
     }
     
     handleScroll()
     scrollEl.addEventListener('scroll', handleScroll, { passive: true })
     return () => scrollEl.removeEventListener('scroll', handleScroll)
+  })
+
+  $effect(() => {
+    updateVisibleAnchor()
+  })
+
+  const handleIssueClick = (
+    event: MouseEvent,
+    issue: IssueEvent,
+    virtualRow: {index: number; start: number},
+  ) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const target = event.target as HTMLElement | null
+    const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null
+    if (!anchor) return
+
+    const href = anchor.getAttribute("href") || ""
+    if (!href.includes(`issues/${issue.id}`)) return
+
+    const scrollEl = scrollParent
+    if (!scrollEl) return
+
+    const title = getTagValue("subject", issue.tags) ?? ""
+    const itemElement = event.currentTarget as HTMLElement | null
+    const containerRect = scrollEl.getBoundingClientRect()
+    const itemRect = itemElement?.getBoundingClientRect()
+    const anchorOffset = itemRect ? itemRect.top - containerRect.top : virtualRow.start - scrollEl.scrollTop
+
+    pendingScrollRestore = {
+      index: virtualRow.index,
+      offset: anchorOffset,
+      id: issue.id,
+      title,
+    }
+
+    console.debug("[IssuesList] click capture", {
+      index: pendingScrollRestore.index,
+      offset: pendingScrollRestore.offset,
+      issueId: pendingScrollRestore.id,
+      issueTitle: pendingScrollRestore.title,
+    })
+  }
+
+  $effect(() => {
+    const virtualizer = $virtualizerStore
+    const scrollEl = scrollParent
+    const count = searchedIssues.length
+    const restoring = restoreInProgress
+
+    if (didRestoreScroll || restoring || !virtualizer || !scrollEl || count === 0) return
+    if (typeof sessionStorage === "undefined") {
+      didRestoreScroll = true
+      return
+    }
+
+    const savedRaw = sessionStorage.getItem(scrollStorageKey)
+    if (!savedRaw) {
+      didRestoreScroll = true
+      return
+    }
+
+    let parsedIndex = 0
+    let parsedOffset = 0
+    let savedIssueId = ""
+    let savedIssueTitle = ""
+
+    try {
+      const parsed = JSON.parse(savedRaw) as {
+        index?: number
+        offset?: number
+        id?: string
+        title?: string
+      }
+      parsedIndex = Number(parsed?.index ?? 0)
+      parsedOffset = Number(parsed?.offset ?? 0)
+      savedIssueId = typeof parsed?.id === "string" ? parsed.id : ""
+      savedIssueTitle = typeof parsed?.title === "string" ? parsed.title : ""
+    } catch {
+      sessionStorage.removeItem(scrollStorageKey)
+      didRestoreScroll = true
+      return
+    }
+
+    if (Number.isNaN(parsedIndex) || Number.isNaN(parsedOffset)) {
+      sessionStorage.removeItem(scrollStorageKey)
+      didRestoreScroll = true
+      return
+    }
+
+    const virtualItems = virtualizer.getVirtualItems()
+    if (virtualItems.length === 0) return
+
+    const fallbackIndex = Math.min(Math.max(parsedIndex, 0), count - 1)
+    const matchIndex = savedIssueId
+      ? searchedIssues.findIndex(issue => issue.id === savedIssueId)
+      : -1
+
+    if (savedIssueId && matchIndex < 0) {
+      restoreAttemptCount += 1
+      if (restoreAttemptCount < maxRestoreAttempts) {
+        return
+      }
+      sessionStorage.removeItem(scrollStorageKey)
+      didRestoreScroll = true
+      restoreAttemptCount = 0
+      return
+    }
+
+    const targetIndex = matchIndex >= 0 ? matchIndex : fallbackIndex
+    const targetIssue = searchedIssues[targetIndex]
+    const targetIssueTitle = targetIssue ? getTagValue("subject", targetIssue.tags) ?? "" : ""
+    const targetIssueId = targetIssue?.id ?? ""
+    const anchorIssueId = savedIssueId || targetIssueId
+    const finishRestore = () => {
+      didRestoreScroll = true
+      restoreAttemptCount = 0
+      restoreInProgress = false
+    }
+    const settleToAnchor = (attempt = 0) => {
+      if (!anchorIssueId) {
+        finishRestore()
+        return
+      }
+      const itemEl = scrollEl.querySelector(`[data-issue-id="${anchorIssueId}"]`) as HTMLElement | null
+      if (!itemEl) {
+        if (attempt < maxRestoreAttempts) {
+          setTimeout(() => settleToAnchor(attempt + 1), 50)
+        } else {
+          finishRestore()
+        }
+        return
+      }
+      const containerRect = scrollEl.getBoundingClientRect()
+      const itemRect = itemEl.getBoundingClientRect()
+      const currentOffset = itemRect.top - containerRect.top
+      const delta = currentOffset - parsedOffset
+      if (Math.abs(delta) > 1) {
+        scrollEl.scrollBy({top: delta, behavior: "smooth"})
+      }
+      finishRestore()
+    }
+
+    restoreInProgress = true
+
+    console.debug("[IssuesList] restore scroll", {
+      savedIndex: parsedIndex,
+      savedOffset: parsedOffset,
+      savedIssueId,
+      savedIssueTitle,
+      matchedIndex: matchIndex,
+      targetIndex,
+      targetIssueId,
+      targetIssueTitle,
+    })
+
+    const attemptRestore = () => {
+      virtualizer.scrollToIndex(targetIndex, {align: "start"})
+      setTimeout(() => settleToAnchor(0), 80)
+    }
+
+    void tick().then(() => {
+      virtualizer.measure()
+      requestAnimationFrame(attemptRestore)
+    })
+  })
+
+  beforeNavigate(({from, to}) => {
+    if (from?.route.id !== "/spaces/[relay]/git/[id=naddr]/issues") return
+    if (typeof sessionStorage === "undefined") return
+    const relayParam = $page.params.relay ?? ""
+    const basePath = `/spaces/${encodeURIComponent(relayParam)}/git/${$page.params.id}`
+    const nextPath = to?.url.pathname
+    if (!nextPath || !nextPath.startsWith(basePath)) {
+      sessionStorage.removeItem(scrollStorageKey)
+      pendingScrollRestore = null
+      return
+    }
+    const isIssueDetailNav =
+      to?.route.id === "/spaces/[relay]/git/[id=naddr]/issues/[issueid]"
+    const nextIssueId = isIssueDetailNav ? (to?.params as {issueid?: string} | undefined)?.issueid : ""
+    const buildPayloadForIssue = (issueId: string) => {
+      const scrollEl = scrollParent
+      const issueIndex = searchedIssues.findIndex(issue => issue.id === issueId)
+      const issue = issueIndex >= 0 ? searchedIssues[issueIndex] : undefined
+      const title = issue ? getTagValue("subject", issue.tags) ?? "" : ""
+      let offset = lastKnownIssueOffset
+      if (scrollEl) {
+        const containerRect = scrollEl.getBoundingClientRect()
+        const itemEl = scrollEl.querySelector(`[data-issue-id="${issueId}"]`) as HTMLElement | null
+        const itemRect = itemEl?.getBoundingClientRect()
+        if (itemRect) {
+          offset = itemRect.top - containerRect.top
+        }
+      }
+      return {
+        index: issueIndex >= 0 ? issueIndex : lastKnownIssueIndex,
+        offset,
+        id: issueId,
+        title,
+      }
+    }
+
+    const payload = isIssueDetailNav && nextIssueId
+      ? buildPayloadForIssue(nextIssueId)
+      : pendingScrollRestore ?? {
+          index: lastKnownIssueIndex,
+          offset: lastKnownIssueOffset,
+          id: lastKnownIssueId,
+          title: lastKnownIssueTitle,
+        }
+    sessionStorage.setItem(scrollStorageKey, JSON.stringify(payload))
+    console.debug("[IssuesList] save scroll", {
+      index: payload.index,
+      offset: payload.offset,
+      issueId: payload.id,
+      issueTitle: payload.title,
+      source: isIssueDetailNav && nextIssueId ? "nav" : pendingScrollRestore ? "click" : "visible",
+    })
+    pendingScrollRestore = null
   })
 
   function measureElement(
@@ -838,9 +1107,11 @@
             {#if issue}
               <div
                 data-index={virtualRow.index}
+                data-issue-id={issue.id}
                 use:measureElement={$virtualizerStore}
                 class="absolute top-0 left-0 w-full pr-2"
                 style="transform: translateY({virtualRow.start - scrollMargin}px);"
+                onclick={(event) => handleIssueClick(event, issue, virtualRow)}
               >
                 <IssueCard
                   event={issue}
