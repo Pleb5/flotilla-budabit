@@ -30,6 +30,7 @@
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {pushToast} from "@src/app/util/toast"
+  import {notifications} from "@app/util/notifications"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import EventActions from "@src/app/components/EventActions.svelte"
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
@@ -38,6 +39,7 @@
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
+  import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   
   // ForkResult type definition (matches @nostr-git/ui)
@@ -77,6 +79,7 @@
   import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass, GIT_RELAYS} from "@lib/budabit/state"
+  import {userRepoWatchValues} from "@lib/budabit/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
@@ -129,6 +132,27 @@
   
   // Memoize base path to avoid recalculating on every render
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
+  const issuesPath = $derived.by(() => `${basePath}/issues`)
+  const patchesPath = $derived.by(() => `${basePath}/patches`)
+  const hasIssuesNotification = $derived.by(() => $notifications.has(issuesPath))
+  const hasPatchesNotification = $derived.by(() => $notifications.has(patchesPath))
+
+  const repoAddress = $derived.by(() => {
+    if (repoClass?.address) return repoClass.address
+    if (repoPubkey && repoId) return `30617:${repoPubkey}:${repoId}`
+    return ""
+  })
+
+  const watchOptions = $derived.by(() => (repoAddress ? $userRepoWatchValues.repos[repoAddress] : undefined))
+  const isWatching = $derived(Boolean(watchOptions))
+
+  const openWatchModal = () => {
+    if (!repoAddress) return
+    pushModal(RepoWatchModal, {
+      repoAddr: repoAddress,
+      repoName: repoClass?.name || repoName,
+    })
+  }
 
   const normalizePath = (value: string | null | undefined) =>
     (value ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
@@ -1172,6 +1196,8 @@
       {bookmarkRepo}
       {isBookmarked}
       isTogglingBookmark={isTogglingBookmark}
+      watchRepo={openWatchModal}
+      isWatching={isWatching}
       >
       {#snippet children(activeTab: string)}
         <RepoTab
@@ -1196,6 +1222,7 @@
           tabValue="issues"
           label="Issues"
           href={`${basePath}/issues`}
+          notification={hasIssuesNotification}
           {activeTab}>
           {#snippet icon()}
             <CircleAlert class="h-4 w-4" />
@@ -1205,6 +1232,7 @@
           tabValue="patches"
           label="Patches"
           href={`${basePath}/patches`}
+          notification={hasPatchesNotification}
           {activeTab}>
           {#snippet icon()}
             <GitPullRequest class="h-4 w-4" />

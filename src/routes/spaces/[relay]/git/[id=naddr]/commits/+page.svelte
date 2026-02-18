@@ -368,7 +368,7 @@
         value: `git:commit:${commitId}`, // External identifier for git commit
         kind: "commit", // Descriptive kind for the external resource
       },
-      extraTags: repoAddr ? [["a", repoAddr] as any] : undefined, // Link to repo for context
+      extraTags: repoAddr ? [["repo", repoAddr] as any] : undefined, // Link to repo for context
     })
     
     // Publish the comment to repo relays

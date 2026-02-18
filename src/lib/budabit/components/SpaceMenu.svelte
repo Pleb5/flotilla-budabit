@@ -1,7 +1,7 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {goto} from "$app/navigation"
-  import {displayRelayUrl, getTagValue} from "@welshman/util"
+  import {displayRelayUrl} from "@welshman/util"
   import {deriveRelay, pubkey} from "@welshman/app"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import History from "@assets/icons/history.svg?dataurl"
@@ -19,17 +19,11 @@
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import SpaceDetail from "@app/components/SpaceDetail.svelte"
   import RelayName from "@app/components/RelayName.svelte"
-  import AlertAdd from "@app/components/AlertAdd.svelte"
-  import Alerts from "@app/components/Alerts.svelte"
+  import BudabitAlerts from "@lib/budabit/components/BudabitAlerts.svelte"
   import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
   import MenuSpaceRoomItem from "@lib/budabit/components/MenuSpaceRoomItem.svelte"
-  import {
-    ENABLE_ZAPS,
-    CONTENT_KINDS,
-    hasNip29,
-    alertsById,
-  } from "@app/core/state"
+  import {ENABLE_ZAPS, hasNip29} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
@@ -45,10 +39,6 @@
   const goalsPath = makeSpacePath(url, "goals")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
-
-  const hasAlerts = $derived(
-    Array.from($alertsById.values()).some(a => getTagValue("feed", a.tags)?.includes(url)),
-  )
 
   const channelNamesByUrl = $derived.by(() => {
     const channels = $channelsByUrl.get(url) || []
@@ -67,10 +57,7 @@
   }
 
   const manageAlerts = () => {
-    const component = hasAlerts ? Alerts : AlertAdd
-    const params = {url, channel: "push", hideSpaceField: true}
-
-    pushModal(component, params, {replaceState})
+    pushModal(BudabitAlerts, {}, {replaceState})
   }
 
   let replaceState = $state(false)

@@ -27,6 +27,7 @@
   import GitItem from "@app/components/GitItem.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast, popToast} from "@app/util/toast"
+  import {notifications} from "@app/util/notifications"
   import {decodeRelay} from "@app/core/state"
   import {goto} from "$app/navigation"
   import {onMount} from "svelte"
@@ -150,6 +151,17 @@
 
   const getSnippetFilePath = (evt: NostrEvent) =>
     getPermalinkTagValueAny(evt, ["file", "path", "f"]) || getPermalinkTagValue(evt, "p")
+
+  const repoHasNotifications = (event: RepoAnnouncementEvent) => {
+    let naddr = ""
+    try {
+      naddr = Address.fromEvent(event).toNaddr()
+    } catch {
+      return false
+    }
+    const base = makeGitPath(url, naddr)
+    return $notifications.has(`${base}/issues`) || $notifications.has(`${base}/patches`)
+  }
 
   const isDeletedRepoAnnouncement = (event?: {tags?: string[][]} | null) =>
     (event?.tags || []).some(tag => tag[0] === "deleted")
@@ -391,6 +403,14 @@
 
     return latest
   })
+
+  const hasMyRepoNotifications = $derived.by(() =>
+    latestMyRepos.some(repo => repoHasNotifications(repo.event as RepoAnnouncementEvent)),
+  )
+
+  const hasBookmarkNotifications = $derived.by(() =>
+    loadedBookmarkedRepos.some(repo => repoHasNotifications(repo.event as RepoAnnouncementEvent)),
+  )
 
   const myRepoIds = $derived.by(() => {
     if (!latestMyRepos || latestMyRepos.length === 0) return []
@@ -1550,12 +1570,18 @@
               <span class="flex items-center gap-2">
                 <Icon icon={FolderWithFiles} />
                 <span>My Repos</span>
+                {#if hasMyRepoNotifications}
+                  <span class="h-2 w-2 rounded-full bg-primary" aria-label="Unread updates"></span>
+                {/if}
               </span>
             </TabsTrigger>
             <TabsTrigger value="bookmarks" class="flex-1 sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={Bookmark} />
                 <span>Bookmarks</span>
+                {#if hasBookmarkNotifications}
+                  <span class="h-2 w-2 rounded-full bg-primary" aria-label="Unread updates"></span>
+                {/if}
               </span>
             </TabsTrigger>
             <TabsTrigger value="snippets" class="flex-1 sm:flex-none">

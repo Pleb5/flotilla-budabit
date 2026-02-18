@@ -178,6 +178,10 @@ export const NOTIFIER_PUBKEY = import.meta.env.VITE_NOTIFIER_PUBKEY
 
 export const NOTIFIER_RELAY = import.meta.env.VITE_NOTIFIER_RELAY
 
+export const NOTIFIER_HANDLER_ADDRESS = import.meta.env.VITE_NOTIFIER_HANDLER_ADDRESS
+
+export const NOTIFIER_HANDLER_RELAY = import.meta.env.VITE_NOTIFIER_HANDLER_RELAY
+
 export const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY
 
 export const INDEXER_RELAYS = fromCsv(import.meta.env.VITE_INDEXER_RELAYS)

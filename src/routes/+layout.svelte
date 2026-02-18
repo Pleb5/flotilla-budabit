@@ -49,6 +49,7 @@
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {syncBudabitApplicationData, syncBudabitData} from "@lib/budabit/sync"
+  import {setupBudabitNotifications} from "@lib/budabit/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
 
   const {children} = $props()
@@ -81,6 +82,8 @@
 
   // Initialize push notification handler asap
   initializePushNotifications()
+
+  setupBudabitNotifications()
 
   const requestAppReload = () => {
     if (!waitingWorker) {

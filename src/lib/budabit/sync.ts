@@ -62,6 +62,7 @@ import {
   setupGraspServersSync,
   setupTokensSync,
 } from "./requests"
+import {loadRepoWatch} from "./repo-watch"
 
 // Utils
 
@@ -245,6 +246,7 @@ const syncUserData = () => {
       loadUserMuteList($userRelayList.event.pubkey)
       loadProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
+      loadRepoWatch($userRelayList.event.pubkey)
     }
   })
 

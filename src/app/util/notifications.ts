@@ -1,9 +1,9 @@
-import {derived, get} from "svelte/store"
 import {Badge} from "@capawesome/capacitor-badge"
+import {derived, get, readable, writable, type Readable} from "svelte/store"
 import {synced, throttled} from "@welshman/store"
 import {pubkey, tracker, repository, relaysByUrl} from "@welshman/app"
 import {prop, find, call, spec, first, identity, now, groupBy} from "@welshman/lib"
-import type {TrustedEvent} from "@welshman/util"
+import type {List, TrustedEvent} from "@welshman/util"
 import {deriveEventsByIdByUrl} from "@welshman/store"
 import {ZAP_GOAL, EVENT_TIME, MESSAGE, THREAD, COMMENT, getTagValue} from "@welshman/util"
 import {
@@ -37,6 +37,33 @@ export const deriveChecked = (key: string) => derived(checked, prop(key))
 
 export const setChecked = (key: string) => checked.update(state => ({...state, [key]: now()}))
 
+export type NotificationCandidate = {
+  path: string
+  latestEvent?: TrustedEvent
+}
+
+export type NotificationsConfig = {
+  getSpaceUrls?: (groupList: List | undefined) => string[]
+  augmentPaths?: (paths: Set<string>) => Set<string> | void
+}
+
+const notificationCandidatesStore = writable<Readable<NotificationCandidate[]>>(
+  readable<NotificationCandidate[]>([]),
+)
+
+export const notificationsConfig = writable<NotificationsConfig>({})
+
+export const setNotificationCandidates = (store: Readable<NotificationCandidate[]>) =>
+  notificationCandidatesStore.set(store)
+
+export const setNotificationsConfig = (config: NotificationsConfig) =>
+  notificationsConfig.set(config)
+
+const extraCandidates = derived(notificationCandidatesStore, ($store, set) => {
+  const unsubscribe = $store.subscribe(set)
+  return () => unsubscribe()
+}) as Readable<NotificationCandidate[]>
+
 // Derived notifications state
 
 export const notifications = call(() => {
@@ -59,6 +86,8 @@ export const notifications = call(() => {
           deriveEventsByIdByUrl({tracker, repository, filters: threadCommentFilters}),
           deriveEventsByIdByUrl({tracker, repository, filters: calendarCommentFilters}),
           deriveEventsByIdByUrl({tracker, repository, filters: messageFilters}),
+          notificationsConfig,
+          extraCandidates,
         ],
         identity,
       ),
@@ -73,6 +102,8 @@ export const notifications = call(() => {
       threadCommentsByUrl,
       calendarCommentsByUrl,
       messagesByUrl,
+      $notificationsConfig,
+      $extraCandidates,
     ]) => {
       const hasNotification = (path: string, latestEvent: TrustedEvent | undefined) => {
         if (!latestEvent || latestEvent.pubkey === $pubkey) {
@@ -95,6 +126,10 @@ export const notifications = call(() => {
 
       const paths = new Set<string>()
 
+      const getSpaceUrls =
+        $notificationsConfig.getSpaceUrls ||
+        ((groupList: List | undefined) => getSpaceUrlsFromGroupList(groupList))
+
       for (const {pubkeys, messages} of $chatsById.values()) {
         const chatPath = makeChatPath(pubkeys)
 
@@ -104,7 +139,7 @@ export const notifications = call(() => {
         }
       }
 
-      for (const url of getSpaceUrlsFromGroupList($userGroupList)) {
+      for (const url of getSpaceUrls($userGroupList)) {
         const spacePath = makeSpacePath(url)
         const spacePathMobile = spacePath + ":mobile"
         const goalPath = makeGoalPath(url)
@@ -188,6 +223,17 @@ export const notifications = call(() => {
             paths.add(messagesPath)
           }
         }
+      }
+
+      for (const candidate of $extraCandidates || []) {
+        if (hasNotification(candidate.path, candidate.latestEvent)) {
+          paths.add(candidate.path)
+        }
+      }
+
+      if ($notificationsConfig.augmentPaths) {
+        const augmented = $notificationsConfig.augmentPaths(paths)
+        return augmented || paths
       }
 
       return paths

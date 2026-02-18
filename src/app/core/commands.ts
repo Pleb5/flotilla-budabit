@@ -101,6 +101,8 @@ import {
   INDEXER_RELAYS,
   NOTIFIER_PUBKEY,
   NOTIFIER_RELAY,
+  NOTIFIER_HANDLER_ADDRESS,
+  NOTIFIER_HANDLER_RELAY,
   DEFAULT_BLOSSOM_SERVERS,
   SMART_WIDGET_RELAYS,
   userSpaceUrls,
@@ -120,7 +122,7 @@ import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
-import { deleteIndexedDB } from "@lib/util"
+import {deleteIndexedDB} from "@lib/util"
 
 // Utils
 
@@ -426,12 +428,9 @@ export const logout = async () => {
 
 export async function nostrGitLogoutCleanup(): Promise<void> {
   try {
-    await Promise.all([
-      deleteIndexedDB('nostr-git'),
-      deleteIndexedDB('nostr-git-cache')
-    ])
+    await Promise.all([deleteIndexedDB("nostr-git"), deleteIndexedDB("nostr-git-cache")])
   } catch (err) {
-    console.error('Nostr-Git IndexedDB cleanup failed', err)
+    console.error("Nostr-Git IndexedDB cleanup failed", err)
   }
 }
 
@@ -803,14 +802,20 @@ export type CreateAlertResult = {
   error?: string
 }
 
+const DEFAULT_NOTIFIER_HANDLER_ADDRESS =
+  "31990:97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322:1737058597050"
+const DEFAULT_NOTIFIER_HANDLER_RELAY = "wss://purplepag.es/"
+
+const getNotifierHandler = () => {
+  const address = NOTIFIER_HANDLER_ADDRESS || DEFAULT_NOTIFIER_HANDLER_ADDRESS
+  const relay = NOTIFIER_HANDLER_RELAY || NOTIFIER_RELAY || DEFAULT_NOTIFIER_HANDLER_RELAY
+  return [address, relay, "web"]
+}
+
 export const createAlert = async (params: CreateAlertParams): Promise<CreateAlertResult> => {
   if (params.email) {
     const cadence = params.email.cron.endsWith("1") ? "Weekly" : "Daily"
-    const handler = [
-      "31990:97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322:1737058597050",
-      "wss://purplepag.es/",
-      "web",
-    ]
+    const handler = getNotifierHandler()
 
     params.email = {handler, ...params.email}
     params.description = `${cadence} alert ${params.description}, sent via email.`

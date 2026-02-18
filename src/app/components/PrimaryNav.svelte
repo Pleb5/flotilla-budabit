@@ -70,7 +70,8 @@
         const gitPath = makeSpacePath(url, "git")
         return $notifications.has(gitPath)
       }
-      return spaceUrls.some((url: string) => {
+      const urls = spaceUrls.length > 0 ? spaceUrls : PLATFORM_RELAYS
+      return urls.some((url: string) => {
         const gitPath = makeSpacePath(url, "git")
         return $notifications.has(gitPath)
       })
