@@ -9,6 +9,7 @@
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {browser, dev} from "$app/environment"
   import {beforeNavigate, goto} from "$app/navigation"
+  import {registerSW} from "virtual:pwa-register"
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
@@ -117,6 +118,13 @@
 
   const setupServiceWorkerUpdates = async () => {
     if (!browser || dev || !("serviceWorker" in navigator)) return
+
+    registerSW({
+      immediate: true,
+      onRegisterError: (error: unknown) => {
+        console.error("Service worker registration failed", error)
+      },
+    })
 
     const registration = await navigator.serviceWorker.ready
 
