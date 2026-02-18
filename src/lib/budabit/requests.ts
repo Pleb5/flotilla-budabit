@@ -12,51 +12,47 @@ export const GIT_AUTH_DTAG = "app/budabit/tokens"
 
 
 export const loadRepositories = async (pubkey: string, relays: string[] = []) => {
-    // Load both the named bookmark list and any legacy/set variants
-    load({
-        relays,
-        filters: [
-          { kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG] },
-          { kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey] },
-        ]
-    })
+  // Load both the named bookmark list and any legacy/set variants
+  load({
+    relays,
+    filters: [
+      { kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG] },
+      { kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey] },
+    ]
+  })
 }
 
 export const loadGraspServers = async (pubkey: string, relays: string[] = []) => {
-    load({
-        relays,
-        filters: [{ kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID] }]
-    })
+  load({
+    relays,
+    filters: [{ kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID] }]
+  })
 }
 
 export const loadTokens = async (pk: string, relays: string[] = []) => {
-    // Load encrypted git tokens from relays
-    load({
-        relays,
-        filters: [{ kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG] }]
-    })
+  // Load encrypted git tokens from relays
+  load({
+    relays,
+    filters: [{ kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG] }]
+  })
 }
 
 // --- Bookmarks sync (centralized) ---
 let bookmarksUnsub: (() => void) | undefined
 
 export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
-  try { bookmarksUnsub?.() } catch {}
-
-  console.log("[setupBookmarksSync] Setting up for pubkey:", pubkey, "relays:", relays)
+  try { bookmarksUnsub?.() } catch { }
 
   // Query for both new format (with d-tag) and legacy format (without d-tag)
   const filters: any[] = [
     { kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG] },
     { kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey] },
   ]
-  console.log("[setupBookmarksSync] Filters:", JSON.stringify(filters))
-  
-  const store = deriveEventsAsc(deriveEventsById({repository, filters}))
+
+  const store = deriveEventsAsc(deriveEventsById({ repository, filters }))
 
   bookmarksUnsub = store.subscribe((events: any[]) => {
-    console.log("[setupBookmarksSync] Store subscription fired, events count:", events?.length || 0)
-    
+
     if (!events || events.length === 0) {
       console.log("[setupBookmarksSync] No events found")
       return
@@ -64,11 +60,9 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
 
     // Take most recent event (could be either format)
     const latest = events.reduce((acc, cur) => (cur.created_at > acc.created_at ? cur : acc))
-    console.log("[setupBookmarksSync] Latest event:", latest.id, "kind:", latest.kind, "tags:", latest.tags)
-    
+
     const aTags = getAddressTags(latest.tags)
-    console.log("[setupBookmarksSync] Address tags found:", aTags.length, aTags)
-    
+
     const mapped = aTags.map(([_, address, relayHint]: string[]) => ({
       address,
       event: null,
@@ -76,12 +70,10 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
       author: latest.pubkey,
       identifier: GIT_REPO_BOOKMARK_DTAG,
     }))
-    console.log("[setupBookmarksSync] Setting bookmarksStore with:", mapped)
     bookmarksStore.set(mapped)
   })
 
   // Ensure we fetch initial data for both formats
-  console.log("[setupBookmarksSync] Loading from relays:", relays)
   load({ relays, filters })
 
   return bookmarksUnsub
@@ -91,10 +83,10 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
 let graspUnsub: (() => void) | undefined
 
 export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
-  try { graspUnsub?.() } catch {}
+  try { graspUnsub?.() } catch { }
 
   const filter = { kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID] }
-  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
+  const store = deriveEventsAsc(deriveEventsById({ repository, filters: [filter] }))
 
   graspUnsub = store.subscribe((events: any[]) => {
     if (!events || events.length === 0) return
@@ -135,16 +127,13 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
 let tokensUnsub: (() => void) | undefined
 
 export function setupTokensSync(pk: string, relays: string[] = []) {
-  try { tokensUnsub?.() } catch {}
-
-  console.log("[setupTokensSync] Setting up for pubkey:", pk, "relays:", relays)
+  try { tokensUnsub?.() } catch { }
 
   const filter = { kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG] }
-  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
+  const store = deriveEventsAsc(deriveEventsById({ repository, filters: [filter] }))
 
   tokensUnsub = store.subscribe(async (events: TrustedEvent[]) => {
-    console.log("[setupTokensSync] Store subscription fired, events count:", events?.length || 0)
-    
+
     if (!events || events.length === 0) {
       console.log("[setupTokensSync] No token events found")
       return
@@ -152,7 +141,6 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
 
     // Take most recent event
     const latest = events.reduce((acc, cur) => (cur.created_at > acc.created_at ? cur : acc))
-    console.log("[setupTokensSync] Latest event:", latest.id, "created_at:", latest.created_at)
 
     try {
       // Decrypt the content using NIP-44
@@ -163,13 +151,11 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
       }
 
       const loadedTokens = JSON.parse(plaintext) as Token[]
-      console.log("[setupTokensSync] Decrypted", loadedTokens.length, "tokens")
 
       // Validate and log token info for debugging (without exposing full token)
       loadedTokens.forEach((t: Token, i: number) => {
         const tokenPreview = t.token ? `${t.token.substring(0, 4)}...${t.token.substring(t.token.length - 4)}` : 'empty'
         const isValidFormat = t.token && t.token.length >= 20 && !t.token.includes('\n') && !t.token.includes(' ')
-        console.log(`[setupTokensSync] Token ${i + 1}: host="${t.host}", token=${tokenPreview}, length=${t.token?.length || 0}, validFormat=${isValidFormat}`)
         if (!isValidFormat) {
           console.warn(`[setupTokensSync] Token ${i + 1} may be invalid - check for whitespace, newlines, or incorrect format`)
         }
