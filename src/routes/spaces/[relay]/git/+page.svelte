@@ -1000,7 +1000,7 @@
             branchUpdateToastId = null
           }
           const toastId = pushToast({
-            message: "Some branches need to be updated",
+            message: "Sync your Repo states to Nostr",
             timeout: 0,
             action: {
               message: "Review",
