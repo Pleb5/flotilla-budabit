@@ -130,6 +130,13 @@
         <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
       </PrimaryNavItem>
       <PrimaryNavItem
+        title="Git"
+        onclick={openGit}
+        class="tooltip-right"
+        notification={gitNotification}>
+        <ImageIcon alt="Git" src={Git} size={7} />
+      </PrimaryNavItem>
+      <PrimaryNavItem
         title="Messages"
         onclick={openChat}
         class="tooltip-right"
