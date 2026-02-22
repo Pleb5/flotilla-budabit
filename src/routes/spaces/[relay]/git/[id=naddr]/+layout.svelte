@@ -78,7 +78,7 @@
   } from "@welshman/util"
   import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass, GIT_RELAYS} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass, GIT_RELAYS, getRepoAnnouncementRelays} from "@lib/budabit/state"
   import {userRepoWatchValues} from "@lib/budabit/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
@@ -401,6 +401,13 @@
   // Create stores at top level (not inside effect to avoid infinite loops)
   const repoEventStore = deriveRepoEvent(repoPubkey, repoName)
   const repoStateEventStore = deriveRepoStateEvent(repoPubkey, repoName)
+  const repoHeaderKey = $derived.by(() => {
+    const eventId = $repoEventStore?.id || "no-event"
+    const stateId = $repoStateEventStore?.id || "no-state"
+    const refsCount = repoClass?.refs?.length || 0
+    const editable = repoClass?.editable ? "1" : "0"
+    return `repo:${eventId}:${stateId}:${refsCount}:${editable}`
+  })
   const repoAuthorsStore = deriveRepoAuthors(repoEventStore, repoPubkey)
   const repoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays, fallbackRelays)
   const issuesStore = deriveIssues(repoAuthorsStore, repoName)
@@ -414,6 +421,65 @@
   // Create empty stores for Repo class
   const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
+
+  let repoLoadKey = ""
+  let repoLoadRetryTimer: ReturnType<typeof setTimeout> | null = null
+  $effect(() => {
+    const relays = $repoRelaysStore || []
+    if (relays.length === 0) return
+    const authors = $repoAuthorsStore || []
+    const authorList = authors.length > 0 ? authors : [repoPubkey]
+    const key = `${authorList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
+    if (repoLoadKey === key) return
+    repoLoadKey = key
+    load({
+      relays,
+      filters: [
+        {
+          authors: [repoPubkey],
+          kinds: [GIT_REPO_ANNOUNCEMENT],
+          "#d": [repoName],
+        },
+        {
+          authors: authorList,
+          kinds: [GIT_REPO_STATE],
+          "#d": [repoName],
+        },
+      ],
+    }).catch(() => {})
+    if (!repoLoadRetryTimer) {
+      repoLoadRetryTimer = setTimeout(() => {
+        repoLoadRetryTimer = null
+        const currentRepoEvent = getStore(repoEventStore)
+        const currentRepoStateEvent = getStore(repoStateEventStore)
+        if (currentRepoEvent && currentRepoStateEvent) return
+        const relaysRetry = Array.from(
+          new Set([
+            ...getRepoAnnouncementRelays([url]),
+            ...naddrRelays,
+          ])
+        )
+        if (relaysRetry.length === 0) return
+        const authorsRetry = getStore(repoAuthorsStore)
+        const authorListRetry = authorsRetry && authorsRetry.length > 0 ? authorsRetry : [repoPubkey]
+        load({
+          relays: relaysRetry,
+          filters: [
+            {
+              authors: [repoPubkey],
+              kinds: [GIT_REPO_ANNOUNCEMENT],
+              "#d": [repoName],
+            },
+            {
+              authors: authorListRetry,
+              kinds: [GIT_REPO_STATE],
+              "#d": [repoName],
+            },
+          ],
+        }).catch(() => {})
+      }, 2500)
+    }
+  })
 
   // Convert pubkey store to the type expected by Repo (Readable<string | null>)
   const viewerPubkeyStore: Readable<string | null> = derived(pubkey, $p => $p ?? null)
@@ -521,7 +587,13 @@
     const repoFilters = [
       {
         authors: [repoPubkey],
-        kinds: [GIT_REPO_STATE, GIT_REPO_ANNOUNCEMENT],
+        kinds: [GIT_REPO_ANNOUNCEMENT],
+        "#d": [repoName],
+      },
+      {
+        authors: [repoPubkey],
+        kinds: [GIT_REPO_STATE],
+        "#d": [repoName],
       },
     ]
 
@@ -625,6 +697,10 @@
     unsubscribers.forEach(unsub => unsub())
     unsubscribers = []
     lastLoadedIds.clear()
+    if (repoLoadRetryTimer) {
+      clearTimeout(repoLoadRetryTimer)
+      repoLoadRetryTimer = null
+    }
   })
 
   // Refresh state
@@ -818,7 +894,7 @@
 
   const getRepoRelaysForModal = () => getStore(repoRelaysStore) || (repoClass?.relays || [])
 
-  const getRepoAnnouncementRelays = () => {
+  const getRepoAnnouncementRelaysFromEvent = () => {
     if (!repoClass?.repoEvent) return []
     try {
       const parsed = parseRepoAnnouncementEvent(repoClass.repoEvent)
@@ -871,7 +947,7 @@
   function forkRepo() {
     if (!repoClass) return
 
-    const repoRelays = getRepoAnnouncementRelays()
+    const repoRelays = getRepoAnnouncementRelaysFromEvent()
     const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
 
     pushModal(ForkRepoDialog, {
@@ -1172,81 +1248,83 @@
   {:else if !repoClass}
     <div class="p-4 text-center text-red-500">Repository not found.</div>
   {:else}
-    <RepoHeader
-      {repoClass}
-      {activeTab}
-      {refreshRepo}
-      {isRefreshing}
-      {forkRepo}
-      {settingsRepo}
-      {overviewRepo}
-      {bookmarkRepo}
-      {isBookmarked}
-      isTogglingBookmark={isTogglingBookmark}
-      watchRepo={openWatchModal}
-      isWatching={isWatching}
-      >
-      {#snippet children(activeTab: string)}
-        <RepoTab
-          tabValue="feed"
-          label="Feed"
-          href={`${basePath}/feed`}
-          {activeTab}>
-          {#snippet icon()}
-            <FileCode class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
-          tabValue="code"
-          label="Code"
-          href={`${basePath}/code`}
-          {activeTab}>
-          {#snippet icon()}
-            <GitBranch class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
-          tabValue="issues"
-          label="Issues"
-          href={`${basePath}/issues`}
-          notification={hasIssuesNotification}
-          {activeTab}>
-          {#snippet icon()}
-            <CircleAlert class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
-          tabValue="patches"
-          label="Patches"
-          href={`${basePath}/patches`}
-          notification={hasPatchesNotification}
-          {activeTab}>
-          {#snippet icon()}
-            <GitPullRequest class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
-          tabValue="commits"
-          label="Commits"
-          href={`${basePath}/commits`}
-          {activeTab}>
-          {#snippet icon()}
-            <GitCommit class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        {#each repoTabExtensions as ext (ext.id)}
-        <RepoTab
-          tabValue={ext.builtinRoute ?? ext.path}
-          label={ext.label}
-          href={ext.builtinRoute ? `${basePath}/${ext.builtinRoute}` : `${basePath}/extensions/${ext.id}`}
-          {activeTab}>
-          {#snippet icon()}
-            <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        {/each}
-      {/snippet}
-    </RepoHeader>
+    {#key repoHeaderKey}
+      <RepoHeader
+        {repoClass}
+        {activeTab}
+        {refreshRepo}
+        {isRefreshing}
+        {forkRepo}
+        {settingsRepo}
+        {overviewRepo}
+        {bookmarkRepo}
+        {isBookmarked}
+        isTogglingBookmark={isTogglingBookmark}
+        watchRepo={openWatchModal}
+        isWatching={isWatching}
+        >
+        {#snippet children(activeTab: string)}
+          <RepoTab
+            tabValue="feed"
+            label="Feed"
+            href={`${basePath}/feed`}
+            {activeTab}>
+            {#snippet icon()}
+              <FileCode class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="code"
+            label="Code"
+            href={`${basePath}/code`}
+            {activeTab}>
+            {#snippet icon()}
+              <GitBranch class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="issues"
+            label="Issues"
+            href={`${basePath}/issues`}
+            notification={hasIssuesNotification}
+            {activeTab}>
+            {#snippet icon()}
+              <CircleAlert class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="patches"
+            label="Patches"
+            href={`${basePath}/patches`}
+            notification={hasPatchesNotification}
+            {activeTab}>
+            {#snippet icon()}
+              <GitPullRequest class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="commits"
+            label="Commits"
+            href={`${basePath}/commits`}
+            {activeTab}>
+            {#snippet icon()}
+              <GitCommit class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          {#each repoTabExtensions as ext (ext.id)}
+          <RepoTab
+            tabValue={ext.builtinRoute ?? ext.path}
+            label={ext.label}
+            href={ext.builtinRoute ? `${basePath}/${ext.builtinRoute}` : `${basePath}/extensions/${ext.id}`}
+            {activeTab}>
+            {#snippet icon()}
+              <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          {/each}
+        {/snippet}
+      </RepoHeader>
+    {/key}
     <ConfigProvider
       components={{
         AvatarImage: AvatarImage as typeof import("@nostr-git/ui").AvatarImage,
