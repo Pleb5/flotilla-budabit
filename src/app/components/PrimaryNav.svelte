@@ -122,13 +122,24 @@
       <Divider />
     {/if}
     <div>
-      <PrimaryNavItem
-        title="Settings"
-        href="/settings/profile"
-        prefix="/settings"
-        class="tooltip-right">
-        <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
-      </PrimaryNavItem>
+      <div class="hidden md:block lg:hidden">
+        <PrimaryNavItem
+          title="Settings"
+          href="/settings"
+          prefix="/settings"
+          class="tooltip-right">
+          <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
+        </PrimaryNavItem>
+      </div>
+      <div class="hidden lg:block">
+        <PrimaryNavItem
+          title="Settings"
+          href="/settings/profile"
+          prefix="/settings"
+          class="tooltip-right">
+          <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
+        </PrimaryNavItem>
+      </div>
       <PrimaryNavItem
         title="Git"
         onclick={openGit}

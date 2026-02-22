@@ -101,6 +101,14 @@
       ],
     })
   })
+
+  $effect(() => {
+    if (!isPlatform) return
+    const currentRooms = Array.from($channelsByUrl.get(url) || [])
+    if ($socket.status === SocketStatus.Open && currentRooms.length === 0) {
+      loadPlatformChannels()
+    }
+  })
 </script>
 
 <SecondaryNav>

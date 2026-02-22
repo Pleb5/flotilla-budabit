@@ -12,12 +12,14 @@
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
+  import Exit from "@assets/icons/logout-3.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import SpaceDetail from "@app/components/SpaceDetail.svelte"
+  import LogOut from "@app/components/LogOut.svelte"
   import RelayName from "@app/components/RelayName.svelte"
   import BudabitAlerts from "@lib/budabit/components/BudabitAlerts.svelte"
   import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
@@ -59,6 +61,8 @@
   const manageAlerts = () => {
     pushModal(BudabitAlerts, {}, {replaceState})
   }
+
+  const logout = () => pushModal(LogOut)
 
   let replaceState = $state(false)
   let element: Element | undefined = $state()
@@ -138,6 +142,10 @@
     <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
       <Icon icon={Bell} />
       Manage Alerts
+    </Button>
+    <Button class="btn btn-neutral btn-sm" onclick={logout}>
+      <Icon icon={Exit} />
+      Log Out
     </Button>
   </div>
 </div>

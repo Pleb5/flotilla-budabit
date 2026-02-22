@@ -1,10 +1,12 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
+  import {page} from "$app/stores"
   import {fly} from "@lib/transition"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
   import Wallet from "@assets/icons/wallet.svg?dataurl"
   import Server from "@assets/icons/server.svg?dataurl"
   import Moon from "@assets/icons/moon.svg?dataurl"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import InfoSquare from "@assets/icons/info-square.svg?dataurl"
   import Exit from "@assets/icons/logout-3.svg?dataurl"
   import GalleryMinimalistic from "@assets/icons/gallery-minimalistic.svg?dataurl"
@@ -15,11 +17,10 @@
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
+  import Link from "@lib/components/Link.svelte"
   import LogOut from "@app/components/LogOut.svelte"
   import {pushModal} from "@app/util/modal"
   import {theme} from "@app/util/theme"
-  import Git from "@assets/icons/git.svg?dataurl"
-  import Settings from "@assets/icons/settings.svg?dataurl"
 
   type Props = {
     children?: Snippet
@@ -34,9 +35,6 @@
 
 <SecondaryNav>
   <SecondaryNavSection>
-    <SecondaryNavItem class="w-full !justify-between">
-      <strong class="ellipsize flex items-center gap-3"> Your Settings </strong>
-    </SecondaryNavItem>
     <div in:fly|local>
       <SecondaryNavItem href="/settings/profile">
         <Icon icon={UserCircle} /> Profile
@@ -86,5 +84,12 @@
 </SecondaryNav>
 
 <Page>
+  {#if $page.url.pathname !== "/settings"}
+    <div class="content-padding-x pb-2 pt-4 hidden md:block lg:hidden">
+      <Link href="/settings" class="btn btn-ghost btn-sm w-fit">
+        <Icon icon={AltArrowLeft} /> Back
+      </Link>
+    </div>
+  {/if}
   {@render children?.()}
 </Page>
