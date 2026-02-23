@@ -24,12 +24,16 @@
     FileX,
     FileCode,
   } from "@lucide/svelte"
-  import {CommitHeader, SplitDiff} from "@nostr-git/ui"
+  import {CommitHeader, SplitDiff, toast} from "@nostr-git/ui"
+  import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import type {PageData} from "./$types"
-  import {getContext, onMount} from "svelte"
+  import {getContext, onMount, tick} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
-  import type {CommitMeta} from "@nostr-git/core/types"
+  import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
+  import { githubPermalinkDiffId } from "@nostr-git/core/git"
+  import {nip19} from "nostr-tools"
+  import {postPermalink} from "@lib/budabit"
   import type {CommitChange} from "./+page"
 
   const {data}: {data: PageData} = $props()
@@ -96,6 +100,7 @@
         })
 
         if (!result.success) {
+          notifyCorsProxyIssue(result)
           loadError = result.error || "Failed to initialize repository"
           isLoading = false
           return
@@ -109,6 +114,7 @@
       })
 
       if (!commitDetails.success) {
+        notifyCorsProxyIssue(commitDetails)
         loadError = commitDetails.error || "Failed to load commit details"
         isLoading = false
         return
@@ -136,9 +142,29 @@
       isLoading = false
     } catch (err: any) {
       console.error("Error loading commit details:", err)
+      notifyCorsProxyIssue(err)
       loadError = err?.message || "Failed to load commit details"
       isLoading = false
     }
+  }
+
+  const publishPermalink = async (permalink: PermalinkEvent) => {
+    const relays = repoClass.relays || []
+    const thunk = postPermalink(permalink, relays)
+    toast.push({
+      message: "Permalink published successfully",
+      timeout: 2000,
+    })
+    const nevent = nip19.neventEncode({
+      id: thunk.event.id,
+      kind: thunk.event.kind,
+      relays,
+    })
+    await navigator.clipboard.writeText(nevent)
+    toast.push({
+      message: "Permalink copied to clipboard",
+      timeout: 2000,
+    })
   }
 
   // Load commit details when component mounts if not already loaded from +page.ts
@@ -162,6 +188,34 @@
 
   // State for collapsible file panels
   let expandedFiles = $state<Set<string>>(new Set())
+  let diffAnchors = $state<Record<string, string>>({})
+
+  const getDiffHashFromLocation = () => {
+    if (typeof window === "undefined") return null
+    const match = window.location.hash.match(/^#diff-([a-f0-9]+)/i)
+    return match ? match[1] : null
+  }
+
+  const hasDiffLineAnchor = () => {
+    if (typeof window === "undefined") return false
+    return /^#diff-[a-f0-9]+[LR]\d+(?:-[LR]\d+)?$/i.test(window.location.hash || "")
+  }
+
+  const scrollToDiffHash = async () => {
+    const hash = getDiffHashFromLocation()
+    if (!hash) return
+    const path = Object.keys(diffAnchors).find(key => diffAnchors[key] === hash)
+    if (path && !expandedFiles.has(path)) {
+      expandedFiles = new Set(expandedFiles).add(path)
+      await tick()
+    }
+    if (hasDiffLineAnchor()) {
+      return
+    }
+    await tick()
+    const el = document.getElementById(`diff-${hash}`)
+    if (el) el.scrollIntoView({ block: "start" })
+  }
 
   // Toggle file expansion
   const toggleFile = (filepath: string) => {
@@ -172,6 +226,38 @@
     }
     expandedFiles = new Set(expandedFiles) // Trigger reactivity
   }
+
+  $effect(() => {
+    if (!changes || changes.length === 0) {
+      diffAnchors = {}
+      return
+    }
+    const paths = Array.from(new Set(changes.map(change => change.path).filter(Boolean)))
+    let cancelled = false
+    Promise.all(paths.map(async path => [path, await githubPermalinkDiffId(path)] as const))
+      .then(entries => {
+        if (!cancelled) diffAnchors = Object.fromEntries(entries)
+      })
+      .catch(() => {
+        if (!cancelled) diffAnchors = {}
+      })
+    return () => {
+      cancelled = true
+    }
+  })
+
+  $effect(() => {
+    const anchors = diffAnchors
+    if (Object.keys(anchors).length === 0) return
+    void scrollToDiffHash()
+  })
+
+  $effect(() => {
+    if (typeof window === "undefined") return
+    const handler = () => void scrollToDiffHash()
+    window.addEventListener("hashchange", handler)
+    return () => window.removeEventListener("hashchange", handler)
+  })
 
   // Get file status icon and styling
   const getFileStatusIcon = (status: string) => {
@@ -261,7 +347,7 @@
 
   // Expand all files by default if there are few changes
   $effect(() => {
-    if (changes && changes.length <= 5) {
+    if (changes && changes.length <= 5 && !getDiffHashFromLocation()) {
       expandedFiles = new Set(changes.map(change => change.path))
     }
   })
@@ -400,11 +486,14 @@
       {@const statusInfo = getFileStatusIcon(change.status)}
       {@const stats = getFileStats(change.diffHunks)}
 
-      <div class="w-full overflow-x-auto bg-background">
+      <div
+        class="w-full overflow-x-auto bg-background"
+        id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}
+      >
         <!-- File Header -->
         <button
           onclick={() => toggleFile(change.path)}
-          class="min-h-[44px] w-full touch-manipulation px-4 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
+          class="min-h-[44px] w-full touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
           <div
             class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <div class="flex min-w-fit items-center gap-2 sm:gap-3">
@@ -450,8 +539,15 @@
 
         <!-- File Diff Content -->
         {#if isExpanded}
-          <div class="px-4 pb-4 sm:px-6 sm:pb-6">
-            <SplitDiff hunks={normalizeHunks(change.diffHunks)} filepath={change.path} />
+          <div class="px-1 pb-3 sm:px-6 sm:pb-6">
+            <SplitDiff
+              hunks={normalizeHunks(change.diffHunks)}
+              filepath={change.path}
+              repo={repoClass}
+              publish={publishPermalink}
+              commitSha={commitMeta!.sha}
+              parentSha={commitMeta!.parents?.[0]}
+            />
           </div>
         {/if}
       </div>

@@ -9,6 +9,7 @@
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {browser, dev} from "$app/environment"
   import {beforeNavigate, goto} from "$app/navigation"
+  import {registerSW} from "virtual:pwa-register"
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
@@ -32,6 +33,7 @@
   import {setupHistory} from "@app/util/history"
   import {setupTracking} from "@app/util/tracking"
   import {setupAnalytics} from "@app/util/analytics"
+  import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
   import {makeSpacePath} from "@app/util/routes"
   import {
     userSettingsValues,
@@ -48,15 +50,21 @@
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {syncBudabitApplicationData, syncBudabitData} from "@lib/budabit/sync"
+  import {setupBudabitNotifications} from "@lib/budabit/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
 
   const {children} = $props()
 
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
   const PWA_UPDATE_INTERVAL = 2 * 60 * 1000
+  const PWA_RELOAD_QUERY_KEY = "pwaReload"
+  const PWA_RELOAD_TIMEOUT = 4_000
   let swUpdateInterval: number | null = null
+  let swUpdateOnFocus: (() => void) | null = null
+  let swUpdateOnVisibilityChange: (() => void) | null = null
   let updateToastShown = false
   let waitingWorker: ServiceWorker | null = null
+  let swRegistration: ServiceWorkerRegistration | null = null
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -79,19 +87,97 @@
   // Initialize push notification handler asap
   initializePushNotifications()
 
+  setupBudabitNotifications()
+
+  const clearReloadQuery = () => {
+    const url = new URL(window.location.href)
+
+    if (!url.searchParams.has(PWA_RELOAD_QUERY_KEY)) return
+
+    url.searchParams.delete(PWA_RELOAD_QUERY_KEY)
+    const state = window.history.state ?? {}
+    window.history.replaceState(state, "", url.toString())
+  }
+
+  const buildReloadUrl = () => {
+    const url = new URL(window.location.href)
+
+    url.searchParams.set(PWA_RELOAD_QUERY_KEY, `${Date.now()}`)
+    return url.toString()
+  }
+
+  const forceReload = () => {
+    window.location.replace(buildReloadUrl())
+  }
+
   const requestAppReload = () => {
-    if (!waitingWorker) {
-      window.location.reload()
+    if (!browser) return
+
+    if (!("serviceWorker" in navigator)) {
+      forceReload()
       return
+    }
+
+    let reloadScheduled = false
+
+    const scheduleReload = () => {
+      if (reloadScheduled) return
+      reloadScheduled = true
+      forceReload()
     }
 
     const onControllerChange = () => {
       navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
-      window.location.reload()
+      scheduleReload()
     }
 
     navigator.serviceWorker.addEventListener("controllerchange", onControllerChange)
-    waitingWorker.postMessage({type: "SKIP_WAITING"})
+
+    const fallbackTimer = window.setTimeout(() => {
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
+      scheduleReload()
+    }, PWA_RELOAD_TIMEOUT)
+
+    const clearFallback = () => {
+      clearTimeout(fallbackTimer)
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
+    }
+
+    const handleWorker = (worker: ServiceWorker) => {
+      if (worker.state === "activated") {
+        clearFallback()
+        scheduleReload()
+        return
+      }
+
+      worker.addEventListener("statechange", () => {
+        if (worker.state === "activated") {
+          clearFallback()
+          scheduleReload()
+        }
+      })
+
+      worker.postMessage({type: "SKIP_WAITING"})
+    }
+
+    const registration = swRegistration
+    const activeWorker = registration?.waiting || registration?.installing || waitingWorker
+
+    if (activeWorker) {
+      handleWorker(activeWorker)
+      return
+    }
+
+    navigator.serviceWorker.getRegistration().then(latest => {
+      const latestWorker = latest?.waiting || latest?.installing
+
+      if (latestWorker) {
+        handleWorker(latestWorker)
+      } else {
+        clearFallback()
+        scheduleReload()
+      }
+    })
   }
 
   const notifyUpdateReady = (worker: ServiceWorker | null) => {
@@ -110,13 +196,37 @@
   }
 
   const setupServiceWorkerUpdates = async () => {
-    if (!browser || dev || !("serviceWorker" in navigator)) return
+    if (!browser) return
+
+    clearReloadQuery()
+
+    if (dev || !("serviceWorker" in navigator)) return
+
+    registerSW({
+      immediate: true,
+      onRegisterError: (error: unknown) => {
+        console.error("Service worker registration failed", error)
+      },
+    })
 
     const registration = await navigator.serviceWorker.ready
+    swRegistration = registration
 
-    if (registration.waiting && navigator.serviceWorker.controller) {
-      notifyUpdateReady(registration.waiting)
+    const checkForWaitingWorker = () => {
+      if (registration.waiting && navigator.serviceWorker.controller) {
+        notifyUpdateReady(registration.waiting)
+      }
     }
+
+    const checkForUpdate = async () => {
+      try {
+        await registration.update()
+      } finally {
+        checkForWaitingWorker()
+      }
+    }
+
+    checkForWaitingWorker()
 
     registration.addEventListener("updatefound", () => {
       const installing = registration.installing
@@ -130,9 +240,21 @@
       })
     })
 
+    void checkForUpdate()
+
     swUpdateInterval = window.setInterval(() => {
-      registration.update()
+      void checkForUpdate()
     }, PWA_UPDATE_INTERVAL)
+
+    swUpdateOnFocus = () => void checkForUpdate()
+    window.addEventListener("focus", swUpdateOnFocus)
+
+    swUpdateOnVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void checkForUpdate()
+      }
+    }
+    document.addEventListener("visibilitychange", swUpdateOnVisibilityChange)
   }
 
   setupServiceWorkerUpdates()
@@ -214,6 +336,7 @@
       setupHistory(),
       setupAnalytics(),
       setupTracking(),
+      setupGitCorsProxy(),
       syncBudabitApplicationData(),
       syncBudabitData(),
     )
@@ -269,6 +392,16 @@
     if (swUpdateInterval) {
       clearInterval(swUpdateInterval)
       swUpdateInterval = null
+    }
+
+    if (swUpdateOnFocus) {
+      window.removeEventListener("focus", swUpdateOnFocus)
+      swUpdateOnFocus = null
+    }
+
+    if (swUpdateOnVisibilityChange) {
+      document.removeEventListener("visibilitychange", swUpdateOnVisibilityChange)
+      swUpdateOnVisibilityChange = null
     }
   })
 </script>

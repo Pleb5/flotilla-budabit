@@ -1,7 +1,7 @@
 <script lang="ts">
   import {onMount} from "svelte"
   import {goto} from "$app/navigation"
-  import {displayRelayUrl, getTagValue} from "@welshman/util"
+  import {displayRelayUrl} from "@welshman/util"
   import {deriveRelay, pubkey} from "@welshman/app"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import History from "@assets/icons/history.svg?dataurl"
@@ -12,24 +12,20 @@
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
+  import Exit from "@assets/icons/logout-3.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import SpaceDetail from "@app/components/SpaceDetail.svelte"
+  import LogOut from "@app/components/LogOut.svelte"
   import RelayName from "@app/components/RelayName.svelte"
-  import AlertAdd from "@app/components/AlertAdd.svelte"
-  import Alerts from "@app/components/Alerts.svelte"
+  import BudabitAlerts from "@lib/budabit/components/BudabitAlerts.svelte"
   import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
   import MenuSpaceRoomItem from "@lib/budabit/components/MenuSpaceRoomItem.svelte"
-  import {
-    ENABLE_ZAPS,
-    CONTENT_KINDS,
-    hasNip29,
-    alertsById,
-  } from "@app/core/state"
+  import {ENABLE_ZAPS, hasNip29} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
@@ -45,10 +41,6 @@
   const goalsPath = makeSpacePath(url, "goals")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
-
-  const hasAlerts = $derived(
-    Array.from($alertsById.values()).some(a => getTagValue("feed", a.tags)?.includes(url)),
-  )
 
   const channelNamesByUrl = $derived.by(() => {
     const channels = $channelsByUrl.get(url) || []
@@ -67,11 +59,10 @@
   }
 
   const manageAlerts = () => {
-    const component = hasAlerts ? Alerts : AlertAdd
-    const params = {url, channel: "push", hideSpaceField: true}
-
-    pushModal(component, params, {replaceState})
+    pushModal(BudabitAlerts, {}, {replaceState})
   }
+
+  const logout = () => pushModal(LogOut)
 
   let replaceState = $state(false)
   let element: Element | undefined = $state()
@@ -151,6 +142,10 @@
     <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
       <Icon icon={Bell} />
       Manage Alerts
+    </Button>
+    <Button class="btn btn-neutral btn-sm" onclick={logout}>
+      <Icon icon={Exit} />
+      Log Out
     </Button>
   </div>
 </div>

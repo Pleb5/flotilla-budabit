@@ -123,6 +123,70 @@
   .markdown :global(.inline-flex) {
     vertical-align: middle;
   }
+
+  .markdown--comment {
+    @apply text-sm leading-relaxed;
+  }
+
+  .markdown--comment :global(h1) {
+    @apply mb-3 mt-4 text-xl font-bold;
+  }
+
+  .markdown--comment :global(h2) {
+    @apply mb-2 mt-3 text-lg font-semibold;
+  }
+
+  .markdown--comment :global(h3) {
+    @apply mb-2 mt-3 text-base font-semibold;
+  }
+
+  .markdown--comment :global(h4) {
+    @apply mb-2 mt-2 text-sm font-semibold;
+  }
+
+  .markdown--comment :global(h5) {
+    @apply mb-1 mt-2 text-sm font-semibold;
+  }
+
+  .markdown--comment :global(h6) {
+    @apply mb-1 mt-2 text-xs font-semibold;
+  }
+
+  .markdown--comment :global(p) {
+    @apply my-2;
+  }
+
+  .markdown--comment :global(ul) {
+    @apply my-2 list-disc pl-5;
+  }
+
+  .markdown--comment :global(ol) {
+    @apply my-2 list-decimal pl-5;
+  }
+
+  .markdown--comment :global(li) {
+    @apply my-1;
+  }
+
+  .markdown--comment :global(blockquote) {
+    @apply my-3 border-l-4 border-primary/70 pl-3 italic;
+  }
+
+  .markdown--comment :global(pre) {
+    @apply my-3;
+  }
+
+  .markdown--comment :global(hr) {
+    @apply my-4 border-t border-base-300;
+  }
+
+  .markdown--comment :global(table) {
+    @apply my-3;
+  }
+
+  .markdown--comment :global(img) {
+    @apply my-3;
+  }
 </style>
 
 <script lang="ts">
@@ -150,6 +214,7 @@
     minimalQuote?: boolean
     hideMediaAtDepth?: number
     depth?: number
+    variant?: "default" | "comment"
   }
 
   const {
@@ -160,6 +225,7 @@
     minimalQuote = false,
     hideMediaAtDepth = 1,
     depth = 0,
+    variant = "default",
   }: Props = $props()
 
   // ============================================================================
@@ -303,6 +369,10 @@
   })
 </script>
 
-<div class="markdown max-w-full overflow-hidden" bind:this={containerElement}>
+<div
+  class="markdown max-w-full overflow-hidden"
+  class:markdown--comment={variant === "comment"}
+  bind:this={containerElement}
+>
   {@html sanitizedContent}
 </div>

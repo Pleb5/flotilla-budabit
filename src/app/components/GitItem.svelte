@@ -5,6 +5,7 @@
   import GitActions from "./GitActions.svelte"
   import Link from "@lib/components/Link.svelte"
   import {makeGitPath} from "@lib/budabit"
+  import {notifications} from "@app/util/notifications"
 
   const {
     url,
@@ -25,6 +26,11 @@
   const name = event.tags.find(nthEq(0, "name"))?.[1]
   const description = event.tags.find(nthEq(0, "description"))?.[1]
   const browseHref = $derived.by(() => makeGitPath(url, Address.fromEvent(event).toNaddr()))
+  const issuesHref = $derived.by(() => `${browseHref}/issues`)
+  const patchesHref = $derived.by(() => `${browseHref}/patches`)
+  const hasNotifications = $derived.by(
+    () => $notifications.has(issuesHref) || $notifications.has(patchesHref),
+  )
 
   // Validate that a string is a valid hex pubkey (exactly 64 hex characters)
   const isValidPubkey = (pubkey: string | undefined | null): boolean => {
@@ -52,6 +58,12 @@
     <Link href={browseHref} class="block w-full">
       <div class="flex w-full items-center justify-between gap-2">
         <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>
+        {#if hasNotifications}
+          <span
+            class="h-2 w-2 rounded-full bg-primary"
+            aria-label="Unread repository updates"
+            title="Unread updates"></span>
+        {/if}
       </div>
     </Link>
   {:else}

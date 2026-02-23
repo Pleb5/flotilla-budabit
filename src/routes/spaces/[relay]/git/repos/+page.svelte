@@ -6,8 +6,10 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
+  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {decodeRelay} from "@app/core/state"
+  import {getRepoAnnouncementRelays} from "@lib/budabit/state"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
   import PageContent from "@src/lib/components/PageContent.svelte"
@@ -57,7 +59,7 @@
   })
 
   onMount(() => {
-    const relays = [url, ...Router.get().FromUser().getUrls()]
+    const relays = getRepoAnnouncementRelays()
     load({
       relays,
       filters,
@@ -73,6 +75,9 @@
   {/snippet}
   {#snippet title()}
     <strong>Git Repos</strong>
+  {/snippet}
+  {#snippet action()}
+    <SpaceMenuButton {url} />
   {/snippet}
 </PageBar>
 

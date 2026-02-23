@@ -7,14 +7,16 @@
     } from "@welshman/util"
     import {repository, tracker} from "@welshman/app"
     import {fly} from "@lib/transition"
-    import Icon from "@lib/components/Icon.svelte"
-    import PageBar from "@lib/components/PageBar.svelte"
-    import Spinner from "@lib/components/Spinner.svelte"
-    import GitItem from "@app/components/GitItem.svelte"
-    import {decodeRelay} from "@app/core/state"
-    import {load} from "@welshman/net"
-    import {Router} from "@welshman/router"
-    import PageContent from "@src/lib/components/PageContent.svelte"
+     import Icon from "@lib/components/Icon.svelte"
+     import PageBar from "@lib/components/PageBar.svelte"
+     import Spinner from "@lib/components/Spinner.svelte"
+     import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
+     import GitItem from "@app/components/GitItem.svelte"
+     import {decodeRelay} from "@app/core/state"
+     import {getRepoAnnouncementRelays} from "@lib/budabit/state"
+     import {load} from "@welshman/net"
+     import {Router} from "@welshman/router"
+     import PageContent from "@src/lib/components/PageContent.svelte"
     import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
     import {derived as _derived} from "svelte/store"
     import {onMount} from "svelte"
@@ -65,7 +67,7 @@
     })
   
     onMount(() => {
-      const relays = [url, ...Router.get().FromUser().getUrls()]
+      const relays = getRepoAnnouncementRelays()
       load({
         relays,
         filters,
@@ -79,10 +81,13 @@
         <Icon icon={Git} />
       </div>
     {/snippet}
-    {#snippet title()}
-      <strong>Git Repos</strong>
-    {/snippet}
-  </PageBar>
+     {#snippet title()}
+       <strong>Git Repos</strong>
+     {/snippet}
+     {#snippet action()}
+       <SpaceMenuButton {url} />
+     {/snippet}
+   </PageBar>
   
   <PageContent>
     <div class="flex flex-grow flex-col gap-2 overflow-auto p-2">

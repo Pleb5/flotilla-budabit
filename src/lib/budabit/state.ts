@@ -12,6 +12,7 @@ import {
   extractLabelEvents,
   mergeEffectiveLabels,
   type RepoGroup,
+  type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
 import {RepoCore} from "@nostr-git/core/git"
 import {repository, pubkey} from "@welshman/app"
@@ -24,7 +25,15 @@ import {
   getMembershipRoomsByUrl,
   fromCsv,
 } from "@app/core/state"
-import {isRelayUrl, normalizeRelayUrl, type TrustedEvent, ROOM_META, getTag} from "@welshman/util"
+import {Router} from "@welshman/router"
+import {
+  isRelayUrl,
+  normalizeRelayUrl,
+  type TrustedEvent,
+  ROOM_META,
+  getTag,
+  getAddress,
+} from "@welshman/util"
 import {nip19} from "nostr-tools"
 import {fromPairs, pushToMapKey, sortBy, uniq, uniqBy} from "@welshman/lib"
 import {extractRoleAssignments} from "./labels"
@@ -53,6 +62,27 @@ export const DEFAULT_WORKER_PUBKEY =
   "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
 
 export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
+
+const safeNormalizeRelayUrl = (url: string) => {
+  try {
+    return normalizeRelayUrl(url)
+  } catch {
+    return ""
+  }
+}
+
+export const getRepoAnnouncementRelays = (extra: string[] = []) => {
+  let userRelays: string[] = []
+  try {
+    userRelays = Router.get().FromUser().getUrls()
+  } catch {
+    userRelays = []
+  }
+  const merged = [...userRelays, ...GIT_RELAYS, ...extra]
+  return Array.from(
+    new Set(merged.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)),
+  ) as string[]
+}
 
 export const ROOMS = 10009
 
@@ -102,9 +132,20 @@ export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
 // - group by r:euc using core's groupByEuc
 // - expose lookups and maintainer derivation helpers
 
-export const repoAnnouncements = deriveEventsAsc(
+const repoAnnouncementsRaw = deriveEventsAsc(
   deriveEventsById({repository, filters: [{kinds: [30617]}]}),
 )
+
+export const repoAnnouncements = derived(repoAnnouncementsRaw, $events => {
+  const isDeletedRepoAnnouncement = (event: {tags?: string[][]}) =>
+    (event.tags || []).some(tag => tag[0] === "deleted")
+  const latestByAddress = new Map<string, RepoAnnouncementEvent>()
+  for (const event of ($events as RepoAnnouncementEvent[]) || []) {
+    const address = getAddress(event)
+    latestByAddress.set(address, event)
+  }
+  return Array.from(latestByAddress.values()).filter(event => !isDeletedRepoAnnouncement(event))
+})
 
 export const repoGroups = derived(repoAnnouncements, ($events): RepoGroup[] => {
   return groupByEuc($events as any)
@@ -140,11 +181,15 @@ export const deriveRepoGroup = (euc: string) =>
 export const deriveMaintainersForEuc = (euc: string) =>
   withGetter(derived(deriveRepoGroup(euc), g => (g ? deriveMaintainers(g) : new Set<string>())))
 
-export const loadRepoAnnouncements = (relays: string[] = GIT_RELAYS) =>
-  load({
-    relays: relays.map(u => normalizeRelayUrl(u)).filter(isRelayUrl) as string[],
+export const loadRepoAnnouncements = (relays?: string[]) => {
+  const targetRelays = (relays && relays.length > 0 ? relays : getRepoAnnouncementRelays())
+    .map(u => safeNormalizeRelayUrl(u))
+    .filter(isRelayUrl) as string[]
+  return load({
+    relays: targetRelays,
     filters: [{kinds: [30617]}],
   })
+}
 
 // ---------------------------------------------------------------------------
 // NIP-34 / 22 / 32 convergence helpers

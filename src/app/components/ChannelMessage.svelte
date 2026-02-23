@@ -43,6 +43,15 @@
 
   const onTap = () => pushModal(ChannelMessageMenuMobile, {url, event, reply})
 
+  const stopTapFromInteractive = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null
+    if (!target) return
+    const interactive = target.closest("button, a, [role='button'], [data-stop-tap]")
+    if (interactive) {
+      event.stopPropagation()
+    }
+  }
+
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, url})
 
   const deleteReaction = async (event: TrustedEvent) =>
@@ -80,11 +89,11 @@
           </span>
         </div>
       {/if}
-      <div class="text-sm">
-        {#if isKnownEventKind(event.kind)}
-          <div class="event-renderer">
-            <EventRenderer event={event as any} />
-          </div>
+        <div class="text-sm">
+          {#if isKnownEventKind(event.kind)}
+            <div class="event-renderer" onclick={stopTapFromInteractive}>
+              <EventRenderer event={event as any} relay={url} />
+            </div>
         {:else if isKnownUnknown(event.kind)}
           <div class="unknown-kind">
             {@html new Template(event as any).render()}

@@ -22,9 +22,10 @@
     event: TrustedEvent
     hideZap?: boolean
     customActions?: Snippet
+    relays?: string[]
   }
 
-  const {url, noun, event, hideZap, customActions}: Props = $props()
+  const {url, noun, event, hideZap, customActions, relays = []}: Props = $props()
 
   const shouldProtect = canEnforceNip70(url)
 
@@ -58,7 +59,7 @@
   <Tippy
     bind:popover
     component={EventMenu}
-    props={{url, noun, event, customActions, onClick: hidePopover}}
+    props={{url, noun, event, customActions, onClick: hidePopover, relays}}
     params={{trigger: "manual", interactive: true}}>
     <Button class="btn join-item btn-neutral btn-xs" onclick={showPopover}>
       <Icon icon={MenuDots} size={4} />

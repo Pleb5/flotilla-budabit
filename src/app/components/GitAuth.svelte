@@ -1,9 +1,16 @@
 <script lang="ts">
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
+  import FieldInline from "@lib/components/FieldInline.svelte"
   import {pushModal} from "@app/util/modal"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
   import {tokens as tokensStore} from "@nostr-git/ui"
+  import {
+    DEFAULT_GIT_CORS_PROXY,
+    gitCorsProxy,
+    normalizeGitCorsProxy,
+    resolveGitCorsProxy,
+  } from "@app/util/git-cors-proxy"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import {signer, pubkey, publishThunk} from "@welshman/app"
   import {Router} from "@welshman/router"
@@ -11,6 +18,7 @@
   import {GIT_AUTH_DTAG} from "@src/lib/budabit/requests"
   import {get} from "svelte/store"
   import Git from "@assets/icons/git.svg?dataurl"
+  import DangerTriangle from "@assets/icons/danger-triangle.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
 
@@ -24,6 +32,30 @@
   }
 
   const {tokenKey}: Props = $props()
+
+  let corsProxyDraft = $state("")
+  const effectiveCorsProxy = $derived.by(() => resolveGitCorsProxy($gitCorsProxy))
+  const isDefaultCorsProxy = $derived.by(() => {
+    const normalized = normalizeGitCorsProxy($gitCorsProxy || "")
+    return !normalized || normalized === DEFAULT_GIT_CORS_PROXY
+  })
+
+  $effect(() => {
+    corsProxyDraft = $gitCorsProxy || ""
+  })
+
+  const saveCorsProxy = () => {
+    const normalized = normalizeGitCorsProxy(corsProxyDraft)
+    if (normalized !== $gitCorsProxy) {
+      gitCorsProxy.set(normalized)
+    }
+    corsProxyDraft = normalized
+  }
+
+  const resetCorsProxy = () => {
+    corsProxyDraft = ""
+    gitCorsProxy.set("")
+  }
 
   function mask(t: string) {
     return t.length <= 8 ? "••••••••" : `${t.slice(0, 4)}…${t.slice(-4)}`
@@ -88,6 +120,41 @@
       Add Token
     </Button>
   </div>
+
+  <div class="rounded border border-warning/30 bg-warning/10 p-3 text-warning">
+    <div class="flex items-start gap-2">
+      <Icon icon={DangerTriangle} class="mt-0.5 text-warning" size={4} />
+      <p class="text-sm leading-5">
+        Tokens are sent in cleartext through the configured CORS proxy and are stored encrypted in
+        browser local storage. DO NOT PUT CRITICAL ACCESS TOKENS HERE! SCOPE TOKEN PERMISSIONS TO
+        REDUCE RISK.
+      </p>
+    </div>
+  </div>
+
+  <FieldInline>
+    {#snippet label()}
+      <p>CORS Proxy</p>
+    {/snippet}
+    {#snippet input()}
+      <label class="input input-bordered flex w-full items-center gap-2">
+        <input
+          class="grow"
+          type="url"
+          placeholder={DEFAULT_GIT_CORS_PROXY}
+          bind:value={corsProxyDraft}
+          onchange={saveCorsProxy}
+        />
+        <Button class="btn btn-ghost btn-xs" onclick={resetCorsProxy}>Default</Button>
+      </label>
+    {/snippet}
+    {#snippet info()}
+      <p>
+        Default: <span class="font-mono">{DEFAULT_GIT_CORS_PROXY}</span>. Leave blank to use it.
+        Current: <span class="font-mono">{effectiveCorsProxy}</span>.
+      </p>
+    {/snippet}
+  </FieldInline>
 
   {#if $tokensStore.length}
     <div class="w-full">

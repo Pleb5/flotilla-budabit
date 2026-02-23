@@ -18,6 +18,7 @@
     CircleAlert,
     GitPullRequest,
     GitCommit,
+    ChevronLeft,
   } from "@lucide/svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
@@ -29,12 +30,16 @@
   import Input from "@lib/components/Field.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {pushToast} from "@src/app/util/toast"
+  import {notifications} from "@app/util/notifications"
+  import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import EventActions from "@src/app/components/EventActions.svelte"
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {pushModal} from "@app/util/modal"
+  import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
   import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
+  import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   
   // ForkResult type definition (matches @nostr-git/ui)
@@ -49,13 +54,13 @@
   }
   import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
   import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, parseRepoAnnouncementEvent, isCommentEvent} from "@nostr-git/core/events"
-  import {normalizeRelayUrl as normalizeRelayUrlShared} from "@nostr-git/core/utils"
+  import {normalizeRelayUrl as normalizeRelayUrlShared, parseRepoId} from "@nostr-git/core/utils"
   import {derived, get as getStore, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
-  import {goto, afterNavigate, beforeNavigate} from "$app/navigation"
+  import {goto, beforeNavigate} from "$app/navigation"
   import {
     normalizeRelayUrl,
     NAMED_BOOKMARKS,
@@ -73,7 +78,8 @@
   } from "@welshman/util"
   import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass, GIT_RELAYS, getRepoAnnouncementRelays} from "@lib/budabit/state"
+  import {userRepoWatchValues} from "@lib/budabit/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
@@ -89,6 +95,21 @@
   
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
+
+  $effect(() => {
+    if (!repoClass) return
+    if (!repoClass.name && repoName) {
+      repoClass.name = repoName
+    }
+    if (!repoClass.key && repoPubkey && repoName) {
+      try {
+        repoClass.key = parseRepoId(`${repoPubkey}:${repoName}`)
+      } catch {}
+    }
+    if (!repoClass.address && repoPubkey && repoName) {
+      repoClass.address = `${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`
+    }
+  })
 
   // Get enabled extensions with repo-tab slots
   const repoTabExtensions = $derived.by(() => {
@@ -122,10 +143,61 @@
   })
   
   // Memoize encodedRelay - it only changes if relay param changes
-  const encodedRelay = $derived(encodeURIComponent(relay))
+  const encodedRelay = $derived(encodeURIComponent(relay ?? ""))
   
   // Memoize base path to avoid recalculating on every render
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
+  const issuesPath = $derived.by(() => `${basePath}/issues`)
+  const patchesPath = $derived.by(() => `${basePath}/patches`)
+  const hasIssuesNotification = $derived.by(() => $notifications.has(issuesPath))
+  const hasPatchesNotification = $derived.by(() => $notifications.has(patchesPath))
+
+  const repoAddress = $derived.by(() => {
+    if (repoClass?.address) return repoClass.address
+    if (repoPubkey && repoId) return `30617:${repoPubkey}:${repoId}`
+    return ""
+  })
+
+  const watchOptions = $derived.by(() => (repoAddress ? $userRepoWatchValues.repos[repoAddress] : undefined))
+  const isWatching = $derived(Boolean(watchOptions))
+
+  const openWatchModal = () => {
+    if (!repoAddress) return
+    pushModal(RepoWatchModal, {
+      repoAddr: repoAddress,
+      repoName: repoClass?.name || repoName,
+    })
+  }
+
+  const normalizePath = (value: string | null | undefined) =>
+    (value ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
+
+  const dirFromPath = (value: string) => value.split("/").slice(0, -1).join("/")
+
+  const codeFileParam = $derived.by(() => normalizePath($page.url.searchParams.get("path")))
+  const codeDirParam = $derived.by(() => normalizePath($page.url.searchParams.get("dir")))
+  const codeCurrentDir = $derived.by(() =>
+    codeFileParam ? dirFromPath(codeFileParam) : codeDirParam
+  )
+  const codeBreadcrumbPath = $derived.by(() => codeFileParam || codeDirParam)
+  const codeBreadcrumbSegments = $derived.by(() =>
+    codeBreadcrumbPath ? codeBreadcrumbPath.split("/") : []
+  )
+  const codeCanGoUp = $derived.by(() => codeCurrentDir.length > 0)
+  const codeParentPath = $derived.by(() => (codeCurrentDir ? dirFromPath(codeCurrentDir) : ""))
+
+  const setCodeDirectory = (dir: string) => {
+    const normalized = normalizePath(dir)
+    const next = new URL($page.url)
+    if (normalized) next.searchParams.set("dir", normalized)
+    else next.searchParams.delete("dir")
+    next.searchParams.delete("path")
+    const nextUrl = `${next.pathname}${next.search}${next.hash}`
+    const currentUrl = `${$page.url.pathname}${$page.url.search}${$page.url.hash}`
+    if (nextUrl !== currentUrl) {
+      goto(nextUrl, {replaceState: true, keepFocus: true, noScroll: true})
+    }
+  }
 
   function deriveRepoEvent(repoPubkey: string, repoName: string) {
     return derived(
@@ -329,6 +401,13 @@
   // Create stores at top level (not inside effect to avoid infinite loops)
   const repoEventStore = deriveRepoEvent(repoPubkey, repoName)
   const repoStateEventStore = deriveRepoStateEvent(repoPubkey, repoName)
+  const repoHeaderKey = $derived.by(() => {
+    const eventId = $repoEventStore?.id || "no-event"
+    const stateId = $repoStateEventStore?.id || "no-state"
+    const refsCount = repoClass?.refs?.length || 0
+    const editable = repoClass?.editable ? "1" : "0"
+    return `repo:${eventId}:${stateId}:${refsCount}:${editable}`
+  })
   const repoAuthorsStore = deriveRepoAuthors(repoEventStore, repoPubkey)
   const repoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays, fallbackRelays)
   const issuesStore = deriveIssues(repoAuthorsStore, repoName)
@@ -342,6 +421,65 @@
   // Create empty stores for Repo class
   const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
+
+  let repoLoadKey = ""
+  let repoLoadRetryTimer: ReturnType<typeof setTimeout> | null = null
+  $effect(() => {
+    const relays = $repoRelaysStore || []
+    if (relays.length === 0) return
+    const authors = $repoAuthorsStore || []
+    const authorList = authors.length > 0 ? authors : [repoPubkey]
+    const key = `${authorList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
+    if (repoLoadKey === key) return
+    repoLoadKey = key
+    load({
+      relays,
+      filters: [
+        {
+          authors: [repoPubkey],
+          kinds: [GIT_REPO_ANNOUNCEMENT],
+          "#d": [repoName],
+        },
+        {
+          authors: authorList,
+          kinds: [GIT_REPO_STATE],
+          "#d": [repoName],
+        },
+      ],
+    }).catch(() => {})
+    if (!repoLoadRetryTimer) {
+      repoLoadRetryTimer = setTimeout(() => {
+        repoLoadRetryTimer = null
+        const currentRepoEvent = getStore(repoEventStore)
+        const currentRepoStateEvent = getStore(repoStateEventStore)
+        if (currentRepoEvent && currentRepoStateEvent) return
+        const relaysRetry = Array.from(
+          new Set([
+            ...getRepoAnnouncementRelays([url]),
+            ...naddrRelays,
+          ])
+        )
+        if (relaysRetry.length === 0) return
+        const authorsRetry = getStore(repoAuthorsStore)
+        const authorListRetry = authorsRetry && authorsRetry.length > 0 ? authorsRetry : [repoPubkey]
+        load({
+          relays: relaysRetry,
+          filters: [
+            {
+              authors: [repoPubkey],
+              kinds: [GIT_REPO_ANNOUNCEMENT],
+              "#d": [repoName],
+            },
+            {
+              authors: authorListRetry,
+              kinds: [GIT_REPO_STATE],
+              "#d": [repoName],
+            },
+          ],
+        }).catch(() => {})
+      }, 2500)
+    }
+  })
 
   // Convert pubkey store to the type expected by Repo (Readable<string | null>)
   const viewerPubkeyStore: Readable<string | null> = derived(pubkey, $p => $p ?? null)
@@ -449,7 +587,13 @@
     const repoFilters = [
       {
         authors: [repoPubkey],
-        kinds: [GIT_REPO_STATE, GIT_REPO_ANNOUNCEMENT],
+        kinds: [GIT_REPO_ANNOUNCEMENT],
+        "#d": [repoName],
+      },
+      {
+        authors: [repoPubkey],
+        kinds: [GIT_REPO_STATE],
+        "#d": [repoName],
       },
     ]
 
@@ -553,6 +697,10 @@
     unsubscribers.forEach(unsub => unsub())
     unsubscribers = []
     lastLoadedIds.clear()
+    if (repoLoadRetryTimer) {
+      clearTimeout(repoLoadRetryTimer)
+      repoLoadRetryTimer = null
+    }
   })
 
   // Refresh state
@@ -561,6 +709,8 @@
   // Bookmark state
   let isTogglingBookmark = $state(false)
   let isBookmarked = $state(false)
+  let relaysWarningKey = $state("")
+  let suppressRelaysWarning = $state(false)
   
   // Subscribe to bookmarks store to update bookmark status reactively
   $effect(() => {
@@ -592,9 +742,6 @@
     return unsubscribe
   })
   
-  // Scroll position management
-  let pageContentElement = $state<Element | undefined>()
-  const scrollStorageKey = `repoScroll:${id}`
 
   // --- GRASP servers (user profile) ---
   const graspServersFilter = {
@@ -605,41 +752,16 @@
 
   // Helper to compute base path for this repo scope
   function repoBasePath() {
-    return `/spaces/${encodeURIComponent(relay)}/git/${id}`
+    return `/spaces/${encodeURIComponent(relay ?? "")}/git/${id}`
   }
 
-  afterNavigate(({to}) => {
-    try {
-      if (!to) return
+  const issuesScrollStorageKey = `repoScroll:${id}:issues`
 
-      if (to.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
-        // Restore scroll position for issues page
-        const savedScroll = sessionStorage.getItem(scrollStorageKey)
-        if (savedScroll && pageContentElement) {
-          const scrollPosition = parseInt(savedScroll, 10)
-          // Double requestAnimationFrame ensures the scroll restoration happens after:
-          // 1. First RAF: Schedule callback for next paint cycle
-          // 2. Second RAF: Execute after that paint has completed and content is fully rendered
-          // This prevents scroll jumping and ensures all issue cards are in the DOM
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              if (pageContentElement) {
-                pageContentElement.scrollTop = scrollPosition
-              }
-            })
-          })
-        }
-      }
-    } catch {}
-  })
-
-  beforeNavigate(({from, to}) => {
-    if (from?.route.id === "/spaces/[relay]/git/[id=naddr]/issues") {
-      // Save scroll position when leaving issues page
-      if (pageContentElement) {
-        const scrollPosition = pageContentElement.scrollTop
-        sessionStorage.setItem(scrollStorageKey, scrollPosition.toString())
-      }
+  beforeNavigate(({to}) => {
+    if (!to || typeof sessionStorage === "undefined") return
+    const nextPath = to.url.pathname
+    if (!nextPath.startsWith(repoBasePath())) {
+      sessionStorage.removeItem(issuesScrollStorageKey)
     }
   })
 
@@ -710,6 +832,7 @@
       }
     } catch (error) {
       console.error("Failed to refresh repository:", error)
+      notifyCorsProxyIssue(error)
       pushToast({
         message: `Failed to sync repository: ${error instanceof Error ? error.message : "Unknown error"}`,
         theme: "error",
@@ -769,8 +892,63 @@
     }
   }
 
+  const getRepoRelaysForModal = () => getStore(repoRelaysStore) || (repoClass?.relays || [])
+
+  const getRepoAnnouncementRelaysFromEvent = () => {
+    if (!repoClass?.repoEvent) return []
+    try {
+      const parsed = parseRepoAnnouncementEvent(repoClass.repoEvent)
+      return parsed.relays || []
+    } catch {
+      return []
+    }
+  }
+
+  const getRepoProfile = async (pubkey: string) => {
+    const profile = $profilesByPubkey.get(pubkey)
+    if (profile) {
+      return {
+        name: profile.name,
+        picture: profile.picture,
+        nip05: profile.nip05,
+        display_name: profile.display_name,
+      }
+    }
+    const relays = getRepoRelaysForModal()
+    await loadProfile(pubkey, relays)
+    const loadedProfile = $profilesByPubkey.get(pubkey)
+    if (loadedProfile) {
+      return {
+        name: loadedProfile.name,
+        picture: loadedProfile.picture,
+        nip05: loadedProfile.nip05,
+        display_name: loadedProfile.display_name,
+      }
+    }
+    return null
+  }
+
+  const searchRepoProfiles = async (query: string) => {
+    const pubkeys = $profileSearch.searchValues(query)
+    return pubkeys.map((pubkey: string) => {
+      const profile = $profilesByPubkey.get(pubkey)
+      return {
+        pubkey: pubkey,
+        name: profile?.name,
+        picture: profile?.picture,
+        nip05: profile?.nip05,
+        display_name: profile?.display_name,
+      }
+    })
+  }
+
+  const searchRepoRelays = async (query: string) => $relaySearch.searchValues(query)
+
   function forkRepo() {
     if (!repoClass) return
+
+    const repoRelays = getRepoAnnouncementRelaysFromEvent()
+    const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
 
     pushModal(ForkRepoDialog, {
       repo: repoClass,
@@ -781,6 +959,10 @@
       },
       graspServerUrls: graspServerUrls,
       navigateToForkedRepo: navigateToForkedRepo,
+      defaultRelays,
+      getProfile: getRepoProfile,
+      searchProfiles: searchRepoProfiles,
+      searchRelays: searchRepoRelays,
     })
   }
 
@@ -788,7 +970,8 @@
     if (!repoClass) return
     
     const repoRelays = getStore(repoRelaysStore)
-    if (repoRelays.length === 0) {
+    const relaysForPublish = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
+    if (relaysForPublish.length === 0) {
       pushToast({
         message: "Repository relays not ready. Please wait...",
         theme: "error",
@@ -799,54 +982,62 @@
     pushModal(EditRepoPanel, {
       repo: repoClass,
       onPublishEvent: (event: RepoAnnouncementEvent) => {
-        postRepoAnnouncement(event, repoRelays)
+        postRepoAnnouncement(event, relaysForPublish)
       },
-      getProfile: async (pubkey: string) => {
-        const profile = $profilesByPubkey.get(pubkey)
-        if (profile) {
-          return {
-            name: profile.name,
-            picture: profile.picture,
-            nip05: profile.nip05,
-            display_name: profile.display_name,
-          }
-        }
-        // Try to load profile if not in cache
-        const repoRelays = getStore(repoRelaysStore) || (repoClass?.relays || [])
-        await loadProfile(pubkey, repoRelays)
-        const loadedProfile = $profilesByPubkey.get(pubkey)
-        if (loadedProfile) {
-          return {
-            name: loadedProfile.name,
-            picture: loadedProfile.picture,
-            nip05: loadedProfile.nip05,
-            display_name: loadedProfile.display_name,
-          }
-        }
-        return null
-      },
-      searchProfiles: async (query: string) => {
-        // profileSearch.searchValues returns an array of pubkeys (strings)
-        const pubkeys = $profileSearch.searchValues(query)
-        
-        // Map each pubkey to a profile object by looking it up in profilesByPubkey
-        return pubkeys.map((pubkey: string) => {
-          const profile = $profilesByPubkey.get(pubkey)
-          return {
-            pubkey: pubkey,
-            name: profile?.name,
-            picture: profile?.picture,
-            nip05: profile?.nip05,
-            display_name: profile?.display_name,
-          }
-        })
-      },
-      searchRelays: async (query: string) => {
-        // relaySearch.searchValues returns an array of relay URLs (strings)
-        return $relaySearch.searchValues(query)
+      canDelete: !!$pubkey && repoPubkey === $pubkey,
+      onRequestDelete: () => openDeleteRepoModal(),
+      getProfile: getRepoProfile,
+      searchProfiles: searchRepoProfiles,
+      searchRelays: searchRepoRelays,
+    })
+  }
+
+  function openDeleteRepoModal() {
+    if (!repoClass) return
+    const repoEvent = getStore(repoEventStore)
+    if (!repoEvent) {
+      pushToast({
+        message: "Repository event not available. Please try again.",
+        theme: "error",
+      })
+      return
+    }
+    const relays = getRepoRelaysForModal()
+    suppressRelaysWarning = true
+    pushModal(DeleteRepoConfirm, {
+      repoClass,
+      repoEvent,
+      repoName,
+      repoRelays: relays,
+      backPath: `/spaces/${encodedRelay}/git`,
+      onClose: () => {
+        suppressRelaysWarning = false
       },
     })
   }
+
+  $effect(() => {
+    if (suppressRelaysWarning) return
+    if (!repoClass?.repoEvent) return
+    let parsed
+    try {
+      parsed = parseRepoAnnouncementEvent(repoClass.repoEvent)
+    } catch {
+      return
+    }
+    const relays = parsed.relays || []
+    if (relays.length > 0) return
+    const key = repoClass.repoEvent.id
+    if (relaysWarningKey === key) return
+    relaysWarningKey = key
+    pushToast({
+      message:
+        "This repository announcement has no relays defined. Add preferred relays so others can discover updates.",
+      theme: "warning",
+      timeout: 0,
+      action: {message: "Repo settings", onclick: () => settingsRepo()},
+    })
+  })
 
   async function bookmarkRepo() {
     if (!repoClass || !$pubkey || isTogglingBookmark) return
@@ -945,7 +1136,7 @@
 
   function overviewRepo() {
     if (!repoClass) return
-    goto(`/spaces/${relay}/git/${id}/`)
+    goto(`${basePath}/`)
   }
 
   // Connect the nostr-git toast store to the toast component
@@ -974,7 +1165,7 @@
     }
   })
 
-  const back = () => history.back()//goto(`/spaces/${relay}/git/`)
+  const back = () => (activeTab === "code" ? overviewRepo() : history.back())
 </script>
 
 <svelte:head>
@@ -991,92 +1182,149 @@
     </div>
   {/snippet}
   {#snippet title()}
-    <h1 class="text-xl">{""}</h1>
+    {#if activeTab === "code"}
+      <div class="flex min-w-0 items-center gap-2 md:hidden">
+        {#if codeCanGoUp}
+          <button
+            type="button"
+            class="flex items-center gap-1 rounded-md px-2 py-1 text-xs sm:text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors"
+            onclick={() => setCodeDirectory(codeParentPath)}
+            title="Up"
+          >
+            <ChevronLeft class="h-4 w-4" />
+            <span class="hidden sm:inline">Up</span>
+          </button>
+        {/if}
+        <nav
+          class="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto text-xs sm:text-sm text-muted-foreground whitespace-nowrap"
+          aria-label="Breadcrumb"
+        >
+          <button
+            type="button"
+            class="hover:text-foreground hover:underline transition-colors flex-shrink-0 whitespace-nowrap"
+            onclick={() => setCodeDirectory("")}
+          >
+            {repoClass?.name || repoName}
+          </button>
+          {#each codeBreadcrumbSegments as segment, i}
+            <span class="text-muted-foreground/50 flex-shrink-0">/</span>
+            {#if i === codeBreadcrumbSegments.length - 1}
+              <span class="text-foreground font-medium whitespace-nowrap" title={segment}>
+                {segment}
+              </span>
+            {:else}
+              <button
+                type="button"
+                class="hover:text-foreground hover:underline transition-colors whitespace-nowrap"
+                onclick={() => setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}
+              >
+                {segment}
+              </button>
+            {/if}
+          {/each}
+        </nav>
+      </div>
+      <h1 class="hidden md:block text-xl">{""}</h1>
+    {:else}
+      <h1 class="text-xl">{""}</h1>
+    {/if}
   {/snippet}
   {#snippet action()}
-    <div>
-      <SpaceMenuButton url={url} />
-    </div>
+    {#if activeTab !== "code"}
+      <div>
+        <SpaceMenuButton url={url} />
+      </div>
+    {:else}
+      <div class="lg:hidden">
+        <SpaceMenuButton url={url} />
+      </div>
+    {/if}
   {/snippet}
 </PageBar>
 
-<PageContent bind:element={pageContentElement} class="flex flex-grow flex-col gap-2 overflow-auto p-8">
+<PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-4 sm:p-6 lg:p-8">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}
     <div class="p-4 text-center text-red-500">Repository not found.</div>
   {:else}
-    <RepoHeader
-      {repoClass}
-      {activeTab}
-      {refreshRepo}
-      {isRefreshing}
-      {forkRepo}
-      {settingsRepo}
-      {overviewRepo}
-      {bookmarkRepo}
-      {isBookmarked}
-      isTogglingBookmark={isTogglingBookmark}
-      >
-      {#snippet children(activeTab: string)}
-        <RepoTab
-          tabValue="feed"
-          label="Feed"
-          href={`${basePath}/feed`}
-          {activeTab}>
-          {#snippet icon()}
-            <FileCode class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
-          tabValue="code"
-          label="Code"
-          href={`${basePath}/code`}
-          {activeTab}>
-          {#snippet icon()}
-            <GitBranch class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
-          tabValue="issues"
-          label="Issues"
-          href={`${basePath}/issues`}
-          {activeTab}>
-          {#snippet icon()}
-            <CircleAlert class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
-          tabValue="patches"
-          label="Patches"
-          href={`${basePath}/patches`}
-          {activeTab}>
-          {#snippet icon()}
-            <GitPullRequest class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        <RepoTab
-          tabValue="commits"
-          label="Commits"
-          href={`${basePath}/commits`}
-          {activeTab}>
-          {#snippet icon()}
-            <GitCommit class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        {#each repoTabExtensions as ext (ext.id)}
-        <RepoTab
-          tabValue={ext.builtinRoute ?? ext.path}
-          label={ext.label}
-          href={ext.builtinRoute ? `${basePath}/${ext.builtinRoute}` : `${basePath}/extensions/${ext.id}`}
-          {activeTab}>
-          {#snippet icon()}
-            <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
-          {/snippet}
-        </RepoTab>
-        {/each}
-      {/snippet}
-    </RepoHeader>
+    {#key repoHeaderKey}
+      <RepoHeader
+        {repoClass}
+        {activeTab}
+        {refreshRepo}
+        {isRefreshing}
+        {forkRepo}
+        {settingsRepo}
+        {overviewRepo}
+        {bookmarkRepo}
+        {isBookmarked}
+        isTogglingBookmark={isTogglingBookmark}
+        watchRepo={openWatchModal}
+        isWatching={isWatching}
+        >
+        {#snippet children(activeTab: string)}
+          <RepoTab
+            tabValue="feed"
+            label="Feed"
+            href={`${basePath}/feed`}
+            {activeTab}>
+            {#snippet icon()}
+              <FileCode class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="code"
+            label="Code"
+            href={`${basePath}/code`}
+            {activeTab}>
+            {#snippet icon()}
+              <GitBranch class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="issues"
+            label="Issues"
+            href={`${basePath}/issues`}
+            notification={hasIssuesNotification}
+            {activeTab}>
+            {#snippet icon()}
+              <CircleAlert class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="patches"
+            label="Patches"
+            href={`${basePath}/patches`}
+            notification={hasPatchesNotification}
+            {activeTab}>
+            {#snippet icon()}
+              <GitPullRequest class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="commits"
+            label="Commits"
+            href={`${basePath}/commits`}
+            {activeTab}>
+            {#snippet icon()}
+              <GitCommit class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          {#each repoTabExtensions as ext (ext.id)}
+          <RepoTab
+            tabValue={ext.builtinRoute ?? ext.path}
+            label={ext.label}
+            href={ext.builtinRoute ? `${basePath}/${ext.builtinRoute}` : `${basePath}/extensions/${ext.id}`}
+            {activeTab}>
+            {#snippet icon()}
+              <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          {/each}
+        {/snippet}
+      </RepoHeader>
+    {/key}
     <ConfigProvider
       components={{
         AvatarImage: AvatarImage as typeof import("@nostr-git/ui").AvatarImage,

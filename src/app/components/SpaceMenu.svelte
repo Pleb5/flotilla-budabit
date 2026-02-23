@@ -36,6 +36,7 @@
   import SpaceReports from "@app/components/SpaceReports.svelte"
   import AlertAdd from "@app/components/AlertAdd.svelte"
   import Alerts from "@app/components/Alerts.svelte"
+  import LogOut from "@app/components/LogOut.svelte"
   import RoomCreate from "@app/components/RoomCreate.svelte"
   import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
@@ -107,6 +108,8 @@
 
     pushModal(component, params, {replaceState})
   }
+
+  const logout = () => pushModal(LogOut)
 
   let showMenu = $state(false)
   let replaceState = $state(false)
@@ -261,6 +264,10 @@
     <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
       <Icon icon={Bell} />
       Manage Alerts
+    </Button>
+    <Button class="btn btn-neutral btn-sm" onclick={logout}>
+      <Icon icon={Exit} />
+      Log Out
     </Button>
   </div>
 </div>

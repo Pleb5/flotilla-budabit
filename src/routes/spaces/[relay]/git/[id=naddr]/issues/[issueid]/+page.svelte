@@ -21,6 +21,7 @@
   import {load} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {normalizeRelayUrl} from "@welshman/util"
+  import {decodeRelay} from "@app/core/state"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {slide} from "svelte/transition"
@@ -29,6 +30,7 @@
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent, type LabelEvent} from "@nostr-git/core/events"
   import {publishDelete} from "@app/core/commands"
+  import EventActions from "@app/components/EventActions.svelte"
   import {ROLE_NS} from "@lib/budabit/labels"
   import {
     REPO_RELAYS_KEY,
@@ -52,7 +54,13 @@
   }
   
   // Get relays reactively
-  const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
+  const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
+  const relayUrl = $derived(decodeRelay($page.params.relay))
+  const issueRelays = $derived.by(() => {
+    const relays = (repoClass.relays || repoRelays || []).filter(Boolean)
+    if (relays.length > 0) return relays
+    return relayUrl ? [relayUrl] : []
+  })
 
   const issueId = $page.params.issueid
   
@@ -367,7 +375,14 @@
           </div>
         {/if}
         <div class="min-w-0 flex-1">
-          <h1 class="break-words text-lg font-semibold sm:text-xl">{issue.subject || "Issue"}</h1>
+          <div class="flex items-start justify-between gap-2">
+            <h1 class="break-words text-lg font-semibold sm:text-xl">{issue.subject || "Issue"}</h1>
+            <EventActions
+              event={issueEvent as any}
+              url={issueRelays[0] || relayUrl || ""}
+              relays={issueRelays}
+              noun="issue" />
+          </div>
           <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
             <Status
               repo={repoClass}
@@ -510,7 +525,9 @@
         issueKind={GIT_ISSUE.toString() as "1621"}
         comments={$threadComments as CommentEvent[]}
         currentCommenter={$pubkey!}
-        {onCommentCreated} />
+        {onCommentCreated}
+        relays={repoClass.relays || repoRelays || []}
+        repoAddress={repoClass.address || ""} />
     </Card>
   </div>
 {:else}

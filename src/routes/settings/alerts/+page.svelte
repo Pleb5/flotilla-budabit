@@ -1,7 +1,7 @@
 <script lang="ts">
-  import Alerts from "@app/components/Alerts.svelte"
+  import BudabitAlerts from "@lib/budabit/components/BudabitAlerts.svelte"
 </script>
 
 <div class="content column">
-  <Alerts />
+  <BudabitAlerts />
 </div>

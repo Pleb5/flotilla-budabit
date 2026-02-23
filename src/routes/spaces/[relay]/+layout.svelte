@@ -20,7 +20,7 @@
     GRASP_SET_KIND,
   } from "@nostr-git/core/events"
   import { channelsByUrl, loadPlatformChannels } from "@src/lib/budabit"
-  import {SocketStatus} from "@welshman/net"
+  import {AuthStatus, SocketStatus} from "@welshman/net"
   import {request} from "@welshman/net"
   import {onMount} from "svelte"
   import {pushToast} from "@app/util/toast"
@@ -65,8 +65,15 @@
   onMount(() => {
     const since = ago(MONTH)
 
-    sleep(2000).then(() => {
-      if (get(socket).status !== SocketStatus.Open) {
+    sleep(2500).then(() => {
+      const socketValue = get(socket)
+      const hasHardFailure =
+        socketValue.status === SocketStatus.Error ||
+        socketValue.status === SocketStatus.Closed ||
+        socketValue.auth.status === AuthStatus.DeniedSignature ||
+        socketValue.auth.status === AuthStatus.Forbidden
+
+      if (hasHardFailure) {
         pushToast({
           theme: "error",
           message: `Failed to connect to ${displayRelayUrl(url)}`,
@@ -93,6 +100,14 @@
         ...messageFilters,
       ],
     })
+  })
+
+  $effect(() => {
+    if (!isPlatform) return
+    const currentRooms = Array.from($channelsByUrl.get(url) || [])
+    if ($socket.status === SocketStatus.Open && currentRooms.length === 0) {
+      loadPlatformChannels()
+    }
   })
 </script>
 

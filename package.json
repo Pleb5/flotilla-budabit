@@ -15,7 +15,7 @@
     "format:all": "prettier --write src",
     "prepare": "husky",
     "test": "vitest run",
-    "test:repo": "vitest run -c vitest.repo.config.ts",
+    "test:repo": "vitest run -c packages/nostr-git-ui/tests/vitest.config.ts",
     "test:ui": "vitest --ui",
     "e2e:install": "playwright install --with-deps chromium",
     "e2e": "playwright test",

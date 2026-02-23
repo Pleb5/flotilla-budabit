@@ -53,7 +53,6 @@ import {
   makeCommentFilter,
 } from "@app/core/state"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
-import {hasBlossomSupport} from "@app/core/commands"
 
 // Utils
 
@@ -106,10 +105,16 @@ const syncRelays = () => {
 
   const unsubscribePage = page.subscribe($page => {
     if ($page.params.relay) {
-      const url = decodeRelay($page.params.relay)
+      let url = ""
+      try {
+        url = decodeRelay($page.params.relay)
+      } catch {
+        url = ""
+      }
 
-      loadRelay(url)
-      hasBlossomSupport(url)
+      if (url) {
+        loadRelay(url)
+      }
     }
   })
 

@@ -19,6 +19,7 @@
   import MenuOtherSpaces from "@app/components/MenuOtherSpaces.svelte"
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import PrimaryNavItemSpace from "@app/components/PrimaryNavItemSpace.svelte"
+  import RelayIcon from "@app/components/RelayIcon.svelte"
   import {userSpaceUrls, PLATFORM_RELAYS, PLATFORM_LOGO, decodeRelay} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
@@ -70,7 +71,8 @@
         const gitPath = makeSpacePath(url, "git")
         return $notifications.has(gitPath)
       }
-      return spaceUrls.some((url: string) => {
+      const urls = spaceUrls.length > 0 ? spaceUrls : PLATFORM_RELAYS
+      return urls.some((url: string) => {
         const gitPath = makeSpacePath(url, "git")
         return $notifications.has(gitPath)
       })
@@ -93,8 +95,18 @@
   class="ml-sai mt-sai mb-sai relative z-nav hidden w-14 flex-shrink-0 bg-base-200 pt-4 md:block">
   <div class="flex h-full flex-col" class:justify-between={PLATFORM_RELAYS.length === 0}>
     <div>
-      {#each PLATFORM_RELAYS as url (url)}
-        <PrimaryNavItemSpace {url} />
+      {#each PLATFORM_RELAYS as url, i (url)}
+        {#if i === 0}
+          <PrimaryNavItem
+            title="Home"
+            href="/home"
+            class="tooltip-right"
+            notification={$notifications.has(makeSpacePath(url))}>
+            <RelayIcon {url} size={7} class="rounded-full" />
+          </PrimaryNavItem>
+        {:else}
+          <PrimaryNavItemSpace {url} />
+        {/if}
       {:else}
         <PrimaryNavItem title="Home" href="/home" class="tooltip-right">
           <ImageIcon alt="Home" src={PLATFORM_LOGO} class="rounded-full" />
@@ -121,12 +133,30 @@
       <Divider />
     {/if}
     <div>
+      <div class="hidden md:block lg:hidden">
+        <PrimaryNavItem
+          title="Settings"
+          href="/settings"
+          prefix="/settings"
+          class="tooltip-right">
+          <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
+        </PrimaryNavItem>
+      </div>
+      <div class="hidden lg:block">
+        <PrimaryNavItem
+          title="Settings"
+          href="/settings/profile"
+          prefix="/settings"
+          class="tooltip-right">
+          <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
+        </PrimaryNavItem>
+      </div>
       <PrimaryNavItem
-        title="Settings"
-        href="/settings/profile"
-        prefix="/settings"
-        class="tooltip-right">
-        <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
+        title="Git"
+        onclick={openGit}
+        class="tooltip-right"
+        notification={gitNotification}>
+        <ImageIcon alt="Git" src={Git} size={7} />
       </PrimaryNavItem>
       <PrimaryNavItem
         title="Messages"
