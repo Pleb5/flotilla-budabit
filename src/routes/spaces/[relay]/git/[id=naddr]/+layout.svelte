@@ -32,6 +32,7 @@
   import {pushToast} from "@src/app/util/toast"
   import {notifications} from "@app/util/notifications"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
+  import {PLATFORM_RELAYS, decodeRelay, encodeRelay, isPlatformRelay} from "@app/core/state"
   import EventActions from "@src/app/components/EventActions.svelte"
   import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
@@ -852,18 +853,32 @@
         return
       }
 
+      let fallbackRelay = ""
+      if (relay) {
+        try {
+          fallbackRelay = decodeRelay(relay)
+        } catch {
+          fallbackRelay = relay
+        }
+      }
+
       // Extract relays from announcement event or use current relay
-      const relays = parsed.relays && parsed.relays.length > 0 
-        ? parsed.relays 
-        : relay 
-          ? [relay] 
+      const relays = parsed.relays && parsed.relays.length > 0
+        ? parsed.relays
+        : fallbackRelay
+          ? [fallbackRelay]
           : []
 
-      // Use current relay or first relay from announcement
-      const effectiveRelay = relay || relays[0]
+      // Only use platform relays for the space URL prefix
+      const effectiveRelay =
+        (fallbackRelay && isPlatformRelay(fallbackRelay) ? fallbackRelay : "") ||
+        relays.find(isPlatformRelay) ||
+        PLATFORM_RELAYS[0] ||
+        ""
+
       if (!effectiveRelay) {
-        console.warn("Cannot navigate: no relay URL available")
-        pushToast({ message: "Fork completed, but cannot navigate without a relay URL.", theme: "error" })
+        console.warn("Cannot navigate: no platform relay available")
+        pushToast({ message: "Fork completed, but cannot navigate without a platform relay.", theme: "error" })
         return
       }
 
@@ -876,7 +891,7 @@
       })
 
       // Encode relay URL for the route
-      const encodedRelay = encodeURIComponent(effectiveRelay)
+      const encodedRelay = encodeRelay(effectiveRelay)
       
       // Navigate to the forked repo page
       const targetPath = `/spaces/${encodedRelay}/git/${naddr}`

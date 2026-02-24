@@ -6,7 +6,7 @@
   import ContentLinkDetail from "@app/components/ContentLinkDetail.svelte"
   import ContentLinkBlockImage from "@app/components/ContentLinkBlockImage.svelte"
   import {pushModal} from "@app/util/modal"
-  import {dufflepud, PLATFORM_URL} from "@app/core/state"
+  import {dufflepud, PLATFORM_URL, isPlatformRelay} from "@app/core/state"
   import {makeSpacePath} from "@app/util/routes"
 
   const {value, event} = $props()
@@ -15,7 +15,10 @@
 
   const url = value.url.toString()
   const [href, external] = call(() => {
-    if (isRelayUrl(url)) return [makeSpacePath(url), false]
+    if (isRelayUrl(url)) {
+      if (isPlatformRelay(url)) return [makeSpacePath(url), false]
+      return [url, true]
+    }
     if (url.startsWith(PLATFORM_URL)) return [url.replace(PLATFORM_URL, ""), false]
 
     return [url, true]
