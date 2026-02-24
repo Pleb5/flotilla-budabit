@@ -55,11 +55,11 @@
     TabsTrigger,
     EventRenderer,
     toast,
+    NewRepoWizard,
+    RepoPicker,
+    ImportRepoDialog,
   } from "@nostr-git/ui"
-  import NewRepoWizardWrapper from "@app/components/NewRepoWizardWrapper.svelte"
   import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
-  import RepoPickerWrapper from "@app/components/RepoPickerWrapper.svelte"
-  import ImportRepoDialogWrapper from "@app/components/ImportRepoDialogWrapper.svelte"
   import type {ImportResult, NewRepoResult} from "@nostr-git/ui"
   import type {NostrFilter} from "@nostr-git/core"
   import {
@@ -1200,7 +1200,7 @@
         }
       }
 
-      pushModal(RepoPickerWrapper, {
+      pushModal(RepoPicker, {
         selectedRepos: loadedBookmarkedRepos,
         fetchRepos,
         publishBookmarks,
@@ -1342,7 +1342,7 @@
     
     try {
       const modalId = pushModal(
-        NewRepoWizardWrapper,
+        NewRepoWizard,
         {
           workerApi, // Pass initialized worker API
           workerInstance, // Pass worker instance for event signing
@@ -1444,7 +1444,7 @@
 
     try {
       const modalId = pushModal(
-        ImportRepoDialogWrapper,
+        ImportRepoDialog,
         {
           pubkey: $pubkey!,
           onSignEvent: onSignEvent, // Primary signing method (works with all signers)

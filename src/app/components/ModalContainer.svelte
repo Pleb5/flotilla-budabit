@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {onMount, mount, unmount, createRawSnippet} from "svelte"
+  import {onMount, mount, unmount, createRawSnippet, getAllContexts} from "svelte"
   import Drawer from "@lib/components/Drawer.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
   import {modal, clearModals} from "@app/util/modal"
@@ -18,6 +18,7 @@
 
   let element: HTMLElement
   let instance: any | undefined
+  const modalContexts = getAllContexts()
 
   onMount(() => {
     return modal.subscribe($modal => {
@@ -32,13 +33,14 @@
 
         instance = mount(wrapper as any, {
           target: element,
+          context: modalContexts,
           props: {
             onClose: closeModals,
             fullscreen: options.fullscreen,
             children: createRawSnippet(() => ({
               render: () => "<div></div>",
               setup: (target: Element) => {
-                const child = mount(component, {target, props})
+                const child = mount(component, {target, props, context: modalContexts})
 
                 return () => unmount(child)
               },

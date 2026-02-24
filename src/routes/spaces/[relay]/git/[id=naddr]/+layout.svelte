@@ -1,14 +1,5 @@
 <script lang="ts">
-  import {
-    RepoHeader,
-    RepoTab,
-    toast,
-    bookmarksStore,
-    Repo,
-    AvatarImage,
-    WorkerManager,
-  } from "@nostr-git/ui"
-  import {ConfigProvider} from "@nostr-git/ui"
+  import {RepoHeader, RepoTab, toast, bookmarksStore, Repo, WorkerManager, ForkRepoDialog} from "@nostr-git/ui"
   // Import worker URL using Vite's ?url suffix for correct asset resolution
   // This must be done at the app level, not inside pre-built packages
   import gitWorkerUrl from "@nostr-git/core/worker/worker.js?url"
@@ -23,22 +14,14 @@
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
-  import Profile from "@src/app/components/Profile.svelte"
-  import ProfileLink from "@src/app/components/ProfileLink.svelte"
-  import Divider from "@lib/components/Divider.svelte"
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
-  import Input from "@lib/components/Field.svelte"
-  import Dialog from "@lib/components/Dialog.svelte"
   import {pushToast} from "@src/app/util/toast"
   import {notifications} from "@app/util/notifications"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {PLATFORM_RELAYS, decodeRelay, encodeRelay, isPlatformRelay} from "@app/core/state"
-  import EventActions from "@src/app/components/EventActions.svelte"
-  import ReactionSummary from "@src/app/components/ReactionSummary.svelte"
-  import Markdown from "@src/lib/components/Markdown.svelte"
   import {pushModal} from "@app/util/modal"
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
-  import {EditRepoPanel, ForkRepoDialog} from "@nostr-git/ui"
+  import {EditRepoPanel} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
   import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
@@ -1340,19 +1323,6 @@
         {/snippet}
       </RepoHeader>
     {/key}
-    <ConfigProvider
-      components={{
-        AvatarImage: AvatarImage as typeof import("@nostr-git/ui").AvatarImage,
-        Separator: Divider as typeof import("@nostr-git/ui").Separator,
-        Input: Input as typeof import("@nostr-git/ui").Input,
-        Alert: Dialog as typeof import("@nostr-git/ui").Alert,
-        ProfileComponent: Profile as typeof import("@nostr-git/ui").Profile,
-        ProfileLink: ProfileLink as typeof import("@nostr-git/ui").ProfileLink,
-        EventActions: EventActions as typeof import("@nostr-git/ui").EventActions,
-        ReactionSummary: ReactionSummary as typeof import("@nostr-git/ui").ReactionSummary,
-        Markdown: Markdown as any,
-      } as any}>
-      {@render children()}
-    </ConfigProvider>
+    {@render children()}
   {/if}
 </PageContent>
