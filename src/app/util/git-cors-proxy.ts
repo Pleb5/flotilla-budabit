@@ -2,7 +2,6 @@ import {browser} from "$app/environment"
 import {goto} from "$app/navigation"
 import {get} from "svelte/store"
 import {synced, localStorageProvider} from "@welshman/store"
-import {WorkerManager} from "@nostr-git/ui"
 import {pushToast, toast} from "@app/util/toast"
 import {setGitWorkerConfig, terminateGitWorker} from "@lib/budabit/worker-singleton"
 
@@ -38,10 +37,8 @@ export const setupGitCorsProxy = () => {
     const effective = resolveGitCorsProxy(value)
     const shouldRestart = lastEffective !== null && lastEffective !== effective
     lastEffective = effective
-    WorkerManager.setGlobalGitConfig({defaultCorsProxy: effective})
     setGitWorkerConfig({defaultCorsProxy: effective})
     if (shouldRestart) {
-      void WorkerManager.restartAll()
       terminateGitWorker()
     }
   })

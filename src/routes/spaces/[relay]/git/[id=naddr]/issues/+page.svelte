@@ -1112,6 +1112,14 @@
                 class="absolute top-0 left-0 w-full pr-2"
                 style="transform: translateY({virtualRow.start - scrollMargin}px);"
                 onclick={(event) => handleIssueClick(event, issue, virtualRow)}
+                role="button"
+                tabindex="0"
+                onkeydown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    handleIssueClick(event as any, issue, virtualRow)
+                  }
+                }}
               >
                 <IssueCard
                   event={issue}
@@ -1122,9 +1130,7 @@
                   repo={repoClass}
                   statusEvents={statusEventsByRoot?.get(issue.id) || []}
                   actorPubkey={$pubkey}
-                  assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
-                assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
-                  relays={repoRelays}
+                  assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
                 />
               </div>
             {/if}

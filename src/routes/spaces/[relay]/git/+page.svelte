@@ -1632,7 +1632,7 @@
       {:else}
         <div class="flex flex-col gap-3">
           {#each filteredSnippets as snippet (snippet.id)}
-            <EventRenderer event={snippet as any} relay={url} />
+            <EventRenderer event={snippet as any} />
           {/each}
         </div>
       {/if}

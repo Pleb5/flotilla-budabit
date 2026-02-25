@@ -122,7 +122,6 @@ import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
-import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
 import {deleteIndexedDB} from "@lib/util"
 
 // Utils

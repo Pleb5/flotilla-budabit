@@ -392,8 +392,7 @@
               statusEvents={($statusEvents || []) as StatusEvent[]}
               actorPubkey={$pubkey}
               compact={true}
-              ProfileComponent={ProfileLink}
-              isMirrored={isMirrored} />
+              ProfileComponent={ProfileLink} />
             <span
               class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground sm:text-sm">
               <ProfileLink pubkey={issue?.author.pubkey}></ProfileLink>
@@ -509,8 +508,7 @@
           actorPubkey={$pubkey}
           compact={false}
           ProfileComponent={ProfileLink}
-          onPublish={handleStatusPublish}
-          isMirrored={isMirrored} />
+          onPublish={handleStatusPublish} />
       </div>
 
       <div class="git-separator my-4 sm:my-6"></div>
@@ -525,9 +523,7 @@
         issueKind={GIT_ISSUE.toString() as "1621"}
         comments={$threadComments as CommentEvent[]}
         currentCommenter={$pubkey!}
-        {onCommentCreated}
-        relays={repoClass.relays || repoRelays || []}
-        repoAddress={repoClass.address || ""} />
+        {onCommentCreated} />
     </Card>
   </div>
 {:else}

@@ -956,9 +956,7 @@
               issueKind={"1618"}
               comments={prThreadCommentsArray}
               currentCommenter={$pubkey!}
-              {onCommentCreated}
-              relays={repoClass.relays || repoRelays || []}
-              repoAddress={repoClass.address || ""} />
+              {onCommentCreated} />
           {/if}
         </div>
       </div>
@@ -1373,8 +1371,6 @@
           rootEvent={selectedPatch?.raw}
           onComment={handleCommentSubmit}
           currentPubkey={$pubkey}
-          repo={repoClass}
-          publish={publishPermalink}
           diffViewerProps={{
             showLineNumbers: true,
             expandAll: false,
@@ -1604,9 +1600,7 @@
             issueKind={GIT_PATCH.toString() as "1617"}
             comments={threadCommentsArray}
             currentCommenter={$pubkey!}
-            {onCommentCreated}
-            relays={repoClass.relays || repoRelays || []}
-            repoAddress={repoClass.address || ""} />
+            {onCommentCreated} />
         </div>
       </div>
     </div>

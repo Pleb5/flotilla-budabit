@@ -409,7 +409,7 @@ const apply = async () => {
         class="textarea textarea-bordered leading-4"
         rows="8"
         bind:value={post}
-        on:input={markPostEdited}>
+        oninput={markPostEdited}>
       </textarea>
     {/snippet}
   </Field>

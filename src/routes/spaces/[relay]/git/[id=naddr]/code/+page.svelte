@@ -596,10 +596,6 @@
                           {setDirectory}
                           {publish}
                           repo={repoClass}
-                          displayMode="list"
-                          showActions={false}
-                          isActive={selectedFile?.path === file.path}
-                          onSelectFile={openFile}
                         />
                       {/each}
                     </div>
@@ -619,8 +615,6 @@
             {setDirectory}
             {publish}
             repo={repoClass}
-            displayMode="viewer"
-            autoOpenPath={autoOpenPath}
           />
         {:else}
           <div
@@ -653,9 +647,6 @@
             {setDirectory}
             {publish}
             repo={repoClass}
-            displayMode="viewer"
-            onClose={closeFilePreview}
-            autoOpenPath={autoOpenPath}
           />
         {/if}
       </div>

@@ -28,8 +28,6 @@
   import {goto} from "$app/navigation"
   import {page} from "$app/stores"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
-  import {goto} from "$app/navigation"
-  import {page} from "$app/stores"
   import {getContext} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
@@ -170,7 +168,7 @@
   interface WorkflowRun {
     id: string
     name: string
-    status: "success" | "failure" | "in_progress" | "cancelled" | "pending" | "skipped"
+    status: "success" | "failure" | "failed" | "in_progress" | "cancelled" | "pending" | "skipped"
     conclusion?: string
     branch: string
     commit: string
@@ -181,6 +179,7 @@
     updatedAt: number
     duration?: number
     runNumber: number
+    _originalEvent?: any
   }
 
   // Parse job event into WorkflowRun format
@@ -331,6 +330,7 @@
 
   // Create filter for job events (kind 5100) from Damus relay
   const jobFilter = $derived.by(() => {
+    if (!repoNaddr) return null
     const filter = {
       kinds: [5100],
       "#a": [repoNaddr],
@@ -340,19 +340,25 @@
     return filter
   })
 
+  // Store subscriptions for job and status events
+  let jobEventsStore: any = $state(undefined)
+  let statusEventsStore: any = $state(undefined)
+  let jobEventsUnsubscribe: (() => void) | undefined = $state(undefined)
+  let statusEventsUnsubscribe: (() => void) | undefined = $state(undefined)
+
   // Initialize feed asynchronously - don't block render
   onMount(() => {
     console.log("=== CICD onMount called ===")
     console.log("feedInitialized:", feedInitialized)
     console.log("jobFilter:", JSON.stringify(jobFilter, null, 2))
 
-    if (!feedInitialized) {
+    if (!feedInitialized && jobFilter) {
       // Defer makeFeed to avoid blocking initial render
       const timeout = setTimeout(() => {
         console.log("=== Starting makeFeed initialization ===")
         const tryStart = () => {
           console.log("tryStart - element:", !!element, "feedInitialized:", feedInitialized)
-          if (element && !feedInitialized) {
+          if (element && !feedInitialized && jobFilter) {
             console.log("=== Creating makeFeed ===")
             feedInitialized = true
             const damusRelay = "wss://relay.damus.io"
@@ -365,100 +371,19 @@
               feedFilters: [jobFilter],
               subscriptionFilters: [jobFilter],
               initialEvents: [],
-              onEvent: event => {
-                console.log("=== onEvent called ===")
-                console.log("Event:", event)
-                // Add new job events
-                const existingIndex = jobEvents.findIndex(e => e.id === event.id)
-                if (existingIndex >= 0) {
-                  // Update existing event
-                  console.log("Updating existing event:", event.id)
-                  jobEvents[existingIndex] = event
-                } else {
-                  // Add new event
-                  console.log("Adding new event:", event.id)
-                  jobEvents = [...jobEvents, event]
-                }
-                console.log("jobEvents count:", jobEvents.length)
-              },
               onExhausted: () => {
                 console.log("=== Feed exhausted ===")
                 console.log("Job events received:", jobEvents.length)
-
-                // After job events are loaded, query for status events (kind 30100)
-                if (!statusFeedInitialized && jobEvents.length > 0) {
-                  console.log("=== Setting up status feed ===")
-                  statusFeedInitialized = true
-                  loadingStatus = true
-
-                  // Query for status events that reference our workflow runs via "e" tag
-                  const statusFilter = {
-                    kinds: [30100],
-                    "#e": jobEvents.map(e => e.id),
-                  }
-
-                  console.log("Status filter:", JSON.stringify(statusFilter, null, 2))
-                  console.log(
-                    "Job events for status query:",
-                    jobEvents.map(e => e.id),
-                  )
-
-                  const statusFeed = makeFeed({
-                    element,
-                    relays: [damusRelay],
-                    feedFilters: [statusFilter],
-                    subscriptionFilters: [statusFilter],
-                    initialEvents: [],
-                    onEvent: event => {
-                      console.log("=== Status event received ===")
-                      console.log("Status event:", event)
-                      console.log("Status event tags:", event.tags)
-                      console.log("Status event kind:", event.kind)
-                      console.log("Status event id:", event.id)
-                      console.log("Status event created_at:", event.created_at)
-
-                      // Check for 'e' tag to see which workflow this status is for
-                      const eTag = event.tags.find((t: string[]) => t[0] === "e")
-                      if (eTag) {
-                        console.log("Status event references workflow ID:", eTag[1])
-                      }
-
-                      // Check for 'status' tag
-                      const statusTag = event.tags.find((t: string[]) => t[0] === "status")
-                      if (statusTag) {
-                        console.log("Status value:", statusTag[1])
-                      }
-
-                      // Add new status event
-                      const existingIndex = statusEvents.findIndex(e => e.id === event.id)
-                      if (existingIndex >= 0) {
-                        // Update existing event
-                        console.log("Updating existing status event:", event.id)
-                        statusEvents[existingIndex] = event
-                      } else {
-                        // Add new event
-                        console.log("Adding new status event:", event.id)
-                        statusEvents = [...statusEvents, event]
-                      }
-                      console.log("Total statusEvents count:", statusEvents.length)
-                      console.log("--- End of status event handler ---")
-                    },
-                    onExhausted: () => {
-                      console.log("=== Status feed exhausted ===")
-                      loadingStatus = false
-
-                      // After status events are fully loaded, fetch job results for completed jobs
-                      if (statusEvents.length > 0) {
-                        console.log("=== Fetching job results for completed jobs ===")
-                        fetchJobResultsForCompletedJobs()
-                      }
-                    },
-                  })
-                  statusFeedCleanup = statusFeed.cleanup.cleanup
-                  console.log("=== Status feed created ===")
-                }
               },
             })
+            
+            // Subscribe to the events store
+            jobEventsStore = feed.events
+            jobEventsUnsubscribe = feed.events.subscribe((events: any[]) => {
+              console.log("=== Job events updated ===", events.length)
+              jobEvents = events
+            })
+            
             feedCleanup = feed.cleanup
             console.log("=== makeFeed created ===")
           } else if (!element) {
@@ -492,13 +417,22 @@
         try {
           const jobResultFilter = {kinds: [5101], "#e": [workflowId]}
 
+          if (!element) continue
+          
           const jobResultFeed = makeFeed({
             element,
             relays: [damusRelay],
             feedFilters: [jobResultFilter],
             subscriptionFilters: [jobResultFilter],
             initialEvents: [],
-            onEvent: event => {
+            onExhausted: () => {
+              console.log("Job result feed exhausted")
+            },
+          })
+
+          // Subscribe to the events store to process results
+          const unsubscribe = jobResultFeed.events.subscribe((events: any[]) => {
+            for (const event of events) {
               console.log("Job result event received:", event.id)
 
               const successTag = event.tags.find((t: string[]) => t[0] === "success")
@@ -512,11 +446,11 @@
               )
 
               // Update the status event with the actual status from job result
-              const statusIndex = statusEvents.findIndex(e => e.id === statusEvent.id)
+              const statusIndex = statusEvents.findIndex((e: any) => e.id === statusEvent.id)
               if (statusIndex >= 0) {
                 statusEvents[statusIndex] = {
                   ...statusEvents[statusIndex],
-                  tags: statusEvents[statusIndex].tags.map(t => {
+                  tags: statusEvents[statusIndex].tags.map((t: string[]) => {
                     if (t[0] === "status") {
                       return ["status", actualStatus]
                     }
@@ -524,14 +458,12 @@
                   }),
                 }
               }
-            },
-            onExhausted: () => {
-              console.log("Job result feed exhausted")
-            },
+            }
           })
 
           // Cleanup after a short timeout
           setTimeout(() => {
+            unsubscribe()
             jobResultFeed.cleanup()
           }, 5000)
         } catch (err) {
@@ -546,7 +478,7 @@
     console.log("=== CICD onDestroy called ===")
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
-    statusFeedCleanup?.()
+    if (jobEventsUnsubscribe) jobEventsUnsubscribe()
   })
 
   // Get events from makeFeed
@@ -635,7 +567,7 @@
           "  - All status events:",
           matchingStatusEvents.map(e => ({
             id: e.id,
-            status: e.tags.find(t => t[0] === "status")?.[1],
+            status: e.tags.find((t: string[]) => t[0] === "status")?.[1],
             created_at: e.created_at,
           })),
         )
@@ -1173,10 +1105,27 @@
     {#if showWorkflowModal}
       <div
         class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        onclick={() => (showWorkflowModal = false)}>
+        role="button"
+        tabindex="0"
+        onclick={() => (showWorkflowModal = false)}
+        onkeydown={(e) => {
+          if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            showWorkflowModal = false
+          }
+        }}>
         <div
           class="w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-lg"
-          onclick={e => e.stopPropagation()}>
+          role="dialog"
+          aria-modal="true"
+          tabindex="-1"
+          onclick={e => e.stopPropagation()}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+            }
+            e.stopPropagation()
+          }}>
           <div class="mb-4 flex items-center justify-between">
             <h3 class="text-lg font-semibold">Run {selectedWorkflow?.name}</h3>
             <Button variant="ghost" size="sm" onclick={() => (showWorkflowModal = false)}>

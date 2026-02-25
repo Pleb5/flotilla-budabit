@@ -1,5 +1,10 @@
 import {config} from "dotenv"
+import path from "path"
+import {fileURLToPath} from "url"
 import {defineConfig} from "vite"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
 import {SvelteKitPWA} from "@vite-pwa/sveltekit"
 import {sveltekit} from "@sveltejs/kit/vite"
 import svg from "@poppanator/sveltekit-svg"

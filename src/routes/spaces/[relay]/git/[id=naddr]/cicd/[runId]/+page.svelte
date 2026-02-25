@@ -277,6 +277,11 @@
     console.log("Run ID from params:", runId)
 
     // Fetch workflow event using makeFeed
+    if (!runId) {
+      error = "Run ID is required"
+      loading = false
+      return
+    }
     const workflowFilter = {kinds: [5100], ids: [runId]}
     console.log("Workflow filter:", JSON.stringify(workflowFilter, null, 2))
 
@@ -286,11 +291,6 @@
       feedFilters: [workflowFilter],
       subscriptionFilters: [workflowFilter],
       initialEvents: [],
-      onEvent: event => {
-        console.log("✅ Received workflow event:", event.id, event.kind)
-        workflowEvent = event as WorkflowEvent
-        loading = false
-      },
       onExhausted: () => {
         console.log(`🎉 Workflow feed exhausted`)
         console.log("   Workflow event found:", !!workflowEvent)
@@ -301,7 +301,21 @@
         }
       },
     })
-    workflowFeedCleanup = workflowFeedResult.cleanup
+    
+    // Subscribe to workflow events store
+    const workflowEventsUnsub = workflowFeedResult.events.subscribe((events: any[]) => {
+      if (events.length > 0) {
+        const event = events[0]
+        console.log("✅ Received workflow event:", event.id, event.kind)
+        workflowEvent = event as WorkflowEvent
+        loading = false
+      }
+    })
+    
+    workflowFeedCleanup = () => {
+      workflowEventsUnsub()
+      workflowFeedResult.cleanup()
+    }
 
     // Fetch job result event (kind 5101) immediately - don't wait for status
     console.log("=== Setting up job result feed (kind 5101) ===")
@@ -314,7 +328,16 @@
       feedFilters: [jobResultFilter],
       subscriptionFilters: [jobResultFilter],
       initialEvents: [],
-      onEvent: event => {
+      onExhausted: () => {
+        console.log("🎉 Job result feed exhausted")
+        console.log("   Job result found:", !!jobResultEvent)
+      },
+    })
+    
+    // Subscribe to job result events store
+    const jobResultEventsUnsub = jobResultFeedResult.events.subscribe((events: any[]) => {
+      if (events.length > 0) {
+        const event = events[0]
         console.log("📄 Received job result event:", event.id, event.kind)
 
         // Parse the job result event
@@ -378,13 +401,13 @@
           console.log("   → Fetching stderr...")
           fetchOutputFile(stderrTag[1], "stderr")
         }
-      },
-      onExhausted: () => {
-        console.log("🎉 Job result feed exhausted")
-        console.log("   Job result found:", !!jobResultEvent)
-      },
+      }
     })
-    jobResultFeedCleanup = jobResultFeedResult.cleanup
+    
+    jobResultFeedCleanup = () => {
+      jobResultEventsUnsub()
+      jobResultFeedResult.cleanup()
+    }
 
     // Fetch status events using makeFeed
     console.log("=== Setting up status feed ===")
@@ -398,7 +421,16 @@
       feedFilters: [statusFilter],
       subscriptionFilters: [statusFilter],
       initialEvents: [],
-      onEvent: event => {
+      onExhausted: () => {
+        console.log(`🎉 Status feed exhausted`)
+        console.log("   Final status event:", statusEvent)
+      },
+    })
+    
+    // Subscribe to status events store
+    const statusEventsUnsub = statusFeedResult.events.subscribe((events: any[]) => {
+      if (events.length > 0) {
+        const event = events[0]
         console.log("📊 Received status event:", event.id, event.kind)
         console.log("   Full event:", JSON.stringify(event, null, 2))
 
@@ -409,20 +441,20 @@
 
         statusEvent = {
           id: event.id,
-          workflowId: runId,
+          workflowId: runId || "",
           status,
           content: event.content,
           created_at: event.created_at,
           pubkey: event.pubkey,
         }
         console.log("   ✅ Status event updated:", statusEvent)
-      },
-      onExhausted: () => {
-        console.log(`🎉 Status feed exhausted`)
-        console.log("   Final status event:", statusEvent)
-      },
+      }
     })
-    statusFeedCleanup = statusFeedResult.cleanup
+    
+    statusFeedCleanup = () => {
+      statusEventsUnsub()
+      statusFeedResult.cleanup()
+    }
 
     // Start polling for status updates every 10 seconds
     // Job result (kind 5101) is fetched immediately, so polling is mainly for status updates

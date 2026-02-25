@@ -543,10 +543,6 @@
             <SplitDiff
               hunks={normalizeHunks(change.diffHunks)}
               filepath={change.path}
-              repo={repoClass}
-              publish={publishPermalink}
-              commitSha={commitMeta!.sha}
-              parentSha={commitMeta!.parents?.[0]}
             />
           </div>
         {/if}

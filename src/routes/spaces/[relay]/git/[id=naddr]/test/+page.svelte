@@ -20,13 +20,21 @@
     console.log("Repository naddr:", repositoryNaddr)
     console.log("Filter:", workflowFilter)
 
-    const {cleanup} = makeFeed({
+    const feed = makeFeed({
       element: document.body,
       relays: ["wss://relay.damus.io"],
       feedFilters: [workflowFilter],
       subscriptionFilters: [workflowFilter],
       initialEvents: getEventsForUrl(url, [workflowFilter]),
-      onEvent: event => {
+      onExhausted: () => {
+        console.log(`🎉 Feed exhausted. Total events: ${events.length}`)
+        loading = false
+      },
+    })
+    
+    // Subscribe to events store
+    feed.events.subscribe((newEvents: any[]) => {
+      for (const event of newEvents) {
         console.log("✅ Received workflow event:", event.id, event.kind)
         console.log("   Full tags array:", JSON.stringify(event.tags, null, 2))
         console.log(
@@ -34,15 +42,11 @@
           event.tags.filter((t: string[]) => t[0] === "a"),
         )
         console.log("   Content:", event.content.substring(0, 200))
-        events = sortBy(e => -e.created_at, [event, ...events])
-      },
-      onExhausted: () => {
-        console.log(`🎉 Feed exhausted. Total events: ${events.length}`)
-        loading = false
-      },
+      }
+      events = sortBy((e: any) => -e.created_at, newEvents)
     })
 
-    feedCleanup = cleanup
+    feedCleanup = feed.cleanup
   })
 
   onDestroy(() => {

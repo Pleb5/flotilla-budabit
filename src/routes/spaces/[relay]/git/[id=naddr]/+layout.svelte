@@ -1260,8 +1260,6 @@
         {bookmarkRepo}
         {isBookmarked}
         isTogglingBookmark={isTogglingBookmark}
-        watchRepo={openWatchModal}
-        isWatching={isWatching}
         >
         {#snippet children(activeTab: string)}
           <RepoTab
@@ -1286,7 +1284,6 @@
             tabValue="issues"
             label="Issues"
             href={`${basePath}/issues`}
-            notification={hasIssuesNotification}
             {activeTab}>
             {#snippet icon()}
               <CircleAlert class="h-4 w-4" />
@@ -1296,7 +1293,6 @@
             tabValue="patches"
             label="Patches"
             href={`${basePath}/patches`}
-            notification={hasPatchesNotification}
             {activeTab}>
             {#snippet icon()}
               <GitPullRequest class="h-4 w-4" />

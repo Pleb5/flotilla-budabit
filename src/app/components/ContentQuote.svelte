@@ -487,6 +487,7 @@
   {@const kindLabel = isDiff ? "Diff" : "Code"}
   {@const kindTitle = isDiff ? "Diff permalink" : "Code permalink"}
   {@const kindIcon = isDiff ? GitCommit : FileCode}
+  {@const KindIcon = kindIcon}
   {@const kindIconClass = isDiff ? "text-amber-500" : "text-blue-500"}
   {@const kindBadgeClass = isDiff
     ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20"
@@ -499,7 +500,7 @@
     <div class="rounded-lg border bg-card p-3 shadow-sm">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex items-start gap-2">
-          <svelte:component this={kindIcon} class={`h-4 w-4 mt-0.5 ${kindIconClass}`} />
+          <KindIcon class={`h-4 w-4 mt-0.5 ${kindIconClass}`} />
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <div class="text-sm font-semibold">{kindTitle}</div>

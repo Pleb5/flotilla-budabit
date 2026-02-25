@@ -91,8 +91,17 @@
       {/if}
         <div class="text-sm">
           {#if isKnownEventKind(event.kind)}
-            <div class="event-renderer" onclick={stopTapFromInteractive}>
-              <EventRenderer event={event as any} relay={url} />
+            <div
+              class="event-renderer"
+              role="presentation"
+              tabindex="-1"
+              onclick={stopTapFromInteractive}
+              onkeydown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                }
+              }}>
+              <EventRenderer event={event as any} />
             </div>
         {:else if isKnownUnknown(event.kind)}
           <div class="unknown-kind">
