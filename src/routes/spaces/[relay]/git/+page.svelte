@@ -70,6 +70,7 @@
     deriveNaddrEvent,
     GIT_RELAYS,
     getRepoAnnouncementRelays,
+    repoAnnouncements,
   } from "@lib/budabit/state"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
   import {createNip98AuthHeader} from "@src/lib/budabit/event-io"
@@ -1045,6 +1046,7 @@
         Router,
         nip19,
         Address,
+        repoAnnouncements: $repoAnnouncements,
       })
       uriSearchRepoCard = cards
     } else {
@@ -1068,6 +1070,7 @@
           Router,
           nip19,
           Address,
+          repoAnnouncements: $repoAnnouncements,
         })
         repositoriesStore.set(cards)
 
@@ -1733,6 +1736,8 @@
       {#if cardsReady}
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3" in:fade={{duration: 150}}>
           {#each $repositoriesStore as g, i (g.repoNaddr || g.euc)}
+            {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
+            {@const taggedMaintainers = g.taggedMaintainers ?? []}
             <div
               class="rounded-md border border-border bg-card p-3"
               in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
@@ -1751,7 +1756,7 @@
               <div class="mt-3 flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <div class="flex -space-x-2">
-                    {#each g.maintainers.slice(0, 4) as pk (pk)}
+                    {#each effectiveMaintainers.slice(0, 4) as pk (pk)}
                       {@const prof = $profilesByPubkey.get(pk)}
                       <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
                         <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
@@ -1761,15 +1766,16 @@
                             .toUpperCase()}</AvatarFallback>
                       </Avatar>
                     {/each}
-                    {#if g.maintainers.length > 4}
+                    {#if effectiveMaintainers.length > 4}
                       <div
                         class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                        +{g.maintainers.length - 4}
+                        +{effectiveMaintainers.length - 4}
                       </div>
                     {/if}
                   </div>
                   <span class="text-xs opacity-60"
-                    >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
+                    >{effectiveMaintainers.length} effective maintainer{effectiveMaintainers.length !== 1 ? "s" : ""}
+                    / {taggedMaintainers.length} tagged</span>
                 </div>
                 {#if g.first}
                   {@const date = new Date(g.first.created_at * 1000)}

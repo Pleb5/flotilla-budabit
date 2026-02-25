@@ -4,6 +4,7 @@
   import NoteCard from "./NoteCard.svelte"
   import GitActions from "./GitActions.svelte"
   import Link from "@lib/components/Link.svelte"
+  import Markdown from "@lib/components/Markdown.svelte"
   import {makeGitPath} from "@lib/budabit"
   import {notifications} from "@app/util/notifications"
 
@@ -32,28 +33,59 @@
     () => $notifications.has(issuesHref) || $notifications.has(patchesHref),
   )
 
-  // Validate that a string is a valid hex pubkey (exactly 64 hex characters)
-  const isValidPubkey = (pubkey: string | undefined | null): boolean => {
-    if (!pubkey || typeof pubkey !== 'string') return false;
-    return /^[0-9a-f]{64}$/i.test(pubkey);
+  const getLinkRanges = (text: string) => {
+    const ranges: Array<{start: number; end: number}> = []
+    const patterns = [
+      /\[[^\]]+\]\([^)]+\)/g,
+      /<https?:\/\/[^>\s]+>/g,
+      /(?:https?:\/\/|www\.)[^\s<>()]+/g,
+    ]
+
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0
+      let match: RegExpExecArray | null
+      while ((match = pattern.exec(text))) {
+        ranges.push({start: match.index, end: match.index + match[0].length})
+      }
+    }
+
+    if (ranges.length < 2) return ranges
+
+    ranges.sort((a, b) => a.start - b.start)
+    const merged: Array<{start: number; end: number}> = [ranges[0]]
+
+    for (const range of ranges.slice(1)) {
+      const last = merged[merged.length - 1]
+      if (range.start <= last.end) {
+        last.end = Math.max(last.end, range.end)
+      } else {
+        merged.push({...range})
+      }
+    }
+
+    return merged
   }
 
-  // Get maintainers from the event, or fall back to the event author
-  const maintainersTag = event.tags.find(nthEq(0, "maintainers"))
-  const maintainers = maintainersTag 
-    ? maintainersTag.slice(1).filter((pk: string) => isValidPubkey(pk))
-    : []
-  
-  // Use first valid maintainer, or fall back to event author if valid
-  const displayPubkey = maintainers.length > 0 && isValidPubkey(maintainers[0])
-    ? maintainers[0]
-    : event.pubkey
-  
-  // Create a modified event with the validated pubkey for display
-  const displayEvent = displayPubkey ? {...event, pubkey: displayPubkey} : event
+  const truncateDescription = (text: string, max = 300) => {
+    if (!text) return ""
+    if (text.length <= max) return text
+
+    const ranges = getLinkRanges(text)
+    let cut = max
+    const crossing = ranges.find(range => range.start < cut && range.end > cut)
+    if (crossing) {
+      cut = crossing.start
+    }
+
+    const truncated = text.slice(0, cut).trimEnd()
+    return truncated ? `${truncated}...` : "..."
+  }
+
+  const descriptionPreview = $derived.by(() => truncateDescription(description || ""))
+
 </script>
 
-<NoteCard event={displayEvent} class="card2 sm:card2-sm bg-alt" {hideDate}>
+<NoteCard event={event} class="card2 sm:card2-sm bg-alt" {hideDate}>
   {#if name}
     <Link href={browseHref} class="block w-full">
       <div class="flex w-full items-center justify-between gap-2">
@@ -72,11 +104,9 @@
     </p>
   {/if}
   {#if description}
-    <Link href={browseHref} class="block w-full">
-      <div class="flex w-full items-start">
-        <p class="text-sm break-words overflow-wrap-anywhere">{description}</p>
-      </div>
-    </Link>
+    <div class="flex w-full items-start">
+      <Markdown content={descriptionPreview} {event} {url} variant="comment" />
+    </div>
   {:else}
     <p class="mb-3 h-0 text-xs opacity-75">
       Description missing!
