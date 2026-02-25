@@ -2,6 +2,7 @@
   import {readable, type Readable} from "svelte/store"
   import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
+  import {afterNavigate} from "$app/navigation"
   import {makeFeed} from "@app/core/requests"
   import {now, formatTimestampAsDate} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
@@ -38,9 +39,8 @@
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
 
-  const {id} = $page.params
+  const roomId = String($page.params.id ?? "")
   const repoClass = getContext<Repo>(REPO_KEY)
-  const room = id
   
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -48,28 +48,25 @@
 
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
-  const url = decodeRelay($page.params.relay)
+  const relayParam = String($page.params.relay ?? "")
+  const url = decodeRelay(relayParam)
 
-  const roomFilter = {kinds: [MESSAGE], "#h": [room]}
+  const roomIds = roomId ? [roomId] : []
+  const roomFilter = {kinds: [MESSAGE], "#h": roomIds}
 
   // Memoize filters to avoid recreating on every render
-  const statusFilter = $derived.by(() => {
-    const issueIds = repoClass.issues.map((issue: IssueEvent) => issue.id)
-    const patchIds = repoClass.patches.map((patch: PatchEvent) => patch.id)
-    return {
-    kinds: [GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT, GIT_STATUS_OPEN],
-      "#e": [...issueIds, ...patchIds],
-    }
-  })
+  const issueIds = $derived.by(() => repoClass.issues.map((issue: IssueEvent) => issue.id))
+  const patchIds = $derived.by(() => repoClass.patches.map((patch: PatchEvent) => patch.id))
 
-  const commentFilter = $derived.by(() => {
-    const issueIds = repoClass.issues.map((issue: IssueEvent) => issue.id)
-    const patchIds = repoClass.patches.map((patch: PatchEvent) => patch.id)
-    return {
+  const statusFilter = $derived.by(() => ({
+    kinds: [GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT, GIT_STATUS_OPEN],
+    "#e": [...issueIds, ...patchIds],
+  }))
+
+  const commentFilter = $derived.by(() => ({
     kinds: [COMMENT],
-      "#E": [...issueIds, ...patchIds],
-  }
-  })
+    "#E": [...issueIds, ...patchIds],
+  }))
 
   const filter = $derived.by(() => [roomFilter, statusFilter, commentFilter])
 
@@ -87,7 +84,9 @@
   }
 
   const onSubmit = ({content, tags}: EventContent) => {
-    tags.push(["h", room])
+    if (roomId) {
+      tags.push(["h", roomId])
+    }
     tags.push(PROTECTED)
 
     let template = {content, tags}
@@ -155,8 +154,9 @@
   let newMessagesSeen = false
   let showFixedNewMessages = $state(false)
   let showScrollButton = $state(true)
-  let cleanup: () => void
-  let start: (() => void) | undefined = $state()
+  let feedCleanup: (() => void) | undefined = $state(undefined)
+  let feedInitialized = $state(false)
+  let lastFeedKey = ""
   let events: Readable<TrustedEvent[]> = $state(readable([]))
   let compose: RoomCompose | undefined = $state()
 
@@ -224,6 +224,65 @@
     return [...events].sort((a, b) => b.created_at - a.created_at)
   })
 
+  const feedKey = $derived.by(() => [relayParam, roomId, ...issueIds, ...patchIds].join("|"))
+
+  const startFeed = () => {
+    if (feedInitialized || !element || !url || !roomId) {
+      return
+    }
+    feedInitialized = true
+    lastFeedKey = feedKey
+    const feed = makeFeed({
+      element: element,
+      relays: [url],
+      feedFilters: filter as any,
+      subscriptionFilters: ([
+        ...filter,
+        statusFilter,
+        commentFilter,
+        {kinds: [DELETE, MESSAGE, ...REACTION_KINDS], since: now()},
+        {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": roomIds, since: now()},
+      ] as any),
+      initialEvents: initialEvents,
+      onExhausted: () => {
+        loadingEvents = false
+      },
+    } as any)
+    events = feed.events
+    feedCleanup = feed.cleanup
+
+    // Scroll to bottom after a short delay to ensure content is rendered
+    setTimeout(() => {
+      scrollToBottom()
+    }, 100)
+  }
+
+  const ensureFeed = () => {
+    if (feedInitialized) return
+    if (!element) {
+      requestAnimationFrame(ensureFeed)
+      return
+    }
+    startFeed()
+  }
+
+  $effect(() => {
+    const key = feedKey
+    if (!key) {
+      return
+    }
+    if (!feedInitialized) {
+      ensureFeed()
+      return
+    }
+    if (key !== lastFeedKey) {
+      feedCleanup?.()
+      feedCleanup = undefined
+      feedInitialized = false
+      ensureFeed()
+    }
+  })
+
   onMount(() => {
     const controller = new AbortController()
 
@@ -236,31 +295,22 @@
     observer.observe(chatCompose!)
     observer.observe(dynamicPadding!)
 
+    const handlePageShow = () => {
+      if (!feedInitialized) {
+        ensureFeed()
+      }
+    }
+
+    window.addEventListener("pageshow", handlePageShow)
+    afterNavigate(() => {
+      if (!feedInitialized) {
+        ensureFeed()
+      }
+    })
+
     // Defer feed creation to avoid blocking initial render
     const timeout = setTimeout(() => {
-      const feed = makeFeed({
-        element: element!,
-        relays: [url],
-        feedFilters: filter,
-        subscriptionFilters: [
-          ...filter,
-          statusFilter,
-          commentFilter,
-          {kinds: [DELETE, MESSAGE, ...REACTION_KINDS], since: now()},
-          {kinds: [DELETE, REACTION, MESSAGE, GIT_REPO_ANNOUNCEMENT], "#h": [room], since: now()},
-        ],
-        initialEvents: initialEvents,
-        onExhausted: () => {
-          loadingEvents = false
-        },
-      })
-      events = feed.events
-      cleanup = feed.cleanup
-
-      // Scroll to bottom after a short delay to ensure content is rendered
-      setTimeout(() => {
-        scrollToBottom()
-      }, 100)
+      ensureFeed()
     }, 100)
 
     return () => {
@@ -268,11 +318,14 @@
       controller.abort()
       observer.unobserve(chatCompose!)
       observer.unobserve(dynamicPadding!)
+      window.removeEventListener("pageshow", handlePageShow)
     }
   })
 
   onDestroy(() => {
-    cleanup?.()
+    feedCleanup?.()
+    feedCleanup = undefined
+    feedInitialized = false
   })
 </script>
 
@@ -280,67 +333,72 @@
   <title>{repoClass.name} - Feed</title>
 </svelte:head>
 
-<div bind:this={element} onscroll={onScroll} class="flex flex-col-reverse overflow-y-auto overflow-x-hidden w-full">
-  <div bind:this={dynamicPadding}></div>
-  {#each elements as { type, id, value, showPubkey } (id)}
-    {#if type === "new-messages"}
-      <div
-        bind:this={newMessages}
-        class="flex items-center py-2 text-xs transition-colors px-2 sm:px-4"
-        class:opacity-0={showFixedNewMessages}>
-        <div class="h-px flex-grow bg-primary"></div>
-        <p class="rounded-full bg-primary px-2 py-1 text-primary-content text-center whitespace-nowrap">New Messages</p>
-        <div class="h-px flex-grow bg-primary"></div>
-      </div>
-    {:else if type === "date"}
-      <div class="px-2 sm:px-4">
-        <Divider>{value}</Divider>
-      </div>
-    {:else}
-      <div in:slide class:-mt-1={!showPubkey} class="px-1 sm:px-2 md:px-4">
-        <ChannelMessage
-          {url}
-          {replyTo}
-          event={$state.snapshot(value as TrustedEvent)}
-          {showPubkey} />
-      </div>
-    {/if}
-  {/each}
-  <p class="flex h-10 items-center justify-center py-4 sm:py-8 text-sm sm:text-base">
-    {#if loadingEvents}
-      <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-    {:else}
-      <Spinner>End of message history</Spinner>
-    {/if}
-  </p>
-</div>
-
-<div class="chat__compose bg-base-200 px-2 sm:px-4 py-2" bind:this={chatCompose}>
-  <div class="max-w-full overflow-hidden">
-    {#if parent}
-      <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
-    {/if}
-    {#if share}
-      <RoomComposeParent event={share} clear={clearShare} verb="Sharing" />
-    {/if}
+<div class="flex min-h-0 flex-1 flex-col">
+  <div
+    bind:this={element}
+    onscroll={onScroll}
+    class="scroll-container flex flex-1 min-h-0 flex-col-reverse overflow-y-auto overflow-x-hidden w-full">
+    <div bind:this={dynamicPadding}></div>
+    {#each elements as { type, id, value, showPubkey } (id)}
+      {#if type === "new-messages"}
+        <div
+          bind:this={newMessages}
+          class="flex items-center py-2 text-xs transition-colors px-2 sm:px-4"
+          class:opacity-0={showFixedNewMessages}>
+          <div class="h-px flex-grow bg-primary"></div>
+          <p class="rounded-full bg-primary px-2 py-1 text-primary-content text-center whitespace-nowrap">New Messages</p>
+          <div class="h-px flex-grow bg-primary"></div>
+        </div>
+      {:else if type === "date"}
+        <div class="px-2 sm:px-4">
+          <Divider>{value}</Divider>
+        </div>
+      {:else}
+        <div in:slide class:-mt-1={!showPubkey} class="px-1 sm:px-2 md:px-4">
+          <ChannelMessage
+            {url}
+            {replyTo}
+            event={$state.snapshot(value as TrustedEvent)}
+            {showPubkey} />
+        </div>
+      {/if}
+    {/each}
+    <p class="flex h-10 items-center justify-center py-4 sm:py-8 text-sm sm:text-base">
+      {#if loadingEvents}
+        <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
+      {:else}
+        <Spinner>End of message history</Spinner>
+      {/if}
+    </p>
   </div>
-  <RoomCompose bind:this={compose} {onSubmit} {url} />
-</div>
 
-{#if showScrollButton}
-  <div in:fade class="chat__scroll-down right-2 sm:right-4 bottom-16 sm:bottom-20">
-    <Button class="btn btn-circle btn-neutral btn-sm sm:btn-md" onclick={scrollToBottom}>
-      <Icon icon={AltArrowDown} />
-    </Button>
+  <div class="chat__compose bg-base-200 px-2 sm:px-4 py-2" bind:this={chatCompose}>
+    <div class="max-w-full overflow-hidden">
+      {#if parent}
+        <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
+      {/if}
+      {#if share}
+        <RoomComposeParent event={share} clear={clearShare} verb="Sharing" />
+      {/if}
+    </div>
+    <RoomCompose bind:this={compose} {onSubmit} {url} />
   </div>
-{/if}
 
-{#if showFixedNewMessages}
-  <div class="relative z-feature flex justify-center">
-    <div transition:fly={{duration: 200}} class="fixed top-12">
-      <Button class="btn btn-primary btn-xs rounded-full" onclick={scrollToNewMessages}>
-        New Messages
+  {#if showScrollButton}
+    <div in:fade class="chat__scroll-down right-2 sm:right-4 bottom-16 sm:bottom-20">
+      <Button class="btn btn-circle btn-neutral btn-sm sm:btn-md" onclick={scrollToBottom}>
+        <Icon icon={AltArrowDown} />
       </Button>
     </div>
-  </div>
-{/if}
+  {/if}
+
+  {#if showFixedNewMessages}
+    <div class="relative z-feature flex justify-center">
+      <div transition:fly={{duration: 200}} class="fixed top-12">
+        <Button class="btn btn-primary btn-xs rounded-full" onclick={scrollToNewMessages}>
+          New Messages
+        </Button>
+      </div>
+    </div>
+  {/if}
+</div>
