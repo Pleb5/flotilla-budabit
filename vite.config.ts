@@ -78,8 +78,14 @@ export default defineConfig({
     SvelteKitPWA({
       registerType: "prompt",
       injectRegister: false,
+      kit: {
+        adapterFallback: "index.html",
+        spa: true,
+      },
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 ** 2, // 5 MB or set to something else
+        skipWaiting: true,
+        clientsClaim: true,
       },
       manifest: {
         name: process.env.VITE_PLATFORM_NAME,

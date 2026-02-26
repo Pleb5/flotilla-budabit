@@ -9,7 +9,6 @@
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {browser, dev} from "$app/environment"
   import {beforeNavigate, goto} from "$app/navigation"
-  import {registerSW} from "virtual:pwa-register"
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
@@ -54,6 +53,7 @@
   import * as notifications from "@app/util/notifications"
   import * as storage from "@app/util/storage"
   import {syncKeyboard} from "@app/util/keyboard"
+  import {resetAppCache} from "@app/util/cache-reset"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {syncBudabitApplicationData, syncBudabitData} from "@lib/budabit/sync"
   import {setupBudabitNotifications} from "@lib/budabit/notifications"
@@ -75,12 +75,17 @@
   const PWA_UPDATE_INTERVAL = 2 * 60 * 1000
   const PWA_RELOAD_QUERY_KEY = "pwaReload"
   const PWA_RELOAD_TIMEOUT = 4_000
+  const PWA_LOG_PREFIX = "[PWA]"
+  const logPwa = (...args: unknown[]) => console.info(PWA_LOG_PREFIX, ...args)
+  const logPwaWarn = (...args: unknown[]) => console.warn(PWA_LOG_PREFIX, ...args)
+  const logPwaError = (...args: unknown[]) => console.error(PWA_LOG_PREFIX, ...args)
   let swUpdateInterval: number | null = null
   let swUpdateOnFocus: (() => void) | null = null
   let swUpdateOnVisibilityChange: (() => void) | null = null
   let updateToastShown = false
   let waitingWorker: ServiceWorker | null = null
   let swRegistration: ServiceWorkerRegistration | null = null
+  let reloadWarningShown = false
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -113,6 +118,7 @@
     url.searchParams.delete(PWA_RELOAD_QUERY_KEY)
     const state = window.history.state ?? {}
     window.history.replaceState(state, "", url.toString())
+    logPwa("Cleared reload query parameter")
   }
 
   const buildReloadUrl = () => {
@@ -123,11 +129,43 @@
   }
 
   const forceReload = () => {
+    logPwa("Forcing reload", window.location.pathname)
     window.location.replace(buildReloadUrl())
+  }
+
+  const getServiceWorkerBaseUrl = () =>
+    new URL(import.meta.env.BASE_URL || "/", window.location.origin)
+
+  const getServiceWorkerUrl = () => new URL("sw.js", getServiceWorkerBaseUrl()).toString()
+
+  const getServiceWorkerScope = () => {
+    const basePath = getServiceWorkerBaseUrl().pathname
+    return basePath.endsWith("/") ? basePath : `${basePath}/`
+  }
+
+  const registerServiceWorker = async () => {
+    try {
+      const swUrl = getServiceWorkerUrl()
+      const swScope = getServiceWorkerScope()
+      logPwa("Registering service worker", {swUrl, swScope})
+      const registration = await navigator.serviceWorker.register(swUrl, {
+        scope: getServiceWorkerScope(),
+      })
+      logPwa("Service worker registered", {scope: registration.scope})
+      return registration
+    } catch (error) {
+      logPwaError("Service worker registration failed", error)
+      return null
+    }
   }
 
   const requestAppReload = () => {
     if (!browser) return
+
+    logPwa("Reload requested", {
+      waitingWorkerState: waitingWorker?.state,
+      registrationWaitingState: swRegistration?.waiting?.state,
+    })
 
     if (!("serviceWorker" in navigator)) {
       forceReload()
@@ -136,43 +174,73 @@
 
     let reloadScheduled = false
 
-    const scheduleReload = () => {
+    const scheduleReload = (reason: string) => {
       if (reloadScheduled) return
       reloadScheduled = true
+      logPwa("Scheduling reload", reason)
       forceReload()
+    }
+
+    const scheduleResetReload = async () => {
+      if (reloadScheduled) return
+      reloadScheduled = true
+      logPwaWarn("Activation timeout: resetting caches and reloading")
+      try {
+        await resetAppCache()
+        logPwa("Cache reset complete")
+      } catch (error) {
+        logPwaError("Cache reset failed", error)
+      } finally {
+        forceReload()
+      }
+    }
+
+    const showReloadWarning = () => {
+      if (reloadWarningShown) return
+      reloadWarningShown = true
+      pushToast({
+        theme: "warning",
+        timeout: 10_000,
+        message: "Update is still installing. Trying a full refresh to apply it.",
+      })
     }
 
     const onControllerChange = () => {
       navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
-      scheduleReload()
+      scheduleReload("controllerchange")
     }
 
     navigator.serviceWorker.addEventListener("controllerchange", onControllerChange)
 
-    const fallbackTimer = window.setTimeout(() => {
+    const activationTimer = window.setTimeout(() => {
       navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
-      scheduleReload()
+      showReloadWarning()
+      void scheduleResetReload()
     }, PWA_RELOAD_TIMEOUT)
 
-    const clearFallback = () => {
-      clearTimeout(fallbackTimer)
+    const clearActivationTimer = () => {
+      clearTimeout(activationTimer)
       navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
     }
 
     const handleWorker = (worker: ServiceWorker) => {
       if (worker.state === "activated") {
-        clearFallback()
-        scheduleReload()
+        clearActivationTimer()
+        scheduleReload("already-activated")
         return
       }
 
-      worker.addEventListener("statechange", () => {
+      const onStateChange = () => {
         if (worker.state === "activated") {
-          clearFallback()
-          scheduleReload()
+          worker.removeEventListener("statechange", onStateChange)
+          clearActivationTimer()
+          scheduleReload("activated")
         }
-      })
+      }
 
+      worker.addEventListener("statechange", onStateChange)
+
+      logPwa("Sending skip waiting", {state: worker.state})
       worker.postMessage({type: "SKIP_WAITING"})
     }
 
@@ -190,8 +258,8 @@
       if (latestWorker) {
         handleWorker(latestWorker)
       } else {
-        clearFallback()
-        scheduleReload()
+        clearActivationTimer()
+        scheduleReload("no-waiting-worker")
       }
     })
   }
@@ -201,6 +269,7 @@
 
     updateToastShown = true
     waitingWorker = worker
+    logPwa("Update ready", {state: worker?.state})
     pushToast({
       message: "New app version is available",
       timeout: 0,
@@ -218,27 +287,31 @@
 
     if (dev || !("serviceWorker" in navigator)) return
 
-    registerSW({
-      immediate: true,
-      onRegisterError: (error: unknown) => {
-        console.error("Service worker registration failed", error)
-      },
-    })
+    logPwa("Starting service worker update checks")
 
-    const registration = await navigator.serviceWorker.ready
+    const registration = await registerServiceWorker()
+    if (!registration) return
+
+    await navigator.serviceWorker.ready
     swRegistration = registration
+    logPwa("Service worker ready", {
+      controller: !!navigator.serviceWorker.controller,
+    })
 
     const checkForWaitingWorker = () => {
       if (registration.waiting && navigator.serviceWorker.controller) {
+        logPwa("Waiting worker detected", {state: registration.waiting.state})
         notifyUpdateReady(registration.waiting)
       }
     }
 
     const checkForUpdate = async () => {
+      logPwa("Checking for update")
       try {
         await registration.update()
       } finally {
         checkForWaitingWorker()
+        logPwa("Update check complete")
       }
     }
 
@@ -249,7 +322,10 @@
 
       if (!installing) return
 
+      logPwa("Update found", {state: installing.state})
+
       installing.addEventListener("statechange", () => {
+        logPwa("Worker state change", {state: installing.state})
         if (installing.state === "installed" && navigator.serviceWorker.controller) {
           notifyUpdateReady(registration.waiting || installing)
         }
