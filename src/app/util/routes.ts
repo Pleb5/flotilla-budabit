@@ -25,6 +25,8 @@ import {
   encodeRelay,
   userSpaceUrls,
   hasNip29,
+  PLATFORM_RELAYS,
+  isPlatformRelay,
   ROOM,
 } from "@app/core/state"
 import {
@@ -74,6 +76,16 @@ export const makeSpacePath = (url: string, ...extra: (string | undefined)[]) => 
   }
 
   return path
+}
+
+const pickPlatformSpaceRelay = (urls: string[]) => {
+  const platformRelay = urls.find(isPlatformRelay)
+
+  if (platformRelay) {
+    return platformRelay
+  }
+
+  return PLATFORM_RELAYS[0] || ""
 }
 
 export const goToSpace = async (url: string) => {
@@ -146,6 +158,7 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
   }
 
   const h = getTagValue(ROOM, event.tags)
+  const spaceRelay = pickPlatformSpaceRelay(urls)
 
   // Handle Git-related events - route them to BudaBit's internal Git pages
   if (GIT_EVENT_KINDS.includes(event.kind)) {
@@ -153,7 +166,7 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
     if (GIT_REPO_KINDS.includes(event.kind)) {
       const address = Address.fromEvent(event)
       const naddr = address.toNaddr()
-      const url = urls.length > 0 ? urls[0] : ""
+      const url = spaceRelay
 
       if (url) {
         return `/spaces/${encodeRelay(url)}/git/${naddr}`
@@ -178,7 +191,7 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
             // Create naddr for the repository
             const address = new Address(parseInt(kind), pubkey, identifier, urls)
             const naddr = address.toNaddr()
-            const url = urls.length > 0 ? urls[0] : ""
+            const url = spaceRelay
 
             if (url) {
               // Route to specific sub-pages based on event kind
@@ -206,8 +219,8 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
     }
   }
 
-  if (urls.length > 0) {
-    const url = urls[0]
+  if (spaceRelay) {
+    const url = spaceRelay
 
     if (event.kind === ZAP_GOAL) {
       return makeGoalPath(url, event.id)

@@ -28,8 +28,14 @@
   import * as welshmanSigner from "@welshman/signer"
   import * as net from "@welshman/net"
   import * as app from "@welshman/app"
+  import {ConfigProvider, AvatarImage} from "@nostr-git/ui"
   import AppContainer from "@app/components/AppContainer.svelte"
   import ModalContainer from "@app/components/ModalContainer.svelte"
+  import EventActions from "@app/components/EventActions.svelte"
+  import ReactionSummary from "@app/components/ReactionSummary.svelte"
+  import Markdown from "@src/lib/components/Markdown.svelte"
+  import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
+  import NostrGitProfileLink from "@app/components/NostrGitProfileLink.svelte"
   import {setupHistory} from "@app/util/history"
   import {setupTracking} from "@app/util/tracking"
   import {setupAnalytics} from "@app/util/analytics"
@@ -54,6 +60,16 @@
   import {ExtensionProvider} from "@src/app/extensions"
 
   const {children} = $props()
+  const nostrGitProviderProps = /** @type {any} */ ({
+    components: {
+      AvatarImage,
+      ProfileComponent: NostrGitProfileComponent,
+      ProfileLink: NostrGitProfileLink,
+      EventActions,
+      ReactionSummary,
+      Markdown,
+    },
+  })
 
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
   const PWA_UPDATE_INTERVAL = 2 * 60 * 1000
@@ -415,13 +431,15 @@
 {#await unsubscribe}
   <!-- pass -->
 {:then}
-  <div>
-    <ExtensionProvider />
-    <AppContainer>
-      {@render children()}
-    </AppContainer>
-    <ModalContainer />
-    <div class="tippy-target"></div>
-    <NewNotificationSound />
-  </div>
+  <ConfigProvider {...nostrGitProviderProps}>
+    <div>
+      <ExtensionProvider />
+      <AppContainer>
+        {@render children()}
+      </AppContainer>
+      <ModalContainer />
+      <div class="tippy-target"></div>
+      <NewNotificationSound />
+    </div>
+  </ConfigProvider>
 {/await}
