@@ -481,7 +481,9 @@
       onEvent: event => {
         const repoTag = getTagValue("repo", event.tags || [])
         if (!repoTag || repoTag !== repoAddress) return
-        repository.load([event as TrustedEvent])
+        if (!repository.getEvent(event.id)) {
+          repository.publish(event as TrustedEvent)
+        }
         if (event.created_at > latestDeleteSeen) {
           latestDeleteSeen = event.created_at
         }

@@ -928,7 +928,7 @@
           comments[issue.id] = [...currentComments, e as CommentEvent]
         }
         if (!repository.getEvent(e.id)) {
-          repository.load([e as TrustedEvent])
+          repository.publish(e as TrustedEvent)
         }
       },
     })

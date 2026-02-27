@@ -633,7 +633,7 @@ export const setupBudabitNotifications = () => {
       signal: controller.signal,
       onEvent: event => {
         if (!repository.getEvent(event.id)) {
-          repository.load([event as TrustedEvent])
+          repository.publish(event as TrustedEvent)
         }
       },
     })

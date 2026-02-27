@@ -121,7 +121,7 @@
               comments = [...comments, e as CommentEvent]
             }
             if (!repository.getEvent(e.id)) {
-              repository.load([e as CommentEvent])
+              repository.publish(e as CommentEvent)
             }
           },
         })
