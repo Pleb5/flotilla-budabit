@@ -9,6 +9,8 @@ import {
   extractSelfLabels,
   extractLabelEvents,
   mergeEffectiveLabels,
+  GIT_REPO_ANNOUNCEMENT,
+  parseRepoAnnouncementEvent,
   type RepoGroup,
   type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
@@ -30,6 +32,7 @@ import {
   type TrustedEvent,
   ROOM_META,
   getTag,
+  getTagValue,
   getAddress,
 } from "@welshman/util"
 import {nip19} from "nostr-tools"
@@ -64,6 +67,29 @@ const safeNormalizeRelayUrl = (url: string) => {
   } catch {
     return ""
   }
+}
+
+const isHexPubkey = (value: string) => /^[0-9a-f]{64}$/i.test(value)
+
+const normalizePubkey = (value: string) => {
+  if (!value) return ""
+  if (isHexPubkey(value)) return value
+  if (value.startsWith("npub")) {
+    try {
+      const decoded = nip19.decode(value)
+      if (decoded.type === "npub" && typeof decoded.data === "string") {
+        return decoded.data
+      }
+    } catch {
+      return ""
+    }
+  }
+  return ""
+}
+
+const getRepoEuc = (event: RepoAnnouncementEvent) => {
+  const tag = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
+  return tag?.[1] || ""
 }
 
 export const getRepoAnnouncementRelays = (extra: string[] = []) => {
@@ -124,6 +150,88 @@ export const repoAnnouncements = derived(repoAnnouncementsRaw, $events => {
   return Array.from(latestByAddress.values()).filter(event => !isDeletedRepoAnnouncement(event))
 })
 
+export const repoAnnouncementsByAddress = derived(repoAnnouncements, $events => {
+  const map = new Map<string, RepoAnnouncementEvent>()
+  for (const event of ($events as RepoAnnouncementEvent[]) || []) {
+    try {
+      const address = getAddress(event)
+      map.set(address, event)
+    } catch {
+      continue
+    }
+  }
+  return map
+})
+
+export const effectiveMaintainersByRepoAddress = derived(
+  [repoAnnouncements, repoAnnouncementsByAddress],
+  ([$events, $byAddress]) => {
+    const map = new Map<string, Set<string>>()
+
+    for (const ownerEvent of $events as RepoAnnouncementEvent[]) {
+      const repoId = getTagValue("d", ownerEvent.tags) || ""
+      if (!repoId) continue
+      const ownerEuc = getRepoEuc(ownerEvent)
+      const owner = normalizePubkey(ownerEvent.pubkey)
+      if (!owner) continue
+
+      let maintainers: string[] = []
+      try {
+        const parsed = parseRepoAnnouncementEvent(ownerEvent)
+        maintainers = (parsed.maintainers || []).map(normalizePubkey).filter(Boolean)
+      } catch {
+        maintainers = []
+      }
+
+      const candidates = new Set<string>([owner, ...maintainers])
+      const effective = new Set<string>()
+      const ownerAddress = `${GIT_REPO_ANNOUNCEMENT}:${owner}:${repoId}`
+      effective.add(owner)
+
+      for (const pubkey of candidates) {
+        const candidateAddress = `${GIT_REPO_ANNOUNCEMENT}:${pubkey}:${repoId}`
+        const candidateEvent = $byAddress.get(candidateAddress)
+        if (!candidateEvent) continue
+        const candidateEuc = getRepoEuc(candidateEvent)
+        if (ownerEuc || candidateEuc) {
+          if (ownerEuc && candidateEuc && ownerEuc === candidateEuc) {
+            effective.add(pubkey)
+          }
+        } else {
+          effective.add(pubkey)
+        }
+      }
+
+      if (effective.size > 0) {
+        map.set(ownerAddress, effective)
+      }
+    }
+
+    return map
+  },
+)
+
+export const effectiveRepoAddressesByRepoAddress = derived(
+  effectiveMaintainersByRepoAddress,
+  $byMaintainers => {
+    const map = new Map<string, Set<string>>()
+    for (const [repoAddress, maintainers] of $byMaintainers.entries()) {
+      const parts = repoAddress.split(":")
+      if (parts.length < 3) continue
+      const [kind, , identifier] = parts
+      const addresses = new Set<string>()
+      for (const pubkey of maintainers) {
+        if (!pubkey) continue
+        addresses.add(`${kind}:${pubkey}:${identifier}`)
+      }
+      if (addresses.size > 0) {
+        map.set(repoAddress, addresses)
+      }
+    }
+    return map
+  },
+)
+
 export const repoGroups = derived(repoAnnouncements, ($events): RepoGroup[] => {
   return groupByEuc($events as any)
 })
@@ -166,6 +274,53 @@ export const loadRepoAnnouncements = (relays?: string[]) => {
     relays: targetRelays,
     filters: [{kinds: [30617]}],
   })
+}
+
+export const loadRepoAnnouncementsForPubkeys = (
+  pubkeys: string[],
+  repoId: string,
+  euc?: string,
+) => {
+  const normalized = Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean)))
+  if (normalized.length === 0 || !repoId) return
+  let outboxRelays: string[] = []
+  try {
+    outboxRelays = Router.get().FromPubkeys(normalized).getUrls()
+  } catch {
+    outboxRelays = []
+  }
+  const relays = Array.from(new Set([...GIT_RELAYS, ...outboxRelays]))
+  const filters = [
+    {
+      kinds: [GIT_REPO_ANNOUNCEMENT],
+      authors: normalized,
+      ...(euc ? {"#r": [euc]} : {"#d": [repoId]}),
+    },
+  ]
+  return load({relays, filters})
+}
+
+export const loadRepoAnnouncementByAddress = (repoAddr: string) => {
+  const parts = repoAddr.split(":")
+  if (parts.length < 3) return
+  const [, pubkey, repoId] = parts
+  return loadRepoAnnouncementsForPubkeys([pubkey], repoId)
+}
+
+export const loadRepoMaintainerAnnouncements = (repoEvent: RepoAnnouncementEvent) => {
+  const repoId = getTagValue("d", repoEvent.tags) || ""
+  if (!repoId) return
+  const owner = normalizePubkey(repoEvent.pubkey)
+  let maintainers: string[] = []
+  try {
+    const parsed = parseRepoAnnouncementEvent(repoEvent)
+    maintainers = (parsed.maintainers || []).map(normalizePubkey).filter(Boolean)
+  } catch {
+    maintainers = []
+  }
+  const pubkeys = Array.from(new Set([owner, ...maintainers].filter(Boolean)))
+  const euc = getRepoEuc(repoEvent)
+  return loadRepoAnnouncementsForPubkeys(pubkeys, repoId, euc || undefined)
 }
 
 // ---------------------------------------------------------------------------

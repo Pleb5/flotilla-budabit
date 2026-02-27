@@ -27,7 +27,7 @@
   import GitItem from "@app/components/GitItem.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast, popToast} from "@app/util/toast"
-  import {notifications} from "@app/util/notifications"
+  import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {decodeRelay} from "@app/core/state"
   import {goto} from "$app/navigation"
   import {onMount} from "svelte"
@@ -154,14 +154,13 @@
     getPermalinkTagValueAny(evt, ["file", "path", "f"]) || getPermalinkTagValue(evt, "p")
 
   const repoHasNotifications = (event: RepoAnnouncementEvent) => {
-    let naddr = ""
+    let repoAddress = ""
     try {
-      naddr = Address.fromEvent(event).toNaddr()
+      repoAddress = Address.fromEvent(event).toString()
     } catch {
       return false
     }
-    const base = makeGitPath(url, naddr)
-    return $notifications.has(`${base}/issues`) || $notifications.has(`${base}/patches`)
+    return hasRepoNotification($notifications, {relay: url, repoAddress})
   }
 
   const isDeletedRepoAnnouncement = (event?: {tags?: string[][]} | null) =>

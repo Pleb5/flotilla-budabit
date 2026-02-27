@@ -1,7 +1,7 @@
 <script lang="ts">
   import {Button as GitButton, PatchCard} from "@nostr-git/ui"
   import {Eye, SearchX} from "@lucide/svelte"
-  import {createSearch, pubkey} from "@welshman/app"
+  import {createSearch, pubkey, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import {makeFeed} from "@src/app/core/requests"
@@ -12,7 +12,6 @@
     GIT_STATUS_DRAFT,
   } from "@welshman/util"
   import {fade, fly, slideAndFade} from "@lib/transition"
-  import {deriveEffectiveLabels, deriveAssignmentsFor} from "@lib/budabit/state.js"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
   import {
     getTags,
@@ -21,24 +20,30 @@
     type PullRequestEvent,
     type StatusEvent,
   } from "@nostr-git/core/events"
-  import {Address, COMMENT} from "@welshman/util"
+  import {COMMENT} from "@welshman/util"
   import {parseGitPatchFromEvent} from "@nostr-git/core/git"
   import {request} from "@welshman/net"
   import {parsePullRequestEvent} from "@nostr-git/core/events"
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
   import {postComment} from "@lib/budabit/commands.js"
+  import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
 
   import {getContext} from "svelte"
   import {onDestroy} from "svelte"
+  import {page} from "$app/stores"
+  import {decodeRelay} from "@app/core/state"
   import {
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     PULL_REQUESTS_KEY,
+    deriveEffectiveLabels,
+    deriveAssignmentsFor,
+    effectiveRepoAddressesByRepoAddress,
   } from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
@@ -59,6 +64,21 @@
   )
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
   const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
+  const patchesPath = $derived.by(
+    () => `/spaces/${encodeURIComponent($page.params.relay ?? "")}/git/${$page.params.id}/patches`,
+  )
+  const relayUrl = $derived.by(() => ($page.params.relay ? decodeRelay($page.params.relay) : ""))
+  const patchesSeenKey = $derived.by(() => `${patchesPath}:seen`)
+  const normalizeChecked = (value: number) =>
+    value > 10_000_000_000 ? Math.round(value / 1000) : value
+  const lastPatchesSeen = $derived.by(() => normalizeChecked($checked[patchesSeenKey] || 0))
+  const repoAddress = $derived.by(() => repoClass?.address || "")
+  const effectiveRepoAddresses = $derived.by((): string[] => {
+    if (!repoAddress) return []
+    const addresses = $effectiveRepoAddressesByRepoAddress.get(repoAddress)
+    if (addresses && addresses.size > 0) return Array.from(addresses)
+    return [repoAddress]
+  })
 
   $effect(() => {
     console.log("pullRequests", pullRequests)
@@ -74,7 +94,9 @@
     // Access reactive dependencies synchronously to ensure they're tracked
     const currentPatches = repoClass.patches
     const currentPullRequests = pullRequests
-    const currentRepoRelays = repoRelays
+    const currentRepoRelays = repoRelays.filter(Boolean)
+
+    if (currentRepoRelays.length === 0) return
 
     const controller = new AbortController()
     abortControllers.push(controller)
@@ -90,10 +112,16 @@
         request({
           relays: currentRepoRelays,
           signal: controller.signal,
-          filters: [{kinds: [COMMENT], "#E": allRootIds}],
+          filters: [
+            {kinds: [COMMENT], "#E": allRootIds},
+            {kinds: [COMMENT], "#e": allRootIds},
+          ],
           onEvent: e => {
             if (!comments.some(c => c.id === e.id)) {
               comments = [...comments, e as CommentEvent]
+            }
+            if (!repository.getEvent(e.id)) {
+              repository.load([e as CommentEvent])
             }
           },
         })
@@ -107,21 +135,15 @@
   })
 
   // Create filters for makeFeed (needed for incremental loading)
-  const patchFilter = $derived.by(() => {
-    if (!repoClass.repoEvent) return {kinds: [1617], "#a": []}
-    return {
-      kinds: [1617],
-      "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
-    }
-  })
+  const patchFilter = $derived.by(() => ({
+    kinds: [1617],
+    "#a": effectiveRepoAddresses,
+  }))
 
-  const pullRequestFilter = $derived.by(() => {
-    if (!repoClass.repoEvent) return {kinds: [1618], "#a": []}
-    return {
-      kinds: [1618],
-      "#a": [Address.fromEvent(repoClass.repoEvent).toString()],
-    }
-  })
+  const pullRequestFilter = $derived.by(() => ({
+    kinds: [1618],
+    "#a": effectiveRepoAddresses,
+  }))
 
   const uniqueAuthors = $derived.by(() => {
     if (!repoClass) return []
@@ -465,6 +487,7 @@
     }
   })
 
+
   // Set loading to false immediately - show content right away
   let loading = $state(false)
   let element: HTMLElement | undefined = $state()
@@ -503,6 +526,29 @@
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
 
+  const getLatestPatchActivityAt = (patch: {id: string; created_at?: number; comments?: CommentEvent[]}) => {
+    let commentAt = 0
+    for (const comment of patch.comments || []) {
+      if (comment.created_at > commentAt) commentAt = comment.created_at
+    }
+    const statusEvents = statusEventsByRoot?.get(patch.id) || []
+    let statusAt = 0
+    for (const event of statusEvents) {
+      if (event.created_at > statusAt) statusAt = event.created_at
+    }
+    const createdAt = patch?.created_at || 0
+    return Math.max(createdAt, commentAt, statusAt)
+  }
+
+  const getPatchesSeenAt = () => {
+    let latest = lastPatchesSeen
+    for (const patch of patchList) {
+      latest = Math.max(latest, getLatestPatchActivityAt(patch))
+    }
+    return latest
+  }
+
+
   // Initialize feed asynchronously - don't block render
   $effect(() => {
     // Access reactive dependencies synchronously to ensure they're tracked
@@ -510,6 +556,7 @@
     const currentPatchFilter = patchFilter
     const currentPullRequestFilter = pullRequestFilter
     const currentRepoRelays = repoRelays
+    const currentRepoAddresses = effectiveRepoAddresses
     const currentPatchList = patchList
     const currentElement = element
     const currentFeedInitialized = feedInitialized
@@ -525,6 +572,10 @@
       ) {
         const tryStart = () => {
           if (currentElement && !currentFeedInitialized) {
+            if (!currentRepoRelays.length || currentRepoAddresses.length === 0) {
+              requestAnimationFrame(tryStart)
+              return
+            }
             feedInitialized = true
             const feed = makeFeed({
               element: currentElement,
@@ -552,6 +603,16 @@
 
   // CRITICAL: Cleanup on destroy to prevent memory leaks and blocking navigation
   onDestroy(() => {
+    const seenAt = getPatchesSeenAt()
+    setCheckedAt(patchesSeenKey, seenAt)
+    setCheckedAt(patchesPath, seenAt)
+    if (repoAddress && relayUrl) {
+      setCheckedForRepoNotifications($notifications, {
+        relay: relayUrl,
+        repoAddress,
+        kind: "patches",
+      }, seenAt)
+    }
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
 
@@ -604,7 +665,7 @@
 
 <div bind:this={element}>
   <div class="mb-2 flex flex-col gap-y-2 py-4">
-    <div class=" flex items-center justify-between">
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h2 class="text-xl font-semibold">Patches</h2>
         <p class="text-sm text-muted-foreground max-sm:hidden">Review and merge code changes</p>
@@ -666,18 +727,21 @@
         {#each searchedPatches as patch (patch.id)}
           <div in:fly={slideAndFade({duration: 200})}>
             <div class="relative">
-              <PatchCard
-                event={patch}
-                patches={patch.patches}
-                status={patch.status as StatusEvent}
-                comments={patch.comments}
-                currentCommenter={$pubkey!}
-                extraLabels={labelsByPatch.get(patch.id) || []}
-                repo={repoClass}
-                statusEvents={statusEventsByRoot?.get(patch.id) || []}
-                actorPubkey={$pubkey}
-                {onCommentCreated}
-                reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0} />
+              <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
+                <PatchCard
+                  event={patch}
+                  patches={patch.patches}
+                  status={patch.status as StatusEvent}
+                  comments={patch.comments}
+                  currentCommenter={$pubkey!}
+                  extraLabels={labelsByPatch.get(patch.id) || []}
+                  repo={repoClass}
+                  statusEvents={statusEventsByRoot?.get(patch.id) || []}
+                  actorPubkey={$pubkey}
+                  {onCommentCreated}
+                  reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0}
+                />
+              </div>
               {#if labelsByPatch.get(patch.id)?.length}
                 <div class="mt-2 flex flex-wrap gap-2 text-xs">
                   {#if patch.groups.Status.length}

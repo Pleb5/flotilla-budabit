@@ -92,6 +92,7 @@ import {
   userRelayList,
   userBlossomServerList,
 } from "@welshman/app"
+import {GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
 import {compressFile} from "@lib/html"
 import {kv, db} from "@app/core/storage"
 import type {SettingsValues, Alert} from "@app/core/state"
@@ -625,8 +626,29 @@ export type DeleteParams = {
   tags?: string[][]
 }
 
+const getRepoAddressForDelete = (event: TrustedEvent) => {
+  const repoTag = getTagValue("repo", event.tags)
+  if (repoTag) return repoTag
+  const addressTag = getTagValue("a", event.tags)
+  if (addressTag && addressTag.startsWith(`${GIT_REPO_ANNOUNCEMENT}:`)) {
+    return addressTag
+  }
+  if (event.kind === GIT_REPO_ANNOUNCEMENT || event.kind === GIT_REPO_STATE) {
+    try {
+      return getAddress(event)
+    } catch {
+      return ""
+    }
+  }
+  return ""
+}
+
 export const makeDelete = ({protect, event, tags = []}: DeleteParams) => {
   const thisTags = [["k", String(event.kind)], ...tagEvent(event), ...tags]
+  const repoAddress = getRepoAddressForDelete(event)
+  if (repoAddress) {
+    thisTags.push(["repo", repoAddress])
+  }
   const groupTag = getTag("h", event.tags)
 
   if (groupTag) {
@@ -637,7 +659,7 @@ export const makeDelete = ({protect, event, tags = []}: DeleteParams) => {
     thisTags.push(PROTECTED)
   }
 
-  return makeEvent(DELETE, {tags: thisTags})
+  return makeEvent(DELETE, {tags: uniqTags(thisTags)})
 }
 
 export const publishDelete = ({relays, ...params}: DeleteParams & {relays: string[]}) =>

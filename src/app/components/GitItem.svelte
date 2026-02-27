@@ -6,7 +6,7 @@
   import Link from "@lib/components/Link.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
   import {makeGitPath} from "@lib/budabit"
-  import {notifications} from "@app/util/notifications"
+  import {notifications, hasRepoNotification} from "@app/util/notifications"
 
   const {
     url,
@@ -29,8 +29,20 @@
   const browseHref = $derived.by(() => makeGitPath(url, Address.fromEvent(event).toNaddr()))
   const issuesHref = $derived.by(() => `${browseHref}/issues`)
   const patchesHref = $derived.by(() => `${browseHref}/patches`)
+  const repoAddress = $derived.by(() => {
+    try {
+      return Address.fromEvent(event).toString()
+    } catch {
+      return ""
+    }
+  })
   const hasNotifications = $derived.by(
-    () => $notifications.has(issuesHref) || $notifications.has(patchesHref),
+    () => {
+      if (repoAddress) {
+        return hasRepoNotification($notifications, {relay: url, repoAddress})
+      }
+      return $notifications.has(issuesHref) || $notifications.has(patchesHref)
+    },
   )
 
   const getLinkRanges = (text: string) => {

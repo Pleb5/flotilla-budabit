@@ -5,7 +5,7 @@ import {pubkey, tracker, repository, relaysByUrl} from "@welshman/app"
 import {prop, find, call, spec, first, identity, now, groupBy} from "@welshman/lib"
 import type {List, TrustedEvent} from "@welshman/util"
 import {deriveEventsByIdByUrl} from "@welshman/store"
-import {ZAP_GOAL, EVENT_TIME, MESSAGE, THREAD, COMMENT, getTagValue} from "@welshman/util"
+import {ZAP_GOAL, EVENT_TIME, MESSAGE, THREAD, COMMENT, getTagValue, Address} from "@welshman/util"
 import {
   makeSpacePath,
   makeChatPath,
@@ -22,6 +22,7 @@ import {
   userGroupList,
   getSpaceUrlsFromGroupList,
   getSpaceRoomsFromGroupList,
+  encodeRelay,
 } from "@app/core/state"
 import {kv} from "@app/core/storage"
 
@@ -36,6 +37,9 @@ export const checked = synced<Record<string, number>>({
 export const deriveChecked = (key: string) => derived(checked, prop(key))
 
 export const setChecked = (key: string) => checked.update(state => ({...state, [key]: now()}))
+
+export const setCheckedAt = (key: string, timestamp: number) =>
+  checked.update(state => ({...state, [key]: timestamp}))
 
 export type NotificationCandidate = {
   path: string
@@ -67,6 +71,8 @@ const extraCandidates = derived(notificationCandidatesStore, ($store, set) => {
 // Derived notifications state
 
 export const notifications = call(() => {
+  const normalizeChecked = (value: number) =>
+    value > 10_000_000_000 ? Math.round(value / 1000) : value
   const goalCommentFilters = [{kinds: [COMMENT], "#K": [String(ZAP_GOAL)]}]
   const threadCommentFilters = [{kinds: [COMMENT], "#K": [String(THREAD)]}]
   const calendarCommentFilters = [{kinds: [COMMENT], "#K": [String(EVENT_TIME)]}]
@@ -106,21 +112,33 @@ export const notifications = call(() => {
       $extraCandidates,
     ]) => {
       const hasNotification = (path: string, latestEvent: TrustedEvent | undefined) => {
-        if (!latestEvent || latestEvent.pubkey === $pubkey) {
+        if (!latestEvent) {
+          return false
+        }
+        if (latestEvent.pubkey === $pubkey) {
           return false
         }
 
+        let suppressedBy: {entryPath: string; checkedAt: number; normalized: number} | undefined
         for (const [entryPath, ts] of Object.entries($checked)) {
+          if (entryPath.endsWith(":seen")) continue
           const isMatch =
             entryPath === "*" ||
             entryPath.startsWith(path) ||
             (entryPath === "/chat/*" && path.startsWith("/chat/"))
 
-          if (isMatch && ts > latestEvent.created_at) {
-            return false
+          if (isMatch) {
+            const normalized = normalizeChecked(ts)
+            if (normalized >= latestEvent.created_at) {
+              suppressedBy = {entryPath, checkedAt: ts, normalized}
+              break
+            }
           }
         }
 
+        if (suppressedBy) {
+          return false
+        }
         return true
       }
 
@@ -259,4 +277,64 @@ export const handleBadgeCountChanges = async (count: number) => {
 
 export const clearBadges = async () => {
   await Badge.clear()
+}
+
+type RepoNotificationKind = "issues" | "patches"
+
+const repoNotificationKinds = new Set<RepoNotificationKind>(["issues", "patches"])
+
+export const getRepoNotificationPaths = (
+  paths: Set<string>,
+  options: {relay: string; repoAddress: string; kind?: RepoNotificationKind},
+) => {
+  const {relay, repoAddress, kind} = options
+  if (!relay || !repoAddress) return []
+  let relayPart = ""
+  try {
+    relayPart = encodeRelay(relay)
+  } catch {
+    return []
+  }
+  if (!relayPart) return []
+  const prefix = `/spaces/${relayPart}/git/`
+  const matches: string[] = []
+
+  for (const path of paths) {
+    if (!path.startsWith(prefix)) continue
+    const rest = path.slice(prefix.length)
+    const [naddr, section] = rest.split("/")
+    if (!naddr || !section) continue
+    if (!repoNotificationKinds.has(section as RepoNotificationKind)) continue
+    if (kind && section !== kind) continue
+    try {
+      const address = Address.fromNaddr(naddr).toString()
+      if (address === repoAddress) {
+        matches.push(path)
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return matches
+}
+
+export const hasRepoNotification = (
+  paths: Set<string>,
+  options: {relay: string; repoAddress: string; kind?: RepoNotificationKind},
+) => getRepoNotificationPaths(paths, options).length > 0
+
+export const setCheckedForRepoNotifications = (
+  paths: Set<string>,
+  options: {relay: string; repoAddress: string; kind?: RepoNotificationKind},
+  timestamp?: number,
+) => {
+  const matches = getRepoNotificationPaths(paths, options)
+  for (const path of matches) {
+    if (timestamp != null) {
+      setCheckedAt(path, timestamp)
+    } else {
+      setChecked(path)
+    }
+  }
 }

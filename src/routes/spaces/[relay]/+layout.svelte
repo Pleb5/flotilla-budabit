@@ -48,10 +48,13 @@
 
   const showPendingTrust = once(() => pushModal(SpaceTrustRelay, {url}, {noEscape: true}))
 
+
   // We have to watch this one, since on mobile the badge will be visible when active
   $effect(() => {
-    if ($notifications.has($page.url.pathname)) {
-      setChecked($page.url.pathname)
+    const path = $page.url.pathname
+    const isGitIssueOrPatch = /^\/spaces\/[^/]+\/git\/[^/]+\/(issues|patches)(\/|$)/.test(path)
+    if (!isGitIssueOrPatch && $notifications.has(path)) {
+      setChecked(path)
     }
   })
 
@@ -89,12 +92,18 @@
       ? [{kinds: [MESSAGE], since}, ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.id], since}))]
       : []
 
+    const gitFilters = isPlatform
+      ? []
+      : [
+          {kinds: [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]},
+          {kinds: [GIT_ISSUE, GIT_PATCH]},
+          {kinds: [GRASP_SET_KIND]},
+        ]
+
     request({
       relays: [url],
       filters: [
-        {kinds: [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]},
-        {kinds: [GIT_ISSUE, GIT_PATCH]},
-        {kinds: [GRASP_SET_KIND]},
+        ...gitFilters,
         {kinds: [THREAD, EVENT_TIME], since},
         {kinds: [COMMENT], "#K": [String(THREAD), String(EVENT_TIME)], since},
         ...messageFilters,

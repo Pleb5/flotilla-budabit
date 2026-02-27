@@ -16,7 +16,7 @@
   import PageContent from "@src/lib/components/PageContent.svelte"
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import {pushToast} from "@src/app/util/toast"
-  import {notifications} from "@app/util/notifications"
+  import {notifications, hasRepoNotification, checked, setCheckedAt} from "@app/util/notifications"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {PLATFORM_RELAYS, decodeRelay, encodeRelay, isPlatformRelay} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
@@ -42,7 +42,7 @@
   import {derived, get as getStore, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {load} from "@welshman/net"
+  import {load, request} from "@welshman/net"
   import {Router} from "@welshman/router"
   import {goto, beforeNavigate} from "$app/navigation"
   import {
@@ -52,6 +52,7 @@
     Address,
     GIT_ISSUE,
     GIT_PATCH,
+    DELETE,
     GIT_STATUS_OPEN,
     GIT_STATUS_DRAFT,
     GIT_STATUS_CLOSED,
@@ -62,7 +63,18 @@
   } from "@welshman/util"
   import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY, PULL_REQUESTS_KEY, activeRepoClass, GIT_RELAYS, getRepoAnnouncementRelays} from "@lib/budabit/state"
+  import {
+    REPO_KEY,
+    REPO_RELAYS_KEY,
+    STATUS_EVENTS_BY_ROOT_KEY,
+    PULL_REQUESTS_KEY,
+    activeRepoClass,
+    GIT_RELAYS,
+    getRepoAnnouncementRelays,
+    effectiveMaintainersByRepoAddress,
+    effectiveRepoAddressesByRepoAddress,
+    loadRepoMaintainerAnnouncements,
+  } from "@lib/budabit/state"
   import {userRepoWatchValues} from "@lib/budabit/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
@@ -133,14 +145,52 @@
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
   const issuesPath = $derived.by(() => `${basePath}/issues`)
   const patchesPath = $derived.by(() => `${basePath}/patches`)
-  const hasIssuesNotification = $derived.by(() => $notifications.has(issuesPath))
-  const hasPatchesNotification = $derived.by(() => $notifications.has(patchesPath))
+  const hasIssuesNotification = $derived.by(() => {
+    if (repoAddress) {
+      return hasRepoNotification($notifications, {relay: url, repoAddress, kind: "issues"})
+    }
+    return $notifications.has(issuesPath)
+  })
+  const hasPatchesNotification = $derived.by(() => {
+    if (repoAddress) {
+      return hasRepoNotification($notifications, {relay: url, repoAddress, kind: "patches"})
+    }
+    return $notifications.has(patchesPath)
+  })
 
-  const repoAddress = $derived.by(() => {
-    if (repoClass?.address) return repoClass.address
-    if (repoPubkey && repoId) return `30617:${repoPubkey}:${repoId}`
+  const repoAddressStore: Readable<string> = derived(activeRepoClass, $repo => {
+    if ($repo?.address) return $repo.address
+    if (repoPubkey && repoName) return `30617:${repoPubkey}:${repoName}`
     return ""
   })
+
+  const repoMaintainersStore: Readable<string[]> = derived(
+    [repoAddressStore, effectiveMaintainersByRepoAddress],
+    ([$repoAddress, $byMaintainers]) => {
+      if (!$repoAddress) return []
+      const maintainers = $byMaintainers.get($repoAddress)
+      if (maintainers && maintainers.size > 0) return Array.from(maintainers)
+      return repoPubkey ? [repoPubkey] : []
+    },
+  ) as Readable<string[]>
+  const repoAddressesStore: Readable<string[]> = derived(
+    [repoAddressStore, effectiveRepoAddressesByRepoAddress],
+    ([$repoAddress, $byAddresses]) => {
+      if (!$repoAddress) return []
+      const addresses = $byAddresses.get($repoAddress)
+      if (addresses && addresses.size > 0) return Array.from(addresses)
+      return [$repoAddress]
+    },
+  ) as Readable<string[]>
+
+  const repoAddress = $derived.by(() => $repoAddressStore)
+
+  const normalizeChecked = (value: number) =>
+    value > 10_000_000_000 ? Math.round(value / 1000) : value
+  const deleteSeenKey = $derived.by(() => (repoAddress ? `repoDeleteSeen:${repoAddress}` : ""))
+  const lastDeleteSeen = $derived.by(() =>
+    deleteSeenKey ? normalizeChecked($checked[deleteSeenKey] || 0) : 0,
+  )
 
   const watchOptions = $derived.by(() => (repoAddress ? $userRepoWatchValues.repos[repoAddress] : undefined))
   const isWatching = $derived(Boolean(watchOptions))
@@ -219,102 +269,91 @@
     ) as Readable<RepoStateEvent | undefined>
   }
 
-  function deriveRepoAuthors(repoEvent: Readable<RepoAnnouncementEvent | undefined>, fallbackPubkey: string) {
-    return derived(repoEvent, (repo: RepoAnnouncementEvent | undefined) => {
-      if (!repo) {
-        return [fallbackPubkey]
-      }
-      try {
-        const parsed = parseRepoAnnouncementEvent(repo)
-        const authors = new Set<string>()
-        authors.add(repo.pubkey)
-        if (parsed.maintainers) {
-          parsed.maintainers.forEach((m: string) => authors.add(m))
-        }
-        return Array.from(authors)
-      } catch {
-        return [fallbackPubkey]
-      }
-    })
-  }
-
-  function deriveRepoRelays(repoEvent: Readable<RepoAnnouncementEvent | undefined>, naddrRelays: string[], fallbackRelays: string[]) {
+  function deriveRepoRelays(
+    repoEvent: Readable<RepoAnnouncementEvent | undefined>,
+    naddrRelays: string[],
+    fallbackRelays: string[],
+  ) {
     return derived(repoEvent, (re: RepoAnnouncementEvent | undefined) => {
+      const relays = new Set<string>()
+      for (const relay of [...GIT_RELAYS, ...naddrRelays, ...fallbackRelays]) {
+        const normalized = normalizeRelayUrlShared(relay)
+        if (normalized) relays.add(normalized)
+      }
       if (re) {
         const relaysTag = re.tags.find(nthEq(0, "relays"))
         if (relaysTag) {
           const [_, ...relaysList] = relaysTag
-          const validRelays = relaysList.filter((relay: string) => {
+          for (const relay of relaysList) {
             try {
               const url = new URL(relay)
-              return url.protocol === 'ws:' || url.protocol === 'wss:'
+              if (url.protocol === "ws:" || url.protocol === "wss:") {
+                const normalized = normalizeRelayUrlShared(relay)
+                if (normalized) relays.add(normalized)
+              }
             } catch {
-              return false
+              continue
             }
-          }).map((u: string) => normalizeRelayUrlShared(u)).filter(Boolean) as string[]
-          if (validRelays.length > 0) {
-            return validRelays
           }
         }
       }
-      // Fallback to naddr relays or final fallback
-      const relays = naddrRelays.length > 0 ? naddrRelays : fallbackRelays
-      return relays.map((u: string) => normalizeRelayUrlShared(u)).filter(Boolean) as string[]
+
+      return Array.from(relays)
     })
   }
 
-  function deriveIssues(repoAuthors: Readable<string[]>, repoName: string) {
+  function deriveIssues(repoAddresses: Readable<string[]>) {
     const allIssueEvents = deriveEventsAsc(
       deriveEventsById({repository, filters: [{kinds: [GIT_ISSUE]}]}),
     )
 
     return derived(
-      [allIssueEvents, repoAuthors],
-      ([events, authors]: [TrustedEvent[], string[]]) => {
-        const authorAddresses = new Set(authors.map((a: string) => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+      [allIssueEvents, repoAddresses],
+      ([events, addresses]: [TrustedEvent[], string[]]) => {
+        const addressSet = new Set(addresses)
         return (events || []).filter((event: TrustedEvent) => {
           const addressTag = event.tags.find((t: string[]) => t[0] === "a")
-          return addressTag && authorAddresses.has(addressTag[1])
+          return addressTag && addressSet.has(addressTag[1])
         }) as IssueEvent[]
       },
     ) as Readable<IssueEvent[]>
   }
 
-  function derivePatches(repoAuthors: Readable<string[]>, repoName: string) {
+  function derivePatches(repoAddresses: Readable<string[]>) {
     const allPatchEvents = deriveEventsAsc(
       deriveEventsById({repository, filters: [{kinds: [GIT_PATCH]}]}),
     )
 
     return derived(
-      [allPatchEvents, repoAuthors],
-      ([events, authors]: [TrustedEvent[], string[]]) => {
-        const authorAddresses = new Set(authors.map((a: string) => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+      [allPatchEvents, repoAddresses],
+      ([events, addresses]: [TrustedEvent[], string[]]) => {
+        const addressSet = new Set(addresses)
         return (events || []).filter((event: TrustedEvent) => {
           const addressTag = event.tags.find((t: string[]) => t[0] === "a")
-          return addressTag && authorAddresses.has(addressTag[1])
+          return addressTag && addressSet.has(addressTag[1])
         }) as PatchEvent[]
       },
     ) as Readable<PatchEvent[]>
   }
 
-  function derivePullRequests(repoAuthors: Readable<string[]>, repoName: string) {
+  function derivePullRequests(repoAddresses: Readable<string[]>) {
     const allPullRequestEvents = deriveEventsAsc(
       deriveEventsById({repository, filters: [{kinds: [GIT_PULL_REQUEST]}]}),
     )
 
     return derived(
-      [allPullRequestEvents, repoAuthors],
-      ([events, authors]: [TrustedEvent[], string[]]) => {
-        const authorAddresses = new Set(authors.map((a: string) => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+      [allPullRequestEvents, repoAddresses],
+      ([events, addresses]: [TrustedEvent[], string[]]) => {
+        const addressSet = new Set(addresses)
         return (events || []).filter((event: TrustedEvent) => {
           const addressTag = event.tags.find((t: string[]) => t[0] === "a")
-          return addressTag && authorAddresses.has(addressTag[1])
+          return addressTag && addressSet.has(addressTag[1])
         }) as PullRequestEvent[]
       },
     ) as Readable<PullRequestEvent[]>
   }
 
-  function deriveStatusEvents(repoAuthors: Readable<string[]>, repoName: string) {
+  function deriveStatusEvents(repoAddresses: Readable<string[]>) {
     const allStatusEvents = deriveEventsAsc(
       deriveEventsById({
         repository,
@@ -325,12 +364,12 @@
     )
 
     return derived(
-      [allStatusEvents, repoAuthors],
-      ([events, authors]: [TrustedEvent[], string[]]) => {
-        const authorAddresses = new Set(authors.map((a: string) => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`))
+      [allStatusEvents, repoAddresses],
+      ([events, addresses]: [TrustedEvent[], string[]]) => {
+        const addressSet = new Set(addresses)
         return (events || []).filter((event: TrustedEvent) => {
           const addressTag = event.tags.find((t: string[]) => t[0] === "a")
-          return addressTag && authorAddresses.has(addressTag[1])
+          return addressTag && addressSet.has(addressTag[1])
         }) as StatusEvent[]
       },
     ) as Readable<StatusEvent[]>
@@ -385,6 +424,17 @@
   // Create stores at top level (not inside effect to avoid infinite loops)
   const repoEventStore = deriveRepoEvent(repoPubkey, repoName)
   const repoStateEventStore = deriveRepoStateEvent(repoPubkey, repoName)
+  const maintainerAnnouncementLoads = new Set<string>()
+  $effect(() => {
+    const event = $repoEventStore
+    if (event) {
+      const key = `${repoPubkey}:${repoName}:${event.id}`
+      if (!maintainerAnnouncementLoads.has(key)) {
+        maintainerAnnouncementLoads.add(key)
+        loadRepoMaintainerAnnouncements(event)
+      }
+    }
+  })
   const repoHeaderKey = $derived.by(() => {
     const eventId = $repoEventStore?.id || "no-event"
     const stateId = $repoStateEventStore?.id || "no-state"
@@ -392,15 +442,53 @@
     const editable = repoClass?.editable ? "1" : "0"
     return `repo:${eventId}:${stateId}:${refsCount}:${editable}`
   })
-  const repoAuthorsStore = deriveRepoAuthors(repoEventStore, repoPubkey)
-  const repoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays, fallbackRelays)
-  const issuesStore = deriveIssues(repoAuthorsStore, repoName)
-  const patchesStore = derivePatches(repoAuthorsStore, repoName)
-  const pullRequestsStore = derivePullRequests(repoAuthorsStore, repoName)
-  const statusEventsStore = deriveStatusEvents(repoAuthorsStore, repoName)
+  const repoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays, GIT_RELAYS)
+  const issuesStore = deriveIssues(repoAddressesStore)
+  const patchesStore = derivePatches(repoAddressesStore)
+  const pullRequestsStore = derivePullRequests(repoAddressesStore)
+  const statusEventsStore = deriveStatusEvents(repoAddressesStore)
   const statusEventsByRootStore = deriveStatusEventsByRoot(statusEventsStore)
   const allRootIdsStore = deriveAllRootIds(issuesStore, patchesStore, pullRequestsStore)
   const commentEventsStore = deriveComments(allRootIdsStore)
+
+  const DELETE_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
+  const DELETE_SINCE_BUFFER_SECONDS = 60
+  const deleteKinds = [GIT_ISSUE, GIT_PATCH, GIT_PULL_REQUEST]
+  let deleteLoadKey = ""
+  let latestDeleteSeen = 0
+  $effect(() => {
+    const relays = $repoRelaysStore || []
+    if (relays.length === 0 || !repoAddress) return
+    const since =
+      lastDeleteSeen > 0
+        ? Math.max(0, lastDeleteSeen - DELETE_SINCE_BUFFER_SECONDS)
+        : Math.floor(Date.now() / 1000) - DELETE_LOOKBACK_SECONDS
+    const key = `${relays.slice().sort().join("|")}::${since}`
+    if (deleteLoadKey === key) return
+    deleteLoadKey = key
+    const controller = new AbortController()
+    request({
+      relays,
+      autoClose: true,
+      signal: controller.signal,
+      filters: [
+        {
+          kinds: [DELETE],
+          "#k": deleteKinds.map(String),
+          since,
+        },
+      ],
+      onEvent: event => {
+        const repoTag = getTagValue("repo", event.tags || [])
+        if (!repoTag || repoTag !== repoAddress) return
+        repository.load([event as TrustedEvent])
+        if (event.created_at > latestDeleteSeen) {
+          latestDeleteSeen = event.created_at
+        }
+      },
+    })
+    return () => controller.abort()
+  })
 
   // Create empty stores for Repo class
   const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
@@ -410,22 +498,28 @@
   let repoLoadRetryTimer: ReturnType<typeof setTimeout> | null = null
   $effect(() => {
     const relays = $repoRelaysStore || []
-    if (relays.length === 0) return
-    const authors = $repoAuthorsStore || []
-    const authorList = authors.length > 0 ? authors : [repoPubkey]
-    const key = `${authorList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
+    const announcementRelays = fallbackRelays
+    if (relays.length === 0 || announcementRelays.length === 0) return
+    const maintainers = $repoMaintainersStore || []
+    const maintainerList = maintainers.length > 0 ? maintainers : [repoPubkey]
+    const key = `${maintainerList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
     if (repoLoadKey === key) return
     repoLoadKey = key
     load({
-      relays,
+      relays: announcementRelays,
       filters: [
         {
           authors: [repoPubkey],
           kinds: [GIT_REPO_ANNOUNCEMENT],
           "#d": [repoName],
         },
+      ],
+    }).catch(() => {})
+    load({
+      relays,
+      filters: [
         {
-          authors: authorList,
+          authors: maintainerList,
           kinds: [GIT_REPO_STATE],
           "#d": [repoName],
         },
@@ -437,25 +531,27 @@
         const currentRepoEvent = getStore(repoEventStore)
         const currentRepoStateEvent = getStore(repoStateEventStore)
         if (currentRepoEvent && currentRepoStateEvent) return
-        const relaysRetry = Array.from(
-          new Set([
-            ...getRepoAnnouncementRelays([url]),
-            ...naddrRelays,
-          ])
-        )
-        if (relaysRetry.length === 0) return
-        const authorsRetry = getStore(repoAuthorsStore)
-        const authorListRetry = authorsRetry && authorsRetry.length > 0 ? authorsRetry : [repoPubkey]
+        const announcementRelaysRetry = getRepoAnnouncementRelays()
+        const relaysRetry = getStore(repoRelaysStore)
+        if (announcementRelaysRetry.length === 0 || relaysRetry.length === 0) return
+        const maintainersRetry = getStore(repoMaintainersStore)
+        const maintainerListRetry =
+          maintainersRetry && maintainersRetry.length > 0 ? maintainersRetry : [repoPubkey]
         load({
-          relays: relaysRetry,
+          relays: announcementRelaysRetry,
           filters: [
             {
               authors: [repoPubkey],
               kinds: [GIT_REPO_ANNOUNCEMENT],
               "#d": [repoName],
             },
+          ],
+        }).catch(() => {})
+        load({
+          relays: relaysRetry,
+          filters: [
             {
-              authors: authorListRetry,
+              authors: maintainerListRetry,
               kinds: [GIT_REPO_STATE],
               "#d": [repoName],
             },
@@ -582,18 +678,24 @@
     ]
 
     const relayListFromUrl = getStore(repoRelaysStore)
-    const repoLoadPromise = load({relays: relayListFromUrl, filters: repoFilters})
+    const announcementRelays = getRepoAnnouncementRelays()
+    const repoLoadPromise = load({relays: announcementRelays, filters: repoFilters})
 
     const allReposFilter = {
       kinds: [GIT_REPO_ANNOUNCEMENT],
       "#d": [repoName],
     }
 
-    // Start loading with initial authors
+    const initialAddresses = getStore(repoAddressesStore)
+    const addressFilter = initialAddresses.length > 0
+      ? initialAddresses
+      : [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`]
+
+    // Start loading with initial addresses
     Promise.all([
       repoLoadPromise,
       load({
-        relays: relayListFromUrl,
+        relays: announcementRelays,
         filters: [allReposFilter],
       }),
       load({
@@ -601,66 +703,75 @@
         filters: [
           {
             kinds: [GIT_ISSUE],
-            "#a": [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`],
+            "#a": addressFilter,
           },
           {
             kinds: [GIT_PATCH],
-            "#a": [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`],
+            "#a": addressFilter,
           },
           {
             kinds: [GIT_PULL_REQUEST],
-            "#a": [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`],
+            "#a": addressFilter,
           },
           {
             kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
-            "#a": [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`],
+            "#a": addressFilter,
           },
         ],
       }),
     ]).then(() => {
-      // Reactively load data when authors change
-      const repoAuthorsUnsubscribe = repoAuthorsStore.subscribe((authors: string[]) => {
-        if (authors.length > 1) {
+      // Reactively load data when effective addresses change
+      const repoAddressesUnsubscribe = repoAddressesStore.subscribe((addresses: string[]) => {
+        if (addresses.length > 0) {
           const currentRelays = getStore(repoRelaysStore)
           load({
             relays: currentRelays,
             filters: [
               {
                 kinds: [GIT_ISSUE],
-                "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+                "#a": addresses,
               },
               {
                 kinds: [GIT_PATCH],
-                "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+                "#a": addresses,
               },
               {
                 kinds: [GIT_PULL_REQUEST],
-                "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+                "#a": addresses,
               },
               {
                 kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
-                "#a": authors.map(a => `${GIT_REPO_ANNOUNCEMENT}:${a}:${repoName}`),
+                "#a": addresses,
               },
             ],
           }).catch(() => {})
         }
       })
-      unsubscribers.push(repoAuthorsUnsubscribe)
+      unsubscribers.push(repoAddressesUnsubscribe)
     }).catch(() => {})
 
     // Load comments reactively when root IDs are available
     const commentLoadTrigger = derived(allRootIdsStore, (rootIds: string[]) => {
       if (rootIds.length > 0) {
-        const idsKey = rootIds.sort().join(',')
-        if (!lastLoadedIds.has(idsKey)) {
-          lastLoadedIds.add(idsKey)
-          const currentRelays = getStore(repoRelaysStore)
+        const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
+        if (currentRelays.length === 0) return rootIds
+        const idsKey = [...rootIds].sort().join(",")
+        const relaysKey = [...currentRelays].sort().join("|")
+        const loadKey = `${idsKey}::${relaysKey}`
+        if (!lastLoadedIds.has(loadKey)) {
+          lastLoadedIds.add(loadKey)
           load({
             relays: currentRelays,
-            filters: [{
-              kinds: [COMMENT],
-              "#E": rootIds,
-            }],
+            filters: [
+              {
+                kinds: [COMMENT],
+                "#E": rootIds,
+              },
+              {
+                kinds: [COMMENT],
+                "#e": rootIds,
+              },
+            ],
           }).catch(() => {})
         }
       }
@@ -678,6 +789,9 @@
 
   // Cleanup on component destroy
   onDestroy(() => {
+    if (deleteSeenKey) {
+      setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
+    }
     unsubscribers.forEach(unsub => unsub())
     unsubscribers = []
     lastLoadedIds.clear()

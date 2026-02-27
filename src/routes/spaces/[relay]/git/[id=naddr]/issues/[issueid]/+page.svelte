@@ -55,7 +55,7 @@
   
   // Get relays reactively
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
-  const relayUrl = $derived(decodeRelay($page.params.relay))
+  const relayUrl = $derived(decodeRelay($page.params.relay || ""))
   const issueRelays = $derived.by(() => {
     const relays = (repoClass.relays || repoRelays || []).filter(Boolean)
     if (relays.length > 0) return relays
@@ -186,7 +186,10 @@
 
   const threadComments = $derived.by(() => {
     if (issue) {
-      const filters: Filter[] = [{kinds: [COMMENT], "#E": [issue.id]}]
+      const filters: Filter[] = [
+        {kinds: [COMMENT], "#E": [issue.id]},
+        {kinds: [COMMENT], "#e": [issue.id]},
+      ]
       const relays = (repoRelays || [])
         .map((u: string) => normalizeRelayUrl(u))
         .filter(Boolean)

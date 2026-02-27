@@ -3,7 +3,6 @@
   import {
     createStatusEvent,
     GIT_ISSUE,
-    GIT_REPO_ANNOUNCEMENT,
     type CommentEvent,
     type IssueEvent,
   } from "@nostr-git/core/events"
@@ -30,18 +29,26 @@
   import {slideAndFade} from "@lib/transition"
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
+  import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
   import {postComment, postIssue, publishEvent} from "@lib/budabit/commands.js"
-  import {deriveEffectiveLabels, deriveAssignmentsFor} from "@lib/budabit/state.js"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import {isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
   import {page} from "$app/stores"
+  import {decodeRelay} from "@app/core/state"
   import {beforeNavigate} from "$app/navigation"
   
   import {getContext} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, STATUS_EVENTS_BY_ROOT_KEY} from "@lib/budabit/state"
+  import {
+    REPO_KEY,
+    REPO_RELAYS_KEY,
+    STATUS_EVENTS_BY_ROOT_KEY,
+    deriveEffectiveLabels,
+    deriveAssignmentsFor,
+    effectiveRepoAddressesByRepoAddress,
+  } from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
@@ -69,6 +76,21 @@
 
   const maxRestoreAttempts = 12
   const scrollStorageKey = $derived.by(() => `repoScroll:${$page.params.id}:issues`)
+  const issuesPath = $derived.by(
+    () => `/spaces/${encodeURIComponent($page.params.relay ?? "")}/git/${$page.params.id}/issues`,
+  )
+  const relayUrl = $derived.by(() => ($page.params.relay ? decodeRelay($page.params.relay) : ""))
+  const issuesSeenKey = $derived.by(() => `${issuesPath}:seen`)
+  const normalizeChecked = (value: number) =>
+    value > 10_000_000_000 ? Math.round(value / 1000) : value
+  const lastIssuesSeen = $derived.by(() => normalizeChecked($checked[issuesSeenKey] || 0))
+  const repoAddress = $derived.by(() => repoClass?.address || "")
+  const effectiveRepoAddresses = $derived.by((): string[] => {
+    if (!repoAddress) return []
+    const addresses = $effectiveRepoAddressesByRepoAddress.get(repoAddress)
+    if (addresses && addresses.size > 0) return Array.from(addresses)
+    return [repoAddress]
+  })
 
   const LABEL_PREFETCH_LIMIT = 200
   const LABEL_PREFETCH_IDLE_MS = 2000
@@ -157,24 +179,30 @@
     lastKnownIssueTitle = issue ? getTagValue("subject", issue.tags) ?? "" : ""
   }
 
+
   // Handle scroll events for showing scroll-to-top button
   $effect(() => {
     const scrollEl = scrollParent
     if (!scrollEl) return
-    
-    const handleScroll = () => {
+
+    const syncScrollState = () => {
       showScrollButton = scrollEl.scrollTop > 1500
       updateVisibleAnchor()
     }
-    
-    handleScroll()
-    scrollEl.addEventListener('scroll', handleScroll, { passive: true })
-    return () => scrollEl.removeEventListener('scroll', handleScroll)
+
+    const handleScroll = () => {
+      syncScrollState()
+    }
+
+    syncScrollState()
+    scrollEl.addEventListener("scroll", handleScroll, {passive: true})
+    return () => scrollEl.removeEventListener("scroll", handleScroll)
   })
 
   $effect(() => {
     updateVisibleAnchor()
   })
+
 
   const handleIssueClick = (
     event: MouseEvent,
@@ -420,6 +448,8 @@
   const issues = $derived.by(() => repoClass.issues || [])
 
   const comments = $state<Record<string, CommentEvent[]>>({})
+  const commentControllers = new Map<string, AbortController>()
+  let commentRelaysKey = ""
 
   const commentsOrdered = $derived.by(() => {
     const ret: Record<string, CommentEvent[]> = {}
@@ -506,7 +536,6 @@
 
   const labelsByIssue = $derived.by(() => {
     const result = labelsData.byId
-    console.debug("[IssuesList] labelsByIssue computed:", result)
     return result
   })
 
@@ -533,7 +562,8 @@
   // NIP-32 labels are derived centrally via deriveEffectiveLabels(); prefetch newest labels
   $effect(() => {
     const currentIssues = repoClass.issues || []
-    const currentRepoRelays = repoRelays
+    const currentRepoRelays = repoRelays.filter(Boolean)
+    if (currentRepoRelays.length === 0) return
     const relayList = (currentRepoRelays.length ? currentRepoRelays : repoClass?.relays || []).filter(Boolean)
 
     if (!relayList.length || currentIssues.length === 0) {
@@ -724,6 +754,7 @@
     }
   })
 
+
   // Compute searchedIssues asynchronously to avoid blocking UI rendering
   // This is the most critical optimization as it includes search, filtering, and sorting
   let searchedIssues = $state<any[]>([])
@@ -839,31 +870,41 @@
   $effect(() => {
     // Access reactive dependencies synchronously to ensure they're tracked
     const currentIssues = issues
-    const currentRepoRelays = repoRelays
-    const currentComments = comments
-    
-    // Create abort controller for this effect run BEFORE the timeout
-    // to ensure it can be properly cleaned up if the effect re-runs
-    const controller = new AbortController()
-    abortControllers.push(controller)
-    
+    const currentRepoRelays = repoRelays.filter(Boolean)
+
+    if (currentRepoRelays.length === 0) return
+
+    const relaysKey = [...currentRepoRelays].sort().join("|")
+    if (commentRelaysKey !== relaysKey) {
+      commentRelaysKey = relaysKey
+      commentControllers.forEach(controller => controller.abort())
+      commentControllers.clear()
+    }
+
+    const issueIds = new Set(currentIssues.map(issue => issue?.id).filter(Boolean) as string[])
+    for (const [id, controller] of commentControllers) {
+      if (!issueIds.has(id)) {
+        controller.abort()
+        commentControllers.delete(id)
+        delete comments[id]
+      }
+    }
+
     // Defer comment loading to avoid blocking initial render
     const timeout = setTimeout(() => {
       for (const issue of currentIssues) {
-        // Check synchronously using captured comments state to avoid race conditions
-        // Only request if comments haven't been loaded yet (key doesn't exist in comments)
-        if (!(issue.id in currentComments)) {
-          // Initialize empty array immediately to prevent duplicate requests
-          comments[issue.id] = []
-          requestComments(issue, currentRepoRelays, controller)
-        }
+        if (!issue?.id || commentControllers.has(issue.id)) continue
+        // Initialize empty array immediately to prevent duplicate requests
+        if (!comments[issue.id]) comments[issue.id] = []
+        const controller = new AbortController()
+        commentControllers.set(issue.id, controller)
+        requestComments(issue, currentRepoRelays, controller)
       }
     }, 100)
-    
-    // Cleanup: cancel timeout and abort controller when effect re-runs
+
+    // Cleanup: cancel timeout when effect re-runs
     return () => {
       clearTimeout(timeout)
-      controller.abort()
     }
   })
 
@@ -875,13 +916,19 @@
     request({
       relays,
       signal: controller.signal,
-      filters: [{kinds: [COMMENT], "#E": [issue.id], since: issue.created_at}],
+      filters: [
+        {kinds: [COMMENT], "#E": [issue.id]},
+        {kinds: [COMMENT], "#e": [issue.id]},
+      ],
       onEvent: e => {
         // Access comments reactively - this will get the current value
         const currentComments = comments[issue.id] || []
         if (!currentComments.some(c => c.id === e.id)) {
           // Create a new array to trigger reactivity
           comments[issue.id] = [...currentComments, e as CommentEvent]
+        }
+        if (!repository.getEvent(e.id)) {
+          repository.load([e as TrustedEvent])
         }
       },
     })
@@ -891,8 +938,7 @@
   let loading = $state(false)
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
-  // Use non-reactive array to avoid infinite loops when pushing in effects
-  const abortControllers: AbortController[] = []
+  // Controllers are managed per-issue in commentControllers
 
   // Create combined filter for issues and status events
   const combinedFilter = $derived.by(() => ({
@@ -903,7 +949,7 @@
       GIT_STATUS_CLOSED,
       GIT_STATUS_COMPLETE,
     ],
-    "#a": repoClass?.maintainers?.map(m => `${GIT_REPO_ANNOUNCEMENT}:${m}:${repoClass.name}`) || [],
+    "#a": effectiveRepoAddresses,
   }))
 
   // Initialize feed asynchronously - don't block render
@@ -913,10 +959,16 @@
       const timeout = setTimeout(() => {
         const tryStart = () => {
           if (pageContainerRef && !feedInitialized) {
+            const currentRepoRelays = repoRelays
+            const currentRepoAddresses = effectiveRepoAddresses
+            if (!currentRepoRelays.length || currentRepoAddresses.length === 0) {
+              requestAnimationFrame(tryStart)
+              return
+            }
             feedInitialized = true
             const feed = makeFeed({
               element: pageContainerRef,
-              relays: repoClass.relays,
+              relays: currentRepoRelays,
               feedFilters: [combinedFilter],
               subscriptionFilters: [combinedFilter],
               initialEvents: issueList,
@@ -940,6 +992,16 @@
 
   // CRITICAL: Cleanup on destroy to prevent memory leaks and blocking navigation
   onDestroy(() => {
+    const seenAt = getIssuesSeenAt()
+    setCheckedAt(issuesSeenKey, seenAt)
+    setCheckedAt(issuesPath, seenAt)
+    if (repoAddress && relayUrl) {
+      setCheckedForRepoNotifications($notifications, {
+        relay: relayUrl,
+        repoAddress,
+        kind: "issues",
+      }, seenAt)
+    }
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
 
@@ -953,10 +1015,10 @@
     labelsPrefetchController?.abort()
     labelsPrefetchController = null
     labelsPrefetchKey = ""
-    
-    // Abort all network requests
-    abortControllers.forEach(controller => controller.abort())
-    abortControllers.length = 0 // Clear array without reassignment
+
+    // Abort all comment subscriptions
+    commentControllers.forEach(controller => controller.abort())
+    commentControllers.clear()
   })
 
   const onIssueCreated = async (issue: IssueEvent) => {
@@ -1021,6 +1083,26 @@
     // Also scroll the parent container
     scrollParent?.scrollTo({ top: 0, behavior: "smooth" })
   }
+
+  const getLatestIssueActivityAt = (issue: IssueEvent) => {
+    const commentAt = commentsOrdered[issue.id]?.[0]?.created_at ?? 0
+    const statusEvents = statusEventsByRoot?.get(issue.id) || []
+    let statusAt = 0
+    for (const event of statusEvents) {
+      if (event.created_at > statusAt) statusAt = event.created_at
+    }
+    const createdAt = issue?.created_at || 0
+    return Math.max(createdAt, commentAt, statusAt)
+  }
+
+  const getIssuesSeenAt = () => {
+    let latest = lastIssuesSeen
+    for (const issue of issueList) {
+      latest = Math.max(latest, getLatestIssueActivityAt(issue))
+    }
+    return latest
+  }
+
 </script>
 
 <svelte:head>
@@ -1029,13 +1111,13 @@
 
 <div bind:this={pageContainerRef}>
   <div class="my-4 max-w-full space-y-2">
-    <div class=" flex items-center justify-between">
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h2 class="text-xl font-semibold">Issues</h2>
         <p class="text-sm text-muted-foreground max-sm:hidden">Track bugs and feature requests</p>
       </div>
-      <div class="flex items-center gap-2">
-        <GitButton class="gap-2" variant="git" size="sm" onclick={onNewIssue}>
+      <div class="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+        <GitButton class="w-full gap-2 sm:w-auto" variant="git" size="sm" onclick={onNewIssue}>
           <Plus class="h-4 w-4" />
           <span class="">New Issue</span>
         </GitButton>
@@ -1113,19 +1195,21 @@
                 style="transform: translateY({virtualRow.start - scrollMargin}px);"
                 onclick={(event) => handleIssueClick(event, issue, virtualRow)}
               >
-                <IssueCard
-                  event={issue}
-                  comments={commentsOrdered[issue.id]}
-                  currentCommenter={$pubkey!}
-                  {onCommentCreated}
-                  extraLabels={labelsByIssue.get(issue.id) || []}
-                  repo={repoClass}
-                  statusEvents={statusEventsByRoot?.get(issue.id) || []}
-                  actorPubkey={$pubkey}
-                  assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
-                assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
-                  relays={repoRelays}
-                />
+                <div class={getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-2 border-primary pl-2" : ""}>
+                  <IssueCard
+                    event={issue}
+                    comments={commentsOrdered[issue.id]}
+                    currentCommenter={$pubkey!}
+                    {onCommentCreated}
+                    extraLabels={labelsByIssue.get(issue.id) || []}
+                    repo={repoClass}
+                    statusEvents={statusEventsByRoot?.get(issue.id) || []}
+                    actorPubkey={$pubkey}
+                    assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
+                    assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
+                    relays={repoRelays}
+                  />
+                </div>
               </div>
             {/if}
           {/each}
