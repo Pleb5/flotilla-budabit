@@ -41,7 +41,7 @@ export const pushModal = (
   options: ModalOptions = {},
 ) => {
   const id = randomId()
-  const path = options.path || ""
+  const path = options.path || window.location.pathname
 
   if (!isValidModalPath(path)) {
     console.error('Invalid modal path:', path)
