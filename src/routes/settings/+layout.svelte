@@ -75,7 +75,7 @@
         <Icon icon={InfoSquare} /> About
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 350}}>
+    <div in:fly|local={{delay: 350}} class="lg:mb-4">
       <SecondaryNavItem class="text-error hover:text-error" onclick={logout}>
         <Icon icon={Exit} /> Log Out
       </SecondaryNavItem>
