@@ -6,7 +6,7 @@ export NODE_OPTIONS="--max-old-space-size=8192"
 temp_env=$(declare -p -x)
 
 if [ -f .env.template ]; then
-  source .env.template
+	source .env.template
 fi
 
 # Avoid overwriting env vars provided directly
@@ -14,12 +14,12 @@ fi
 eval "$temp_env"
 
 if [[ -z $VITE_BUILD_HASH ]]; then
-  export VITE_BUILD_HASH=$(git rev-parse --short HEAD)
+	export VITE_BUILD_HASH=$(git rev-parse --short HEAD)
 fi
 
 if [[ $VITE_PLATFORM_LOGO =~ ^https://* ]]; then
-  curl $VITE_PLATFORM_LOGO > static/logo.png
-  export VITE_PLATFORM_LOGO=static/logo.png
+	curl $VITE_PLATFORM_LOGO >static/logo.png
+	export VITE_PLATFORM_LOGO=static/logo.png
 fi
 
 npx pwa-assets-generator
@@ -31,9 +31,14 @@ perl -i -pe"s|{ACCENT}|$VITE_PLATFORM_ACCENT|g" build/index.html
 perl -i -pe"s|{NAME}|$VITE_PLATFORM_NAME|g" build/index.html
 perl -i -pe"s|{URL}|$VITE_PLATFORM_URL|g" build/index.html
 
+# Replace manifest variables with stuff from our env
+perl -i -pe"s|{DESCRIPTION}|$VITE_PLATFORM_DESCRIPTION|g" build/manifest.webmanifest
+perl -i -pe"s|{ACCENT}|$VITE_PLATFORM_ACCENT|g" build/manifest.webmanifest
+perl -i -pe"s|{NAME}|$VITE_PLATFORM_NAME|g" build/manifest.webmanifest
+
 npx cap sync
 npx @capacitor/assets generate \
-  --iconBackgroundColor '#eeeeee' \
-  --iconBackgroundColorDark '#222222' \
-  --splashBackgroundColor '#ffffff' \
-  --splashBackgroundColorDark '#191E24'
+	--iconBackgroundColor '#eeeeee' \
+	--iconBackgroundColorDark '#222222' \
+	--splashBackgroundColor '#ffffff' \
+	--splashBackgroundColorDark '#191E24'

@@ -8,7 +8,6 @@
   import Moon from "@assets/icons/moon.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import InfoSquare from "@assets/icons/info-square.svg?dataurl"
-  import Refresh from "@assets/icons/refresh.svg?dataurl"
   import Exit from "@assets/icons/logout-3.svg?dataurl"
   import GalleryMinimalistic from "@assets/icons/gallery-minimalistic.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
@@ -20,7 +19,6 @@
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import Link from "@lib/components/Link.svelte"
   import LogOut from "@app/components/LogOut.svelte"
-  import ResetAppCacheConfirm from "@app/components/ResetAppCacheConfirm.svelte"
   import {pushModal} from "@app/util/modal"
   import {theme} from "@app/util/theme"
 
@@ -31,7 +29,6 @@
   const {children}: Props = $props()
 
   const logout = () => pushModal(LogOut)
-  const resetAppCache = () => pushModal(ResetAppCacheConfirm)
 
   const toggleTheme = () => theme.set($theme === "dark" ? "light" : "dark")
 </script>
@@ -76,11 +73,6 @@
     <div in:fly|local={{delay: 300}}>
       <SecondaryNavItem href="/settings/about">
         <Icon icon={InfoSquare} /> About
-      </SecondaryNavItem>
-    </div>
-    <div in:fly|local={{delay: 325}} class="mb-2">
-      <SecondaryNavItem class="text-warning hover:text-warning" onclick={resetAppCache}>
-        <Icon icon={Refresh} /> Reset App Cache
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 350}}>
