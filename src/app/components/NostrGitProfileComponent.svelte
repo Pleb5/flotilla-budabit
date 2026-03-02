@@ -1,14 +1,16 @@
 <script lang="ts">
   import Profile from "@app/components/Profile.svelte";
 
+  type ClassValue = any
+
   type Props = {
     pubkey?: string;
     url?: string;
     hideDetails?: boolean;
     showPubkey?: boolean;
     avatarSize?: number;
-    title?: string;
-    class?: string;
+    title?: string | null;
+    class?: ClassValue | null;
     style?: string;
     ref?: HTMLElement | null;
     [key: string]: any;
@@ -27,7 +29,8 @@
     ...restProps
   }: Props = $props();
 
-  const parseAvatarSize = (classValue: string): number | undefined => {
+  const parseAvatarSize = (classValue: ClassValue | null | undefined): number | undefined => {
+    if (typeof classValue !== "string") return undefined
     const match = classValue.match(/\bh-(\d+(?:\.\d+)?)\b/) ||
       classValue.match(/\bw-(\d+(?:\.\d+)?)\b/);
     return match ? parseFloat(match[1]) : undefined;

@@ -45,7 +45,7 @@ export default defineConfig({
       "@codemirror/lang-markdown",
       "@codemirror/lang-sql",
       "@codemirror/theme-one-dark",
-      "@nostr-git/core",,
+      "@nostr-git/core",
     ],
   },
   ssr: {
@@ -53,6 +53,12 @@ export default defineConfig({
   },
   resolve: {
     conditions: ["import", "module", "browser", "default"],
+    alias: {
+      "@src": path.resolve(__dirname, "src"),
+      "@app": path.resolve(__dirname, "src/app"),
+      "@lib": path.resolve(__dirname, "src/lib"),
+      "@assets": path.resolve(__dirname, "src/assets"),
+    },
   },
 
   assetsInclude: ["**/*.wasm", "**/*.worker.js", "**/*.worker.ts"],
