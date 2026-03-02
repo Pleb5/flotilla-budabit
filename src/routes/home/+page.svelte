@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {goto} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   import {shouldUnwrap} from "@welshman/app"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
@@ -12,10 +12,17 @@
   import ChatEnable from "@app/components/ChatEnable.svelte"
   import {pushModal} from "@app/util/modal"
   import {PLATFORM_NAME} from "@app/core/state"
+  import { makeSpacePath } from "@src/app/util/routes"
+  import * as appState from "@app/core/state"
+
+  if (appState.PLATFORM_RELAYS.length > 0) {
+    goto(makeSpacePath(appState.PLATFORM_RELAYS[0]))
+  }
 
   const addSpace = () => pushModal(SpaceAdd)
 
   const openChat = () => ($shouldUnwrap ? goto("/chat") : pushModal(ChatEnable, {next: "/chat"}))
+
 
 </script>
 

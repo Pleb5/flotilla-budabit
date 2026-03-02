@@ -26,7 +26,7 @@ export const load: LayoutLoad = async ({params}) => {
   }
 
   const url = decodeRelay(relay)
-  const fallbackRelays = getRepoAnnouncementRelays([url])
+  const fallbackRelays = getRepoAnnouncementRelays()
 
   // Extract relays from naddr if present
   const naddrRelays =

@@ -9,7 +9,6 @@
   import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {browser, dev} from "$app/environment"
   import {beforeNavigate, goto} from "$app/navigation"
-  import {registerSW} from "virtual:pwa-register"
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
@@ -72,15 +71,14 @@
   })
 
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
-  const PWA_UPDATE_INTERVAL = 2 * 60 * 1000
-  const PWA_RELOAD_QUERY_KEY = "pwaReload"
-  const PWA_RELOAD_TIMEOUT = 4_000
-  let swUpdateInterval: number | null = null
-  let swUpdateOnFocus: (() => void) | null = null
-  let swUpdateOnVisibilityChange: (() => void) | null = null
+  const APP_UPDATE_INTERVAL = 2 * 60 * 1000
+  const APP_RELOAD_QUERY_KEY = "v"
+  const APP_VERSION_STORAGE_KEY = "appVersion"
+  const APP_SW_CLEANUP_KEY = "appSwCleanupDone"
+  let updateCheckInterval: number | null = null
+  let updateCheckOnFocus: (() => void) | null = null
+  let updateCheckOnVisibilityChange: (() => void) | null = null
   let updateToastShown = false
-  let waitingWorker: ServiceWorker | null = null
-  let swRegistration: ServiceWorkerRegistration | null = null
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -108,17 +106,21 @@
   const clearReloadQuery = () => {
     const url = new URL(window.location.href)
 
-    if (!url.searchParams.has(PWA_RELOAD_QUERY_KEY)) return
+    if (!url.searchParams.has(APP_RELOAD_QUERY_KEY)) return
 
-    url.searchParams.delete(PWA_RELOAD_QUERY_KEY)
+    url.searchParams.delete(APP_RELOAD_QUERY_KEY)
     const state = window.history.state ?? {}
     window.history.replaceState(state, "", url.toString())
   }
 
+  const getAppBaseUrl = () => new URL(import.meta.env.BASE_URL || "/", window.location.origin)
+
+  const getVersionUrl = () => new URL("_app/version.json", getAppBaseUrl()).toString()
+
   const buildReloadUrl = () => {
     const url = new URL(window.location.href)
 
-    url.searchParams.set(PWA_RELOAD_QUERY_KEY, `${Date.now()}`)
+    url.searchParams.set(APP_RELOAD_QUERY_KEY, `${Date.now()}`)
     return url.toString()
   }
 
@@ -126,81 +128,42 @@
     window.location.replace(buildReloadUrl())
   }
 
-  const requestAppReload = () => {
-    if (!browser) return
-
-    if (!("serviceWorker" in navigator)) {
-      forceReload()
-      return
-    }
-
-    let reloadScheduled = false
-
-    const scheduleReload = () => {
-      if (reloadScheduled) return
-      reloadScheduled = true
-      forceReload()
-    }
-
-    const onControllerChange = () => {
-      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
-      scheduleReload()
-    }
-
-    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange)
-
-    const fallbackTimer = window.setTimeout(() => {
-      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
-      scheduleReload()
-    }, PWA_RELOAD_TIMEOUT)
-
-    const clearFallback = () => {
-      clearTimeout(fallbackTimer)
-      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange)
-    }
-
-    const handleWorker = (worker: ServiceWorker) => {
-      if (worker.state === "activated") {
-        clearFallback()
-        scheduleReload()
-        return
-      }
-
-      worker.addEventListener("statechange", () => {
-        if (worker.state === "activated") {
-          clearFallback()
-          scheduleReload()
-        }
-      })
-
-      worker.postMessage({type: "SKIP_WAITING"})
-    }
-
-    const registration = swRegistration
-    const activeWorker = registration?.waiting || registration?.installing || waitingWorker
-
-    if (activeWorker) {
-      handleWorker(activeWorker)
-      return
-    }
-
-    navigator.serviceWorker.getRegistration().then(latest => {
-      const latestWorker = latest?.waiting || latest?.installing
-
-      if (latestWorker) {
-        handleWorker(latestWorker)
-      } else {
-        clearFallback()
-        scheduleReload()
-      }
-    })
+  const getStoredVersion = () => {
+    if (typeof localStorage === "undefined") return ""
+    return localStorage.getItem(APP_VERSION_STORAGE_KEY) || ""
   }
 
-  const notifyUpdateReady = (worker: ServiceWorker | null) => {
+  const setStoredVersion = (version: string) => {
+    if (typeof localStorage === "undefined") return
+    localStorage.setItem(APP_VERSION_STORAGE_KEY, version)
+  }
+
+  const fetchAppVersion = async () => {
+    try {
+      const response = await fetch(getVersionUrl(), {
+        cache: "no-store",
+        headers: {
+          pragma: "no-cache",
+          "cache-control": "no-cache",
+        },
+      })
+      if (!response.ok) return ""
+      const data = await response.json()
+      return typeof data?.version === "string" ? data.version : ""
+    } catch {
+      return ""
+    }
+  }
+
+  const requestAppReload = () => {
+    if (!browser) return
+    forceReload()
+  }
+
+  const notifyUpdateReady = () => {
     if (updateToastShown) return
 
     updateToastShown = true
-    waitingWorker = worker
     pushToast({
       message: "New app version is available",
       timeout: 0,
@@ -211,69 +174,69 @@
     })
   }
 
-  const setupServiceWorkerUpdates = async () => {
+  const checkForAppUpdate = async () => {
+    const version = await fetchAppVersion()
+    if (!version) return
+    const storedVersion = getStoredVersion()
+    if (!storedVersion) {
+      setStoredVersion(version)
+      return
+    }
+    if (storedVersion !== version) {
+      setStoredVersion(version)
+      notifyUpdateReady()
+    }
+  }
+
+  const setupAppUpdatePolling = () => {
     if (!browser) return
 
     clearReloadQuery()
 
-    if (dev || !("serviceWorker" in navigator)) return
+    if (dev) return
 
-    registerSW({
-      immediate: true,
-      onRegisterError: (error: unknown) => {
-        console.error("Service worker registration failed", error)
-      },
-    })
+    void checkForAppUpdate()
 
-    const registration = await navigator.serviceWorker.ready
-    swRegistration = registration
+    updateCheckInterval = window.setInterval(() => {
+      void checkForAppUpdate()
+    }, APP_UPDATE_INTERVAL)
 
-    const checkForWaitingWorker = () => {
-      if (registration.waiting && navigator.serviceWorker.controller) {
-        notifyUpdateReady(registration.waiting)
-      }
-    }
+    updateCheckOnFocus = () => void checkForAppUpdate()
+    window.addEventListener("focus", updateCheckOnFocus)
 
-    const checkForUpdate = async () => {
-      try {
-        await registration.update()
-      } finally {
-        checkForWaitingWorker()
-      }
-    }
-
-    checkForWaitingWorker()
-
-    registration.addEventListener("updatefound", () => {
-      const installing = registration.installing
-
-      if (!installing) return
-
-      installing.addEventListener("statechange", () => {
-        if (installing.state === "installed" && navigator.serviceWorker.controller) {
-          notifyUpdateReady(registration.waiting || installing)
-        }
-      })
-    })
-
-    void checkForUpdate()
-
-    swUpdateInterval = window.setInterval(() => {
-      void checkForUpdate()
-    }, PWA_UPDATE_INTERVAL)
-
-    swUpdateOnFocus = () => void checkForUpdate()
-    window.addEventListener("focus", swUpdateOnFocus)
-
-    swUpdateOnVisibilityChange = () => {
+    updateCheckOnVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void checkForUpdate()
+        void checkForAppUpdate()
       }
     }
-    document.addEventListener("visibilitychange", swUpdateOnVisibilityChange)
+    document.addEventListener("visibilitychange", updateCheckOnVisibilityChange)
   }
 
-  setupServiceWorkerUpdates()
+  const cleanupLegacyServiceWorkers = async () => {
+    if (!browser) return
+    if (!("serviceWorker" in navigator)) return
+    if (typeof localStorage === "undefined") return
+    if (localStorage.getItem(APP_SW_CLEANUP_KEY) === "1") return
+
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    if (registrations.length === 0) {
+      localStorage.setItem(APP_SW_CLEANUP_KEY, "1")
+      return
+    }
+
+    localStorage.setItem(APP_SW_CLEANUP_KEY, "1")
+    await Promise.all(registrations.map(registration => registration.unregister()))
+
+    if ("caches" in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map(key => caches.delete(key)))
+    }
+
+    forceReload()
+  }
+
+  void cleanupLegacyServiceWorkers()
+  setupAppUpdatePolling()
 
   // Listen for navigation messages from service worker
   navigator.serviceWorker?.addEventListener("message", event => {
@@ -405,19 +368,19 @@
     App.removeAllListeners()
     unsubscribe.then(call)
 
-    if (swUpdateInterval) {
-      clearInterval(swUpdateInterval)
-      swUpdateInterval = null
+    if (updateCheckInterval) {
+      clearInterval(updateCheckInterval)
+      updateCheckInterval = null
     }
 
-    if (swUpdateOnFocus) {
-      window.removeEventListener("focus", swUpdateOnFocus)
-      swUpdateOnFocus = null
+    if (updateCheckOnFocus) {
+      window.removeEventListener("focus", updateCheckOnFocus)
+      updateCheckOnFocus = null
     }
 
-    if (swUpdateOnVisibilityChange) {
-      document.removeEventListener("visibilitychange", swUpdateOnVisibilityChange)
-      swUpdateOnVisibilityChange = null
+    if (updateCheckOnVisibilityChange) {
+      document.removeEventListener("visibilitychange", updateCheckOnVisibilityChange)
+      updateCheckOnVisibilityChange = null
     }
   })
 </script>

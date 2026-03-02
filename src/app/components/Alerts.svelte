@@ -20,7 +20,7 @@
     getAlertFeed,
     userSettingsValues,
   } from "@app/core/state"
-  import {deleteAlert, createDmAlert} from "@app/core/commands"
+  import {deleteAlert, createDmAlert, publishSettings} from "@app/core/commands"
   import {clearBadges} from "../util/notifications"
 
   type Props = {
@@ -75,15 +75,17 @@
   }
 
   const onShowBadgeOnUnreadToggle = async () => {
-    $userSettingsValues.show_notifications_badge = !$userSettingsValues.show_notifications_badge
+    const showBadge = !$userSettingsValues.show_notifications_badge
+    await publishSettings({show_notifications_badge: showBadge})
 
-    if (!$userSettingsValues.show_notifications_badge) {
+    if (!showBadge) {
       await clearBadges()
     }
   }
 
   const onDirectMessagesNotificationSoundToggle = async () => {
-    $userSettingsValues.play_notification_sound = !$userSettingsValues.play_notification_sound
+    const playSound = !$userSettingsValues.play_notification_sound
+    await publishSettings({play_notification_sound: playSound})
   }
 
   let directMessagesNotificationToggle: HTMLInputElement

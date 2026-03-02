@@ -1,7 +1,8 @@
-import {on, always, call, dissoc, assoc, uniq} from "@welshman/lib"
+import {on, call, dissoc, assoc, uniq} from "@welshman/lib"
 import type {Socket, RelayMessage, ClientMessage} from "@welshman/net"
 import {
-  makeSocketPolicyAuth,
+  AuthStateEvent,
+  AuthStatus,
   SocketEvent,
   isRelayEvent,
   isRelayOk,
@@ -13,7 +14,7 @@ import {
   isClientNegOpen,
   isClientNegClose,
 } from "@welshman/net"
-import {sign} from "@welshman/app"
+import {signer} from "@welshman/app"
 import {
   userSettingsValues,
   getSetting,
@@ -21,7 +22,37 @@ import {
   relaysMostlyRestricted,
 } from "@app/core/state"
 
-export const authPolicy = makeSocketPolicyAuth({sign, shouldAuth: always(true)})
+export const authPolicy = (socket: Socket) => {
+  let inFlight = false
+
+  const attemptAuth = async () => {
+    if (inFlight) return
+    const $signer = signer.get()
+    if (!$signer) return
+    if (socket.auth.status !== AuthStatus.Requested) return
+    inFlight = true
+    try {
+      await socket.auth.doAuth(event => $signer.sign(event))
+    } finally {
+      inFlight = false
+    }
+  }
+
+  const unsubscribers = [
+    on(socket.auth, AuthStateEvent.Status, status => {
+      if (status === AuthStatus.Requested) {
+        attemptAuth()
+      }
+    }),
+    signer.subscribe(() => {
+      attemptAuth()
+    }),
+  ]
+
+  return () => {
+    unsubscribers.forEach(call)
+  }
+}
 
 export const trustPolicy = (socket: Socket) => {
   const buffer: RelayMessage[] = []

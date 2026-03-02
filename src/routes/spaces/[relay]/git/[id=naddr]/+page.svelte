@@ -20,7 +20,8 @@
   import {formatDistanceToNow} from "date-fns"
   import {nthEq} from "@welshman/lib"
   import Button from "@lib/components/Button.svelte"
-  import {profilesByPubkey} from "@welshman/app"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
   import {pushModal} from "@app/util/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import type {LayoutProps} from "./$types.js"
@@ -31,7 +32,7 @@
   import {clip, pushToast} from "@app/util/toast"
 
   import {getContext} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, loadRepoAnnouncements, repoAnnouncements} from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
@@ -67,6 +68,94 @@
   // Expandable sections state
   let showAllRelays = $state(false)
   let showAllBranches = $state(false)
+  let showTaggedMaintainers = $state(false)
+  let repoAnnouncementsLoadKey = $state<string | undefined>(undefined)
+
+  const normalizePubkey = (value: string | undefined | null): string => {
+    if (!value) return ""
+    if (/^[0-9a-f]{64}$/i.test(value)) return value
+    if (value.startsWith("npub1")) {
+      try {
+        const decoded = nip19.decode(value)
+        if (decoded.type === "npub") return decoded.data as string
+      } catch {}
+    }
+    return ""
+  }
+
+  const getTagValue = (event: any, name: string): string =>
+    (event?.tags || []).find((t: string[]) => t[0] === name)?.[1] || ""
+
+  const getEucTag = (event: any): string =>
+    (event?.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
+
+  const isSameRepoIdentity = (baseEvent: any, candidateEvent: any): boolean => {
+    const baseD = getTagValue(baseEvent, "d")
+    const candidateD = getTagValue(candidateEvent, "d")
+    if (!baseD || !candidateD || baseD !== candidateD) return false
+
+    const baseEuc = getEucTag(baseEvent)
+    const candidateEuc = getEucTag(candidateEvent)
+
+    if (baseEuc && candidateEuc) return baseEuc === candidateEuc
+    if (baseEuc || candidateEuc) return false
+    return true
+  }
+
+  const getTaggedMaintainers = (event: any): string[] => {
+    const raw = (event?.tags || [])
+      .filter((t: string[]) => t[0] === "maintainers")
+      .flatMap((t: string[]) => t.slice(1))
+    const normalized = raw
+      .map((pk: string) => normalizePubkey(pk))
+      .filter(Boolean)
+    return Array.from(new Set(normalized))
+  }
+
+  const taggedMaintainerPubkeys = $derived.by(() => {
+    const event = repoClass?.repoEvent
+    if (!event) return [] as string[]
+    return getTaggedMaintainers(event)
+  })
+
+  const effectiveMaintainerPubkeys = $derived.by(() => {
+    const event = repoClass?.repoEvent
+    if (!event) return [] as string[]
+    const tagged = getTaggedMaintainers(event)
+    const owner = normalizePubkey(event.pubkey)
+
+    const announcers = new Set<string>()
+    if (owner) announcers.add(owner)
+
+    for (const announcement of $repoAnnouncements || []) {
+      const announcer = normalizePubkey(announcement?.pubkey)
+      if (!announcer) continue
+      if (!isSameRepoIdentity(event, announcement)) continue
+      announcers.add(announcer)
+    }
+
+    const effective = new Set<string>()
+    if (owner) effective.add(owner)
+    for (const pk of tagged) {
+      if (announcers.has(pk)) effective.add(pk)
+    }
+
+    return Array.from(effective)
+  })
+
+  const unverifiedTaggedPubkeys = $derived.by(() => {
+    const effective = new Set(effectiveMaintainerPubkeys)
+    return taggedMaintainerPubkeys.filter(pk => !effective.has(pk))
+  })
+
+  $effect(() => {
+    const relays = repoRelays || []
+    if (relays.length === 0) return
+    const key = [...relays].sort().join(",")
+    if (repoAnnouncementsLoadKey === key) return
+    repoAnnouncementsLoadKey = key
+    loadRepoAnnouncements(relays)
+  })
 
   const stats = $derived([
     {
@@ -76,8 +165,8 @@
       color: "text-blue-600",
     },
     {
-      label: "Maintainers",
-      value: repoClass.maintainers?.length || 0,
+      label: "Effective Maintainers",
+      value: effectiveMaintainerPubkeys.length || 0,
       icon: Users,
       color: "text-green-600",
     },
@@ -94,12 +183,6 @@
       color: "text-purple-600",
     },
   ])
-
-  const maintainers = $derived.by(() => 
-    (repoClass?.maintainers || []).map(
-      m => $profilesByPubkey.get(m) ?? {display_name: truncateHash(m), name: truncateHash(m)},
-    )
-  )
 
   function getNostrOwnerAndName(): {ownerNpub: string; name: string} | undefined {
     const key = (repoClass.key || '').trim()
@@ -136,7 +219,6 @@
     name: repoClass.name || "Unknown Repository",
     description: repoClass.description || "",
     repoId: repoClass.key || "",
-    maintainers: maintainers || [],
     relays: repoRelays,
     cloneUrls: (() => {
       // Get clone URLs from repoClass directly
@@ -496,18 +578,59 @@
 
           <!-- Nostr Information -->
           <div class="space-y-3">
-            {#if repoMetadata.maintainers.length > 0}
+            {#if effectiveMaintainerPubkeys.length > 0}
               <div>
-                <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
-                <div class="space-y-1">
-                  {#each repoMetadata.maintainers as maintainer}
+                <span class="mb-2 block text-sm text-muted-foreground">Effective Maintainers</span>
+                <div class="space-y-2">
+                  {#each effectiveMaintainerPubkeys as maintainer}
                     <div class="flex items-center gap-2 text-sm">
-                      <User class="h-3 w-3" />
-                      <span class="font-mono text-xs"
-                        >{maintainer?.display_name ?? maintainer?.name}</span>
+                      <ProfileCircle
+                        pubkey={maintainer}
+                        url={relayUrl}
+                        size={6}
+                        class="border border-border"
+                      />
+                      <ProfileLink
+                        pubkey={maintainer}
+                        url={relayUrl}
+                        unstyled
+                        class="text-xs hover:underline"
+                      />
                     </div>
                   {/each}
                 </div>
+                {#if unverifiedTaggedPubkeys.length > 0}
+                  <button
+                    type="button"
+                    class="mt-2 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    onclick={() => (showTaggedMaintainers = !showTaggedMaintainers)}>
+                    {showTaggedMaintainers
+                      ? "Hide tagged maintainers"
+                      : `Show tagged maintainers (${unverifiedTaggedPubkeys.length})`}
+                  </button>
+                  {#if showTaggedMaintainers}
+                    <div class="mt-2 space-y-2">
+                      <span class="block text-xs text-muted-foreground"
+                        >Tagged maintainers (unverified)</span>
+                      {#each unverifiedTaggedPubkeys as maintainer}
+                        <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                          <ProfileCircle
+                            pubkey={maintainer}
+                            url={relayUrl}
+                            size={5}
+                            class="border border-border opacity-70"
+                          />
+                          <ProfileLink
+                            pubkey={maintainer}
+                            url={relayUrl}
+                            unstyled
+                            class="text-xs text-muted-foreground hover:underline"
+                          />
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                {/if}
               </div>
             {/if}
 

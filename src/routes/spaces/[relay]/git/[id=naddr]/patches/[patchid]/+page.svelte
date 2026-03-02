@@ -134,6 +134,7 @@
 
   const patchId = $page.params.patchid
 
+
   // Make patch lookup reactive to handle data loading
   const patchEvent = $derived.by(() => repoClass.patches.find((p: any) => p.id === patchId))
   const patch = $derived.by(() => patchEvent ? parseGitPatchFromEvent(patchEvent) : undefined)
@@ -164,7 +165,10 @@
 
   const prThreadComments = $derived.by(() => {
     if (!prEvent) return undefined
-    const filters: Filter[] = [{kinds: [COMMENT], "#E": [prEvent.id]}]
+    const filters: Filter[] = [
+      {kinds: [COMMENT], "#E": [prEvent.id]},
+      {kinds: [COMMENT], "#e": [prEvent.id]},
+    ]
     const relays = (repoRelays || [])
       .map((u: string) => normalizeRelayUrl(u))
       .filter(Boolean)
@@ -364,7 +368,10 @@
 
   const threadComments = $derived.by(() => {
     if (repoClass.patches && selectedPatch) {
-      const filters: Filter[] = [{kinds: [COMMENT], "#E": [selectedPatch.id]}]
+      const filters: Filter[] = [
+        {kinds: [COMMENT], "#E": [selectedPatch.id]},
+        {kinds: [COMMENT], "#e": [selectedPatch.id]},
+      ]
       const relays = (repoRelays || [])
         .map((u: string) => normalizeRelayUrl(u))
         .filter(Boolean)
