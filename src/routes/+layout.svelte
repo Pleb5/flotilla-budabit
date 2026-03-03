@@ -57,6 +57,7 @@
   import {syncBudabitApplicationData, syncBudabitData} from "@lib/budabit/sync"
   import {setupBudabitNotifications} from "@lib/budabit/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
+  import {installBuiltinExtensions} from "@app/extensions/builtin"
 
   const {children} = $props()
   const nostrGitProviderProps = /** @type {any} */ ({
@@ -102,6 +103,11 @@
   initializePushNotifications()
 
   setupBudabitNotifications()
+  
+  // Auto-install and enable built-in extensions
+  if (browser) {
+    installBuiltinExtensions()
+  }
 
   const clearReloadQuery = () => {
     const url = new URL(window.location.href)

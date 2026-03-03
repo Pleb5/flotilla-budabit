@@ -596,6 +596,10 @@
                           {setDirectory}
                           {publish}
                           repo={repoClass}
+                          displayMode="list"
+                          showActions={false}
+                          isActive={selectedFile?.path === file.path}
+                          onSelectFile={openFile}
                         />
                       {/each}
                     </div>
@@ -609,13 +613,17 @@
       </div>
       <div class="hidden md:block p-3">
         {#if selectedFile}
-          <FileView
-            file={selectedFile}
-            {getFileContent}
-            {setDirectory}
-            {publish}
-            repo={repoClass}
-          />
+          {#key selectedFile.path}
+            <FileView
+              file={selectedFile}
+              {getFileContent}
+              {setDirectory}
+              {publish}
+              repo={repoClass}
+              displayMode="viewer"
+              autoOpenPath={autoOpenPath}
+            />
+          {/key}
         {:else}
           <div
             class="flex h-full min-h-[200px] items-center justify-center rounded-lg border border-dashed border-border bg-background/40 text-sm text-muted-foreground"
@@ -641,13 +649,17 @@
       <div class="min-h-full">
         <div class="p-3">
           {#if overlayFile}
-            <FileView
-            file={overlayFile}
-            {getFileContent}
-            {setDirectory}
-            {publish}
-            repo={repoClass}
-          />
+            {#key overlayFile.path}
+              <FileView
+              file={overlayFile}
+              {getFileContent}
+              {setDirectory}
+              {publish}
+              repo={repoClass}
+              displayMode="viewer"
+              autoOpenPath={autoOpenPath}
+            />
+            {/key}
         {/if}
       </div>
     </div>

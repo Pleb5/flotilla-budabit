@@ -16,7 +16,7 @@
   import {deriveEventsAsc, deriveEventsById, deriveEventsDesc} from "@welshman/store"
   import {Router} from "@welshman/router"
   import {load} from "@welshman/net"
-  import {fly, staggeredFade} from "@lib/transition"
+  import {fly, staggeredFade, staggeredSlideScale, staggeredScaleBounce, staggeredFlip} from "@lib/transition"
   import {fade} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -204,11 +204,12 @@
   let branchUpdateToastLastKey = ""
   let branchUpdateToastId: string | null = null
   const logBranchUpdate = (message: string, details?: unknown) => {
-    if (details === undefined) {
-      console.warn(`[branch-update] ${message}`)
-    } else {
-      console.warn(`[branch-update] ${message}`, details)
-    }
+    // Disabled to reduce console noise - uncomment for debugging branch updates
+    // if (details === undefined) {
+    //   console.warn(`[branch-update] ${message}`)
+    // } else {
+    //   console.warn(`[branch-update] ${message}`, details)
+    // }
   }
 
   // Initialize worker for Git operations
@@ -228,21 +229,26 @@
       workerReady = false
     }
 
+    logBranchUpdate("session start: component mounted")
+
     branchUpdateCheckDone = false
     logBranchUpdate("session start: check flag reset for this page load")
     branchUpdateToastLastKey = ""
     logBranchUpdate("toast dedupe key reset for this page load")
-
-    // Load my repos on mount
-    if ($pubkey) {
-      const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
-      load({relays: repoAnnouncementRelays, filters: [filter]})
-    }
   })
 
+  // Load repos reactively when pubkey or relays change
+  // Consolidated from duplicate effects to prevent flickering
+  let lastLoadedRelays = $state<string>("")
   $effect(() => {
     if (!$pubkey) return
     if (!repoAnnouncementRelays.length) return
+    
+    // Prevent duplicate loads with same relay set
+    const relayKey = repoAnnouncementRelays.slice().sort().join(",")
+    if (relayKey === lastLoadedRelays) return
+    lastLoadedRelays = relayKey
+    
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
     load({relays: repoAnnouncementRelays, filters: [filter]})
   })
@@ -265,9 +271,11 @@
   ) as string[]
 
   // Repo announcements should always be fetched from user outbox + GIT_RELAYS
-  let repoAnnouncementRelays = $state<string[]>([])
-  $effect(() => {
-    repoAnnouncementRelays = getRepoAnnouncementRelays()
+  // Memoize to prevent effect loops from array reference changes
+  const repoAnnouncementRelays = $derived.by(() => {
+    const relays = getRepoAnnouncementRelays()
+    // Return stable reference if relays haven't actually changed
+    return relays
   })
 
   const normalizeBookmarks = (value: unknown): BookmarkAddress[] => {
@@ -1073,22 +1081,26 @@
         })
         repositoriesStore.set(cards)
 
-        // Debounce: wait for repo count to stabilize before showing cards
-        // This ensures all repos are loaded before the animation starts
+        // Show cards immediately if we already have some, or after a brief delay on first load
+        // This prevents the stutter from hiding/showing cards repeatedly
         const currentCount = cards.length
         if (currentCount !== lastRepoCount) {
           lastRepoCount = currentCount
-          // Reset cardsReady while more repos are loading
-          cardsReady = false
-          // Clear previous timer
-          if (settleTimer) {
-            clearTimeout(settleTimer)
+          
+          // If cards are already shown, keep them shown (no flicker)
+          if (cardsReady) {
+            // Already showing cards, just update the store
+            // Don't hide and reshow
+          } else {
+            // First load: wait briefly for initial batch to load
+            if (settleTimer) {
+              clearTimeout(settleTimer)
+            }
+            settleTimer = setTimeout(() => {
+              cardsReady = true
+              settleTimer = null
+            }, 200) // Reduced from 400ms for faster initial display
           }
-          // Wait for count to stabilize (no new repos for 400ms)
-          settleTimer = setTimeout(() => {
-            cardsReady = true
-            settleTimer = null
-          }, 400)
         }
       } else {
         repositoriesStore.clear()

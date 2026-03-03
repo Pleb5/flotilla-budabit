@@ -623,7 +623,6 @@
 
     const expectedAddress = `${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`
     const isDifferentRepo = existingRepo.address !== expectedAddress
-    console.log('isDifferentRepo', isDifferentRepo)
     if (isDifferentRepo) {
       existingRepo.dispose()
       $activeRepoClass = new Repo({
@@ -640,9 +639,8 @@
         authorName,
         authorEmail,
       })
-    } else {
-      console.log("♻️  [LAYOUT INIT] REUSING existing Repo instance")
     }
+    // Repo instance reused when navigating within same repo
   }
     
   // Set context for child components (only once, not in effect)
@@ -1130,6 +1128,8 @@
     })
   }
 
+  let relaysWarningDebounce: ReturnType<typeof setTimeout> | null = null
+  
   $effect(() => {
     if (suppressRelaysWarning) return
     if (!repoClass?.repoEvent) return
@@ -1143,14 +1143,22 @@
     if (relays.length > 0) return
     const key = repoClass.repoEvent.id
     if (relaysWarningKey === key) return
-    relaysWarningKey = key
-    pushToast({
-      message:
-        "This repository announcement has no relays defined. Add preferred relays so others can discover updates.",
-      theme: "warning",
-      timeout: 0,
-      action: {message: "Repo settings", onclick: () => settingsRepo()},
-    })
+    
+    // Debounce to prevent duplicate toasts during initialization
+    if (relaysWarningDebounce) {
+      clearTimeout(relaysWarningDebounce)
+    }
+    
+    relaysWarningDebounce = setTimeout(() => {
+      relaysWarningKey = key
+      pushToast({
+        message:
+          "This repository announcement has no relays defined. Add preferred relays so others can discover updates.",
+        theme: "warning",
+        timeout: 8000, // 8 seconds - visible but eventually dismisses
+        action: {message: "Repo settings", onclick: () => settingsRepo()},
+      })
+    }, 100)
   })
 
   async function bookmarkRepo() {
@@ -1374,6 +1382,8 @@
         {bookmarkRepo}
         {isBookmarked}
         isTogglingBookmark={isTogglingBookmark}
+        watchRepo={openWatchModal}
+        isWatching={isWatching}
         >
         {#snippet children(activeTab: string)}
           <RepoTab
@@ -1398,6 +1408,7 @@
             tabValue="issues"
             label="Issues"
             href={`${basePath}/issues`}
+            notification={hasIssuesNotification}
             {activeTab}>
             {#snippet icon()}
               <CircleAlert class="h-4 w-4" />
@@ -1407,6 +1418,7 @@
             tabValue="patches"
             label="Patches"
             href={`${basePath}/patches`}
+            notification={hasPatchesNotification}
             {activeTab}>
             {#snippet icon()}
               <GitPullRequest class="h-4 w-4" />

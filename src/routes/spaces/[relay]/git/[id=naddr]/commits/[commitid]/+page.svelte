@@ -55,34 +55,50 @@
   let changes = $state<CommitChange[] | undefined>(data?.changes)
   let isLoading = $state(!data?.commitMeta)
   let loadError = $state<string | undefined>(undefined)
+  let loadAttempted = $state(false)
 
   // Load commit details after ensuring repo is cloned
   async function loadCommitDetails() {
     const commitid = $page.params.commitid
     if (!commitid) return
 
-    // Wait for repoClass.key to be available (set when repo event is received)
-    if (!repoClass.key) {
-      // Poll for key availability
-      let attempts = 0
-      while (!repoClass.key && attempts < 50) {
-        await new Promise(r => setTimeout(r, 200))
-        attempts++
-      }
+    isLoading = true
+    loadError = undefined
+
+    try {
+      // Wait for repo to be ready (replaces inefficient polling loop)
+      await repoClass.waitForReady()
+      
       if (!repoClass.key) {
         loadError = "Repository information not available"
         isLoading = false
         return
       }
-    }
-    isLoading = true
-    loadError = undefined
-
-    try {
       // Ensure repo is cloned first
       const isCloned = await repoClass.workerManager.isRepoCloned({
         repoId: repoClass.key
       })
+
+      // Optimization: Check if commit metadata is already available in repoClass.commits
+      // Show it immediately to eliminate perceived delay, then load diff details
+      const existingCommit = repoClass.commits?.find((c: any) => c.sha === commitid || c.oid === commitid)
+      
+      if (existingCommit) {
+        // Show commit metadata immediately from cache
+        commitMeta = {
+          sha: existingCommit.sha || existingCommit.oid,
+          author: existingCommit.author?.name || existingCommit.commit?.author?.name || 'Unknown',
+          email: existingCommit.author?.email || existingCommit.commit?.author?.email || '',
+          date: existingCommit.author?.timestamp || existingCommit.commit?.author?.timestamp || Date.now() / 1000,
+          message: existingCommit.message || existingCommit.commit?.message || '',
+          parents: existingCommit.parents || existingCommit.commit?.parent || [],
+          pubkey: undefined,
+          nip05: undefined,
+          nip39: undefined
+        }
+        // Show loading state for diff details only
+        isLoading = false
+      }
 
       if (!isCloned) {
         // Clone the repo
@@ -107,7 +123,7 @@
         }
       }
 
-      // Now load commit details
+      // Now load commit details (will trigger fetch if needed)
       const commitDetails = await repoClass.workerManager.getCommitDetails({
         repoId: repoClass.key,
         commitId: commitid
@@ -170,16 +186,10 @@
   // Load commit details when component mounts if not already loaded from +page.ts
   onMount(() => {
     if (!commitMeta || !changes) {
-      // Wait for repo to be ready, then load
-      repoClass.waitForReady().then(() => loadCommitDetails())
-    }
-  })
-
-  // Also try loading when repoClass.key becomes available
-  $effect(() => {
-    const key = repoClass.key
-    if (key && !commitMeta && !changes && !isLoading && !loadError) {
-      loadCommitDetails()
+      if (!loadAttempted) {
+        loadAttempted = true
+        loadCommitDetails()
+      }
     }
   })
 

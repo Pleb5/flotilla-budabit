@@ -108,3 +108,79 @@ export const staggeredFade = (
     css: (t: number) => `opacity: ${t}; transform: translateY(${(1 - t) * 10}px)`,
   }
 }
+
+/**
+ * Staggered scale-bounce transition - cards pop in with a bouncy scale effect
+ */
+export const staggeredScaleBounce = (
+  node: Element,
+  {
+    delay = 0,
+    duration = 400,
+    staggerDelay = 50,
+    index = 0,
+  }: StaggeredFadeParams = {},
+) => {
+  return {
+    delay: delay + index * staggerDelay,
+    duration,
+    easing: (t: number) => {
+      // Custom bounce easing
+      const bounce = Math.sin(t * Math.PI * 1.5)
+      return t * (1 + bounce * 0.15)
+    },
+    css: (t: number) => {
+      const scale = 0.8 + t * 0.2
+      return `opacity: ${t}; transform: scale(${scale}) translateY(${(1 - t) * 20}px)`
+    },
+  }
+}
+
+/**
+ * Staggered slide-scale transition - cards slide up and scale in smoothly
+ */
+export const staggeredSlideScale = (
+  node: Element,
+  {
+    delay = 0,
+    duration = 350,
+    easing = cubicOut,
+    staggerDelay = 50,
+    index = 0,
+  }: StaggeredFadeParams = {},
+) => {
+  return {
+    delay: delay + index * staggerDelay,
+    duration,
+    easing,
+    css: (t: number) => {
+      const scale = 0.9 + t * 0.1
+      const y = (1 - t) * 30
+      return `opacity: ${t}; transform: scale(${scale}) translateY(${y}px)`
+    },
+  }
+}
+
+/**
+ * Staggered flip transition - cards flip in from the side
+ */
+export const staggeredFlip = (
+  node: Element,
+  {
+    delay = 0,
+    duration = 450,
+    easing = cubicOut,
+    staggerDelay = 50,
+    index = 0,
+  }: StaggeredFadeParams = {},
+) => {
+  return {
+    delay: delay + index * staggerDelay,
+    duration,
+    easing,
+    css: (t: number) => {
+      const rotateY = (1 - t) * 90
+      return `opacity: ${t}; transform: perspective(1000px) rotateY(${rotateY}deg) translateY(${(1 - t) * 10}px)`
+    },
+  }
+}

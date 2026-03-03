@@ -70,6 +70,9 @@
   let isCloning = $state(false)
   let cloneProgress = $state("")
   let cloneCheckAttempted = $state(false)
+  
+  // Debounce timer for commit loading effect
+  let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
 
   // Create navigation helper
   const getCommitUrl = (commitId: string) => {
@@ -207,6 +210,12 @@
     const isSwitching = repoClass.isBranchSwitching
     const repoKey = repoClass.key;
     
+    // Guard: Don't load commits if we're on a child route (commit detail page)
+    // This prevents the commits list from loading when viewing /commits/[commitid]
+    if ($page.params.commitid) {
+      return;
+    }
+    
     // Guard: wait for repoClass.key to be populated (not empty string)
     if (!repoKey || repoKey.trim() === "") {
       return;
@@ -218,17 +227,27 @@
         return
       }
 
+      // Clear any pending debounce timer
+      if (commitLoadDebounce) {
+        clearTimeout(commitLoadDebounce)
+      }
+
       // Detect branch changes (e.g., from navigation, not from selector)
       if (previousBranch !== undefined && previousBranch !== currentBranch) {
         currentPage = 1;
         initialLoadComplete = false;
         previousBranch = currentBranch;
-        // Wait for repo to be ready before loading commits
-        repoClass.waitForReady().then(() => loadCommits());
+        // Debounce to prevent rapid-fire triggers during initialization
+        commitLoadDebounce = setTimeout(() => {
+          repoClass.waitForReady().then(() => loadCommits());
+        }, 100)
       } else if (previousBranch === undefined) {
         // Initial load - wait for repo to be ready
         previousBranch = currentBranch;
-        repoClass.waitForReady().then(() => loadCommits());
+        // Debounce to prevent rapid-fire triggers during initialization
+        commitLoadDebounce = setTimeout(() => {
+          repoClass.waitForReady().then(() => loadCommits());
+        }, 100)
       }
     }
   })

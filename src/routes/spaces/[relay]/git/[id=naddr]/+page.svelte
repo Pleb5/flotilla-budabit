@@ -64,6 +64,9 @@
   let _prevMain = $state<string | undefined>(undefined)
   let _prevBranchSig = $state<string | undefined>(undefined)
   let copiedUrl = $state<string | null>(null)
+  let repoInfoLoaded = $state(false)
+  let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
+  let commitLoadInProgress = $state(false)
   
   // Expandable sections state
   let showAllRelays = $state(false)
@@ -288,10 +291,18 @@
   })
 
   $effect(() => {
-    if (repoClass) {
+    // Track repoClass.key to ensure we only load once per repo
+    const currentKey = repoClass?.key
+    
+    if (repoClass && currentKey && !repoInfoLoaded) {
       // Wait for repo initialization before loading data that requires git operations
+      // Only run once per repo to prevent duplicate API calls
       repoClass.waitForReady().then(() => {
-        loadRepoInfo()
+        // Double-check the key hasn't changed and we haven't already loaded
+        if (repoClass.key === currentKey && !repoInfoLoaded) {
+          repoInfoLoaded = true
+          loadRepoInfo()
+        }
       })
     }
   })
@@ -313,27 +324,36 @@
     _prevRepoKey = repoKey
     _prevMain = main
     _prevBranchSig = branchSig
+    
+    // Reset repoInfoLoaded when navigating to a different repo
+    repoInfoLoaded = false
 
-    // Debounce/Dedupe: increment sequence and capture
-    const seq = ++lastCommitReqSeq
-    commitLoading = true
-    lastCommit = null
-    ;(async () => {
-      // Wait for repo to be ready before loading commits
-      await repoClass.waitForReady()
-      await loadLastCommit()
-      // Only apply result if this is the latest request
-      if (seq !== lastCommitReqSeq) return
-    })()
+    // Clear any pending debounce timer
+    if (commitLoadDebounce) {
+      clearTimeout(commitLoadDebounce)
+    }
+
+    // Debounce to prevent rapid-fire triggers during initialization
+    // Wait 100ms for values to stabilize before loading commits
+    commitLoadDebounce = setTimeout(() => {
+      // Debounce/Dedupe: increment sequence and capture
+      const seq = ++lastCommitReqSeq
+      commitLoading = true
+      lastCommit = null
+      ;(async () => {
+        // Wait for repo to be ready before loading commits
+        await repoClass.waitForReady()
+        await loadLastCommit()
+        // Only apply result if this is the latest request
+        if (seq !== lastCommitReqSeq) return
+      })()
+    }, 100)
   })
 
   async function loadRepoInfo() {
-    // Load README and commit info in parallel for better performance
-    const readmePromise = loadReadme()
-    const commitPromise = loadLastCommit()
-
-    // Wait for both to complete
-    await Promise.allSettled([readmePromise, commitPromise])
+    // Load README only - commit loading is handled by the reactive effect below
+    // This prevents duplicate API calls
+    await loadReadme()
   }
 
   async function loadReadme() {
@@ -364,12 +384,20 @@
   }
 
   async function loadLastCommit() {
+    // Guard: prevent duplicate calls if already loading
+    if (commitLoadInProgress) {
+      return
+    }
+    
+    commitLoadInProgress = true
+    
     try {
       // Use main branch directly - no need to try multiple branches
       // Start with small depth (5) for faster loading, only increase if needed
       const mainBranch = repoClass.mainBranch
       if (!mainBranch) {
         commitLoading = false
+        commitLoadInProgress = false
         return
       }
 
@@ -377,6 +405,7 @@
       if (!repoClass.workerManager?.isReady) {
         console.debug("LatestCommit: WorkerManager not ready, skipping")
         commitLoading = false
+        commitLoadInProgress = false
         return
       }
 
@@ -390,6 +419,7 @@
           if (Array.isArray(list) && list.length > 0) {
             lastCommit = list[0]
             commitLoading = false
+            commitLoadInProgress = false
             return
           }
         } catch (e) {
@@ -398,6 +428,7 @@
           if (String(e).includes("not cloned") || String(e).includes("Repository not")) {
             console.debug("LatestCommit: Repository not cloned, skipping (overview page doesn't need clone)")
             commitLoading = false
+            commitLoadInProgress = false
             return
           }
           // Try next depth on other errors
@@ -409,6 +440,7 @@
       console.debug("LatestCommit: Failed to load", e)
     } finally {
       commitLoading = false
+      commitLoadInProgress = false
     }
   }
 
