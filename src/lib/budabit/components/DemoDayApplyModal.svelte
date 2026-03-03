@@ -202,6 +202,11 @@ const validate = ():boolean => {
   return true
 }
 
+const didPublishSucceed = (thunk?: Thunk) =>
+  Object.values(thunk?.results || {}).some(
+    (result) => result?.status === PublishStatus.Success
+  )
+
 $effect(() => {
   const titleChanged = title !== lastTitle
   const pitchChanged = pitch !== lastPitch
@@ -313,49 +318,46 @@ const apply = async () => {
   const roomMessageEvent = makeEvent(MESSAGE, {content, tags:[roomTag, tTag]})
   const noteEvent = makeEvent(NOTE, {content, tags:[tTag]})
 
-  budabitThunk = publishThunk({
-      relays: [url as string],
-      event: roomMessageEvent
-  })
+  try {
+    budabitThunk = publishThunk({
+        relays: [url as string],
+        event: roomMessageEvent
+    })
 
-  await budabitThunk.complete
+    await budabitThunk.complete
 
-  const budabitThunkSuccess = budabitThunk.results[url].status === PublishStatus.Success
+    const budabitThunkSuccess = didPublishSucceed(budabitThunk)
 
-  let noteThunkSuccess = true
-  if (broadCast) {
-    noteThunkSuccess = false
-    let relays = Router.get().FromUser().getUrls()
-    if (relays.length === 0) {
-      relays = GIT_RELAYS
+    let noteThunkSuccess = true
+    if (broadCast) {
+      noteThunkSuccess = false
+      let relays = Router.get().FromUser().getUrls()
+      if (relays.length === 0) {
+        relays = GIT_RELAYS
+      }
+
+      noteThunk = publishThunk({
+        relays,
+        event: noteEvent
+      })
+
+      await noteThunk.complete
+
+      noteThunkSuccess = didPublishSucceed(noteThunk)
     }
 
-    noteThunk = publishThunk({
-      relays,
-      event: noteEvent
-    })
 
-    await noteThunk.complete
+    if (budabitThunkSuccess && noteThunkSuccess) {
+      pushToast({
+        message: "Thanks for Applying! Don't forget to promote your Demo and get as many zaps as possible!",
+        timeout: 15_000
+      })
+    }
 
-    GIT_RELAYS.forEach(r => {
-      if (noteThunk?.results[r].status === PublishStatus.Success) {
-        noteThunkSuccess = true
-        return
-      }
-    })
+    goto(makeRoomPath(url, 'Demo Day'))
+  } finally {
+    posting = false
   }
-
-  posting = false
-
-
-  if (budabitThunkSuccess && noteThunkSuccess) {
-    pushToast({
-      message: "Thanks for Applying! Don't forget to promote your Demo and get as many zaps as possible!",
-      timeout: 15_000
-    })
-  }
-
-  goto(makeRoomPath(url, 'Demo Day'))
 }
 
 </script>
