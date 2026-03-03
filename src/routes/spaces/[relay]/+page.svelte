@@ -36,10 +36,9 @@
   const gitPath = makeGitPath(url)
   const owner = $derived($relay?.pubkey)
 
-  const channelNamesByUrl = $derived.by(() => {
+  const channelsByUrlFiltered = $derived.by(() => {
     const channels = $channelsByUrl.get(url) || []
-
-    return channels.map((ch) => ch.name).reverse()
+    return channels.reverse()
   })
 </script>
 
@@ -113,12 +112,12 @@
   </div>
   <DemoDayPromo {url}/>
   <div class="grid max-sm:grid-cols-2 sm:grid-cols-3 gap-2">
-    {#each channelNamesByUrl as room (room)}
-      {@const roomPath = makeRoomPath(url, room)}
+    {#each channelsByUrlFiltered as channel (channel.id)}
+      {@const roomPath = makeRoomPath(url, channel.room)}
       <Link href={roomPath} class="btn btn-neutral relative">
         <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap  md:text-lg">
           <Icon icon={Hashtag} />
-          <ChannelName {url} {room} />
+          <ChannelName {url} room={channel.room} />
         </div>
         {#if $notifications.has(roomPath)}
           <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" transition:fade>
