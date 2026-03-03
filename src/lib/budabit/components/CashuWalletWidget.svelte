@@ -19,9 +19,7 @@
     title="Open Cashu Wallet">
     <span class="text-warning">₿</span>
     {#if !initialized}
-      <span class="opacity-50">Loading…</span>
-    {:else if balance === 0}
-      <span class="opacity-75">Set up Cashu</span>
+      <span class="opacity-50">Set up Cashu</span>
     {:else}
       <span>{balance.toLocaleString()} sats</span>
     {/if}

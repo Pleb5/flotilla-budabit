@@ -378,7 +378,9 @@
       syncBudabitData(),
     )
 
-    // Initialize Cashu wallet eagerly so balance is available immediately
+    // Initialize Cashu wallet eagerly so balance is available immediately.
+    // After init, cashuNeedsBackup will be true if backup hasn't been confirmed yet —
+    // the $effect below will open the seed backup modal automatically.
     void initializeCashuWallet()
 
     // Subscribe to badge count for changes
