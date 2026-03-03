@@ -54,6 +54,9 @@ importers:
       '@capawesome/capacitor-badge':
         specifier: ^7.0.1
         version: 7.0.1(@capacitor/core@7.5.0)
+      '@cashu/cashu-ts':
+        specifier: 3.3.0
+        version: 3.3.0
       '@codemirror/lang-css':
         specifier: ^6.3.1
         version: 6.3.1
@@ -114,6 +117,9 @@ importers:
       '@poppanator/sveltekit-svg':
         specifier: ^4.2.1
         version: 4.2.1(rollup@2.80.0)(svelte@5.39.12)(svgo@4.0.0)(vite@5.4.20(@types/node@22.19.13)(terser@5.46.0))
+      '@scure/bip39':
+        specifier: ^1.2.1
+        version: 1.2.1
       '@sentry/browser':
         specifier: ^8.55.0
         version: 8.55.0
@@ -168,6 +174,12 @@ importers:
       '@welshman/util':
         specifier: ^0.7.1
         version: 0.7.1(patch_hash=0bf237dc6306544f08132e0c612e276c6d1dcbf7d53b08c7d20a8926724a393c)(typescript@5.9.3)
+      coco-cashu-core:
+        specifier: 1.1.2-rc.47
+        version: 1.1.2-rc.47(typescript@5.9.3)
+      coco-cashu-indexeddb:
+        specifier: 1.1.2-rc.47
+        version: 1.1.2-rc.47(coco-cashu-core@1.1.2-rc.47(typescript@5.9.3))(typescript@5.9.3)
       comlink:
         specifier: ^4.4.2
         version: 4.4.2
@@ -1277,6 +1289,10 @@ packages:
     resolution: {integrity: sha512-jhVieRRVLgGO1NU7PW8uWZmf3WD4IsYUlkrJ82KuoRgLFx1tbJGwHU1ro0sUJmEwfLO9vldhBnJJ/J5nHrjbQQ==}
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
+
+  '@cashu/cashu-ts@3.3.0':
+    resolution: {integrity: sha512-hHUOhjPLK77axDdj/4qO5mJ14rkh+rZGe1Gz2RbkW2j+SIglNbc2NsKSvjvoQcshupm02FudKi9Y3s3M8ZSYzg==}
+    engines: {node: '>=22.4.0'}
 
   '@codemirror/autocomplete@6.20.1':
     resolution: {integrity: sha512-1cvg3Vz1dSSToCNlJfRA2WSI4ht3K+WplO0UMOgmUYPivCyy2oueZY6Lx7M9wThm7SDUBViRmuT+OG/i8+ON9A==}
@@ -3432,6 +3448,17 @@ packages:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
 
+  coco-cashu-core@1.1.2-rc.47:
+    resolution: {integrity: sha512-DJ1qHotnKTZ8l55eISlwGMRZHmSncdnAS701IHI+G6O+lYHgpXrurHbrf2abzqQwRCPWUXw7EW2q3mdDmcBtqg==}
+    peerDependencies:
+      typescript: ^5
+
+  coco-cashu-indexeddb@1.1.2-rc.47:
+    resolution: {integrity: sha512-y8vcxxyct5SAsf16Fs5iIAZ3eOJXTVWq2v6fxKKaT08pv+bhC1MkmFkYb3F6cAbW3Esgs53PPmqcnFgTUX7rrA==}
+    peerDependencies:
+      coco-cashu-core: 1.1.2-rc.47
+      typescript: ^5
+
   code-red@1.0.4:
     resolution: {integrity: sha512-7qJWqItLA8/VPVlKJlFXU+NBlo/qyfs39aJcuMT/2ere32ZqvF5OSxgdM5xOfJJ7O429gg2HM47y8v9P+9wrNw==}
 
@@ -3770,6 +3797,9 @@ packages:
 
   devalue@5.6.3:
     resolution: {integrity: sha512-nc7XjUU/2Lb+SvEFVGcWLiKkzfw8+qHI7zn8WYXKkLMgfGSHbgCEaR6bJpev8Cm6Rmrb19Gfd/tZvGqx9is3wg==}
+
+  dexie@4.3.0:
+    resolution: {integrity: sha512-5EeoQpJvMKHe6zWt/FSIIuRa3CWlZeIl6zKXt+Lz7BU6RoRRLgX9dZEynRfXrkLcldKYCBiz7xekTEylnie1Ug==}
 
   dezalgo@1.0.4:
     resolution: {integrity: sha512-rXSP0bf+5n0Qonsb+SVVfNfIsimO4HEtmnIpPHY8Q1UCzKlQrDMfdobr8nJOOsRgWCyMRqeSBQzmWUMq7zvVig==}
@@ -7726,6 +7756,13 @@ snapshots:
     dependencies:
       '@capacitor/core': 7.5.0
 
+  '@cashu/cashu-ts@3.3.0':
+    dependencies:
+      '@noble/curves': 2.0.1
+      '@noble/hashes': 2.0.1
+      '@scure/base': 2.0.0
+      '@scure/bip32': 2.0.1
+
   '@codemirror/autocomplete@6.20.1':
     dependencies:
       '@codemirror/language': 6.12.2
@@ -8771,7 +8808,7 @@ snapshots:
   '@scure/bip32@1.3.1':
     dependencies:
       '@noble/curves': 1.1.0
-      '@noble/hashes': 1.3.1
+      '@noble/hashes': 1.3.2
       '@scure/base': 1.1.1
 
   '@scure/bip32@2.0.1':
@@ -8782,7 +8819,7 @@ snapshots:
 
   '@scure/bip39@1.2.1':
     dependencies:
-      '@noble/hashes': 1.3.1
+      '@noble/hashes': 1.3.2
       '@scure/base': 1.1.1
 
   '@scure/bip39@2.0.1':
@@ -9467,7 +9504,7 @@ snapshots:
       std-env: 3.10.0
       test-exclude: 7.0.2
       tinyrainbow: 2.0.0
-      vitest: 3.2.4(@types/node@24.11.0)(@vitest/ui@3.2.4)(jsdom@25.0.1)(terser@5.46.0)
+      vitest: 3.2.4(@types/node@22.19.13)(@vitest/ui@3.2.4)(jsdom@25.0.1)(terser@5.46.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -9501,14 +9538,6 @@ snapshots:
       magic-string: 0.30.21
     optionalDependencies:
       vite: 5.4.20(@types/node@22.19.13)(terser@5.46.0)
-
-  '@vitest/mocker@3.2.4(vite@5.4.20(@types/node@24.11.0)(terser@5.46.0))':
-    dependencies:
-      '@vitest/spy': 3.2.4
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 5.4.20(@types/node@24.11.0)(terser@5.46.0)
 
   '@vitest/pretty-format@2.1.9':
     dependencies:
@@ -9569,7 +9598,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 2.0.0
-      vitest: 3.2.4(@types/node@24.11.0)(@vitest/ui@3.2.4)(jsdom@25.0.1)(terser@5.46.0)
+      vitest: 3.2.4(@types/node@22.19.13)(@vitest/ui@3.2.4)(jsdom@25.0.1)(terser@5.46.0)
 
   '@vitest/utils@2.1.9':
     dependencies:
@@ -10115,6 +10144,20 @@ snapshots:
 
   clsx@2.1.1: {}
 
+  coco-cashu-core@1.1.2-rc.47(typescript@5.9.3):
+    dependencies:
+      '@cashu/cashu-ts': 3.3.0
+      '@noble/curves': 2.0.1
+      '@noble/hashes': 2.0.1
+      '@scure/bip32': 2.0.1
+      typescript: 5.9.3
+
+  coco-cashu-indexeddb@1.1.2-rc.47(coco-cashu-core@1.1.2-rc.47(typescript@5.9.3))(typescript@5.9.3):
+    dependencies:
+      coco-cashu-core: 1.1.2-rc.47(typescript@5.9.3)
+      dexie: 4.3.0
+      typescript: 5.9.3
+
   code-red@1.0.4:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -10485,6 +10528,8 @@ snapshots:
   detect-libc@2.1.2: {}
 
   devalue@5.6.3: {}
+
+  dexie@4.3.0: {}
 
   dezalgo@1.0.4:
     dependencies:
@@ -13682,7 +13727,7 @@ snapshots:
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
-      '@vitest/mocker': 3.2.4(vite@5.4.20(@types/node@24.11.0)(terser@5.46.0))
+      '@vitest/mocker': 3.2.4(vite@5.4.20(@types/node@22.19.13)(terser@5.46.0))
       '@vitest/pretty-format': 3.2.4
       '@vitest/runner': 3.2.4
       '@vitest/snapshot': 3.2.4

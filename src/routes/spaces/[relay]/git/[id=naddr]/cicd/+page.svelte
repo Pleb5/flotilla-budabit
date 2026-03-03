@@ -19,6 +19,12 @@
   } from "@lucide/svelte"
   import {getTagValue} from "@welshman/util"
   import {pubkey, signer} from "@welshman/app"
+  import {
+    cashuTotalBalance,
+    cashuBalancesByMint,
+    cashuMints,
+    createCashuToken,
+  } from "@lib/budabit/cashu"
   import {SimplePool} from "nostr-tools"
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -52,8 +58,33 @@
   let selectedBranch = $state("master")
   let envVars = $state<{key: string; value: string}[]>([{key: "", value: ""}])
   let maxDuration = $state(600)
-  let cashuToken = $state("cashuTEST")
+  let cashuToken = $state("")
+  let cashuAmount = $state(100)
+  let generatingToken = $state(false)
   let worker = $state("b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710")
+
+  const walletBalance = $derived($cashuTotalBalance)
+  const walletMints = $derived($cashuMints)
+  const walletBalancesByMint = $derived($cashuBalancesByMint)
+  const bestMint = $derived(
+    walletMints.length > 0
+      ? walletMints.reduce((best, m) =>
+          (walletBalancesByMint.get(m) ?? 0) > (walletBalancesByMint.get(best) ?? 0) ? m : best,
+        walletMints[0])
+      : "",
+  )
+
+  const generateCashuToken = async () => {
+    if (!bestMint) return
+    generatingToken = true
+    try {
+      cashuToken = await createCashuToken(cashuAmount, bestMint, "CI/CD pipeline runner")
+    } catch (e: any) {
+      console.error("[cicd] Failed to generate cashu token:", e)
+    } finally {
+      generatingToken = false
+    }
+  }
 
   // Keyboard handler for Escape key
   $effect(() => {
@@ -800,7 +831,7 @@
       // Reset form
       envVars = [{key: "", value: ""}]
       maxDuration = 600
-      cashuToken = "cashuTEST"
+      cashuToken = ""
       selectedWorkflow = null
       selectedBranch = "master"
       worker = "b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710"
@@ -1200,14 +1231,40 @@
 
             <!-- Cashu Token -->
             <div class="space-y-2">
-              <label for="cashu-token" class="text-sm font-medium">Cashu Token</label>
+              <label for="cashu-token" class="text-sm font-medium">
+                Cashu Token
+                {#if walletBalance > 0}
+                  <span class="ml-2 text-xs font-normal opacity-60">
+                    Wallet: {walletBalance.toLocaleString()} sats
+                  </span>
+                {/if}
+              </label>
+              {#if walletMints.length > 0}
+                <div class="flex gap-2">
+                  <input
+                    id="cashu-amount"
+                    type="number"
+                    class="w-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    placeholder="100"
+                    min="1"
+                    bind:value={cashuAmount} />
+                  <Button
+                    variant="outline"
+                    onclick={generateCashuToken}
+                    disabled={generatingToken || !bestMint || cashuAmount <= 0}>
+                    {generatingToken ? "Generating…" : "Generate from wallet"}
+                  </Button>
+                </div>
+              {/if}
               <input
                 id="cashu-token"
                 type="text"
                 class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                placeholder="cashuTEST"
+                placeholder="cashuA… (or generate above)"
                 bind:value={cashuToken} />
-              <p class="text-xs text-muted-foreground">Cashu token for payment or authentication</p>
+              <p class="text-xs text-muted-foreground">
+                Cashu token for payment. Generate from your wallet or paste manually.
+              </p>
             </div>
 
             <!-- Worker -->
