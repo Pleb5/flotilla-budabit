@@ -5,6 +5,8 @@
   "background_color": "#ffffff",
   "description": "{DESCRIPTION}",
   "start_url": "/",
+  "scope": "/",
+  "id": "/",
   "display": "standalone",
   "icons": [
     {"src": "/pwa-64x64.png", "sizes": "64x64", "type": "image/png"},

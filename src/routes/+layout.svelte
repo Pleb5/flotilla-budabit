@@ -123,6 +123,8 @@
 
   const getVersionUrl = () => new URL("_app/version.json", getAppBaseUrl()).toString()
 
+  const getServiceWorkerUrl = () => new URL("service-worker.js", getAppBaseUrl()).toString()
+
   const buildReloadUrl = () => {
     const url = new URL(window.location.href)
 
@@ -218,6 +220,31 @@
     document.addEventListener("visibilitychange", updateCheckOnVisibilityChange)
   }
 
+  const registerAppServiceWorker = async () => {
+    if (!browser) return
+    if (!("serviceWorker" in navigator)) return
+
+    try {
+      await navigator.serviceWorker.register(getServiceWorkerUrl(), {
+        type: "module",
+        scope: getAppBaseUrl().pathname,
+      })
+    } catch (error) {
+      console.warn("Service worker registration failed", error)
+    }
+  }
+
+  const getRegistrationScriptUrl = (registration: ServiceWorkerRegistration) =>
+    registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || ""
+
+  const isLegacyServiceWorker = (scriptUrl: string) => {
+    try {
+      return new URL(scriptUrl).pathname.endsWith("/sw.js")
+    } catch {
+      return false
+    }
+  }
+
   const cleanupLegacyServiceWorkers = async () => {
     if (!browser) return
     if (!("serviceWorker" in navigator)) return
@@ -225,13 +252,17 @@
     if (localStorage.getItem(APP_SW_CLEANUP_KEY) === "1") return
 
     const registrations = await navigator.serviceWorker.getRegistrations()
-    if (registrations.length === 0) {
+    const legacyRegistrations = registrations.filter(registration =>
+      isLegacyServiceWorker(getRegistrationScriptUrl(registration)),
+    )
+
+    if (legacyRegistrations.length === 0) {
       localStorage.setItem(APP_SW_CLEANUP_KEY, "1")
       return
     }
 
     localStorage.setItem(APP_SW_CLEANUP_KEY, "1")
-    await Promise.all(registrations.map(registration => registration.unregister()))
+    await Promise.all(legacyRegistrations.map(registration => registration.unregister()))
 
     if ("caches" in window) {
       const keys = await caches.keys()
@@ -241,8 +272,13 @@
     forceReload()
   }
 
-  void cleanupLegacyServiceWorkers()
-  setupAppUpdatePolling()
+  const initAppUpdates = async () => {
+    await cleanupLegacyServiceWorkers()
+    setupAppUpdatePolling()
+    void registerAppServiceWorker()
+  }
+
+  void initAppUpdates()
 
   // Listen for navigation messages from service worker
   navigator.serviceWorker?.addEventListener("message", event => {
