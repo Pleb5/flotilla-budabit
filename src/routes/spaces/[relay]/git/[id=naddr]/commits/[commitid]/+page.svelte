@@ -100,38 +100,45 @@
         isLoading = false
       }
 
-      if (!isCloned) {
-        // Clone the repo
-        const cloneUrls = repoClass.cloneUrls
-        if (cloneUrls.length === 0) {
-          loadError = "No clone URLs available for this repository"
-          isLoading = false
-          return
-        }
-
-        const result = await repoClass.workerManager.smartInitializeRepo({
-          repoId: repoClass.key,
-          cloneUrls,
-          forceUpdate: false
-        })
-
-        if (!result.success) {
-          notifyCorsProxyIssue(result)
-          loadError = result.error || "Failed to initialize repository"
-          isLoading = false
-          return
-        }
+      // Try REST API first (much faster for GitHub/GitLab repos)
+      const cloneUrls = repoClass.cloneUrls
+      if (cloneUrls.length === 0) {
+        loadError = "No clone URLs available for this repository"
+        isLoading = false
+        return
       }
 
-      // Now load commit details (will trigger fetch if needed)
-      const commitDetails = await repoClass.workerManager.getCommitDetails({
-        repoId: repoClass.key,
-        commitId: commitid
-      })
+      const {getCommitDetailsViaRestApi} = await import("$lib/budabit/commit-api")
+      let commitDetails = await getCommitDetailsViaRestApi(cloneUrls, commitid, repoClass.key)
 
-      if (!commitDetails.success) {
+      // If REST API didn't work, fall back to worker (requires cloning)
+      if (!commitDetails) {
+        console.log("[commit page] REST API not available, using worker (will clone if needed)")
+        
+        if (!isCloned) {
+          const result = await repoClass.workerManager.smartInitializeRepo({
+            repoId: repoClass.key,
+            cloneUrls,
+            forceUpdate: false
+          })
+
+          if (!result.success) {
+            notifyCorsProxyIssue(result)
+            loadError = result.error || "Failed to initialize repository"
+            isLoading = false
+            return
+          }
+        }
+
+        commitDetails = await repoClass.workerManager.getCommitDetails({
+          repoId: repoClass.key,
+          commitId: commitid
+        })
+      }
+
+      if (!commitDetails?.success) {
         notifyCorsProxyIssue(commitDetails)
-        loadError = commitDetails.error || "Failed to load commit details"
+        loadError = commitDetails?.error || "Failed to load commit details"
         isLoading = false
         return
       }

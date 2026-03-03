@@ -88,6 +88,7 @@
     buildBranchUpdateDedupeKey,
     overlayLatestRepoStates,
   } from "@src/lib/budabit/branch-update"
+  import {reorderUrlsByPreference} from "@nostr-git/core/utils"
 
   const url = decodeRelay($page.params.relay!)
 
@@ -272,9 +273,16 @@
 
   // Repo announcements should always be fetched from user outbox + GIT_RELAYS
   // Memoize to prevent effect loops from array reference changes
+  let cachedRepoRelays: string[] = []
+  let cachedRepoRelaysKey = ""
   const repoAnnouncementRelays = $derived.by(() => {
     const relays = getRepoAnnouncementRelays()
-    // Return stable reference if relays haven't actually changed
+    const key = relays.slice().sort().join(",")
+    if (key === cachedRepoRelaysKey) {
+      return cachedRepoRelays
+    }
+    cachedRepoRelaysKey = key
+    cachedRepoRelays = relays
     return relays
   })
 
@@ -927,7 +935,10 @@
 
         const repoLabel = parsed.name || repoId
 
-        const cloneUrl = parsed.clone?.[0]
+        // Filter and reorder clone URLs to prefer HTTP vendors (GRASP, etc.) over GitHub
+        const validCloneUrls = filterValidCloneUrls(parsed.clone || [])
+        const orderedCloneUrls = reorderUrlsByPreference(validCloneUrls, repoId)
+        const cloneUrl = orderedCloneUrls[0]
         if (!cloneUrl) {
           logBranchUpdate(`${repoLabel}: skipped, missing clone URL`)
           continue
@@ -1061,6 +1072,10 @@
     }
   })
 
+  // Memoize card computation to prevent jitter
+  let cachedCards: any[] = []
+  let cachedCardsKey = ""
+  
   // Update repositoriesStore whenever repos change
   // Uses debouncing to wait for all repos to load before showing cards
   $effect(() => {
@@ -1068,22 +1083,33 @@
     if (reposToShow.length > 0 || !loading) {
       loading = false
       if (reposToShow.length > 0) {
-        // Compute cards using the store's method
-        const cards = repositoriesStore.computeCards(reposToShow, {
-          deriveMaintainersForEuc,
-          deriveRepoRefState,
-          derivePatchGraph,
-          parseRepoAnnouncementEvent,
-          Router,
-          nip19,
-          Address,
-          repoAnnouncements: $repoAnnouncements,
-        })
-        repositoriesStore.set(cards)
+        // Create a stable key based on repo IDs and announcement count
+        const repoIds = reposToShow.map((r: any) => (r.event ?? r).id).sort().join(",")
+        const announcementCount = $repoAnnouncements.length
+        const cardsKey = `${repoIds}:${announcementCount}`
+        
+        // Only recompute cards if the key has changed
+        if (cardsKey !== cachedCardsKey) {
+          // Compute cards using the store's method
+          const cards = repositoriesStore.computeCards(reposToShow, {
+            deriveMaintainersForEuc,
+            deriveRepoRefState,
+            derivePatchGraph,
+            parseRepoAnnouncementEvent,
+            Router,
+            nip19,
+            Address,
+            repoAnnouncements: $repoAnnouncements,
+          })
+          cachedCards = cards
+          cachedCardsKey = cardsKey
+        }
+        
+        repositoriesStore.set(cachedCards)
 
         // Show cards immediately if we already have some, or after a brief delay on first load
         // This prevents the stutter from hiding/showing cards repeatedly
-        const currentCount = cards.length
+        const currentCount = cachedCards.length
         if (currentCount !== lastRepoCount) {
           lastRepoCount = currentCount
           
