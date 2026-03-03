@@ -41,9 +41,15 @@ let _mnemonic: string | null = null
 
 // ─── Initialization ───────────────────────────────────────────────────────────
 
-export const initializeCashuWallet = async (): Promise<void> => {
-  if (get(cashuInitialized)) return
+let _initPromise: Promise<void> | null = null
 
+export const initializeCashuWallet = (): Promise<void> => {
+  if (_initPromise) return _initPromise
+  _initPromise = _doInitialize()
+  return _initPromise
+}
+
+const _doInitialize = async (): Promise<void> => {
   try {
     // Load or generate mnemonic
     const existing = await storageGet(KEY_MNEMONIC)
@@ -54,7 +60,7 @@ export const initializeCashuWallet = async (): Promise<void> => {
       await storageSet(KEY_MNEMONIC, _mnemonic)
     }
 
-    // Load backup confirmed flag
+    // Load backup confirmed flag from storage
     const backupFlag = await storageGet(KEY_BACKUP_CONFIRMED)
     cashuBackupConfirmed.set(backupFlag === "true")
 

@@ -1,13 +1,13 @@
 <script lang="ts">
   // CashuWalletWidget — floating balance chip, always visible when logged in
   import {pubkey} from "@welshman/app"
-  import {cashuTotalBalance, cashuInitialized} from "@lib/budabit/cashu"
+  import {cashuTotalBalance, cashuBackupConfirmed} from "@lib/budabit/cashu"
   import {pushModal} from "@app/util/modal"
   import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
 
   const isLoggedIn = $derived(!!$pubkey)
   const balance = $derived($cashuTotalBalance)
-  const initialized = $derived($cashuInitialized)
+  const backupConfirmed = $derived($cashuBackupConfirmed)
 
   const openWallet = () => pushModal(CashuWalletModal)
 </script>
@@ -18,7 +18,7 @@
     onclick={openWallet}
     title="Open Cashu Wallet">
     <span class="text-warning">₿</span>
-    {#if !initialized}
+    {#if !backupConfirmed}
       <span class="opacity-50">Set up Cashu</span>
     {:else}
       <span>{balance.toLocaleString()} sats</span>

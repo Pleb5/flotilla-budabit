@@ -3,7 +3,7 @@
   import {goto} from "$app/navigation"
   import {displayRelayUrl} from "@welshman/util"
   import {deriveRelay, pubkey} from "@welshman/app"
-  import {cashuTotalBalance, cashuInitialized} from "@lib/budabit/cashu"
+  import {cashuTotalBalance, cashuBackupConfirmed} from "@lib/budabit/cashu"
   import {pushModal} from "@app/util/modal"
   import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
@@ -53,10 +53,9 @@
 
   const walletLabel = $derived.by(() => {
     const bal = $cashuTotalBalance
-    if (!$cashuInitialized) return "Cashu Wallet"
-    if (bal === 0) return "Set up Cashu"
-    if (bal >= 1000) return `₿ ${(bal / 1000).toFixed(bal % 1000 === 0 ? 0 : 1)}K`
-    return `₿ ${bal} sats`
+    if (!$cashuBackupConfirmed) return "Set up Cashu"
+    if (bal >= 1000) return `${(bal / 1000).toFixed(bal % 1000 === 0 ? 0 : 1)}K sats`
+    return `${bal} sats`
   })
 
   const goHome = () => goto(makeSpacePath(url))

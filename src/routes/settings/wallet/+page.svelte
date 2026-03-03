@@ -163,16 +163,19 @@
 
       <div class="flex items-center justify-between">
         <span class="text-sm font-medium">Seed Phrase</span>
-        {#if backupConfirmed}
-          <div class="flex items-center gap-2 text-sm text-success">
-            <Icon icon={CheckCircle} size={4} />
-            Backed up
-          </div>
-        {:else}
-          <Button class="btn btn-warning btn-sm" onclick={openBackup}>
-            ⚠ Backup Now
-          </Button>
-        {/if}
+        <div class="flex items-center gap-2">
+          {#if backupConfirmed}
+            <div class="flex items-center gap-2 text-sm text-success">
+              <Icon icon={CheckCircle} size={4} />
+              Backed up
+            </div>
+          {:else}
+            <Button class="btn btn-warning btn-sm" onclick={openBackup}>
+              ⚠ Backup Now
+            </Button>
+          {/if}
+          <Button class="btn btn-neutral btn-xs" onclick={openBackup}>View</Button>
+        </div>
       </div>
 
       {#if autoPayWhitelist.length > 0}
