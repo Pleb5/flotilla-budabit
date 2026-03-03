@@ -1,10 +1,4 @@
-import {
-  on,
-  throttle,
-  fromPairs,
-  batch,
-  indexBy,
-} from "@welshman/lib"
+import {on, throttle, fromPairs, batch, indexBy} from "@welshman/lib"
 import {throttled} from "@welshman/store"
 import {
   ALERT_ANDROID,
@@ -14,8 +8,6 @@ import {
   ALERT_WEB,
   APP_DATA,
   BLOSSOM_SERVERS,
-  DIRECT_MESSAGE_FILE,
-  DIRECT_MESSAGE,
   EVENT_TIME,
   FOLLOWS,
   MESSAGE,
@@ -39,12 +31,12 @@ import {
 } from "@welshman/util"
 import type {Zapper, TrustedEvent, RelayProfile} from "@welshman/util"
 import type {Handle, RelayStats} from "@welshman/app"
-import type {WrapItem, RepositoryUpdate} from "@welshman/net"
+import type {RepositoryUpdate} from "@welshman/net"
+import {DM_KIND} from "@lib/budabit/constants"
 import {
   tracker,
   plaintext,
   repository,
-  wrapManager,
   relaysByUrl,
   handlesByNip05,
   zappersByLnurl,
@@ -61,13 +53,8 @@ const kinds = {
   meta: [PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, MESSAGING_RELAYS, APP_DATA, ROOMS],
   alert: [ALERT_STATUS, ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID],
   space: [RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER, RELAY_MEMBERS, RELAY_JOIN, RELAY_LEAVE],
-  room: [
-    ROOM_META,
-    ROOM_DELETE,
-    ROOM_ADMINS,
-    ROOM_CREATE_PERMISSION,
-  ],
-  content: [EVENT_TIME, THREAD, MESSAGE, ZAP_GOAL, DIRECT_MESSAGE, DIRECT_MESSAGE_FILE],
+  room: [ROOM_META, ROOM_DELETE, ROOM_ADMINS, ROOM_CREATE_PERMISSION],
+  content: [EVENT_TIME, THREAD, MESSAGE, ZAP_GOAL, DM_KIND],
 }
 
 const rankEvent = (event: TrustedEvent) => {
@@ -238,26 +225,6 @@ const plaintextAdapter = {
   },
 }
 
-const wrapManagerAdapter = {
-  name: "wrapManager",
-  keyPath: "id",
-  init: async (table: IDBTable<WrapItem>) => {
-    wrapManager.load(await table.getAll())
-
-    const addOne = batch(3000, table.bulkPut)
-
-    const removeOne = throttle(3000, table.bulkDelete)
-
-    wrapManager.on("add", addOne)
-    wrapManager.on("remove", removeOne)
-
-    return () => {
-      wrapManager.off("add", addOne)
-      wrapManager.off("remove", removeOne)
-    }
-  },
-}
-
 export const adapters = [
   eventsAdapter,
   trackerAdapter,
@@ -266,5 +233,4 @@ export const adapters = [
   handlesAdapter,
   zappersAdapter,
   plaintextAdapter,
-  wrapManagerAdapter,
 ]

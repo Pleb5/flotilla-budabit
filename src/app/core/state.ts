@@ -62,8 +62,6 @@ import {
   CLIENT_AUTH,
   COMMENT,
   DELETE,
-  DIRECT_MESSAGE_FILE,
-  DIRECT_MESSAGE,
   EVENT_TIME,
   MESSAGE,
   REACTION,
@@ -76,7 +74,6 @@ import {
   ROOM_DELETE,
   ROOMS,
   THREAD,
-  WRAP,
   ZAP_GOAL,
   ZAP_REQUEST,
   ZAP_RESPONSE,
@@ -135,6 +132,7 @@ import {
 } from "@welshman/app"
 import type {ThunkOptions} from "@welshman/app"
 import type {RepositoryUpdate} from "@welshman/net"
+import {DM_KIND} from "@lib/budabit/constants"
 
 export type Room = RoomMeta & {url: string; id: string}
 
@@ -226,7 +224,7 @@ export const EXTENSIONS_KIND = 31990
 
 export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt," +
-  [CLIENT_AUTH, RELAY_JOIN, MESSAGE, THREAD, COMMENT, ROOMS, WRAP, REACTION, ZAP_REQUEST]
+  [CLIENT_AUTH, RELAY_JOIN, MESSAGE, THREAD, COMMENT, ROOMS, DM_KIND, REACTION, ZAP_REQUEST]
     .map(k => `sign_event:${k}`)
     .join(",")
 
@@ -412,7 +410,7 @@ export const getAlertFeed = (alert: Alert) =>
 
 export const dmAlert = derived(alertsById, $alertsById => {
   for (const alert of $alertsById.values()) {
-    if (findFeed(getAlertFeed(alert), f => isKindFeed(f) && f.includes(WRAP))) {
+    if (findFeed(getAlertFeed(alert), f => isKindFeed(f) && f.includes(DM_KIND))) {
       return alert
     }
   }
@@ -539,7 +537,7 @@ export const membersByUrl = derived(
 export const chatMessages = deriveEventsAsc(
   deriveEventsById({
     repository,
-    filters: [{kinds: [DIRECT_MESSAGE, DIRECT_MESSAGE_FILE]}],
+    filters: [{kinds: [DM_KIND]}],
   }),
 )
 
@@ -573,7 +571,7 @@ export const chatsById = call(() => {
       let changed = false
 
       for (const event of events) {
-        if ([DIRECT_MESSAGE, DIRECT_MESSAGE_FILE].includes(event.kind)) {
+        if (event.kind === DM_KIND) {
           const pubkeys = getPubkeyTagValues(event.tags).concat(event.pubkey)
           const id = makeChatId(pubkeys)
 
@@ -603,7 +601,7 @@ export const chatsById = call(() => {
       }
     }
 
-    addEvents(repository.query([{kinds: [DIRECT_MESSAGE, DIRECT_MESSAGE_FILE]}]) as TrustedEvent[])
+    addEvents(repository.query([{kinds: [DM_KIND]}]) as TrustedEvent[])
 
     const unsubscribers = [
       on(repository, "update", ({added}: RepositoryUpdate) => addEvents(Array.from(added))),

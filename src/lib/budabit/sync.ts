@@ -1,17 +1,17 @@
 import type {Unsubscriber} from "svelte/store"
 import {derived, get} from "svelte/store"
+import {page} from "$app/stores"
 import {partition, call, sortBy, assoc, chunk, sleep, identity, WEEK, ago} from "@welshman/lib"
 import {
   getListTags,
   getRelayTagValues,
-  WRAP,
   isSignedEvent,
   unionFilters,
   isRelayUrl,
   normalizeRelayUrl,
 } from "@welshman/util"
 import type {Filter, TrustedEvent} from "@welshman/util"
-import {request, load, pull} from "@welshman/net"
+import {request, load, pull, makeLoader} from "@welshman/net"
 import {Router} from "@welshman/router"
 import {
   pubkey,
@@ -25,7 +25,7 @@ import {
   userFollowList,
   userMessagingRelayList,
   loadUserRelayList,
-  loadUserMessagingRelayList,
+  forceLoadUserMessagingRelayList,
   loadUserBlossomServerList,
   loadUserFollowList,
   loadUserMuteList,
@@ -42,6 +42,7 @@ import {
   makeCommentFilter,
 } from "@app/core/state"
 import {GIT_RELAYS} from "./state"
+import {DM_KIND, getMessagingRelayHints} from "@lib/budabit/dm"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
 import {
   loadGraspServers,
@@ -81,6 +82,31 @@ const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
   return Promise.all(promises)
 }
 
+const dmLoad = makeLoader({delay: 200, threshold: 0.5})
+
+const pullWithFallbackDm = ({relays, filters, signal}: PullOpts) => {
+  const [smart, dumb] = partition(hasNegentropy, relays)
+  const events = repository.query(filters, {shouldSort: false}).filter(isSignedEvent)
+  const promises: Promise<TrustedEvent[]>[] = []
+
+  if (smart.length > 0) {
+    promises.push(pull({relays: smart, filters, signal, events}))
+  }
+
+  // For DMs, avoid load timeouts by using a loader without a timeout.
+  for (const url of dumb) {
+    const urlEvents = events.filter(e => tracker.getRelays(e.id).has(url))
+
+    if (urlEvents.length >= 100) {
+      filters = filters.map(assoc("since", sortBy(e => -e.created_at, urlEvents)[10]!.created_at))
+    }
+
+    promises.push(dmLoad({relays: [url], filters, signal}))
+  }
+
+  return Promise.all(promises)
+}
+
 const pullAndListen = ({relays, filters, signal}: PullOpts) => {
   pullWithFallback({
     relays,
@@ -95,7 +121,21 @@ const pullAndListen = ({relays, filters, signal}: PullOpts) => {
   })
 }
 
-const sanitizeRelayList = (relays: string[] | any) => {
+const pullAndListenDm = ({relays, filters, signal}: PullOpts) => {
+  pullWithFallbackDm({
+    relays,
+    signal,
+    filters: filters.map(f => ({limit: 100, ...f})),
+  })
+
+  request({
+    relays,
+    signal,
+    filters: unionFilters(filters).map(assoc("limit", 0)),
+  })
+}
+
+const sanitizeRelayList = (relays: unknown) => {
   const out: string[] = []
   const seen = new Set<string>()
 
@@ -104,7 +144,7 @@ const sanitizeRelayList = (relays: string[] | any) => {
 
   for (const url of relayArray) {
     // Skip non-string values
-    if (typeof url !== 'string') {
+    if (typeof url !== "string") {
       continue
     }
 
@@ -214,37 +254,69 @@ const syncBudabitSpace = (url: string) => {
 
 const syncBudabitSpaces = () => {
   const unsubscribersByUrl = new Map<string, Unsubscriber>()
+  const platformRelays = sanitizeRelayList(PLATFORM_RELAYS)
+  const isGitPath = (path: string) => /^\/spaces\/[^/]+\/git(\/|$)/.test(path)
 
-  for (const url of sanitizeRelayList(PLATFORM_RELAYS)) {
-    if (!unsubscribersByUrl.has(url)) {
-      unsubscribersByUrl.set(url, syncBudabitSpace(url))
+  const subscribeAll = () => {
+    for (const url of platformRelays) {
+      if (!unsubscribersByUrl.has(url)) {
+        unsubscribersByUrl.set(url, syncBudabitSpace(url))
+      }
     }
   }
 
-  return () => {
-    for (const unsubscriber of unsubscribersByUrl.values()) {
+  const unsubscribeAll = () => {
+    for (const [url, unsubscriber] of unsubscribersByUrl.entries()) {
+      unsubscribersByUrl.delete(url)
       unsubscriber()
     }
+  }
+
+  const initialPath = get(page).url.pathname
+  if (!isGitPath(initialPath)) {
+    subscribeAll()
+  } else {
+    console.debug("[syncBudabitSpaces] paused on git route", {path: initialPath})
+  }
+
+  const unsubscribePage = page.subscribe($page => {
+    const path = $page.url.pathname
+    const onGit = isGitPath(path)
+
+    if (onGit && unsubscribersByUrl.size > 0) {
+      console.debug("[syncBudabitSpaces] pausing", {path, activeRelays: unsubscribersByUrl.size})
+      unsubscribeAll()
+      return
+    }
+
+    if (!onGit && unsubscribersByUrl.size === 0) {
+      console.debug("[syncBudabitSpaces] resuming", {path, relays: platformRelays.length})
+      subscribeAll()
+    }
+  })
+
+  return () => {
+    unsubscribePage()
+    unsubscribeAll()
   }
 }
 
 // DMs
 
+const buildDmFilters = (pubkey: string, extra: Filter = {}) => [
+  {kinds: [DM_KIND], "#p": [pubkey], ...extra},
+  {kinds: [DM_KIND], authors: [pubkey], ...extra},
+]
+
 const syncDMRelay = (url: string, pubkey: string) => {
   const controller = new AbortController()
 
-  // Load historical data
-  pullWithFallback({
-    relays: [url],
-    signal: controller.signal,
-    filters: [{kinds: [WRAP], "#p": [pubkey], until: ago(WEEK, 2)}],
-  })
+  const filters = buildDmFilters(pubkey, {since: ago(WEEK, 2)})
 
-  // Load new events
-  request({
+  pullAndListenDm({
     relays: [url],
     signal: controller.signal,
-    filters: [{kinds: [WRAP], "#p": [pubkey], since: ago(WEEK, 2)}],
+    filters,
   })
 
   return () => controller.abort()
@@ -264,6 +336,11 @@ const syncDMs = () => {
 
   const subscribeAll = (pubkey: string, urls: string[]) => {
     const sanitizedUrls = sanitizeRelayList(urls)
+
+    if (sanitizedUrls.length === 0) {
+      unsubscribeAll()
+      return
+    }
     // Start syncing newly added relays
     for (const url of sanitizedUrls) {
       if (!unsubscribersByUrl.has(url)) {
@@ -289,7 +366,9 @@ const syncDMs = () => {
 
       // If we have a pubkey, refresh our user's relay list then sync our subscriptions
       if ($pubkey && $shouldUnwrap) {
-        loadUserRelayList($pubkey).then(() => loadUserMessagingRelayList($pubkey))
+        const relayHints = getMessagingRelayHints()
+        loadUserRelayList($pubkey)
+        forceLoadUserMessagingRelayList(relayHints)
       }
 
       currentPubkey = $pubkey
@@ -297,15 +376,15 @@ const syncDMs = () => {
   )
 
   // When user messaging relays change, update synchronization
-  const unsubscribeList = userMessagingRelayList.subscribe($userMessagingRelayList => {
-    const $pubkey = pubkey.get()
-    const $shouldUnwrap = shouldUnwrap.get()
-
+  const unsubscribeList = derived(
+    [pubkey, shouldUnwrap, userMessagingRelayList],
+    identity,
+  ).subscribe(([$pubkey, $shouldUnwrap, $userMessagingRelayList]) => {
     if ($pubkey && $shouldUnwrap) {
       const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
       // Filter out any non-string values before sanitizing
-      const stringRelays = Array.isArray(rawRelays) 
-        ? rawRelays.filter(r => typeof r === 'string' && r.length > 0)
+      const stringRelays = Array.isArray(rawRelays)
+        ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
         : []
       const relayUrls = sanitizeRelayList(stringRelays)
       subscribeAll($pubkey, relayUrls)

@@ -27,7 +27,6 @@ import type {Feed} from "@welshman/feeds"
 import {makeIntersectionFeed, feedFromFilters, makeRelayFeed} from "@welshman/feeds"
 import type {TrustedEvent, EventContent, Profile} from "@welshman/util"
 import {
-  WRAP,
   DELETE,
   REPORT,
   PROFILE,
@@ -114,6 +113,7 @@ import {
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
+import {DM_KIND} from "@lib/budabit/dm"
 import {
   extensionSettings,
   getInstalledExtensions,
@@ -891,7 +891,7 @@ export const createDmAlert = async () => {
   return createAlert({
     description: `for direct messages.`,
     feed: makeIntersectionFeed(
-      feedFromFilters([{kinds: [WRAP], "#p": [$pubkey]}]),
+      feedFromFilters([{kinds: [DM_KIND], "#p": [$pubkey]}]),
       makeRelayFeed(...getPubkeyRelays($pubkey, RelayMode.Messaging)),
     ),
   })

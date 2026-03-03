@@ -1,0 +1,135 @@
+<script lang="ts">
+  import * as nip19 from "nostr-tools/nip19"
+  import {Router} from "@welshman/router"
+  import {LOCALE, secondsToDate} from "@welshman/lib"
+  import type {TrustedEvent} from "@welshman/util"
+  import {displayRelayUrl, isReplaceable, Address, getTagValue} from "@welshman/util"
+  import {tracker, forceLoadMessagingRelayList, messagingRelayListsByPubkey} from "@welshman/app"
+  import {DM_KIND, getDmRelayUrls, getMessagingRelayHints} from "@lib/budabit/dm"
+  import FileText from "@assets/icons/file-text.svg?dataurl"
+  import Copy from "@assets/icons/copy.svg?dataurl"
+  import UserCircle from "@assets/icons/user-circle.svg?dataurl"
+  import Icon from "@lib/components/Icon.svelte"
+  import FieldInline from "@lib/components/FieldInline.svelte"
+  import Button from "@lib/components/Button.svelte"
+  import ModalHeader from "@lib/components/ModalHeader.svelte"
+  import {clip} from "@app/util/toast"
+
+  type Props = {
+    url?: string
+    event: TrustedEvent
+  }
+
+  const {url, event}: Props = $props()
+
+  const dmRecipient = $derived.by(() => getTagValue("p", event.tags))
+  const dmRelayList = $derived.by(() =>
+    dmRecipient ? $messagingRelayListsByPubkey.get(dmRecipient) : undefined,
+  )
+  const dmRelays = $derived.by(() => (dmRecipient ? getDmRelayUrls(dmRelayList) : []))
+  const relays = $derived.by(() => {
+    if (url) return [url]
+    if (event.kind === DM_KIND) return dmRelays
+    return Router.get().Event(event).getUrls()
+  })
+  const seenOn = $derived.by(() => {
+    if (event.kind === DM_KIND && dmRelays.length > 0) {
+      return new Set(dmRelays)
+    }
+
+    return tracker.getRelays(event.id)
+  })
+  const nostrURI = $derived(
+    isReplaceable(event)
+      ? Address.fromEvent(event).toNaddr()
+      : nip19.neventEncode({...event, relays}),
+  )
+  const npub1 = nip19.npubEncode(event.pubkey)
+  const json = JSON.stringify(event, null, 2)
+  const copyLink = () => clip(nostrURI)
+  const copyPubkey = () => clip(npub1)
+  const copyJson = () => clip(json)
+
+  const formatter = new Intl.DateTimeFormat(LOCALE, {
+    dateStyle: "long",
+    timeStyle: "long",
+  })
+
+  $effect(() => {
+    if (event.kind === DM_KIND && dmRecipient) {
+      forceLoadMessagingRelayList(dmRecipient, getMessagingRelayHints())
+    }
+  })
+</script>
+
+<div class="column gap-4">
+  <ModalHeader>
+    {#snippet title()}
+      <div>Event Details</div>
+    {/snippet}
+    {#snippet info()}
+      <div>The full details of this event are shown below.</div>
+    {/snippet}
+  </ModalHeader>
+  <FieldInline>
+    {#snippet label()}
+      <p>Created At</p>
+    {/snippet}
+    {#snippet input()}
+      <p>{formatter.format(secondsToDate(event.created_at))}</p>
+    {/snippet}
+  </FieldInline>
+  <FieldInline>
+    {#snippet label()}
+      <p>Event Link</p>
+    {/snippet}
+    {#snippet input()}
+      <label class="input input-bordered flex w-full items-center gap-2">
+        <Icon icon={FileText} />
+        <input type="text" class="ellipsize min-w-0 grow" value={nostrURI} />
+        <Button onclick={copyLink} class="flex items-center">
+          <Icon icon={Copy} />
+        </Button>
+      </label>
+    {/snippet}
+  </FieldInline>
+  <FieldInline>
+    {#snippet label()}
+      <p>Author Pubkey</p>
+    {/snippet}
+    {#snippet input()}
+      <label class="input input-bordered flex w-full items-center gap-2">
+        <Icon icon={UserCircle} />
+        <input type="text" class="ellipsize min-w-0 grow" value={npub1} />
+        <Button onclick={copyPubkey} class="flex items-center">
+          <Icon icon={Copy} />
+        </Button>
+      </label>
+    {/snippet}
+  </FieldInline>
+  {#if !url && seenOn.size > 0}
+    <FieldInline>
+      {#snippet label()}
+        <p>Seen On</p>
+      {/snippet}
+      {#snippet input()}
+        <div class="flex flex-wrap gap-2">
+          {#each seenOn as url, i (url)}
+            <span class="bg-alt badge flex gap-1">
+              {displayRelayUrl(url)}
+            </span>
+          {/each}
+        </div>
+      {/snippet}
+    </FieldInline>
+  {/if}
+  <div class="relative">
+    <pre class="card2 card2-sm bg-alt overflow-auto text-xs"><code>{json}</code></pre>
+    <p class="absolute right-2 top-2 flex flex-grow items-center justify-between">
+      <Button onclick={copyJson} class="btn btn-neutral btn-sm flex items-center">
+        <Icon icon={Copy} /> Copy
+      </Button>
+    </p>
+  </div>
+  <Button class="btn btn-primary" onclick={() => history.back()}>Got it</Button>
+</div>

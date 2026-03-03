@@ -3,7 +3,7 @@
   import type {MakeNonOptional} from "@welshman/lib"
   import {append, uniq} from "@welshman/lib"
   import {pubkey} from "@welshman/app"
-  import Chat from "@app/components/Chat.svelte"
+  import Chat from "@lib/budabit/components/Chat.svelte"
   import {notifications, setChecked} from "@app/util/notifications"
   import {splitChatId} from "@app/core/state"
 

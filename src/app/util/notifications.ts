@@ -70,6 +70,25 @@ const extraCandidates = derived(notificationCandidatesStore, ($store, set) => {
 
 // Derived notifications state
 
+const getLatestEvent = (events: TrustedEvent[]) => {
+  if (!events || events.length === 0) return undefined
+  return events.reduce((latest, current) =>
+    current.created_at > latest.created_at ? current : latest,
+  )
+}
+
+const getLatestIncomingEvent = (events: TrustedEvent[], selfPubkey: string | undefined) => {
+  if (!events || events.length === 0 || !selfPubkey) return undefined
+  let latest: TrustedEvent | undefined
+  for (const event of events) {
+    if (event.pubkey === selfPubkey) continue
+    if (!latest || event.created_at > latest.created_at) {
+      latest = event
+    }
+  }
+  return latest
+}
+
 export const notifications = call(() => {
   const normalizeChecked = (value: number) =>
     value > 10_000_000_000 ? Math.round(value / 1000) : value
@@ -150,8 +169,11 @@ export const notifications = call(() => {
 
       for (const {pubkeys, messages} of $chatsById.values()) {
         const chatPath = makeChatPath(pubkeys)
+        const latestMessage = getLatestIncomingEvent(messages, $pubkey)
 
-        if (hasNotification(chatPath, messages[0])) {
+        const shouldNotify = hasNotification(chatPath, latestMessage)
+
+        if (shouldNotify) {
           paths.add("/chat")
           paths.add(chatPath)
         }

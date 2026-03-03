@@ -11,7 +11,7 @@
 
 <span class="flex min-h-10 items-center">
   {#if loading}
-    <span class="pr-3" transition:slide|local={{axis: "x"}}>
+    <span class="pr-3 inline-block" transition:slide|local={{axis: "x"}}>
       <span class="loading loading-spinner" transition:fade|local={{duration: 100}}></span>
     </span>
   {/if}

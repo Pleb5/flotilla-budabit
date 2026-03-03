@@ -9,7 +9,7 @@
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
   import SpaceAdd from "@app/components/SpaceAdd.svelte"
-  import ChatEnable from "@app/components/ChatEnable.svelte"
+  import ChatEnable from "@lib/budabit/components/ChatEnable.svelte"
   import {pushModal} from "@app/util/modal"
   import {PLATFORM_NAME} from "@app/core/state"
   import { makeSpacePath } from "@src/app/util/routes"

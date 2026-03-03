@@ -11,8 +11,8 @@
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
-  import ChatMenu from "@app/components/ChatMenu.svelte"
-  import ChatItem from "@app/components/ChatItem.svelte"
+  import ChatMenu from "@lib/budabit/components/ChatMenu.svelte"
+  import ChatItem from "@lib/budabit/components/ChatItem.svelte"
   import {pushModal} from "@app/util/modal"
   import {chatSearch} from "@app/core/state"
 

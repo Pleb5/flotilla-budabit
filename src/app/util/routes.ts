@@ -9,8 +9,6 @@ import {scrollToEvent} from "@lib/html"
 import {identity} from "@welshman/lib"
 import {
   getTagValue,
-  DIRECT_MESSAGE,
-  DIRECT_MESSAGE_FILE,
   MESSAGE,
   THREAD,
   ZAP_GOAL,
@@ -29,6 +27,7 @@ import {
   isPlatformRelay,
   ROOM,
 } from "@app/core/state"
+import {DM_KIND} from "@lib/budabit/constants"
 import {
   GIT_REPO_ANNOUNCEMENT,
   GIT_REPO_STATE,
@@ -153,7 +152,7 @@ export const goToEvent = async (event: TrustedEvent, options: Record<string, any
 }
 
 export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
-  if (event.kind === DIRECT_MESSAGE || event.kind === DIRECT_MESSAGE_FILE) {
+  if (event.kind === DM_KIND) {
     return makeChatPath([event.pubkey, ...getPubkeyTagValues(event.tags)])
   }
 
