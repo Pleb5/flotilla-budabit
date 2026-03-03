@@ -61,6 +61,7 @@
   let cashuToken = $state("")
   let cashuAmount = $state(100)
   let generatingToken = $state(false)
+  let tokenError = $state("")
   let worker = $state("b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710")
 
   const walletBalance = $derived($cashuTotalBalance)
@@ -77,10 +78,18 @@
   const generateCashuToken = async () => {
     if (!bestMint) return
     generatingToken = true
+    tokenError = ""
     try {
+      if ((walletBalancesByMint.get(bestMint) ?? 0) < cashuAmount) {
+        tokenError = `Insufficient balance. Wallet has ${(walletBalancesByMint.get(bestMint) ?? 0).toLocaleString()} sats on ${bestMint}.`
+        return
+      }
       cashuToken = await createCashuToken(cashuAmount, bestMint, "CI/CD pipeline runner")
     } catch (e: any) {
       console.error("[cicd] Failed to generate cashu token:", e)
+      tokenError = e?.message === "backup_required"
+        ? "Please back up your Cashu seed phrase before spending."
+        : "Failed to generate token. Check your wallet balance."
     } finally {
       generatingToken = false
     }
@@ -1262,9 +1271,13 @@
                 class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
                 placeholder="cashuA… (or generate above)"
                 bind:value={cashuToken} />
-              <p class="text-xs text-muted-foreground">
-                Cashu token for payment. Generate from your wallet or paste manually.
-              </p>
+              {#if tokenError}
+                <p class="text-xs text-error">{tokenError}</p>
+              {:else}
+                <p class="text-xs text-muted-foreground">
+                  Cashu token for payment. Generate from your wallet or paste manually.
+                </p>
+              {/if}
             </div>
 
             <!-- Worker -->
