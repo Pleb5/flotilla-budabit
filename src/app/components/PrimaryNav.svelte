@@ -24,6 +24,7 @@
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
+  import {pushToast} from "@app/util/toast"
   import Git from "@assets/icons/git.svg?dataurl"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
@@ -41,20 +42,35 @@
 
   const openChat = () => ($shouldUnwrap ? goto("/chat") : pushModal(ChatEnable, {next: "/chat"}))
 
+  const gitNavErrorMessage = "Could not find platform relays cannot navigate to git path"
+  let gitNavErrorToastId: string | null = null
+  let gitNavErrorToastTimeout: ReturnType<typeof setTimeout> | null = null
+
+  const showGitNavError = () => {
+    if (gitNavErrorToastId) return
+    const timeout = 5000
+    gitNavErrorToastId = pushToast({
+      message: gitNavErrorMessage,
+      theme: "error",
+      timeout,
+    })
+    if (gitNavErrorToastTimeout) clearTimeout(gitNavErrorToastTimeout)
+    gitNavErrorToastTimeout = setTimeout(() => {
+      gitNavErrorToastId = null
+      gitNavErrorToastTimeout = null
+    }, timeout)
+  }
+
   const openGit = () => {
-    const currentRelay = $page.params.relay
-    if (currentRelay) {
-      const url = decodeRelay(currentRelay)
-      goto(makeSpacePath(url, "git"))
-      return
-    }
-    // If not in a space, navigate to first available space's git
-    if (spaceUrls.length > 0) {
-      goto(makeSpacePath(spaceUrls[0], "git"))
+    const platformUrl = PLATFORM_RELAYS[0] || PLATFORM_RELAYS.find(Boolean)
+
+    if (platformUrl) {
+      goto(makeSpacePath(platformUrl, "git"))
       return
     }
 
-    showOtherSpacesMenu()
+    showGitNavError()
+    goto("/home")
   }
 
   const hasNotification = (url: string) => {
