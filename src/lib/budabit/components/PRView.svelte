@@ -19,7 +19,7 @@
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {profilesByPubkey, pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {load} from "@welshman/net"
+  import {load, PublishStatus} from "@welshman/net"
   import {
     COMMENT,
     GIT_STATUS_CLOSED,
@@ -34,6 +34,7 @@
     parsePullRequestUpdateEvent,
     createPullRequestUpdateEvent,
     createStatusEvent,
+    createRepoStateEvent,
     type CommentEvent,
     type StatusEvent,
     type PullRequestEvent,
@@ -180,10 +181,7 @@
     prMergeAnalysisResult = null
 
     try {
-      const result = await repoClass.getPRMergeAnalysis(cloneUrls, tipOid, {
-        targetBranch: prTargetBranch,
-        allCommitOids,
-      })
+      const result = await repoClass.getPRMergeAnalysis(cloneUrls, tipOid, prTargetBranch, allCommitOids)
       if (prAnalysisGeneration === myGen) {
         prMergeAnalysisResult =
           result ?? {
@@ -641,6 +639,33 @@
         targetBranch: prTargetBranch,
         mergeCommitMessage: mergePrCommitMessage || undefined,
         fastForward: prMergeAnalysisResult?.fastForward ?? true,
+        userPubkey: $pubkey ?? undefined,
+        // Publish Nostr state event (kind 30618) with the new merge commit SHA to the GRASP relay
+        // before the git push. GRASP authorises pushes by checking for this event on the relay.
+        publishStateEvent: async ({repoName, branch, commitSha, relayUrl}) => {
+          const stateEvent = createRepoStateEvent({
+            repoId: repoName,
+            head: branch,
+            refs: [{type: "heads", name: branch, commit: commitSha}],
+          })
+          const thunk = publishEvent(stateEvent as any, [relayUrl])
+          // Wait for relay confirmation; cap at 15 s so we don't block forever
+          await Promise.race([thunk.complete, new Promise(r => setTimeout(r, 15000))])
+          // Verify the GRASP relay confirmed the event. ngit-cli skips the push
+          // entirely when the relay hasn't confirmed, so we do the same.
+          const confirmed = Object.entries(thunk.results ?? {}).some(
+            ([url, r]) =>
+              r?.status === PublishStatus.Success &&
+              (url === relayUrl || url.replace(/\/$/, "") === relayUrl.replace(/\/$/, ""))
+          )
+          if (!confirmed) {
+            // Normalize the relay URL for the error — use the ws URL the user will recognize
+            throw new Error(
+              `State event (kind 30618) was not confirmed by GRASP relay ${relayUrl}. ` +
+              `Push aborted — the relay must acknowledge the event before the server accepts the push.`
+            )
+          }
+        },
       })
 
       if (result.success) {
