@@ -15,8 +15,8 @@ import {
   type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
 import {RepoCore} from "@nostr-git/core/git"
-import {repository, pubkey} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById, withGetter} from "@welshman/store"
+import {repository, tracker, pubkey} from "@welshman/app"
 import {
   PLATFORM_RELAYS,
   deriveEvent,
@@ -519,8 +519,12 @@ export type Channel = {
 
 export const splitChannelId = (id: string) => id.split("'")
 
+// Only load channel events from platform relays to avoid showing rooms from other relays
 export const channelEvents = deriveEventsAsc(
-  deriveEventsById({repository, filters: [{kinds: [ROOM_META]}]}),
+  deriveEventsById({
+    repository,
+    filters: PLATFORM_RELAYS.length > 0 ? [{kinds: [ROOM_META]}] : [],
+  }),
 )
 
 export const getUrlsForEvent = withGetter(
@@ -596,9 +600,20 @@ export const channels = derived(
   [channelEvents, getUrlsForEvent],
   ([$channelEvents, $getUrlsForEvent]) => {
     const $channels: Channel[] = []
+    const normalizedPlatformRelays = PLATFORM_RELAYS.map(normalizeRelayUrl)
+    
     for (const event of $channelEvents) {
+      // Only include events that were received from platform relays
+      const eventRelays = tracker.getRelays(event.id)
+      const isFromPlatformRelay = normalizedPlatformRelays.some(url => eventRelays.has(url))
+      
+      if (!isFromPlatformRelay) {
+        continue
+      }
+      
       const meta = fromPairs(event.tags)
-      const room = meta.d
+      // Use the room name for the room identifier since messages are tagged with the name, not the d tag
+      const room = meta.name || meta.d
       if (room) {
         for (const url of $getUrlsForEvent(event.id)) {
           const id = makeChannelId(url, room)

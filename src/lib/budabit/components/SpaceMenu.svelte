@@ -42,10 +42,8 @@
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
 
-  const channelNamesByUrl = $derived.by(() => {
-    const channels = $channelsByUrl.get(url) || []
-
-    return channels.map(ch => ch.name)
+  const channelsByUrlFiltered = $derived.by(() => {
+    return $channelsByUrl.get(url) || []
   })
 
   const showDetail = () => pushModal(SpaceDetail, {url}, {replaceState})
@@ -129,8 +127,8 @@
         </SecondaryNavItem>
       {/if}
 
-      {#each channelNamesByUrl as room, i (room)}
-        <MenuSpaceRoomItem {replaceState} notify {url} {room} />
+      {#each channelsByUrlFiltered as channel (channel.id)}
+        <MenuSpaceRoomItem {replaceState} notify {url} room={channel.room} />
       {/each}
     </div>
   </SecondaryNavSection>

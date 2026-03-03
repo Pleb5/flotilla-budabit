@@ -374,7 +374,12 @@ const syncDMs = () => {
     const $shouldUnwrap = shouldUnwrap.get()
 
     if ($pubkey && $shouldUnwrap) {
-      subscribeAll($pubkey, getRelayTagValues(getListTags($userMessagingRelayList)))
+      const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
+      // Filter out any non-string values
+      const stringRelays = Array.isArray(rawRelays) 
+        ? rawRelays.filter(r => typeof r === 'string' && r.length > 0)
+        : []
+      subscribeAll($pubkey, stringRelays)
     }
   })
 

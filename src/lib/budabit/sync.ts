@@ -95,11 +95,19 @@ const pullAndListen = ({relays, filters, signal}: PullOpts) => {
   })
 }
 
-const sanitizeRelayList = (relays: string[]) => {
+const sanitizeRelayList = (relays: string[] | any) => {
   const out: string[] = []
   const seen = new Set<string>()
 
-  for (const url of relays || []) {
+  // Ensure relays is an array
+  const relayArray = Array.isArray(relays) ? relays : []
+
+  for (const url of relayArray) {
+    // Skip non-string values
+    if (typeof url !== 'string') {
+      continue
+    }
+
     let normalized = ""
     try {
       normalized = normalizeRelayUrl(url)
@@ -294,7 +302,12 @@ const syncDMs = () => {
     const $shouldUnwrap = shouldUnwrap.get()
 
     if ($pubkey && $shouldUnwrap) {
-      const relayUrls = sanitizeRelayList(getRelayTagValues(getListTags($userMessagingRelayList)))
+      const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
+      // Filter out any non-string values before sanitizing
+      const stringRelays = Array.isArray(rawRelays) 
+        ? rawRelays.filter(r => typeof r === 'string' && r.length > 0)
+        : []
+      const relayUrls = sanitizeRelayList(stringRelays)
       subscribeAll($pubkey, relayUrls)
     }
   })
@@ -379,7 +392,12 @@ const syncUserGitData = () => {
   }
 
   const resolveUserRelays = async (signal: AbortSignal) => {
-    const baseRelays = () => sanitizeRelayList(router.FromUser().getUrls())
+    const baseRelays = () => {
+      const urls = router.FromUser().getUrls()
+      // Ensure urls is an array, not a string or other type
+      const urlsArray = Array.isArray(urls) ? urls : []
+      return sanitizeRelayList(urlsArray)
+    }
 
     let userRelays = baseRelays()
 

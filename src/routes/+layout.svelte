@@ -298,8 +298,56 @@
     // Set up our storage adapters
     db.adapters = storage.adapters
 
-    // Wait until data storage is initialized before syncing other stuff
+    // Wait until data storage is initialized
     await db.connect()
+
+    // Sanitize malformed relay list events that are already in storage
+    // This fixes the "Invalid relay url 0/6/c" errors caused by malformed relay tags
+    const sanitizeRelayListEvent = (event: any) => {
+      // Only process relay list events (kind 10002 for relay lists, 10050 for messaging relays)
+      if (event.kind !== 10002 && event.kind !== 10050) return event
+      
+      if (!event.tags || !Array.isArray(event.tags)) return event
+      
+      let modified = false
+      // Filter and fix relay tags
+      const sanitizedTags = event.tags.map((tag: any) => {
+        if (!Array.isArray(tag) || tag[0] !== 'r') return tag
+        
+        // Ensure the relay URL (tag[1]) is a valid string
+        if (typeof tag[1] !== 'string' || tag[1].length === 0) {
+          console.warn('[+layout] Filtered invalid relay tag:', tag)
+          modified = true
+          return null
+        }
+        
+        return tag
+      }).filter(Boolean)
+      
+      if (modified) {
+        return {...event, tags: sanitizedTags}
+      }
+      return event
+    }
+
+    // Clean up malformed relay list events from the repository
+    const existingRelayLists = app.repository.query([{kinds: [10002, 10050]}])
+    for (const event of existingRelayLists) {
+      const sanitized = sanitizeRelayListEvent(event)
+      if (sanitized !== event) {
+        console.log('[+layout] Sanitizing relay list event:', event.id)
+        // Remove the old event and add the sanitized version
+        app.repository.removeEvent(event.id)
+        app.repository.publish(sanitized)
+      }
+    }
+
+    // Intercept events before they're stored in the repository
+    const originalPublish = app.repository.publish.bind(app.repository)
+    app.repository.publish = (event: any, options?: any) => {
+      const sanitized = sanitizeRelayListEvent(event)
+      return originalPublish(sanitized, options)
+    }
 
     // Close the database connection on reload
     unsubscribers.push(() => db.close())
