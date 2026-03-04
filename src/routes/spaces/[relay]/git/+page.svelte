@@ -30,7 +30,7 @@
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {decodeRelay} from "@app/core/state"
   import {goto} from "$app/navigation"
-  import {onMount} from "svelte"
+  import {onMount, untrack} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
   import {nip19, type NostrEvent} from "nostr-tools"
   import {
@@ -428,6 +428,8 @@
     loadedBookmarkedRepos.some(repo => repoHasNotifications(repo.event as RepoAnnouncementEvent)),
   )
 
+  let cachedMyRepoIds: string[] = []
+  let cachedMyRepoIdsKey = ""
   const myRepoIds = $derived.by(() => {
     if (!latestMyRepos || latestMyRepos.length === 0) return []
     const ids = new Set<string>()
@@ -439,9 +441,16 @@
         console.warn("[git/+page] Failed to parse repo announcement for state lookup:", error)
       }
     }
-    return Array.from(ids)
+    const result = Array.from(ids)
+    const key = result.slice().sort().join(",")
+    if (key === cachedMyRepoIdsKey) return cachedMyRepoIds
+    cachedMyRepoIdsKey = key
+    cachedMyRepoIds = result
+    return result
   })
 
+  let cachedMyRepoRelays: string[] = []
+  let cachedMyRepoRelaysKey = ""
   const myRepoRelays = $derived.by(() => {
     if (!latestMyRepos || latestMyRepos.length === 0) return []
     const relays = new Set<string>()
@@ -456,16 +465,28 @@
         console.warn("[git/+page] Failed to parse repo announcement relays:", error)
       }
     }
-    return Array.from(relays)
+    const result = Array.from(relays)
+    const key = result.slice().sort().join(",")
+    if (key === cachedMyRepoRelaysKey) return cachedMyRepoRelays
+    cachedMyRepoRelaysKey = key
+    cachedMyRepoRelays = result
+    return result
   })
 
+  let cachedBranchStateRelays: string[] = []
+  let cachedBranchStateRelaysKey = ""
   const branchStateRelays = $derived.by(() => {
     const relays = new Set<string>()
     for (const relay of [...myRepoRelays, ...GIT_RELAYS]) {
       const normalized = normalizeRelayUrl(relay)
       if (normalized) relays.add(normalized)
     }
-    return Array.from(relays)
+    const result = Array.from(relays)
+    const key = result.slice().sort().join(",")
+    if (key === cachedBranchStateRelaysKey) return cachedBranchStateRelays
+    cachedBranchStateRelaysKey = key
+    cachedBranchStateRelays = result
+    return result
   })
 
   $effect(() => {
@@ -1088,7 +1109,7 @@
         const announcementCount = $repoAnnouncements.length
         const cardsKey = `${repoIds}:${announcementCount}`
         
-        // Only recompute cards if the key has changed
+        // Only recompute and push cards when the key has actually changed
         if (cardsKey !== cachedCardsKey) {
           // Compute cards using the store's method
           const cards = repositoriesStore.computeCards(reposToShow, {
@@ -1103,35 +1124,35 @@
           })
           cachedCards = cards
           cachedCardsKey = cardsKey
+          repositoriesStore.set(cachedCards)
         }
-        
-        repositoriesStore.set(cachedCards)
 
         // Show cards immediately if we already have some, or after a brief delay on first load
-        // This prevents the stutter from hiding/showing cards repeatedly
-        const currentCount = cachedCards.length
-        if (currentCount !== lastRepoCount) {
-          lastRepoCount = currentCount
-          
-          // If cards are already shown, keep them shown (no flicker)
-          if (cardsReady) {
-            // Already showing cards, just update the store
-            // Don't hide and reshow
-          } else {
-            // First load: wait briefly for initial batch to load
-            if (settleTimer) {
-              clearTimeout(settleTimer)
+        // Use untrack to prevent cardsReady/lastRepoCount reads from re-triggering this effect
+        untrack(() => {
+          const currentCount = cachedCards.length
+          if (currentCount !== lastRepoCount) {
+            lastRepoCount = currentCount
+
+            // If cards are already shown, keep them shown (no flicker)
+            if (!cardsReady) {
+              // First load: wait briefly for initial batch to load
+              if (settleTimer) {
+                clearTimeout(settleTimer)
+              }
+              settleTimer = setTimeout(() => {
+                cardsReady = true
+                settleTimer = null
+              }, 200)
             }
-            settleTimer = setTimeout(() => {
-              cardsReady = true
-              settleTimer = null
-            }, 200) // Reduced from 400ms for faster initial display
           }
-        }
+        })
       } else {
-        repositoriesStore.clear()
-        cardsReady = false
-        lastRepoCount = 0
+        untrack(() => {
+          repositoriesStore.clear()
+          cardsReady = false
+          lastRepoCount = 0
+        })
       }
     }
   })
