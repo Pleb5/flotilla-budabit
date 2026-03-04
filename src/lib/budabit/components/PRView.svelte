@@ -584,7 +584,8 @@
     mergePrError = null
     mergePrSuccess = false
     mergePrResult = null
-    mergePrCommitMessage = `Merge PR: ${pr.subject || "Untitled"}`
+    // Only set a merge commit message if it's not a fast-forward merge
+    mergePrCommitMessage = prMergeAnalysisResult?.fastForward ? "" : `Merge PR: ${pr.subject || "Untitled"}`
     showPrMergeDialog = true
   }
 
@@ -1149,16 +1150,29 @@
           <div class="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
             <div class="mb-4 flex items-center gap-3">
               <GitMerge class="h-5 w-5 text-primary" />
-              <h3 class="text-lg font-semibold">Confirm Merge</h3>
+              <h3 class="text-lg font-semibold">
+                {prMergeAnalysisResult?.fastForward ? 'Confirm Fast-forward' : 'Confirm Merge'}
+              </h3>
             </div>
-            <div class="mb-6 space-y-4">
-              <p class="text-sm text-muted-foreground">
+          <div class="mb-6 space-y-4">
+            <p class="text-sm text-muted-foreground">
+              {#if prMergeAnalysisResult?.fastForward}
+                This will fast-forward the
+                <code class="rounded bg-muted px-1">{prTargetBranch}</code>
+                branch to include the PR commits and push to all remotes.
+              {:else}
                 This will merge the PR into
-                <code class="rounded bg-muted px-1"
-                  >{prTargetBranch}</code
-                >
+                <code class="rounded bg-muted px-1">{prTargetBranch}</code>
                 and push to all remotes.
-              </p>
+              {/if}
+            </p>
+            {#if prMergeAnalysisResult?.fastForward}
+              <div class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+                <p class="text-sm text-blue-800 dark:text-blue-200">
+                  <strong>Fast-forward merge:</strong> No merge commit will be created. The branch will be moved to point to the latest commit.
+                </p>
+              </div>
+            {:else}
               <div>
                 <label for="pr-merge-message" class="mb-2 block text-sm font-medium">
                   Merge commit message:
@@ -1170,12 +1184,13 @@
                   rows="3"
                   placeholder="Enter merge commit message..."></textarea>
               </div>
-            </div>
+            {/if}
+          </div>
             <div class="flex justify-end gap-3">
               <Button variant="outline" onclick={cancelPrMerge}>Cancel</Button>
               <Button variant="default" onclick={executePRMerge}>
                 <GitMerge class="mr-2 h-4 w-4" />
-                Confirm Merge
+                {prMergeAnalysisResult?.fastForward ? 'Fast-forward' : 'Confirm Merge'}
               </Button>
             </div>
           </div>
