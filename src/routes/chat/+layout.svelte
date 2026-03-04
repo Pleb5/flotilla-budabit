@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
+  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {sleep} from "@welshman/lib"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
@@ -29,9 +30,17 @@
   const chats = $derived($chatSearch.searchOptions(term))
 
   const promise = sleep(10000)
+
+  onMount(() => {
+    document.body.classList.add("chat-md-sidebar")
+
+    return () => {
+      document.body.classList.remove("chat-md-sidebar")
+    }
+  })
 </script>
 
-<SecondaryNav>
+<SecondaryNav visibleClass="md:flex">
   <SecondaryNavSection>
     <SecondaryNavHeader>
       Chats

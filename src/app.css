@@ -403,6 +403,13 @@ progress[value]::-webkit-progress-value {
   @apply w-full md:left-[4rem] md:w-[calc(100%-4rem-var(--sair))];
 }
 
+@media (min-width: 768px) and (max-width: 1023px) {
+  body.chat-md-sidebar .cw {
+    left: 18.5rem;
+    width: calc(100% - 18.5rem - var(--sair));
+  }
+}
+
 .cb {
   @apply md:bottom-sai bottom-[calc(var(--saib)+3.5rem)];
 }
