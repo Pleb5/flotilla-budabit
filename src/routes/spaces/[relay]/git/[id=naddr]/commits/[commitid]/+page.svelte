@@ -136,7 +136,7 @@
         })
       }
 
-      if (!commitDetails?.success) {
+      if (!commitDetails?.success || !commitDetails.meta || !commitDetails.changes) {
         notifyCorsProxyIssue(commitDetails)
         loadError = commitDetails?.error || "Failed to load commit details"
         isLoading = false

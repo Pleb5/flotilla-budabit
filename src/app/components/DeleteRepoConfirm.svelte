@@ -112,6 +112,7 @@
     gitea: "Gitea",
     bitbucket: "Bitbucket",
     grasp: "GRASP",
+    "grasp-rest": "GRASP (REST)",
     generic: "Generic",
   }
 
