@@ -92,8 +92,9 @@ const pullWithFallbackDm = ({relays, filters, signal}: PullOpts) => {
     promises.push(pull({relays: smart, filters, signal, events}))
   }
 
-  // For DMs, avoid load timeouts by using a loader without a timeout.
-  for (const url of dumb) {
+  // For DMs, always run loader-based backfill. Even when relays support negentropy,
+  // this protects us from false capability detection or partial negentropy failures.
+  for (const url of [...smart, ...dumb]) {
     const urlEvents = events.filter(e => tracker.getRelays(e.id).has(url))
 
     if (urlEvents.length >= 100) {
@@ -121,16 +122,19 @@ const pullAndListen = ({relays, filters, signal}: PullOpts) => {
 }
 
 const pullAndListenDm = ({relays, filters, signal}: PullOpts) => {
+  const backfillFilters = filters.map(f => ({limit: 100, ...f}))
+  const liveFilters = unionFilters(filters).map(assoc("limit", 0))
+
   pullWithFallbackDm({
     relays,
     signal,
-    filters: filters.map(f => ({limit: 100, ...f})),
+    filters: backfillFilters,
   })
 
   request({
     relays,
     signal,
-    filters: unionFilters(filters).map(assoc("limit", 0)),
+    filters: liveFilters,
   })
 }
 
@@ -324,29 +328,27 @@ const syncDMs = () => {
   }
 
   // When pubkey changes, re-sync
-  const unsubscribePubkey = derived([pubkey, shouldUnwrap], identity).subscribe(
-    ([$pubkey, $shouldUnwrap]) => {
+  const unsubscribePubkey = pubkey.subscribe($pubkey => {
       if ($pubkey !== currentPubkey) {
         unsubscribeAll()
       }
 
-      // If we have a pubkey, refresh our user's relay list then sync our subscriptions
-      if ($pubkey && $shouldUnwrap) {
+      // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.
+      if ($pubkey) {
         const relayHints = getMessagingRelayHints()
         loadUserRelayList($pubkey)
         forceLoadUserMessagingRelayList(relayHints)
       }
 
       currentPubkey = $pubkey
-    },
-  )
+    })
 
   // When user messaging relays change, update synchronization
-  const unsubscribeList = userMessagingRelayList.subscribe($userMessagingRelayList => {
-    const $pubkey = pubkey.get()
-    const $shouldUnwrap = shouldUnwrap.get()
-
-    if ($pubkey && $shouldUnwrap) {
+  const unsubscribeList = derived(
+    [pubkey, userMessagingRelayList],
+    identity,
+  ).subscribe(([$pubkey, $userMessagingRelayList]) => {
+    if ($pubkey) {
       const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
       // Filter out any non-string values before sanitizing
       const stringRelays = Array.isArray(rawRelays)
