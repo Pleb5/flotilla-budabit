@@ -31,11 +31,6 @@ perl -i -pe"s|{ACCENT}|$VITE_PLATFORM_ACCENT|g" build/index.html
 perl -i -pe"s|{NAME}|$VITE_PLATFORM_NAME|g" build/index.html
 perl -i -pe"s|{URL}|$VITE_PLATFORM_URL|g" build/index.html
 
-# Replace manifest variables with stuff from our env
-perl -i -pe"s|{DESCRIPTION}|$VITE_PLATFORM_DESCRIPTION|g" build/manifest.webmanifest
-perl -i -pe"s|{ACCENT}|$VITE_PLATFORM_ACCENT|g" build/manifest.webmanifest
-perl -i -pe"s|{NAME}|$VITE_PLATFORM_NAME|g" build/manifest.webmanifest
-
 npx cap sync
 npx @capacitor/assets generate \
 	--iconBackgroundColor '#eeeeee' \

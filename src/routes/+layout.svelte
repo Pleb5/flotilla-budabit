@@ -475,12 +475,6 @@
   })
 </script>
 
-<svelte:head>
-  {#if !dev}
-    <link rel="manifest" href="/manifest.webmanifest" />
-  {/if}
-</svelte:head>
-
 {#await unsubscribe}
   <!-- pass -->
 {:then}
