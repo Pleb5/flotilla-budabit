@@ -1,6 +1,5 @@
 import type {Unsubscriber} from "svelte/store"
 import {derived, get} from "svelte/store"
-import {page} from "$app/stores"
 import {partition, call, sortBy, assoc, chunk, sleep, identity, WEEK, ago} from "@welshman/lib"
 import {
   getListTags,
@@ -254,50 +253,17 @@ const syncBudabitSpace = (url: string) => {
 
 const syncBudabitSpaces = () => {
   const unsubscribersByUrl = new Map<string, Unsubscriber>()
-  const platformRelays = sanitizeRelayList(PLATFORM_RELAYS)
-  const isGitPath = (path: string) => /^\/spaces\/[^/]+\/git(\/|$)/.test(path)
 
-  const subscribeAll = () => {
-    for (const url of platformRelays) {
-      if (!unsubscribersByUrl.has(url)) {
-        unsubscribersByUrl.set(url, syncBudabitSpace(url))
-      }
+  for (const url of sanitizeRelayList(PLATFORM_RELAYS)) {
+    if (!unsubscribersByUrl.has(url)) {
+      unsubscribersByUrl.set(url, syncBudabitSpace(url))
     }
   }
-
-  const unsubscribeAll = () => {
-    for (const [url, unsubscriber] of unsubscribersByUrl.entries()) {
-      unsubscribersByUrl.delete(url)
-      unsubscriber()
-    }
-  }
-
-  const initialPath = get(page).url.pathname
-  if (!isGitPath(initialPath)) {
-    subscribeAll()
-  } else {
-    console.debug("[syncBudabitSpaces] paused on git route", {path: initialPath})
-  }
-
-  const unsubscribePage = page.subscribe($page => {
-    const path = $page.url.pathname
-    const onGit = isGitPath(path)
-
-    if (onGit && unsubscribersByUrl.size > 0) {
-      console.debug("[syncBudabitSpaces] pausing", {path, activeRelays: unsubscribersByUrl.size})
-      unsubscribeAll()
-      return
-    }
-
-    if (!onGit && unsubscribersByUrl.size === 0) {
-      console.debug("[syncBudabitSpaces] resuming", {path, relays: platformRelays.length})
-      subscribeAll()
-    }
-  })
 
   return () => {
-    unsubscribePage()
-    unsubscribeAll()
+    for (const unsubscriber of unsubscribersByUrl.values()) {
+      unsubscriber()
+    }
   }
 }
 
@@ -376,10 +342,10 @@ const syncDMs = () => {
   )
 
   // When user messaging relays change, update synchronization
-  const unsubscribeList = derived(
-    [pubkey, shouldUnwrap, userMessagingRelayList],
-    identity,
-  ).subscribe(([$pubkey, $shouldUnwrap, $userMessagingRelayList]) => {
+  const unsubscribeList = userMessagingRelayList.subscribe($userMessagingRelayList => {
+    const $pubkey = pubkey.get()
+    const $shouldUnwrap = shouldUnwrap.get()
+
     if ($pubkey && $shouldUnwrap) {
       const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
       // Filter out any non-string values before sanitizing
