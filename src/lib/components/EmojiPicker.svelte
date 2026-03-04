@@ -21,8 +21,17 @@
 
   let element: Element | undefined = $state()
 
+  const onEmojiClick = (event: Event) => {
+    const detail = (event as CustomEvent<Emoji>).detail
+    onClick(detail)
+  }
+
   onMount(() => {
-    element?.addEventListener("emoji-click", (event: any) => onClick(event.detail as Emoji))
+    element?.addEventListener("emoji-click", onEmojiClick)
+
+    return () => {
+      element?.removeEventListener("emoji-click", onEmojiClick)
+    }
   })
 </script>
 

@@ -2,7 +2,7 @@
   import "tippy.js/animations/shift-away.css"
 
   import tippy from "tippy.js"
-  import {onMount, mount} from "svelte"
+  import {onMount, mount, unmount} from "svelte"
   import {isMobile} from "@lib/html"
 
   let {
@@ -28,10 +28,14 @@
       ...params,
     })
 
-    instance = mount(component, {target, props})
+    const mounted = mount(component, {target, props})
+    instance = mounted
 
     return () => {
+      void unmount(mounted)
       popover?.destroy()
+      popover = undefined
+      instance = undefined
     }
   })
 </script>
