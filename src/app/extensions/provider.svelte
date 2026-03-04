@@ -13,6 +13,7 @@
 
   // Track loaded extension IDs
   let loadedIds = $state<Set<string>>(new Set())
+  let loadingIds = $state<Set<string>>(new Set())
 
   // Load/unload extensions when registry or enabled state changes
   const extensions = $derived($registryStore as LoadedExtension[])
@@ -24,14 +25,18 @@
     // This effect should only re-run when extensions or enabledIds change,
     // not when loadedIds changes (which we write to below)
     const currentLoadedIds = untrack(() => loadedIds)
+    const currentLoadingIds = untrack(() => loadingIds)
 
     // Load newly enabled extensions
     for (const ext of extensions) {
       if (!enabledIds.has(ext.id)) continue
       if (currentLoadedIds.has(ext.id)) continue
+      if (currentLoadingIds.has(ext.id)) continue
 
       // Use async IIFE to handle loading
       ;(async () => {
+        loadingIds = new Set([...untrack(() => loadingIds), ext.id])
+
         try {
           if (ext.type === "nip89") {
             await extensionRegistry.loadIframeExtension(ext.manifest)
@@ -42,6 +47,10 @@
           loadedIds = new Set([...untrack(() => loadedIds), ext.id])
         } catch (e) {
           console.error("Failed to load extension runtime:", e)
+        } finally {
+          const nextLoadingIds = new Set(untrack(() => loadingIds))
+          nextLoadingIds.delete(ext.id)
+          loadingIds = nextLoadingIds
         }
       })()
     }
@@ -50,6 +59,13 @@
     const filteredIds = [...currentLoadedIds].filter(id => enabledIds.has(id) && presentIds.has(id))
     if (filteredIds.length !== currentLoadedIds.size) {
       loadedIds = new Set(filteredIds)
+    }
+
+    const filteredLoadingIds = [...currentLoadingIds].filter(
+      id => enabledIds.has(id) && presentIds.has(id),
+    )
+    if (filteredLoadingIds.length !== currentLoadingIds.size) {
+      loadingIds = new Set(filteredLoadingIds)
     }
   })
 

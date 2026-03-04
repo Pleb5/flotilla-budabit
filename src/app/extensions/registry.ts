@@ -283,7 +283,6 @@ class ExtensionRegistry {
 
       // Skip iframe loading for built-in extensions without entrypoint
       if (!ext.manifest.entrypoint) {
-        this.setExtension(ext)
         return ext
       }
 
