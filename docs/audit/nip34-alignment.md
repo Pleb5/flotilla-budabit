@@ -155,6 +155,12 @@ This audit maps Budabit/Flotilla code to the published article’s claimed behav
 - Medium: Repo grouping by `r:euc`, Subscription utility, Canonical key migration warnings.
 - Low: Misc UI filter normalization.
 
+## Pull Requests (kind 1618) and PR Updates (kind 1619)
+
+- **Create PR (1618):** Implemented. "New PR" on patches list opens a form (subject, body, tip commit, clone URL(s), optional branch name, merge base, labels). Publishes kind 1618 and then kind 1630 (Open) status. Uses `createPullRequestEvent` from core; clone URLs default from repo announcement.
+- **Merge PR (1631):** Reuses existing Status flow. PR detail page passes `issueKind={"1618"}` to Status; maintainer can set "Resolved" and publish 1631 with `merge-commit` and `r` tags as per NIP-34.
+- **PR updates (1619):** Implemented. Core `createPullRequestUpdateEvent` and validation require NIP-22 `E` (pull-request-event-id) and `P` (pull-request-author) tags. PR detail page derives 1619 events by `#E: [prEvent.id]`, shows an "Updates" timeline, and offers "Update PR" (new tip commit) for the PR author.
+
 ## Immediate Test Gaps
 
 - euc grouping and maintainer derivation.
