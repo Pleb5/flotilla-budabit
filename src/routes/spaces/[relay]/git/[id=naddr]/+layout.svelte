@@ -44,7 +44,7 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load, request} from "@welshman/net"
   import {Router} from "@welshman/router"
-  import {goto, beforeNavigate} from "$app/navigation"
+  import {goto, beforeNavigate, afterNavigate} from "$app/navigation"
   import {
     normalizeRelayUrl,
     NAMED_BOOKMARKS,
@@ -62,7 +62,7 @@
     type TrustedEvent
   } from "@welshman/util"
   import {nthEq} from "@welshman/lib"
-  import {setContext, onDestroy} from "svelte"
+  import {setContext, onDestroy, onMount} from "svelte"
   import {
     REPO_KEY,
     REPO_RELAYS_KEY,
@@ -88,6 +88,136 @@
   // Type assertion needed because TypeScript infers old layout return type
   const layoutData = data as unknown as {repoId: string, repoName: string, repoPubkey: string, fallbackRelays: string[], naddrRelays: string[], url: string}
   const {repoId, repoName, repoPubkey, fallbackRelays, naddrRelays, url} = layoutData
+
+  const DIAG_QUERY_FLAG = "diagNav"
+  const DIAG_STORAGE_FLAG = "budabit:diag-nav"
+  const DIAG_SKIP_INITIAL_DATA_QUERY_FLAG = "diagSkipInitialData"
+  const DIAG_SKIP_INITIAL_DATA_STORAGE_FLAG = "budabit:diag-skip-initial-data-load"
+  const DIAG_LONG_DERIVE_MS = 8
+  const DIAG_EVENT_LOOP_LAG_MS = 120
+  const DIAG_EVENT_LOOP_INTERVAL_MS = 500
+
+  const diagNow = () =>
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now()
+
+  const readDiagFlag = () => {
+    const queryFlag = $page.url.searchParams.get(DIAG_QUERY_FLAG)
+    if (queryFlag === "1" || queryFlag === "true") return true
+    if (queryFlag === "0" || queryFlag === "false") return false
+    if (typeof localStorage === "undefined") return false
+    return localStorage.getItem(DIAG_STORAGE_FLAG) === "1"
+  }
+
+  const readDiagSkipInitialDataFlag = () => {
+    const queryFlag = $page.url.searchParams.get(DIAG_SKIP_INITIAL_DATA_QUERY_FLAG)
+    if (queryFlag === "1" || queryFlag === "true") return true
+    if (queryFlag === "0" || queryFlag === "false") return false
+    if (typeof localStorage === "undefined") return false
+    return localStorage.getItem(DIAG_SKIP_INITIAL_DATA_STORAGE_FLAG) === "1"
+  }
+
+  let diagEnabled = $state(false)
+  let diagSkipInitialDataLoad = $state(false)
+  let diagNavSeq = 0
+  const pendingNavByPath = new Map<string, {seq: number; clickAt: number; href: string}>()
+  let currentNavSeq = 0
+  let currentNavStartAt = 0
+  let currentNavTargetPath = ""
+
+  const diagLog = (message: string, payload: Record<string, unknown> = {}) => {
+    if (!diagEnabled) return
+    console.debug("[RepoNavDiag]", message, {
+      ts: Math.round(diagNow()),
+      repoId,
+      page: $page.url.pathname,
+      ...payload,
+    })
+  }
+
+  const timedLoad = async (label: string, options: any) => {
+    const startedAt = diagNow()
+    const relays = Array.isArray(options?.relays) ? options.relays : []
+    const filters = Array.isArray(options?.filters) ? options.filters : []
+    diagLog("load_start", {label, relays: relays.length, filters: filters.length})
+    try {
+      const result = await load(options)
+      const eventsLoaded = Array.isArray(result) ? result.length : undefined
+      diagLog("load_done", {label, ms: Math.round(diagNow() - startedAt), eventsLoaded})
+      return result
+    } catch (error) {
+      diagLog("load_fail", {
+        label,
+        ms: Math.round(diagNow() - startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
+  }
+
+  $effect(() => {
+    diagEnabled = readDiagFlag()
+    diagSkipInitialDataLoad = readDiagSkipInitialDataFlag()
+  })
+
+  $effect(() => {
+    if (!diagEnabled) return
+    diagLog("diagnostics_enabled", {
+      skipInitialDataLoad: diagSkipInitialDataLoad,
+      query: $page.url.search,
+    })
+  })
+
+  $effect(() => {
+    const pathname = $page.url.pathname
+    if (!diagEnabled || !pathname) return
+    diagLog("url_path_observed", {pathname})
+  })
+
+  onMount(() => {
+    let expectedAt = diagNow() + DIAG_EVENT_LOOP_INTERVAL_MS
+    const eventLoopInterval = setInterval(() => {
+      if (!diagEnabled) {
+        expectedAt = diagNow() + DIAG_EVENT_LOOP_INTERVAL_MS
+        return
+      }
+      const now = diagNow()
+      const lagMs = now - expectedAt
+      expectedAt = now + DIAG_EVENT_LOOP_INTERVAL_MS
+      if (lagMs >= DIAG_EVENT_LOOP_LAG_MS) {
+        diagLog("event_loop_lag", {lagMs: Math.round(lagMs)})
+      }
+    }, DIAG_EVENT_LOOP_INTERVAL_MS)
+
+    const clickListener = (evt: MouseEvent) => {
+      if (!diagEnabled) return
+      if (evt.button !== 0 || evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.altKey) return
+      const target = evt.target as HTMLElement | null
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null
+      if (!anchor) return
+      let parsed: URL
+      try {
+        parsed = new URL(anchor.href, window.location.href)
+      } catch {
+        return
+      }
+      if (parsed.origin !== window.location.origin) return
+      const base = repoBasePath()
+      if (!parsed.pathname.startsWith(base)) return
+      const seq = ++diagNavSeq
+      const clickAt = diagNow()
+      pendingNavByPath.set(parsed.pathname, {seq, clickAt, href: parsed.pathname + parsed.search + parsed.hash})
+      diagLog("click_intent", {seq, href: parsed.pathname + parsed.search + parsed.hash})
+    }
+
+    document.addEventListener("click", clickListener, true)
+
+    return () => {
+      clearInterval(eventLoopInterval)
+      document.removeEventListener("click", clickListener, true)
+    }
+  })
   
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
@@ -310,11 +440,24 @@
     return derived(
       [allIssueEvents, repoAddresses],
       ([events, addresses]: [TrustedEvent[], string[]]) => {
+        const startedAt = diagEnabled ? diagNow() : 0
         const addressSet = new Set(addresses)
-        return (events || []).filter((event: TrustedEvent) => {
+        const result = (events || []).filter((event: TrustedEvent) => {
           const addressTag = event.tags.find((t: string[]) => t[0] === "a")
           return addressTag && addressSet.has(addressTag[1])
         }) as IssueEvent[]
+        if (diagEnabled) {
+          const ms = diagNow() - startedAt
+          if (ms >= DIAG_LONG_DERIVE_MS) {
+            diagLog("derive_issues_slow", {
+              ms: Math.round(ms),
+              input: (events || []).length,
+              addresses: addresses.length,
+              output: result.length,
+            })
+          }
+        }
+        return result
       },
     ) as Readable<IssueEvent[]>
   }
@@ -327,11 +470,24 @@
     return derived(
       [allPatchEvents, repoAddresses],
       ([events, addresses]: [TrustedEvent[], string[]]) => {
+        const startedAt = diagEnabled ? diagNow() : 0
         const addressSet = new Set(addresses)
-        return (events || []).filter((event: TrustedEvent) => {
+        const result = (events || []).filter((event: TrustedEvent) => {
           const addressTag = event.tags.find((t: string[]) => t[0] === "a")
           return addressTag && addressSet.has(addressTag[1])
         }) as PatchEvent[]
+        if (diagEnabled) {
+          const ms = diagNow() - startedAt
+          if (ms >= DIAG_LONG_DERIVE_MS) {
+            diagLog("derive_patches_slow", {
+              ms: Math.round(ms),
+              input: (events || []).length,
+              addresses: addresses.length,
+              output: result.length,
+            })
+          }
+        }
+        return result
       },
     ) as Readable<PatchEvent[]>
   }
@@ -344,11 +500,24 @@
     return derived(
       [allPullRequestEvents, repoAddresses],
       ([events, addresses]: [TrustedEvent[], string[]]) => {
+        const startedAt = diagEnabled ? diagNow() : 0
         const addressSet = new Set(addresses)
-        return (events || []).filter((event: TrustedEvent) => {
+        const result = (events || []).filter((event: TrustedEvent) => {
           const addressTag = event.tags.find((t: string[]) => t[0] === "a")
           return addressTag && addressSet.has(addressTag[1])
         }) as PullRequestEvent[]
+        if (diagEnabled) {
+          const ms = diagNow() - startedAt
+          if (ms >= DIAG_LONG_DERIVE_MS) {
+            diagLog("derive_pull_requests_slow", {
+              ms: Math.round(ms),
+              input: (events || []).length,
+              addresses: addresses.length,
+              output: result.length,
+            })
+          }
+        }
+        return result
       },
     ) as Readable<PullRequestEvent[]>
   }
@@ -366,11 +535,24 @@
     return derived(
       [allStatusEvents, repoAddresses],
       ([events, addresses]: [TrustedEvent[], string[]]) => {
+        const startedAt = diagEnabled ? diagNow() : 0
         const addressSet = new Set(addresses)
-        return (events || []).filter((event: TrustedEvent) => {
+        const result = (events || []).filter((event: TrustedEvent) => {
           const addressTag = event.tags.find((t: string[]) => t[0] === "a")
           return addressTag && addressSet.has(addressTag[1])
         }) as StatusEvent[]
+        if (diagEnabled) {
+          const ms = diagNow() - startedAt
+          if (ms >= DIAG_LONG_DERIVE_MS) {
+            diagLog("derive_status_slow", {
+              ms: Math.round(ms),
+              input: (events || []).length,
+              addresses: addresses.length,
+              output: result.length,
+            })
+          }
+        }
+        return result
       },
     ) as Readable<StatusEvent[]>
   }
@@ -412,11 +594,24 @@
     return derived(
       [allCommentEvents, allRootIds],
       ([events, rootIds]: [TrustedEvent[], string[]]) => {
+        const startedAt = diagEnabled ? diagNow() : 0
         if (rootIds.length === 0) return []
-        return (events || []).filter((event: TrustedEvent) => {
+        const result = (events || []).filter((event: TrustedEvent) => {
           const eTags = event.tags.filter((t: string[]) => t[0] === "E" || t[0] === "e")
           return eTags.some((tag: string[]) => rootIds.includes(tag[1]))
         }).filter(isCommentEvent) as CommentEvent[]
+        if (diagEnabled) {
+          const ms = diagNow() - startedAt
+          if (ms >= DIAG_LONG_DERIVE_MS) {
+            diagLog("derive_comments_slow", {
+              ms: Math.round(ms),
+              input: (events || []).length,
+              rootIds: rootIds.length,
+              output: result.length,
+            })
+          }
+        }
+        return result
       },
     ) as Readable<CommentEvent[]>
   }
@@ -507,7 +702,7 @@
     const key = `${maintainerList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
     if (repoLoadKey === key) return
     repoLoadKey = key
-    load({
+    timedLoad("repo_announcement", {
       relays: announcementRelays,
       filters: [
         {
@@ -517,7 +712,7 @@
         },
       ],
     }).catch(() => {})
-    load({
+    timedLoad("repo_state", {
       relays,
       filters: [
         {
@@ -539,7 +734,7 @@
         const maintainersRetry = getStore(repoMaintainersStore)
         const maintainerListRetry =
           maintainersRetry && maintainersRetry.length > 0 ? maintainersRetry : [repoPubkey]
-        load({
+        timedLoad("repo_announcement_retry", {
           relays: announcementRelaysRetry,
           filters: [
             {
@@ -549,7 +744,7 @@
             },
           ],
         }).catch(() => {})
-        load({
+        timedLoad("repo_state_retry", {
           relays: relaysRetry,
           filters: [
             {
@@ -679,7 +874,7 @@
 
     const relayListFromUrl = getStore(repoRelaysStore)
     const announcementRelays = getRepoAnnouncementRelays()
-    const repoLoadPromise = load({relays: announcementRelays, filters: repoFilters})
+    const repoLoadPromise = timedLoad("init_repo_filters", {relays: announcementRelays, filters: repoFilters})
 
     const allReposFilter = {
       kinds: [GIT_REPO_ANNOUNCEMENT],
@@ -692,39 +887,53 @@
       : [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`]
 
     // Start loading with initial addresses
+    const initialLoadStartedAt = diagNow()
+    const issuePatchPrStatusLoad = diagSkipInitialDataLoad
+      ? Promise.resolve([])
+      : timedLoad("init_issue_patch_pr_status", {
+          relays: relayListFromUrl,
+          filters: [
+            {
+              kinds: [GIT_ISSUE],
+              "#a": addressFilter,
+            },
+            {
+              kinds: [GIT_PATCH],
+              "#a": addressFilter,
+            },
+            {
+              kinds: [GIT_PULL_REQUEST],
+              "#a": addressFilter,
+            },
+            {
+              kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+              "#a": addressFilter,
+            },
+          ],
+        })
+
+    if (diagSkipInitialDataLoad) {
+      diagLog("init_issue_patch_pr_status_skipped", {
+        reason: "diag_skip_initial_data_flag",
+      })
+    }
+
     Promise.all([
       repoLoadPromise,
-      load({
+      timedLoad("init_all_repos_by_d_tag", {
         relays: announcementRelays,
         filters: [allReposFilter],
       }),
-      load({
-        relays: relayListFromUrl,
-        filters: [
-          {
-            kinds: [GIT_ISSUE],
-            "#a": addressFilter,
-          },
-          {
-            kinds: [GIT_PATCH],
-            "#a": addressFilter,
-          },
-          {
-            kinds: [GIT_PULL_REQUEST],
-            "#a": addressFilter,
-          },
-          {
-            kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
-            "#a": addressFilter,
-          },
-        ],
-      }),
+      issuePatchPrStatusLoad,
     ]).then(() => {
+      diagLog("initial_loads_complete", {
+        ms: Math.round(diagNow() - initialLoadStartedAt),
+      })
       // Reactively load data when effective addresses change
       const repoAddressesUnsubscribe = repoAddressesStore.subscribe((addresses: string[]) => {
         if (addresses.length > 0) {
           const currentRelays = getStore(repoRelaysStore)
-          load({
+          timedLoad("effective_address_issue_patch_pr_status", {
             relays: currentRelays,
             filters: [
               {
@@ -760,7 +969,7 @@
         const loadKey = `${idsKey}::${relaysKey}`
         if (!lastLoadedIds.has(loadKey)) {
           lastLoadedIds.add(loadKey)
-          load({
+          timedLoad("comments_for_root_ids", {
             relays: currentRelays,
             filters: [
               {
@@ -855,12 +1064,46 @@
 
   const issuesScrollStorageKey = `repoScroll:${id}:issues`
 
-  beforeNavigate(({to}) => {
+  beforeNavigate(({to, from}) => {
+    if (diagEnabled) {
+      currentNavStartAt = diagNow()
+      currentNavTargetPath = to?.url.pathname || ""
+      const pending = currentNavTargetPath ? pendingNavByPath.get(currentNavTargetPath) : undefined
+      currentNavSeq = pending?.seq || ++diagNavSeq
+      const clickToBeforeMs = pending ? Math.round(currentNavStartAt - pending.clickAt) : undefined
+      diagLog("before_navigate", {
+        seq: currentNavSeq,
+        from: from?.url.pathname,
+        to: currentNavTargetPath,
+        clickToBeforeMs,
+      })
+    }
+
     if (!to || typeof sessionStorage === "undefined") return
     const nextPath = to.url.pathname
     if (!nextPath.startsWith(repoBasePath())) {
       sessionStorage.removeItem(issuesScrollStorageKey)
     }
+  })
+
+  afterNavigate(({from, to}) => {
+    if (!diagEnabled) return
+    const endedAt = diagNow()
+    const navMs = currentNavStartAt ? Math.round(endedAt - currentNavStartAt) : undefined
+    const pending = currentNavTargetPath ? pendingNavByPath.get(currentNavTargetPath) : undefined
+    const clickToAfterMs = pending ? Math.round(endedAt - pending.clickAt) : undefined
+    diagLog("after_navigate", {
+      seq: currentNavSeq,
+      from: from?.url.pathname,
+      to: to?.url.pathname,
+      navMs,
+      clickToAfterMs,
+    })
+    if (currentNavTargetPath) {
+      pendingNavByPath.delete(currentNavTargetPath)
+    }
+    currentNavStartAt = 0
+    currentNavTargetPath = ""
   })
 
   let graspServerUrls = $state<string[]>([])
