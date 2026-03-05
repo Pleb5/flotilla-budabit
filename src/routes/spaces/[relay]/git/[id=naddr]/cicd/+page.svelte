@@ -18,6 +18,7 @@
     Plus,
   } from "@lucide/svelte"
   import {getTagValue} from "@welshman/util"
+  import {SimplePool, nip19} from "nostr-tools"
   import {pubkey, signer} from "@welshman/app"
   import {
     cashuTotalBalance,
@@ -25,7 +26,6 @@
     cashuMints,
     createCashuToken,
   } from "@lib/budabit/cashu"
-  import {SimplePool} from "nostr-tools"
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import {slideAndFade} from "@lib/transition"
@@ -40,6 +40,7 @@
   import type {Repo} from "@nostr-git/ui"
   import type {LayoutProps} from "../$types.js"
   import {makeFeed} from "@app/core/requests"
+  import {load} from "@welshman/net"
 
   let {data}: LayoutProps = $props()
 
@@ -120,17 +121,14 @@
       loadingWorkflows = true
 
       const filesResult = await repoClass.listRepoFiles({path: ".github/workflows"})
-      console.log("Raw filesResult:", filesResult)
 
       // FileListingResult has a files property
       const filesList = filesResult?.files || []
-      console.log("Parsed filesList:", filesList)
 
       // Filter for YAML files (only files, not directories)
       const workflowFiles = filesList.filter(
         f => f.type === "file" && f.path && (f.path.endsWith(".yml") || f.path.endsWith(".yaml")),
       )
-      console.log("Filtered workflowFiles:", workflowFiles)
 
       // Parse workflow files to get their names
       const workflows = await Promise.all(
@@ -138,10 +136,8 @@
           try {
             if (!file.path) return null
 
-            console.log("Fetching content for:", file.path)
             const contentResult = await repoClass.getFileContent({path: file.path})
             const content = contentResult?.content || ""
-            console.log("Extracted content for", file.path, ":", content.substring(0, 100))
 
             // Extract filename from path for fallback
             const fileName = file.path.split("/").pop() || ""
@@ -151,8 +147,6 @@
             const workflowName = nameMatch
               ? nameMatch[1].trim()
               : fileName.replace(/\.(yml|yaml)$/, "").replace(/[-_]/g, " ")
-
-            console.log("Parsed workflow name:", workflowName, "from file:", fileName)
 
             return {
               name: workflowName,
@@ -166,7 +160,6 @@
       )
 
       githubWorkflows = workflows.filter((w): w is {name: string; path: string} => w !== null)
-      console.log("Final githubWorkflows:", githubWorkflows)
     } catch (e) {
       console.error("Failed to fetch workflows:", e)
       githubWorkflows = []
@@ -201,8 +194,20 @@
 
   const {relay, id} = $page.params
 
-  // Get the naddr for filtering
-  const repoNaddr = $derived(id)
+  // Decode naddr bech32 → kind:pubkey:d-tag coordinate for Nostr #a tag filtering
+  const repoNaddr = $derived.by(() => {
+    if (!id) return id
+    try {
+      const decoded = nip19.decode(id)
+      if (decoded.type === "naddr") {
+        const {kind, pubkey: pk, identifier} = decoded.data
+        return `${kind}:${pk}:${identifier}`
+      }
+    } catch {
+      // pass
+    }
+    return id
+  })
 
   // Mock workflow runs data structure
   interface WorkflowRun {
@@ -297,7 +302,7 @@
 
   // Navigate to pipeline run details
   const navigateToRun = (run: WorkflowRun) => {
-    goto(`/spaces/${encodeURIComponent(relay)}/git/${id}/cicd/${run.id}`)
+    goto(`/spaces/${encodeURIComponent(relay!)}/git/${id}/cicd/${run.id}`)
   }
 
   let workflowRuns = $state<WorkflowRun[]>([
@@ -375,8 +380,6 @@
       kinds: [5100],
       "#a": [repoNaddr],
     }
-    console.log("jobFilter derived:", JSON.stringify(filter, null, 2))
-    console.log("repoNaddr:", repoNaddr)
     return filter
   })
 
@@ -388,46 +391,51 @@
 
   // Initialize feed asynchronously - don't block render
   onMount(() => {
-    console.log("=== CICD onMount called ===")
-    console.log("feedInitialized:", feedInitialized)
-    console.log("jobFilter:", JSON.stringify(jobFilter, null, 2))
-
     if (!feedInitialized && jobFilter) {
       // Defer makeFeed to avoid blocking initial render
       const timeout = setTimeout(() => {
-        console.log("=== Starting makeFeed initialization ===")
         const tryStart = () => {
-          console.log("tryStart - element:", !!element, "feedInitialized:", feedInitialized)
           if (element && !feedInitialized && jobFilter) {
-            console.log("=== Creating makeFeed ===")
             feedInitialized = true
-            const damusRelay = "wss://relay.damus.io"
-            console.log("Using relay:", damusRelay)
-            console.log("Filter:", JSON.stringify(jobFilter, null, 2))
+            const jobRelays = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
 
             const feed = makeFeed({
               element,
-              relays: [damusRelay],
+              relays: jobRelays,
               feedFilters: [jobFilter],
               subscriptionFilters: [jobFilter],
               initialEvents: [],
-              onExhausted: () => {
-                console.log("=== Feed exhausted ===")
-                console.log("Job events received:", jobEvents.length)
-              },
             })
             
-            // Subscribe to the events store
+            // feed.events only receives events that pass the relay tracker check.
+            // Use it only for live new events (merge, don't overwrite).
             jobEventsStore = feed.events
             jobEventsUnsubscribe = feed.events.subscribe((events: any[]) => {
-              console.log("=== Job events updated ===", events.length)
-              jobEvents = events
+              if (events.length === 0) return
+              // Merge live events into jobEvents without overwriting initial load results
+              const seen = new Set(jobEvents.map((e: any) => e.id))
+              const newEvents = events.filter((e: any) => !seen.has(e.id))
+              if (newEvents.length > 0) {
+                jobEvents = [...jobEvents, ...newEvents].sort((a: any, b: any) => b.created_at - a.created_at)
+              }
+            })
+
+            // Initial load: bypass the scroller (which requires .scroll-container ancestor).
+            load({
+              relays: jobRelays,
+              filters: [jobFilter],
+            }).then(loaded => {
+              if (loaded.length > 0) {
+                const seen = new Set(jobEvents.map((e: any) => e.id))
+                const newEvents = loaded.filter((e: any) => !seen.has(e.id))
+                if (newEvents.length > 0) {
+                  jobEvents = [...jobEvents, ...newEvents].sort((a: any, b: any) => b.created_at - a.created_at)
+                }
+              }
             })
             
             feedCleanup = feed.cleanup
-            console.log("=== makeFeed created ===")
           } else if (!element) {
-            console.log("Element not ready, retrying...")
             requestAnimationFrame(tryStart)
           }
         }
@@ -452,8 +460,6 @@
 
       // Only fetch job results for completed or success status
       if (status === "completed" || status === "success") {
-        console.log(`Fetching job result for workflow ${workflowId} with status ${status}`)
-
         try {
           const jobResultFilter = {kinds: [5101], "#e": [workflowId]}
 
@@ -465,25 +471,16 @@
             feedFilters: [jobResultFilter],
             subscriptionFilters: [jobResultFilter],
             initialEvents: [],
-            onExhausted: () => {
-              console.log("Job result feed exhausted")
-            },
           })
 
           // Subscribe to the events store to process results
           const unsubscribe = jobResultFeed.events.subscribe((events: any[]) => {
             for (const event of events) {
-              console.log("Job result event received:", event.id)
-
               const successTag = event.tags.find((t: string[]) => t[0] === "success")
               const exitCodeTag = event.tags.find((t: string[]) => t[0] === "exit_code")
 
               const isSuccess = successTag?.[1] === "true" || exitCodeTag?.[1] === "0"
               const actualStatus = isSuccess ? "success" : "failure"
-
-              console.log(
-                `Job result: success=${successTag?.[1]}, exitCode=${exitCodeTag?.[1]}, actualStatus=${actualStatus}`,
-              )
 
               // Update the status event with the actual status from job result
               const statusIndex = statusEvents.findIndex((e: any) => e.id === statusEvent.id)
@@ -515,8 +512,6 @@
 
   // CRITICAL: Cleanup on destroy to prevent memory leaks and blocking navigation
   onDestroy(() => {
-    console.log("=== CICD onDestroy called ===")
-    // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
     if (jobEventsUnsubscribe) jobEventsUnsubscribe()
   })
@@ -524,14 +519,6 @@
   // Get events from makeFeed
   let jobEvents = $state<any[]>([])
   let statusEvents = $state<any[]>([])
-
-  // Debug: Watch jobEvents changes
-  $effect(() => {
-    console.log("jobEvents changed, count:", jobEvents.length)
-    if (jobEvents.length > 0) {
-      console.log("jobEvents:", jobEvents)
-    }
-  })
 
   // Combine test data and real job events
   const allWorkflowRuns = $derived.by(() => {
@@ -541,53 +528,11 @@
 
   // Match status events to workflow runs and update status
   const workflowRunsWithStatus = $derived.by(() => {
-    console.log("=== workflowRunsWithStatus derived ===")
-    console.log("allWorkflowRuns:", allWorkflowRuns)
-    console.log("statusEvents:", statusEvents)
-
     return allWorkflowRuns.map(run => {
-      console.log("Processing workflow run:", run.id, "-", run.name)
-
       // Find all matching status events for this workflow run (most recent first)
       const matchingStatusEvents = statusEvents.filter(statusEvent => {
         // Status event should have an "e" tag pointing to the workflow event ID
         const eTag = statusEvent.tags.find((t: string[]) => t[0] === "e")
-
-        // Log comparison details for debugging
-        if (eTag) {
-          const eTagValue = eTag[1] as string
-          const runIdValue = run.id as string
-
-          console.log("  - Comparing status event eTag value:")
-          console.log("    Value:", JSON.stringify(eTagValue))
-          console.log("    Length:", eTagValue.length)
-          console.log(
-            "    Chars:",
-            Array.from(eTagValue)
-              .map(c => `${c} (${c.charCodeAt(0)})`)
-              .join(" "),
-          )
-          console.log("    Bytes:", new TextEncoder().encode(eTagValue))
-          console.log("")
-
-          console.log("  - With workflow run id:")
-          console.log("    Value:", JSON.stringify(runIdValue))
-          console.log("    Length:", runIdValue.length)
-          console.log(
-            "    Chars:",
-            Array.from(runIdValue)
-              .map(c => `${c} (${c.charCodeAt(0)})`)
-              .join(" "),
-          )
-          console.log("    Bytes:", new TextEncoder().encode(runIdValue))
-          console.log("")
-
-          console.log("  - Comparison:")
-          console.log("    Strict equality:", eTagValue === runIdValue)
-          console.log("    Trimmed equality:", eTagValue.trim() === runIdValue.trim())
-          console.log("    Trimmed lengths:", eTagValue.trim().length, runIdValue.trim().length)
-        }
-
         const matches = eTag && eTag[1] === run._originalEvent?.id
         return matches
       })
@@ -597,32 +542,14 @@
         matchingStatusEvents.sort((a, b) => b.created_at - a.created_at)
         const mostRecentStatusEvent = matchingStatusEvents[0]
 
-        console.log(`  ✓ Found ${matchingStatusEvents.length} matching status events for:`, run.id)
-        console.log(
-          "  - Most recent status event:",
-          mostRecentStatusEvent.id,
-          mostRecentStatusEvent.created_at,
-        )
-        console.log(
-          "  - All status events:",
-          matchingStatusEvents.map(e => ({
-            id: e.id,
-            status: e.tags.find((t: string[]) => t[0] === "status")?.[1],
-            created_at: e.created_at,
-          })),
-        )
-
         // Extract status from most recent status event
         const statusTag = mostRecentStatusEvent.tags.find((t: string[]) => t[0] === "status")
         const status = statusTag ? statusTag[1] : "pending"
-        console.log("  - Extracted status:", status)
 
         return {
           ...run,
           status: status as WorkflowRun["status"],
         }
-      } else {
-        console.log("  ✗ No matching status events found for run:", run.id)
       }
 
       return run
@@ -812,23 +739,20 @@
       content: "",
       tags: [
         ["p", worker],
-        ["a", repoNaddr],
+        ["a", repoNaddr ?? ""],
         ["cmd", "bash"],
         ["args", "-c", bashCommand],
         ["payment", cashuToken],
       ],
-      pubkey: $pubkey,
+      pubkey: $pubkey ?? "",
     }
 
     try {
       // Sign and publish event
       const signedEvent = await $signer.sign(unsignedEvent)
-      console.log("Signed event:", signedEvent)
 
       const pool = new SimplePool()
       await pool.publish(["wss://relay.damus.io", "wss://nos.lol"], signedEvent)
-
-      console.log("Published event to relays:", repoRelays)
 
       const jobStatusUrl = `https://loom.treegaze.com/job/${signedEvent.id}`
       toast.push({

@@ -39,8 +39,7 @@
   import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
-  import {getEventsForUrl} from "@app/core/state"
-  import {makeFeed} from "@app/core/requests"
+  import {load, request} from "@welshman/net"
 
   let {data}: LayoutProps = $props()
 
@@ -170,16 +169,6 @@
   let error = $state<string | null>(null)
   let pollingTimer: ReturnType<typeof setInterval> | null = null
 
-  // Debug effect to track when stdout/stderr change
-  $effect(() => {
-    if (jobResultEvent) {
-      console.log("🖥️ Job Output state changed:")
-      console.log("   jobResultEvent:", jobResultEvent)
-      console.log("   stdout length:", stdout.length)
-      console.log("   stderr length:", stderr.length)
-    }
-  })
-
   // Parse workflow event data
   const parseWorkflowEvent = (event: WorkflowEvent) => {
     const argsTag = event.tags.find(t => t[0] === "args")
@@ -264,249 +253,133 @@
     }
   }
 
-  // Fetch workflow event on mount
-  onMount(() => {
-    if (repoRelays.length === 0) {
-      error = "No relays available"
-      loading = false
-      return
+  const JOB_RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
+
+  const applyJobResult = (event: any) => {
+    const successTag = event.tags?.find((t: string[]) => t[0] === "success")
+    const exitCodeTag = event.tags?.find((t: string[]) => t[0] === "exit_code")
+    const durationTag = event.tags?.find((t: string[]) => t[0] === "duration")
+    const stdoutTag = event.tags?.find((t: string[]) => t[0] === "stdout")
+    const stderrTag = event.tags?.find((t: string[]) => t[0] === "stderr")
+    const changeTag = event.tags?.find((t: string[]) => t[0] === "change")
+
+    jobResultEvent = {
+      id: event.id,
+      kind: event.kind,
+      content: event.content,
+      created_at: event.created_at,
+      pubkey: event.pubkey,
+      tags: event.tags,
+      sig: event.sig,
+      success: successTag?.[1],
+      exitCode: exitCodeTag?.[1],
+      duration: durationTag?.[1],
+      stdout: stdoutTag?.[1],
+      stderr: stderrTag?.[1],
+      change: changeTag?.[1],
     }
 
-    console.log("Fetching workflow event:", runId)
-    console.log("Relays:", repoRelays)
-    console.log("Run ID from params:", runId)
+    if (statusEvent) {
+      const actualStatus =
+        jobResultEvent.success === "true" || jobResultEvent.exitCode === "0" ? "success" : "failure"
+      statusEvent = {...statusEvent, status: actualStatus}
+    }
 
-    // Fetch workflow event using makeFeed
+    if (stdoutTag?.[1]) fetchOutputFile(stdoutTag[1], "stdout")
+    if (stderrTag?.[1]) fetchOutputFile(stderrTag[1], "stderr")
+  }
+
+  const applyStatusEvent = (event: any) => {
+    const statusTag = event.tags?.find((t: string[]) => t[0] === "status")
+    const status = statusTag ? statusTag[1] : "unknown"
+    // Only update if this is newer than what we have
+    if (!statusEvent || event.created_at >= statusEvent.created_at) {
+      statusEvent = {
+        id: event.id,
+        workflowId: runId || "",
+        status,
+        content: event.content,
+        created_at: event.created_at,
+        pubkey: event.pubkey,
+      }
+    }
+  }
+
+  // Fetch workflow event on mount
+  onMount(() => {
     if (!runId) {
       error = "Run ID is required"
       loading = false
       return
     }
+
     const workflowFilter = {kinds: [5100], ids: [runId]}
-    console.log("Workflow filter:", JSON.stringify(workflowFilter, null, 2))
-
-    const workflowFeedResult = makeFeed({
-      element: document.body,
-      relays: repoRelays,
-      feedFilters: [workflowFilter],
-      subscriptionFilters: [workflowFilter],
-      initialEvents: [],
-      onExhausted: () => {
-        console.log(`🎉 Workflow feed exhausted`)
-        console.log("   Workflow event found:", !!workflowEvent)
-        console.log("   Workflow event ID:", workflowEvent?.id)
-        loading = false
-        if (!workflowEvent) {
-          error = `Workflow event ${runId} not found on any relay`
-        }
-      },
-    })
-    
-    // Subscribe to workflow events store
-    const workflowEventsUnsub = workflowFeedResult.events.subscribe((events: any[]) => {
-      if (events.length > 0) {
-        const event = events[0]
-        console.log("✅ Received workflow event:", event.id, event.kind)
-        workflowEvent = event as WorkflowEvent
-        loading = false
-      }
-    })
-    
-    workflowFeedCleanup = () => {
-      workflowEventsUnsub()
-      workflowFeedResult.cleanup()
-    }
-
-    // Fetch job result event (kind 5101) immediately - don't wait for status
-    console.log("=== Setting up job result feed (kind 5101) ===")
     const jobResultFilter = {kinds: [5101], "#e": [runId]}
-    console.log("Job result filter:", JSON.stringify(jobResultFilter, null, 2))
-
-    const jobResultFeedResult = makeFeed({
-      element: document.body,
-      relays: repoRelays,
-      feedFilters: [jobResultFilter],
-      subscriptionFilters: [jobResultFilter],
-      initialEvents: [],
-      onExhausted: () => {
-        console.log("🎉 Job result feed exhausted")
-        console.log("   Job result found:", !!jobResultEvent)
-      },
-    })
-    
-    // Subscribe to job result events store
-    const jobResultEventsUnsub = jobResultFeedResult.events.subscribe((events: any[]) => {
-      if (events.length > 0) {
-        const event = events[0]
-        console.log("📄 Received job result event:", event.id, event.kind)
-
-        // Parse the job result event
-        const successTag = event.tags?.find((t: string[]) => t[0] === "success")
-        const exitCodeTag = event.tags?.find((t: string[]) => t[0] === "exit_code")
-        const durationTag = event.tags?.find((t: string[]) => t[0] === "duration")
-        const stdoutTag = event.tags?.find((t: string[]) => t[0] === "stdout")
-        const stderrTag = event.tags?.find((t: string[]) => t[0] === "stderr")
-        const changeTag = event.tags?.find((t: string[]) => t[0] === "change")
-
-        jobResultEvent = {
-          id: event.id,
-          kind: event.kind,
-          content: event.content,
-          created_at: event.created_at,
-          pubkey: event.pubkey,
-          tags: event.tags,
-          sig: event.sig,
-          success: successTag ? successTag[1] : undefined,
-          exitCode: exitCodeTag ? exitCodeTag[1] : undefined,
-          duration: durationTag ? durationTag[1] : undefined,
-          stdout: stdoutTag ? stdoutTag[1] : undefined,
-          stderr: stderrTag ? stderrTag[1] : undefined,
-          change: changeTag ? changeTag[1] : undefined,
-        }
-
-        console.log("✅ Job result event parsed:", jobResultEvent)
-
-        // Update status based on job result
-        const actualStatus =
-          jobResultEvent.success === "true" || jobResultEvent.exitCode === "0"
-            ? "success"
-            : "failure"
-        console.log(actualStatus === "success" ? "✅ Job completed successfully" : "❌ Job failed")
-
-        // Only update statusEvent if it exists, otherwise it will be set by status feed
-        if (statusEvent) {
-          statusEvent = {
-            ...statusEvent,
-            status: actualStatus,
-          }
-        }
-
-        // Stop polling since we've successfully fetched the job result
-        if (pollingTimer) {
-          clearInterval(pollingTimer)
-          pollingTimer = null
-          console.log("⏹️ Stopped polling - job result received")
-        }
-
-        // Fetch stdout and stderr files if URLs are provided
-        console.log("📥 Checking for stdout/stderr URLs...")
-        console.log("   stdout URL:", stdoutTag?.[1])
-        console.log("   stderr URL:", stderrTag?.[1])
-
-        if (stdoutTag?.[1]) {
-          console.log("   → Fetching stdout...")
-          fetchOutputFile(stdoutTag[1], "stdout")
-        }
-        if (stderrTag?.[1]) {
-          console.log("   → Fetching stderr...")
-          fetchOutputFile(stderrTag[1], "stderr")
-        }
-      }
-    })
-    
-    jobResultFeedCleanup = () => {
-      jobResultEventsUnsub()
-      jobResultFeedResult.cleanup()
-    }
-
-    // Fetch status events using makeFeed
-    console.log("=== Setting up status feed ===")
     const statusFilter = {kinds: [30100], "#e": [runId]}
-    console.log("Status filter:", JSON.stringify(statusFilter, null, 2))
-    console.log("Looking for workflow ID:", runId)
 
-    const statusFeedResult = makeFeed({
-      element: document.body,
-      relays: repoRelays,
-      feedFilters: [statusFilter],
-      subscriptionFilters: [statusFilter],
-      initialEvents: [],
-      onExhausted: () => {
-        console.log(`🎉 Status feed exhausted`)
-        console.log("   Final status event:", statusEvent)
-      },
-    })
-    
-    // Subscribe to status events store
-    const statusEventsUnsub = statusFeedResult.events.subscribe((events: any[]) => {
-      if (events.length > 0) {
-        const event = events[0]
-        console.log("📊 Received status event:", event.id, event.kind)
-        console.log("   Full event:", JSON.stringify(event, null, 2))
+    // Initial load for all three event types
+    Promise.all([
+      load({relays: JOB_RELAYS, filters: [workflowFilter]}),
+      load({relays: JOB_RELAYS, filters: [jobResultFilter]}),
+      load({relays: JOB_RELAYS, filters: [statusFilter]}),
+    ]).then(([workflowEvents, jobResultEvents, statusEvents]) => {
+      if (workflowEvents.length > 0) {
+        workflowEvent = workflowEvents[0] as WorkflowEvent
+      } else {
+        error = `Workflow event ${runId} not found on any relay`
+      }
+      loading = false
 
-        // Find the status tag directly
-        const statusTag = event.tags?.find((t: string[]) => t[0] === "status")
-        const status = statusTag ? statusTag[1] : "unknown"
-        console.log("   Status from tag:", status)
+      if (jobResultEvents.length > 0) {
+        applyJobResult(jobResultEvents[0])
+      }
 
-        statusEvent = {
-          id: event.id,
-          workflowId: runId || "",
-          status,
-          content: event.content,
-          created_at: event.created_at,
-          pubkey: event.pubkey,
-        }
-        console.log("   ✅ Status event updated:", statusEvent)
+      // Apply most recent status event
+      const sortedStatus = [...statusEvents].sort((a, b) => b.created_at - a.created_at)
+      if (sortedStatus.length > 0) {
+        applyStatusEvent(sortedStatus[0])
       }
     })
-    
-    statusFeedCleanup = () => {
-      statusEventsUnsub()
-      statusFeedResult.cleanup()
-    }
 
-    // Start polling for status updates every 10 seconds
-    // Job result (kind 5101) is fetched immediately, so polling is mainly for status updates
-    pollingTimer = setInterval(() => {
-      console.log("🔄 Polling for status updates...")
-      console.log("   Current status:", statusEvent?.status)
-      console.log("   Job result found:", !!jobResultEvent)
-    }, 10000) // Poll every 10 seconds
+    // Live subscription for status and job result updates
+    const liveAbort = new AbortController()
+    workflowFeedCleanup = () => liveAbort.abort()
+
+    request({
+      relays: JOB_RELAYS,
+      filters: [jobResultFilter, statusFilter],
+      signal: liveAbort.signal,
+      onEvent: (event: any, url: string) => {
+        if (event.kind === 5101) applyJobResult(event)
+        if (event.kind === 30100) applyStatusEvent(event)
+      },
+    })
   })
 
   // Function to fetch output file content from URL
   const fetchOutputFile = async (url: string, type: "stdout" | "stderr") => {
     try {
-      console.log(`📥 Fetching ${type} from:`, url)
       const response = await fetch(url)
-      console.log(`   Response status: ${response.status}`)
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
       const content = await response.text()
-      console.log(`   Content length: ${content.length} bytes`)
-      console.log(
-        `   Content preview: ${content.substring(0, 200)}${content.length > 200 ? "..." : ""}`,
-      )
 
       if (type === "stdout") {
         stdout = content
-        console.log(`   ✅ stdout updated, length: ${stdout.length}`)
       } else {
         stderr = content
-        console.log(`   ✅ stderr updated, length: ${stderr.length}`)
       }
-
-      console.log(`✅ Successfully fetched ${type} (${content.length} bytes)`)
     } catch (err) {
-      console.error(`❌ Failed to fetch ${type}:`, err)
+      console.error(`Failed to fetch ${type}:`, err)
     }
   }
 
   // Cleanup on unmount
   onDestroy(() => {
-    if (workflowFeedCleanup) {
-      workflowFeedCleanup()
-    }
-    if (statusFeedCleanup) {
-      statusFeedCleanup()
-    }
-    if (jobResultFeedCleanup) {
-      jobResultFeedCleanup()
-    }
+    workflowFeedCleanup?.()
     if (pollingTimer) {
       clearInterval(pollingTimer)
     }
@@ -598,7 +471,7 @@
   }
 
   const goBack = () => {
-    goto(`/spaces/${encodeURIComponent($page.params.relay)}/git/${$page.params.id}/cicd`)
+    goto(`/spaces/${encodeURIComponent($page.params.relay!)}/git/${$page.params.id}/cicd`)
   }
 </script>
 
