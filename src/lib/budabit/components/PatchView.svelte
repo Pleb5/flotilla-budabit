@@ -550,6 +550,22 @@
     }
   }
 
+  const getStatusLabel = (status?: string) => {
+    if (status === "open") return "Open"
+    if (status === "applied") return "Applied"
+    if (status === "closed") return "Closed"
+    if (status === "draft") return "Draft"
+    return "Status unknown"
+  }
+
+  const getStatusBadgeClass = (status?: string) => {
+    if (status === "open") return "border-sky-200 bg-sky-100/80 text-sky-800"
+    if (status === "applied") return "border-emerald-200 bg-emerald-100/80 text-emerald-800"
+    if (status === "closed") return "border-rose-200 bg-rose-100/80 text-rose-800"
+    if (status === "draft") return "border-amber-200 bg-amber-100/80 text-amber-800"
+    return "border-border bg-secondary text-secondary-foreground"
+  }
+
   const getTitleDisplay = (title: string | undefined, maxLength: number = 80): string => {
     if (!title) return ""
     if (title.length <= maxLength) return title
@@ -592,8 +608,9 @@
         </div>
 
         <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
-          <div class="git-tag w-fit bg-secondary">
-            {status?.status === "open" ? "Open" : status?.status === "applied" ? "Applied" : "Closed"}
+          <div
+            class={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-sm font-semibold ${getStatusBadgeClass(status?.status)}`}>
+            {getStatusLabel(status?.status)}
           </div>
           <div class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground sm:text-sm">
             <Profile pubkey={patch?.author.pubkey} hideDetails={true}></Profile>
