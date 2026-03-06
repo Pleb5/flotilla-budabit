@@ -6,11 +6,9 @@
     type CommentEvent,
     type IssueEvent,
   } from "@nostr-git/core/events"
-  import type {TrustedEvent} from "@welshman/util"
   import {Eye, Plus, SearchX} from "@lucide/svelte"
   import {
     Address,
-    COMMENT,
     getTagValue,
     GIT_STATUS_COMPLETE,
     GIT_STATUS_DRAFT,
@@ -233,12 +231,6 @@
       title,
     }
 
-    console.debug("[IssuesList] click capture", {
-      index: pendingScrollRestore.index,
-      offset: pendingScrollRestore.offset,
-      issueId: pendingScrollRestore.id,
-      issueTitle: pendingScrollRestore.title,
-    })
   }
 
   $effect(() => {
@@ -342,16 +334,6 @@
 
     restoreInProgress = true
 
-    console.debug("[IssuesList] restore scroll", {
-      savedIndex: parsedIndex,
-      savedOffset: parsedOffset,
-      savedIssueId,
-      savedIssueTitle,
-      matchedIndex: matchIndex,
-      targetIndex,
-      targetIssueId,
-      targetIssueTitle,
-    })
 
     const attemptRestore = () => {
       virtualizer.scrollToIndex(targetIndex, {align: "start"})
@@ -409,13 +391,6 @@
           title: lastKnownIssueTitle,
         }
     sessionStorage.setItem(scrollStorageKey, JSON.stringify(payload))
-    console.debug("[IssuesList] save scroll", {
-      index: payload.index,
-      offset: payload.offset,
-      issueId: payload.id,
-      issueTitle: payload.title,
-      source: isIssueDetailNav && nextIssueId ? "nav" : pendingScrollRestore ? "click" : "visible",
-    })
     pendingScrollRestore = null
   })
 
@@ -447,14 +422,12 @@
 
   const issues = $derived.by(() => repoClass.issues || [])
 
-  const comments = $state<Record<string, CommentEvent[]>>({})
-  const commentControllers = new Map<string, AbortController>()
-  let commentRelaysKey = ""
-
   const commentsOrdered = $derived.by(() => {
     const ret: Record<string, CommentEvent[]> = {}
-    for (const [key, value] of Object.entries(comments)) {
-      ret[key] = sortBy(e => -e.created_at, value)
+    for (const issue of issues) {
+      if (!issue?.id) continue
+      const thread = repoClass.getIssueThread(issue.id)
+      ret[issue.id] = sortBy(e => -e.created_at, thread.comments || [])
     }
     return ret
   })
@@ -712,7 +685,7 @@
     if (!repoClass) return
     
     const currentIssues = repoClass.issues
-    const currentComments = comments
+    const currentComments = commentsOrdered
     const currentStatusMap = statusMap
     const currentIssueListCacheKey = issueListCacheKey
 
@@ -867,78 +840,10 @@
     return deriveAssignmentsFor(ids)
   })
 
-  $effect(() => {
-    // Access reactive dependencies synchronously to ensure they're tracked
-    const currentIssues = issues
-    const currentRepoRelays = repoRelays.filter(Boolean)
-
-    if (currentRepoRelays.length === 0) return
-
-    const relaysKey = [...currentRepoRelays].sort().join("|")
-    if (commentRelaysKey !== relaysKey) {
-      commentRelaysKey = relaysKey
-      commentControllers.forEach(controller => controller.abort())
-      commentControllers.clear()
-    }
-
-    const issueIds = new Set(currentIssues.map(issue => issue?.id).filter(Boolean) as string[])
-    for (const [id, controller] of commentControllers) {
-      if (!issueIds.has(id)) {
-        controller.abort()
-        commentControllers.delete(id)
-        delete comments[id]
-      }
-    }
-
-    // Defer comment loading to avoid blocking initial render
-    const timeout = setTimeout(() => {
-      for (const issue of currentIssues) {
-        if (!issue?.id || commentControllers.has(issue.id)) continue
-        // Initialize empty array immediately to prevent duplicate requests
-        if (!comments[issue.id]) comments[issue.id] = []
-        const controller = new AbortController()
-        commentControllers.set(issue.id, controller)
-        requestComments(issue, currentRepoRelays, controller)
-      }
-    }, 100)
-
-    // Cleanup: cancel timeout when effect re-runs
-    return () => {
-      clearTimeout(timeout)
-    }
-  })
-
-  const requestComments = async (
-    issue: TrustedEvent,
-    relays: string[],
-    controller: AbortController,
-  ) => {
-    request({
-      relays,
-      signal: controller.signal,
-      filters: [
-        {kinds: [COMMENT], "#E": [issue.id]},
-        {kinds: [COMMENT], "#e": [issue.id]},
-      ],
-      onEvent: e => {
-        // Access comments reactively - this will get the current value
-        const currentComments = comments[issue.id] || []
-        if (!currentComments.some(c => c.id === e.id)) {
-          // Create a new array to trigger reactivity
-          comments[issue.id] = [...currentComments, e as CommentEvent]
-        }
-        if (!repository.getEvent(e.id)) {
-          repository.publish(e as TrustedEvent)
-        }
-      },
-    })
-  }
-
   // Set loading to false immediately if we have data - don't wait for makeFeed
   let loading = $state(false)
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
-  // Controllers are managed per-issue in commentControllers
 
   // Create combined filter for issues and status events
   const combinedFilter = $derived.by(() => ({
@@ -1016,13 +921,9 @@
     labelsPrefetchController = null
     labelsPrefetchKey = ""
 
-    // Abort all comment subscriptions
-    commentControllers.forEach(controller => controller.abort())
-    commentControllers.clear()
   })
 
   const onIssueCreated = async (issue: IssueEvent) => {
-    console.log("repo relays", repoRelays)
     const relaysToUse = repoRelays
     if (!relaysToUse || relaysToUse.length === 0) {
       console.warn("onIssueCreated: no relays available", {relaysToUse})
@@ -1032,12 +933,7 @@
       })
       return
     }
-    console.debug("onIssueCreated: publishing issue", {
-      relays: relaysToUse,
-      repoAddr: getTag("a", issue.tags),
-    })
     const postIssueEvent = postIssue(issue, relaysToUse)
-    console.debug("onIssueCreated: publish result", postIssueEvent)
     pushToast({message: "Issue created"})
     try {
       pushRepoAlert({
@@ -1057,7 +953,6 @@
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })
-    console.log("publishing status event", statusEvent)
     publishEvent(statusEvent, relaysToUse)
   }
 
