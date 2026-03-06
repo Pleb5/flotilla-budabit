@@ -48,10 +48,10 @@
         {/snippet}
       </CardButton>
     </Button>
-    <p class="text-center text-xs opacity-75">
-      By using {PLATFORM_NAME}, you consent to our
-      <Link external class="link" href={PLATFORM_TERMS}>Terms of Service</Link> and
-      <Link external class="link" href={PLATFORM_PRIVACY}>Privacy Policy</Link>.
-    </p>
+    <!-- <p class="text-center text-xs opacity-75"> -->
+    <!--   By using {PLATFORM_NAME}, you consent to our -->
+    <!--   <Link external class="link" href={PLATFORM_TERMS}>Terms of Service</Link> and -->
+    <!--   <Link external class="link" href={PLATFORM_PRIVACY}>Privacy Policy</Link>. -->
+    <!-- </p> -->
   </div>
 </Dialog>
