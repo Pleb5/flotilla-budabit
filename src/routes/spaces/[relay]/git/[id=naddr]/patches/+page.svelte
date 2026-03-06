@@ -1,6 +1,6 @@
 <script lang="ts">
-  import {Button as GitButton, PatchCard} from "@nostr-git/ui"
-  import {Eye, SearchX} from "@lucide/svelte"
+  import {Button as GitButton, PatchCard, NewPRForm, toast} from "@nostr-git/ui"
+  import {Eye, SearchX, GitPullRequest} from "@lucide/svelte"
   import {createSearch, pubkey, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -10,11 +10,13 @@
     GIT_STATUS_COMPLETE,
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
+    getTagValue,
   } from "@welshman/util"
   import {fade, fly, slideAndFade} from "@lib/transition"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
   import {
     getTags,
+    createStatusEvent,
     type CommentEvent,
     type PatchEvent,
     type PullRequestEvent,
@@ -26,9 +28,11 @@
   import {parsePullRequestEvent} from "@nostr-git/core/events"
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
-  import {postComment} from "@lib/budabit/commands.js"
+  import {postComment, publishEvent} from "@lib/budabit/commands.js"
+  import {pushModal} from "@app/util/modal"
   import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
+  import {pushToast} from "@src/app/util/toast"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
 
@@ -86,6 +90,74 @@
 
   // Comments are managed locally, similar to issues page
   let comments = $state<CommentEvent[]>([])
+
+  // Status events loaded directly for patches + PRs (layout's statusEventsByRoot may not include PR status)
+  let localStatusEventsByRoot = $state<Map<string, StatusEvent[]>>(new Map())
+  const statusMapAccumulator = new Map<string, StatusEvent[]>() // persists across effect runs
+
+  // Load status events for all root IDs (patches + PRs) - ensures PR status shows correctly on listing
+  $effect(() => {
+    if (!repoClass) return
+
+    const currentPatches = repoClass.patches
+    const currentPullRequests = pullRequests
+    const currentRepoRelays = repoRelays
+
+    const controller = new AbortController()
+    abortControllers.push(controller)
+
+    const timeout = setTimeout(() => {
+      const rootPatchIds = (currentPatches || [])
+        .filter((p: PatchEvent) => getTags(p, "t").some((t: string[]) => t[1] === "root"))
+        .map((p: PatchEvent) => p.id)
+      const allRootIds = [...rootPatchIds, ...(currentPullRequests || []).map((pr: PullRequestEvent) => pr.id)]
+
+      if (allRootIds.length > 0) {
+        request({
+          relays: currentRepoRelays,
+          signal: controller.signal,
+          filters: [
+            {
+              kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+              "#e": allRootIds,
+            },
+          ],
+          onEvent: e => {
+            const rootId = getTagValue("e", (e as any).tags)
+            if (rootId) {
+              const current = statusMapAccumulator.get(rootId) || []
+              const updated = [
+                ...current.filter((ev: StatusEvent) => ev.id !== (e as any).id),
+                e as StatusEvent,
+              ].sort((a, b) => b.created_at - a.created_at)
+              statusMapAccumulator.set(rootId, updated)
+              localStatusEventsByRoot = new Map(statusMapAccumulator)
+            }
+          },
+        })
+      }
+    }, 100)
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
+  // Merge layout's statusEventsByRoot with locally loaded status events (local takes precedence for freshness)
+  const mergedStatusEventsByRoot = $derived.by(() => {
+    const layout = statusEventsByRoot || new Map<string, StatusEvent[]>()
+    const merged = new Map<string, StatusEvent[]>(layout)
+    for (const [rootId, events] of localStatusEventsByRoot) {
+      const existing = merged.get(rootId) || []
+      const combined = [
+        ...existing.filter((ex: StatusEvent) => !events.some((le: StatusEvent) => le.id === ex.id)),
+        ...events,
+      ].sort((a, b) => b.created_at - a.created_at)
+      merged.set(rootId, combined)
+    }
+    return merged
+  })
 
   // Load comments for patches and PRs - defer to avoid blocking render
   $effect(() => {
@@ -275,7 +347,7 @@
   const currentPatchStateFor = (rootId: string): "open" | "draft" | "closed" | "applied" => {
     if (!repoClass) return "open"
     try {
-      const events = (statusEventsByRoot?.get(rootId) || []) as StatusEvent[]
+      const events = (mergedStatusEventsByRoot?.get(rootId) || []) as StatusEvent[]
       const rootAuthor =
         repoClass.patches.find((p: any) => p.id === rootId)?.pubkey ||
         (pullRequests || []).find((pr: any) => pr.id === rootId)?.pubkey
@@ -315,14 +387,21 @@
     const currentAuthorFilter = authorFilter
     const currentSortBy = sortBy
     const currentPatchListCacheKey = patchListCacheKey
+    const currentMergedStatusEventsByRoot = mergedStatusEventsByRoot
 
     const timeout = setTimeout(() => {
-      if (!currentPatches || currentPatches.length === 0) {
+      const hasPatches = currentPatches && currentPatches.length > 0
+      const hasPRs = currentPullRequests && currentPullRequests.length > 0
+      if (!hasPatches && !hasPRs) {
         patchList = []
         return
       }
 
       // Create cache key from patch IDs, comments, status, filters, and sort to detect changes
+      const statusKey = [...(currentMergedStatusEventsByRoot?.entries() || [])]
+        .map(([id, evts]) => `${id}:${evts[0]?.kind ?? ""}`)
+        .sort()
+        .join(",")
       const currentKey = [
         currentPatches
           .map(p => p.id)
@@ -342,6 +421,7 @@
         currentStatusFilter,
         currentAuthorFilter,
         currentSortBy,
+        statusKey,
       ].join("|")
 
       if (currentPatchListCacheKey === currentKey) return
@@ -415,7 +495,7 @@
           const parsedPR: any = parsePullRequestEvent(pr)
           // O(1) lookup instead of O(c) filter
           const commentEvents = commentsByPatch.get(pr.id) || []
-          const status = {kind: kindFromState((currentStatusData.stateById as any)[pr.id])} as any
+          const status = {kind: kindFromState(currentPatchStateFor(pr.id))} as any
           return {
             ...pr,
             type: "pr" as const,
@@ -524,6 +604,60 @@
 
   const scrollToTop = () => {
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
+  }
+
+  const onPRCreated = async (prEvent: PullRequestEvent) => {
+    const relaysToUse = repoRelays.length ? repoRelays : repoClass.relays
+    if (!relaysToUse || relaysToUse.length === 0) {
+      toast.push({
+        message: "No relays available to publish pull request.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const evt = repoClass.repoEvent
+    if(!evt) {
+      toast.push({
+        message: "No repository event found to publish pull request.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const publishedPR = publishEvent(prEvent, relaysToUse)
+
+    const rootId = publishedPR.event.id
+
+    const statusEvent = createStatusEvent({
+      kind: GIT_STATUS_OPEN,
+      content: "",
+      rootId,
+      recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
+      repoAddr: repoClass.address,
+      relays: relaysToUse,
+    })
+    publishEvent(statusEvent as any, relaysToUse)
+    pushToast({ message: "Pull request created" })
+  }
+
+  const onNewPR = () => {
+    const evt = repoClass.repoEvent
+    if(!evt) {
+      toast.push({
+        message: "No repository event found to publish pull request.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const repoDtag = getTagValue("d", evt.tags)
+    if(!repoDtag) return
+
+    pushModal(NewPRForm, {
+      repo: repoClass,
+      onPRCreated,
+    })
   }
 
   const getLatestPatchActivityAt = (patch: {id: string; created_at?: number; comments?: CommentEvent[]}) => {
@@ -670,6 +804,11 @@
         <h2 class="text-xl font-semibold">Patches</h2>
         <p class="text-sm text-muted-foreground max-sm:hidden">Review and merge code changes</p>
       </div>
+      <!-- ghost outline git  -->
+      <Button class="btn btn-primary btn-sm" onclick={onNewPR}>
+        <GitPullRequest class="h-4 w-4" />
+        New PR
+      </Button>
     </div>
     <div class="row-2 input grow overflow-x-hidden">
       <Icon icon={Magnifer} />
@@ -736,7 +875,7 @@
                   currentCommenter={$pubkey!}
                   extraLabels={labelsByPatch.get(patch.id) || []}
                   repo={repoClass}
-                  statusEvents={statusEventsByRoot?.get(patch.id) || []}
+                  statusEvents={mergedStatusEventsByRoot?.get(patch.id) || []}
                   actorPubkey={$pubkey}
                   {onCommentCreated}
                   reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0}
