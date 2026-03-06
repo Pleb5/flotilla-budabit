@@ -1,3 +1,7 @@
+<script module lang="ts">
+  const repoInitialLoads = new Map<string, Promise<void>>()
+</script>
+
 <script lang="ts">
   import {RepoHeader, RepoTab, toast, bookmarksStore, Repo, WorkerManager, ForkRepoDialog} from "@nostr-git/ui"
   // Import worker URL using Vite's ?url suffix for correct asset resolution
@@ -39,9 +43,9 @@
   import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
   import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, parseRepoAnnouncementEvent, isCommentEvent} from "@nostr-git/core/events"
   import {normalizeRelayUrl as normalizeRelayUrlShared, parseRepoId} from "@nostr-git/core/utils"
-  import {derived, get as getStore, type Readable} from "svelte/store"
+  import {derived, get as getStore, readable, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
-  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById, throttled} from "@welshman/store"
   import {load, request} from "@welshman/net"
   import {Router} from "@welshman/router"
   import {goto, beforeNavigate} from "$app/navigation"
@@ -59,6 +63,7 @@
     GIT_STATUS_COMPLETE,
     getTagValue,
     COMMENT,
+    type Filter,
     type TrustedEvent
   } from "@welshman/util"
   import {nthEq} from "@welshman/lib"
@@ -88,7 +93,16 @@
   // Type assertion needed because TypeScript infers old layout return type
   const layoutData = data as unknown as {repoId: string, repoName: string, repoPubkey: string, fallbackRelays: string[], naddrRelays: string[], url: string}
   const {repoId, repoName, repoPubkey, fallbackRelays, naddrRelays, url} = layoutData
-  
+
+
+  const COMMENT_LOAD_DEBOUNCE_MS = 300
+  const COMMENT_LOAD_CHUNK_SIZE = 100
+  const EFFECTIVE_ADDRESS_LOAD_DEBOUNCE_MS = 200
+  const EFFECTIVE_ADDRESS_LOAD_CHUNK_SIZE = 50
+  const ADDRESS_DERIVE_FILTER_CHUNK_SIZE = 50
+  const COMMENT_DERIVE_FILTER_CHUNK_SIZE = 100
+  const SCOPED_DERIVE_THROTTLE_MS = 120
+
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
 
@@ -303,74 +317,48 @@
   }
 
   function deriveIssues(repoAddresses: Readable<string[]>) {
-    const allIssueEvents = deriveEventsAsc(
-      deriveEventsById({repository, filters: [{kinds: [GIT_ISSUE]}]}),
-    )
+    const scopedIssueEvents = deriveAddressScopedEvents(repoAddresses, [GIT_ISSUE])
 
     return derived(
-      [allIssueEvents, repoAddresses],
+      [scopedIssueEvents, repoAddresses],
       ([events, addresses]: [TrustedEvent[], string[]]) => {
-        const addressSet = new Set(addresses)
-        return (events || []).filter((event: TrustedEvent) => {
-          const addressTag = event.tags.find((t: string[]) => t[0] === "a")
-          return addressTag && addressSet.has(addressTag[1])
-        }) as IssueEvent[]
+        return (events || []) as IssueEvent[]
       },
     ) as Readable<IssueEvent[]>
   }
 
   function derivePatches(repoAddresses: Readable<string[]>) {
-    const allPatchEvents = deriveEventsAsc(
-      deriveEventsById({repository, filters: [{kinds: [GIT_PATCH]}]}),
-    )
+    const scopedPatchEvents = deriveAddressScopedEvents(repoAddresses, [GIT_PATCH])
 
     return derived(
-      [allPatchEvents, repoAddresses],
+      [scopedPatchEvents, repoAddresses],
       ([events, addresses]: [TrustedEvent[], string[]]) => {
-        const addressSet = new Set(addresses)
-        return (events || []).filter((event: TrustedEvent) => {
-          const addressTag = event.tags.find((t: string[]) => t[0] === "a")
-          return addressTag && addressSet.has(addressTag[1])
-        }) as PatchEvent[]
+        return (events || []) as PatchEvent[]
       },
     ) as Readable<PatchEvent[]>
   }
 
   function derivePullRequests(repoAddresses: Readable<string[]>) {
-    const allPullRequestEvents = deriveEventsAsc(
-      deriveEventsById({repository, filters: [{kinds: [GIT_PULL_REQUEST]}]}),
-    )
+    const scopedPullRequestEvents = deriveAddressScopedEvents(repoAddresses, [GIT_PULL_REQUEST])
 
     return derived(
-      [allPullRequestEvents, repoAddresses],
+      [scopedPullRequestEvents, repoAddresses],
       ([events, addresses]: [TrustedEvent[], string[]]) => {
-        const addressSet = new Set(addresses)
-        return (events || []).filter((event: TrustedEvent) => {
-          const addressTag = event.tags.find((t: string[]) => t[0] === "a")
-          return addressTag && addressSet.has(addressTag[1])
-        }) as PullRequestEvent[]
+        return (events || []) as PullRequestEvent[]
       },
     ) as Readable<PullRequestEvent[]>
   }
 
   function deriveStatusEvents(repoAddresses: Readable<string[]>) {
-    const allStatusEvents = deriveEventsAsc(
-      deriveEventsById({
-        repository,
-        filters: [
-          {kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE]},
-        ],
-      }),
+    const scopedStatusEvents = deriveAddressScopedEvents(
+      repoAddresses,
+      [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
     )
 
     return derived(
-      [allStatusEvents, repoAddresses],
+      [scopedStatusEvents, repoAddresses],
       ([events, addresses]: [TrustedEvent[], string[]]) => {
-        const addressSet = new Set(addresses)
-        return (events || []).filter((event: TrustedEvent) => {
-          const addressTag = event.tags.find((t: string[]) => t[0] === "a")
-          return addressTag && addressSet.has(addressTag[1])
-        }) as StatusEvent[]
+        return (events || []) as StatusEvent[]
       },
     ) as Readable<StatusEvent[]>
   }
@@ -404,19 +392,117 @@
     })
   }
 
+  const chunkBySize = (items: string[], size: number) => {
+    const chunks: string[][] = []
+    for (let i = 0; i < items.length; i += size) {
+      chunks.push(items.slice(i, i + size))
+    }
+    return chunks
+  }
+
+  const normalizeScopeValues = (values: string[]) =>
+    [...new Set((values || []).filter(Boolean))].sort()
+
+  function deriveAddressScopedEvents(repoAddresses: Readable<string[]>, kinds: number[]) {
+    return readable<TrustedEvent[]>([], set => {
+      let previousKey = ""
+      let unsubscribeScoped: (() => void) | undefined
+
+      const unsubscribeAddresses = repoAddresses.subscribe((addresses: string[]) => {
+        const normalized = normalizeScopeValues(addresses)
+        const key = normalized.join("|")
+
+        if (key === previousKey) return
+        previousKey = key
+
+        if (unsubscribeScoped) {
+          unsubscribeScoped()
+          unsubscribeScoped = undefined
+        }
+
+        if (normalized.length === 0) {
+          set([])
+          return
+        }
+
+        const filters: Filter[] = chunkBySize(normalized, ADDRESS_DERIVE_FILTER_CHUNK_SIZE).map(addresses => ({
+          kinds,
+          "#a": addresses,
+        }))
+        const scopedEvents = throttled(
+          SCOPED_DERIVE_THROTTLE_MS,
+          deriveEventsAsc(deriveEventsById({repository, filters})),
+        )
+        unsubscribeScoped = scopedEvents.subscribe(events => {
+          set((events || []) as TrustedEvent[])
+        })
+      })
+
+      return () => {
+        if (unsubscribeScoped) unsubscribeScoped()
+        unsubscribeAddresses()
+      }
+    })
+  }
+
+  function deriveCommentScopedEvents(allRootIds: Readable<string[]>) {
+    return readable<TrustedEvent[]>([], set => {
+      let previousKey = ""
+      let unsubscribeScoped: (() => void) | undefined
+
+      const unsubscribeRootIds = allRootIds.subscribe((rootIds: string[]) => {
+        const normalized = normalizeScopeValues(rootIds)
+        const key = normalized.join("|")
+
+        if (key === previousKey) return
+        previousKey = key
+
+        if (unsubscribeScoped) {
+          unsubscribeScoped()
+          unsubscribeScoped = undefined
+        }
+
+        if (normalized.length === 0) {
+          set([])
+          return
+        }
+
+        const rootIdChunks = chunkBySize(normalized, COMMENT_DERIVE_FILTER_CHUNK_SIZE)
+        const filters: Filter[] = []
+        for (const ids of rootIdChunks) {
+          filters.push({
+            kinds: [COMMENT],
+            "#e": ids,
+          })
+          filters.push({
+            kinds: [COMMENT],
+            "#E": ids,
+          })
+        }
+
+        const scopedEvents = throttled(
+          SCOPED_DERIVE_THROTTLE_MS,
+          deriveEventsAsc(deriveEventsById({repository, filters})),
+        )
+        unsubscribeScoped = scopedEvents.subscribe(events => {
+          set((events || []) as TrustedEvent[])
+        })
+      })
+
+      return () => {
+        if (unsubscribeScoped) unsubscribeScoped()
+        unsubscribeRootIds()
+      }
+    })
+  }
+
   function deriveComments(allRootIds: Readable<string[]>) {
-    const allCommentEvents = deriveEventsAsc(
-      deriveEventsById({repository, filters: [{kinds: [COMMENT]}]}),
-    )
+    const scopedCommentEvents = deriveCommentScopedEvents(allRootIds)
 
     return derived(
-      [allCommentEvents, allRootIds],
+      [scopedCommentEvents, allRootIds],
       ([events, rootIds]: [TrustedEvent[], string[]]) => {
-        if (rootIds.length === 0) return []
-        return (events || []).filter((event: TrustedEvent) => {
-          const eTags = event.tags.filter((t: string[]) => t[0] === "E" || t[0] === "e")
-          return eTags.some((tag: string[]) => rootIds.includes(tag[1]))
-        }).filter(isCommentEvent) as CommentEvent[]
+        return (events || []).filter(isCommentEvent) as CommentEvent[]
       },
     ) as Readable<CommentEvent[]>
   }
@@ -651,7 +737,14 @@
 
   // Initialize tracking for data loading
   let unsubscribers: (() => void)[] = []
-  let lastLoadedIds = new Set<string>()
+  let requestedCommentRootIds = new Set<string>()
+  let pendingCommentRootIds = new Set<string>()
+  let commentLoadRelaysKey = ""
+  let commentLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
+  let loadedEffectiveAddresses = new Set<string>()
+  let pendingEffectiveAddresses = new Set<string>()
+  let effectiveAddressLoadRelaysKey = ""
+  let effectiveAddressLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
   let dataLoadInitialized = $state(false)
   
   // Use effect only for data loading, not for store/context creation
@@ -691,14 +784,20 @@
       ? initialAddresses
       : [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`]
 
-    // Start loading with initial addresses
-    Promise.all([
-      repoLoadPromise,
-      load({
-        relays: announcementRelays,
-        filters: [allReposFilter],
-      }),
-      load({
+    const sortedRelayListFromUrl = [...(relayListFromUrl || []).filter(Boolean)].sort()
+    const sortedAnnouncementRelays = [...(announcementRelays || []).filter(Boolean)].sort()
+    const initialLoadKey = [
+      repoId,
+      repoPubkey,
+      repoName,
+      sortedAnnouncementRelays.join(","),
+      sortedRelayListFromUrl.join(","),
+    ].join("::")
+
+    let initialLoadsPromise = repoInitialLoads.get(initialLoadKey)
+
+    if (!initialLoadsPromise) {
+      const issuePatchPrStatusLoad = load({
         relays: relayListFromUrl,
         filters: [
           {
@@ -718,14 +817,47 @@
             "#a": addressFilter,
           },
         ],
-      }),
-    ]).then(() => {
-      // Reactively load data when effective addresses change
-      const repoAddressesUnsubscribe = repoAddressesStore.subscribe((addresses: string[]) => {
-        if (addresses.length > 0) {
-          const currentRelays = getStore(repoRelaysStore)
-          load({
-            relays: currentRelays,
+      })
+
+      initialLoadsPromise = Promise.all([
+        repoLoadPromise,
+        load({
+          relays: announcementRelays,
+          filters: [allReposFilter],
+        }),
+        issuePatchPrStatusLoad,
+      ])
+        .then(() => {})
+        .catch(error => {
+          repoInitialLoads.delete(initialLoadKey)
+          throw error
+        })
+
+      repoInitialLoads.set(initialLoadKey, initialLoadsPromise)
+    }
+
+    loadedEffectiveAddresses = new Set(addressFilter.filter(Boolean))
+    pendingEffectiveAddresses = new Set<string>()
+    effectiveAddressLoadRelaysKey = sortedRelayListFromUrl.join("|")
+
+    const flushPendingEffectiveAddressLoads = async (relays: string[], relaysKey: string) => {
+      if (relaysKey !== effectiveAddressLoadRelaysKey) return
+
+      while (pendingEffectiveAddresses.size > 0 && relaysKey === effectiveAddressLoadRelaysKey) {
+        const addresses = Array.from(pendingEffectiveAddresses).slice(
+          0,
+          EFFECTIVE_ADDRESS_LOAD_CHUNK_SIZE,
+        )
+
+        if (addresses.length === 0) return
+
+        for (const address of addresses) {
+          pendingEffectiveAddresses.delete(address)
+        }
+
+        try {
+          await load({
+            relays,
             filters: [
               {
                 kinds: [GIT_ISSUE],
@@ -744,24 +876,81 @@
                 "#a": addresses,
               },
             ],
-          }).catch(() => {})
+          })
+
+          for (const address of addresses) {
+            loadedEffectiveAddresses.add(address)
+          }
+        } catch {
+          for (const address of addresses) {
+            pendingEffectiveAddresses.add(address)
+          }
+          break
+        }
+      }
+    }
+
+    const scheduleEffectiveAddressLoadFlush = (relays: string[], relaysKey: string) => {
+      if (effectiveAddressLoadFlushTimer) return
+
+      effectiveAddressLoadFlushTimer = setTimeout(() => {
+        effectiveAddressLoadFlushTimer = null
+        void flushPendingEffectiveAddressLoads(relays, relaysKey)
+      }, EFFECTIVE_ADDRESS_LOAD_DEBOUNCE_MS)
+    }
+
+    if (!initialLoadsPromise) {
+      initialLoadsPromise = Promise.resolve()
+    }
+
+    initialLoadsPromise
+      .then(() => {
+      // Reactively load data when effective addresses change
+      const repoAddressesUnsubscribe = repoAddressesStore.subscribe((addresses: string[]) => {
+        if (addresses.length === 0) return
+
+        const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
+        if (currentRelays.length === 0) return
+
+        const relaysKey = [...currentRelays].sort().join("|")
+        if (effectiveAddressLoadRelaysKey !== relaysKey) {
+          effectiveAddressLoadRelaysKey = relaysKey
+          loadedEffectiveAddresses = new Set<string>()
+          pendingEffectiveAddresses = new Set<string>()
+          if (effectiveAddressLoadFlushTimer) {
+            clearTimeout(effectiveAddressLoadFlushTimer)
+            effectiveAddressLoadFlushTimer = null
+          }
+        }
+
+        for (const address of new Set(addresses.filter(Boolean))) {
+          if (!loadedEffectiveAddresses.has(address) && !pendingEffectiveAddresses.has(address)) {
+            pendingEffectiveAddresses.add(address)
+          }
+        }
+
+        if (pendingEffectiveAddresses.size > 0) {
+          scheduleEffectiveAddressLoadFlush(currentRelays, relaysKey)
         }
       })
       unsubscribers.push(repoAddressesUnsubscribe)
-    }).catch(() => {})
+    })
+      .catch(() => {})
 
-    // Load comments reactively when root IDs are available
-    const commentLoadTrigger = derived(allRootIdsStore, (rootIds: string[]) => {
-      if (rootIds.length > 0) {
-        const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
-        if (currentRelays.length === 0) return rootIds
-        const idsKey = [...rootIds].sort().join(",")
-        const relaysKey = [...currentRelays].sort().join("|")
-        const loadKey = `${idsKey}::${relaysKey}`
-        if (!lastLoadedIds.has(loadKey)) {
-          lastLoadedIds.add(loadKey)
-          load({
-            relays: currentRelays,
+    const flushPendingCommentLoads = async (relays: string[], relaysKey: string) => {
+      if (relaysKey !== commentLoadRelaysKey) return
+
+      while (pendingCommentRootIds.size > 0 && relaysKey === commentLoadRelaysKey) {
+        const rootIds = Array.from(pendingCommentRootIds).slice(0, COMMENT_LOAD_CHUNK_SIZE)
+        if (rootIds.length === 0) return
+
+        for (const rootId of rootIds) {
+          pendingCommentRootIds.delete(rootId)
+        }
+
+        try {
+          await load({
+            relays,
             filters: [
               {
                 kinds: [COMMENT],
@@ -772,7 +961,54 @@
                 "#e": rootIds,
               },
             ],
-          }).catch(() => {})
+          })
+
+          for (const rootId of rootIds) {
+            requestedCommentRootIds.add(rootId)
+          }
+        } catch {
+          for (const rootId of rootIds) {
+            pendingCommentRootIds.add(rootId)
+          }
+          break
+        }
+      }
+    }
+
+    const scheduleCommentLoadFlush = (relays: string[], relaysKey: string) => {
+      if (commentLoadFlushTimer) return
+      commentLoadFlushTimer = setTimeout(() => {
+        commentLoadFlushTimer = null
+        void flushPendingCommentLoads(relays, relaysKey)
+      }, COMMENT_LOAD_DEBOUNCE_MS)
+    }
+
+    // Load comments reactively when root IDs are available
+    const commentLoadTrigger = derived(allRootIdsStore, (rootIds: string[]) => {
+      if (rootIds.length > 0) {
+        const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
+        if (currentRelays.length === 0) return rootIds
+
+        const relaysKey = [...currentRelays].sort().join("|")
+
+        if (commentLoadRelaysKey !== relaysKey) {
+          commentLoadRelaysKey = relaysKey
+          requestedCommentRootIds = new Set<string>()
+          pendingCommentRootIds = new Set<string>()
+          if (commentLoadFlushTimer) {
+            clearTimeout(commentLoadFlushTimer)
+            commentLoadFlushTimer = null
+          }
+        }
+
+        for (const rootId of new Set(rootIds.filter(Boolean))) {
+          if (!requestedCommentRootIds.has(rootId) && !pendingCommentRootIds.has(rootId)) {
+            pendingCommentRootIds.add(rootId)
+          }
+        }
+
+        if (pendingCommentRootIds.size > 0) {
+          scheduleCommentLoadFlush(currentRelays, relaysKey)
         }
       }
       return rootIds
@@ -792,9 +1028,24 @@
     if (deleteSeenKey) {
       setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
     }
+
     unsubscribers.forEach(unsub => unsub())
     unsubscribers = []
-    lastLoadedIds.clear()
+    requestedCommentRootIds.clear()
+    pendingCommentRootIds.clear()
+    if (commentLoadFlushTimer) {
+      clearTimeout(commentLoadFlushTimer)
+      commentLoadFlushTimer = null
+    }
+    commentLoadRelaysKey = ""
+    loadedEffectiveAddresses.clear()
+    pendingEffectiveAddresses.clear()
+    if (effectiveAddressLoadFlushTimer) {
+      clearTimeout(effectiveAddressLoadFlushTimer)
+      effectiveAddressLoadFlushTimer = null
+    }
+    effectiveAddressLoadRelaysKey = ""
+
     if (repoLoadRetryTimer) {
       clearTimeout(repoLoadRetryTimer)
       repoLoadRetryTimer = null
@@ -992,8 +1243,6 @@
       
       // Navigate to the forked repo page
       const targetPath = `/spaces/${encodedRelay}/git/${naddr}`
-      console.log("🚀 Navigating to forked repo:", targetPath)
-      
       goto(targetPath)
     } catch (error) {
       console.error("Failed to navigate to forked repo:", error)
