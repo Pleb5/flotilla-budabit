@@ -167,6 +167,24 @@
   const isDeletedRepoAnnouncement = (event?: {tags?: string[][]} | null) =>
     (event?.tags || []).some(tag => tag[0] === "deleted")
 
+  const getRepoCardStableKey = (card: any) => {
+    const event = card?.first
+    const euc = card?.euc || ""
+
+    if (event?.kind && event?.pubkey && Array.isArray(event?.tags)) {
+      const d = getTagValue("d", event.tags)
+      if (d) return `${event.kind}:${event.pubkey}:${d}:${euc}`
+
+      const eucTag =
+        event.tags.find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
+      if (eucTag) return `${event.kind}:${event.pubkey}:euc:${eucTag}:${euc}`
+
+      if (event.id) return `${event.kind}:${event.pubkey}:id:${event.id}:${euc}`
+    }
+
+    return `${euc}:${card?.title || ""}`
+  }
+
   type RepoBranchUpdate = {
     repoId: string
     repoName: string
@@ -1083,6 +1101,10 @@
   // Update repositoriesStore whenever repos change
   // Uses debouncing to wait for all repos to load before showing cards
   $effect(() => {
+    if (activeTab === "snippets") {
+      return
+    }
+
     const reposToShow = searchFilteredRepos
     if (reposToShow.length > 0 || !loading) {
       loading = false
@@ -1665,7 +1687,7 @@
     <div class="flex flex-col gap-2" in:fade={{duration: 200}}>
       <h3 class="text-sm font-semibold text-muted-foreground">Found Repository</h3>
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each uriSearchRepoCard as g, i (g.repoNaddr || g.euc)}
+        {#each uriSearchRepoCard as g, i (getRepoCardStableKey(g))}
           <div
             class="rounded-md border border-border bg-card p-3"
             in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
@@ -1745,11 +1767,10 @@
         </h3>
       {/if}
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each $repositoriesStore as g, i (g.repoNaddr || g.euc)}
+        {#each $repositoriesStore as g, i (getRepoCardStableKey(g))}
           {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
           {@const taggedMaintainers = g.taggedMaintainers ?? []}
-          <div
-            class="rounded-md border border-border bg-card p-3">
+          <div class="rounded-md border border-border bg-card p-3">
             <!-- Use GitItem for consistent repo card rendering -->
             {#if g.first}
               <GitItem

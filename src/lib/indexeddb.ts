@@ -21,6 +21,7 @@ export class IDB {
   adapters: IDBAdapters = []
   connection: Maybe<Promise<IDBPDatabase>>
   unsubscribers: Maybe<Unsubscriber[]>
+  isClearing = false
 
   constructor(readonly options: IDBOptions) {}
 
@@ -60,56 +61,94 @@ export class IDB {
   table = <T>(name: string) => new IDBTable<T>(this, name)
 
   getAll = async <T>(table: string): Promise<T[]> => {
-    const connection = await this.connect()
-    const tx = connection.transaction(table, "readwrite")
-    const store = tx.objectStore(table)
-    const result = await store.getAll()
+    if (this.isClearing) return []
 
-    await tx.done
+    try {
+      const connection = await this.connect()
+      const tx = connection.transaction(table, "readwrite")
+      const store = tx.objectStore(table)
+      const result = await store.getAll()
 
-    return result || []
+      await tx.done
+
+      return result || []
+    } catch (e: any) {
+      if (e?.name === "InvalidStateError") {
+        return []
+      }
+
+      throw e
+    }
   }
 
   bulkPut = async <T>(table: string, data: Iterable<T>) => {
-    const connection = await this.connect()
-    const tx = connection.transaction(table, "readwrite")
-    const store = tx.objectStore(table)
+    if (this.isClearing) return
 
-    await Promise.all(
-      Array.from(data).map(item => {
-        try {
-          store.put(item)
-        } catch (e) {
-          console.error(e, item)
-        }
-      }),
-    )
+    try {
+      const connection = await this.connect()
+      const tx = connection.transaction(table, "readwrite")
+      const store = tx.objectStore(table)
 
-    await tx.done
+      await Promise.all(
+        Array.from(data).map(item => {
+          try {
+            store.put(item)
+          } catch (e) {
+            console.error(e, item)
+          }
+        }),
+      )
+
+      await tx.done
+    } catch (e: any) {
+      if (e?.name !== "InvalidStateError") {
+        throw e
+      }
+    }
   }
 
   bulkDelete = async (table: string, ids: Iterable<string>) => {
-    const connection = await this.connect()
-    const tx = connection.transaction(table, "readwrite")
-    const store = tx.objectStore(table)
+    if (this.isClearing) return
 
-    await Promise.all(Array.from(ids).map(id => store.delete(id)))
-    await tx.done
+    try {
+      const connection = await this.connect()
+      const tx = connection.transaction(table, "readwrite")
+      const store = tx.objectStore(table)
+
+      await Promise.all(Array.from(ids).map(id => store.delete(id)))
+      await tx.done
+    } catch (e: any) {
+      if (e?.name !== "InvalidStateError") {
+        throw e
+      }
+    }
   }
 
   close = () => {
     this.unsubscribers?.forEach(call)
     this.unsubscribers = undefined
 
-    this.connection?.then(c => c.close())
+    this.connection?.then(c => c.close()).catch(() => {})
     this.connection = undefined
   }
 
   clear = async () => {
-    await this.connection?.then(c => c.close())
-    await deleteDB(this.options.name, {
-      blocked() {},
-    })
+    this.isClearing = true
+
+    try {
+      this.unsubscribers?.forEach(call)
+      this.unsubscribers = undefined
+
+      const connection = this.connection
+      this.connection = undefined
+      await connection?.then(c => c.close()).catch(() => {})
+
+      await deleteDB(this.options.name, {
+        blocked() {},
+      })
+    } finally {
+      this.isClearing = false
+    }
   }
 }
 
