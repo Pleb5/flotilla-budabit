@@ -1327,8 +1327,10 @@
       repo: repoClass,
       pubkey: $pubkey || "",
       onPublishEvent: (event: any) => {
-        // Handle event publishing
-        postRepoAnnouncement(event, [])
+        // Publish fork events to explicitly selected repo relays when provided in event tags.
+        const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
+        const relays = Array.isArray(relaysTag) ? relaysTag.slice(1).filter(Boolean) : []
+        postRepoAnnouncement(event, relays)
       },
       graspServerUrls: graspServerUrls,
       navigateToForkedRepo: navigateToForkedRepo,

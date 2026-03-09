@@ -222,7 +222,7 @@
     name: repoClass.name || "Unknown Repository",
     description: repoClass.description || "",
     repoId: repoClass.key || "",
-    relays: repoRelays,
+    relays: repoClass.relays || [],
     cloneUrls: (() => {
       // Get clone URLs from repoClass directly
       let urls = [...(repoClass.cloneUrls || [])]
