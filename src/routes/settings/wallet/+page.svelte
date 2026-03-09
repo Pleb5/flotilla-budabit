@@ -17,6 +17,15 @@
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
   import InfoCircle from "@assets/icons/info-circle.svg?dataurl"
+  import {
+    cashuTotalBalance,
+    cashuBackupConfirmed,
+    cashuAutoPayWhitelist,
+    removeAutoPayWhitelist,
+  } from "@lib/budabit/cashu"
+  import CashuMintManager from "@lib/budabit/components/CashuMintManager.svelte"
+  import CashuSeedBackup from "@lib/budabit/components/CashuSeedBackup.svelte"
+  import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
 
   const connect = () => pushModal(WalletConnect)
 
@@ -31,6 +40,13 @@
   )
 
   const pay = () => pushModal(WalletPay)
+
+  const cashuBalance = $derived($cashuTotalBalance)
+  const backupConfirmed = $derived($cashuBackupConfirmed)
+  const autoPayWhitelist = $derived($cashuAutoPayWhitelist)
+
+  const openCashuWallet = () => pushModal(CashuWalletModal)
+  const openBackup = () => pushModal(CashuSeedBackup)
 </script>
 
 <div class="content column gap-4">
@@ -127,5 +143,60 @@
       <Icon icon={Bolt} />
       Pay With Lightning
     </Button>
+  </div>
+
+  <!-- Cashu Wallet Section -->
+  <div class="card2 bg-alt flex flex-col gap-6 shadow-md">
+    <div class="flex items-center justify-between">
+      <strong class="flex items-center gap-3">
+        <span class="text-warning">₿</span>
+        Cashu Wallet
+      </strong>
+      <span class="font-mono text-sm font-semibold">{cashuBalance.toLocaleString()} sats</span>
+    </div>
+
+    <div class="flex flex-col gap-4">
+      <div>
+        <p class="mb-2 text-sm font-medium">Mints</p>
+        <CashuMintManager />
+      </div>
+
+      <div class="flex items-center justify-between">
+        <span class="text-sm font-medium">Seed Phrase</span>
+        <div class="flex items-center gap-2">
+          {#if backupConfirmed}
+            <div class="flex items-center gap-2 text-sm text-success">
+              <Icon icon={CheckCircle} size={4} />
+              Backed up
+            </div>
+          {:else}
+            <Button class="btn btn-warning btn-sm" onclick={openBackup}>
+              ⚠ Backup Now
+            </Button>
+          {/if}
+          <Button class="btn btn-neutral btn-xs" onclick={openBackup}>View</Button>
+        </div>
+      </div>
+
+      {#if autoPayWhitelist.length > 0}
+        <div class="flex flex-col gap-2">
+          <p class="text-sm font-medium">Auto-pay whitelist</p>
+          {#each autoPayWhitelist as extId (extId)}
+            <div class="flex items-center justify-between text-sm">
+              <span class="font-mono text-xs">{extId}</span>
+              <Button
+                class="btn btn-ghost btn-xs text-error"
+                onclick={() => removeAutoPayWhitelist(extId)}>
+                Revoke
+              </Button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <Button class="btn btn-neutral btn-sm self-start" onclick={openCashuWallet}>
+        Open Wallet
+      </Button>
+    </div>
   </div>
 </div>

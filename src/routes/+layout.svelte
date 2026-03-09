@@ -58,6 +58,9 @@
   import {setupBudabitNotifications} from "@lib/budabit/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
+  import {initializeCashuWallet} from "@lib/budabit/cashu"
+  import {registerCashuBridgeHandlers} from "@lib/budabit/cashu-bridge"
+  import CashuPayConfirm from "@lib/budabit/components/CashuPayConfirm.svelte"
 
   const {children} = $props()
   const nostrGitProviderProps = /** @type {any} */ ({
@@ -107,6 +110,7 @@
   // Auto-install and enable built-in extensions
   if (browser) {
     installBuiltinExtensions()
+    registerCashuBridgeHandlers(CashuPayConfirm)
   }
 
   const clearReloadQuery = () => {
@@ -409,6 +413,11 @@
       syncBudabitApplicationData(),
       syncBudabitData(),
     )
+
+    // Initialize Cashu wallet eagerly so balance is available immediately.
+    // After init, cashuNeedsBackup will be true if backup hasn't been confirmed yet —
+    // the $effect below will open the seed backup modal automatically.
+    void initializeCashuWallet()
 
     // Subscribe to badge count for changes
     unsubscribers.push(notifications.badgeCount.subscribe(notifications.handleBadgeCountChanges))
