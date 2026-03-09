@@ -947,32 +947,14 @@
         prMergeAnalysisResult?.canMerge === true &&
         prStatus?.status === "open" &&
         !prMergeAnalysisResult?.upToDate}
-        {@const isGraspRepo = (() => {
-          // Check clone URLs from repo and PR to identify GRASP repositories
-          const repoCloneUrls = (repoClass as any)?.cloneUrls || []
-          const prCloneUrls = prEffectiveCloneUrls || []
-          const allUrls = [...repoCloneUrls, ...prCloneUrls]
-          
-          // GRASP repos are identified by URLs containing relay.ngit.dev, gitnostr.com, or grasp
-          return allUrls.some(url => 
-            url && /relay\.ngit\.dev|gitnostr\.com|grasp/i.test(url)
-          )
-        })()}
-        {@const requiresFastForward = isGraspRepo && prMergeAnalysisResult?.fastForward !== true}
         <div class="mb-6 rounded-lg border bg-card p-6">
           <div class="mb-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
               <GitMerge class="h-5 w-5 text-primary" />
               <div>
-                <h3 class="font-semibold">
-                  {requiresFastForward ? "Rebase required" : "Merge this PR"}
-                </h3>
+                <h3 class="font-semibold">Merge this PR</h3>
                 <p class="text-sm text-muted-foreground">
-                  {#if requiresFastForward}
-                    GRASP repos require fast-forward merges. Please rebase your branch and update the PR.
-                  {:else}
-                    Merge the PR branch into {prTargetBranch}
-                  {/if}
+                  Merge the PR branch into {prTargetBranch}
                 </p>
               </div>
             </div>
@@ -1062,49 +1044,24 @@
             </div>
           {/if}
 
-          {#if requiresFastForward}
-            <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
-              <div class="flex items-start gap-3">
-                <AlertCircle class="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
-                <div class="flex-1">
-                  <h4 class="text-sm font-medium text-amber-800 dark:text-amber-200">
-                    Fast-forward merge required
-                  </h4>
-                  <p class="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                    This GRASP repository requires a clean, fast-forward merge. Please rebase your branch on top of the latest <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/50">{prTargetBranch}</code> branch and update the PR.
-                  </p>
-                  <div class="mt-3 space-y-1 text-xs text-amber-600 dark:text-amber-400">
-                    <p><strong>Steps to fix:</strong></p>
-                    <ol class="ml-4 list-decimal space-y-0.5">
-                      <li>Fetch latest changes: <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/50">git fetch origin {prTargetBranch}</code></li>
-                      <li>Rebase your branch: <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/50">git rebase origin/{prTargetBranch}</code></li>
-                      <li>Force push: <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/50">git push --force</code></li>
-                      <li>Update this PR with the new commits</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-            </div>
-          {:else}
-            <div class="flex justify-end">
-              <Button
-                onclick={applyPR}
-                variant="default"
-                disabled={isMergingPr || mergePrSuccess}
-                class="min-w-[120px]">
-                {#if isMergingPr}
-                  <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-                  Merging...
-                {:else if mergePrSuccess}
-                  <CheckCircle class="mr-2 h-4 w-4" />
-                  Merged
-                {:else}
-                  <GitMerge class="mr-2 h-4 w-4" />
-                  Merge PR
-                {/if}
-              </Button>
-            </div>
-          {/if}
+          <div class="flex justify-end">
+            <Button
+              onclick={applyPR}
+              variant="default"
+              disabled={isMergingPr || mergePrSuccess}
+              class="min-w-[120px]">
+              {#if isMergingPr}
+                <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                Merging...
+              {:else if mergePrSuccess}
+                <CheckCircle class="mr-2 h-4 w-4" />
+                Merged
+              {:else}
+                <GitMerge class="mr-2 h-4 w-4" />
+                Merge PR
+              {/if}
+            </Button>
+          </div>
         </div>
       {/if}
 
