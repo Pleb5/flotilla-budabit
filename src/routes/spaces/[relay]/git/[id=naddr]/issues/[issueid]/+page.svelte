@@ -42,7 +42,7 @@
   } from "@lib/budabit"
   import {normalizeEffectiveLabels, toNaturalArray} from "@lib/budabit/labels"
   import Markdown from "@src/lib/components/Markdown.svelte"
-  import {REPO_KEY} from "@lib/budabit/state"
+  import {REPO_KEY, effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
   
@@ -63,6 +63,7 @@
   })
 
   const issueId = $page.params.issueid
+  const repoAddress = $derived.by(() => (repoClass as any)?.address || "")
   
   // Make issue lookup reactive to handle data loading
   const issueEvent = $derived.by(() => repoClass.issues.find(i => i.id === issueId))
@@ -293,10 +294,30 @@
 
   const handleStatusPublish = async (statusEvent: StatusEvent) => {
     console.log("[IssueDetail] Publishing status", statusEvent)
+    const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
+    const fallbackMaintainers = Array.from(
+      new Set([...(repoClass.maintainers || []), ...(groupMaintainers ? Array.from(groupMaintainers) : []), owner].filter(Boolean)),
+    )
+    const effectiveMaintainers = (() => {
+      if (!repoAddress) return fallbackMaintainers
+      const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+      if (maintainers && maintainers.size > 0) return Array.from(maintainers)
+      return fallbackMaintainers
+    })()
+    const recipients = Array.from(
+      new Set([...(effectiveMaintainers || []), issue?.author.pubkey, $pubkey].filter(Boolean)),
+    )
+    const tags = (statusEvent.tags || []).filter((tag: string[]) => tag[0] !== "p")
+    tags.push(...recipients.map(recipient => ["p", recipient] as ["p", string]))
+    const statusWithRecipients = {
+      ...statusEvent,
+      tags,
+    }
+
     const relays = (repoClass.relays || repoRelays || [])
       .map((u: string) => normalizeRelayUrl(u))
       .filter(Boolean)
-    const thunk = postStatus(statusEvent as any, relays)
+    const thunk = postStatus(statusWithRecipients as any, relays)
     console.log("[IssueDetail] Status publish thunk", thunk)
     return thunk
   }

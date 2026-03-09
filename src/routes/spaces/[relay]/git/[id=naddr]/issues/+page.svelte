@@ -45,6 +45,7 @@
     STATUS_EVENTS_BY_ROOT_KEY,
     deriveEffectiveLabels,
     deriveAssignmentsFor,
+    effectiveMaintainersByRepoAddress,
     effectiveRepoAddressesByRepoAddress,
   } from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
@@ -89,6 +90,26 @@
     if (addresses && addresses.size > 0) return Array.from(addresses)
     return [repoAddress]
   })
+  const effectiveMaintainers = $derived.by((): string[] => {
+    const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
+    const fallback = Array.from(
+      new Set([...(repoClass?.maintainers || []), owner].filter((value): value is string => Boolean(value))),
+    )
+    if (!repoAddress) return fallback
+    const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+    if (maintainers && maintainers.size > 0) return Array.from(maintainers)
+    return fallback
+  })
+
+  const withIssueRecipients = (event: IssueEvent, recipients: string[]): IssueEvent => {
+    const dedupedRecipients = Array.from(new Set(recipients.filter(Boolean)))
+    const tags = (event.tags || []).filter((tag: string[]) => tag[0] !== "p")
+    tags.push(...dedupedRecipients.map((recipient: string) => ["p", recipient] as ["p", string]))
+    return {
+      ...event,
+      tags,
+    }
+  }
 
   const LABEL_PREFETCH_LIMIT = 200
   const LABEL_PREFETCH_IDLE_MS = 2000
@@ -933,23 +954,29 @@
       })
       return
     }
-    const postIssueEvent = postIssue(issue, relaysToUse)
+    const evt: any = (repoClass as any).repoEvent
+    const maintainers = Array.from(new Set([
+      ...effectiveMaintainers,
+      evt?.pubkey,
+    ].filter(Boolean)))
+    const issueWithRecipients = withIssueRecipients(issue, maintainers)
+
+    const postIssueEvent = postIssue(issueWithRecipients, relaysToUse)
     pushToast({message: "Issue created"})
     try {
       pushRepoAlert({
         repoKey: repoClass.key,
         kind: "new-patch",
         title: "New issue",
-        body: getTagValue("subject", issue.tags) || "",
+        body: getTagValue("subject", issueWithRecipients.tags) || "",
       })
     } catch {}
-    const evt: any = (repoClass as any).repoEvent
 
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
       content: "",
       rootId: postIssueEvent.event.id,
-      recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
+      recipients: Array.from(new Set([...maintainers, $pubkey!].filter(Boolean))),
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })

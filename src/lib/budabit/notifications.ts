@@ -234,6 +234,19 @@ export const repoNotificationCandidates = derived(
     const repoAddresses = Object.keys(watchedRepos)
     if (repoAddresses.length === 0) return []
 
+    const watchedRepoByKindIdentifier = new Map<string, string | null>()
+    for (const repoAddr of repoAddresses) {
+      const parts = getRepoAddressParts(repoAddr)
+      if (!parts) continue
+      const key = `${parts.kind}:${parts.identifier}`
+      const existing = watchedRepoByKindIdentifier.get(key)
+      if (!existing) {
+        watchedRepoByKindIdentifier.set(key, repoAddr)
+      } else if (existing !== repoAddr) {
+        watchedRepoByKindIdentifier.set(key, null)
+      }
+    }
+
     const repoByEffectiveAddress = new Map<string, string>()
     const allEffectiveAddresses = new Set<string>()
     for (const repoAddr of repoAddresses) {
@@ -247,17 +260,35 @@ export const repoNotificationCandidates = derived(
       }
     }
 
+    const resolveRootRepoAddr = (event: TrustedEvent): string | undefined => {
+      const repoAddr = getTagValue("a", event.tags)
+      if (!repoAddr) return undefined
+
+      const mapped = repoByEffectiveAddress.get(repoAddr)
+      if (mapped) return mapped
+
+      if (!$pubkey) return undefined
+      const isMentioned = event.tags.some(tag => tag[0] === "p" && tag[1] === $pubkey)
+      if (!isMentioned) return undefined
+
+      const parts = getRepoAddressParts(repoAddr)
+      if (!parts) return undefined
+      const key = `${parts.kind}:${parts.identifier}`
+      const fallback = watchedRepoByKindIdentifier.get(key)
+      return fallback || undefined
+    }
+
     const issueEvents = ($issueEvents as TrustedEvent[]).filter(event =>
-      allEffectiveAddresses.has(getTagValue("a", event.tags) || ""),
+      Boolean(resolveRootRepoAddr(event)),
     )
     const patchEvents = ($patchEvents as TrustedEvent[]).filter(event =>
-      allEffectiveAddresses.has(getTagValue("a", event.tags) || ""),
+      Boolean(resolveRootRepoAddr(event)),
     )
     const prUpdateEvents = ($prUpdateEvents as TrustedEvent[]).filter(event =>
-      allEffectiveAddresses.has(getTagValue("a", event.tags) || ""),
+      Boolean(resolveRootRepoAddr(event)),
     )
     const statusEvents = ($statusEvents as TrustedEvent[]).filter(event =>
-      allEffectiveAddresses.has(getTagValue("a", event.tags) || ""),
+      Boolean(resolveRootRepoAddr(event)),
     )
     const roleEvents = ($roleEvents as TrustedEvent[]).filter(event => {
       const repoAddr = getTagValue("a", event.tags)
@@ -268,13 +299,11 @@ export const repoNotificationCandidates = derived(
 
     const rootMeta = new Map<string, {repoAddr: string; type: RootType}>()
     for (const event of issueEvents) {
-      const repoAddr = getTagValue("a", event.tags)
-      const rootRepoAddr = repoAddr ? repoByEffectiveAddress.get(repoAddr) : undefined
+      const rootRepoAddr = resolveRootRepoAddr(event)
       if (rootRepoAddr) rootMeta.set(event.id, {repoAddr: rootRepoAddr, type: "issue"})
     }
     for (const event of patchEvents) {
-      const repoAddr = getTagValue("a", event.tags)
-      const rootRepoAddr = repoAddr ? repoByEffectiveAddress.get(repoAddr) : undefined
+      const rootRepoAddr = resolveRootRepoAddr(event)
       if (rootRepoAddr) rootMeta.set(event.id, {repoAddr: rootRepoAddr, type: "patch"})
     }
 
@@ -297,8 +326,7 @@ export const repoNotificationCandidates = derived(
 
     for (const event of issueEvents) {
       if (event.pubkey === $pubkey) continue
-      const repoAddr = getTagValue("a", event.tags)
-      const rootRepoAddr = repoAddr ? repoByEffectiveAddress.get(repoAddr) : undefined
+      const rootRepoAddr = resolveRootRepoAddr(event)
       if (!rootRepoAddr) continue
       const options = watchedRepos[rootRepoAddr]
       if (!options?.issues?.new) continue
@@ -307,8 +335,7 @@ export const repoNotificationCandidates = derived(
 
     for (const event of patchEvents) {
       if (event.pubkey === $pubkey) continue
-      const repoAddr = getTagValue("a", event.tags)
-      const rootRepoAddr = repoAddr ? repoByEffectiveAddress.get(repoAddr) : undefined
+      const rootRepoAddr = resolveRootRepoAddr(event)
       if (!rootRepoAddr) continue
       const options = watchedRepos[rootRepoAddr]
       if (!options?.patches?.new) continue
@@ -317,8 +344,7 @@ export const repoNotificationCandidates = derived(
 
     for (const event of prUpdateEvents) {
       if (event.pubkey === $pubkey) continue
-      const repoAddr = getTagValue("a", event.tags)
-      const rootRepoAddr = repoAddr ? repoByEffectiveAddress.get(repoAddr) : undefined
+      const rootRepoAddr = resolveRootRepoAddr(event)
       if (!rootRepoAddr) continue
       const options = watchedRepos[rootRepoAddr]
       if (!options?.patches?.updates) continue
@@ -344,8 +370,7 @@ export const repoNotificationCandidates = derived(
 
     for (const event of statusEvents) {
       if (event.pubkey === $pubkey) continue
-      const repoAddr = getTagValue("a", event.tags)
-      const rootRepoAddr = repoAddr ? repoByEffectiveAddress.get(repoAddr) : undefined
+      const rootRepoAddr = resolveRootRepoAddr(event)
       if (!rootRepoAddr) continue
       const options = watchedRepos[rootRepoAddr]
       if (!options) continue
@@ -536,6 +561,7 @@ export const setupBudabitNotifications = () => {
 
   const rebuildRepoSubscriptions = () => {
     const values = get(userRepoWatchValues)
+    const currentPubkey = get(pubkey)
     const repoAddresses = Object.keys(values.repos || {})
     if (repoAddresses.length === 0) {
       clearLiveControllers()
@@ -544,13 +570,14 @@ export const setupBudabitNotifications = () => {
     }
 
     const effectiveByRepo = get(effectiveRepoAddressesByRepoAddress)
-    const key = repoAddresses
-      .map(repoAddr => {
-        const effective = effectiveByRepo.get(repoAddr) || new Set<string>([repoAddr])
-        return `${repoAddr}::${Array.from(effective).sort().join(",")}`
-      })
-      .sort()
-      .join("|")
+    const key =
+      repoAddresses
+        .map(repoAddr => {
+          const effective = effectiveByRepo.get(repoAddr) || new Set<string>([repoAddr])
+          return `${repoAddr}::${Array.from(effective).sort().join(",")}`
+        })
+        .sort()
+        .join("|") + `::viewer:${currentPubkey || ""}`
     if (key === lastKey) return
     lastKey = key
 
@@ -600,11 +627,40 @@ export const setupBudabitNotifications = () => {
         signal: controller.signal,
       })
     }
+
+    if (currentPubkey) {
+      const relays = get(watchedRepoRelays)
+      if (relays.length > 0) {
+        const mentionFilters = [
+          {
+            kinds: [GIT_ISSUE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE],
+            "#p": [currentPubkey],
+          },
+        ]
+        load({relays, filters: mentionFilters}).catch(() => {})
+
+        const controller = new AbortController()
+        liveControllers.set("__mentions__", controller)
+        const since = now() - 600
+        const liveFilters = mentionFilters.map(filter => ({...filter, since}))
+        request({
+          relays,
+          filters: liveFilters,
+          signal: controller.signal,
+          onEvent: event => {
+            if (!repository.getEvent(event.id)) {
+              repository.publish(event as TrustedEvent)
+            }
+          },
+        })
+      }
+    }
   }
 
   const unsubscribeWatch = userRepoWatchValues.subscribe(rebuildRepoSubscriptions)
   const unsubscribeEffective =
     effectiveRepoAddressesByRepoAddress.subscribe(rebuildRepoSubscriptions)
+  const unsubscribePubkey = pubkey.subscribe(() => rebuildRepoSubscriptions())
 
   let lastCommentsKey = ""
   let commentsController: AbortController | undefined
@@ -646,6 +702,7 @@ export const setupBudabitNotifications = () => {
   return () => {
     unsubscribeWatch()
     unsubscribeEffective()
+    unsubscribePubkey()
     unsubscribeComments()
     unsubscribeListed()
     commentsController?.abort()

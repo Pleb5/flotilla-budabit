@@ -42,6 +42,7 @@
     GIT_STATUS_APPLIED,
   } from "@nostr-git/core/events"
   import {postComment, postPermalink, postStatus, publishEvent} from "@lib/budabit"
+  import {effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
   import {getCloneUrlsFromEvent} from "@nostr-git/core/utils"
   import {nip19} from "nostr-tools"
@@ -71,6 +72,16 @@
   }
 
   const {pr, prEvent, repo: repoClass, repoRelays}: Props = $props()
+
+  const effectiveMaintainers = $derived.by((): string[] => {
+    const repoAddress = (repoClass as any)?.address || ""
+    if (!repoAddress) {
+      return Array.from(new Set((((repoClass as any)?.maintainers as string[]) || []).filter(Boolean)))
+    }
+    const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+    if (maintainers && maintainers.size > 0) return Array.from(maintainers)
+    return Array.from(new Set((((repoClass as any)?.maintainers as string[]) || []).filter(Boolean)))
+  })
 
   // PR-specific status and comments
   const getPrStatusFilter = () => ({
@@ -526,7 +537,7 @@
           return
         }
       }
-      const recipients = (repoClass as any)?.maintainers ?? []
+      const recipients = effectiveMaintainers
       const unsigned = createPullRequestUpdateEvent({
         repoAddr,
         pullRequestEventId: prEvent.id,
@@ -729,7 +740,7 @@
         kind: GIT_STATUS_APPLIED,
         content: mergePrCommitMessage || `PR applied: ${pr?.subject || "Untitled"}`,
         rootId: prEvent.id,
-        recipients: (repoClass as any).maintainers || [],
+        recipients: effectiveMaintainers,
         repoAddr: (repoClass as any).repoId || (repoClass as any).address || "",
         relays: repoClass.relays || repoRelays || [],
         appliedCommits: commitIds.length > 0 ? commitIds : undefined,

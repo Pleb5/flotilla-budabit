@@ -47,6 +47,7 @@
     PULL_REQUESTS_KEY,
     deriveEffectiveLabels,
     deriveAssignmentsFor,
+    effectiveMaintainersByRepoAddress,
     effectiveRepoAddressesByRepoAddress,
   } from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
@@ -83,6 +84,24 @@
     if (addresses && addresses.size > 0) return Array.from(addresses)
     return [repoAddress]
   })
+  const effectiveMaintainers = $derived.by((): string[] => {
+    if (!repoAddress) {
+      return Array.from(new Set((repoClass?.maintainers || []).filter(Boolean)))
+    }
+    const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+    if (maintainers && maintainers.size > 0) return Array.from(maintainers)
+    return Array.from(new Set((repoClass?.maintainers || []).filter(Boolean)))
+  })
+
+  const withRecipients = (event: PullRequestEvent, recipients: string[]): PullRequestEvent => {
+    const dedupedRecipients = Array.from(new Set(recipients.filter(Boolean)))
+    const tags = (event.tags || []).filter((tag: string[]) => tag[0] !== "p")
+    tags.push(...dedupedRecipients.map((recipient: string) => ["p", recipient] as ["p", string]))
+    return {
+      ...event,
+      tags,
+    }
+  }
 
   $effect(() => {
     console.log("pullRequests", pullRequests)
@@ -625,7 +644,13 @@
       return
     }
 
-    const publishedPR = publishEvent(prEvent, relaysToUse)
+    const maintainers = Array.from(new Set([
+      ...effectiveMaintainers,
+      evt.pubkey,
+    ].filter(Boolean)))
+    const prEventWithRecipients = withRecipients(prEvent, maintainers)
+
+    const publishedPR = publishEvent(prEventWithRecipients, relaysToUse)
 
     const rootId = publishedPR.event.id
 
@@ -633,7 +658,7 @@
       kind: GIT_STATUS_OPEN,
       content: "",
       rootId,
-      recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
+      recipients: Array.from(new Set([...maintainers, $pubkey!].filter(Boolean))),
       repoAddr: repoClass.address,
       relays: relaysToUse,
     })

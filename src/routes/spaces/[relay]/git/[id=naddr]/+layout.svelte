@@ -41,7 +41,7 @@
     stateEvent: RepoStateEvent
   }
   import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
-  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, parseRepoAnnouncementEvent, isCommentEvent} from "@nostr-git/core/events"
+  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, parseRepoAnnouncementEvent, isCommentEvent} from "@nostr-git/core/events"
   import {normalizeRelayUrl as normalizeRelayUrlShared, parseRepoId} from "@nostr-git/core/utils"
   import {derived, get as getStore, readable, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
@@ -825,9 +825,21 @@
             "#a": addressFilter,
           },
           {
+            kinds: [GIT_PULL_REQUEST_UPDATE],
+            "#a": addressFilter,
+          },
+          {
             kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
             "#a": addressFilter,
           },
+          ...($pubkey
+            ? [
+                {
+                  kinds: [GIT_ISSUE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE],
+                  "#p": [$pubkey],
+                },
+              ]
+            : []),
         ],
       })
 
@@ -881,6 +893,10 @@
               },
               {
                 kinds: [GIT_PULL_REQUEST],
+                "#a": addresses,
+              },
+              {
+                kinds: [GIT_PULL_REQUEST_UPDATE],
                 "#a": addresses,
               },
               {
@@ -1033,6 +1049,36 @@
 
     // No cleanup needed - subscriptions should persist across navigation
     // Only cleanup on component destroy (handled by onDestroy)
+  })
+
+  $effect(() => {
+    const relays = ($repoRelaysStore || []).filter(Boolean)
+    const viewer = $pubkey
+    if (!viewer || relays.length === 0) return
+
+    const filters: Filter[] = [
+      {
+        kinds: [GIT_ISSUE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE],
+        "#p": [viewer],
+      },
+    ]
+
+    load({relays, filters}).catch(() => {})
+
+    const controller = new AbortController()
+    const since = Math.floor(Date.now() / 1000) - 600
+    request({
+      relays,
+      signal: controller.signal,
+      filters: filters.map(filter => ({...filter, since})),
+      onEvent: event => {
+        if (!repository.getEvent(event.id)) {
+          repository.publish(event as TrustedEvent)
+        }
+      },
+    })
+
+    return () => controller.abort()
   })
 
   // Cleanup on component destroy
