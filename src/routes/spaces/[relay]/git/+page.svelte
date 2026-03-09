@@ -1415,30 +1415,9 @@
           defaultAuthorName: authorName,
           defaultAuthorEmail: authorEmail,
           onPublishEvent: async (repoEvent: NostrEvent) => {
-            // For GRASP repos (kind 30617/30618), publish to the GRASP relay from the event's 'relays' tag
-            let targetRelays = defaultRepoRelays
-
-            // Check if this is a repo announcement or state event
-            if (repoEvent.kind === 30617 || repoEvent.kind === 30618) {
-              console.log("🔐 Processing GRASP event kind:", repoEvent.kind, "tags:", repoEvent.tags)
-              // Extract relay URLs from the 'relays' tag if present
-              const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
-              console.log("🔐 Found relays tag:", relaysTag)
-              if (relaysTag && relaysTag.length > 1) {
-                // For GRASP events, publish to BOTH the GRASP relay AND default relays
-                const graspRelays = relaysTag.slice(1)
-                targetRelays = [...graspRelays, ...defaultRepoRelays]
-                // Remove duplicates while preserving order
-                targetRelays = [...new Set(targetRelays)]
-                console.log(
-                  "🔐 Publishing GRASP event to GRASP relay + default relays:",
-                  targetRelays,
-                )
-              } else {
-                console.warn("🔐 No relays tag found in GRASP event, using default relays:", defaultRepoRelays)
-              }
-            }
-
+            const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
+            const tagRelays = relaysTag && relaysTag.length > 1 ? relaysTag.slice(1) : []
+            const targetRelays = tagRelays.length > 0 ? [...new Set(tagRelays)] : defaultRepoRelays
             const result = publishEventToRelays(repoEvent, targetRelays)
           },
           getProfile: getProfileForWizard,
