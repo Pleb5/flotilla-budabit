@@ -187,11 +187,6 @@
   let loading = $state(true)
   let activeTab = $state<"my-repos" | "bookmarks" | "snippets">("my-repos")
   let searchQuery = $state("")
-  // Track when cards are ready to be shown (after all repos have loaded)
-  let cardsReady = $state(false)
-  // Debounce timer for settling repo count before showing cards
-  let settleTimer: ReturnType<typeof setTimeout> | null = null
-  let lastRepoCount = $state(0)
   let snippetsLoadedFor = $state<string | null>(null)
   let repoStateLoadKey = $state("")
   let myRepoStateEvents = $state<RepoStateEvent[]>([])
@@ -571,18 +566,6 @@
     })
   })
 
-
-  // Reset cardsReady when tab changes to trigger fresh animation
-  $effect(() => {
-    const tab = activeTab
-    cardsReady = false
-    lastRepoCount = 0
-    // Clear any pending settle timer
-    if (settleTimer) {
-      clearTimeout(settleTimer)
-      settleTimer = null
-    }
-  })
 
   // Filter repos based on active tab
   const filteredRepos = $derived.by(() => {
@@ -1127,31 +1110,9 @@
           repositoriesStore.set(cachedCards)
         }
 
-        // Show cards immediately if we already have some, or after a brief delay on first load
-        // Use untrack to prevent cardsReady/lastRepoCount reads from re-triggering this effect
-        untrack(() => {
-          const currentCount = cachedCards.length
-          if (currentCount !== lastRepoCount) {
-            lastRepoCount = currentCount
-
-            // If cards are already shown, keep them shown (no flicker)
-            if (!cardsReady) {
-              // First load: wait briefly for initial batch to load
-              if (settleTimer) {
-                clearTimeout(settleTimer)
-              }
-              settleTimer = setTimeout(() => {
-                cardsReady = true
-                settleTimer = null
-              }, 200)
-            }
-          }
-        })
       } else {
         untrack(() => {
           repositoriesStore.clear()
-          cardsReady = false
-          lastRepoCount = 0
         })
       }
     }
@@ -1783,69 +1744,58 @@
           {activeTab === "my-repos" ? "My Repositories" : "Bookmarked Repositories"}
         </h3>
       {/if}
-      {#if !cardsReady}
-        <!-- Show subtle loading while waiting for all repos to load -->
-        <p class="flex h-10 items-center justify-center py-20" out:fade={{duration: 150}}>
-          <Spinner loading={true}>
-            Loading repositories...
-          </Spinner>
-        </p>
-      {/if}
-      {#if cardsReady}
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3" in:fade={{duration: 150}}>
-          {#each $repositoriesStore as g, i (g.repoNaddr || g.euc)}
-            {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
-            {@const taggedMaintainers = g.taggedMaintainers ?? []}
-            <div
-              class="rounded-md border border-border bg-card p-3"
-              in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
-              <!-- Use GitItem for consistent repo card rendering -->
-              {#if g.first}
-                <GitItem
-                  {url}
-                  event={g.first as any}
-                  showActivity={true}
-                  showIssues={true}
-                  showActions={true}
-                  hideDate={true} />
-              {/if}
+      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {#each $repositoriesStore as g, i (g.repoNaddr || g.euc)}
+          {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
+          {@const taggedMaintainers = g.taggedMaintainers ?? []}
+          <div
+            class="rounded-md border border-border bg-card p-3">
+            <!-- Use GitItem for consistent repo card rendering -->
+            {#if g.first}
+              <GitItem
+                {url}
+                event={g.first as any}
+                showActivity={true}
+                showIssues={true}
+                showActions={true}
+                hideDate={true} />
+            {/if}
 
-              <!-- Maintainers avatars and date -->
-              <div class="mt-3 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="flex -space-x-2">
-                    {#each effectiveMaintainers.slice(0, 4) as pk (pk)}
-                      {@const prof = $profilesByPubkey.get(pk)}
-                      <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
-                        <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
-                        <AvatarFallback
-                          >{(prof?.display_name || prof?.name || pk)
-                            .slice(0, 2)
-                            .toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                    {/each}
-                    {#if effectiveMaintainers.length > 4}
-                      <div
-                        class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                        +{effectiveMaintainers.length - 4}
-                      </div>
-                    {/if}
-                  </div>
-                  <span class="text-xs opacity-60"
-                    >{effectiveMaintainers.length} effective maintainer{effectiveMaintainers.length !== 1 ? "s" : ""}
-                    / {taggedMaintainers.length} tagged</span>
+            <!-- Maintainers avatars and date -->
+            <div class="mt-3 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="flex -space-x-2">
+                  {#each effectiveMaintainers.slice(0, 4) as pk (pk)}
+                    {@const prof = $profilesByPubkey.get(pk)}
+                    <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
+                      <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                      <AvatarFallback
+                        >{(prof?.display_name || prof?.name || pk)
+                          .slice(0, 2)
+                          .toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                  {/each}
+                  {#if effectiveMaintainers.length > 4}
+                    <div
+                      class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
+                      +{effectiveMaintainers.length - 4}
+                    </div>
+                  {/if}
                 </div>
-                {#if g.first}
-                  {@const date = new Date(g.first.created_at * 1000)}
-                  <span class="text-xs opacity-60">
-                    {String(date.getDate()).padStart(2, '0')}/{String(date.getMonth() + 1).padStart(2, '0')}/{String(date.getFullYear()).slice(-2)}
-                  </span>
-                {/if}
+                <span class="text-xs opacity-60"
+                  >{effectiveMaintainers.length} effective maintainer{effectiveMaintainers.length !== 1 ? "s" : ""}
+                  / {taggedMaintainers.length} tagged</span>
               </div>
+              {#if g.first}
+                {@const date = new Date(g.first.created_at * 1000)}
+                <span class="text-xs opacity-60">
+                  {String(date.getDate()).padStart(2, '0')}/{String(date.getMonth() + 1).padStart(2, '0')}/{String(date.getFullYear()).slice(-2)}
+                </span>
+              {/if}
             </div>
-          {/each}
-        </div>
-      {/if}
+          </div>
+        {/each}
+      </div>
     {/if}
   </div>
   {/if}

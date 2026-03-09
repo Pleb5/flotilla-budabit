@@ -29,6 +29,14 @@ export type WidgetButton = {
   url: string
 }
 
+export type WidgetDisplayLocation = "modal" | "menu-route" | "top-menu"
+
+export type WidgetSlotConfig = {
+  type: "repo-tab"
+  label: string
+  path: string
+}
+
 export type SmartWidgetEvent = {
   id: string
   kind: 30033
@@ -45,6 +53,7 @@ export type SmartWidgetEvent = {
   appUrl?: string
   permissions?: string[]
   originHint?: string
+  slot?: WidgetSlotConfig
 }
 
 export type ExtensionPolicy = {

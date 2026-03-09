@@ -1,5 +1,6 @@
 <script lang="ts">
-  import {extensionSettings} from "@app/extensions/settings"
+  import {extensionSettings, getWidgetDisplayConfig, setWidgetDisplayConfig, type WidgetDisplayConfig} from "@app/extensions/settings"
+  import type {WidgetDisplayLocation} from "@app/extensions/types"
   import ExtensionCard from "@app/components/ExtensionCard.svelte"
   import {
     enableExtension,
@@ -42,6 +43,27 @@
 
   let discoveredWidgets = $state<SmartWidgetEvent[]>([])
   let loadingWidgetDiscovery = $state(false)
+
+  // Widget type filtering tabs
+  type WidgetTab = "tool" | "basic"
+  let widgetTab = $state<WidgetTab>("tool")
+  const toolWidgets = $derived(discoveredWidgets.filter(w => w.widgetType === "tool" || w.widgetType === "action"))
+  const basicWidgets = $derived(discoveredWidgets.filter(w => w.widgetType === "basic"))
+  const filteredWidgets = $derived(widgetTab === "tool" ? toolWidgets : basicWidgets)
+
+  // Pagination for discovered widgets
+  const WIDGETS_PER_PAGE = 12
+  let widgetPage = $state(1)
+  const totalWidgetPages = $derived(Math.ceil(filteredWidgets.length / WIDGETS_PER_PAGE))
+  const paginatedWidgets = $derived(
+    filteredWidgets.slice((widgetPage - 1) * WIDGETS_PER_PAGE, widgetPage * WIDGETS_PER_PAGE)
+  )
+
+  // Reset page when tab changes
+  $effect(() => {
+    widgetTab
+    widgetPage = 1
+  })
 
   // Install by URL
   let manifestUrl = $state("")
@@ -190,15 +212,16 @@
     {#if installed.length > 0}
       <div class="flex flex-col gap-3">
         {#each installed as item (item.id)}
-          <div class="row-2 items-start justify-between">
-            <ExtensionCard
-              manifest={item.manifest}
-              type={item.type}
-              enabled={enabledIds.includes(item.id)}
-              ontoggle={({enabled}) => toggle(item.id, enabled)} />
-            <Button class="btn btn-outline btn-error btn-sm" onclick={() => onUninstall(item.id)}
-              >Uninstall</Button>
-          </div>
+          {@const widgetDisplay = settings.widgetDisplay || {}}
+          {@const displayLocation = widgetDisplay[item.id]?.location || "modal"}
+          <ExtensionCard
+            manifest={item.manifest}
+            type={item.type}
+            enabled={enabledIds.includes(item.id)}
+            ontoggle={({enabled}) => toggle(item.id, enabled)}
+            onuninstall={() => onUninstall(item.id)}
+            displayLocation={displayLocation}
+            onDisplayLocationChange={(loc) => setWidgetDisplayConfig(item.id, {location: loc})} />
         {/each}
       </div>
     {:else}
@@ -334,33 +357,54 @@
 
   <!-- Discovered Smart Widgets -->
   <div class="card2 bg-alt col-8 shadow-xl">
-    <strong class="text-lg">Discovered Smart Widgets</strong>
+    <div class="flex items-center justify-between">
+      <strong class="text-lg">Discovered Smart Widgets</strong>
+      {#if discoveredWidgets.length > 0}
+        <span class="text-sm opacity-70">{filteredWidgets.length} of {discoveredWidgets.length} widgets</span>
+      {/if}
+    </div>
     {#if loadingWidgetDiscovery}
       <p class="opacity-70">Discovering...</p>
     {:else if discoveredWidgets.length === 0}
       <p class="opacity-70">No smart widgets discovered.</p>
     {:else}
+      <!-- Tab buttons -->
+      <div class="mt-3 flex gap-2">
+        <button
+          class="btn btn-sm {widgetTab === 'tool' ? 'btn-primary' : 'btn-outline'}"
+          onclick={() => (widgetTab = 'tool')}>
+          Tool Widgets ({toolWidgets.length})
+        </button>
+        <button
+          class="btn btn-sm {widgetTab === 'basic' ? 'btn-primary' : 'btn-outline'}"
+          onclick={() => (widgetTab = 'basic')}>
+          Basic Widgets ({basicWidgets.length})
+        </button>
+      </div>
       <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-        {#each discoveredWidgets as w (w.identifier)}
-          <div class="card2 row-2 items-center justify-between p-3">
-            <div>
-              <div class="font-medium">{w.content || w.identifier}</div>
-              <div class="text-xs opacity-70">Type: {w.widgetType}</div>
-              <div class="text-xs opacity-50">{w.appUrl || w.imageUrl}</div>
+        {#each paginatedWidgets as w (w.identifier)}
+          <div class="card2 flex items-start justify-between gap-2 p-3">
+            <div class="flex min-w-0 flex-1 items-start gap-3">
+              {#if w.iconUrl || w.imageUrl}
+                <img
+                  src={w.iconUrl || w.imageUrl}
+                  alt="icon"
+                  class="h-10 w-10 shrink-0 rounded object-cover" />
+              {:else}
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-base-300 text-lg">
+                  📦
+                </div>
+              {/if}
+              <div class="min-w-0 flex-1">
+                <div class="break-words font-medium">{w.content || w.identifier}</div>
+                <div class="text-xs opacity-70">Type: {w.widgetType}</div>
+                <div class="truncate text-xs opacity-50" title={w.appUrl || w.imageUrl}>{w.appUrl || w.imageUrl}</div>
+              </div>
             </div>
-            <div class="row-2 items-center gap-3">
+            <div class="flex shrink-0 items-center gap-3">
               {#if installedWidgets.some((i: SmartWidgetEvent) => i.identifier === w.identifier)}
-                <label class="row-2 items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    class="toggle toggle-primary"
-                    checked={enabledIds.includes(w.identifier)}
-                    onchange={e =>
-                      (e.currentTarget as HTMLInputElement).checked
-                        ? enableExtension(w.identifier)
-                        : disableExtension(w.identifier)} />
-                  <span class="opacity-70">Enabled</span>
-                </label>
+                <Button class="btn btn-outline btn-error btn-sm" onclick={() => onUninstall(w.identifier)}
+                  >Uninstall</Button>
               {:else}
                 <Button class="btn btn-primary btn-sm" onclick={() => onInstallWidget(w)}
                   >Install</Button>
@@ -369,6 +413,25 @@
           </div>
         {/each}
       </div>
+      {#if totalWidgetPages > 1}
+        <div class="mt-4 flex items-center justify-center gap-2">
+          <Button
+            class="btn btn-outline btn-sm"
+            disabled={widgetPage <= 1}
+            onclick={() => (widgetPage = Math.max(1, widgetPage - 1))}>
+            Previous
+          </Button>
+          <span class="text-sm">
+            Page {widgetPage} of {totalWidgetPages}
+          </span>
+          <Button
+            class="btn btn-outline btn-sm"
+            disabled={widgetPage >= totalWidgetPages}
+            onclick={() => (widgetPage = Math.min(totalWidgetPages, widgetPage + 1))}>
+            Next
+          </Button>
+        </div>
+      {/if}
     {/if}
   </div>
 

@@ -120,7 +120,7 @@ import {
   getInstalledExtension,
 } from "@app/extensions/settings"
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
-import {request} from "@welshman/net"
+import {request, load} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
 import {deleteIndexedDB} from "@lib/util"
@@ -247,11 +247,11 @@ export const discoverExtensions = async (): Promise<ExtensionManifest[]> => {
 }
 
 export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
+  const relays = [...SMART_WIDGET_RELAYS, ...INDEXER_RELAYS]
+  const filters = [{kinds: [SMART_WIDGET_KIND], limit: 200}]
+
   try {
-    await request({
-      relays: SMART_WIDGET_RELAYS,
-      filters: [{kinds: [SMART_WIDGET_KIND], limit: 200}],
-    })
+    await load({relays, filters})
   } catch (e) {
     console.warn("Smart widget discovery errored:", e)
   }

@@ -10,6 +10,9 @@ import { get } from "svelte/store"
 // D-tag for git authentication tokens (intentionally not obvious)
 export const GIT_AUTH_DTAG = "app/budabit/tokens"
 
+// D-tag for extension settings
+export const EXTENSION_SETTINGS_DTAG = "app/budabit/extensions"
+
 
 export const loadRepositories = async (pubkey: string, relays: string[] = []) => {
   // Load both the named bookmark list and any legacy/set variants
@@ -34,6 +37,14 @@ export const loadTokens = async (pk: string, relays: string[] = []) => {
   load({
     relays,
     filters: [{ kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG] }]
+  })
+}
+
+export const loadExtensionSettings = async (pk: string, relays: string[] = []) => {
+  // Load encrypted extension settings from relays
+  load({
+    relays,
+    filters: [{ kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG] }]
   })
 }
 
@@ -171,4 +182,44 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
   load({ relays, filters: [filter] })
 
   return tokensUnsub
+}
+
+// --- Extension settings sync (centralized, encrypted) ---
+let extensionSettingsUnsub: (() => void) | undefined
+
+export function setupExtensionSettingsSync(pk: string, relays: string[] = [], onSettingsLoaded: (settings: any) => void) {
+  try { extensionSettingsUnsub?.() } catch { }
+
+  const filter = { kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG] }
+  const store = deriveEventsAsc(deriveEventsById({ repository, filters: [filter] }))
+
+  extensionSettingsUnsub = store.subscribe(async (events: TrustedEvent[]) => {
+
+    if (!events || events.length === 0) {
+      console.log("[setupExtensionSettingsSync] No extension settings events found")
+      return
+    }
+
+    // Take most recent event
+    const latest = events.reduce((acc, cur) => (cur.created_at > acc.created_at ? cur : acc))
+
+    try {
+      // Decrypt the content using NIP-44
+      const plaintext = await ensurePlaintext(latest)
+      if (!plaintext) {
+        console.warn("[setupExtensionSettingsSync] Failed to decrypt extension settings event")
+        return
+      }
+
+      const loadedSettings = JSON.parse(plaintext)
+      console.log("[setupExtensionSettingsSync] Loaded extension settings from relay")
+      onSettingsLoaded(loadedSettings)
+    } catch (error) {
+      console.error("[setupExtensionSettingsSync] Failed to parse extension settings event:", error)
+    }
+  })
+
+  load({ relays, filters: [filter] })
+
+  return extensionSettingsUnsub
 }

@@ -55,6 +55,12 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
 
   const originHint = getTag(tags, "client")?.[2]
 
+  // Parse slot configuration for repo-tab integration
+  const slotTag = getTag(tags, "slot")
+  const slot = slotTag && slotTag[1] === "repo-tab" && slotTag[2] && slotTag[3]
+    ? {type: "repo-tab" as const, label: slotTag[2], path: slotTag[3]}
+    : undefined
+
   return {
     id: event.id,
     kind: 30033,
@@ -71,6 +77,7 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
     appUrl,
     permissions,
     originHint,
+    slot,
   }
 }
 

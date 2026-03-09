@@ -113,6 +113,14 @@ export const postGraspServersList = (graspServersList: GraspSetEvent) => {
   })
 }
 
+export const postExtensionSettings = (event: Parameters<typeof publishThunk>[0]["event"]) => {
+  const merged = Array.from(new Set([...getUserRelayUrls(), ...GIT_RELAYS]))
+  return publishThunk({
+    event,
+    relays: merged,
+  })
+}
+
 // Publish a NIP-32 role label event (kind 1985) for assignees/reviewers
 export const postRoleLabel = (params: {
   rootId: string

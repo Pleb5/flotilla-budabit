@@ -47,10 +47,13 @@ import {
   loadGraspServers,
   loadRepositories,
   loadTokens,
+  loadExtensionSettings,
   setupBookmarksSync,
   setupGraspServersSync,
   setupTokensSync,
+  setupExtensionSettingsSync,
 } from "./requests"
+import {applyRemoteExtensionSettings, startExtensionSettingsAutoSync} from "@app/extensions/settings"
 import {loadRepoWatch} from "./repo-watch"
 
 // Utils
@@ -427,9 +430,20 @@ const syncUserGitData = () => {
       console.log("[syncUserGitData] Tokens sync setup complete")
     }
 
+    if (!unsubscribersByKey.has("extensions")) {
+      console.log("[syncUserGitData] Setting up extension settings sync...")
+      const unsub = setupExtensionSettingsSync(pk, mergedRelays, applyRemoteExtensionSettings)
+      if (unsub) unsubscribersByKey.set("extensions", unsub)
+      // Also start auto-sync to publish local changes
+      const autoSyncUnsub = startExtensionSettingsAutoSync()
+      unsubscribersByKey.set("extensions-autosync", autoSyncUnsub)
+      console.log("[syncUserGitData] Extension settings sync setup complete")
+    }
+
     loadRepositories(pk, mergedRelays)
     loadGraspServers(pk, mergedRelays)
     loadTokens(pk, mergedRelays)
+    loadExtensionSettings(pk, mergedRelays)
   }
 
   const ensureNotAborted = (signal: AbortSignal) => {
@@ -502,6 +516,7 @@ const syncUserGitData = () => {
             loadRepositories($pubkey, resolvedRelays)
             loadGraspServers($pubkey, resolvedRelays)
             loadTokens($pubkey, resolvedRelays)
+            loadExtensionSettings($pubkey, resolvedRelays)
           }
         } catch (error) {
           if (error instanceof DOMException && error.name === "AbortError") {

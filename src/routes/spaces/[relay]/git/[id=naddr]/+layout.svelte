@@ -139,6 +139,18 @@
         })
       }
     }
+
+    // Check Smart Widget extensions
+    for (const [widgetId, widget] of Object.entries(settings.installed.widget || {})) {
+      if (enabledIds.includes(widgetId) && widget.slot?.type === "repo-tab") {
+        extensions.push({
+          id: widgetId,
+          label: widget.slot.label,
+          path: widget.slot.path,
+          icon: widget.iconUrl,
+        })
+      }
+    }
     
     return extensions
   })

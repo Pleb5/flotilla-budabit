@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
+  import TopMenuWidgets from "@app/components/TopMenuWidgets.svelte"
 
   interface Props {
     icon?: Snippet
@@ -18,6 +19,9 @@
       {@render props.icon?.()}
       {@render props.title?.()}
     </div>
-    {@render props.action?.()}
+    <div class="flex shrink-0 items-center gap-2">
+      <TopMenuWidgets />
+      {@render props.action?.()}
+    </div>
   </div>
 </div>

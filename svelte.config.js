@@ -18,7 +18,7 @@ export default {
       directives: {
         "worker-src": ["self", "blob:"],
         "style-src": ["self", "unsafe-inline"],
-        "frame-src": ["self", "http://localhost:*", "https://localhost:*"],
+        "frame-src": ["self", "http://localhost:*", "https://localhost:*", "https:", "http:"],
         "child-src": ["self", "blob:"],
         "form-action": ["none"],
       },

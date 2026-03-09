@@ -84,7 +84,7 @@ export default defineConfig({
     SvelteKitPWA({
       registerType: "autoUpdate",
       devOptions: {
-        enabled: true,
+        enabled: false,
       },
       manifest: {
         name: platformName,

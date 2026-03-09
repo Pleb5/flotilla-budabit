@@ -27,6 +27,8 @@
   import {pushToast} from "@app/util/toast"
   import Git from "@assets/icons/git.svg?dataurl"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
+  import {extensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
+  import type {SmartWidgetEvent} from "@app/extensions/types"
 
   type Props = {
     children?: Snippet
@@ -103,6 +105,13 @@
   const [primarySpaceUrls, secondarySpaceUrls] = $derived(splitAt(itemLimit, $userSpaceUrls))
   const anySpaceNotifications = $derived($userSpaceUrls.some(hasNotification))
   const otherSpaceNotifications = $derived(secondarySpaceUrls.some(hasNotification))
+
+  // Get widgets configured for menu display
+  const menuWidgets = $derived.by(() => {
+    // Re-run when extensionSettings changes
+    const _ = $extensionSettings
+    return getWidgetsForLocation("menu-route")
+  })
 </script>
 
 <svelte:window bind:innerHeight={windowHeight} />
@@ -184,6 +193,19 @@
       <PrimaryNavItem title="Search" href="/people" class="tooltip-right">
         <ImageIcon alt="Search" src={Magnifier} size={7} />
       </PrimaryNavItem>
+      {#each menuWidgets as widget (widget.identifier)}
+        <PrimaryNavItem
+          title={widget.content || widget.identifier || "Widget"}
+          href="/widgets?id={widget.identifier}"
+          prefix="/widgets"
+          class="tooltip-right">
+          <ImageIcon
+            alt={widget.content || "Widget"}
+            src={widget.iconUrl || widget.imageUrl || Widget}
+            size={7}
+            class="rounded-full" />
+        </PrimaryNavItem>
+      {/each}
       <SlotRenderer slotId="space:sidebar:widgets" context={{urls: spaceUrls}} />
     </div>
   </div>
