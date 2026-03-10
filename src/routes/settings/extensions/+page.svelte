@@ -20,6 +20,8 @@
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
   import BoxMinimalistic from "@assets/icons/box-minimalistic.svg?dataurl"
   import LinkRound from "@assets/icons/link-round.svg?dataurl"
 
@@ -421,6 +423,13 @@
               {/if}
               <div class="min-w-0 flex-1">
                 <div class="break-words font-medium">{w.content || w.identifier}</div>
+                {#if w.pubkey}
+                  <div class="flex items-center gap-1.5 text-xs opacity-70">
+                    <span>by</span>
+                    <ProfileCircle pubkey={w.pubkey} size={4} class="h-4 w-4" />
+                    <ProfileLink pubkey={w.pubkey} class="hover:underline" />
+                  </div>
+                {/if}
                 <div class="flex flex-wrap gap-2 text-xs">
                   <span class="opacity-70">Type: {w.widgetType}</span>
                   {#if w.slot?.type === "repo-tab"}

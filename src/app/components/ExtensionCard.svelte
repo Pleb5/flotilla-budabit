@@ -1,6 +1,8 @@
 <script lang="ts">
   import ExtensionPermissions from "./ExtensionPermissions.svelte"
   import ExtensionIcon from "./ExtensionIcon.svelte"
+  import ProfileCircle from "./ProfileCircle.svelte"
+  import ProfileLink from "./ProfileLink.svelte"
   import type {ExtensionManifest, SmartWidgetEvent, WidgetDisplayLocation} from "@app/extensions/types"
 
   type Props = {
@@ -72,7 +74,13 @@
     </div>
   </div>
 
-  {#if !isWidget && extension?.author}
+  {#if isWidget && widget?.pubkey}
+    <div class="flex items-center gap-2 text-xs opacity-70">
+      <span>by</span>
+      <ProfileCircle pubkey={widget.pubkey} size={5} class="h-5 w-5" />
+      <ProfileLink pubkey={widget.pubkey} class="hover:underline" />
+    </div>
+  {:else if !isWidget && extension?.author}
     <p class="text-xs opacity-70">by {extension.author}</p>
   {/if}
   {#if description}
