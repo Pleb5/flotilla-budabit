@@ -1,7 +1,6 @@
 import {publishThunk} from "@welshman/app"
-import {PublishStatus} from "@welshman/net"
+import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
-import {SimplePool} from "nostr-tools/pool"
 import type {LoadedExtension, RepoContext} from "./types"
 import {getRepoAddress} from "./types"
 
@@ -26,7 +25,7 @@ export const removeBridgeHandler = (action: string) => {
 
 let messageCounter = 0
 
-const pool = new SimplePool()
+// Using @welshman/net load() for queries - better relay connection management
 
 const NIP100_ALLOWED_KINDS = new Set<number>([30301, 30302])
 const MAX_NOSTR_QUERY_LIMIT = 500
@@ -308,44 +307,35 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
     const {relays, filter} = parseNostrQueryPayload(payload)
     console.log(`[bridge] nostr:query querying ${relays.length} relays:`, relays, JSON.stringify(filter))
 
-    // Use SimplePool with timeout handling
+    // Use @welshman/net load() for better relay connection management
+    // This uses the same relay infrastructure as publishThunk
     const events: any[] = []
     const seenIds = new Set<string>()
 
-    await new Promise<void>((resolve) => {
-      let eoseCount = 0
-      let resolved = false
-      
-      const sub = pool.subscribeMany(relays, [filter] as any, {
-        onevent: (event: any) => {
-          console.log(`[bridge] nostr:query received event ${event.id}`)
-          if (!seenIds.has(event.id)) {
-            seenIds.add(event.id)
-            events.push(event)
-          }
-        },
-        oneose: () => {
-          eoseCount++
-          console.log(`[bridge] nostr:query EOSE ${eoseCount}/${relays.length}, events: ${events.length}`)
-          // Resolve as soon as we get events OR all relays respond
-          if (!resolved && (events.length > 0 || eoseCount >= relays.length)) {
-            resolved = true
-            sub.close()
-            resolve()
-          }
-        },
-      })
-
-      // Timeout after 10s
+    // Race between load completing and timeout
+    const timeoutPromise = new Promise<void>((resolve) => {
       setTimeout(() => {
-        if (!resolved) {
-          console.log(`[bridge] nostr:query timeout after 10s, got ${eoseCount} EOSE, ${events.length} events`)
-          resolved = true
-          sub.close()
-          resolve()
-        }
+        console.log(`[bridge] nostr:query timeout after 10s, got ${events.length} events`)
+        resolve()
       }, 10000)
     })
+
+    const loadPromise = load({
+      relays,
+      filters: [filter as any],
+      onEvent: (event: any) => {
+        console.log(`[bridge] nostr:query received event ${event.id}`)
+        if (!seenIds.has(event.id)) {
+          seenIds.add(event.id)
+          events.push(event)
+        }
+      },
+    }).catch((e: any) => {
+      console.log(`[bridge] nostr:query load error:`, e?.message || e)
+    })
+
+    // Wait for either load to complete or timeout
+    await Promise.race([loadPromise, timeoutPromise])
 
     console.log(`[bridge] nostr:query got ${events.length} events`)
     return {status: "ok", events}
