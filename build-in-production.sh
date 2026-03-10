@@ -3,8 +3,13 @@
 set -e
 
 # Fetch tags and set to env vars
-git fetch --prune --unshallow --tags || true
-git describe --tags --abbrev=0 || true
+if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+	git fetch --prune --unshallow --tags || true
+else
+	git fetch --prune --tags || true
+fi
+
+git describe --tags --abbrev=0 2>/dev/null || true
 export VITE_BUILD_VERSION=$RENDER_GIT_COMMIT
 export VITE_BUILD_HASH=$RENDER_GIT_COMMIT
 

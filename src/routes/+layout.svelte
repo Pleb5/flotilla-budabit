@@ -127,8 +127,6 @@
 
   const getVersionUrl = () => new URL("_app/version.json", getAppBaseUrl()).toString()
 
-  const getServiceWorkerUrl = () => new URL("service-worker.js", getAppBaseUrl()).toString()
-
   const buildReloadUrl = () => {
     const url = new URL(window.location.href)
 
@@ -224,20 +222,6 @@
     document.addEventListener("visibilitychange", updateCheckOnVisibilityChange)
   }
 
-  const registerAppServiceWorker = async () => {
-    if (!browser) return
-    if (!("serviceWorker" in navigator)) return
-
-    try {
-      await navigator.serviceWorker.register(getServiceWorkerUrl(), {
-        type: "module",
-        scope: getAppBaseUrl().pathname,
-      })
-    } catch (error) {
-      console.warn("Service worker registration failed", error)
-    }
-  }
-
   const getRegistrationScriptUrl = (registration: ServiceWorkerRegistration) =>
     registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || ""
 
@@ -279,7 +263,6 @@
   const initAppUpdates = async () => {
     await cleanupLegacyServiceWorkers()
     setupAppUpdatePolling()
-    void registerAppServiceWorker()
   }
 
   void initAppUpdates()
