@@ -1279,7 +1279,7 @@
                           await navigator.clipboard.writeText(nevent)
                           toast.push({message: "Permalink copied", timeout: 2000})
                         }}
-                        enablePermalinks={true}
+                        enablePermalinks={false}
                       />
                     </div>
                   {/if}
