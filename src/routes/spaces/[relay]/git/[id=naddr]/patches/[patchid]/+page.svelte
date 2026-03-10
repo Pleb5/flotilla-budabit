@@ -1,12 +1,17 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {getContext} from "svelte"
-  import {getTags, parsePullRequestEvent} from "@nostr-git/core/events"
+  import {getContext, onDestroy} from "svelte"
+  import {getTags, parsePullRequestEvent, GIT_PULL_REQUEST_UPDATE} from "@nostr-git/core/events"
   import type {PatchEvent, PullRequestEvent} from "@nostr-git/core/events"
   import {parseGitPatchFromEvent} from "@nostr-git/core/git"
+  import {load, makeLoader} from "@welshman/net"
+  import {repository} from "@welshman/app"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import type {TrustedEvent} from "@welshman/util"
+  import {uniq} from "@welshman/lib"
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
-  import {REPO_KEY, REPO_RELAYS_KEY, PULL_REQUESTS_KEY} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, PULL_REQUESTS_KEY, GIT_RELAYS} from "@lib/budabit/state"
   import PRView from "@src/lib/budabit/components/PRView.svelte"
   import PatchView from "@src/lib/budabit/components/PatchView.svelte"
 
@@ -20,22 +25,213 @@
 
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []) as string[])
   const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []) as PullRequestEvent[])
+  const LOAD_TIMEOUT_MS = 7000
+  const DEBUG_PATCH_DETAIL = import.meta.env.DEV
+  const loadDetail = makeLoader({delay: 100, timeout: LOAD_TIMEOUT_MS, threshold: 0.5})
 
-  const patchId = $page.params.patchid
+  let isResolving = $state(true)
+  let didTimeout = $state(false)
+  let hasStartedResolve = $state(false)
+  let resolveTimeout: ReturnType<typeof setTimeout> | null = null
+
+  const patchId = $derived($page.params.patchid ?? "")
+  const getFirstTagValue = (event: {tags?: string[][]} | undefined, tagName: string) =>
+    event?.tags?.find(tag => tag[0] === tagName)?.[1] || ""
 
   const patchEvent = $derived.by(() =>
     repoClass.patches.find((p: {id: string}) => p.id === patchId) as PatchEvent | undefined,
   )
-  const patch = $derived.by(() => (patchEvent ? parseGitPatchFromEvent(patchEvent) : undefined))
+  const directEventStore = $derived.by(() => {
+    if (!patchId) return undefined
+    return deriveEventsAsc(
+      deriveEventsById({
+        repository,
+        filters: [{ids: [patchId]}],
+      }),
+    )
+  })
+  const directEvent = $derived.by(() =>
+    directEventStore ? ($directEventStore?.[0] as TrustedEvent | undefined) : undefined,
+  )
+  const directPatchEvent = $derived.by(() =>
+    directEvent && directEvent.kind === 1617 ? (directEvent as PatchEvent) : undefined,
+  )
 
   const prEvent = $derived.by(() =>
     (pullRequests || []).find((pr: PullRequestEvent) => pr.id === patchId) as PullRequestEvent | undefined,
   )
-  const pr = $derived.by(() => (prEvent ? parsePullRequestEvent(prEvent) : undefined))
+  const updateRootId = $derived.by(() => {
+    if (!directEvent || directEvent.kind !== GIT_PULL_REQUEST_UPDATE) return ""
+    return getFirstTagValue(directEvent, "E") || getFirstTagValue(directEvent, "e") || ""
+  })
+  const updateRootEventStore = $derived.by(() => {
+    if (!updateRootId) return undefined
+    return deriveEventsAsc(
+      deriveEventsById({
+        repository,
+        filters: [{ids: [updateRootId]}],
+      }),
+    )
+  })
+  const updateRootEvent = $derived.by(() =>
+    updateRootEventStore ? ($updateRootEventStore?.[0] as TrustedEvent | undefined) : undefined,
+  )
+  const updateRootPrEvent = $derived.by(() => {
+    if (!updateRootId) return undefined
+    return (
+      (pullRequests || []).find((pr: PullRequestEvent) => pr.id === updateRootId) ||
+      (updateRootEvent?.kind === 1618 ? (updateRootEvent as PullRequestEvent) : undefined)
+    )
+  })
+  const directPrEvent = $derived.by(() =>
+    directEvent && directEvent.kind === 1618 ? (directEvent as PullRequestEvent) : undefined,
+  )
+  const resolvedPatchEvent = $derived.by(() => patchEvent || directPatchEvent)
+  const resolvedPrEvent = $derived.by(() => prEvent || directPrEvent || updateRootPrEvent)
+  const patch = $derived.by(() =>
+    resolvedPatchEvent ? parseGitPatchFromEvent(resolvedPatchEvent) : undefined,
+  )
+  const pr = $derived.by(() => (resolvedPrEvent ? parsePullRequestEvent(resolvedPrEvent) : undefined))
+
+  const clearResolveTimeout = () => {
+    if (!resolveTimeout) return
+    clearTimeout(resolveTimeout)
+    resolveTimeout = null
+  }
+
+  const debugLog = (message: string, details: Record<string, unknown> = {}) => {
+    if (!DEBUG_PATCH_DETAIL) return
+    console.debug("[patch-detail]", message, {
+      patchId,
+      ...details,
+    })
+  }
+
+  const resolveCurrentPatchOrPr = async () => {
+    const repoScopedRelays = uniq(repoRelays.filter(Boolean))
+    const gitRelays = uniq(GIT_RELAYS.filter(Boolean))
+    const relays = uniq([...repoScopedRelays, ...gitRelays])
+    debugLog("resolve start", {
+      relayCount: relays.length,
+      repoRelayCount: repoScopedRelays.length,
+      gitRelayCount: gitRelays.length,
+      inRepoPatches: repoClass.patches.some((p: {id: string}) => p.id === patchId),
+      inRepoPRs: (pullRequests || []).some((pr: PullRequestEvent) => pr.id === patchId),
+      directKind: directEvent?.kind,
+    })
+
+    if (relays.length === 0) {
+      debugLog("resolve skipped, no relays yet")
+      hasStartedResolve = false
+      return
+    }
+
+    clearResolveTimeout()
+    isResolving = true
+    didTimeout = false
+    hasStartedResolve = true
+
+    resolveTimeout = setTimeout(() => {
+      didTimeout = true
+      isResolving = false
+      debugLog("resolve timeout", {
+        relayCount: relays.length,
+        inRepoPatches: repoClass.patches.some((p: {id: string}) => p.id === patchId),
+        inRepoPRs: (pullRequests || []).some((pr: PullRequestEvent) => pr.id === patchId),
+        directKind: directEvent?.kind,
+        hasPatch: !!patch,
+        hasPr: !!pr,
+      })
+    }, LOAD_TIMEOUT_MS)
+
+    const primaryEvents = await loadDetail({
+      relays,
+      filters: [{ids: [patchId]}],
+      onEvent: event => {
+        debugLog("load by id onEvent", {eventId: event.id, kind: event.kind})
+      },
+    }).catch(() => [] as TrustedEvent[])
+    const primaryEvent =
+      primaryEvents.find(event => event.id === patchId) ||
+      (repository.getEvent(patchId) as TrustedEvent | undefined)
+
+    debugLog("load by id complete", {
+      fetchedKind: primaryEvent?.kind,
+      fetchedCount: primaryEvents.length,
+      directKindAfterLoad: directEvent?.kind,
+      hasPatchAfterLoad: !!patch,
+      hasPrAfterLoad: !!pr,
+    })
+
+    const loadedEvent = primaryEvent
+    if (loadedEvent?.kind === GIT_PULL_REQUEST_UPDATE) {
+      const rootId =
+        getFirstTagValue(loadedEvent as {tags?: string[][]}, "E") ||
+        getFirstTagValue(loadedEvent as {tags?: string[][]}, "e")
+      debugLog("loaded update event", {rootId})
+      if (rootId) {
+        const rootEvents = await load({
+          relays,
+          filters: [{ids: [rootId]}],
+          onEvent: event => {
+            debugLog("load update root onEvent", {eventId: event.id, kind: event.kind})
+          },
+        }).catch(() => [] as TrustedEvent[])
+        const rootEvent =
+          rootEvents.find(event => event.id === rootId) ||
+          (repository.getEvent(rootId) as TrustedEvent | undefined)
+
+        debugLog("loaded update root", {
+          rootId,
+          fetchedRootKind: rootEvent?.kind,
+          fetchedRootCount: rootEvents.length,
+          rootKind: updateRootEvent?.kind,
+          hasResolvedPr: !!resolvedPrEvent,
+        })
+      }
+    }
+  }
+
+  $effect(() => {
+    patchId
+    hasStartedResolve = false
+    isResolving = true
+    didTimeout = false
+    clearResolveTimeout()
+  })
+
+  $effect(() => {
+    if (hasStartedResolve || !isResolving) return
+    debugLog("relays ready, triggering resolve", {
+      relayCount: uniq([...repoRelays, ...GIT_RELAYS].filter(Boolean)).length,
+      repoRelayCount: uniq(repoRelays.filter(Boolean)).length,
+      gitRelayCount: uniq(GIT_RELAYS.filter(Boolean)).length,
+    })
+    void resolveCurrentPatchOrPr()
+  })
+
+  $effect(() => {
+    if (!isResolving) return
+    if (patch || pr) {
+      debugLog("resolved", {
+        resolvedAs: patch ? "patch" : "pr",
+        patchKind: resolvedPatchEvent?.kind,
+        prKind: resolvedPrEvent?.kind,
+      })
+      isResolving = false
+      didTimeout = false
+      clearResolveTimeout()
+    }
+  })
+
+  onDestroy(() => {
+    hasStartedResolve = false
+    clearResolveTimeout()
+  })
 
   const rootPatchId = $derived.by(() => {
     let rootId = patchId
-    let currentPatch = patchEvent as PatchEvent | null | undefined
+    let currentPatch = resolvedPatchEvent as PatchEvent | null | undefined
     while (currentPatch) {
       const replyTags = getTags(currentPatch, "e")
       if (replyTags.length === 0) break
@@ -90,8 +286,12 @@
   <title>{repoClass.name} - {patch?.title || pr?.subject || "Patch"}</title>
 </svelte:head>
 
-{#if !patch && pr && prEvent}
-  <PRView {pr} prEvent={prEvent} repo={repoClass} repoRelays={repoRelays} />
+{#if isResolving}
+  <div class="p-4 text-center">Loading patch or pull request...</div>
+{:else if !patch && pr && resolvedPrEvent}
+  <PRView {pr} prEvent={resolvedPrEvent} repo={repoClass} repoRelays={repoRelays} />
 {:else if patch && patchSet}
   <PatchView {patch} {patchSet} repo={repoClass} repoRelays={repoRelays} />
+{:else if didTimeout}
+  <div class="p-4 text-center text-muted-foreground">Patch or pull request not found.</div>
 {/if}

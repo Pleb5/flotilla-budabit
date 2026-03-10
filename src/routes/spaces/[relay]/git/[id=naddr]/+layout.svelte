@@ -158,11 +158,20 @@
 
   // Make activeTab reactive to avoid lag on navigation - memoize the calculation
   const activeTab = $derived.by(() => {
-    // Only recalculate if pathname actually changed
-    const pathname = $page.url.pathname
-    const lastSegment = pathname.split("/").pop() || undefined
-    // Handle empty path (root) - default to undefined which maps to overview
-    return lastSegment === id ? undefined : lastSegment
+    const pathname = $page.url.pathname.replace(/\/+$/, "")
+    const repoPath = basePath.replace(/\/+$/, "")
+
+    if (pathname === repoPath) return undefined
+    if (!pathname.startsWith(`${repoPath}/`)) return undefined
+
+    const segments = pathname.slice(repoPath.length + 1).split("/").filter(Boolean)
+    if (segments.length === 0) return undefined
+
+    if (segments[0] === "extensions") {
+      return segments[1] || "extensions"
+    }
+
+    return segments[0]
   })
   
   // Memoize encodedRelay - it only changes if relay param changes
