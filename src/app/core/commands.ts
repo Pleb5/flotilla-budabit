@@ -267,9 +267,13 @@ export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
     }
   }
 
+  // Deduplicate by identifier, keeping the newest version
   const byId = new Map<string, SmartWidgetEvent>()
   for (const widget of widgets) {
-    if (!byId.has(widget.identifier)) byId.set(widget.identifier, widget)
+    const existing = byId.get(widget.identifier)
+    if (!existing || (widget.created_at && existing.created_at && widget.created_at > existing.created_at)) {
+      byId.set(widget.identifier, widget)
+    }
   }
 
   return Array.from(byId.values())

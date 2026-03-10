@@ -22,7 +22,7 @@
 
     const feed = makeFeed({
       element: document.body,
-      relays: ["wss://relay.damus.io"],
+      relays: ["wss://relay.sharegap.net"],
       feedFilters: [workflowFilter],
       subscriptionFilters: [workflowFilter],
       initialEvents: getEventsForUrl(url, [workflowFilter]),
@@ -67,7 +67,7 @@
   <div class="mb-6 rounded-lg border bg-gray-50 p-4">
     <h2 class="mb-2 font-semibold">Relay</h2>
     <code class="block break-all rounded bg-gray-800 p-3 text-sm text-gray-100">
-      wss://relay.damus.io
+      wss://relay.sharegap.net
     </code>
   </div>
 

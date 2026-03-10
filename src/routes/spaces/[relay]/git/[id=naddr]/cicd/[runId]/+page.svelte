@@ -53,7 +53,7 @@
 
   // Get relays reactively
   // const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
-  const repoRelays = ["wss://relay.damus.io"]
+  const repoRelays = ["wss://relay.sharegap.net"]
 
   const {runId} = $page.params
 
@@ -253,7 +253,7 @@
     }
   }
 
-  const JOB_RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
+  const JOB_RELAYS = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
 
   const applyJobResult = (event: any) => {
     const successTag = event.tags?.find((t: string[]) => t[0] === "success")

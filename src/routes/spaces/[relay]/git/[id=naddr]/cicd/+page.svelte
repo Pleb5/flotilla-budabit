@@ -397,7 +397,7 @@
         const tryStart = () => {
           if (element && !feedInitialized && jobFilter) {
             feedInitialized = true
-            const jobRelays = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
+            const jobRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
 
             const feed = makeFeed({
               element,
@@ -450,7 +450,7 @@
 
   // Fetch job results (kind 5101) for completed jobs to determine actual success/failure
   const fetchJobResultsForCompletedJobs = async () => {
-    const damusRelay = "wss://relay.damus.io"
+    const sharegapRelay = "wss://relay.sharegap.net"
 
     for (const statusEvent of statusEvents) {
       const statusTag = statusEvent.tags.find((t: string[]) => t[0] === "status")
@@ -752,7 +752,7 @@
       const signedEvent = await $signer.sign(unsignedEvent)
 
       const pool = new SimplePool()
-      await pool.publish(["wss://relay.damus.io", "wss://nos.lol"], signedEvent)
+      await pool.publish(["wss://relay.sharegap.net", "wss://nos.lol"], signedEvent)
 
       const jobStatusUrl = `https://loom.treegaze.com/job/${signedEvent.id}`
       toast.push({

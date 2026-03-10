@@ -125,12 +125,12 @@
   const repoTabExtensions = $derived.by(() => {
     const settings = $extensionSettings
     const enabledIds = settings.enabled
-    const extensions: Array<{id: string; label: string; path: string; icon?: string; builtinRoute?: string}> = []
+    const extensionsMap = new Map<string, {id: string; label: string; path: string; icon?: string; builtinRoute?: string}>()
     
-    // Check NIP-89 extensions
+    // Check NIP-89 extensions first
     for (const [extId, manifest] of Object.entries(settings.installed.nip89)) {
       if (enabledIds.includes(extId) && manifest.slot?.type === "repo-tab") {
-        extensions.push({
+        extensionsMap.set(extId, {
           id: extId,
           label: manifest.slot.label,
           path: manifest.slot.path,
@@ -140,19 +140,24 @@
       }
     }
 
-    // Check Smart Widget extensions
+    // Check Smart Widget extensions - these override NIP-89 if same ID
     for (const [widgetId, widget] of Object.entries(settings.installed.widget || {})) {
       if (enabledIds.includes(widgetId) && widget.slot?.type === "repo-tab") {
-        extensions.push({
+        // Use iconUrl, but fall back to LayoutGrid for known broken URLs
+        let icon = widget.iconUrl
+        if (icon && icon.includes('budabit.dev')) {
+          icon = 'LayoutGrid' // Fallback for broken budabit.dev URLs
+        }
+        extensionsMap.set(widgetId, {
           id: widgetId,
           label: widget.slot.label,
           path: widget.slot.path,
-          icon: widget.iconUrl,
+          icon,
         })
       }
     }
     
-    return extensions
+    return Array.from(extensionsMap.values())
   })
 
   // Make activeTab reactive to avoid lag on navigation - memoize the calculation

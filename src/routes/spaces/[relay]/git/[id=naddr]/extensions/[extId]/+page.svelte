@@ -9,7 +9,7 @@
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
-  import type {LoadedWidgetExtension, ExtensionManifest} from "@app/extensions/types"
+  import type {LoadedWidgetExtension, ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
 
   const repoClass = getContext<Repo>(REPO_KEY)
@@ -21,12 +21,47 @@
   const extId = $page.params.extId ?? ""
   const naddr = $page.params.id ?? ""
 
-  // Get extension manifest from settings
+  // Get extension manifest or widget from settings
   const extension = $derived.by(() => {
     const settings = $extensionSettings
     if (!extId) return undefined
+    // Check NIP-89 extensions first
     const manifest = settings.installed.nip89[extId] as ExtensionManifest | undefined
-    return manifest
+    if (manifest) return manifest
+    // Check Smart Widget extensions
+    const widget = settings.installed.widget?.[extId] as SmartWidgetEvent | undefined
+    return widget
+  })
+
+  // Helper to determine if extension is a widget
+  const isWidget = $derived(extension && 'widgetType' in extension)
+
+  // Normalize properties between NIP-89 manifests and Smart Widgets
+  const extEntrypoint = $derived.by(() => {
+    if (!extension) return undefined
+    if ('entrypoint' in extension) return extension.entrypoint
+    if ('appUrl' in extension) return extension.appUrl
+    return undefined
+  })
+
+  const extName = $derived.by(() => {
+    if (!extension) return extId
+    if ('name' in extension) return extension.name
+    if ('content' in extension && extension.content) return extension.content
+    if ('identifier' in extension) return extension.identifier
+    return extId
+  })
+
+  const extIcon = $derived.by(() => {
+    if (!extension) return undefined
+    if ('icon' in extension) return extension.icon
+    if ('iconUrl' in extension) return extension.iconUrl
+    return undefined
+  })
+
+  const extPermissions = $derived.by(() => {
+    if (!extension) return []
+    return extension.permissions || []
   })
 
   const isEnabled = $derived.by(() => {
@@ -35,11 +70,19 @@
     return settings.enabled.includes(extId)
   })
 
-  // Get relays for the extension
+  // Get relays for the extension - use repo's relays, fallback to user relays
+  // Spread into new array to avoid reactive proxy serialization issues with postMessage
   const repoRelays = $derived.by(() => {
+    // First try repo's declared relays
+    if (repoClass.relays && repoClass.relays.length > 0) {
+      return [...repoClass.relays]
+    }
+    // Fallback to user relays
     const router = Router.get()
     const userRelays = router.FromUser().getUrls()
-    return userRelays.length > 0 ? userRelays : []
+    if (userRelays.length > 0) return [...userRelays]
+    // Last resort: default git relays
+    return ["wss://relay.sharegap.net/", "wss://nos.lol/"]
   })
 
   // Iframe state
@@ -49,10 +92,10 @@
   let error = $state<string | null>(null)
 
   function createExtensionInstance(): LoadedWidgetExtension | null {
-    if (!extension?.entrypoint) return null
+    if (!extEntrypoint) return null
     
-    const origin = new URL(extension.entrypoint).origin
-    const identifier = `${extension.id}:${repoClass.repoEvent?.pubkey}:${repoClass.name}`
+    const origin = new URL(extEntrypoint).origin
+    const identifier = `${extId}:${repoClass.repoEvent?.pubkey}:${repoClass.name}`
 
     return {
       type: "widget",
@@ -69,7 +112,7 @@
         widgetType: "tool",
         imageUrl: "",
         buttons: [],
-        permissions: extension.permissions || [],
+        permissions: extPermissions,
       },
     }
   }
@@ -77,16 +120,20 @@
   function sendContext(): void {
     if (!bridge || !iframeEl?.contentWindow) return
 
+    // Spread arrays to avoid reactive proxy serialization issues with postMessage
+    const maintainers = repoClass.maintainers ? [...repoClass.maintainers] : []
+    const relays = [...repoRelays]
+
     const ctx = {
       contextId: `repo:${repoClass.repoEvent?.pubkey}:${repoClass.name}`,
       userPubkey: $pubkey,
-      relays: repoRelays,
+      relays,
       repo: {
         repoPubkey: repoClass.repoEvent?.pubkey,
         repoName: repoClass.name,
         repoNaddr: naddr,
-        repoRelays,
-        maintainers: repoClass.maintainers || [],
+        repoRelays: relays,
+        maintainers,
       },
     }
 
@@ -95,11 +142,6 @@
 
   function handleIframeLoad(): void {
     error = null
-
-    if (!repoClass.repoEvent?.pubkey || !repoClass.name) {
-      error = "Missing repo context."
-      return
-    }
 
     if (!iframeEl?.contentWindow) {
       error = "Extension iframe not available."
@@ -118,17 +160,22 @@
       b.attachHandlers(iframeEl.contentWindow)
       bridge = b
       ready = true
-      sendContext()
+      // Context will be sent reactively when repo data is available
     } catch (e) {
       error = `Failed to initialize extension: ${String(e)}`
     }
   }
 
-  // Send context updates when ready, cleanup bridge on destroy
+  // Send context updates when ready and repo data is available
   $effect(() => {
     if (!ready || !bridge) return
+    // Wait for repo context to be available
+    if (!repoClass.repoEvent?.pubkey || !repoClass.name) return
     sendContext()
+  })
 
+  // Cleanup bridge on destroy
+  $effect(() => {
     return () => {
       bridge?.detach()
       bridge = null
@@ -137,7 +184,7 @@
 </script>
 
 <svelte:head>
-  <title>{repoClass.name} - {extension?.name || extId}</title>
+  <title>{repoClass.name} - {extName}</title>
 </svelte:head>
 
 {#if !extension}
@@ -158,11 +205,11 @@
 {:else if !isEnabled}
   <Card class="p-6">
     <div class="flex flex-col items-center gap-4 text-center">
-      <ExtensionIcon icon={extension.icon} size={48} class="text-muted-foreground" />
+      <ExtensionIcon icon={extIcon} size={48} class="text-muted-foreground" />
       <div>
-        <h2 class="text-lg font-semibold">{extension.name} Disabled</h2>
+        <h2 class="text-lg font-semibold">{extName} Disabled</h2>
         <p class="text-sm text-muted-foreground">
-          Enable the {extension.name} extension to use this feature.
+          Enable the {extName} extension to use this feature.
         </p>
       </div>
       <Button onclick={() => goto('/settings/extensions')}>
@@ -170,12 +217,12 @@
       </Button>
     </div>
   </Card>
-{:else if !extension.entrypoint}
+{:else if !extEntrypoint}
   <Card class="p-6">
     <div class="flex flex-col items-center gap-4 text-center">
-      <ExtensionIcon icon={extension.icon} size={48} class="text-muted-foreground" />
+      <ExtensionIcon icon={extIcon} size={48} class="text-muted-foreground" />
       <div>
-        <h2 class="text-lg font-semibold">{extension.name}</h2>
+        <h2 class="text-lg font-semibold">{extName}</h2>
         <p class="text-sm text-muted-foreground">
           This extension does not have an external entrypoint configured.
         </p>
@@ -192,8 +239,8 @@
 
     <iframe
       bind:this={iframeEl}
-      src={extension.entrypoint}
-      title={extension.name}
+      src={extEntrypoint}
+      title={extName}
       class="extension-iframe"
       sandbox="allow-scripts allow-same-origin allow-forms"
       onload={handleIframeLoad}

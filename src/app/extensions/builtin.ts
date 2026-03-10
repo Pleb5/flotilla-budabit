@@ -22,37 +22,23 @@ const BUILTIN_EXTENSIONS: ExtensionManifest[] = [
       builtinRoute: "cicd",
     },
   },
-  {
-    id: "budabit-kanban",
-    kind: 31990,
-    name: "Repo Kanban",
-    description: "NIP-100 Kanban board for repository issue tracking and project management.",
-    author: "Budabit",
-    homepage: "https://budabit.dev/extensions/kanban",
-    version: "1.0.0",
-    permissions: ["nostr:publish", "nostr:query", "ui:toast"],
-    entrypoint: "http://localhost:5178",
-    icon: "LayoutGrid",
-    sha256: "",
-    slot: {
-      type: "repo-tab",
-      label: "Kanban",
-      path: "kanban",
-    },
-  },
+  // Kanban extension is now loaded from Nostr events (kind 30033)
+  // Install via naddr or discover from relays in Settings > Extensions
 ]
 
 export const installBuiltinExtensions = () => {
   const settings = extensionSettings
   let needsUpdate = false
-  const updates: {installed: any; enabled: string[]} = {
+  const updates: {installed: any; enabled: string[]; widgetDisplay: Record<string, any>} = {
     installed: {nip89: {}, widget: {}},
     enabled: [],
+    widgetDisplay: {},
   }
 
   settings.subscribe(s => {
     updates.installed = {...s.installed}
     updates.enabled = [...s.enabled]
+    updates.widgetDisplay = {...s.widgetDisplay}
   })()
 
   for (const manifest of BUILTIN_EXTENSIONS) {

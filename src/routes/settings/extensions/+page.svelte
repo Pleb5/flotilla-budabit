@@ -19,6 +19,7 @@
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
+  import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import BoxMinimalistic from "@assets/icons/box-minimalistic.svg?dataurl"
   import LinkRound from "@assets/icons/link-round.svg?dataurl"
 
@@ -30,10 +31,19 @@
   const settings = $derived($extensionSettings)
   const installedNip89 = $derived<ExtensionManifest[]>(Object.values(settings.installed?.nip89 || {}))
   const installedWidgets = $derived<SmartWidgetEvent[]>(Object.values(settings.installed?.widget || {}))
-  const installed = $derived<InstalledItem[]>([
-    ...installedNip89.map(m => ({type: "nip89" as const, id: m.id, manifest: m})),
-    ...installedWidgets.map(w => ({type: "widget" as const, id: w.identifier, manifest: w})),
-  ])
+  // Deduplicate installed extensions - widgets take precedence over NIP-89 with same ID
+  const installed = $derived.by<InstalledItem[]>(() => {
+    const byId = new Map<string, InstalledItem>()
+    // Add NIP-89 first
+    for (const m of installedNip89) {
+      byId.set(m.id, {type: "nip89" as const, id: m.id, manifest: m})
+    }
+    // Widgets override NIP-89 with same ID
+    for (const w of installedWidgets) {
+      byId.set(w.identifier, {type: "widget" as const, id: w.identifier, manifest: w})
+    }
+    return Array.from(byId.values())
+  })
   const enabledIds = $derived<string[]>(settings.enabled || [])
 
   // Discovery state
@@ -45,18 +55,30 @@
   let loadingWidgetDiscovery = $state(false)
 
   // Widget type filtering tabs
-  type WidgetTab = "tool" | "basic"
+  type WidgetTab = "tool" | "basic" | "repo-tab"
   let widgetTab = $state<WidgetTab>("tool")
   const toolWidgets = $derived(discoveredWidgets.filter(w => w.widgetType === "tool" || w.widgetType === "action"))
   const basicWidgets = $derived(discoveredWidgets.filter(w => w.widgetType === "basic"))
-  const filteredWidgets = $derived(widgetTab === "tool" ? toolWidgets : basicWidgets)
+  const repoTabWidgets = $derived(discoveredWidgets.filter(w => w.slot?.type === "repo-tab"))
+  const filteredWidgets = $derived(
+    widgetTab === "repo-tab" ? repoTabWidgets :
+    widgetTab === "tool" ? toolWidgets : basicWidgets
+  )
 
-  // Pagination for discovered widgets
+  // Pagination for discovered widgets - deduplicate to prevent each_key_duplicate errors
   const WIDGETS_PER_PAGE = 12
   let widgetPage = $state(1)
-  const totalWidgetPages = $derived(Math.ceil(filteredWidgets.length / WIDGETS_PER_PAGE))
+  const deduplicatedWidgets = $derived.by(() => {
+    const seen = new Set<string>()
+    return filteredWidgets.filter(w => {
+      if (seen.has(w.identifier)) return false
+      seen.add(w.identifier)
+      return true
+    })
+  })
+  const totalWidgetPages = $derived(Math.ceil(deduplicatedWidgets.length / WIDGETS_PER_PAGE))
   const paginatedWidgets = $derived(
-    filteredWidgets.slice((widgetPage - 1) * WIDGETS_PER_PAGE, widgetPage * WIDGETS_PER_PAGE)
+    deduplicatedWidgets.slice((widgetPage - 1) * WIDGETS_PER_PAGE, widgetPage * WIDGETS_PER_PAGE)
   )
 
   // Reset page when tab changes
@@ -360,7 +382,7 @@
     <div class="flex items-center justify-between">
       <strong class="text-lg">Discovered Smart Widgets</strong>
       {#if discoveredWidgets.length > 0}
-        <span class="text-sm opacity-70">{filteredWidgets.length} of {discoveredWidgets.length} widgets</span>
+        <span class="text-sm opacity-70">{deduplicatedWidgets.length} of {discoveredWidgets.length} widgets</span>
       {/if}
     </div>
     {#if loadingWidgetDiscovery}
@@ -369,7 +391,12 @@
       <p class="opacity-70">No smart widgets discovered.</p>
     {:else}
       <!-- Tab buttons -->
-      <div class="mt-3 flex gap-2">
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button
+          class="btn btn-sm {widgetTab === 'repo-tab' ? 'btn-primary' : 'btn-outline'}"
+          onclick={() => (widgetTab = 'repo-tab')}>
+          Repo Extensions ({repoTabWidgets.length})
+        </button>
         <button
           class="btn btn-sm {widgetTab === 'tool' ? 'btn-primary' : 'btn-outline'}"
           onclick={() => (widgetTab = 'tool')}>
@@ -386,10 +413,7 @@
           <div class="card2 flex items-start justify-between gap-2 p-3">
             <div class="flex min-w-0 flex-1 items-start gap-3">
               {#if w.iconUrl || w.imageUrl}
-                <img
-                  src={w.iconUrl || w.imageUrl}
-                  alt="icon"
-                  class="h-10 w-10 shrink-0 rounded object-cover" />
+                <ExtensionIcon icon={w.iconUrl || w.imageUrl} size={40} class="h-10 w-10 shrink-0 rounded object-cover" />
               {:else}
                 <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-base-300 text-lg">
                   📦
@@ -397,7 +421,12 @@
               {/if}
               <div class="min-w-0 flex-1">
                 <div class="break-words font-medium">{w.content || w.identifier}</div>
-                <div class="text-xs opacity-70">Type: {w.widgetType}</div>
+                <div class="flex flex-wrap gap-2 text-xs">
+                  <span class="opacity-70">Type: {w.widgetType}</span>
+                  {#if w.slot?.type === "repo-tab"}
+                    <span class="badge badge-primary badge-sm">Repo Tab</span>
+                  {/if}
+                </div>
                 <div class="truncate text-xs opacity-50" title={w.appUrl || w.imageUrl}>{w.appUrl || w.imageUrl}</div>
               </div>
             </div>
