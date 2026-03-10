@@ -101,7 +101,6 @@
     "@types/qrcode": "^1.5.5",
     "@types/throttle-debounce": "^5.0.2",
     "@vite-pwa/assets-generator": "^0.2.6",
-    "@vite-pwa/sveltekit": "^0.6.8",
     "@welshman/app": "^0.7.1",
     "@welshman/content": "^0.7.1",
     "@welshman/editor": "^0.7.1",
@@ -138,8 +137,7 @@
     "qrcode": "^1.5.4",
     "sharp": "^0.34.1",
     "throttle-debounce": "^5.0.2",
-    "tippy.js": "^6.3.7",
-    "workbox-window": "^7.3.0"
+    "tippy.js": "^6.3.7"
   },
   "pnpm": {
     "overrides": {
