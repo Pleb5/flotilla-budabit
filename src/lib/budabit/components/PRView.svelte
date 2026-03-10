@@ -15,7 +15,18 @@
     MessageSquare,
     Shield,
   } from "@lucide/svelte"
-  import {Button, DiffViewer, IssueThread, MergeStatus, prChangeToParseDiffFile, toast} from "@nostr-git/ui"
+  import {
+    Button,
+    DiffViewer,
+    IssueThread,
+    MergeStatus,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+    prChangeToParseDiffFile,
+    toast,
+  } from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {profilesByPubkey, pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -62,6 +73,21 @@
       newLines: number
       patches: Array<{line: string; type: "+" | "-" | " "}>
     }>
+  }
+
+  type PrCommitMeta = {
+    sha: string
+    author: string
+    date: number
+    message: string
+    parents?: string[]
+  }
+
+  type PrCommitDiffState = {
+    loading: boolean
+    error?: string
+    meta?: PrCommitMeta
+    changes?: PrChange[]
   }
 
   interface Props {
@@ -173,6 +199,108 @@
   let prChangesError = $state<string | null>(null)
   let prExpandedFiles = $state<Set<string>>(new Set())
   let prDiffAnchors = $state<Record<string, string>>({})
+  let prReviewTab = $state("commits")
+  let prExpandedCommits = $state<Set<string>>(new Set())
+  let prCommitDiffByOid = $state<Record<string, PrCommitDiffState>>({})
+
+  const prCommitOids = $derived.by(() => prEffectiveTipAndCommits?.allCommitOids || [])
+
+  const prCommitMetaByOid = $derived.by(() => {
+    const commits = prMergeAnalysisResult?.prCommits || []
+    return new Map(commits.map((c) => [c.oid, c]))
+  })
+
+  const getPrCommitState = (oid: string): PrCommitDiffState =>
+    prCommitDiffByOid[oid] || {
+      loading: false,
+    }
+
+  const getPrCommitTitle = (oid: string) => {
+    const stateTitle = getPrCommitState(oid).meta?.message?.split("\n")[0]?.trim()
+    const analysisTitle = prCommitMetaByOid.get(oid)?.message?.split("\n")[0]?.trim()
+    const title = stateTitle || analysisTitle
+    return title || "Commit message unavailable"
+  }
+
+  const getPrCommitAuthor = (oid: string) => {
+    const stateAuthor = getPrCommitState(oid).meta?.author
+    const analysisAuthor = prCommitMetaByOid.get(oid)?.author?.name
+    return stateAuthor || analysisAuthor || "Unknown author"
+  }
+
+  async function loadPrCommitDiff(oid: string) {
+    if (!repoClass?.workerManager || !repoClass?.key) return
+    const current = prCommitDiffByOid[oid]
+    if (current?.loading || current?.changes || current?.error) return
+
+    prCommitDiffByOid = {
+      ...prCommitDiffByOid,
+      [oid]: {
+        loading: true,
+      },
+    }
+
+    try {
+      const result = await repoClass.workerManager.getCommitDetails({
+        repoId: repoClass.key,
+        commitId: oid,
+      })
+
+      if (!result?.success || !result?.meta) {
+        prCommitDiffByOid = {
+          ...prCommitDiffByOid,
+          [oid]: {
+            loading: false,
+            error: result?.error || "Failed to load commit diff",
+          },
+        }
+        return
+      }
+
+      const changes = (result.changes || []) as PrChange[]
+      prCommitDiffByOid = {
+        ...prCommitDiffByOid,
+        [oid]: {
+          loading: false,
+          meta: {
+            sha: result.meta.sha || oid,
+            author: result.meta.author || "Unknown author",
+            date: Number(result.meta.date) || 0,
+            message: result.meta.message || "",
+            parents: Array.isArray(result.meta.parents) ? result.meta.parents : [],
+          },
+          changes,
+        },
+      }
+    } catch (error) {
+      prCommitDiffByOid = {
+        ...prCommitDiffByOid,
+        [oid]: {
+          loading: false,
+          error: error instanceof Error ? error.message : "Failed to load commit diff",
+        },
+      }
+    }
+  }
+
+  const togglePrCommit = async (oid: string) => {
+    const next = new Set(prExpandedCommits)
+    if (next.has(oid)) {
+      next.delete(oid)
+      prExpandedCommits = next
+      return
+    }
+    next.add(oid)
+    prExpandedCommits = next
+    await loadPrCommitDiff(oid)
+  }
+
+  const expandAllPrCommits = async () => {
+    const commits = prCommitOids
+    if (!commits.length) return
+    prExpandedCommits = new Set(commits)
+    await Promise.all(commits.map((oid: string) => loadPrCommitDiff(oid)))
+  }
 
   async function runPRMergeAnalysis() {
     if (!pr || !prEvent || !prEffectiveTipAndCommits || !repoClass.key || !repoClass.workerManager)
@@ -377,6 +505,16 @@
     if (next.has(path)) next.delete(path)
     else next.add(path)
     prExpandedFiles = next
+  }
+
+  const getPrCommitDiffRootEvent = (oid: string) => {
+    if (!prEvent) return undefined
+    const parentCommit = getPrCommitState(oid).meta?.parents?.[0]
+    const tags: string[][] = [...(prEvent.tags || []).map((t) => (Array.isArray(t) ? [...t] : [String(t)]))]
+      .filter((t) => t[0] !== "commit" && t[0] !== "parent-commit")
+    tags.push(["commit", oid])
+    if (parentCommit) tags.push(["parent-commit", parentCommit])
+    return {id: prEvent.id, pubkey: prEvent.pubkey, kind: prEvent.kind, tags}
   }
 
   $effect(() => {
@@ -776,7 +914,10 @@
   }
 
   const formatTimestamp = (timestamp: string | number) => {
-    const date = new Date(typeof timestamp === "string" ? timestamp : timestamp * 1000)
+    const date =
+      typeof timestamp === "string"
+        ? new Date(timestamp)
+        : new Date(timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000)
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
@@ -1174,122 +1315,234 @@
         </div>
       {/if}
 
-      <!-- PR changes (file diffs) -->
+      <div class="mb-6 scroll-mt-4 rounded-lg border bg-muted/20 p-4" id="pr-changes">
+        <Tabs bind:value={prReviewTab} class="w-full">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <TabsList class="grid w-full max-w-sm grid-cols-2">
+              <TabsTrigger value="commits">Commits ({prCommitOids.length})</TabsTrigger>
+              <TabsTrigger value="files">Files changed ({prChanges?.length ?? 0})</TabsTrigger>
+            </TabsList>
 
-        <div id="pr-changes" class="mb-6 scroll-mt-4 rounded-lg border bg-muted/20 p-4">
-          {#if prChangesLoading}
-            <div class="flex items-center gap-2 rounded border bg-background/50 p-4 text-sm text-muted-foreground">
-              <Loader2 class="h-4 w-4 animate-spin" />
-              Loading file diffs...
-            </div>
-          {:else if prChangesError}
-            <p
-              class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-              {prChangesError}
-            </p>
-          {:else if prChanges}
-            <div class="mb-3 flex items-center justify-between">
-              <h3 class="font-medium">Files Changed ({prChanges.length})</h3>
-              {#if prChanges && prChanges.length > 0}
-                <div class="flex gap-2">
-                  <button
-                    type="button"
-                    onclick={() => {
-                      prExpandedFiles = new Set(prChanges!.map((c) => c.path))
-                    }}
-                    disabled={prExpandedFiles.size === prChanges!.length}
-                    class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
-                    Expand all
-                  </button>
-                  <button
-                    type="button"
-                    onclick={() => {
-                      prExpandedFiles = new Set()
-                    }}
-                    disabled={prExpandedFiles.size === 0}
-                    class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
-                    Collapse all
-                  </button>
-                </div>
-              {/if}
-            </div>
-            <div class="divide-y divide-border rounded border bg-background/50">
-              {#each prChanges as change (change.path)}
-                {@const isExpanded = prExpandedFiles.has(change.path)}
-                {@const statusInfo = getPrFileStatusIcon(change.status)}
-                {@const stats = getPrFileStats(change.diffHunks)}
-                {@const IconComponent = statusInfo.icon}
-                <div
-                  class="overflow-x-auto"
-                  id={prDiffAnchors[change.path] ? `diff-${prDiffAnchors[change.path]}` : undefined}>
-                  <button
-                    type="button"
-                    onclick={() => togglePrFile(change.path)}
-                    class="flex w-full min-h-[44px] items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
-                    <div class="flex min-w-0 items-center gap-2">
-                      {#if isExpanded}
-                        <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" />
-                      {:else}
-                        <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
-                      {/if}
-                      <IconComponent class="h-4 w-4 shrink-0 {statusInfo.class}" />
-                      <span class="truncate font-mono text-xs">{change.path}</span>
-                      <span
-                        class="shrink-0 rounded-full border px-2 py-0.5 text-xs {change.status === "added"
-                          ? "border-green-200 bg-green-50 text-green-800"
-                          : change.status === "deleted"
-                            ? "border-red-200 bg-red-50 text-red-800"
-                            : change.status === "modified"
-                              ? "border-blue-200 bg-blue-50 text-blue-800"
-                              : "border-amber-200 bg-amber-50 text-amber-800"}">
-                        {change.status}
-                      </span>
-                    </div>
-                    <div class="flex shrink-0 gap-2 text-sm text-muted-foreground">
-                      {#if stats.additions > 0}
-                        <span class="text-green-600">+{stats.additions}</span>
-                      {/if}
-                      {#if stats.deletions > 0}
-                        <span class="text-red-600">-{stats.deletions}</span>
-                      {/if}
-                    </div>
-                  </button>
-                  {#if isExpanded}
-                    <div class="border-t border-border px-4 pb-4 pt-2">
-                      <DiffViewer
-                        diff={[prChangeToParseDiffFile(change)]}
-                        showLineNumbers={true}
-                        expandAll={true}
-                        comments={prDiffComments}
-                        rootEvent={prDiffRootEvent}
-                        onComment={handlePrDiffCommentSubmit}
-                        currentPubkey={$pubkey}
-                        repo={repoClass}
-                        publish={async (permalink) => {
-                          const relays = (repoRelays || [])
-                            .map((u: string) => normalizeRelayUrl(u))
-                            .filter(Boolean)
-                          const thunk = postPermalink(permalink, relays)
-                          toast.push({message: "Permalink published", timeout: 2000})
-                          const nevent = nip19.neventEncode({
-                            id: thunk.event.id,
-                            kind: thunk.event.kind,
-                            relays,
-                          })
-                          await navigator.clipboard.writeText(nevent)
-                          toast.push({message: "Permalink copied", timeout: 2000})
-                        }}
-                        enablePermalinks={false}
-                      />
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            </div>
+            {#if prReviewTab === "commits" && prCommitOids.length > 0}
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  onclick={() => expandAllPrCommits()}
+                  disabled={prExpandedCommits.size === prCommitOids.length}
+                  class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
+                  Expand all
+                </button>
+                <button
+                  type="button"
+                  onclick={() => {
+                    prExpandedCommits = new Set()
+                  }}
+                  disabled={prExpandedCommits.size === 0}
+                  class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
+                  Collapse all
+                </button>
+              </div>
+            {:else if prReviewTab === "files" && prChanges && prChanges.length > 0}
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  onclick={() => {
+                    prExpandedFiles = new Set(prChanges!.map((c) => c.path))
+                  }}
+                  disabled={prExpandedFiles.size === prChanges!.length}
+                  class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
+                  Expand all
+                </button>
+                <button
+                  type="button"
+                  onclick={() => {
+                    prExpandedFiles = new Set()
+                  }}
+                  disabled={prExpandedFiles.size === 0}
+                  class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
+                  Collapse all
+                </button>
+              </div>
+            {/if}
+          </div>
+
+          <TabsContent value="commits" class="mt-0">
+            {#if !prCommitOids.length}
+              <p class="text-sm text-muted-foreground">No commits found for this PR.</p>
+            {:else}
+              <div class="divide-y divide-border rounded border bg-background/50">
+                {#each prCommitOids as oid (oid)}
+                  {@const commitState = getPrCommitState(oid)}
+                  {@const isExpanded = prExpandedCommits.has(oid)}
+                  <div class="overflow-x-auto">
+                    <button
+                      type="button"
+                      onclick={() => togglePrCommit(oid)}
+                      class="flex w-full min-h-[44px] items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
+                      <div class="flex min-w-0 items-center gap-2">
+                        {#if isExpanded}
+                          <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" />
+                        {:else}
+                          <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+                        {/if}
+                        <GitCommit class="h-4 w-4 shrink-0 text-amber-500" />
+                        <code class="shrink-0 rounded bg-background px-1.5 py-0.5 font-mono text-xs">
+                          {oid.substring(0, 8)}
+                        </code>
+                        <span class="truncate text-sm">{getPrCommitTitle(oid)}</span>
+                      </div>
+                      <div class="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                        <span>{getPrCommitAuthor(oid)}</span>
+                        {#if commitState.meta?.date}
+                          <span>• {formatTimestamp(commitState.meta.date)}</span>
+                        {/if}
+                      </div>
+                    </button>
+
+                    {#if isExpanded}
+                      <div class="border-t border-border px-4 pb-4 pt-2">
+                        {#if commitState.loading}
+                          <div class="flex items-center gap-2 rounded border bg-background/50 p-3 text-sm text-muted-foreground">
+                            <Loader2 class="h-4 w-4 animate-spin" />
+                            Loading commit diff...
+                          </div>
+                        {:else if commitState.error}
+                          <p class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                            {commitState.error}
+                          </p>
+                        {:else if commitState.changes && commitState.changes.length > 0}
+                          <div class="space-y-4">
+                            {#each commitState.changes as change (change.path)}
+                              <div class="rounded border border-border bg-background">
+                                <div class="flex items-center justify-between px-3 py-2 text-xs">
+                                  <span class="truncate font-mono">{change.path}</span>
+                                  <div class="flex items-center gap-2 text-muted-foreground">
+                                    {#if getPrFileStats(change.diffHunks).additions > 0}
+                                      <span class="text-green-600">+{getPrFileStats(change.diffHunks).additions}</span>
+                                    {/if}
+                                    {#if getPrFileStats(change.diffHunks).deletions > 0}
+                                      <span class="text-red-600">-{getPrFileStats(change.diffHunks).deletions}</span>
+                                    {/if}
+                                  </div>
+                                </div>
+                                <div class="border-t border-border px-3 pb-3 pt-2">
+                                  <DiffViewer
+                                    diff={[prChangeToParseDiffFile(change)]}
+                                    showLineNumbers={true}
+                                    expandAll={true}
+                                    comments={prDiffComments}
+                                    rootEvent={getPrCommitDiffRootEvent(oid)}
+                                    onComment={handlePrDiffCommentSubmit}
+                                    currentPubkey={$pubkey}
+                                    repo={repoClass}
+                                    enablePermalinks={false}
+                                  />
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                        {:else}
+                          <p class="text-sm text-muted-foreground">No file changes in this commit.</p>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </TabsContent>
+
+          <TabsContent value="files" class="mt-0">
+            {#if prChangesLoading}
+              <div class="flex items-center gap-2 rounded border bg-background/50 p-4 text-sm text-muted-foreground">
+                <Loader2 class="h-4 w-4 animate-spin" />
+                Loading file diffs...
+              </div>
+            {:else if prChangesError}
+              <p
+                class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                {prChangesError}
+              </p>
+            {:else if prChanges}
+              <div class="divide-y divide-border rounded border bg-background/50">
+                {#each prChanges as change (change.path)}
+                  {@const isExpanded = prExpandedFiles.has(change.path)}
+                  {@const statusInfo = getPrFileStatusIcon(change.status)}
+                  {@const stats = getPrFileStats(change.diffHunks)}
+                  {@const IconComponent = statusInfo.icon}
+                  <div
+                    class="overflow-x-auto"
+                    id={prDiffAnchors[change.path] ? `diff-${prDiffAnchors[change.path]}` : undefined}>
+                    <button
+                      type="button"
+                      onclick={() => togglePrFile(change.path)}
+                      class="flex w-full min-h-[44px] items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
+                      <div class="flex min-w-0 items-center gap-2">
+                        {#if isExpanded}
+                          <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" />
+                        {:else}
+                          <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
+                        {/if}
+                        <IconComponent class="h-4 w-4 shrink-0 {statusInfo.class}" />
+                        <span class="truncate font-mono text-xs">{change.path}</span>
+                        <span
+                          class="shrink-0 rounded-full border px-2 py-0.5 text-xs {change.status === "added"
+                            ? "border-green-200 bg-green-50 text-green-800"
+                            : change.status === "deleted"
+                              ? "border-red-200 bg-red-50 text-red-800"
+                              : change.status === "modified"
+                                ? "border-blue-200 bg-blue-50 text-blue-800"
+                                : "border-amber-200 bg-amber-50 text-amber-800"}">
+                          {change.status}
+                        </span>
+                      </div>
+                      <div class="flex shrink-0 gap-2 text-sm text-muted-foreground">
+                        {#if stats.additions > 0}
+                          <span class="text-green-600">+{stats.additions}</span>
+                        {/if}
+                        {#if stats.deletions > 0}
+                          <span class="text-red-600">-{stats.deletions}</span>
+                        {/if}
+                      </div>
+                    </button>
+                    {#if isExpanded}
+                      <div class="border-t border-border px-4 pb-4 pt-2">
+                        <DiffViewer
+                          diff={[prChangeToParseDiffFile(change)]}
+                          showLineNumbers={true}
+                          expandAll={true}
+                          comments={prDiffComments}
+                          rootEvent={prDiffRootEvent}
+                          onComment={handlePrDiffCommentSubmit}
+                          currentPubkey={$pubkey}
+                          repo={repoClass}
+                          publish={async (permalink) => {
+                            const relays = (repoRelays || [])
+                              .map((u: string) => normalizeRelayUrl(u))
+                              .filter(Boolean)
+                            const thunk = postPermalink(permalink, relays)
+                            toast.push({message: "Permalink published", timeout: 2000})
+                            const nevent = nip19.neventEncode({
+                              id: thunk.event.id,
+                              kind: thunk.event.kind,
+                              relays,
+                            })
+                            await navigator.clipboard.writeText(nevent)
+                            toast.push({message: "Permalink copied", timeout: 2000})
+                          }}
+                          enablePermalinks={false}
+                        />
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
             {:else}
               <p class="text-sm text-muted-foreground">No changes to show.</p>
-          {/if}
-        </div>
+            {/if}
+          </TabsContent>
+        </Tabs>
+      </div>
 
       <!-- PR updates (1619) timeline + merge status -->
       {#if prUpdatesArray.length > 0 || (prStatus?.status === "applied" && prStatus?.createdAt)}
