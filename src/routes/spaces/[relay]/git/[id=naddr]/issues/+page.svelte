@@ -15,6 +15,7 @@
     GIT_STATUS_OPEN,
     GIT_STATUS_CLOSED,
     getTag,
+    type TrustedEvent,
   } from "@welshman/util"
   import {createSearch, pubkey, repository} from "@welshman/app"
   import {sortBy} from "@welshman/lib"
@@ -111,6 +112,12 @@
     }
   }
 
+  type IssueListItem = {
+    id: string
+    created_at: number
+    event: IssueEvent
+  }
+
   const LABEL_PREFETCH_LIMIT = 200
   const LABEL_PREFETCH_IDLE_MS = 2000
   const LABEL_PREFETCH_DELAY_MS = 150
@@ -195,7 +202,7 @@
     lastKnownIssueIndex = bestItem.index
     lastKnownIssueOffset = anchorOffset
     lastKnownIssueId = issue?.id ?? ""
-    lastKnownIssueTitle = issue ? getTagValue("subject", issue.tags) ?? "" : ""
+    lastKnownIssueTitle = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
   }
 
 
@@ -225,7 +232,7 @@
 
   const handleIssueClick = (
     event: MouseEvent,
-    issue: IssueEvent,
+    issue: IssueListItem,
     virtualRow: {index: number; start: number},
   ) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
@@ -239,7 +246,7 @@
     const scrollEl = scrollParent
     if (!scrollEl) return
 
-    const title = getTagValue("subject", issue.tags) ?? ""
+    const title = getTagValue("subject", issue.event.tags) ?? ""
     const itemElement = event.currentTarget as HTMLElement | null
     const containerRect = scrollEl.getBoundingClientRect()
     const itemRect = itemElement?.getBoundingClientRect()
@@ -321,7 +328,7 @@
 
     const targetIndex = matchIndex >= 0 ? matchIndex : fallbackIndex
     const targetIssue = searchedIssues[targetIndex]
-    const targetIssueTitle = targetIssue ? getTagValue("subject", targetIssue.tags) ?? "" : ""
+    const targetIssueTitle = targetIssue ? getTagValue("subject", targetIssue.event.tags) ?? "" : ""
     const targetIssueId = targetIssue?.id ?? ""
     const anchorIssueId = savedIssueId || targetIssueId
     const finishRestore = () => {
@@ -385,7 +392,7 @@
       const scrollEl = scrollParent
       const issueIndex = searchedIssues.findIndex(issue => issue.id === issueId)
       const issue = issueIndex >= 0 ? searchedIssues[issueIndex] : undefined
-      const title = issue ? getTagValue("subject", issue.tags) ?? "" : ""
+      const title = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
       let offset = lastKnownIssueOffset
       if (scrollEl) {
         const containerRect = scrollEl.getBoundingClientRect()
@@ -698,7 +705,7 @@
   })
 
   // Compute issueList asynchronously to avoid blocking UI rendering
-  let issueList = $state<any[]>([])
+  let issueList = $state<IssueListItem[]>([])
   let issueListCacheKey = $state<string>("")
 
   $effect(() => {
@@ -727,17 +734,11 @@
 
       if (currentIssueListCacheKey === currentKey) return
 
-      const processed = currentIssues.map((issue: IssueEvent) => {
-        const commentEvents = currentComments[issue.id] || []
-        const currentState = currentStatusMap[issue.id] || "open"
-
-        return {
-          ...issue,
-          comments: commentEvents,
-          status: {kind: currentState},
-          currentState,
-        }
-      })
+      const processed = currentIssues.map((issue: IssueEvent) => ({
+        id: issue.id,
+        created_at: issue.created_at,
+        event: issue,
+      }))
 
       issueList = processed
       issueListCacheKey = currentKey
@@ -751,7 +752,7 @@
 
   // Compute searchedIssues asynchronously to avoid blocking UI rendering
   // This is the most critical optimization as it includes search, filtering, and sorting
-  let searchedIssues = $state<any[]>([])
+  let searchedIssues = $state<IssueListItem[]>([])
   let searchedIssuesCacheKey = $state<string>("")
 
   $effect(() => {
@@ -795,8 +796,8 @@
       const issuesToSearch = currentIssueList.map(issue => {
         return {
           id: issue.id,
-          subject: getTagValue("subject", issue.tags) ?? "",
-          desc: issue.content,
+          subject: getTagValue("subject", issue.event.tags) ?? "",
+          desc: issue.event.content,
         }
       })
       const issueSearch = createSearch(issuesToSearch, {
@@ -823,7 +824,7 @@
         .filter(r => searchResults.find(res => res.id === r.id))
         .filter(issue => {
           if (currentAuthorFilter) {
-            return issue.pubkey === currentAuthorFilter
+            return issue.event.pubkey === currentAuthorFilter
           }
           return true
         })
@@ -887,6 +888,7 @@
           if (pageContainerRef && !feedInitialized) {
             const currentRepoRelays = repoRelays
             const currentRepoAddresses = effectiveRepoAddresses
+            const currentIssueEvents = issueList.map(issue => issue.event as TrustedEvent)
             if (!currentRepoRelays.length || currentRepoAddresses.length === 0) {
               requestAnimationFrame(tryStart)
               return
@@ -897,7 +899,7 @@
               relays: currentRepoRelays,
               feedFilters: [combinedFilter],
               subscriptionFilters: [combinedFilter],
-              initialEvents: issueList,
+              initialEvents: currentIssueEvents,
               onExhausted: () => {
                 // Feed exhausted, but we already showed content
               },
@@ -1006,7 +1008,7 @@
     scrollParent?.scrollTo({ top: 0, behavior: "smooth" })
   }
 
-  const getLatestIssueActivityAt = (issue: IssueEvent) => {
+  const getLatestIssueActivityAt = (issue: IssueListItem) => {
     const commentAt = commentsOrdered[issue.id]?.[0]?.created_at ?? 0
     const statusEvents = statusEventsByRoot?.get(issue.id) || []
     let statusAt = 0
@@ -1127,7 +1129,7 @@
               >
                 <div class={getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-2 border-primary pl-2" : ""}>
                   <IssueCard
-                    event={issue}
+                    event={issue.event}
                     comments={commentsOrdered[issue.id]}
                     currentCommenter={$pubkey!}
                     {onCommentCreated}
