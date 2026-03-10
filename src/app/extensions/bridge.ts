@@ -1,4 +1,5 @@
 import {publishThunk} from "@welshman/app"
+import {PublishStatus} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
 import {SimplePool} from "nostr-tools/pool"
 import type {LoadedExtension, RepoContext} from "./types"
@@ -177,7 +178,14 @@ export class ExtensionBridge {
     if (!data || typeof data !== "object" || !("action" in data)) return
 
     const msg = data as ExtensionMessage
-    if (this.extension.origin !== origin) return
+    // Check origin - allow Blossom CDN redirects (r2a.primal.net serves blossom.primal.net content)
+    const isOriginMatch =
+      this.extension.origin === origin ||
+      (this.extension.origin.includes("blossom.primal.net") && origin.includes("primal.net"))
+    if (!isOriginMatch) {
+      console.log(`[bridge] origin mismatch: expected ${this.extension.origin}, got ${origin}`)
+      return
+    }
 
     if (msg.type === "response" && msg.id && this.pending.has(msg.id)) {
       const resolve = this.pending.get(msg.id)!
@@ -237,30 +245,57 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:publish from ${ext.id}`, payload)
   try {
     const {event, relays} = parseNostrPublishPayload(payload)
+    const hasIdAndSig = event && typeof event === "object" && 
+      typeof (event as any).id === "string" && typeof (event as any).sig === "string"
+    
+    console.log(`[bridge] nostr:publish event hasIdAndSig=${hasIdAndSig}, relays=${relays?.length}`)
 
-    if (
-      relays &&
-      relays.length > 0 &&
-      event &&
-      typeof event === "object" &&
-      typeof (event as any).id === "string" &&
-      typeof (event as any).sig === "string"
-    ) {
-      const publishResult = await Promise.allSettled((pool as any).publish(relays, event))
-      return {status: "ok", result: {published: true, relays, publishResult}}
+    if (relays && relays.length > 0 && hasIdAndSig) {
+      console.log(`[bridge] nostr:publish using publishThunk for signed event`)
+      // For already-signed events, still use publishThunk which handles relay connections
+      const thunk = (publishThunk as any)({event, relays})
+      await thunk.complete
+      const results = thunk.results || {}
+      const successCount = Object.values(results).filter((r: any) => r?.status === PublishStatus.Success).length
+      console.log(`[bridge] nostr:publish signed event completed: ${successCount}/${relays.length} relays accepted`)
+      const sanitizedResult = Object.entries(results).map(([relay, r]: [string, any]) => ({
+        relay,
+        status: r?.status === PublishStatus.Success ? "fulfilled" : "rejected",
+        reason: r?.detail || r?.message,
+      }))
+      console.log(`[bridge] nostr:publish completed:`, sanitizedResult)
+      return {status: "ok", result: {published: true, relays: [...relays], publishResult: sanitizedResult, successCount}}
     }
 
+    // Event needs signing - use publishThunk
+    console.log(`[bridge] nostr:publish using publishThunk to sign and publish, event:`, JSON.stringify(event))
     if (relays && relays.length > 0) {
       try {
-        const result = await (publishThunk as any)({event, relays})
-        return {status: "ok", result}
-      } catch {
+        const thunk = (publishThunk as any)({event, relays})
+        await thunk.complete
+        // Log publish results to debug - use PublishStatus enum
+        const results = thunk.results || {}
+        const successCount = Object.values(results).filter((r: any) => r?.status === PublishStatus.Success).length
+        // Log detailed results for each relay
+        for (const [relay, result] of Object.entries(results)) {
+          const r = result as any
+          console.log(`[bridge] nostr:publish relay ${relay}: status=${r?.status}, message=${r?.message || r?.detail || 'none'}`)
+        }
+        console.log(`[bridge] nostr:publish publishThunk completed: ${successCount}/${relays.length} relays accepted`)
+        // Return immediately - client should handle retry logic
+        return {status: "ok", result: {published: true, relays: [...relays], successCount}}
+      } catch (e: any) {
+        console.error(`[bridge] nostr:publish publishThunk with relays failed:`, e)
         // Fallback to legacy behavior below.
       }
     }
 
-    const result = await publishThunk(event)
-    return {status: "ok", result}
+    const thunk = publishThunk(event)
+    await thunk.complete
+    console.log(`[bridge] nostr:publish publishThunk completed (no relays), waiting for relay indexing`)
+    // Give relays time to index the event before returning
+    await new Promise(r => setTimeout(r, 500))
+    return {status: "ok", result: {published: true}}
   } catch (err: any) {
     console.error("Error in nostr:publish bridge handler:", err)
     return {error: err.message}
@@ -271,26 +306,49 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:query from ${ext.id}`, payload)
   try {
     const {relays, filter} = parseNostrQueryPayload(payload)
-    console.log(`[bridge] nostr:query querying ${relays.length} relays:`, relays, filter)
+    console.log(`[bridge] nostr:query querying ${relays.length} relays:`, relays, JSON.stringify(filter))
 
-    // Use querySync but with a race against a timeout
-    // This ensures we don't wait forever for slow relays
-    const queryPromise = pool.querySync(relays, filter as any)
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("timeout")), 8000)
+    // Use SimplePool with timeout handling
+    const events: any[] = []
+    const seenIds = new Set<string>()
+
+    await new Promise<void>((resolve) => {
+      let eoseCount = 0
+      let resolved = false
+      
+      const sub = pool.subscribeMany(relays, [filter] as any, {
+        onevent: (event: any) => {
+          console.log(`[bridge] nostr:query received event ${event.id}`)
+          if (!seenIds.has(event.id)) {
+            seenIds.add(event.id)
+            events.push(event)
+          }
+        },
+        oneose: () => {
+          eoseCount++
+          console.log(`[bridge] nostr:query EOSE ${eoseCount}/${relays.length}, events: ${events.length}`)
+          // Resolve as soon as we get events OR all relays respond
+          if (!resolved && (events.length > 0 || eoseCount >= relays.length)) {
+            resolved = true
+            sub.close()
+            resolve()
+          }
+        },
+      })
+
+      // Timeout after 10s
+      setTimeout(() => {
+        if (!resolved) {
+          console.log(`[bridge] nostr:query timeout after 10s, got ${eoseCount} EOSE, ${events.length} events`)
+          resolved = true
+          sub.close()
+          resolve()
+        }
+      }, 10000)
     })
 
-    try {
-      const events = await Promise.race([queryPromise, timeoutPromise])
-      console.log(`[bridge] nostr:query got ${events.length} events`)
-      return {status: "ok", events}
-    } catch (err: any) {
-      if (err.message === "timeout") {
-        console.log(`[bridge] nostr:query timeout, returning empty`)
-        return {status: "ok", events: []}
-      }
-      throw err
-    }
+    console.log(`[bridge] nostr:query got ${events.length} events`)
+    return {status: "ok", events}
   } catch (err: any) {
     console.error("Error in nostr:query bridge handler:", err)
     return {error: err.message}
