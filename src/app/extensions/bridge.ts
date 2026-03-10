@@ -308,34 +308,53 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
     console.log(`[bridge] nostr:query querying ${relays.length} relays:`, relays, JSON.stringify(filter))
 
     // Use @welshman/net load() for better relay connection management
-    // This uses the same relay infrastructure as publishThunk
     const events: any[] = []
     const seenIds = new Set<string>()
+    let resolved = false
+    let resolveEarly: (() => void) | null = null
 
-    // Race between load completing and timeout
+    // Promise that resolves when we get events (after a short delay to collect more)
+    const earlyResolvePromise = new Promise<void>((resolve) => {
+      resolveEarly = resolve
+    })
+
+    // Timeout after 5s (reduced from 10s)
     const timeoutPromise = new Promise<void>((resolve) => {
       setTimeout(() => {
-        console.log(`[bridge] nostr:query timeout after 10s, got ${events.length} events`)
-        resolve()
-      }, 10000)
+        if (!resolved) {
+          console.log(`[bridge] nostr:query timeout after 5s, got ${events.length} events`)
+          resolved = true
+          resolve()
+        }
+      }, 5000)
     })
 
     const loadPromise = load({
       relays,
       filters: [filter as any],
       onEvent: (event: any) => {
-        console.log(`[bridge] nostr:query received event ${event.id}`)
         if (!seenIds.has(event.id)) {
           seenIds.add(event.id)
           events.push(event)
+          console.log(`[bridge] nostr:query received event ${event.id}, total: ${events.length}`)
+          // Once we have events, wait 500ms for more then resolve early
+          if (!resolved && resolveEarly) {
+            setTimeout(() => {
+              if (!resolved) {
+                console.log(`[bridge] nostr:query early resolve with ${events.length} events`)
+                resolved = true
+                resolveEarly!()
+              }
+            }, 500)
+          }
         }
       },
     }).catch((e: any) => {
       console.log(`[bridge] nostr:query load error:`, e?.message || e)
     })
 
-    // Wait for either load to complete or timeout
-    await Promise.race([loadPromise, timeoutPromise])
+    // Wait for load to complete, early resolve (events found), or timeout
+    await Promise.race([loadPromise, earlyResolvePromise, timeoutPromise])
 
     console.log(`[bridge] nostr:query got ${events.length} events`)
     return {status: "ok", events}
