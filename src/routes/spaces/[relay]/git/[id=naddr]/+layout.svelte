@@ -85,6 +85,7 @@
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
+  import {makeGitPath} from "@lib/budabit/routes"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   
   const {id, relay} = $page.params
@@ -1363,6 +1364,44 @@
 
   const searchRepoRelays = async (query: string) => $relaySearch.searchValues(query)
 
+  async function navigateToRenamedRepo(nextName: string, relays: string[]) {
+    if (!nextName || !repoPubkey) return
+
+    let fallbackRelay = ""
+    if (relay) {
+      try {
+        fallbackRelay = decodeRelay(relay)
+      } catch {
+        fallbackRelay = relay
+      }
+    }
+
+    const targetRelays = relays.length > 0 ? relays : getRepoRelaysForModal()
+    const effectiveRelay =
+      (fallbackRelay && isPlatformRelay(fallbackRelay) ? fallbackRelay : "") ||
+      targetRelays.find(isPlatformRelay) ||
+      PLATFORM_RELAYS[0] ||
+      ""
+
+    if (!effectiveRelay) {
+      pushToast({
+        message: "Repository renamed, but no platform relay was available for navigation.",
+        theme: "error",
+      })
+      return
+    }
+
+    const naddr = nip19.naddrEncode({
+      kind: 30617,
+      pubkey: repoPubkey,
+      identifier: nextName,
+      relays: targetRelays.length > 0 ? targetRelays : undefined,
+    })
+
+    const targetPath = makeGitPath(effectiveRelay, naddr)
+    await goto(targetPath)
+  }
+
   function forkRepo() {
     if (!repoClass) return
 
@@ -1389,6 +1428,13 @@
 
   function settingsRepo() {
     if (!repoClass) return
+    if (!$pubkey || repoPubkey !== $pubkey) {
+      pushToast({
+        message: "Only the owner can edit this repo announcement",
+        theme: "error",
+      })
+      return
+    }
     
     const repoRelays = getStore(repoRelaysStore)
     const relaysForPublish = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
@@ -1404,6 +1450,18 @@
       repo: repoClass,
       onPublishEvent: (event: RepoAnnouncementEvent) => {
         postRepoAnnouncement(event, relaysForPublish)
+      },
+      onSaveComplete: async ({
+        renamed,
+        nextName,
+        relays,
+      }: {
+        renamed: boolean
+        nextName: string
+        relays: string[]
+      }) => {
+        if (!renamed) return
+        await navigateToRenamedRepo(nextName, relays)
       },
       canDelete: !!$pubkey && repoPubkey === $pubkey,
       onRequestDelete: () => openDeleteRepoModal(),
@@ -1693,6 +1751,7 @@
         isTogglingBookmark={isTogglingBookmark}
         watchRepo={openWatchModal}
         isWatching={isWatching}
+        canEditSettings={!!$pubkey && repoPubkey === $pubkey}
         >
         {#snippet children(activeTab: string)}
           <RepoTab
