@@ -11,6 +11,7 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
     getTagValue,
+    type TrustedEvent,
   } from "@welshman/util"
   import {fade, fly, slideAndFade} from "@lib/transition"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
@@ -101,6 +102,29 @@
       ...event,
       tags,
     }
+  }
+
+  type LabelGroups = {
+    Status: string[]
+    Type: string[]
+    Area: string[]
+    Tags: string[]
+    Other: string[]
+  }
+
+  type PatchListItem = {
+    id: string
+    created_at: number
+    pubkey: string
+    event: PatchEvent | PullRequestEvent
+    patches: PatchEvent[]
+    status: {kind: number}
+    parsedPatch: {
+      title: string
+    }
+    comments: CommentEvent[]
+    commitCount: number
+    groups: LabelGroups
   }
 
   $effect(() => {
@@ -328,8 +352,14 @@
   })
 
   const labelsByPatch = $derived.by(() => labelsData.byId)
-  const labelGroupsFor = (id: string) =>
-    labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
+  const labelGroupsFor = (id: string): LabelGroups =>
+    (labelsData.groupsById.get(id) as LabelGroups | undefined) || {
+      Status: [],
+      Type: [],
+      Area: [],
+      Tags: [],
+      Other: [],
+    }
 
   // Persist filters per repo (delegated to FilterPanel)
   let storageKey = repoClass?.key ? `patchesFilters:${repoClass.key}` : ""
@@ -391,7 +421,7 @@
   }
 
   // Compute patchList asynchronously to avoid blocking UI rendering
-  let patchList = $state<any[]>([])
+  let patchList = $state<PatchListItem[]>([])
   let patchListCacheKey = $state<string>("")
 
   $effect(() => {
@@ -478,7 +508,7 @@
       })
 
       // Process all patches at once
-      const processed: any[] = []
+      const processed: PatchListItem[] = []
       for (const patch of rootPatches) {
         // Use manager-provided state and derive kind for UI
         const status = {kind: kindFromState((currentStatusData.stateById as any)[patch.id])} as any
@@ -491,13 +521,16 @@
         const commentEvents = commentsByPatch.get(patch.id) || []
 
         processed.push({
-          ...patch,
-          type: "patch" as const,
+          id: patch.id,
+          created_at: patch.created_at,
+          pubkey: patch.pubkey,
+          event: patch,
           patches,
           status,
-          parsedPatch,
+          parsedPatch: {
+            title: parsedPatch?.title || "(no title)",
+          },
           comments: commentEvents,
-          // Add commit count directly for easier sorting
           commitCount: parsedPatch?.commitCount || 0,
           groups: labelGroupsFor(patch.id),
         })
@@ -505,7 +538,7 @@
 
       // All patches processed, now merge PRs, filter, and sort
       const applyFiltersAndSort = (
-        allPatches: any[],
+        allPatches: PatchListItem[],
         commentsByPatch: Map<string, CommentEvent[]>,
       ) => {
         // Merge in PR roots
@@ -516,26 +549,23 @@
           const commentEvents = commentsByPatch.get(pr.id) || []
           const status = {kind: kindFromState(currentPatchStateFor(pr.id))} as any
           return {
-            ...pr,
-            type: "pr" as const,
+            id: pr.id,
+            created_at: pr.created_at,
+            pubkey: pr.pubkey,
+            event: pr,
             patches: [],
             status,
             parsedPatch: {
               title: parsedPR.subject || parsedPR.title || "(no title)",
-              description: parsedPR.description || parsedPR.content || "",
-              baseBranch: parsedPR.branchName || parsedPR.baseBranch,
-              commitCount: 0,
-              createdAt: pr.created_at * 1000,
-              commitHash: parsedPR.tipCommit || parsedPR.commitId,
             },
             comments: commentEvents,
             commitCount: 0,
             groups: {Status: [], Type: [], Area: [], Tags: [], Other: []},
-          }
+          } satisfies PatchListItem
         })
 
         // Merge PR items into the unified list
-        let filteredPatches = [...allPatches, ...(prItems as any[])]
+        let filteredPatches = [...allPatches, ...prItems]
 
         // Apply status filter
         if (currentStatusFilter !== "all") {
@@ -717,6 +747,7 @@
     const currentRepoRelays = repoRelays
     const currentRepoAddresses = effectiveRepoAddresses
     const currentPatchList = patchList
+    const currentPatchEvents = currentPatchList.map(patch => patch.event as TrustedEvent)
     const currentElement = element
     const currentFeedInitialized = feedInitialized
 
@@ -741,7 +772,7 @@
               relays: currentRepoRelays,
               feedFilters: [currentPatchFilter, currentPullRequestFilter],
               subscriptionFilters: [currentPatchFilter, currentPullRequestFilter],
-              initialEvents: currentPatchList,
+              initialEvents: currentPatchEvents,
               onExhausted: () => {
                 // Feed exhausted, but we already showed content
               },
@@ -893,7 +924,7 @@
             <div class="relative">
               <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
                 <PatchCard
-                  event={patch}
+                  event={patch.event}
                   patches={patch.patches}
                   status={patch.status as StatusEvent}
                   comments={patch.comments}
