@@ -3,25 +3,9 @@ import {extensionSettings} from "./settings"
 import {extensionRegistry} from "./registry"
 
 const BUILTIN_EXTENSIONS: ExtensionManifest[] = [
-  {
-    id: "budabit-pipelines",
-    kind: 31990,
-    name: "CI/CD Pipelines",
-    description: "View and manage CI/CD pipeline runs for your repository.",
-    author: "Budabit",
-    homepage: "https://budabit.dev/extensions/pipelines",
-    version: "1.0.0",
-    permissions: ["nostr:query", "ui:toast"],
-    entrypoint: "",
-    icon: "Play",
-    sha256: "",
-    slot: {
-      type: "repo-tab",
-      label: "Pipelines",
-      path: "pipelines",
-      builtinRoute: "cicd",
-    },
-  },
+  // Pipelines extension is now a separate Smart Widget (kind 30033)
+  // Install via naddr or discover from relays in Settings > Extensions
+  
   // Kanban extension is now loaded from Nostr events (kind 30033)
   // Install via naddr or discover from relays in Settings > Extensions
 ]

@@ -1,2 +1,4 @@
 packages:
   - 'packages/*'
+  - 'packages/budabit-huddle-extension/packages/*'
+  - 'packages/budabit-pipelines-extension'
