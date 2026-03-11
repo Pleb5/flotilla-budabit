@@ -13,7 +13,7 @@
     getTagValue,
     type TrustedEvent,
   } from "@welshman/util"
-  import {fade, fly, slideAndFade} from "@lib/transition"
+  import {fade, slideAndFade} from "@lib/transition"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
   import {
     getTags,
@@ -126,10 +126,6 @@
     commitCount: number
     groups: LabelGroups
   }
-
-  $effect(() => {
-    console.log("pullRequests", pullRequests)
-  })
 
   // Comments are managed locally, similar to issues page
   let comments = $state<CommentEvent[]>([])
@@ -289,7 +285,7 @@
     groupsById: new Map<string, Record<string, string[]>>(),
     allLabels: [],
   })
-  let labelsDataCacheKey = $state<string>("")
+  let labelsDataCacheKey = ""
 
   // Compute labelsData asynchronously to avoid blocking render
   $effect(() => {
@@ -422,7 +418,7 @@
 
   // Compute patchList asynchronously to avoid blocking UI rendering
   let patchList = $state<PatchListItem[]>([])
-  let patchListCacheKey = $state<string>("")
+  let patchListCacheKey = ""
 
   $effect(() => {
     // Access all reactive dependencies synchronously to ensure they're tracked
@@ -624,6 +620,7 @@
   let scrollParent: HTMLElement | null = $state(null)
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
+  let feedInitTimer: ReturnType<typeof setTimeout> | null = null
   // Use non-reactive array to avoid infinite loops when pushing in effects
   const abortControllers: AbortController[] = []
 
@@ -746,48 +743,37 @@
     const currentPullRequestFilter = pullRequestFilter
     const currentRepoRelays = repoRelays
     const currentRepoAddresses = effectiveRepoAddresses
-    const currentPatchList = patchList
-    const currentPatchEvents = currentPatchList.map(patch => patch.event as TrustedEvent)
     const currentElement = element
-    const currentFeedInitialized = feedInitialized
+
+    if (feedInitialized || feedCleanup) return
+    if (!currentRepoClass || !currentRepoClass.patches || !currentPatchFilter || !currentPullRequestFilter)
+      return
+    if (!currentElement || !currentRepoRelays.length || currentRepoAddresses.length === 0) return
 
     // Defer makeFeed to avoid blocking initial render
-    const timeout = setTimeout(() => {
-      if (
-        currentRepoClass &&
-        currentRepoClass.patches &&
-        currentPatchFilter &&
-        currentPullRequestFilter &&
-        !currentFeedInitialized
-      ) {
-        const tryStart = () => {
-          if (currentElement && !currentFeedInitialized) {
-            if (!currentRepoRelays.length || currentRepoAddresses.length === 0) {
-              requestAnimationFrame(tryStart)
-              return
-            }
-            feedInitialized = true
-            const feed = makeFeed({
-              element: currentElement,
-              relays: currentRepoRelays,
-              feedFilters: [currentPatchFilter, currentPullRequestFilter],
-              subscriptionFilters: [currentPatchFilter, currentPullRequestFilter],
-              initialEvents: currentPatchEvents,
-              onExhausted: () => {
-                // Feed exhausted, but we already showed content
-              },
-            })
-            feedCleanup = feed.cleanup
-          } else if (!currentElement) {
-            requestAnimationFrame(tryStart)
-          }
-        }
-        tryStart()
-      }
+    feedInitTimer = setTimeout(() => {
+      feedInitTimer = null
+      if (feedInitialized || feedCleanup) return
+      if (!element || !repoRelays.length || effectiveRepoAddresses.length === 0) return
+      feedInitialized = true
+      const feed = makeFeed({
+        element,
+        relays: repoRelays,
+        feedFilters: [patchFilter, pullRequestFilter],
+        subscriptionFilters: [patchFilter, pullRequestFilter],
+        initialEvents: patchList.map(patch => patch.event as TrustedEvent),
+        onExhausted: () => {
+          // Feed exhausted, but we already showed content
+        },
+      })
+      feedCleanup = feed.cleanup
     }, 100)
 
     return () => {
-      clearTimeout(timeout)
+      if (feedInitTimer) {
+        clearTimeout(feedInitTimer)
+        feedInitTimer = null
+      }
     }
   })
 
@@ -805,6 +791,13 @@
     }
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
+    feedCleanup = undefined
+    feedInitialized = false
+
+    if (feedInitTimer) {
+      clearTimeout(feedInitTimer)
+      feedInitTimer = null
+    }
 
     // Abort all network requests
     abortControllers.forEach(controller => controller.abort())
@@ -918,63 +911,62 @@
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#key searchedPatches}
-        {#each searchedPatches as patch (patch.id)}
-          <div in:fly={slideAndFade({duration: 200})}>
-            <div class="relative">
-              <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
-                <PatchCard
-                  event={patch.event}
-                  patches={patch.patches}
-                  status={patch.status as StatusEvent}
-                  comments={patch.comments}
-                  currentCommenter={$pubkey!}
-                  extraLabels={labelsByPatch.get(patch.id) || []}
-                  repo={repoClass}
+      {#each searchedPatches as patch (patch.id)}
+        <div in:slideAndFade={{duration: 200}}>
+          <div class="relative">
+            <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
+              <PatchCard
+                event={patch.event}
+                patches={patch.patches}
+                status={patch.status as StatusEvent}
+                comments={patch.comments}
+                currentCommenter={$pubkey!}
+                extraLabels={labelsByPatch.get(patch.id) || []}
+                repo={repoClass}
                   statusEvents={mergedStatusEventsByRoot?.get(patch.id) || []}
                   actorPubkey={$pubkey}
                   {onCommentCreated}
+                  relays={repoRelays}
                   reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0}
                 />
-              </div>
-              {#if labelsByPatch.get(patch.id)?.length}
-                <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                  {#if patch.groups.Status.length}
-                    <span class="opacity-60">Status:</span>
-                    {#each patch.groups.Status as l (l)}<span class="badge badge-ghost badge-sm"
-                        >{l}</span
-                      >{/each}
-                  {/if}
-                  {#if patch.groups.Type.length}
-                    <span class="opacity-60">Type:</span>
-                    {#each patch.groups.Type as l (l)}<span class="badge badge-ghost badge-sm"
-                        >{l}</span
-                      >{/each}
-                  {/if}
-                  {#if patch.groups.Area.length}
-                    <span class="opacity-60">Area:</span>
-                    {#each patch.groups.Area as l (l)}<span class="badge badge-ghost badge-sm"
-                        >{l}</span
-                      >{/each}
-                  {/if}
-                  {#if patch.groups.Tags.length}
-                    <span class="opacity-60">Tags:</span>
-                    {#each patch.groups.Tags as l (l)}<span class="badge badge-ghost badge-sm"
-                        >{l}</span
-                      >{/each}
-                  {/if}
-                  {#if patch.groups.Other.length}
-                    <span class="opacity-60">Other:</span>
-                    {#each patch.groups.Other as l (l)}<span class="badge badge-ghost badge-sm"
-                        >{l}</span
-                      >{/each}
-                  {/if}
-                </div>
-              {/if}
             </div>
+            {#if labelsByPatch.get(patch.id)?.length}
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                {#if patch.groups.Status.length}
+                  <span class="opacity-60">Status:</span>
+                  {#each patch.groups.Status as l (l)}<span class="badge badge-ghost badge-sm"
+                      >{l}</span
+                    >{/each}
+                {/if}
+                {#if patch.groups.Type.length}
+                  <span class="opacity-60">Type:</span>
+                  {#each patch.groups.Type as l (l)}<span class="badge badge-ghost badge-sm"
+                      >{l}</span
+                    >{/each}
+                {/if}
+                {#if patch.groups.Area.length}
+                  <span class="opacity-60">Area:</span>
+                  {#each patch.groups.Area as l (l)}<span class="badge badge-ghost badge-sm"
+                      >{l}</span
+                    >{/each}
+                {/if}
+                {#if patch.groups.Tags.length}
+                  <span class="opacity-60">Tags:</span>
+                  {#each patch.groups.Tags as l (l)}<span class="badge badge-ghost badge-sm"
+                      >{l}</span
+                    >{/each}
+                {/if}
+                {#if patch.groups.Other.length}
+                  <span class="opacity-60">Other:</span>
+                  {#each patch.groups.Other as l (l)}<span class="badge badge-ghost badge-sm"
+                      >{l}</span
+                    >{/each}
+                {/if}
+              </div>
+            {/if}
           </div>
-        {/each}
-      {/key}
+        </div>
+      {/each}
     </div>
   {/if}
 </div>

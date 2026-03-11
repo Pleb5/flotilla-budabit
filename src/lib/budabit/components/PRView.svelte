@@ -86,6 +86,7 @@
   type PrCommitDiffState = {
     loading: boolean
     error?: string
+    warning?: string
     meta?: PrCommitMeta
     changes?: PrChange[]
   }
@@ -175,21 +176,51 @@
     if (!prUpdatesDerived) return []
     const events = $prUpdatesDerived as TrustedEvent[]
     return (events || [])
-      .sort((a: TrustedEvent, b: TrustedEvent) => a.created_at - b.created_at)
+      .sort((a: TrustedEvent, b: TrustedEvent) => {
+        if (a.created_at !== b.created_at) return a.created_at - b.created_at
+        return a.id.localeCompare(b.id)
+      })
       .map((e: TrustedEvent) => parsePullRequestUpdateEvent(e as any))
   })
 
-  const prEffectiveTipAndCommits = $derived.by(() => {
-    if (!pr) return null
+  let lastPrStatusLoadKey: string | null = null
+
+  $effect(() => {
+    if (!prEvent) return
+
+    const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    if (relays.length === 0) return
+
+    const updatesCount = prUpdatesArray.length
+    const key = `${prEvent.id}|${relays.slice().sort().join(",")}|${updatesCount}`
+    if (lastPrStatusLoadKey === key) return
+    lastPrStatusLoadKey = key
+
+    void load({
+      relays: relays as string[],
+      filters: [getPrStatusFilter()],
+    }).catch(() => {})
+  })
+
+  const prEffectiveTipOid = $derived.by(() => {
+    if (!pr) return ""
     const updates = prUpdatesArray
     if (updates.length > 0) {
-      const latest = updates[updates.length - 1]
-      const commits = latest.commits || []
-      const tipOid = commits[0]
-      return tipOid ? {tipOid, allCommitOids: commits} : null
+      return updates[updates.length - 1].tipCommitOid || ""
     }
-    const commits = pr.commits || []
-    return commits.length > 0 ? {tipOid: commits[0], allCommitOids: commits} : null
+    return pr.tipCommitOid || ""
+  })
+
+  const prEffectiveTipIssue = $derived.by(() => {
+    if (!pr) return null
+    const updates = prUpdatesArray
+    const source = updates.length > 0 ? updates[updates.length - 1] : pr
+    if (!source.tipError) return null
+    return {
+      type: source.tipError,
+      candidates: source.tipCandidates || [],
+      isFromUpdate: updates.length > 0,
+    }
   })
 
   /** Clone URLs for PR source (fork); from latest update if present, else original PR event */
@@ -206,12 +237,24 @@
   /** Target branch from PR event, fallback to repo selection */
   const prTargetBranch = $derived(pr?.branchName ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main")
 
+  const canPublishPrUpdates = $derived.by(() => {
+    if (!prEvent || !$pubkey || $pubkey !== prEvent.pubkey) return false
+    return prStatus?.status !== "applied" && prStatus?.status !== "closed"
+  })
+
+  const prUpdateBlockedReason = $derived.by(() => {
+    if (!prEvent || !$pubkey || $pubkey !== prEvent.pubkey) return null
+    if (prStatus?.status === "applied") return "PR is already applied"
+    if (prStatus?.status === "closed") return "PR is closed"
+    return null
+  })
+
   let prMergeAnalysisResult: PRMergeAnalysisResult | null = $state(null)
   let isAnalyzingPRMerge = $state(false)
   let prAnalysisProgress = $state("")
   let prAnalysisWarning = $state<string | null>(null)
   let prAnalysisGeneration = $state(0)
-  let lastPrAnalysisKey = $state<string | null>(null)
+  let lastPrAnalysisKey: string | null = null
 
   const prAnalysisErrorMessage = $derived.by(() =>
     prMergeAnalysisResult?.analysis === "error" ? prMergeAnalysisResult.errorMessage || null : null,
@@ -225,13 +268,22 @@
   let prChanges = $state<PrChange[] | null>(null)
   let prChangesLoading = $state(false)
   let prChangesError = $state<string | null>(null)
+  let prChangesProgress = $state("")
+  let prChangesGeneration = $state(0)
+  let lastPrChangesLoadKey: string | null = null
+  let prDiffBaseOid = $state<string | null>(null)
+  let prDiffHeadOid = $state<string | null>(null)
   let prExpandedFiles = $state<Set<string>>(new Set())
   let prDiffAnchors = $state<Record<string, string>>({})
   let prReviewTab = $state("commits")
   let prExpandedCommits = $state<Set<string>>(new Set())
   let prCommitDiffByOid = $state<Record<string, PrCommitDiffState>>({})
 
-  const prCommitOids = $derived.by(() => prEffectiveTipAndCommits?.allCommitOids || [])
+  const prCommitOids = $derived.by(() => {
+    const fromAnalysis = (prMergeAnalysisResult?.prCommits || []).map((commit) => commit.oid)
+    if (fromAnalysis.length > 0) return fromAnalysis
+    return prStatus?.appliedCommits || []
+  })
 
   const prCommitMetaByOid = $derived.by(() => {
     const commits = prMergeAnalysisResult?.prCommits || []
@@ -256,10 +308,10 @@
     return stateAuthor || analysisAuthor || "Unknown author"
   }
 
-  async function loadPrCommitDiff(oid: string) {
+  async function loadPrCommitDiff(oid: string, force = false) {
     if (!repoClass?.workerManager || !repoClass?.key) return
     const current = prCommitDiffByOid[oid]
-    if (current?.loading || current?.changes || current?.error) return
+    if (!force && (current?.loading || current?.changes || current?.error || current?.warning)) return
 
     prCommitDiffByOid = {
       ...prCommitDiffByOid,
@@ -290,6 +342,7 @@
         ...prCommitDiffByOid,
         [oid]: {
           loading: false,
+          warning: typeof result.warning === "string" ? result.warning : undefined,
           meta: {
             sha: result.meta.sha || oid,
             author: result.meta.author || "Unknown author",
@@ -571,10 +624,9 @@
   }
 
   async function runPRMergeAnalysis() {
-    if (!pr || !prEvent || !prEffectiveTipAndCommits || !repoClass.key || !repoClass.workerManager)
-      return
-    const {tipOid, allCommitOids} = prEffectiveTipAndCommits
-    const prCloneUrls = getCloneUrlsFromEvent(pr.raw)
+    if (!pr || !prEvent || !prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
+    const tipOid = prEffectiveTipOid
+    const prCloneUrls = prEffectiveCloneUrls
     const cloneUrls = prCloneUrls.length > 0 ? prCloneUrls : ((repoClass as any).cloneUrls || [])
     if (cloneUrls.length === 0) return
 
@@ -594,22 +646,22 @@
       if (!sync.ok) {
         prMergeAnalysisResult = toAnalysisErrorResult(
           `Cannot run merge analysis until target branch is synced: ${sync.error}`,
-          allCommitOids,
+          [tipOid],
         )
         return
       }
       if (sync.warning) prAnalysisWarning = sync.warning
 
       prAnalysisProgress = "Fetching PR from clone URL..."
-      const result = await repoClass.getPRMergeAnalysis(cloneUrls, tipOid, prTargetBranch, allCommitOids)
+      const result = await repoClass.getPRMergeAnalysis(cloneUrls, tipOid, prTargetBranch)
       if (prAnalysisGeneration === myGen) {
-        prMergeAnalysisResult = result ?? toAnalysisErrorResult("Analysis returned no result", allCommitOids)
+        prMergeAnalysisResult = result ?? toAnalysisErrorResult("Analysis returned no result", [tipOid])
       }
     } catch (err) {
       if (prAnalysisGeneration === myGen) {
         prMergeAnalysisResult = toAnalysisErrorResult(
           formatMergeAnalysisError(err instanceof Error ? err.message : String(err)),
-          prEffectiveTipAndCommits!.allCommitOids,
+          [tipOid],
         )
       }
     } finally {
@@ -621,64 +673,131 @@
   }
 
   $effect(() => {
-    if (!pr || !prEvent || !prEffectiveTipAndCommits || !repoClass.key || !repoClass.workerManager)
-      return
-    const {tipOid} = prEffectiveTipAndCommits
+    if (!pr || !prEvent || !prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
+    const tipOid = prEffectiveTipOid
     const analysisKey = `${prEvent.id}-${tipOid}-${prTargetBranch}`
 
-    if (lastPrAnalysisKey === analysisKey) return
+    if (lastPrAnalysisKey && lastPrAnalysisKey !== analysisKey) {
+      prChanges = null
+      prChangesError = null
+      prDiffBaseOid = null
+      prDiffHeadOid = null
+      lastPrChangesLoadKey = null
+    }
+    if (lastPrAnalysisKey === analysisKey || isAnalyzingPRMerge) return
     runPRMergeAnalysis()
   })
 
-  $effect(() => {
-    const result = prMergeAnalysisResult
-    const tip = prEffectiveTipAndCommits?.tipOid
-    const mergeBase = result?.mergeBase
-    if (!result || !tip || !mergeBase || !repoClass.key || !repoClass.workerManager) return
+  const resolvePrDiffRange = async () => {
+    const tipOid = prEffectiveTipOid
+    if (!repoClass.key || !repoClass.workerManager || !tipOid) return null
 
-    let cancelled = false
-    prChangesLoading = true
-    prChangesError = null
-    prChanges = null
-
-    ;(repoClass.workerManager as any)
-      .getDiffBetween({
+    if (prStatus?.status === "applied" && prStatus.mergedCommit) {
+      prChangesProgress = "Loading applied merge commit..."
+      const mergeDetails = await repoClass.workerManager.getCommitDetails({
         repoId: repoClass.key,
-        baseOid: mergeBase,
-        headOid: tip,
+        commitId: prStatus.mergedCommit,
       })
-      .then((res: {success: boolean; changes?: PrChange[]; error?: string}) => {
-        if (cancelled) return
-        if (res.success && res.changes) {
-          prChanges = res.changes
-          prChangesError = null
-        } else {
-          prChanges = []
-          prChangesError = res.error || "Failed to load diff"
-        }
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        prChanges = []
-        prChangesError = err instanceof Error ? err.message : "Failed to load diff"
-      })
-      .finally(() => {
-        if (!cancelled) prChangesLoading = false
-      })
-
-    return () => {
-      cancelled = true
-    }
-  })
-
-  $effect(() => {
-    const key = lastPrAnalysisKey
-    return () => {
-      if (key !== lastPrAnalysisKey) {
-        prChanges = null
-        prChangesError = null
+      const parentOid = mergeDetails?.meta?.parents?.[0]
+      if (mergeDetails?.success && parentOid) {
+        return {baseOid: parentOid, headOid: prStatus.mergedCommit}
       }
     }
+
+    const mergeBase = prMergeAnalysisResult?.mergeBase
+    if (mergeBase) {
+      return {baseOid: mergeBase, headOid: tipOid}
+    }
+
+    if (prStatus?.appliedCommits && prStatus.appliedCommits.length > 0) {
+      const headOid = prStatus.appliedCommits[0]
+      const oldestOid = prStatus.appliedCommits[prStatus.appliedCommits.length - 1]
+      prChangesProgress = "Loading applied commit range..."
+      const oldestDetails = await repoClass.workerManager.getCommitDetails({
+        repoId: repoClass.key,
+        commitId: oldestOid,
+      })
+      const parentOid = oldestDetails?.meta?.parents?.[0]
+      if (oldestDetails?.success && parentOid) {
+        return {baseOid: parentOid, headOid}
+      }
+    }
+
+    return null
+  }
+
+  async function loadPrChanges() {
+    if (!repoClass.key || !repoClass.workerManager || !prEffectiveTipOid) return
+
+    prChangesGeneration++
+    const currentGen = prChangesGeneration
+    prChangesLoading = true
+    prChangesError = null
+    prChangesProgress = "Resolving diff range..."
+    prChanges = null
+    prDiffBaseOid = null
+    prDiffHeadOid = null
+
+    try {
+      const range = await resolvePrDiffRange()
+      if (prChangesGeneration !== currentGen) return
+      if (!range) {
+        prChanges = []
+        prChangesError =
+          prStatus?.status === "applied"
+            ? "Unable to resolve an applied diff range for this PR yet. Re-run Analyze or retry loading files."
+            : "Merge analysis is incomplete. Re-run Analyze to load file changes."
+        return
+      }
+
+      prDiffBaseOid = range.baseOid
+      prDiffHeadOid = range.headOid
+      prChangesProgress = "Loading file diffs..."
+
+      const res = await (repoClass.workerManager as any).getDiffBetween({
+        repoId: repoClass.key,
+        baseOid: range.baseOid,
+        headOid: range.headOid,
+      })
+
+      if (prChangesGeneration !== currentGen) return
+      if (res.success && res.changes) {
+        prChanges = res.changes
+        prChangesError = null
+      } else {
+        prChanges = []
+        prChangesError = res.error || "Failed to load diff"
+      }
+    } catch (err) {
+      if (prChangesGeneration !== currentGen) return
+      prChanges = []
+      prChangesError = err instanceof Error ? err.message : "Failed to load diff"
+    } finally {
+      if (prChangesGeneration === currentGen) {
+        prChangesLoading = false
+        prChangesProgress = ""
+      }
+    }
+  }
+
+  $effect(() => {
+    if (!prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
+    if (!prMergeAnalysisResult && prStatus?.status !== "applied") return
+
+    const changesKey = [
+      prEvent?.id || "",
+      prEffectiveTipOid,
+      prStatus?.status || "",
+      prStatus?.mergedCommit || "",
+      (prStatus?.appliedCommits || []).join(","),
+      prMergeAnalysisResult?.mergeBase || "",
+      prMergeAnalysisResult?.analysis || "",
+    ].join("|")
+
+    if (lastPrChangesLoadKey === changesKey) return
+    lastPrChangesLoadKey = changesKey
+
+    loadPrChanges()
   })
 
   const getPrFileStatusIcon = (status: string) => {
@@ -751,8 +870,8 @@
   /** PR event with commit/parent-commit tags for DiffViewer permalinks and comments */
   const prDiffRootEvent = $derived.by(() => {
     if (!prEvent) return undefined
-    const tipOid = prEffectiveTipAndCommits?.tipOid
-    const mergeBase = prMergeAnalysisResult?.mergeBase
+    const tipOid = prDiffHeadOid || prEffectiveTipOid
+    const mergeBase = prDiffBaseOid || prMergeAnalysisResult?.mergeBase
     const tags: string[][] = [...(prEvent.tags || []).map((t) => (Array.isArray(t) ? [...t] : [String(t)]))]
     if (tipOid && !tags.some((t) => t[0] === "commit")) {
       tags.push(["commit", tipOid])
@@ -807,6 +926,7 @@
     error?: string
     commits: Array<{oid: string; message: string; author?: {name?: string}}>
     commitOids: string[]
+    tipCommit?: string
     mergeBase?: string
   } | null>(null)
   let updatePrPreviewLoading = $state(false)
@@ -816,9 +936,18 @@
   let updatePrSourceBranch = $state("")
   let updatePrTriedTipFirst = $state(false)
 
+  $effect(() => {
+    if (!canPublishPrUpdates && showUpdatePrForm) {
+      showUpdatePrForm = false
+      updatePrPreview = null
+      updatePrSourceBranch = ""
+      updatePrTriedTipFirst = false
+    }
+  })
+
   // Try tip-based preview first when form opens (no branch name needed)
   $effect(() => {
-    if (!showUpdatePrForm || !repoClass?.workerManager || !prEffectiveTipAndCommits?.tipOid) {
+    if (!showUpdatePrForm || !repoClass?.workerManager || !prEffectiveTipOid) {
       if (!showUpdatePrForm) {
         updatePrPreview = null
         updatePrTriedTipFirst = false
@@ -826,7 +955,7 @@
       return
     }
     if (updatePrSourceBranch.trim()) return
-    const tipOid = prEffectiveTipAndCommits.tipOid
+    const tipOid = prEffectiveTipOid
     let cancelled = false
     updatePrPreviewLoading = true
     updatePrPreview = null
@@ -852,6 +981,7 @@
           error: err instanceof Error ? err.message : String(err),
           commits: [],
           commitOids: [],
+          tipCommit: undefined,
         }
         updatePrPreviewLoading = false
       })
@@ -890,6 +1020,7 @@
           error: err?.message,
           commits: [],
           commitOids: [],
+          tipCommit: undefined,
         }
         updatePrPreviewLoading = false
       })
@@ -899,6 +1030,10 @@
   })
 
   const submitPrUpdate = async () => {
+    if (!canPublishPrUpdates) {
+      updatePrError = prUpdateBlockedReason || "PR updates are not allowed in the current state"
+      return
+    }
     if (!prEvent || !$pubkey) {
       updatePrError = "Missing PR or identity"
       return
@@ -923,11 +1058,17 @@
         return
       }
       let mergeBase = updatePrPreview.mergeBase
-      if (!mergeBase && updatePrPreview.commitOids?.length) {
+      const updateTipOid = updatePrPreview.tipCommit || updatePrPreview.commitOids?.[0]
+      if (!updateTipOid) {
+        updatePrError = "Unable to determine update tip commit"
+        isPublishingPrUpdate = false
+        return
+      }
+      if (!mergeBase && updateTipOid) {
         const targetCloneUrls = (repoClass as any)?.cloneUrls ?? []
         const mbResult = await (repoClass.workerManager as any).getMergeBaseBetween({
           repoId: repoClass.key,
-          headOid: updatePrPreview.commitOids[0],
+          headOid: updateTipOid,
           targetBranch: prTargetBranch,
           cloneUrls: targetCloneUrls,
         })
@@ -943,7 +1084,7 @@
         repoAddr,
         pullRequestEventId: prEvent.id,
         pullRequestAuthorPubkey: prEvent.pubkey,
-        commits: updatePrPreview.commitOids,
+        tipCommitOid: updateTipOid,
         clone: cloneUrls,
         mergeBase,
         recipients: recipients.length ? recipients : undefined,
@@ -1144,7 +1285,7 @@
   }
 
   const applyPR = () => {
-    if (!pr || !prEvent || !prEffectiveTipAndCommits) return
+    if (!pr || !prEvent || !prEffectiveTipOid) return
     isMergingPr = false
     mergePrStep = ""
     mergePrError = null
@@ -1236,7 +1377,7 @@
     if (
       !pr ||
       !prEvent ||
-      !prEffectiveTipAndCommits ||
+      !prEffectiveTipOid ||
       !repoClass.workerManager ||
       !repoClass.key ||
       !$pubkey
@@ -1250,7 +1391,7 @@
     mergePrSuccess = false
     mergePrMergedLocal = false
 
-    const cloneUrls = getCloneUrlsFromEvent(pr.raw)
+    const cloneUrls = prEffectiveCloneUrls
     const prCloneUrls = cloneUrls.length > 0 ? cloneUrls : ((repoClass as any).cloneUrls || [])
     if (prCloneUrls.length === 0) {
       mergePrError = "No clone URLs available for this PR"
@@ -1271,7 +1412,7 @@
     if (sync.warning) toast.push({message: sync.warning, timeout: 5000, variant: "default"})
 
     mergePrStep = "Merging PR..."
-    const {tipOid} = prEffectiveTipAndCommits
+    const tipOid = prEffectiveTipOid
 
     try {
       const result = await repoClass.workerManager.mergePRAndPush({
@@ -1308,7 +1449,9 @@
   const emitPRAppliedStatus = async (mergeCommitOid?: string) => {
     if (!prEvent || !$pubkey) return
     try {
-      const commitIds = prEffectiveTipAndCommits?.allCommitOids || []
+      const commitIds = prCommitOids
+      const appliedCommits =
+        commitIds.length > 0 ? commitIds : prEffectiveTipOid ? [prEffectiveTipOid] : undefined
       const statusEvent = createStatusEvent({
         kind: GIT_STATUS_APPLIED,
         content: mergePrCommitMessage || `PR applied: ${pr?.subject || "Untitled"}`,
@@ -1316,7 +1459,7 @@
         recipients: effectiveMaintainers,
         repoAddr: (repoClass as any).repoId || (repoClass as any).address || "",
         relays: repoClass.relays || repoRelays || [],
-        appliedCommits: commitIds.length > 0 ? commitIds : undefined,
+        appliedCommits,
         mergedCommit: mergeCommitOid,
       })
       postStatus(statusEvent as any, repoClass.relays || repoRelays || [])
@@ -1431,15 +1574,30 @@
       </div>
 
       <!-- PR details -->
-      {#if pr?.commits?.length || pr?.raw?.tags?.some((t) => t[0] === "clone")}
+      {#if prEffectiveTipOid || pr?.raw?.tags?.some((t) => t[0] === "clone")}
         <div class="mb-6 rounded-lg border bg-muted/20 p-4 text-sm">
           <h3 class="mb-2 font-medium">PR details</h3>
-          {#if prEffectiveTipAndCommits?.tipOid}
+          {#if prEffectiveTipOid}
             <div class="mb-2">
               <span class="text-muted-foreground">Tip commit:</span>
               <code class="ml-2 rounded bg-background px-1.5 py-0.5 font-mono text-xs">
-                {prEffectiveTipAndCommits.tipOid?.substring(0, 8) ?? ""}
+                {prEffectiveTipOid.substring(0, 8)}
               </code>
+            </div>
+          {:else if prEffectiveTipIssue?.type === "ambiguous-tip"}
+            <div class="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              <p>
+                Ambiguous tip commit: expected exactly one <code class="rounded bg-background px-1">c</code>
+                tag, found {prEffectiveTipIssue.candidates.length}.
+              </p>
+              {#if prEffectiveTipIssue.candidates.length > 0}
+                <div class="mt-1 flex flex-wrap items-center gap-1">
+                  <span class="text-muted-foreground">c tags:</span>
+                  {#each prEffectiveTipIssue.candidates as candidate}
+                    <code class="rounded bg-background px-1.5 py-0.5 font-mono">{candidate.substring(0, 8)}</code>
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/if}
           {#if prTargetBranch}
@@ -1476,7 +1634,7 @@
             variant="outline"
             size="sm"
             onclick={() => runPRMergeAnalysis()}
-            disabled={isAnalyzingPRMerge}
+            disabled={isAnalyzingPRMerge || !prEffectiveTipOid}
             class="gap-2">
             {#if isAnalyzingPRMerge}
               <Loader2 class="h-4 w-4 animate-spin" />
@@ -1536,11 +1694,28 @@
             </div>
           {/if}
         {:else}
-          <p class="text-sm text-muted-foreground">
-            {prEffectiveTipAndCommits
-              ? "Click Analyze to check mergeability."
-              : "No tip commit available. Add commits to the PR branch first."}
-          </p>
+          {#if prEffectiveTipOid}
+            <p class="text-sm text-muted-foreground">Click Analyze to check mergeability.</p>
+          {:else if prEffectiveTipIssue?.type === "ambiguous-tip"}
+            <div class="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              <p>
+                Ambiguous tip commit: expected exactly one <code class="rounded bg-background px-1">c</code>
+                tag, found {prEffectiveTipIssue.candidates.length}. Analyze is disabled.
+              </p>
+              {#if prEffectiveTipIssue.candidates.length > 0}
+                <div class="mt-1 flex flex-wrap items-center gap-1">
+                  <span class="text-muted-foreground">c tags:</span>
+                  {#each prEffectiveTipIssue.candidates as candidate}
+                    <code class="rounded bg-background px-1.5 py-0.5 font-mono">{candidate.substring(0, 8)}</code>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {:else}
+            <p class="text-sm text-muted-foreground">
+              No tip commit available. Add commits to the PR branch first.
+            </p>
+          {/if}
         {/if}
       </div>
 
@@ -1959,42 +2134,55 @@
                             Loading commit diff...
                           </div>
                         {:else if commitState.error}
-                          <p class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-                            {commitState.error}
-                          </p>
-                        {:else if commitState.changes && commitState.changes.length > 0}
-                          <div class="space-y-4">
-                            {#each commitState.changes as change (change.path)}
-                              <div class="rounded border border-border bg-background">
-                                <div class="flex items-center justify-between px-3 py-2 text-xs">
-                                  <span class="truncate font-mono">{change.path}</span>
-                                  <div class="flex items-center gap-2 text-muted-foreground">
-                                    {#if getPrFileStats(change.diffHunks).additions > 0}
-                                      <span class="text-green-600">+{getPrFileStats(change.diffHunks).additions}</span>
-                                    {/if}
-                                    {#if getPrFileStats(change.diffHunks).deletions > 0}
-                                      <span class="text-red-600">-{getPrFileStats(change.diffHunks).deletions}</span>
-                                    {/if}
-                                  </div>
-                                </div>
-                                <div class="border-t border-border px-3 pb-3 pt-2">
-                                  <DiffViewer
-                                    diff={[prChangeToParseDiffFile(change)]}
-                                    showLineNumbers={true}
-                                    expandAll={true}
-                                    comments={prDiffComments}
-                                    rootEvent={getPrCommitDiffRootEvent(oid)}
-                                    onComment={handlePrDiffCommentSubmit}
-                                    currentPubkey={$pubkey}
-                                    repo={repoClass}
-                                    enablePermalinks={false}
-                                  />
-                                </div>
-                              </div>
-                            {/each}
+                          <div class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                            <p>{commitState.error}</p>
+                            <Button variant="outline" size="sm" onclick={() => loadPrCommitDiff(oid, true)}>
+                              Retry commit diff
+                            </Button>
                           </div>
                         {:else}
-                          <p class="text-sm text-muted-foreground">No file changes in this commit.</p>
+                          {#if commitState.warning}
+                            <div class="mb-3 space-y-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                              <p>{commitState.warning}</p>
+                              <Button variant="outline" size="sm" onclick={() => loadPrCommitDiff(oid, true)}>
+                                Retry commit diff
+                              </Button>
+                            </div>
+                          {/if}
+                          {#if commitState.changes && commitState.changes.length > 0}
+                            <div class="space-y-4">
+                              {#each commitState.changes as change (change.path)}
+                                <div class="rounded border border-border bg-background">
+                                  <div class="flex items-center justify-between px-3 py-2 text-xs">
+                                    <span class="truncate font-mono">{change.path}</span>
+                                    <div class="flex items-center gap-2 text-muted-foreground">
+                                      {#if getPrFileStats(change.diffHunks).additions > 0}
+                                        <span class="text-green-600">+{getPrFileStats(change.diffHunks).additions}</span>
+                                      {/if}
+                                      {#if getPrFileStats(change.diffHunks).deletions > 0}
+                                        <span class="text-red-600">-{getPrFileStats(change.diffHunks).deletions}</span>
+                                      {/if}
+                                    </div>
+                                  </div>
+                                  <div class="border-t border-border px-3 pb-3 pt-2">
+                                    <DiffViewer
+                                      diff={[prChangeToParseDiffFile(change)]}
+                                      showLineNumbers={true}
+                                      expandAll={true}
+                                      comments={prDiffComments}
+                                      rootEvent={getPrCommitDiffRootEvent(oid)}
+                                      onComment={handlePrDiffCommentSubmit}
+                                      currentPubkey={$pubkey}
+                                      repo={repoClass}
+                                      enablePermalinks={false}
+                                    />
+                                  </div>
+                                </div>
+                              {/each}
+                            </div>
+                          {:else}
+                            <p class="text-sm text-muted-foreground">No file changes in this commit.</p>
+                          {/if}
                         {/if}
                       </div>
                     {/if}
@@ -2008,13 +2196,15 @@
             {#if prChangesLoading}
               <div class="flex items-center gap-2 rounded border bg-background/50 p-4 text-sm text-muted-foreground">
                 <Loader2 class="h-4 w-4 animate-spin" />
-                Loading file diffs...
+                {prChangesProgress || "Loading file diffs..."}
               </div>
             {:else if prChangesError}
-              <p
-                class="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-                {prChangesError}
-              </p>
+              <div class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                <p>{prChangesError}</p>
+                <Button variant="outline" size="sm" onclick={() => loadPrChanges()}>
+                  Retry file diff
+                </Button>
+              </div>
             {:else if prChanges}
               <div class="divide-y divide-border rounded border bg-background/50">
                 {#each prChanges as change (change.path)}
@@ -2090,7 +2280,7 @@
                 {/each}
               </div>
             {:else}
-              <p class="text-sm text-muted-foreground">No changes to show.</p>
+              <p class="text-sm text-muted-foreground">No file changes found for this diff range.</p>
             {/if}
           </TabsContent>
         </Tabs>
@@ -2111,7 +2301,7 @@
               <li class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <span class="text-muted-foreground">Tip updated to</span>
                 <code class="rounded bg-background px-1.5 py-0.5 font-mono text-xs">
-                  {update.commits?.[0]?.substring(0, 8) ?? "—"}
+                  {update.tipCommitOid?.substring(0, 8) ?? "—"}
                 </code>
                 <span class="text-muted-foreground">
                   {new Date(update.createdAt).toLocaleString()}
@@ -2134,8 +2324,8 @@
         </div>
       {/if}
 
-      <!-- Update PR button (author only, hidden when PR is applied) -->
-      {#if prEvent && $pubkey === prEvent.pubkey && prStatus?.status === "open"}
+      <!-- Update PR button (author only; unlimited updates until applied/closed) -->
+      {#if canPublishPrUpdates}
         <div class="mb-6">
           {#if showUpdatePrForm}
             <div class="rounded-lg border bg-muted/20 p-4">
@@ -2222,6 +2412,10 @@
               Update PR (push new commits)
             </Button>
           {/if}
+        </div>
+      {:else if prUpdateBlockedReason}
+        <div class="mb-6 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+          {prUpdateBlockedReason}
         </div>
       {/if}
 
