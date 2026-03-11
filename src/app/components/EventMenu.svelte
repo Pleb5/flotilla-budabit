@@ -3,6 +3,7 @@
   import type {Snippet} from "svelte"
   import type {TrustedEvent} from "@welshman/util"
   import {Address, COMMENT, ManagementMethod, isReplaceable} from "@welshman/util"
+  import {GIT_PATCH, GIT_PULL_REQUEST} from "@nostr-git/core/events"
   import * as nip19 from "nostr-tools/nip19"
   import {pubkey, repository, manageRelay} from "@welshman/app"
   import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
@@ -16,6 +17,7 @@
   import Report from "@app/components/Report.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import IssueDeleteConfirm from "@app/components/IssueDeleteConfirm.svelte"
+  import PatchDeleteConfirm from "@app/components/PatchDeleteConfirm.svelte"
   import {deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip, pushToast} from "@app/util/toast"
@@ -51,6 +53,11 @@
     if (event.kind === 1621) {
       const deleteRelays = relays.length > 0 ? relays : url ? [url] : []
       pushModal(IssueDeleteConfirm, {event, relays: deleteRelays})
+      return
+    }
+    if (event.kind === GIT_PATCH || event.kind === GIT_PULL_REQUEST) {
+      const deleteRelays = relays.length > 0 ? relays : url ? [url] : []
+      pushModal(PatchDeleteConfirm, {event, relays: deleteRelays})
       return
     }
     pushModal(EventDeleteConfirm, {url, event})
