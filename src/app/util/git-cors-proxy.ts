@@ -2,10 +2,11 @@ import {browser} from "$app/environment"
 import {goto} from "$app/navigation"
 import {get} from "svelte/store"
 import {synced, localStorageProvider} from "@welshman/store"
+import {WorkerManager} from "@nostr-git/ui"
 import {pushToast, toast} from "@app/util/toast"
 import {setGitWorkerConfig, terminateGitWorker} from "@lib/budabit/worker-singleton"
 
-export const DEFAULT_GIT_CORS_PROXY = "https://corsproxy.budabit.club"
+const FALLBACK_GIT_CORS_PROXY = "https://corsproxy.budabit.club"
 export const GIT_CORS_PROXY_STORAGE_KEY = "budabit/git/corsProxy"
 const CORS_PROXY_TOAST_COOLDOWN_MS = 30_000
 const CORS_PROXY_SETTINGS_PATH = "/settings/profile"
@@ -25,6 +26,12 @@ export const normalizeGitCorsProxy = (value: string): string => {
   return withScheme.replace(/\/+$/, "")
 }
 
+const ENV_DEFAULT_GIT_CORS_PROXY = normalizeGitCorsProxy(
+  import.meta.env.VITE_GIT_DEFAULT_CORS_PROXY || "",
+)
+
+export const DEFAULT_GIT_CORS_PROXY = ENV_DEFAULT_GIT_CORS_PROXY || FALLBACK_GIT_CORS_PROXY
+
 export const resolveGitCorsProxy = (value: string | null | undefined): string => {
   const normalized = normalizeGitCorsProxy(value ?? "")
   return normalized || DEFAULT_GIT_CORS_PROXY
@@ -38,6 +45,7 @@ export const setupGitCorsProxy = () => {
     const shouldRestart = lastEffective !== null && lastEffective !== effective
     lastEffective = effective
     setGitWorkerConfig({defaultCorsProxy: effective})
+    WorkerManager.setGlobalGitConfig({defaultCorsProxy: effective})
     if (shouldRestart) {
       terminateGitWorker()
     }

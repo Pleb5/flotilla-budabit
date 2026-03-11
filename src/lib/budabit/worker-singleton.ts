@@ -22,7 +22,7 @@ type GitWorkerConfig = {
   defaultCorsProxy?: string | null
 }
 
-const DEFAULT_GIT_CORS_PROXY = "https://corsproxy.budabit.club"
+const FALLBACK_GIT_CORS_PROXY = "https://corsproxy.budabit.club"
 const GIT_CORS_PROXY_STORAGE_KEY = "budabit/git/corsProxy"
 
 const normalizeCorsProxy = (value: string): string => {
@@ -31,6 +31,11 @@ const normalizeCorsProxy = (value: string): string => {
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
   return withScheme.replace(/\/+$/, "")
 }
+
+const ENV_DEFAULT_GIT_CORS_PROXY = normalizeCorsProxy(
+  import.meta.env.VITE_GIT_DEFAULT_CORS_PROXY || "",
+)
+const DEFAULT_GIT_CORS_PROXY = ENV_DEFAULT_GIT_CORS_PROXY || FALLBACK_GIT_CORS_PROXY
 
 const resolveStoredCorsProxy = (): string => {
   if (typeof localStorage === "undefined") return DEFAULT_GIT_CORS_PROXY

@@ -86,6 +86,7 @@
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
   import {makeGitPath} from "@lib/budabit/routes"
+  import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   
   const {id, relay} = $page.params
@@ -106,6 +107,14 @@
 
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
+  let forkWorkerApi: any = null
+
+  const ensureForkWorkerApi = async () => {
+    if (forkWorkerApi) return forkWorkerApi
+    const {api} = await getInitializedGitWorker()
+    forkWorkerApi = api
+    return forkWorkerApi
+  }
 
   $effect(() => {
     if (!repoClass) return
@@ -1416,8 +1425,15 @@
     await goto(targetPath)
   }
 
-  function forkRepo() {
+  async function forkRepo() {
     if (!repoClass) return
+
+    let workerApi: any = null
+    try {
+      workerApi = await ensureForkWorkerApi()
+    } catch (error) {
+      console.warn("[repo/+layout] Failed to initialize shared git worker for fork flow:", error)
+    }
 
     const repoRelays = getRepoAnnouncementRelaysFromEvent()
     const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
@@ -1425,6 +1441,7 @@
     pushModal(ForkRepoDialog, {
       repo: repoClass,
       pubkey: $pubkey || "",
+      workerApi,
       onPublishEvent: (event: any) => {
         // Publish fork events to explicitly selected repo relays when provided in event tags.
         const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
