@@ -26,7 +26,6 @@
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []) as string[])
   const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []) as PullRequestEvent[])
   const LOAD_TIMEOUT_MS = 7000
-  const DEBUG_PATCH_DETAIL = import.meta.env.DEV
   const loadDetail = makeLoader({delay: 100, timeout: LOAD_TIMEOUT_MS, threshold: 0.5})
 
   let isResolving = $state(true)
@@ -99,29 +98,12 @@
     resolveTimeout = null
   }
 
-  const debugLog = (message: string, details: Record<string, unknown> = {}) => {
-    if (!DEBUG_PATCH_DETAIL) return
-    console.debug("[patch-detail]", message, {
-      patchId,
-      ...details,
-    })
-  }
-
   const resolveCurrentPatchOrPr = async () => {
     const repoScopedRelays = uniq(repoRelays.filter(Boolean))
     const gitRelays = uniq(GIT_RELAYS.filter(Boolean))
     const relays = uniq([...repoScopedRelays, ...gitRelays])
-    debugLog("resolve start", {
-      relayCount: relays.length,
-      repoRelayCount: repoScopedRelays.length,
-      gitRelayCount: gitRelays.length,
-      inRepoPatches: repoClass.patches.some((p: {id: string}) => p.id === patchId),
-      inRepoPRs: (pullRequests || []).some((pr: PullRequestEvent) => pr.id === patchId),
-      directKind: directEvent?.kind,
-    })
 
     if (relays.length === 0) {
-      debugLog("resolve skipped, no relays yet")
       hasStartedResolve = false
       return
     }
@@ -134,60 +116,29 @@
     resolveTimeout = setTimeout(() => {
       didTimeout = true
       isResolving = false
-      debugLog("resolve timeout", {
-        relayCount: relays.length,
-        inRepoPatches: repoClass.patches.some((p: {id: string}) => p.id === patchId),
-        inRepoPRs: (pullRequests || []).some((pr: PullRequestEvent) => pr.id === patchId),
-        directKind: directEvent?.kind,
-        hasPatch: !!patch,
-        hasPr: !!pr,
-      })
     }, LOAD_TIMEOUT_MS)
 
     const primaryEvents = await loadDetail({
       relays,
       filters: [{ids: [patchId]}],
-      onEvent: event => {
-        debugLog("load by id onEvent", {eventId: event.id, kind: event.kind})
-      },
     }).catch(() => [] as TrustedEvent[])
     const primaryEvent =
       primaryEvents.find(event => event.id === patchId) ||
       (repository.getEvent(patchId) as TrustedEvent | undefined)
-
-    debugLog("load by id complete", {
-      fetchedKind: primaryEvent?.kind,
-      fetchedCount: primaryEvents.length,
-      directKindAfterLoad: directEvent?.kind,
-      hasPatchAfterLoad: !!patch,
-      hasPrAfterLoad: !!pr,
-    })
 
     const loadedEvent = primaryEvent
     if (loadedEvent?.kind === GIT_PULL_REQUEST_UPDATE) {
       const rootId =
         getFirstTagValue(loadedEvent as {tags?: string[][]}, "E") ||
         getFirstTagValue(loadedEvent as {tags?: string[][]}, "e")
-      debugLog("loaded update event", {rootId})
       if (rootId) {
         const rootEvents = await load({
           relays,
           filters: [{ids: [rootId]}],
-          onEvent: event => {
-            debugLog("load update root onEvent", {eventId: event.id, kind: event.kind})
-          },
         }).catch(() => [] as TrustedEvent[])
         const rootEvent =
           rootEvents.find(event => event.id === rootId) ||
           (repository.getEvent(rootId) as TrustedEvent | undefined)
-
-        debugLog("loaded update root", {
-          rootId,
-          fetchedRootKind: rootEvent?.kind,
-          fetchedRootCount: rootEvents.length,
-          rootKind: updateRootEvent?.kind,
-          hasResolvedPr: !!resolvedPrEvent,
-        })
       }
     }
   }
@@ -202,22 +153,12 @@
 
   $effect(() => {
     if (hasStartedResolve || !isResolving) return
-    debugLog("relays ready, triggering resolve", {
-      relayCount: uniq([...repoRelays, ...GIT_RELAYS].filter(Boolean)).length,
-      repoRelayCount: uniq(repoRelays.filter(Boolean)).length,
-      gitRelayCount: uniq(GIT_RELAYS.filter(Boolean)).length,
-    })
     void resolveCurrentPatchOrPr()
   })
 
   $effect(() => {
     if (!isResolving) return
     if (patch || pr) {
-      debugLog("resolved", {
-        resolvedAs: patch ? "patch" : "pr",
-        patchKind: resolvedPatchEvent?.kind,
-        prKind: resolvedPrEvent?.kind,
-      })
       isResolving = false
       didTimeout = false
       clearResolveTimeout()
