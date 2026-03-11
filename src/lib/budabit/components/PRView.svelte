@@ -90,6 +90,24 @@
     changes?: PrChange[]
   }
 
+  type PrPushStatus = "idle" | "pushing" | "pushed" | "skipped" | "failed"
+
+  type PrPushRemote = {
+    remote: string
+    url: string
+    provider: string
+    selected: boolean
+    status: PrPushStatus
+    summary?: string
+    error?: string
+  }
+
+  type PrSyncResult = {
+    ok: boolean
+    error?: string
+    warning?: string | null
+  }
+
   interface Props {
     pr: ReturnType<typeof import("@nostr-git/core/events").parsePullRequestEvent>
     prEvent: PullRequestEvent
@@ -191,8 +209,18 @@
   let prMergeAnalysisResult: PRMergeAnalysisResult | null = $state(null)
   let isAnalyzingPRMerge = $state(false)
   let prAnalysisProgress = $state("")
+  let prAnalysisWarning = $state<string | null>(null)
   let prAnalysisGeneration = $state(0)
   let lastPrAnalysisKey = $state<string | null>(null)
+
+  const prAnalysisErrorMessage = $derived.by(() =>
+    prMergeAnalysisResult?.analysis === "error" ? prMergeAnalysisResult.errorMessage || null : null,
+  )
+
+  const prAnalysisTimedOut = $derived.by(() => {
+    const message = prAnalysisErrorMessage || ""
+    return /timed out|timeout/.test(message.toLowerCase())
+  })
 
   let prChanges = $state<PrChange[] | null>(null)
   let prChangesLoading = $state(false)
@@ -302,6 +330,246 @@
     await Promise.all(commits.map((oid: string) => loadPrCommitDiff(oid)))
   }
 
+  const inferRemoteProvider = (url: string) => {
+    try {
+      const host = new URL(url).hostname.toLowerCase()
+      if (/relay\.ngit\.dev|gitnostr\.com|grasp/.test(host) || /^wss?:\/\//i.test(url))
+        return "grasp"
+      if (host.includes("github")) return "github"
+      if (host.includes("gitlab")) return "gitlab"
+      return "git"
+    } catch {
+      return "git"
+    }
+  }
+
+  const isGraspRemote = (url: string, provider?: string) =>
+    provider === "grasp" || /^wss?:\/\//i.test(url) || /relay\.ngit\.dev|gitnostr\.com|grasp/i.test(url)
+
+  const formatMergeAnalysisError = (message: string) => {
+    const raw = (message || "Unknown merge analysis error").trim()
+    const lower = raw.toLowerCase()
+    if (/timed out|timeout/.test(lower)) {
+      return "Merge analysis timed out while fetching remote data. Retry Analyze. If it keeps timing out, reload this page and try again."
+    }
+    if (lower.includes("no valid clone urls")) {
+      return "PR source has no valid clone URL configured. Add a valid clone URL and re-run analysis."
+    }
+    if (lower.includes("target branch") && lower.includes("not found")) {
+      return `Target branch ${prTargetBranch} was not found on fetched remotes. Sync and verify branch name.`
+    }
+    if (lower.includes("source branch") && lower.includes("not found")) {
+      return "Source branch for this PR was not found on remote. Ensure the source branch is pushed."
+    }
+    if (/401|403|unauthorized|forbidden|auth|permission/.test(lower)) {
+      return "Authentication/permission failure while fetching PR refs. Check remote access and tokens."
+    }
+    if (/failed to fetch|network|cors|timeout|econn|enotfound/.test(lower)) {
+      return "Network/CORS error while fetching PR refs. Check connectivity or CORS policy and retry."
+    }
+    return raw
+  }
+
+  const toAnalysisErrorResult = (errorMessage: string, patchCommits: string[]): PRMergeAnalysisResult => ({
+    canMerge: false,
+    hasConflicts: false,
+    conflictFiles: [],
+    conflictDetails: [],
+    upToDate: false,
+    fastForward: false,
+    patchCommits,
+    analysis: "error",
+    errorMessage,
+  })
+
+  const isRepoNotClonedMessage = (message?: string) => {
+    const value = String(message || "").toLowerCase()
+    return value.includes("not cloned") || value.includes("clone first")
+  }
+
+  const getErrorText = (error: unknown) => {
+    if (error instanceof Error) {
+      const cause = (error as any)?.cause
+      const causeMsg =
+        cause instanceof Error
+          ? cause.message
+          : typeof cause === "string"
+            ? cause
+            : cause && typeof cause === "object" && "message" in cause
+              ? String((cause as any).message)
+              : ""
+      return [error.message, causeMsg].filter(Boolean).join(" | ")
+    }
+    return String(error || "")
+  }
+
+  const setPrPhaseProgress = (phase: "analysis" | "merge", message: string) => {
+    if (phase === "analysis") {
+      prAnalysisProgress = message
+      return
+    }
+    mergePrStep = message
+  }
+
+  const startCloneProgressMirror = (phase: "analysis" | "merge") => {
+    const update = () => {
+      const progressState = (repoClass as any)?.cloneProgress
+      const progressValue =
+        typeof progressState?.progress === "number"
+          ? ` ${Math.max(0, Math.min(100, Math.round(progressState.progress)))}%`
+          : ""
+      const detail = progressState?.phase ? `: ${progressState.phase}` : ""
+      setPrPhaseProgress(phase, `Cloning repository${progressValue}${detail}`)
+    }
+    update()
+    return setInterval(update, 250)
+  }
+
+  const ensureRepoClonedForPR = async (
+    phase: "analysis" | "merge",
+    repoId: string,
+    cloneUrls: string[],
+  ): Promise<{ok: boolean; error?: string}> => {
+    setPrPhaseProgress(phase, "Repository not cloned locally, cloning now...")
+    const progressTimer = startCloneProgressMirror(phase)
+    try {
+      const initResult = await repoClass.workerManager.smartInitializeRepo({
+        repoId,
+        cloneUrls,
+        branch: prTargetBranch,
+        timeoutMs: 90000,
+      })
+      if (!initResult?.success) {
+        return {
+          ok: false,
+          error: initResult?.error || "Repository clone failed while preparing merge analysis/merge",
+        }
+      }
+      return {ok: true}
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error ? `Repository clone failed: ${error.message}` : "Repository clone failed",
+      }
+    } finally {
+      clearInterval(progressTimer)
+    }
+  }
+
+  async function syncTargetBranchForPR(phase: "analysis" | "merge"): Promise<PrSyncResult> {
+    if (!repoClass.key || !repoClass.workerManager) {
+      return {ok: false, error: "Repository worker is not ready"}
+    }
+
+    const targetCloneUrls = ((repoClass as any).cloneUrls || []) as string[]
+    if (targetCloneUrls.length === 0) {
+      return {ok: false, error: "Repository has no clone URLs to sync target branch"}
+    }
+
+    try {
+      const cloned = await repoClass.workerManager
+        .isRepoCloned({repoId: repoClass.key})
+        .catch(() => null)
+      if (cloned === false) {
+        const cloneResult = await ensureRepoClonedForPR(phase, repoClass.key, targetCloneUrls)
+        if (!cloneResult.ok) return cloneResult
+      }
+
+      let syncResult: any
+      try {
+        syncResult = await repoClass.workerManager.syncWithRemote({
+          repoId: repoClass.key,
+          cloneUrls: targetCloneUrls,
+          branch: prTargetBranch,
+        })
+      } catch (error) {
+        const syncError = getErrorText(error)
+        if (!isRepoNotClonedMessage(syncError)) {
+          return {ok: false, error: syncError || `Failed to sync target branch ${prTargetBranch}`}
+        }
+
+        const cloneResult = await ensureRepoClonedForPR(phase, repoClass.key, targetCloneUrls)
+        if (!cloneResult.ok) return cloneResult
+
+        setPrPhaseProgress(phase, "Repository clone complete, syncing target branch...")
+        try {
+          syncResult = await repoClass.workerManager.syncWithRemote({
+            repoId: repoClass.key,
+            cloneUrls: targetCloneUrls,
+            branch: prTargetBranch,
+          })
+        } catch (retryError) {
+          return {
+            ok: false,
+            error: getErrorText(retryError) || `Failed to sync target branch ${prTargetBranch}`,
+          }
+        }
+      }
+
+      if (!syncResult?.success) {
+        return {
+          ok: false,
+          error: syncResult?.error || `Failed to sync target branch ${prTargetBranch} before ${phase}`,
+        }
+      }
+
+      if (syncResult.branch && syncResult.branch !== prTargetBranch) {
+        return {
+          ok: false,
+          error: `Synced branch ${syncResult.branch}, but PR target is ${prTargetBranch}`,
+        }
+      }
+
+      let effectiveSync = syncResult
+      if (syncResult.needsUpdate === true) {
+        try {
+          await repoClass.workerManager.resetRepoToRemote(repoClass.key, prTargetBranch)
+          effectiveSync = await repoClass.workerManager.syncWithRemote({
+            repoId: repoClass.key,
+            cloneUrls: targetCloneUrls,
+            branch: prTargetBranch,
+          })
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error
+                ? `Target branch is stale and reset failed: ${error.message}`
+                : "Target branch is stale and reset failed",
+          }
+        }
+
+        if (!effectiveSync?.success) {
+          return {
+            ok: false,
+            error:
+              effectiveSync?.error ||
+              `Target branch remained stale after reset before ${phase}`,
+          }
+        }
+      }
+
+      if (effectiveSync?.needsUpdate === true) {
+        return {
+          ok: false,
+          error: `Target branch ${prTargetBranch} is still behind remote after sync`,
+        }
+      }
+
+      const warning =
+        effectiveSync.warning || effectiveSync.synced === false
+          ? effectiveSync.warning || `Sync finished with local data only before ${phase}`
+          : null
+      return {ok: true, warning}
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : `Failed to sync before ${phase}`,
+      }
+    }
+  }
+
   async function runPRMergeAnalysis() {
     if (!pr || !prEvent || !prEffectiveTipAndCommits || !repoClass.key || !repoClass.workerManager)
       return
@@ -316,38 +584,33 @@
     const myGen = prAnalysisGeneration
     lastPrAnalysisKey = analysisKey
     isAnalyzingPRMerge = true
-    prAnalysisProgress = "Fetching PR from clone URL..."
+    prAnalysisProgress = "Syncing target branch..."
+    prAnalysisWarning = null
     prMergeAnalysisResult = null
 
     try {
+      const sync = await syncTargetBranchForPR("analysis")
+      if (prAnalysisGeneration !== myGen) return
+      if (!sync.ok) {
+        prMergeAnalysisResult = toAnalysisErrorResult(
+          `Cannot run merge analysis until target branch is synced: ${sync.error}`,
+          allCommitOids,
+        )
+        return
+      }
+      if (sync.warning) prAnalysisWarning = sync.warning
+
+      prAnalysisProgress = "Fetching PR from clone URL..."
       const result = await repoClass.getPRMergeAnalysis(cloneUrls, tipOid, prTargetBranch, allCommitOids)
       if (prAnalysisGeneration === myGen) {
-        prMergeAnalysisResult =
-          result ?? {
-            canMerge: false,
-            hasConflicts: false,
-            conflictFiles: [],
-            conflictDetails: [],
-            upToDate: false,
-            fastForward: false,
-            patchCommits: allCommitOids,
-            analysis: "error",
-            errorMessage: "Analysis returned no result",
-          }
+        prMergeAnalysisResult = result ?? toAnalysisErrorResult("Analysis returned no result", allCommitOids)
       }
     } catch (err) {
       if (prAnalysisGeneration === myGen) {
-        prMergeAnalysisResult = {
-          canMerge: false,
-          hasConflicts: false,
-          conflictFiles: [],
-          conflictDetails: [],
-          upToDate: false,
-          fastForward: false,
-          patchCommits: prEffectiveTipAndCommits!.allCommitOids,
-          analysis: "error",
-          errorMessage: err instanceof Error ? err.message : String(err),
-        }
+        prMergeAnalysisResult = toAnalysisErrorResult(
+          formatMergeAnalysisError(err instanceof Error ? err.message : String(err)),
+          prEffectiveTipAndCommits!.allCommitOids,
+        )
       }
     } finally {
       if (prAnalysisGeneration === myGen) {
@@ -715,6 +978,7 @@
   let mergePrStep = $state("")
   let mergePrError = $state<string | null>(null)
   let mergePrSuccess = $state(false)
+  let mergePrMergedLocal = $state(false)
   let mergePrResult = $state<{
     mergeCommitOid?: string
     pushedRemotes?: string[]
@@ -722,9 +986,162 @@
     pushErrors?: Array<{remote: string; url: string; error: string; code: string; stack: string}>
   } | null>(null)
   let showPrMergeDialog = $state(false)
+  let showPrPushDialog = $state(false)
   let mergePrCommitMessage = $state("")
+  let isLoadingPrPushRemotes = $state(false)
+  let isPushingPrRemotes = $state(false)
+  let prPushSyncNotice = $state<string | null>(null)
+  let prPushRemotes = $state<PrPushRemote[]>([])
   let isMarkingApplied = $state(false)
   let markAsAppliedSuccess = $state(false)
+
+  const prPushCounts = $derived.by(() => {
+    let pushed = 0
+    let skipped = 0
+    let failed = 0
+    for (const remote of prPushRemotes) {
+      if (remote.status === "pushed") pushed++
+      if (remote.status === "skipped") skipped++
+      if (remote.status === "failed") failed++
+    }
+    return {pushed, skipped, failed}
+  })
+
+  const updatePushRemote = (url: string, next: Partial<PrPushRemote>) => {
+    prPushRemotes = prPushRemotes.map((remote) =>
+      remote.url === url
+        ? {
+            ...remote,
+            ...next,
+          }
+        : remote,
+    )
+  }
+
+  const classifyPushFailure = (error: any): {status: "skipped" | "failed"; summary: string; detail: string} => {
+    const reason = String(error?.reason || error?.error?.reason || "")
+    const detail = String(error?.error || error?.message || error?.toString?.() || "Push failed")
+    const lower = detail.toLowerCase()
+
+    if (/force\s*=\s*true|force push|requires confirmation|requiresconfirmation|non-fast-forward|non fast-forward/.test(lower)) {
+      return {
+        status: "skipped",
+        summary: "Skipped (remote ahead)",
+        detail: "Remote rejected non-fast-forward update.",
+      }
+    }
+
+    if (reason === "remote_ahead") {
+      return {
+        status: "skipped",
+        summary: "Skipped (remote ahead)",
+        detail: "Remote rejected non-fast-forward update.",
+      }
+    }
+    if (reason === "workflow_scope_missing") {
+      return {status: "skipped", summary: "Skipped (read-only)", detail}
+    }
+    if (/forbidden|permission denied|read-only|not allowed|403/.test(lower)) {
+      return {status: "skipped", summary: "Skipped (read-only)", detail}
+    }
+    if (/auth|token|unauthorized|401/.test(lower)) {
+      return {status: "failed", summary: "Failed (auth)", detail}
+    }
+    if (/network|failed to fetch|cors|timeout|econn|enotfound/.test(lower)) {
+      return {status: "failed", summary: "Failed (network)", detail}
+    }
+    return {status: "failed", summary: "Failed", detail}
+  }
+
+  const parseGraspRelayContext = (remoteUrl: string) => {
+    const url = new URL(remoteUrl)
+    const relayUrl = `wss://${url.host}`
+    const parts = url.pathname.replace(/^\//, "").split("/")
+    const repoName = (parts[1] || "").replace(/\.git$/, "") || repoClass.name || "repo"
+    return {relayUrl, repoName}
+  }
+
+  const publishMergeStateToRelay = async (remoteUrl: string, branch: string, commitSha: string) => {
+    const {relayUrl, repoName} = parseGraspRelayContext(remoteUrl)
+    const stateEvent = createRepoStateEvent({
+      repoId: repoName,
+      head: branch,
+      refs: [{type: "heads", name: branch, commit: commitSha}],
+    })
+    const thunk = publishEvent(stateEvent as any, [relayUrl])
+    await Promise.race([thunk.complete, new Promise((resolve) => setTimeout(resolve, 15000))])
+
+    const confirmed = Object.entries(thunk.results ?? {}).some(
+      ([url, result]) =>
+        result?.status === PublishStatus.Success &&
+        (url === relayUrl || url.replace(/\/$/, "") === relayUrl.replace(/\/$/, "")),
+    )
+
+    if (!confirmed) {
+      throw new Error(
+        `State event (kind 30618) was not confirmed by ${relayUrl}. Push skipped for this remote.`,
+      )
+    }
+  }
+
+  const openPrPushDialog = async () => {
+    if (!repoClass.workerManager || !repoClass.key) return
+    isLoadingPrPushRemotes = true
+    prPushSyncNotice = null
+    try {
+      const remotes = (await repoClass.workerManager.listRemotes({
+        repoId: repoClass.key,
+      })) as Array<{remote: string; url: string}>
+      const fallback = ((repoClass as any).cloneUrls || []).map((url: string, i: number) => ({
+        remote: `remote-${i + 1}`,
+        url,
+      }))
+
+      const combined: Array<{remote: string; url: string}> = (
+        Array.isArray(remotes) && remotes.length > 0 ? remotes : fallback
+      )
+        .filter((remote: {remote: string; url: string}) => Boolean(remote?.url))
+        .reduce((acc: Array<{remote: string; url: string}>, remote: {remote: string; url: string}) => {
+          if (!acc.some((x) => x.url === remote.url)) acc.push(remote)
+          return acc
+        }, [])
+
+      prPushRemotes = combined.map((remote) => ({
+        remote: remote.remote,
+        url: remote.url,
+        provider: inferRemoteProvider(remote.url),
+        selected: true,
+        status: "idle" as PrPushStatus,
+      }))
+
+      const syncResult = await repoClass.workerManager.syncWithRemote({
+        repoId: repoClass.key,
+        cloneUrls: combined.map((r) => r.url),
+        branch: prTargetBranch,
+      })
+      if (!syncResult?.success) {
+        prPushSyncNotice = `Remote sync failed: ${syncResult?.error || "unknown"}. You can still try pushing.`
+      } else if (syncResult?.warning || syncResult?.synced === false) {
+        prPushSyncNotice =
+          syncResult.warning || "Remote sync used local fallback data. Push may still be attempted."
+      }
+    } catch (error) {
+      prPushSyncNotice = `Could not refresh remotes: ${error instanceof Error ? error.message : String(error)}`
+    } finally {
+      isLoadingPrPushRemotes = false
+      showPrPushDialog = true
+    }
+  }
+
+  const togglePrPushRemote = (url: string) => {
+    prPushRemotes = prPushRemotes.map((remote) =>
+      remote.url === url ? {...remote, selected: !remote.selected} : remote,
+    )
+  }
+
+  const closePrPushDialog = () => {
+    showPrPushDialog = false
+  }
 
   const applyPR = () => {
     if (!pr || !prEvent || !prEffectiveTipAndCommits) return
@@ -732,10 +1149,87 @@
     mergePrStep = ""
     mergePrError = null
     mergePrSuccess = false
+    mergePrMergedLocal = false
     mergePrResult = null
+    showPrPushDialog = false
+    prPushRemotes = []
+    prPushSyncNotice = null
     // Only set a merge commit message if it's not a fast-forward merge
     mergePrCommitMessage = prMergeAnalysisResult?.fastForward ? "" : `Merge PR: ${pr.subject || "Untitled"}`
     showPrMergeDialog = true
+  }
+
+  const pushMergedCommitToSelectedRemotes = async () => {
+    if (!mergePrResult?.mergeCommitOid || !repoClass.key || !repoClass.workerManager) return
+    const selected = prPushRemotes.filter((remote) => remote.selected)
+    if (selected.length === 0) {
+      toast.push({message: "Select at least one remote", timeout: 3000, variant: "destructive"})
+      return
+    }
+
+    isPushingPrRemotes = true
+    mergePrError = null
+    const mergeCommitOid = mergePrResult.mergeCommitOid
+
+    for (const remote of selected) {
+      updatePushRemote(remote.url, {status: "pushing", summary: "Pushing...", error: undefined})
+      try {
+        if (isGraspRemote(remote.url, remote.provider)) {
+          await publishMergeStateToRelay(remote.url, prTargetBranch, mergeCommitOid)
+        }
+
+        const pushResult = await repoClass.pushToAllRemotes({
+          branch: prTargetBranch,
+          mode: "best-effort",
+          remoteUrls: [remote.url],
+          userPubkey: $pubkey || undefined,
+        })
+        const entry = pushResult.results[0]
+        if (entry?.success) {
+          updatePushRemote(remote.url, {status: "pushed", summary: "Pushed", error: undefined})
+        } else {
+          const classified = classifyPushFailure(entry?.error)
+          updatePushRemote(remote.url, {
+            status: classified.status,
+            summary: classified.summary,
+            error: classified.detail,
+          })
+        }
+      } catch (error: any) {
+        const detailResult = (error as any)?.details?.results?.[0]
+        const classified = classifyPushFailure(detailResult?.error || error)
+        updatePushRemote(remote.url, {
+          status: classified.status,
+          summary: classified.summary,
+          error: classified.detail,
+        })
+      }
+    }
+
+    isPushingPrRemotes = false
+
+    const pushed = prPushRemotes.filter((remote) => remote.status === "pushed").length
+    if (pushed > 0) {
+      mergePrSuccess = true
+      mergePrStep = "Merge pushed to selected remotes"
+      await emitPRAppliedStatus(mergeCommitOid)
+      load({
+        relays: (repoRelays || []) as string[],
+        filters: [getPrStatusFilter()],
+      })
+      toast.push({
+        message: `Pushed to ${pushed} remote${pushed === 1 ? "" : "s"}`,
+        timeout: 4000,
+      })
+      return
+    }
+
+    mergePrError = "Merged locally, but no selected remote accepted the push."
+    toast.push({
+      message: "Merged locally, but all selected remote pushes were skipped or failed",
+      timeout: 6000,
+      variant: "destructive",
+    })
   }
 
   const executePRMerge = async () => {
@@ -754,6 +1248,7 @@
     mergePrStep = "Syncing with remote..."
     mergePrError = null
     mergePrSuccess = false
+    mergePrMergedLocal = false
 
     const cloneUrls = getCloneUrlsFromEvent(pr.raw)
     const prCloneUrls = cloneUrls.length > 0 ? cloneUrls : ((repoClass as any).cloneUrls || [])
@@ -765,21 +1260,18 @@
       return
     }
 
-    try {
-      const syncResult = await repoClass.workerManager.syncWithRemote({
-        repoId: repoClass.key,
-        cloneUrls: (repoClass as any).cloneUrls || [],
-        branch: prTargetBranch,
-      })
-      if (!syncResult.success && !syncResult.error?.includes("Repository not cloned")) {
-        console.warn("Sync before merge had issues, but continuing:", syncResult.error)
-      }
-    } catch {
-      /* continue */
+    const sync = await syncTargetBranchForPR("merge")
+    if (!sync.ok) {
+      mergePrError = `Cannot merge until target branch is synced: ${sync.error}`
+      mergePrStep = "Sync failed"
+      isMergingPr = false
+      toast.push({message: mergePrError, timeout: 7000, variant: "destructive"})
+      return
     }
+    if (sync.warning) toast.push({message: sync.warning, timeout: 5000, variant: "default"})
 
     mergePrStep = "Merging PR..."
-    const {tipOid, allCommitOids} = prEffectiveTipAndCommits
+    const {tipOid} = prEffectiveTipAndCommits
 
     try {
       const result = await repoClass.workerManager.mergePRAndPush({
@@ -790,66 +1282,15 @@
         mergeCommitMessage: mergePrCommitMessage || undefined,
         fastForward: prMergeAnalysisResult?.fastForward === true,
         userPubkey: $pubkey ?? undefined,
-        // Publish Nostr state event (kind 30618) with the new merge commit SHA to the GRASP relay
-        // before the git push. GRASP authorises pushes by checking for this event on the relay.
-        publishStateEvent: async ({repoName, branch, commitSha, relayUrl}) => {
-          console.log(`[PRView] Publishing state event: repo=${repoName}, branch=${branch}, commit=${commitSha}, relay=${relayUrl}`)
-          
-          const stateEvent = createRepoStateEvent({
-            repoId: repoName,
-            head: branch,
-            refs: [{type: "heads", name: branch, commit: commitSha}],
-          })
-          
-          console.log(`[PRView] Created state event:`, {
-            kind: stateEvent.kind,
-            tags: stateEvent.tags,
-            repoId: repoName,
-            commitSha
-          })
-          
-          const thunk = publishEvent(stateEvent as any, [relayUrl])
-          // Wait for relay confirmation; cap at 15 s so we don't block forever
-          await Promise.race([thunk.complete, new Promise(r => setTimeout(r, 15000))])
-          
-          // Verify the GRASP relay confirmed the event. ngit-cli skips the push
-          // entirely when the relay hasn't confirmed, so we do the same.
-          const confirmed = Object.entries(thunk.results ?? {}).some(
-            ([url, r]) =>
-              r?.status === PublishStatus.Success &&
-              (url === relayUrl || url.replace(/\/$/, "") === relayUrl.replace(/\/$/, ""))
-          )
-          
-          console.log(`[PRView] State event confirmation:`, { 
-            confirmed, 
-            results: thunk.results,
-            targetRelay: relayUrl 
-          })
-          
-          if (!confirmed) {
-            // Normalize the relay URL for the error — use the ws URL the user will recognize
-            throw new Error(
-              `State event (kind 30618) was not confirmed by GRASP relay ${relayUrl}. ` +
-              `Push aborted — the relay must acknowledge the event before the server accepts the push.`
-            )
-          }
-        },
+        skipPush: true,
       })
 
       if (result.success) {
-        mergePrSuccess = true
+        mergePrMergedLocal = true
         mergePrResult = result
-        mergePrStep = "Merge completed successfully!"
-        if (result.warning) {
-          toast.push({message: result.warning, timeout: 8000, variant: "default"})
-        } else {
-          toast.push({message: "PR merged successfully!", timeout: 5000})
-        }
-        await emitPRAppliedStatus(result.mergeCommitOid)
-        load({
-          relays: (repoRelays || []) as string[],
-          filters: [getPrStatusFilter()],
-        })
+        mergePrStep = "Merge completed locally. Choose remotes to push."
+        toast.push({message: "PR merged locally", timeout: 3000})
+        await openPrPushDialog()
       } else {
         mergePrError = result.error || "Unknown merge error"
         mergePrStep = "Merge failed"
@@ -860,13 +1301,7 @@
       mergePrStep = "Merge failed"
       toast.push({message: `Merge error: ${mergePrError}`, timeout: 8000, variant: "destructive"})
     } finally {
-      if (mergePrSuccess) {
-        setTimeout(() => {
-          isMergingPr = false
-        }, 3000)
-      } else {
-        isMergingPr = false
-      }
+      isMergingPr = false
     }
   }
 
@@ -1062,6 +1497,21 @@
             result={prMergeAnalysisResult}
             loading={false}
             targetBranch={prTargetBranch} />
+          {#if prAnalysisWarning}
+            <p class="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              {prAnalysisWarning}
+            </p>
+          {/if}
+          {#if prAnalysisErrorMessage}
+            <div class="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+              <p>{prAnalysisErrorMessage}</p>
+              {#if prAnalysisTimedOut}
+                <p class="mt-1 text-red-600 dark:text-red-400">
+                  Resolution: click Analyze to retry. If retries keep timing out, reload the page and try again.
+                </p>
+              {/if}
+            </div>
+          {/if}
           {#if prMergeAnalysisResult.usedCloneUrl}
             <p class="mt-2 text-xs text-muted-foreground">
               Fetched from: {prMergeAnalysisResult.usedCloneUrl}
@@ -1120,6 +1570,11 @@
                 <CheckCircle class="h-4 w-4" />
                 <span class="text-sm font-medium">Merged</span>
               </div>
+            {:else if mergePrMergedLocal}
+              <div class="flex items-center gap-2 text-blue-600">
+                <CheckCircle class="h-4 w-4" />
+                <span class="text-sm font-medium">Merged locally</span>
+              </div>
             {:else if mergePrError}
               <div class="flex items-center gap-2 text-red-600">
                 <AlertCircle class="h-4 w-4" />
@@ -1153,54 +1608,46 @@
             </div>
           {/if}
 
-          {#if mergePrSuccess && mergePrResult}
-            <div class="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-900 dark:bg-green-950/30">
+          {#if mergePrMergedLocal && mergePrResult}
+            <div class="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
               <div class="flex items-start gap-2">
-                <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
                 <div class="flex-1">
-                  <p class="text-sm font-medium text-green-800 dark:text-green-200">
-                    PR merged successfully!
+                  <p class="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    PR merged locally.
                   </p>
                   {#if mergePrResult.mergeCommitOid}
-                    <p class="mt-1 text-sm text-green-700 dark:text-green-300">
+                    <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">
                       Merge commit:
-                      <code class="rounded bg-green-100 px-1 dark:bg-green-900/50"
+                      <code class="rounded bg-blue-100 px-1 dark:bg-blue-900/50"
                         >{mergePrResult.mergeCommitOid.slice(0, 8)}</code
                       >
                     </p>
                   {/if}
-                  {#if mergePrResult.pushedRemotes && mergePrResult.pushedRemotes.length > 0}
-                    <p class="mt-1 text-sm text-green-700 dark:text-green-300">
-                      Pushed to: {mergePrResult.pushedRemotes.join(", ")}
+                  {#if mergePrSuccess}
+                    <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                      Push summary: {prPushCounts.pushed} pushed, {prPushCounts.skipped} skipped, {prPushCounts.failed} failed
                     </p>
-                  {/if}
-                  {#if mergePrResult.pushErrors && mergePrResult.pushErrors.length > 0}
-                    <div class="mt-2 rounded border border-amber-200 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/30">
-                      <p class="text-sm font-medium text-amber-800 dark:text-amber-200">
-                        Some remotes failed to push:
-                      </p>
-                      <ul class="mt-1 space-y-1 text-xs text-amber-700 dark:text-amber-300">
-                        {#each mergePrResult.pushErrors.slice(0, 3) as err}
-                          <li>
-                            <strong>{err.remote}:</strong> {err.error}
-                          </li>
-                        {/each}
-                        {#if mergePrResult.pushErrors.length > 3}
-                          <li>+{mergePrResult.pushErrors.length - 3} more</li>
-                        {/if}
-                      </ul>
-                    </div>
+                  {:else}
+                    <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                      Push this merge to selected remotes to complete the operation.
+                    </p>
                   {/if}
                 </div>
               </div>
             </div>
           {/if}
 
-          <div class="flex justify-end">
+          <div class="flex justify-end gap-2">
+            {#if mergePrMergedLocal && !mergePrSuccess}
+              <Button variant="outline" onclick={openPrPushDialog}>
+                Push remotes
+              </Button>
+            {/if}
             <Button
               onclick={applyPR}
               variant="default"
-              disabled={isMergingPr || mergePrSuccess}
+              disabled={isMergingPr || mergePrSuccess || mergePrMergedLocal}
               class="min-w-[120px]">
               {#if isMergingPr}
                 <Loader2 class="mr-2 h-4 w-4 animate-spin" />
@@ -1208,6 +1655,9 @@
               {:else if mergePrSuccess}
                 <CheckCircle class="mr-2 h-4 w-4" />
                 Merged
+              {:else if mergePrMergedLocal}
+                <CheckCircle class="mr-2 h-4 w-4" />
+                Merged local
               {:else}
                 <GitMerge class="mr-2 h-4 w-4" />
                 Merge PR
@@ -1277,11 +1727,11 @@
               {#if prMergeAnalysisResult?.fastForward}
                 This will fast-forward the
                 <code class="rounded bg-muted px-1">{prTargetBranch}</code>
-                branch to include the PR commits and push to all remotes.
+                branch to include the PR commits locally.
               {:else}
                 This will merge the PR into
                 <code class="rounded bg-muted px-1">{prTargetBranch}</code>
-                and push to all remotes.
+                locally. You can choose remotes to push afterward.
               {/if}
             </p>
             {#if prMergeAnalysisResult?.fastForward}
@@ -1309,6 +1759,108 @@
               <Button variant="default" onclick={executePRMerge}>
                 <GitMerge class="mr-2 h-4 w-4" />
                 {prMergeAnalysisResult?.fastForward ? 'Fast-forward' : 'Confirm Merge'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      {#if showPrPushDialog}
+        <div
+          class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
+          transition:slideAndFade>
+          <div class="mx-4 w-full max-w-2xl rounded-lg border bg-card p-6 shadow-lg">
+            <div class="mb-4 flex items-center gap-3">
+              <GitMerge class="h-5 w-5 text-primary" />
+              <h3 class="text-lg font-semibold">Push merged commit</h3>
+            </div>
+
+            {#if mergePrResult?.mergeCommitOid}
+              <p class="mb-3 text-sm text-muted-foreground">
+                Merge commit
+                <code class="ml-1 rounded bg-muted px-1">{mergePrResult.mergeCommitOid.slice(0, 8)}</code>
+                is local. Select remotes to push.
+              </p>
+            {/if}
+
+            {#if prPushSyncNotice}
+              <p class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                {prPushSyncNotice}
+              </p>
+            {/if}
+
+            {#if isLoadingPrPushRemotes}
+              <div class="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 class="h-4 w-4 animate-spin" />
+                Loading remotes...
+              </div>
+            {:else if prPushRemotes.length === 0}
+              <p class="mb-4 text-sm text-muted-foreground">No remotes available to push.</p>
+            {:else}
+              <div class="mb-4 max-h-[45vh] space-y-2 overflow-y-auto">
+                {#each prPushRemotes as remote (remote.url)}
+                  <label class="flex items-start gap-3 rounded-md border border-border p-3">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm mt-1"
+                      checked={remote.selected}
+                      disabled={isPushingPrRemotes}
+                      onchange={() => togglePrPushRemote(remote.url)} />
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center justify-between gap-2">
+                        <div class="truncate text-sm font-medium">{remote.remote}</div>
+                        <div class="flex items-center gap-2 text-xs">
+                          <span class="rounded border px-2 py-0.5 text-muted-foreground">{remote.provider}</span>
+                          {#if remote.status !== "idle"}
+                            <span
+                              class={`rounded border px-2 py-0.5 ${remote.status === "pushed"
+                                ? "border-green-200 bg-green-50 text-green-700"
+                                : remote.status === "skipped"
+                                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                                  : remote.status === "failed"
+                                    ? "border-red-200 bg-red-50 text-red-700"
+                                    : "border-blue-200 bg-blue-50 text-blue-700"}`}>
+                              {remote.summary || remote.status}
+                            </span>
+                          {/if}
+                        </div>
+                      </div>
+                      <p class="mt-1 break-all text-xs text-muted-foreground">{remote.url}</p>
+                      {#if remote.error && (remote.status === "failed" || remote.status === "skipped")}
+                        <p class="mt-1 text-xs text-muted-foreground">{remote.error}</p>
+                      {/if}
+                    </div>
+                  </label>
+                {/each}
+              </div>
+
+              {#if prPushCounts.pushed + prPushCounts.skipped + prPushCounts.failed > 0}
+                <div class="mb-4 rounded border border-border bg-muted/30 px-3 py-2 text-xs">
+                  <span class="font-medium">Results:</span>
+                  <span class="ml-2 text-green-700">{prPushCounts.pushed} pushed</span>
+                  <span class="ml-2 text-amber-700">{prPushCounts.skipped} skipped</span>
+                  <span class="ml-2 text-red-700">{prPushCounts.failed} failed</span>
+                </div>
+              {/if}
+            {/if}
+
+            <div class="flex justify-end gap-3">
+              <Button variant="outline" onclick={closePrPushDialog} disabled={isPushingPrRemotes}>Close</Button>
+              <Button
+                variant="default"
+                onclick={pushMergedCommitToSelectedRemotes}
+                disabled={
+                  isLoadingPrPushRemotes ||
+                  isPushingPrRemotes ||
+                  !mergePrMergedLocal ||
+                  prPushRemotes.filter((r) => r.selected).length === 0
+                }>
+                {#if isPushingPrRemotes}
+                  <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                  Pushing...
+                {:else}
+                  Push selected
+                {/if}
               </Button>
             </div>
           </div>
