@@ -175,62 +175,56 @@
     _originalEvent?: any
   }
 
-  // Parse job event into WorkflowRun format
+  // Parse Kind 5401 workflow run event into WorkflowRun format
+  const parseWorkflowRunEvent = (event: any): WorkflowRun => {
+    const tags: string[][] = event.tags || []
+    const tagVal = (name: string) => tags.find(t => t[0] === name)?.[1]
+
+    const workflowPath = tagVal("workflow") || ""
+    const workflowName = workflowPath
+      ? workflowPath.split("/").pop()?.replace(/\.(yml|yaml)$/, "") || "Workflow"
+      : "Workflow"
+
+    const branch = tagVal("branch") || "main"
+    const trigger = tagVal("trigger") || "manual"
+    const triggeredBy = tagVal("triggered-by") || event.pubkey
+
+    return {
+      id: event.id,
+      name: workflowName,
+      status: "pending" as WorkflowRun["status"],
+      branch,
+      commit: event.id.substring(0, 7),
+      commitMessage: `Workflow run: ${workflowName}`,
+      actor: triggeredBy,
+      event: trigger === "manual" ? "workflow_dispatch" : trigger,
+      createdAt: event.created_at * 1000,
+      updatedAt: event.created_at * 1000,
+      duration: undefined,
+      runNumber: 0,
+      _originalEvent: event,
+    }
+  }
+
+  // Legacy: Parse Kind 5100 job event into WorkflowRun format (for old runs without Kind 5401)
   const parseJobEvent = (event: any): WorkflowRun => {
-    const argsTag = event.tags.find((t: string[]) => t[0] === "args")
+    const tags: string[][] = event.tags || []
+    const argsTag = tags.find(t => t[0] === "args")
     const args = argsTag ? argsTag.slice(1) : []
 
-    const workerTag = event.tags.find((t: string[]) => t[0] === "worker")
-    const worker = workerTag ? workerTag[1] : "unknown"
+    // Skip Kind 5100 events that reference a Kind 5401 via ["e", ...] tag (they'll be listed via 5401)
+    const eTag = tags.find(t => t[0] === "e")
+    if (eTag) return null as any
 
-    const cmdTag = event.tags.find((t: string[]) => t[0] === "cmd")
-    const cmd = cmdTag ? cmdTag[1] : "bash"
-
-    const paymentTag = event.tags.find((t: string[]) => t[0] === "payment")
-    const payment = paymentTag ? paymentTag[1] : ""
-
-    const aTag = event.tags.find((t: string[]) => t[0] === "a")
-    const repoNaddr = aTag ? aTag[1] : ""
-
-    // Extract workflow name from args
     let workflowName = "Unknown Workflow"
-
-    // Handle new args structure: ["-c", "git clone ... && act -W workflow.yml"]
     if (args.length >= 2 && args[0] === "-c") {
       const bashCommand = args[1]
       const match = bashCommand.match(/act -W (\S+\.(?:yml|yaml))/)
-      if (match && match[1]) {
-        workflowName =
-          match[1]
-            .split("/")
-            .pop()
-            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
-      }
-    } else if (args.length > 0) {
-      // Handle old args structure: ["git", "clone", "...", "act", "-W", "workflow.yml"]
-      const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
-      if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
-        const path = args[workflowPathIndex]
-        workflowName =
-          path
-            .split("/")
-            .pop()
-            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+      if (match?.[1]) {
+        workflowName = match[1].split("/").pop()?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
       }
     }
 
-    // Extract env vars from args
-    const envVars: string[] = []
-    const actIndex = args.indexOf("act")
-    if (actIndex > 0) {
-      for (let i = 0; i < actIndex; i++) {
-        if (args[i].includes("=")) {
-          envVars.push(args[i])
-        }
-      }
-    }
-
-    // For listing page, we use default values since we don't have status events
     return {
       id: event.id,
       name: workflowName,
@@ -238,13 +232,13 @@
       branch: "main",
       commit: event.id.substring(0, 7),
       commitMessage: `Workflow run: ${workflowName}`,
-      actor: worker,
+      actor: event.pubkey,
       event: "workflow_dispatch",
       createdAt: event.created_at * 1000,
       updatedAt: event.created_at * 1000,
       duration: undefined,
       runNumber: 0,
-      _originalEvent: event, // Store original event for direct comparison
+      _originalEvent: event,
     }
   }
 
@@ -319,7 +313,15 @@
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
 
-  // Create filter for job events (kind 5100)
+  // Create filters for workflow run events (kind 5401) and legacy job events (kind 5100)
+  const runFilter = $derived.by(() => {
+    if (!repoNaddr) return null
+    return {
+      kinds: [5401],
+      "#a": [repoNaddr],
+    }
+  })
+
   const jobFilter = $derived.by(() => {
     if (!repoNaddr) return null
     return {
@@ -334,49 +336,65 @@
 
   // Initialize feed asynchronously - don't block render
   onMount(() => {
-    if (!feedInitialized && jobFilter) {
+    if (!feedInitialized && runFilter) {
       // Defer makeFeed to avoid blocking initial render
       const timeout = setTimeout(() => {
         const tryStart = () => {
-          if (element && !feedInitialized && jobFilter) {
+          if (element && !feedInitialized && runFilter) {
             feedInitialized = true
             const jobRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
 
             const feed = makeFeed({
               element,
               relays: jobRelays,
-              feedFilters: [jobFilter],
-              subscriptionFilters: [jobFilter],
+              feedFilters: [runFilter],
+              subscriptionFilters: [runFilter],
               initialEvents: [],
             })
-            
+
             // feed.events only receives events that pass the relay tracker check.
             // Use it only for live new events (merge, don't overwrite).
             jobEventsStore = feed.events
             jobEventsUnsubscribe = feed.events.subscribe((events: any[]) => {
               if (events.length === 0) return
-              // Merge live events into jobEvents without overwriting initial load results
-              const seen = new Set(jobEvents.map((e: any) => e.id))
+              // Merge live events into runEvents without overwriting initial load results
+              const seen = new Set(runEvents.map((e: any) => e.id))
               const newEvents = events.filter((e: any) => !seen.has(e.id))
               if (newEvents.length > 0) {
-                jobEvents = [...jobEvents, ...newEvents].sort((a: any, b: any) => b.created_at - a.created_at)
+                runEvents = [...runEvents, ...newEvents].sort((a: any, b: any) => b.created_at - a.created_at)
               }
             })
 
-            // Initial load: bypass the scroller (which requires .scroll-container ancestor).
+            // Initial load: fetch Kind 5401 (workflow runs) and Kind 5100 (legacy jobs)
+            const filters = [runFilter]
+            if (jobFilter) filters.push(jobFilter)
+
             load({
               relays: jobRelays,
-              filters: [jobFilter],
+              filters,
             }).then(loaded => {
               if (loaded.length > 0) {
-                const seen = new Set(jobEvents.map((e: any) => e.id))
-                const newEvents = loaded.filter((e: any) => !seen.has(e.id))
-                if (newEvents.length > 0) {
-                  jobEvents = [...jobEvents, ...newEvents].sort((a: any, b: any) => b.created_at - a.created_at)
+                const runs = loaded.filter((e: any) => e.kind === 5401)
+                const jobs = loaded.filter((e: any) => e.kind === 5100)
+
+                if (runs.length > 0) {
+                  const seen = new Set(runEvents.map((e: any) => e.id))
+                  const newRuns = runs.filter((e: any) => !seen.has(e.id))
+                  if (newRuns.length > 0) {
+                    runEvents = [...runEvents, ...newRuns].sort((a: any, b: any) => b.created_at - a.created_at)
+                  }
+                }
+
+                if (jobs.length > 0) {
+                  const seen = new Set(jobEvents.map((e: any) => e.id))
+                  const newJobs = jobs.filter((e: any) => !seen.has(e.id))
+                  if (newJobs.length > 0) {
+                    jobEvents = [...jobEvents, ...newJobs].sort((a: any, b: any) => b.created_at - a.created_at)
+                  }
                 }
               }
             })
-            
+
             feedCleanup = feed.cleanup
           } else if (!element) {
             requestAnimationFrame(tryStart)
@@ -391,18 +409,79 @@
     }
   })
 
-  // Fetch status (30100) and result (5101) events when job events change
-  let fetchedStatusForIds = new Set<string>()
+  // Fetch status/result events for workflow runs (Kind 5401)
+  let fetchedStatusForRunIds = new Set<string>()
 
   $effect(() => {
-    const ids = jobEvents.map((e: any) => e.id).filter((id: string) => !fetchedStatusForIds.has(id))
+    const ids = runEvents.map((e: any) => e.id).filter((id: string) => !fetchedStatusForRunIds.has(id))
     if (ids.length === 0) return
 
-    ids.forEach((id: string) => fetchedStatusForIds.add(id))
+    ids.forEach((id: string) => fetchedStatusForRunIds.add(id))
 
     const jobRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
 
-    // Fetch status events (kind 30100) and job results (kind 5101) for these job IDs
+    // Fetch Kind 5402 (workflow log), Kind 5100 (loom job via #e), Kind 30100 (status), Kind 5101 (result)
+    Promise.all([
+      load({relays: jobRelays, filters: [{kinds: [5402], "#e": ids}]}),
+      load({relays: jobRelays, filters: [{kinds: [5100], "#e": ids}]}),
+      load({relays: jobRelays, filters: [{kinds: [30100], "#e": ids}]}),
+      load({relays: jobRelays, filters: [{kinds: [5101], "#e": ids}]}),
+    ]).then(([loadedLogs, loadedJobs, loadedStatus, loadedResults]) => {
+      if (loadedLogs.length > 0) {
+        const seen = new Set(workflowLogEvents.map((e: any) => e.id))
+        const newEvents = loadedLogs.filter((e: any) => !seen.has(e.id))
+        if (newEvents.length > 0) {
+          workflowLogEvents = [...workflowLogEvents, ...newEvents]
+        }
+      }
+      // For loom jobs referencing runs, also fetch their status/results by job ID
+      if (loadedJobs.length > 0) {
+        const loomJobIds = loadedJobs.map((e: any) => e.id)
+        // Map loom job IDs back to run IDs
+        for (const job of loadedJobs) {
+          const eTag = job.tags.find((t: string[]) => t[0] === "e")
+          if (eTag) loomJobToRunId.set(job.id, eTag[1])
+        }
+        Promise.all([
+          load({relays: jobRelays, filters: [{kinds: [30100], "#e": loomJobIds}]}),
+          load({relays: jobRelays, filters: [{kinds: [5101], "#e": loomJobIds}]}),
+        ]).then(([jobStatusEvts, jobResultEvts]) => {
+          if (jobStatusEvts.length > 0) {
+            const seen = new Set(statusEvents.map((e: any) => e.id))
+            const newEvents = jobStatusEvts.filter((e: any) => !seen.has(e.id))
+            if (newEvents.length > 0) statusEvents = [...statusEvents, ...newEvents]
+          }
+          if (jobResultEvts.length > 0) {
+            const seen = new Set(jobResultEvents.map((e: any) => e.id))
+            const newEvents = jobResultEvts.filter((e: any) => !seen.has(e.id))
+            if (newEvents.length > 0) jobResultEvents = [...jobResultEvents, ...newEvents]
+          }
+        })
+      }
+      if (loadedStatus.length > 0) {
+        const seen = new Set(statusEvents.map((e: any) => e.id))
+        const newEvents = loadedStatus.filter((e: any) => !seen.has(e.id))
+        if (newEvents.length > 0) statusEvents = [...statusEvents, ...newEvents]
+      }
+      if (loadedResults.length > 0) {
+        const seen = new Set(jobResultEvents.map((e: any) => e.id))
+        const newEvents = loadedResults.filter((e: any) => !seen.has(e.id))
+        if (newEvents.length > 0) jobResultEvents = [...jobResultEvents, ...newEvents]
+      }
+    })
+  })
+
+  // Fetch status/result for legacy job events (Kind 5100 without Kind 5401 parent)
+  let fetchedStatusForJobIds = new Set<string>()
+
+  $effect(() => {
+    const ids = jobEvents.map((e: any) => e.id).filter((id: string) => !fetchedStatusForJobIds.has(id))
+    if (ids.length === 0) return
+
+    ids.forEach((id: string) => fetchedStatusForJobIds.add(id))
+
+    const jobRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
+
     Promise.all([
       load({relays: jobRelays, filters: [{kinds: [30100], "#e": ids}]}),
       load({relays: jobRelays, filters: [{kinds: [5101], "#e": ids}]}),
@@ -410,16 +489,12 @@
       if (loadedStatus.length > 0) {
         const seen = new Set(statusEvents.map((e: any) => e.id))
         const newEvents = loadedStatus.filter((e: any) => !seen.has(e.id))
-        if (newEvents.length > 0) {
-          statusEvents = [...statusEvents, ...newEvents]
-        }
+        if (newEvents.length > 0) statusEvents = [...statusEvents, ...newEvents]
       }
       if (loadedResults.length > 0) {
         const seen = new Set(jobResultEvents.map((e: any) => e.id))
         const newEvents = loadedResults.filter((e: any) => !seen.has(e.id))
-        if (newEvents.length > 0) {
-          jobResultEvents = [...jobResultEvents, ...newEvents]
-        }
+        if (newEvents.length > 0) jobResultEvents = [...jobResultEvents, ...newEvents]
       }
     })
   })
@@ -430,27 +505,56 @@
     if (jobEventsUnsubscribe) jobEventsUnsubscribe()
   })
 
-  // Get events from makeFeed
-  let jobEvents = $state<any[]>([])
-  let statusEvents = $state<any[]>([])
-  let jobResultEvents = $state<any[]>([])
+  // Get events from feeds/loads
+  let runEvents = $state<any[]>([])  // Kind 5401 workflow run events
+  let jobEvents = $state<any[]>([])  // Kind 5100 legacy job events
+  let workflowLogEvents = $state<any[]>([])  // Kind 5402 workflow log events
+  let statusEvents = $state<any[]>([])  // Kind 30100 status events
+  let jobResultEvents = $state<any[]>([])  // Kind 5101 job result events
+  let loomJobToRunId = new Map<string, string>()  // Maps loom job ID → workflow run ID
 
-  // Combine test data and real job events
+  // Combine Kind 5401 runs + legacy Kind 5100 jobs
   const allWorkflowRuns = $derived.by(() => {
-    const parsedJobRuns = jobEvents.map(parseJobEvent)
-    return [...workflowRuns, ...parsedJobRuns].sort((a, b) => b.createdAt - a.createdAt)
+    const parsedRuns = runEvents.map(parseWorkflowRunEvent)
+    const parsedJobs = jobEvents.map(parseJobEvent).filter((r: any) => r !== null)
+    return [...workflowRuns, ...parsedRuns, ...parsedJobs].sort((a, b) => b.createdAt - a.createdAt)
   })
 
-  // Match status and result events to workflow runs and update status
+  // Resolve status for each run using priority: Kind 5402 > Kind 5101 > Kind 30100 > pending
   const workflowRunsWithStatus = $derived.by(() => {
     return allWorkflowRuns.map(run => {
-      const jobId = run._originalEvent?.id
-      if (!jobId) return run
+      const runId = run._originalEvent?.id
+      if (!runId) return run
 
-      // Check job result (kind 5101) first — most authoritative
+      const isWorkflowRun = run._originalEvent?.kind === 5401
+
+      // For Kind 5401 runs, check Kind 5402 (workflow log) first — most authoritative
+      if (isWorkflowRun) {
+        const matchingLog = workflowLogEvents.find(e => {
+          const eTag = e.tags.find((t: string[]) => t[0] === "e")
+          return eTag && eTag[1] === runId
+        })
+
+        if (matchingLog) {
+          const statusTag = matchingLog.tags.find((t: string[]) => t[0] === "status")
+          const exitCodeTag = matchingLog.tags.find((t: string[]) => t[0] === "exit_code")
+          const durationTag = matchingLog.tags.find((t: string[]) => t[0] === "duration")
+          const status = statusTag?.[1] || "unknown"
+          const isSuccess = status === "success" || exitCodeTag?.[1] === "0"
+          return {
+            ...run,
+            status: (isSuccess ? "success" : "failure") as WorkflowRun["status"],
+            duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined,
+          }
+        }
+      }
+
+      // Check job result (kind 5101) — look for results referencing this run or its loom job
       const matchingResult = jobResultEvents.find(e => {
         const eTag = e.tags.find((t: string[]) => t[0] === "e")
-        return eTag && eTag[1] === jobId
+        if (!eTag) return false
+        // Direct match or via loom job → run mapping
+        return eTag[1] === runId || loomJobToRunId.get(eTag[1]) === runId
       })
 
       if (matchingResult) {
@@ -466,7 +570,8 @@
       // Fall back to status events (kind 30100)
       const matchingStatusEvents = statusEvents.filter(e => {
         const eTag = e.tags.find((t: string[]) => t[0] === "e")
-        return eTag && eTag[1] === jobId
+        if (!eTag) return false
+        return eTag[1] === runId || loomJobToRunId.get(eTag[1]) === runId
       })
 
       if (matchingStatusEvents.length > 0) {
