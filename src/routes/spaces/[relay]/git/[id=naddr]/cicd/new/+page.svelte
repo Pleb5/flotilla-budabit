@@ -273,17 +273,16 @@
       }
     }
 
-    const envVarsString = envVars
+    // Build env tags
+    const envTags = envVars
       .filter(e => e.key && e.value)
-      .map(e => `${e.key}=${e.value}`)
-      .join(" ")
+      .map(e => ["env", e.key, e.value])
 
     const cloneUrl = repoClass?.cloneUrls?.[0] || ""
     const repoName = repoClass?.name || "repo"
     const uniqueDir = `/tmp/${repoName}-${Date.now()}`
 
-    const baseCommand = `git clone ${cloneUrl} ${uniqueDir} && cd ${uniqueDir} && act -W ${workflowPath}`
-    const bashCommand = envVarsString ? `${envVarsString} ${baseCommand}` : baseCommand
+    const bashCommand = `git clone ${cloneUrl} ${uniqueDir} && cd ${uniqueDir} && act -W ${workflowPath}`
 
     const unsignedEvent = {
       kind: 5100,
@@ -295,6 +294,7 @@
         ["cmd", "bash"],
         ["args", "-c", bashCommand],
         ["payment", paymentToken],
+        ...envTags,
         ...secretTags,
       ],
       pubkey: $pubkey ?? "",
