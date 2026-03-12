@@ -163,17 +163,64 @@
   let workflowEvent = $state<WorkflowEvent | null>(null)
   let statusEvent = $state<StatusEvent | null>(null)
   let jobResultEvent = $state<JobResultEvent | null>(null)
+  let workflowLogEvent = $state<any | null>(null)  // Kind 5402
+  let loomJobEvent = $state<WorkflowEvent | null>(null)  // Kind 5100 linked to this run
   let stdout = $state<string>("")
   let stderr = $state<string>("")
   let loading = $state(true)
   let error = $state<string | null>(null)
   let pollingTimer: ReturnType<typeof setInterval> | null = null
+  let isWorkflowRun = $state(false)  // true if this is a Kind 5401
 
-  // Parse workflow event data
+  // Parse Kind 5401 workflow run event
+  const parseWorkflowRunEvent = (event: WorkflowEvent) => {
+    const tags: string[][] = event.tags || []
+    const tagVal = (name: string) => tags.find(t => t[0] === name)?.[1]
+
+    const workflowPath = tagVal("workflow") || ""
+    const workflowName = workflowPath
+      ? workflowPath.split("/").pop()?.replace(/\.(yml|yaml)$/, "") || "Workflow"
+      : "Workflow"
+
+    const branch = tagVal("branch") || ""
+    const trigger = tagVal("trigger") || "manual"
+    const triggeredBy = tagVal("triggered-by") || event.pubkey
+    const publisher = tagVal("publisher") || ""
+
+    // Determine status from workflow log (5402) > job result (5101) > status (30100)
+    let status = "pending"
+    if (workflowLogEvent) {
+      const sTag = workflowLogEvent.tags?.find((t: string[]) => t[0] === "status")
+      status = sTag?.[1] || "unknown"
+    } else if (statusEvent) {
+      status = statusEvent.status
+    }
+
+    return {
+      id: event.id,
+      name: workflowName,
+      status,
+      workflowPath,
+      branch,
+      trigger,
+      triggeredBy,
+      publisher,
+      repoNaddr: tagVal("a") || "",
+      envVars: [] as string[],
+      content: event.content,
+      createdAt: event.created_at * 1000,
+      updatedAt: statusEvent ? statusEvent.created_at * 1000 : event.created_at * 1000,
+      pubkey: event.pubkey,
+      tags: event.tags,
+      conclusion: statusEvent?.content,
+    }
+  }
+
+  // Parse Kind 5100 legacy job event
   const parseWorkflowEvent = (event: WorkflowEvent) => {
     const argsTag = event.tags.find(t => t[0] === "args")
     const args = argsTag ? argsTag.slice(1) : []
-    const workerTag = event.tags.find(t => t[0] === "worker")
+    const workerTag = event.tags.find(t => t[0] === "worker") || event.tags.find(t => t[0] === "p")
     const worker = workerTag ? workerTag[1] : "unknown"
     const cmdTag = event.tags.find(t => t[0] === "cmd")
     const cmd = cmdTag ? cmdTag[1] : "bash"
@@ -182,57 +229,19 @@
     const aTag = event.tags.find(t => t[0] === "a")
     const repoNaddr = aTag ? aTag[1] : ""
 
-    // Extract workflow name from args
     let workflowName = "Unknown Workflow"
-
-    // Handle new args structure: ["-c", "git clone ... && act -W workflow.yml"]
     if (args.length >= 2 && args[0] === "-c") {
       const bashCommand = args[1]
       const match = bashCommand.match(/act -W (\S+\.(?:yml|yaml))/)
-      if (match && match[1]) {
-        workflowName =
-          match[1]
-            .split("/")
-            .pop()
-            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
-      }
-    } else if (args.length > 0) {
-      // Handle old args structure: ["git", "clone", "...", "act", "-W", "workflow.yml"]
-      const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
-      if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
-        const path = args[workflowPathIndex]
-        workflowName =
-          path
-            .split("/")
-            .pop()
-            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
+      if (match?.[1]) {
+        workflowName = match[1].split("/").pop()?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
       }
     }
 
-    // Extract env vars from args
-    const envVars: string[] = []
-    if (args.length >= 2 && args[0] === "-c") {
-      // Handle new args structure: extract env vars from bash command string
-      const bashCommand = args[1]
-      const envVarPattern = /(\w+=\S+)/g
-      let match
-      while ((match = envVarPattern.exec(bashCommand)) !== null) {
-        // Only include env vars before "git clone"
-        if (bashCommand.indexOf(match[1]) < bashCommand.indexOf("git clone")) {
-          envVars.push(match[1])
-        }
-      }
-    } else {
-      // Handle old args structure
-      const actIndex = args.indexOf("act")
-      if (actIndex > 0) {
-        for (let i = 0; i < actIndex; i++) {
-          if (args[i].includes("=")) {
-            envVars.push(args[i])
-          }
-        }
-      }
-    }
+    // Extract env vars from tags
+    const envVars = event.tags
+      .filter(t => t[0] === "env" && t.length >= 3)
+      .map(t => `${t[1]}=${t[2]}`)
 
     return {
       id: event.id,
@@ -305,6 +314,31 @@
     }
   }
 
+  // Apply Kind 5402 workflow log event
+  const applyWorkflowLog = (event: any) => {
+    workflowLogEvent = event
+    const statusTag = event.tags?.find((t: string[]) => t[0] === "status")
+    const exitCodeTag = event.tags?.find((t: string[]) => t[0] === "exit_code")
+    const durationTag = event.tags?.find((t: string[]) => t[0] === "duration")
+    const logUrlTag = event.tags?.find((t: string[]) => t[0] === "log_url")
+
+    const status = statusTag?.[1] || "unknown"
+    const isSuccess = status === "success" || exitCodeTag?.[1] === "0"
+
+    // Update statusEvent to reflect the final status from 5402
+    statusEvent = {
+      id: event.id,
+      workflowId: runId || "",
+      status: isSuccess ? "success" : "failure",
+      content: event.content,
+      created_at: event.created_at,
+      pubkey: event.pubkey,
+    }
+
+    // Fetch log content if URL is available
+    if (logUrlTag?.[1]) fetchOutputFile(logUrlTag[1], "stdout")
+  }
+
   // Fetch workflow event on mount
   onMount(() => {
     if (!runId) {
@@ -313,45 +347,91 @@
       return
     }
 
-    const workflowFilter = {kinds: [5100], ids: [runId]}
+    // Try Kind 5401 first, fall back to Kind 5100
+    const runFilter = {kinds: [5401], ids: [runId]}
+    const legacyJobFilter = {kinds: [5100], ids: [runId]}
+    const workflowLogFilter = {kinds: [5402], "#e": [runId]}
+    const loomJobFilter = {kinds: [5100], "#e": [runId]}
     const jobResultFilter = {kinds: [5101], "#e": [runId]}
     const statusFilter = {kinds: [30100], "#e": [runId]}
 
-    // Initial load for all three event types
+    // Initial load for all event types
     Promise.all([
-      load({relays: JOB_RELAYS, filters: [workflowFilter]}),
+      load({relays: JOB_RELAYS, filters: [runFilter]}),
+      load({relays: JOB_RELAYS, filters: [legacyJobFilter]}),
+      load({relays: JOB_RELAYS, filters: [workflowLogFilter]}),
+      load({relays: JOB_RELAYS, filters: [loomJobFilter]}),
       load({relays: JOB_RELAYS, filters: [jobResultFilter]}),
       load({relays: JOB_RELAYS, filters: [statusFilter]}),
-    ]).then(([workflowEvents, jobResultEvents, statusEvents]) => {
-      if (workflowEvents.length > 0) {
-        workflowEvent = workflowEvents[0] as WorkflowEvent
+    ]).then(([runEvents, legacyJobEvents, logEvents, loomJobEvents, jobResultEvents, statusEvents]) => {
+      // Prefer Kind 5401, fall back to Kind 5100
+      if (runEvents.length > 0) {
+        workflowEvent = runEvents[0] as WorkflowEvent
+        isWorkflowRun = true
+      } else if (legacyJobEvents.length > 0) {
+        workflowEvent = legacyJobEvents[0] as WorkflowEvent
+        isWorkflowRun = false
       } else {
-        error = `Workflow event ${runId} not found on any relay`
+        error = `Workflow run ${runId} not found on any relay`
       }
       loading = false
 
-      if (jobResultEvents.length > 0) {
+      // Apply Kind 5402 workflow log (highest priority for status)
+      if (logEvents.length > 0) {
+        applyWorkflowLog(logEvents[0])
+      }
+
+      // Store loom job event for display
+      if (loomJobEvents.length > 0) {
+        loomJobEvent = loomJobEvents[0] as WorkflowEvent
+        // Also fetch status/results for the loom job ID
+        const loomJobId = loomJobEvents[0].id
+        Promise.all([
+          load({relays: JOB_RELAYS, filters: [{kinds: [5101], "#e": [loomJobId]}]}),
+          load({relays: JOB_RELAYS, filters: [{kinds: [30100], "#e": [loomJobId]}]}),
+        ]).then(([loomResults, loomStatus]) => {
+          if (loomResults.length > 0 && !workflowLogEvent) {
+            applyJobResult(loomResults[0])
+          }
+          const sorted = [...loomStatus].sort((a, b) => b.created_at - a.created_at)
+          if (sorted.length > 0 && !workflowLogEvent && !jobResultEvent) {
+            applyStatusEvent(sorted[0])
+          }
+        })
+      }
+
+      // Apply job results (if no workflow log)
+      if (jobResultEvents.length > 0 && !logEvents.length) {
         applyJobResult(jobResultEvents[0])
       }
 
-      // Apply most recent status event
+      // Apply most recent status event (if no higher priority status)
       const sortedStatus = [...statusEvents].sort((a, b) => b.created_at - a.created_at)
-      if (sortedStatus.length > 0) {
+      if (sortedStatus.length > 0 && !logEvents.length && !jobResultEvents.length) {
         applyStatusEvent(sortedStatus[0])
       }
     })
 
-    // Live subscription for status and job result updates
+    // Live subscription for status updates
     const liveAbort = new AbortController()
     workflowFeedCleanup = () => liveAbort.abort()
 
     request({
       relays: JOB_RELAYS,
-      filters: [jobResultFilter, statusFilter],
+      filters: [workflowLogFilter, loomJobFilter, jobResultFilter, statusFilter],
       signal: liveAbort.signal,
       onEvent: (event: any, url: string) => {
-        if (event.kind === 5101) applyJobResult(event)
-        if (event.kind === 30100) applyStatusEvent(event)
+        if (event.kind === 5402) applyWorkflowLog(event)
+        if (event.kind === 5101) {
+          if (!workflowLogEvent) applyJobResult(event)
+        }
+        if (event.kind === 30100) {
+          if (!workflowLogEvent && !jobResultEvent) applyStatusEvent(event)
+        }
+        if (event.kind === 5100) {
+          // Loom job referencing this run
+          loomJobEvent = event as WorkflowEvent
+        }
       },
     })
   })
@@ -494,7 +574,7 @@
       </Button>
     </div>
   {:else}
-    {@const parsedWorkflow = parseWorkflowEvent(workflowEvent)}
+    {@const parsedWorkflow = isWorkflowRun ? parseWorkflowRunEvent(workflowEvent) as any : parseWorkflowEvent(workflowEvent) as any}
     <!-- Header -->
     <div class="sticky -top-8 my-4 max-w-full space-y-2 backdrop-blur">
       <div class="flex items-center justify-between">
@@ -656,7 +736,7 @@
           <p class="text-xs text-muted-foreground">Kind</p>
           <div class="flex items-center gap-2">
             <Code class="h-3 w-3" />
-            <span class="text-sm">5100</span>
+            <span class="text-sm">{isWorkflowRun ? "5401 (Workflow Run)" : "5100 (Loom Job)"}</span>
           </div>
         </div>
         <div class="space-y-1">
@@ -666,52 +746,126 @@
             <span class="font-mono text-sm">{parsedWorkflow.pubkey.slice(0, 16)}...</span>
           </div>
         </div>
+        {#if isWorkflowRun}
+          {#if parsedWorkflow.branch}
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Branch</p>
+              <span class="text-sm font-medium">{parsedWorkflow.branch}</span>
+            </div>
+          {/if}
+          {#if parsedWorkflow.workflowPath}
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Workflow</p>
+              <code class="rounded bg-muted px-2 py-1 text-sm">{parsedWorkflow.workflowPath}</code>
+            </div>
+          {/if}
+          {#if parsedWorkflow.trigger}
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Trigger</p>
+              <span class="text-sm">{parsedWorkflow.trigger}</span>
+            </div>
+          {/if}
+        {/if}
       </div>
     </div>
 
-    <!-- Command Information -->
-    <div class="rounded-lg border border-border bg-card p-4">
-      <h3 class="mb-3 text-lg font-semibold">Command Details</h3>
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Command</p>
-          <code class="rounded bg-muted px-2 py-1 text-sm">{parsedWorkflow.cmd}</code>
-        </div>
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Worker</p>
-          <div class="flex items-center gap-2">
-            <GitCommit class="h-3 w-3" />
-            <span class="font-mono text-sm">{parsedWorkflow.worker.slice(0, 16)}...</span>
-          </div>
-        </div>
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Payment</p>
-          <span class="text-sm">{parsedWorkflow.payment || "N/A"}</span>
-        </div>
-      </div>
-
-      {#if parsedWorkflow.args.length > 0}
-        <div class="mt-4">
-          <p class="mb-2 text-xs text-muted-foreground">Arguments</p>
-          <div class="flex flex-wrap gap-2">
-            {#each parsedWorkflow.args as arg}
-              <code class="rounded bg-muted px-2 py-1 text-xs">{arg}</code>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if parsedWorkflow.envVars.length > 0}
-        <div class="mt-4">
-          <p class="mb-2 text-xs text-muted-foreground">Environment Variables</p>
+    <!-- Loom Job Information (for Kind 5401 runs) -->
+    {#if isWorkflowRun && loomJobEvent}
+      {@const loomParsed = parseWorkflowEvent(loomJobEvent)}
+      <div class="rounded-lg border border-border bg-card p-4">
+        <h3 class="mb-3 text-lg font-semibold">Loom Job</h3>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div class="space-y-1">
-            {#each parsedWorkflow.envVars as envVar}
-              <code class="block rounded bg-muted px-2 py-1 text-xs">{envVar}</code>
-            {/each}
+            <p class="text-xs text-muted-foreground">Job ID</p>
+            <span class="font-mono text-sm">{loomJobEvent.id}</span>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Worker</p>
+            <span class="font-mono text-sm">{loomParsed.worker.slice(0, 16)}...</span>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Payment</p>
+            <span class="text-sm">{loomParsed.payment ? "Attached" : "N/A"}</span>
           </div>
         </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
+
+    <!-- Command Information (for legacy Kind 5100 runs) -->
+    {#if !isWorkflowRun}
+      <div class="rounded-lg border border-border bg-card p-4">
+        <h3 class="mb-3 text-lg font-semibold">Command Details</h3>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Command</p>
+            <code class="rounded bg-muted px-2 py-1 text-sm">{parsedWorkflow.cmd}</code>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Worker</p>
+            <div class="flex items-center gap-2">
+              <GitCommit class="h-3 w-3" />
+              <span class="font-mono text-sm">{parsedWorkflow.worker?.slice(0, 16)}...</span>
+            </div>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Payment</p>
+            <span class="text-sm">{parsedWorkflow.payment || "N/A"}</span>
+          </div>
+        </div>
+
+        {#if parsedWorkflow.args?.length > 0}
+          <div class="mt-4">
+            <p class="mb-2 text-xs text-muted-foreground">Arguments</p>
+            <div class="flex flex-wrap gap-2">
+              {#each parsedWorkflow.args as arg}
+                <code class="rounded bg-muted px-2 py-1 text-xs">{arg}</code>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        {#if parsedWorkflow.envVars?.length > 0}
+          <div class="mt-4">
+            <p class="mb-2 text-xs text-muted-foreground">Environment Variables</p>
+            <div class="space-y-1">
+              {#each parsedWorkflow.envVars as envVar}
+                <code class="block rounded bg-muted px-2 py-1 text-xs">{envVar}</code>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Workflow Log (Kind 5402) -->
+    {#if workflowLogEvent}
+      {@const logUrlTag = workflowLogEvent.tags?.find((t: string[]) => t[0] === "log_url")}
+      {@const durationTag = workflowLogEvent.tags?.find((t: string[]) => t[0] === "duration")}
+      {@const exitCodeTag = workflowLogEvent.tags?.find((t: string[]) => t[0] === "exit_code")}
+      <div class="rounded-lg border border-border bg-card p-4">
+        <h3 class="mb-3 text-lg font-semibold">Workflow Result (Kind 5402)</h3>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {#if exitCodeTag}
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Exit Code</p>
+              <span class="font-mono text-sm">{exitCodeTag[1]}</span>
+            </div>
+          {/if}
+          {#if durationTag}
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Duration</p>
+              <span class="text-sm">{durationTag[1]}s</span>
+            </div>
+          {/if}
+          {#if logUrlTag}
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Log URL</p>
+              <a href={logUrlTag[1]} target="_blank" rel="noopener" class="text-sm text-blue-500 hover:underline truncate block">{logUrlTag[1]}</a>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
 
     <!-- Status Information -->
     <div class="rounded-lg border border-border bg-card p-4">

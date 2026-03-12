@@ -9,7 +9,8 @@
     X,
   } from "@lucide/svelte"
   import {Lock} from "@lucide/svelte"
-  import {SimplePool, nip19} from "nostr-tools"
+  import {SimplePool, nip19, generateSecretKey, getPublicKey} from "nostr-tools"
+  import {bytesToHex} from "@noble/hashes/utils"
   import {pubkey, signer} from "@welshman/app"
   import {
     cashuTotalBalance,
@@ -225,6 +226,29 @@
 
   const cicdPath = `/spaces/${relay}/git/${id}/cicd`
 
+  // Convert repo coordinate to nostr:// URL for the workflow runner script
+  const repoNostrUrl = $derived.by(() => {
+    if (!repoNaddr) return ""
+    try {
+      const parts = repoNaddr.split(":")
+      if (parts.length === 3) {
+        const [kind, pk, identifier] = parts
+        const naddrEncoded = nip19.naddrEncode({
+          kind: parseInt(kind),
+          pubkey: pk,
+          identifier,
+          relays: [],
+        })
+        return `nostr://${naddrEncoded}`
+      }
+    } catch {
+      // pass
+    }
+    return ""
+  })
+
+  const publishRelays = ["wss://relay.sharegap.net", "wss://nos.lol"]
+
   const onSubmitWorkflow = async () => {
     if (!selectedWorker) {
       tokenError = "Please select a worker."
@@ -243,25 +267,71 @@
 
     generatingToken = true
     tokenError = ""
-    let paymentToken = ""
-    try {
-      paymentToken = await createCashuToken(cashuAmount, bestMint, "CI/CD pipeline runner")
-    } catch (e: any) {
-      console.error("[cicd] Failed to generate cashu token:", e)
-      tokenError =
-        e?.message === "backup_required"
-          ? "Please back up your Cashu seed phrase before spending."
-          : "Failed to generate token. Check your wallet balance."
-      return
-    } finally {
-      generatingToken = false
-    }
 
-    // Encrypt secrets via NIP-44 to worker pubkey
-    const secretTags: string[][] = []
-    const activeSecrets = secrets.filter(s => s.key && s.value)
-    if (activeSecrets.length > 0) {
+    try {
+      // 1. Generate ephemeral keypair for result publishing
+      const ephemeralSecretKey = generateSecretKey()
+      const ephemeralPubkey = getPublicKey(ephemeralSecretKey)
+      const ephemeralSecretKeyHex = bytesToHex(ephemeralSecretKey)
+
+      // 2. Create payment token
+      let paymentToken = ""
       try {
+        paymentToken = await createCashuToken(cashuAmount, bestMint, "CI/CD pipeline runner")
+      } catch (e: any) {
+        console.error("[cicd] Failed to generate cashu token:", e)
+        tokenError =
+          e?.message === "backup_required"
+            ? "Please back up your Cashu seed phrase before spending."
+            : "Failed to generate token. Check your wallet balance."
+        return
+      }
+
+      // 3. Publish Kind 5401 (workflow run event)
+      const workflowRunEvent = {
+        kind: 5401,
+        created_at: Math.floor(Date.now() / 1000),
+        content: "",
+        tags: [
+          ["a", repoNaddr ?? ""],
+          ["workflow", workflowPath],
+          ["triggered-by", $pubkey ?? ""],
+          ["publisher", ephemeralPubkey],
+          ["trigger", "manual"],
+          ["branch", selectedBranch],
+          ["t", "hive-ci"],
+        ],
+        pubkey: $pubkey ?? "",
+      }
+
+      const signedRunEvent = await $signer.sign(workflowRunEvent)
+      const pool = new SimplePool()
+      await pool.publish(publishRelays, signedRunEvent)
+      const runId = signedRunEvent.id
+
+      console.log("[cicd] Published Kind 5401 workflow run:", runId)
+
+      // 4. Build env tags (HIVE_CI_* vars + user env vars)
+      const envTags = [
+        ["env", "HIVE_CI_RUN_ID", runId],
+        ["env", "HIVE_CI_REPOSITORY", repoNostrUrl],
+        ["env", "HIVE_CI_WORKFLOW", workflowPath],
+        ["env", "HIVE_CI_BRANCH", selectedBranch],
+        ["env", "HIVE_CI_RELAYS", publishRelays.join(",")],
+        ...envVars
+          .filter(e => e.key && e.value)
+          .map(e => ["env", e.key, e.value]),
+      ]
+
+      // 5. Encrypt secrets via NIP-44 to worker pubkey (HIVE_CI_PRIVATEKEY + user secrets)
+      const secretTags: string[][] = []
+      try {
+        // Encrypt ephemeral private key as secret
+        const encryptedPrivKey = await $signer.nip44.encrypt(selectedWorker.pubkey, ephemeralSecretKeyHex)
+        secretTags.push(["secret", "HIVE_CI_PRIVATEKEY", encryptedPrivKey])
+
+        // Encrypt user-defined secrets
+        const activeSecrets = secrets.filter(s => s.key && s.value)
         for (const s of activeSecrets) {
           const encrypted = await $signer.nip44.encrypt(selectedWorker.pubkey, s.value)
           secretTags.push(["secret", s.key, encrypted])
@@ -271,43 +341,34 @@
         tokenError = "Failed to encrypt secrets. Check your signer."
         return
       }
-    }
 
-    // Build env tags
-    const envTags = envVars
-      .filter(e => e.key && e.value)
-      .map(e => ["env", e.key, e.value])
+      // 6. Publish Kind 5100 (loom job request) referencing the workflow run
+      const scriptUrl = "https://blossom.primal.net/run-workflow.sh"
+      const bashCommand = `curl -fsSL "${scriptUrl}" -o /tmp/run-workflow.sh && chmod +x /tmp/run-workflow.sh && /tmp/run-workflow.sh`
 
-    const cloneUrl = repoClass?.cloneUrls?.[0] || ""
-    const repoName = repoClass?.name || "repo"
-    const uniqueDir = `/tmp/${repoName}-${Date.now()}`
+      const jobEvent = {
+        kind: 5100,
+        created_at: Math.floor(Date.now() / 1000),
+        content: "",
+        tags: [
+          ["p", selectedWorker.pubkey],
+          ["e", runId],
+          ["cmd", "bash"],
+          ["args", "-c", bashCommand],
+          ["payment", paymentToken],
+          ...envTags,
+          ...secretTags,
+        ],
+        pubkey: $pubkey ?? "",
+      }
 
-    const bashCommand = `git clone ${cloneUrl} ${uniqueDir} && cd ${uniqueDir} && act -W ${workflowPath}`
+      const signedJobEvent = await $signer.sign(jobEvent)
+      await pool.publish(publishRelays, signedJobEvent)
 
-    const unsignedEvent = {
-      kind: 5100,
-      created_at: Math.floor(Date.now() / 1000),
-      content: "",
-      tags: [
-        ["p", selectedWorker.pubkey],
-        ["a", repoNaddr ?? ""],
-        ["cmd", "bash"],
-        ["args", "-c", bashCommand],
-        ["payment", paymentToken],
-        ...envTags,
-        ...secretTags,
-      ],
-      pubkey: $pubkey ?? "",
-    }
+      console.log("[cicd] Published Kind 5100 loom job:", signedJobEvent.id, "referencing run:", runId)
 
-    try {
-      const signedEvent = await $signer.sign(unsignedEvent)
-      const pool = new SimplePool()
-      await pool.publish(["wss://relay.sharegap.net", "wss://nos.lol"], signedEvent)
-
-      const jobStatusUrl = `https://loom.treegaze.com/job/${signedEvent.id}`
       toast.push({
-        message: `Workflow submitted successfully - Check job status: ${jobStatusUrl}`,
+        message: "Workflow submitted successfully",
         variant: "default",
       })
 
@@ -318,6 +379,8 @@
         message: "Failed to submit workflow",
         variant: "error",
       })
+    } finally {
+      generatingToken = false
     }
   }
 </script>
