@@ -15,17 +15,10 @@
     Filter,
     ChevronRight,
     ChevronDown,
-    Plus,
   } from "@lucide/svelte"
   import {getTagValue} from "@welshman/util"
-  import {SimplePool, nip19} from "nostr-tools"
-  import {pubkey, signer} from "@welshman/app"
-  import {
-    cashuTotalBalance,
-    cashuBalancesByMint,
-    cashuMints,
-    createCashuToken,
-  } from "@lib/budabit/cashu"
+  import {nip19} from "nostr-tools"
+  import {pubkey} from "@welshman/app"
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import {slideAndFade} from "@lib/transition"
@@ -52,59 +45,14 @@
     throw new Error("Repo context not available")
   }
 
-  // Workflow dropdown and modal state
+  // Workflow dropdown state
   let showWorkflowDropdown = $state(false)
-  let showWorkflowModal = $state(false)
-  let selectedWorkflow = $state<{name: string; path: string} | null>(null)
-  let selectedBranch = $state("master")
-  let envVars = $state<{key: string; value: string}[]>([{key: "", value: ""}])
-  let maxDuration = $state(600)
-  let cashuToken = $state("")
-  let cashuAmount = $state(100)
-  let generatingToken = $state(false)
-  let tokenError = $state("")
-  let worker = $state("b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710")
-
-  const walletBalance = $derived($cashuTotalBalance)
-  const walletMints = $derived($cashuMints)
-  const walletBalancesByMint = $derived($cashuBalancesByMint)
-  const bestMint = $derived(
-    walletMints.length > 0
-      ? walletMints.reduce((best, m) =>
-          (walletBalancesByMint.get(m) ?? 0) > (walletBalancesByMint.get(best) ?? 0) ? m : best,
-        walletMints[0])
-      : "",
-  )
-
-  const generateCashuToken = async () => {
-    if (!bestMint) return
-    generatingToken = true
-    tokenError = ""
-    try {
-      if ((walletBalancesByMint.get(bestMint) ?? 0) < cashuAmount) {
-        tokenError = `Insufficient balance. Wallet has ${(walletBalancesByMint.get(bestMint) ?? 0).toLocaleString()} sats on ${bestMint}.`
-        return
-      }
-      cashuToken = await createCashuToken(cashuAmount, bestMint, "CI/CD pipeline runner")
-    } catch (e: any) {
-      console.error("[cicd] Failed to generate cashu token:", e)
-      tokenError = e?.message === "backup_required"
-        ? "Please back up your Cashu seed phrase before spending."
-        : "Failed to generate token. Check your wallet balance."
-    } finally {
-      generatingToken = false
-    }
-  }
 
   // Keyboard handler for Escape key
   $effect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (showWorkflowModal) {
-          showWorkflowModal = false
-        } else if (showWorkflowDropdown) {
-          showWorkflowDropdown = false
-        }
+      if (e.key === "Escape" && showWorkflowDropdown) {
+        showWorkflowDropdown = false
       }
     }
 
@@ -703,78 +651,9 @@
   }
 
   const onSelectWorkflow = (workflow: {name: string; path: string}) => {
-    selectedWorkflow = workflow
     showWorkflowDropdown = false
-    showWorkflowModal = true
-  }
-
-  const onAddEnvVar = () => {
-    envVars = [...envVars, {key: "", value: ""}]
-  }
-
-  const onRemoveEnvVar = (index: number) => {
-    envVars = envVars.filter((_, i) => i !== index)
-  }
-
-  const onSubmitWorkflow = async () => {
-    // Convert env vars array to key=value format
-    const envVarsString = envVars
-      .filter(e => e.key && e.value)
-      .map(e => `${e.key}=${e.value}`)
-      .join(" ")
-
-    // Get clone URL and repo name
-    const cloneUrl = repoClass?.cloneUrls?.[0] || ""
-    const repoName = repoClass?.name || "repo"
-    const uniqueDir = `/tmp/${repoName}-${Date.now()}`
-
-    // Build bash command with git clone, cd, env vars and workflow
-    const baseCommand = `git clone ${cloneUrl} ${uniqueDir} && cd ${uniqueDir} && act -W ${selectedWorkflow?.path}`
-    const bashCommand = envVarsString ? `${envVarsString} ${baseCommand}` : baseCommand
-
-    // Create Nostr event
-    const unsignedEvent = {
-      kind: 5100,
-      created_at: Math.floor(Date.now() / 1000),
-      content: "",
-      tags: [
-        ["p", worker],
-        ["a", repoNaddr ?? ""],
-        ["cmd", "bash"],
-        ["args", "-c", bashCommand],
-        ["payment", cashuToken],
-      ],
-      pubkey: $pubkey ?? "",
-    }
-
-    try {
-      // Sign and publish event
-      const signedEvent = await $signer.sign(unsignedEvent)
-
-      const pool = new SimplePool()
-      await pool.publish(["wss://relay.sharegap.net", "wss://nos.lol"], signedEvent)
-
-      const jobStatusUrl = `https://loom.treegaze.com/job/${signedEvent.id}`
-      toast.push({
-        message: `Workflow submitted successfully - Check job status: ${jobStatusUrl}`,
-        variant: "default",
-      })
-
-      showWorkflowModal = false
-      // Reset form
-      envVars = [{key: "", value: ""}]
-      maxDuration = 600
-      cashuToken = ""
-      selectedWorkflow = null
-      selectedBranch = "master"
-      worker = "b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710"
-    } catch (e) {
-      console.error("Failed to submit workflow:", e)
-      toast.push({
-        message: "Failed to submit workflow",
-        variant: "error",
-      })
-    }
+    const params = new URLSearchParams({workflow: workflow.name, path: workflow.path})
+    goto(`/spaces/${relay}/git/${id}/cicd/new?${params}`)
   }
 
   // Persist filters per repo
@@ -1065,172 +944,6 @@
 
   <!-- Summary Stats -->
   {#if filteredRuns.length > 0}
-    <!-- Workflow Submission Modal -->
-    {#if showWorkflowModal}
-      <div
-        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        role="button"
-        tabindex="0"
-        onclick={() => (showWorkflowModal = false)}
-        onkeydown={(e) => {
-          if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
-            e.preventDefault()
-            showWorkflowModal = false
-          }
-        }}>
-        <div
-          class="w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-lg"
-          role="dialog"
-          aria-modal="true"
-          tabindex="-1"
-          onclick={e => e.stopPropagation()}
-          onkeydown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault()
-            }
-            e.stopPropagation()
-          }}>
-          <div class="mb-4 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">Run {selectedWorkflow?.name}</h3>
-            <Button variant="ghost" size="sm" onclick={() => (showWorkflowModal = false)}>
-              <X class="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div class="space-y-4">
-            <!-- Branch Selection -->
-            <div class="space-y-2">
-              <label for="branch-select" class="text-sm font-medium">Branch</label>
-              <select
-                id="branch-select"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                bind:value={selectedBranch}>
-                <option value="master">master</option>
-              </select>
-              <p class="text-xs text-muted-foreground">Select the branch to run the workflow on</p>
-            </div>
-
-            <!-- Environment Variables -->
-            <div class="space-y-2">
-              <div class="text-sm font-medium">Environment Variables</div>
-              <Button variant="outline" size="sm" class="gap-1" onclick={onAddEnvVar}>
-                <Plus class="h-3 w-3" />
-                Add
-              </Button>
-              <div class="space-y-2">
-                {#each envVars as envVar, index (index)}
-                  <div class="flex gap-2">
-                    <input
-                      type="text"
-                      class="flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      placeholder="KEY"
-                      bind:value={envVar.key} />
-                    <input
-                      type="text"
-                      class="flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      placeholder="value"
-                      bind:value={envVar.value} />
-                    {#if envVars.length > 1}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class="shrink-0 text-muted-foreground hover:text-destructive"
-                        onclick={() => onRemoveEnvVar(index)}>
-                        <X class="h-4 w-4" />
-                      </Button>
-                    {/if}
-                  </div>
-                {/each}
-              </div>
-              <p class="text-xs text-muted-foreground">
-                Add environment variables as key-value pairs
-              </p>
-            </div>
-
-            <!-- Max Duration -->
-            <div class="space-y-2">
-              <label for="max-duration" class="text-sm font-medium">Max Duration (seconds)</label>
-              <input
-                id="max-duration"
-                type="number"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                placeholder="600"
-                min="1"
-                bind:value={maxDuration} />
-              <p class="text-xs text-muted-foreground">
-                Maximum time the workflow is allowed to run before being terminated
-              </p>
-            </div>
-
-            <!-- Cashu Token -->
-            <div class="space-y-2">
-              <label for="cashu-token" class="text-sm font-medium">
-                Cashu Token
-                {#if walletBalance > 0}
-                  <span class="ml-2 text-xs font-normal opacity-60">
-                    Wallet: {walletBalance.toLocaleString()} sats
-                  </span>
-                {/if}
-              </label>
-              {#if walletMints.length > 0}
-                <div class="flex gap-2">
-                  <input
-                    id="cashu-amount"
-                    type="number"
-                    class="w-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    placeholder="100"
-                    min="1"
-                    bind:value={cashuAmount} />
-                  <Button
-                    variant="outline"
-                    onclick={generateCashuToken}
-                    disabled={generatingToken || !bestMint || cashuAmount <= 0}>
-                    {generatingToken ? "Generating…" : "Generate from wallet"}
-                  </Button>
-                </div>
-              {/if}
-              <input
-                id="cashu-token"
-                type="text"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                placeholder="cashuA… (or generate above)"
-                bind:value={cashuToken} />
-              {#if tokenError}
-                <p class="text-xs text-error">{tokenError}</p>
-              {:else}
-                <p class="text-xs text-muted-foreground">
-                  Cashu token for payment. Generate from your wallet or paste manually.
-                </p>
-              {/if}
-            </div>
-
-            <!-- Worker -->
-            <div class="space-y-2">
-              <label for="worker" class="text-sm font-medium">Worker ID</label>
-              <input
-                id="worker"
-                type="text"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                placeholder="Worker public key"
-                bind:value={worker} />
-              <p class="text-xs text-muted-foreground">
-                Public key of the worker to execute the workflow
-              </p>
-            </div>
-
-            <!-- Submit Button -->
-            <div class="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onclick={() => (showWorkflowModal = false)}>Cancel</Button>
-              <Button variant="git" onclick={onSubmitWorkflow}>
-                <Play class="h-4 w-4" />
-                Submit Workflow
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    {/if}
-
     <div class="mt-6 rounded-lg border border-border bg-card p-4">
       <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div class="space-y-1">
