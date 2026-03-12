@@ -42,9 +42,13 @@
 
   let stdout = $state("")
   let stderr = $state("")
+  let stdoutUrl = $state<string | null>(null)
+  let stderrUrl = $state<string | null>(null)
   let loading = $state(true)
   let error = $state<string | null>(null)
   let showRawEvents = $state(false)
+  let expandStdout = $state(false)
+  let expandStderr = $state(false)
 
   // Worker advertisement (Kind 10100)
   let workerAdEvent = $state<any | null>(null)
@@ -249,6 +253,8 @@
   // ── Fetch output files ────────────────────────────────────────────────
   const fetchOutputFile = async (url: string, type: "stdout" | "stderr") => {
     try {
+      if (type === "stdout") stdoutUrl = url
+      else stderrUrl = url
       const response = await fetch(url)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const content = await response.text()
@@ -505,17 +511,6 @@
             </p>
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onclick={() => {
-            navigator.clipboard.writeText(runEvent.id)
-            toast.push({message: "Run ID copied", variant: "default"})
-          }}
-          class="gap-2">
-          <Copy class="h-4 w-4" />
-          Copy ID
-        </Button>
       </div>
     </div>
 
@@ -534,7 +529,17 @@
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div class="space-y-1">
           <p class="text-xs text-muted-foreground">Run ID</p>
-          <span class="font-mono text-sm">{runEvent.id.slice(0, 16)}...</span>
+          <span class="inline-flex items-center gap-1 font-mono text-sm">
+            {runEvent.id.slice(0, 16)}...
+            <button
+              onclick={() => {
+                navigator.clipboard.writeText(runEvent.id)
+                toast.push({message: "Run ID copied", variant: "default"})
+              }}
+              class="text-muted-foreground hover:text-foreground">
+              <Copy class="h-3 w-3" />
+            </button>
+          </span>
         </div>
         <div class="space-y-1">
           <p class="text-xs text-muted-foreground">Triggered by</p>
@@ -567,7 +572,17 @@
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
             <div class="space-y-1">
               <p class="text-xs text-muted-foreground">Job ID</p>
-              <span class="font-mono text-sm">{loomInfo.id.slice(0, 16)}...</span>
+              <span class="inline-flex items-center gap-1 font-mono text-sm">
+                {loomInfo.id.slice(0, 16)}...
+                <button
+                  onclick={() => {
+                    navigator.clipboard.writeText(loomInfo.id)
+                    toast.push({message: "Job ID copied", variant: "default"})
+                  }}
+                  class="text-muted-foreground hover:text-foreground">
+                  <Copy class="h-3 w-3" />
+                </button>
+              </span>
             </div>
             <div class="space-y-1">
               <p class="text-xs text-muted-foreground">Worker</p>
@@ -713,52 +728,89 @@
       </div>
     {/if}
 
-    <!-- Output -->
-    {#if stdout || stderr}
-      <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-3 text-lg font-semibold">Output</h3>
-        <div class="space-y-4">
-          {#if stdout}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <h4 class="text-sm font-medium">Standard Output</h4>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onclick={() => {
-                    navigator.clipboard.writeText(stdout)
-                    toast.push({message: "Copied", variant: "default"})
-                  }}
-                  class="gap-1 text-xs">
-                  <Copy class="h-3 w-3" />
-                  Copy
-                </Button>
-              </div>
-              <pre class="max-h-96 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs">{stdout}</pre>
-            </div>
+    <!-- stdout console -->
+    <div class="overflow-hidden rounded-lg border border-gray-700">
+      <div class="flex items-center justify-between bg-gray-800 px-4 py-2">
+        <h3 class="text-sm font-semibold text-gray-200">stdout</h3>
+        <div class="flex items-center gap-2">
+          {#if stdoutUrl}
+            <a href={stdoutUrl} target="_blank" rel="noopener" class="text-xs text-gray-400 hover:text-gray-200">
+              <ExternalLink class="h-3 w-3" />
+            </a>
           {/if}
-          {#if stderr}
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <h4 class="text-sm font-medium text-red-500">Standard Error</h4>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onclick={() => {
-                    navigator.clipboard.writeText(stderr)
-                    toast.push({message: "Copied", variant: "default"})
-                  }}
-                  class="gap-1 text-xs">
-                  <Copy class="h-3 w-3" />
-                  Copy
-                </Button>
-              </div>
-              <pre class="max-h-96 overflow-auto rounded-lg border border-red-500/20 bg-red-500/5 p-4 font-mono text-xs text-red-900">{stderr}</pre>
-            </div>
+          {#if stdout}
+            <button
+              onclick={() => {
+                navigator.clipboard.writeText(stdout)
+                toast.push({message: "Copied", variant: "default"})
+              }}
+              class="text-gray-400 hover:text-gray-200">
+              <Copy class="h-3 w-3" />
+            </button>
           {/if}
         </div>
       </div>
-    {/if}
+      <div class="overflow-y-auto bg-gray-900 px-4 py-3 font-mono text-sm">
+        {#if stdout}
+          {@const lines = stdout.split("\n")}
+          {@const collapsed = !expandStdout && lines.length > 3}
+          {#each collapsed ? lines.slice(0, 3) : lines as line}
+            <div class="text-gray-100">{line}</div>
+          {/each}
+        {:else}
+          <div class="text-gray-500">No output</div>
+        {/if}
+      </div>
+      {#if stdout && stdout.split("\n").length > 3}
+        <button
+          class="w-full bg-gray-800 px-4 py-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+          onclick={() => expandStdout = !expandStdout}>
+          {expandStdout ? "Collapse" : `Show all ${stdout.split("\n").length} lines`}
+        </button>
+      {/if}
+    </div>
+
+    <!-- stderr console -->
+    <div class="overflow-hidden rounded-lg border border-red-900/50">
+      <div class="flex items-center justify-between bg-red-950/80 px-4 py-2">
+        <h3 class="text-sm font-semibold text-red-300">stderr</h3>
+        <div class="flex items-center gap-2">
+          {#if stderrUrl}
+            <a href={stderrUrl} target="_blank" rel="noopener" class="text-xs text-red-400 hover:text-red-200">
+              <ExternalLink class="h-3 w-3" />
+            </a>
+          {/if}
+          {#if stderr}
+            <button
+              onclick={() => {
+                navigator.clipboard.writeText(stderr)
+                toast.push({message: "Copied", variant: "default"})
+              }}
+              class="text-red-400 hover:text-red-200">
+              <Copy class="h-3 w-3" />
+            </button>
+          {/if}
+        </div>
+      </div>
+      <div class="overflow-y-auto bg-gray-900 px-4 py-3 font-mono text-sm">
+        {#if stderr}
+          {@const lines = stderr.split("\n")}
+          {@const collapsed = !expandStderr && lines.length > 3}
+          {#each collapsed ? lines.slice(0, 3) : lines as line}
+            <div class="text-red-400">{line}</div>
+          {/each}
+        {:else}
+          <div class="text-gray-500">No output</div>
+        {/if}
+      </div>
+      {#if stderr && stderr.split("\n").length > 3}
+        <button
+          class="w-full bg-red-950/80 px-4 py-1.5 text-xs text-red-400 hover:text-red-200 transition-colors"
+          onclick={() => expandStderr = !expandStderr}>
+          {expandStderr ? "Collapse" : `Show all ${stderr.split("\n").length} lines`}
+        </button>
+      {/if}
+    </div>
 
     <!-- Raw Events (collapsible debug section) -->
     <div class="rounded-lg border border-border bg-card overflow-hidden">
