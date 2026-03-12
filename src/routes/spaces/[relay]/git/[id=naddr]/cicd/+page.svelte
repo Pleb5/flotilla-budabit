@@ -317,25 +317,20 @@
   let loadingStatus = $state(false)
   let element: HTMLElement | undefined = $state()
   let feedInitialized = $state(false)
-  let statusFeedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
-  let statusFeedCleanup: (() => void) | undefined = $state(undefined)
 
-  // Create filter for job events (kind 5100) from Damus relay
+  // Create filter for job events (kind 5100)
   const jobFilter = $derived.by(() => {
     if (!repoNaddr) return null
-    const filter = {
+    return {
       kinds: [5100],
       "#a": [repoNaddr],
     }
-    return filter
   })
 
-  // Store subscriptions for job and status events
+  // Store subscriptions for job events
   let jobEventsStore: any = $state(undefined)
-  let statusEventsStore: any = $state(undefined)
   let jobEventsUnsubscribe: (() => void) | undefined = $state(undefined)
-  let statusEventsUnsubscribe: (() => void) | undefined = $state(undefined)
 
   // Initialize feed asynchronously - don't block render
   onMount(() => {
@@ -396,67 +391,38 @@
     }
   })
 
-  // Fetch job results (kind 5101) for completed jobs to determine actual success/failure
-  const fetchJobResultsForCompletedJobs = async () => {
-    const sharegapRelay = "wss://relay.sharegap.net"
+  // Fetch status (30100) and result (5101) events when job events change
+  let fetchedStatusForIds = new Set<string>()
 
-    for (const statusEvent of statusEvents) {
-      const statusTag = statusEvent.tags.find((t: string[]) => t[0] === "status")
-      const status = statusTag ? statusTag[1] : ""
-      const eTag = statusEvent.tags.find((t: string[]) => t[0] === "e")
-      const workflowId = eTag ? eTag[1] : ""
+  $effect(() => {
+    const ids = jobEvents.map((e: any) => e.id).filter((id: string) => !fetchedStatusForIds.has(id))
+    if (ids.length === 0) return
 
-      // Only fetch job results for completed or success status
-      if (status === "completed" || status === "success") {
-        try {
-          const jobResultFilter = {kinds: [5101], "#e": [workflowId]}
+    ids.forEach((id: string) => fetchedStatusForIds.add(id))
 
-          if (!element) continue
-          
-          const jobResultFeed = makeFeed({
-            element,
-            relays: [damusRelay],
-            feedFilters: [jobResultFilter],
-            subscriptionFilters: [jobResultFilter],
-            initialEvents: [],
-          })
+    const jobRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
 
-          // Subscribe to the events store to process results
-          const unsubscribe = jobResultFeed.events.subscribe((events: any[]) => {
-            for (const event of events) {
-              const successTag = event.tags.find((t: string[]) => t[0] === "success")
-              const exitCodeTag = event.tags.find((t: string[]) => t[0] === "exit_code")
-
-              const isSuccess = successTag?.[1] === "true" || exitCodeTag?.[1] === "0"
-              const actualStatus = isSuccess ? "success" : "failure"
-
-              // Update the status event with the actual status from job result
-              const statusIndex = statusEvents.findIndex((e: any) => e.id === statusEvent.id)
-              if (statusIndex >= 0) {
-                statusEvents[statusIndex] = {
-                  ...statusEvents[statusIndex],
-                  tags: statusEvents[statusIndex].tags.map((t: string[]) => {
-                    if (t[0] === "status") {
-                      return ["status", actualStatus]
-                    }
-                    return t
-                  }),
-                }
-              }
-            }
-          })
-
-          // Cleanup after a short timeout
-          setTimeout(() => {
-            unsubscribe()
-            jobResultFeed.cleanup()
-          }, 5000)
-        } catch (err) {
-          console.error("Failed to fetch job result:", err)
+    // Fetch status events (kind 30100) and job results (kind 5101) for these job IDs
+    Promise.all([
+      load({relays: jobRelays, filters: [{kinds: [30100], "#e": ids}]}),
+      load({relays: jobRelays, filters: [{kinds: [5101], "#e": ids}]}),
+    ]).then(([loadedStatus, loadedResults]) => {
+      if (loadedStatus.length > 0) {
+        const seen = new Set(statusEvents.map((e: any) => e.id))
+        const newEvents = loadedStatus.filter((e: any) => !seen.has(e.id))
+        if (newEvents.length > 0) {
+          statusEvents = [...statusEvents, ...newEvents]
         }
       }
-    }
-  }
+      if (loadedResults.length > 0) {
+        const seen = new Set(jobResultEvents.map((e: any) => e.id))
+        const newEvents = loadedResults.filter((e: any) => !seen.has(e.id))
+        if (newEvents.length > 0) {
+          jobResultEvents = [...jobResultEvents, ...newEvents]
+        }
+      }
+    })
+  })
 
   // CRITICAL: Cleanup on destroy to prevent memory leaks and blocking navigation
   onDestroy(() => {
@@ -467,6 +433,7 @@
   // Get events from makeFeed
   let jobEvents = $state<any[]>([])
   let statusEvents = $state<any[]>([])
+  let jobResultEvents = $state<any[]>([])
 
   // Combine test data and real job events
   const allWorkflowRuns = $derived.by(() => {
@@ -474,26 +441,38 @@
     return [...workflowRuns, ...parsedJobRuns].sort((a, b) => b.createdAt - a.createdAt)
   })
 
-  // Match status events to workflow runs and update status
+  // Match status and result events to workflow runs and update status
   const workflowRunsWithStatus = $derived.by(() => {
     return allWorkflowRuns.map(run => {
-      // Find all matching status events for this workflow run (most recent first)
-      const matchingStatusEvents = statusEvents.filter(statusEvent => {
-        // Status event should have an "e" tag pointing to the workflow event ID
-        const eTag = statusEvent.tags.find((t: string[]) => t[0] === "e")
-        const matches = eTag && eTag[1] === run._originalEvent?.id
-        return matches
+      const jobId = run._originalEvent?.id
+      if (!jobId) return run
+
+      // Check job result (kind 5101) first — most authoritative
+      const matchingResult = jobResultEvents.find(e => {
+        const eTag = e.tags.find((t: string[]) => t[0] === "e")
+        return eTag && eTag[1] === jobId
+      })
+
+      if (matchingResult) {
+        const successTag = matchingResult.tags.find((t: string[]) => t[0] === "success")
+        const exitCodeTag = matchingResult.tags.find((t: string[]) => t[0] === "exit_code")
+        const isSuccess = successTag?.[1] === "true" || exitCodeTag?.[1] === "0"
+        return {
+          ...run,
+          status: (isSuccess ? "success" : "failure") as WorkflowRun["status"],
+        }
+      }
+
+      // Fall back to status events (kind 30100)
+      const matchingStatusEvents = statusEvents.filter(e => {
+        const eTag = e.tags.find((t: string[]) => t[0] === "e")
+        return eTag && eTag[1] === jobId
       })
 
       if (matchingStatusEvents.length > 0) {
-        // Sort by created_at descending to get most recent status first
-        matchingStatusEvents.sort((a, b) => b.created_at - a.created_at)
-        const mostRecentStatusEvent = matchingStatusEvents[0]
-
-        // Extract status from most recent status event
-        const statusTag = mostRecentStatusEvent.tags.find((t: string[]) => t[0] === "status")
+        matchingStatusEvents.sort((a: any, b: any) => b.created_at - a.created_at)
+        const statusTag = matchingStatusEvents[0].tags.find((t: string[]) => t[0] === "status")
         const status = statusTag ? statusTag[1] : "pending"
-
         return {
           ...run,
           status: status as WorkflowRun["status"],
