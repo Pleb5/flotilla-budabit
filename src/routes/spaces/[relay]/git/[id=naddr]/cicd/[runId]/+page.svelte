@@ -6,27 +6,26 @@
     X,
     AlertCircle,
     Circle,
-    RotateCw,
     ArrowLeft,
     Copy,
     ChevronDown,
     ChevronRight,
     Loader2,
-    Code,
-    Hash,
-    GitCommit,
     ExternalLink,
   } from "@lucide/svelte"
-  import {pubkey, signer} from "@welshman/app"
   import Spinner from "@lib/components/Spinner.svelte"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
+  import {SimplePool} from "nostr-tools"
   import {onMount, onDestroy} from "svelte"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import {getContext} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
-  import type {Readable} from "svelte/store"
+  import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
-  import {load, request} from "@welshman/net"
+  import {makeLoader, request} from "@welshman/net"
+
+  // Use a longer timeout than the default 3s — cold WebSocket connections need time
+  const load = makeLoader({delay: 200, timeout: 15000, threshold: 0.5})
 
   const repoClass = getContext<Repo>(REPO_KEY)
   if (!repoClass) throw new Error("Repo context not available")
@@ -40,13 +39,15 @@
   let loomStatusEvent = $state<any | null>(null) // Kind 30100 loom status (latest)
   let loomResultEvent = $state<any | null>(null) // Kind 5101 loom result
   let workflowLogEvent = $state<any | null>(null) // Kind 5402 workflow log/result
-  let legacyJobEvent = $state<any | null>(null) // Kind 5100 direct (no parent 5401)
 
   let stdout = $state("")
   let stderr = $state("")
   let loading = $state(true)
   let error = $state<string | null>(null)
   let showRawEvents = $state(false)
+
+  // Worker advertisement (Kind 10100)
+  let workerAdEvent = $state<any | null>(null)
 
   let feedCleanup: (() => void) | undefined
 
@@ -103,34 +104,42 @@
 
   // ── Derived: loom job info ────────────────────────────────────────────
   const loomInfo = $derived.by(() => {
-    if (!loomJobEvent) return null
-    const tags: string[][] = loomJobEvent.tags || []
+    const job = loomJobEvent || (!isHiveCIRun ? runEvent : null)
+    if (!job) return null
+    const tags: string[][] = job.tags || []
     const pTag = tags.find((t: string[]) => t[0] === "p")
     const paymentTag = tags.find((t: string[]) => t[0] === "payment")
     return {
-      id: loomJobEvent.id,
-      worker: pTag?.[1] || "unknown",
-      payment: paymentTag?.[1] || "",
+      id: job.id,
+      workerPubkey: pTag?.[1] || "",
+      paymentToken: paymentTag?.[1] || "",
+    }
+  })
+
+  // ── Derived: worker name from Kind 10100 ──────────────────────────────
+  const workerName = $derived.by(() => {
+    if (!workerAdEvent) return null
+    try {
+      const content = JSON.parse(workerAdEvent.content || "{}")
+      return content.name || null
+    } catch {
+      return null
     }
   })
 
   // ── Derived: composite status ─────────────────────────────────────────
-  // Priority: Kind 5402 (workflow log) > Kind 5101 (loom result) > Kind 30100 (loom status) > pending
-  // Failure if EITHER workflow result OR loom job indicates failure
   const resolvedStatus = $derived.by((): string => {
-    // Kind 5402 — hive-ci workflow result (published by ephemeral key)
+    // Kind 5402 — hive-ci workflow result
     if (workflowLogEvent) {
       const statusTag = workflowLogEvent.tags?.find((t: string[]) => t[0] === "status")
-      const exitCodeTag = workflowLogEvent.tags?.find((t: string[]) => t[0] === "exit_code")
       const s = statusTag?.[1] || "unknown"
-      if (s === "success" && exitCodeTag?.[1] === "0") return "success"
-      if (s === "success") return "success"
       if (s === "failed" || s === "failure") return "failure"
       // Even if 5402 says success, if loom result says failure → failure
       if (loomResultEvent) {
         const loomSuccess = loomResultEvent.tags?.find((t: string[]) => t[0] === "success")
         if (loomSuccess?.[1] === "false") return "failure"
       }
+      if (s === "success") return "success"
       return s
     }
 
@@ -151,6 +160,14 @@
     }
 
     return "pending"
+  })
+
+  // ── Derived: status label (with "workflow result missing" note) ─────
+  const statusLabel = $derived.by((): string => {
+    if (resolvedStatus === "failure" && !workflowLogEvent && loomResultEvent) {
+      return "Failed (workflow result missing)"
+    }
+    return resolvedStatus.replace("_", " ")
   })
 
   // ── Derived: workflow log details ─────────────────────────────────────
@@ -177,9 +194,57 @@
       duration: tagVal("duration"),
       stdoutUrl: tagVal("stdout"),
       stderrUrl: tagVal("stderr"),
-      change: tagVal("change"),
+      changeToken: tagVal("change"),
     }
   })
+
+  // ── Derived: payment info ─────────────────────────────────────────────
+  // Prepaid = sum of proofs in the payment token
+  // Change = sum of proofs in the change token (from loom result)
+  // Actual cost = prepaid - change
+  let prepaidAmount = $state<number | null>(null)
+  let changeAmount = $state<number | null>(null)
+
+  // Parse cashu token amount (sum of proofs)
+  async function parseTokenAmount(token: string): Promise<number> {
+    const {getDecodedToken} = await import("@cashu/cashu-ts")
+    const decoded = getDecodedToken(token)
+    let total = 0
+    for (const proof of decoded.proofs) {
+      total += proof.amount
+    }
+    return total
+  }
+
+  // Watch payment token from loom job
+  $effect(() => {
+    const token = loomInfo?.paymentToken
+    if (token) {
+      parseTokenAmount(token).then(amount => {
+        prepaidAmount = amount
+      }).catch(err => {
+        console.error("[cicd] Failed to parse payment token:", err)
+      })
+    }
+  })
+
+  // Watch change token from loom result
+  $effect(() => {
+    const token = loomResultInfo?.changeToken
+    if (token) {
+      parseTokenAmount(token).then(amount => {
+        changeAmount = amount
+      }).catch(err => {
+        console.error("[cicd] Failed to parse change token:", err)
+      })
+    }
+  })
+
+  const actualCost = $derived(
+    prepaidAmount !== null
+      ? prepaidAmount - (changeAmount ?? 0)
+      : null
+  )
 
   // ── Fetch output files ────────────────────────────────────────────────
   const fetchOutputFile = async (url: string, type: "stdout" | "stderr") => {
@@ -194,6 +259,21 @@
     }
   }
 
+  // ── Fetch worker advertisement (Kind 10100) ───────────────────────────
+  async function fetchWorkerAd(workerPubkey: string) {
+    try {
+      const pool = new SimplePool()
+      const events = await pool.querySync(JOB_RELAYS, {kinds: [10100], authors: [workerPubkey]})
+      if (events.length > 0) {
+        // Pick most recent
+        events.sort((a, b) => b.created_at - a.created_at)
+        workerAdEvent = events[0]
+      }
+    } catch (err) {
+      console.error("[cicd] Failed to fetch worker ad:", err)
+    }
+  }
+
   // ── Mount: fetch all events ───────────────────────────────────────────
   onMount(() => {
     if (!runId) {
@@ -202,8 +282,6 @@
       return
     }
 
-    // Fetch Kind 5401 and Kind 5100 by ID (one of them will be the anchor)
-    // Plus all child/related events
     Promise.all([
       load({relays: JOB_RELAYS, filters: [{kinds: [5401], ids: [runId]}]}),
       load({relays: JOB_RELAYS, filters: [{kinds: [5100], ids: [runId]}]}),
@@ -216,7 +294,6 @@
         runEvent = k5401[0]
       } else if (k5100ById.length > 0) {
         runEvent = k5100ById[0]
-        legacyJobEvent = k5100ById[0]
       } else {
         error = `Workflow run ${runId} not found on any relay`
         loading = false
@@ -234,8 +311,11 @@
       // Loom job referencing this run (Kind 5100 with e-tag)
       if (k5100ByRef.length > 0) {
         loomJobEvent = k5100ByRef[0]
-        // Fetch status/results for the loom job's own ID
         const loomId = loomJobEvent.id
+        // Fetch worker ad
+        const pTag = loomJobEvent.tags?.find((t: string[]) => t[0] === "p")
+        if (pTag?.[1]) fetchWorkerAd(pTag[1])
+
         Promise.all([
           load({relays: JOB_RELAYS, filters: [{kinds: [5101], "#e": [loomId]}]}),
           load({relays: JOB_RELAYS, filters: [{kinds: [30100], "#e": [loomId]}]}),
@@ -252,9 +332,13 @@
             loomStatusEvent = sorted[0]
           }
         })
+      } else if (!runEvent || runEvent.kind !== 5401) {
+        // Legacy: run IS the loom job; fetch worker ad from p tag
+        const pTag = runEvent?.tags?.find((t: string[]) => t[0] === "p")
+        if (pTag?.[1]) fetchWorkerAd(pTag[1])
       }
 
-      // Direct results/status referencing the run ID (e.g. legacy or direct)
+      // Direct results/status referencing the run ID
       if (k5101.length > 0 && !loomResultEvent) {
         loomResultEvent = k5101[0]
         const stdoutUrl = k5101[0].tags?.find((t: string[]) => t[0] === "stdout")?.[1]
@@ -289,7 +373,8 @@
         }
         if (event.kind === 5100 && !loomJobEvent) {
           loomJobEvent = event
-          // Subscribe to loom job's own results
+          const pTag = event.tags?.find((t: string[]) => t[0] === "p")
+          if (pTag?.[1]) fetchWorkerAd(pTag[1])
           request({
             relays: JOB_RELAYS,
             filters: [
@@ -409,7 +494,7 @@
                   {@const StatusIcon = getStatusIcon(resolvedStatus)}
                   <StatusIcon class="h-3 w-3" />
                 {/if}
-                {resolvedStatus.replace("_", " ")}
+                {statusLabel}
               </span>
             </h2>
             <p class="text-sm text-muted-foreground">
@@ -434,21 +519,26 @@
       </div>
     </div>
 
-    <!-- Workflow Run Details -->
+    <!-- Workflow Run card (outer) with Loom Job nested inside -->
     <div class="rounded-lg border border-border bg-card p-4">
-      <h3 class="mb-3 text-lg font-semibold">Workflow Run</h3>
+      <div class="mb-3 flex items-center gap-2">
+        {#if resolvedStatus === "in_progress" || resolvedStatus === "running"}
+          <Loader2 class={`h-5 w-5 animate-spin ${getStatusColor(resolvedStatus)}`} />
+        {:else}
+          {@const StatusIcon = getStatusIcon(resolvedStatus)}
+          <StatusIcon class={`h-5 w-5 ${getStatusColor(resolvedStatus)}`} />
+        {/if}
+        <h3 class="text-lg font-semibold">Workflow Run</h3>
+        <span class={`text-sm ${getStatusColor(resolvedStatus)}`}>{statusLabel}</span>
+      </div>
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div class="space-y-1">
           <p class="text-xs text-muted-foreground">Run ID</p>
           <span class="font-mono text-sm">{runEvent.id.slice(0, 16)}...</span>
         </div>
         <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Kind</p>
-          <span class="text-sm">{isHiveCIRun ? "5401 (Hive CI Run)" : "5100 (Loom Job)"}</span>
-        </div>
-        <div class="space-y-1">
           <p class="text-xs text-muted-foreground">Triggered by</p>
-          <span class="font-mono text-sm">{runInfo.triggeredBy.slice(0, 16)}...</span>
+          <ProfileLink pubkey={runInfo.triggeredBy} />
         </div>
         {#if runInfo.workflowPath}
           <div class="space-y-1">
@@ -469,52 +559,93 @@
           </div>
         {/if}
       </div>
-    </div>
 
-    <!-- Status Summary -->
-    <div class="rounded-lg border border-border bg-card p-4">
-      <h3 class="mb-3 text-lg font-semibold">Status</h3>
-      <div class="space-y-3">
-        <div class="flex items-center justify-between">
-          <span class="text-sm text-muted-foreground">Overall status</span>
-          <span
-            class={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium ${getStatusBgColor(resolvedStatus)} ${getStatusColor(resolvedStatus)}`}>
-            {#if resolvedStatus === "in_progress" || resolvedStatus === "running"}
-              <Loader2 class="h-4 w-4 animate-spin" />
-            {:else}
-              {@const StatusIcon = getStatusIcon(resolvedStatus)}
-              <StatusIcon class="h-4 w-4" />
+      <!-- Nested: Loom Job -->
+      {#if loomInfo}
+        <div class="mt-4 rounded-md border border-border bg-muted/30 p-4">
+          <h4 class="mb-2 text-sm font-semibold text-muted-foreground">Loom Job</h4>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Job ID</p>
+              <span class="font-mono text-sm">{loomInfo.id.slice(0, 16)}...</span>
+            </div>
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Worker</p>
+              {#if loomInfo.workerPubkey}
+                <a
+                  href="https://loom.treegaze.com/worker/{loomInfo.workerPubkey}"
+                  target="_blank"
+                  rel="noopener"
+                  class="inline-flex items-center gap-1 text-sm text-blue-500 hover:underline">
+                  {workerName || loomInfo.workerPubkey.slice(0, 12) + "..."}
+                  <ExternalLink class="h-3 w-3" />
+                </a>
+              {:else}
+                <span class="text-sm text-muted-foreground">Unknown</span>
+              {/if}
+            </div>
+            {#if loomResultInfo}
+              {#if loomResultInfo.success !== undefined}
+                <div class="space-y-1">
+                  <p class="text-xs text-muted-foreground">Result</p>
+                  <span class="text-sm font-medium {loomResultInfo.success === 'true' ? 'text-green-500' : 'text-red-500'}">
+                    {loomResultInfo.success === "true" ? "Success" : "Failed"}
+                  </span>
+                </div>
+              {/if}
+              {#if loomResultInfo.exitCode}
+                <div class="space-y-1">
+                  <p class="text-xs text-muted-foreground">Exit Code</p>
+                  <span class="font-mono text-sm">{loomResultInfo.exitCode}</span>
+                </div>
+              {/if}
+              {#if loomResultInfo.duration}
+                <div class="space-y-1">
+                  <p class="text-xs text-muted-foreground">Duration</p>
+                  <span class="text-sm">{loomResultInfo.duration}s</span>
+                </div>
+              {/if}
             {/if}
-            {resolvedStatus.replace("_", " ")}
-          </span>
+          </div>
         </div>
+      {/if}
 
-        <!-- Show which sources contributed -->
-        <div class="space-y-1 text-xs text-muted-foreground">
-          {#if workflowLogInfo}
-            <div class="flex justify-between">
-              <span>Workflow result (5402):</span>
-              <span class="font-mono">{workflowLogInfo.status}{workflowLogInfo.exitCode ? ` (exit ${workflowLogInfo.exitCode})` : ""}</span>
+      <!-- Legacy command details (for Kind 5100 direct, no nested loom) -->
+      {#if !isHiveCIRun && !loomJobEvent && runInfo.cmd}
+        <div class="mt-4 border-t border-border pt-4">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Command</p>
+              <code class="rounded bg-muted px-2 py-1 text-sm">{runInfo.cmd}</code>
             </div>
-          {/if}
-          {#if loomResultInfo}
-            <div class="flex justify-between">
-              <span>Loom result (5101):</span>
-              <span class="font-mono">{loomResultInfo.success === "true" ? "success" : "failure"}{loomResultInfo.exitCode ? ` (exit ${loomResultInfo.exitCode})` : ""}</span>
+            <div class="space-y-1">
+              <p class="text-xs text-muted-foreground">Worker</p>
+              {#if runInfo.worker && runInfo.worker !== "unknown"}
+                <a
+                  href="https://loom.treegaze.com/worker/{runInfo.worker}"
+                  target="_blank"
+                  rel="noopener"
+                  class="inline-flex items-center gap-1 text-sm text-blue-500 hover:underline">
+                  {workerName || runInfo.worker.slice(0, 12) + "..."}
+                  <ExternalLink class="h-3 w-3" />
+                </a>
+              {:else}
+                <span class="text-sm text-muted-foreground">Unknown</span>
+              {/if}
             </div>
-          {/if}
-          {#if loomStatusEvent}
-            {@const statusTag = loomStatusEvent.tags?.find((t: string[]) => t[0] === "status")}
-            <div class="flex justify-between">
-              <span>Loom status (30100):</span>
-              <span class="font-mono">{statusTag?.[1] || "unknown"}</span>
+          </div>
+          {#if runInfo.envVars?.length > 0}
+            <div class="mt-3">
+              <p class="mb-1 text-xs text-muted-foreground">Environment Variables</p>
+              <div class="space-y-1">
+                {#each runInfo.envVars as envVar}
+                  <code class="block rounded bg-muted px-2 py-1 text-xs">{envVar}</code>
+                {/each}
+              </div>
             </div>
-          {/if}
-          {#if !workflowLogInfo && !loomResultInfo && !loomStatusEvent}
-            <p>No status updates received yet.</p>
           {/if}
         </div>
-      </div>
+      {/if}
     </div>
 
     <!-- Workflow Result (Kind 5402) -->
@@ -547,79 +678,38 @@
       </div>
     {/if}
 
-    <!-- Loom Job (child event) -->
-    {#if loomInfo}
+    <!-- Payment Overview -->
+    {#if prepaidAmount !== null}
       <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-3 text-lg font-semibold">Loom Job</h3>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Job ID</p>
-            <span class="font-mono text-sm">{loomInfo.id.slice(0, 16)}...</span>
+        <h3 class="mb-3 text-lg font-semibold">{resolvedStatus === "pending" || resolvedStatus === "in_progress" || resolvedStatus === "running" || resolvedStatus === "queued" ? "Cost Estimate" : "Payment Receipt"}</h3>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-muted-foreground">Prepayment:</span>
+            <span class="font-mono text-red-500">-{prepaidAmount.toLocaleString()} sats</span>
           </div>
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Worker</p>
-            <span class="font-mono text-sm">{loomInfo.worker.slice(0, 16)}...</span>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Payment</p>
-            <span class="text-sm">{loomInfo.payment ? "Attached" : "N/A"}</span>
-          </div>
-        </div>
-
-        <!-- Loom result details -->
-        {#if loomResultInfo}
-          <div class="mt-4 grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-3">
-            {#if loomResultInfo.success !== undefined}
-              <div class="space-y-1">
-                <p class="text-xs text-muted-foreground">Success</p>
-                <span class="text-sm font-medium">{loomResultInfo.success}</span>
-              </div>
-            {/if}
-            {#if loomResultInfo.exitCode}
-              <div class="space-y-1">
-                <p class="text-xs text-muted-foreground">Exit Code</p>
-                <span class="font-mono text-sm">{loomResultInfo.exitCode}</span>
-              </div>
-            {/if}
-            {#if loomResultInfo.duration}
-              <div class="space-y-1">
-                <p class="text-xs text-muted-foreground">Duration</p>
-                <span class="text-sm">{loomResultInfo.duration}s</span>
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-    {/if}
-
-    <!-- Legacy command details (for Kind 5100 direct) -->
-    {#if !isHiveCIRun && runInfo.cmd}
-      <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-3 text-lg font-semibold">Command Details</h3>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Command</p>
-            <code class="rounded bg-muted px-2 py-1 text-sm">{runInfo.cmd}</code>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Worker</p>
-            <span class="font-mono text-sm">{runInfo.worker?.slice(0, 16)}...</span>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-muted-foreground">Payment</p>
-            <span class="text-sm">{runInfo.payment || "N/A"}</span>
-          </div>
-        </div>
-        {#if runInfo.envVars?.length > 0}
-          <div class="mt-4">
-            <p class="mb-2 text-xs text-muted-foreground">Environment Variables</p>
-            <div class="space-y-1">
-              {#each runInfo.envVars as envVar}
-                <code class="block rounded bg-muted px-2 py-1 text-xs">{envVar}</code>
-              {/each}
+          {#if changeAmount !== null}
+            <div class="flex justify-between">
+              <span class="text-muted-foreground">Change returned:</span>
+              <span class="font-mono {changeAmount > 0 ? 'text-green-500' : 'text-muted-foreground'}">+{changeAmount.toLocaleString()} sats</span>
             </div>
-          </div>
-        {/if}
+          {:else if resolvedStatus === "pending" || resolvedStatus === "in_progress" || resolvedStatus === "running" || resolvedStatus === "queued"}
+            <div class="flex justify-between">
+              <span class="text-muted-foreground">Est. change:</span>
+              <span class="font-mono text-green-500">pending</span>
+            </div>
+          {:else}
+            <div class="flex justify-between">
+              <span class="text-muted-foreground">Change returned:</span>
+              <span class="font-mono text-muted-foreground">0 sats</span>
+            </div>
+          {/if}
+          {#if actualCost !== null}
+            <div class="flex justify-between border-t border-border pt-2 font-semibold">
+              <span>Total cost:</span>
+              <span class="font-mono">{actualCost.toLocaleString()} sats</span>
+            </div>
+          {/if}
+        </div>
       </div>
     {/if}
 
@@ -685,7 +775,6 @@
 
       {#if showRawEvents}
         <div class="space-y-3 px-4 pb-4">
-          <!-- Kind 5401 / run event -->
           {#if runEvent}
             <div class="overflow-hidden rounded-lg border border-purple-200 dark:border-purple-800">
               <div class="border-b border-purple-200 bg-purple-50 px-3 py-2 dark:border-purple-800 dark:bg-purple-950/40">
@@ -698,7 +787,6 @@
             </div>
           {/if}
 
-          <!-- Kind 5100 loom job -->
           {#if loomJobEvent}
             <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
               <div class="border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/40">
@@ -709,7 +797,6 @@
             </div>
           {/if}
 
-          <!-- Kind 30100 loom status -->
           {#if loomStatusEvent}
             <div class="overflow-hidden rounded-lg border border-blue-200 dark:border-blue-800">
               <div class="border-b border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-800 dark:bg-blue-950/40">
@@ -720,7 +807,6 @@
             </div>
           {/if}
 
-          <!-- Kind 5101 loom result -->
           {#if loomResultEvent}
             <div class="overflow-hidden rounded-lg border border-green-200 dark:border-green-800">
               <div class="border-b border-green-200 bg-green-50 px-3 py-2 dark:border-green-800 dark:bg-green-950/40">
@@ -731,7 +817,6 @@
             </div>
           {/if}
 
-          <!-- Kind 5402 workflow log -->
           {#if workflowLogEvent}
             <div class="overflow-hidden rounded-lg border border-indigo-200 dark:border-indigo-800">
               <div class="border-b border-indigo-200 bg-indigo-50 px-3 py-2 dark:border-indigo-800 dark:bg-indigo-950/40">
