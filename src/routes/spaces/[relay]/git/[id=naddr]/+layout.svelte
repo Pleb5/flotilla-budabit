@@ -23,8 +23,9 @@
   import {notifications, hasRepoNotification, checked, setCheckedAt} from "@app/util/notifications"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {PLATFORM_RELAYS, decodeRelay, encodeRelay, isPlatformRelay} from "@app/core/state"
-  import {pushModal} from "@app/util/modal"
+  import {pushModal, clearModals} from "@app/util/modal"
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
+  import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
   import {EditRepoPanel} from "@nostr-git/ui"
   import {postRepoAnnouncement} from "@lib/budabit/commands.js"
   import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
@@ -41,11 +42,11 @@
     stateEvent: RepoStateEvent
   }
   import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
-  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, parseRepoAnnouncementEvent, isCommentEvent} from "@nostr-git/core/events"
-  import {normalizeRelayUrl as normalizeRelayUrlShared, parseRepoId} from "@nostr-git/core/utils"
+  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, parseRepoAnnouncementEvent, isCommentEvent, createRepoStateEvent} from "@nostr-git/core/events"
+  import {normalizeRelayUrl as normalizeRelayUrlShared, parseRepoId, filterValidCloneUrls, reorderUrlsByPreference} from "@nostr-git/core/utils"
   import {derived, get as getStore, readable, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
-  import {deriveEventsAsc, deriveEventsById, throttled} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById, deriveEventsDesc, throttled} from "@welshman/store"
   import {load, request} from "@welshman/net"
   import {Router} from "@welshman/router"
   import {goto, beforeNavigate} from "$app/navigation"
@@ -87,6 +88,7 @@
   import Icon from "@src/lib/components/Icon.svelte"
   import {makeGitPath} from "@lib/budabit/routes"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
+  import {diffBranchHeads, overlayLatestRepoStates, type BranchChange} from "@src/lib/budabit/branch-update"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   
   const {id, relay} = $page.params
@@ -104,6 +106,23 @@
   const ADDRESS_DERIVE_FILTER_CHUNK_SIZE = 50
   const COMMENT_DERIVE_FILTER_CHUNK_SIZE = 100
   const SCOPED_DERIVE_THROTTLE_MS = 120
+
+  type RepoBranchUpdate = {
+    repoId: string
+    repoName: string
+    cloneUrl: string
+    relays: string[]
+    headBranch?: string
+    updates: BranchChange[]
+    refs: Array<{type: "heads"; name: string; commit: string}>
+  }
+
+  type ServerRef = {
+    ref?: string
+    oid?: string
+    symref?: string
+    target?: string
+  }
 
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
@@ -252,6 +271,494 @@
       repoName: repoClass?.name || repoName,
     })
   }
+
+  const isOwnedRepo = $derived.by(() => !!$pubkey && repoPubkey === $pubkey)
+
+  let myRepoStateEvents = $state<RepoStateEvent[]>([])
+  let optimisticRepoStates = $state<Record<string, RepoStateEvent>>({})
+  let pendingBranchUpdates = $state<RepoBranchUpdate[]>([])
+  let branchUpdateCheckDone = $state(false)
+  let branchUpdateChecking = $state(false)
+  let repoStateSettled = $state(false)
+  let repoStateLoadKey = $state("")
+  let repoStateSettleTimer: ReturnType<typeof setTimeout> | null = null
+  let stateUpdateWorkerApi: any = null
+
+  const ensureStateUpdateWorkerApi = async () => {
+    if (stateUpdateWorkerApi) return stateUpdateWorkerApi
+    const {api} = await getInitializedGitWorker()
+    stateUpdateWorkerApi = api
+    return stateUpdateWorkerApi
+  }
+
+  const isDeletedRepoAnnouncement = (event?: {tags?: string[][]} | null) =>
+    (event?.tags || []).some(tag => tag[0] === "deleted")
+
+  const hasRepoStateRefs = (state?: RepoStateEvent) => {
+    if (!state?.tags) return false
+    return state.tags.some((t: string[]) => typeof t[0] === "string" && t[0].startsWith("refs/"))
+  }
+
+  const getRepoStateHeads = (state?: RepoStateEvent) => {
+    const heads = new Map<string, string>()
+    if (!state?.tags) return heads
+    for (const tag of state.tags) {
+      const [ref, commit] = tag
+      if (!ref || typeof ref !== "string") continue
+      if (!ref.startsWith("refs/heads/")) continue
+      if (!commit || typeof commit !== "string") continue
+      heads.set(ref, commit)
+    }
+    return heads
+  }
+
+  const parseHeadBranchFromRefs = (refs: ServerRef[]) => {
+    const headRef = refs.find(r => r?.ref === "HEAD")
+    const symref = typeof headRef?.symref === "string" ? headRef.symref : headRef?.target
+    if (typeof symref === "string" && symref.startsWith("refs/heads/")) {
+      return symref.replace("refs/heads/", "")
+    }
+    return undefined
+  }
+
+  const parseRemoteHeads = (refs: ServerRef[]) => {
+    const heads = new Map<string, string>()
+    for (const ref of refs) {
+      if (!ref?.ref || typeof ref.ref !== "string") continue
+      if (!ref.ref.startsWith("refs/heads/")) continue
+      if (!ref.oid || typeof ref.oid !== "string") continue
+      heads.set(ref.ref, ref.oid)
+    }
+    let headBranch = parseHeadBranchFromRefs(refs)
+    if (!headBranch) {
+      if (heads.has("refs/heads/main")) headBranch = "main"
+      else if (heads.has("refs/heads/master")) headBranch = "master"
+    }
+    return {heads, headBranch}
+  }
+
+  const isNotFoundError = (error: unknown) => {
+    const anyError = error as {status?: number; code?: number; data?: {status?: number}; message?: string}
+    const status = anyError?.status ?? anyError?.code ?? anyError?.data?.status
+    const message = String(anyError?.message ?? error ?? "")
+    return status === 404 || message.includes("404") || message.includes("Not Found")
+  }
+
+  const buildCloneCandidates = (cloneUrl: string) => {
+    const raw = String(cloneUrl || "").trim()
+    const valid = filterValidCloneUrls([raw])
+    if (valid.length === 0) return []
+
+    const candidates: string[] = []
+    const add = (url: string) => {
+      const cleaned = url.replace(/\/+$/, "")
+      if (cleaned && !candidates.includes(cleaned)) {
+        candidates.push(cleaned)
+      }
+    }
+
+    const base = valid[0]
+    if (/^https?:\/\//i.test(base)) {
+      add(base)
+    } else if (/^git@/i.test(base)) {
+      const match = base.match(/^git@([^:]+):(.+)$/)
+      if (match) add(`https://${match[1]}/${match[2]}`)
+    } else if (/^ssh:\/\//i.test(base)) {
+      const match = base.match(/^ssh:\/\/(?:.+@)?([^/]+)\/(.+)$/)
+      if (match) add(`https://${match[1]}/${match[2]}`)
+    } else if (/^git:\/\//i.test(base)) {
+      const match = base.match(/^git:\/\/([^/]+)\/(.+)$/)
+      if (match) add(`https://${match[1]}/${match[2]}`)
+    } else {
+      add(base)
+    }
+
+    const withGit: string[] = []
+    for (const url of candidates) {
+      withGit.push(url)
+      if (!url.endsWith(".git")) {
+        withGit.push(`${url}.git`)
+      }
+    }
+
+    return Array.from(new Set(withGit))
+  }
+
+  const listServerRefsWithFallback = async (cloneUrl: string) => {
+    const workerApi = await ensureStateUpdateWorkerApi()
+    const candidates = buildCloneCandidates(cloneUrl)
+    let lastError: unknown = null
+    let sawNotFound = false
+    for (const candidate of candidates) {
+      try {
+        const result = await workerApi.listServerRefs({url: candidate, symrefs: true})
+        if (Array.isArray(result)) {
+          return result as ServerRef[]
+        }
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          sawNotFound = true
+          continue
+        }
+        lastError = error
+      }
+    }
+    if (lastError) throw lastError
+    if (sawNotFound) return []
+    return []
+  }
+
+  const myReposEvents = $derived.by(() => {
+    if (!isOwnedRepo || !$pubkey) return undefined
+    const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]} as Filter
+    return deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
+  })
+
+  const latestMyRepos = $derived.by(() => {
+    if (!isOwnedRepo || !$myReposEvents || !$pubkey) return []
+    const repoIds = new Set<string>()
+    for (const repo of $myReposEvents as RepoAnnouncementEvent[]) {
+      const parsedRepoId = getTagValue("d", repo.tags) || ""
+      if (parsedRepoId) repoIds.add(parsedRepoId)
+    }
+
+    const latest: RepoAnnouncementEvent[] = []
+    for (const myRepoId of repoIds) {
+      const address = `${GIT_REPO_ANNOUNCEMENT}:${$pubkey}:${myRepoId}`
+      const event = repository.getEvent(address) as RepoAnnouncementEvent | undefined
+      if (!event) continue
+      if (isDeletedRepoAnnouncement(event)) continue
+      latest.push(event)
+    }
+
+    return latest
+  })
+
+  const myRepoIds = $derived.by(() => {
+    if (!isOwnedRepo || latestMyRepos.length === 0) return []
+    const ids = new Set<string>()
+    for (const repo of latestMyRepos) {
+      try {
+        const parsed = parseRepoAnnouncementEvent(repo)
+        if (parsed.repoId) ids.add(parsed.repoId)
+      } catch {
+        const fallbackRepoId = getTagValue("d", repo.tags) || ""
+        if (fallbackRepoId) ids.add(fallbackRepoId)
+      }
+    }
+    return Array.from(ids)
+  })
+
+  const myRepoRelays = $derived.by(() => {
+    if (!isOwnedRepo || latestMyRepos.length === 0) return []
+    const relays = new Set<string>()
+    for (const repo of latestMyRepos) {
+      try {
+        const parsed = parseRepoAnnouncementEvent(repo)
+        for (const relay of parsed.relays || []) {
+          const normalized = normalizeRelayUrl(relay)
+          if (normalized) relays.add(normalized)
+        }
+      } catch {
+        // pass
+      }
+    }
+    return Array.from(relays)
+  })
+
+  const branchStateRelays = $derived.by(() => {
+    if (!isOwnedRepo) return []
+    const relays = new Set<string>()
+    for (const relay of [...myRepoRelays, ...GIT_RELAYS]) {
+      const normalized = normalizeRelayUrl(relay)
+      if (normalized) relays.add(normalized)
+    }
+    return Array.from(relays)
+  })
+
+  $effect(() => {
+    if (!isOwnedRepo || !$pubkey || myRepoIds.length === 0) {
+      myRepoStateEvents = []
+      optimisticRepoStates = {}
+      return
+    }
+    const filter = {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": myRepoIds} as Filter
+    const store = deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
+    const unsubscribe = store.subscribe(events => {
+      myRepoStateEvents = events as RepoStateEvent[]
+    })
+    return () => unsubscribe()
+  })
+
+  const latestMyRepoStates = $derived.by(() => {
+    const map = new Map<string, RepoStateEvent>()
+    for (const ev of myRepoStateEvents) {
+      const repoId = getTagValue("d", ev.tags) || ""
+      if (!repoId || map.has(repoId)) continue
+      map.set(repoId, ev)
+    }
+    return overlayLatestRepoStates(map, optimisticRepoStates)
+  })
+
+  $effect(() => {
+    if (!isOwnedRepo || !$pubkey) return
+    if (myRepoIds.length === 0) {
+      repoStateSettled = false
+      return
+    }
+    const ids = [...myRepoIds].sort()
+    const relayKey = [...branchStateRelays].sort().join(",")
+    const key = `${$pubkey}:${ids.join(",")}:${relayKey}`
+    if (repoStateLoadKey === key) return
+    repoStateLoadKey = key
+    repoStateSettled = false
+    if (repoStateSettleTimer) {
+      clearTimeout(repoStateSettleTimer)
+      repoStateSettleTimer = null
+    }
+    repoStateSettleTimer = setTimeout(() => {
+      repoStateSettled = true
+      repoStateSettleTimer = null
+    }, 2500)
+    const filter = {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": ids} as Filter
+    load({relays: branchStateRelays, filters: [filter]}).catch(() => {})
+  })
+
+  const buildRepoBranchUpdate = async (repoEvent: RepoAnnouncementEvent) => {
+    let parsed
+    try {
+      parsed = parseRepoAnnouncementEvent(repoEvent)
+    } catch {
+      return null
+    }
+
+    const currentRepoId = parsed.repoId
+    if (!currentRepoId) return null
+
+    const repoLabel = parsed.name || currentRepoId
+    const validCloneUrls = filterValidCloneUrls(parsed.clone || [])
+    const orderedCloneUrls = reorderUrlsByPreference(validCloneUrls, currentRepoId)
+    const cloneUrl = orderedCloneUrls[0]
+    if (!cloneUrl) return null
+
+    const relays = parsed.relays || []
+    const latestState = latestMyRepoStates.get(currentRepoId)
+    if (latestState && !hasRepoStateRefs(latestState)) return null
+
+    let refs: ServerRef[] = []
+    try {
+      refs = await listServerRefsWithFallback(cloneUrl)
+    } catch {
+      return null
+    }
+
+    const {heads, headBranch} = parseRemoteHeads(refs)
+    if (heads.size === 0) return null
+
+    const currentHeads = getRepoStateHeads(latestState)
+    const changes = diffBranchHeads(currentHeads, heads)
+    if (changes.length === 0) return null
+
+    const refsForEvent = Array.from(heads.entries()).map(([ref, commit]) => ({
+      type: "heads" as const,
+      name: ref.replace("refs/heads/", ""),
+      commit,
+    }))
+
+    return {
+      repoId: currentRepoId,
+      repoName: repoLabel,
+      cloneUrl,
+      relays,
+      headBranch,
+      updates: changes,
+      refs: refsForEvent,
+    } satisfies RepoBranchUpdate
+  }
+
+  const checkRepoBranchUpdates = async () => {
+    if (!isOwnedRepo || !$pubkey) return
+    if (branchUpdateChecking) return
+    if (latestMyRepos.length === 0) return
+
+    branchUpdateChecking = true
+    try {
+      const updates: RepoBranchUpdate[] = []
+      for (const repoEvent of latestMyRepos) {
+        const update = await buildRepoBranchUpdate(repoEvent)
+        if (update) updates.push(update)
+      }
+      pendingBranchUpdates = updates
+    } finally {
+      branchUpdateChecking = false
+    }
+  }
+
+  const checkCurrentRepoBranchUpdate = async () => {
+    if (!isOwnedRepo || !$pubkey) return
+    if (branchUpdateChecking) return
+
+    const repoEvent = $repoEventStore as RepoAnnouncementEvent | undefined
+    if (!repoEvent) return
+
+    branchUpdateChecking = true
+    try {
+      const update = await buildRepoBranchUpdate(repoEvent)
+      const next = pendingBranchUpdates.filter(item => item.repoId !== repoName && item.repoId !== repoId)
+      if (update) {
+        next.push(update)
+      }
+      pendingBranchUpdates = next
+    } finally {
+      branchUpdateChecking = false
+    }
+  }
+
+  const openBranchSyncModal = (preferredRepoId?: string) => {
+    if (!pendingBranchUpdates.length) return
+    pushModal(BranchStateSyncModal, {
+      repos: pendingBranchUpdates,
+      preferredRepoId,
+      onCancel: () => clearModals(),
+      onUpdate: async (
+        selected: RepoBranchUpdate[],
+        onProgress?: (completed: number, total: number) => void,
+      ) => {
+        if (!selected.length) {
+          clearModals()
+          return {total: 0, completed: 0, failures: []}
+        }
+
+        const total = selected.length
+        let completed = 0
+        const failures: Array<{repoId: string; repoName: string; error: string}> = []
+        onProgress?.(completed, total)
+
+        for (const repo of selected) {
+          try {
+            const baseRelays = repo.relays && repo.relays.length > 0 ? repo.relays : getRepoAnnouncementRelays()
+            if (!baseRelays || baseRelays.length === 0) {
+              throw new Error(`No relays configured for ${repo.repoName || repo.repoId}`)
+            }
+            const targetRelays = Array.from(new Set([...baseRelays, ...GIT_RELAYS]))
+              .map(relay => normalizeRelayUrl(relay))
+              .filter(Boolean) as string[]
+            const stateEvent = createRepoStateEvent({
+              repoId: repo.repoId,
+              head: repo.headBranch,
+              refs: repo.refs,
+            })
+            const thunk = publishThunk({event: stateEvent, relays: targetRelays})
+            if (thunk?.complete) {
+              await thunk.complete
+            }
+            if (thunk.event) {
+              const published = thunk.event as RepoStateEvent
+              optimisticRepoStates = {
+                ...optimisticRepoStates,
+                [repo.repoId]: published,
+              }
+              myRepoStateEvents = [
+                published,
+                ...myRepoStateEvents.filter(event => event.id !== published.id),
+              ]
+            }
+          } catch (error) {
+            failures.push({
+              repoId: repo.repoId,
+              repoName: repo.repoName || repo.repoId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          } finally {
+            completed += 1
+            onProgress?.(completed, total)
+          }
+        }
+
+        if (failures.length > 0) {
+          const failedNames = failures.map(f => f.repoName || f.repoId)
+          const summary =
+            failedNames.length > 3
+              ? `${failedNames.slice(0, 3).join(", ")} +${failedNames.length - 3} more`
+              : failedNames.join(", ")
+          pushToast({
+            message: `Branch state update failed for: ${summary}`,
+            theme: "error",
+          })
+          pendingBranchUpdates = pendingBranchUpdates.filter(repo =>
+            failures.some(failure => failure.repoId === repo.repoId),
+          )
+        } else {
+          pushToast({message: "Branches synchronized to Nostr", theme: "success"})
+          pendingBranchUpdates = []
+        }
+        const updatedCount = total - failures.length
+        return {total, completed: updatedCount, failures}
+      },
+    })
+  }
+
+  const refreshBranchUpdatesAndOpen = async () => {
+    if (!isOwnedRepo) return
+    await checkRepoBranchUpdates()
+    if (!pendingBranchUpdates.length) {
+      pushToast({message: "No repository state updates found."})
+      return
+    }
+    openBranchSyncModal(repoName)
+  }
+
+  const hasCurrentRepoBranchUpdate = $derived.by(() =>
+    pendingBranchUpdates.some(update => update.repoId === repoName || update.repoId === repoId),
+  )
+
+  const isOverviewPage = $derived.by(() => {
+    const pathname = $page.url.pathname.replace(/\/+$/, "")
+    const repoPath = basePath.replace(/\/+$/, "")
+    return pathname === repoPath
+  })
+
+  let wasOnOverview = $state(false)
+
+  $effect(() => {
+    if (!isOwnedRepo) {
+      wasOnOverview = false
+      return
+    }
+
+    const onOverview = isOverviewPage
+    const shouldCheckCurrentRepo = onOverview && !wasOnOverview
+    wasOnOverview = onOverview
+
+    if (!shouldCheckCurrentRepo) return
+    void checkCurrentRepoBranchUpdate()
+  })
+
+  $effect(() => {
+    const key = `${repoPubkey}:${repoName}:${$pubkey || ""}`
+    if (!key) return
+    branchUpdateCheckDone = false
+    pendingBranchUpdates = []
+    repoStateLoadKey = ""
+    repoStateSettled = false
+    if (repoStateSettleTimer) {
+      clearTimeout(repoStateSettleTimer)
+      repoStateSettleTimer = null
+    }
+  })
+
+  $effect(() => {
+    if (!isOwnedRepo) return
+    if (!repoStateSettled) return
+    if (branchUpdateCheckDone || branchUpdateChecking) return
+    void (async () => {
+      try {
+        await checkRepoBranchUpdates()
+      } finally {
+        branchUpdateCheckDone = true
+      }
+    })()
+  })
 
   const normalizePath = (value: string | null | undefined) =>
     (value ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
@@ -1132,6 +1639,11 @@
       clearTimeout(repoLoadRetryTimer)
       repoLoadRetryTimer = null
     }
+
+    if (repoStateSettleTimer) {
+      clearTimeout(repoStateSettleTimer)
+      repoStateSettleTimer = null
+    }
   })
 
   // Refresh state
@@ -1783,6 +2295,8 @@
         watchRepo={openWatchModal}
         isWatching={isWatching}
         canEditSettings={!!$pubkey && repoPubkey === $pubkey}
+        updateRepoState={isOwnedRepo ? refreshBranchUpdatesAndOpen : undefined}
+        hasRepoStateUpdate={hasCurrentRepoBranchUpdate}
         >
         {#snippet children(activeTab: string)}
           <RepoTab

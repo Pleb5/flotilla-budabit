@@ -26,7 +26,7 @@
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
-  import {pushToast, popToast} from "@app/util/toast"
+  import {pushToast} from "@app/util/toast"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {decodeRelay} from "@app/core/state"
   import {goto} from "$app/navigation"
@@ -85,10 +85,10 @@
   import {
     type BranchChange,
     diffBranchHeads,
-    buildBranchUpdateDedupeKey,
     overlayLatestRepoStates,
   } from "@src/lib/budabit/branch-update"
   import {reorderUrlsByPreference} from "@nostr-git/core/utils"
+  import DangerTriangle from "@assets/icons/danger-triangle.svg?dataurl"
 
   const url = decodeRelay($page.params.relay!)
 
@@ -215,8 +215,6 @@
   let branchUpdateCheckDone = $state(false)
   let branchUpdateChecking = $state(false)
   let pendingBranchUpdates = $state<RepoBranchUpdate[]>([])
-  let branchUpdateToastLastKey = ""
-  let branchUpdateToastId: string | null = null
   const logBranchUpdate = (message: string, details?: unknown) => {
     // Disabled to reduce console noise - uncomment for debugging branch updates
     // if (details === undefined) {
@@ -247,8 +245,6 @@
 
     branchUpdateCheckDone = false
     logBranchUpdate("session start: check flag reset for this page load")
-    branchUpdateToastLastKey = ""
-    logBranchUpdate("toast dedupe key reset for this page load")
   })
 
   // Load repos reactively when pubkey or relays change
@@ -834,10 +830,11 @@
     return []
   }
 
-  const openBranchSyncModal = () => {
+  const openBranchSyncModal = (preferredRepoId?: string) => {
     if (!pendingBranchUpdates.length) return
     pushModal(BranchStateSyncModal, {
       repos: pendingBranchUpdates,
+      preferredRepoId,
       onCancel: () => clearModals(),
       onUpdate: async (
         selected: RepoBranchUpdate[],
@@ -916,6 +913,23 @@
       },
     })
   }
+
+  const getRepoIdFromAnnouncement = (event?: RepoAnnouncementEvent | null) => {
+    if (!event) return ""
+    try {
+      const parsed = parseRepoAnnouncementEvent(event)
+      if (parsed.repoId) return parsed.repoId
+    } catch {
+      // pass
+    }
+    return getTagValue("d", event.tags) || ""
+  }
+
+  const hasPendingBranchUpdate = (repoId: string) =>
+    pendingBranchUpdates.some(update => update.repoId === repoId)
+
+  const isOwnedRepoAnnouncement = (event?: RepoAnnouncementEvent | null) =>
+    Boolean(event && $pubkey && event.pubkey === $pubkey)
 
   const checkRepoBranchUpdates = async () => {
     if (!workerApi || !$pubkey) {
@@ -1029,41 +1043,9 @@
 
       pendingBranchUpdates = updates
       if (updates.length > 0) {
-        const key = buildBranchUpdateDedupeKey(updates)
-        logBranchUpdate("computed update dedupe key", key)
-        logBranchUpdate("previous update dedupe key", branchUpdateToastLastKey || "<none>")
-
-        if (key && key !== branchUpdateToastLastKey) {
-          branchUpdateToastLastKey = key
-          logBranchUpdate("showing update toast (new dedupe key)")
-          if (branchUpdateToastId) {
-            popToast(branchUpdateToastId)
-            branchUpdateToastId = null
-          }
-          const toastId = pushToast({
-            message: "Sync your Repo states to Nostr",
-            timeout: 0,
-            action: {
-              message: "Review",
-              onclick: () => {
-                if (branchUpdateToastId) {
-                  popToast(branchUpdateToastId)
-                  branchUpdateToastId = null
-                }
-                openBranchSyncModal()
-              },
-            },
-          })
-          branchUpdateToastId = toastId
-        } else {
-          logBranchUpdate("toast suppressed by dedupe key match")
-        }
+        logBranchUpdate("repo state updates available", updates.length)
       } else {
         logBranchUpdate("no repos require branch updates")
-        if (branchUpdateToastId) {
-          popToast(branchUpdateToastId)
-          branchUpdateToastId = null
-        }
       }
     } finally {
       branchUpdateChecking = false
@@ -1671,6 +1653,7 @@
             class="rounded-md border border-border bg-card p-3"
             in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
             {#if g.first}
+              {@const cardRepoId = getRepoIdFromAnnouncement(g.first as RepoAnnouncementEvent)}
               <GitItem
                 {url}
                 event={g.first as any}
@@ -1678,6 +1661,15 @@
                 showIssues={true}
                 showActions={true}
                 hideDate={true} />
+
+              {#if isOwnedRepoAnnouncement(g.first as RepoAnnouncementEvent) && cardRepoId && hasPendingBranchUpdate(cardRepoId)}
+                <div class="mt-3 flex justify-end">
+                  <Button class="btn btn-warning btn-xs" onclick={() => openBranchSyncModal(cardRepoId)}>
+                    <Icon icon={DangerTriangle} />
+                    Update state
+                  </Button>
+                </div>
+              {/if}
             {/if}
             <div class="mt-3 flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -1752,6 +1744,7 @@
           <div class="rounded-md border border-border bg-card p-3">
             <!-- Use GitItem for consistent repo card rendering -->
             {#if g.first}
+              {@const cardRepoId = getRepoIdFromAnnouncement(g.first as RepoAnnouncementEvent)}
               <GitItem
                 {url}
                 event={g.first as any}
@@ -1759,6 +1752,15 @@
                 showIssues={true}
                 showActions={true}
                 hideDate={true} />
+
+              {#if isOwnedRepoAnnouncement(g.first as RepoAnnouncementEvent) && cardRepoId && hasPendingBranchUpdate(cardRepoId)}
+                <div class="mt-3 flex justify-end">
+                  <Button class="btn btn-warning btn-xs" onclick={() => openBranchSyncModal(cardRepoId)}>
+                    <Icon icon={DangerTriangle} />
+                    Update state
+                  </Button>
+                </div>
+              {/if}
             {/if}
 
             <!-- Maintainers avatars and date -->

@@ -34,6 +34,7 @@
 
   interface Props {
     repos: RepoBranchUpdate[]
+    preferredRepoId?: string
     onCancel?: () => void
     onUpdate?: (
       selected: RepoBranchUpdate[],
@@ -41,7 +42,7 @@
     ) => Promise<BranchUpdateResult> | BranchUpdateResult
   }
 
-  const {repos, onCancel, onUpdate}: Props = $props()
+  const {repos, preferredRepoId, onCancel, onUpdate}: Props = $props()
 
   let updating = $state(false)
   let selections = $state<Record<string, boolean>>({})
@@ -51,10 +52,22 @@
 
   $effect(() => {
     const next: Record<string, boolean> = {}
+    const preferredExists = !!preferredRepoId && (repos || []).some(repo => repo.repoId === preferredRepoId)
+
     for (const repo of repos || []) {
-      next[repo.repoId] = true
+      next[repo.repoId] = preferredExists ? repo.repoId === preferredRepoId : true
     }
     selections = next
+  })
+
+  const preferredRepo = $derived.by(() => {
+    if (!preferredRepoId) return null
+    return (repos || []).find(repo => repo.repoId === preferredRepoId) || null
+  })
+
+  const otherRepos = $derived.by(() => {
+    if (!preferredRepoId) return repos || []
+    return (repos || []).filter(repo => repo.repoId !== preferredRepoId)
   })
 
   const toggleRepo = (repoId: string) => {
@@ -133,35 +146,54 @@
 {#if !repos || repos.length === 0}
   <p class="text-sm text-muted-foreground">No branch updates found.</p>
 {:else}
-  <div class="flex flex-col gap-3">
-    {#each repos as repo (repo.repoId)}
-      <div class="rounded-md border border-border bg-card p-3">
-        <label class="flex items-start gap-3">
-          <input
-            class="checkbox checkbox-sm mt-1"
-            type="checkbox"
-            checked={selections[repo.repoId]}
-            onchange={() => toggleRepo(repo.repoId)} />
-          <div class="flex w-full flex-col gap-2">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <div class="text-sm font-semibold">{repo.repoName || repo.repoId}</div>
-              <div class="text-xs opacity-60">
-                {repo.updates.length} update{repo.updates.length !== 1 ? "s" : ""}
-              </div>
-            </div>
-            <div class="text-xs opacity-60 break-all">Authoritative remote: {repo.cloneUrl}</div>
-            {#if repo.headBranch}
-              <div class="text-xs opacity-60">HEAD: {repo.headBranch}</div>
-            {/if}
-            <div class="flex flex-col gap-1">
-              {#each repo.updates as update, index (repo.repoId + "-" + update.name + "-" + index)}
-                <div class="text-xs font-mono">{formatChange(update)}</div>
-              {/each}
+  {#snippet repoCard(repo: RepoBranchUpdate)}
+    <div class="rounded-md border border-border bg-card p-3">
+      <label class="flex items-start gap-3">
+        <input
+          class="checkbox checkbox-sm mt-1"
+          type="checkbox"
+          checked={selections[repo.repoId]}
+          onchange={() => toggleRepo(repo.repoId)} />
+        <div class="flex w-full flex-col gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="text-sm font-semibold">{repo.repoName || repo.repoId}</div>
+            <div class="text-xs opacity-60">
+              {repo.updates.length} update{repo.updates.length !== 1 ? "s" : ""}
             </div>
           </div>
-        </label>
-      </div>
-    {/each}
+          <div class="text-xs opacity-60 break-all">Authoritative remote: {repo.cloneUrl}</div>
+          {#if repo.headBranch}
+            <div class="text-xs opacity-60">HEAD: {repo.headBranch}</div>
+          {/if}
+          <div class="flex flex-col gap-1">
+            {#each repo.updates as update, index (repo.repoId + "-" + update.name + "-" + index)}
+              <div class="text-xs font-mono">{formatChange(update)}</div>
+            {/each}
+          </div>
+        </div>
+      </label>
+    </div>
+  {/snippet}
+
+  <div class="flex flex-col gap-3">
+    {#if preferredRepo}
+      {@render repoCard(preferredRepo)}
+
+      {#if otherRepos.length > 0}
+        <div class="mt-2 border-t border-border pt-4">
+          <div class="mb-3 text-xs font-semibold uppercase tracking-wide opacity-60">Other repos</div>
+          <div class="flex flex-col gap-3">
+            {#each otherRepos as repo (repo.repoId)}
+              {@render repoCard(repo)}
+            {/each}
+          </div>
+        </div>
+      {/if}
+    {:else}
+      {#each repos as repo (repo.repoId)}
+        {@render repoCard(repo)}
+      {/each}
+    {/if}
   </div>
 {/if}
 
