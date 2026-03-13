@@ -3,7 +3,7 @@
   import type {Snippet} from "svelte"
   import type {TrustedEvent} from "@welshman/util"
   import {Address, COMMENT, ManagementMethod, isReplaceable} from "@welshman/util"
-  import {GIT_PATCH, GIT_PULL_REQUEST} from "@nostr-git/core/events"
+  import {GIT_PATCH, GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
   import * as nip19 from "nostr-tools/nip19"
   import {pubkey, repository, manageRelay} from "@welshman/app"
   import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
@@ -34,6 +34,7 @@
   const {url, noun, event, onClick, customActions, relays = []}: Props = $props()
 
   const isRoot = event.kind !== COMMENT
+  const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
   const userIsAdmin = deriveUserIsSpaceAdmin(url)
 
   const report = () => pushModal(Report, {url, event})
@@ -107,12 +108,14 @@
   </li>
   {@render customActions?.()}
   {#if event.pubkey === $pubkey}
-    <li>
-      <Button onclick={showDelete} class="text-error">
-        <Icon size={4} icon={TrashBin2} />
-        Delete {noun}
-      </Button>
-    </li>
+    {#if canDeleteEvent}
+      <li>
+        <Button onclick={showDelete} class="text-error">
+          <Icon size={4} icon={TrashBin2} />
+          Delete {noun}
+        </Button>
+      </li>
+    {/if}
   {:else}
     <li>
       <Button class="text-error" onclick={report}>
@@ -120,7 +123,7 @@
         Report Content
       </Button>
     </li>
-    {#if $userIsAdmin}
+    {#if $userIsAdmin && canDeleteEvent}
       <li>
         <Button class="text-error" onclick={showAdminDelete}>
           <Icon size={4} icon={TrashBin2} />
