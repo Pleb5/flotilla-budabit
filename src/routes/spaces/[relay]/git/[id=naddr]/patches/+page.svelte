@@ -37,9 +37,9 @@
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
 
-  import {getContext} from "svelte"
-  import {onDestroy} from "svelte"
+  import {getContext, onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
+  import {beforeNavigate} from "$app/navigation"
   import {decodeRelay} from "@app/core/state"
   import {
     REPO_KEY,
@@ -73,6 +73,7 @@
   const patchesPath = $derived.by(
     () => `/spaces/${encodeURIComponent($page.params.relay ?? "")}/git/${$page.params.id}/patches`,
   )
+  const scrollStorageKey = $derived.by(() => `repoScroll:${$page.params.id}:patches`)
   const relayUrl = $derived.by(() => ($page.params.relay ? decodeRelay($page.params.relay) : ""))
   const patchesSeenKey = $derived.by(() => `${patchesPath}:seen`)
   const normalizeChecked = (value: number) =>
@@ -615,9 +616,26 @@
 
   // Set loading to false immediately - show content right away
   let loading = $state(false)
+  const ITEMS_PER_PAGE = 20
+  let visiblePatchCount = $state(ITEMS_PER_PAGE)
   let element: HTMLElement | undefined = $state()
   let showScrollButton = $state(false)
   let scrollParent: HTMLElement | null = $state(null)
+  let lastKnownPatchIndex = $state(0)
+  let lastKnownPatchOffset = $state(0)
+  let lastKnownPatchId = $state("")
+  let lastKnownPatchTitle = $state("")
+  let pendingScrollRestore = $state<{
+    index: number
+    offset: number
+    id: string
+    title: string
+    visibleCount: number
+  } | null>(null)
+  let didRestoreScroll = $state(false)
+  let restoreAttemptCount = 0
+  let restoreInProgress = $state(false)
+  const maxRestoreAttempts = 12
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
   let feedInitTimer: ReturnType<typeof setTimeout> | null = null
@@ -637,11 +655,246 @@
 
     const handleScroll = () => {
       showScrollButton = scrollEl.scrollTop > 1500
+      updateVisibleAnchor()
     }
 
     handleScroll()
     scrollEl.addEventListener("scroll", handleScroll, {passive: true})
     return () => scrollEl.removeEventListener("scroll", handleScroll)
+  })
+
+  const getPatchAnchorPayload = (patchId: string) => {
+    const patchIndex = searchedPatches.findIndex(patch => patch.id === patchId)
+    const patch = patchIndex >= 0 ? searchedPatches[patchIndex] : undefined
+    const title = patch?.parsedPatch?.title || ""
+
+    let offset = lastKnownPatchOffset
+    if (scrollParent) {
+      const containerRect = scrollParent.getBoundingClientRect()
+      const itemEl = scrollParent.querySelector(`[data-patch-id="${patchId}"]`) as HTMLElement | null
+      const itemRect = itemEl?.getBoundingClientRect()
+      if (itemRect) {
+        offset = itemRect.top - containerRect.top
+      }
+    }
+
+    return {
+      index: patchIndex >= 0 ? patchIndex : lastKnownPatchIndex,
+      offset,
+      id: patchId,
+      title,
+      visibleCount: patchIndex >= 0 ? Math.max(visiblePatchCount, patchIndex + 1) : visiblePatchCount,
+    }
+  }
+
+  const updateVisibleAnchor = () => {
+    const scrollEl = scrollParent
+    if (!scrollEl || searchedPatches.length === 0) return
+
+    const items = Array.from(scrollEl.querySelectorAll("[data-patch-id]")) as HTMLElement[]
+    if (items.length === 0) return
+
+    const containerRect = scrollEl.getBoundingClientRect()
+    const anchor = items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
+
+    if (!anchor) return
+
+    const patchId = anchor.dataset.patchId ?? ""
+    const parsedIndex = Number(anchor.dataset.index)
+    const index = Number.isFinite(parsedIndex)
+      ? parsedIndex
+      : searchedPatches.findIndex(patch => patch.id === patchId)
+    if (index < 0) return
+
+    const patch = searchedPatches[index]
+    const anchorOffset = anchor.getBoundingClientRect().top - containerRect.top
+
+    lastKnownPatchIndex = index
+    lastKnownPatchOffset = anchorOffset
+    lastKnownPatchId = patch?.id ?? ""
+    lastKnownPatchTitle = patch?.parsedPatch?.title || ""
+  }
+
+  const handlePatchClick = (event: MouseEvent, patch: PatchListItem, index: number) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const target = event.target as HTMLElement | null
+    const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null
+    if (!anchor) return
+
+    const href = anchor.getAttribute("href") || ""
+    if (!href.includes(`patches/${patch.id}`)) return
+
+    const scrollEl = scrollParent
+    if (!scrollEl) return
+
+    const itemElement = event.currentTarget as HTMLElement | null
+    const containerRect = scrollEl.getBoundingClientRect()
+    const itemRect = itemElement?.getBoundingClientRect()
+    const anchorOffset = itemRect ? itemRect.top - containerRect.top : lastKnownPatchOffset
+
+    pendingScrollRestore = {
+      index,
+      offset: anchorOffset,
+      id: patch.id,
+      title: patch.parsedPatch?.title || "",
+      visibleCount: Math.max(visiblePatchCount, index + 1),
+    }
+  }
+
+  $effect(() => {
+    const scrollEl = scrollParent
+    const count = searchedPatches.length
+    const restoring = restoreInProgress
+
+    if (didRestoreScroll || restoring || !scrollEl || count === 0) return
+    if (typeof sessionStorage === "undefined") {
+      didRestoreScroll = true
+      return
+    }
+
+    const savedRaw = sessionStorage.getItem(scrollStorageKey)
+    if (!savedRaw) {
+      didRestoreScroll = true
+      return
+    }
+
+    let parsedIndex = 0
+    let parsedOffset = 0
+    let savedPatchId = ""
+
+    try {
+      const parsed = JSON.parse(savedRaw) as {
+        index?: number
+        offset?: number
+        id?: string
+        visibleCount?: number
+      }
+      parsedIndex = Number(parsed?.index ?? 0)
+      parsedOffset = Number(parsed?.offset ?? 0)
+      savedPatchId = typeof parsed?.id === "string" ? parsed.id : ""
+
+      const parsedVisibleCount = Number(parsed?.visibleCount ?? ITEMS_PER_PAGE)
+      if (
+        !Number.isNaN(parsedVisibleCount) &&
+        parsedVisibleCount > 0 &&
+        visiblePatchCount < parsedVisibleCount
+      ) {
+        visiblePatchCount = Math.min(Math.max(parsedVisibleCount, ITEMS_PER_PAGE), count)
+        return
+      }
+    } catch {
+      sessionStorage.removeItem(scrollStorageKey)
+      didRestoreScroll = true
+      return
+    }
+
+    if (Number.isNaN(parsedIndex) || Number.isNaN(parsedOffset)) {
+      sessionStorage.removeItem(scrollStorageKey)
+      didRestoreScroll = true
+      return
+    }
+
+    const fallbackIndex = Math.min(Math.max(parsedIndex, 0), count - 1)
+    const matchIndex = savedPatchId ? searchedPatches.findIndex(patch => patch.id === savedPatchId) : -1
+
+    if (savedPatchId && matchIndex < 0) {
+      restoreAttemptCount += 1
+      if (restoreAttemptCount < maxRestoreAttempts) {
+        return
+      }
+
+      sessionStorage.removeItem(scrollStorageKey)
+      didRestoreScroll = true
+      restoreAttemptCount = 0
+      return
+    }
+
+    const targetIndex = matchIndex >= 0 ? matchIndex : fallbackIndex
+    const requiredVisibleCount = Math.max(targetIndex + 1, ITEMS_PER_PAGE)
+    if (visiblePatchCount < requiredVisibleCount) {
+      visiblePatchCount = Math.min(requiredVisibleCount, count)
+      return
+    }
+
+    const targetPatch = searchedPatches[targetIndex]
+    const targetPatchId = targetPatch?.id ?? ""
+    const anchorPatchId = savedPatchId || targetPatchId
+
+    restoreInProgress = true
+
+    const finishRestore = () => {
+      didRestoreScroll = true
+      restoreAttemptCount = 0
+      restoreInProgress = false
+    }
+
+    const settleToAnchor = (attempt = 0) => {
+      if (!anchorPatchId) {
+        finishRestore()
+        return
+      }
+
+      const itemEl = scrollEl.querySelector(`[data-patch-id="${anchorPatchId}"]`) as HTMLElement | null
+      if (!itemEl) {
+        if (attempt < maxRestoreAttempts) {
+          setTimeout(() => settleToAnchor(attempt + 1), 50)
+        } else {
+          finishRestore()
+        }
+        return
+      }
+
+      const containerRect = scrollEl.getBoundingClientRect()
+      const itemRect = itemEl.getBoundingClientRect()
+      const currentOffset = itemRect.top - containerRect.top
+      const delta = currentOffset - parsedOffset
+      if (Math.abs(delta) > 1) {
+        scrollEl.scrollBy({top: delta, behavior: "auto"})
+      }
+      finishRestore()
+    }
+
+    const attemptRestore = () => {
+      const targetElement = scrollEl.querySelector(`[data-patch-id="${anchorPatchId}"]`) as HTMLElement | null
+      if (targetElement) {
+        targetElement.scrollIntoView({block: "start"})
+      }
+      setTimeout(() => settleToAnchor(0), 40)
+    }
+
+    void tick().then(() => {
+      requestAnimationFrame(attemptRestore)
+    })
+  })
+
+  beforeNavigate(({from, to}) => {
+    if (from?.route.id !== "/spaces/[relay]/git/[id=naddr]/patches") return
+    if (typeof sessionStorage === "undefined") return
+
+    const relayParam = $page.params.relay ?? ""
+    const basePath = `/spaces/${encodeURIComponent(relayParam)}/git/${$page.params.id}`
+    const nextPath = to?.url.pathname
+    if (!nextPath || !nextPath.startsWith(basePath)) {
+      sessionStorage.removeItem(scrollStorageKey)
+      pendingScrollRestore = null
+      return
+    }
+
+    const isPatchDetailNav = to?.route.id === "/spaces/[relay]/git/[id=naddr]/patches/[patchid]"
+    const nextPatchId = isPatchDetailNav ? (to?.params as {patchid?: string} | undefined)?.patchid : ""
+
+    const payload = isPatchDetailNav && nextPatchId
+      ? getPatchAnchorPayload(nextPatchId)
+      : pendingScrollRestore ?? {
+          index: lastKnownPatchIndex,
+          offset: lastKnownPatchOffset,
+          id: lastKnownPatchId,
+          title: lastKnownPatchTitle,
+          visibleCount: visiblePatchCount,
+        }
+
+    sessionStorage.setItem(scrollStorageKey, JSON.stringify(payload))
+    pendingScrollRestore = null
   })
 
   const onCommentCreated = async (comment: CommentEvent) => {
@@ -840,6 +1093,35 @@
       })
     return result
   })
+
+  $effect(() => {
+    searchTerm
+    statusFilter
+    authorFilter
+    selectedLabels
+    matchAllLabels
+    sortBy
+    visiblePatchCount = ITEMS_PER_PAGE
+  })
+
+  $effect(() => {
+    const total = searchedPatches.length
+    if (visiblePatchCount > total) {
+      visiblePatchCount = total
+      return
+    }
+
+    if (total > 0 && visiblePatchCount === 0) {
+      visiblePatchCount = Math.min(ITEMS_PER_PAGE, total)
+    }
+  })
+
+  const visiblePatches = $derived.by(() => searchedPatches.slice(0, visiblePatchCount))
+  const canLoadMorePatches = $derived.by(() => visiblePatchCount < searchedPatches.length)
+
+  const loadMorePatches = () => {
+    visiblePatchCount = Math.min(visiblePatchCount + ITEMS_PER_PAGE, searchedPatches.length)
+  }
 </script>
 
 <svelte:head>
@@ -911,8 +1193,20 @@
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each searchedPatches as patch (patch.id)}
-        <div in:slideAndFade={{duration: 200}}>
+      {#each visiblePatches as patch, index (patch.id)}
+        <div
+          in:slideAndFade={{duration: 200}}
+          data-index={index}
+          data-patch-id={patch.id}
+          onclick={event => handlePatchClick(event, patch, index)}
+          role="button"
+          tabindex="0"
+          onkeydown={event => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
+              handlePatchClick(event as unknown as MouseEvent, patch, index)
+            }
+          }}>
           <div class="relative">
             <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
               <PatchCard
@@ -967,6 +1261,17 @@
           </div>
         </div>
       {/each}
+
+      {#if canLoadMorePatches}
+        <div class="mt-2 flex flex-col items-center gap-2 pb-2">
+          <GitButton variant="outline" size="sm" class="gap-2" onclick={loadMorePatches}>
+            Load more
+          </GitButton>
+          <p class="text-xs text-muted-foreground">
+            Showing {visiblePatches.length} of {searchedPatches.length}
+          </p>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

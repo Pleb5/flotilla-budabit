@@ -25,7 +25,6 @@
   import Icon from "@lib/components/Icon.svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
-  import {slideAndFade} from "@lib/transition"
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
   import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
@@ -52,14 +51,13 @@
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
-  import { fade } from "svelte/transition"
-  import { createVirtualizer } from "@tanstack/svelte-virtual"
-  import { untrack } from "svelte"
+  import {fade} from "svelte/transition"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
-  let virtualListContainerRef: HTMLElement | undefined = $state()
   let scrollParent: HTMLElement | null = $state(null)
+  const ITEMS_PER_PAGE = 20
+  let visibleIssueCount = $state(ITEMS_PER_PAGE)
   let lastKnownIssueIndex = $state(0)
   let lastKnownIssueOffset = $state(0)
   let lastKnownIssueId = $state("")
@@ -69,6 +67,7 @@
     offset: number
     id: string
     title: string
+    visibleCount: number
   } | null>(null)
   let didRestoreScroll = $state(false)
   let restoreAttemptCount = 0
@@ -123,18 +122,6 @@
   const LABEL_PREFETCH_DELAY_MS = 150
   const LABEL_PREFETCH_CHUNK_SIZE = 50
 
-  // Stable key function for virtualizer - prevents issues when items reorder/filter
-  const getItemKey = (index: number) => searchedIssues[index]?.id ?? `fallback-${index}`
-
-  const virtualizerStore = createVirtualizer({
-    count: 0,
-    getScrollElement: () => scrollParent,
-    estimateSize: () => 160, // Slightly higher estimate for cards with labels/comments
-    overscan: 10, // Higher overscan for smoother scrolling with dynamic content
-    gap: 16,
-    getItemKey,
-  })
-
   // Find scroll parent when page container is mounted
   $effect(() => {
     const container = pageContainerRef
@@ -143,63 +130,54 @@
     scrollParent = container.closest(".scroll-container") as HTMLElement | null
   })
 
-  // Update virtualizer when scroll parent or count changes
-  $effect(() => {
-    // Access reactive dependencies OUTSIDE untrack so they're tracked
-    const scrollEl = scrollParent
-    const container = virtualListContainerRef
-    const count = searchedIssues.length
-    
-    // Early return if prerequisites not met
-    if (!scrollEl || !container || count === 0) return
-    
-    // Calculate scroll margin (offset from top of scroll container to the list)
-    const scrollMargin = container.offsetTop
-    
-    // Update options in untrack to avoid infinite loops from store access
-    untrack(() => {
-      $virtualizerStore?.setOptions({
-        count,
-        getScrollElement: () => scrollEl,
-        scrollMargin,
-        getItemKey,
-      })
-    })
-    
-    // Schedule measurement after DOM updates
-    tick().then(() => {
-      untrack(() => {
-        $virtualizerStore?.measure()
-      })
-    })
-  })
+  const getIssueAnchorPayload = (issueId: string) => {
+    const issueIndex = searchedIssues.findIndex(issue => issue.id === issueId)
+    const issue = issueIndex >= 0 ? searchedIssues[issueIndex] : undefined
+    const title = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
 
-  const updateVisibleAnchor = () => {
-    const virtualizer = $virtualizerStore
-    const scrollEl = scrollParent
-    const currentIssues = searchedIssues
-    if (!virtualizer || !scrollEl || currentIssues.length === 0) return
-
-    const virtualItems = virtualizer.getVirtualItems()
-    if (virtualItems.length === 0) return
-
-    const scrollTop = scrollEl.scrollTop
-    let bestItem = virtualItems[0]
-    let bestDelta = Number.POSITIVE_INFINITY
-
-    for (const item of virtualItems) {
-      const top = item.start
-      const delta = scrollTop - top
-      if (delta >= 0 && delta < bestDelta) {
-        bestDelta = delta
-        bestItem = item
+    let offset = lastKnownIssueOffset
+    if (scrollParent) {
+      const containerRect = scrollParent.getBoundingClientRect()
+      const itemEl = scrollParent.querySelector(`[data-issue-id="${issueId}"]`) as HTMLElement | null
+      const itemRect = itemEl?.getBoundingClientRect()
+      if (itemRect) {
+        offset = itemRect.top - containerRect.top
       }
     }
 
-    const issue = currentIssues[bestItem.index]
-    const anchorOffset = bestItem.start - scrollTop
+    return {
+      index: issueIndex >= 0 ? issueIndex : lastKnownIssueIndex,
+      offset,
+      id: issueId,
+      title,
+      visibleCount: issueIndex >= 0 ? Math.max(visibleIssueCount, issueIndex + 1) : visibleIssueCount,
+    }
+  }
 
-    lastKnownIssueIndex = bestItem.index
+  const updateVisibleAnchor = () => {
+    const scrollEl = scrollParent
+    const currentIssues = searchedIssues
+    if (!scrollEl || currentIssues.length === 0) return
+
+    const items = Array.from(scrollEl.querySelectorAll("[data-issue-id]")) as HTMLElement[]
+    if (items.length === 0) return
+
+    const containerRect = scrollEl.getBoundingClientRect()
+    let anchor = items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
+
+    if (!anchor) return
+
+    const issueId = anchor.dataset.issueId ?? ""
+    const parsedIndex = Number(anchor.dataset.index)
+    const index = Number.isFinite(parsedIndex)
+      ? parsedIndex
+      : currentIssues.findIndex(issue => issue.id === issueId)
+    if (index < 0) return
+
+    const issue = currentIssues[index]
+    const anchorOffset = anchor.getBoundingClientRect().top - containerRect.top
+
+    lastKnownIssueIndex = index
     lastKnownIssueOffset = anchorOffset
     lastKnownIssueId = issue?.id ?? ""
     lastKnownIssueTitle = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
@@ -233,7 +211,7 @@
   const handleIssueClick = (
     event: MouseEvent,
     issue: IssueListItem,
-    virtualRow: {index: number; start: number},
+    index: number,
   ) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     const target = event.target as HTMLElement | null
@@ -250,24 +228,24 @@
     const itemElement = event.currentTarget as HTMLElement | null
     const containerRect = scrollEl.getBoundingClientRect()
     const itemRect = itemElement?.getBoundingClientRect()
-    const anchorOffset = itemRect ? itemRect.top - containerRect.top : virtualRow.start - scrollEl.scrollTop
+    const anchorOffset = itemRect ? itemRect.top - containerRect.top : lastKnownIssueOffset
 
     pendingScrollRestore = {
-      index: virtualRow.index,
+      index,
       offset: anchorOffset,
       id: issue.id,
       title,
+      visibleCount: Math.max(visibleIssueCount, index + 1),
     }
 
   }
 
   $effect(() => {
-    const virtualizer = $virtualizerStore
     const scrollEl = scrollParent
     const count = searchedIssues.length
     const restoring = restoreInProgress
 
-    if (didRestoreScroll || restoring || !virtualizer || !scrollEl || count === 0) return
+    if (didRestoreScroll || restoring || !scrollEl || count === 0) return
     if (typeof sessionStorage === "undefined") {
       didRestoreScroll = true
       return
@@ -290,11 +268,17 @@
         offset?: number
         id?: string
         title?: string
+        visibleCount?: number
       }
       parsedIndex = Number(parsed?.index ?? 0)
       parsedOffset = Number(parsed?.offset ?? 0)
       savedIssueId = typeof parsed?.id === "string" ? parsed.id : ""
       savedIssueTitle = typeof parsed?.title === "string" ? parsed.title : ""
+      const parsedVisibleCount = Number(parsed?.visibleCount ?? ITEMS_PER_PAGE)
+      if (!Number.isNaN(parsedVisibleCount) && parsedVisibleCount > 0 && visibleIssueCount < parsedVisibleCount) {
+        visibleIssueCount = Math.min(Math.max(parsedVisibleCount, ITEMS_PER_PAGE), count)
+        return
+      }
     } catch {
       sessionStorage.removeItem(scrollStorageKey)
       didRestoreScroll = true
@@ -306,9 +290,6 @@
       didRestoreScroll = true
       return
     }
-
-    const virtualItems = virtualizer.getVirtualItems()
-    if (virtualItems.length === 0) return
 
     const fallbackIndex = Math.min(Math.max(parsedIndex, 0), count - 1)
     const matchIndex = savedIssueId
@@ -327,6 +308,12 @@
     }
 
     const targetIndex = matchIndex >= 0 ? matchIndex : fallbackIndex
+    const requiredVisibleCount = Math.max(targetIndex + 1, ITEMS_PER_PAGE)
+    if (visibleIssueCount < requiredVisibleCount) {
+      visibleIssueCount = Math.min(requiredVisibleCount, count)
+      return
+    }
+
     const targetIssue = searchedIssues[targetIndex]
     const targetIssueTitle = targetIssue ? getTagValue("subject", targetIssue.event.tags) ?? "" : ""
     const targetIssueId = targetIssue?.id ?? ""
@@ -364,12 +351,14 @@
 
 
     const attemptRestore = () => {
-      virtualizer.scrollToIndex(targetIndex, {align: "start"})
-      setTimeout(() => settleToAnchor(0), 80)
+      const targetElement = scrollEl.querySelector(`[data-issue-id="${anchorIssueId}"]`) as HTMLElement | null
+      if (targetElement) {
+        targetElement.scrollIntoView({block: "start"})
+      }
+      setTimeout(() => settleToAnchor(0), 40)
     }
 
     void tick().then(() => {
-      virtualizer.measure()
       requestAnimationFrame(attemptRestore)
     })
   })
@@ -388,51 +377,19 @@
     const isIssueDetailNav =
       to?.route.id === "/spaces/[relay]/git/[id=naddr]/issues/[issueid]"
     const nextIssueId = isIssueDetailNav ? (to?.params as {issueid?: string} | undefined)?.issueid : ""
-    const buildPayloadForIssue = (issueId: string) => {
-      const scrollEl = scrollParent
-      const issueIndex = searchedIssues.findIndex(issue => issue.id === issueId)
-      const issue = issueIndex >= 0 ? searchedIssues[issueIndex] : undefined
-      const title = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
-      let offset = lastKnownIssueOffset
-      if (scrollEl) {
-        const containerRect = scrollEl.getBoundingClientRect()
-        const itemEl = scrollEl.querySelector(`[data-issue-id="${issueId}"]`) as HTMLElement | null
-        const itemRect = itemEl?.getBoundingClientRect()
-        if (itemRect) {
-          offset = itemRect.top - containerRect.top
-        }
-      }
-      return {
-        index: issueIndex >= 0 ? issueIndex : lastKnownIssueIndex,
-        offset,
-        id: issueId,
-        title,
-      }
-    }
 
     const payload = isIssueDetailNav && nextIssueId
-      ? buildPayloadForIssue(nextIssueId)
+      ? getIssueAnchorPayload(nextIssueId)
       : pendingScrollRestore ?? {
           index: lastKnownIssueIndex,
           offset: lastKnownIssueOffset,
           id: lastKnownIssueId,
           title: lastKnownIssueTitle,
+          visibleCount: visibleIssueCount,
         }
     sessionStorage.setItem(scrollStorageKey, JSON.stringify(payload))
     pendingScrollRestore = null
   })
-
-  function measureElement(
-    node: HTMLElement,
-    virtualizer: { measureElement: (el: HTMLElement | null) => void } | undefined,
-  ) {
-    virtualizer?.measureElement(node)
-    return {
-      update(v: typeof virtualizer) {
-        v?.measureElement(node)
-      },
-    }
-  }
 
 
 
@@ -857,6 +814,35 @@
     }
   })
 
+  $effect(() => {
+    searchTerm
+    statusFilter
+    authorFilter
+    selectedLabels
+    matchAllLabels
+    sortByOrder
+    visibleIssueCount = ITEMS_PER_PAGE
+  })
+
+  $effect(() => {
+    const total = searchedIssues.length
+    if (visibleIssueCount > total) {
+      visibleIssueCount = total
+      return
+    }
+
+    if (total > 0 && visibleIssueCount === 0) {
+      visibleIssueCount = Math.min(ITEMS_PER_PAGE, total)
+    }
+  })
+
+  const visibleIssues = $derived.by(() => searchedIssues.slice(0, visibleIssueCount))
+  const canLoadMoreIssues = $derived.by(() => visibleIssueCount < searchedIssues.length)
+
+  const loadMoreIssues = () => {
+    visibleIssueCount = Math.min(visibleIssueCount + ITEMS_PER_PAGE, searchedIssues.length)
+  }
+
   const roleAssignments = $derived.by(() => {
     const ids = repoClass.issues?.map((i: any) => i.id) || []
     return deriveAssignmentsFor(ids)
@@ -1002,9 +988,6 @@
   }
 
   const scrollToTop = () => {
-    // Use virtualizer's scrollToIndex for consistent behavior
-    $virtualizerStore?.scrollToIndex(0, { align: "start", behavior: "smooth" })
-    // Also scroll the parent container
     scrollParent?.scrollTo({ top: 0, behavior: "smooth" })
   }
 
@@ -1089,62 +1072,53 @@
         {/if}
       </Spinner>
     </div>
-  {:else if repoClass.issues.length === 0}
+  {:else if searchedIssues.length === 0}
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No issues found.
     </div>
   {:else}
-    <!-- Virtualized list container - uses parent scroll container for window-based scrolling -->
-    <div bind:this={virtualListContainerRef}>
-      {#if $virtualizerStore}
-        {@const totalSize = $virtualizerStore.getTotalSize()}
-        {@const virtualItems = $virtualizerStore.getVirtualItems()}
-        {@const scrollMargin = $virtualizerStore.options.scrollMargin ?? 0}
+    <div class="flex flex-col gap-y-4">
+      {#each visibleIssues as issue, index (issue.id)}
         <div
-          class="relative w-full"
-          style="height: {totalSize}px;"
-          data-virtualized="true"
-          data-visible-count={virtualItems.length}
-          data-total-count={searchedIssues.length}
-        >
-          {#each virtualItems as virtualRow (virtualRow.key)}
-            {@const issue = searchedIssues[virtualRow.index]}
-            {#if issue}
-              <div
-                data-index={virtualRow.index}
-                data-issue-id={issue.id}
-                use:measureElement={$virtualizerStore}
-                class="absolute top-0 left-0 w-full pr-2"
-                style="transform: translateY({virtualRow.start - scrollMargin}px);"
-                onclick={(event) => handleIssueClick(event, issue, virtualRow)}
-                role="button"
-                tabindex="0"
-                onkeydown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault()
-                    handleIssueClick(event as any, issue, virtualRow)
-                  }
-                }}
-              >
-                <div class={getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-2 border-primary pl-2" : ""}>
-                  <IssueCard
-                    event={issue.event}
-                    comments={commentsOrdered[issue.id]}
-                    currentCommenter={$pubkey!}
-                    {onCommentCreated}
-                    extraLabels={labelsByIssue.get(issue.id) || []}
-                    repo={repoClass}
-                    statusEvents={statusEventsByRoot?.get(issue.id) || []}
-                    actorPubkey={$pubkey}
-                    assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
-                    assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
-                    relays={repoRelays}
-                  />
-                </div>
-              </div>
-            {/if}
-          {/each}
+          data-index={index}
+          data-issue-id={issue.id}
+          class="w-full pr-2"
+          onclick={event => handleIssueClick(event, issue, index)}
+          role="button"
+          tabindex="0"
+          onkeydown={event => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
+              handleIssueClick(event as unknown as MouseEvent, issue, index)
+            }
+          }}>
+          <div class={getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-2 border-primary pl-2" : ""}>
+            <IssueCard
+              event={issue.event}
+              comments={commentsOrdered[issue.id]}
+              currentCommenter={$pubkey!}
+              {onCommentCreated}
+              extraLabels={labelsByIssue.get(issue.id) || []}
+              repo={repoClass}
+              statusEvents={statusEventsByRoot?.get(issue.id) || []}
+              actorPubkey={$pubkey}
+              assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
+              assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
+              relays={repoRelays}
+            />
+          </div>
+        </div>
+      {/each}
+
+      {#if canLoadMoreIssues}
+        <div class="mt-2 flex flex-col items-center gap-2 pb-2">
+          <GitButton variant="outline" size="sm" class="gap-2" onclick={loadMoreIssues}>
+            Load more
+          </GitButton>
+          <p class="text-xs text-muted-foreground">
+            Showing {visibleIssues.length} of {searchedIssues.length}
+          </p>
         </div>
       {/if}
     </div>
