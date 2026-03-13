@@ -2044,19 +2044,25 @@
 
       <div class="mb-6 scroll-mt-4 rounded-lg border bg-muted/20 p-4" id="pr-changes">
         <Tabs bind:value={prReviewTab} class="w-full">
-          <div class="mb-3 flex items-center justify-between gap-3">
-            <TabsList class="grid w-full max-w-sm grid-cols-2">
-              <TabsTrigger value="commits">Commits ({prCommitOids.length})</TabsTrigger>
-              <TabsTrigger value="files">Files changed ({prChanges?.length ?? 0})</TabsTrigger>
+          <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <TabsList class="grid w-full grid-cols-2 sm:max-w-sm">
+              <TabsTrigger value="commits" class="px-2 text-xs sm:text-sm">
+                <span class="sm:hidden">Commits</span>
+                <span class="hidden sm:inline">Commits ({prCommitOids.length})</span>
+              </TabsTrigger>
+              <TabsTrigger value="files" class="px-2 text-xs sm:text-sm">
+                <span class="sm:hidden">Files</span>
+                <span class="hidden sm:inline">Files changed ({prChanges?.length ?? 0})</span>
+              </TabsTrigger>
             </TabsList>
 
             {#if prReviewTab === "commits" && prCommitOids.length > 0}
-              <div class="flex gap-2">
+              <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
                 <button
                   type="button"
                   onclick={() => expandAllPrCommits()}
                   disabled={prExpandedCommits.size === prCommitOids.length}
-                  class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
+                  class="w-full rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50 sm:w-auto">
                   Expand all
                 </button>
                 <button
@@ -2065,19 +2071,19 @@
                     prExpandedCommits = new Set()
                   }}
                   disabled={prExpandedCommits.size === 0}
-                  class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
+                  class="w-full rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50 sm:w-auto">
                   Collapse all
                 </button>
               </div>
             {:else if prReviewTab === "files" && prChanges && prChanges.length > 0}
-              <div class="flex gap-2">
+              <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
                 <button
                   type="button"
                   onclick={() => {
                     prExpandedFiles = new Set(prChanges!.map((c) => c.path))
                   }}
                   disabled={prExpandedFiles.size === prChanges!.length}
-                  class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
+                  class="w-full rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50 sm:w-auto">
                   Expand all
                 </button>
                 <button
@@ -2086,7 +2092,7 @@
                     prExpandedFiles = new Set()
                   }}
                   disabled={prExpandedFiles.size === 0}
-                  class="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50">
+                  class="w-full rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50 sm:w-auto">
                   Collapse all
                 </button>
               </div>
