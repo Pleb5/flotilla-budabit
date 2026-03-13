@@ -279,6 +279,7 @@
   let pendingBranchUpdates = $state<RepoBranchUpdate[]>([])
   let branchUpdateCheckDone = $state(false)
   let branchUpdateChecking = $state(false)
+  let updateStateActionChecking = $state(false)
   let repoStateSettled = $state(false)
   let repoStateLoadKey = $state("")
   let repoStateSettleTimer: ReturnType<typeof setTimeout> | null = null
@@ -594,24 +595,19 @@
     }
   }
 
-  const checkCurrentRepoBranchUpdate = async () => {
-    if (!isOwnedRepo || !$pubkey) return
-    if (branchUpdateChecking) return
+  const checkCurrentRepoBranchUpdate = async (): Promise<boolean> => {
+    if (!isOwnedRepo || !$pubkey) return false
 
     const repoEvent = $repoEventStore as RepoAnnouncementEvent | undefined
-    if (!repoEvent) return
+    if (!repoEvent) return false
 
-    branchUpdateChecking = true
-    try {
-      const update = await buildRepoBranchUpdate(repoEvent)
-      const next = pendingBranchUpdates.filter(item => item.repoId !== repoName && item.repoId !== repoId)
-      if (update) {
-        next.push(update)
-      }
-      pendingBranchUpdates = next
-    } finally {
-      branchUpdateChecking = false
+    const update = await buildRepoBranchUpdate(repoEvent)
+    const next = pendingBranchUpdates.filter(item => item.repoId !== repoName && item.repoId !== repoId)
+    if (update) {
+      next.push(update)
     }
+    pendingBranchUpdates = next
+    return Boolean(update)
   }
 
   const openBranchSyncModal = (preferredRepoId?: string) => {
@@ -700,12 +696,23 @@
 
   const refreshBranchUpdatesAndOpen = async () => {
     if (!isOwnedRepo) return
-    await checkRepoBranchUpdates()
-    if (!pendingBranchUpdates.length) {
-      pushToast({message: "No repository state updates found."})
+
+    if (hasCurrentRepoBranchUpdate) {
+      openBranchSyncModal(repoName)
       return
     }
-    openBranchSyncModal(repoName)
+
+    updateStateActionChecking = true
+    let foundUpdate = false
+    try {
+      foundUpdate = await checkCurrentRepoBranchUpdate()
+    } finally {
+      updateStateActionChecking = false
+    }
+
+    if (!foundUpdate) {
+      pushToast({message: "No repository state updates found."})
+    }
   }
 
   const hasCurrentRepoBranchUpdate = $derived.by(() =>
@@ -2297,6 +2304,7 @@
         canEditSettings={!!$pubkey && repoPubkey === $pubkey}
         updateRepoState={isOwnedRepo ? refreshBranchUpdatesAndOpen : undefined}
         hasRepoStateUpdate={hasCurrentRepoBranchUpdate}
+        isCheckingRepoStateUpdate={updateStateActionChecking}
         >
         {#snippet children(activeTab: string)}
           <RepoTab
