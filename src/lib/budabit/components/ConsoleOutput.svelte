@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Copy, ExternalLink} from "@lucide/svelte"
+  import {Copy, ExternalLink, ChevronUp} from "@lucide/svelte"
   import {toast} from "@nostr-git/ui"
 
   interface Props {
@@ -35,6 +35,13 @@
           }}
           class="{isError ? 'text-red-400 hover:text-red-200' : 'text-gray-400 hover:text-gray-200'}">
           <Copy class="h-3 w-3" />
+        </button>
+      {/if}
+      {#if lines.length > defaultLines}
+        <button
+          onclick={() => (expanded = !expanded)}
+          class="{isError ? 'text-red-400 hover:text-red-200' : 'text-gray-400 hover:text-gray-200'}">
+          <ChevronUp class="h-3 w-3 transition-transform {expanded ? '' : 'rotate-180'}" />
         </button>
       {/if}
     </div>
