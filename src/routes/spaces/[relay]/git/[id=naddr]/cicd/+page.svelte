@@ -5,6 +5,7 @@
     Check,
     Clock,
     Eye,
+    GitBranch,
     GitCommit,
     Play,
     SearchX,
@@ -15,17 +16,9 @@
     Filter,
     ChevronRight,
     ChevronDown,
-    Plus,
   } from "@lucide/svelte"
   import {getTagValue} from "@welshman/util"
-  import {SimplePool, nip19} from "nostr-tools"
-  import {pubkey, signer} from "@welshman/app"
-  import {
-    cashuTotalBalance,
-    cashuBalancesByMint,
-    cashuMints,
-    createCashuToken,
-  } from "@lib/budabit/cashu"
+  import {nip19} from "nostr-tools"
   import Spinner from "@lib/components/Spinner.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import {slideAndFade} from "@lib/transition"
@@ -36,6 +29,7 @@
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import {getContext} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import {CICD_RELAYS} from "@lib/budabit/constants"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {LayoutProps} from "../$types.js"
@@ -52,59 +46,14 @@
     throw new Error("Repo context not available")
   }
 
-  // Workflow dropdown and modal state
+  // Workflow dropdown state
   let showWorkflowDropdown = $state(false)
-  let showWorkflowModal = $state(false)
-  let selectedWorkflow = $state<{name: string; path: string} | null>(null)
-  let selectedBranch = $state("master")
-  let envVars = $state<{key: string; value: string}[]>([{key: "", value: ""}])
-  let maxDuration = $state(600)
-  let cashuToken = $state("")
-  let cashuAmount = $state(100)
-  let generatingToken = $state(false)
-  let tokenError = $state("")
-  let worker = $state("b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710")
-
-  const walletBalance = $derived($cashuTotalBalance)
-  const walletMints = $derived($cashuMints)
-  const walletBalancesByMint = $derived($cashuBalancesByMint)
-  const bestMint = $derived(
-    walletMints.length > 0
-      ? walletMints.reduce((best, m) =>
-          (walletBalancesByMint.get(m) ?? 0) > (walletBalancesByMint.get(best) ?? 0) ? m : best,
-        walletMints[0])
-      : "",
-  )
-
-  const generateCashuToken = async () => {
-    if (!bestMint) return
-    generatingToken = true
-    tokenError = ""
-    try {
-      if ((walletBalancesByMint.get(bestMint) ?? 0) < cashuAmount) {
-        tokenError = `Insufficient balance. Wallet has ${(walletBalancesByMint.get(bestMint) ?? 0).toLocaleString()} sats on ${bestMint}.`
-        return
-      }
-      cashuToken = await createCashuToken(cashuAmount, bestMint, "CI/CD pipeline runner")
-    } catch (e: any) {
-      console.error("[cicd] Failed to generate cashu token:", e)
-      tokenError = e?.message === "backup_required"
-        ? "Please back up your Cashu seed phrase before spending."
-        : "Failed to generate token. Check your wallet balance."
-    } finally {
-      generatingToken = false
-    }
-  }
 
   // Keyboard handler for Escape key
   $effect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (showWorkflowModal) {
-          showWorkflowModal = false
-        } else if (showWorkflowDropdown) {
-          showWorkflowDropdown = false
-        }
+      if (e.key === "Escape" && showWorkflowDropdown) {
+        showWorkflowDropdown = false
       }
     }
 
@@ -209,12 +158,10 @@
     return id
   })
 
-  // Mock workflow runs data structure
   interface WorkflowRun {
     id: string
     name: string
     status: "success" | "failure" | "failed" | "in_progress" | "cancelled" | "pending" | "skipped"
-    conclusion?: string
     branch: string
     commit: string
     commitMessage: string
@@ -223,80 +170,36 @@
     createdAt: number
     updatedAt: number
     duration?: number
-    runNumber: number
     _originalEvent?: any
   }
 
-  // Parse job event into WorkflowRun format
-  const parseJobEvent = (event: any): WorkflowRun => {
-    const argsTag = event.tags.find((t: string[]) => t[0] === "args")
-    const args = argsTag ? argsTag.slice(1) : []
+  // Parse Kind 5401 workflow run event into WorkflowRun format
+  const parseWorkflowRunEvent = (event: any): WorkflowRun => {
+    const tags: string[][] = event.tags || []
+    const tagVal = (name: string) => tags.find(t => t[0] === name)?.[1]
 
-    const workerTag = event.tags.find((t: string[]) => t[0] === "worker")
-    const worker = workerTag ? workerTag[1] : "unknown"
+    const workflowPath = tagVal("workflow") || ""
+    const workflowName = workflowPath
+      ? workflowPath.split("/").pop()?.replace(/\.(yml|yaml)$/, "") || "Workflow"
+      : "Workflow"
 
-    const cmdTag = event.tags.find((t: string[]) => t[0] === "cmd")
-    const cmd = cmdTag ? cmdTag[1] : "bash"
+    const branch = tagVal("branch") || "main"
+    const trigger = tagVal("trigger") || "manual"
+    const triggeredBy = tagVal("triggered-by") || event.pubkey
 
-    const paymentTag = event.tags.find((t: string[]) => t[0] === "payment")
-    const payment = paymentTag ? paymentTag[1] : ""
-
-    const aTag = event.tags.find((t: string[]) => t[0] === "a")
-    const repoNaddr = aTag ? aTag[1] : ""
-
-    // Extract workflow name from args
-    let workflowName = "Unknown Workflow"
-
-    // Handle new args structure: ["-c", "git clone ... && act -W workflow.yml"]
-    if (args.length >= 2 && args[0] === "-c") {
-      const bashCommand = args[1]
-      const match = bashCommand.match(/act -W (\S+\.(?:yml|yaml))/)
-      if (match && match[1]) {
-        workflowName =
-          match[1]
-            .split("/")
-            .pop()
-            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
-      }
-    } else if (args.length > 0) {
-      // Handle old args structure: ["git", "clone", "...", "act", "-W", "workflow.yml"]
-      const workflowPathIndex = args.indexOf("-W") !== -1 ? args.indexOf("-W") + 1 : -1
-      if (workflowPathIndex >= 0 && args[workflowPathIndex]) {
-        const path = args[workflowPathIndex]
-        workflowName =
-          path
-            .split("/")
-            .pop()
-            ?.replace(/\.(yml|yaml)$/, "") || "Unknown Workflow"
-      }
-    }
-
-    // Extract env vars from args
-    const envVars: string[] = []
-    const actIndex = args.indexOf("act")
-    if (actIndex > 0) {
-      for (let i = 0; i < actIndex; i++) {
-        if (args[i].includes("=")) {
-          envVars.push(args[i])
-        }
-      }
-    }
-
-    // For listing page, we use default values since we don't have status events
     return {
       id: event.id,
       name: workflowName,
       status: "pending" as WorkflowRun["status"],
-      branch: "main",
+      branch,
       commit: event.id.substring(0, 7),
       commitMessage: `Workflow run: ${workflowName}`,
-      actor: worker,
-      event: "workflow_dispatch",
+      actor: triggeredBy,
+      event: trigger,
       createdAt: event.created_at * 1000,
       updatedAt: event.created_at * 1000,
       duration: undefined,
-      runNumber: 0,
-      _originalEvent: event, // Store original event for direct comparison
+      _originalEvent: event,
     }
   }
 
@@ -305,135 +208,59 @@
     goto(`/spaces/${encodeURIComponent(relay!)}/git/${id}/cicd/${run.id}`)
   }
 
-  let workflowRuns = $state<WorkflowRun[]>([
-    {
-      id: "1",
-      name: "CI",
-      status: "success",
-      branch: "main",
-      commit: "abc123",
-      commitMessage: "Fix: Update dependencies",
-      actor: $pubkey || "",
-      event: "push",
-      createdAt: Date.now() - 1209600000 - 300000,
-      updatedAt: Date.now() - 1209600000 - 300000 + 600000,
-      duration: 600,
-      runNumber: 42,
-    },
-    {
-      id: "2",
-      name: "Build and Test",
-      status: "failure",
-      branch: "develop",
-      commit: "def456",
-      commitMessage: "Feature: Add new component",
-      actor: $pubkey || "",
-      event: "pull_request",
-      createdAt: Date.now() - 1209600000 - 3600000,
-      updatedAt: Date.now() - 1209600000 - 3600000 + 600000,
-      duration: 600,
-      runNumber: 41,
-    },
-    {
-      id: "3",
-      name: "Deploy",
-      status: "in_progress",
-      branch: "main",
-      commit: "ghi789",
-      commitMessage: "Deploy: Production release",
-      actor: $pubkey || "",
-      event: "workflow_dispatch",
-      createdAt: Date.now() - 1209600000 - 7200000,
-      updatedAt: Date.now() - 1209600000 - 7200000 + 600000,
-      duration: 600,
-      runNumber: 40,
-    },
-    {
-      id: "4",
-      name: "Lint and Format",
-      status: "success",
-      branch: "feature/new-ui",
-      commit: "jkl012",
-      commitMessage: "Refactor: Update UI components",
-      actor: $pubkey || "",
-      event: "push",
-      createdAt: Date.now() - 1209600000 - 14400000,
-      updatedAt: Date.now() - 1209600000 - 14400000 + 600000,
-      duration: 600,
-      runNumber: 39,
-    },
-  ])
-
-  // Set loading to false immediately if we have data - don't wait for makeFeed
-  let loadingJobs = $state(false)
   let loadingStatus = $state(false)
   let element: HTMLElement | undefined = $state()
   let feedInitialized = $state(false)
-  let statusFeedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
-  let statusFeedCleanup: (() => void) | undefined = $state(undefined)
 
-  // Create filter for job events (kind 5100) from Damus relay
-  const jobFilter = $derived.by(() => {
+  // Filter for workflow run events (Kind 5401)
+  const runFilter = $derived.by(() => {
     if (!repoNaddr) return null
-    const filter = {
-      kinds: [5100],
+    return {
+      kinds: [5401],
       "#a": [repoNaddr],
     }
-    return filter
   })
-
-  // Store subscriptions for job and status events
-  let jobEventsStore: any = $state(undefined)
-  let statusEventsStore: any = $state(undefined)
-  let jobEventsUnsubscribe: (() => void) | undefined = $state(undefined)
-  let statusEventsUnsubscribe: (() => void) | undefined = $state(undefined)
 
   // Initialize feed asynchronously - don't block render
   onMount(() => {
-    if (!feedInitialized && jobFilter) {
-      // Defer makeFeed to avoid blocking initial render
+    if (!feedInitialized && runFilter) {
       const timeout = setTimeout(() => {
         const tryStart = () => {
-          if (element && !feedInitialized && jobFilter) {
+          if (element && !feedInitialized && runFilter) {
             feedInitialized = true
-            const jobRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
+            const jobRelays = CICD_RELAYS
 
             const feed = makeFeed({
               element,
               relays: jobRelays,
-              feedFilters: [jobFilter],
-              subscriptionFilters: [jobFilter],
+              feedFilters: [runFilter],
+              subscriptionFilters: [runFilter],
               initialEvents: [],
             })
-            
-            // feed.events only receives events that pass the relay tracker check.
-            // Use it only for live new events (merge, don't overwrite).
-            jobEventsStore = feed.events
-            jobEventsUnsubscribe = feed.events.subscribe((events: any[]) => {
+
+            feed.events.subscribe((events: any[]) => {
               if (events.length === 0) return
-              // Merge live events into jobEvents without overwriting initial load results
-              const seen = new Set(jobEvents.map((e: any) => e.id))
+              const seen = new Set(runEvents.map((e: any) => e.id))
               const newEvents = events.filter((e: any) => !seen.has(e.id))
               if (newEvents.length > 0) {
-                jobEvents = [...jobEvents, ...newEvents].sort((a: any, b: any) => b.created_at - a.created_at)
+                runEvents = [...runEvents, ...newEvents].sort((a: any, b: any) => b.created_at - a.created_at)
               }
             })
 
-            // Initial load: bypass the scroller (which requires .scroll-container ancestor).
             load({
               relays: jobRelays,
-              filters: [jobFilter],
+              filters: [runFilter],
             }).then(loaded => {
               if (loaded.length > 0) {
-                const seen = new Set(jobEvents.map((e: any) => e.id))
-                const newEvents = loaded.filter((e: any) => !seen.has(e.id))
-                if (newEvents.length > 0) {
-                  jobEvents = [...jobEvents, ...newEvents].sort((a: any, b: any) => b.created_at - a.created_at)
+                const seen = new Set(runEvents.map((e: any) => e.id))
+                const newRuns = loaded.filter((e: any) => !seen.has(e.id))
+                if (newRuns.length > 0) {
+                  runEvents = [...runEvents, ...newRuns].sort((a: any, b: any) => b.created_at - a.created_at)
                 }
               }
             })
-            
+
             feedCleanup = feed.cleanup
           } else if (!element) {
             requestAnimationFrame(tryStart)
@@ -448,107 +275,144 @@
     }
   })
 
-  // Fetch job results (kind 5101) for completed jobs to determine actual success/failure
-  const fetchJobResultsForCompletedJobs = async () => {
-    const sharegapRelay = "wss://relay.sharegap.net"
+  // Fetch status/result events for workflow runs (Kind 5401)
+  let fetchedStatusForRunIds = new Set<string>()
 
-    for (const statusEvent of statusEvents) {
-      const statusTag = statusEvent.tags.find((t: string[]) => t[0] === "status")
-      const status = statusTag ? statusTag[1] : ""
-      const eTag = statusEvent.tags.find((t: string[]) => t[0] === "e")
-      const workflowId = eTag ? eTag[1] : ""
+  $effect(() => {
+    const ids = runEvents.map((e: any) => e.id).filter((id: string) => !fetchedStatusForRunIds.has(id))
+    if (ids.length === 0) return
 
-      // Only fetch job results for completed or success status
-      if (status === "completed" || status === "success") {
-        try {
-          const jobResultFilter = {kinds: [5101], "#e": [workflowId]}
+    ids.forEach((id: string) => fetchedStatusForRunIds.add(id))
 
-          if (!element) continue
-          
-          const jobResultFeed = makeFeed({
-            element,
-            relays: [damusRelay],
-            feedFilters: [jobResultFilter],
-            subscriptionFilters: [jobResultFilter],
-            initialEvents: [],
-          })
+    const jobRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
 
-          // Subscribe to the events store to process results
-          const unsubscribe = jobResultFeed.events.subscribe((events: any[]) => {
-            for (const event of events) {
-              const successTag = event.tags.find((t: string[]) => t[0] === "success")
-              const exitCodeTag = event.tags.find((t: string[]) => t[0] === "exit_code")
-
-              const isSuccess = successTag?.[1] === "true" || exitCodeTag?.[1] === "0"
-              const actualStatus = isSuccess ? "success" : "failure"
-
-              // Update the status event with the actual status from job result
-              const statusIndex = statusEvents.findIndex((e: any) => e.id === statusEvent.id)
-              if (statusIndex >= 0) {
-                statusEvents[statusIndex] = {
-                  ...statusEvents[statusIndex],
-                  tags: statusEvents[statusIndex].tags.map((t: string[]) => {
-                    if (t[0] === "status") {
-                      return ["status", actualStatus]
-                    }
-                    return t
-                  }),
-                }
-              }
-            }
-          })
-
-          // Cleanup after a short timeout
-          setTimeout(() => {
-            unsubscribe()
-            jobResultFeed.cleanup()
-          }, 5000)
-        } catch (err) {
-          console.error("Failed to fetch job result:", err)
+    // Fetch Kind 5402 (workflow log), Kind 5100 (loom job via #e), Kind 30100 (status), Kind 5101 (result)
+    Promise.all([
+      load({relays: jobRelays, filters: [{kinds: [5402], "#e": ids}]}),
+      load({relays: jobRelays, filters: [{kinds: [5100], "#e": ids}]}),
+      load({relays: jobRelays, filters: [{kinds: [30100], "#e": ids}]}),
+      load({relays: jobRelays, filters: [{kinds: [5101], "#e": ids}]}),
+    ]).then(([loadedLogs, loadedJobs, loadedStatus, loadedResults]) => {
+      if (loadedLogs.length > 0) {
+        const seen = new Set(workflowLogEvents.map((e: any) => e.id))
+        const newEvents = loadedLogs.filter((e: any) => !seen.has(e.id))
+        if (newEvents.length > 0) {
+          workflowLogEvents = [...workflowLogEvents, ...newEvents]
         }
       }
-    }
-  }
+      // For loom jobs referencing runs, also fetch their status/results by job ID
+      if (loadedJobs.length > 0) {
+        const loomJobIds = loadedJobs.map((e: any) => e.id)
+        // Map loom job IDs back to run IDs
+        for (const job of loadedJobs) {
+          const eTag = job.tags.find((t: string[]) => t[0] === "e")
+          if (eTag) loomJobToRunId.set(job.id, eTag[1])
+        }
+        Promise.all([
+          load({relays: jobRelays, filters: [{kinds: [30100], "#e": loomJobIds}]}),
+          load({relays: jobRelays, filters: [{kinds: [5101], "#e": loomJobIds}]}),
+        ]).then(([jobStatusEvts, jobResultEvts]) => {
+          if (jobStatusEvts.length > 0) {
+            const seen = new Set(statusEvents.map((e: any) => e.id))
+            const newEvents = jobStatusEvts.filter((e: any) => !seen.has(e.id))
+            if (newEvents.length > 0) statusEvents = [...statusEvents, ...newEvents]
+          }
+          if (jobResultEvts.length > 0) {
+            const seen = new Set(jobResultEvents.map((e: any) => e.id))
+            const newEvents = jobResultEvts.filter((e: any) => !seen.has(e.id))
+            if (newEvents.length > 0) jobResultEvents = [...jobResultEvents, ...newEvents]
+          }
+        })
+      }
+      if (loadedStatus.length > 0) {
+        const seen = new Set(statusEvents.map((e: any) => e.id))
+        const newEvents = loadedStatus.filter((e: any) => !seen.has(e.id))
+        if (newEvents.length > 0) statusEvents = [...statusEvents, ...newEvents]
+      }
+      if (loadedResults.length > 0) {
+        const seen = new Set(jobResultEvents.map((e: any) => e.id))
+        const newEvents = loadedResults.filter((e: any) => !seen.has(e.id))
+        if (newEvents.length > 0) jobResultEvents = [...jobResultEvents, ...newEvents]
+      }
+    })
+  })
 
-  // CRITICAL: Cleanup on destroy to prevent memory leaks and blocking navigation
+  // Cleanup on destroy
   onDestroy(() => {
     feedCleanup?.()
-    if (jobEventsUnsubscribe) jobEventsUnsubscribe()
   })
 
-  // Get events from makeFeed
-  let jobEvents = $state<any[]>([])
-  let statusEvents = $state<any[]>([])
+  let runEvents = $state<any[]>([])  // Kind 5401 workflow run events
+  let workflowLogEvents = $state<any[]>([])  // Kind 5402 workflow log events
+  let statusEvents = $state<any[]>([])  // Kind 30100 status events
+  let jobResultEvents = $state<any[]>([])  // Kind 5101 job result events
+  let loomJobToRunId = new Map<string, string>()  // Maps loom job ID → workflow run ID
 
-  // Combine test data and real job events
   const allWorkflowRuns = $derived.by(() => {
-    const parsedJobRuns = jobEvents.map(parseJobEvent)
-    return [...workflowRuns, ...parsedJobRuns].sort((a, b) => b.createdAt - a.createdAt)
+    return runEvents.map(parseWorkflowRunEvent).sort((a, b) => b.createdAt - a.createdAt)
   })
 
-  // Match status events to workflow runs and update status
+  // Resolve status for each run using priority: Kind 5402 > Kind 5101 > Kind 30100 > pending
   const workflowRunsWithStatus = $derived.by(() => {
     return allWorkflowRuns.map(run => {
-      // Find all matching status events for this workflow run (most recent first)
-      const matchingStatusEvents = statusEvents.filter(statusEvent => {
-        // Status event should have an "e" tag pointing to the workflow event ID
-        const eTag = statusEvent.tags.find((t: string[]) => t[0] === "e")
-        const matches = eTag && eTag[1] === run._originalEvent?.id
-        return matches
+      const runId = run._originalEvent?.id
+      if (!runId) return run
+
+      // Find loom result (Kind 5101) referencing this run or its loom job
+      const matchingResult = jobResultEvents.find(e => {
+        const eTag = e.tags.find((t: string[]) => t[0] === "e")
+        if (!eTag) return false
+        return eTag[1] === runId || loomJobToRunId.get(eTag[1]) === runId
+      })
+      const loomSuccess = matchingResult?.tags.find((t: string[]) => t[0] === "success")
+      const loomExitCode = matchingResult?.tags.find((t: string[]) => t[0] === "exit_code")
+      const loomIsSuccess = loomSuccess?.[1] === "true" || loomExitCode?.[1] === "0"
+
+      // Priority 1: Kind 5402 (workflow log)
+      const matchingLog = workflowLogEvents.find(e => {
+        const eTag = e.tags.find((t: string[]) => t[0] === "e")
+        return eTag && eTag[1] === runId
+      })
+
+      if (matchingLog) {
+        const statusTag = matchingLog.tags.find((t: string[]) => t[0] === "status")
+        const durationTag = matchingLog.tags.find((t: string[]) => t[0] === "duration")
+        const s = statusTag?.[1] || "unknown"
+        if (s === "failed" || s === "failure") {
+          return {...run, status: "failure" as WorkflowRun["status"], duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined}
+        }
+        // Even if 5402 says success, if loom result says failure → failure
+        if (matchingResult && !loomIsSuccess) {
+          return {...run, status: "failure" as WorkflowRun["status"], duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined}
+        }
+        if (s === "success") {
+          return {...run, status: "success" as WorkflowRun["status"], duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined}
+        }
+        return {...run, status: s as WorkflowRun["status"], duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined}
+      }
+
+      // Priority 2: Kind 5101 (loom result)
+      if (matchingResult) {
+        return {
+          ...run,
+          status: (loomIsSuccess ? "success" : "failure") as WorkflowRun["status"],
+        }
+      }
+
+      // Priority 3: Kind 30100 (loom status)
+      const matchingStatusEvents = statusEvents.filter(e => {
+        const eTag = e.tags.find((t: string[]) => t[0] === "e")
+        if (!eTag) return false
+        return eTag[1] === runId || loomJobToRunId.get(eTag[1]) === runId
       })
 
       if (matchingStatusEvents.length > 0) {
-        // Sort by created_at descending to get most recent status first
-        matchingStatusEvents.sort((a, b) => b.created_at - a.created_at)
-        const mostRecentStatusEvent = matchingStatusEvents[0]
-
-        // Extract status from most recent status event
-        const statusTag = mostRecentStatusEvent.tags.find((t: string[]) => t[0] === "status")
-        const status = statusTag ? statusTag[1] : "pending"
-
+        matchingStatusEvents.sort((a: any, b: any) => b.created_at - a.created_at)
+        const statusTag = matchingStatusEvents[0].tags.find((t: string[]) => t[0] === "status")
+        const s = statusTag?.[1] || "pending"
         return {
           ...run,
-          status: status as WorkflowRun["status"],
+          status: (s === "failed" ? "failure" : s) as WorkflowRun["status"],
         }
       }
 
@@ -703,78 +567,9 @@
   }
 
   const onSelectWorkflow = (workflow: {name: string; path: string}) => {
-    selectedWorkflow = workflow
     showWorkflowDropdown = false
-    showWorkflowModal = true
-  }
-
-  const onAddEnvVar = () => {
-    envVars = [...envVars, {key: "", value: ""}]
-  }
-
-  const onRemoveEnvVar = (index: number) => {
-    envVars = envVars.filter((_, i) => i !== index)
-  }
-
-  const onSubmitWorkflow = async () => {
-    // Convert env vars array to key=value format
-    const envVarsString = envVars
-      .filter(e => e.key && e.value)
-      .map(e => `${e.key}=${e.value}`)
-      .join(" ")
-
-    // Get clone URL and repo name
-    const cloneUrl = repoClass?.cloneUrls?.[0] || ""
-    const repoName = repoClass?.name || "repo"
-    const uniqueDir = `/tmp/${repoName}-${Date.now()}`
-
-    // Build bash command with git clone, cd, env vars and workflow
-    const baseCommand = `git clone ${cloneUrl} ${uniqueDir} && cd ${uniqueDir} && act -W ${selectedWorkflow?.path}`
-    const bashCommand = envVarsString ? `${envVarsString} ${baseCommand}` : baseCommand
-
-    // Create Nostr event
-    const unsignedEvent = {
-      kind: 5100,
-      created_at: Math.floor(Date.now() / 1000),
-      content: "",
-      tags: [
-        ["p", worker],
-        ["a", repoNaddr ?? ""],
-        ["cmd", "bash"],
-        ["args", "-c", bashCommand],
-        ["payment", cashuToken],
-      ],
-      pubkey: $pubkey ?? "",
-    }
-
-    try {
-      // Sign and publish event
-      const signedEvent = await $signer.sign(unsignedEvent)
-
-      const pool = new SimplePool()
-      await pool.publish(["wss://relay.sharegap.net", "wss://nos.lol"], signedEvent)
-
-      const jobStatusUrl = `https://loom.treegaze.com/job/${signedEvent.id}`
-      toast.push({
-        message: `Workflow submitted successfully - Check job status: ${jobStatusUrl}`,
-        variant: "default",
-      })
-
-      showWorkflowModal = false
-      // Reset form
-      envVars = [{key: "", value: ""}]
-      maxDuration = 600
-      cashuToken = ""
-      selectedWorkflow = null
-      selectedBranch = "master"
-      worker = "b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710"
-    } catch (e) {
-      console.error("Failed to submit workflow:", e)
-      toast.push({
-        message: "Failed to submit workflow",
-        variant: "error",
-      })
-    }
+    const params = new URLSearchParams({workflow: workflow.name, path: workflow.path})
+    goto(`/spaces/${relay}/git/${id}/cicd/new?${params}`)
   }
 
   // Persist filters per repo
@@ -986,12 +781,6 @@
       {/if}
     </div>
   {:else}
-    {#if loadingJobs}
-      <div class="flex items-center justify-center py-4">
-        <Spinner loading={loadingJobs}>Loading more workflow runs...</Spinner>
-      </div>
-    {/if}
-
     <div class="space-y-2">
       {#each filteredRuns as run (run.id)}
         {@const StatusIcon = getStatusIcon(run.status)}
@@ -1018,7 +807,6 @@
                     class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBgColor(run.status)} ${getStatusColor(run.status)}`}>
                     {run.status.replace("_", " ")}
                   </span>
-                  <span class="text-xs text-muted-foreground">#{run.runNumber}</span>
                 </div>
 
                 <!-- Commit Message -->
@@ -1031,7 +819,7 @@
                     <span class="font-mono">{run.commit.slice(0, 7)}</span>
                   </div>
                   <div class="flex items-center gap-1">
-                    <span>on</span>
+                    <GitBranch class="h-3 w-3" />
                     <span class="font-medium">{run.branch}</span>
                   </div>
                   <div class="flex items-center gap-1">
@@ -1065,172 +853,6 @@
 
   <!-- Summary Stats -->
   {#if filteredRuns.length > 0}
-    <!-- Workflow Submission Modal -->
-    {#if showWorkflowModal}
-      <div
-        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        role="button"
-        tabindex="0"
-        onclick={() => (showWorkflowModal = false)}
-        onkeydown={(e) => {
-          if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
-            e.preventDefault()
-            showWorkflowModal = false
-          }
-        }}>
-        <div
-          class="w-full max-w-lg rounded-lg border border-border bg-card p-6 shadow-lg"
-          role="dialog"
-          aria-modal="true"
-          tabindex="-1"
-          onclick={e => e.stopPropagation()}
-          onkeydown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault()
-            }
-            e.stopPropagation()
-          }}>
-          <div class="mb-4 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">Run {selectedWorkflow?.name}</h3>
-            <Button variant="ghost" size="sm" onclick={() => (showWorkflowModal = false)}>
-              <X class="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div class="space-y-4">
-            <!-- Branch Selection -->
-            <div class="space-y-2">
-              <label for="branch-select" class="text-sm font-medium">Branch</label>
-              <select
-                id="branch-select"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                bind:value={selectedBranch}>
-                <option value="master">master</option>
-              </select>
-              <p class="text-xs text-muted-foreground">Select the branch to run the workflow on</p>
-            </div>
-
-            <!-- Environment Variables -->
-            <div class="space-y-2">
-              <div class="text-sm font-medium">Environment Variables</div>
-              <Button variant="outline" size="sm" class="gap-1" onclick={onAddEnvVar}>
-                <Plus class="h-3 w-3" />
-                Add
-              </Button>
-              <div class="space-y-2">
-                {#each envVars as envVar, index (index)}
-                  <div class="flex gap-2">
-                    <input
-                      type="text"
-                      class="flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      placeholder="KEY"
-                      bind:value={envVar.key} />
-                    <input
-                      type="text"
-                      class="flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      placeholder="value"
-                      bind:value={envVar.value} />
-                    {#if envVars.length > 1}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class="shrink-0 text-muted-foreground hover:text-destructive"
-                        onclick={() => onRemoveEnvVar(index)}>
-                        <X class="h-4 w-4" />
-                      </Button>
-                    {/if}
-                  </div>
-                {/each}
-              </div>
-              <p class="text-xs text-muted-foreground">
-                Add environment variables as key-value pairs
-              </p>
-            </div>
-
-            <!-- Max Duration -->
-            <div class="space-y-2">
-              <label for="max-duration" class="text-sm font-medium">Max Duration (seconds)</label>
-              <input
-                id="max-duration"
-                type="number"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                placeholder="600"
-                min="1"
-                bind:value={maxDuration} />
-              <p class="text-xs text-muted-foreground">
-                Maximum time the workflow is allowed to run before being terminated
-              </p>
-            </div>
-
-            <!-- Cashu Token -->
-            <div class="space-y-2">
-              <label for="cashu-token" class="text-sm font-medium">
-                Cashu Token
-                {#if walletBalance > 0}
-                  <span class="ml-2 text-xs font-normal opacity-60">
-                    Wallet: {walletBalance.toLocaleString()} sats
-                  </span>
-                {/if}
-              </label>
-              {#if walletMints.length > 0}
-                <div class="flex gap-2">
-                  <input
-                    id="cashu-amount"
-                    type="number"
-                    class="w-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    placeholder="100"
-                    min="1"
-                    bind:value={cashuAmount} />
-                  <Button
-                    variant="outline"
-                    onclick={generateCashuToken}
-                    disabled={generatingToken || !bestMint || cashuAmount <= 0}>
-                    {generatingToken ? "Generating…" : "Generate from wallet"}
-                  </Button>
-                </div>
-              {/if}
-              <input
-                id="cashu-token"
-                type="text"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                placeholder="cashuA… (or generate above)"
-                bind:value={cashuToken} />
-              {#if tokenError}
-                <p class="text-xs text-error">{tokenError}</p>
-              {:else}
-                <p class="text-xs text-muted-foreground">
-                  Cashu token for payment. Generate from your wallet or paste manually.
-                </p>
-              {/if}
-            </div>
-
-            <!-- Worker -->
-            <div class="space-y-2">
-              <label for="worker" class="text-sm font-medium">Worker ID</label>
-              <input
-                id="worker"
-                type="text"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                placeholder="Worker public key"
-                bind:value={worker} />
-              <p class="text-xs text-muted-foreground">
-                Public key of the worker to execute the workflow
-              </p>
-            </div>
-
-            <!-- Submit Button -->
-            <div class="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onclick={() => (showWorkflowModal = false)}>Cancel</Button>
-              <Button variant="git" onclick={onSubmitWorkflow}>
-                <Play class="h-4 w-4" />
-                Submit Workflow
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    {/if}
-
     <div class="mt-6 rounded-lg border border-border bg-card p-4">
       <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div class="space-y-1">
