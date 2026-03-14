@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Check, X, Circle, Loader2, AlertCircle, ChevronDown, ChevronRight} from "@lucide/svelte"
+  import {Check, X, Loader2, AlertCircle, ChevronDown, ChevronRight} from "@lucide/svelte"
   import type {ActJob, WorkflowJob, JobGroup} from "@lib/budabit/cicd"
 
   interface Props {
@@ -129,28 +129,28 @@
 
           <div class="divide-y divide-border">
             {#if actJob}
-              <!-- Act log steps: status + expandable logs -->
+              <!-- Act log steps: numbered badge (colored by status) + expandable logs -->
               {#each actJob.steps as step, i (i)}
+                {@const badgeClass = step.status === "success"
+                  ? "bg-green-500/20 text-green-600 dark:text-green-400"
+                  : step.status === "failure"
+                  ? "bg-red-500/20 text-red-600 dark:text-red-400"
+                  : "bg-muted text-muted-foreground"}
                 <div>
                   <button
-                    class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors hover:bg-accent/50"
+                    class="flex w-full items-start gap-3 px-4 py-2 text-left text-sm transition-colors hover:bg-accent/50"
                     onclick={() => (expandedStepIndex = expandedStepIndex === i ? null : i)}>
-                    <span class="shrink-0">
-                      {#if step.status === "success"}
-                        <Check class="h-3.5 w-3.5 text-green-500" />
-                      {:else if step.status === "failure"}
-                        <X class="h-3.5 w-3.5 text-red-500" />
-                      {:else}
-                        <Circle class="h-3.5 w-3.5 text-muted-foreground" />
-                      {/if}
+                    <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded font-mono text-[10px] {badgeClass}">
+                      {i + 1}
                     </span>
-                    <span class="flex-1 font-medium {step.status === 'failure' ? 'text-red-600 dark:text-red-400' : ''}"
-                      >{displayStepName(step.name)}</span>
+                    <div class="min-w-0 flex-1">
+                      <div class="text-sm font-medium {step.status === 'failure' ? 'text-red-600 dark:text-red-400' : ''}">{displayStepName(step.name)}</div>
+                    </div>
                     {#if step.logs.length > 0}
                       {#if expandedStepIndex === i}
-                        <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <ChevronDown class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       {:else}
-                        <ChevronRight class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <ChevronRight class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       {/if}
                     {/if}
                   </button>
