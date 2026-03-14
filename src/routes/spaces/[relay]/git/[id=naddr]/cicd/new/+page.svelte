@@ -31,6 +31,252 @@
     throw new Error("Repo context not available")
   }
 
+  // Hive CI Workflow Runner Script — uploaded to Blossom before each run
+  // Use the exact same script as hive-ci-site
+  const WORKFLOW_RUNNER_SCRIPT = `#!/bin/bash
+set -eo pipefail
+
+# Hive CI Workflow Runner Script
+# This script clones a Nostr repository, runs GitHub Actions with act,
+# and uploads the results to Blossom using nak for Nostr event publishing.
+
+# Environment variables (with defaults):
+# - HIVE_CI_REPOSITORY: Nostr URL of the repository (required)
+# - HIVE_CI_WORKFLOW: Workflow file path (optional, defaults to all workflows)
+# - HIVE_CI_BRANCH: Git branch to checkout (optional, defaults to default branch)
+# - HIVE_CI_RUN_ID: Unique run identifier (required)
+# - HIVE_CI_PRIVATEKEY: Nostr private key for publishing results (required)
+# - HIVE_CI_BLOSSOM_SERVER: Blossom server URL (default: https://blossom.primal.net)
+# - HIVE_CI_RELAYS: Comma-separated relay URLs (default: wss://relay.damus.io)
+
+# Validate required environment variables
+if [ -z "$HIVE_CI_REPOSITORY" ]; then
+  echo "Error: HIVE_CI_REPOSITORY is required"
+  exit 1
+fi
+
+if [ -z "$HIVE_CI_RUN_ID" ]; then
+  echo "Error: HIVE_CI_RUN_ID is required"
+  exit 1
+fi
+
+if [ -z "$HIVE_CI_PRIVATEKEY" ]; then
+  echo "Error: HIVE_CI_PRIVATEKEY is required"
+  exit 1
+fi
+
+# Set defaults
+BLOSSOM_SERVER="\${HIVE_CI_BLOSSOM_SERVER:-https://blossom.primal.net}"
+RELAYS="\${HIVE_CI_RELAYS:-wss://relay.damus.io}"
+
+# Extract repository name from Nostr URL
+# Format: nostr://npub.../repo-name
+REPO_NAME=$(echo "$HIVE_CI_REPOSITORY" | sed 's|.*/||')
+
+# Create working directory
+WORK_DIR="/tmp/hive-ci-\${HIVE_CI_RUN_ID}"
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR"
+
+# Track start time
+START_TIME=$(date +%s)
+
+# Initialize result variables
+EXIT_CODE=0
+ACT_LOG_FILE="\${WORK_DIR}/act-output.log"
+touch "$ACT_LOG_FILE"
+
+echo "=== Hive CI Workflow Runner ==="
+echo "Repository: \${HIVE_CI_REPOSITORY}"
+echo "Workflow: \${HIVE_CI_WORKFLOW:-all workflows}"
+echo "Branch: \${HIVE_CI_BRANCH:-default}"
+echo "Run ID: \${HIVE_CI_RUN_ID}"
+echo "Blossom Server: \${BLOSSOM_SERVER}"
+echo "Working Directory: \${WORK_DIR}"
+echo "ngit version: $(ngit --version 2>&1)"
+echo "nak version: $(nak --version 2>&1)"
+echo "================================"
+
+# Configure ngit relay defaults for headless environments (no cached relay list)
+# Convert comma-separated HIVE_CI_RELAYS to semicolon-separated for ngit git config
+NGIT_RELAYS=$(echo "$RELAYS" | tr ',' ';')
+git config --global nostr.relay-default-set "$NGIT_RELAYS"
+
+# Clone the repository (with optional branch)
+export RUST_BACKTRACE=full
+echo ""
+echo ">>> Cloning repository..."
+CLONE_ARGS=""
+if [ -n "$HIVE_CI_BRANCH" ]; then
+  echo "Cloning branch: \${HIVE_CI_BRANCH}"
+  CLONE_ARGS="--branch $HIVE_CI_BRANCH"
+fi
+if ! git clone $CLONE_ARGS "$HIVE_CI_REPOSITORY" 2>&1; then
+  echo "Error: Failed to clone repository"
+  EXIT_CODE=1
+fi
+
+if [ $EXIT_CODE -eq 0 ]; then
+  # Change to repo directory
+  cd "$REPO_NAME"
+
+  # Run act with the specified workflow (or all workflows if not specified)
+  echo ""
+  echo ">>> Running GitHub Actions with act..."
+
+  if [ -n "$HIVE_CI_WORKFLOW" ]; then
+    echo "Workflow file: \${HIVE_CI_WORKFLOW}"
+    # Capture only act output to log file, show on console too
+    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest -W "$HIVE_CI_WORKFLOW" 2>&1 | tee "$ACT_LOG_FILE"; then
+      EXIT_CODE=$?
+      echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
+    fi
+  else
+    echo "Running all workflows"
+    # Capture only act output to log file, show on console too
+    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest 2>&1 | tee "$ACT_LOG_FILE"; then
+      EXIT_CODE=$?
+      echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
+    fi
+  fi
+fi
+
+# Calculate duration
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+
+echo ""
+echo ">>> Workflow execution completed"
+echo "Exit Code: \${EXIT_CODE}"
+echo "Duration: \${DURATION} seconds"
+
+# Upload log file to Blossom using nak
+echo ""
+echo ">>> Uploading log to Blossom..."
+
+# Upload and capture result to temp file to avoid shell parsing issues
+# Use || true so set -e doesn't kill the script if upload fails
+UPLOAD_TEMP=$(mktemp)
+if cat "$ACT_LOG_FILE" | nak blossom --server "$BLOSSOM_SERVER" --sec "$HIVE_CI_PRIVATEKEY" upload > "$UPLOAD_TEMP" 2>&1; then
+  LOG_URL=$(cat "$UPLOAD_TEMP" | jq -r '.url // empty')
+  if [ -n "$LOG_URL" ] && [ "$LOG_URL" != "null" ]; then
+    echo "Log uploaded: \${LOG_URL}"
+  else
+    echo "Warning: Blossom upload returned no URL"
+    echo "Response: $(cat "$UPLOAD_TEMP")"
+    LOG_URL=""
+  fi
+else
+  echo "Warning: Failed to upload log to Blossom (exit code: $?)"
+  echo "Error output: $(cat "$UPLOAD_TEMP")"
+  LOG_URL=""
+fi
+rm -f "$UPLOAD_TEMP"
+
+# Publish Kind 5402 (Workflow Log) event using nak
+echo ""
+echo ">>> Publishing workflow result to Nostr..."
+
+# Determine status
+if [ $EXIT_CODE -eq 0 ]; then
+  STATUS="success"
+else
+  STATUS="failed"
+fi
+
+# Split relays into array for nak
+IFS=',' read -ra RELAY_ARRAY <<< "$RELAYS"
+
+# Build relay arguments
+RELAY_ARGS=""
+for relay in "\${RELAY_ARRAY[@]}"; do
+  RELAY_ARGS="$RELAY_ARGS $relay"
+done
+
+# Build tag arguments
+TAG_ARGS="-t e=\${HIVE_CI_RUN_ID} -t status=\${STATUS} -t exit_code=\${EXIT_CODE} -t duration=\${DURATION}"
+
+# Add log URL if available
+if [ -n "$LOG_URL" ]; then
+  TAG_ARGS="$TAG_ARGS -t log_url=\${LOG_URL}"
+fi
+
+# Add workflow tag if specified
+if [ -n "$HIVE_CI_WORKFLOW" ]; then
+  TAG_ARGS="$TAG_ARGS -t workflow=\${HIVE_CI_WORKFLOW}"
+fi
+
+# Publish event using nak and capture event ID
+# Generate event by providing empty JSON on stdin (nak reads stdin by default)
+EVENT_JSON=$(echo '{}' | nak event -k 5402 $TAG_ARGS --sec "\${HIVE_CI_PRIVATEKEY}" -c '')
+
+# Extract event ID from the JSON
+EVENT_ID=$(echo "$EVENT_JSON" | jq -r '.id')
+
+if [ -z "$EVENT_ID" ] || [ "$EVENT_ID" = "null" ]; then
+  echo "Error: Failed to generate workflow result event" >&2
+  exit 1
+fi
+
+# Publish the event to relays (stderr output suppressed for cleaner logs)
+echo "$EVENT_JSON" | nak event $RELAY_ARGS 2>/dev/null
+
+echo "Workflow result published: \${EVENT_ID}" >&2
+
+# Cleanup
+echo ""
+echo ">>> Cleaning up..."
+cd /tmp
+rm -rf "$WORK_DIR"
+
+echo ""
+echo "=== Hive CI Workflow Runner Complete ==="
+echo "Final Status: \${STATUS}"
+echo "Exit Code: \${EXIT_CODE}"
+echo "Duration: \${DURATION} seconds"
+if [ -n "$LOG_URL" ]; then
+  echo "Log URL: \${LOG_URL}"
+fi
+if [ -n "$EVENT_ID" ]; then
+  echo "Result Event ID: \${EVENT_ID}"
+fi
+echo "========================================"
+
+exit $EXIT_CODE
+`
+
+  const BLOSSOM_SERVERS = ["https://cdn.sovbit.host/", "https://blossom.primal.net"]
+
+  /**
+   * Upload the workflow runner script to a Blossom server using blossom-client-sdk.
+   * Tries multiple servers until one succeeds.
+   */
+  async function uploadScriptToBlossom(): Promise<string> {
+    const {BlossomClient} = await import("blossom-client-sdk")
+    const blob = new Blob([WORKFLOW_RUNNER_SCRIPT], {type: "text/plain"})
+
+    // Create a blossom-compatible signer from the Nostr signer
+    const blossomSigner = async (event: any) => {
+      return await $signer.sign(event)
+    }
+
+    const errors: string[] = []
+    for (const server of BLOSSOM_SERVERS) {
+      try {
+        console.log(`[cicd] Trying to upload script to ${server}...`)
+        const client = new BlossomClient(server, blossomSigner)
+        const result = await client.uploadBlob(blob)
+        console.log(`[cicd] Script uploaded to ${server}: ${result.url}`)
+        return result.url
+      } catch (e: any) {
+        const msg = e?.message || "Unknown error"
+        errors.push(`${server}: ${msg}`)
+        console.warn(`[cicd] Blossom upload to ${server} failed:`, msg)
+      }
+    }
+    throw new Error(`All Blossom servers failed:\n${errors.join("\n")}`)
+  }
+
   const {relay, id} = $page.params
   const workflowName = $page.url.searchParams.get("workflow") ?? ""
   const workflowPath = $page.url.searchParams.get("path") ?? ""
@@ -50,7 +296,7 @@
   })
 
   // Form state
-  let selectedBranch = $state("master")
+  let selectedBranch = $state(repoClass.mainBranch ?? "")
   let envVars = $state<{key: string; value: string}[]>([{key: "", value: ""}])
   let secrets = $state<{key: string; value: string}[]>([{key: "", value: ""}])
   let maxDuration = $state(600)
@@ -165,6 +411,7 @@
     try {
       const pool = new SimplePool()
       const events = await pool.querySync(workerRelays, {kinds: [10100]})
+      pool.close(workerRelays)
 
       const latestByPubkey = new Map<string, any>()
       for (const event of events) {
@@ -226,20 +473,29 @@
 
   const cicdPath = `/spaces/${relay}/git/${id}/cicd`
 
-  // Convert repo coordinate to nostr:// URL for the workflow runner script
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  const publishRelays = ["wss://relay.sharegap.net", "wss://nos.lol"]
+  // All relays: publish relays + repo relays (for relay hints and HIVE_CI_RELAYS)
+  const allRelays = $derived(
+    [...new Set([...publishRelays, ...($repoRelaysStore || [])])],
+  )
+  const jobRelays = $derived(allRelays.join(","))
+
+  // Convert repo coordinate to nostr:// URL for git-remote-nostr
+  // Format: nostr://<npub>/<relay-hints>/<identifier>
+  // Relay hints between npub and identifier let ngit discover the repo on a headless worker
   const repoNostrUrl = $derived.by(() => {
     if (!repoNaddr) return ""
     try {
       const parts = repoNaddr.split(":")
       if (parts.length === 3) {
-        const [kind, pk, identifier] = parts
-        const naddrEncoded = nip19.naddrEncode({
-          kind: parseInt(kind),
-          pubkey: pk,
-          identifier,
-          relays: [],
-        })
-        return `nostr://${naddrEncoded}`
+        const [_kind, pk, identifier] = parts
+        const npub = nip19.npubEncode(pk)
+        const relayHints = allRelays.map(r => encodeURIComponent(r)).join("/")
+        if (relayHints) {
+          return `nostr://${npub}/${relayHints}/${identifier}`
+        }
+        return `nostr://${npub}/${identifier}`
       }
     } catch {
       // pass
@@ -247,9 +503,11 @@
     return ""
   })
 
-  const publishRelays = ["wss://relay.sharegap.net", "wss://nos.lol"]
-
   const onSubmitWorkflow = async () => {
+    if (!selectedBranch) {
+      tokenError = "Please select a branch."
+      return
+    }
     if (!selectedWorker) {
       tokenError = "Please select a worker."
       return
@@ -287,7 +545,18 @@
         return
       }
 
-      // 3. Publish Kind 5401 (workflow run event)
+      // 3. Upload workflow runner script to Blossom
+      toast.push({message: "Uploading workflow script...", variant: "default"})
+      let scriptUrl: string
+      try {
+        scriptUrl = await uploadScriptToBlossom()
+      } catch (e: any) {
+        console.error("[cicd] Failed to upload script:", e)
+        tokenError = "Failed to upload workflow script to Blossom."
+        return
+      }
+
+      // 4. Publish Kind 5401 (workflow run event)
       const workflowRunEvent = {
         kind: 5401,
         created_at: Math.floor(Date.now() / 1000),
@@ -311,19 +580,21 @@
 
       console.log("[cicd] Published Kind 5401 workflow run:", runId)
 
-      // 4. Build env tags (HIVE_CI_* vars + user env vars)
+      // 5. Build env tags (HIVE_CI_* vars + user env vars)
       const envTags = [
         ["env", "HIVE_CI_RUN_ID", runId],
         ["env", "HIVE_CI_REPOSITORY", repoNostrUrl],
         ["env", "HIVE_CI_WORKFLOW", workflowPath],
         ["env", "HIVE_CI_BRANCH", selectedBranch],
-        ["env", "HIVE_CI_RELAYS", publishRelays.join(",")],
+        ["env", "HIVE_CI_RELAYS", jobRelays],
+        ["env", "HIVE_CI_BLOSSOM_SERVER", "https://blossom.primal.net"],
+        ["env", "RUST_BACKTRACE", "1"],
         ...envVars
           .filter(e => e.key && e.value)
           .map(e => ["env", e.key, e.value]),
       ]
 
-      // 5. Encrypt secrets via NIP-44 to worker pubkey (HIVE_CI_PRIVATEKEY + user secrets)
+      // 6. Encrypt secrets via NIP-44 to worker pubkey (HIVE_CI_PRIVATEKEY + user secrets)
       const secretTags: string[][] = []
       try {
         // Encrypt ephemeral private key as secret
@@ -342,8 +613,7 @@
         return
       }
 
-      // 6. Publish Kind 5100 (loom job request) referencing the workflow run
-      const scriptUrl = "https://blossom.primal.net/run-workflow.sh"
+      // 7. Publish Kind 5100 (loom job request) referencing the workflow run
       const bashCommand = `curl -fsSL "${scriptUrl}" -o /tmp/run-workflow.sh && chmod +x /tmp/run-workflow.sh && /tmp/run-workflow.sh`
 
       const jobEvent = {
@@ -364,6 +634,7 @@
 
       const signedJobEvent = await $signer.sign(jobEvent)
       await pool.publish(publishRelays, signedJobEvent)
+      pool.close(publishRelays)
 
       console.log("[cicd] Published Kind 5100 loom job:", signedJobEvent.id, "referencing run:", runId)
 
@@ -372,7 +643,7 @@
         variant: "default",
       })
 
-      goto(cicdPath)
+      goto(`${cicdPath}/${runId}`)
     } catch (e) {
       console.error("Failed to submit workflow:", e)
       toast.push({
@@ -467,7 +738,10 @@
             id="branch-select"
             class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             bind:value={selectedBranch}>
-            <option value="master">master</option>
+            <option value="" disabled>Select a branch</option>
+            {#each repoClass.branches as branch}
+              <option value={branch.name}>{branch.name}</option>
+            {/each}
           </select>
         </div>
 
