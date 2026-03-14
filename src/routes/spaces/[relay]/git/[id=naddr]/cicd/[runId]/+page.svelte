@@ -7,11 +7,13 @@
     AlertCircle,
     Circle,
     ArrowLeft,
+    RotateCw,
     Copy,
     ChevronDown,
     ChevronRight,
     Loader2,
     ExternalLink,
+    GitBranch,
   } from "@lucide/svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
@@ -23,6 +25,7 @@
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
   import {makeLoader, request} from "@welshman/net"
+  import yaml from "js-yaml"
 
   // Use a longer timeout than the default 3s — cold WebSocket connections need time
   const load = makeLoader({delay: 200, timeout: 15000, threshold: 0.5})
@@ -169,7 +172,7 @@
   // ── Derived: status label (with "workflow result missing" note) ─────
   const statusLabel = $derived.by((): string => {
     if (resolvedStatus === "failure" && !workflowLogEvent && loomResultEvent) {
-      return "Failed (workflow result missing)"
+      return "Error (workflow result missing)"
     }
     return resolvedStatus.replace("_", " ")
   })
@@ -265,13 +268,41 @@
     }
   }
 
+  // ── Reactive: auto-fetch stdout/stderr when URLs become available ────
+  // Derived URLs from workflow log (Kind 5402) or loom result (Kind 5101)
+  const derivedStdoutUrl = $derived.by(() => {
+    const logUrl = workflowLogInfo?.logUrl
+    if (logUrl) return logUrl
+    return loomResultInfo?.stdoutUrl || null
+  })
+  const derivedStderrUrl = $derived(loomResultInfo?.stderrUrl || null)
+
+  let fetchedStdoutUrl = $state<string | null>(null)
+  let fetchedStderrUrl = $state<string | null>(null)
+
+  $effect(() => {
+    const url = derivedStdoutUrl
+    if (url && url !== fetchedStdoutUrl) {
+      fetchedStdoutUrl = url
+      fetchOutputFile(url, "stdout")
+    }
+  })
+
+  $effect(() => {
+    const url = derivedStderrUrl
+    if (url && url !== fetchedStderrUrl) {
+      fetchedStderrUrl = url
+      fetchOutputFile(url, "stderr")
+    }
+  })
+
   // ── Fetch worker advertisement (Kind 10100) ───────────────────────────
   async function fetchWorkerAd(workerPubkey: string) {
     try {
       const pool = new SimplePool()
       const events = await pool.querySync(JOB_RELAYS, {kinds: [10100], authors: [workerPubkey]})
+      pool.close(JOB_RELAYS)
       if (events.length > 0) {
-        // Pick most recent
         events.sort((a, b) => b.created_at - a.created_at)
         workerAdEvent = events[0]
       }
@@ -310,8 +341,6 @@
       // Workflow log (Kind 5402)
       if (k5402.length > 0) {
         workflowLogEvent = k5402[0]
-        const logUrl = k5402[0].tags?.find((t: string[]) => t[0] === "log_url")?.[1]
-        if (logUrl) fetchOutputFile(logUrl, "stdout")
       }
 
       // Loom job referencing this run (Kind 5100 with e-tag)
@@ -328,10 +357,6 @@
         ]).then(([loomResults, loomStatuses]) => {
           if (loomResults.length > 0) {
             loomResultEvent = loomResults[0]
-            const stdoutUrl = loomResults[0].tags?.find((t: string[]) => t[0] === "stdout")?.[1]
-            const stderrUrl = loomResults[0].tags?.find((t: string[]) => t[0] === "stderr")?.[1]
-            if (stdoutUrl && !workflowLogEvent) fetchOutputFile(stdoutUrl, "stdout")
-            if (stderrUrl) fetchOutputFile(stderrUrl, "stderr")
           }
           if (loomStatuses.length > 0) {
             const sorted = [...loomStatuses].sort((a: any, b: any) => b.created_at - a.created_at)
@@ -347,10 +372,6 @@
       // Direct results/status referencing the run ID
       if (k5101.length > 0 && !loomResultEvent) {
         loomResultEvent = k5101[0]
-        const stdoutUrl = k5101[0].tags?.find((t: string[]) => t[0] === "stdout")?.[1]
-        const stderrUrl = k5101[0].tags?.find((t: string[]) => t[0] === "stderr")?.[1]
-        if (stdoutUrl && !workflowLogEvent) fetchOutputFile(stdoutUrl, "stdout")
-        if (stderrUrl) fetchOutputFile(stderrUrl, "stderr")
       }
       if (k30100.length > 0) {
         const sorted = [...k30100].sort((a: any, b: any) => b.created_at - a.created_at)
@@ -374,8 +395,6 @@
       onEvent: (event: any) => {
         if (event.kind === 5402) {
           workflowLogEvent = event
-          const logUrl = event.tags?.find((t: string[]) => t[0] === "log_url")?.[1]
-          if (logUrl) fetchOutputFile(logUrl, "stdout")
         }
         if (event.kind === 5100 && !loomJobEvent) {
           loomJobEvent = event
@@ -400,10 +419,6 @@
         }
         if (event.kind === 5101) {
           loomResultEvent = event
-          const stdoutUrl = event.tags?.find((t: string[]) => t[0] === "stdout")?.[1]
-          const stderrUrl = event.tags?.find((t: string[]) => t[0] === "stderr")?.[1]
-          if (stdoutUrl && !workflowLogEvent) fetchOutputFile(stdoutUrl, "stdout")
-          if (stderrUrl) fetchOutputFile(stderrUrl, "stderr")
         }
         if (event.kind === 30100) {
           if (!loomStatusEvent || event.created_at > loomStatusEvent.created_at) {
@@ -460,6 +475,185 @@
   const goBack = () => {
     goto(`/spaces/${encodeURIComponent($page.params.relay!)}/git/${$page.params.id}/cicd`)
   }
+
+  const goRerun = () => {
+    if (!runInfo) return
+    const params = new URLSearchParams()
+    if (runInfo.name) params.set("workflow", runInfo.name)
+    if (runInfo.workflowPath) params.set("path", runInfo.workflowPath)
+    const qs = params.toString()
+    goto(`/spaces/${encodeURIComponent($page.params.relay!)}/git/${$page.params.id}/cicd/new${qs ? `?${qs}` : ""}`)
+  }
+
+  // ── Workflow YAML stages ───────────────────────────────────────────
+  interface WorkflowStep {
+    name: string
+    uses?: string
+    run?: string
+  }
+
+  interface WorkflowJob {
+    id: string
+    name: string
+    runsOn: string
+    needs: string[]
+    steps: WorkflowStep[]
+  }
+
+  interface JobGroup {
+    jobs: WorkflowJob[]
+  }
+
+  let workflowJobs = $state<WorkflowJob[]>([])
+  let workflowYamlName = $state<string | null>(null)
+  let loadingWorkflowYaml = $state(false)
+  let workflowYamlError = $state<string | null>(null)
+  let expandedJobId = $state<string | null>(null)
+
+  // Group jobs by dependency levels for horizontal flow layout
+  const jobGroups = $derived.by((): JobGroup[] => {
+    if (workflowJobs.length === 0) return []
+
+    const jobMap = new Map(workflowJobs.map(j => [j.id, j]))
+    const assigned = new Set<string>()
+    const groups: JobGroup[] = []
+
+    // Topological grouping: level 0 = no needs, level N = depends on level N-1
+    while (assigned.size < workflowJobs.length) {
+      const group: WorkflowJob[] = []
+      for (const job of workflowJobs) {
+        if (assigned.has(job.id)) continue
+        const allNeedsMet = job.needs.every(n => assigned.has(n))
+        if (allNeedsMet) group.push(job)
+      }
+      if (group.length === 0) {
+        // Remaining jobs have unresolved deps, add them as final group
+        const remaining = workflowJobs.filter(j => !assigned.has(j.id))
+        groups.push({jobs: remaining})
+        break
+      }
+      group.forEach(j => assigned.add(j.id))
+      groups.push({jobs: group})
+    }
+    return groups
+  })
+
+  // Fetch and parse the workflow YAML when runInfo becomes available
+  $effect(() => {
+    if (!runInfo?.workflowPath || !runInfo?.branch) {
+      console.log("[cicd] Skipping workflow YAML fetch — workflowPath:", runInfo?.workflowPath, "branch:", runInfo?.branch)
+      return
+    }
+    if (loadingWorkflowYaml || workflowJobs.length > 0 || workflowYamlError) return
+
+    console.log("[cicd] Fetching workflow YAML:", runInfo.workflowPath, "branch:", runInfo.branch)
+    loadingWorkflowYaml = true
+
+    const parseWithActionsParser = async (content: string) => {
+      const {parseWorkflow, NoOperationTraceWriter, convertWorkflowTemplate} = await import("@actions/workflow-parser")
+      const {ErrorPolicy} = await import("@actions/workflow-parser/model/convert")
+      const file = {name: runInfo!.workflowPath, content}
+      const trace = new NoOperationTraceWriter()
+      const result = parseWorkflow(file, trace)
+
+      if (!result.value) {
+        throw new Error("Failed to parse workflow file")
+      }
+
+      const template = await convertWorkflowTemplate(result.context, result.value, undefined, {
+        errorPolicy: ErrorPolicy.TryConversion,
+      })
+
+      workflowYamlName = null
+      workflowJobs = template.jobs.map((job: any) => {
+        const jobId = job.id?.value ?? job.id?.toString?.() ?? "unknown"
+        const jobName = job.name?.toDisplayString?.() ?? job.name?.toString?.() ?? jobId
+
+        if (job.type === "job") {
+          return {
+            id: jobId,
+            name: jobName,
+            runsOn: job["runs-on"]?.toDisplayString?.() ?? "",
+            needs: (job.needs || []).map((n: any) => n.value ?? n.toString()),
+            steps: (job.steps || []).map((step: any) => {
+              if ("uses" in step && step.uses) {
+                return {
+                  name: step.name?.toDisplayString?.() ?? step.uses.value ?? "Step",
+                  uses: step.uses.value ?? step.uses.toString(),
+                }
+              } else {
+                const runVal = step.run?.value ?? step.run?.toString?.() ?? ""
+                return {
+                  name: step.name?.toDisplayString?.() ?? runVal.split("\n")[0]?.slice(0, 60) ?? "Step",
+                  run: runVal,
+                }
+              }
+            }),
+          }
+        } else {
+          // Reusable workflow job
+          return {
+            id: jobId,
+            name: jobName,
+            runsOn: "",
+            needs: (job.needs || []).map((n: any) => n.value ?? n.toString()),
+            steps: [{name: `Uses ${job.ref?.value ?? "reusable workflow"}`, uses: job.ref?.value}],
+          }
+        }
+      })
+    }
+
+    const parseWithYamlFallback = (content: string) => {
+      const {load: yamlLoad} = yaml
+      const parsed = yamlLoad(content) as any
+      if (!parsed?.jobs) {
+        workflowYamlError = "No jobs found in workflow"
+        return
+      }
+      workflowYamlName = parsed.name || null
+      workflowJobs = Object.entries(parsed.jobs).map(([jobId, job]: [string, any]) => ({
+        id: jobId,
+        name: job.name || jobId,
+        runsOn: typeof job["runs-on"] === "string" ? job["runs-on"] : JSON.stringify(job["runs-on"] || ""),
+        needs: Array.isArray(job.needs) ? job.needs : job.needs ? [job.needs] : [],
+        steps: (job.steps || []).map((step: any) => ({
+          name: step.name || step.uses || step.run?.split("\n")[0]?.slice(0, 60) || "Step",
+          uses: step.uses,
+          run: step.run,
+        })),
+      }))
+    }
+
+    repoClass
+      .getFileContent({path: runInfo.workflowPath, branch: runInfo.branch})
+      .then(async (result: any) => {
+        console.log("[cicd] getFileContent result:", result ? `${result.content?.length} bytes` : "null")
+        const content = result?.content || ""
+        if (!content) {
+          workflowYamlError = "Empty workflow file"
+          return
+        }
+        try {
+          await parseWithActionsParser(content)
+          console.log("[cicd] Parsed workflow with @actions/workflow-parser:", workflowJobs.length, "jobs")
+        } catch (e: any) {
+          console.warn("[cicd] @actions/workflow-parser failed, falling back to js-yaml:", e.message)
+          try {
+            parseWithYamlFallback(content)
+            console.log("[cicd] Parsed workflow with js-yaml fallback:", workflowJobs.length, "jobs")
+          } catch (e2: any) {
+            workflowYamlError = `Failed to parse YAML: ${e2.message}`
+          }
+        }
+      })
+      .catch((e: any) => {
+        console.error("[cicd] getFileContent failed:", e)
+        workflowYamlError = `Failed to load workflow file: ${e.message}`
+      })
+      .finally(() => {
+        loadingWorkflowYaml = false
+      })
+  })
 </script>
 
 <svelte:head>
@@ -511,6 +705,14 @@
             </p>
           </div>
         </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onclick={goRerun}
+          class="gap-2">
+          <RotateCw class="h-4 w-4" />
+          Re-run
+        </Button>
       </div>
     </div>
 
@@ -525,6 +727,12 @@
         {/if}
         <h3 class="text-lg font-semibold">Workflow Run</h3>
         <span class={`text-sm ${getStatusColor(resolvedStatus)}`}>{statusLabel}</span>
+        {#if runInfo.branch}
+          <span class="inline-flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-500">
+            <GitBranch class="h-3 w-3" />
+            {runInfo.branch}
+          </span>
+        {/if}
       </div>
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div class="space-y-1">
@@ -662,6 +870,96 @@
         </div>
       {/if}
     </div>
+
+    <!-- Workflow Stages (parsed from YAML) -->
+    {#if loadingWorkflowYaml}
+      <div class="rounded-lg border border-border bg-card p-4">
+        <div class="flex items-center gap-2">
+          <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+          <span class="text-sm text-muted-foreground">Loading workflow stages...</span>
+        </div>
+      </div>
+    {:else if jobGroups.length > 0}
+      <div class="rounded-lg border border-border bg-card p-4">
+        <h3 class="mb-4 text-lg font-semibold">Jobs</h3>
+
+        <!-- Horizontal flow diagram -->
+        <div class="flex items-start gap-3 overflow-x-auto pb-2">
+          {#each jobGroups as group, groupIndex (groupIndex)}
+            <!-- Job group (stacked vertically if parallel) -->
+            <div class="flex flex-col gap-2">
+              {#each group.jobs as job (job.id)}
+                <button
+                  class="min-w-[160px] rounded-md border-2 px-3 py-2 text-left transition-all hover:shadow-sm {expandedJobId === job.id ? 'border-blue-500 bg-blue-500/10' : 'border-border bg-muted/30 hover:bg-muted/50'}"
+                  onclick={() => expandedJobId = expandedJobId === job.id ? null : job.id}>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-sm truncate">{job.name}</span>
+                  </div>
+                  {#if job.runsOn}
+                    <div class="mt-0.5 text-xs text-muted-foreground truncate">{job.runsOn}</div>
+                  {/if}
+                  <div class="mt-1 text-xs text-muted-foreground">
+                    {job.steps.length} step{job.steps.length !== 1 ? "s" : ""}
+                  </div>
+                </button>
+              {/each}
+            </div>
+
+            <!-- Connector arrow (not after last group) -->
+            {#if groupIndex < jobGroups.length - 1}
+              <div class="flex items-center self-stretch">
+                <div class="flex flex-col justify-center h-full">
+                  <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            {/if}
+          {/each}
+        </div>
+
+        <!-- Expanded job detail -->
+        {#if expandedJobId}
+          {@const selectedJob = workflowJobs.find(j => j.id === expandedJobId)}
+          {#if selectedJob}
+            <div class="mt-4 rounded-md border border-border overflow-hidden">
+              <div class="flex items-center gap-3 bg-muted/30 px-4 py-2.5 border-b border-border">
+                <span class="font-semibold text-sm">{selectedJob.name}</span>
+                {#if selectedJob.needs.length > 0}
+                  <span class="text-xs text-muted-foreground ml-auto">
+                    needs: {selectedJob.needs.join(", ")}
+                  </span>
+                {/if}
+              </div>
+              <div class="divide-y divide-border">
+                {#each selectedJob.steps as step, stepIndex}
+                  <div class="flex items-start gap-3 px-4 py-2 text-sm">
+                    <span class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[10px] font-mono text-muted-foreground bg-muted">
+                      {stepIndex + 1}
+                    </span>
+                    <div class="min-w-0 flex-1">
+                      <div class="font-medium text-sm">{step.name}</div>
+                      {#if step.uses}
+                        <code class="text-xs text-muted-foreground">{step.uses}</code>
+                      {:else if step.run}
+                        <code class="block mt-0.5 text-xs text-muted-foreground truncate">{step.run.split("\n")[0]}</code>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        {/if}
+      </div>
+    {:else if workflowYamlError}
+      <div class="rounded-lg border border-border bg-card p-4">
+        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+          <AlertCircle class="h-4 w-4" />
+          <span>{workflowYamlError}</span>
+        </div>
+      </div>
+    {/if}
 
     <!-- Workflow Result (Kind 5402) -->
     {#if workflowLogInfo}
