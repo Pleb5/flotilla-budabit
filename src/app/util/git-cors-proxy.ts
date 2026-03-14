@@ -13,13 +13,7 @@ const CORS_PROXY_SETTINGS_PATH = "/settings/profile"
 
 let lastCorsProxyToastAt = 0
 
-export const gitCorsProxy = synced<string>({
-  key: GIT_CORS_PROXY_STORAGE_KEY,
-  defaultValue: "",
-  storage: localStorageProvider,
-})
-
-export const normalizeGitCorsProxy = (value: string): string => {
+export function normalizeGitCorsProxy(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return ""
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
@@ -32,6 +26,12 @@ const ENV_DEFAULT_GIT_CORS_PROXY = normalizeGitCorsProxy(
 
 export const DEFAULT_GIT_CORS_PROXY = ENV_DEFAULT_GIT_CORS_PROXY || FALLBACK_GIT_CORS_PROXY
 
+export const gitCorsProxy = synced<string>({
+  key: GIT_CORS_PROXY_STORAGE_KEY,
+  defaultValue: DEFAULT_GIT_CORS_PROXY,
+  storage: localStorageProvider,
+})
+
 export const resolveGitCorsProxy = (value: string | null | undefined): string => {
   const normalized = normalizeGitCorsProxy(value ?? "")
   return normalized || DEFAULT_GIT_CORS_PROXY
@@ -41,7 +41,15 @@ export const setupGitCorsProxy = () => {
   let lastEffective: string | null = null
 
   return gitCorsProxy.subscribe(value => {
-    const effective = resolveGitCorsProxy(value)
+    const normalized = normalizeGitCorsProxy(value || "")
+    const effective = normalized || DEFAULT_GIT_CORS_PROXY
+
+    // Migrate legacy empty storage values to explicit default URL
+    if (!normalized && value !== effective) {
+      gitCorsProxy.set(effective)
+      return
+    }
+
     const shouldRestart = lastEffective !== null && lastEffective !== effective
     lastEffective = effective
     setGitWorkerConfig({defaultCorsProxy: effective})

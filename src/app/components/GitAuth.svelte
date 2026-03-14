@@ -53,8 +53,8 @@
   }
 
   const resetCorsProxy = () => {
-    corsProxyDraft = ""
-    gitCorsProxy.set("")
+    corsProxyDraft = DEFAULT_GIT_CORS_PROXY
+    gitCorsProxy.set(DEFAULT_GIT_CORS_PROXY)
   }
 
   function mask(t: string) {

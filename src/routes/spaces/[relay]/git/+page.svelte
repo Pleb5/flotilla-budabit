@@ -29,6 +29,7 @@
   import {pushToast} from "@app/util/toast"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {decodeRelay} from "@app/core/state"
+  import {publishDelete} from "@app/core/commands"
   import {goto} from "$app/navigation"
   import {onMount, untrack} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
@@ -1440,6 +1441,37 @@
       return
     }
 
+    // Ensure worker is initialized before opening import dialog
+    if (!workerApi || !workerInstance) {
+      console.log("[+page.svelte] Worker not initialized for import, initializing...")
+      try {
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error("Worker initialization timeout after 15 seconds")),
+            15000,
+          )
+        })
+
+        const workerPromise = getInitializedGitWorker()
+
+        const {api, worker} = (await Promise.race([workerPromise, timeoutPromise])) as {
+          api: any
+          worker: Worker
+        }
+
+        workerApi = api
+        workerInstance = worker
+        console.log("[+page.svelte] Worker initialized for import")
+      } catch (error) {
+        console.error("[+page.svelte] Failed to initialize worker for import:", error)
+        pushToast({
+          message: `Failed to initialize Git worker: ${String(error)}`,
+          theme: "error",
+        })
+        return
+      }
+    }
+
     // Create onSignEvent callback that works with any signer
     const onSignEvent = async (
       event: Omit<NostrEvent, "id" | "sig" | "pubkey">,
@@ -1448,10 +1480,53 @@
     }
 
     try {
+      const rollbackPublishedRepoEvents = async (params: {
+        repoName: string
+        relays: string[]
+      }): Promise<void> => {
+        if (!$pubkey) return
+
+        const rollbackRelays = Array.from(
+          new Set(params.relays.map(r => normalizeRelayUrl(r)).filter(Boolean)),
+        )
+
+        if (rollbackRelays.length === 0) return
+
+        const filters = [
+          {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey], "#d": [params.repoName]},
+          {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": [params.repoName]},
+        ]
+
+        try {
+          await load({relays: rollbackRelays, filters: filters as any}).catch(() => {})
+        } catch {
+          // pass
+        }
+
+        const events = repository.query(filters as any, {shouldSort: false}) as Array<any>
+        const seen = new Set<string>()
+
+        for (const event of events) {
+          if (event.pubkey !== $pubkey) continue
+          if (!event.id || seen.has(event.id)) continue
+          seen.add(event.id)
+
+          const thunk = publishDelete({
+            protect: false,
+            event,
+            relays: rollbackRelays,
+          })
+          if (thunk?.complete) {
+            await thunk.complete
+          }
+        }
+      }
+
       const modalId = pushModal(
         ImportRepoDialog,
         {
           pubkey: $pubkey!,
+          workerApi,
           onSignEvent: onSignEvent, // Primary signing method (works with all signers)
           onFetchEvents: async (filters: NostrFilter[]) => {
             const events: NostrEvent[] = [];
@@ -1488,6 +1563,7 @@
 
             const result = publishEventToRelays(repoEvent, targetRelays)
           },
+          onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
           onImportComplete: (result: ImportResult) => {
             // Reload repos by forcing bookmarks refresh and announcements
             loadRepoAnnouncements(repoAnnouncementRelays)
