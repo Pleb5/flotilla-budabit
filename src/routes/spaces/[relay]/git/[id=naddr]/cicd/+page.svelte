@@ -29,6 +29,7 @@
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import {getContext} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import {CICD_RELAYS} from "@lib/budabit/constants"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {LayoutProps} from "../$types.js"
@@ -228,7 +229,7 @@
         const tryStart = () => {
           if (element && !feedInitialized && runFilter) {
             feedInitialized = true
-            const jobRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
+            const jobRelays = CICD_RELAYS
 
             const feed = makeFeed({
               element,

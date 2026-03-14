@@ -23,6 +23,7 @@
   import {page} from "$app/stores"
   import {getContext} from "svelte"
   import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
+  import {CICD_RELAYS, CICD_PUBLISH_RELAYS} from "@lib/budabit/constants"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
@@ -404,7 +405,7 @@ exit $EXIT_CODE
     }
   }
 
-  const workerRelays = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
+  const workerRelays = CICD_RELAYS
 
   async function discoverWorkers() {
     loadingWorkers = true
@@ -474,7 +475,7 @@ exit $EXIT_CODE
   const cicdPath = `/spaces/${relay}/git/${id}/cicd`
 
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
-  const publishRelays = ["wss://relay.sharegap.net", "wss://nos.lol"]
+  const publishRelays = CICD_PUBLISH_RELAYS
   // All relays: publish relays + repo relays (for relay hints and HIVE_CI_RELAYS)
   const allRelays = $derived(
     [...new Set([...publishRelays, ...($repoRelaysStore || [])])],
