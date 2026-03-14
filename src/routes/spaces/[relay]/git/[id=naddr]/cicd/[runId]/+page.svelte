@@ -27,6 +27,7 @@
   import {parseActLog, getJobGroups} from "@lib/budabit/cicd"
   import type {WorkflowJob} from "@lib/budabit/cicd"
   import WorkflowJobs from "@lib/budabit/components/WorkflowJobs.svelte"
+  import ConsoleOutput from "@lib/budabit/components/ConsoleOutput.svelte"
   import type {Repo} from "@nostr-git/ui"
   import {makeLoader, request} from "@welshman/net"
   import yaml from "js-yaml"
@@ -47,15 +48,37 @@
   let loomResultEvent = $state<any | null>(null) // Kind 5101 loom result
   let workflowLogEvent = $state<any | null>(null) // Kind 5402 workflow log/result
 
-  let stdout = $state("")
-  let stderr = $state("")
-  let stdoutUrl = $state<string | null>(null)
-  let stderrUrl = $state<string | null>(null)
+  // Workflow act log (from Kind 5402 log_url) — used for parsing and WorkflowLogs card
+  let actLogContent = $state("")
+  // Loom job stdout/stderr (from Kind 5101) — shown in "stdout (loom)"/"stderr (loom)" consoles
+  let loomStdout = $state("")
+  let loomStderr = $state("")
+  let loomStdoutUrl = $state<string | null>(null)
+  let loomStderrUrl = $state<string | null>(null)
   let loading = $state(true)
   let error = $state<string | null>(null)
   let showRawEvents = $state(false)
-  let expandStdout = $state(false)
-  let expandStderr = $state(false)
+
+  // ── Live duration counter ─────────────────────────────────────────
+  let liveDurationSeconds = $state(0)
+  let durationInterval: ReturnType<typeof setInterval> | null = null
+
+  $effect(() => {
+    const isRunning = resolvedStatus === "pending" || resolvedStatus === "in_progress" || resolvedStatus === "running" || resolvedStatus === "queued"
+    if (isRunning && runInfo?.createdAt) {
+      liveDurationSeconds = Math.floor((Date.now() - runInfo.createdAt) / 1000)
+      if (!durationInterval) {
+        durationInterval = setInterval(() => {
+          liveDurationSeconds = Math.floor((Date.now() - runInfo!.createdAt) / 1000)
+        }, 1000)
+      }
+    } else {
+      if (durationInterval) {
+        clearInterval(durationInterval)
+        durationInterval = null
+      }
+    }
+  })
 
   // Worker advertisement (Kind 10100)
   let workerAdEvent = $state<any | null>(null)
@@ -258,45 +281,39 @@
   )
 
   // ── Fetch output files ────────────────────────────────────────────────
-  const fetchOutputFile = async (url: string, type: "stdout" | "stderr") => {
-    try {
-      if (type === "stdout") stdoutUrl = url
-      else stderrUrl = url
-      const response = await fetch(url)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const content = await response.text()
-      if (type === "stdout") stdout = content
-      else stderr = content
-    } catch (err) {
-      console.error(`Failed to fetch ${type}:`, err)
-    }
+  const fetchText = async (url: string): Promise<string> => {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return response.text()
   }
 
-  // ── Reactive: auto-fetch stdout/stderr when URLs become available ────
-  // Derived URLs from workflow log (Kind 5402) or loom result (Kind 5101)
-  const derivedStdoutUrl = $derived.by(() => {
-    const logUrl = workflowLogInfo?.logUrl
-    if (logUrl) return logUrl
-    return loomResultInfo?.stdoutUrl || null
-  })
-  const derivedStderrUrl = $derived(loomResultInfo?.stderrUrl || null)
-
-  let fetchedStdoutUrl = $state<string | null>(null)
-  let fetchedStderrUrl = $state<string | null>(null)
-
+  // Fetch act log (Kind 5402 log_url) for WorkflowLogs parsing
+  let fetchedActLogUrl = $state<string | null>(null)
   $effect(() => {
-    const url = derivedStdoutUrl
-    if (url && url !== fetchedStdoutUrl) {
-      fetchedStdoutUrl = url
-      fetchOutputFile(url, "stdout")
+    const url = workflowLogInfo?.logUrl || null
+    if (url && url !== fetchedActLogUrl) {
+      fetchedActLogUrl = url
+      fetchText(url).then(c => actLogContent = c).catch(err => console.error("[cicd] Failed to fetch act log:", err))
     }
   })
 
+  // Fetch loom job stdout/stderr (Kind 5101)
+  let fetchedLoomStdoutUrl = $state<string | null>(null)
+  let fetchedLoomStderrUrl = $state<string | null>(null)
   $effect(() => {
-    const url = derivedStderrUrl
-    if (url && url !== fetchedStderrUrl) {
-      fetchedStderrUrl = url
-      fetchOutputFile(url, "stderr")
+    const url = loomResultInfo?.stdoutUrl || null
+    if (url && url !== fetchedLoomStdoutUrl) {
+      fetchedLoomStdoutUrl = url
+      loomStdoutUrl = url
+      fetchText(url).then(c => loomStdout = c).catch(err => console.error("[cicd] Failed to fetch loom stdout:", err))
+    }
+  })
+  $effect(() => {
+    const url = loomResultInfo?.stderrUrl || null
+    if (url && url !== fetchedLoomStderrUrl) {
+      fetchedLoomStderrUrl = url
+      loomStderrUrl = url
+      fetchText(url).then(c => loomStderr = c).catch(err => console.error("[cicd] Failed to fetch loom stderr:", err))
     }
   })
 
@@ -433,7 +450,10 @@
     })
   })
 
-  onDestroy(() => feedCleanup?.())
+  onDestroy(() => {
+    feedCleanup?.()
+    if (durationInterval) clearInterval(durationInterval)
+  })
 
   // ── Helpers ───────────────────────────────────────────────────────────
   const getStatusIcon = (status: string) => {
@@ -490,7 +510,7 @@
   }
 
   // ── Act log parsing ────────────────────────────────────────────────
-  const parsedActJobs = $derived(stdout ? parseActLog(stdout) : [])
+  const parsedActJobs = $derived(actLogContent ? parseActLog(actLogContent) : [])
   const actJobByName = $derived(new Map(parsedActJobs.map(j => [j.name.toLowerCase(), j])))
 
   // ── Workflow YAML stages ───────────────────────────────────────────
@@ -734,6 +754,20 @@
             <span class="text-sm">{runInfo.trigger}</span>
           </div>
         {/if}
+        <div class="space-y-1">
+          <p class="text-xs text-muted-foreground">Duration</p>
+          {#if workflowLogInfo?.duration}
+            <span class="text-sm">{workflowLogInfo.duration}s</span>
+          {:else}
+            <span class="font-mono text-sm text-muted-foreground">{liveDurationSeconds}s</span>
+          {/if}
+        </div>
+        {#if workflowLogInfo?.exitCode}
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Exit Code</p>
+            <span class="font-mono text-sm">{workflowLogInfo.exitCode}</span>
+          </div>
+        {/if}
       </div>
 
       <!-- Nested: Loom Job -->
@@ -842,35 +876,7 @@
       error={workflowYamlError}
       {actJobByName} />
 
-    <!-- Workflow Result (Kind 5402) -->
-    {#if workflowLogInfo}
-      <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-3 text-lg font-semibold">Workflow Result</h3>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {#if workflowLogInfo.exitCode}
-            <div class="space-y-1">
-              <p class="text-xs text-muted-foreground">Exit Code</p>
-              <span class="font-mono text-sm">{workflowLogInfo.exitCode}</span>
-            </div>
-          {/if}
-          {#if workflowLogInfo.duration}
-            <div class="space-y-1">
-              <p class="text-xs text-muted-foreground">Duration</p>
-              <span class="text-sm">{workflowLogInfo.duration}s</span>
-            </div>
-          {/if}
-          {#if workflowLogInfo.logUrl}
-            <div class="space-y-1">
-              <p class="text-xs text-muted-foreground">Log URL</p>
-              <a href={workflowLogInfo.logUrl} target="_blank" rel="noopener" class="flex items-center gap-1 text-sm text-blue-500 hover:underline">
-                <ExternalLink class="h-3 w-3" />
-                View log
-              </a>
-            </div>
-          {/if}
-        </div>
-      </div>
-    {/if}
+    
 
     <!-- Payment Overview -->
     {#if prepaidAmount !== null}
@@ -907,89 +913,16 @@
       </div>
     {/if}
 
-    <!-- stdout console -->
-    <div class="overflow-hidden rounded-lg border border-gray-700">
-      <div class="flex items-center justify-between bg-gray-800 px-4 py-2">
-        <h3 class="text-sm font-semibold text-gray-200">stdout</h3>
-        <div class="flex items-center gap-2">
-          {#if stdoutUrl}
-            <a href={stdoutUrl} target="_blank" rel="noopener" class="text-xs text-gray-400 hover:text-gray-200">
-              <ExternalLink class="h-3 w-3" />
-            </a>
-          {/if}
-          {#if stdout}
-            <button
-              onclick={() => {
-                navigator.clipboard.writeText(stdout)
-                toast.push({message: "Copied", variant: "default"})
-              }}
-              class="text-gray-400 hover:text-gray-200">
-              <Copy class="h-3 w-3" />
-            </button>
-          {/if}
-        </div>
-      </div>
-      <div class="overflow-y-auto bg-gray-900 px-4 py-3 font-mono text-sm">
-        {#if stdout}
-          {@const lines = stdout.split("\n")}
-          {@const collapsed = !expandStdout && lines.length > 3}
-          {#each collapsed ? lines.slice(0, 3) : lines as line}
-            <div class="text-gray-100">{line}</div>
-          {/each}
-        {:else}
-          <div class="text-gray-500">No output</div>
-        {/if}
-      </div>
-      {#if stdout && stdout.split("\n").length > 3}
-        <button
-          class="w-full bg-gray-800 px-4 py-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
-          onclick={() => expandStdout = !expandStdout}>
-          {expandStdout ? "Collapse" : `Show all ${stdout.split("\n").length} lines`}
-        </button>
-      {/if}
-    </div>
+    <!-- Workflow Logs (raw act log) -->
+    {#if actLogContent || workflowLogInfo?.logUrl}
+      <ConsoleOutput
+        title="Workflow Logs"
+        content={actLogContent}
+        url={workflowLogInfo?.logUrl} />
+    {/if}
 
-    <!-- stderr console -->
-    <div class="overflow-hidden rounded-lg border border-red-900/50">
-      <div class="flex items-center justify-between bg-red-950/80 px-4 py-2">
-        <h3 class="text-sm font-semibold text-red-300">stderr</h3>
-        <div class="flex items-center gap-2">
-          {#if stderrUrl}
-            <a href={stderrUrl} target="_blank" rel="noopener" class="text-xs text-red-400 hover:text-red-200">
-              <ExternalLink class="h-3 w-3" />
-            </a>
-          {/if}
-          {#if stderr}
-            <button
-              onclick={() => {
-                navigator.clipboard.writeText(stderr)
-                toast.push({message: "Copied", variant: "default"})
-              }}
-              class="text-red-400 hover:text-red-200">
-              <Copy class="h-3 w-3" />
-            </button>
-          {/if}
-        </div>
-      </div>
-      <div class="overflow-y-auto bg-gray-900 px-4 py-3 font-mono text-sm">
-        {#if stderr}
-          {@const lines = stderr.split("\n")}
-          {@const collapsed = !expandStderr && lines.length > 3}
-          {#each collapsed ? lines.slice(0, 3) : lines as line}
-            <div class="text-red-400">{line}</div>
-          {/each}
-        {:else}
-          <div class="text-gray-500">No output</div>
-        {/if}
-      </div>
-      {#if stderr && stderr.split("\n").length > 3}
-        <button
-          class="w-full bg-red-950/80 px-4 py-1.5 text-xs text-red-400 hover:text-red-200 transition-colors"
-          onclick={() => expandStderr = !expandStderr}>
-          {expandStderr ? "Collapse" : `Show all ${stderr.split("\n").length} lines`}
-        </button>
-      {/if}
-    </div>
+    <ConsoleOutput title="stdout (loom)" content={loomStdout} url={loomStdoutUrl} />
+    <ConsoleOutput title="stderr (loom)" content={loomStderr} url={loomStderrUrl} variant="error" />
 
     <!-- Raw Events (collapsible debug section) -->
     <div class="rounded-lg border border-border bg-card overflow-hidden">
