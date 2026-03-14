@@ -24,6 +24,9 @@
   import {getContext} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import {CICD_RELAYS} from "@lib/budabit/constants"
+  import {parseActLog, getJobGroups} from "@lib/budabit/cicd"
+  import type {WorkflowJob} from "@lib/budabit/cicd"
+  import WorkflowJobs from "@lib/budabit/components/WorkflowJobs.svelte"
   import type {Repo} from "@nostr-git/ui"
   import {makeLoader, request} from "@welshman/net"
   import yaml from "js-yaml"
@@ -486,58 +489,17 @@
     goto(`/spaces/${encodeURIComponent($page.params.relay!)}/git/${$page.params.id}/cicd/new${qs ? `?${qs}` : ""}`)
   }
 
+  // ── Act log parsing ────────────────────────────────────────────────
+  const parsedActJobs = $derived(stdout ? parseActLog(stdout) : [])
+  const actJobByName = $derived(new Map(parsedActJobs.map(j => [j.name.toLowerCase(), j])))
+
   // ── Workflow YAML stages ───────────────────────────────────────────
-  interface WorkflowStep {
-    name: string
-    uses?: string
-    run?: string
-  }
-
-  interface WorkflowJob {
-    id: string
-    name: string
-    runsOn: string
-    needs: string[]
-    steps: WorkflowStep[]
-  }
-
-  interface JobGroup {
-    jobs: WorkflowJob[]
-  }
-
   let workflowJobs = $state<WorkflowJob[]>([])
   let workflowYamlName = $state<string | null>(null)
   let loadingWorkflowYaml = $state(false)
   let workflowYamlError = $state<string | null>(null)
-  let expandedJobId = $state<string | null>(null)
 
-  // Group jobs by dependency levels for horizontal flow layout
-  const jobGroups = $derived.by((): JobGroup[] => {
-    if (workflowJobs.length === 0) return []
-
-    const jobMap = new Map(workflowJobs.map(j => [j.id, j]))
-    const assigned = new Set<string>()
-    const groups: JobGroup[] = []
-
-    // Topological grouping: level 0 = no needs, level N = depends on level N-1
-    while (assigned.size < workflowJobs.length) {
-      const group: WorkflowJob[] = []
-      for (const job of workflowJobs) {
-        if (assigned.has(job.id)) continue
-        const allNeedsMet = job.needs.every(n => assigned.has(n))
-        if (allNeedsMet) group.push(job)
-      }
-      if (group.length === 0) {
-        // Remaining jobs have unresolved deps, add them as final group
-        const remaining = workflowJobs.filter(j => !assigned.has(j.id))
-        groups.push({jobs: remaining})
-        break
-      }
-      group.forEach(j => assigned.add(j.id))
-      groups.push({jobs: group})
-    }
-    return groups
-  })
+  const jobGroups = $derived(getJobGroups(workflowJobs))
 
   // Fetch and parse the workflow YAML when runInfo becomes available
   $effect(() => {
@@ -872,95 +834,13 @@
       {/if}
     </div>
 
-    <!-- Workflow Stages (parsed from YAML) -->
-    {#if loadingWorkflowYaml}
-      <div class="rounded-lg border border-border bg-card p-4">
-        <div class="flex items-center gap-2">
-          <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
-          <span class="text-sm text-muted-foreground">Loading workflow stages...</span>
-        </div>
-      </div>
-    {:else if jobGroups.length > 0}
-      <div class="rounded-lg border border-border bg-card p-4">
-        <h3 class="mb-4 text-lg font-semibold">Jobs</h3>
-
-        <!-- Horizontal flow diagram -->
-        <div class="flex items-start gap-3 overflow-x-auto pb-2">
-          {#each jobGroups as group, groupIndex (groupIndex)}
-            <!-- Job group (stacked vertically if parallel) -->
-            <div class="flex flex-col gap-2">
-              {#each group.jobs as job (job.id)}
-                <button
-                  class="min-w-[160px] rounded-md border-2 px-3 py-2 text-left transition-all hover:shadow-sm {expandedJobId === job.id ? 'border-blue-500 bg-blue-500/10' : 'border-border bg-muted/30 hover:bg-muted/50'}"
-                  onclick={() => expandedJobId = expandedJobId === job.id ? null : job.id}>
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium text-sm truncate">{job.name}</span>
-                  </div>
-                  {#if job.runsOn}
-                    <div class="mt-0.5 text-xs text-muted-foreground truncate">{job.runsOn}</div>
-                  {/if}
-                  <div class="mt-1 text-xs text-muted-foreground">
-                    {job.steps.length} step{job.steps.length !== 1 ? "s" : ""}
-                  </div>
-                </button>
-              {/each}
-            </div>
-
-            <!-- Connector arrow (not after last group) -->
-            {#if groupIndex < jobGroups.length - 1}
-              <div class="flex items-center self-stretch">
-                <div class="flex flex-col justify-center h-full">
-                  <svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-            {/if}
-          {/each}
-        </div>
-
-        <!-- Expanded job detail -->
-        {#if expandedJobId}
-          {@const selectedJob = workflowJobs.find(j => j.id === expandedJobId)}
-          {#if selectedJob}
-            <div class="mt-4 rounded-md border border-border overflow-hidden">
-              <div class="flex items-center gap-3 bg-muted/30 px-4 py-2.5 border-b border-border">
-                <span class="font-semibold text-sm">{selectedJob.name}</span>
-                {#if selectedJob.needs.length > 0}
-                  <span class="text-xs text-muted-foreground ml-auto">
-                    needs: {selectedJob.needs.join(", ")}
-                  </span>
-                {/if}
-              </div>
-              <div class="divide-y divide-border">
-                {#each selectedJob.steps as step, stepIndex}
-                  <div class="flex items-start gap-3 px-4 py-2 text-sm">
-                    <span class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[10px] font-mono text-muted-foreground bg-muted">
-                      {stepIndex + 1}
-                    </span>
-                    <div class="min-w-0 flex-1">
-                      <div class="font-medium text-sm">{step.name}</div>
-                      {#if step.uses}
-                        <code class="text-xs text-muted-foreground">{step.uses}</code>
-                      {:else if step.run}
-                        <code class="block mt-0.5 text-xs text-muted-foreground truncate">{step.run.split("\n")[0]}</code>
-                      {/if}
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
-        {/if}
-      </div>
-    {:else if workflowYamlError}
-      <div class="rounded-lg border border-border bg-card p-4">
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <AlertCircle class="h-4 w-4" />
-          <span>{workflowYamlError}</span>
-        </div>
-      </div>
-    {/if}
+    <!-- Jobs card (YAML structure, colored by act log results) -->
+    <WorkflowJobs
+      {workflowJobs}
+      {jobGroups}
+      loading={loadingWorkflowYaml}
+      error={workflowYamlError}
+      {actJobByName} />
 
     <!-- Workflow Result (Kind 5402) -->
     {#if workflowLogInfo}
