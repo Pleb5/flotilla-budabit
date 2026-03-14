@@ -23,6 +23,7 @@
   import {goto} from "$app/navigation"
   import {getContext} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
+  import {CICD_RELAYS} from "@lib/budabit/constants"
   import type {Repo} from "@nostr-git/ui"
   import {makeLoader, request} from "@welshman/net"
   import yaml from "js-yaml"
@@ -34,7 +35,7 @@
   if (!repoClass) throw new Error("Repo context not available")
 
   const {runId} = $page.params
-  const JOB_RELAYS = ["wss://relay.sharegap.net", "wss://nos.lol", "wss://relay.primal.net"]
+  const JOB_RELAYS = CICD_RELAYS
 
   // Raw event state — the source of truth
   let runEvent = $state<any | null>(null) // Kind 5401 workflow run
