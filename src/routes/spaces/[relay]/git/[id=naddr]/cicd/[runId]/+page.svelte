@@ -384,6 +384,24 @@
             loomStatusEvent = sorted[0]
           }
         })
+
+        // Live subscription for loom child events — status/result reference loomId, not runId
+        request({
+          relays: JOB_RELAYS,
+          filters: [
+            {kinds: [5101], "#e": [loomId]},
+            {kinds: [30100], "#e": [loomId]},
+          ],
+          signal: abort.signal,
+          onEvent: (child: any) => {
+            if (child.kind === 5101) loomResultEvent = child
+            if (child.kind === 30100) {
+              if (!loomStatusEvent || child.created_at > loomStatusEvent.created_at) {
+                loomStatusEvent = child
+              }
+            }
+          },
+        })
       } else if (!runEvent || runEvent.kind !== 5401) {
         // Legacy: run IS the loom job; fetch worker ad from p tag
         const pTag = runEvent?.tags?.find((t: string[]) => t[0] === "p")
