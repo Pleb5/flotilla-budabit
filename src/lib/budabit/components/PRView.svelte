@@ -402,25 +402,65 @@
   const formatMergeAnalysisError = (message: string) => {
     const raw = (message || "Unknown merge analysis error").trim()
     const lower = raw.toLowerCase()
+    const withDetails = (friendly: string) => (friendly === raw ? friendly : `${friendly} Details: ${raw}`)
+
+    if (!raw || raw === "error" || raw === "unknown" || raw === "unknown error") {
+      return "Merge analysis failed without a usable error message. Retry sync + analyze."
+    }
     if (/timed out|timeout/.test(lower)) {
-      return "Merge analysis timed out while fetching remote data. Retry Analyze. If it keeps timing out, reload this page and try again."
+      return withDetails(
+        "Merge analysis timed out while fetching remote data. Retry sync + analyze. If it keeps timing out, reload this page and try again.",
+      )
     }
     if (lower.includes("no valid clone urls")) {
-      return "PR source has no valid clone URL configured. Add a valid clone URL and re-run analysis."
+      return withDetails(
+        "PR source has no valid clone URL configured. Add a valid clone URL and re-run analysis.",
+      )
     }
     if (lower.includes("target branch") && lower.includes("not found")) {
-      return `Target branch ${prTargetBranch} was not found on fetched remotes. Sync and verify branch name.`
+      return withDetails(
+        `Target branch ${prTargetBranch} was not found on fetched remotes. Sync and verify branch name.`,
+      )
     }
     if (lower.includes("source branch") && lower.includes("not found")) {
-      return "Source branch for this PR was not found on remote. Ensure the source branch is pushed."
+      return withDetails(
+        "Source branch for this PR was not found on remote. Ensure the source branch is pushed.",
+      )
     }
     if (/401|403|unauthorized|forbidden|auth|permission/.test(lower)) {
-      return "Authentication/permission failure while fetching PR refs. Check remote access and tokens."
+      return withDetails(
+        "Authentication/permission failure while fetching PR refs. Check remote access and tokens.",
+      )
     }
     if (/failed to fetch|network|cors|timeout|econn|enotfound/.test(lower)) {
-      return "Network/CORS error while fetching PR refs. Check connectivity or CORS policy and retry."
+      return withDetails(
+        "Network/CORS error while fetching PR refs. Check connectivity or CORS policy and retry.",
+      )
     }
     return raw
+  }
+
+  const formatSyncError = (message: string) => {
+    const raw = (message || "Target sync failed").trim()
+    const lower = raw.toLowerCase()
+    const withDetails = (friendly: string) => (friendly === raw ? friendly : `${friendly} Details: ${raw}`)
+
+    if (/missing tracking ref|cannot prove remote sync|remote fetch completed but no remote commit/.test(lower)) {
+      return withDetails(
+        `Target branch ${prTargetBranch} could not be verified against remote refs. Retry sync and check remote credentials/access.`,
+      )
+    }
+    if (/cors|network|failed to fetch|timeout|econn|enotfound/.test(lower)) {
+      return withDetails(
+        "Target sync failed due to network/CORS issues. Retry sync + analyze after network or CORS recovery.",
+      )
+    }
+    if (/401|403|unauthorized|forbidden|auth|permission/.test(lower)) {
+      return withDetails(
+        "Target sync failed due to authentication/permission issues. Check tokens/credentials and retry.",
+      )
+    }
+    return withDetails(`Target sync failed for branch ${prTargetBranch}.`)
   }
 
   const toAnalysisErrorResult = (errorMessage: string, patchCommits: string[]): PRMergeAnalysisResult => ({
@@ -531,10 +571,12 @@
 
       let syncResult: any
       try {
-        syncResult = await repoClass.workerManager.syncWithRemote({
+        syncResult = await (repoClass.workerManager as any).syncWithRemote({
           repoId: repoClass.key,
           cloneUrls: targetCloneUrls,
           branch: prTargetBranch,
+          requireRemoteSync: true,
+          requireTrackingRef: true,
         })
       } catch (error) {
         const syncError = getErrorText(error)
@@ -547,10 +589,12 @@
 
         setPrPhaseProgress(phase, "Repository clone complete, syncing target branch...")
         try {
-          syncResult = await repoClass.workerManager.syncWithRemote({
+          syncResult = await (repoClass.workerManager as any).syncWithRemote({
             repoId: repoClass.key,
             cloneUrls: targetCloneUrls,
             branch: prTargetBranch,
+            requireRemoteSync: true,
+            requireTrackingRef: true,
           })
         } catch (retryError) {
           return {
@@ -578,10 +622,12 @@
       if (syncResult.needsUpdate === true) {
         try {
           await repoClass.workerManager.resetRepoToRemote(repoClass.key, prTargetBranch)
-          effectiveSync = await repoClass.workerManager.syncWithRemote({
+          effectiveSync = await (repoClass.workerManager as any).syncWithRemote({
             repoId: repoClass.key,
             cloneUrls: targetCloneUrls,
             branch: prTargetBranch,
+            requireRemoteSync: true,
+            requireTrackingRef: true,
           })
         } catch (error) {
           return {
@@ -607,6 +653,16 @@
         return {
           ok: false,
           error: `Target branch ${prTargetBranch} is still behind remote after sync`,
+        }
+      }
+
+      if (effectiveSync?.synced !== true) {
+        return {
+          ok: false,
+          error:
+            effectiveSync?.error ||
+            effectiveSync?.warning ||
+            `Target branch ${prTargetBranch} could not be synced with remote refs`,
         }
       }
 
@@ -644,8 +700,9 @@
       const sync = await syncTargetBranchForPR("analysis")
       if (prAnalysisGeneration !== myGen) return
       if (!sync.ok) {
+        const syncError = formatSyncError(sync.error || `Failed to sync target branch ${prTargetBranch}`)
         prMergeAnalysisResult = toAnalysisErrorResult(
-          `Cannot run merge analysis until target branch is synced: ${sync.error}`,
+          `Cannot run merge analysis until target branch is synced: ${syncError}`,
           [tipOid],
         )
         return
@@ -655,7 +712,23 @@
       prAnalysisProgress = "Fetching PR from clone URL..."
       const result = await repoClass.getPRMergeAnalysis(cloneUrls, tipOid, prTargetBranch)
       if (prAnalysisGeneration === myGen) {
-        prMergeAnalysisResult = result ?? toAnalysisErrorResult("Analysis returned no result", [tipOid])
+        if (!result) {
+          prMergeAnalysisResult = toAnalysisErrorResult(
+            "Merge analysis returned no result. Retry sync + analyze.",
+            [tipOid],
+          )
+          return
+        }
+
+        if (result.analysis === "error") {
+          prMergeAnalysisResult = {
+            ...result,
+            errorMessage: formatMergeAnalysisError(result.errorMessage || "Merge analysis failed"),
+          }
+          return
+        }
+
+        prMergeAnalysisResult = result
       }
     } catch (err) {
       if (prAnalysisGeneration === myGen) {
@@ -971,14 +1044,23 @@
       })
       .then((result: typeof updatePrPreview) => {
         if (cancelled) return
-        updatePrPreview = result
+        if (result && !result.success && result.error) {
+          updatePrPreview = {
+            ...result,
+            error: formatMergeAnalysisError(result.error),
+          }
+        } else {
+          updatePrPreview = result
+        }
         updatePrPreviewLoading = false
       })
       .catch((err: unknown) => {
         if (cancelled) return
         updatePrPreview = {
           success: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: formatMergeAnalysisError(
+            err instanceof Error ? err.message : String(err || "Failed to load PR update preview"),
+          ),
           commits: [],
           commitOids: [],
           tipCommit: undefined,
@@ -1010,14 +1092,21 @@
       })
       .then((result) => {
         if (cancelled) return
-        updatePrPreview = result
+        if (result && !result.success && result.error) {
+          updatePrPreview = {
+            ...result,
+            error: formatMergeAnalysisError(result.error),
+          }
+        } else {
+          updatePrPreview = result
+        }
         updatePrPreviewLoading = false
       })
       .catch((err) => {
         if (cancelled) return
         updatePrPreview = {
           success: false,
-          error: err?.message,
+          error: formatMergeAnalysisError(err?.message || "Failed to load PR update preview"),
           commits: [],
           commitOids: [],
           tipCommit: undefined,
@@ -1403,7 +1492,7 @@
 
     const sync = await syncTargetBranchForPR("merge")
     if (!sync.ok) {
-      mergePrError = `Cannot merge until target branch is synced: ${sync.error}`
+      mergePrError = `Cannot merge until target branch is synced: ${formatSyncError(sync.error || "Sync failed")}`
       mergePrStep = "Sync failed"
       isMergingPr = false
       toast.push({message: mergePrError, timeout: 7000, variant: "destructive"})
@@ -1668,6 +1757,16 @@
                   Resolution: click Analyze to retry. If retries keep timing out, reload the page and try again.
                 </p>
               {/if}
+              <div class="mt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onclick={() => runPRMergeAnalysis()}
+                  disabled={isAnalyzingPRMerge}
+                  class="h-7">
+                  Retry sync + analyze
+                </Button>
+              </div>
             </div>
           {/if}
           {#if prMergeAnalysisResult.usedCloneUrl}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import {getContext, onDestroy} from "svelte"
+  import {fade} from "svelte/transition"
   import {getTags, parsePullRequestEvent, GIT_PULL_REQUEST_UPDATE} from "@nostr-git/core/events"
   import type {PatchEvent, PullRequestEvent} from "@nostr-git/core/events"
   import {parseGitPatchFromEvent} from "@nostr-git/core/git"
@@ -12,6 +13,9 @@
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
   import {REPO_KEY, REPO_RELAYS_KEY, PULL_REQUESTS_KEY, GIT_RELAYS} from "@lib/budabit/state"
+  import Button from "@lib/components/Button.svelte"
+  import Icon from "@lib/components/Icon.svelte"
+  import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import PRView from "@src/lib/budabit/components/PRView.svelte"
   import PatchView from "@src/lib/budabit/components/PatchView.svelte"
 
@@ -32,6 +36,9 @@
   let didTimeout = $state(false)
   let hasStartedResolve = $state(false)
   let resolveTimeout: ReturnType<typeof setTimeout> | null = null
+  let showScrollButton = $state(false)
+  let pageContainerRef: HTMLElement | undefined = $state()
+  let scrollParent: HTMLElement | null = $state(null)
 
   const patchId = $derived($page.params.patchid ?? "")
   const getFirstTagValue = (event: {tags?: string[][]} | undefined, tagName: string) =>
@@ -221,18 +228,51 @@
       .sort((a: PatchEvent, b: PatchEvent) => (a.id === rootPatchId ? -1 : 1))
       .map((p: PatchEvent) => parseGitPatchFromEvent(p)),
   )
+
+  $effect(() => {
+    const container = pageContainerRef
+    if (!container) return
+    scrollParent = container.closest(".scroll-container") as HTMLElement | null
+  })
+
+  $effect(() => {
+    const scrollEl = scrollParent
+    if (!scrollEl) return
+
+    const syncScrollState = () => {
+      showScrollButton = scrollEl.scrollTop > 1500
+    }
+
+    syncScrollState()
+    scrollEl.addEventListener("scroll", syncScrollState, {passive: true})
+    return () => scrollEl.removeEventListener("scroll", syncScrollState)
+  })
+
+  const scrollToTop = () => {
+    scrollParent?.scrollTo({top: 0, behavior: "smooth"})
+  }
 </script>
 
 <svelte:head>
   <title>{repoClass.name} - {patch?.title || pr?.subject || "Patch"}</title>
 </svelte:head>
 
-{#if isResolving}
-  <div class="p-4 text-center">Loading patch or pull request...</div>
-{:else if !patch && pr && resolvedPrEvent}
-  <PRView {pr} prEvent={resolvedPrEvent} repo={repoClass} repoRelays={repoRelays} />
-{:else if patch && patchSet}
-  <PatchView {patch} {patchSet} repo={repoClass} repoRelays={repoRelays} />
-{:else if didTimeout}
-  <div class="p-4 text-center text-muted-foreground">Patch or pull request not found.</div>
+<div bind:this={pageContainerRef}>
+  {#if isResolving}
+    <div class="p-4 text-center">Loading patch or pull request...</div>
+  {:else if !patch && pr && resolvedPrEvent}
+    <PRView {pr} prEvent={resolvedPrEvent} repo={repoClass} repoRelays={repoRelays} />
+  {:else if patch && patchSet}
+    <PatchView {patch} {patchSet} repo={repoClass} repoRelays={repoRelays} />
+  {:else if didTimeout}
+    <div class="p-4 text-center text-muted-foreground">Patch or pull request not found.</div>
+  {/if}
+</div>
+
+{#if showScrollButton}
+  <div in:fade class="chat__scroll-down">
+  <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
+    <Icon icon={AltArrowUp} />
+  </Button>
+  </div>
 {/if}
