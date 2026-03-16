@@ -45,6 +45,7 @@ export default defineConfig({
       "@codemirror/lang-sql",
       "@codemirror/theme-one-dark",
       "@nostr-git/core",
+      "@nostr-git/ui",
     ],
   },
   ssr: {

@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "vite dev",
+    "dev:app": "vite dev",
+    "dev:full": "node dev-full.mjs",
     "build": "./build.sh",
     "build-in-production": "./build-in-production.sh",
     "sourcemaps": "./build.sh && ./sourcemaps.sh",
