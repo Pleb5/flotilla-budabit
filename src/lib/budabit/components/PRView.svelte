@@ -20,6 +20,7 @@
     DiffViewer,
     IssueThread,
     MergeStatus,
+    Status,
     Tabs,
     TabsContent,
     TabsList,
@@ -34,7 +35,6 @@
   import {
     COMMENT,
     GIT_STATUS_CLOSED,
-    GIT_STATUS_COMPLETE,
     GIT_STATUS_DRAFT,
     GIT_STATUS_OPEN,
     type Filter,
@@ -49,6 +49,7 @@
     type CommentEvent,
     type StatusEvent,
     type PullRequestEvent,
+    GIT_PULL_REQUEST,
     GIT_PULL_REQUEST_UPDATE,
     GIT_STATUS_APPLIED,
   } from "@nostr-git/core/events"
@@ -119,18 +120,42 @@
   const {pr, prEvent, repo: repoClass, repoRelays}: Props = $props()
 
   const effectiveMaintainers = $derived.by((): string[] => {
+    const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
+    const maintainers = (((repoClass as any)?.maintainers as string[]) || []).filter(
+      (value): value is string => Boolean(value),
+    )
+    const fallback = Array.from(
+      new Set([...maintainers, owner].filter((value): value is string => Boolean(value))),
+    )
     const repoAddress = (repoClass as any)?.address || ""
     if (!repoAddress) {
-      return Array.from(new Set((((repoClass as any)?.maintainers as string[]) || []).filter(Boolean)))
+      return fallback
     }
-    const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
-    if (maintainers && maintainers.size > 0) return Array.from(maintainers)
-    return Array.from(new Set((((repoClass as any)?.maintainers as string[]) || []).filter(Boolean)))
+    const mappedMaintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+    if (mappedMaintainers && mappedMaintainers.size > 0) return Array.from(mappedMaintainers)
+    return fallback
   })
+
+  const effectiveMaintainerSet = $derived.by(() => new Set(effectiveMaintainers))
+
+  const canManagePr = $derived.by(() => {
+    if (!$pubkey) return false
+    return effectiveMaintainerSet.has($pubkey)
+  })
+
+  const statusRepo = $derived.by(
+    () =>
+      new Proxy(repoClass as any, {
+        get(target, prop, receiver) {
+          if (prop === "maintainers") return effectiveMaintainers
+          return Reflect.get(target, prop, receiver)
+        },
+      }) as Repo,
+  )
 
   // PR-specific status and comments
   const getPrStatusFilter = () => ({
-    kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
+    kinds: [GIT_STATUS_OPEN, GIT_STATUS_APPLIED, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
     "#e": [prEvent?.id ?? ""],
   })
 
@@ -139,9 +164,21 @@
     return deriveEventsAsc(deriveEventsById({repository, filters: [getPrStatusFilter()]}))
   })
 
+  const prStatusEventsArray = $derived.by(() => {
+    if (!prStatusEvents) return []
+    return $prStatusEvents as StatusEvent[]
+  })
+
+  const prAuthorizedStatusEvents = $derived.by(() => {
+    if (!prEvent) return []
+    return prStatusEventsArray.filter(
+      (event) => event.pubkey === prEvent.pubkey || effectiveMaintainerSet.has(event.pubkey),
+    )
+  })
+
   const prStatus = $derived.by(() => {
-    if (!prEvent || !prStatusEvents) return undefined
-    const events = $prStatusEvents as any[]
+    if (!prEvent) return undefined
+    const events = prAuthorizedStatusEvents
     if (!events || events.length === 0) return undefined
     const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
     return latest ? parseStatusEvent(latest as StatusEvent) : undefined
@@ -1203,6 +1240,28 @@
     postComment(comment, relays)
   }
 
+  const handlePrStatusPublish = async (statusEvent: StatusEvent) => {
+    if (!prEvent || !$pubkey) return
+    if ($pubkey !== prEvent.pubkey && !canManagePr) {
+      throw new Error("Only the PR author or maintainers can change PR status")
+    }
+
+    const recipients = Array.from(
+      new Set([...effectiveMaintainers, prEvent.pubkey, $pubkey].filter(Boolean)),
+    )
+    const tags = (statusEvent.tags || []).filter((tag: string[]) => tag[0] !== "p")
+    tags.push(...recipients.map((recipient: string) => ["p", recipient] as ["p", string]))
+
+    const statusWithRecipients = {
+      ...statusEvent,
+      tags,
+    }
+    const relays = (repoClass.relays || repoRelays || [])
+      .map((u: string) => normalizeRelayUrl(u))
+      .filter(Boolean)
+    return postStatus(statusWithRecipients as any, relays)
+  }
+
   // PR merge state
   let isMergingPr = $state(false)
   let mergePrStep = $state("")
@@ -1374,6 +1433,7 @@
   }
 
   const applyPR = () => {
+    if (!canManagePr) return
     if (!pr || !prEvent || !prEffectiveTipOid) return
     isMergingPr = false
     mergePrStep = ""
@@ -1463,6 +1523,7 @@
   }
 
   const executePRMerge = async () => {
+    if (!canManagePr) return
     if (
       !pr ||
       !prEvent ||
@@ -1541,11 +1602,14 @@
       const commitIds = prCommitOids
       const appliedCommits =
         commitIds.length > 0 ? commitIds : prEffectiveTipOid ? [prEffectiveTipOid] : undefined
+      const recipients = Array.from(
+        new Set([...effectiveMaintainers, prEvent.pubkey, $pubkey].filter(Boolean)),
+      )
       const statusEvent = createStatusEvent({
         kind: GIT_STATUS_APPLIED,
         content: mergePrCommitMessage || `PR applied: ${pr?.subject || "Untitled"}`,
         rootId: prEvent.id,
-        recipients: effectiveMaintainers,
+        recipients,
         repoAddr: (repoClass as any).repoId || (repoClass as any).address || "",
         relays: repoClass.relays || repoRelays || [],
         appliedCommits,
@@ -1568,6 +1632,7 @@
   }
 
   const markPrAsApplied = async () => {
+    if (!canManagePr) return
     if (!prEvent || !$pubkey) return
     isMarkingApplied = true
     markAsAppliedSuccess = false
@@ -1715,6 +1780,17 @@
         </div>
       {/if}
 
+      <div class="mb-6">
+        <Status
+          repo={statusRepo}
+          rootId={prEvent.id}
+          rootKind={GIT_PULL_REQUEST}
+          rootAuthor={prEvent.pubkey}
+          statusEvents={prStatusEventsArray}
+          actorPubkey={$pubkey}
+          onPublish={handlePrStatusPublish} />
+      </div>
+
       <!-- PR merge analysis -->
       <div class="mb-6 rounded-lg border bg-muted/20 p-4">
         <div class="mb-3 flex items-center justify-between">
@@ -1819,7 +1895,7 @@
       </div>
 
       <!-- PR Merge section (maintainers only, when canMerge and open) -->
-      {#if repoClass.maintainers?.includes($pubkey!) &&
+      {#if canManagePr &&
         prMergeAnalysisResult?.canMerge === true &&
         prStatus?.status === "open" &&
         !prMergeAnalysisResult?.upToDate}
@@ -1942,7 +2018,7 @@
       {/if}
 
       <!-- Mark as applied (maintainers only, when up-to-date and open - no git ops) -->
-      {#if repoClass.maintainers?.includes($pubkey!) &&
+      {#if canManagePr &&
         prStatus?.status === "open" &&
         prMergeAnalysisResult &&
         prMergeAnalysisResult.upToDate === true}

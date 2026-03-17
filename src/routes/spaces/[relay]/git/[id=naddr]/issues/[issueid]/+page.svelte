@@ -411,7 +411,7 @@
             <Status
               repo={repoClass}
               rootId={issue.id}
-              rootKind={1621}
+              rootKind={GIT_ISSUE}
               rootAuthor={issue.author.pubkey}
               statusEvents={($statusEvents || []) as StatusEvent[]}
               actorPubkey={$pubkey}
@@ -526,7 +526,7 @@
         <Status
           repo={repoClass}
           rootId={issue.id}
-          rootKind={1621}
+          rootKind={GIT_ISSUE}
           rootAuthor={issue.author.pubkey}
           statusEvents={($statusEvents || []) as StatusEvent[]}
           actorPubkey={$pubkey}
