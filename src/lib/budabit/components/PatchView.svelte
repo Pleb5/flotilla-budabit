@@ -17,6 +17,7 @@
   } from "@lucide/svelte"
   import {Button, MergeStatus, MergeAnalyzer, PatchViewer, Status, toast} from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
+  import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {IssueThread, PeoplePicker} from "@nostr-git/ui"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -744,6 +745,7 @@
         rootAuthor={selectedPatch?.author.pubkey ?? ""}
         statusEvents={statusEventsArray}
         actorPubkey={$pubkey}
+        ProfileComponent={NostrGitProfileComponent}
         onPublish={handleStatusPublish} />
 
       {#if selectedPatch?.commits && selectedPatch.commits.length > 1}

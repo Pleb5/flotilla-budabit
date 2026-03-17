@@ -29,6 +29,7 @@
     toast,
   } from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
+  import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {profilesByPubkey, pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load, PublishStatus} from "@welshman/net"
@@ -145,11 +146,11 @@
 
   const statusRepo = $derived.by(
     () =>
-      new Proxy(repoClass as any, {
-        get(target, prop, receiver) {
-          if (prop === "maintainers") return effectiveMaintainers
-          return Reflect.get(target, prop, receiver)
-        },
+      ({
+        maintainers: effectiveMaintainers,
+        relays: repoClass.relays || repoRelays || [],
+        repoEvent: (repoClass as any).repoEvent,
+        getCommitHistory: (...args: any[]) => (repoClass as any).getCommitHistory(...args),
       }) as Repo,
   )
 
@@ -1788,6 +1789,7 @@
           rootAuthor={prEvent.pubkey}
           statusEvents={prStatusEventsArray}
           actorPubkey={$pubkey}
+          ProfileComponent={NostrGitProfileComponent}
           onPublish={handlePrStatusPublish} />
       </div>
 
