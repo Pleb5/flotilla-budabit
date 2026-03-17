@@ -1,0 +1,183 @@
+# demo-release-publish.yml
+#
+# Simulates how a loom worker publishes NIP-94 (kind 1063) release events
+# to Nostr relays. This is a testing/reference workflow that:
+#
+#   1. Uses a provided HIVE_CI_NSEC (or generates an ephemeral keypair)
+#   2. Creates a dummy artifact and computes its sha256 hash
+#   3. Publishes a kind 1063 event signed by the ephemeral key
+#
+# In production, the maintainer triggers a workflow run and publishes a
+# kind 5401 run event with a `publisher` tag pointing to the ephemeral
+# pubkey. The loom worker then signs kind 1063 events with that key.
+#
+# Uses `nak` (nostr army knife) to construct and publish events.
+
+name: Demo Release Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+      package_name:
+        description: 'Package name (e.g. budabit-core)'
+        required: true
+        default: 'budabit-core'
+      architecture:
+        description: 'Target architecture (e.g. aarch64_cortex-a53)'
+        required: true
+        default: 'aarch64_cortex-a53'
+      release_channel:
+        description: 'Release channel'
+        required: false
+        default: 'stable'
+      relay:
+        description: 'Nostr relay URL to publish to'
+        required: false
+        default: 'wss://relay.damus.io'
+      nsec:
+        description: 'Ephemeral nsec for signing (leave blank to auto-generate)'
+        required: false
+        default: ''
+
+jobs:
+  publish-release-event:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install nak
+        run: |
+          NAK_VERSION="0.11.0"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64)  NAK_ARCH="linux-amd64" ;;
+            aarch64) NAK_ARCH="linux-arm64" ;;
+            *)
+              echo "Unknown arch $ARCH, falling back to go install"
+              NAK_ARCH=""
+              ;;
+          esac
+
+          if [ -n "$NAK_ARCH" ]; then
+            curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v${NAK_VERSION}/nak-v${NAK_VERSION}-${NAK_ARCH}" \
+              -o /usr/local/bin/nak
+            chmod +x /usr/local/bin/nak
+          else
+            export CGO_ENABLED=0
+            go install "github.com/fiatjaf/nak@v${NAK_VERSION}"
+            mv "$(go env GOPATH)/bin/nak" /usr/local/bin/nak
+          fi
+
+          nak --version
+
+      # Priority: secret > input > auto-generated ephemeral key
+      - name: Resolve signing key
+        id: keys
+        env:
+          SECRET_NSEC: ${{ secrets.HIVE_CI_NSEC }}
+          INPUT_NSEC: ${{ inputs.nsec }}
+        run: |
+          if [ -n "$SECRET_NSEC" ]; then
+            echo "::notice::Using HIVE_CI_NSEC from repository secrets"
+            NSEC="$SECRET_NSEC"
+          elif [ -n "$INPUT_NSEC" ]; then
+            echo "::notice::Using nsec from workflow input"
+            NSEC="$INPUT_NSEC"
+          else
+            echo "::notice::No nsec provided -- generating ephemeral keypair"
+            NSEC=$(nak key generate)
+          fi
+
+          PUBKEY=$(echo "$NSEC" | nak key public)
+          echo "::add-mask::$NSEC"
+          echo "nsec=$NSEC" >> "$GITHUB_OUTPUT"
+          echo "pubkey=$PUBKEY" >> "$GITHUB_OUTPUT"
+          echo "::notice::Publisher pubkey (hex): $PUBKEY"
+
+      - name: Create dummy artifact
+        id: artifact
+        run: |
+          VERSION="${{ inputs.version }}"
+          PKG="${{ inputs.package_name }}"
+          ARCH="${{ inputs.architecture }}"
+
+          FILENAME="${PKG}_${VERSION}_${ARCH}.ipk"
+          echo "test-artifact-content-${PKG}-${VERSION}-${ARCH}" > "$FILENAME"
+
+          HASH=$(sha256sum "$FILENAME" | awk '{print $1}')
+
+          echo "filename=$FILENAME" >> "$GITHUB_OUTPUT"
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "::notice::Artifact: $FILENAME"
+          echo "::notice::SHA256:   $HASH"
+
+      # Tag reference:
+      #   url          - blossom download URL (hash-addressed)
+      #   m            - MIME type
+      #   x / ox       - sha256 of the file content
+      #   filename     - human-readable filename
+      #   architecture / A - target architecture
+      #   version / v  - semantic version
+      #   release_channel / c - release channel
+      #   package_name / n - package identifier
+      #   compression  - compression method applied
+      - name: Publish kind 1063 release event
+        env:
+          NSEC: ${{ steps.keys.outputs.nsec }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          PKG="${{ inputs.package_name }}"
+          ARCH="${{ inputs.architecture }}"
+          CHANNEL="${{ inputs.release_channel }}"
+          RELAY="${{ inputs.relay }}"
+          HASH="${{ steps.artifact.outputs.hash }}"
+          FILENAME="${{ steps.artifact.outputs.filename }}"
+          BLOSSOM_URL="https://example-blossom.com/${HASH}"
+
+          nak event \
+            --sec "$NSEC" \
+            -k 1063 \
+            --tag url="$BLOSSOM_URL" \
+            --tag m="application/octet-stream" \
+            --tag x="$HASH" \
+            --tag ox="$HASH" \
+            --tag filename="$FILENAME" \
+            --tag architecture="$ARCH" \
+            --tag A="$ARCH" \
+            --tag version="$VERSION" \
+            --tag v="$VERSION" \
+            --tag release_channel="$CHANNEL" \
+            --tag c="$CHANNEL" \
+            --tag package_name="$PKG" \
+            --tag n="$PKG" \
+            --tag compression="none" \
+            -c "Test Package: ${PKG} for ${ARCH}" \
+            "$RELAY"
+
+          echo "::notice::Kind 1063 event published to $RELAY"
+
+      - name: Write job summary
+        run: |
+          VERSION="${{ inputs.version }}"
+          PKG="${{ inputs.package_name }}"
+          ARCH="${{ inputs.architecture }}"
+          HASH="${{ steps.artifact.outputs.hash }}"
+          PUBKEY="${{ steps.keys.outputs.pubkey }}"
+          RELAY="${{ inputs.relay }}"
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Demo Release Event Published
+
+          | Field | Value |
+          |-------|-------|
+          | Package | \`${PKG}\` |
+          | Version | \`${VERSION}\` |
+          | Architecture | \`${ARCH}\` |
+          | SHA256 | \`${HASH}\` |
+          | Publisher | \`${PUBKEY}\` |
+          | Relay | \`${RELAY}\` |
+          | Event Kind | \`1063\` (NIP-94 File Metadata) |
+          EOF
