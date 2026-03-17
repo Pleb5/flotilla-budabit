@@ -467,7 +467,7 @@
           
           const jobResultFeed = makeFeed({
             element,
-            relays: [damusRelay],
+            relays: ['wss://relay.damus.io/'],
             feedFilters: [jobResultFilter],
             subscriptionFilters: [jobResultFilter],
             initialEvents: [],
