@@ -14,6 +14,8 @@
     GitPullRequest,
     GitCommit,
     ChevronLeft,
+    Shield,
+    Play,
   } from "@lucide/svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
@@ -186,7 +188,11 @@
       }
     }
     
-    return Array.from(extensionsMap.values())
+    // Filter out extensions whose builtinRoute is already rendered as a hardcoded tab
+    const hardcodedRoutes = new Set(["cicd"])
+    return Array.from(extensionsMap.values()).filter(
+      ext => !ext.builtinRoute || !hardcodedRoutes.has(ext.builtinRoute),
+    )
   })
 
   // Make activeTab reactive to avoid lag on navigation - memoize the calculation
@@ -2352,6 +2358,24 @@
             {activeTab}>
             {#snippet icon()}
               <GitCommit class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="cicd"
+            label="Actions"
+            href={`${basePath}/cicd`}
+            {activeTab}>
+            {#snippet icon()}
+              <Play class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
+          <RepoTab
+            tabValue="releases"
+            label="Releases"
+            href={`${basePath}/releases`}
+            {activeTab}>
+            {#snippet icon()}
+              <Shield class="h-4 w-4" />
             {/snippet}
           </RepoTab>
           {#each repoTabExtensions as ext (ext.id)}

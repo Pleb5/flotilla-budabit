@@ -69,6 +69,20 @@
     try {
       loadingWorkflows = true
 
+      // Sync with remote and only invalidate the file cache if there are new commits
+      const cloneUrls = repoClass.clone ?? []
+      const repoId = repoClass.key
+      if (repoId && cloneUrls.length > 0) {
+        try {
+          const syncResult = await repoClass.workerManager?.syncWithRemote({repoId, cloneUrls})
+          if (syncResult?.needsUpdate) {
+            await repoClass.fileManager?.clearCache()
+          }
+        } catch {
+          // non-fatal: proceed with whatever is cached
+        }
+      }
+
       const filesResult = await repoClass.listRepoFiles({path: ".github/workflows"})
 
       // FileListingResult has a files property
@@ -117,12 +131,13 @@
     }
   }
 
-  // Fetch workflows when component mounts
+  // Fetch workflows on mount (initial load for instant display)
   $effect(() => {
     if (repoClass) {
       fetchWorkflows()
     }
   })
+
 
   // Click outside handler for dropdown
   let dropdownContainer: HTMLDivElement | undefined
@@ -308,6 +323,10 @@
           const eTag = job.tags.find((t: string[]) => t[0] === "e")
           if (eTag) loomJobToRunId.set(job.id, eTag[1])
         }
+        // Track as reactive state so status derivation reacts to worker pickup
+        const seen = new Set(loomJobEvents.map((e: any) => e.id))
+        const newJobs = loadedJobs.filter((e: any) => !seen.has(e.id))
+        if (newJobs.length > 0) loomJobEvents = [...loomJobEvents, ...newJobs]
         Promise.all([
           load({relays: jobRelays, filters: [{kinds: [30100], "#e": loomJobIds}]}),
           load({relays: jobRelays, filters: [{kinds: [5101], "#e": loomJobIds}]}),
@@ -346,13 +365,14 @@
   let workflowLogEvents = $state<any[]>([])  // Kind 5402 workflow log events
   let statusEvents = $state<any[]>([])  // Kind 30100 status events
   let jobResultEvents = $state<any[]>([])  // Kind 5101 job result events
+  let loomJobEvents = $state<any[]>([])  // Kind 5100 loom job events
   let loomJobToRunId = new Map<string, string>()  // Maps loom job ID → workflow run ID
 
   const allWorkflowRuns = $derived.by(() => {
     return runEvents.map(parseWorkflowRunEvent).sort((a, b) => b.createdAt - a.createdAt)
   })
 
-  // Resolve status for each run using priority: Kind 5402 > Kind 5101 > Kind 30100 > pending
+  // Resolve status for each run using priority: Kind 5402 > Kind 5101 > Kind 30100 > queued
   const workflowRunsWithStatus = $derived.by(() => {
     return allWorkflowRuns.map(run => {
       const runId = run._originalEvent?.id
@@ -416,7 +436,11 @@
         }
       }
 
-      return run
+      // No worker response yet — status is pending (worker may or may not respond)
+      return {
+        ...run,
+        status: "pending" as WorkflowRun["status"],
+      }
     })
   })
 
@@ -563,7 +587,11 @@
   }
 
   const onRunWorkflow = () => {
-    showWorkflowDropdown = !showWorkflowDropdown
+    const opening = !showWorkflowDropdown
+    showWorkflowDropdown = opening
+    if (opening) {
+      fetchWorkflows()
+    }
   }
 
   const onSelectWorkflow = (workflow: {name: string; path: string}) => {
@@ -585,7 +613,8 @@
       const raw = localStorage.getItem(storageKey)
       if (raw) {
         const data = JSON.parse(raw)
-        if (typeof data.statusFilter === "string") statusFilter = data.statusFilter
+        const validStatusFilters = new Set(["all", "success", "failure", "in_progress", "pending", "cancelled"])
+        if (typeof data.statusFilter === "string" && validStatusFilters.has(data.statusFilter)) statusFilter = data.statusFilter
         if (typeof data.branchFilter === "string") branchFilter = data.branchFilter
         if (typeof data.actorFilter === "string") actorFilter = data.actorFilter
         if (typeof data.eventFilter === "string") eventFilter = data.eventFilter
@@ -717,8 +746,8 @@
             <option value="success">Success</option>
             <option value="failure">Failure</option>
             <option value="in_progress">In Progress</option>
-            <option value="cancelled">Cancelled</option>
             <option value="pending">Pending</option>
+            <option value="cancelled">Cancelled</option>
           </select>
         </div>
 

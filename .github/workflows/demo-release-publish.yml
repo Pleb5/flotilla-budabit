@@ -35,9 +35,9 @@ on:
         required: false
         default: 'stable'
       relay:
-        description: 'Nostr relay URL to publish to'
+        description: 'Nostr relay URL(s) to publish to (comma-separated for multiple)'
         required: false
-        default: 'wss://relay.damus.io'
+        default: 'wss://relay.damus.io,wss://relay.nostr.band,wss://relay.primal.net,wss://nos.lol'
       nsec:
         description: 'Ephemeral nsec for signing (leave blank to auto-generate)'
         required: false
@@ -73,21 +73,24 @@ jobs:
 
           nak --version
 
-      # Priority: secret > input > auto-generated ephemeral key
+      # Priority: loom job (HIVE_CI_NSEC) > repo secret > input > auto-generated
       - name: Resolve signing key
         id: keys
         env:
           SECRET_NSEC: ${{ secrets.HIVE_CI_NSEC }}
           INPUT_NSEC: ${{ inputs.nsec }}
         run: |
-          if [ -n "$SECRET_NSEC" ]; then
-            echo "::notice::Using HIVE_CI_NSEC from repository secrets"
+          if [ -n "$HIVE_CI_NSEC" ]; then
+            echo "Using HIVE_CI_NSEC from loom job environment"
+            NSEC="$HIVE_CI_NSEC"
+          elif [ -n "$SECRET_NSEC" ]; then
+            echo "Using HIVE_CI_NSEC from repository secrets"
             NSEC="$SECRET_NSEC"
           elif [ -n "$INPUT_NSEC" ]; then
-            echo "::notice::Using nsec from workflow input"
+            echo "Using nsec from workflow input"
             NSEC="$INPUT_NSEC"
           else
-            echo "::notice::No nsec provided -- generating ephemeral keypair"
+            echo "No nsec provided -- generating ephemeral keypair"
             NSEC=$(nak key generate)
           fi
 
@@ -95,7 +98,7 @@ jobs:
           echo "::add-mask::$NSEC"
           echo "nsec=$NSEC" >> "$GITHUB_OUTPUT"
           echo "pubkey=$PUBKEY" >> "$GITHUB_OUTPUT"
-          echo "::notice::Publisher pubkey (hex): $PUBKEY"
+          echo "Publisher pubkey (hex): $PUBKEY"
 
       - name: Create dummy artifact
         id: artifact
@@ -111,8 +114,8 @@ jobs:
 
           echo "filename=$FILENAME" >> "$GITHUB_OUTPUT"
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-          echo "::notice::Artifact: $FILENAME"
-          echo "::notice::SHA256:   $HASH"
+          echo "Artifact: $FILENAME"
+          echo "SHA256:   $HASH"
 
       # Tag reference:
       #   url          - blossom download URL (hash-addressed)
@@ -132,10 +135,13 @@ jobs:
           PKG="${{ inputs.package_name }}"
           ARCH="${{ inputs.architecture }}"
           CHANNEL="${{ inputs.release_channel }}"
-          RELAY="${{ inputs.relay }}"
+          RELAYS="${{ inputs.relay }}"
           HASH="${{ steps.artifact.outputs.hash }}"
           FILENAME="${{ steps.artifact.outputs.filename }}"
           BLOSSOM_URL="https://example-blossom.com/${HASH}"
+
+          # Convert comma-separated relays to space-separated for nak
+          RELAY_LIST=$(echo "$RELAYS" | tr ',' ' ')
 
           nak event \
             --sec "$NSEC" \
@@ -155,9 +161,9 @@ jobs:
             --tag n="$PKG" \
             --tag compression="none" \
             -c "Test Package: ${PKG} for ${ARCH}" \
-            "$RELAY"
+            $RELAY_LIST
 
-          echo "::notice::Kind 1063 event published to $RELAY"
+          echo "Kind 1063 event published to: $RELAY_LIST"
 
       - name: Write job summary
         run: |

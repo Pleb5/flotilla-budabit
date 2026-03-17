@@ -196,11 +196,17 @@
     return "pending"
   })
 
+  // True when no worker has responded at all (5100 is our own job request, not worker acceptance)
+  const waitingForWorker = $derived(
+    !workflowLogEvent && !loomResultEvent && !loomStatusEvent
+  )
+
   // ── Derived: status label (with "workflow result missing" note) ─────
   const statusLabel = $derived.by((): string => {
     if (resolvedStatus === "failure" && !workflowLogEvent && loomResultEvent) {
       return "Error (workflow result missing)"
     }
+    if (waitingForWorker) return "Pending"
     return resolvedStatus.replace("_", " ")
   })
 
@@ -353,8 +359,9 @@
       } else if (k5100ById.length > 0) {
         runEvent = k5100ById[0]
       } else {
-        error = `Workflow run ${runId} not found on any relay`
-        loading = false
+        // Not found yet — relay may still be indexing the event.
+        // Keep loading and let the live subscription deliver it.
+        // A timeout below will surface the error if it never arrives.
         return
       }
       loading = false
@@ -418,13 +425,25 @@
       }
     })
 
+    // If the event still hasn't arrived after 30 s, surface an error
+    const notFoundTimer = setTimeout(() => {
+      if (!runEvent) {
+        error = `Workflow run ${runId} not found on any relay`
+        loading = false
+      }
+    }, 30000)
+
     // Live subscription
     const abort = new AbortController()
-    feedCleanup = () => abort.abort()
+    feedCleanup = () => {
+      abort.abort()
+      clearTimeout(notFoundTimer)
+    }
 
     request({
       relays: JOB_RELAYS,
       filters: [
+        {kinds: [5401], ids: [runId]},
         {kinds: [5402], "#e": [runId]},
         {kinds: [5100], "#e": [runId]},
         {kinds: [5101], "#e": [runId]},
@@ -432,6 +451,12 @@
       ],
       signal: abort.signal,
       onEvent: (event: any) => {
+        if (event.kind === 5401 && !runEvent) {
+          runEvent = event
+          error = null
+          loading = false
+          clearTimeout(notFoundTimer)
+        }
         if (event.kind === 5402) {
           workflowLogEvent = event
         }
@@ -787,6 +812,21 @@
           </div>
         {/if}
       </div>
+
+      <!-- Waiting for worker banner -->
+      {#if waitingForWorker}
+        <div class="mt-4 flex items-start gap-3 rounded-md border border-yellow-500/20 bg-yellow-500/5 p-4">
+          <Loader2 class="mt-0.5 h-5 w-5 flex-shrink-0 animate-spin text-yellow-500" />
+          <div>
+            <p class="font-medium text-yellow-600">
+              Waiting for {workerName || (loomInfo?.workerPubkey ? loomInfo.workerPubkey.slice(0, 12) + "…" : "the assigned worker")} to respond
+            </p>
+            <p class="mt-1 text-sm text-muted-foreground">
+              The job request has been sent. Check that the worker is online and subscribed to the correct relays.
+            </p>
+          </div>
+        </div>
+      {/if}
 
       <!-- Nested: Loom Job -->
       {#if loomInfo}

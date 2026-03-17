@@ -46,7 +46,7 @@ set -eo pipefail
 # - HIVE_CI_WORKFLOW: Workflow file path (optional, defaults to all workflows)
 # - HIVE_CI_BRANCH: Git branch to checkout (optional, defaults to default branch)
 # - HIVE_CI_RUN_ID: Unique run identifier (required)
-# - HIVE_CI_PRIVATEKEY: Nostr private key for publishing results (required)
+# - HIVE_CI_NSEC: Ephemeral Nostr nsec for signing results (required)
 # - HIVE_CI_BLOSSOM_SERVER: Blossom server URL (default: https://blossom.primal.net)
 # - HIVE_CI_RELAYS: Comma-separated relay URLs (default: wss://relay.damus.io)
 
@@ -61,8 +61,8 @@ if [ -z "$HIVE_CI_RUN_ID" ]; then
   exit 1
 fi
 
-if [ -z "$HIVE_CI_PRIVATEKEY" ]; then
-  echo "Error: HIVE_CI_PRIVATEKEY is required"
+if [ -z "$HIVE_CI_NSEC" ]; then
+  echo "Error: HIVE_CI_NSEC is required"
   exit 1
 fi
 
@@ -125,17 +125,19 @@ if [ $EXIT_CODE -eq 0 ]; then
   echo ""
   echo ">>> Running GitHub Actions with act..."
 
+  # Pass Hive CI variables into act as env vars so workflow run: steps can read them directly.
+  # HIVE_CI_NSEC is the ephemeral nsec matching the publisher tag in the 5401 event.
+  ACT_ENVS="--env HIVE_CI_NSEC=\${HIVE_CI_NSEC} --env HIVE_CI_RUN_ID=\${HIVE_CI_RUN_ID} --env HIVE_CI_RELAYS=\${RELAYS} --env HIVE_CI_BLOSSOM_SERVER=\${BLOSSOM_SERVER}"
+
   if [ -n "$HIVE_CI_WORKFLOW" ]; then
     echo "Workflow file: \${HIVE_CI_WORKFLOW}"
-    # Capture only act output to log file, show on console too
-    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest -W "$HIVE_CI_WORKFLOW" 2>&1 | tee "$ACT_LOG_FILE"; then
+    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest -W "$HIVE_CI_WORKFLOW" $ACT_ENVS 2>&1 | tee "$ACT_LOG_FILE"; then
       EXIT_CODE=$?
       echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
     fi
   else
     echo "Running all workflows"
-    # Capture only act output to log file, show on console too
-    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest 2>&1 | tee "$ACT_LOG_FILE"; then
+    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest $ACT_ENVS 2>&1 | tee "$ACT_LOG_FILE"; then
       EXIT_CODE=$?
       echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
     fi
@@ -158,7 +160,7 @@ echo ">>> Uploading log to Blossom..."
 # Upload and capture result to temp file to avoid shell parsing issues
 # Use || true so set -e doesn't kill the script if upload fails
 UPLOAD_TEMP=$(mktemp)
-if cat "$ACT_LOG_FILE" | nak blossom --server "$BLOSSOM_SERVER" --sec "$HIVE_CI_PRIVATEKEY" upload > "$UPLOAD_TEMP" 2>&1; then
+if cat "$ACT_LOG_FILE" | nak blossom --server "$BLOSSOM_SERVER" --sec "$HIVE_CI_NSEC" upload > "$UPLOAD_TEMP" 2>&1; then
   LOG_URL=$(cat "$UPLOAD_TEMP" | jq -r '.url // empty')
   if [ -n "$LOG_URL" ] && [ "$LOG_URL" != "null" ]; then
     echo "Log uploaded: \${LOG_URL}"
@@ -209,7 +211,7 @@ fi
 
 # Publish event using nak and capture event ID
 # Generate event by providing empty JSON on stdin (nak reads stdin by default)
-EVENT_JSON=$(echo '{}' | nak event -k 5402 $TAG_ARGS --sec "\${HIVE_CI_PRIVATEKEY}" -c '')
+EVENT_JSON=$(echo '{}' | nak event -k 5402 $TAG_ARGS --sec "\${HIVE_CI_NSEC}" -c '')
 
 # Extract event ID from the JSON
 EVENT_ID=$(echo "$EVENT_JSON" | jq -r '.id')
@@ -595,12 +597,12 @@ exit $EXIT_CODE
           .map(e => ["env", e.key, e.value]),
       ]
 
-      // 6. Encrypt secrets via NIP-44 to worker pubkey (HIVE_CI_PRIVATEKEY + user secrets)
+      // 6. Encrypt secrets via NIP-44 to worker pubkey (HIVE_CI_NSEC + user secrets)
       const secretTags: string[][] = []
       try {
         // Encrypt ephemeral private key as secret
         const encryptedPrivKey = await $signer.nip44.encrypt(selectedWorker.pubkey, ephemeralSecretKeyHex)
-        secretTags.push(["secret", "HIVE_CI_PRIVATEKEY", encryptedPrivKey])
+        secretTags.push(["secret", "HIVE_CI_NSEC", encryptedPrivKey])
 
         // Encrypt user-defined secrets
         const activeSecrets = secrets.filter(s => s.key && s.value)
