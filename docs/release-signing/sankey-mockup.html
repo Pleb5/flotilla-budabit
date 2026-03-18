@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Release Signing — Visualization Options Comparison</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .page-subtitle { font-size: 13px; color: #8b949e; margin-bottom: 32px; }
+
+  /* ── Navigation ── */
+  .nav {
+    display: flex; gap: 8px; margin-bottom: 36px; flex-wrap: wrap; justify-content: center;
+  }
+  .nav a {
+    color: #58a6ff; font-size: 13px; font-weight: 500; text-decoration: none;
+    padding: 6px 14px; border: 1px solid #30363d; border-radius: 6px;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .nav a:hover { background: #161b22; border-color: #58a6ff; }
+
+  /* ── Option sections ── */
+  .option-section {
+    width: 100%; max-width: 1100px; margin-bottom: 64px;
+    border-top: 1px solid #30363d; padding-top: 32px;
+  }
+  .option-header {
+    display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px;
+  }
+  .option-letter {
+    font-size: 13px; font-weight: 700; color: #0d1117; background: #58a6ff;
+    width: 26px; height: 26px; border-radius: 50%; display: inline-flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .option-title { font-size: 18px; font-weight: 600; }
+  .option-effort { font-size: 12px; color: #8b949e; margin-left: auto; }
+  .option-desc { font-size: 13px; color: #8b949e; margin-bottom: 20px; margin-left: 38px; }
+
+  /* ── Shared legend ── */
+  .legend {
+    display: flex; gap: 24px; margin-bottom: 20px; font-size: 12px; color: #8b949e;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch { width: 14px; height: 14px; border-radius: 3px; }
+
+  /* ── Shared chart styles ── */
+  .chart-container {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden;
+  }
+
+  /* ── Tooltip ── */
+  .tooltip {
+    position: absolute; background: #1c2128; border: 1px solid #30363d;
+    border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #e6edf3;
+    pointer-events: none; opacity: 0; transition: opacity 0.15s;
+    max-width: 340px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 10;
+  }
+  .tooltip .tt-label { font-weight: 600; margin-bottom: 4px; }
+  .tooltip .tt-detail { color: #8b949e; line-height: 1.5; }
+
+  /* ── Option A: Cards ── */
+  .cards-artifact {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .cards-artifact-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  }
+  .cards-artifact-name {
+    font-size: 14px; font-weight: 600; font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .consensus-bar-wrapper {
+    display: flex; align-items: center; gap: 8px; flex: 1;
+  }
+  .consensus-bar {
+    height: 6px; border-radius: 3px; flex: 1; max-width: 200px; background: #21262d; overflow: hidden;
+  }
+  .consensus-bar-fill { height: 100%; border-radius: 3px; }
+  .consensus-label { font-size: 12px; font-weight: 600; }
+  .cards-grid {
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .build-card {
+    background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+    padding: 14px; min-width: 200px; flex: 1; max-width: 280px;
+  }
+  .build-card-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px;
+  }
+  .build-card-row .icon { width: 16px; text-align: center; font-size: 13px; flex-shrink: 0; }
+  .build-card-row .label { color: #8b949e; min-width: 50px; }
+  .build-card-row .value { font-family: 'SF Mono', monospace; font-size: 11px; }
+  .build-card-footer { font-size: 11px; color: #8b949e; margin-top: 8px; padding-top: 6px; border-top: 1px solid #21262d; }
+  .hash-match { color: #3fb950; }
+  .hash-differ { color: #f85149; }
+
+  .sign-btn {
+    font-size: 12px; font-weight: 600;
+    padding: 5px 14px; border-radius: 6px; border: none; cursor: pointer;
+    transition: opacity 0.15s; margin-left: auto;
+  }
+  .sign-btn:hover { opacity: 0.85; }
+  .sign-btn.ready { background: #238636; color: #fff; }
+  .sign-btn.warn  { background: #30363d; color: #8b949e; }
+
+  /* ── Option B: Matrix ── */
+  .matrix-wrapper { overflow-x: auto; }
+  .matrix-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  .matrix-table th {
+    padding: 10px 14px; text-align: left; font-weight: 600; font-size: 12px;
+    color: #8b949e; border-bottom: 1px solid #30363d; background: #161b22;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .matrix-table td {
+    padding: 12px 14px; border-bottom: 1px solid #21262d; vertical-align: top;
+  }
+  .matrix-table tr:hover td { background: rgba(88,166,255,0.04); }
+  .matrix-artifact-name {
+    font-family: 'SF Mono', monospace; font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .matrix-cell-hash {
+    font-family: 'SF Mono', monospace; font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .matrix-cell-hash .dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .matrix-cell-meta { font-size: 11px; color: #8b949e; margin-top: 2px; }
+  .matrix-worker-sub { font-size: 11px; color: #8b949e; font-weight: 400; }
+  .matrix-consensus {
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+    display: inline-block;
+  }
+
+  /* ── Option C: Trust Graph ── */
+  .graph-container svg { display: block; }
+  .graph-node { cursor: pointer; }
+  .graph-node circle { transition: opacity 0.2s; }
+  .graph-node circle:hover { opacity: 0.8; }
+  .graph-node text { fill: #e6edf3; font-size: 11px; pointer-events: none; }
+  .graph-edge { stroke-opacity: 0.35; transition: stroke-opacity 0.2s; }
+  .graph-edge:hover { stroke-opacity: 0.75; }
+  .graph-edge-arrow { fill-opacity: 0.5; }
+
+  /* ── Option D: Sankey ── */
+  .artifact-section { width: 100%; max-width: 1060px; margin-bottom: 24px; }
+  .artifact-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding: 0 4px;
+  }
+  .artifact-name-sankey {
+    font-size: 14px; font-weight: 600; font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .artifact-badge {
+    font-size: 11px; font-weight: 600; padding: 2px 8px;
+    border-radius: 10px; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .badge-unanimous { background: rgba(63,185,80,0.15); color: #3fb950; }
+  .badge-majority  { background: rgba(210,153,34,0.15); color: #d29922; }
+  .node rect { cursor: pointer; transition: opacity 0.2s; }
+  .node rect:hover { opacity: 0.85; }
+  .node text { fill: #e6edf3; font-size: 11px; pointer-events: none; }
+  .node .label-sub { fill: #8b949e; font-size: 10px; }
+  .link { fill: none; stroke-opacity: 0.32; transition: stroke-opacity 0.2s; }
+  .link:hover { stroke-opacity: 0.7; }
+  .column-label { fill: #484f58; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  /* ── Option E: Hybrid ── */
+  .hybrid-wrapper {
+    display: flex; border: 1px solid #30363d; border-radius: 8px; overflow: hidden;
+    background: #161b22; min-height: 420px;
+  }
+  .hybrid-graph { flex: 1; position: relative; }
+  .hybrid-panel {
+    width: 320px; border-left: 1px solid #30363d; background: #0d1117;
+    padding: 20px; overflow-y: auto; font-size: 13px;
+  }
+  .hybrid-panel-placeholder {
+    color: #484f58; font-size: 13px; text-align: center; margin-top: 80px;
+  }
+  .hybrid-panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  .hybrid-panel .detail-row {
+    display: flex; justify-content: space-between; padding: 6px 0;
+    border-bottom: 1px solid #21262d; font-size: 12px;
+  }
+  .hybrid-panel .detail-label { color: #8b949e; }
+  .hybrid-panel .detail-value { font-family: 'SF Mono', monospace; font-size: 11px; text-align: right; }
+  .hybrid-panel .build-item {
+    background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+    padding: 10px; margin-top: 10px; font-size: 12px;
+  }
+  .hybrid-panel .build-item .bi-label { color: #8b949e; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<h1>Release Signing — Visualization Options</h1>
+<p class="page-subtitle">Same scenario, five approaches. 2 maintainers, 3 workers, 2 artifacts (arm64 unanimous, x86_64 split).</p>
+
+<nav class="nav">
+  <a href="#option-a">A: Trust Chain Cards</a>
+  <a href="#option-b">B: Provenance Matrix</a>
+  <a href="#option-c">C: Trust Graph</a>
+  <a href="#option-d">D: Sankey Flow</a>
+  <a href="#option-e">E: Hybrid</a>
+</nav>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:#3fb950"></div> Unanimous</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#d29922"></div> Majority</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#f85149"></div> Disagree</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#a371f7"></div> Maintainer</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#58a6ff"></div> Worker</div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     OPTION A: Trust Chain Cards
+     ═══════════════════════════════════════════════════════════════════ -->
+<section class="option-section" id="option-a">
+  <div class="option-header">
+    <span class="option-letter">A</span>
+    <span class="option-title">Trust Chain Cards</span>
+    <span class="option-effort">Low effort / Low risk</span>
+  </div>
+  <p class="option-desc">Each build is a card showing the trust chain vertically. Side-by-side comparison makes hash agreement immediately visible.</p>
+  <div id="cards-container"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     OPTION B: Provenance Matrix
+     ═══════════════════════════════════════════════════════════════════ -->
+<section class="option-section" id="option-b">
+  <div class="option-header">
+    <span class="option-letter">B</span>
+    <span class="option-title">Provenance Matrix</span>
+    <span class="option-effort">Medium effort / Low risk</span>
+  </div>
+  <p class="option-desc">Rows are artifacts, columns are workers. Color-coded cells make outliers instantly visible. Scales to many builds.</p>
+  <div id="matrix-container"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     OPTION C: Trust Graph (2D DAG)
+     ═══════════════════════════════════════════════════════════════════ -->
+<section class="option-section" id="option-c">
+  <div class="option-header">
+    <span class="option-letter">C</span>
+    <span class="option-title">Trust Graph (2D Network)</span>
+    <span class="option-effort">Medium-High effort / Medium risk</span>
+  </div>
+  <p class="option-desc">Layered DAG: Maintainers → Workers → Hashes → Artifacts. Edges show the trust chain. Hover highlights full provenance path.</p>
+  <div id="graph-container"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     OPTION D: Sankey / Alluvial Flow
+     ═══════════════════════════════════════════════════════════════════ -->
+<section class="option-section" id="option-d">
+  <div class="option-header">
+    <span class="option-letter">D</span>
+    <span class="option-title">Sankey / Alluvial Flow</span>
+    <span class="option-effort">Medium-High effort / Medium risk</span>
+  </div>
+  <p class="option-desc">One diagram per artifact. Flow width encodes consensus strength. Convergence = agreement, branching = disagreement.</p>
+  <div id="sankey-container"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     OPTION E: Hybrid — Graph + Detail Panel
+     ═══════════════════════════════════════════════════════════════════ -->
+<section class="option-section" id="option-e">
+  <div class="option-header">
+    <span class="option-letter">E</span>
+    <span class="option-title">Hybrid — Graph + Detail Panel</span>
+    <span class="option-effort">High effort / Medium risk</span>
+  </div>
+  <p class="option-desc">Trust graph on the left, click-to-inspect detail panel on the right. Best of both worlds for exploration and action.</p>
+  <div id="hybrid-container"></div>
+</section>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+<script>
+
+// ══════════════════════════════════════════════════════════════════════
+// SHARED DATA — the same scenario used across all visualizations
+// ══════════════════════════════════════════════════════════════════════
+
+const DATA = {
+  maintainers: [
+    { id: "alice", name: "alice", npub: "npub1q8s…kx4f", runs: ["worker-1", "worker-2"] },
+    { id: "bob",   name: "bob",   npub: "npub1m7r…v2p9", runs: ["worker-3"] },
+  ],
+  workers: [
+    { id: "worker-1", name: "worker-1", location: "Amsterdam", operator: "SovBit", actVersion: "0.2.72", npub: "npub1w1…abc", triggeredBy: "alice" },
+    { id: "worker-2", name: "worker-2", location: "Tokyo",     operator: "SovBit", actVersion: "0.2.72", npub: "npub1w2…def", triggeredBy: "alice" },
+    { id: "worker-3", name: "worker-3", location: "Home lab",  operator: "Independent", actVersion: "0.2.70", npub: "npub1w3…ghi", triggeredBy: "bob" },
+  ],
+  artifacts: [
+    {
+      id: "art-arm64",
+      filename: "budabit-core_v0.1.0_aarch64.ipk",
+      builds: [
+        { worker: "worker-1", hash: "4aa403…", triggeredBy: "alice", time: "20:32" },
+        { worker: "worker-2", hash: "4aa403…", triggeredBy: "alice", time: "20:20" },
+        { worker: "worker-3", hash: "4aa403…", triggeredBy: "bob",   time: "20:45" },
+      ],
+      consensus: "unanimous",
+      consensusRatio: "3/3",
+    },
+    {
+      id: "art-x86",
+      filename: "budabit-core_v0.1.0_x86_64.ipk",
+      builds: [
+        { worker: "worker-1", hash: "9bf721…", triggeredBy: "alice", time: "20:33" },
+        { worker: "worker-2", hash: "9bf721…", triggeredBy: "alice", time: "20:21" },
+        { worker: "worker-3", hash: "e40c33…", triggeredBy: "bob",   time: "20:46" },
+      ],
+      consensus: "majority",
+      consensusRatio: "2/3",
+    },
+  ],
+};
+
+// Helper to find majority hash
+function majorityHash(builds) {
+  const counts = {};
+  builds.forEach(b => { counts[b.hash] = (counts[b.hash] || 0) + 1; });
+  let best = null, bestCount = 0;
+  for (const [h, c] of Object.entries(counts)) {
+    if (c > bestCount) { best = h; bestCount = c; }
+  }
+  return best;
+}
+
+const tooltip = d3.select("#tooltip");
+
+function showTip(event, html) {
+  tooltip.style("opacity", 1).html(html);
+  moveTip(event);
+}
+function moveTip(event) {
+  tooltip.style("left", (event.pageX + 14) + "px").style("top", (event.pageY - 14) + "px");
+}
+function hideTip() { tooltip.style("opacity", 0); }
+
+
+// ══════════════════════════════════════════════════════════════════════
+// OPTION A: Trust Chain Cards
+// ══════════════════════════════════════════════════════════════════════
+
+(function renderCards() {
+  const container = document.getElementById("cards-container");
+
+  DATA.artifacts.forEach(art => {
+    const mHash = majorityHash(art.builds);
+    const agreeCount = art.builds.filter(b => b.hash === mHash).length;
+    const total = art.builds.length;
+    const pct = (agreeCount / total * 100).toFixed(0);
+    const color = art.consensus === "unanimous" ? "#3fb950" : "#d29922";
+
+    const div = document.createElement("div");
+    div.className = "cards-artifact";
+    div.innerHTML = `
+      <div class="cards-artifact-header">
+        <span class="cards-artifact-name">${art.filename}</span>
+        <div class="consensus-bar-wrapper">
+          <div class="consensus-bar"><div class="consensus-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+          <span class="consensus-label" style="color:${color}">${art.consensusRatio} ${art.consensus}</span>
+        </div>
+        <button class="sign-btn ${art.consensus === 'unanimous' ? 'ready' : 'warn'}">${art.consensus === 'unanimous' ? 'Sign' : 'Investigate'}</button>
+      </div>
+      <div class="cards-grid">
+        ${art.builds.map((b, i) => {
+          const worker = DATA.workers.find(w => w.id === b.worker);
+          const isMatch = b.hash === mHash;
+          const hashClass = art.consensus === "unanimous" ? "hash-match" : (isMatch ? "hash-match" : "hash-differ");
+          return `
+            <div class="build-card">
+              <div class="build-card-row"><span class="icon" style="color:#a371f7">&#9679;</span><span class="label">by</span><span class="value">${b.triggeredBy}</span></div>
+              <div class="build-card-row"><span class="icon" style="color:#58a6ff">&#9679;</span><span class="label">worker</span><span class="value">${worker.name}</span></div>
+              <div class="build-card-row"><span class="icon" style="color:${isMatch ? '#3fb950' : '#f85149'}">${isMatch ? '&#10003;' : '&#10007;'}</span><span class="label">hash</span><span class="value ${hashClass}">${b.hash}</span></div>
+              <div class="build-card-footer">${worker.location} &middot; ${worker.operator} &middot; act ${worker.actVersion} &middot; ${b.time}</div>
+            </div>`;
+        }).join("")}
+      </div>`;
+    container.appendChild(div);
+  });
+})();
+
+
+// ══════════════════════════════════════════════════════════════════════
+// OPTION B: Provenance Matrix
+// ══════════════════════════════════════════════════════════════════════
+
+(function renderMatrix() {
+  const container = document.getElementById("matrix-container");
+  const wrapper = document.createElement("div");
+  wrapper.className = "matrix-wrapper chart-container";
+
+  const workers = DATA.workers;
+
+  let html = `<table class="matrix-table">
+    <thead><tr>
+      <th style="min-width:220px">Artifact</th>
+      ${workers.map(w => `<th>${w.name}<br><span class="matrix-worker-sub">${w.location} &middot; ${w.npub}</span></th>`).join("")}
+      <th>Consensus</th>
+    </tr></thead><tbody>`;
+
+  DATA.artifacts.forEach(art => {
+    const mHash = majorityHash(art.builds);
+    html += `<tr><td><span class="matrix-artifact-name">${art.filename}</span></td>`;
+
+    workers.forEach(w => {
+      const build = art.builds.find(b => b.worker === w.id);
+      if (!build) {
+        html += `<td style="color:#484f58;font-size:12px">— not built —</td>`;
+        return;
+      }
+      const isMatch = build.hash === mHash;
+      const dotColor = art.consensus === "unanimous" ? "#3fb950" : (isMatch ? "#d29922" : "#f85149");
+      html += `<td>
+        <div class="matrix-cell-hash"><span class="dot" style="background:${dotColor}"></span>${build.hash}${!isMatch && art.consensus !== "unanimous" ? ' &#9888;' : ''}</div>
+        <div class="matrix-cell-meta">${build.triggeredBy} &middot; ${build.time}</div>
+      </td>`;
+    });
+
+    const conColor = art.consensus === "unanimous" ? "rgba(63,185,80,0.15);color:#3fb950" : "rgba(210,153,34,0.15);color:#d29922";
+    html += `<td><span class="matrix-consensus" style="background:${conColor}">${art.consensusRatio} ${art.consensus}</span></td></tr>`;
+  });
+
+  html += `</tbody></table>`;
+  wrapper.innerHTML = html;
+  container.appendChild(wrapper);
+})();
+
+
+// ══════════════════════════════════════════════════════════════════════
+// OPTION C: Trust Graph (2D Layered DAG)
+// ══════════════════════════════════════════════════════════════════════
+
+(function renderGraph() {
+  const width = 1060, height = 440;
+  const margin = { top: 50, right: 30, bottom: 30, left: 30 };
+
+  const container = d3.select("#graph-container");
+  const chartDiv = container.append("div").attr("class", "chart-container graph-container");
+
+  const svg = chartDiv.append("svg")
+    .attr("width", width).attr("height", height)
+    .attr("viewBox", [0, 0, width, height]);
+
+  // Build node list with layers
+  const nodes = [];
+  // Layer 0: Maintainers
+  DATA.maintainers.forEach(m => nodes.push({ ...m, layer: 0, type: "maintainer", color: "#a371f7", radius: 22 }));
+  // Layer 1: Workers
+  DATA.workers.forEach(w => nodes.push({ ...w, layer: 1, type: "worker", color: "#58a6ff", radius: 18 }));
+  // Layer 2: Hashes (unique per artifact)
+  const hashNodes = [];
+  DATA.artifacts.forEach(art => {
+    const uniqueHashes = [...new Set(art.builds.map(b => b.hash))];
+    uniqueHashes.forEach(h => {
+      const count = art.builds.filter(b => b.hash === h).length;
+      const mHash = majorityHash(art.builds);
+      const status = art.consensus === "unanimous" ? "unanimous" : (h === mHash ? "majority" : "disagree");
+      const hid = `hash-${art.id}-${h}`;
+      if (!hashNodes.find(n => n.id === hid)) {
+        const color = status === "unanimous" ? "#3fb950" : status === "majority" ? "#d29922" : "#f85149";
+        hashNodes.push({ id: hid, name: h, layer: 2, type: "hash", color, radius: 14, count, status, artifactId: art.id });
+      }
+    });
+  });
+  nodes.push(...hashNodes);
+  // Layer 3: Artifacts
+  DATA.artifacts.forEach(art => {
+    const color = art.consensus === "unanimous" ? "#3fb950" : "#d29922";
+    nodes.push({ ...art, layer: 3, type: "artifact", color, radius: 24, name: art.filename.replace("budabit-core_v0.1.0_", "") });
+  });
+
+  // Build edges
+  const edges = [];
+  // Maintainer → Worker
+  DATA.workers.forEach(w => {
+    edges.push({ source: w.triggeredBy, target: w.id, type: "trust" });
+  });
+  // Worker → Hash (per artifact)
+  DATA.artifacts.forEach(art => {
+    art.builds.forEach(b => {
+      edges.push({ source: b.worker, target: `hash-${art.id}-${b.hash}`, type: "build",
+        consensus: art.consensus === "unanimous" ? "unanimous" : (b.hash === majorityHash(art.builds) ? "majority" : "disagree") });
+    });
+  });
+  // Hash → Artifact
+  DATA.artifacts.forEach(art => {
+    const uniqueHashes = [...new Set(art.builds.map(b => b.hash))];
+    uniqueHashes.forEach(h => {
+      const status = art.consensus === "unanimous" ? "unanimous" : (h === majorityHash(art.builds) ? "majority" : "disagree");
+      edges.push({ source: `hash-${art.id}-${h}`, target: art.id, type: "sign", consensus: status });
+    });
+  });
+
+  // Layout: position by layer
+  const layerX = [
+    margin.left + 50,
+    margin.left + (width - margin.left - margin.right) * 0.33,
+    margin.left + (width - margin.left - margin.right) * 0.63,
+    width - margin.right - 80,
+  ];
+  const colLabels = ["Maintainers", "Workers", "Hashes", "Artifacts"];
+
+  // Column headers
+  svg.append("g").selectAll("text").data(colLabels).join("text")
+    .attr("x", (d, i) => layerX[i])
+    .attr("y", 28)
+    .attr("text-anchor", "middle")
+    .attr("fill", "#484f58").attr("font-size", "11px").attr("font-weight", 600)
+    .attr("text-transform", "uppercase").attr("letter-spacing", "0.05em")
+    .text(d => d);
+
+  // Y positions per layer
+  for (let layer = 0; layer < 4; layer++) {
+    const layerNodes = nodes.filter(n => n.layer === layer);
+    const totalHeight = height - margin.top - margin.bottom;
+    const spacing = totalHeight / (layerNodes.length + 1);
+    layerNodes.forEach((n, i) => {
+      n.x = layerX[layer];
+      n.y = margin.top + spacing * (i + 1);
+    });
+  }
+
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+  function edgeColor(e) {
+    if (e.consensus === "unanimous") return "#3fb950";
+    if (e.consensus === "majority") return "#d29922";
+    if (e.consensus === "disagree") return "#f85149";
+    return "#8b949e";
+  }
+
+  // Edges
+  const edgeG = svg.append("g");
+  edges.forEach(e => {
+    const src = nodeMap.get(e.source);
+    const tgt = nodeMap.get(e.target);
+    if (!src || !tgt) return;
+    const col = edgeColor(e);
+
+    // Curved path
+    const dx = tgt.x - src.x;
+    const path = `M${src.x + src.radius},${src.y} C${src.x + src.radius + dx * 0.4},${src.y} ${tgt.x - tgt.radius - dx * 0.4},${tgt.y} ${tgt.x - tgt.radius},${tgt.y}`;
+
+    edgeG.append("path")
+      .attr("class", "graph-edge")
+      .attr("d", path)
+      .attr("stroke", col)
+      .attr("stroke-width", e.type === "trust" ? 2 : 2.5)
+      .attr("fill", "none")
+      .on("mouseover", function(event) {
+        d3.select(this).attr("stroke-opacity", 0.75);
+        showTip(event, `<div class="tt-label">${src.name} → ${tgt.name}</div><div class="tt-detail">${e.consensus || "trust delegation"}</div>`);
+      })
+      .on("mousemove", moveTip)
+      .on("mouseout", function() { d3.select(this).attr("stroke-opacity", 0.35); hideTip(); });
+
+    // Arrowhead
+    const ax = tgt.x - tgt.radius - 2;
+    const ay = tgt.y;
+    edgeG.append("polygon")
+      .attr("class", "graph-edge-arrow")
+      .attr("points", `${ax},${ay} ${ax - 7},${ay - 4} ${ax - 7},${ay + 4}`)
+      .attr("fill", col);
+  });
+
+  // Nodes
+  const nodeG = svg.append("g").selectAll("g").data(nodes).join("g").attr("class", "graph-node");
+
+  nodeG.append("circle")
+    .attr("cx", d => d.x).attr("cy", d => d.y)
+    .attr("r", d => d.radius)
+    .attr("fill", d => d.color)
+    .attr("stroke", d => d.color).attr("stroke-width", 2).attr("fill-opacity", 0.15)
+    .on("mouseover", (event, d) => {
+      let detail = d.name;
+      if (d.type === "maintainer") detail += `<br>${d.npub}<br>Triggered: ${d.runs.join(", ")}`;
+      if (d.type === "worker") detail += `<br>${d.location} · ${d.operator}<br>act ${d.actVersion}`;
+      if (d.type === "hash") detail += `<br>${d.count} worker(s) · ${d.status}`;
+      if (d.type === "artifact") detail += `<br>${d.consensusRatio} ${d.consensus}`;
+      showTip(event, `<div class="tt-label">${d.name}</div><div class="tt-detail">${detail}</div>`);
+    })
+    .on("mousemove", moveTip)
+    .on("mouseout", hideTip);
+
+  // Labels
+  nodeG.append("text")
+    .attr("x", d => d.x).attr("y", d => d.y + d.radius + 16)
+    .attr("text-anchor", "middle")
+    .attr("fill", "#e6edf3").attr("font-size", d => d.type === "artifact" ? "12px" : "11px")
+    .attr("font-weight", d => (d.type === "maintainer" || d.type === "artifact") ? 600 : 400)
+    .text(d => d.name);
+
+  // Sub-labels
+  nodeG.filter(d => d.type === "worker")
+    .append("text")
+    .attr("x", d => d.x).attr("y", d => d.y + d.radius + 28)
+    .attr("text-anchor", "middle").attr("fill", "#8b949e").attr("font-size", "10px")
+    .text(d => d.location);
+
+  nodeG.filter(d => d.type === "hash")
+    .append("text")
+    .attr("x", d => d.x).attr("y", d => d.y + d.radius + 28)
+    .attr("text-anchor", "middle").attr("fill", "#8b949e").attr("font-size", "10px")
+    .text(d => `${d.count} agree`);
+})();
+
+
+// ══════════════════════════════════════════════════════════════════════
+// OPTION D: Sankey / Alluvial Flow (per artifact)
+// ══════════════════════════════════════════════════════════════════════
+
+(function renderSankey() {
+  const container = d3.select("#sankey-container");
+
+  function linkColor(d) {
+    if (d.consensus === "unanimous") return "#3fb950";
+    if (d.consensus === "majority")  return "#d29922";
+    if (d.consensus === "disagree")  return "#f85149";
+    return "#8b949e";
+  }
+
+  const sankeyArtifacts = [
+    {
+      filename: "budabit-core_v0.1.0_aarch64.ipk",
+      consensus: "unanimous", consensusLabel: "3/3 unanimous",
+      nodes: [
+        { id: "alice",    name: "alice",    layer: 0, type: "maintainer", color: "#a371f7" },
+        { id: "bob",      name: "bob",      layer: 0, type: "maintainer", color: "#a371f7" },
+        { id: "worker-1", name: "worker-1", layer: 1, type: "worker", color: "#58a6ff", sub: "Amsterdam" },
+        { id: "worker-2", name: "worker-2", layer: 1, type: "worker", color: "#58a6ff", sub: "Tokyo" },
+        { id: "worker-3", name: "worker-3", layer: 1, type: "worker", color: "#58a6ff", sub: "Home lab" },
+        { id: "hash-4aa4", name: "4aa403…", layer: 2, type: "hash", color: "#3fb950", sub: "3/3 agree" },
+      ],
+      links: [
+        { source: "alice", target: "worker-1", value: 1 },
+        { source: "alice", target: "worker-2", value: 1 },
+        { source: "bob",   target: "worker-3", value: 1 },
+        { source: "worker-1", target: "hash-4aa4", value: 1, consensus: "unanimous" },
+        { source: "worker-2", target: "hash-4aa4", value: 1, consensus: "unanimous" },
+        { source: "worker-3", target: "hash-4aa4", value: 1, consensus: "unanimous" },
+      ],
+    },
+    {
+      filename: "budabit-core_v0.1.0_x86_64.ipk",
+      consensus: "majority", consensusLabel: "2/3 majority — 1 disagrees",
+      nodes: [
+        { id: "alice",    name: "alice",    layer: 0, type: "maintainer", color: "#a371f7" },
+        { id: "bob",      name: "bob",      layer: 0, type: "maintainer", color: "#a371f7" },
+        { id: "worker-1", name: "worker-1", layer: 1, type: "worker", color: "#58a6ff", sub: "Amsterdam" },
+        { id: "worker-2", name: "worker-2", layer: 1, type: "worker", color: "#58a6ff", sub: "Tokyo" },
+        { id: "worker-3", name: "worker-3", layer: 1, type: "worker", color: "#58a6ff", sub: "Home lab" },
+        { id: "hash-9bf7", name: "9bf721…", layer: 2, type: "hash", color: "#d29922", sub: "2/3 agree" },
+        { id: "hash-e40c", name: "e40c33…", layer: 2, type: "hash", color: "#f85149", sub: "1 differs" },
+      ],
+      links: [
+        { source: "alice", target: "worker-1", value: 1 },
+        { source: "alice", target: "worker-2", value: 1 },
+        { source: "bob",   target: "worker-3", value: 1 },
+        { source: "worker-1", target: "hash-9bf7", value: 1, consensus: "majority" },
+        { source: "worker-2", target: "hash-9bf7", value: 1, consensus: "majority" },
+        { source: "worker-3", target: "hash-e40c", value: 1, consensus: "disagree" },
+      ],
+    },
+  ];
+
+  sankeyArtifacts.forEach(art => {
+    const section = container.append("div").attr("class", "artifact-section");
+    const header = section.append("div").attr("class", "artifact-header");
+    header.append("span").attr("class", "artifact-name-sankey").text(art.filename);
+    header.append("span")
+      .attr("class", `artifact-badge ${art.consensus === "unanimous" ? "badge-unanimous" : "badge-majority"}`)
+      .text(art.consensusLabel);
+    header.append("button")
+      .attr("class", `sign-btn ${art.consensus === "unanimous" ? "ready" : "warn"}`)
+      .text(art.consensus === "unanimous" ? "Sign" : "Investigate");
+
+    const chartDiv = section.append("div").attr("class", "chart-container");
+    const w = 1060, h = art.nodes.filter(n => n.type === "hash").length > 1 ? 300 : 240;
+    const mg = { top: 44, right: 20, bottom: 24, left: 20 };
+
+    const nodeMap = new Map(art.nodes.map((n, i) => [n.id, i]));
+    const sankeyData = {
+      nodes: art.nodes.map(n => ({ ...n })),
+      links: art.links.map(l => ({ source: nodeMap.get(l.source), target: nodeMap.get(l.target), value: l.value, consensus: l.consensus })),
+    };
+
+    const sankey = d3.sankey()
+      .nodeId(d => d.index).nodeWidth(16).nodePadding(22)
+      .nodeAlign(d3.sankeyLeft)
+      .extent([[mg.left, mg.top], [w - mg.right, h - mg.bottom]]);
+
+    const { nodes: sN, links: sL } = sankey(sankeyData);
+
+    const svg = chartDiv.append("svg").attr("width", w).attr("height", h).attr("viewBox", [0, 0, w, h]);
+
+    // Column labels
+    const cols = ["Maintainers", "Workers", "Hashes"];
+    const lxp = [];
+    for (let layer = 0; layer < 3; layer++) {
+      const ln = sN.filter(n => n.layer === layer);
+      if (ln.length) lxp.push(ln[0].x0 + 8);
+    }
+    svg.append("g").selectAll("text").data(cols).join("text")
+      .attr("class", "column-label").attr("x", (d, i) => lxp[i] || 0).attr("y", 28).attr("text-anchor", "middle").text(d => d);
+
+    // Links
+    svg.append("g").selectAll("path").data(sL).join("path")
+      .attr("class", "link").attr("d", d3.sankeyLinkHorizontal())
+      .attr("stroke", d => linkColor(d)).attr("stroke-width", d => Math.max(2.5, d.width))
+      .on("mouseover", function(event, d) {
+        d3.select(this).attr("stroke-opacity", 0.7);
+        showTip(event, `<div class="tt-label">${d.source.name} → ${d.target.name}</div><div class="tt-detail">${d.consensus || "trust delegation"}</div>`);
+      })
+      .on("mousemove", moveTip)
+      .on("mouseout", function() { d3.select(this).attr("stroke-opacity", 0.32); hideTip(); });
+
+    // Nodes
+    const node = svg.append("g").selectAll("g").data(sN).join("g").attr("class", "node");
+    node.append("rect")
+      .attr("x", d => d.x0).attr("y", d => d.y0)
+      .attr("width", d => d.x1 - d.x0).attr("height", d => Math.max(4, d.y1 - d.y0))
+      .attr("rx", 3).attr("fill", d => d.color)
+      .on("mouseover", (event, d) => showTip(event, `<div class="tt-label">${d.name}</div>`))
+      .on("mousemove", moveTip).on("mouseout", hideTip);
+
+    node.append("text")
+      .attr("x", d => (d.x0 + d.x1) / 2).attr("y", d => (d.y0 + d.y1) / 2)
+      .attr("dy", "-0.6em").attr("text-anchor", "middle").attr("font-size", "11px")
+      .attr("font-weight", d => d.type === "maintainer" ? 600 : 400).text(d => d.name);
+
+    node.filter(d => d.sub).append("text").attr("class", "label-sub")
+      .attr("x", d => (d.x0 + d.x1) / 2).attr("y", d => d.y1 + 14)
+      .attr("text-anchor", "middle").text(d => d.sub);
+
+    node.filter(d => d.type === "maintainer" && !d.sub).append("text").attr("class", "label-sub")
+      .attr("x", d => (d.x0 + d.x1) / 2).attr("y", d => d.y1 + 14)
+      .attr("text-anchor", "middle")
+      .text(d => { const c = art.links.filter(l => l.source === d.id).length; return c === 1 ? "1 run" : `${c} runs`; });
+  });
+})();
+
+
+// ══════════════════════════════════════════════════════════════════════
+// OPTION E: Hybrid — Graph + Detail Panel
+// ══════════════════════════════════════════════════════════════════════
+
+(function renderHybrid() {
+  const container = d3.select("#hybrid-container");
+  const wrapper = container.append("div").attr("class", "hybrid-wrapper");
+  const graphDiv = wrapper.append("div").attr("class", "hybrid-graph");
+  const panel = wrapper.append("div").attr("class", "hybrid-panel");
+  panel.html(`<div class="hybrid-panel-placeholder">Click a node in the graph<br>to see details</div>`);
+
+  const width = 740, height = 420;
+  const margin = { top: 50, right: 20, bottom: 30, left: 30 };
+
+  const svg = graphDiv.append("svg")
+    .attr("width", width).attr("height", height)
+    .attr("viewBox", [0, 0, width, height]);
+
+  // Same node/edge data as Option C but positioned for narrower width
+  const nodes = [];
+  DATA.maintainers.forEach(m => nodes.push({ ...m, layer: 0, type: "maintainer", color: "#a371f7", radius: 20 }));
+  DATA.workers.forEach(w => nodes.push({ ...w, layer: 1, type: "worker", color: "#58a6ff", radius: 16 }));
+
+  const hashNodes = [];
+  DATA.artifacts.forEach(art => {
+    const uniqueHashes = [...new Set(art.builds.map(b => b.hash))];
+    uniqueHashes.forEach(h => {
+      const count = art.builds.filter(b => b.hash === h).length;
+      const mHash = majorityHash(art.builds);
+      const status = art.consensus === "unanimous" ? "unanimous" : (h === mHash ? "majority" : "disagree");
+      const hid = `hash-${art.id}-${h}`;
+      const color = status === "unanimous" ? "#3fb950" : status === "majority" ? "#d29922" : "#f85149";
+      hashNodes.push({ id: hid, name: h, layer: 2, type: "hash", color, radius: 12, count, status, artifactId: art.id });
+    });
+  });
+  nodes.push(...hashNodes);
+  DATA.artifacts.forEach(art => {
+    const color = art.consensus === "unanimous" ? "#3fb950" : "#d29922";
+    nodes.push({ ...art, layer: 3, type: "artifact", color, radius: 22, name: art.filename.replace("budabit-core_v0.1.0_", "") });
+  });
+
+  const edges = [];
+  DATA.workers.forEach(w => edges.push({ source: w.triggeredBy, target: w.id, type: "trust" }));
+  DATA.artifacts.forEach(art => {
+    art.builds.forEach(b => {
+      const status = art.consensus === "unanimous" ? "unanimous" : (b.hash === majorityHash(art.builds) ? "majority" : "disagree");
+      edges.push({ source: b.worker, target: `hash-${art.id}-${b.hash}`, type: "build", consensus: status });
+    });
+    [...new Set(art.builds.map(b => b.hash))].forEach(h => {
+      const status = art.consensus === "unanimous" ? "unanimous" : (h === majorityHash(art.builds) ? "majority" : "disagree");
+      edges.push({ source: `hash-${art.id}-${h}`, target: art.id, type: "sign", consensus: status });
+    });
+  });
+
+  const layerX = [margin.left + 40, margin.left + (width - 60) * 0.33, margin.left + (width - 60) * 0.63, width - margin.right - 60];
+  const colLabels = ["Maintainers", "Workers", "Hashes", "Artifacts"];
+
+  svg.append("g").selectAll("text").data(colLabels).join("text")
+    .attr("x", (d, i) => layerX[i]).attr("y", 28).attr("text-anchor", "middle")
+    .attr("fill", "#484f58").attr("font-size", "10px").attr("font-weight", 600).text(d => d);
+
+  for (let layer = 0; layer < 4; layer++) {
+    const ln = nodes.filter(n => n.layer === layer);
+    const totalH = height - margin.top - margin.bottom;
+    const sp = totalH / (ln.length + 1);
+    ln.forEach((n, i) => { n.x = layerX[layer]; n.y = margin.top + sp * (i + 1); });
+  }
+
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+  function edgeColor(e) {
+    if (e.consensus === "unanimous") return "#3fb950";
+    if (e.consensus === "majority") return "#d29922";
+    if (e.consensus === "disagree") return "#f85149";
+    return "#8b949e";
+  }
+
+  // Edges
+  const edgeG = svg.append("g");
+  edges.forEach(e => {
+    const src = nodeMap.get(e.source), tgt = nodeMap.get(e.target);
+    if (!src || !tgt) return;
+    const col = edgeColor(e);
+    const dx = tgt.x - src.x;
+    const path = `M${src.x + src.radius},${src.y} C${src.x + src.radius + dx * 0.4},${src.y} ${tgt.x - tgt.radius - dx * 0.4},${tgt.y} ${tgt.x - tgt.radius},${tgt.y}`;
+    edgeG.append("path").attr("class", "graph-edge").attr("d", path)
+      .attr("stroke", col).attr("stroke-width", 2).attr("fill", "none");
+    const ax = tgt.x - tgt.radius - 2, ay = tgt.y;
+    edgeG.append("polygon").attr("class", "graph-edge-arrow")
+      .attr("points", `${ax},${ay} ${ax - 6},${ay - 3} ${ax - 6},${ay + 3}`).attr("fill", col);
+  });
+
+  // Nodes with click handler for detail panel
+  const nodeG = svg.append("g").selectAll("g").data(nodes).join("g").attr("class", "graph-node").style("cursor", "pointer");
+
+  nodeG.append("circle")
+    .attr("cx", d => d.x).attr("cy", d => d.y).attr("r", d => d.radius)
+    .attr("fill", d => d.color).attr("stroke", d => d.color).attr("stroke-width", 2).attr("fill-opacity", 0.15);
+
+  nodeG.append("text")
+    .attr("x", d => d.x).attr("y", d => d.y + d.radius + 14)
+    .attr("text-anchor", "middle").attr("fill", "#e6edf3").attr("font-size", "10px")
+    .attr("font-weight", d => (d.type === "maintainer" || d.type === "artifact") ? 600 : 400)
+    .text(d => d.name);
+
+  // Click → update panel
+  nodeG.on("click", (event, d) => {
+    // Highlight selected node
+    nodeG.selectAll("circle").attr("stroke-width", 2).attr("fill-opacity", 0.15);
+    d3.select(event.currentTarget).select("circle").attr("stroke-width", 4).attr("fill-opacity", 0.3);
+
+    let html = "";
+    if (d.type === "maintainer") {
+      const m = DATA.maintainers.find(m => m.id === d.id);
+      html = `<h3>${d.name}</h3>
+        <div class="detail-row"><span class="detail-label">Type</span><span class="detail-value">Maintainer</span></div>
+        <div class="detail-row"><span class="detail-label">npub</span><span class="detail-value">${m.npub}</span></div>
+        <div class="detail-row"><span class="detail-label">Workers</span><span class="detail-value">${m.runs.join(", ")}</span></div>
+        <p style="margin-top:14px;font-size:12px;color:#8b949e">Triggered ${m.runs.length} build(s) across independent workers</p>`;
+    } else if (d.type === "worker") {
+      const w = DATA.workers.find(w => w.id === d.id);
+      html = `<h3>${d.name}</h3>
+        <div class="detail-row"><span class="detail-label">Type</span><span class="detail-value">Loom Worker</span></div>
+        <div class="detail-row"><span class="detail-label">npub</span><span class="detail-value">${w.npub}</span></div>
+        <div class="detail-row"><span class="detail-label">Location</span><span class="detail-value">${w.location}</span></div>
+        <div class="detail-row"><span class="detail-label">Operator</span><span class="detail-value">${w.operator}</span></div>
+        <div class="detail-row"><span class="detail-label">act version</span><span class="detail-value">${w.actVersion}</span></div>
+        <div class="detail-row"><span class="detail-label">Triggered by</span><span class="detail-value">${w.triggeredBy}</span></div>
+        <p style="margin-top:14px;font-size:12px;color:#8b949e">Built artifacts for both architectures</p>`;
+    } else if (d.type === "hash") {
+      html = `<h3>Hash: ${d.name}</h3>
+        <div class="detail-row"><span class="detail-label">Status</span><span class="detail-value" style="color:${d.color}">${d.status}</span></div>
+        <div class="detail-row"><span class="detail-label">Workers</span><span class="detail-value">${d.count}</span></div>`;
+    } else if (d.type === "artifact") {
+      const art = DATA.artifacts.find(a => a.id === d.id);
+      const mHash = majorityHash(art.builds);
+      html = `<h3>${art.filename}</h3>
+        <div class="detail-row"><span class="detail-label">Consensus</span><span class="detail-value" style="color:${d.color}">${art.consensusRatio} ${art.consensus}</span></div>
+        <div class="detail-row"><span class="detail-label">Majority hash</span><span class="detail-value">${mHash}</span></div>
+        <p style="margin:14px 0 8px;font-size:12px;font-weight:600">Builds</p>`;
+      art.builds.forEach((b, i) => {
+        const w = DATA.workers.find(w => w.id === b.worker);
+        const match = b.hash === mHash;
+        html += `<div class="build-item">
+          <div style="font-weight:600;margin-bottom:4px;color:${match ? '#3fb950' : '#f85149'}">
+            ${match ? '&#10003;' : '&#10007;'} ${b.hash}
+          </div>
+          <div class="bi-label">${w.name} (${w.location}) &middot; by ${b.triggeredBy} &middot; ${b.time}</div>
+        </div>`;
+      });
+      if (art.consensus === "unanimous") {
+        html += `<button class="sign-btn ready" style="width:100%;margin-top:16px;padding:10px">Sign this artifact</button>`;
+      } else {
+        html += `<button class="sign-btn warn" style="width:100%;margin-top:16px;padding:10px">Investigate disagreement</button>`;
+      }
+    }
+    panel.html(html);
+  });
+})();
+
+</script>
+</body>
+</html>

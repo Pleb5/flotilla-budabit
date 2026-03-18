@@ -9,15 +9,10 @@
   import {Button, toast} from "@nostr-git/ui"
   import {
     Shield,
-    ChevronDown,
-    ChevronRight,
-    Check,
-    AlertTriangle,
-    AlertCircle,
-    Copy,
     Settings,
     X,
   } from "@lucide/svelte"
+  import ReleaseSankey from "@lib/budabit/components/ReleaseSankey.svelte"
   import {REPO_KEY, REPO_RELAYS_KEY, effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import {CICD_RELAYS, CICD_PUBLISH_RELAYS} from "@lib/budabit/constants"
   import {
@@ -58,11 +53,12 @@
   let workflowRuns = $state<Map<string, any>>(new Map())
   let releaseEvents = $state<any[]>([])
   let loading = $state(false)
-  let expandedGroups = $state<Set<string>>(new Set())
   let selectedArtifacts = $state<Set<string>>(new Set())
   let showConfig = $state(false)
   let newTagInput = $state("")
   let publishing = $state(false)
+  let workerNames = $state<Map<string, string>>(new Map()) // ephemeralPubkey → worker ad name
+  let ephemeralToWorker = $state<Map<string, string>>(new Map()) // ephemeralPubkey → actual worker pubkey
 
   // ── Maintainers ────────────────────────────────────────────────────
   const trustedNpubs = $derived.by(() => {
@@ -207,6 +203,61 @@
           const hash = getTagValue("x", e.tags)
           return hash && validateHash(hash)
         })
+
+        // Phase 3: Resolve worker names via Kind 5100 → Kind 10100
+        // 5100 job requests have e-tag → run id and p-tag → worker pubkey
+        // 5401 run events have publisher tag → ephemeral key
+        // So: 5100.e → 5401 → publisher gives us ephemeralKey → workerPubkey
+        if (runIds.length > 0) {
+          const jobEvents = await load({
+            relays: CICD_RELAYS,
+            filters: [{kinds: [5100], "#e": runIds}],
+          })
+
+          // Map ephemeral pubkey → actual worker pubkey
+          const ew = new Map<string, string>()
+          for (const job of jobEvents) {
+            const eTag = job.tags.find((t: string[]) => t[0] === "e")?.[1]
+            const pTag = job.tags.find((t: string[]) => t[0] === "p")?.[1]
+            if (eTag && pTag && runIdMap.has(eTag)) {
+              const run = runIdMap.get(eTag)
+              const publisher = getTagValue("publisher", run.tags)
+              if (publisher) ew.set(publisher, pTag)
+            }
+          }
+          ephemeralToWorker = ew
+
+          // Fetch Kind 10100 worker advertisements for discovered worker pubkeys
+          const workerPubkeys = [...new Set(ew.values())]
+          if (workerPubkeys.length > 0) {
+            const ads = await load({
+              relays: CICD_RELAYS,
+              filters: [{kinds: [10100], authors: workerPubkeys}],
+            })
+
+            const adByPubkey = new Map<string, any>()
+            for (const ad of ads) {
+              const existing = adByPubkey.get(ad.pubkey)
+              if (!existing || ad.created_at > existing.created_at) {
+                adByPubkey.set(ad.pubkey, ad)
+              }
+            }
+
+            const names = new Map<string, string>()
+            for (const [ephKey, workerPk] of ew) {
+              const ad = adByPubkey.get(workerPk)
+              if (ad) {
+                try {
+                  const content = JSON.parse(ad.content || "{}")
+                  if (content.name) names.set(ephKey, content.name)
+                } catch {
+                  // ignore
+                }
+              }
+            }
+            workerNames = names
+          }
+        }
       }
     } finally {
       loading = false
@@ -228,13 +279,6 @@
   }
 
   // ── UI helpers ─────────────────────────────────────────────────────
-  function toggleGroup(key: string) {
-    const next = new Set(expandedGroups)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    expandedGroups = next
-  }
-
   function toggleArtifact(eventId: string) {
     const next = new Set(selectedArtifacts)
     if (next.has(eventId)) next.delete(eventId)
@@ -272,10 +316,6 @@
     return `${hash.slice(0, 8)}…${hash.slice(-8)}`
   }
 
-  function truncatePubkey(pk: string) {
-    return `${pk.slice(0, 8)}…`
-  }
-
   async function copyToClipboard(text: string) {
     try {
       await navigator.clipboard.writeText(text)
@@ -283,18 +323,6 @@
     } catch {
       toast.error("Copy failed")
     }
-  }
-
-  function formatTime(ts: number) {
-    return new Date(ts * 1000).toLocaleString()
-  }
-
-  function getConsensusStatus(group: ArtifactGroup): "unanimous" | "majority" | "split" {
-    if (group.isUnanimous) return "unanimous"
-    if (!group.consensusHash) return "split"
-    const top = group.hashCounts.get(group.consensusHash)?.length ?? 0
-    if (top / group.totalCount > 0.5) return "majority"
-    return "split"
   }
 
   // ── Sign & Publish ─────────────────────────────────────────────────
@@ -458,157 +486,18 @@
 
   <!-- Artifact groups -->
   {:else}
-    <div class="space-y-2">
+    <div class="space-y-4">
       {#each groups as group (group.key)}
-        {@const status = getConsensusStatus(group)}
-        {@const isExpanded = expandedGroups.has(group.key)}
-
-        <div class="rounded-lg border border-border bg-card">
-          <!-- Group header -->
-          <button
-            class="flex w-full items-center gap-3 p-4 text-left"
-            onclick={() => toggleGroup(group.key)}>
-            <!-- Consensus icon -->
-            <div class="flex-shrink-0">
-              {#if status === "unanimous"}
-                <Check class="h-5 w-5 text-green-500" />
-              {:else if status === "majority"}
-                <AlertTriangle class="h-5 w-5 text-yellow-500" />
-              {:else}
-                <AlertCircle class="h-5 w-5 text-red-500" />
-              {/if}
-            </div>
-
-            <!-- Group label -->
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-2">
-                {#each Object.entries(group.labels) as [tag, val] (tag)}
-                  <span class="font-medium">{val}</span>
-                  <span class="text-xs text-muted-foreground">({tag})</span>
-                {/each}
-              </div>
-              <div class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                {#if status === "unanimous"}
-                  <span class="text-green-600">{group.totalCount}/{group.totalCount} builds agree</span>
-                {:else if status === "majority"}
-                  {@const topCount = group.consensusHash ? (group.hashCounts.get(group.consensusHash)?.length ?? 0) : 0}
-                  <span class="text-yellow-600">{topCount}/{group.totalCount} builds agree</span>
-                {:else}
-                  <span class="text-red-600">No consensus — {group.hashCounts.size} different hashes</span>
-                {/if}
-                {#if group.consensusHash}
-                  <span>·</span>
-                  <span class="font-mono">{truncateHash(group.consensusHash)}</span>
-                  <button
-                    onclick={e => { e.stopPropagation(); copyToClipboard(group.consensusHash!) }}
-                    class="hover:text-foreground">
-                    <Copy class="h-3 w-3" />
-                  </button>
-                {/if}
-              </div>
-            </div>
-
-            <!-- Select button -->
-            {#if status !== "split"}
-              <button
-                class="flex-shrink-0 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
-                onclick={e => { e.stopPropagation(); selectGroupArtifacts(group) }}>
-                Select
-              </button>
-            {/if}
-
-            <!-- Expand chevron -->
-            <div class="flex-shrink-0 text-muted-foreground">
-              {#if isExpanded}
-                <ChevronDown class="h-4 w-4" />
-              {:else}
-                <ChevronRight class="h-4 w-4" />
-              {/if}
-            </div>
-          </button>
-
-          <!-- Expanded: individual artifacts -->
-          {#if isExpanded}
-            <div class="border-t border-border">
-              {#each [...group.hashCounts.entries()] as [hash, arts] (hash)}
-                <div class="px-4 py-3">
-                  <div class="mb-2 flex items-center gap-2 text-xs">
-                    <span class="font-mono text-muted-foreground">{truncateHash(hash)}</span>
-                    <button onclick={() => copyToClipboard(hash)} class="hover:text-foreground">
-                      <Copy class="h-3 w-3" />
-                    </button>
-                    <span class="text-muted-foreground">— {arts.length} build(s)</span>
-                    {#if hash === group.consensusHash && group.isUnanimous}
-                      <span class="rounded-full bg-green-500/10 px-2 py-0.5 text-green-600">unanimous</span>
-                    {:else if hash === group.consensusHash}
-                      <span class="rounded-full bg-yellow-500/10 px-2 py-0.5 text-yellow-600">majority</span>
-                    {:else}
-                      <span class="rounded-full bg-red-500/10 px-2 py-0.5 text-red-600">minority</span>
-                    {/if}
-                  </div>
-
-                  <div class="space-y-2">
-                    {#each arts as artifact (artifact.event.id)}
-                      <div class="flex items-start gap-3 rounded-md bg-muted/30 p-3 text-xs">
-                        <!-- Checkbox -->
-                        <input
-                          type="checkbox"
-                          checked={selectedArtifacts.has(artifact.event.id)}
-                          onchange={() => toggleArtifact(artifact.event.id)}
-                          class="mt-0.5 flex-shrink-0" />
-
-                        <!-- Artifact details -->
-                        <div class="min-w-0 flex-1 space-y-1">
-                          <div class="flex flex-wrap gap-3 text-muted-foreground">
-                            <span>
-                              <span class="font-medium text-foreground">Ephemeral key:</span>
-                              <span class="font-mono">{truncatePubkey(artifact.ephemeralPubkey)}</span>
-                            </span>
-                            {#if artifact.triggeredBy}
-                              <span>
-                                <span class="font-medium text-foreground">Triggered by:</span>
-                                <span class="font-mono">{truncatePubkey(artifact.triggeredBy)}</span>
-                              </span>
-                            {/if}
-                            {#if artifact.workflow}
-                              <span>
-                                <span class="font-medium text-foreground">Workflow:</span>
-                                {artifact.workflow}
-                              </span>
-                            {/if}
-                            {#if artifact.branch}
-                              <span>
-                                <span class="font-medium text-foreground">Branch:</span>
-                                {artifact.branch}
-                              </span>
-                            {/if}
-                            <span>
-                              <span class="font-medium text-foreground">At:</span>
-                              {formatTime(artifact.event.created_at)}
-                            </span>
-                          </div>
-                          {#if artifact.tags.url}
-                            <div class="truncate text-muted-foreground">
-                              <span class="font-medium text-foreground">URL:</span>
-                              <a
-                                href={artifact.tags.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class="hover:underline">{artifact.tags.url}</a>
-                            </div>
-                          {/if}
-                          {#if !artifact.triggeredBy}
-                            <div class="text-yellow-600">⚠ Unverified origin — no kind 5401 link</div>
-                          {/if}
-                        </div>
-                      </div>
-                    {/each}
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
+        <ReleaseSankey
+          {group}
+          {workflowRuns}
+          {workerNames}
+          {ephemeralToWorker}
+          {selectedArtifacts}
+          onToggleArtifact={toggleArtifact}
+          onSelectGroup={selectGroupArtifacts}
+          {truncateHash}
+          {copyToClipboard} />
       {/each}
     </div>
 
