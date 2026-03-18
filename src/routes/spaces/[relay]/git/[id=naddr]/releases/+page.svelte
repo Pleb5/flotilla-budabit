@@ -95,7 +95,10 @@
   // ── State persistence ──────────────────────────────────────────────
   const storageKey = $derived(repoClass ? `releaseFilters:${repoClass.key}` : "")
 
-  onMount(async () => {
+  let mounted = $state(false)
+  let lastLoadedNpubCount = $state(-1)
+
+  onMount(() => {
     // Restore persisted state
     if (storageKey) {
       try {
@@ -109,9 +112,17 @@
         // ignore
       }
     }
+    mounted = true
+  })
 
-    // Load workflow runs
-    await loadData()
+  // Reload when trustedNpubs becomes available (e.g. after repo data loads on cold refresh)
+  $effect(() => {
+    const count = trustedNpubs.size
+    if (!mounted || !repoNaddr) return
+    if (count !== lastLoadedNpubCount) {
+      lastLoadedNpubCount = count
+      loadData()
+    }
   })
 
   $effect(() => {
