@@ -99,6 +99,7 @@
         : "Workflow",
       workflowPath,
       branch: tagVal("branch") || "",
+      commit: tagVal("commit") || "",
       trigger: tagVal("trigger") || "manual",
       triggeredBy: tagVal("triggered-by") || runEvent.pubkey,
       publisher: tagVal("publisher") || "",
@@ -134,16 +135,13 @@
 
   // ── Derived: composite status ─────────────────────────────────────────
   const resolvedStatus = $derived.by((): string => {
-    // Kind 5402 — hive-ci workflow result
+    // Kind 5402 — hive-ci workflow result (authoritative for CI status)
+    // The 5402 is published by the workflow runner which checks act's job markers,
+    // so it's the source of truth. Loom's exit code reflects the script, not the workflow.
     if (workflowLogEvent) {
       const statusTag = workflowLogEvent.tags?.find((t: string[]) => t[0] === "status")
       const s = statusTag?.[1] || "unknown"
       if (s === "failed" || s === "failure") return "failure"
-      // Even if 5402 says success, if loom result says failure → failure
-      if (loomResultEvent) {
-        const loomSuccess = loomResultEvent.tags?.find((t: string[]) => t[0] === "success")
-        if (loomSuccess?.[1] === "false") return "failure"
-      }
       if (s === "success") return "success"
       return s
     }
@@ -532,10 +530,11 @@
   // Fetch and parse the workflow YAML when runInfo becomes available
   let workflowYamlAttempted = false
   $effect(() => {
-    if (!runInfo?.workflowPath || !runInfo?.branch) return
+    if (!runInfo?.workflowPath) return
+    if (!runInfo.branch && !runInfo.commit) return
     if (workflowYamlAttempted || loadingWorkflowYaml || workflowJobs.length > 0) return
 
-    console.log("[cicd] Fetching workflow YAML:", runInfo.workflowPath, "branch:", runInfo.branch)
+    console.log("[cicd] Fetching workflow YAML:", runInfo.workflowPath, "branch:", runInfo.branch, "commit:", runInfo.commit)
     workflowYamlAttempted = true
     loadingWorkflowYaml = true
     workflowYamlError = null
@@ -629,8 +628,26 @@
     ;(async () => {
       try {
         await repoClass.waitForReady()
-        const result = await repoClass.getFileContent({path: runInfo!.workflowPath, branch: runInfo!.branch})
-        console.log("[cicd] getFileContent result:", result ? `${result.content?.length} bytes` : "null")
+
+        // Ensure the branch is fully cloned so the specific commit is available
+        const repoId = repoClass.key
+        const cloneUrls = repoClass.clone ?? []
+        if (repoId && runInfo!.branch) {
+          try {
+            await repoClass.workerManager?.ensureFullClone({repoId, branch: runInfo!.branch, cloneUrls})
+          } catch (e) {
+            console.warn("[cicd] ensureFullClone failed:", e)
+          }
+        }
+
+        // Only use commit for exact fetch if it's a full 40-char SHA;
+        // NIP-34 state events store short hashes which the git worker can't resolve
+        const fullCommit = runInfo!.commit && runInfo!.commit.length >= 40 ? runInfo!.commit : undefined
+        const result = await repoClass.getFileContent({
+          path: runInfo!.workflowPath,
+          branch: fullCommit ? undefined : runInfo!.branch || undefined,
+          commit: fullCommit,
+        })
         const content = result?.content || ""
         if (!content) {
           workflowYamlError = "Empty workflow file"
@@ -754,6 +771,12 @@
           <div class="space-y-1">
             <p class="text-xs text-muted-foreground">Branch</p>
             <span class="font-medium text-sm">{runInfo.branch}</span>
+          </div>
+        {/if}
+        {#if runInfo.commit}
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground">Commit</p>
+            <span class="font-mono text-sm">{runInfo.commit.slice(0, 7)}</span>
           </div>
         {/if}
         {#if runInfo.trigger}

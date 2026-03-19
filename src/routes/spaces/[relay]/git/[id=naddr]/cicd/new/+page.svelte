@@ -45,6 +45,7 @@ set -eo pipefail
 # - HIVE_CI_REPOSITORY: Nostr URL of the repository (required)
 # - HIVE_CI_WORKFLOW: Workflow file path (optional, defaults to all workflows)
 # - HIVE_CI_BRANCH: Git branch to checkout (optional, defaults to default branch)
+# - HIVE_CI_COMMIT: Specific commit SHA to checkout (optional, defaults to branch HEAD)
 # - HIVE_CI_RUN_ID: Unique run identifier (required)
 # - HIVE_CI_NSEC: Ephemeral Nostr nsec for signing results (required)
 # - HIVE_CI_BLOSSOM_SERVER: Blossom server URL (default: https://blossom.primal.net)
@@ -91,6 +92,7 @@ echo "=== Hive CI Workflow Runner ==="
 echo "Repository: \${HIVE_CI_REPOSITORY}"
 echo "Workflow: \${HIVE_CI_WORKFLOW:-all workflows}"
 echo "Branch: \${HIVE_CI_BRANCH:-default}"
+echo "Commit: \${HIVE_CI_COMMIT:-HEAD}"
 echo "Run ID: \${HIVE_CI_RUN_ID}"
 echo "Blossom Server: \${BLOSSOM_SERVER}"
 echo "Working Directory: \${WORK_DIR}"
@@ -121,6 +123,17 @@ if [ $EXIT_CODE -eq 0 ]; then
   # Change to repo directory
   cd "$REPO_NAME"
 
+  # Checkout specific commit if provided
+  if [ -n "$HIVE_CI_COMMIT" ]; then
+    echo "Checking out commit: \${HIVE_CI_COMMIT}"
+    if ! git checkout "$HIVE_CI_COMMIT" 2>&1; then
+      echo "Error: Failed to checkout commit \${HIVE_CI_COMMIT}"
+      EXIT_CODE=1
+    fi
+  fi
+fi
+
+if [ $EXIT_CODE -eq 0 ]; then
   # Run act with the specified workflow (or all workflows if not specified)
   echo ""
   echo ">>> Running GitHub Actions with act..."
@@ -129,18 +142,20 @@ if [ $EXIT_CODE -eq 0 ]; then
   # HIVE_CI_NSEC is the ephemeral nsec matching the publisher tag in the 5401 event.
   ACT_ENVS="--env HIVE_CI_NSEC=\${HIVE_CI_NSEC} --env HIVE_CI_RUN_ID=\${HIVE_CI_RUN_ID} --env HIVE_CI_RELAYS=\${RELAYS} --env HIVE_CI_BLOSSOM_SERVER=\${BLOSSOM_SERVER}"
 
+  # Run act — capture exit code reliably despite pipefail + set -e
+  set +e
   if [ -n "$HIVE_CI_WORKFLOW" ]; then
     echo "Workflow file: \${HIVE_CI_WORKFLOW}"
-    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest -W "$HIVE_CI_WORKFLOW" $ACT_ENVS 2>&1 | tee "$ACT_LOG_FILE"; then
-      EXIT_CODE=$?
-      echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
-    fi
+    sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest -W "$HIVE_CI_WORKFLOW" $ACT_ENVS 2>&1 | tee "$ACT_LOG_FILE"
   else
     echo "Running all workflows"
-    if ! sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest $ACT_ENVS 2>&1 | tee "$ACT_LOG_FILE"; then
-      EXIT_CODE=$?
-      echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
-    fi
+    sudo act -P ubuntu-latest=catthehacker/ubuntu:act-latest $ACT_ENVS 2>&1 | tee "$ACT_LOG_FILE"
+  fi
+  EXIT_CODE=\${PIPESTATUS[0]}
+  set -e
+
+  if [ $EXIT_CODE -ne 0 ]; then
+    echo "Error: Workflow execution failed with exit code \${EXIT_CODE}"
   fi
 fi
 
@@ -305,6 +320,7 @@ exit $EXIT_CODE
 
   // Form state
   let selectedBranch = $state(repoClass.mainBranch ?? "")
+  let commitOverride = $state("")
   let envVars = $state<{key: string; value: string}[]>([{key: "", value: ""}])
   let secrets = $state<{key: string; value: string}[]>([{key: "", value: ""}])
   let maxDuration = $state(600)
@@ -535,6 +551,21 @@ exit $EXIT_CODE
     tokenError = ""
 
     try {
+      // 0. Resolve commit: use override if provided, otherwise look up HEAD from repo state
+      let commitId = commitOverride.trim()
+      if (!commitId) {
+        const branchRef = repoClass.branches.find(b => b.name === selectedBranch)
+        if (branchRef) {
+          commitId = ("commitId" in branchRef ? branchRef.commitId : null)
+            || ("oid" in branchRef ? branchRef.oid : null)
+            || ""
+        }
+      }
+      if (!commitId) {
+        tokenError = "Could not resolve commit for this branch. Enter a commit SHA manually or check the repository state."
+        return
+      }
+
       // 1. Generate ephemeral keypair for result publishing
       const ephemeralSecretKey = generateSecretKey()
       const ephemeralPubkey = getPublicKey(ephemeralSecretKey)
@@ -576,6 +607,7 @@ exit $EXIT_CODE
           ["publisher", ephemeralPubkey],
           ["trigger", "manual"],
           ["branch", selectedBranch],
+          ["commit", commitId],
           ["t", "hive-ci"],
         ],
         pubkey: $pubkey ?? "",
@@ -594,6 +626,7 @@ exit $EXIT_CODE
         ["env", "HIVE_CI_REPOSITORY", repoNostrUrl],
         ["env", "HIVE_CI_WORKFLOW", workflowPath],
         ["env", "HIVE_CI_BRANCH", selectedBranch],
+        ["env", "HIVE_CI_COMMIT", commitId],
         ["env", "HIVE_CI_RELAYS", jobRelays],
         ["env", "HIVE_CI_BLOSSOM_SERVER", "https://blossom.primal.net"],
         ["env", "RUST_BACKTRACE", "1"],
@@ -748,9 +781,21 @@ exit $EXIT_CODE
             bind:value={selectedBranch}>
             <option value="" disabled>Select a branch</option>
             {#each repoClass.branches as branch}
-              <option value={branch.name}>{branch.name}</option>
+              {@const oid = "commitId" in branch ? branch.commitId : "oid" in branch ? branch.oid : ""}
+              <option value={branch.name}>{branch.name}{oid ? ` (${oid.slice(0, 7)})` : ""}</option>
             {/each}
           </select>
+        </div>
+
+        <!-- Commit Override -->
+        <div class="space-y-2">
+          <label for="commit-override" class="text-sm font-medium">Commit SHA</label>
+          <input
+            id="commit-override"
+            type="text"
+            class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+            placeholder="Auto-detect from branch HEAD"
+            bind:value={commitOverride} />
         </div>
 
         <!-- Max Duration -->

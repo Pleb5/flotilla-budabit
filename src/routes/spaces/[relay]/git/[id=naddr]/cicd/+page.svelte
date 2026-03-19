@@ -199,6 +199,7 @@
       : "Workflow"
 
     const branch = tagVal("branch") || "main"
+    const commit = tagVal("commit") || ""
     const trigger = tagVal("trigger") || "manual"
     const triggeredBy = tagVal("triggered-by") || event.pubkey
 
@@ -207,7 +208,7 @@
       name: workflowName,
       status: "pending" as WorkflowRun["status"],
       branch,
-      commit: event.id.substring(0, 7),
+      commit,
       commitMessage: `Workflow run: ${workflowName}`,
       actor: triggeredBy,
       event: trigger,
@@ -398,17 +399,15 @@
         const statusTag = matchingLog.tags.find((t: string[]) => t[0] === "status")
         const durationTag = matchingLog.tags.find((t: string[]) => t[0] === "duration")
         const s = statusTag?.[1] || "unknown"
+        const duration = durationTag?.[1] ? parseInt(durationTag[1]) : undefined
+        // Kind 5402 is authoritative for CI status — don't let loom exit code override
         if (s === "failed" || s === "failure") {
-          return {...run, status: "failure" as WorkflowRun["status"], duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined}
-        }
-        // Even if 5402 says success, if loom result says failure → failure
-        if (matchingResult && !loomIsSuccess) {
-          return {...run, status: "failure" as WorkflowRun["status"], duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined}
+          return {...run, status: "failure" as WorkflowRun["status"], duration}
         }
         if (s === "success") {
-          return {...run, status: "success" as WorkflowRun["status"], duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined}
+          return {...run, status: "success" as WorkflowRun["status"], duration}
         }
-        return {...run, status: s as WorkflowRun["status"], duration: durationTag?.[1] ? parseInt(durationTag[1]) : undefined}
+        return {...run, status: s as WorkflowRun["status"], duration}
       }
 
       // Priority 2: Kind 5101 (loom result)
