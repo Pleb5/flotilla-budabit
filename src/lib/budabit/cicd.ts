@@ -4,12 +4,14 @@ export interface ActStep {
   name: string
   status: "success" | "failure" | "pending"
   logs: string[]
+  durationMs?: number
 }
 
 export interface ActJob {
   name: string
   status: "success" | "failure" | "pending"
   steps: ActStep[]
+  durationMs?: number
 }
 
 export interface WorkflowStep {
@@ -33,13 +35,35 @@ export interface JobGroup {
 // ── Parsing ──────────────────────────────────────────────────────────
 
 /**
+ * Normalize act job name: strip the trailing `-N` runner index and whitespace padding.
+ * e.g. "Build .ipk (aarch64_cortex-a53)-1            " → "Build .ipk (aarch64_cortex-a53)"
+ */
+function normalizeJobName(raw: string): string {
+  return raw.trim().replace(/-\d+$/, "")
+}
+
+/**
+ * Parse act duration string like "[59.711076117s]", "[1m0.816079886s]", "[9.871364ms]".
+ * Returns duration in milliseconds, or undefined if unparseable.
+ */
+function parseActDuration(text: string): number | undefined {
+  const match = text.match(/\[(?:(\d+)m)?(\d+(?:\.\d+)?)(ms|s)\]/)
+  if (!match) return undefined
+  const minutes = match[1] ? parseInt(match[1]) : 0
+  const value = parseFloat(match[2])
+  const unit = match[3]
+  if (unit === "ms") return Math.round(minutes * 60000 + value)
+  return Math.round((minutes * 60 + value) * 1000)
+}
+
+/**
  * Parse act log output into per-job results with step-level status and logs.
  *
  * Log format: `[Workflow Name/Job Name] content`
  * - `⭐ Run <step>` → step start
  * - `  | <line>` → step output
- * - `✅  Success - <step>` → step success
- * - `❌  Failure - <step>` → step failure
+ * - `✅  Success - <step> [duration]` → step success
+ * - `❌  Failure - <step> [duration]` → step failure
  * - `🏁  Job succeeded/failed` → job result
  */
 export function parseActLog(log: string): ActJob[] {
@@ -50,7 +74,7 @@ export function parseActLog(log: string): ActJob[] {
     const match = line.match(/^\[([^\]\/]+)\/([^\]]+)\]\s(.*)$/)
     if (!match) continue
 
-    const jobName = match[2].trim()
+    const jobName = normalizeJobName(match[2])
     const content = match[3]
 
     if (!jobMap.has(jobName)) {
@@ -67,19 +91,65 @@ export function parseActLog(log: string): ActJob[] {
       currentStep.get(jobName)?.logs.push(content.replace(/^\s+\| /, ""))
     } else if (content.includes("✅") && content.includes("Success")) {
       const step = currentStep.get(jobName)
-      if (step) step.status = "success"
+      if (step) {
+        step.status = "success"
+        step.durationMs = parseActDuration(content)
+      }
     } else if (content.includes("❌") && content.includes("Failure")) {
       const step = currentStep.get(jobName)
-      if (step) step.status = "failure"
+      if (step) {
+        step.status = "failure"
+        step.durationMs = parseActDuration(content)
+      }
       job.status = "failure"
     } else if (content.includes("🏁")) {
-      if (job.status !== "failure") {
-        job.status = content.includes("succeeded") ? "success" : "failure"
+      if (content.includes("succeeded")) {
+        if (job.status !== "failure") job.status = "success"
+      } else {
+        job.status = "failure"
       }
     }
   }
 
+  // Compute job durations from step durations
+  for (const job of jobMap.values()) {
+    const total = job.steps.reduce((sum, s) => sum + (s.durationMs ?? 0), 0)
+    if (total > 0) job.durationMs = total
+  }
+
   return Array.from(jobMap.values())
+}
+
+/**
+ * Group matrix-expanded act jobs by base name.
+ * "Build .ipk (aarch64_cortex-a53)" and "Build .ipk (x86_64)" → group "Build .ipk"
+ * Non-matrix jobs stay as single-variant groups.
+ */
+export interface MatrixGroup {
+  baseName: string
+  variants: {label: string; actJob: ActJob}[]
+}
+
+export function groupMatrixJobs(jobs: ActJob[]): MatrixGroup[] {
+  const groupMap = new Map<string, {label: string; actJob: ActJob}[]>()
+  const groupOrder: string[] = []
+
+  for (const job of jobs) {
+    const match = job.name.match(/^(.+?)\s*\(([^)]+)\)$/)
+    const baseName = match ? match[1].trim() : job.name
+    const variantLabel = match ? match[2] : ""
+
+    if (!groupMap.has(baseName)) {
+      groupMap.set(baseName, [])
+      groupOrder.push(baseName)
+    }
+    groupMap.get(baseName)!.push({label: variantLabel, actJob: job})
+  }
+
+  return groupOrder.map(name => ({
+    baseName: name,
+    variants: groupMap.get(name)!,
+  }))
 }
 
 /**

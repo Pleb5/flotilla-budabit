@@ -180,8 +180,13 @@ rm -f "$UPLOAD_TEMP"
 echo ""
 echo ">>> Publishing workflow result to Nostr..."
 
-# Determine status
-if [ $EXIT_CODE -eq 0 ]; then
+# Determine status from act output
+# Check for act's job result markers in the log file
+if grep -q "🏁 Job failed" "$ACT_LOG_FILE"; then
+  STATUS="failed"
+elif grep -q "🏁 Job succeeded" "$ACT_LOG_FILE"; then
+  STATUS="success"
+elif [ $EXIT_CODE -eq 0 ]; then
   STATUS="success"
 else
   STATUS="failed"

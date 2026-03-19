@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Check, X, Loader2, AlertCircle, ChevronDown, ChevronRight} from "@lucide/svelte"
+  import {Check, X, Circle, Loader2, AlertCircle, ChevronDown, ChevronRight} from "@lucide/svelte"
   import type {ActJob, WorkflowJob, JobGroup} from "@lib/budabit/cicd"
 
   interface Props {
@@ -41,9 +41,16 @@
     return ""
   }
 
-  // Strip "Main " prefix that act adds to user-defined steps
+  // Clean up step name: strip "Main "/"Pre "/"Post " prefix from act,
+  // and truncate multi-line script content to just the first line
   function displayStepName(name: string): string {
-    return name.startsWith("Main ") ? name.slice(5) : name
+    let cleaned = name
+    if (cleaned.startsWith("Main ")) cleaned = cleaned.slice(5)
+    else if (cleaned.startsWith("Pre ")) cleaned = cleaned.slice(4)
+    else if (cleaned.startsWith("Post ")) cleaned = cleaned.slice(5)
+    const newline = cleaned.indexOf("\n")
+    if (newline !== -1) cleaned = cleaned.slice(0, newline)
+    return cleaned.trim()
   }
 </script>
 

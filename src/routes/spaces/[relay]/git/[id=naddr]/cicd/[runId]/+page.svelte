@@ -27,6 +27,7 @@
   import {parseActLog, getJobGroups} from "@lib/budabit/cicd"
   import type {WorkflowJob} from "@lib/budabit/cicd"
   import WorkflowJobs from "@lib/budabit/components/WorkflowJobs.svelte"
+  import WorkflowLogs from "@lib/budabit/components/WorkflowLogs.svelte"
   import ConsoleOutput from "@lib/budabit/components/ConsoleOutput.svelte"
   import type {Repo} from "@nostr-git/ui"
   import {makeLoader, request} from "@welshman/net"
@@ -85,60 +86,30 @@
 
   let feedCleanup: (() => void) | undefined
 
-  // Whether this run is a hive-ci Kind 5401 or a legacy Kind 5100
-  const isHiveCIRun = $derived(runEvent?.kind === 5401)
-
   // ── Derived: parsed run info ──────────────────────────────────────────
   const runInfo = $derived.by(() => {
     if (!runEvent) return null
     const tags: string[][] = runEvent.tags || []
     const tagVal = (name: string) => tags.find((t: string[]) => t[0] === name)?.[1]
 
-    if (isHiveCIRun) {
-      const workflowPath = tagVal("workflow") || ""
-      return {
-        name: workflowPath
-          ? workflowPath.split("/").pop()?.replace(/\.(yml|yaml)$/, "") || "Workflow"
-          : "Workflow",
-        workflowPath,
-        branch: tagVal("branch") || "",
-        trigger: tagVal("trigger") || "manual",
-        triggeredBy: tagVal("triggered-by") || runEvent.pubkey,
-        publisher: tagVal("publisher") || "",
-        repoNaddr: tagVal("a") || "",
-        createdAt: runEvent.created_at * 1000,
-      }
-    } else {
-      // Legacy Kind 5100
-      const argsTag = tags.find((t: string[]) => t[0] === "args")
-      const args = argsTag ? argsTag.slice(1) : []
-      let name = "Unknown Workflow"
-      if (args.length >= 2 && args[0] === "-c") {
-        const match = args[1].match(/act -W (\S+\.(?:yml|yaml))/)
-        if (match?.[1]) name = match[1].split("/").pop()?.replace(/\.(yml|yaml)$/, "") || name
-      }
-      const pTag = tags.find((t: string[]) => t[0] === "p")
-      return {
-        name,
-        workflowPath: "",
-        branch: "",
-        trigger: "manual",
-        triggeredBy: runEvent.pubkey,
-        publisher: "",
-        repoNaddr: tagVal("a") || "",
-        createdAt: runEvent.created_at * 1000,
-        worker: pTag?.[1] || "unknown",
-        cmd: tagVal("cmd") || "bash",
-        args,
-        payment: tagVal("payment") || "",
-        envVars: tags.filter((t: string[]) => t[0] === "env" && t.length >= 3).map((t: string[]) => `${t[1]}=${t[2]}`),
-      }
+    const workflowPath = tagVal("workflow") || ""
+    return {
+      name: workflowPath
+        ? workflowPath.split("/").pop()?.replace(/\.(yml|yaml)$/, "") || "Workflow"
+        : "Workflow",
+      workflowPath,
+      branch: tagVal("branch") || "",
+      trigger: tagVal("trigger") || "manual",
+      triggeredBy: tagVal("triggered-by") || runEvent.pubkey,
+      publisher: tagVal("publisher") || "",
+      repoNaddr: tagVal("a") || "",
+      createdAt: runEvent.created_at * 1000,
     }
   })
 
   // ── Derived: loom job info ────────────────────────────────────────────
   const loomInfo = $derived.by(() => {
-    const job = loomJobEvent || (!isHiveCIRun ? runEvent : null)
+    const job = loomJobEvent
     if (!job) return null
     const tags: string[][] = job.tags || []
     const pTag = tags.find((t: string[]) => t[0] === "p")
@@ -348,16 +319,13 @@
 
     Promise.all([
       load({relays: JOB_RELAYS, filters: [{kinds: [5401], ids: [runId]}]}),
-      load({relays: JOB_RELAYS, filters: [{kinds: [5100], ids: [runId]}]}),
       load({relays: JOB_RELAYS, filters: [{kinds: [5402], "#e": [runId]}]}),
       load({relays: JOB_RELAYS, filters: [{kinds: [5100], "#e": [runId]}]}),
       load({relays: JOB_RELAYS, filters: [{kinds: [5101], "#e": [runId]}]}),
       load({relays: JOB_RELAYS, filters: [{kinds: [30100], "#e": [runId]}]}),
-    ]).then(([k5401, k5100ById, k5402, k5100ByRef, k5101, k30100]) => {
+    ]).then(([k5401, k5402, k5100ByRef, k5101, k30100]) => {
       if (k5401.length > 0) {
         runEvent = k5401[0]
-      } else if (k5100ById.length > 0) {
-        runEvent = k5100ById[0]
       } else {
         // Not found yet — relay may still be indexing the event.
         // Keep loading and let the live subscription deliver it.
@@ -409,10 +377,6 @@
             }
           },
         })
-      } else if (!runEvent || runEvent.kind !== 5401) {
-        // Legacy: run IS the loom job; fetch worker ad from p tag
-        const pTag = runEvent?.tags?.find((t: string[]) => t[0] === "p")
-        if (pTag?.[1]) fetchWorkerAd(pTag[1])
       }
 
       // Direct results/status referencing the run ID
@@ -464,6 +428,7 @@
           loomJobEvent = event
           const pTag = event.tags?.find((t: string[]) => t[0] === "p")
           if (pTag?.[1]) fetchWorkerAd(pTag[1])
+          // Subscribe to loom child events for this job
           request({
             relays: JOB_RELAYS,
             filters: [
@@ -565,15 +530,15 @@
   const jobGroups = $derived(getJobGroups(workflowJobs))
 
   // Fetch and parse the workflow YAML when runInfo becomes available
+  let workflowYamlAttempted = false
   $effect(() => {
-    if (!runInfo?.workflowPath || !runInfo?.branch) {
-      console.log("[cicd] Skipping workflow YAML fetch — workflowPath:", runInfo?.workflowPath, "branch:", runInfo?.branch)
-      return
-    }
-    if (loadingWorkflowYaml || workflowJobs.length > 0 || workflowYamlError) return
+    if (!runInfo?.workflowPath || !runInfo?.branch) return
+    if (workflowYamlAttempted || loadingWorkflowYaml || workflowJobs.length > 0) return
 
     console.log("[cicd] Fetching workflow YAML:", runInfo.workflowPath, "branch:", runInfo.branch)
+    workflowYamlAttempted = true
     loadingWorkflowYaml = true
+    workflowYamlError = null
 
     const parseWithActionsParser = async (content: string) => {
       const {parseWorkflow, NoOperationTraceWriter, convertWorkflowTemplate} = await import("@actions/workflow-parser")
@@ -650,35 +615,35 @@
       }))
     }
 
-    repoClass
-      .getFileContent({path: runInfo.workflowPath, branch: runInfo.branch})
-      .then(async (result: any) => {
+    const parseContent = async (content: string) => {
+      try {
+        await parseWithActionsParser(content)
+        console.log("[cicd] Parsed workflow with @actions/workflow-parser:", workflowJobs.length, "jobs")
+      } catch (e: any) {
+        console.warn("[cicd] @actions/workflow-parser failed, falling back to js-yaml:", e.message)
+        parseWithYamlFallback(content)
+        console.log("[cicd] Parsed workflow with js-yaml fallback:", workflowJobs.length, "jobs")
+      }
+    }
+
+    ;(async () => {
+      try {
+        await repoClass.waitForReady()
+        const result = await repoClass.getFileContent({path: runInfo!.workflowPath, branch: runInfo!.branch})
         console.log("[cicd] getFileContent result:", result ? `${result.content?.length} bytes` : "null")
         const content = result?.content || ""
         if (!content) {
           workflowYamlError = "Empty workflow file"
           return
         }
-        try {
-          await parseWithActionsParser(content)
-          console.log("[cicd] Parsed workflow with @actions/workflow-parser:", workflowJobs.length, "jobs")
-        } catch (e: any) {
-          console.warn("[cicd] @actions/workflow-parser failed, falling back to js-yaml:", e.message)
-          try {
-            parseWithYamlFallback(content)
-            console.log("[cicd] Parsed workflow with js-yaml fallback:", workflowJobs.length, "jobs")
-          } catch (e2: any) {
-            workflowYamlError = `Failed to parse YAML: ${e2.message}`
-          }
-        }
-      })
-      .catch((e: any) => {
+        await parseContent(content)
+      } catch (e: any) {
         console.error("[cicd] getFileContent failed:", e)
         workflowYamlError = `Failed to load workflow file: ${e.message}`
-      })
-      .finally(() => {
+      } finally {
         loadingWorkflowYaml = false
-      })
+      }
+    })()
   })
 </script>
 
@@ -888,53 +853,20 @@
         </div>
       {/if}
 
-      <!-- Legacy command details (for Kind 5100 direct, no nested loom) -->
-      {#if !isHiveCIRun && !loomJobEvent && runInfo.cmd}
-        <div class="mt-4 border-t border-border pt-4">
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div class="space-y-1">
-              <p class="text-xs text-muted-foreground">Command</p>
-              <code class="rounded bg-muted px-2 py-1 text-sm">{runInfo.cmd}</code>
-            </div>
-            <div class="space-y-1">
-              <p class="text-xs text-muted-foreground">Worker</p>
-              {#if runInfo.worker && runInfo.worker !== "unknown"}
-                <a
-                  href="https://loom.treegaze.com/worker/{runInfo.worker}"
-                  target="_blank"
-                  rel="noopener"
-                  class="inline-flex items-center gap-1 text-sm text-blue-500 hover:underline">
-                  {workerName || runInfo.worker.slice(0, 12) + "..."}
-                  <ExternalLink class="h-3 w-3" />
-                </a>
-              {:else}
-                <span class="text-sm text-muted-foreground">Unknown</span>
-              {/if}
-            </div>
-          </div>
-          {#if runInfo.envVars?.length > 0}
-            <div class="mt-3">
-              <p class="mb-1 text-xs text-muted-foreground">Environment Variables</p>
-              <div class="space-y-1">
-                {#each runInfo.envVars as envVar}
-                  <code class="block rounded bg-muted px-2 py-1 text-xs">{envVar}</code>
-                {/each}
-              </div>
-            </div>
-          {/if}
-        </div>
-      {/if}
     </div>
 
-    <!-- Jobs card (YAML structure, colored by act log results) -->
-    <WorkflowJobs
-      {workflowJobs}
-      {jobGroups}
-      loading={loadingWorkflowYaml}
-      error={workflowYamlError}
-      {actJobByName} />
-
-    
+    <!-- Act log results (shows actual executed jobs with step-level status) -->
+    {#if parsedActJobs.length > 0}
+      <WorkflowLogs {parsedActJobs} {jobGroups} />
+    {:else}
+      <!-- Pre-run: YAML structure (colored by act log results when available) -->
+      <WorkflowJobs
+        {workflowJobs}
+        {jobGroups}
+        loading={loadingWorkflowYaml}
+        error={workflowYamlError}
+        {actJobByName} />
+    {/if}
 
     <!-- Payment Overview -->
     {#if prepaidAmount !== null}
@@ -1001,7 +933,7 @@
             <div class="overflow-hidden rounded-lg border border-purple-200 dark:border-purple-800">
               <div class="border-b border-purple-200 bg-purple-50 px-3 py-2 dark:border-purple-800 dark:bg-purple-950/40">
                 <h4 class="text-xs font-semibold text-purple-900 dark:text-purple-300">
-                  {isHiveCIRun ? "Workflow Run Event" : "Job Request Event"}
+                  Workflow Run Event
                 </h4>
                 <p class="mt-0.5 text-xs text-purple-600 dark:text-purple-400">Kind: {runEvent.kind} | ID: {runEvent.id}</p>
               </div>
