@@ -13,7 +13,7 @@
     X,
   } from "@lucide/svelte"
   import ReleaseSankey from "@lib/budabit/components/ReleaseSankey.svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY} from "@lib/budabit/state"
   import {CICD_RELAYS, CICD_PUBLISH_RELAYS} from "@lib/budabit/constants"
   import {
     type ReleaseArtifact,
@@ -62,9 +62,7 @@
 
   // ── Maintainers ────────────────────────────────────────────────────
   const trustedNpubs = $derived.by(() => {
-    if (!repoNaddr) return new Set<string>()
-    const maintainers = $effectiveMaintainersByRepoAddress.get(repoNaddr)
-    return maintainers ?? new Set<string>()
+    return new Set<string>(repoClass.trustedMaintainers)
   })
 
   // ── Derived ────────────────────────────────────────────────────────
@@ -151,10 +149,16 @@
       //   runIdMap:     runEventId      → run event  (for e-tag-linked artifacts)
       const publisherMap = new Map<string, any>()
       const runIdMap = new Map<string, any>()
+      console.log("[releases] Trusted npubs:", [...trustedNpubs])
+      console.log("[releases] Found", runs.length, "workflow runs")
       for (const run of runs) {
         const triggeredBy = getTagValue("triggered-by", run.tags)
         const publisher = getTagValue("publisher", run.tags)
-        if (triggeredBy && trustedNpubs.has(triggeredBy)) {
+        const trusted = triggeredBy && trustedNpubs.has(triggeredBy)
+        if (!trusted) {
+          console.log("[releases] Skipping run", run.id.slice(0, 8), "triggered-by", triggeredBy?.slice(0, 8), "not in trusted set")
+        }
+        if (trusted) {
           if (publisher) publisherMap.set(publisher, run)
           runIdMap.set(run.id, run)
         }
