@@ -855,17 +855,16 @@
 
     </div>
 
-    <!-- Act log results (shows actual executed jobs with step-level status) -->
-    {#if parsedActJobs.length > 0}
-      <WorkflowLogs {parsedActJobs} {jobGroups} />
-    {:else}
-      <!-- Pre-run: YAML structure (colored by act log results when available) -->
-      <WorkflowJobs
-        {workflowJobs}
-        {jobGroups}
-        loading={loadingWorkflowYaml}
-        error={workflowYamlError}
-        {actJobByName} />
+    <!-- Workflow structure from YAML, colored by act log results -->
+    {#if jobGroups.length > 0}
+      <WorkflowLogs {parsedActJobs} {jobGroups} runFinished={resolvedStatus === "success" || resolvedStatus === "failure"} />
+    {:else if loadingWorkflowYaml}
+      <div class="rounded-lg border border-border bg-card p-4">
+        <div class="flex items-center gap-2">
+          <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+          <span class="text-sm text-muted-foreground">Loading workflow structure...</span>
+        </div>
+      </div>
     {/if}
 
     <!-- Payment Overview -->
