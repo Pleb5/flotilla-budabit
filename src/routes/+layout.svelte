@@ -55,6 +55,7 @@
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {syncBudabitApplicationData, syncBudabitData} from "@lib/budabit/sync"
+  import {setupChiiDevInjection} from "@lib/budabit/chii-dev"
   import {setupBudabitNotifications} from "@lib/budabit/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
@@ -109,6 +110,7 @@
   
   // Auto-install and enable built-in extensions
   if (browser) {
+    setupChiiDevInjection()
     installBuiltinExtensions()
     registerCashuBridgeHandlers(CashuPayConfirm)
   }

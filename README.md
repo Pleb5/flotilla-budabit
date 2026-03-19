@@ -176,6 +176,8 @@ pnpm lint
 pnpm format
 ```
 
+For testing the dev server from a phone over a VPS tunnel (with remote console/network debugging, including ocmux profile setup), see `docs/phone-dev-vps.md`.
+
 ### E2E (Playwright)
 
 Install Playwright browsers (Chromium) used for E2E tests:
@@ -198,7 +200,6 @@ pnpm e2e:headed
 ```
 
 Playwright will start (or reuse) the dev server at `http://127.0.0.1:1847`.
-
 
 ## Deployment
 

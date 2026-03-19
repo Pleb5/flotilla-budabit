@@ -11,9 +11,45 @@ import svg from "@poppanator/sveltekit-svg"
 config({path: ".env"})
 config({path: ".env.template"})
 
+const parsePort = (value?: string): number | undefined => {
+  if (!value) {
+    return
+  }
+
+  const parsed = Number.parseInt(value, 10)
+
+  return Number.isNaN(parsed) ? undefined : parsed
+}
+
+const devAllowedHosts = process.env.VITE_DEV_ALLOWED_HOSTS?.split(",")
+  .map(host => host.trim())
+  .filter(Boolean)
+
+const devHmrPort = parsePort(process.env.VITE_DEV_HMR_PORT)
+const devHmrClientPort = parsePort(process.env.VITE_DEV_HMR_CLIENT_PORT)
+const devHmrHost = process.env.VITE_DEV_HMR_HOST?.trim()
+const devHmrPath = process.env.VITE_DEV_HMR_PATH?.trim()
+const devHmrProtocol = ["ws", "wss"].includes(process.env.VITE_DEV_HMR_PROTOCOL || "")
+  ? process.env.VITE_DEV_HMR_PROTOCOL
+  : undefined
+
+const devHmr =
+  devHmrHost || devHmrPath || devHmrPort || devHmrClientPort || devHmrProtocol
+    ? {
+        host: devHmrHost,
+        path: devHmrPath,
+        port: devHmrPort,
+        clientPort: devHmrClientPort,
+        protocol: devHmrProtocol,
+      }
+    : undefined
+
 export default defineConfig({
   server: {
     port: 1847,
+    strictPort: true,
+    allowedHosts: devAllowedHosts,
+    hmr: devHmr,
     fs: {
       allow: [".", path.resolve(__dirname, "../")],
     },
