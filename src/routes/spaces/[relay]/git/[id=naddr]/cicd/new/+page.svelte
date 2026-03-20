@@ -615,7 +615,7 @@ exit $EXIT_CODE
 
       const signedRunEvent = await $signer.sign(workflowRunEvent)
       const pool = new SimplePool()
-      await pool.publish(publishRelays, signedRunEvent)
+      await Promise.allSettled(pool.publish(publishRelays, signedRunEvent))
       const runId = signedRunEvent.id
 
       console.log("[cicd] Published Kind 5401 workflow run:", runId)
@@ -674,7 +674,7 @@ exit $EXIT_CODE
       }
 
       const signedJobEvent = await $signer.sign(jobEvent)
-      await pool.publish(publishRelays, signedJobEvent)
+      await Promise.allSettled(pool.publish(publishRelays, signedJobEvent))
       pool.close(publishRelays)
 
       console.log("[cicd] Published Kind 5100 loom job:", signedJobEvent.id, "referencing run:", runId)
