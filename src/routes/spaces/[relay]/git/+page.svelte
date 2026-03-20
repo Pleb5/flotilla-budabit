@@ -68,7 +68,6 @@
     deriveMaintainersForEuc,
     loadRepoAnnouncements,
     derivePatchGraph,
-    deriveNaddrEvent,
     GIT_RELAYS,
     getRepoAnnouncementRelays,
     repoAnnouncements,
@@ -83,6 +82,7 @@
   import Download from "@assets/icons/download.svg?dataurl"
   import Code from "@assets/icons/code.svg?dataurl"
   import {makeGitPath} from "@src/lib/budabit"
+  import {gitSelectedTab, type GitTab} from "@app/util/git-tabs"
   import {
     type BranchChange,
     diffBranchHeads,
@@ -204,7 +204,8 @@
   }
 
   let loading = $state(true)
-  let activeTab = $state<"my-repos" | "bookmarks" | "snippets">("my-repos")
+  let activeTab = $state<GitTab>("my-repos")
+  let gitTabHydrated = $state(false)
   let searchQuery = $state("")
   let snippetsLoadedFor = $state<string | null>(null)
   let repoStateLoadKey = $state("")
@@ -246,6 +247,21 @@
 
     branchUpdateCheckDone = false
     logBranchUpdate("session start: check flag reset for this page load")
+  })
+
+  onMount(() => {
+    const savedTab = getStore(gitSelectedTab)
+    if (savedTab && savedTab !== activeTab) {
+      activeTab = savedTab
+    }
+    gitTabHydrated = true
+  })
+
+  $effect(() => {
+    if (!gitTabHydrated) return
+    if ($gitSelectedTab !== activeTab) {
+      gitSelectedTab.set(activeTab)
+    }
   })
 
   // Load repos reactively when pubkey or relays change
@@ -594,71 +610,149 @@
     }
   })
 
-  // Detect if search query is a URI (naddr or nostr:naddr)
-  const isUriSearch = $derived.by(() => {
-    if (activeTab === "snippets") return false
+  // Detect if search query is a bech32 account/address search
+  const searchBech32 = $derived.by(() => {
+    if (activeTab === "snippets") return null
     const trimmed = searchQuery.trim()
-    return trimmed.startsWith("naddr1") || trimmed.startsWith("nostr:naddr1")
-  })
-
-  // Extract naddr from search query (handle both naddr1... and nostr:naddr1...)
-  const extractedNaddr = $derived.by(() => {
-    if (!isUriSearch) return null
-    const trimmed = searchQuery.trim()
-    if (trimmed.startsWith("nostr:")) {
-      return trimmed.replace("nostr:", "")
-    }
+    if (!trimmed) return null
+    if (trimmed.startsWith("nostr:")) return trimmed.replace("nostr:", "")
     return trimmed
   })
 
-  // Fetch event for URI search
-  const uriSearchEvent = $derived.by(() => {
-    if (!extractedNaddr) return null
-    const naddr = extractedNaddr
+  type RepoSearchMode = "naddr" | "npub" | null
 
-    try {
-      const decoded = nip19.decode(naddr) as {type: string; data: any}
-      // Only fetch if it's a repo announcement (kind 30617)
-      if (decoded.type === "naddr" && decoded.data.kind === GIT_REPO_ANNOUNCEMENT) {
-        const eventStore = deriveNaddrEvent(naddr, repoAnnouncementRelays)
-        return getStore(eventStore)
-      }
-    } catch (e) {
-      console.error("[+page.svelte] Failed to decode naddr:", e)
+  const accountSearch = $derived.by((): {
+    mode: RepoSearchMode
+    pubkey: string | null
+    identifier: string | null
+    relayHints: string[]
+    invalid: boolean
+  } => {
+    if (!searchBech32) {
+      return {mode: null, pubkey: null, identifier: null, relayHints: [], invalid: false}
     }
-    return null
-  })
 
-  // Convert URI search event to repo card format if found
-  const uriSearchRepo = $derived.by(() => {
-    const event = uriSearchEvent
-    if (!event || isDeletedRepoAnnouncement(event)) return null
+    const isNaddrCandidate = searchBech32.startsWith("naddr1")
+    const isNpubCandidate = searchBech32.startsWith("npub1")
 
     try {
-      let addressString = ""
-      try {
-        const address = Address.fromEvent(event)
-        addressString = address.toString()
-      } catch (e) {
-        const dTag = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1]
-        if (dTag && event.pubkey && event.kind) {
-          addressString = `${event.kind}:${event.pubkey}:${dTag}`
+      const decoded = nip19.decode(searchBech32) as {type: string; data: any}
+
+      if (decoded.type === "naddr") {
+        return {
+          mode: "naddr",
+          pubkey: decoded.data?.pubkey || null,
+          identifier: decoded.data?.identifier || null,
+          relayHints: Array.isArray(decoded.data?.relays) ? decoded.data.relays : [],
+          invalid: false,
         }
       }
 
-      const relayHintFromEvent = Router.get().getRelaysForPubkey(event.pubkey)?.[0]
-      return {address: addressString, event: event, relayHint: relayHintFromEvent || ""}
-    } catch (e) {
-      console.error("[+page.svelte] Failed to process URI search event:", e)
-      return null
+      if (decoded.type === "npub") {
+        return {
+          mode: "npub",
+          pubkey: typeof decoded.data === "string" ? decoded.data : null,
+          identifier: null,
+          relayHints: [],
+          invalid: false,
+        }
+      }
+    } catch {
+      if (isNaddrCandidate) {
+        return {mode: "naddr", pubkey: null, identifier: null, relayHints: [], invalid: true}
+      }
+      if (isNpubCandidate) {
+        return {mode: "npub", pubkey: null, identifier: null, relayHints: [], invalid: true}
+      }
+      return {mode: null, pubkey: null, identifier: null, relayHints: [], invalid: false}
     }
+
+    if (isNaddrCandidate) {
+      return {mode: "naddr", pubkey: null, identifier: null, relayHints: [], invalid: true}
+    }
+    if (isNpubCandidate) {
+      return {mode: "npub", pubkey: null, identifier: null, relayHints: [], invalid: true}
+    }
+    return {mode: null, pubkey: null, identifier: null, relayHints: [], invalid: false}
+  })
+
+  const isAccountSearch = $derived.by(() => Boolean(accountSearch.mode))
+
+  const attemptedAccountSearchLoads = new Set<string>()
+
+  const accountSearchReposStore = $derived.by(() => {
+    const {pubkey} = accountSearch
+    if (!pubkey) return undefined
+    const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [pubkey]} as any
+    const loadKey = `${pubkey}`
+
+    return _derived(deriveEventsDesc(deriveEventsById({repository, filters: [filter]})), events => {
+      if (events.length === 0 && !attemptedAccountSearchLoads.has(loadKey)) {
+        attemptedAccountSearchLoads.add(loadKey)
+        let outboxRelays: string[] = []
+        try {
+          outboxRelays = Router.get().FromPubkeys([pubkey]).getUrls()
+        } catch {
+          outboxRelays = []
+        }
+        const relaysToQuery = Array.from(
+          new Set([
+            ...accountSearch.relayHints,
+            ...outboxRelays,
+            ...repoAnnouncementRelays,
+            ...GIT_RELAYS,
+          ]),
+        )
+          .map(relay => normalizeRelayUrl(relay))
+          .filter(Boolean) as string[]
+
+        if (relaysToQuery.length > 0) {
+          load({relays: relaysToQuery, filters: [filter]})
+        }
+      }
+
+      return events
+    })
+  })
+
+  const accountSearchRepos = $derived.by(() => {
+    if (!$accountSearchReposStore) return []
+
+    return ($accountSearchReposStore as RepoAnnouncementEvent[])
+      .filter(event => !isDeletedRepoAnnouncement(event))
+      .map(event => {
+        let addressString = ""
+        try {
+          const address = Address.fromEvent(event)
+          addressString = address.toString()
+        } catch {
+          const dTag = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1]
+          if (dTag && event.pubkey && event.kind) {
+            addressString = `${event.kind}:${event.pubkey}:${dTag}`
+          }
+        }
+
+        const relayHintFromEvent = Router.get().getRelaysForPubkey(event.pubkey)?.[0]
+        return {address: addressString, event, relayHint: relayHintFromEvent || ""}
+      })
+      .filter(item => item.address)
+  })
+
+  const matchedNaddrRepo = $derived.by(() => {
+    const {mode, identifier} = accountSearch
+    if (mode !== "naddr" || !identifier) return null
+    return (
+      accountSearchRepos.find(repo => {
+        const dTag = (repo.event.tags || []).find((t: string[]) => t[0] === "d")?.[1] || ""
+        return dTag === identifier
+      }) || null
+    )
   })
 
   // Filter repos based on search query (from current tab)
   const searchFilteredRepos = $derived.by(() => {
     const repos = filteredRepos
-    // If URI search, don't filter tab repos (URI search shows in separate section)
-    if (isUriSearch) return repos
+    if (isAccountSearch) return []
 
     if (!searchQuery.trim()) return repos
 
@@ -1054,14 +1148,19 @@
     }
   }
 
-  // Store for URI search repo card
-  let uriSearchRepoCard = $state<any[]>([])
+  // Store for account search (naddr/npub) repo cards
+  let accountSearchRepoCards = $state<any[]>([])
 
-  // Update URI search repo card
+  // Update account search repo cards
   $effect(() => {
-    const repo = uriSearchRepo
-    if (repo) {
-      const cards = repositoriesStore.computeCards([repo], {
+    if (!isAccountSearch) {
+      accountSearchRepoCards = []
+      return
+    }
+
+    const repos = accountSearchRepos
+    if (repos.length > 0) {
+      const cards = repositoriesStore.computeCards(repos, {
         deriveMaintainersForEuc,
         deriveRepoRefState,
         derivePatchGraph,
@@ -1071,9 +1170,9 @@
         Address,
         repoAnnouncements: $repoAnnouncements,
       })
-      uriSearchRepoCard = cards
+      accountSearchRepoCards = cards
     } else {
-      uriSearchRepoCard = []
+      accountSearchRepoCards = []
     }
   })
 
@@ -1688,7 +1787,7 @@
                 bind:value={searchQuery}
                 class="grow"
                 type="text"
-                placeholder={activeTab === "snippets" ? "Search snippets..." : "Paste naddr or search..."} />
+                placeholder={activeTab === "snippets" ? "Search snippets..." : "npub naddr or repo name"} />
             </label>
           </div>
         </div>
@@ -1719,12 +1818,33 @@
       {/if}
     </div>
   {:else}
-  <!-- URI Search Result (if found) -->
-  {#if uriSearchRepoCard.length > 0}
+  {#if isAccountSearch}
     <div class="flex flex-col gap-2" in:fade={{duration: 200}}>
-      <h3 class="text-sm font-semibold text-muted-foreground">Found Repository</h3>
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each uriSearchRepoCard as g, i (getRepoCardStableKey(g))}
+      {#if accountSearch.mode === "naddr" && accountSearch.invalid}
+        <p class="text-sm text-muted-foreground">Invalid repository naddr.</p>
+      {:else if accountSearch.mode === "npub" && accountSearch.invalid}
+        <p class="text-sm text-muted-foreground">Invalid npub.</p>
+      {:else if accountSearch.mode === "naddr" && !matchedNaddrRepo}
+        {#if accountSearchRepoCards.length > 0}
+          <p class="text-sm text-muted-foreground">
+            Repository not found, but here are other repositories we found from this account.
+          </p>
+        {:else}
+          <p class="text-sm text-muted-foreground">
+            Repository not found, and we could not find other repositories from this account.
+          </p>
+        {/if}
+      {:else if accountSearch.mode === "naddr"}
+        <p class="text-sm text-muted-foreground">
+          Found repository. Showing all repositories published by this account.
+        </p>
+      {:else if accountSearch.mode === "npub"}
+        <p class="text-sm text-muted-foreground">Repositories published by this account.</p>
+      {/if}
+
+      {#if accountSearchRepoCards.length > 0}
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {#each accountSearchRepoCards as g, i (getRepoCardStableKey(g))}
           <div
             class="rounded-md border border-border bg-card p-3"
             in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
@@ -1778,14 +1898,15 @@
               {/if}
             </div>
           </div>
-        {/each}
-      </div>
+          {/each}
+        </div>
+      {/if}
     </div>
-  {/if}
+  {:else}
 
   <!-- Tab-filtered Repos Grid -->
   <div>
-    {#if loading && !uriSearchRepoCard.length}
+    {#if loading}
       <p class="flex h-10 items-center justify-center py-20" out:fly>
         <Spinner {loading}>
           {#if loading}
@@ -1795,12 +1916,10 @@
           {/if}
         </Spinner>
       </p>
-    {:else if $repositoriesStore.length === 0 && !uriSearchRepoCard.length}
+    {:else if $repositoriesStore.length === 0}
       <p class="flex h-10 items-center justify-center py-20 text-muted-foreground">
-        {#if searchQuery.trim() && !isUriSearch}
+        {#if searchQuery.trim()}
           No repositories found matching "{searchQuery}".
-        {:else if isUriSearch && !uriSearchRepoCard.length}
-          Repository not found. Please check the URI.
         {:else if activeTab === "my-repos"}
           You haven't created any repositories yet.
         {:else}
@@ -1808,11 +1927,6 @@
         {/if}
       </p>
     {:else if $repositoriesStore.length > 0}
-      {#if uriSearchRepoCard.length > 0}
-        <h3 class="mb-2 text-sm font-semibold text-muted-foreground">
-          {activeTab === "my-repos" ? "My Repositories" : "Bookmarked Repositories"}
-        </h3>
-      {/if}
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {#each $repositoriesStore as g, i (getRepoCardStableKey(g))}
           {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
@@ -1876,5 +1990,6 @@
       </div>
     {/if}
   </div>
+  {/if}
   {/if}
 </PageContent>
