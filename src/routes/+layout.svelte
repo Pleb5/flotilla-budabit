@@ -237,6 +237,7 @@
 
   const cleanupLegacyServiceWorkers = async () => {
     if (!browser) return
+    if (dev) return
     if (!("serviceWorker" in navigator)) return
     if (typeof localStorage === "undefined") return
     if (localStorage.getItem(APP_SW_CLEANUP_KEY) === "1") return

@@ -32,9 +32,10 @@ const devHmrPath = process.env.VITE_DEV_HMR_PATH?.trim()
 const devHmrProtocol = ["ws", "wss"].includes(process.env.VITE_DEV_HMR_PROTOCOL || "")
   ? process.env.VITE_DEV_HMR_PROTOCOL
   : undefined
+const devHmrEnabled = process.env.VITE_DEV_HMR_ENABLED === "1"
 
 const devHmr =
-  devHmrHost || devHmrPath || devHmrPort || devHmrClientPort || devHmrProtocol
+  devHmrEnabled && (devHmrHost || devHmrPath || devHmrPort || devHmrClientPort || devHmrProtocol)
     ? {
         host: devHmrHost,
         path: devHmrPath,

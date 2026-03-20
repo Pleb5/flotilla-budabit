@@ -30,7 +30,7 @@
   } from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
-  import {profilesByPubkey, pubkey, repository} from "@welshman/app"
+  import {profilesByPubkey, pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load, PublishStatus} from "@welshman/net"
   import {
@@ -50,6 +50,7 @@
     type CommentEvent,
     type StatusEvent,
     type PullRequestEvent,
+    type CoverLetterEvent,
     GIT_PULL_REQUEST,
     GIT_PULL_REQUEST_UPDATE,
     GIT_STATUS_APPLIED,
@@ -116,9 +117,16 @@
     prEvent: PullRequestEvent
     repo: Repo
     repoRelays: string[]
+    prEditRelays: string[]
   }
 
-  const {pr, prEvent, repo: repoClass, repoRelays}: Props = $props()
+  const {pr, prEvent, repo: repoClass, repoRelays, prEditRelays}: Props = $props()
+
+  const GIT_COVER_LETTER_KIND = 1624
+  const normalizeUniqueRelays = (relays: Array<string | undefined | null>) =>
+    Array.from(new Set(relays.map(relay => normalizeRelayUrl(relay || "")).filter(Boolean)))
+
+  const strictPrEditRelays = $derived.by(() => normalizeUniqueRelays(prEditRelays || []))
 
   const effectiveMaintainers = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
@@ -142,6 +150,11 @@
   const canManagePr = $derived.by(() => {
     if (!$pubkey) return false
     return effectiveMaintainerSet.has($pubkey)
+  })
+
+  const canEditPrDescription = $derived.by(() => {
+    if (!$pubkey || !prEvent) return false
+    return $pubkey === prEvent.pubkey || effectiveMaintainerSet.has($pubkey)
   })
 
   const statusRepo = $derived.by(
@@ -185,6 +198,45 @@
     return latest ? parseStatusEvent(latest as StatusEvent) : undefined
   })
 
+  const getPrCoverLetterFilter = () => ({
+    kinds: [GIT_COVER_LETTER_KIND],
+    "#e": [prEvent?.id ?? ""],
+  })
+
+  const prCoverLetterEvents = $derived.by(() => {
+    if (!prEvent) return undefined
+    return deriveEventsAsc(deriveEventsById({repository, filters: [getPrCoverLetterFilter()]}))
+  })
+
+  const prCoverLetterEventsArray = $derived.by(() => {
+    if (!prCoverLetterEvents) return []
+    return ($prCoverLetterEvents as CoverLetterEvent[]) || []
+  })
+
+  const prDescription = $derived.by(() => {
+    if (!prEvent) return pr?.content || ""
+
+    const authoritative = new Set<string>([prEvent.pubkey, ...Array.from(effectiveMaintainerSet)])
+    const coverLetters = [...prCoverLetterEventsArray]
+      .filter(
+        event =>
+          event.kind === GIT_COVER_LETTER_KIND &&
+          authoritative.has(event.pubkey) &&
+          (event.tags || []).some(tag => tag[0] === "e" && tag[1] === prEvent.id),
+      )
+      .sort((a, b) => {
+        const byTime = (a.created_at || 0) - (b.created_at || 0)
+        if (byTime !== 0) return byTime
+        return (a.id || "").localeCompare(b.id || "")
+      })
+
+    let content = pr?.content || ""
+    for (const coverLetter of coverLetters) {
+      content = coverLetter.content || ""
+    }
+    return content
+  })
+
   const prThreadComments = $derived.by(() => {
     if (!prEvent) return undefined
     const filters: Filter[] = [{kinds: [COMMENT], "#E": [prEvent.id]}]
@@ -222,6 +274,7 @@
   })
 
   let lastPrStatusLoadKey: string | null = null
+  let lastPrCoverLetterLoadKey: string | null = null
 
   $effect(() => {
     if (!prEvent) return
@@ -237,6 +290,22 @@
     void load({
       relays: relays as string[],
       filters: [getPrStatusFilter()],
+    }).catch(() => {})
+  })
+
+  $effect(() => {
+    if (!prEvent) return
+
+    const relays = strictPrEditRelays
+    if (relays.length === 0) return
+
+    const key = `${prEvent.id}|${relays.slice().sort().join(",")}`
+    if (lastPrCoverLetterLoadKey === key) return
+    lastPrCoverLetterLoadKey = key
+
+    void load({
+      relays: relays as string[],
+      filters: [getPrCoverLetterFilter()],
     }).catch(() => {})
   })
 
@@ -1236,6 +1305,60 @@
     }
   }
 
+  let editingDescription = $state(false)
+  let savingDescription = $state(false)
+  let descriptionDraft = $state("")
+
+  $effect(() => {
+    if (editingDescription) return
+    descriptionDraft = prDescription || ""
+  })
+
+  const savePrDescriptionEdit = async () => {
+    if (!prEvent || !canEditPrDescription) return
+
+    const nextDescription = descriptionDraft.trim()
+    if (nextDescription === (prDescription || "")) {
+      editingDescription = false
+      return
+    }
+
+    const relays = strictPrEditRelays
+    if (relays.length === 0) {
+      toast.push({message: "No repo relays available to publish PR description edit", theme: "error"})
+      return
+    }
+
+    const repoAddress =
+      (prEvent.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] ||
+      ((repoClass as any)?.address as string) ||
+      ""
+
+    try {
+      savingDescription = true
+      const coverLetterEvent = {
+        kind: GIT_COVER_LETTER_KIND,
+        content: nextDescription,
+        tags: [
+          ["e", prEvent.id],
+          ...(repoAddress ? ([["a", repoAddress]] as string[][]) : []),
+        ],
+        created_at: Math.floor(Date.now() / 1000),
+      }
+      publishThunk({event: coverLetterEvent as any, relays})
+      await load({relays, filters: [getPrCoverLetterFilter()]})
+      editingDescription = false
+      toast.push({message: "PR description updated"})
+    } catch (error) {
+      toast.push({
+        message: `Failed to update PR description: ${error instanceof Error ? error.message : String(error)}`,
+        theme: "error",
+      })
+    } finally {
+      savingDescription = false
+    }
+  }
+
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     postComment(comment, relays)
@@ -1725,7 +1848,45 @@
 
       <div
         class="prose-sm dark:prose-invert markdown-content prose mb-6 max-w-none text-muted-foreground">
-        <Markdown content={pr?.content || ""} />
+        {#if editingDescription && canEditPrDescription}
+          <div class="not-prose space-y-3">
+            <textarea
+              class="min-h-[220px] w-full rounded-md border border-border bg-background p-3 text-sm text-foreground"
+              bind:value={descriptionDraft}
+              placeholder="PR description"></textarea>
+            <div class="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onclick={savePrDescriptionEdit}
+                disabled={savingDescription}>
+                {savingDescription ? "Saving..." : "Save description"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onclick={() => {
+                  editingDescription = false
+                  descriptionDraft = prDescription || ""
+                }}
+                disabled={savingDescription}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        {:else}
+          <Markdown content={prDescription || ""} />
+          {#if canEditPrDescription}
+            <button
+              class="not-prose mt-3 text-xs text-muted-foreground underline-offset-2 hover:underline"
+              onclick={() => {
+                editingDescription = true
+                descriptionDraft = prDescription || ""
+              }}>
+              Edit description
+            </button>
+          {/if}
+        {/if}
       </div>
 
       <!-- PR details -->

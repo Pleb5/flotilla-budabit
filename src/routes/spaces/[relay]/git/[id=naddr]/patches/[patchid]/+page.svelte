@@ -8,7 +8,7 @@
   import {load, makeLoader} from "@welshman/net"
   import {repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import type {TrustedEvent} from "@welshman/util"
+  import {normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
   import {uniq} from "@welshman/lib"
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
@@ -18,6 +18,7 @@
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import PRView from "@src/lib/budabit/components/PRView.svelte"
   import PatchView from "@src/lib/budabit/components/PatchView.svelte"
+  import {decodeRelay} from "@app/core/state"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
@@ -29,6 +30,13 @@
 
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []) as string[])
   const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []) as PullRequestEvent[])
+  const relayUrl = $derived.by(() => decodeRelay($page.params.relay || ""))
+  const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
+  const normalizeUniqueRelays = (relays: Array<string | undefined | null>) =>
+    Array.from(new Set(relays.map(relay => normalizeRelayUrl(relay || "")).filter(Boolean)))
+  const prEditRelays = $derived.by(() =>
+    normalizeUniqueRelays([...(repoClass.relays || []), ...(naddrRelays || []), relayUrl]),
+  )
   const LOAD_TIMEOUT_MS = 7000
   const loadDetail = makeLoader({delay: 100, timeout: LOAD_TIMEOUT_MS, threshold: 0.5})
 
@@ -261,7 +269,12 @@
   {#if isResolving}
     <div class="p-4 text-center">Loading patch or pull request...</div>
   {:else if !patch && pr && resolvedPrEvent}
-    <PRView {pr} prEvent={resolvedPrEvent} repo={repoClass} repoRelays={repoRelays} />
+    <PRView
+      {pr}
+      prEvent={resolvedPrEvent}
+      repo={repoClass}
+      repoRelays={repoRelays}
+      {prEditRelays} />
   {:else if patch && patchSet}
     <PatchView {patch} {patchSet} repo={repoClass} repoRelays={repoRelays} />
   {:else if didTimeout}
