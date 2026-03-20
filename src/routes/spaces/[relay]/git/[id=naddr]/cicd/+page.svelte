@@ -363,7 +363,7 @@
   })
 
   let runEvents = $state<any[]>([])  // Kind 5401 workflow run events
-  let workflowLogEvents = $state<any[]>([])  // Kind 5402 workflow log events
+  let workflowLogEvents = $state<any[]>([])  // Kind 5402 workflow result events
   let statusEvents = $state<any[]>([])  // Kind 30100 status events
   let jobResultEvents = $state<any[]>([])  // Kind 5101 job result events
   let loomJobEvents = $state<any[]>([])  // Kind 5100 loom job events
@@ -508,10 +508,12 @@
       case "failed":
         return X
       case "in_progress":
+      case "running":
         return RotateCw
       case "cancelled":
         return Circle
       case "pending":
+      case "queued":
         return Clock
       case "skipped":
         return AlertCircle
@@ -528,10 +530,12 @@
       case "failed":
         return "text-red-500"
       case "in_progress":
+      case "running":
         return "text-yellow-500"
       case "cancelled":
         return "text-gray-500"
       case "pending":
+      case "queued":
         return "text-gray-400"
       case "skipped":
         return "text-gray-400"
@@ -545,12 +549,15 @@
       case "success":
         return "bg-green-500/10 border-green-500/20"
       case "failure":
+      case "failed":
         return "bg-red-500/10 border-red-500/20"
       case "in_progress":
+      case "running":
         return "bg-yellow-500/10 border-yellow-500/20"
       case "cancelled":
         return "bg-gray-500/10 border-gray-500/20"
       case "pending":
+      case "queued":
         return "bg-gray-400/10 border-gray-400/20"
       case "skipped":
         return "bg-gray-400/10 border-gray-400/20"
@@ -819,7 +826,7 @@
             <div class="flex items-start gap-4">
               <!-- Status Icon -->
               <div class={`mt-1 flex-shrink-0 ${getStatusColor(run.status)}`}>
-                {#if run.status === "in_progress"}
+                {#if run.status === "in_progress" || run.status === "running"}
                   <RotateCw class="h-5 w-5 animate-spin" />
                 {:else}
                   <StatusIcon class="h-5 w-5" />
@@ -904,7 +911,7 @@
         <div class="space-y-1">
           <p class="text-xs text-muted-foreground">In Progress</p>
           <p class="text-2xl font-bold text-yellow-500">
-            {filteredRuns.filter(r => r.status === "in_progress").length}
+            {filteredRuns.filter(r => r.status === "in_progress" || r.status === "running").length}
           </p>
         </div>
       </div>
