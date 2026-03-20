@@ -92,6 +92,16 @@
   const getEucTag = (event: any): string =>
     (event?.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
 
+  const normalizeBranchRef = (value?: string): string => {
+    const raw = String(value || "").trim()
+    if (!raw) return ""
+    return raw
+      .replace(/^ref:\s*refs\/heads\//i, "")
+      .replace(/^refs\/heads\//, "")
+      .replace(/^refs\/remotes\/origin\//, "")
+      .replace(/^origin\//, "")
+  }
+
   const isSameRepoIdentity = (baseEvent: any, candidateEvent: any): boolean => {
     const baseD = getTagValue(baseEvent, "d")
     const candidateD = getTagValue(candidateEvent, "d")
@@ -361,7 +371,7 @@
       // Try to get README - if repo not cloned, that's okay (overview doesn't need clone)
       // The getFileContent will attempt to fetch, but won't block if it fails
       // Don't attempt to load README without a valid branch
-      const branchName = repoClass.mainBranch?.split("/").pop();
+      const branchName = normalizeBranchRef(repoClass.mainBranch);
       if (!branchName) {
         console.debug("README: Cannot load - branch not yet determined");
         return;

@@ -57,6 +57,16 @@
   const normalizePath = (value: string | null | undefined) =>
     (value ?? "").replace(/^\/+/, "").replace(/\/+$/, "")
 
+  const normalizeBranchRef = (value?: string | null) => {
+    const raw = String(value || "").trim()
+    if (!raw) return ""
+    return raw
+      .replace(/^ref:\s*refs\/heads\//i, "")
+      .replace(/^refs\/heads\//, "")
+      .replace(/^refs\/remotes\/origin\//, "")
+      .replace(/^origin\//, "")
+  }
+
   const dirFromPath = (value: string) => value.split("/").slice(0, -1).join("/")
 
   const updateQueryParams = ({
@@ -328,7 +338,7 @@
 
     // Don't attempt to load files until we have a valid branch name
     // Branch should come from repo state event or git clone, not hardcoded
-    const branchName = currentBranch?.split("/").pop();
+    const branchName = normalizeBranchRef(currentBranch);
     if (!branchName || !currentBranch || isCloning || path) return;
     if (!refs || refs.length === 0) return;
     const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name);
@@ -362,7 +372,7 @@
         .catch((e) => {
           loading = false
           const message = e instanceof Error ? e.message : "Failed to load files"
-          const activeBranch = selectedBranch?.split("/").pop()
+          const activeBranch = normalizeBranchRef(selectedBranch)
           if (activeBranch && activeBranch !== branchName) return []
           if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
           error = message
@@ -384,7 +394,7 @@
     const refs = repoClass.refs;
 
     // Don't attempt to load files until we have a valid branch name
-    const branchName = currentBranch?.split("/").pop();
+    const branchName = normalizeBranchRef(currentBranch);
     if (!branchName || !currentPath || !currentBranch || isCloning) return;
     if (!refs || refs.length === 0) return;
     const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name);
@@ -415,7 +425,7 @@
         .catch((e) => {
           loading = false
           const message = e instanceof Error ? e.message : "Failed to load files"
-          const activeBranch = selectedBranch?.split("/").pop()
+          const activeBranch = normalizeBranchRef(selectedBranch)
           if (activeBranch && activeBranch !== branchName) return []
           if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
           error = message
@@ -427,7 +437,7 @@
 
   const getFileContent = async (filePath: string) => {
     // Don't attempt to get file content without a valid branch
-    const branchName = selectedBranch?.split("/").pop();
+    const branchName = normalizeBranchRef(selectedBranch);
     if (!branchName) {
       pushToast({
         message: "Cannot load file: branch not yet determined",
