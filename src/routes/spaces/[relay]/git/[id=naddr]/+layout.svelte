@@ -42,7 +42,7 @@
     stateEvent: RepoStateEvent
   }
   import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
-  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, parseRepoAnnouncementEvent, isCommentEvent, createRepoStateEvent} from "@nostr-git/core/events"
+  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, GIT_LABEL, parseRepoAnnouncementEvent, isCommentEvent, createRepoStateEvent} from "@nostr-git/core/events"
   import {normalizeRelayUrl as normalizeRelayUrlShared, parseRepoId, filterValidCloneUrls, reorderUrlsByPreference} from "@nostr-git/core/utils"
   import {derived, get as getStore, readable, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
@@ -67,6 +67,7 @@
     type Filter,
     type TrustedEvent
   } from "@welshman/util"
+  import {publishDelete} from "@src/app/core/commands"
   import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
   import {
@@ -106,6 +107,7 @@
   const ADDRESS_DERIVE_FILTER_CHUNK_SIZE = 50
   const COMMENT_DERIVE_FILTER_CHUNK_SIZE = 100
   const SCOPED_DERIVE_THROTTLE_MS = 120
+  const GIT_COVER_LETTER_KIND = 1624
 
   type RepoBranchUpdate = {
     repoId: string
@@ -1089,7 +1091,7 @@
 
   const DELETE_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
   const DELETE_SINCE_BUFFER_SECONDS = 60
-  const deleteKinds = [GIT_ISSUE, GIT_PATCH, GIT_PULL_REQUEST]
+  const deleteKinds = [GIT_ISSUE, GIT_PATCH, GIT_PULL_REQUEST, GIT_LABEL, GIT_COVER_LETTER_KIND]
   let deleteLoadKey = ""
   let latestDeleteSeen = 0
   $effect(() => {
@@ -1957,16 +1959,60 @@
     const repoRelays = getRepoAnnouncementRelaysFromEvent()
     const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
 
+    const rollbackPublishedRepoEvents = async (params: {
+      repoName: string
+      relays: string[]
+    }): Promise<void> => {
+      if (!$pubkey) return
+
+      const rollbackRelays = Array.from(new Set(params.relays.map(r => normalizeRelayUrl(r)).filter(Boolean)))
+      if (rollbackRelays.length === 0) return
+
+      const filters = [
+        {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey], "#d": [params.repoName]},
+        {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": [params.repoName]},
+      ]
+
+      try {
+        await load({relays: rollbackRelays, filters: filters as any}).catch(() => {})
+      } catch {
+        // pass
+      }
+
+      const events = repository.query(filters as any, {shouldSort: false}) as Array<any>
+      const seen = new Set<string>()
+
+      for (const event of events) {
+        if (event.pubkey !== $pubkey) continue
+        if (!event.id || seen.has(event.id)) continue
+        seen.add(event.id)
+
+        const thunk = publishDelete({
+          protect: false,
+          event,
+          relays: rollbackRelays,
+        })
+
+        if (thunk?.complete) {
+          await thunk.complete
+        }
+      }
+    }
+
     pushModal(ForkRepoDialog, {
       repo: repoClass,
       pubkey: $pubkey || "",
       workerApi,
-      onPublishEvent: (event: any) => {
+      onPublishEvent: async (event: any) => {
         // Publish fork events to explicitly selected repo relays when provided in event tags.
         const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
         const relays = Array.isArray(relaysTag) ? relaysTag.slice(1).filter(Boolean) : []
-        postRepoAnnouncement(event, relays)
+        const thunk = postRepoAnnouncement(event, relays)
+        if (thunk?.complete) {
+          await thunk.complete
+        }
       },
+      onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
       graspServerUrls: graspServerUrls,
       navigateToForkedRepo: navigateToForkedRepo,
       defaultRelays,
