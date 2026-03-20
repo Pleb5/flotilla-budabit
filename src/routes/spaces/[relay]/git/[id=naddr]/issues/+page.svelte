@@ -5,6 +5,7 @@
     GIT_ISSUE,
     type CommentEvent,
     type IssueEvent,
+    type LabelEvent,
   } from "@nostr-git/core/events"
   import {Eye, Plus, SearchX} from "@lucide/svelte"
   import {
@@ -20,6 +21,7 @@
   import {createSearch, pubkey, repository} from "@welshman/app"
   import {sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -33,7 +35,7 @@
   import {isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"
-  import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
+  import {toNaturalArray} from "@lib/budabit/labels"
   import {page} from "$app/stores"
   import {decodeRelay} from "@app/core/state"
   import {beforeNavigate} from "$app/navigation"
@@ -43,7 +45,6 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
-    deriveEffectiveLabels,
     deriveAssignmentsFor,
     effectiveMaintainersByRepoAddress,
     effectiveRepoAddressesByRepoAddress,
@@ -52,6 +53,7 @@
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
   import {fade} from "svelte/transition"
+  import {resolveIssueEdits} from "@lib/budabit/issue-edits"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -121,6 +123,7 @@
   const LABEL_PREFETCH_IDLE_MS = 2000
   const LABEL_PREFETCH_DELAY_MS = 150
   const LABEL_PREFETCH_CHUNK_SIZE = 50
+  const GIT_COVER_LETTER_KIND = 1624
 
   // Find scroll parent when page container is mounted
   $effect(() => {
@@ -438,62 +441,70 @@
     return chunks
   }
 
-  // Labels cache keyed by issue id, kept in sync with NIP-32 updates
-  let labelsDataCache = $state<{
-    byId: Map<string, string[]>
-    groupsById: Map<string, Record<string, string[]>>
-  }>({
-    byId: new Map<string, string[]>(),
-    groupsById: new Map<string, Record<string, string[]>>(),
+  const issueEditFilters = $derived.by(() => {
+    const ids = (issues || []).map(issue => issue.id).filter(Boolean)
+    if (ids.length === 0) return []
+    return chunkIds(ids, LABEL_PREFETCH_CHUNK_SIZE).map(chunk => ({
+      kinds: [1985, GIT_COVER_LETTER_KIND],
+      "#e": chunk,
+    }))
   })
-  const labelSubscriptions = new Map<string, () => void>()
 
-  const updateLabelsCache = (issueId: string, effValue: any) => {
-    const eff = normalizeEffectiveLabels(effValue)
-    const naturals = toNaturalArray(eff.flat)
-    const groups = groupLabels(eff)
-    const byId = new Map(labelsDataCache.byId)
-    const groupsById = new Map(labelsDataCache.groupsById)
-    byId.set(issueId, naturals)
-    groupsById.set(issueId, groups)
-    labelsDataCache = {byId, groupsById}
-  }
+  const issueEditEvents = $derived.by(() =>
+    deriveEventsAsc(deriveEventsById({repository, filters: issueEditFilters})),
+  )
 
-  const removeLabelsCache = (issueId: string) => {
-    const byId = new Map(labelsDataCache.byId)
-    const groupsById = new Map(labelsDataCache.groupsById)
-    if (!byId.has(issueId) && !groupsById.has(issueId)) return
-    byId.delete(issueId)
-    groupsById.delete(issueId)
-    labelsDataCache = {byId, groupsById}
-  }
+  let issueEditsById = $state<Map<string, {subject: string; content: string; labels: string[]}>>(
+    new Map(),
+  )
 
   $effect(() => {
     const currentIssues = issues || []
-    const currentIds = new Set(currentIssues.map(i => i.id))
+    const fallbackMaintainers = new Set(effectiveMaintainers)
+    const maintainersByRepoAddress = $effectiveMaintainersByRepoAddress
+    // Keep effect subscribed to any 1985/1624 event changes
+    void $issueEditEvents
 
+    const next = new Map<string, {subject: string; content: string; labels: string[]}>()
     for (const issue of currentIssues) {
-      if (labelSubscriptions.has(issue.id)) continue
-      const effStore = deriveEffectiveLabels(issue.id)
-      const unsubscribe = effStore.subscribe(value => {
-        updateLabelsCache(issue.id, value)
+      const issueRepoAddress = getTagValue("a", issue.tags) || repoAddress
+      const maintainersFromAddress =
+        issueRepoAddress && maintainersByRepoAddress.get(issueRepoAddress)
+      const maintainersFromCurrentRepo = repoAddress && maintainersByRepoAddress.get(repoAddress)
+      const maintainers =
+        maintainersFromAddress && maintainersFromAddress.size > 0
+          ? maintainersFromAddress
+          : maintainersFromCurrentRepo && maintainersFromCurrentRepo.size > 0
+            ? maintainersFromCurrentRepo
+          : fallbackMaintainers
+
+      const labelEvents = repository.query(
+        [{kinds: [1985], "#e": [issue.id]}],
+        {shouldSort: false},
+      ) as LabelEvent[]
+      const coverLetters = repository.query(
+        [{kinds: [GIT_COVER_LETTER_KIND], "#e": [issue.id]}],
+        {shouldSort: false},
+      ) as TrustedEvent[]
+      const edits = resolveIssueEdits({
+        issueEvent: issue as any,
+        labelEvents,
+        coverLetters: coverLetters as any,
+        maintainers,
       })
-      labelSubscriptions.set(issue.id, unsubscribe)
+      next.set(issue.id, {subject: edits.subject, content: edits.content, labels: edits.labels})
     }
 
-    for (const [id, unsubscribe] of labelSubscriptions) {
-      if (currentIds.has(id)) continue
-      unsubscribe()
-      labelSubscriptions.delete(id)
-      removeLabelsCache(id)
-    }
+    issueEditsById = next
   })
-  
-  // Return cached labelsData synchronously
-  const labelsData = $derived(labelsDataCache)
 
   const labelsByIssue = $derived.by(() => {
-    const result = labelsData.byId
+    const result = new Map<string, string[]>()
+    for (const issue of issues || []) {
+      const edits = issueEditsById.get(issue.id)
+      const labels = edits?.labels || []
+      result.set(issue.id, toNaturalArray(labels))
+    }
     return result
   })
 
@@ -517,7 +528,7 @@
 
   let searchTerm = $state("")
 
-  // NIP-32 labels are derived centrally via deriveEffectiveLabels(); prefetch newest labels
+  // Prefetch recent issue edit events (1985 labels + 1624 cover letters)
   $effect(() => {
     const currentIssues = repoClass.issues || []
     const currentRepoRelays = repoRelays.filter(Boolean)
@@ -544,7 +555,7 @@
 
     if (ids.length === 0) return
 
-    const key = ids.join(",")
+    const key = `${relayList.slice().sort().join("|")}::${ids.join(",")}`
     if (labelsPrefetchKey === key) return
 
     if (labelsPrefetchTimeout) {
@@ -565,7 +576,7 @@
       if (!controller) return
 
       const filters = chunkIds(ids, LABEL_PREFETCH_CHUNK_SIZE).map(chunk => ({
-        kinds: [1985],
+        kinds: [1985, GIT_COVER_LETTER_KIND],
         "#e": chunk,
       }))
 
@@ -672,6 +683,7 @@
     const currentIssues = repoClass.issues
     const currentComments = commentsOrdered
     const currentStatusMap = statusMap
+    const currentIssueEdits = issueEditsById
     const currentIssueListCacheKey = issueListCacheKey
 
     const timeout = setTimeout(() => {
@@ -687,15 +699,40 @@
         .sort()
         .join(",")
       const statusMapKeys = Object.keys(currentStatusMap).sort().join(",")
-      const currentKey = `${issueIds}|${commentIds}|${statusMapKeys}`
+      const editsKey = Array.from(currentIssueEdits.entries())
+        .map(([id, edit]) => `${id}:${edit.subject}:${edit.content.length}:${edit.labels.join(",")}`)
+        .sort()
+        .join("|")
+      const currentKey = `${issueIds}|${commentIds}|${statusMapKeys}|${editsKey}`
 
       if (currentIssueListCacheKey === currentKey) return
 
-      const processed = currentIssues.map((issue: IssueEvent) => ({
-        id: issue.id,
-        created_at: issue.created_at,
-        event: issue,
-      }))
+      const processed = currentIssues.map((issue: IssueEvent) => {
+        const edits = currentIssueEdits.get(issue.id)
+        const subject = edits?.subject || getTagValue("subject", issue.tags) || ""
+        const content = edits?.content ?? issue.content
+        const labels = edits?.labels ||
+          ((issue.tags || [])
+            .filter((tag: string[]) => tag[0] === "t")
+            .map((tag: string[]) => tag[1])
+            .filter(Boolean))
+
+        const tags = ((issue.tags || []) as string[][]).filter(
+          (tag: string[]) => tag[0] !== "subject" && tag[0] !== "t",
+        )
+        if (subject) tags.push(["subject", subject])
+        for (const label of labels) tags.push(["t", label])
+
+        return {
+          id: issue.id,
+          created_at: issue.created_at,
+          event: {
+            ...issue,
+            content,
+            tags,
+          } as IssueEvent,
+        }
+      })
 
       issueList = processed
       issueListCacheKey = currentKey
@@ -918,9 +955,6 @@
     }
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
-
-    labelSubscriptions.forEach(unsubscribe => unsubscribe())
-    labelSubscriptions.clear()
 
     if (labelsPrefetchTimeout) {
       clearTimeout(labelsPrefetchTimeout)
