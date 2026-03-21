@@ -1134,8 +1134,26 @@
     return () => controller.abort()
   })
 
-  // Create empty stores for Repo class
-  const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
+  // Derive all maintainers' repo state events for merged ref resolution
+  const allRepoStateEvents: Readable<RepoStateEvent[]> = derived(
+    [repoMaintainersStore],
+    ([$maintainers]) => {
+      const authors = $maintainers.length > 0 ? $maintainers : [repoPubkey]
+      // Query the welshman repository for state events from all maintainers
+      const events: RepoStateEvent[] = []
+      for (const author of authors) {
+        const store = deriveEventsAsc(
+          deriveEventsById({
+            repository,
+            filters: [{authors: [author], kinds: [GIT_REPO_STATE], "#d": [repoName]}],
+          }),
+        )
+        const storeEvents = getStore(store) as RepoStateEvent[]
+        if (storeEvents) events.push(...storeEvents)
+      }
+      return events
+    },
+  ) as Readable<RepoStateEvent[]>
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
 
   let repoLoadKey = ""
@@ -1249,7 +1267,7 @@
       repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
       issues: issuesStore,
       patches: patchesStore,
-      repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
+      repoStateEvents: allRepoStateEvents,
       statusEvents: statusEventsStore,
       commentEvents: commentEventsStore,
       labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
@@ -1272,7 +1290,7 @@
         repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
         issues: issuesStore,
         patches: patchesStore,
-        repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
+        repoStateEvents: allRepoStateEvents,
         statusEvents: statusEventsStore,
         commentEvents: commentEventsStore,
         labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
