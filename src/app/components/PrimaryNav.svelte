@@ -3,7 +3,7 @@
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import {splitAt} from "@welshman/lib"
-  import {userProfile, shouldUnwrap} from "@welshman/app"
+  import {userProfile} from "@welshman/app"
   import Widget from "@assets/icons/widget.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
@@ -15,7 +15,6 @@
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import PrimaryNavItem from "@lib/components/PrimaryNavItem.svelte"
-  import ChatEnable from "@lib/budabit/components/ChatEnable.svelte"
   import MenuOtherSpaces from "@app/components/MenuOtherSpaces.svelte"
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import PrimaryNavItemSpace from "@app/components/PrimaryNavItemSpace.svelte"
@@ -42,7 +41,7 @@
 
   const showSettingsMenu = () => pushModal(MenuSettings)
 
-  const openChat = () => ($shouldUnwrap ? goto("/chat") : pushModal(ChatEnable, {next: "/chat"}))
+  const openChat = () => goto("/chat")
 
   const gitNavErrorMessage = "Could not find platform relays cannot navigate to git path"
   let gitNavErrorToastId: string | null = null

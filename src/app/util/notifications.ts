@@ -167,8 +167,8 @@ export const notifications = call(() => {
         $notificationsConfig.getSpaceUrls ||
         ((groupList: List | undefined) => getSpaceUrlsFromGroupList(groupList))
 
-      for (const {pubkeys, messages} of $chatsById.values()) {
-        const chatPath = makeChatPath(pubkeys)
+      for (const {id, messages} of $chatsById.values()) {
+        const chatPath = makeChatPath(id)
         const latestMessage = getLatestIncomingEvent(messages, $pubkey)
 
         const shouldNotify = hasNotification(chatPath, latestMessage)

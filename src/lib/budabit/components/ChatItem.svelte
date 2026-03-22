@@ -23,7 +23,7 @@
 
   const others = remove($pubkey!, props.pubkeys)
   const active = $derived($page.params.chat === props.id)
-  const path = makeChatPath(props.pubkeys)
+  const path = makeChatPath(props.id)
   const latestMessage = $derived.by(() => {
     if (!props.messages?.length) return undefined
     return props.messages.reduce((latest, current) =>
@@ -86,7 +86,7 @@
   })
 </script>
 
-<Link class="flex flex-col justify-start gap-1" href={makeChatPath(props.pubkeys)}>
+<Link class="flex flex-col justify-start gap-1" href={path}>
   <div
     class="cursor-pointer border-t border-solid border-base-100 px-6 py-2 transition-colors hover:bg-base-100 {props.class}"
     class:bg-base-100={active}>
@@ -96,12 +96,9 @@
           {#if others.length === 0}
             <ProfileCircle pubkey={$pubkey!} size={5} />
             Note to self
-          {:else if others.length === 1}
-            <ProfileCircle pubkey={others[0]} size={5} />
-            <ProfileName pubkey={others[0]} />
           {:else}
             <ProfileCircle pubkey={others[0]} size={5} />
-            <p class="overflow-hidden text-ellipsis whitespace-nowrap">Group chat (read-only)</p>
+            <ProfileName pubkey={others[0]} />
           {/if}
         </div>
         {#if !active && $notifications.has(path)}

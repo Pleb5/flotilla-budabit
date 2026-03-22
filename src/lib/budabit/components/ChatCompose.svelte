@@ -23,6 +23,7 @@
   }: Props = $props()
 
   const autofocus = !isMobile && !disabled
+  const sendShortcut = `${navigator.platform.includes("Mac") ? "cmd" : "ctrl"}+enter to send`
 
   const uploading = writable(false)
 
@@ -54,7 +55,7 @@
     autofocus,
     submit,
     uploading,
-    aggressive: !isMobile,
+    aggressive: false,
     encryptFiles: false,
   })
 </script>
@@ -80,8 +81,8 @@
       <EditorContent {editor} />
     </div>
     <Button
-      data-tip="{window.navigator.platform.includes('Mac') ? 'cmd' : 'ctrl'}+enter to send"
-      class="center tooltip tooltip-left absolute right-4 h-10 w-10 min-w-10 rounded-full"
+      data-tip={!isMobile ? sendShortcut : undefined}
+      class={`center absolute right-4 h-10 w-10 min-w-10 rounded-full ${!isMobile ? "tooltip tooltip-left" : ""}`}
       disabled={$uploading}
       onclick={submit}>
       <Icon icon={Plane} />

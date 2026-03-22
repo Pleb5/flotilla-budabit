@@ -21,7 +21,7 @@
 
   const onSubmit = () => {
     if (!recipient) return
-    goto(makeChatPath([recipient, $pubkey!]))
+    goto(makeChatPath(recipient))
   }
 
   const addPubkey = (value: string) => {

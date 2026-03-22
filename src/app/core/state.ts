@@ -551,9 +551,27 @@ export type Chat = {
   search_text: string
 }
 
-export const makeChatId = (pubkeys: string[]) => sort(uniq(pubkeys)).join(",")
+export const makeChatId = (recipient: string) => recipient
 
-export const splitChatId = (id: string) => id.split(",")
+const getDmCounterparty = (event: TrustedEvent, selfPubkey: string) => {
+  const participants = uniq([event.pubkey, ...getPubkeyTagValues(event.tags)])
+
+  if (!participants.includes(selfPubkey)) {
+    return undefined
+  }
+
+  const others = participants.filter(pk => pk !== selfPubkey)
+
+  if (others.length === 0) {
+    return selfPubkey
+  }
+
+  if (others.length === 1) {
+    return others[0]
+  }
+
+  return undefined
+}
 
 export const makeChannelId = (url: string, room: string) => makeRoomId(url, room)
 
@@ -571,11 +589,22 @@ export const chatsById = call(() => {
 
     const addEvents = (events: TrustedEvent[]) => {
       let changed = false
+      const selfPubkey = get(pubkey)
+
+      if (!selfPubkey) {
+        return
+      }
 
       for (const event of events) {
         if (event.kind === DM_KIND) {
-          const pubkeys = getPubkeyTagValues(event.tags).concat(event.pubkey)
-          const id = makeChatId(pubkeys)
+          const recipient = getDmCounterparty(event, selfPubkey)
+
+          if (!recipient) {
+            continue
+          }
+
+          const id = makeChatId(recipient)
+          const pubkeys = recipient === selfPubkey ? [selfPubkey] : [selfPubkey, recipient]
 
           if (!chatsById.has(id)) {
             addChat({
@@ -583,7 +612,7 @@ export const chatsById = call(() => {
               pubkeys,
               messages: [event],
               last_activity: event.created_at,
-              search_text: pubkeys.join(" "),
+              search_text: recipient,
             })
             changed = true
           } else {
@@ -621,7 +650,25 @@ export const chatSearch = derived(throttled(800, chatsById), $chatsById =>
 )
 
 export const deriveChat = (pubkeys: string[]) =>
-  derived(chatsById, $chatsById => $chatsById.get(makeChatId(pubkeys)))
+  derived(chatsById, $chatsById => {
+    const selfPubkey = get(pubkey)
+
+    if (!selfPubkey) {
+      return undefined
+    }
+
+    const recipients = uniq(pubkeys).filter(pk => pk !== selfPubkey)
+
+    if (recipients.length === 0) {
+      return $chatsById.get(makeChatId(selfPubkey))
+    }
+
+    if (recipients.length === 1) {
+      return $chatsById.get(makeChatId(recipients[0]))
+    }
+
+    return undefined
+  })
 
 export const makeRoomId = (url: string, h: string) => `${url}'${h}`
 

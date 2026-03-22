@@ -85,7 +85,6 @@ import {
   tagEventForQuote,
   waitForThunkError,
   getPubkeyRelays,
-  shouldUnwrap,
   loadRelay,
   userMessagingRelayList,
   userRelayList,
@@ -271,7 +270,10 @@ export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
   const byId = new Map<string, SmartWidgetEvent>()
   for (const widget of widgets) {
     const existing = byId.get(widget.identifier)
-    if (!existing || (widget.created_at && existing.created_at && widget.created_at > existing.created_at)) {
+    if (
+      !existing ||
+      (widget.created_at && existing.created_at && widget.created_at > existing.created_at)
+    ) {
       byId.set(widget.identifier, widget)
     }
   }
@@ -886,10 +888,6 @@ export const createAlert = async (params: CreateAlertParams): Promise<CreateAler
 }
 
 export const createDmAlert = async () => {
-  if (!shouldUnwrap.get()) {
-    shouldUnwrap.set(true)
-  }
-
   const $pubkey = pubkey.get()!
 
   return createAlert({

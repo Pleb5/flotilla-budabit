@@ -26,6 +26,7 @@
   const {url, h, content, onEscape, onEditPrevious, onSubmit}: Props = $props()
 
   const autofocus = !isMobile
+  const sendShortcut = `${navigator.platform.includes("Mac") ? "cmd" : "ctrl"}+enter to send`
 
   const uploading = writable(false)
 
@@ -64,7 +65,7 @@
     ed.chain().clearContent().run()
   }
 
-  const editor = makeEditor({url, content, autofocus, submit, uploading, aggressive: !isMobile})
+  const editor = makeEditor({url, content, autofocus, submit, uploading, aggressive: false})
 
   let popover: Instance | undefined = $state()
   let editorInstance: Awaited<typeof editor> | null = null
@@ -114,8 +115,8 @@
     <EditorContent {editor} />
   </div>
   <Button
-    data-tip="{window.navigator.platform.includes('Mac') ? 'cmd' : 'ctrl'}+enter to send"
-    class="center tooltip tooltip-left absolute right-4 h-10 w-10 min-w-10 rounded-full"
+    data-tip={!isMobile ? sendShortcut : undefined}
+    class={`center absolute right-4 h-10 w-10 min-w-10 rounded-full ${!isMobile ? "tooltip tooltip-left" : ""}`}
     disabled={$uploading}
     onclick={submit}>
     <Icon icon={Plane} />

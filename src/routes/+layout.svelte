@@ -17,7 +17,6 @@
     pubkey,
     sessions,
     signerLog,
-    shouldUnwrap,
     SignerLogEntryStatus,
   } from "@welshman/app"
   import * as lib from "@welshman/lib"
@@ -318,11 +317,6 @@
       sync({
         key: "sessions",
         store: sessions,
-        storage: kv,
-      }),
-      sync({
-        key: "shouldUnwrap",
-        store: shouldUnwrap,
         storage: kv,
       }),
     ])

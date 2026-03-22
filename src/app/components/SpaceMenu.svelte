@@ -167,7 +167,7 @@
             {/if}
             {#if $relay?.pubkey && $relay.pubkey !== $pubkey}
               <li>
-                <Link href={makeChatPath([$relay.pubkey])}>
+                <Link href={makeChatPath($relay.pubkey)}>
                   <Icon icon={Letter} />
                   Contact Owner
                 </Link>

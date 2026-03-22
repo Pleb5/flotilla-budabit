@@ -19,7 +19,6 @@ import {
   tracker,
   repository,
   hasNegentropy,
-  shouldUnwrap,
   userRelayList,
   userFollowList,
   userMessagingRelayList,
@@ -53,7 +52,10 @@ import {
   setupTokensSync,
   setupExtensionSettingsSync,
 } from "./requests"
-import {applyRemoteExtensionSettings, startExtensionSettingsAutoSync} from "@app/extensions/settings"
+import {
+  applyRemoteExtensionSettings,
+  startExtensionSettingsAutoSync,
+} from "@app/extensions/settings"
 import {loadRepoWatch} from "./repo-watch"
 
 // Utils
@@ -332,35 +334,34 @@ const syncDMs = () => {
 
   // When pubkey changes, re-sync
   const unsubscribePubkey = pubkey.subscribe($pubkey => {
-      if ($pubkey !== currentPubkey) {
-        unsubscribeAll()
-      }
+    if ($pubkey !== currentPubkey) {
+      unsubscribeAll()
+    }
 
-      // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.
-      if ($pubkey) {
-        const relayHints = getMessagingRelayHints()
-        loadUserRelayList($pubkey)
-        forceLoadUserMessagingRelayList(relayHints)
-      }
+    // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.
+    if ($pubkey) {
+      const relayHints = getMessagingRelayHints()
+      loadUserRelayList($pubkey)
+      forceLoadUserMessagingRelayList(relayHints)
+    }
 
-      currentPubkey = $pubkey
-    })
+    currentPubkey = $pubkey
+  })
 
   // When user messaging relays change, update synchronization
-  const unsubscribeList = derived(
-    [pubkey, userMessagingRelayList],
-    identity,
-  ).subscribe(([$pubkey, $userMessagingRelayList]) => {
-    if ($pubkey) {
-      const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
-      // Filter out any non-string values before sanitizing
-      const stringRelays = Array.isArray(rawRelays)
-        ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
-        : []
-      const relayUrls = sanitizeRelayList(stringRelays)
-      subscribeAll($pubkey, relayUrls)
-    }
-  })
+  const unsubscribeList = derived([pubkey, userMessagingRelayList], identity).subscribe(
+    ([$pubkey, $userMessagingRelayList]) => {
+      if ($pubkey) {
+        const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
+        // Filter out any non-string values before sanitizing
+        const stringRelays = Array.isArray(rawRelays)
+          ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
+          : []
+        const relayUrls = sanitizeRelayList(stringRelays)
+        subscribeAll($pubkey, relayUrls)
+      }
+    },
+  )
 
   return () => {
     unsubscribeAll()
@@ -476,7 +477,7 @@ const syncUserGitData = () => {
     return userRelays
   }
 
-  // Subscribe to pubkey changes only - bookmarks and git data are public, don't need shouldUnwrap
+  // Subscribe to pubkey changes only - bookmarks and git data are public
   const unsubscribePubkey = pubkey.subscribe($pubkey => {
     console.log(
       "[syncUserGitData] Subscription fired - pubkey:",

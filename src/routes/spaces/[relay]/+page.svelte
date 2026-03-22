@@ -54,7 +54,7 @@
   {#snippet action()}
     <div class="row-2">
       {#if owner}
-        <Link class="btn btn-primary btn-sm" href={makeChatPath([owner])}>
+        <Link class="btn btn-primary btn-sm" href={makeChatPath(owner)}>
           <Icon icon={Letter} />
           Contact Owner
         </Link>

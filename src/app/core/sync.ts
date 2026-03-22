@@ -8,7 +8,6 @@ import {
   RELAY_ADD_MEMBER,
   RELAY_REMOVE_MEMBER,
   RELAY_MEMBERS,
-  WRAP,
   ROOM_ADMINS,
   ROOM_MEMBERS,
   ROOM_CREATE_PERMISSION,
@@ -26,12 +25,10 @@ import {
   tracker,
   repository,
   hasNegentropy,
-  shouldUnwrap,
   userRelayList,
   userFollowList,
   userMessagingRelayList,
   loadUserRelayList,
-  loadUserMessagingRelayList,
   loadUserBlossomServerList,
   loadUserFollowList,
   loadUserMuteList,
@@ -52,6 +49,7 @@ import {
   getSpaceRoomsFromGroupList,
   makeCommentFilter,
 } from "@app/core/state"
+import {DM_KIND} from "@lib/budabit/dm"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
 
 // Utils
@@ -303,21 +301,25 @@ const syncSpaces = () => {
 
 // DMs
 
+const buildDmFilters = (pubkey: string, extra: Filter = {}) => [
+  {kinds: [DM_KIND], "#p": [pubkey], ...extra},
+  {kinds: [DM_KIND], authors: [pubkey], ...extra},
+]
+
 const syncDMRelay = (url: string, pubkey: string) => {
   const controller = new AbortController()
+  const filters = buildDmFilters(pubkey, {since: ago(WEEK, 2)})
 
-  // Load historical data
   pullWithFallback({
     relays: [url],
     signal: controller.signal,
-    filters: [{kinds: [WRAP], "#p": [pubkey], until: ago(WEEK, 2)}],
+    filters,
   })
 
-  // Load new events
   request({
     relays: [url],
     signal: controller.signal,
-    filters: [{kinds: [WRAP], "#p": [pubkey], since: ago(WEEK, 2)}],
+    filters,
   })
 
   return () => controller.abort()
@@ -353,31 +355,28 @@ const syncDMs = () => {
   }
 
   // When pubkey changes, re-sync
-  const unsubscribePubkey = derived([pubkey, shouldUnwrap], identity).subscribe(
-    ([$pubkey, $shouldUnwrap]) => {
-      if ($pubkey !== currentPubkey) {
-        unsubscribeAll()
-      }
+  const unsubscribePubkey = pubkey.subscribe($pubkey => {
+    if ($pubkey !== currentPubkey) {
+      unsubscribeAll()
+    }
 
-      // If we have a pubkey, refresh our user's relay list then sync our subscriptions
-      if ($pubkey && $shouldUnwrap) {
-        loadUserRelayList($pubkey).then(() => loadUserMessagingRelayList($pubkey))
-      }
+    // If we have a pubkey, refresh our user's relay list then sync our subscriptions
+    if ($pubkey) {
+      loadUserRelayList($pubkey)
+    }
 
-      currentPubkey = $pubkey
-    },
-  )
+    currentPubkey = $pubkey
+  })
 
   // When user messaging relays change, update synchronization
   const unsubscribeList = userMessagingRelayList.subscribe($userMessagingRelayList => {
     const $pubkey = pubkey.get()
-    const $shouldUnwrap = shouldUnwrap.get()
 
-    if ($pubkey && $shouldUnwrap) {
+    if ($pubkey) {
       const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
       // Filter out any non-string values
-      const stringRelays = Array.isArray(rawRelays) 
-        ? rawRelays.filter(r => typeof r === 'string' && r.length > 0)
+      const stringRelays = Array.isArray(rawRelays)
+        ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
         : []
       subscribeAll($pubkey, stringRelays)
     }

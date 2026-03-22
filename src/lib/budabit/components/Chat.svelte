@@ -52,7 +52,6 @@
     if (others.length === 1) return others[0]
     return undefined
   })
-  const isGroupChat = $derived(others.length > 1)
 
   const selfRelayList = $derived($messagingRelayListsByPubkey.get($pubkey!))
   const recipientRelayList = $derived(
@@ -95,10 +94,6 @@
   })
 
   const dmBlockedMessage = $derived.by(() => {
-    if (isGroupChat) {
-      return "Group chats are not supported."
-    }
-
     if (!hasSelfInbox && !hasRecipientInbox) {
       return "Both you and the recipient must configure a DM inbox relay before you can send messages."
     }
@@ -120,8 +115,9 @@
   )
 
   const showMembers = () => {
-    if (others.length !== 1) return
-    pushModal(ProfileDetail, {pubkey: others[0]})
+    if (others.length > 0) {
+      pushModal(ProfileDetail, {pubkey: others[0]})
+    }
   }
 
   const onSubmit = async (params: EventContent) => {
@@ -211,7 +207,7 @@
   })
 
   $effect(() => {
-    if (isGroupChat || relayCheckPending) return
+    if (relayCheckPending) return
 
     const key = [hasSelfInbox, hasRecipientInbox].join(":")
     if (key === lastToastKey) return
@@ -329,18 +325,10 @@
           <ProfileCircle pubkey={$pubkey!} size={5} />
           <ProfileName pubkey={$pubkey!} />
         </div>
-      {:else if others.length === 1}
+      {:else}
         <div class="row-2">
           <ProfileCircle pubkey={others[0]} size={5} />
           <ProfileName pubkey={others[0]} />
-        </div>
-      {:else}
-        <div class="row-2 text-left">
-          <div class="row-2 text-sm font-semibold text-error">
-            <Icon icon={Danger} />
-            Group chat disabled
-          </div>
-          <div class="text-xs opacity-70">Direct messages are one-on-one only.</div>
         </div>
       {/if}
     </Button>
@@ -357,17 +345,7 @@
 
 <PageContent class="flex flex-col-reverse gap-2 pt-4">
   <div bind:this={dynamicPadding}></div>
-  {#if isGroupChat}
-    <div class="py-12">
-      <div class="card2 col-2 m-auto max-w-md items-center text-center">
-        <p class="row-2 text-lg text-error">
-          <Icon icon={Danger} />
-          Group chats are not supported.
-        </p>
-        <p>Direct messages are one-on-one only.</p>
-      </div>
-    </div>
-  {:else if relayCheckPending}
+  {#if relayCheckPending}
     <div class="py-12">
       <div class="card2 col-2 m-auto max-w-md items-center text-center">
         <p class="row-2 text-lg">

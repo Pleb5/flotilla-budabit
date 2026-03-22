@@ -2,7 +2,7 @@
   import {goto} from "$app/navigation"
   import {removeUndefined} from "@welshman/lib"
   import {ManagementMethod} from "@welshman/util"
-  import {shouldUnwrap, manageRelay, deriveProfile, displayProfileByPubkey} from "@welshman/app"
+  import {manageRelay, deriveProfile, displayProfileByPubkey} from "@welshman/app"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import Letter from "@assets/icons/letter-opened.svg?dataurl"
@@ -20,7 +20,6 @@
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
-  import ChatEnable from "@lib/budabit/components/ChatEnable.svelte"
   import {pubkeyLink, deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
@@ -39,11 +38,11 @@
 
   const back = () => history.back()
 
-  const chatPath = makeChatPath([pubkey])
+  const chatPath = makeChatPath(pubkey)
 
   const showInfo = () => pushModal(EventInfo, {url, event: $profile!.event})
 
-  const openChat = () => ($shouldUnwrap ? goto(chatPath) : pushModal(ChatEnable, {next: chatPath}))
+  const openChat = () => goto(chatPath)
 
   const toggleMenu = (pubkey: string) => {
     showMenu = !showMenu

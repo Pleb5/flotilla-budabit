@@ -1,6 +1,5 @@
 <script lang="ts">
-  import {beforeNavigate, goto} from "$app/navigation"
-  import {shouldUnwrap} from "@welshman/app"
+  import {goto} from "$app/navigation"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
@@ -9,7 +8,6 @@
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
   import SpaceAdd from "@app/components/SpaceAdd.svelte"
-  import ChatEnable from "@lib/budabit/components/ChatEnable.svelte"
   import {pushModal} from "@app/util/modal"
   import {PLATFORM_NAME} from "@app/core/state"
   import { makeSpacePath } from "@src/app/util/routes"
@@ -21,7 +19,7 @@
 
   const addSpace = () => pushModal(SpaceAdd)
 
-  const openChat = () => ($shouldUnwrap ? goto("/chat") : pushModal(ChatEnable, {next: "/chat"}))
+  const openChat = () => goto("/chat")
 
 
 </script>
@@ -67,7 +65,7 @@
               <div>Start a conversation</div>
             {/snippet}
             {#snippet info()}
-              <div>Use nostr's encrypted group chats to stay in touch.</div>
+              <div>Use nostr's encrypted direct messages to stay in touch.</div>
             {/snippet}
           </CardButton>
         </Button>

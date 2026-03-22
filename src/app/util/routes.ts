@@ -2,7 +2,7 @@ import type {Page} from "@sveltejs/kit"
 import {get} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
 import {goto} from "$app/navigation"
-import {nthEq, remove, sleep} from "@welshman/lib"
+import {nthEq, sleep} from "@welshman/lib"
 import type {TrustedEvent} from "@welshman/util"
 import {pubkey, tracker, loadRelay} from "@welshman/app"
 import {scrollToEvent} from "@lib/html"
@@ -99,8 +99,8 @@ export const goToSpace = async (url: string) => {
   }
 }
 
-export const makeChatPath = (pubkeys: string[]) => {
-  const id = makeChatId(remove(pubkey.get()!, pubkeys))
+export const makeChatPath = (recipient: string) => {
+  const id = makeChatId(recipient)
 
   return `/chat/${id}`
 }
@@ -153,7 +153,15 @@ export const goToEvent = async (event: TrustedEvent, options: Record<string, any
 
 export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
   if (event.kind === DM_KIND) {
-    return makeChatPath([event.pubkey, ...getPubkeyTagValues(event.tags)])
+    const selfPubkey = pubkey.get()
+    const participants = Array.from(new Set([event.pubkey, ...getPubkeyTagValues(event.tags)]))
+    const recipients = participants.filter(pk => pk !== selfPubkey)
+
+    if (recipients.length !== 1) {
+      return "/chat"
+    }
+
+    return makeChatPath(recipients[0])
   }
 
   const h = getTagValue(ROOM, event.tags)
