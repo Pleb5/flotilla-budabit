@@ -17,6 +17,7 @@
     pubkey,
     sessions,
     signerLog,
+    shouldUnwrap,
     SignerLogEntryStatus,
   } from "@welshman/app"
   import * as lib from "@welshman/lib"
@@ -104,6 +105,9 @@
 
   // Initialize push notification handler asap
   initializePushNotifications()
+
+  // Keep unwrap enabled globally so wrapped relay traffic does not throw noisily.
+  shouldUnwrap.set(true)
 
   setupBudabitNotifications()
   
