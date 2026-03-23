@@ -15,7 +15,7 @@
   } from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById, deriveEventsDesc} from "@welshman/store"
   import {Router} from "@welshman/router"
-  import {load} from "@welshman/net"
+  import {load, PublishStatus} from "@welshman/net"
   import {fly, staggeredFade, staggeredSlideScale, staggeredScaleBounce, staggeredFlip} from "@lib/transition"
   import {fade} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
@@ -1368,6 +1368,22 @@
     }
   }
 
+  const extractRelayAck = (thunk: any) => {
+    const results = thunk?.results || {}
+    const ackedRelays = Object.entries(results)
+      .filter(([, result]: [string, any]) => result?.status === PublishStatus.Success)
+      .map(([relay]) => relay)
+    const failedRelays = Object.entries(results)
+      .filter(([, result]: [string, any]) => result?.status !== PublishStatus.Success)
+      .map(([relay]) => relay)
+
+    return {
+      ackedRelays,
+      failedRelays,
+      successCount: ackedRelays.length,
+    }
+  }
+
   const getProfileForWizard = async (pubkey: string) => {
     try {
       const map = getStore(profilesByPubkey)
@@ -1500,7 +1516,8 @@
             const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
             const tagRelays = relaysTag && relaysTag.length > 1 ? relaysTag.slice(1) : []
             const targetRelays = tagRelays.length > 0 ? [...new Set(tagRelays)] : defaultRepoRelays
-            const result = publishEventToRelays(repoEvent, targetRelays)
+            const thunk = await publishEventToRelays(repoEvent, targetRelays)
+            return extractRelayAck(thunk)
           },
           getProfile: getProfileForWizard,
           searchProfiles: searchProfilesForWizard,
@@ -1660,7 +1677,8 @@
               }
             }
 
-            const result = publishEventToRelays(repoEvent, targetRelays)
+            const thunk = await publishEventToRelays(repoEvent, targetRelays)
+            return extractRelayAck(thunk)
           },
           onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
           onImportComplete: (result: ImportResult) => {

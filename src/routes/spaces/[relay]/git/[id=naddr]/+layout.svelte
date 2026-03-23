@@ -27,7 +27,7 @@
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
   import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
   import {EditRepoPanel} from "@nostr-git/ui"
-  import {postRepoAnnouncement} from "@lib/budabit/commands.js"
+  import {postRepoAnnouncement, postRepoStateEvent} from "@lib/budabit/commands.js"
   import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   
@@ -47,7 +47,7 @@
   import {derived, get as getStore, readable, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById, deriveEventsDesc, throttled} from "@welshman/store"
-  import {load, request} from "@welshman/net"
+  import {load, request, PublishStatus} from "@welshman/net"
   import {Router} from "@welshman/router"
   import {goto, beforeNavigate} from "$app/navigation"
   import {
@@ -1999,6 +1999,22 @@
       }
     }
 
+    const extractRelayAck = (thunk: any) => {
+      const results = thunk?.results || {}
+      const ackedRelays = Object.entries(results)
+        .filter(([, result]: [string, any]) => result?.status === PublishStatus.Success)
+        .map(([relay]) => relay)
+      const failedRelays = Object.entries(results)
+        .filter(([, result]: [string, any]) => result?.status !== PublishStatus.Success)
+        .map(([relay]) => relay)
+
+      return {
+        ackedRelays,
+        failedRelays,
+        successCount: ackedRelays.length,
+      }
+    }
+
     pushModal(ForkRepoDialog, {
       repo: repoClass,
       pubkey: $pubkey || "",
@@ -2007,10 +2023,14 @@
         // Publish fork events to explicitly selected repo relays when provided in event tags.
         const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
         const relays = Array.isArray(relaysTag) ? relaysTag.slice(1).filter(Boolean) : []
-        const thunk = postRepoAnnouncement(event, relays)
+        const thunk =
+          event?.kind === GIT_REPO_STATE
+            ? postRepoStateEvent(event, relays)
+            : postRepoAnnouncement(event, relays)
         if (thunk?.complete) {
           await thunk.complete
         }
+        return extractRelayAck(thunk)
       },
       onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
       graspServerUrls: graspServerUrls,
@@ -2044,8 +2064,27 @@
     
     pushModal(EditRepoPanel, {
       repo: repoClass,
-      onPublishEvent: (event: RepoAnnouncementEvent) => {
-        postRepoAnnouncement(event, relaysForPublish)
+      onPublishEvent: async (event: RepoAnnouncementEvent | RepoStateEvent) => {
+        const thunk =
+          event.kind === GIT_REPO_STATE
+            ? postRepoStateEvent(event as RepoStateEvent, relaysForPublish)
+            : postRepoAnnouncement(event as RepoAnnouncementEvent, relaysForPublish)
+
+        if (thunk?.complete) {
+          await thunk.complete
+        }
+
+        if (thunk?.event && !repository.getEvent(thunk.event.id)) {
+          repository.publish(thunk.event as TrustedEvent)
+        }
+
+        if (event.kind === GIT_REPO_STATE && thunk?.event) {
+          const published = thunk.event as RepoStateEvent
+          optimisticRepoStates = {
+            ...optimisticRepoStates,
+            [repoName]: published,
+          }
+        }
       },
       onSaveComplete: async ({
         renamed,
