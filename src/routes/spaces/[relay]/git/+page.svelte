@@ -1368,6 +1368,103 @@
     }
   }
 
+  const normalizeRelayList = (values: string[]) => {
+    return Array.from(
+      new Set(
+        (values || [])
+          .map(value => normalizeRelayUrl(value))
+          .filter(Boolean),
+      ),
+    )
+  }
+
+  const getEventRelayTargets = (event: any): string[] => {
+    const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
+    const taggedRelays = Array.isArray(relaysTag) ? relaysTag.slice(1).filter(Boolean) : []
+    return normalizeRelayList(taggedRelays)
+  }
+
+  const isLikelyGraspCloneUrl = (value: string): boolean => {
+    try {
+      const url = new URL(String(value || "").trim())
+      if (url.protocol !== "https:" && url.protocol !== "http:") return false
+
+      const segments = url.pathname
+        .split("/")
+        .filter(Boolean)
+        .map(segment => decodeURIComponent(segment))
+
+      if (segments.length < 2) return false
+
+      const repoSegment = segments[segments.length - 1]
+      const ownerSegment = segments[segments.length - 2]
+      if (!repoSegment.endsWith(".git")) return false
+
+      const identifier = repoSegment.slice(0, -4)
+      if (!identifier) return false
+
+      return /^(nostr:)?npub1[023456789acdefghjklmnpqrstuvwxyz]+$/i.test(ownerSegment)
+    } catch {
+      return false
+    }
+  }
+
+  const isGraspRepoPublishEvent = (event: any): boolean => {
+    if (!event || (event.kind !== GIT_REPO_ANNOUNCEMENT && event.kind !== GIT_REPO_STATE)) {
+      return false
+    }
+
+    const taggedRelays = getEventRelayTargets(event)
+    if (event.kind === GIT_REPO_STATE) {
+      return taggedRelays.length > 0
+    }
+
+    const cloneUrls = (event.tags || [])
+      .filter((tag: any[]) => tag?.[0] === "clone" && typeof tag?.[1] === "string")
+      .map((tag: any[]) => String(tag[1]))
+
+    return cloneUrls.some(isLikelyGraspCloneUrl)
+  }
+
+  const resolveRepoEventPublishRelays = (event: any, fallbackRelays: string[] = defaultRepoRelays) => {
+    const taggedRelays = getEventRelayTargets(event)
+
+    if (isGraspRepoPublishEvent(event)) {
+      if (taggedRelays.length === 0) {
+        throw new Error("GRASP repository event is missing explicit relay targets")
+      }
+      return taggedRelays
+    }
+
+    return normalizeRelayList([...(fallbackRelays || []), ...taggedRelays])
+  }
+
+  const buildRepoNaddrFromAnnouncement = (
+    event: any,
+    fallbackPubkey: string,
+    fallbackRelays: string[] = [],
+  ): string => {
+    const parsed = parseRepoAnnouncementEvent(event as any)
+    const identifier = parsed.name || getTagValue("d", event?.tags || []) || ""
+    if (!identifier) {
+      throw new Error("Repository announcement is missing identifier")
+    }
+
+    const pubkey = event?.pubkey || fallbackPubkey
+    if (!pubkey) {
+      throw new Error("Repository announcement is missing pubkey")
+    }
+
+    const relays = normalizeRelayList([...(parsed.relays || []), ...(fallbackRelays || [])])
+
+    return nip19.naddrEncode({
+      kind: GIT_REPO_ANNOUNCEMENT,
+      pubkey,
+      identifier,
+      relays: relays.length > 0 ? relays : undefined,
+    })
+  }
+
   const extractRelayAck = (thunk: any) => {
     const results = thunk?.results || {}
     const ackedRelays = Object.entries(results)
@@ -1494,10 +1591,7 @@
           },
           onNavigateToRepo: (result: NewRepoResult) => {
             try {
-              const d =
-                getTagValue("d", result.announcementEvent.tags) || result.localRepo.repoId
-              const address = new Address(GIT_REPO_ANNOUNCEMENT, $pubkey!, d, [url])
-              const naddr = address.toNaddr()
+              const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent, $pubkey || "", [url])
               goto(makeGitPath(url, naddr))
             } catch (error) {
               console.error("[+page.svelte] Failed to navigate to new repo:", error)
@@ -1513,9 +1607,7 @@
           defaultAuthorName: authorName,
           defaultAuthorEmail: authorEmail,
           onPublishEvent: async (repoEvent: NostrEvent) => {
-            const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
-            const tagRelays = relaysTag && relaysTag.length > 1 ? relaysTag.slice(1) : []
-            const targetRelays = tagRelays.length > 0 ? [...new Set(tagRelays)] : defaultRepoRelays
+            const targetRelays = resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
             const thunk = await publishEventToRelays(repoEvent, targetRelays)
             return extractRelayAck(thunk)
           },
@@ -1657,26 +1749,7 @@
             clearModals()
           },
           onPublishEvent: async (repoEvent: NostrEvent) => {
-            // For GRASP repos (kind 30617/30618), publish to the GRASP relay from the event's 'relays' tag
-            let targetRelays = defaultRepoRelays
-
-            // Check if this is a repo announcement or state event
-            if (repoEvent.kind === 30617 || repoEvent.kind === 30618) {
-              // Extract relay URLs from the 'relays' tag if present
-              const relaysTag = repoEvent.tags?.find((t: any[]) => t[0] === "relays")
-              if (relaysTag && relaysTag.length > 1) {
-                // For GRASP events, publish to BOTH the GRASP relay AND default relays
-                const graspRelays = relaysTag.slice(1)
-                targetRelays = [...graspRelays, ...defaultRepoRelays]
-                // Remove duplicates while preserving order
-                targetRelays = [...new Set(targetRelays)]
-                console.log(
-                  "🔐 Publishing GRASP event to GRASP relay + default relays:",
-                  targetRelays,
-                )
-              }
-            }
-
+            const targetRelays = resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
             const thunk = await publishEventToRelays(repoEvent, targetRelays)
             return extractRelayAck(thunk)
           },
@@ -1690,8 +1763,11 @@
           },
           onNavigateToRepo: (result: ImportResult) => {
             try {
-              // Convert announcement event to naddr and navigate
-              const naddr = Address.fromEvent(result.announcementEvent as any).toNaddr()
+              const naddr = buildRepoNaddrFromAnnouncement(
+                result.announcementEvent as any,
+                $pubkey || "",
+                [url],
+              )
               const destination = makeGitPath(url, naddr)
               goto(destination)
             } catch (error) {

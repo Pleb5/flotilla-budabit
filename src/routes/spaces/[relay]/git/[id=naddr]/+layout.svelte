@@ -1946,6 +1946,95 @@
     await goto(targetPath)
   }
 
+  function normalizeRelayList(values: string[]): string[] {
+    return Array.from(
+      new Set(
+        (values || [])
+          .map(value => normalizeRelayUrl(value))
+          .filter(Boolean),
+      ),
+    )
+  }
+
+  function getEventRelayTargets(event: any): string[] {
+    const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
+    const taggedRelays = Array.isArray(relaysTag) ? relaysTag.slice(1).filter(Boolean) : []
+    return normalizeRelayList(taggedRelays)
+  }
+
+  function isLikelyGraspCloneUrl(value: string): boolean {
+    try {
+      const url = new URL(String(value || "").trim())
+      if (url.protocol !== "https:" && url.protocol !== "http:") return false
+
+      const segments = url.pathname
+        .split("/")
+        .filter(Boolean)
+        .map(segment => decodeURIComponent(segment))
+
+      if (segments.length < 2) return false
+
+      const repoSegment = segments[segments.length - 1]
+      const ownerSegment = segments[segments.length - 2]
+
+      if (!repoSegment.endsWith(".git")) return false
+
+      const identifier = repoSegment.slice(0, -4)
+      if (!identifier) return false
+
+      return /^(nostr:)?npub1[023456789acdefghjklmnpqrstuvwxyz]+$/i.test(ownerSegment)
+    } catch {
+      return false
+    }
+  }
+
+  function isGraspRepoPublishEvent(event: any): boolean {
+    if (!event || (event.kind !== GIT_REPO_ANNOUNCEMENT && event.kind !== GIT_REPO_STATE)) {
+      return false
+    }
+
+    const taggedRelays = getEventRelayTargets(event)
+    if (event.kind === GIT_REPO_STATE) {
+      return taggedRelays.length > 0
+    }
+
+    const cloneUrls = (event.tags || [])
+      .filter((tag: any[]) => tag?.[0] === "clone" && typeof tag?.[1] === "string")
+      .map((tag: any[]) => String(tag[1]))
+
+    return cloneUrls.some(isLikelyGraspCloneUrl)
+  }
+
+  async function publishRepoEventWithRelayPolicy(event: RepoAnnouncementEvent | RepoStateEvent, fallbackRelays: string[] = []) {
+    const taggedRelays = getEventRelayTargets(event)
+
+    if (isGraspRepoPublishEvent(event)) {
+      const targetRelays = normalizeRelayList(taggedRelays.length > 0 ? taggedRelays : fallbackRelays)
+
+      if (targetRelays.length === 0) {
+        throw new Error("GRASP repo event is missing explicit relay targets")
+      }
+
+      const thunk = publishThunk({event, relays: targetRelays})
+      if (thunk?.complete) {
+        await thunk.complete
+      }
+      return thunk
+    }
+
+    const mergedRelays = normalizeRelayList([...(fallbackRelays || []), ...taggedRelays])
+    const thunk =
+      event.kind === GIT_REPO_STATE
+        ? postRepoStateEvent(event as RepoStateEvent, mergedRelays)
+        : postRepoAnnouncement(event as RepoAnnouncementEvent, mergedRelays)
+
+    if (thunk?.complete) {
+      await thunk.complete
+    }
+
+    return thunk
+  }
+
   async function forkRepo() {
     if (!repoClass) return
 
@@ -2020,16 +2109,11 @@
       pubkey: $pubkey || "",
       workerApi,
       onPublishEvent: async (event: any) => {
-        // Publish fork events to explicitly selected repo relays when provided in event tags.
-        const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
-        const relays = Array.isArray(relaysTag) ? relaysTag.slice(1).filter(Boolean) : []
-        const thunk =
-          event?.kind === GIT_REPO_STATE
-            ? postRepoStateEvent(event, relays)
-            : postRepoAnnouncement(event, relays)
-        if (thunk?.complete) {
-          await thunk.complete
-        }
+        const taggedRelays = getEventRelayTargets(event)
+        const thunk = await publishRepoEventWithRelayPolicy(
+          event,
+          taggedRelays.length > 0 ? taggedRelays : defaultRelays,
+        )
         return extractRelayAck(thunk)
       },
       onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
@@ -2065,14 +2149,7 @@
     pushModal(EditRepoPanel, {
       repo: repoClass,
       onPublishEvent: async (event: RepoAnnouncementEvent | RepoStateEvent) => {
-        const thunk =
-          event.kind === GIT_REPO_STATE
-            ? postRepoStateEvent(event as RepoStateEvent, relaysForPublish)
-            : postRepoAnnouncement(event as RepoAnnouncementEvent, relaysForPublish)
-
-        if (thunk?.complete) {
-          await thunk.complete
-        }
+        const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish)
 
         if (thunk?.event && !repository.getEvent(thunk.event.id)) {
           repository.publish(thunk.event as TrustedEvent)
