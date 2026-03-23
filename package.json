@@ -32,7 +32,6 @@
     "test:e2e:smoke": "playwright test --project=smoke",
     "test:e2e:identity": "playwright test --project=identity",
     "test:e2e:git": "playwright test --project=git",
-    "test:e2e:bench": "playwright test --project=git tests/e2e/git/navigation.bench.spec.ts",
     "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:widget": "playwright test --project=widget",
     "test:e2e:ui": "playwright test --ui"

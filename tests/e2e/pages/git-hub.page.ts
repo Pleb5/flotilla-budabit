@@ -21,6 +21,7 @@ export class GitHubPage {
   readonly bookmarksTab: Locator
   readonly bookmarkRepoButton: Locator
   readonly repoGrid: Locator
+  readonly repoCards: Locator
   readonly loadingSpinner: Locator
   readonly emptyState: Locator
 
@@ -45,6 +46,9 @@ export class GitHubPage {
 
     // Content area
     this.repoGrid = page.locator(".grid.gap-3")
+    this.repoCards = page.locator("div.rounded-md.border.border-border.bg-card.p-3").filter({
+      has: page.locator('a:has-text("Browse")'),
+    })
     this.loadingSpinner = page.getByText("Looking for Your Git Repos...")
     this.emptyState = page.locator("p").filter({hasText: /No.*found/})
   }
@@ -64,18 +68,22 @@ export class GitHubPage {
     // Give the page more time to load, especially on slower CI runners
     await expect(this.pageTitle).toBeVisible({timeout: 15000})
     // Wait for either:
-    // 1. Loading spinner to disappear, OR
-    // 2. Empty state message to appear, OR
-    // 3. Repo grid to appear with content
+    // 1. Empty state text to appear, OR
+    // 2. At least one browseable repo card to render.
+    // Keep waiting while loading indicators are visible.
     await this.page.waitForFunction(() => {
       const bodyText = document.body.textContent || ""
       const hasSpinner = bodyText.includes("Looking for Your Git Repos...")
+      const hasCardsLoading = bodyText.includes("Loading repositories...")
+      const isLoading = hasSpinner || hasCardsLoading
       const hasEmptyState = bodyText.includes("No bookmarked repositories") ||
                            bodyText.includes("You haven't created any") ||
                            bodyText.includes("No Repos found") ||
-                           bodyText.includes("No repositories found")
-      const hasRepoGrid = document.querySelector(".grid.gap-3")?.children?.length > 0
-      return !hasSpinner || hasEmptyState || hasRepoGrid
+                           bodyText.includes("No repositories found") ||
+                           bodyText.includes("Repository not found. Please check the URI.")
+      const hasRepoCards = Array.from(document.querySelectorAll("a"))
+        .some(link => link.textContent?.trim() === "Browse")
+      return hasEmptyState || (hasRepoCards && !isLoading)
     }, {timeout: 30000}).catch(() => {
       // Spinner may have already disappeared or never appeared
     })
@@ -85,7 +93,7 @@ export class GitHubPage {
    * Get all repository cards on the page
    */
   async getRepoCards(): Promise<Locator[]> {
-    const cards = this.repoGrid.locator("> div")
+    const cards = this.repoCards
     const count = await cards.count()
     const result: Locator[] = []
     for (let i = 0; i < count; i++) {
@@ -189,7 +197,9 @@ export class GitHubPage {
     if (index >= cards.length) {
       throw new Error(`Repo index ${index} out of bounds (${cards.length} cards)`)
     }
-    await cards[index].click()
+    const browseLink = cards[index].locator('a:has-text("Browse")').first()
+    await expect(browseLink).toBeVisible()
+    await browseLink.click()
   }
 
   /**
@@ -197,7 +207,7 @@ export class GitHubPage {
    * Clicks the "Browse" link within the repo card which handles navigation.
    */
   async clickRepoByName(name: string): Promise<void> {
-    const repoCard = this.repoGrid.locator("> div").filter({hasText: name}).first()
+    const repoCard = this.repoCards.filter({hasText: name}).first()
     await expect(repoCard).toBeVisible()
     // Click the "Browse" link inside the card to navigate to repo detail
     const browseLink = repoCard.locator('a:has-text("Browse")')

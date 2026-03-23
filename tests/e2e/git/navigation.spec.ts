@@ -1,4 +1,4 @@
-import {test, expect} from "@playwright/test"
+import {test, expect, type Page} from "@playwright/test"
 import {GitHubPage} from "../pages/git-hub.page"
 import {RepoPage} from "../pages/repo.page"
 
@@ -29,6 +29,29 @@ const REPO_LOAD_THRESHOLD_MS = parseInt(
   process.env.TEST_PERF_REPO_LOAD || process.env.TEST_PERF_TIMEOUT || "5000",
   10,
 )
+
+const getRepoPageFromFirstCard = async (page: Page): Promise<RepoPage> => {
+  const gitHubPage = new GitHubPage(page, TEST_RELAY)
+  await gitHubPage.goto()
+
+  const repoCount = await gitHubPage.getRepoCount()
+  if (repoCount === 0) {
+    test.skip(true, "No repos available for performance test")
+  }
+
+  await gitHubPage.clickRepoByIndex(0)
+  await page.waitForURL(/\/git\/[^/]+/)
+
+  const url = new URL(page.url())
+  const pathParts = url.pathname.split("/")
+  const gitIdx = pathParts.indexOf("git")
+  const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
+  if (!repoPath) {
+    test.skip(true, "Could not extract repo path")
+  }
+
+  return new RepoPage(page, TEST_RELAY, repoPath)
+}
 
 test.describe("git navigation", () => {
   test("navigates to git hub page and verifies page loads", async ({page}) => {
@@ -110,28 +133,7 @@ test.describe("git navigation", () => {
 
 test.describe("git navigation performance", () => {
   test("repo tab switch to Issues completes within threshold", async ({page}) => {
-    const gitHubPage = new GitHubPage(page, TEST_RELAY)
-    await gitHubPage.goto()
-
-    const repoCount = await gitHubPage.getRepoCount()
-    if (repoCount === 0) {
-      test.skip(true, "No repos available for performance test")
-      return
-    }
-
-    await gitHubPage.clickRepoByIndex(0)
-    await page.waitForURL(/\/git\/[^/]+/)
-
-    const url = new URL(page.url())
-    const pathParts = url.pathname.split("/")
-    const gitIdx = pathParts.indexOf("git")
-    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
-    if (!repoPath) {
-      test.skip(true, "Could not extract repo path")
-      return
-    }
-
-    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+    const repoPage = await getRepoPageFromFirstCard(page)
 
     const start = Date.now()
     await repoPage.gotoTab("issues")
@@ -142,28 +144,7 @@ test.describe("git navigation performance", () => {
   })
 
   test("repo tab switch to Patches completes within threshold", async ({page}) => {
-    const gitHubPage = new GitHubPage(page, TEST_RELAY)
-    await gitHubPage.goto()
-
-    const repoCount = await gitHubPage.getRepoCount()
-    if (repoCount === 0) {
-      test.skip(true, "No repos available for performance test")
-      return
-    }
-
-    await gitHubPage.clickRepoByIndex(0)
-    await page.waitForURL(/\/git\/[^/]+/)
-
-    const url = new URL(page.url())
-    const pathParts = url.pathname.split("/")
-    const gitIdx = pathParts.indexOf("git")
-    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
-    if (!repoPath) {
-      test.skip(true, "Could not extract repo path")
-      return
-    }
-
-    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+    const repoPage = await getRepoPageFromFirstCard(page)
 
     const start = Date.now()
     await repoPage.gotoTab("patches")
@@ -174,28 +155,7 @@ test.describe("git navigation performance", () => {
   })
 
   test("repo tab switch to Code completes within threshold", async ({page}) => {
-    const gitHubPage = new GitHubPage(page, TEST_RELAY)
-    await gitHubPage.goto()
-
-    const repoCount = await gitHubPage.getRepoCount()
-    if (repoCount === 0) {
-      test.skip(true, "No repos available for performance test")
-      return
-    }
-
-    await gitHubPage.clickRepoByIndex(0)
-    await page.waitForURL(/\/git\/[^/]+/)
-
-    const url = new URL(page.url())
-    const pathParts = url.pathname.split("/")
-    const gitIdx = pathParts.indexOf("git")
-    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
-    if (!repoPath) {
-      test.skip(true, "Could not extract repo path")
-      return
-    }
-
-    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+    const repoPage = await getRepoPageFromFirstCard(page)
 
     const start = Date.now()
     await repoPage.gotoTab("code")
@@ -206,28 +166,7 @@ test.describe("git navigation performance", () => {
   })
 
   test("repo tab switch to Commits completes within threshold", async ({page}) => {
-    const gitHubPage = new GitHubPage(page, TEST_RELAY)
-    await gitHubPage.goto()
-
-    const repoCount = await gitHubPage.getRepoCount()
-    if (repoCount === 0) {
-      test.skip(true, "No repos available for performance test")
-      return
-    }
-
-    await gitHubPage.clickRepoByIndex(0)
-    await page.waitForURL(/\/git\/[^/]+/)
-
-    const url = new URL(page.url())
-    const pathParts = url.pathname.split("/")
-    const gitIdx = pathParts.indexOf("git")
-    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
-    if (!repoPath) {
-      test.skip(true, "Could not extract repo path")
-      return
-    }
-
-    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+    const repoPage = await getRepoPageFromFirstCard(page)
 
     const start = Date.now()
     await repoPage.gotoTab("commits")
@@ -238,32 +177,11 @@ test.describe("git navigation performance", () => {
   })
 
   test("repo page loads repo metadata within threshold", async ({page}) => {
-    const gitHubPage = new GitHubPage(page, TEST_RELAY)
-    await gitHubPage.goto()
-
-    const repoCount = await gitHubPage.getRepoCount()
-    if (repoCount === 0) {
-      test.skip(true, "No repos available for performance test")
-      return
-    }
-
-    await gitHubPage.clickRepoByIndex(0)
-    await page.waitForURL(/\/git\/\S+/)
-
-    const url = new URL(page.url())
-    const pathParts = url.pathname.split("/")
-    const gitIdx = pathParts.indexOf("git")
-    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
-    if (!repoPath) {
-      test.skip(true, "Could not extract repo path")
-      return
-    }
-
-    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+    const repoPage = await getRepoPageFromFirstCard(page)
 
     const start = Date.now()
     await repoPage.goto()
-    await expect(repoPage.repoName).toBeVisible({timeout: 15000})
+    await expect(repoPage.issuesTab).toBeVisible({timeout: 15000})
     const elapsed = Date.now() - start
 
     expect(elapsed).toBeLessThan(REPO_LOAD_THRESHOLD_MS)
