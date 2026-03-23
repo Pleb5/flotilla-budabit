@@ -560,10 +560,14 @@
   }
 
   const getStatusBadgeClass = (status?: string) => {
-    if (status === "open") return "border-sky-200 bg-sky-100/80 text-sky-800"
-    if (status === "applied") return "border-emerald-200 bg-emerald-100/80 text-emerald-800"
-    if (status === "closed") return "border-rose-200 bg-rose-100/80 text-rose-800"
-    if (status === "draft") return "border-amber-200 bg-amber-100/80 text-amber-800"
+    if (status === "open")
+      return "border-sky-200 bg-sky-100/80 text-sky-900 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-200"
+    if (status === "applied")
+      return "border-emerald-200 bg-emerald-100/80 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200"
+    if (status === "closed")
+      return "border-rose-200 bg-rose-100/80 text-rose-900 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-200"
+    if (status === "draft")
+      return "border-amber-200 bg-amber-100/80 text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
     return "border-border bg-secondary text-secondary-foreground"
   }
 
@@ -698,7 +702,7 @@
               {#if selectedPatch?.raw?.tags?.find((t: PatchTag) => t[0] === "commit-pgp-sig")}
                 <div class="flex items-center justify-between">
                   <span class="text-muted-foreground">Signed:</span>
-                  <div class="flex items-center gap-2 text-green-600">
+                  <div class="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
                     <Shield class="h-3 w-3" />
                     <span class="text-xs">PGP Verified</span>
                   </div>
@@ -880,11 +884,13 @@
           </div>
           <div class="flex items-center gap-2">
             {#if analysisTriggeredManually}
-              <span class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 text-muted-foreground">
+              <span
+                class="rounded bg-sky-100 px-2 py-1 text-xs text-sky-900 dark:bg-sky-900/40 dark:text-sky-200">
                 Manual Analysis
               </span>
             {:else if mergeAnalysisResult}
-              <span class="rounded bg-green-100 px-2 py-1 text-xs text-green-800 text-muted-foreground">
+              <span
+                class="rounded bg-emerald-100 px-2 py-1 text-xs text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200">
                 Auto Analysis
               </span>
             {/if}
@@ -960,17 +966,17 @@
               </div>
             </div>
             {#if isMerging}
-              <div class="flex items-center gap-2 text-blue-600">
+              <div class="flex items-center gap-2 text-sky-700 dark:text-sky-300">
                 <Loader2 class="h-4 w-4 animate-spin" />
                 <span class="text-sm font-medium">Merging...</span>
               </div>
             {:else if mergeSuccess}
-              <div class="flex items-center gap-2 text-green-600">
+              <div class="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
                 <CheckCircle class="h-4 w-4" />
                 <span class="text-sm font-medium">Merged</span>
               </div>
             {:else if mergeError}
-              <div class="flex items-center gap-2 text-red-600">
+              <div class="flex items-center gap-2 text-rose-700 dark:text-rose-300">
                 <AlertCircle class="h-4 w-4" />
                 <span class="text-sm font-medium">Failed</span>
               </div>
@@ -993,49 +999,55 @@
           {/if}
 
           {#if mergeError}
-            <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
+            <div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-900 dark:bg-rose-950/30">
               <div class="flex items-start gap-2">
-                <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600" />
+                <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-700 dark:text-rose-300" />
                 <div>
-                  <p class="text-sm font-medium text-red-800">Merge failed</p>
-                  <p class="mt-1 text-sm text-red-700">{mergeError}</p>
+                  <p class="text-sm font-medium text-rose-900 dark:text-rose-200">Merge failed</p>
+                  <p class="mt-1 text-sm text-rose-800 dark:text-rose-300">{mergeError}</p>
                 </div>
               </div>
             </div>
           {/if}
 
           {#if mergeSuccess && mergeResult}
-            <div class="mb-4 rounded-lg border border-green-200 bg-green-50 p-3">
+            <div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
               <div class="flex items-start gap-2">
-                <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-700 dark:text-emerald-300" />
                 <div class="flex-1">
-                  <p class="text-sm font-medium text-green-800">Patch merged successfully!</p>
+                  <p class="text-sm font-medium text-emerald-900 dark:text-emerald-200">Patch merged successfully!</p>
                   {#if mergeResult.mergeCommitOid}
-                    <p class="mt-1 text-sm text-green-700">
-                      Merge commit: <code class="rounded bg-green-100 px-1">{mergeResult.mergeCommitOid.slice(0, 8)}</code>
+                    <p class="mt-1 text-sm text-emerald-800 dark:text-emerald-300">
+                      Merge commit:
+                      <code class="rounded bg-emerald-100 px-1 dark:bg-emerald-900/50"
+                        >{mergeResult.mergeCommitOid.slice(0, 8)}</code
+                      >
                     </p>
                   {/if}
                   {#if mergeResult.pushedRemotes && mergeResult.pushedRemotes.length > 0}
-                    <p class="mt-1 text-sm text-green-700">Pushed to: {mergeResult.pushedRemotes.join(", ")}</p>
+                    <p class="mt-1 text-sm text-emerald-800 dark:text-emerald-300"
+                      >Pushed to: {mergeResult.pushedRemotes.join(", ")}</p
+                    >
                   {/if}
                   {#if mergeResult.skippedRemotes && mergeResult.skippedRemotes.length > 0}
                     <div class="mt-2">
-                      <p class="mb-1 text-sm font-medium text-yellow-700">
+                      <p class="mb-1 text-sm font-medium text-amber-800 dark:text-amber-300">
                         ⚠️ Failed to push to {mergeResult.skippedRemotes.length} remote{mergeResult.skippedRemotes.length > 1 ? "s" : ""}:
                       </p>
                       {#if mergeResult.pushErrors && mergeResult.pushErrors.length > 0}
                         <div class="space-y-2">
                           {#each mergeResult.pushErrors as pushError}
-                            <div class="rounded border border-yellow-200 bg-yellow-50 p-2">
-                              <p class="text-sm font-medium text-yellow-800">
+                            <div
+                              class="rounded border border-amber-200 bg-amber-50 p-2 dark:border-amber-900 dark:bg-amber-950/30">
+                              <p class="text-sm font-medium text-amber-900 dark:text-amber-200">
                                 {pushError.remote} ({pushError.url})
                               </p>
-                              <p class="mt-1 text-sm text-yellow-700">
+                              <p class="mt-1 text-sm text-amber-800 dark:text-amber-300">
                                 <span class="font-medium">Error:</span>
                                 {pushError.error}
                               </p>
                               {#if pushError.code && pushError.code !== "UNKNOWN"}
-                                <p class="mt-1 text-sm text-yellow-600">
+                                <p class="mt-1 text-sm text-amber-700 dark:text-amber-400">
                                   <span class="font-medium">Code:</span>
                                   {pushError.code}
                                 </p>
@@ -1044,7 +1056,9 @@
                           {/each}
                         </div>
                       {:else}
-                        <p class="text-sm text-yellow-700">{mergeResult.skippedRemotes.join(", ")}</p>
+                        <p class="text-sm text-amber-800 dark:text-amber-300"
+                          >{mergeResult.skippedRemotes.join(", ")}</p
+                        >
                       {/if}
                     </div>
                   {/if}

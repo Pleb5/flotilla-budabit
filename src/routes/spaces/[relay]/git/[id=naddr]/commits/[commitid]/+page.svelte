@@ -280,13 +280,13 @@
   const getFileStatusIcon = (status: string) => {
     switch (status) {
       case "added":
-        return {icon: FilePlus, class: "text-green-600"}
+        return {icon: FilePlus, class: "text-emerald-700 dark:text-emerald-300"}
       case "deleted":
-        return {icon: FileMinus, class: "text-red-600"}
+        return {icon: FileMinus, class: "text-rose-700 dark:text-rose-300"}
       case "modified":
-        return {icon: FileText, class: "text-blue-600"}
+        return {icon: FileText, class: "text-sky-700 dark:text-sky-300"}
       case "renamed":
-        return {icon: FileX, class: "text-yellow-600"}
+        return {icon: FileX, class: "text-amber-700 dark:text-amber-300"}
       default:
         return {icon: FileText, class: "text-muted-foreground"}
     }
@@ -296,15 +296,15 @@
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case "added":
-        return "bg-green-100 text-green-800 border-green-200"
+        return "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200"
       case "deleted":
-        return "bg-red-100 text-red-800 border-red-200"
+        return "border-rose-200 bg-rose-100 text-rose-900 dark:border-rose-900 dark:bg-rose-900/40 dark:text-rose-200"
       case "modified":
-        return "bg-blue-100 text-blue-800 border-blue-200"
+        return "border-sky-200 bg-sky-100 text-sky-900 dark:border-sky-900 dark:bg-sky-900/40 dark:text-sky-200"
       case "renamed":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200"
+        return "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
       default:
-        return "bg-gray-100 text-gray-800 border-gray-200"
+        return "border-border bg-muted text-muted-foreground"
     }
   }
 
@@ -382,7 +382,7 @@
 {#if loadError}
   <div class="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
     <div class="text-center text-muted-foreground">
-      <p class="text-lg text-red-500">Failed to load commit</p>
+      <p class="text-lg text-rose-700 dark:text-rose-300">Failed to load commit</p>
       <p class="text-sm">{loadError}</p>
       <button 
         onclick={() => loadCommitDetails()}
@@ -432,8 +432,8 @@
         </div>
       </div>
 
-      <div class="rounded-lg border bg-green-50 p-3 text-center dark:bg-green-950/20">
-        <div class="text-2xl font-bold text-green-600">+{totalStats().totalAdditions}</div>
+      <div class="rounded-lg border bg-emerald-50 p-3 text-center dark:border-emerald-900 dark:bg-emerald-950/30">
+        <div class="text-2xl font-bold text-emerald-700 dark:text-emerald-300">+{totalStats().totalAdditions}</div>
         <div class="text-sm text-muted-foreground">Lines Added</div>
         <div class="mt-1 text-xs text-muted-foreground">
           {totalStats().totalAdditions === 0
@@ -446,8 +446,8 @@
         </div>
       </div>
 
-      <div class="rounded-lg border bg-red-50 p-3 text-center dark:bg-red-950/20">
-        <div class="text-2xl font-bold text-red-600">-{totalStats().totalDeletions}</div>
+      <div class="rounded-lg border bg-rose-50 p-3 text-center dark:border-rose-900 dark:bg-rose-950/30">
+        <div class="text-2xl font-bold text-rose-700 dark:text-rose-300">-{totalStats().totalDeletions}</div>
         <div class="text-sm text-muted-foreground">Lines Removed</div>
         <div class="mt-1 text-xs text-muted-foreground">
           {totalStats().totalDeletions === 0
@@ -545,10 +545,10 @@
             <div
               class="ml-6 flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground sm:ml-0">
               {#if stats.additions > 0}
-                <span class="text-green-600">+{stats.additions}</span>
+                <span class="text-emerald-700 dark:text-emerald-300">+{stats.additions}</span>
               {/if}
               {#if stats.deletions > 0}
-                <span class="text-red-600">-{stats.deletions}</span>
+                <span class="text-rose-700 dark:text-rose-300">-{stats.deletions}</span>
               {/if}
             </div>
           </div>

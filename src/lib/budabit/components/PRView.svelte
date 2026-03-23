@@ -983,13 +983,13 @@
   const getPrFileStatusIcon = (status: string) => {
     switch (status) {
       case "added":
-        return {icon: FilePlus, class: "text-green-600"}
+        return {icon: FilePlus, class: "text-emerald-700 dark:text-emerald-300"}
       case "deleted":
-        return {icon: FileMinus, class: "text-red-600"}
+        return {icon: FileMinus, class: "text-rose-700 dark:text-rose-300"}
       case "modified":
-        return {icon: FileCode, class: "text-blue-600"}
+        return {icon: FileCode, class: "text-sky-700 dark:text-sky-300"}
       case "renamed":
-        return {icon: FileX, class: "text-amber-600"}
+        return {icon: FileX, class: "text-amber-700 dark:text-amber-300"}
       default:
         return {icon: FileText, class: "text-muted-foreground"}
     }
@@ -1804,10 +1804,14 @@
   }
 
   const getStatusBadgeClass = (status?: string) => {
-    if (status === "open") return "border-sky-200 bg-sky-100/80 text-sky-800"
-    if (status === "applied") return "border-emerald-200 bg-emerald-100/80 text-emerald-800"
-    if (status === "closed") return "border-rose-200 bg-rose-100/80 text-rose-800"
-    if (status === "draft") return "border-amber-200 bg-amber-100/80 text-amber-800"
+    if (status === "open")
+      return "border-sky-200 bg-sky-100/80 text-sky-900 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-200"
+    if (status === "applied")
+      return "border-emerald-200 bg-emerald-100/80 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200"
+    if (status === "closed")
+      return "border-rose-200 bg-rose-100/80 text-rose-900 dark:border-rose-800 dark:bg-rose-900/30 dark:text-rose-200"
+    if (status === "draft")
+      return "border-amber-200 bg-amber-100/80 text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
     return "border-border bg-secondary text-secondary-foreground"
   }
 </script>
@@ -2074,22 +2078,22 @@
               </div>
             </div>
             {#if isMergingPr}
-              <div class="flex items-center gap-2 text-blue-600">
+              <div class="flex items-center gap-2 text-sky-700 dark:text-sky-300">
                 <Loader2 class="h-4 w-4 animate-spin" />
                 <span class="text-sm font-medium">Merging...</span>
               </div>
             {:else if mergePrSuccess}
-              <div class="flex items-center gap-2 text-green-600">
+              <div class="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
                 <CheckCircle class="h-4 w-4" />
                 <span class="text-sm font-medium">Merged</span>
               </div>
             {:else if mergePrMergedLocal}
-              <div class="flex items-center gap-2 text-blue-600">
+              <div class="flex items-center gap-2 text-sky-700 dark:text-sky-300">
                 <CheckCircle class="h-4 w-4" />
                 <span class="text-sm font-medium">Merged locally</span>
               </div>
             {:else if mergePrError}
-              <div class="flex items-center gap-2 text-red-600">
+              <div class="flex items-center gap-2 text-rose-700 dark:text-rose-300">
                 <AlertCircle class="h-4 w-4" />
                 <span class="text-sm font-medium">Failed</span>
               </div>
@@ -2107,12 +2111,12 @@
           {#if mergePrError}
             <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
               <div class="flex items-start gap-2">
-                <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600" />
+                <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-700 dark:text-rose-300" />
                 <div class="flex-1">
                   <p class="text-sm font-medium text-red-800 dark:text-red-200">Merge failed</p>
                   <p class="mt-1 text-sm text-red-700 dark:text-red-300">{mergePrError}</p>
                   {#if mergePrError.toLowerCase().includes("push") || mergePrError.toLowerCase().includes("auth") || mergePrError.toLowerCase().includes("permission")}
-                    <p class="mt-2 text-xs text-red-600 dark:text-red-400">
+                    <p class="mt-2 text-xs text-rose-700 dark:text-rose-400">
                       Tip: Configure a GitHub token in Settings to enable pushing to remotes.
                     </p>
                   {/if}
@@ -2122,27 +2126,27 @@
           {/if}
 
           {#if mergePrMergedLocal && mergePrResult}
-            <div class="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+            <div class="mb-4 rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
               <div class="flex items-start gap-2">
-                <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+                <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-sky-700 dark:text-sky-300" />
                 <div class="flex-1">
-                  <p class="text-sm font-medium text-blue-800 dark:text-blue-200">
+                  <p class="text-sm font-medium text-sky-900 dark:text-sky-200">
                     PR merged locally.
                   </p>
                   {#if mergePrResult.mergeCommitOid}
-                    <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                    <p class="mt-1 text-sm text-sky-800 dark:text-sky-300">
                       Merge commit:
-                      <code class="rounded bg-blue-100 px-1 dark:bg-blue-900/50"
+                      <code class="rounded bg-sky-100 px-1 dark:bg-sky-900/50"
                         >{mergePrResult.mergeCommitOid.slice(0, 8)}</code
                       >
                     </p>
                   {/if}
                   {#if mergePrSuccess}
-                    <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                    <p class="mt-1 text-sm text-sky-800 dark:text-sky-300">
                       Push summary: {prPushCounts.pushed} pushed, {prPushCounts.skipped} skipped, {prPushCounts.failed} failed
                     </p>
                   {:else}
-                    <p class="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                    <p class="mt-1 text-sm text-sky-800 dark:text-sky-300">
                       Push this merge to selected remotes to complete the operation.
                     </p>
                   {/if}
@@ -2197,7 +2201,7 @@
               </div>
             </div>
             {#if markAsAppliedSuccess}
-              <div class="flex items-center gap-2 text-green-600">
+              <div class="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
                 <CheckCircle class="h-4 w-4" />
                 <span class="text-sm font-medium">Marked</span>
               </div>
@@ -2248,8 +2252,8 @@
               {/if}
             </p>
             {#if prMergeAnalysisResult?.fastForward}
-              <div class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
-                <p class="text-sm text-blue-800 dark:text-blue-200">
+              <div class="rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+                <p class="text-sm text-sky-900 dark:text-sky-200">
                   <strong>Fast-forward merge:</strong> No merge commit will be created. The branch will be moved to point to the latest commit.
                 </p>
               </div>
@@ -2327,12 +2331,12 @@
                           {#if remote.status !== "idle"}
                             <span
                               class={`rounded border px-2 py-0.5 ${remote.status === "pushed"
-                                ? "border-green-200 bg-green-50 text-green-700"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
                                 : remote.status === "skipped"
-                                  ? "border-amber-200 bg-amber-50 text-amber-700"
+                                  ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
                                   : remote.status === "failed"
-                                    ? "border-red-200 bg-red-50 text-red-700"
-                                    : "border-blue-200 bg-blue-50 text-blue-700"}`}>
+                                    ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+                                    : "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"}`}>
                               {remote.summary || remote.status}
                             </span>
                           {/if}
@@ -2350,9 +2354,9 @@
               {#if prPushCounts.pushed + prPushCounts.skipped + prPushCounts.failed > 0}
                 <div class="mb-4 rounded border border-border bg-muted/30 px-3 py-2 text-xs">
                   <span class="font-medium">Results:</span>
-                  <span class="ml-2 text-green-700">{prPushCounts.pushed} pushed</span>
-                  <span class="ml-2 text-amber-700">{prPushCounts.skipped} skipped</span>
-                  <span class="ml-2 text-red-700">{prPushCounts.failed} failed</span>
+                  <span class="ml-2 text-emerald-800 dark:text-emerald-300">{prPushCounts.pushed} pushed</span>
+                  <span class="ml-2 text-amber-800 dark:text-amber-300">{prPushCounts.skipped} skipped</span>
+                  <span class="ml-2 text-rose-800 dark:text-rose-300">{prPushCounts.failed} failed</span>
                 </div>
               {/if}
             {/if}
@@ -2499,14 +2503,18 @@
                                 <div class="rounded border border-border bg-background">
                                   <div class="flex items-center justify-between px-3 py-2 text-xs">
                                     <span class="truncate font-mono">{change.path}</span>
-                                    <div class="flex items-center gap-2 text-muted-foreground">
-                                      {#if getPrFileStats(change.diffHunks).additions > 0}
-                                        <span class="text-green-600">+{getPrFileStats(change.diffHunks).additions}</span>
-                                      {/if}
-                                      {#if getPrFileStats(change.diffHunks).deletions > 0}
-                                        <span class="text-red-600">-{getPrFileStats(change.diffHunks).deletions}</span>
-                                      {/if}
-                                    </div>
+                                      <div class="flex items-center gap-2 text-muted-foreground">
+                                        {#if getPrFileStats(change.diffHunks).additions > 0}
+                                          <span class="text-emerald-700 dark:text-emerald-300"
+                                            >+{getPrFileStats(change.diffHunks).additions}</span
+                                          >
+                                        {/if}
+                                        {#if getPrFileStats(change.diffHunks).deletions > 0}
+                                          <span class="text-rose-700 dark:text-rose-300"
+                                            >-{getPrFileStats(change.diffHunks).deletions}</span
+                                          >
+                                        {/if}
+                                      </div>
                                   </div>
                                   <div class="border-t border-border px-3 pb-3 pt-2">
                                     <DiffViewer
@@ -2573,21 +2581,21 @@
                         <span class="truncate font-mono text-xs">{change.path}</span>
                         <span
                           class="shrink-0 rounded-full border px-2 py-0.5 text-xs {change.status === "added"
-                            ? "border-green-200 bg-green-50 text-green-800"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
                             : change.status === "deleted"
-                              ? "border-red-200 bg-red-50 text-red-800"
+                              ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"
                               : change.status === "modified"
-                                ? "border-blue-200 bg-blue-50 text-blue-800"
-                                : "border-amber-200 bg-amber-50 text-amber-800"}">
+                                ? "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200"
+                                : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"}">
                           {change.status}
                         </span>
                       </div>
                       <div class="flex shrink-0 gap-2 text-sm text-muted-foreground">
                         {#if stats.additions > 0}
-                          <span class="text-green-600">+{stats.additions}</span>
+                          <span class="text-emerald-700 dark:text-emerald-300">+{stats.additions}</span>
                         {/if}
                         {#if stats.deletions > 0}
-                          <span class="text-red-600">-{stats.deletions}</span>
+                          <span class="text-rose-700 dark:text-rose-300">-{stats.deletions}</span>
                         {/if}
                       </div>
                     </button>
@@ -2655,7 +2663,7 @@
             {/each}
             {#if prStatus?.status === "applied" && prStatus?.createdAt}
               <li class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <CheckCircle class="h-4 w-4 text-green-600 shrink-0" />
+                <CheckCircle class="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300" />
                 <span class="text-muted-foreground">Merged</span>
                 <span class="text-muted-foreground">
                   {formatTimestamp(prStatus.createdAt)}
@@ -2717,7 +2725,7 @@
                   <span>Loading commits…</span>
                 </div>
               {:else if updatePrPreview?.error}
-                <p class="mb-3 text-sm text-red-600">{updatePrPreview.error}</p>
+                <p class="mb-3 text-sm text-rose-700 dark:text-rose-300">{updatePrPreview.error}</p>
               {:else if updatePrPreview?.success && updatePrPreview.commits?.length}
                 <div class="mb-3 max-h-24 overflow-y-auto rounded border bg-background/50 p-2 text-xs">
                   <span class="font-medium">{updatePrPreview.commits.length} commit(s)</span>
@@ -2735,7 +2743,7 @@
                 </div>
               {/if}
               {#if updatePrError}
-                <p class="mb-2 text-sm text-red-600">{updatePrError}</p>
+                <p class="mb-2 text-sm text-rose-700 dark:text-rose-300">{updatePrError}</p>
               {/if}
               <div class="flex gap-2">
                 <Button
