@@ -1,6 +1,6 @@
 <script lang="ts">
-  import {Button as GitButton, PatchCard, NewPRForm, toast} from "@nostr-git/ui"
-  import {Eye, SearchX, GitPullRequest} from "@lucide/svelte"
+  import {Button as GitButton, PatchCard} from "@nostr-git/ui"
+  import {Eye, SearchX} from "@lucide/svelte"
   import {createSearch, pubkey, repository} from "@welshman/app"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -10,14 +10,11 @@
     GIT_STATUS_COMPLETE,
     GIT_STATUS_CLOSED,
     GIT_STATUS_DRAFT,
-    getTagValue,
-    type TrustedEvent,
   } from "@welshman/util"
-  import {fade, slideAndFade} from "@lib/transition"
+  import {fade, fly, slideAndFade} from "@lib/transition"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
   import {
     getTags,
-    createStatusEvent,
     type CommentEvent,
     type PatchEvent,
     type PullRequestEvent,
@@ -29,17 +26,15 @@
   import {parsePullRequestEvent} from "@nostr-git/core/events"
   import Icon from "@src/lib/components/Icon.svelte"
   import {isMobile} from "@src/lib/html.js"
-  import {postComment, publishEvent} from "@lib/budabit/commands.js"
-  import {pushModal} from "@app/util/modal"
+  import {postComment} from "@lib/budabit/commands.js"
   import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
-  import {pushToast} from "@src/app/util/toast"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
 
-  import {getContext, onDestroy, tick} from "svelte"
+  import {getContext} from "svelte"
+  import {onDestroy} from "svelte"
   import {page} from "$app/stores"
-  import {beforeNavigate} from "$app/navigation"
   import {decodeRelay} from "@app/core/state"
   import {
     REPO_KEY,
@@ -48,7 +43,6 @@
     PULL_REQUESTS_KEY,
     deriveEffectiveLabels,
     deriveAssignmentsFor,
-    effectiveMaintainersByRepoAddress,
     effectiveRepoAddressesByRepoAddress,
   } from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
@@ -73,7 +67,6 @@
   const patchesPath = $derived.by(
     () => `/spaces/${encodeURIComponent($page.params.relay ?? "")}/git/${$page.params.id}/patches`,
   )
-  const scrollStorageKey = $derived.by(() => `repoScroll:${$page.params.id}:patches`)
   const relayUrl = $derived.by(() => ($page.params.relay ? decodeRelay($page.params.relay) : ""))
   const patchesSeenKey = $derived.by(() => `${patchesPath}:seen`)
   const normalizeChecked = (value: number) =>
@@ -86,118 +79,13 @@
     if (addresses && addresses.size > 0) return Array.from(addresses)
     return [repoAddress]
   })
-  const effectiveMaintainers = $derived.by((): string[] => {
-    if (!repoAddress) {
-      return Array.from(new Set((repoClass?.maintainers || []).filter(Boolean)))
-    }
-    const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
-    if (maintainers && maintainers.size > 0) return Array.from(maintainers)
-    return Array.from(new Set((repoClass?.maintainers || []).filter(Boolean)))
+
+  $effect(() => {
+    console.log("pullRequests", pullRequests)
   })
-
-  const withRecipients = (event: PullRequestEvent, recipients: string[]): PullRequestEvent => {
-    const dedupedRecipients = Array.from(new Set(recipients.filter(Boolean)))
-    const tags = (event.tags || []).filter((tag: string[]) => tag[0] !== "p")
-    tags.push(...dedupedRecipients.map((recipient: string) => ["p", recipient] as ["p", string]))
-    return {
-      ...event,
-      tags,
-    }
-  }
-
-  type LabelGroups = {
-    Status: string[]
-    Type: string[]
-    Area: string[]
-    Tags: string[]
-    Other: string[]
-  }
-
-  type PatchListItem = {
-    id: string
-    created_at: number
-    pubkey: string
-    event: PatchEvent | PullRequestEvent
-    patches: PatchEvent[]
-    status: {kind: number}
-    parsedPatch: {
-      title: string
-    }
-    comments: CommentEvent[]
-    commitCount: number
-    groups: LabelGroups
-  }
 
   // Comments are managed locally, similar to issues page
   let comments = $state<CommentEvent[]>([])
-
-  // Status events loaded directly for patches + PRs (layout's statusEventsByRoot may not include PR status)
-  let localStatusEventsByRoot = $state<Map<string, StatusEvent[]>>(new Map())
-  const statusMapAccumulator = new Map<string, StatusEvent[]>() // persists across effect runs
-
-  // Load status events for all root IDs (patches + PRs) - ensures PR status shows correctly on listing
-  $effect(() => {
-    if (!repoClass) return
-
-    const currentPatches = repoClass.patches
-    const currentPullRequests = pullRequests
-    const currentRepoRelays = repoRelays
-
-    const controller = new AbortController()
-    abortControllers.push(controller)
-
-    const timeout = setTimeout(() => {
-      const rootPatchIds = (currentPatches || [])
-        .filter((p: PatchEvent) => getTags(p, "t").some((t: string[]) => t[1] === "root"))
-        .map((p: PatchEvent) => p.id)
-      const allRootIds = [...rootPatchIds, ...(currentPullRequests || []).map((pr: PullRequestEvent) => pr.id)]
-
-      if (allRootIds.length > 0) {
-        request({
-          relays: currentRepoRelays,
-          signal: controller.signal,
-          filters: [
-            {
-              kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
-              "#e": allRootIds,
-            },
-          ],
-          onEvent: e => {
-            const rootId = getTagValue("e", (e as any).tags)
-            if (rootId) {
-              const current = statusMapAccumulator.get(rootId) || []
-              const updated = [
-                ...current.filter((ev: StatusEvent) => ev.id !== (e as any).id),
-                e as StatusEvent,
-              ].sort((a, b) => b.created_at - a.created_at)
-              statusMapAccumulator.set(rootId, updated)
-              localStatusEventsByRoot = new Map(statusMapAccumulator)
-            }
-          },
-        })
-      }
-    }, 100)
-
-    return () => {
-      clearTimeout(timeout)
-      controller.abort()
-    }
-  })
-
-  // Merge layout's statusEventsByRoot with locally loaded status events (local takes precedence for freshness)
-  const mergedStatusEventsByRoot = $derived.by(() => {
-    const layout = statusEventsByRoot || new Map<string, StatusEvent[]>()
-    const merged = new Map<string, StatusEvent[]>(layout)
-    for (const [rootId, events] of localStatusEventsByRoot) {
-      const existing = merged.get(rootId) || []
-      const combined = [
-        ...existing.filter((ex: StatusEvent) => !events.some((le: StatusEvent) => le.id === ex.id)),
-        ...events,
-      ].sort((a, b) => b.created_at - a.created_at)
-      merged.set(rootId, combined)
-    }
-    return merged
-  })
 
   // Load comments for patches and PRs - defer to avoid blocking render
   $effect(() => {
@@ -286,7 +174,7 @@
     groupsById: new Map<string, Record<string, string[]>>(),
     allLabels: [],
   })
-  let labelsDataCacheKey = ""
+  let labelsDataCacheKey = $state<string>("")
 
   // Compute labelsData asynchronously to avoid blocking render
   $effect(() => {
@@ -349,14 +237,8 @@
   })
 
   const labelsByPatch = $derived.by(() => labelsData.byId)
-  const labelGroupsFor = (id: string): LabelGroups =>
-    (labelsData.groupsById.get(id) as LabelGroups | undefined) || {
-      Status: [],
-      Type: [],
-      Area: [],
-      Tags: [],
-      Other: [],
-    }
+  const labelGroupsFor = (id: string) =>
+    labelsData.groupsById.get(id) || {Status: [], Type: [], Area: [], Tags: [], Other: []}
 
   // Persist filters per repo (delegated to FilterPanel)
   let storageKey = repoClass?.key ? `patchesFilters:${repoClass.key}` : ""
@@ -393,7 +275,7 @@
   const currentPatchStateFor = (rootId: string): "open" | "draft" | "closed" | "applied" => {
     if (!repoClass) return "open"
     try {
-      const events = (mergedStatusEventsByRoot?.get(rootId) || []) as StatusEvent[]
+      const events = (statusEventsByRoot?.get(rootId) || []) as StatusEvent[]
       const rootAuthor =
         repoClass.patches.find((p: any) => p.id === rootId)?.pubkey ||
         (pullRequests || []).find((pr: any) => pr.id === rootId)?.pubkey
@@ -418,8 +300,8 @@
   }
 
   // Compute patchList asynchronously to avoid blocking UI rendering
-  let patchList = $state<PatchListItem[]>([])
-  let patchListCacheKey = ""
+  let patchList = $state<any[]>([])
+  let patchListCacheKey = $state<string>("")
 
   $effect(() => {
     // Access all reactive dependencies synchronously to ensure they're tracked
@@ -433,21 +315,14 @@
     const currentAuthorFilter = authorFilter
     const currentSortBy = sortBy
     const currentPatchListCacheKey = patchListCacheKey
-    const currentMergedStatusEventsByRoot = mergedStatusEventsByRoot
 
     const timeout = setTimeout(() => {
-      const hasPatches = currentPatches && currentPatches.length > 0
-      const hasPRs = currentPullRequests && currentPullRequests.length > 0
-      if (!hasPatches && !hasPRs) {
+      if (!currentPatches || currentPatches.length === 0) {
         patchList = []
         return
       }
 
       // Create cache key from patch IDs, comments, status, filters, and sort to detect changes
-      const statusKey = [...(currentMergedStatusEventsByRoot?.entries() || [])]
-        .map(([id, evts]) => `${id}:${evts[0]?.kind ?? ""}`)
-        .sort()
-        .join(",")
       const currentKey = [
         currentPatches
           .map(p => p.id)
@@ -467,7 +342,6 @@
         currentStatusFilter,
         currentAuthorFilter,
         currentSortBy,
-        statusKey,
       ].join("|")
 
       if (currentPatchListCacheKey === currentKey) return
@@ -505,7 +379,7 @@
       })
 
       // Process all patches at once
-      const processed: PatchListItem[] = []
+      const processed: any[] = []
       for (const patch of rootPatches) {
         // Use manager-provided state and derive kind for UI
         const status = {kind: kindFromState((currentStatusData.stateById as any)[patch.id])} as any
@@ -518,16 +392,13 @@
         const commentEvents = commentsByPatch.get(patch.id) || []
 
         processed.push({
-          id: patch.id,
-          created_at: patch.created_at,
-          pubkey: patch.pubkey,
-          event: patch,
+          ...patch,
+          type: "patch" as const,
           patches,
           status,
-          parsedPatch: {
-            title: parsedPatch?.title || "(no title)",
-          },
+          parsedPatch,
           comments: commentEvents,
+          // Add commit count directly for easier sorting
           commitCount: parsedPatch?.commitCount || 0,
           groups: labelGroupsFor(patch.id),
         })
@@ -535,7 +406,7 @@
 
       // All patches processed, now merge PRs, filter, and sort
       const applyFiltersAndSort = (
-        allPatches: PatchListItem[],
+        allPatches: any[],
         commentsByPatch: Map<string, CommentEvent[]>,
       ) => {
         // Merge in PR roots
@@ -544,25 +415,28 @@
           const parsedPR: any = parsePullRequestEvent(pr)
           // O(1) lookup instead of O(c) filter
           const commentEvents = commentsByPatch.get(pr.id) || []
-          const status = {kind: kindFromState(currentPatchStateFor(pr.id))} as any
+          const status = {kind: kindFromState((currentStatusData.stateById as any)[pr.id])} as any
           return {
-            id: pr.id,
-            created_at: pr.created_at,
-            pubkey: pr.pubkey,
-            event: pr,
+            ...pr,
+            type: "pr" as const,
             patches: [],
             status,
             parsedPatch: {
               title: parsedPR.subject || parsedPR.title || "(no title)",
+              description: parsedPR.description || parsedPR.content || "",
+              baseBranch: parsedPR.branchName || parsedPR.baseBranch,
+              commitCount: 0,
+              createdAt: pr.created_at * 1000,
+              commitHash: parsedPR.tipCommit || parsedPR.commitId,
             },
             comments: commentEvents,
             commitCount: 0,
             groups: {Status: [], Type: [], Area: [], Tags: [], Other: []},
-          } satisfies PatchListItem
+          }
         })
 
         // Merge PR items into the unified list
-        let filteredPatches = [...allPatches, ...prItems]
+        let filteredPatches = [...allPatches, ...(prItems as any[])]
 
         // Apply status filter
         if (currentStatusFilter !== "all") {
@@ -616,29 +490,11 @@
 
   // Set loading to false immediately - show content right away
   let loading = $state(false)
-  const ITEMS_PER_PAGE = 20
-  let visiblePatchCount = $state(ITEMS_PER_PAGE)
   let element: HTMLElement | undefined = $state()
   let showScrollButton = $state(false)
   let scrollParent: HTMLElement | null = $state(null)
-  let lastKnownPatchIndex = $state(0)
-  let lastKnownPatchOffset = $state(0)
-  let lastKnownPatchId = $state("")
-  let lastKnownPatchTitle = $state("")
-  let pendingScrollRestore = $state<{
-    index: number
-    offset: number
-    id: string
-    title: string
-    visibleCount: number
-  } | null>(null)
-  let didRestoreScroll = $state(false)
-  let restoreAttemptCount = 0
-  let restoreInProgress = $state(false)
-  const maxRestoreAttempts = 12
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
-  let feedInitTimer: ReturnType<typeof setTimeout> | null = null
   // Use non-reactive array to avoid infinite loops when pushing in effects
   const abortControllers: AbortController[] = []
 
@@ -655,246 +511,11 @@
 
     const handleScroll = () => {
       showScrollButton = scrollEl.scrollTop > 1500
-      updateVisibleAnchor()
     }
 
     handleScroll()
     scrollEl.addEventListener("scroll", handleScroll, {passive: true})
     return () => scrollEl.removeEventListener("scroll", handleScroll)
-  })
-
-  const getPatchAnchorPayload = (patchId: string) => {
-    const patchIndex = searchedPatches.findIndex(patch => patch.id === patchId)
-    const patch = patchIndex >= 0 ? searchedPatches[patchIndex] : undefined
-    const title = patch?.parsedPatch?.title || ""
-
-    let offset = lastKnownPatchOffset
-    if (scrollParent) {
-      const containerRect = scrollParent.getBoundingClientRect()
-      const itemEl = scrollParent.querySelector(`[data-patch-id="${patchId}"]`) as HTMLElement | null
-      const itemRect = itemEl?.getBoundingClientRect()
-      if (itemRect) {
-        offset = itemRect.top - containerRect.top
-      }
-    }
-
-    return {
-      index: patchIndex >= 0 ? patchIndex : lastKnownPatchIndex,
-      offset,
-      id: patchId,
-      title,
-      visibleCount: patchIndex >= 0 ? Math.max(visiblePatchCount, patchIndex + 1) : visiblePatchCount,
-    }
-  }
-
-  const updateVisibleAnchor = () => {
-    const scrollEl = scrollParent
-    if (!scrollEl || searchedPatches.length === 0) return
-
-    const items = Array.from(scrollEl.querySelectorAll("[data-patch-id]")) as HTMLElement[]
-    if (items.length === 0) return
-
-    const containerRect = scrollEl.getBoundingClientRect()
-    const anchor = items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
-
-    if (!anchor) return
-
-    const patchId = anchor.dataset.patchId ?? ""
-    const parsedIndex = Number(anchor.dataset.index)
-    const index = Number.isFinite(parsedIndex)
-      ? parsedIndex
-      : searchedPatches.findIndex(patch => patch.id === patchId)
-    if (index < 0) return
-
-    const patch = searchedPatches[index]
-    const anchorOffset = anchor.getBoundingClientRect().top - containerRect.top
-
-    lastKnownPatchIndex = index
-    lastKnownPatchOffset = anchorOffset
-    lastKnownPatchId = patch?.id ?? ""
-    lastKnownPatchTitle = patch?.parsedPatch?.title || ""
-  }
-
-  const handlePatchClick = (event: MouseEvent, patch: PatchListItem, index: number) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-    const target = event.target as HTMLElement | null
-    const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null
-    if (!anchor) return
-
-    const href = anchor.getAttribute("href") || ""
-    if (!href.includes(`patches/${patch.id}`)) return
-
-    const scrollEl = scrollParent
-    if (!scrollEl) return
-
-    const itemElement = event.currentTarget as HTMLElement | null
-    const containerRect = scrollEl.getBoundingClientRect()
-    const itemRect = itemElement?.getBoundingClientRect()
-    const anchorOffset = itemRect ? itemRect.top - containerRect.top : lastKnownPatchOffset
-
-    pendingScrollRestore = {
-      index,
-      offset: anchorOffset,
-      id: patch.id,
-      title: patch.parsedPatch?.title || "",
-      visibleCount: Math.max(visiblePatchCount, index + 1),
-    }
-  }
-
-  $effect(() => {
-    const scrollEl = scrollParent
-    const count = searchedPatches.length
-    const restoring = restoreInProgress
-
-    if (didRestoreScroll || restoring || !scrollEl || count === 0) return
-    if (typeof sessionStorage === "undefined") {
-      didRestoreScroll = true
-      return
-    }
-
-    const savedRaw = sessionStorage.getItem(scrollStorageKey)
-    if (!savedRaw) {
-      didRestoreScroll = true
-      return
-    }
-
-    let parsedIndex = 0
-    let parsedOffset = 0
-    let savedPatchId = ""
-
-    try {
-      const parsed = JSON.parse(savedRaw) as {
-        index?: number
-        offset?: number
-        id?: string
-        visibleCount?: number
-      }
-      parsedIndex = Number(parsed?.index ?? 0)
-      parsedOffset = Number(parsed?.offset ?? 0)
-      savedPatchId = typeof parsed?.id === "string" ? parsed.id : ""
-
-      const parsedVisibleCount = Number(parsed?.visibleCount ?? ITEMS_PER_PAGE)
-      if (
-        !Number.isNaN(parsedVisibleCount) &&
-        parsedVisibleCount > 0 &&
-        visiblePatchCount < parsedVisibleCount
-      ) {
-        visiblePatchCount = Math.min(Math.max(parsedVisibleCount, ITEMS_PER_PAGE), count)
-        return
-      }
-    } catch {
-      sessionStorage.removeItem(scrollStorageKey)
-      didRestoreScroll = true
-      return
-    }
-
-    if (Number.isNaN(parsedIndex) || Number.isNaN(parsedOffset)) {
-      sessionStorage.removeItem(scrollStorageKey)
-      didRestoreScroll = true
-      return
-    }
-
-    const fallbackIndex = Math.min(Math.max(parsedIndex, 0), count - 1)
-    const matchIndex = savedPatchId ? searchedPatches.findIndex(patch => patch.id === savedPatchId) : -1
-
-    if (savedPatchId && matchIndex < 0) {
-      restoreAttemptCount += 1
-      if (restoreAttemptCount < maxRestoreAttempts) {
-        return
-      }
-
-      sessionStorage.removeItem(scrollStorageKey)
-      didRestoreScroll = true
-      restoreAttemptCount = 0
-      return
-    }
-
-    const targetIndex = matchIndex >= 0 ? matchIndex : fallbackIndex
-    const requiredVisibleCount = Math.max(targetIndex + 1, ITEMS_PER_PAGE)
-    if (visiblePatchCount < requiredVisibleCount) {
-      visiblePatchCount = Math.min(requiredVisibleCount, count)
-      return
-    }
-
-    const targetPatch = searchedPatches[targetIndex]
-    const targetPatchId = targetPatch?.id ?? ""
-    const anchorPatchId = savedPatchId || targetPatchId
-
-    restoreInProgress = true
-
-    const finishRestore = () => {
-      didRestoreScroll = true
-      restoreAttemptCount = 0
-      restoreInProgress = false
-    }
-
-    const settleToAnchor = (attempt = 0) => {
-      if (!anchorPatchId) {
-        finishRestore()
-        return
-      }
-
-      const itemEl = scrollEl.querySelector(`[data-patch-id="${anchorPatchId}"]`) as HTMLElement | null
-      if (!itemEl) {
-        if (attempt < maxRestoreAttempts) {
-          setTimeout(() => settleToAnchor(attempt + 1), 50)
-        } else {
-          finishRestore()
-        }
-        return
-      }
-
-      const containerRect = scrollEl.getBoundingClientRect()
-      const itemRect = itemEl.getBoundingClientRect()
-      const currentOffset = itemRect.top - containerRect.top
-      const delta = currentOffset - parsedOffset
-      if (Math.abs(delta) > 1) {
-        scrollEl.scrollBy({top: delta, behavior: "auto"})
-      }
-      finishRestore()
-    }
-
-    const attemptRestore = () => {
-      const targetElement = scrollEl.querySelector(`[data-patch-id="${anchorPatchId}"]`) as HTMLElement | null
-      if (targetElement) {
-        targetElement.scrollIntoView({block: "start"})
-      }
-      setTimeout(() => settleToAnchor(0), 40)
-    }
-
-    void tick().then(() => {
-      requestAnimationFrame(attemptRestore)
-    })
-  })
-
-  beforeNavigate(({from, to}) => {
-    if (from?.route.id !== "/spaces/[relay]/git/[id=naddr]/patches") return
-    if (typeof sessionStorage === "undefined") return
-
-    const relayParam = $page.params.relay ?? ""
-    const basePath = `/spaces/${encodeURIComponent(relayParam)}/git/${$page.params.id}`
-    const nextPath = to?.url.pathname
-    if (!nextPath || !nextPath.startsWith(basePath)) {
-      sessionStorage.removeItem(scrollStorageKey)
-      pendingScrollRestore = null
-      return
-    }
-
-    const isPatchDetailNav = to?.route.id === "/spaces/[relay]/git/[id=naddr]/patches/[patchid]"
-    const nextPatchId = isPatchDetailNav ? (to?.params as {patchid?: string} | undefined)?.patchid : ""
-
-    const payload = isPatchDetailNav && nextPatchId
-      ? getPatchAnchorPayload(nextPatchId)
-      : pendingScrollRestore ?? {
-          index: lastKnownPatchIndex,
-          offset: lastKnownPatchOffset,
-          id: lastKnownPatchId,
-          title: lastKnownPatchTitle,
-          visibleCount: visiblePatchCount,
-        }
-
-    sessionStorage.setItem(scrollStorageKey, JSON.stringify(payload))
-    pendingScrollRestore = null
   })
 
   const onCommentCreated = async (comment: CommentEvent) => {
@@ -903,66 +524,6 @@
 
   const scrollToTop = () => {
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
-  }
-
-  const onPRCreated = async (prEvent: PullRequestEvent) => {
-    const relaysToUse = repoRelays.length ? repoRelays : repoClass.relays
-    if (!relaysToUse || relaysToUse.length === 0) {
-      toast.push({
-        message: "No relays available to publish pull request.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const evt = repoClass.repoEvent
-    if(!evt) {
-      toast.push({
-        message: "No repository event found to publish pull request.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const maintainers = Array.from(new Set([
-      ...effectiveMaintainers,
-      evt.pubkey,
-    ].filter(Boolean)))
-    const prEventWithRecipients = withRecipients(prEvent, maintainers)
-
-    const publishedPR = publishEvent(prEventWithRecipients, relaysToUse)
-
-    const rootId = publishedPR.event.id
-
-    const statusEvent = createStatusEvent({
-      kind: GIT_STATUS_OPEN,
-      content: "",
-      rootId,
-      recipients: Array.from(new Set([...maintainers, $pubkey!].filter(Boolean))),
-      repoAddr: repoClass.address,
-      relays: relaysToUse,
-    })
-    publishEvent(statusEvent as any, relaysToUse)
-    pushToast({ message: "Pull request created" })
-  }
-
-  const onNewPR = () => {
-    const evt = repoClass.repoEvent
-    if(!evt) {
-      toast.push({
-        message: "No repository event found to publish pull request.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const repoDtag = getTagValue("d", evt.tags)
-    if(!repoDtag) return
-
-    pushModal(NewPRForm, {
-      repo: repoClass,
-      onPRCreated,
-    })
   }
 
   const getLatestPatchActivityAt = (patch: {id: string; created_at?: number; comments?: CommentEvent[]}) => {
@@ -996,37 +557,47 @@
     const currentPullRequestFilter = pullRequestFilter
     const currentRepoRelays = repoRelays
     const currentRepoAddresses = effectiveRepoAddresses
+    const currentPatchList = patchList
     const currentElement = element
-
-    if (feedInitialized || feedCleanup) return
-    if (!currentRepoClass || !currentRepoClass.patches || !currentPatchFilter || !currentPullRequestFilter)
-      return
-    if (!currentElement || !currentRepoRelays.length || currentRepoAddresses.length === 0) return
+    const currentFeedInitialized = feedInitialized
 
     // Defer makeFeed to avoid blocking initial render
-    feedInitTimer = setTimeout(() => {
-      feedInitTimer = null
-      if (feedInitialized || feedCleanup) return
-      if (!element || !repoRelays.length || effectiveRepoAddresses.length === 0) return
-      feedInitialized = true
-      const feed = makeFeed({
-        element,
-        relays: repoRelays,
-        feedFilters: [patchFilter, pullRequestFilter],
-        subscriptionFilters: [patchFilter, pullRequestFilter],
-        initialEvents: patchList.map(patch => patch.event as TrustedEvent),
-        onExhausted: () => {
-          // Feed exhausted, but we already showed content
-        },
-      })
-      feedCleanup = feed.cleanup
+    const timeout = setTimeout(() => {
+      if (
+        currentRepoClass &&
+        currentRepoClass.patches &&
+        currentPatchFilter &&
+        currentPullRequestFilter &&
+        !currentFeedInitialized
+      ) {
+        const tryStart = () => {
+          if (currentElement && !currentFeedInitialized) {
+            if (!currentRepoRelays.length || currentRepoAddresses.length === 0) {
+              requestAnimationFrame(tryStart)
+              return
+            }
+            feedInitialized = true
+            const feed = makeFeed({
+              element: currentElement,
+              relays: currentRepoRelays,
+              feedFilters: [currentPatchFilter, currentPullRequestFilter],
+              subscriptionFilters: [currentPatchFilter, currentPullRequestFilter],
+              initialEvents: currentPatchList,
+              onExhausted: () => {
+                // Feed exhausted, but we already showed content
+              },
+            })
+            feedCleanup = feed.cleanup
+          } else if (!currentElement) {
+            requestAnimationFrame(tryStart)
+          }
+        }
+        tryStart()
+      }
     }, 100)
 
     return () => {
-      if (feedInitTimer) {
-        clearTimeout(feedInitTimer)
-        feedInitTimer = null
-      }
+      clearTimeout(timeout)
     }
   })
 
@@ -1044,13 +615,6 @@
     }
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
-    feedCleanup = undefined
-    feedInitialized = false
-
-    if (feedInitTimer) {
-      clearTimeout(feedInitTimer)
-      feedInitTimer = null
-    }
 
     // Abort all network requests
     abortControllers.forEach(controller => controller.abort())
@@ -1093,35 +657,6 @@
       })
     return result
   })
-
-  $effect(() => {
-    searchTerm
-    statusFilter
-    authorFilter
-    selectedLabels
-    matchAllLabels
-    sortBy
-    visiblePatchCount = ITEMS_PER_PAGE
-  })
-
-  $effect(() => {
-    const total = searchedPatches.length
-    if (visiblePatchCount > total) {
-      visiblePatchCount = total
-      return
-    }
-
-    if (total > 0 && visiblePatchCount === 0) {
-      visiblePatchCount = Math.min(ITEMS_PER_PAGE, total)
-    }
-  })
-
-  const visiblePatches = $derived.by(() => searchedPatches.slice(0, visiblePatchCount))
-  const canLoadMorePatches = $derived.by(() => visiblePatchCount < searchedPatches.length)
-
-  const loadMorePatches = () => {
-    visiblePatchCount = Math.min(visiblePatchCount + ITEMS_PER_PAGE, searchedPatches.length)
-  }
 </script>
 
 <svelte:head>
@@ -1135,11 +670,6 @@
         <h2 class="text-xl font-semibold">Patches</h2>
         <p class="text-sm text-muted-foreground max-sm:hidden">Review and merge code changes</p>
       </div>
-      <!-- ghost outline git  -->
-      <Button class="btn btn-primary btn-sm" onclick={onNewPR}>
-        <GitPullRequest class="h-4 w-4" />
-        New PR
-      </Button>
     </div>
     <div class="row-2 input grow overflow-x-hidden">
       <Icon icon={Magnifer} />
@@ -1187,91 +717,69 @@
       </Spinner>
     </div>
   {:else if searchedPatches.length === 0}
-    <div class="flex flex-col items-center justify-center py-12 text-gray-500">
+    <div class="flex flex-col items-center justify-center py-12 text-gray-500" data-testid="empty-state">
       <SearchX class="mb-2 h-8 w-8" />
       No patches found.
     </div>
   {:else}
-    <div class="flex flex-col gap-y-4 overflow-y-auto">
-      {#each visiblePatches as patch, index (patch.id)}
-        <div
-          in:slideAndFade={{duration: 200}}
-          data-index={index}
-          data-patch-id={patch.id}
-          onclick={event => handlePatchClick(event, patch, index)}
-          role="button"
-          tabindex="0"
-          onkeydown={event => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault()
-              handlePatchClick(event as unknown as MouseEvent, patch, index)
-            }
-          }}>
-          <div class="relative">
-            <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
-              <PatchCard
-                event={patch.event}
-                patches={patch.patches}
-                status={patch.status as StatusEvent}
-                comments={patch.comments}
-                currentCommenter={$pubkey!}
-                extraLabels={labelsByPatch.get(patch.id) || []}
-                repo={repoClass}
-                  statusEvents={mergedStatusEventsByRoot?.get(patch.id) || []}
+    <div class="flex flex-col gap-y-4 overflow-y-auto" data-testid="patches-list">
+      {#key searchedPatches}
+        {#each searchedPatches as patch (patch.id)}
+          <div in:fly={slideAndFade({duration: 200})}>
+            <div class="relative">
+              <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
+                <PatchCard
+                  event={patch}
+                  patches={patch.patches}
+                  status={patch.status as StatusEvent}
+                  comments={patch.comments}
+                  currentCommenter={$pubkey!}
+                  extraLabels={labelsByPatch.get(patch.id) || []}
+                  repo={repoClass}
+                  statusEvents={statusEventsByRoot?.get(patch.id) || []}
                   actorPubkey={$pubkey}
                   {onCommentCreated}
-                  relays={repoRelays}
                   reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0}
                 />
-            </div>
-            {#if labelsByPatch.get(patch.id)?.length}
-              <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                {#if patch.groups.Status.length}
-                  <span class="opacity-60">Status:</span>
-                  {#each patch.groups.Status as l (l)}<span class="badge badge-ghost badge-sm"
-                      >{l}</span
-                    >{/each}
-                {/if}
-                {#if patch.groups.Type.length}
-                  <span class="opacity-60">Type:</span>
-                  {#each patch.groups.Type as l (l)}<span class="badge badge-ghost badge-sm"
-                      >{l}</span
-                    >{/each}
-                {/if}
-                {#if patch.groups.Area.length}
-                  <span class="opacity-60">Area:</span>
-                  {#each patch.groups.Area as l (l)}<span class="badge badge-ghost badge-sm"
-                      >{l}</span
-                    >{/each}
-                {/if}
-                {#if patch.groups.Tags.length}
-                  <span class="opacity-60">Tags:</span>
-                  {#each patch.groups.Tags as l (l)}<span class="badge badge-ghost badge-sm"
-                      >{l}</span
-                    >{/each}
-                {/if}
-                {#if patch.groups.Other.length}
-                  <span class="opacity-60">Other:</span>
-                  {#each patch.groups.Other as l (l)}<span class="badge badge-ghost badge-sm"
-                      >{l}</span
-                    >{/each}
-                {/if}
               </div>
-            {/if}
+              {#if labelsByPatch.get(patch.id)?.length}
+                <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                  {#if patch.groups.Status.length}
+                    <span class="opacity-60">Status:</span>
+                    {#each patch.groups.Status as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
+                  {/if}
+                  {#if patch.groups.Type.length}
+                    <span class="opacity-60">Type:</span>
+                    {#each patch.groups.Type as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
+                  {/if}
+                  {#if patch.groups.Area.length}
+                    <span class="opacity-60">Area:</span>
+                    {#each patch.groups.Area as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
+                  {/if}
+                  {#if patch.groups.Tags.length}
+                    <span class="opacity-60">Tags:</span>
+                    {#each patch.groups.Tags as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
+                  {/if}
+                  {#if patch.groups.Other.length}
+                    <span class="opacity-60">Other:</span>
+                    {#each patch.groups.Other as l (l)}<span class="badge badge-ghost badge-sm"
+                        >{l}</span
+                      >{/each}
+                  {/if}
+                </div>
+              {/if}
+            </div>
           </div>
-        </div>
-      {/each}
-
-      {#if canLoadMorePatches}
-        <div class="mt-2 flex flex-col items-center gap-2 pb-2">
-          <GitButton variant="outline" size="sm" class="gap-2" onclick={loadMorePatches}>
-            Load more
-          </GitButton>
-          <p class="text-xs text-muted-foreground">
-            Showing {visiblePatches.length} of {searchedPatches.length}
-          </p>
-        </div>
-      {/if}
+        {/each}
+      {/key}
     </div>
   {/if}
 </div>

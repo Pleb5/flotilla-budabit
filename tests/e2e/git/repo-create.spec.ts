@@ -213,14 +213,11 @@ test.describe("Repository Creation", () => {
         // Step 1: Choose Service - select GRASP
         await navigateToRepoDetailsStep(page)
 
-        // Verify we're on step 2 (Repository Details)
-        const repoDetailsHeader = page.locator("text=/Repository Details/i").first()
-        const onStep2 = await repoDetailsHeader.isVisible({timeout: 5000}).catch(() => false)
+        // Step 2: Wait for Repository Details step content (name input only exists on step 2)
+        const nameInput = page.locator("#repo-name, input[id*='name'], input[placeholder*='my-awesome' i]").first()
+        const onStep2 = await nameInput.isVisible({timeout: 10000}).catch(() => false)
 
         if (onStep2) {
-          // Step 2: Fill in repo name
-          const nameInput = page.locator("#repo-name").first()
-          await expect(nameInput).toBeVisible({timeout: 5000})
           await nameInput.fill("redirect-test-repo")
 
           // Wait for validation to complete

@@ -256,8 +256,8 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Issues tab should be visible - use locator for link to avoid strict mode
-      await expect(page.locator("a[href*='/issues']")).toBeVisible({timeout: 10000})
+      // Issues tab should be visible (exclude external links with target="_blank")
+      await expect(page.locator("a[href*='/issues']:not([target='_blank'])").first()).toBeVisible({timeout: 10000})
     })
 
     test("displays repository with patches count", async ({page}) => {
@@ -278,8 +278,8 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Patches tab should be visible - use locator for link to avoid strict mode
-      await expect(page.locator("a[href*='/patches']")).toBeVisible({timeout: 10000})
+      // Patches tab should be visible (exclude external links with target="_blank")
+      await expect(page.locator("a[href*='/patches']:not([target='_blank'])").first()).toBeVisible({timeout: 10000})
     })
 
     test("all tabs are visible on repository detail", async ({page}) => {

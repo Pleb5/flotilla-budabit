@@ -1,5 +1,6 @@
 import {test, expect} from "@playwright/test"
 import {GitHubPage} from "../pages/git-hub.page"
+import {RepoPage} from "../pages/repo.page"
 
 /**
  * Git feature navigation tests.
@@ -11,10 +12,23 @@ import {GitHubPage} from "../pages/git-hub.page"
  * Extended timeouts are configured in playwright.config.ts:
  * - 60s action timeout for git operations
  * - 120s test timeout overall
+ *
+ * Performance thresholds:
+ * - Tab switch: TEST_PERF_TIMEOUT env (default 3000ms)
+ * - Repo load: TEST_PERF_TIMEOUT env (default 5000ms)
  */
 
 // Test relay for git pages - using localhost for local development
 const TEST_RELAY = "localhost:7777"
+
+const TAB_SWITCH_THRESHOLD_MS = parseInt(
+  process.env.TEST_PERF_TIMEOUT || "3000",
+  10,
+)
+const REPO_LOAD_THRESHOLD_MS = parseInt(
+  process.env.TEST_PERF_REPO_LOAD || process.env.TEST_PERF_TIMEOUT || "5000",
+  10,
+)
 
 test.describe("git navigation", () => {
   test("navigates to git hub page and verifies page loads", async ({page}) => {
@@ -91,5 +105,167 @@ test.describe("git navigation", () => {
     // Switch back to My Repos
     await gitHubPage.goToMyRepos()
     expect(await gitHubPage.getActiveTab()).toBe("my-repos")
+  })
+})
+
+test.describe("git navigation performance", () => {
+  test("repo tab switch to Issues completes within threshold", async ({page}) => {
+    const gitHubPage = new GitHubPage(page, TEST_RELAY)
+    await gitHubPage.goto()
+
+    const repoCount = await gitHubPage.getRepoCount()
+    if (repoCount === 0) {
+      test.skip(true, "No repos available for performance test")
+      return
+    }
+
+    await gitHubPage.clickRepoByIndex(0)
+    await page.waitForURL(/\/git\/[^/]+/)
+
+    const url = new URL(page.url())
+    const pathParts = url.pathname.split("/")
+    const gitIdx = pathParts.indexOf("git")
+    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
+    if (!repoPath) {
+      test.skip(true, "Could not extract repo path")
+      return
+    }
+
+    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+
+    const start = Date.now()
+    await repoPage.gotoTab("issues")
+    await repoPage.waitForTabContent("issues")
+    const elapsed = Date.now() - start
+
+    expect(elapsed).toBeLessThan(TAB_SWITCH_THRESHOLD_MS)
+  })
+
+  test("repo tab switch to Patches completes within threshold", async ({page}) => {
+    const gitHubPage = new GitHubPage(page, TEST_RELAY)
+    await gitHubPage.goto()
+
+    const repoCount = await gitHubPage.getRepoCount()
+    if (repoCount === 0) {
+      test.skip(true, "No repos available for performance test")
+      return
+    }
+
+    await gitHubPage.clickRepoByIndex(0)
+    await page.waitForURL(/\/git\/[^/]+/)
+
+    const url = new URL(page.url())
+    const pathParts = url.pathname.split("/")
+    const gitIdx = pathParts.indexOf("git")
+    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
+    if (!repoPath) {
+      test.skip(true, "Could not extract repo path")
+      return
+    }
+
+    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+
+    const start = Date.now()
+    await repoPage.gotoTab("patches")
+    await repoPage.waitForTabContent("patches")
+    const elapsed = Date.now() - start
+
+    expect(elapsed).toBeLessThan(TAB_SWITCH_THRESHOLD_MS)
+  })
+
+  test("repo tab switch to Code completes within threshold", async ({page}) => {
+    const gitHubPage = new GitHubPage(page, TEST_RELAY)
+    await gitHubPage.goto()
+
+    const repoCount = await gitHubPage.getRepoCount()
+    if (repoCount === 0) {
+      test.skip(true, "No repos available for performance test")
+      return
+    }
+
+    await gitHubPage.clickRepoByIndex(0)
+    await page.waitForURL(/\/git\/[^/]+/)
+
+    const url = new URL(page.url())
+    const pathParts = url.pathname.split("/")
+    const gitIdx = pathParts.indexOf("git")
+    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
+    if (!repoPath) {
+      test.skip(true, "Could not extract repo path")
+      return
+    }
+
+    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+
+    const start = Date.now()
+    await repoPage.gotoTab("code")
+    await repoPage.waitForTabContent("code")
+    const elapsed = Date.now() - start
+
+    expect(elapsed).toBeLessThan(TAB_SWITCH_THRESHOLD_MS)
+  })
+
+  test("repo tab switch to Commits completes within threshold", async ({page}) => {
+    const gitHubPage = new GitHubPage(page, TEST_RELAY)
+    await gitHubPage.goto()
+
+    const repoCount = await gitHubPage.getRepoCount()
+    if (repoCount === 0) {
+      test.skip(true, "No repos available for performance test")
+      return
+    }
+
+    await gitHubPage.clickRepoByIndex(0)
+    await page.waitForURL(/\/git\/[^/]+/)
+
+    const url = new URL(page.url())
+    const pathParts = url.pathname.split("/")
+    const gitIdx = pathParts.indexOf("git")
+    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
+    if (!repoPath) {
+      test.skip(true, "Could not extract repo path")
+      return
+    }
+
+    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+
+    const start = Date.now()
+    await repoPage.gotoTab("commits")
+    await repoPage.waitForTabContent("commits")
+    const elapsed = Date.now() - start
+
+    expect(elapsed).toBeLessThan(TAB_SWITCH_THRESHOLD_MS)
+  })
+
+  test("repo page loads repo metadata within threshold", async ({page}) => {
+    const gitHubPage = new GitHubPage(page, TEST_RELAY)
+    await gitHubPage.goto()
+
+    const repoCount = await gitHubPage.getRepoCount()
+    if (repoCount === 0) {
+      test.skip(true, "No repos available for performance test")
+      return
+    }
+
+    await gitHubPage.clickRepoByIndex(0)
+    await page.waitForURL(/\/git\/\S+/)
+
+    const url = new URL(page.url())
+    const pathParts = url.pathname.split("/")
+    const gitIdx = pathParts.indexOf("git")
+    const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
+    if (!repoPath) {
+      test.skip(true, "Could not extract repo path")
+      return
+    }
+
+    const repoPage = new RepoPage(page, TEST_RELAY, repoPath)
+
+    const start = Date.now()
+    await repoPage.goto()
+    await expect(repoPage.repoName).toBeVisible({timeout: 15000})
+    const elapsed = Date.now() - start
+
+    expect(elapsed).toBeLessThan(REPO_LOAD_THRESHOLD_MS)
   })
 })

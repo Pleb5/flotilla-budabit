@@ -47,7 +47,7 @@ test.describe("Repository Clone UI Flow", () => {
 
       // Look for a clone button or similar entry point
       // The clone functionality may be accessed through "New Repo" or a specific clone button
-      const newRepoButton = page.locator("button").filter({hasText: /New Repo|Clone/i})
+      const newRepoButton = page.locator("button").filter({hasText: /New Repo|Clone/i}).first()
 
       if (await newRepoButton.isVisible()) {
         await newRepoButton.click()
@@ -665,21 +665,25 @@ test.describe("Repository Clone UI Flow", () => {
         await page.waitForTimeout(500)
       }
 
-      // Based on CloneRepoDialog, there's an X button with aria-label="Close dialog"
-      const closeButton = page.locator('[aria-label="Close dialog"]').or(
-        page.locator('button svg[class*="w-5 h-5"]').locator('..')
-      )
+      // Close via X button (inside modal) or Escape. The Dialog overlay has aria-label="Close dialog"
+      // but is unclickable (modal content intercepts). Try X inside modal first, else Escape.
+      const closeButton = page.locator('.bg-card button[aria-label="Close dialog"], .rounded-lg button[aria-label="Close dialog"]').first()
+      const cancelButton = page.locator("button").filter({hasText: /Cancel/i}).first()
 
       if (await closeButton.isVisible()) {
         await closeButton.click()
-        await page.waitForTimeout(300)
-
-        // Dialog should be closed
-        const urlInput = page.locator('input#repo-url')
-        const isDialogClosed = !(await urlInput.isVisible().catch(() => false))
-
-        console.log("Dialog closed after X button:", isDialogClosed)
+      } else if (await cancelButton.isVisible()) {
+        await cancelButton.click()
+      } else {
+        await page.keyboard.press("Escape")
       }
+      await page.waitForTimeout(300)
+
+      // Dialog should be closed
+      const urlInput = page.locator('input#repo-url')
+      const isDialogClosed = !(await urlInput.isVisible().catch(() => false))
+
+      console.log("Dialog closed after X/Cancel/Escape:", isDialogClosed)
     })
 
     test("prevents closing during active clone operation", async ({page}) => {

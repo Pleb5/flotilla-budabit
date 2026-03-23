@@ -530,7 +530,7 @@
   </div>
 </div>
 
-<div class="mt-2 rounded-lg border border-border bg-card" data-component="code-browser" bind:this={pageContainerRef}>
+<div class="mt-2 rounded-lg border border-border bg-card" data-component="code-browser" data-testid="code-browser" bind:this={pageContainerRef}>
   {#if isCloning}
     <div class="p-4 sm:p-6">
       <div class="flex flex-col items-center justify-center py-12 space-y-4">

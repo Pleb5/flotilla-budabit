@@ -471,11 +471,11 @@
       <Spinner loading={commitsLoading}>Loading commits...</Spinner>
     </div>
   {:else if commitsError}
-    <div class="py-12 text-center">
+    <div class="py-12 text-center" data-testid="empty-state">
       <p class="text-muted-foreground">Failed to load commits.</p>
     </div>
   {:else}
-    <div>
+    <div data-testid="commits-list">
       <div class="space-y-4">
 
         <Separator />

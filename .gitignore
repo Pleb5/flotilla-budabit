@@ -15,8 +15,11 @@ build/
 # Playwright
 playwright-report/
 test-results/
+bench-e2e.json
 blob-report/
 .playwright/
+
+coverage/
 
 # Generated assets
 static/favicon.ico

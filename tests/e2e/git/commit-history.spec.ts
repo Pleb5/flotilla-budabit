@@ -249,13 +249,15 @@ test.describe("Commit History and Diff Viewing", () => {
       // Navigate directly to commits - may see loading state
       await page.locator("a[href*='/commits']").first().click()
 
-      // Either we catch the loading state ("Loading commits...") or it completed quickly
+      // Either we catch the loading state ("Loading commits...") or it completed quickly.
+      // Use .first() to avoid strict mode (commitsContent matches multiple elements)
       const loadingText = page.getByText(/Loading commits/i)
       const commitsContent = page.getByText(/commits?/i)
       const commitsHeading = page.locator("h2")
 
-      // Wait for either loading or content
-      await expect(loadingText.or(commitsContent).or(commitsHeading.first())).toBeVisible({timeout: 10000})
+      await expect(
+        loadingText.or(commitsContent).or(commitsHeading).first()
+      ).toBeVisible({timeout: 10000})
     })
 
     test("shows error state when commits fail to load", async ({page}) => {

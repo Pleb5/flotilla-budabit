@@ -30,7 +30,7 @@ export class GitHubPage {
 
     // Page bar elements
     this.pageTitle = page.locator("strong").filter({hasText: "Git Repositories"})
-    this.newRepoButton = page.locator("button").filter({hasText: "New Repo"})
+    this.newRepoButton = page.locator("button").filter({hasText: "New Repo"}).first()
 
     // Tab navigation - use button selector as TabsTrigger renders as buttons
     // Try role="tab" first, fallback to button with text
