@@ -18,7 +18,7 @@
     "prepare": "husky",
     "test": "vitest run --coverage",
     "test:main": "vitest run --coverage --project=main",
-    "test:nostr-git-core": "vitest run --coverage --project=nostr-git-core",
+    "test:nostr-git-core": "vitest run --coverage -c packages/nostr-git-core/vitest.config.ts",
     "test:nostr-git-ui": "vitest run --coverage --project=nostr-git-ui",
     "test:repo": "vitest run -c packages/nostr-git-ui/tests/vitest.config.ts",
     "test:ui": "vitest --ui",

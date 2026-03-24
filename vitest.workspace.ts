@@ -46,6 +46,7 @@ export default defineWorkspace([
   },
   // Other packages
   {
+    extends: './packages/nostr-git-core/vitest.config.ts',
     test: {
       include: ['packages/nostr-git-core/**/*.{test,spec}.ts'],
       exclude: ['**/e2e/**', '**/node_modules/**', 'tests/**'],
@@ -53,6 +54,7 @@ export default defineWorkspace([
     },
   },
   {
+    extends: './packages/nostr-git-ui/vitest.config.ts',
     test: {
       include: ['packages/nostr-git-ui/**/*.{test,spec}.ts'],
       exclude: ['**/e2e/**', '**/node_modules/**', 'tests/**'],
