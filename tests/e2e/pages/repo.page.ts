@@ -49,11 +49,11 @@ export class RepoPage {
   }
 
   get issuesContent(): Locator {
-    return this.page.locator('[data-testid="issues-list"], [data-testid="empty-state"]')
+    return this.page.getByRole("heading", {name: "Issues", exact: true})
   }
 
   get patchesContent(): Locator {
-    return this.page.locator('[data-testid="patches-list"], [data-testid="empty-state"]')
+    return this.page.getByRole("heading", {name: "Patches", exact: true})
   }
 
   get codeContent(): Locator {
