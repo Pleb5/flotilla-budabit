@@ -5,6 +5,7 @@
     GIT_ISSUE,
     type CommentEvent,
     type IssueEvent,
+    type LabelEvent,
   } from "@nostr-git/core/events"
   import {Eye, Plus, SearchX} from "@lucide/svelte"
   import {
@@ -15,16 +16,17 @@
     GIT_STATUS_OPEN,
     GIT_STATUS_CLOSED,
     getTag,
+    type TrustedEvent,
   } from "@welshman/util"
   import {createSearch, pubkey, repository} from "@welshman/app"
   import {sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
-  import {slideAndFade} from "@lib/transition"
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
   import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
@@ -33,7 +35,7 @@
   import {isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"
-  import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
+  import {toNaturalArray} from "@lib/budabit/labels"
   import {page} from "$app/stores"
   import {decodeRelay} from "@app/core/state"
   import {beforeNavigate} from "$app/navigation"
@@ -43,21 +45,21 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
-    deriveEffectiveLabels,
     deriveAssignmentsFor,
+    effectiveMaintainersByRepoAddress,
     effectiveRepoAddressesByRepoAddress,
   } from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
-  import { fade } from "svelte/transition"
-  import { createVirtualizer } from "@tanstack/svelte-virtual"
-  import { untrack } from "svelte"
+  import {fade} from "svelte/transition"
+  import {resolveIssueEdits} from "@lib/budabit/issue-edits"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
-  let virtualListContainerRef: HTMLElement | undefined = $state()
   let scrollParent: HTMLElement | null = $state(null)
+  const ITEMS_PER_PAGE = 20
+  let visibleIssueCount = $state(ITEMS_PER_PAGE)
   let lastKnownIssueIndex = $state(0)
   let lastKnownIssueOffset = $state(0)
   let lastKnownIssueId = $state("")
@@ -67,6 +69,7 @@
     offset: number
     id: string
     title: string
+    visibleCount: number
   } | null>(null)
   let didRestoreScroll = $state(false)
   let restoreAttemptCount = 0
@@ -89,23 +92,38 @@
     if (addresses && addresses.size > 0) return Array.from(addresses)
     return [repoAddress]
   })
+  const effectiveMaintainers = $derived.by((): string[] => {
+    const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
+    const fallback = Array.from(
+      new Set([...(repoClass?.maintainers || []), owner].filter((value): value is string => Boolean(value))),
+    )
+    if (!repoAddress) return fallback
+    const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+    if (maintainers && maintainers.size > 0) return Array.from(maintainers)
+    return fallback
+  })
+
+  const withIssueRecipients = (event: IssueEvent, recipients: string[]): IssueEvent => {
+    const dedupedRecipients = Array.from(new Set(recipients.filter(Boolean)))
+    const tags = (event.tags || []).filter((tag: string[]) => tag[0] !== "p")
+    tags.push(...dedupedRecipients.map((recipient: string) => ["p", recipient] as ["p", string]))
+    return {
+      ...event,
+      tags,
+    }
+  }
+
+  type IssueListItem = {
+    id: string
+    created_at: number
+    event: IssueEvent
+  }
 
   const LABEL_PREFETCH_LIMIT = 200
   const LABEL_PREFETCH_IDLE_MS = 2000
   const LABEL_PREFETCH_DELAY_MS = 150
   const LABEL_PREFETCH_CHUNK_SIZE = 50
-
-  // Stable key function for virtualizer - prevents issues when items reorder/filter
-  const getItemKey = (index: number) => searchedIssues[index]?.id ?? `fallback-${index}`
-
-  const virtualizerStore = createVirtualizer({
-    count: 0,
-    getScrollElement: () => scrollParent,
-    estimateSize: () => 160, // Slightly higher estimate for cards with labels/comments
-    overscan: 10, // Higher overscan for smoother scrolling with dynamic content
-    gap: 16,
-    getItemKey,
-  })
+  const GIT_COVER_LETTER_KIND = 1624
 
   // Find scroll parent when page container is mounted
   $effect(() => {
@@ -115,66 +133,57 @@
     scrollParent = container.closest(".scroll-container") as HTMLElement | null
   })
 
-  // Update virtualizer when scroll parent or count changes
-  $effect(() => {
-    // Access reactive dependencies OUTSIDE untrack so they're tracked
-    const scrollEl = scrollParent
-    const container = virtualListContainerRef
-    const count = searchedIssues.length
-    
-    // Early return if prerequisites not met
-    if (!scrollEl || !container || count === 0) return
-    
-    // Calculate scroll margin (offset from top of scroll container to the list)
-    const scrollMargin = container.offsetTop
-    
-    // Update options in untrack to avoid infinite loops from store access
-    untrack(() => {
-      $virtualizerStore?.setOptions({
-        count,
-        getScrollElement: () => scrollEl,
-        scrollMargin,
-        getItemKey,
-      })
-    })
-    
-    // Schedule measurement after DOM updates
-    tick().then(() => {
-      untrack(() => {
-        $virtualizerStore?.measure()
-      })
-    })
-  })
+  const getIssueAnchorPayload = (issueId: string) => {
+    const issueIndex = searchedIssues.findIndex(issue => issue.id === issueId)
+    const issue = issueIndex >= 0 ? searchedIssues[issueIndex] : undefined
+    const title = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
 
-  const updateVisibleAnchor = () => {
-    const virtualizer = $virtualizerStore
-    const scrollEl = scrollParent
-    const currentIssues = searchedIssues
-    if (!virtualizer || !scrollEl || currentIssues.length === 0) return
-
-    const virtualItems = virtualizer.getVirtualItems()
-    if (virtualItems.length === 0) return
-
-    const scrollTop = scrollEl.scrollTop
-    let bestItem = virtualItems[0]
-    let bestDelta = Number.POSITIVE_INFINITY
-
-    for (const item of virtualItems) {
-      const top = item.start
-      const delta = scrollTop - top
-      if (delta >= 0 && delta < bestDelta) {
-        bestDelta = delta
-        bestItem = item
+    let offset = lastKnownIssueOffset
+    if (scrollParent) {
+      const containerRect = scrollParent.getBoundingClientRect()
+      const itemEl = scrollParent.querySelector(`[data-issue-id="${issueId}"]`) as HTMLElement | null
+      const itemRect = itemEl?.getBoundingClientRect()
+      if (itemRect) {
+        offset = itemRect.top - containerRect.top
       }
     }
 
-    const issue = currentIssues[bestItem.index]
-    const anchorOffset = bestItem.start - scrollTop
+    return {
+      index: issueIndex >= 0 ? issueIndex : lastKnownIssueIndex,
+      offset,
+      id: issueId,
+      title,
+      visibleCount: issueIndex >= 0 ? Math.max(visibleIssueCount, issueIndex + 1) : visibleIssueCount,
+    }
+  }
 
-    lastKnownIssueIndex = bestItem.index
+  const updateVisibleAnchor = () => {
+    const scrollEl = scrollParent
+    const currentIssues = searchedIssues
+    if (!scrollEl || currentIssues.length === 0) return
+
+    const items = Array.from(scrollEl.querySelectorAll("[data-issue-id]")) as HTMLElement[]
+    if (items.length === 0) return
+
+    const containerRect = scrollEl.getBoundingClientRect()
+    let anchor = items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
+
+    if (!anchor) return
+
+    const issueId = anchor.dataset.issueId ?? ""
+    const parsedIndex = Number(anchor.dataset.index)
+    const index = Number.isFinite(parsedIndex)
+      ? parsedIndex
+      : currentIssues.findIndex(issue => issue.id === issueId)
+    if (index < 0) return
+
+    const issue = currentIssues[index]
+    const anchorOffset = anchor.getBoundingClientRect().top - containerRect.top
+
+    lastKnownIssueIndex = index
     lastKnownIssueOffset = anchorOffset
     lastKnownIssueId = issue?.id ?? ""
-    lastKnownIssueTitle = issue ? getTagValue("subject", issue.tags) ?? "" : ""
+    lastKnownIssueTitle = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
   }
 
 
@@ -204,8 +213,8 @@
 
   const handleIssueClick = (
     event: MouseEvent,
-    issue: IssueEvent,
-    virtualRow: {index: number; start: number},
+    issue: IssueListItem,
+    index: number,
   ) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     const target = event.target as HTMLElement | null
@@ -218,28 +227,28 @@
     const scrollEl = scrollParent
     if (!scrollEl) return
 
-    const title = getTagValue("subject", issue.tags) ?? ""
+    const title = getTagValue("subject", issue.event.tags) ?? ""
     const itemElement = event.currentTarget as HTMLElement | null
     const containerRect = scrollEl.getBoundingClientRect()
     const itemRect = itemElement?.getBoundingClientRect()
-    const anchorOffset = itemRect ? itemRect.top - containerRect.top : virtualRow.start - scrollEl.scrollTop
+    const anchorOffset = itemRect ? itemRect.top - containerRect.top : lastKnownIssueOffset
 
     pendingScrollRestore = {
-      index: virtualRow.index,
+      index,
       offset: anchorOffset,
       id: issue.id,
       title,
+      visibleCount: Math.max(visibleIssueCount, index + 1),
     }
 
   }
 
   $effect(() => {
-    const virtualizer = $virtualizerStore
     const scrollEl = scrollParent
     const count = searchedIssues.length
     const restoring = restoreInProgress
 
-    if (didRestoreScroll || restoring || !virtualizer || !scrollEl || count === 0) return
+    if (didRestoreScroll || restoring || !scrollEl || count === 0) return
     if (typeof sessionStorage === "undefined") {
       didRestoreScroll = true
       return
@@ -262,11 +271,17 @@
         offset?: number
         id?: string
         title?: string
+        visibleCount?: number
       }
       parsedIndex = Number(parsed?.index ?? 0)
       parsedOffset = Number(parsed?.offset ?? 0)
       savedIssueId = typeof parsed?.id === "string" ? parsed.id : ""
       savedIssueTitle = typeof parsed?.title === "string" ? parsed.title : ""
+      const parsedVisibleCount = Number(parsed?.visibleCount ?? ITEMS_PER_PAGE)
+      if (!Number.isNaN(parsedVisibleCount) && parsedVisibleCount > 0 && visibleIssueCount < parsedVisibleCount) {
+        visibleIssueCount = Math.min(Math.max(parsedVisibleCount, ITEMS_PER_PAGE), count)
+        return
+      }
     } catch {
       sessionStorage.removeItem(scrollStorageKey)
       didRestoreScroll = true
@@ -278,9 +293,6 @@
       didRestoreScroll = true
       return
     }
-
-    const virtualItems = virtualizer.getVirtualItems()
-    if (virtualItems.length === 0) return
 
     const fallbackIndex = Math.min(Math.max(parsedIndex, 0), count - 1)
     const matchIndex = savedIssueId
@@ -299,8 +311,14 @@
     }
 
     const targetIndex = matchIndex >= 0 ? matchIndex : fallbackIndex
+    const requiredVisibleCount = Math.max(targetIndex + 1, ITEMS_PER_PAGE)
+    if (visibleIssueCount < requiredVisibleCount) {
+      visibleIssueCount = Math.min(requiredVisibleCount, count)
+      return
+    }
+
     const targetIssue = searchedIssues[targetIndex]
-    const targetIssueTitle = targetIssue ? getTagValue("subject", targetIssue.tags) ?? "" : ""
+    const targetIssueTitle = targetIssue ? getTagValue("subject", targetIssue.event.tags) ?? "" : ""
     const targetIssueId = targetIssue?.id ?? ""
     const anchorIssueId = savedIssueId || targetIssueId
     const finishRestore = () => {
@@ -336,12 +354,14 @@
 
 
     const attemptRestore = () => {
-      virtualizer.scrollToIndex(targetIndex, {align: "start"})
-      setTimeout(() => settleToAnchor(0), 80)
+      const targetElement = scrollEl.querySelector(`[data-issue-id="${anchorIssueId}"]`) as HTMLElement | null
+      if (targetElement) {
+        targetElement.scrollIntoView({block: "start"})
+      }
+      setTimeout(() => settleToAnchor(0), 40)
     }
 
     void tick().then(() => {
-      virtualizer.measure()
       requestAnimationFrame(attemptRestore)
     })
   })
@@ -360,51 +380,19 @@
     const isIssueDetailNav =
       to?.route.id === "/spaces/[relay]/git/[id=naddr]/issues/[issueid]"
     const nextIssueId = isIssueDetailNav ? (to?.params as {issueid?: string} | undefined)?.issueid : ""
-    const buildPayloadForIssue = (issueId: string) => {
-      const scrollEl = scrollParent
-      const issueIndex = searchedIssues.findIndex(issue => issue.id === issueId)
-      const issue = issueIndex >= 0 ? searchedIssues[issueIndex] : undefined
-      const title = issue ? getTagValue("subject", issue.tags) ?? "" : ""
-      let offset = lastKnownIssueOffset
-      if (scrollEl) {
-        const containerRect = scrollEl.getBoundingClientRect()
-        const itemEl = scrollEl.querySelector(`[data-issue-id="${issueId}"]`) as HTMLElement | null
-        const itemRect = itemEl?.getBoundingClientRect()
-        if (itemRect) {
-          offset = itemRect.top - containerRect.top
-        }
-      }
-      return {
-        index: issueIndex >= 0 ? issueIndex : lastKnownIssueIndex,
-        offset,
-        id: issueId,
-        title,
-      }
-    }
 
     const payload = isIssueDetailNav && nextIssueId
-      ? buildPayloadForIssue(nextIssueId)
+      ? getIssueAnchorPayload(nextIssueId)
       : pendingScrollRestore ?? {
           index: lastKnownIssueIndex,
           offset: lastKnownIssueOffset,
           id: lastKnownIssueId,
           title: lastKnownIssueTitle,
+          visibleCount: visibleIssueCount,
         }
     sessionStorage.setItem(scrollStorageKey, JSON.stringify(payload))
     pendingScrollRestore = null
   })
-
-  function measureElement(
-    node: HTMLElement,
-    virtualizer: { measureElement: (el: HTMLElement | null) => void } | undefined,
-  ) {
-    virtualizer?.measureElement(node)
-    return {
-      update(v: typeof virtualizer) {
-        v?.measureElement(node)
-      },
-    }
-  }
 
 
 
@@ -453,62 +441,70 @@
     return chunks
   }
 
-  // Labels cache keyed by issue id, kept in sync with NIP-32 updates
-  let labelsDataCache = $state<{
-    byId: Map<string, string[]>
-    groupsById: Map<string, Record<string, string[]>>
-  }>({
-    byId: new Map<string, string[]>(),
-    groupsById: new Map<string, Record<string, string[]>>(),
+  const issueEditFilters = $derived.by(() => {
+    const ids = (issues || []).map(issue => issue.id).filter(Boolean)
+    if (ids.length === 0) return []
+    return chunkIds(ids, LABEL_PREFETCH_CHUNK_SIZE).map(chunk => ({
+      kinds: [1985, GIT_COVER_LETTER_KIND],
+      "#e": chunk,
+    }))
   })
-  const labelSubscriptions = new Map<string, () => void>()
 
-  const updateLabelsCache = (issueId: string, effValue: any) => {
-    const eff = normalizeEffectiveLabels(effValue)
-    const naturals = toNaturalArray(eff.flat)
-    const groups = groupLabels(eff)
-    const byId = new Map(labelsDataCache.byId)
-    const groupsById = new Map(labelsDataCache.groupsById)
-    byId.set(issueId, naturals)
-    groupsById.set(issueId, groups)
-    labelsDataCache = {byId, groupsById}
-  }
+  const issueEditEvents = $derived.by(() =>
+    deriveEventsAsc(deriveEventsById({repository, filters: issueEditFilters})),
+  )
 
-  const removeLabelsCache = (issueId: string) => {
-    const byId = new Map(labelsDataCache.byId)
-    const groupsById = new Map(labelsDataCache.groupsById)
-    if (!byId.has(issueId) && !groupsById.has(issueId)) return
-    byId.delete(issueId)
-    groupsById.delete(issueId)
-    labelsDataCache = {byId, groupsById}
-  }
+  let issueEditsById = $state<Map<string, {subject: string; content: string; labels: string[]}>>(
+    new Map(),
+  )
 
   $effect(() => {
     const currentIssues = issues || []
-    const currentIds = new Set(currentIssues.map(i => i.id))
+    const fallbackMaintainers = new Set(effectiveMaintainers)
+    const maintainersByRepoAddress = $effectiveMaintainersByRepoAddress
+    // Keep effect subscribed to any 1985/1624 event changes
+    void $issueEditEvents
 
+    const next = new Map<string, {subject: string; content: string; labels: string[]}>()
     for (const issue of currentIssues) {
-      if (labelSubscriptions.has(issue.id)) continue
-      const effStore = deriveEffectiveLabels(issue.id)
-      const unsubscribe = effStore.subscribe(value => {
-        updateLabelsCache(issue.id, value)
+      const issueRepoAddress = getTagValue("a", issue.tags) || repoAddress
+      const maintainersFromAddress =
+        issueRepoAddress && maintainersByRepoAddress.get(issueRepoAddress)
+      const maintainersFromCurrentRepo = repoAddress && maintainersByRepoAddress.get(repoAddress)
+      const maintainers =
+        maintainersFromAddress && maintainersFromAddress.size > 0
+          ? maintainersFromAddress
+          : maintainersFromCurrentRepo && maintainersFromCurrentRepo.size > 0
+            ? maintainersFromCurrentRepo
+          : fallbackMaintainers
+
+      const labelEvents = repository.query(
+        [{kinds: [1985], "#e": [issue.id]}],
+        {shouldSort: false},
+      ) as LabelEvent[]
+      const coverLetters = repository.query(
+        [{kinds: [GIT_COVER_LETTER_KIND], "#e": [issue.id]}],
+        {shouldSort: false},
+      ) as TrustedEvent[]
+      const edits = resolveIssueEdits({
+        issueEvent: issue as any,
+        labelEvents,
+        coverLetters: coverLetters as any,
+        maintainers,
       })
-      labelSubscriptions.set(issue.id, unsubscribe)
+      next.set(issue.id, {subject: edits.subject, content: edits.content, labels: edits.labels})
     }
 
-    for (const [id, unsubscribe] of labelSubscriptions) {
-      if (currentIds.has(id)) continue
-      unsubscribe()
-      labelSubscriptions.delete(id)
-      removeLabelsCache(id)
-    }
+    issueEditsById = next
   })
-  
-  // Return cached labelsData synchronously
-  const labelsData = $derived(labelsDataCache)
 
   const labelsByIssue = $derived.by(() => {
-    const result = labelsData.byId
+    const result = new Map<string, string[]>()
+    for (const issue of issues || []) {
+      const edits = issueEditsById.get(issue.id)
+      const labels = edits?.labels || []
+      result.set(issue.id, toNaturalArray(labels))
+    }
     return result
   })
 
@@ -532,7 +528,7 @@
 
   let searchTerm = $state("")
 
-  // NIP-32 labels are derived centrally via deriveEffectiveLabels(); prefetch newest labels
+  // Prefetch recent issue edit events (1985 labels + 1624 cover letters)
   $effect(() => {
     const currentIssues = repoClass.issues || []
     const currentRepoRelays = repoRelays.filter(Boolean)
@@ -559,7 +555,7 @@
 
     if (ids.length === 0) return
 
-    const key = ids.join(",")
+    const key = `${relayList.slice().sort().join("|")}::${ids.join(",")}`
     if (labelsPrefetchKey === key) return
 
     if (labelsPrefetchTimeout) {
@@ -580,7 +576,7 @@
       if (!controller) return
 
       const filters = chunkIds(ids, LABEL_PREFETCH_CHUNK_SIZE).map(chunk => ({
-        kinds: [1985],
+        kinds: [1985, GIT_COVER_LETTER_KIND],
         "#e": chunk,
       }))
 
@@ -677,7 +673,7 @@
   })
 
   // Compute issueList asynchronously to avoid blocking UI rendering
-  let issueList = $state<any[]>([])
+  let issueList = $state<IssueListItem[]>([])
   let issueListCacheKey = $state<string>("")
 
   $effect(() => {
@@ -687,6 +683,7 @@
     const currentIssues = repoClass.issues
     const currentComments = commentsOrdered
     const currentStatusMap = statusMap
+    const currentIssueEdits = issueEditsById
     const currentIssueListCacheKey = issueListCacheKey
 
     const timeout = setTimeout(() => {
@@ -702,19 +699,38 @@
         .sort()
         .join(",")
       const statusMapKeys = Object.keys(currentStatusMap).sort().join(",")
-      const currentKey = `${issueIds}|${commentIds}|${statusMapKeys}`
+      const editsKey = Array.from(currentIssueEdits.entries())
+        .map(([id, edit]) => `${id}:${edit.subject}:${edit.content.length}:${edit.labels.join(",")}`)
+        .sort()
+        .join("|")
+      const currentKey = `${issueIds}|${commentIds}|${statusMapKeys}|${editsKey}`
 
       if (currentIssueListCacheKey === currentKey) return
 
       const processed = currentIssues.map((issue: IssueEvent) => {
-        const commentEvents = currentComments[issue.id] || []
-        const currentState = currentStatusMap[issue.id] || "open"
+        const edits = currentIssueEdits.get(issue.id)
+        const subject = edits?.subject || getTagValue("subject", issue.tags) || ""
+        const content = edits?.content ?? issue.content
+        const labels = edits?.labels ||
+          ((issue.tags || [])
+            .filter((tag: string[]) => tag[0] === "t")
+            .map((tag: string[]) => tag[1])
+            .filter(Boolean))
+
+        const tags = ((issue.tags || []) as string[][]).filter(
+          (tag: string[]) => tag[0] !== "subject" && tag[0] !== "t",
+        )
+        if (subject) tags.push(["subject", subject])
+        for (const label of labels) tags.push(["t", label])
 
         return {
-          ...issue,
-          comments: commentEvents,
-          status: {kind: currentState},
-          currentState,
+          id: issue.id,
+          created_at: issue.created_at,
+          event: {
+            ...issue,
+            content,
+            tags,
+          } as IssueEvent,
         }
       })
 
@@ -730,7 +746,7 @@
 
   // Compute searchedIssues asynchronously to avoid blocking UI rendering
   // This is the most critical optimization as it includes search, filtering, and sorting
-  let searchedIssues = $state<any[]>([])
+  let searchedIssues = $state<IssueListItem[]>([])
   let searchedIssuesCacheKey = $state<string>("")
 
   $effect(() => {
@@ -774,8 +790,8 @@
       const issuesToSearch = currentIssueList.map(issue => {
         return {
           id: issue.id,
-          subject: getTagValue("subject", issue.tags) ?? "",
-          desc: issue.content,
+          subject: getTagValue("subject", issue.event.tags) ?? "",
+          desc: issue.event.content,
         }
       })
       const issueSearch = createSearch(issuesToSearch, {
@@ -802,7 +818,7 @@
         .filter(r => searchResults.find(res => res.id === r.id))
         .filter(issue => {
           if (currentAuthorFilter) {
-            return issue.pubkey === currentAuthorFilter
+            return issue.event.pubkey === currentAuthorFilter
           }
           return true
         })
@@ -835,6 +851,35 @@
     }
   })
 
+  $effect(() => {
+    searchTerm
+    statusFilter
+    authorFilter
+    selectedLabels
+    matchAllLabels
+    sortByOrder
+    visibleIssueCount = ITEMS_PER_PAGE
+  })
+
+  $effect(() => {
+    const total = searchedIssues.length
+    if (visibleIssueCount > total) {
+      visibleIssueCount = total
+      return
+    }
+
+    if (total > 0 && visibleIssueCount === 0) {
+      visibleIssueCount = Math.min(ITEMS_PER_PAGE, total)
+    }
+  })
+
+  const visibleIssues = $derived.by(() => searchedIssues.slice(0, visibleIssueCount))
+  const canLoadMoreIssues = $derived.by(() => visibleIssueCount < searchedIssues.length)
+
+  const loadMoreIssues = () => {
+    visibleIssueCount = Math.min(visibleIssueCount + ITEMS_PER_PAGE, searchedIssues.length)
+  }
+
   const roleAssignments = $derived.by(() => {
     const ids = repoClass.issues?.map((i: any) => i.id) || []
     return deriveAssignmentsFor(ids)
@@ -866,6 +911,7 @@
           if (pageContainerRef && !feedInitialized) {
             const currentRepoRelays = repoRelays
             const currentRepoAddresses = effectiveRepoAddresses
+            const currentIssueEvents = issueList.map(issue => issue.event as TrustedEvent)
             if (!currentRepoRelays.length || currentRepoAddresses.length === 0) {
               requestAnimationFrame(tryStart)
               return
@@ -876,7 +922,7 @@
               relays: currentRepoRelays,
               feedFilters: [combinedFilter],
               subscriptionFilters: [combinedFilter],
-              initialEvents: issueList,
+              initialEvents: currentIssueEvents,
               onExhausted: () => {
                 // Feed exhausted, but we already showed content
               },
@@ -910,9 +956,6 @@
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
 
-    labelSubscriptions.forEach(unsubscribe => unsubscribe())
-    labelSubscriptions.clear()
-
     if (labelsPrefetchTimeout) {
       clearTimeout(labelsPrefetchTimeout)
       labelsPrefetchTimeout = null
@@ -933,23 +976,29 @@
       })
       return
     }
-    const postIssueEvent = postIssue(issue, relaysToUse)
+    const evt: any = (repoClass as any).repoEvent
+    const maintainers = Array.from(new Set([
+      ...effectiveMaintainers,
+      evt?.pubkey,
+    ].filter(Boolean)))
+    const issueWithRecipients = withIssueRecipients(issue, maintainers)
+
+    const postIssueEvent = postIssue(issueWithRecipients, relaysToUse)
     pushToast({message: "Issue created"})
     try {
       pushRepoAlert({
         repoKey: repoClass.key,
         kind: "new-patch",
         title: "New issue",
-        body: getTagValue("subject", issue.tags) || "",
+        body: getTagValue("subject", issueWithRecipients.tags) || "",
       })
     } catch {}
-    const evt: any = (repoClass as any).repoEvent
 
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
       content: "",
       rootId: postIssueEvent.event.id,
-      recipients: [$pubkey!, evt?.pubkey].filter(Boolean) as string[],
+      recipients: Array.from(new Set([...maintainers, $pubkey!].filter(Boolean))),
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })
@@ -973,13 +1022,10 @@
   }
 
   const scrollToTop = () => {
-    // Use virtualizer's scrollToIndex for consistent behavior
-    $virtualizerStore?.scrollToIndex(0, { align: "start", behavior: "smooth" })
-    // Also scroll the parent container
     scrollParent?.scrollTo({ top: 0, behavior: "smooth" })
   }
 
-  const getLatestIssueActivityAt = (issue: IssueEvent) => {
+  const getLatestIssueActivityAt = (issue: IssueListItem) => {
     const commentAt = commentsOrdered[issue.id]?.[0]?.created_at ?? 0
     const statusEvents = statusEventsByRoot?.get(issue.id) || []
     let statusAt = 0
@@ -1060,62 +1106,53 @@
         {/if}
       </Spinner>
     </div>
-  {:else if repoClass.issues.length === 0}
-    <div class="flex flex-col items-center justify-center py-12 text-gray-500" data-testid="empty-state">
+  {:else if searchedIssues.length === 0}
+    <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No issues found.
     </div>
   {:else}
-    <!-- Virtualized list container - uses parent scroll container for window-based scrolling -->
-    <div bind:this={virtualListContainerRef} data-testid="issues-list">
-      {#if $virtualizerStore}
-        {@const totalSize = $virtualizerStore.getTotalSize()}
-        {@const virtualItems = $virtualizerStore.getVirtualItems()}
-        {@const scrollMargin = $virtualizerStore.options.scrollMargin ?? 0}
+    <div class="flex flex-col gap-y-4">
+      {#each visibleIssues as issue, index (issue.id)}
         <div
-          class="relative w-full"
-          style="height: {totalSize}px;"
-          data-virtualized="true"
-          data-visible-count={virtualItems.length}
-          data-total-count={searchedIssues.length}
-        >
-          {#each virtualItems as virtualRow (virtualRow.key)}
-            {@const issue = searchedIssues[virtualRow.index]}
-            {#if issue}
-              <div
-                data-index={virtualRow.index}
-                data-issue-id={issue.id}
-                use:measureElement={$virtualizerStore}
-                class="absolute top-0 left-0 w-full pr-2"
-                style="transform: translateY({virtualRow.start - scrollMargin}px);"
-                onclick={(event) => handleIssueClick(event, issue, virtualRow)}
-                role="button"
-                tabindex="0"
-                onkeydown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault()
-                    handleIssueClick(event as any, issue, virtualRow)
-                  }
-                }}
-              >
-                <div class={getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-2 border-primary pl-2" : ""}>
-                  <IssueCard
-                    event={issue}
-                    comments={commentsOrdered[issue.id]}
-                    currentCommenter={$pubkey!}
-                    {onCommentCreated}
-                    extraLabels={labelsByIssue.get(issue.id) || []}
-                    repo={repoClass}
-                    statusEvents={statusEventsByRoot?.get(issue.id) || []}
-                    actorPubkey={$pubkey}
-                    assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
-                    assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
-                    relays={repoRelays}
-                  />
-                </div>
-              </div>
-            {/if}
-          {/each}
+          data-index={index}
+          data-issue-id={issue.id}
+          class="w-full pr-2"
+          onclick={event => handleIssueClick(event, issue, index)}
+          role="button"
+          tabindex="0"
+          onkeydown={event => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
+              handleIssueClick(event as unknown as MouseEvent, issue, index)
+            }
+          }}>
+          <div class={getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-2 border-primary pl-2" : ""}>
+            <IssueCard
+              event={issue.event}
+              comments={commentsOrdered[issue.id]}
+              currentCommenter={$pubkey!}
+              {onCommentCreated}
+              extraLabels={labelsByIssue.get(issue.id) || []}
+              repo={repoClass}
+              statusEvents={statusEventsByRoot?.get(issue.id) || []}
+              actorPubkey={$pubkey}
+              assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
+              assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
+              relays={repoRelays}
+            />
+          </div>
+        </div>
+      {/each}
+
+      {#if canLoadMoreIssues}
+        <div class="mt-2 flex flex-col items-center gap-2 pb-2">
+          <GitButton variant="outline" size="sm" class="gap-2" onclick={loadMoreIssues}>
+            Load more
+          </GitButton>
+          <p class="text-xs text-muted-foreground">
+            Showing {visibleIssues.length} of {searchedIssues.length}
+          </p>
         </div>
       {/if}
     </div>

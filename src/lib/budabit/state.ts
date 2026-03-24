@@ -10,9 +10,13 @@ import {
   extractLabelEvents,
   mergeEffectiveLabels,
   GIT_REPO_ANNOUNCEMENT,
+  GIT_ISSUE,
   parseRepoAnnouncementEvent,
   type RepoGroup,
   type RepoAnnouncementEvent,
+  type IssueEvent,
+  type LabelEvent,
+  type CoverLetterEvent,
 } from "@nostr-git/core/events"
 import {RepoCore} from "@nostr-git/core/git"
 import {deriveEventsAsc, deriveEventsById, withGetter} from "@welshman/store"
@@ -38,6 +42,7 @@ import {
 import {nip19} from "nostr-tools"
 import {fromPairs, pushToMapKey, sortBy, uniq, uniqBy} from "@welshman/lib"
 import {extractRoleAssignments} from "./labels"
+import {resolveIssueEdits, type EffectiveIssueEdits} from "./issue-edits"
 import type {Repo} from "@nostr-git/ui"
 
 export const shouldReloadRepos = writable(false)
@@ -91,6 +96,8 @@ const getRepoEuc = (event: RepoAnnouncementEvent) => {
   const tag = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
   return tag?.[1] || ""
 }
+
+const GIT_COVER_LETTER_KIND = 1624
 
 export const getRepoAnnouncementRelays = (extra: string[] = []) => {
   let userRelays: string[] = []
@@ -484,6 +491,44 @@ export const deriveEffectiveLabels = (eventId: string) =>
   )
 
 /**
+ * Resolve effective issue title/description/labels from root issue + 1985 labels + 1624 cover letters.
+ * Author + effective maintainers are authoritative.
+ */
+export const deriveEffectiveIssueEdits = (issueId: string) =>
+  withGetter(
+    derived(
+      [
+        deriveEvent(issueId),
+        deriveEventsAsc(
+          deriveEventsById({repository, filters: [{kinds: [1985], "#e": [issueId]}]}),
+        ),
+        deriveEventsAsc(
+          deriveEventsById({
+            repository,
+            filters: [{kinds: [GIT_COVER_LETTER_KIND], "#e": [issueId]}],
+          }),
+        ),
+        effectiveMaintainersByRepoAddress,
+      ],
+      ([$issueEvent, $labelEvents, $coverLetters, $maintainersByRepoAddress]) => {
+        if (!$issueEvent || $issueEvent.kind !== GIT_ISSUE) return undefined
+
+        const issueEvent = $issueEvent as unknown as IssueEvent
+        const repoAddress = getTagValue("a", issueEvent.tags || [])
+        const maintainers =
+          (repoAddress && $maintainersByRepoAddress.get(repoAddress)) || new Set<string>()
+
+        return resolveIssueEdits({
+          issueEvent,
+          labelEvents: ($labelEvents || []) as unknown as LabelEvent[],
+          coverLetters: ($coverLetters || []) as unknown as CoverLetterEvent[],
+          maintainers,
+        }) as EffectiveIssueEdits
+      },
+    ),
+  )
+
+/**
  * Load repo context using redundant subscriptions with client-side dedupe.
  */
 export const loadRepoContext = (args: {
@@ -544,7 +589,15 @@ export const userRoomsByUrl = derived([pubkey, membershipsByPubkey], ([$pubkey, 
 export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
   let attempted = false
   const decoded = nip19.decode(naddr).data as nip19.AddressPointer
-  const fallbackRelays = [...hints, ...GIT_RELAYS]
+  let outboxRelays: string[] = []
+  if (!decoded.relays || decoded.relays.length === 0) {
+    try {
+      outboxRelays = Router.get().FromPubkeys([decoded.pubkey]).getUrls()
+    } catch {
+      outboxRelays = []
+    }
+  }
+  const fallbackRelays = [...hints, ...outboxRelays, ...GIT_RELAYS]
   const relays = (decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays)
     .map(u => normalizeRelayUrl(u))
     .filter(isRelayUrl)
@@ -600,16 +653,16 @@ export const channels = derived(
   ([$channelEvents, $getUrlsForEvent]) => {
     const $channels: Channel[] = []
     const normalizedPlatformRelays = PLATFORM_RELAYS.map(normalizeRelayUrl)
-    
+
     for (const event of $channelEvents) {
       // Only include events that were received from platform relays
       const eventRelays = tracker.getRelays(event.id)
       const isFromPlatformRelay = normalizedPlatformRelays.some(url => eventRelays.has(url))
-      
+
       if (!isFromPlatformRelay) {
         continue
       }
-      
+
       const meta = fromPairs(event.tags)
       // Use the room name for the room identifier since messages are tagged with the name, not the d tag
       const room = meta.name || meta.d
