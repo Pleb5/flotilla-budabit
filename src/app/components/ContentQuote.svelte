@@ -13,6 +13,8 @@
   import {goToEvent} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
   import { Button as GitButton } from "@nostr-git/ui"
+  import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
+  import {GIT_RELAYS} from "@lib/budabit/state"
   import {
     GIT_COMMENT,
     GIT_ISSUE,
@@ -314,7 +316,14 @@
   const buildRepoHrefFromEvent = (evt: TrustedEvent, relay?: string) => {
     if (!relay) return ""
     try {
-      const naddr = Address.fromEvent(evt).toNaddr()
+      const naddr =
+        buildRepoNaddrFromEvent({
+          event: evt,
+          fallbackPubkey: evt.pubkey,
+          fallbackRepoRelays: relay ? [relay] : [],
+          userOutboxRelays: Router.get().FromUser().getUrls(),
+          gitRelays: GIT_RELAYS,
+        }) || Address.fromEvent(evt).toNaddr()
       return `/spaces/${encodeURIComponent(relay)}/git/${naddr}`
     } catch {
       return ""

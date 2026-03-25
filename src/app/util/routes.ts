@@ -2,6 +2,7 @@ import type {Page} from "@sveltejs/kit"
 import {get} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
 import {goto} from "$app/navigation"
+import {Router} from "@welshman/router"
 import {nthEq, sleep} from "@welshman/lib"
 import type {TrustedEvent} from "@welshman/util"
 import {pubkey, tracker, loadRelay} from "@welshman/app"
@@ -40,7 +41,9 @@ import {
   GIT_STATUS_CLOSED,
   GIT_STATUS_DRAFT,
 } from "@nostr-git/core/events"
+import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
 import {COMMENT} from "@welshman/util"
+import {GIT_RELAYS, repoAnnouncementsByAddress} from "@lib/budabit/state"
 
 // Repository event kinds (use Address directly)
 const GIT_REPO_KINDS = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]
@@ -152,6 +155,14 @@ export const goToEvent = async (event: TrustedEvent, options: Record<string, any
 }
 
 export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
+  const getUserOutboxRelays = () => {
+    try {
+      return Router.get().FromUser().getUrls() || []
+    } catch {
+      return []
+    }
+  }
+
   if (event.kind === DM_KIND) {
     const selfPubkey = pubkey.get()
     const participants = Array.from(new Set([event.pubkey, ...getPubkeyTagValues(event.tags)]))
@@ -171,8 +182,14 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
   if (GIT_EVENT_KINDS.includes(event.kind)) {
     // For repository announcements (30617) and state (30618), use naddr
     if (GIT_REPO_KINDS.includes(event.kind)) {
-      const address = Address.fromEvent(event)
-      const naddr = address.toNaddr()
+      const naddr =
+        buildRepoNaddrFromEvent({
+          event,
+          fallbackPubkey: event.pubkey,
+          fallbackRepoRelays: urls,
+          userOutboxRelays: getUserOutboxRelays(),
+          gitRelays: GIT_RELAYS,
+        }) || Address.fromEvent(event).toNaddr()
       const url = spaceRelay
 
       if (url) {
@@ -195,9 +212,16 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
           const [kind, pubkey, identifier] = repoAddress.split(":")
 
           if (pubkey && identifier) {
-            // Create naddr for the repository
-            const address = new Address(parseInt(kind), pubkey, identifier, urls)
-            const naddr = address.toNaddr()
+            const repoEvent = get(repoAnnouncementsByAddress).get(repoAddress)
+            const naddr = repoEvent
+              ? buildRepoNaddrFromEvent({
+                  event: repoEvent,
+                  fallbackPubkey: repoEvent.pubkey,
+                  fallbackRepoRelays: urls,
+                  userOutboxRelays: getUserOutboxRelays(),
+                  gitRelays: GIT_RELAYS,
+                }) || new Address(parseInt(kind), pubkey, identifier, []).toNaddr()
+              : new Address(parseInt(kind), pubkey, identifier, []).toNaddr()
             const url = spaceRelay
 
             if (url) {

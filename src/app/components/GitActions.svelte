@@ -7,19 +7,27 @@
     type EventContent,
     type TrustedEvent,
   } from "@welshman/util"
-  import {repository} from "@welshman/app"
+  import {
+    getFailedThunkUrls,
+    mergeThunks,
+    repository,
+    thunks,
+    thunkIsComplete,
+    tracker,
+  } from "@welshman/app"
+  import {PublishStatus} from "@welshman/net"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
-  import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
+  import ThunkFailure from "@app/components/ThunkFailure.svelte"
+  import ThunkPending from "@app/components/ThunkPending.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeGitIssuePath, makeGitPath} from "@lib/budabit"
-  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {deriveEventsAsc, deriveEventsById, deriveIsDeleted} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
   import {goto} from "$app/navigation"
   import * as nip19 from "nostr-tools/nip19"
   import type {AddressPointer} from "nostr-tools/nip19"
-  import {sanitizeRelays} from "@nostr-git/core/utils"
-  import {parseRepoId} from "@nostr-git/core/utils"
+  import {sanitizeRelays, parseRepoId, buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {buildRepoKey} from "@nostr-git/core/events"
   import {pushToast} from "@app/util/toast"
   import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
@@ -28,6 +36,8 @@
   import { parseRepoAnnouncementEvent } from "@nostr-git/core/events"
   import {tokens as tokensStore} from "@nostr-git/ui"
   import {tryTokensForHost, getTokensForHost} from "@nostr-git/ui"
+  import {Router} from "@welshman/router"
+  import {GIT_RELAYS} from "@lib/budabit/state"
 
   interface Props {
     url: any
@@ -45,12 +55,48 @@
   const relaysTag = event.tags.find(nthEq(0, "relays")) || []
   const relays = sanitizeRelays(relaysTag.slice(1)) // Skip the "relays" tag name, pass only URLs
 
+  const repoNaddr = $derived.by(() => {
+    const userOutboxRelays = (() => {
+      try {
+        return Router.get().FromUser().getUrls() || []
+      } catch {
+        return []
+      }
+    })()
+
+    return (
+      buildRepoNaddrFromEvent({
+        event,
+        fallbackPubkey: event.pubkey,
+        fallbackRepoRelays: relays,
+        userOutboxRelays,
+        gitRelays: GIT_RELAYS,
+      }) || Address.fromEvent(event).toNaddr()
+    )
+  })
+
   const issueFilter = {
     kinds: [GIT_ISSUE],
     "#a": [Address.fromEvent(event).toString()],
   }
 
   const issues = deriveEventsAsc(deriveEventsById({repository, filters: [issueFilter]}))
+  const deleted = deriveIsDeleted(repository, event)
+  const thunk = $derived(mergeThunks($thunks.filter(t => t.event.id === event.id)))
+  const thunkSuccessCount = $derived.by(() =>
+    Object.values($thunk?.results || {}).filter(
+      (result: any) => result?.status === PublishStatus.Success,
+    ).length,
+  )
+  const thunkFailedUrls = $derived.by(() => getFailedThunkUrls($thunk))
+  const showThunkPending = $derived.by(() => !thunkIsComplete($thunk))
+  const showThunkFailure = $derived.by(
+    () =>
+      thunkIsComplete($thunk) &&
+      thunkFailedUrls.length > 0 &&
+      thunkSuccessCount === 0 &&
+      tracker.getRelays(event.id).size === 0,
+  )
 
   const patchFilter = {
     kinds: [GIT_PATCH],
@@ -86,7 +132,7 @@
   })
 
   const gotoPatches = async () => {
-    const naddr = Address.fromEvent(event).toNaddr()
+    const naddr = repoNaddr
     try {
       const decoded = nip19.decode(naddr).data as AddressPointer
       const repoId = `${decoded.pubkey}:${decoded.identifier}`
@@ -103,7 +149,7 @@
   }
 
   const gotoRepo = async () => {
-    const naddr = Address.fromEvent(event).toNaddr()
+    const naddr = repoNaddr
     try {
       const decoded = nip19.decode(naddr).data as AddressPointer
       const repoId = `${decoded.pubkey}:${decoded.identifier}`
@@ -120,7 +166,7 @@
   }
 
   const gotoIssues = async () => {
-    const naddr = Address.fromEvent(event).toNaddr()
+    const naddr = repoNaddr
     try {
       const decoded = nip19.decode(naddr).data as AddressPointer
       const repoId = `${decoded.pubkey}:${decoded.identifier}`
@@ -272,11 +318,11 @@
         <button class="btn btn-primary btn-2xs" disabled={syncing} onclick={pushLocal}>Push</button>
       </div>
     {/if}
-    <Link class="cursor-pointer" href={makeGitPath(url, Address.fromEvent(event).toNaddr())}>
+    <Link class="cursor-pointer" href={makeGitPath(url, repoNaddr)}>
       <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Browse</div>
     </Link>
     {#if showIssues}
-      <Link class="cursor-pointer" href={makeGitIssuePath(url, Address.fromEvent(event).toNaddr())}>
+      <Link class="cursor-pointer" href={makeGitIssuePath(url, repoNaddr)}>
         <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Issues</div>
       </Link>
     {/if}
@@ -284,7 +330,7 @@
     {#if showPatches}
       <Link
         class="cursor-pointer"
-        href={makeGitPath(url, Address.fromEvent(event).toNaddr()) + "/patches"}>
+        href={makeGitPath(url, repoNaddr) + "/patches"}>
         <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">
           <span>Patches</span>
         </div>
@@ -297,7 +343,13 @@
         createReaction={onPublishReaction}
         deleteReaction={onPublishDelete}
         reactionClass="tooltip-left" />
-      <ThunkStatusOrDeleted {event} />
+      {#if $deleted}
+        <div class="btn btn-error btn-xs rounded-full">Deleted</div>
+      {:else if showThunkFailure}
+        <ThunkFailure {thunk} />
+      {:else if showThunkPending}
+        <ThunkPending {thunk} />
+      {/if}
       <EventActions {url} {event} noun="Repo" />
     {/if}
   </div>

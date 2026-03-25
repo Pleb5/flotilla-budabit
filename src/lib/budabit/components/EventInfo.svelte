@@ -4,8 +4,11 @@
   import {LOCALE, secondsToDate} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
   import {displayRelayUrl, isReplaceable, Address, getTagValue} from "@welshman/util"
+  import {GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
+  import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {tracker, forceLoadMessagingRelayList, messagingRelayListsByPubkey} from "@welshman/app"
   import {DM_KIND, getDmRelayUrls, getMessagingRelayHints} from "@lib/budabit/dm"
+  import {GIT_RELAYS} from "@lib/budabit/state"
   import FileText from "@assets/icons/file-text.svg?dataurl"
   import Copy from "@assets/icons/copy.svg?dataurl"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
@@ -39,9 +42,27 @@
 
     return tracker.getRelays(event.id)
   })
+  const userOutboxRelays = $derived.by(() => {
+    try {
+      return Router.get().FromUser().getUrls() || []
+    } catch {
+      return []
+    }
+  })
+  const repoNaddr = $derived.by(() =>
+    event.kind === GIT_REPO_ANNOUNCEMENT || event.kind === GIT_REPO_STATE
+      ? buildRepoNaddrFromEvent({
+          event,
+          fallbackPubkey: event.pubkey,
+          fallbackRepoRelays: relays,
+          userOutboxRelays,
+          gitRelays: GIT_RELAYS,
+        })
+      : undefined,
+  )
   const nostrURI = $derived(
     isReplaceable(event)
-      ? Address.fromEvent(event).toNaddr()
+      ? repoNaddr || Address.fromEvent(event).toNaddr()
       : nip19.neventEncode({...event, relays}),
   )
   const npub1 = nip19.npubEncode(event.pubkey)

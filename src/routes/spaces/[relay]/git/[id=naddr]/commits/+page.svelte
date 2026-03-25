@@ -433,7 +433,8 @@
     <div class="flex-1">
       <h2 class="text-lg font-medium">
         {#if totalCommits !== undefined}
-          {totalCommits.toLocaleString()} {totalCommits === 1 ? "commit" : "commits"}
+          {totalCommits.toLocaleString()}{hasMoreCommits ? "+" : ""}
+          {totalCommits === 1 && !hasMoreCommits ? " commit" : " commits"}
         {:else}
           Commits
         {/if}
@@ -441,9 +442,11 @@
       {#if commits.length > 0}
         <p class="mt-1 text-sm text-gray-500">
           Showing {(currentPage - 1) * selectedPageSize + 1} to
-          {currentPage * selectedPageSize > (totalCommits || 0)
-            ? ` ${totalCommits} of ${totalCommits}`
-            : ` ${currentPage * selectedPageSize} of ${totalCommits?.toLocaleString() || "..."}`}
+          {#if totalCommits !== undefined}
+            {` ${Math.min(currentPage * selectedPageSize, commits.length)} of ${totalCommits.toLocaleString()}${hasMoreCommits ? "+" : ""}`}
+          {:else}
+            {` ${Math.min(currentPage * selectedPageSize, commits.length)} of ...`}
+          {/if}
         </p>
       {/if}
     </div>
@@ -496,7 +499,11 @@
           <div class="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
             <div class="text-sm text-gray-500">
               {#if totalCommits !== undefined}
-                <span>Page {currentPage} of {Math.ceil(totalCommits / selectedPageSize)}</span>
+                {#if hasMoreCommits}
+                  <span>Page {currentPage}</span>
+                {:else}
+                  <span>Page {currentPage} of {Math.ceil(totalCommits / selectedPageSize)}</span>
+                {/if}
               {/if}
             </div>
 

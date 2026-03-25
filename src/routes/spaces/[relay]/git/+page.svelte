@@ -43,7 +43,12 @@
     type RepoAnnouncementEvent,
     type RepoStateEvent,
   } from "@nostr-git/core/events"
-  import {filterValidCloneUrls} from "@nostr-git/core/utils"
+  import {
+    filterValidCloneUrls,
+    getTaggedRelaysFromRepoEvent,
+    resolveRepoRelayPolicy,
+    buildRepoNaddrFromEvent,
+  } from "@nostr-git/core/utils"
   import {GIT_PERMALINK} from "@nostr-git/core/types"
   import {
     Avatar,
@@ -72,7 +77,7 @@
     getRepoAnnouncementRelays,
     repoAnnouncements,
   } from "@lib/budabit/state"
-  import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
+  import {getInitializedGitWorker, terminateGitWorker} from "@src/lib/budabit/worker-singleton"
   import {createNip98AuthHeader} from "@src/lib/budabit/event-io"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Bookmark from "@assets/icons/bookmark.svg?dataurl"
@@ -1166,9 +1171,9 @@
         derivePatchGraph,
         parseRepoAnnouncementEvent,
         Router,
-        nip19,
         Address,
         repoAnnouncements: $repoAnnouncements,
+        gitRelays: GIT_RELAYS,
       })
       accountSearchRepoCards = cards
     } else {
@@ -1205,9 +1210,9 @@
             derivePatchGraph,
             parseRepoAnnouncementEvent,
             Router,
-            nip19,
             Address,
             repoAnnouncements: $repoAnnouncements,
+            gitRelays: GIT_RELAYS,
           })
           cachedCards = cards
           cachedCardsKey = cardsKey
@@ -1368,75 +1373,27 @@
     }
   }
 
-  const normalizeRelayList = (values: string[]) => {
-    return Array.from(
-      new Set(
-        (values || [])
-          .map(value => normalizeRelayUrl(value))
-          .filter(Boolean),
-      ),
-    )
-  }
-
-  const getEventRelayTargets = (event: any): string[] => {
-    const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
-    const taggedRelays = Array.isArray(relaysTag) ? relaysTag.slice(1).filter(Boolean) : []
-    return normalizeRelayList(taggedRelays)
-  }
-
-  const isLikelyGraspCloneUrl = (value: string): boolean => {
+  const getUserOutboxRelays = (): string[] => {
     try {
-      const url = new URL(String(value || "").trim())
-      if (url.protocol !== "https:" && url.protocol !== "http:") return false
-
-      const segments = url.pathname
-        .split("/")
-        .filter(Boolean)
-        .map(segment => decodeURIComponent(segment))
-
-      if (segments.length < 2) return false
-
-      const repoSegment = segments[segments.length - 1]
-      const ownerSegment = segments[segments.length - 2]
-      if (!repoSegment.endsWith(".git")) return false
-
-      const identifier = repoSegment.slice(0, -4)
-      if (!identifier) return false
-
-      return /^(nostr:)?npub1[023456789acdefghjklmnpqrstuvwxyz]+$/i.test(ownerSegment)
+      return Router.get().FromUser().getUrls() || []
     } catch {
-      return false
+      return []
     }
-  }
-
-  const isGraspRepoPublishEvent = (event: any): boolean => {
-    if (!event || (event.kind !== GIT_REPO_ANNOUNCEMENT && event.kind !== GIT_REPO_STATE)) {
-      return false
-    }
-
-    const taggedRelays = getEventRelayTargets(event)
-    if (event.kind === GIT_REPO_STATE) {
-      return taggedRelays.length > 0
-    }
-
-    const cloneUrls = (event.tags || [])
-      .filter((tag: any[]) => tag?.[0] === "clone" && typeof tag?.[1] === "string")
-      .map((tag: any[]) => String(tag[1]))
-
-    return cloneUrls.some(isLikelyGraspCloneUrl)
   }
 
   const resolveRepoEventPublishRelays = (event: any, fallbackRelays: string[] = defaultRepoRelays) => {
-    const taggedRelays = getEventRelayTargets(event)
+    const policy = resolveRepoRelayPolicy({
+      event,
+      fallbackRepoRelays: fallbackRelays,
+      userOutboxRelays: getUserOutboxRelays(),
+      gitRelays: GIT_RELAYS,
+    })
 
-    if (isGraspRepoPublishEvent(event)) {
-      if (taggedRelays.length === 0) {
-        throw new Error("GRASP repository event is missing explicit relay targets")
-      }
-      return taggedRelays
+    if (policy.isGrasp && policy.repoRelays.length === 0) {
+      throw new Error("GRASP repository event is missing explicit relay targets")
     }
 
-    return normalizeRelayList([...(fallbackRelays || []), ...taggedRelays])
+    return policy.publishRelays
   }
 
   const buildRepoNaddrFromAnnouncement = (
@@ -1444,25 +1401,19 @@
     fallbackPubkey: string,
     fallbackRelays: string[] = [],
   ): string => {
-    const parsed = parseRepoAnnouncementEvent(event as any)
-    const identifier = parsed.name || getTagValue("d", event?.tags || []) || ""
-    if (!identifier) {
-      throw new Error("Repository announcement is missing identifier")
-    }
-
-    const pubkey = event?.pubkey || fallbackPubkey
-    if (!pubkey) {
-      throw new Error("Repository announcement is missing pubkey")
-    }
-
-    const relays = normalizeRelayList([...(parsed.relays || []), ...(fallbackRelays || [])])
-
-    return nip19.naddrEncode({
-      kind: GIT_REPO_ANNOUNCEMENT,
-      pubkey,
-      identifier,
-      relays: relays.length > 0 ? relays : undefined,
+    const naddr = buildRepoNaddrFromEvent({
+      event,
+      fallbackPubkey,
+      fallbackRepoRelays: [...getTaggedRelaysFromRepoEvent(event), ...(fallbackRelays || [])],
+      userOutboxRelays: getUserOutboxRelays(),
+      gitRelays: GIT_RELAYS,
     })
+
+    if (!naddr) {
+      throw new Error("Repository announcement is missing required naddr fields")
+    }
+
+    return naddr
   }
 
   const extractRelayAck = (thunk: any) => {
@@ -1591,7 +1542,7 @@
           },
           onNavigateToRepo: (result: NewRepoResult) => {
             try {
-              const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent, $pubkey || "", [url])
+              const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent, $pubkey || "")
               goto(makeGitPath(url, naddr))
             } catch (error) {
               console.error("[+page.svelte] Failed to navigate to new repo:", error)
@@ -1763,11 +1714,7 @@
           },
           onNavigateToRepo: (result: ImportResult) => {
             try {
-              const naddr = buildRepoNaddrFromAnnouncement(
-                result.announcementEvent as any,
-                $pubkey || "",
-                [url],
-              )
+              const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent as any, $pubkey || "")
               const destination = makeGitPath(url, naddr)
               goto(destination)
             } catch (error) {
@@ -1776,6 +1723,17 @@
                 message: `Failed to navigate to repository: ${String(error)}`,
                 theme: "error",
               })
+            }
+          },
+          onAbortImport: async () => {
+            try {
+              terminateGitWorker()
+              const {api, worker} = await getInitializedGitWorker()
+              workerApi = api
+              workerInstance = worker
+              workerReady = true
+            } catch (error) {
+              console.error("[+page.svelte] Failed to restart worker after import cancel:", error)
             }
           },
           defaultRelays: [...defaultRepoRelays],

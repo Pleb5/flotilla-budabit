@@ -3,9 +3,11 @@
   import type {Snippet} from "svelte"
   import type {TrustedEvent} from "@welshman/util"
   import {Address, COMMENT, ManagementMethod, isReplaceable} from "@welshman/util"
-  import {GIT_PATCH, GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
+  import {GIT_PATCH, GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
+  import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import * as nip19 from "nostr-tools/nip19"
   import {pubkey, repository, manageRelay} from "@welshman/app"
+  import {Router} from "@welshman/router"
   import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
@@ -21,6 +23,7 @@
   import {deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip, pushToast} from "@app/util/toast"
+  import {GIT_RELAYS} from "@lib/budabit/state"
 
   type Props = {
     url: string
@@ -43,8 +46,27 @@
 
   const share = () => {
     const relays = url ? [url] : []
+    const userOutboxRelays = (() => {
+      try {
+        return Router.get().FromUser().getUrls() || []
+      } catch {
+        return []
+      }
+    })()
+
+    const repoNaddr =
+      (event.kind === GIT_REPO_ANNOUNCEMENT || event.kind === GIT_REPO_STATE)
+        ? buildRepoNaddrFromEvent({
+            event,
+            fallbackPubkey: event.pubkey,
+            fallbackRepoRelays: relays,
+            userOutboxRelays,
+            gitRelays: GIT_RELAYS,
+          })
+        : undefined
+
     const nostrURI = isReplaceable(event)
-      ? Address.fromEvent(event).toNaddr()
+      ? repoNaddr || Address.fromEvent(event).toNaddr()
       : nip19.neventEncode({...event, relays})
 
     clip(nostrURI)

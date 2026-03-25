@@ -43,7 +43,15 @@
   }
   import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
   import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, GIT_LABEL, parseRepoAnnouncementEvent, isCommentEvent, createRepoStateEvent} from "@nostr-git/core/events"
-  import {normalizeRelayUrl as normalizeRelayUrlShared, parseRepoId, filterValidCloneUrls, reorderUrlsByPreference} from "@nostr-git/core/utils"
+  import {
+    normalizeRelayUrl as normalizeRelayUrlShared,
+    parseRepoId,
+    filterValidCloneUrls,
+    reorderUrlsByPreference,
+    resolveRepoRelayPolicy,
+    buildRepoNaddrFromEvent,
+    getTaggedRelaysFromRepoEvent,
+  } from "@nostr-git/core/utils"
   import {derived, get as getStore, readable, type Readable} from "svelte/store"
   import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById, deriveEventsDesc, throttled} from "@welshman/store"
@@ -1797,12 +1805,6 @@
   function navigateToForkedRepo(result: ForkResult) {
     try {
       const parsed = parseRepoAnnouncementEvent(result.announcementEvent)
-      const repoName = parsed.name
-      
-      if (!repoName || !$pubkey) {
-        console.warn("Cannot navigate: missing repo name or pubkey", { repoName, $pubkey })
-        return
-      }
 
       let fallbackRelay = ""
       if (relay) {
@@ -1813,17 +1815,41 @@
         }
       }
 
-      // Extract relays from announcement event or use current relay
-      const relays = parsed.relays && parsed.relays.length > 0
-        ? parsed.relays
-        : fallbackRelay
-          ? [fallbackRelay]
-          : []
+      const userOutboxRelays = (() => {
+        try {
+          return Router.get().FromUser().getUrls() || []
+        } catch {
+          return []
+        }
+      })()
+
+      const policy = resolveRepoRelayPolicy({
+        event: result.announcementEvent,
+        fallbackRepoRelays: parsed.relays || [],
+        userOutboxRelays,
+        gitRelays: GIT_RELAYS,
+      })
+
+      const naddr = buildRepoNaddrFromEvent({
+        event: result.announcementEvent,
+        fallbackPubkey: $pubkey || "",
+        fallbackRepoRelays: policy.repoRelays,
+        userOutboxRelays,
+        gitRelays: GIT_RELAYS,
+      })
+
+      if (!naddr) {
+        console.warn("Cannot navigate: unable to build repo naddr")
+        pushToast({ message: "Fork completed, but repository address was invalid.", theme: "error" })
+        return
+      }
+
+      const policyRelays = policy.naddrRelays
 
       // Only use platform relays for the space URL prefix
       const effectiveRelay =
         (fallbackRelay && isPlatformRelay(fallbackRelay) ? fallbackRelay : "") ||
-        relays.find(isPlatformRelay) ||
+        policyRelays.find(isPlatformRelay) ||
         PLATFORM_RELAYS[0] ||
         ""
 
@@ -1832,14 +1858,6 @@
         pushToast({ message: "Fork completed, but cannot navigate without a platform relay.", theme: "error" })
         return
       }
-
-      // Create naddr
-      const naddr = nip19.naddrEncode({
-        kind: 30617, // GIT_REPO_ANNOUNCEMENT
-        pubkey: $pubkey || "",
-        identifier: repoName,
-        relays: relays.length > 0 ? relays : undefined,
-      })
 
       // Encode relay URL for the route
       const encodedRelay = encodeRelay(effectiveRelay)
@@ -1946,87 +1964,42 @@
     await goto(targetPath)
   }
 
-  function normalizeRelayList(values: string[]): string[] {
-    return Array.from(
-      new Set(
-        (values || [])
-          .map(value => normalizeRelayUrl(value))
-          .filter(Boolean),
-      ),
-    )
+  const getUserOutboxRelays = (): string[] => {
+    try {
+      return Router.get().FromUser().getUrls() || []
+    } catch {
+      return []
+    }
   }
 
   function getEventRelayTargets(event: any): string[] {
-    const relaysTag = event?.tags?.find((t: any[]) => t?.[0] === "relays")
-    const taggedRelays = Array.isArray(relaysTag) ? relaysTag.slice(1).filter(Boolean) : []
-    return normalizeRelayList(taggedRelays)
-  }
-
-  function isLikelyGraspCloneUrl(value: string): boolean {
-    try {
-      const url = new URL(String(value || "").trim())
-      if (url.protocol !== "https:" && url.protocol !== "http:") return false
-
-      const segments = url.pathname
-        .split("/")
-        .filter(Boolean)
-        .map(segment => decodeURIComponent(segment))
-
-      if (segments.length < 2) return false
-
-      const repoSegment = segments[segments.length - 1]
-      const ownerSegment = segments[segments.length - 2]
-
-      if (!repoSegment.endsWith(".git")) return false
-
-      const identifier = repoSegment.slice(0, -4)
-      if (!identifier) return false
-
-      return /^(nostr:)?npub1[023456789acdefghjklmnpqrstuvwxyz]+$/i.test(ownerSegment)
-    } catch {
-      return false
-    }
-  }
-
-  function isGraspRepoPublishEvent(event: any): boolean {
-    if (!event || (event.kind !== GIT_REPO_ANNOUNCEMENT && event.kind !== GIT_REPO_STATE)) {
-      return false
-    }
-
-    const taggedRelays = getEventRelayTargets(event)
-    if (event.kind === GIT_REPO_STATE) {
-      return taggedRelays.length > 0
-    }
-
-    const cloneUrls = (event.tags || [])
-      .filter((tag: any[]) => tag?.[0] === "clone" && typeof tag?.[1] === "string")
-      .map((tag: any[]) => String(tag[1]))
-
-    return cloneUrls.some(isLikelyGraspCloneUrl)
+    return getTaggedRelaysFromRepoEvent(event)
   }
 
   async function publishRepoEventWithRelayPolicy(event: RepoAnnouncementEvent | RepoStateEvent, fallbackRelays: string[] = []) {
-    const taggedRelays = getEventRelayTargets(event)
+    const policy = resolveRepoRelayPolicy({
+      event,
+      fallbackRepoRelays: fallbackRelays,
+      userOutboxRelays: getUserOutboxRelays(),
+      gitRelays: GIT_RELAYS,
+    })
 
-    if (isGraspRepoPublishEvent(event)) {
-      const targetRelays = normalizeRelayList(taggedRelays.length > 0 ? taggedRelays : fallbackRelays)
-
-      if (targetRelays.length === 0) {
+    if (policy.isGrasp) {
+      if (policy.repoRelays.length === 0) {
         throw new Error("GRASP repo event is missing explicit relay targets")
       }
 
-      const thunk = publishThunk({event, relays: targetRelays})
+      const thunk = publishThunk({event, relays: policy.publishRelays})
       if (thunk?.complete) {
         await thunk.complete
       }
       return thunk
     }
 
-    const mergedRelays = normalizeRelayList([...(fallbackRelays || []), ...taggedRelays])
     const thunk =
       event.kind === GIT_REPO_STATE
-        ? postRepoStateEvent(event as RepoStateEvent, mergedRelays)
-        : postRepoAnnouncement(event as RepoAnnouncementEvent, mergedRelays)
+        ? postRepoStateEvent(event as RepoStateEvent, policy.publishRelays)
+        : postRepoAnnouncement(event as RepoAnnouncementEvent, policy.publishRelays)
 
     if (thunk?.complete) {
       await thunk.complete

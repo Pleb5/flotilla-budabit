@@ -10,6 +10,7 @@ import {derived, get, type Readable} from "svelte/store"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {load, request} from "@welshman/net"
 import {now} from "@welshman/lib"
+import {Router} from "@welshman/router"
 import {
   Address,
   getTagValue,
@@ -33,6 +34,7 @@ import {
   parseRoleLabelEvent,
   type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
+import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
 import {makeGitPath} from "@lib/budabit/routes"
 import {
   GIT_RELAYS,
@@ -122,6 +124,14 @@ const normalizeRelays = (relays: string[] | undefined) => {
     }
   }
   return Array.from(out)
+}
+
+const getUserOutboxRelays = () => {
+  try {
+    return Router.get().FromUser().getUrls() || []
+  } catch {
+    return []
+  }
 }
 
 const repoRelaysByAddress = derived(repoAnnouncements, $events => {
@@ -418,17 +428,31 @@ export const repoNotificationCandidates = derived(
     const addRepoCandidates = (repoAddr: string) => {
       const naddrCandidates = new Set<string>()
       const repoEvent = $repoAnnouncementsByAddress.get(repoAddr)
+      let hasPolicyNaddr = false
       if (repoEvent) {
         try {
-          naddrCandidates.add(Address.fromEvent(repoEvent).toNaddr())
+          const parsed = parseRepoAnnouncementEvent(repoEvent)
+          const repoNaddr = buildRepoNaddrFromEvent({
+            event: repoEvent,
+            fallbackPubkey: repoEvent.pubkey,
+            fallbackRepoRelays: parsed.relays || [],
+            userOutboxRelays: getUserOutboxRelays(),
+            gitRelays: GIT_RELAYS,
+          })
+          if (repoNaddr) {
+            naddrCandidates.add(repoNaddr)
+            hasPolicyNaddr = true
+          }
         } catch {
           // ignore
         }
       }
-      const unhinted = toRepoNaddr(repoAddr)
-      if (unhinted) naddrCandidates.add(unhinted)
-      const hinted = toRepoNaddr(repoAddr, uiRelays)
-      if (hinted) naddrCandidates.add(hinted)
+      if (!hasPolicyNaddr) {
+        const unhinted = toRepoNaddr(repoAddr)
+        if (unhinted) naddrCandidates.add(unhinted)
+        const hinted = toRepoNaddr(repoAddr, uiRelays)
+        if (hinted) naddrCandidates.add(hinted)
+      }
       if (naddrCandidates.size === 0) return
 
       for (const naddr of naddrCandidates) {

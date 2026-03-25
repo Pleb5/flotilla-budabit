@@ -7,6 +7,9 @@
   import Markdown from "@lib/components/Markdown.svelte"
   import {makeGitPath} from "@lib/budabit"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
+  import {Router} from "@welshman/router"
+  import {GIT_RELAYS} from "@lib/budabit/state"
+  import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
 
   const {
     url,
@@ -26,7 +29,25 @@
 
   const name = event.tags.find(nthEq(0, "name"))?.[1]
   const description = event.tags.find(nthEq(0, "description"))?.[1]
-  const browseHref = $derived.by(() => makeGitPath(url, Address.fromEvent(event).toNaddr()))
+  const repoNaddr = $derived.by(() => {
+    const userOutboxRelays = (() => {
+      try {
+        return Router.get().FromUser().getUrls() || []
+      } catch {
+        return []
+      }
+    })()
+
+    return (
+      buildRepoNaddrFromEvent({
+        event,
+        fallbackPubkey: event.pubkey,
+        userOutboxRelays,
+        gitRelays: GIT_RELAYS,
+      }) || Address.fromEvent(event).toNaddr()
+    )
+  })
+  const browseHref = $derived.by(() => makeGitPath(url, repoNaddr))
   const issuesHref = $derived.by(() => `${browseHref}/issues`)
   const patchesHref = $derived.by(() => `${browseHref}/patches`)
   const repoAddress = $derived.by(() => {
