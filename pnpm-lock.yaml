@@ -169,11 +169,11 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       coco-cashu-core:
-        specifier: 1.1.2-rc.47
-        version: 1.1.2-rc.47(typescript@5.9.3)
+        specifier: 1.1.2-rc.48
+        version: 1.1.2-rc.48(typescript@5.9.3)
       coco-cashu-indexeddb:
-        specifier: 1.1.2-rc.47
-        version: 1.1.2-rc.47(coco-cashu-core@1.1.2-rc.47(typescript@5.9.3))(typescript@5.9.3)
+        specifier: 1.1.2-rc.48
+        version: 1.1.2-rc.48(coco-cashu-core@1.1.2-rc.48(typescript@5.9.3))(typescript@5.9.3)
       comlink:
         specifier: ^4.4.2
         version: 4.4.2
@@ -848,6 +848,10 @@ packages:
 
   '@cashu/cashu-ts@3.3.0':
     resolution: {integrity: sha512-hHUOhjPLK77axDdj/4qO5mJ14rkh+rZGe1Gz2RbkW2j+SIglNbc2NsKSvjvoQcshupm02FudKi9Y3s3M8ZSYzg==}
+    engines: {node: '>=22.4.0'}
+
+  '@cashu/cashu-ts@3.6.1':
+    resolution: {integrity: sha512-ynncvX5vv/m2Dzp28m1ApxNsmrsw1p6laOdOnvlHVOPK3x4Nz3K/ScV7UjnbuwubTVeIcKP1FXEdycedhhlJbQ==}
     engines: {node: '>=22.4.0'}
 
   '@codemirror/autocomplete@6.20.1':
@@ -2927,15 +2931,15 @@ packages:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
 
-  coco-cashu-core@1.1.2-rc.47:
-    resolution: {integrity: sha512-DJ1qHotnKTZ8l55eISlwGMRZHmSncdnAS701IHI+G6O+lYHgpXrurHbrf2abzqQwRCPWUXw7EW2q3mdDmcBtqg==}
+  coco-cashu-core@1.1.2-rc.48:
+    resolution: {integrity: sha512-hs8TqPclZZCIYY3laAl/R6ELnr6BmBDsXwglS2fT6qbWWEytFb5rqviBTdCpPcMkYt1adTkfnmjI1DFVvh8anw==}
     peerDependencies:
       typescript: ^5
 
-  coco-cashu-indexeddb@1.1.2-rc.47:
-    resolution: {integrity: sha512-y8vcxxyct5SAsf16Fs5iIAZ3eOJXTVWq2v6fxKKaT08pv+bhC1MkmFkYb3F6cAbW3Esgs53PPmqcnFgTUX7rrA==}
+  coco-cashu-indexeddb@1.1.2-rc.48:
+    resolution: {integrity: sha512-kYBK4VUgHYpAnuGaAWXstUTBB9l9Ek7t9DDBRB7f2RTjVFlZ/ZAPpPiv+x2OKM6TW3Abbq/iGpKE/352t9R7NQ==}
     peerDependencies:
-      coco-cashu-core: 1.1.2-rc.47
+      coco-cashu-core: 1.1.2-rc.48
       typescript: ^5
 
   code-red@1.0.4:
@@ -6153,6 +6157,13 @@ snapshots:
       '@scure/base': 2.0.0
       '@scure/bip32': 2.0.1
 
+  '@cashu/cashu-ts@3.6.1':
+    dependencies:
+      '@noble/curves': 2.0.1
+      '@noble/hashes': 2.0.1
+      '@scure/base': 2.0.0
+      '@scure/bip32': 2.0.1
+
   '@codemirror/autocomplete@6.20.1':
     dependencies:
       '@codemirror/language': 6.12.2
@@ -8457,17 +8468,17 @@ snapshots:
 
   clsx@2.1.1: {}
 
-  coco-cashu-core@1.1.2-rc.47(typescript@5.9.3):
+  coco-cashu-core@1.1.2-rc.48(typescript@5.9.3):
     dependencies:
-      '@cashu/cashu-ts': 3.3.0
+      '@cashu/cashu-ts': 3.6.1
       '@noble/curves': 2.0.1
       '@noble/hashes': 2.0.1
       '@scure/bip32': 2.0.1
       typescript: 5.9.3
 
-  coco-cashu-indexeddb@1.1.2-rc.47(coco-cashu-core@1.1.2-rc.47(typescript@5.9.3))(typescript@5.9.3):
+  coco-cashu-indexeddb@1.1.2-rc.48(coco-cashu-core@1.1.2-rc.48(typescript@5.9.3))(typescript@5.9.3):
     dependencies:
-      coco-cashu-core: 1.1.2-rc.47(typescript@5.9.3)
+      coco-cashu-core: 1.1.2-rc.48(typescript@5.9.3)
       dexie: 4.3.0
       typescript: 5.9.3
 

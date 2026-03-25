@@ -996,7 +996,7 @@
           {#if workflowLogEvent}
             <div class="overflow-hidden rounded-lg border border-indigo-200 dark:border-indigo-800">
               <div class="border-b border-indigo-200 bg-indigo-50 px-3 py-2 dark:border-indigo-800 dark:bg-indigo-950/40">
-                <h4 class="text-xs font-semibold text-indigo-900 dark:text-indigo-300">Workflow Log Event</h4>
+                <h4 class="text-xs font-semibold text-indigo-900 dark:text-indigo-300">Workflow Result Event</h4>
                 <p class="mt-0.5 text-xs text-indigo-600 dark:text-indigo-400">Kind: {workflowLogEvent.kind} | ID: {workflowLogEvent.id}</p>
               </div>
               <pre class="overflow-x-auto bg-indigo-50/50 p-3 font-mono text-xs dark:bg-indigo-950/20">{JSON.stringify(workflowLogEvent, null, 2)}</pre>
