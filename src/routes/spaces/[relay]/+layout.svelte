@@ -3,6 +3,7 @@
   import {get} from "svelte/store"
   import {page} from "$app/stores"
   import {once, ago, MONTH, sleep} from "@welshman/lib"
+  import {pubkey} from "@welshman/app"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import SpaceMenu from "@lib/budabit/components/SpaceMenu.svelte"
@@ -40,11 +41,14 @@
 
   const socket = deriveSocket(url)
 
-  const authError = deriveRelayAuthError(url)
+  // Only attempt relay auth and join when logged in — guests browse read-only
+  const authError = $pubkey ? deriveRelayAuthError(url) : null
 
-  const showAuthError = once(() =>
-    pushModal(SpaceAuthError, {url, error: $authError}, {noEscape: true}),
-  )
+  const showAuthError = once(() => {
+    if (authError) {
+      pushModal(SpaceAuthError, {url, error: get(authError)}, {noEscape: true})
+    }
+  })
 
   const showPendingTrust = once(() => pushModal(SpaceTrustRelay, {url}, {noEscape: true}))
 
@@ -60,7 +64,7 @@
 
   // Watch for relay errors and notify the user
   $effect(() => {
-    if ($authError) {
+    if (authError && get(authError)) {
       showAuthError()
     }
   })
@@ -68,21 +72,23 @@
   onMount(() => {
     const since = ago(MONTH)
 
-    sleep(2500).then(() => {
-      const socketValue = get(socket)
-      const hasHardFailure =
-        socketValue.status === SocketStatus.Error ||
-        socketValue.status === SocketStatus.Closed ||
-        socketValue.auth.status === AuthStatus.DeniedSignature ||
-        socketValue.auth.status === AuthStatus.Forbidden
+    if ($pubkey) {
+      sleep(2500).then(() => {
+        const socketValue = get(socket)
+        const hasHardFailure =
+          socketValue.status === SocketStatus.Error ||
+          socketValue.status === SocketStatus.Closed ||
+          socketValue.auth.status === AuthStatus.DeniedSignature ||
+          socketValue.auth.status === AuthStatus.Forbidden
 
-      if (hasHardFailure) {
-        pushToast({
-          theme: "error",
-          message: `Failed to connect to ${displayRelayUrl(url)}`,
-        })
-      }
-    })
+        if (hasHardFailure) {
+          pushToast({
+            theme: "error",
+            message: `Failed to connect to ${displayRelayUrl(url)}`,
+          })
+        }
+      })
+    }
 
     // Load group meta, threads, calendar events, comments, and recent messages
     // for user rooms to help with a quick page transition
@@ -120,9 +126,11 @@
   })
 </script>
 
-<SecondaryNav>
-  <SpaceMenu {url} />
-</SecondaryNav>
+{#if $pubkey}
+  <SecondaryNav>
+    <SpaceMenu {url} />
+  </SecondaryNav>
+{/if}
 <Page>
   {#key $page.url.pathname}
     {@render children?.()}

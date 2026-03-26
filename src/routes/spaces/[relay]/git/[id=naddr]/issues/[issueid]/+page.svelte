@@ -816,8 +816,8 @@
         issueId={issue?.id ?? ""}
         issueKind={GIT_ISSUE.toString() as "1621"}
         comments={$threadComments as CommentEvent[]}
-        currentCommenter={$pubkey!}
-        {onCommentCreated} />
+        currentCommenter={$pubkey || ""}
+        onCommentCreated={$pubkey ? onCommentCreated : undefined} />
     </Card>
   </div>
 {:else}

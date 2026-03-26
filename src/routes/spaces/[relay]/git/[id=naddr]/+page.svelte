@@ -541,16 +541,18 @@
             <GitCommit class="h-5 w-5" />
             Repo Information
           </h3>
-          <Button
-            onclick={() => {
-              pushModal(ResetRepoConfirm, {
-                repoClass,
-                repoName: repoMetadata.name,
-              })
-            }}
-            class="rounded border border-gray-300 px-3 py-1 text-xs transition-colors hover:bg-gray-50">
-            Reset Repo
-          </Button>
+          {#if $pubkey}
+            <Button
+              onclick={() => {
+                pushModal(ResetRepoConfirm, {
+                  repoClass,
+                  repoName: repoMetadata.name,
+                })
+              }}
+              class="rounded border border-gray-300 px-3 py-1 text-xs transition-colors hover:bg-gray-50">
+              Reset Repo
+            </Button>
+          {/if}
         </div>
         <div class="grid gap-6 md:grid-cols-1">
           <!-- Git Information -->

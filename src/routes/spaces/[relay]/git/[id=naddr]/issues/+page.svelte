@@ -998,7 +998,7 @@
       kind: GIT_STATUS_OPEN,
       content: "",
       rootId: postIssueEvent.event.id,
-      recipients: Array.from(new Set([...maintainers, $pubkey!].filter(Boolean))),
+      recipients: Array.from(new Set([...maintainers, $pubkey].filter(Boolean))),
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })
@@ -1058,10 +1058,12 @@
         <p class="text-sm text-muted-foreground max-sm:hidden">Track bugs and feature requests</p>
       </div>
       <div class="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-        <GitButton class="w-full gap-2 sm:w-auto" variant="git" size="sm" onclick={onNewIssue}>
-          <Plus class="h-4 w-4" />
-          <span class="">New Issue</span>
-        </GitButton>
+        {#if $pubkey}
+          <GitButton class="w-full gap-2 sm:w-auto" variant="git" size="sm" onclick={onNewIssue}>
+            <Plus class="h-4 w-4" />
+            <span class="">New Issue</span>
+          </GitButton>
+        {/if}
       </div>
     </div>
     <div class="row-2 input mt-4 grow overflow-x-hidden">
@@ -1131,8 +1133,8 @@
             <IssueCard
               event={issue.event}
               comments={commentsOrdered[issue.id]}
-              currentCommenter={$pubkey!}
-              {onCommentCreated}
+              currentCommenter={$pubkey || ""}
+              onCommentCreated={$pubkey ? onCommentCreated : undefined}
               extraLabels={labelsByIssue.get(issue.id) || []}
               repo={repoClass}
               statusEvents={statusEventsByRoot?.get(issue.id) || []}

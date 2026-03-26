@@ -96,10 +96,12 @@
     </div>
 
     <div class="flex max-h-[calc(100vh-250px)] min-h-0 flex-col gap-1 overflow-auto">
-      <SecondaryNavItem {replaceState} onclick={openWallet}>
-        <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning">₿</span>
-        {walletLabel}
-      </SecondaryNavItem>
+      {#if $pubkey}
+        <SecondaryNavItem {replaceState} onclick={openWallet}>
+          <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning">₿</span>
+          {walletLabel}
+        </SecondaryNavItem>
+      {/if}
 
       <SecondaryNavItem {replaceState} href={makeSpacePath(url)}>
         <Icon icon={HomeSmile} /> Home
@@ -152,13 +154,15 @@
     <Button class="btn btn-neutral btn-sm" onclick={showDetail}>
       <SocketStatusIndicator {url} />
     </Button>
-    <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
-      <Icon icon={Bell} />
-      Manage Alerts
-    </Button>
-    <Button class="btn btn-neutral btn-sm" onclick={logout}>
-      <Icon icon={Exit} />
-      Log Out
-    </Button>
+    {#if $pubkey}
+      <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
+        <Icon icon={Bell} />
+        Manage Alerts
+      </Button>
+      <Button class="btn btn-neutral btn-sm" onclick={logout}>
+        <Icon icon={Exit} />
+        Log Out
+      </Button>
+    {/if}
   </div>
 </div>

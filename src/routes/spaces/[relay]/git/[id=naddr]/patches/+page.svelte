@@ -938,7 +938,7 @@
       kind: GIT_STATUS_OPEN,
       content: "",
       rootId,
-      recipients: Array.from(new Set([...maintainers, $pubkey!].filter(Boolean))),
+      recipients: Array.from(new Set([...maintainers, $pubkey].filter((v): v is string => Boolean(v)))),
       repoAddr: repoClass.address,
       relays: relaysToUse,
     })
@@ -1135,11 +1135,12 @@
         <h2 class="text-xl font-semibold">Patches</h2>
         <p class="text-sm text-muted-foreground max-sm:hidden">Review and merge code changes</p>
       </div>
-      <!-- ghost outline git  -->
-      <Button class="btn btn-primary btn-sm" onclick={onNewPR}>
-        <GitPullRequest class="h-4 w-4" />
-        New PR
-      </Button>
+      {#if $pubkey}
+        <Button class="btn btn-primary btn-sm" onclick={onNewPR}>
+          <GitPullRequest class="h-4 w-4" />
+          New PR
+        </Button>
+      {/if}
     </div>
     <div class="row-2 input grow overflow-x-hidden">
       <Icon icon={Magnifer} />
@@ -1214,12 +1215,12 @@
                 patches={patch.patches}
                 status={patch.status as StatusEvent}
                 comments={patch.comments}
-                currentCommenter={$pubkey!}
+                currentCommenter={$pubkey || ""}
                 extraLabels={labelsByPatch.get(patch.id) || []}
                 repo={repoClass}
                   statusEvents={mergedStatusEventsByRoot?.get(patch.id) || []}
                   actorPubkey={$pubkey}
-                  {onCommentCreated}
+                  onCommentCreated={$pubkey ? onCommentCreated : undefined}
                   relays={repoRelays}
                   reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0}
                 />

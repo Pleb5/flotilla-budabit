@@ -1704,11 +1704,15 @@
   
 
   // --- GRASP servers (user profile) ---
-  const graspServersFilter = {
-    kinds: [GRASP_SET_KIND],
-    authors: [pubkey.get()!],
-    "#d": [DEFAULT_GRASP_SET_ID],
-  }
+  // Only query GRASP servers when a user is logged in to avoid relay auth errors
+  const currentPubkey = pubkey.get()
+  const graspServersFilter = currentPubkey
+    ? {
+        kinds: [GRASP_SET_KIND],
+        authors: [currentPubkey],
+        "#d": [DEFAULT_GRASP_SET_ID],
+      }
+    : null
 
   // Helper to compute base path for this repo scope
   function repoBasePath() {
@@ -1726,25 +1730,30 @@
   })
 
   let graspServerUrls = $state<string[]>([])
-  
+
   // GRASP servers subscription - create derived store once, subscribe in effect
-  const graspServersEventStore = derived(
-      deriveEventsAsc(deriveEventsById({repository, filters: [graspServersFilter]})),
-      (events: TrustedEvent[]) => {
-        if (events.length === 0) {
-          const relays = Router.get()
-            .FromUser()
-            .getUrls()
-            .map(u => normalizeRelayUrl(u))
-            .filter(Boolean)
-          load({relays: relays as string[], filters: [graspServersFilter]})
-        }
-        return events[0]
-      },
-    )
+  // Skip entirely for guests (no pubkey) to avoid relay auth errors
+  const graspServersEventStore = graspServersFilter
+    ? derived(
+        deriveEventsAsc(deriveEventsById({repository, filters: [graspServersFilter]})),
+        (events: TrustedEvent[]) => {
+          if (events.length === 0) {
+            const relays = Router.get()
+              .FromUser()
+              .getUrls()
+              .map(u => normalizeRelayUrl(u))
+              .filter(Boolean)
+            load({relays: relays as string[], filters: [graspServersFilter]})
+          }
+          return events[0]
+        },
+      )
+    : null
 
   // GRASP servers subscription - track for cleanup
   $effect(() => {
+    if (!graspServersEventStore) return
+
     const graspServersUnsubscribe = graspServersEventStore.subscribe((ev: TrustedEvent | undefined) => {
       try {
         graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
@@ -1752,7 +1761,7 @@
         graspServerUrls = []
       }
     })
-    
+
     return () => {
       graspServersUnsubscribe()
     }
@@ -2183,6 +2192,7 @@
   let relaysWarningDebounce: ReturnType<typeof setTimeout> | null = null
   
   $effect(() => {
+    if (!$pubkey) return
     if (suppressRelaysWarning) return
     if (!repoClass?.repoEvent) return
     let parsed
@@ -2428,14 +2438,14 @@
         {activeTab}
         {refreshRepo}
         {isRefreshing}
-        {forkRepo}
-        {settingsRepo}
+        forkRepo={$pubkey ? forkRepo : undefined}
+        settingsRepo={$pubkey ? settingsRepo : undefined}
         {overviewRepo}
-        {bookmarkRepo}
-        {isBookmarked}
-        isTogglingBookmark={isTogglingBookmark}
-        watchRepo={openWatchModal}
-        isWatching={isWatching}
+        bookmarkRepo={$pubkey ? bookmarkRepo : undefined}
+        isBookmarked={$pubkey ? isBookmarked : false}
+        isTogglingBookmark={$pubkey ? isTogglingBookmark : false}
+        watchRepo={$pubkey ? openWatchModal : undefined}
+        isWatching={$pubkey ? isWatching : false}
         canEditSettings={!!$pubkey && repoPubkey === $pubkey}
         updateRepoState={isOwnedRepo ? refreshBranchUpdatesAndOpen : undefined}
         hasRepoStateUpdate={hasCurrentRepoBranchUpdate}
@@ -2489,17 +2499,19 @@
               <GitCommit class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          {#each repoTabExtensions as ext (ext.id)}
-          <RepoTab
-            tabValue={ext.builtinRoute ?? ext.path}
-            label={ext.label}
-            href={ext.builtinRoute ? `${basePath}/${ext.builtinRoute}` : `${basePath}/extensions/${ext.id}`}
-            {activeTab}>
-            {#snippet icon()}
-              <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
-            {/snippet}
-          </RepoTab>
-          {/each}
+          {#if $pubkey}
+            {#each repoTabExtensions as ext (ext.id)}
+            <RepoTab
+              tabValue={ext.builtinRoute ?? ext.path}
+              label={ext.label}
+              href={ext.builtinRoute ? `${basePath}/${ext.builtinRoute}` : `${basePath}/extensions/${ext.id}`}
+              {activeTab}>
+              {#snippet icon()}
+                <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
+              {/snippet}
+            </RepoTab>
+            {/each}
+          {/if}
         {/snippet}
       </RepoHeader>
     {/key}

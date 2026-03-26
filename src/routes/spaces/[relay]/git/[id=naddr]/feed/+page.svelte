@@ -372,17 +372,23 @@
     </p>
   </div>
 
-  <div class="chat__compose bg-base-200 px-2 sm:px-4 py-2" bind:this={chatCompose}>
-    <div class="max-w-full overflow-hidden">
-      {#if parent}
-        <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
-      {/if}
-      {#if share}
-        <RoomComposeParent event={share} clear={clearShare} verb="Sharing" />
-      {/if}
+  {#if $pubkey}
+    <div class="chat__compose bg-base-200 px-2 sm:px-4 py-2" bind:this={chatCompose}>
+      <div class="max-w-full overflow-hidden">
+        {#if parent}
+          <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
+        {/if}
+        {#if share}
+          <RoomComposeParent event={share} clear={clearShare} verb="Sharing" />
+        {/if}
+      </div>
+      <RoomCompose bind:this={compose} {onSubmit} {url} />
     </div>
-    <RoomCompose bind:this={compose} {onSubmit} {url} />
-  </div>
+  {:else}
+    <div class="bg-base-200 px-2 sm:px-4 py-3 text-center text-sm text-muted-foreground" bind:this={chatCompose}>
+      Sign in to join the conversation
+    </div>
+  {/if}
 
   {#if showScrollButton}
     <div in:fade class="chat__scroll-down right-2 sm:right-4 bottom-16 sm:bottom-20">
