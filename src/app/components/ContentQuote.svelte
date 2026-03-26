@@ -23,6 +23,7 @@
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
   } from "@nostr-git/core/events"
+  import markdownit from "markdown-it"
   import hljs from "highlight.js/lib/core"
   import javascript from "highlight.js/lib/languages/javascript"
   import typescript from "highlight.js/lib/languages/typescript"
@@ -269,6 +270,40 @@
       return hljs.highlight(content, {language, ignoreIllegals: true}).value
     } catch {
       return hljs.highlight(content, {language: "plaintext", ignoreIllegals: true}).value
+    }
+  }
+
+  const md = markdownit({html: true, linkify: true, typographer: true})
+
+  type DiffLine = {type: "+" | "-" | " "; content: string; lineNum: number | null}
+
+  const parseDiffLines = (text: string, startLine: number | null): DiffLine[] => {
+    const raw = text.split("\n").map(line => {
+      if (line === "…") return {type: " " as const, content: line}
+      if (line.startsWith("+")) return {type: "+" as const, content: line.slice(1)}
+      if (line.startsWith("-")) return {type: "-" as const, content: line.slice(1)}
+      if (line.startsWith(" ")) return {type: " " as const, content: line.slice(1)}
+      return {type: " " as const, content: line}
+    })
+    let oldNum = startLine ?? 1
+    let newNum = startLine ?? 1
+    return raw.map(r => {
+      if (r.content === "…") return {...r, lineNum: null}
+      if (r.type === "+") return {...r, lineNum: newNum++}
+      if (r.type === "-") return {...r, lineNum: oldNum++}
+      oldNum++
+      return {...r, lineNum: newNum++}
+    })
+  }
+
+  const getDiffLineClass = (type: "+" | "-" | " ") => {
+    switch (type) {
+      case "+":
+        return "cq-diff-add"
+      case "-":
+        return "cq-diff-del"
+      default:
+        return ""
     }
   }
 
@@ -609,12 +644,26 @@
         </div>
       </div>
       {#if contentPreview}
-        <div class="mt-3 rounded border bg-muted/30 p-3 permalink-preview">
-          <pre class="whitespace-pre-wrap font-mono text-xs leading-snug">
-            <code class="hljs">{@html highlightedPreview}</code>
-          </pre>
+        {@const isMarkdownFile = highlightLanguage === "markdown"}
+        {@const lineRange = getLineRange($quote)}
+        {@const diffLines = isDiff ? parseDiffLines(contentPreview, lineRange.start) : []}
+        {@const codeLines = !isDiff && !isMarkdownFile ? contentPreview.split("\n").map((l, i) => ({num: (lineRange.start ?? 1) + i, content: l})) : []}
+        <div class="mt-3 rounded border border-border/40 bg-muted/30 overflow-hidden permalink-preview">
+          {#if isDiff && diffLines.length > 0}
+            <div class="cq-snippet-lines">
+              {#each diffLines as line}<div class="cq-snippet-line {getDiffLineClass(line.type)}"><span class="cq-snippet-num">{line.lineNum ?? ""}</span><span class="cq-snippet-diff-ind">{line.type === " " ? "\u00a0" : line.type}</span><pre class="cq-snippet-code"><code class="hljs">{@html highlightPreview(line.content, highlightLanguage)}</code></pre></div>{/each}
+            </div>
+          {:else if isMarkdownFile}
+            <div class="p-3 prose prose-sm dark:prose-invert max-w-none cq-markdown">
+              {@html md.render(contentPreview)}
+            </div>
+          {:else if codeLines.length > 0}
+            <div class="cq-snippet-lines">
+              {#each codeLines as line}<div class="cq-snippet-line"><span class="cq-snippet-num">{line.num}</span><pre class="cq-snippet-code"><code class="hljs">{@html highlightPreview(line.content, highlightLanguage)}</code></pre></div>{/each}
+            </div>
+          {/if}
           {#if isTruncated}
-            <div class="mt-2 text-[11px] text-muted-foreground">Excerpt truncated</div>
+            <div class="px-3 pb-2 pt-1 text-[11px] text-muted-foreground">Excerpt truncated</div>
           {/if}
         </div>
       {/if}
@@ -721,37 +770,142 @@
 {/if}
 
 <style>
+  /* oneDark-matched syntax highlighting for permalink previews */
   :global(.permalink-preview .hljs) {
     background: transparent !important;
-    color: inherit !important;
+    color: #abb2bf !important;
   }
 
   :global(.permalink-preview .hljs-keyword),
   :global(.permalink-preview .hljs-selector-tag),
   :global(.permalink-preview .hljs-literal),
+  :global(.permalink-preview .hljs-selector-attr) {
+    color: #c678dd;
+  }
+
   :global(.permalink-preview .hljs-title),
-  :global(.permalink-preview .hljs-section),
-  :global(.permalink-preview .hljs-type) {
-    color: hsl(var(--primary));
+  :global(.permalink-preview .hljs-title.function_),
+  :global(.permalink-preview .hljs-selector-id) {
+    color: #61afef;
+  }
+
+  :global(.permalink-preview .hljs-title.class_),
+  :global(.permalink-preview .hljs-type),
+  :global(.permalink-preview .hljs-built_in),
+  :global(.permalink-preview .hljs-selector-class) {
+    color: #e5c07b;
   }
 
   :global(.permalink-preview .hljs-string),
-  :global(.permalink-preview .hljs-attr),
-  :global(.permalink-preview .hljs-attribute),
-  :global(.permalink-preview .hljs-template-tag),
-  :global(.permalink-preview .hljs-template-variable) {
-    color: hsl(var(--accent-foreground));
+  :global(.permalink-preview .hljs-template-tag) {
+    color: #98c379;
   }
 
   :global(.permalink-preview .hljs-number),
   :global(.permalink-preview .hljs-symbol),
-  :global(.permalink-preview .hljs-bullet) {
-    color: hsl(var(--secondary-foreground));
+  :global(.permalink-preview .hljs-bullet),
+  :global(.permalink-preview .hljs-attr),
+  :global(.permalink-preview .hljs-attribute),
+  :global(.permalink-preview .hljs-meta) {
+    color: #d19a66;
+  }
+
+  :global(.permalink-preview .hljs-variable),
+  :global(.permalink-preview .hljs-template-variable),
+  :global(.permalink-preview .hljs-name),
+  :global(.permalink-preview .hljs-tag),
+  :global(.permalink-preview .hljs-property) {
+    color: #e06c75;
+  }
+
+  :global(.permalink-preview .hljs-regexp),
+  :global(.permalink-preview .hljs-selector-pseudo),
+  :global(.permalink-preview .hljs-link) {
+    color: #56b6c2;
   }
 
   :global(.permalink-preview .hljs-comment),
   :global(.permalink-preview .hljs-quote) {
-    color: hsl(var(--muted-foreground));
+    color: #7d8799;
     font-style: italic;
+  }
+
+  :global(.permalink-preview .hljs-section) {
+    color: #61afef;
+  }
+
+  :global(.permalink-preview .hljs-meta .hljs-keyword) {
+    color: #c678dd;
+  }
+
+  :global(.permalink-preview .hljs-meta .hljs-string) {
+    color: #98c379;
+  }
+
+  /* Snippet line layout */
+  .cq-snippet-lines {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.6875rem;
+    padding: 3px 0;
+  }
+
+  .cq-snippet-line {
+    display: flex;
+    align-items: baseline;
+    line-height: 1.4;
+  }
+
+  .cq-snippet-num {
+    flex-shrink: 0;
+    min-width: 2.5ch;
+    padding: 0 0.5ch;
+    text-align: right;
+    color: hsl(var(--muted-foreground) / 0.45);
+    user-select: none;
+  }
+
+  .cq-snippet-diff-ind {
+    flex-shrink: 0;
+    width: 1.5ch;
+    text-align: center;
+    user-select: none;
+    opacity: 0.5;
+  }
+
+  :global(.cq-snippet-code) {
+    flex: 1;
+    margin: 0 !important;
+    padding: 0 0.5ch !important;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font: inherit;
+    line-height: inherit;
+  }
+
+  :global(.cq-snippet-code code) {
+    padding: 0 !important;
+    margin: 0 !important;
+    font: inherit;
+    line-height: inherit;
+  }
+
+  :global(.cq-diff-add) {
+    background-color: rgba(34, 197, 94, 0.12);
+    border-left: 2px solid rgb(22, 163, 74);
+  }
+
+  :global(.cq-diff-del) {
+    background-color: rgba(239, 68, 68, 0.12);
+    border-left: 2px solid rgb(220, 38, 38);
+  }
+
+  :global(.dark .cq-diff-add) {
+    background-color: rgba(34, 197, 94, 0.15);
+    border-left-color: rgb(34, 197, 94);
+  }
+
+  :global(.dark .cq-diff-del) {
+    background-color: rgba(239, 68, 68, 0.15);
+    border-left-color: rgb(239, 68, 68);
   }
 </style>
