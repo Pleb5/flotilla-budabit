@@ -685,39 +685,44 @@
 
   const attemptedAccountSearchLoads = new Set<string>()
 
+  const getAccountSearchRelays = (pubkey: string, relayHints: string[]) => {
+    let outboxRelays: string[] = []
+    try {
+      outboxRelays = Router.get().FromPubkeys([pubkey]).getUrls()
+    } catch {
+      outboxRelays = []
+    }
+
+    return Array.from(
+      new Set([...relayHints, ...outboxRelays, ...repoAnnouncementRelays, ...GIT_RELAYS]),
+    )
+      .map(relay => normalizeRelayUrl(relay))
+      .filter(Boolean) as string[]
+  }
+
+  $effect(() => {
+    const {pubkey, relayHints} = accountSearch
+    if (!pubkey) return
+
+    const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [pubkey]} as any
+    const relaysToQuery = getAccountSearchRelays(pubkey, relayHints)
+    const loadKey = `${pubkey}|${relaysToQuery.slice().sort().join(",")}`
+
+    if (attemptedAccountSearchLoads.has(loadKey)) return
+
+    attemptedAccountSearchLoads.add(loadKey)
+
+    if (relaysToQuery.length > 0) {
+      load({relays: relaysToQuery, filters: [filter]})
+    }
+  })
+
   const accountSearchReposStore = $derived.by(() => {
     const {pubkey} = accountSearch
     if (!pubkey) return undefined
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [pubkey]} as any
-    const loadKey = `${pubkey}`
 
-    return _derived(deriveEventsDesc(deriveEventsById({repository, filters: [filter]})), events => {
-      if (events.length === 0 && !attemptedAccountSearchLoads.has(loadKey)) {
-        attemptedAccountSearchLoads.add(loadKey)
-        let outboxRelays: string[] = []
-        try {
-          outboxRelays = Router.get().FromPubkeys([pubkey]).getUrls()
-        } catch {
-          outboxRelays = []
-        }
-        const relaysToQuery = Array.from(
-          new Set([
-            ...accountSearch.relayHints,
-            ...outboxRelays,
-            ...repoAnnouncementRelays,
-            ...GIT_RELAYS,
-          ]),
-        )
-          .map(relay => normalizeRelayUrl(relay))
-          .filter(Boolean) as string[]
-
-        if (relaysToQuery.length > 0) {
-          load({relays: relaysToQuery, filters: [filter]})
-        }
-      }
-
-      return events
-    })
+    return deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
   })
 
   const accountSearchRepos = $derived.by(() => {
