@@ -12,7 +12,11 @@
   import {deriveEvent, entityLink} from "@app/core/state"
   import {goToEvent} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
-  import { Button as GitButton } from "@nostr-git/ui"
+  import {
+    Button as GitButton,
+    getHighlightLanguageForPath,
+    highlightCodeSnippet,
+  } from "@nostr-git/ui"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {GIT_RELAYS} from "@lib/budabit/state"
   import {
@@ -23,50 +27,6 @@
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
   } from "@nostr-git/core/events"
-  import markdownit from "markdown-it"
-  import hljs from "highlight.js/lib/core"
-  import javascript from "highlight.js/lib/languages/javascript"
-  import typescript from "highlight.js/lib/languages/typescript"
-  import python from "highlight.js/lib/languages/python"
-  import rust from "highlight.js/lib/languages/rust"
-  import go from "highlight.js/lib/languages/go"
-  import java from "highlight.js/lib/languages/java"
-  import cpp from "highlight.js/lib/languages/cpp"
-  import c from "highlight.js/lib/languages/c"
-  import csharp from "highlight.js/lib/languages/csharp"
-  import ruby from "highlight.js/lib/languages/ruby"
-  import php from "highlight.js/lib/languages/php"
-  import css from "highlight.js/lib/languages/css"
-  import scss from "highlight.js/lib/languages/scss"
-  import xml from "highlight.js/lib/languages/xml"
-  import json from "highlight.js/lib/languages/json"
-  import yaml from "highlight.js/lib/languages/yaml"
-  import markdown from "highlight.js/lib/languages/markdown"
-  import bash from "highlight.js/lib/languages/bash"
-  import sql from "highlight.js/lib/languages/sql"
-  import plaintext from "highlight.js/lib/languages/plaintext"
-
-  hljs.registerLanguage("javascript", javascript)
-  hljs.registerLanguage("typescript", typescript)
-  hljs.registerLanguage("python", python)
-  hljs.registerLanguage("rust", rust)
-  hljs.registerLanguage("go", go)
-  hljs.registerLanguage("java", java)
-  hljs.registerLanguage("cpp", cpp)
-  hljs.registerLanguage("c", c)
-  hljs.registerLanguage("csharp", csharp)
-  hljs.registerLanguage("ruby", ruby)
-  hljs.registerLanguage("php", php)
-  hljs.registerLanguage("css", css)
-  hljs.registerLanguage("scss", scss)
-  hljs.registerLanguage("xml", xml)
-  hljs.registerLanguage("html", xml)
-  hljs.registerLanguage("json", json)
-  hljs.registerLanguage("yaml", yaml)
-  hljs.registerLanguage("markdown", markdown)
-  hljs.registerLanguage("bash", bash)
-  hljs.registerLanguage("sql", sql)
-  hljs.registerLanguage("plaintext", plaintext)
 
   type Props = {
     value: any
@@ -231,49 +191,8 @@
     return `L${start}`
   }
 
-  const getFileLanguage = (filepath: string) => {
-    const ext = filepath.split(".").pop()?.toLowerCase()
-    const langMap: Record<string, string> = {
-      js: "javascript",
-      ts: "typescript",
-      jsx: "javascript",
-      tsx: "typescript",
-      py: "python",
-      rb: "ruby",
-      go: "go",
-      rs: "rust",
-      java: "java",
-      cpp: "cpp",
-      c: "c",
-      cs: "csharp",
-      php: "php",
-      html: "html",
-      css: "css",
-      scss: "scss",
-      sass: "scss",
-      json: "json",
-      xml: "xml",
-      yaml: "yaml",
-      yml: "yaml",
-      md: "markdown",
-      sh: "bash",
-      bash: "bash",
-      zsh: "bash",
-      fish: "bash",
-    }
-    return langMap[ext || ""] || "plaintext"
-  }
-
-  const highlightPreview = (content: string, language: string) => {
-    if (!content) return ""
-    try {
-      return hljs.highlight(content, {language, ignoreIllegals: true}).value
-    } catch {
-      return hljs.highlight(content, {language: "plaintext", ignoreIllegals: true}).value
-    }
-  }
-
-  const md = markdownit({html: true, linkify: true, typographer: true})
+  const highlightPreview = (content: string, language: string) =>
+    highlightCodeSnippet(content, language)
 
   type DiffLine = {type: "+" | "-" | " "; content: string; lineNum: number | null}
 
@@ -494,6 +413,32 @@
     return base
   }
 
+  const openCurrentTarget = (href: string) => {
+    if (typeof window === "undefined") return false
+
+    try {
+      const target = new URL(href, window.location.origin)
+      const current = new URL(window.location.href)
+      if (target.pathname !== current.pathname || target.search !== current.search) return false
+      if (!target.hash) return false
+
+      if (target.hash !== current.hash) {
+        window.location.hash = target.hash
+      } else {
+        window.dispatchEvent(
+          new HashChangeEvent("hashchange", {
+            oldURL: current.href,
+            newURL: target.href,
+          }),
+        )
+      }
+
+      return true
+    } catch {
+      return false
+    }
+  }
+
   let diffHash = $state("")
 
   $effect(() => {
@@ -518,6 +463,16 @@
   })
 
   const gitCard = $derived.by(() => ($quote ? getGitShareCard($quote, url) : null))
+
+  const handlePermalinkOpen = (event: MouseEvent, href: string) => {
+    isOpenPending = true
+    if (!openCurrentTarget(href)) return
+
+    event.preventDefault()
+    requestAnimationFrame(() => {
+      isOpenPending = false
+    })
+  }
 </script>
 
 {#if $quote && $quote.kind === 1623}
@@ -538,7 +493,7 @@
     : "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/20"}
   {@const contentPreview = getContentPreview($quote)}
   {@const isTruncated = isContentTruncated($quote)}
-  {@const highlightLanguage = filePath ? getFileLanguage(filePath) : "plaintext"}
+        {@const highlightLanguage = filePath ? getHighlightLanguageForPath(filePath) : "plaintext"}
   {@const highlightedPreview = highlightPreview(contentPreview, highlightLanguage)}
   <div class="my-2 block w-full max-w-full text-left">
     <div class="rounded-lg border bg-card p-3 shadow-sm">
@@ -577,7 +532,7 @@
               size="sm"
               class="shrink-0"
               href={permalinkHref}
-              onclick={onOpen}
+              onclick={event => handlePermalinkOpen(event, permalinkHref)}
               aria-busy={isOpenPending}
             >
               {#if isOpenPending}
@@ -644,18 +599,13 @@
         </div>
       </div>
       {#if contentPreview}
-        {@const isMarkdownFile = highlightLanguage === "markdown"}
         {@const lineRange = getLineRange($quote)}
         {@const diffLines = isDiff ? parseDiffLines(contentPreview, lineRange.start) : []}
-        {@const codeLines = !isDiff && !isMarkdownFile ? contentPreview.split("\n").map((l, i) => ({num: (lineRange.start ?? 1) + i, content: l})) : []}
+        {@const codeLines = !isDiff ? contentPreview.split("\n").map((l, i) => ({num: (lineRange.start ?? 1) + i, content: l})) : []}
         <div class="mt-3 rounded border border-border/40 bg-muted/30 overflow-hidden permalink-preview">
           {#if isDiff && diffLines.length > 0}
             <div class="cq-snippet-lines">
               {#each diffLines as line}<div class="cq-snippet-line {getDiffLineClass(line.type)}"><span class="cq-snippet-num">{line.lineNum ?? ""}</span><span class="cq-snippet-diff-ind">{line.type === " " ? "\u00a0" : line.type}</span><pre class="cq-snippet-code"><code class="hljs">{@html highlightPreview(line.content, highlightLanguage)}</code></pre></div>{/each}
-            </div>
-          {:else if isMarkdownFile}
-            <div class="p-3 prose prose-sm dark:prose-invert max-w-none cq-markdown">
-              {@html md.render(contentPreview)}
             </div>
           {:else if codeLines.length > 0}
             <div class="cq-snippet-lines">
