@@ -25,8 +25,50 @@ export class IDB {
 
   constructor(readonly options: IDBOptions) {}
 
+  private closeConnection = async () => {
+    const connection = this.connection
+    this.connection = undefined
+    await connection?.then(c => c.close()).catch(() => {})
+  }
+
+  private waitForDelete = async (name: string, timeoutMs = 2500) => {
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    let done = false
+
+    const finish = () => {
+      if (done) return
+      done = true
+      if (timeout) {
+        clearTimeout(timeout)
+        timeout = null
+      }
+    }
+
+    await new Promise<void>(resolve => {
+      timeout = setTimeout(() => {
+        console.warn(`IndexedDB '${name}' delete timed out`)
+        finish()
+        resolve()
+      }, timeoutMs)
+
+      deleteDB(name, {
+        blocked() {
+          console.warn(`IndexedDB '${name}' delete blocked by another context`)
+        },
+      })
+        .catch(error => {
+          console.warn(`IndexedDB '${name}' delete failed`, error)
+        })
+        .finally(() => {
+          finish()
+          resolve()
+        })
+    })
+  }
+
   async connect() {
     if (!this.connection) {
+      const dbManager = this
       const {name, version} = this.options
       const adapters = this.adapters
 
@@ -48,8 +90,16 @@ export class IDB {
             }
           }
         },
-        blocked() {},
-        blocking() {},
+        blocked() {
+          console.warn(`IndexedDB '${name}' open blocked by another context`)
+        },
+        blocking() {
+          console.warn(`IndexedDB '${name}' closing due to external delete/versionchange`)
+          void dbManager.closeConnection()
+        },
+        terminated() {
+          dbManager.connection = undefined
+        },
       })
 
       this.unsubscribers = await Promise.all(adapters.map(({name, init}) => init(this.table(name))))
@@ -128,8 +178,7 @@ export class IDB {
     this.unsubscribers?.forEach(call)
     this.unsubscribers = undefined
 
-    this.connection?.then(c => c.close()).catch(() => {})
-    this.connection = undefined
+    void this.closeConnection()
   }
 
   clear = async () => {
@@ -139,13 +188,8 @@ export class IDB {
       this.unsubscribers?.forEach(call)
       this.unsubscribers = undefined
 
-      const connection = this.connection
-      this.connection = undefined
-      await connection?.then(c => c.close()).catch(() => {})
-
-      await deleteDB(this.options.name, {
-        blocked() {},
-      })
+      await this.closeConnection()
+      await this.waitForDelete(this.options.name)
     } finally {
       this.isClearing = false
     }

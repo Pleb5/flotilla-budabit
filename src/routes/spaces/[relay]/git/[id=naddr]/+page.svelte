@@ -32,7 +32,7 @@
   import {clip, pushToast} from "@app/util/toast"
 
   import {getContext} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, loadRepoAnnouncements, repoAnnouncements} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
@@ -72,8 +72,6 @@
   let showAllRelays = $state(false)
   let showAllBranches = $state(false)
   let showTaggedMaintainers = $state(false)
-  let repoAnnouncementsLoadKey = $state<string | undefined>(undefined)
-
   const normalizePubkey = (value: string | undefined | null): string => {
     if (!value) return ""
     if (/^[0-9a-f]{64}$/i.test(value)) return value
@@ -86,12 +84,6 @@
     return ""
   }
 
-  const getTagValue = (event: any, name: string): string =>
-    (event?.tags || []).find((t: string[]) => t[0] === name)?.[1] || ""
-
-  const getEucTag = (event: any): string =>
-    (event?.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
-
   const normalizeBranchRef = (value?: string): string => {
     const raw = String(value || "").trim()
     if (!raw) return ""
@@ -100,19 +92,6 @@
       .replace(/^refs\/heads\//, "")
       .replace(/^refs\/remotes\/origin\//, "")
       .replace(/^origin\//, "")
-  }
-
-  const isSameRepoIdentity = (baseEvent: any, candidateEvent: any): boolean => {
-    const baseD = getTagValue(baseEvent, "d")
-    const candidateD = getTagValue(candidateEvent, "d")
-    if (!baseD || !candidateD || baseD !== candidateD) return false
-
-    const baseEuc = getEucTag(baseEvent)
-    const candidateEuc = getEucTag(candidateEvent)
-
-    if (baseEuc && candidateEuc) return baseEuc === candidateEuc
-    if (baseEuc || candidateEuc) return false
-    return true
   }
 
   const getTaggedMaintainers = (event: any): string[] => {
@@ -131,43 +110,30 @@
     return getTaggedMaintainers(event)
   })
 
-  const effectiveMaintainerPubkeys = $derived.by(() => {
+  const repoAddress = $derived.by(() => {
+    if (repoClass?.address) return repoClass.address
     const event = repoClass?.repoEvent
-    if (!event) return [] as string[]
-    const tagged = getTaggedMaintainers(event)
-    const owner = normalizePubkey(event.pubkey)
+    if (!event) return ""
+    const dTag = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1]
+    if (!event.pubkey || !dTag) return ""
+    return `30617:${event.pubkey}:${dTag}`
+  })
 
-    const announcers = new Set<string>()
-    if (owner) announcers.add(owner)
-
-    for (const announcement of $repoAnnouncements || []) {
-      const announcer = normalizePubkey(announcement?.pubkey)
-      if (!announcer) continue
-      if (!isSameRepoIdentity(event, announcement)) continue
-      announcers.add(announcer)
+  const effectiveMaintainerPubkeys = $derived.by(() => {
+    if (repoAddress) {
+      const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+      if (maintainers && maintainers.size > 0) {
+        return Array.from(maintainers)
+      }
     }
 
-    const effective = new Set<string>()
-    if (owner) effective.add(owner)
-    for (const pk of tagged) {
-      if (announcers.has(pk)) effective.add(pk)
-    }
-
-    return Array.from(effective)
+    const owner = normalizePubkey(repoClass?.repoEvent?.pubkey)
+    return owner ? [owner] : []
   })
 
   const unverifiedTaggedPubkeys = $derived.by(() => {
     const effective = new Set(effectiveMaintainerPubkeys)
     return taggedMaintainerPubkeys.filter(pk => !effective.has(pk))
-  })
-
-  $effect(() => {
-    const relays = repoRelays || []
-    if (relays.length === 0) return
-    const key = [...relays].sort().join(",")
-    if (repoAnnouncementsLoadKey === key) return
-    repoAnnouncementsLoadKey = key
-    loadRepoAnnouncements(relays)
   })
 
   const stats = $derived([

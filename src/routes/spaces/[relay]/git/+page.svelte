@@ -31,7 +31,7 @@
   import {decodeRelay} from "@app/core/state"
   import {publishDelete} from "@app/core/commands"
   import {goto} from "$app/navigation"
-  import {onMount, untrack} from "svelte"
+  import {onMount, onDestroy, untrack} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
   import {nip19, type NostrEvent} from "nostr-tools"
   import {
@@ -1160,28 +1160,43 @@
 
   // Store for account search (naddr/npub) repo cards
   let accountSearchRepoCards = $state<any[]>([])
+  let accountSearchCardsComputeTimer: ReturnType<typeof setTimeout> | null = null
 
   // Update account search repo cards
   $effect(() => {
     if (!isAccountSearch) {
+      if (accountSearchCardsComputeTimer) {
+        clearTimeout(accountSearchCardsComputeTimer)
+        accountSearchCardsComputeTimer = null
+      }
       accountSearchRepoCards = []
       return
     }
 
     const repos = accountSearchRepos
     if (repos.length > 0) {
-      const cards = repositoriesStore.computeCards(repos, {
-        deriveMaintainersForEuc,
-        deriveRepoRefState,
-        derivePatchGraph,
-        parseRepoAnnouncementEvent,
-        Router,
-        Address,
-        repoAnnouncements: $repoAnnouncements,
-        gitRelays: GIT_RELAYS,
-      })
-      accountSearchRepoCards = cards
+      if (accountSearchCardsComputeTimer) {
+        clearTimeout(accountSearchCardsComputeTimer)
+      }
+      accountSearchCardsComputeTimer = setTimeout(() => {
+        const cards = repositoriesStore.computeCards(repos, {
+          deriveMaintainersForEuc,
+          deriveRepoRefState,
+          derivePatchGraph,
+          parseRepoAnnouncementEvent,
+          Router,
+          Address,
+          repoAnnouncements: $repoAnnouncements,
+          gitRelays: GIT_RELAYS,
+        })
+        accountSearchRepoCards = cards
+        accountSearchCardsComputeTimer = null
+      }, 0)
     } else {
+      if (accountSearchCardsComputeTimer) {
+        clearTimeout(accountSearchCardsComputeTimer)
+        accountSearchCardsComputeTimer = null
+      }
       accountSearchRepoCards = []
     }
   })
@@ -1189,6 +1204,7 @@
   // Memoize card computation to prevent jitter
   let cachedCards: any[] = []
   let cachedCardsKey = ""
+  let cardsComputeTimer: ReturnType<typeof setTimeout> | null = null
   
   // Update repositoriesStore whenever repos change
   // Uses debouncing to wait for all repos to load before showing cards
@@ -1201,34 +1217,54 @@
     if (reposToShow.length > 0 || !loading) {
       loading = false
       if (reposToShow.length > 0) {
-        // Create a stable key based on repo IDs and announcement count
+        // Create a stable key based on visible repo IDs only
         const repoIds = reposToShow.map((r: any) => (r.event ?? r).id).sort().join(",")
-        const announcementCount = $repoAnnouncements.length
-        const cardsKey = `${repoIds}:${announcementCount}`
+        const cardsKey = repoIds
         
         // Only recompute and push cards when the key has actually changed
         if (cardsKey !== cachedCardsKey) {
-          // Compute cards using the store's method
-          const cards = repositoriesStore.computeCards(reposToShow, {
-            deriveMaintainersForEuc,
-            deriveRepoRefState,
-            derivePatchGraph,
-            parseRepoAnnouncementEvent,
-            Router,
-            Address,
-            repoAnnouncements: $repoAnnouncements,
-            gitRelays: GIT_RELAYS,
-          })
-          cachedCards = cards
-          cachedCardsKey = cardsKey
-          repositoriesStore.set(cachedCards)
+          if (cardsComputeTimer) {
+            clearTimeout(cardsComputeTimer)
+            cardsComputeTimer = null
+          }
+          cardsComputeTimer = setTimeout(() => {
+            const cards = repositoriesStore.computeCards(reposToShow, {
+              deriveMaintainersForEuc,
+              deriveRepoRefState,
+              derivePatchGraph,
+              parseRepoAnnouncementEvent,
+              Router,
+              Address,
+              repoAnnouncements: $repoAnnouncements,
+              gitRelays: GIT_RELAYS,
+            })
+            cachedCards = cards
+            cachedCardsKey = cardsKey
+            repositoriesStore.set(cachedCards)
+            cardsComputeTimer = null
+          }, 0)
         }
 
       } else {
+        if (cardsComputeTimer) {
+          clearTimeout(cardsComputeTimer)
+          cardsComputeTimer = null
+        }
         untrack(() => {
           repositoriesStore.clear()
         })
       }
+    }
+  })
+
+  onDestroy(() => {
+    if (cardsComputeTimer) {
+      clearTimeout(cardsComputeTimer)
+      cardsComputeTimer = null
+    }
+    if (accountSearchCardsComputeTimer) {
+      clearTimeout(accountSearchCardsComputeTimer)
+      accountSearchCardsComputeTimer = null
     }
   })
 

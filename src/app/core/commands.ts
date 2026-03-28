@@ -121,7 +121,7 @@ import {
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {request, load} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
-import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
+import {DEFAULT_WORKER_PUBKEY, activeRepoClass} from "@lib/budabit/state"
 import {deleteIndexedDB} from "@lib/util"
 
 // Utils
@@ -421,8 +421,49 @@ export const publishJobRequest = async (params: JobRequestParams): Promise<JobRe
 
 // Log out
 
+const bestEffortWithTimeout = async (
+  operation: Promise<unknown>,
+  label: string,
+  timeoutMs: number,
+) => {
+  let timeout: ReturnType<typeof setTimeout> | null = null
+  let done = false
+
+  const finish = (resolve: () => void) => {
+    if (done) return
+    done = true
+    if (timeout) {
+      clearTimeout(timeout)
+      timeout = null
+    }
+    resolve()
+  }
+
+  await new Promise<void>(resolve => {
+    timeout = setTimeout(() => {
+      console.warn(`[logout] ${label} timed out after ${timeoutMs}ms`)
+      finish(resolve)
+    }, timeoutMs)
+
+    operation
+      .catch(error => {
+        console.warn(`[logout] ${label} failed`, error)
+      })
+      .finally(() => finish(resolve))
+  })
+}
+
 export const logout = async () => {
   const $pubkey = pubkey.get()
+
+  try {
+    const repo = get(activeRepoClass)
+    repo?.dispose?.()
+  } catch (error) {
+    console.warn("[logout] Failed to dispose active repo", error)
+  } finally {
+    activeRepoClass.set(undefined)
+  }
 
   if ($pubkey) {
     dropSession($pubkey)
@@ -430,9 +471,9 @@ export const logout = async () => {
 
   localStorage.clear()
 
-  await kv.clear()
-  await db.clear()
-  await nostrGitLogoutCleanup()
+  await bestEffortWithTimeout(kv.clear(), "Preferences clear", 2500)
+  await bestEffortWithTimeout(db.clear(), "Main IndexedDB clear", 3000)
+  await bestEffortWithTimeout(nostrGitLogoutCleanup(), "Nostr-Git DB cleanup", 2000)
 }
 
 export async function nostrGitLogoutCleanup(): Promise<void> {
