@@ -22,23 +22,13 @@
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
 
-  type Props = {
-    tokenKey: string
-  }
-
   interface TokenEntry {
     host: string
     token: string
   }
 
-  const {tokenKey}: Props = $props()
-
   let corsProxyDraft = $state("")
   const effectiveCorsProxy = $derived.by(() => resolveGitCorsProxy($gitCorsProxy))
-  const isDefaultCorsProxy = $derived.by(() => {
-    const normalized = normalizeGitCorsProxy($gitCorsProxy || "")
-    return !normalized || normalized === DEFAULT_GIT_CORS_PROXY
-  })
 
   $effect(() => {
     corsProxyDraft = $gitCorsProxy || ""
@@ -99,12 +89,12 @@
   }
 
   const openDialog = () => {
-    pushModal(GitAuthAdd, {tokenKey})
+    pushModal(GitAuthAdd)
     // No need for polling - the reactive token store will automatically update the UI
   }
 
   const editToken = (token: TokenEntry) => {
-    pushModal(GitAuthAdd, {tokenKey, editToken: token})
+    pushModal(GitAuthAdd, {editToken: token})
     // The reactive token store will automatically update the UI when editing is complete
   }
 </script>

@@ -26,6 +26,7 @@
   import {pushModal, clearModals} from "@app/util/modal"
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
   import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
+  import RemoteFixHelperModal from "@app/components/RemoteFixHelperModal.svelte"
   import {EditRepoPanel} from "@nostr-git/ui"
   import {postRepoAnnouncement, postRepoStateEvent} from "@lib/budabit/commands.js"
   import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
@@ -102,7 +103,7 @@
   
   const {id, relay} = $page.params
 
-  let {data, children} = $props()
+  const {data, children} = $props()
   // Type assertion needed because TypeScript infers old layout return type
   const layoutData = data as unknown as {repoId: string, repoName: string, repoPubkey: string, fallbackRelays: string[], naddrRelays: string[], url: string}
   const {repoId, repoName, repoPubkey, fallbackRelays, naddrRelays, url} = layoutData
@@ -153,7 +154,9 @@
     if (!repoClass.key && repoPubkey && repoName) {
       try {
         repoClass.key = parseRepoId(`${repoPubkey}:${repoName}`)
-      } catch {}
+      } catch (error) {
+        void error
+      }
     }
     if (!repoClass.address && repoPubkey && repoName) {
       repoClass.address = `${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`
@@ -2108,7 +2111,7 @@
     })
   }
 
-  function settingsRepo() {
+  function settingsRepo(replaceState = false) {
     if (!repoClass) return
     if (!$pubkey || repoPubkey !== $pubkey) {
       pushToast({
@@ -2128,40 +2131,53 @@
       return
     }
     
-    pushModal(EditRepoPanel, {
-      repo: repoClass,
-      onPublishEvent: async (event: RepoAnnouncementEvent | RepoStateEvent) => {
-        const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish)
+    pushModal(
+      EditRepoPanel,
+      {
+        repo: repoClass,
+        onPublishEvent: async (event: RepoAnnouncementEvent | RepoStateEvent) => {
+          const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish)
 
-        if (thunk?.event && !repository.getEvent(thunk.event.id)) {
-          repository.publish(thunk.event as TrustedEvent)
-        }
-
-        if (event.kind === GIT_REPO_STATE && thunk?.event) {
-          const published = thunk.event as RepoStateEvent
-          optimisticRepoStates = {
-            ...optimisticRepoStates,
-            [repoName]: published,
+          if (thunk?.event && !repository.getEvent(thunk.event.id)) {
+            repository.publish(thunk.event as TrustedEvent)
           }
-        }
+
+          if (event.kind === GIT_REPO_STATE && thunk?.event) {
+            const published = thunk.event as RepoStateEvent
+            optimisticRepoStates = {
+              ...optimisticRepoStates,
+              [repoName]: published,
+            }
+          }
+        },
+        onSaveComplete: async ({
+          renamed,
+          nextName,
+          relays,
+        }: {
+          renamed: boolean
+          nextName: string
+          relays: string[]
+        }) => {
+          if (!renamed) return
+          await navigateToRenamedRepo(nextName, relays)
+        },
+        canDelete: !!$pubkey && repoPubkey === $pubkey,
+        onRequestDelete: () => openDeleteRepoModal(),
+        getProfile: getRepoProfile,
+        searchProfiles: searchRepoProfiles,
+        searchRelays: searchRepoRelays,
       },
-      onSaveComplete: async ({
-        renamed,
-        nextName,
-        relays,
-      }: {
-        renamed: boolean
-        nextName: string
-        relays: string[]
-      }) => {
-        if (!renamed) return
-        await navigateToRenamedRepo(nextName, relays)
-      },
-      canDelete: !!$pubkey && repoPubkey === $pubkey,
-      onRequestDelete: () => openDeleteRepoModal(),
-      getProfile: getRepoProfile,
-      searchProfiles: searchRepoProfiles,
-      searchRelays: searchRepoRelays,
+      replaceState ? {replaceState: true} : {},
+    )
+  }
+
+  function openRemoteFixModal() {
+    if (!repoClass) return
+    pushModal(RemoteFixHelperModal, {
+      repoClass,
+      onOpenSettings: () => settingsRepo(true),
+      onRefresh: refreshRepo,
     })
   }
 
@@ -2439,7 +2455,7 @@
         {refreshRepo}
         {isRefreshing}
         forkRepo={$pubkey ? forkRepo : undefined}
-        settingsRepo={$pubkey ? settingsRepo : undefined}
+        settingsRepo={$pubkey ? () => settingsRepo() : undefined}
         {overviewRepo}
         bookmarkRepo={$pubkey ? bookmarkRepo : undefined}
         isBookmarked={$pubkey ? isBookmarked : false}
@@ -2450,6 +2466,7 @@
         updateRepoState={isOwnedRepo ? refreshBranchUpdatesAndOpen : undefined}
         hasRepoStateUpdate={hasCurrentRepoBranchUpdate}
         isCheckingRepoStateUpdate={updateStateActionChecking}
+        resolveCloneUrlIssues={openRemoteFixModal}
         >
         {#snippet children(activeTab: string)}
           <RepoTab

@@ -53,7 +53,16 @@
   // Component-level state for commit data (loaded after repo is ready)
   let commitMeta = $state<CommitMeta | undefined>(data?.commitMeta)
   let changes = $state<CommitChange[] | undefined>(data?.changes)
-  let isLoading = $state(!data?.commitMeta)
+  let fallbackStats = $state<
+    | {
+        additions: number
+        deletions: number
+        total: number
+      }
+    | undefined
+  >(data?.stats)
+  let diffUnavailable = $state(data?.diffAvailable === false)
+  let commitWarning = $state<string | undefined>(data?.warning)
   let loadError = $state<string | undefined>(undefined)
   let loadAttempted = $state(false)
 
@@ -62,8 +71,10 @@
     const commitid = $page.params.commitid
     if (!commitid) return
 
-    isLoading = true
     loadError = undefined
+    commitWarning = undefined
+    diffUnavailable = false
+    fallbackStats = undefined
 
     try {
       // Wait for repo to be ready (replaces inefficient polling loop)
@@ -71,7 +82,6 @@
       
       if (!repoClass.key) {
         loadError = "Repository information not available"
-        isLoading = false
         return
       }
       // Ensure repo is cloned first
@@ -96,24 +106,26 @@
           nip05: undefined,
           nip39: undefined
         }
-        // Show loading state for diff details only
-        isLoading = false
       }
 
       // Try REST API first (much faster for GitHub/GitLab repos)
       const cloneUrls = repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         loadError = "No clone URLs available for this repository"
-        isLoading = false
         return
       }
 
       const {getCommitDetailsViaRestApi} = await import("$lib/budabit/commit-api")
       let commitDetails = await getCommitDetailsViaRestApi(cloneUrls, commitid, repoClass.key)
+      const needsWorkerDiff =
+        !commitDetails ||
+        !commitDetails.success ||
+        commitDetails.diffAvailable === false ||
+        !Array.isArray(commitDetails.changes)
 
-      // If REST API didn't work, fall back to worker (requires cloning)
-      if (!commitDetails) {
-        console.log("[commit page] REST API not available, using worker (will clone if needed)")
+      // If REST API didn't provide a usable diff payload, fall back to worker git data
+      if (needsWorkerDiff) {
+        console.log("[commit page] REST metadata-only or unavailable, using worker git diff")
         
         if (!isCloned) {
           const result = await repoClass.workerManager.smartInitializeRepo({
@@ -125,7 +137,6 @@
           if (!result.success) {
             notifyCorsProxyIssue(result)
             loadError = result.error || "Failed to initialize repository"
-            isLoading = false
             return
           }
         }
@@ -136,10 +147,9 @@
         })
       }
 
-      if (!commitDetails?.success || !commitDetails.meta || !commitDetails.changes) {
+      if (!commitDetails?.success || !commitDetails.meta || !Array.isArray(commitDetails.changes)) {
         notifyCorsProxyIssue(commitDetails)
         loadError = commitDetails?.error || "Failed to load commit details"
-        isLoading = false
         return
       }
 
@@ -162,12 +172,19 @@
         diffHunks: change.diffHunks
       }))
 
-      isLoading = false
+      diffUnavailable = commitDetails.diffAvailable === false
+      fallbackStats = commitDetails.stats
+      commitWarning =
+        typeof commitDetails.warning === "string"
+          ? commitDetails.warning
+          : diffUnavailable
+            ? "Commit metadata loaded, but diff is unavailable."
+            : undefined
+
     } catch (err: any) {
       console.error("Error loading commit details:", err)
       notifyCorsProxyIssue(err)
       loadError = err?.message || "Failed to load commit details"
-      isLoading = false
     }
   }
 
@@ -192,7 +209,7 @@
 
   // Load commit details when component mounts if not already loaded from +page.ts
   onMount(() => {
-    if (!commitMeta || !changes) {
+    if (!commitMeta || !changes || diffUnavailable) {
       if (!loadAttempted) {
         loadAttempted = true
         loadCommitDetails()
@@ -327,6 +344,12 @@
 
   // Calculate total diff stats (safe for missing data)
   const totalStats = $derived(() => {
+    if ((!changes || changes.length === 0) && diffUnavailable && fallbackStats) {
+      return {
+        totalAdditions: Number(fallbackStats.additions || 0),
+        totalDeletions: Number(fallbackStats.deletions || 0),
+      }
+    }
     if (!changes) return {totalAdditions: 0, totalDeletions: 0}
     let totalAdditions = 0
     let totalDeletions = 0
@@ -423,12 +446,12 @@
     <!-- Statistics Grid -->
     <div class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
       <div class="rounded-lg border bg-muted/20 p-3 text-center">
-        <div class="text-2xl font-bold text-primary">{changes!.length}</div>
+        <div class="text-2xl font-bold text-primary">{diffUnavailable ? "?" : changes!.length}</div>
         <div class="text-sm text-muted-foreground">
-          {changes!.length === 1 ? "file" : "files"} changed
+          {diffUnavailable ? "Files changed" : `${changes!.length === 1 ? "file" : "files"} changed`}
         </div>
         <div class="mt-1 text-xs text-muted-foreground">
-          {changes!.length === 1 ? "Single file" : "Multiple files"}
+          {diffUnavailable ? "Unavailable from current remotes" : changes!.length === 1 ? "Single file" : "Multiple files"}
         </div>
       </div>
 
@@ -460,6 +483,12 @@
         </div>
       </div>
     </div>
+
+    {#if commitWarning}
+      <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+        {commitWarning}
+      </div>
+    {/if}
   </div>
 
   <div
@@ -575,9 +604,13 @@
   {#if changes!.length === 0}
     <div class="px-4 py-12 text-center sm:px-6">
       <FileText class="mx-auto h-12 w-12 text-muted-foreground" />
-      <h3 class="mt-4 text-lg font-medium text-foreground">No file changes</h3>
+      <h3 class="mt-4 text-lg font-medium text-foreground">
+        {diffUnavailable ? "Diff unavailable" : "No file changes"}
+      </h3>
       <p class="mt-2 text-sm text-muted-foreground">
-        This commit doesn't contain any file changes.
+        {diffUnavailable
+          ? "The commit exists, but file diffs could not be loaded from the current remotes."
+          : "This commit doesn't contain any file changes."}
       </p>
     </div>
   {/if}

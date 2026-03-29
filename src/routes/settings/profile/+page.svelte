@@ -143,7 +143,7 @@
     <SignerStatus />
   </div>
 
-  <GitAuth tokenKey="gh_tokens" />
+  <GitAuth />
 
   <!-- GRASP Servers Settings -->
   <div class="card2 bg-alt shadow-xl">

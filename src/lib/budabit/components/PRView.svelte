@@ -445,11 +445,18 @@
       }
 
       const changes = (result.changes || []) as PrChange[]
+      const diffUnavailable = result.diffAvailable === false
+      const warning =
+        typeof result.warning === "string"
+          ? result.warning
+          : diffUnavailable
+            ? "Commit metadata loaded, but file diff is unavailable from the current remotes."
+            : undefined
       prCommitDiffByOid = {
         ...prCommitDiffByOid,
         [oid]: {
           loading: false,
-          warning: typeof result.warning === "string" ? result.warning : undefined,
+          warning,
           meta: {
             sha: result.meta.sha || oid,
             author: result.meta.author || "Unknown author",
@@ -1510,9 +1517,10 @@
         url,
       }))
 
-      const combined: Array<{remote: string; url: string}> = (
-        Array.isArray(remotes) && remotes.length > 0 ? remotes : fallback
-      )
+      const combined: Array<{remote: string; url: string}> = [
+        ...(Array.isArray(remotes) ? remotes : []),
+        ...fallback,
+      ]
         .filter((remote: {remote: string; url: string}) => Boolean(remote?.url))
         .reduce((acc: Array<{remote: string; url: string}>, remote: {remote: string; url: string}) => {
           if (!acc.some((x) => x.url === remote.url)) acc.push(remote)
@@ -2533,7 +2541,11 @@
                               {/each}
                             </div>
                           {:else}
-                            <p class="text-sm text-muted-foreground">No file changes in this commit.</p>
+                            <p class="text-sm text-muted-foreground">
+                              {commitState.warning
+                                ? "Diff unavailable for this commit."
+                                : "No file changes in this commit."}
+                            </p>
                           {/if}
                         {/if}
                       </div>

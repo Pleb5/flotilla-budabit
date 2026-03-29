@@ -19,20 +19,18 @@
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
 
   type Props = {
-    tokenKey: string
     editToken?: TokenEntry
+    initialHost?: string
   }
 
-  const {tokenKey, editToken}: Props = $props()
+  const {editToken, initialHost}: Props = $props()
 
   const back = () => history.back()
   const disabled = $state(true)
 
-  let host = $state(editToken?.host || "")
+  let host = $state(editToken?.host || initialHost || "")
   let token = $state(editToken?.token || "")
   let busy = $state(false)
-  let userCode = $state("")
-  let verificationUri = $state("")
   let error = $state("")
 
   interface TokenEntry {
@@ -41,7 +39,7 @@
   }
 
   function reset() {
-    host = token = verificationUri = userCode = ""
+    host = token = ""
     busy = false
     error = ""
   }
@@ -60,7 +58,7 @@
     
     try {
       // Get current tokens from store
-      let currentTokens: TokenEntry[] = get(tokensStore)
+      const currentTokens: TokenEntry[] = get(tokensStore)
       let allTokens: TokenEntry[]
       
       if (editToken) {

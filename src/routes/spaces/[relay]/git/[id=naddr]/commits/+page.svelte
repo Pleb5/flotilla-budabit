@@ -21,7 +21,6 @@
   import type {Repo} from "@nostr-git/ui"
   import {createCommentEvent, type CommentEvent} from "@nostr-git/core/events"
   import {postComment} from "@lib/budabit/commands"
-  import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   
@@ -66,11 +65,6 @@
   // Track if we're currently loading more commits
   let isLoadingMore = $state(true)
 
-  // Track clone state
-  let isCloning = $state(false)
-  let cloneProgress = $state("")
-  let cloneCheckAttempted = $state(false)
-  
   // Debounce timer for commit loading effect
   let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
 
@@ -104,51 +98,6 @@
   let wasJustSwitching = $state(false);
   let branchSwitchComplete = $state(false);
 
-  // Ensure repo is cloned before loading commits
-  async function ensureRepoCloned(): Promise<boolean> {
-    if (!repoClass.key || !repoClass.workerManager) return false
-    
-    try {
-      const isCloned = await repoClass.workerManager.isRepoCloned({
-        repoId: repoClass.key
-      })
-      
-      if (isCloned) return true
-      
-      // Need to clone
-      isCloning = true
-      cloneProgress = "Initializing repository..."
-      
-      const cloneUrls = repoClass.cloneUrls
-      if (cloneUrls.length === 0) {
-        console.warn("No clone URLs found for repository")
-        isCloning = false
-        return false
-      }
-      
-      const result = await repoClass.workerManager.smartInitializeRepo({
-        repoId: repoClass.key,
-        cloneUrls,
-        forceUpdate: false
-      })
-      
-      if (!result.success) {
-        console.error("Repository initialization failed:", result.error)
-        notifyCorsProxyIssue(result)
-        isCloning = false
-        return false
-      }
-      
-      isCloning = false
-      return true
-    } catch (err) {
-      console.error("Failed to ensure repo cloned:", err)
-      notifyCorsProxyIssue(err)
-      isCloning = false
-      return false
-    }
-  }
-
   // Handle branch switching state changes
   $effect(() => {
     const isSwitching = repoClass.isBranchSwitching
@@ -176,7 +125,7 @@
   $effect(() => {
     // Read the derived values - this creates the dependency
     const currentRepoCommits = repoCommits
-    const trigger = commitsTrigger
+    void commitsTrigger
     const isSwitching = repoClass.isBranchSwitching
 
     // Don't sync during active switching
@@ -264,9 +213,6 @@
 
   // Load commits with pagination
   async function loadCommits() {
-    const selectedBranch = repoClass.selectedBranch;
-    const storedBranch = repoClass.commitManager?.getCurrentBranch?.();
-
     if (!initialLoadComplete) {
       commitsLoading = true
     }
@@ -275,17 +221,6 @@
     // This handles cases where loadCommits is called directly (e.g., pagination, retry)
     if (!repoClass.isInitialized) {
       await repoClass.waitForReady()
-    }
-
-    // Ensure repo is cloned before loading commits
-    if (!cloneCheckAttempted) {
-      cloneCheckAttempted = true
-      const cloned = await ensureRepoCloned()
-      if (!cloned) {
-        commitsError = "Repository not cloned. Please visit the Code tab first."
-        commitsLoading = false
-        return
-      }
     }
 
     try {
@@ -344,7 +279,7 @@
   const filteredCommits = $derived.by(() => {
     // Force dependency tracking on branchChangeTrigger to ensure re-calculation
     // when branch switches complete (even if commits array reference tracking fails)
-    const _branchTrigger = repoClass.branchChangeTrigger;
+    void repoClass.branchChangeTrigger
 
     if (commits) {
       let filtered = commits

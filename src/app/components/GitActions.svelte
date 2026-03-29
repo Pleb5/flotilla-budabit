@@ -1,12 +1,5 @@
 <script lang="ts">
-  import {load} from "@welshman/net"
-  import {
-    Address,
-    GIT_ISSUE,
-    GIT_PATCH,
-    type EventContent,
-    type TrustedEvent,
-  } from "@welshman/util"
+  import {Address, type EventContent, type TrustedEvent} from "@welshman/util"
   import {
     getFailedThunkUrls,
     mergeThunks,
@@ -22,15 +15,12 @@
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/core/commands"
   import {makeGitIssuePath, makeGitPath} from "@lib/budabit"
-  import {deriveEventsAsc, deriveEventsById, deriveIsDeleted} from "@welshman/store"
+  import {deriveIsDeleted} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
-  import {goto} from "$app/navigation"
-  import * as nip19 from "nostr-tools/nip19"
-  import type {AddressPointer} from "nostr-tools/nip19"
-  import {sanitizeRelays, parseRepoId, buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
+  import {sanitizeRelays, buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {buildRepoKey} from "@nostr-git/core/events"
   import {pushToast} from "@app/util/toast"
-  import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
+  import {normalizeRelayUrl} from "@welshman/util"
   import Link from "@lib/components/Link.svelte"
   import { onMount } from "svelte"
   import { parseRepoAnnouncementEvent } from "@nostr-git/core/events"
@@ -49,8 +39,6 @@
   }
 
   const {url, event, showIssues = true, showActivity = true, showPatches = true, workerApi}: Props = $props()
-
-  let loadingIssues = $state(true)
 
   const relaysTag = event.tags.find(nthEq(0, "relays")) || []
   const relays = sanitizeRelays(relaysTag.slice(1)) // Skip the "relays" tag name, pass only URLs
@@ -75,12 +63,6 @@
     )
   })
 
-  const issueFilter = {
-    kinds: [GIT_ISSUE],
-    "#a": [Address.fromEvent(event).toString()],
-  }
-
-  const issues = deriveEventsAsc(deriveEventsById({repository, filters: [issueFilter]}))
   const deleted = deriveIsDeleted(repository, event)
   const thunk = $derived(mergeThunks($thunks.filter(t => t.event.id === event.id)))
   const thunkSuccessCount = $derived.by(() =>
@@ -98,13 +80,6 @@
       tracker.getRelays(event.id).size === 0,
   )
 
-  const patchFilter = {
-    kinds: [GIT_PATCH],
-    "#a": [Address.fromEvent(event).toString()],
-  }
-
-  const patches = deriveEventsAsc(deriveEventsById({repository, filters: [patchFilter]}))
-
   const onPublishDelete = (event: TrustedEvent) =>
     publishDelete({relays: [normalizeRelayUrl(url)], event, protect: false})
 
@@ -115,71 +90,6 @@
       relays: [normalizeRelayUrl(url)],
       protect: false,
     })
-  }
-
-  $effect(() => {
-    if (event) {
-      if (showIssues) {
-        const cleanRelays = (relays || [])
-          .map(u => normalizeRelayUrl(u))
-          .filter(u => isRelayUrl(u))
-
-        load({relays: cleanRelays as string[], filters: [issueFilter]}).then(() => {
-          loadingIssues = false
-        })
-      }
-    }
-  })
-
-  const gotoPatches = async () => {
-    const naddr = repoNaddr
-    try {
-      const decoded = nip19.decode(naddr).data as AddressPointer
-      const repoId = `${decoded.pubkey}:${decoded.identifier}`
-      parseRepoId(repoId)
-    } catch (e) {
-      pushToast({
-        message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open patches until repo is fixed: ${e}`,
-        timeout: 7000,
-      })
-      return
-    }
-    const destination = makeGitPath(url, naddr) + "/patches"
-    goto(destination)
-  }
-
-  const gotoRepo = async () => {
-    const naddr = repoNaddr
-    try {
-      const decoded = nip19.decode(naddr).data as AddressPointer
-      const repoId = `${decoded.pubkey}:${decoded.identifier}`
-      parseRepoId(repoId)
-    } catch (e) {
-      pushToast({
-        message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open repo until it is fixed: ${e}`,
-        timeout: 7000,
-      })
-      return
-    }
-    const destination = makeGitPath(url, naddr)
-    goto(destination)
-  }
-
-  const gotoIssues = async () => {
-    const naddr = repoNaddr
-    try {
-      const decoded = nip19.decode(naddr).data as AddressPointer
-      const repoId = `${decoded.pubkey}:${decoded.identifier}`
-      parseRepoId(repoId)
-    } catch (e) {
-      pushToast({
-        message: `Invalid repository identifier; expected "owner/name" or "owner:name". Cannot open issues until repo is fixed.`,
-        timeout: 7000,
-      })
-      return
-    }
-    const destination = makeGitPath(url, naddr) + "/issues"
-    goto(destination)
   }
 
   // This might be broken depending on repo owners updating their links or
@@ -209,7 +119,9 @@
       } finally {
         syncing = false
       }
-    } catch {}
+    } catch (error) {
+      console.debug("[GitActions] Initial repo sync skipped:", error)
+    }
   })
 
   const pullLatest = async () => {
@@ -246,39 +158,52 @@
   const pushLocal = async () => {
     if (!repoId || cloneUrls.length === 0) return
     if (!workerApi) return
-    const remoteUrl = cloneUrls[0]
+    const remoteCandidates = Array.from(new Set(cloneUrls.map((url) => String(url || "").trim()).filter(Boolean)))
     syncing = true
     try {
-      // Extract hostname for token matching
-      let hostname: string
-      try {
-        // Handle SSH URLs like git@github.com:owner/repo.git
-        if (remoteUrl.startsWith('git@')) {
-          const match = remoteUrl.match(/git@([^:]+):/)
-          hostname = match ? match[1] : ''
-        } else {
-          // Handle HTTPS URLs
-          const urlObj = new URL(remoteUrl)
-          hostname = urlObj.hostname
-        }
-      } catch {
-        hostname = ''
-      }
-      const tokens = await tokensStore.waitForInitialization()
-      const matchingTokens = getTokensForHost(tokens, (h: string) => h === hostname)
+      let pushedTo = ""
+      let lastError = ""
 
-      // Try all tokens for this host until one succeeds, or push without token if none available
-      if (matchingTokens.length > 0) {
-        await tryTokensForHost(
-          tokens,
-          (h: string) => h === hostname,
-          async (token: string, host: string) => {
-            return await workerApi.pushToRemote({ repoId, remoteUrl, token })
+      for (const remoteUrl of remoteCandidates) {
+        try {
+          // Extract hostname for token matching
+          let hostname: string
+          try {
+            if (remoteUrl.startsWith('git@')) {
+              const match = remoteUrl.match(/git@([^:]+):/)
+              hostname = match ? match[1] : ''
+            } else {
+              const urlObj = new URL(remoteUrl)
+              hostname = urlObj.hostname
+            }
+          } catch {
+            hostname = ''
           }
-        )
-      } else {
-        // No tokens available - try pushing without authentication (may fail for private repos)
-        await workerApi.pushToRemote({ repoId, remoteUrl })
+
+          const tokens = await tokensStore.waitForInitialization()
+          const matchingTokens = getTokensForHost(tokens, (h: string) => h === hostname)
+
+          if (matchingTokens.length > 0) {
+            await tryTokensForHost(
+              tokens,
+              (h: string) => h === hostname,
+              async (token: string) => {
+                return await workerApi.pushToRemote({ repoId, remoteUrl, token })
+              }
+            )
+          } else {
+            await workerApi.pushToRemote({ repoId, remoteUrl })
+          }
+
+          pushedTo = remoteUrl
+          break
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : String(error)
+        }
+      }
+
+      if (!pushedTo) {
+        throw new Error(lastError || "Failed to push to all configured clone URLs")
       }
 
       const syncResult = await workerApi.syncWithRemote({ repoId, cloneUrls })
@@ -286,9 +211,9 @@
       // Handle warnings like CORS issues gracefully
       if (syncResult.warning) {
         console.warn("Sync completed with warning:", syncResult.warning)
-        pushToast({ message: "Pushed local changes to remote (with limitations)" })
+        pushToast({ message: `Pushed local changes to ${pushedTo} (with limitations)` })
       } else {
-        pushToast({ message: "Pushed local changes to remote" })
+        pushToast({ message: `Pushed local changes to ${pushedTo}` })
       }
       
       syncStatus = syncResult

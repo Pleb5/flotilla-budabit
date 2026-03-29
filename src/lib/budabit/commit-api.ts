@@ -19,6 +19,13 @@ export interface CommitDetails {
   success: boolean
   meta?: CommitMeta
   changes?: any[]
+  diffAvailable?: boolean
+  warning?: string
+  stats?: {
+    additions: number
+    deletions: number
+    total: number
+  }
   error?: string
   source?: "rest-api" | "worker"
 }
@@ -81,6 +88,15 @@ export async function getCommitDetailsViaRestApi(
           parents: commitData.parents?.map((p: any) => p.sha) || [],
         },
         changes: [], // REST API doesn't provide detailed diffs
+        diffAvailable: false,
+        warning: "Commit metadata loaded from REST API. Loading full git diff...",
+        stats: commitData.stats
+          ? {
+              additions: Number(commitData.stats.additions || 0),
+              deletions: Number(commitData.stats.deletions || 0),
+              total: Number(commitData.stats.total || 0),
+            }
+          : undefined,
         source: "rest-api",
       }
     } catch (error) {
