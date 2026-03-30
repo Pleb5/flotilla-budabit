@@ -119,7 +119,7 @@ import {
   getInstalledExtension,
 } from "@app/extensions/settings"
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
-import {request, load} from "@welshman/net"
+import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {DEFAULT_WORKER_PUBKEY, activeRepoClass} from "@lib/budabit/state"
 import {deleteIndexedDB} from "@lib/util"
@@ -201,7 +201,7 @@ export const installWidgetByNaddr = async (naddr: string) => {
   const kind = data.kind || SMART_WIDGET_KIND
   const filters = [{kinds: [kind], authors: [data.pubkey], "#d": [data.identifier], limit: 1}]
   try {
-    await request({relays, filters})
+    await request({relays, filters, autoClose: true})
   } catch (e) {
     console.warn("Widget fetch error", e)
   }
@@ -217,7 +217,11 @@ export const discoverExtensions = async (): Promise<ExtensionManifest[]> => {
   const KIND = 31990
   // Ask indexers for manifests, then read from local repository cache
   try {
-    await request({relays: INDEXER_RELAYS, filters: [{kinds: [KIND], limit: 100}]})
+    await request({
+      relays: INDEXER_RELAYS,
+      filters: [{kinds: [KIND], limit: 100}],
+      autoClose: true,
+    })
   } catch (e) {
     console.warn("Discovery request errored:", e)
   }
@@ -249,11 +253,11 @@ export const discoverExtensions = async (): Promise<ExtensionManifest[]> => {
 }
 
 export const discoverSmartWidgets = async (): Promise<SmartWidgetEvent[]> => {
-  const relays = [...SMART_WIDGET_RELAYS, ...INDEXER_RELAYS]
+  const relays = uniq([...SMART_WIDGET_RELAYS, ...INDEXER_RELAYS])
   const filters = [{kinds: [SMART_WIDGET_KIND], limit: 200}]
 
   try {
-    await load({relays, filters})
+    await request({relays, filters, autoClose: true})
   } catch (e) {
     console.warn("Smart widget discovery errored:", e)
   }

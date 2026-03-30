@@ -66,7 +66,7 @@ test.describe("Patch Status Workflow", () => {
 
       // Get repo info for navigation
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       // Navigate to the repository patches tab
@@ -84,7 +84,9 @@ test.describe("Patch Status Workflow", () => {
       }
 
       // Look for apply/merge button - app uses "Merge Patch Set" button text
-      const applyButton = page.locator("button").filter({hasText: /Merge Patch Set|merge|apply/i})
+      const applyButton = page
+        .locator("button")
+        .filter({hasText: /Merge Patch Set|merge|apply/i})
         .or(page.locator("button:has-text('Merge Patch Set')"))
         .or(page.locator("button[aria-label*='merge' i]"))
         .or(page.locator("button[aria-label*='apply' i]"))
@@ -94,7 +96,10 @@ test.describe("Patch Status Workflow", () => {
         await applyButton.click()
 
         // Wait for confirmation dialog if present - app uses "Confirm Merge" button
-        const confirmButton = page.locator("button").filter({hasText: /Confirm Merge|confirm|yes|apply/i}).first()
+        const confirmButton = page
+          .locator("button")
+          .filter({hasText: /Confirm Merge|confirm|yes|apply/i})
+          .first()
         if (await confirmButton.isVisible({timeout: 2000}).catch(() => false)) {
           await confirmButton.click()
         }
@@ -108,32 +113,35 @@ test.describe("Patch Status Workflow", () => {
           expect(appliedEvent.kind).toBe(STATUS_KINDS.APPLIED) // 1631
 
           // Verify it references the patch event
-          const eTag = appliedEvent.tags.find((t) => t[0] === "e")
+          const eTag = appliedEvent.tags.find(t => t[0] === "e")
           expect(eTag).toBeDefined()
           expect(eTag![1].length).toBe(64) // Valid event ID
 
           // Verify it has repo reference
-          const aTag = appliedEvent.tags.find((t) => t[0] === "a")
+          const aTag = appliedEvent.tags.find(t => t[0] === "a")
           expect(aTag).toBeDefined()
           expect(aTag![1]).toContain("30617:")
 
           // Verify it has at least one 'p' tag (author notification)
-          const pTags = appliedEvent.tags.filter((t) => t[0] === "p")
+          const pTags = appliedEvent.tags.filter(t => t[0] === "p")
           expect(pTags.length).toBeGreaterThanOrEqual(1)
-
         } catch (e) {
           // If no event was published, verify the seeded data is correct
           // UI interactions may fail due to mock relay timing issues with welshman
           const patches = seeder.getPatches()
           expect(patches.length).toBe(1)
-          expect(patches[0].tags.find(t => t[0] === "subject")?.[1]).toBe("Feature: Add login functionality")
+          expect(patches[0].tags.find(t => t[0] === "subject")?.[1]).toBe(
+            "Feature: Add login functionality",
+          )
         }
       } else {
         // Apply button not visible - verify data was seeded correctly
         // The UI may not display patches due to mock relay timing issues with welshman
         const patches = seeder.getPatches()
         expect(patches.length).toBe(1)
-        expect(patches[0].tags.find(t => t[0] === "subject")?.[1]).toBe("Feature: Add login functionality")
+        expect(patches[0].tags.find(t => t[0] === "subject")?.[1]).toBe(
+          "Feature: Add login functionality",
+        )
       }
     })
 
@@ -163,7 +171,7 @@ test.describe("Patch Status Workflow", () => {
       await seeder.setup(page)
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -173,10 +181,12 @@ test.describe("Patch Status Workflow", () => {
       await page.waitForTimeout(1000)
 
       // Look for status indicators
-      const appliedIndicator = page.locator(
-        "[data-status='applied'], [class*='applied' i], span:has-text('Applied'), " +
-        "span:has-text('Merged'), [class*='merged' i], [class*='badge']:has-text(/applied|merged/i)"
-      ).first()
+      const appliedIndicator = page
+        .locator(
+          "[data-status='applied'], [class*='applied' i], span:has-text('Applied'), " +
+            "span:has-text('Merged'), [class*='merged' i], [class*='badge']:has-text(/applied|merged/i)",
+        )
+        .first()
 
       const hasAppliedStatus = await appliedIndicator.isVisible({timeout: 5000}).catch(() => false)
 
@@ -208,7 +218,7 @@ test.describe("Patch Status Workflow", () => {
 
       // Get all seeded events to find the applied status
       const allEvents = seeder.getSeededEvents()
-      const appliedStatus = allEvents.find((e) => e.kind === KIND_STATUS_APPLIED)
+      const appliedStatus = allEvents.find(e => e.kind === KIND_STATUS_APPLIED)
 
       expect(appliedStatus).toBeDefined()
 
@@ -219,12 +229,12 @@ test.describe("Patch Status Workflow", () => {
       expect(appliedStatus!.created_at).toBeGreaterThan(0)
 
       // Must have 'e' tag referencing the patch
-      const eTag = appliedStatus!.tags.find((t) => t[0] === "e")
+      const eTag = appliedStatus!.tags.find(t => t[0] === "e")
       expect(eTag).toBeDefined()
       expect(eTag![1].length).toBe(64)
 
       // Should have 'a' tag for repo reference
-      const aTag = appliedStatus!.tags.find((t) => t[0] === "a")
+      const aTag = appliedStatus!.tags.find(t => t[0] === "a")
       expect(aTag).toBeDefined()
       expect(aTag![1]).toContain("30617:")
 
@@ -251,12 +261,12 @@ test.describe("Patch Status Workflow", () => {
 
       // Get the applied status event
       const allEvents = seeder.getSeededEvents()
-      const appliedStatus = allEvents.find((e) => e.kind === KIND_STATUS_APPLIED)
+      const appliedStatus = allEvents.find(e => e.kind === KIND_STATUS_APPLIED)
 
       expect(appliedStatus).toBeDefined()
 
       // The seeder adds merge-commit tag for applied patches
-      const mergeCommitTag = appliedStatus!.tags.find((t) => t[0] === "merge-commit")
+      const mergeCommitTag = appliedStatus!.tags.find(t => t[0] === "merge-commit")
       // Merge commit is optional but should be present when patch is applied
       if (mergeCommitTag) {
         expect(mergeCommitTag[1].length).toBeGreaterThanOrEqual(7) // Valid commit hash
@@ -268,7 +278,9 @@ test.describe("Patch Status Workflow", () => {
   })
 
   test.describe("Open -> Closed", () => {
-    test("clicking close button and adding reason publishes Kind 1632 (Closed) event", async ({page}) => {
+    test("clicking close button and adding reason publishes Kind 1632 (Closed) event", async ({
+      page,
+    }) => {
       const seeder = new TestSeeder({debug: false})
 
       const repoResult = seeder.seedRepo({
@@ -288,7 +300,7 @@ test.describe("Patch Status Workflow", () => {
       const mockRelay = seeder.getMockRelay()
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -305,7 +317,9 @@ test.describe("Patch Status Workflow", () => {
       }
 
       // Look for close button - app uses Status component with close/reject actions
-      const closeButton = page.locator("button").filter({hasText: /close|reject|closed/i})
+      const closeButton = page
+        .locator("button")
+        .filter({hasText: /close|reject|closed/i})
         .or(page.locator("button[aria-label*='close' i]"))
         .or(page.locator("button[aria-label*='reject' i]"))
         .first()
@@ -314,18 +328,30 @@ test.describe("Patch Status Workflow", () => {
         await closeButton.click()
 
         // Look for reason/comment input
-        const reasonInput = page.locator(
+        const reasonSelector =
           "textarea[placeholder*='reason' i], textarea[name*='reason' i], " +
           "textarea[placeholder*='comment' i], input[placeholder*='reason' i], " +
           "[data-testid='close-reason']"
-        ).first()
+        const reasonInput = page.locator(reasonSelector).first()
 
         if (await reasonInput.isVisible({timeout: 3000}).catch(() => false)) {
-          await reasonInput.fill("Closing: This approach doesn't align with project architecture.")
+          const reasonText = "Closing: This approach doesn't align with project architecture."
+          try {
+            await reasonInput.fill(reasonText)
+          } catch {
+            // Dialog can re-render after opening; re-resolve input once and retry.
+            const retryInput = page.locator(reasonSelector).first()
+            if (await retryInput.isVisible({timeout: 2000}).catch(() => false)) {
+              await retryInput.fill(reasonText)
+            }
+          }
         }
 
         // Confirm close
-        const confirmButton = page.locator("button").filter({hasText: /confirm|submit|close/i}).first()
+        const confirmButton = page
+          .locator("button")
+          .filter({hasText: /confirm|submit|close/i})
+          .first()
         if (await confirmButton.isVisible({timeout: 2000}).catch(() => false)) {
           await confirmButton.click()
         }
@@ -339,14 +365,13 @@ test.describe("Patch Status Workflow", () => {
           expect(closedEvent.kind).toBe(STATUS_KINDS.CLOSED) // 1632
 
           // Verify 'e' tag
-          const eTag = closedEvent.tags.find((t) => t[0] === "e")
+          const eTag = closedEvent.tags.find(t => t[0] === "e")
           expect(eTag).toBeDefined()
 
           // Verify content includes reason
           if (closedEvent.content) {
             expect(closedEvent.content.length).toBeGreaterThan(0)
           }
-
         } catch (e) {
           // Close action may not be fully implemented
           // Verify the seeded data is correct instead of URL check
@@ -388,7 +413,7 @@ test.describe("Patch Status Workflow", () => {
       await seeder.setup(page)
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -398,29 +423,38 @@ test.describe("Patch Status Workflow", () => {
       await page.waitForTimeout(1000)
 
       // Look for closed status indicator
-      const closedIndicator = page.locator(
-        "[data-status='closed'], [class*='closed' i], span:has-text('Closed'), " +
-        "span:has-text('Rejected'), [class*='rejected' i]"
-      ).first()
+      const closedIndicator = page
+        .locator(
+          "[data-status='closed'], [class*='closed' i], span:has-text('Closed'), " +
+            "span:has-text('Rejected'), [class*='rejected' i]",
+        )
+        .first()
 
       const hasClosedStatus = await closedIndicator.isVisible({timeout: 5000}).catch(() => false)
 
       // Verify the closed patch shows in the list (may need to filter)
-      const closedFilter = page.locator(
-        "button:has-text('Closed'), [data-filter='closed'], " +
-        "[role='tab']:has-text('Closed'), a:has-text('Closed')"
-      ).first()
+      const closedFilter = page
+        .locator(
+          "button:has-text('Closed'), [data-filter='closed'], " +
+            "[role='tab']:has-text('Closed'), a:has-text('Closed')",
+        )
+        .first()
 
       if (await closedFilter.isVisible({timeout: 3000}).catch(() => false)) {
         await closedFilter.click()
         await page.waitForTimeout(500)
         // Try to find the closed patch, but fall back to verifying seeded data
-        const patchVisible = await page.getByText("Already closed patch").isVisible({timeout: 5000}).catch(() => false)
+        const patchVisible = await page
+          .getByText("Already closed patch")
+          .isVisible({timeout: 5000})
+          .catch(() => false)
         if (!patchVisible) {
           // UI may not display patches due to mock relay timing issues
           const patches = seeder.getPatches()
           expect(patches.length).toBe(2)
-          const closedPatch = patches.find(p => p.tags.find(t => t[0] === "subject")?.[1] === "Already closed patch")
+          const closedPatch = patches.find(
+            p => p.tags.find(t => t[0] === "subject")?.[1] === "Already closed patch",
+          )
           expect(closedPatch).toBeDefined()
         }
       } else {
@@ -446,7 +480,7 @@ test.describe("Patch Status Workflow", () => {
       await seeder.setup(page)
 
       const allEvents = seeder.getSeededEvents()
-      const closedStatus = allEvents.find((e) => e.kind === KIND_STATUS_CLOSED)
+      const closedStatus = allEvents.find(e => e.kind === KIND_STATUS_CLOSED)
 
       expect(closedStatus).toBeDefined()
 
@@ -457,12 +491,12 @@ test.describe("Patch Status Workflow", () => {
       expect(closedStatus!.created_at).toBeGreaterThan(0)
 
       // Must have 'e' tag referencing the patch
-      const eTag = closedStatus!.tags.find((t) => t[0] === "e")
+      const eTag = closedStatus!.tags.find(t => t[0] === "e")
       expect(eTag).toBeDefined()
       expect(eTag![1].length).toBe(64)
 
       // Should have 'a' tag for repo reference
-      const aTag = closedStatus!.tags.find((t) => t[0] === "a")
+      const aTag = closedStatus!.tags.find(t => t[0] === "a")
       expect(aTag).toBeDefined()
       expect(aTag![1]).toContain("30617:")
 
@@ -492,7 +526,7 @@ test.describe("Patch Status Workflow", () => {
       const mockRelay = seeder.getMockRelay()
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -502,10 +536,12 @@ test.describe("Patch Status Workflow", () => {
       await page.waitForTimeout(1000)
 
       // May need to show drafts first
-      const showDraftsToggle = page.locator(
-        "button:has-text('Draft'), [data-filter='draft'], " +
-        "[role='tab']:has-text('Draft'), input[type='checkbox']:near(:text('Draft'))"
-      ).first()
+      const showDraftsToggle = page
+        .locator(
+          "button:has-text('Draft'), [data-filter='draft'], " +
+            "[role='tab']:has-text('Draft'), input[type='checkbox']:near(:text('Draft'))",
+        )
+        .first()
 
       if (await showDraftsToggle.isVisible({timeout: 3000}).catch(() => false)) {
         await showDraftsToggle.click()
@@ -520,7 +556,9 @@ test.describe("Patch Status Workflow", () => {
       }
 
       // Look for publish/ready for review button - Status component handles state changes
-      const publishButton = page.locator("button").filter({hasText: /publish|ready|open|submit|mark as open/i})
+      const publishButton = page
+        .locator("button")
+        .filter({hasText: /publish|ready|open|submit|mark as open/i})
         .or(page.locator("button[aria-label*='open' i]"))
         .or(page.locator("button[aria-label*='ready' i]"))
         .first()
@@ -537,9 +575,8 @@ test.describe("Patch Status Workflow", () => {
           expect(openEvent.kind).toBe(STATUS_KINDS.OPEN) // 1630
 
           // Verify 'e' tag references the patch
-          const eTag = openEvent.tags.find((t) => t[0] === "e")
+          const eTag = openEvent.tags.find(t => t[0] === "e")
           expect(eTag).toBeDefined()
-
         } catch (e) {
           // Publish action may not be fully implemented - at least we should be in repo context
           const url = page.url()
@@ -548,7 +585,7 @@ test.describe("Patch Status Workflow", () => {
       } else {
         // Verify draft patch is in the seeded data
         const allEvents = seeder.getSeededEvents()
-        const draftStatus = allEvents.find((e) => e.kind === KIND_STATUS_DRAFT)
+        const draftStatus = allEvents.find(e => e.kind === KIND_STATUS_DRAFT)
         expect(draftStatus).toBeDefined()
       }
     })
@@ -570,13 +607,13 @@ test.describe("Patch Status Workflow", () => {
 
       // Verify draft status event exists
       const allEvents = seeder.getSeededEvents()
-      const draftStatus = allEvents.find((e) => e.kind === KIND_STATUS_DRAFT)
+      const draftStatus = allEvents.find(e => e.kind === KIND_STATUS_DRAFT)
 
       expect(draftStatus).toBeDefined()
       expect(draftStatus!.kind).toBe(1633)
 
       // Verify it references a patch
-      const eTag = draftStatus!.tags.find((t) => t[0] === "e")
+      const eTag = draftStatus!.tags.find(t => t[0] === "e")
       expect(eTag).toBeDefined()
       expect(eTag![1].length).toBe(64)
 
@@ -600,7 +637,7 @@ test.describe("Patch Status Workflow", () => {
       await seeder.setup(page)
 
       const allEvents = seeder.getSeededEvents()
-      const openStatus = allEvents.find((e) => e.kind === KIND_STATUS_OPEN)
+      const openStatus = allEvents.find(e => e.kind === KIND_STATUS_OPEN)
 
       expect(openStatus).toBeDefined()
 
@@ -611,12 +648,12 @@ test.describe("Patch Status Workflow", () => {
       expect(openStatus!.created_at).toBeGreaterThan(0)
 
       // Must have 'e' tag referencing the patch
-      const eTag = openStatus!.tags.find((t) => t[0] === "e")
+      const eTag = openStatus!.tags.find(t => t[0] === "e")
       expect(eTag).toBeDefined()
       expect(eTag![1].length).toBe(64)
 
       // Should have 'a' tag for repo reference
-      const aTag = openStatus!.tags.find((t) => t[0] === "a")
+      const aTag = openStatus!.tags.find(t => t[0] === "a")
       expect(aTag).toBeDefined()
       expect(aTag![1]).toContain("30617:")
 
@@ -647,7 +684,7 @@ test.describe("Patch Status Workflow", () => {
       const mockRelay = seeder.getMockRelay()
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -657,10 +694,12 @@ test.describe("Patch Status Workflow", () => {
       await page.waitForTimeout(1000)
 
       // May need to show closed patches first
-      const closedFilter = page.locator(
-        "button:has-text('Closed'), [data-filter='closed'], " +
-        "[role='tab']:has-text('Closed'), a:has-text('Closed')"
-      ).first()
+      const closedFilter = page
+        .locator(
+          "button:has-text('Closed'), [data-filter='closed'], " +
+            "[role='tab']:has-text('Closed'), a:has-text('Closed')",
+        )
+        .first()
 
       if (await closedFilter.isVisible({timeout: 3000}).catch(() => false)) {
         await closedFilter.click()
@@ -675,7 +714,9 @@ test.describe("Patch Status Workflow", () => {
       }
 
       // Look for reopen button - Status component handles state changes
-      const reopenButton = page.locator("button").filter({hasText: /reopen|re-open|open again/i})
+      const reopenButton = page
+        .locator("button")
+        .filter({hasText: /reopen|re-open|open again/i})
         .or(page.locator("button[aria-label*='reopen' i]"))
         .or(page.locator("button[aria-label*='open' i]"))
         .first()
@@ -692,20 +733,19 @@ test.describe("Patch Status Workflow", () => {
           expect(reopenEvent.kind).toBe(STATUS_KINDS.OPEN) // 1630
 
           // Verify 'e' tag references the patch
-          const eTag = reopenEvent.tags.find((t) => t[0] === "e")
+          const eTag = reopenEvent.tags.find(t => t[0] === "e")
           expect(eTag).toBeDefined()
-
         } catch (e) {
           // Reopen action may not be fully implemented
           // Verify the seeded data is correct instead of URL check
           const allEvents = seeder.getSeededEvents()
-          const closedStatus = allEvents.find((e) => e.kind === KIND_STATUS_CLOSED)
+          const closedStatus = allEvents.find(e => e.kind === KIND_STATUS_CLOSED)
           expect(closedStatus).toBeDefined()
         }
       } else {
         // Verify closed patch exists in seeded data
         const allEvents = seeder.getSeededEvents()
-        const closedStatus = allEvents.find((e) => e.kind === KIND_STATUS_CLOSED)
+        const closedStatus = allEvents.find(e => e.kind === KIND_STATUS_CLOSED)
         expect(closedStatus).toBeDefined()
       }
     })
@@ -729,7 +769,7 @@ test.describe("Patch Status Workflow", () => {
       await seeder.setup(page)
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -739,9 +779,9 @@ test.describe("Patch Status Workflow", () => {
       await page.waitForTimeout(1000)
 
       // Verify the patch shows open status
-      const openIndicator = page.locator(
-        "[data-status='open'], [class*='open' i], span:has-text('Open')"
-      ).first()
+      const openIndicator = page
+        .locator("[data-status='open'], [class*='open' i], span:has-text('Open')")
+        .first()
 
       const hasOpenStatus = await openIndicator.isVisible({timeout: 5000}).catch(() => false)
 
@@ -749,7 +789,9 @@ test.describe("Patch Status Workflow", () => {
       await expect(page.getByText("Previously closed now open patch")).toBeVisible({timeout: 10000})
     })
 
-    test("reopen creates new status event without modifying original closed event", async ({page}) => {
+    test("reopen creates new status event without modifying original closed event", async ({
+      page,
+    }) => {
       // This test verifies the append-only nature of status events
       const seeder = new TestSeeder({debug: false})
 
@@ -768,7 +810,7 @@ test.describe("Patch Status Workflow", () => {
 
       // Get all events before any UI interaction
       const allEventsBefore = seeder.getSeededEvents()
-      const closedStatus = allEventsBefore.find((e) => e.kind === KIND_STATUS_CLOSED)
+      const closedStatus = allEventsBefore.find(e => e.kind === KIND_STATUS_CLOSED)
 
       expect(closedStatus).toBeDefined()
 
@@ -806,7 +848,7 @@ test.describe("Patch Status Workflow", () => {
       await seeder.setup(page)
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -823,7 +865,9 @@ test.describe("Patch Status Workflow", () => {
       }
 
       // Look for apply/merge button - app uses "Merge Patch Set" button text
-      const applyButton = page.locator("button").filter({hasText: /Merge Patch Set|merge|apply/i})
+      const applyButton = page
+        .locator("button")
+        .filter({hasText: /Merge Patch Set|merge|apply/i})
         .or(page.locator("button:has-text('Merge Patch Set')"))
         .or(page.locator("button[aria-label*='merge' i]"))
         .first()
@@ -842,9 +886,9 @@ test.describe("Patch Status Workflow", () => {
           await applyButton.click()
 
           // Look for permission error message
-          const errorMessage = page.locator(
-            "[class*='error' i], [class*='alert' i], [role='alert']"
-          ).or(page.getByText(/permission|denied|unauthorized|not allowed/i))
+          const errorMessage = page
+            .locator("[class*='error' i], [class*='alert' i], [role='alert']")
+            .or(page.getByText(/permission|denied|unauthorized|not allowed/i))
 
           const hasError = await errorMessage.isVisible({timeout: 3000}).catch(() => false)
           // Test passes if error shown or no merge actually happened
@@ -852,7 +896,10 @@ test.describe("Patch Status Workflow", () => {
       }
 
       // Verify the patch is visible or seeded correctly
-      const patchVisible = await page.getByText("Patch from non-maintainer").isVisible({timeout: 5000}).catch(() => false)
+      const patchVisible = await page
+        .getByText("Patch from non-maintainer")
+        .isVisible({timeout: 5000})
+        .catch(() => false)
       if (!patchVisible) {
         // UI may not display patches due to mock relay timing issues
         const patches = seeder.getPatches()
@@ -881,7 +928,7 @@ test.describe("Patch Status Workflow", () => {
       const mockRelay = seeder.getMockRelay()
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -898,24 +945,30 @@ test.describe("Patch Status Workflow", () => {
       }
 
       // Look for comment input
-      const commentInput = page.locator(
-        "textarea[placeholder*='comment' i], textarea[name*='comment' i], " +
-        "textarea[placeholder*='reply' i], [data-testid='comment-input'], " +
-        "textarea[placeholder*='review' i]"
-      ).first()
+      const commentInput = page
+        .locator(
+          "textarea[placeholder*='comment' i], textarea[name*='comment' i], " +
+            "textarea[placeholder*='reply' i], [data-testid='comment-input'], " +
+            "textarea[placeholder*='review' i]",
+        )
+        .first()
 
       if (await commentInput.isVisible({timeout: 5000}).catch(() => false)) {
         // Fill comment
         await commentInput.fill("This looks good, but consider adding tests.")
 
         // Submit comment
-        const submitButton = page.locator("button").filter({hasText: /submit|comment|reply|post/i}).first()
+        const submitButton = page
+          .locator("button")
+          .filter({hasText: /submit|comment|reply|post/i})
+          .first()
         if (await submitButton.isVisible({timeout: 3000}).catch(() => false)) {
           await submitButton.click()
 
           // Verify comment was accepted (no error). Only treat as error if it shows
           // error-like text - role="alert" can be used for success toasts too.
-          const errorMessage = page.locator("[class*='error' i], [role='alert']")
+          const errorMessage = page
+            .locator("[class*='error' i], [role='alert']")
             .filter({hasText: /error|denied|permission|failed|invalid|not allowed/i})
             .first()
           const hasError = await errorMessage.isVisible({timeout: 2000}).catch(() => false)
@@ -926,7 +979,10 @@ test.describe("Patch Status Workflow", () => {
       }
 
       // Verify the patch is visible or seeded correctly
-      const patchVisible = await page.getByText("Patch allowing comments").isVisible({timeout: 5000}).catch(() => false)
+      const patchVisible = await page
+        .getByText("Patch allowing comments")
+        .isVisible({timeout: 5000})
+        .catch(() => false)
       if (!patchVisible) {
         // UI may not display patches due to mock relay timing issues
         const patches = seeder.getPatches()
@@ -956,12 +1012,12 @@ test.describe("Patch Status Workflow", () => {
       await seeder.setup(page)
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       // Verify the maintainer relationship in seeded data
       // NIP-34 uses ["maintainers", pubkey1, pubkey2, ...] format
-      const maintainerTag = repo.tags.find((t) => t[0] === "maintainers")
+      const maintainerTag = repo.tags.find(t => t[0] === "maintainers")
       expect(maintainerTag).toBeDefined()
       expect(maintainerTag!.slice(1)).toContain(TEST_PUBKEYS.alice)
 
@@ -992,7 +1048,7 @@ test.describe("Patch Status Workflow", () => {
       const repo = repos[0]
 
       // Verify maintainer tags - NIP-34 uses ["maintainers", pubkey1, pubkey2, ...] format
-      const maintainerTag = repo.tags.find((t) => t[0] === "maintainers")
+      const maintainerTag = repo.tags.find(t => t[0] === "maintainers")
       expect(maintainerTag).toBeDefined()
 
       // Extract maintainer pubkeys (everything after the tag name)
@@ -1025,15 +1081,17 @@ test.describe("Patch Status Workflow", () => {
       const allEvents = seeder.getSeededEvents()
 
       // Get all status events
-      const statusEvents = allEvents.filter((e) =>
-        [KIND_STATUS_OPEN, KIND_STATUS_APPLIED, KIND_STATUS_CLOSED, KIND_STATUS_DRAFT].includes(e.kind)
+      const statusEvents = allEvents.filter(e =>
+        [KIND_STATUS_OPEN, KIND_STATUS_APPLIED, KIND_STATUS_CLOSED, KIND_STATUS_DRAFT].includes(
+          e.kind,
+        ),
       )
 
       expect(statusEvents.length).toBe(4)
 
       // Verify each status event has proper 'e' tag with 'root' marker
       for (const statusEvent of statusEvents) {
-        const eTag = statusEvent.tags.find((t) => t[0] === "e")
+        const eTag = statusEvent.tags.find(t => t[0] === "e")
         expect(eTag).toBeDefined()
         expect(eTag![1].length).toBe(64) // Valid event ID
 
@@ -1066,12 +1124,12 @@ test.describe("Patch Status Workflow", () => {
       const patchEventId = patches[0].id
 
       const allEvents = seeder.getSeededEvents()
-      const openStatus = allEvents.find((e) => e.kind === KIND_STATUS_OPEN)
+      const openStatus = allEvents.find(e => e.kind === KIND_STATUS_OPEN)
 
       expect(openStatus).toBeDefined()
 
       // Verify the 'e' tag references the patch
-      const eTag = openStatus!.tags.find((t) => t[0] === "e")
+      const eTag = openStatus!.tags.find(t => t[0] === "e")
       expect(eTag).toBeDefined()
       expect(eTag![1]).toBe(patchEventId)
 
@@ -1096,12 +1154,12 @@ test.describe("Patch Status Workflow", () => {
       await seeder.setup(page)
 
       const allEvents = seeder.getSeededEvents()
-      const appliedStatus = allEvents.find((e) => e.kind === KIND_STATUS_APPLIED)
+      const appliedStatus = allEvents.find(e => e.kind === KIND_STATUS_APPLIED)
 
       expect(appliedStatus).toBeDefined()
 
       // Verify 'a' tag references the repository
-      const aTag = appliedStatus!.tags.find((t) => t[0] === "a")
+      const aTag = appliedStatus!.tags.find(t => t[0] === "a")
       expect(aTag).toBeDefined()
       expect(aTag![1]).toBe(repoResult.address)
       expect(aTag![1]).toContain("30617:")
@@ -1133,7 +1191,7 @@ test.describe("Patch Status Workflow", () => {
       const allEvents = seeder.getSeededEvents()
 
       // Verify draft status exists
-      const draftStatus = allEvents.find((e) => e.kind === KIND_STATUS_DRAFT)
+      const draftStatus = allEvents.find(e => e.kind === KIND_STATUS_DRAFT)
       expect(draftStatus).toBeDefined()
 
       // In a real scenario, the lifecycle would be:
@@ -1167,7 +1225,7 @@ test.describe("Patch Status Workflow", () => {
 
       // Get all status events for this patch
       const allEvents = seeder.getSeededEvents()
-      const appliedStatus = allEvents.find((e) => e.kind === KIND_STATUS_APPLIED)
+      const appliedStatus = allEvents.find(e => e.kind === KIND_STATUS_APPLIED)
 
       expect(appliedStatus).toBeDefined()
 
@@ -1176,7 +1234,7 @@ test.describe("Patch Status Workflow", () => {
       expect(appliedStatus!.created_at).toBeGreaterThan(0)
 
       const repo = seeder.getRepos()[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
 
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -1186,7 +1244,10 @@ test.describe("Patch Status Workflow", () => {
       await page.waitForTimeout(1000)
 
       // Verify patch shows as applied, or verify seeded data
-      const patchVisible = await page.getByText("Final state is applied").isVisible({timeout: 5000}).catch(() => false)
+      const patchVisible = await page
+        .getByText("Final state is applied")
+        .isVisible({timeout: 5000})
+        .catch(() => false)
       if (!patchVisible) {
         // UI may not display patches due to mock relay timing issues
         const patches = seeder.getPatches()
@@ -1195,7 +1256,7 @@ test.describe("Patch Status Workflow", () => {
 
         // Verify applied status event exists and is most recent
         const allEvents = seeder.getSeededEvents()
-        const appliedStatus = allEvents.find((e) => e.kind === KIND_STATUS_APPLIED)
+        const appliedStatus = allEvents.find(e => e.kind === KIND_STATUS_APPLIED)
         expect(appliedStatus).toBeDefined()
       }
     })
@@ -1222,7 +1283,7 @@ test.describe("MockRelay waitForEvent Integration", () => {
 
     // Verify the seeder published events
     const seededEvents = seeder.getSeededEvents()
-    const openStatusEvent = seededEvents.find((e) => e.kind === KIND_STATUS_OPEN)
+    const openStatusEvent = seededEvents.find(e => e.kind === KIND_STATUS_OPEN)
 
     expect(openStatusEvent).toBeDefined()
     expect(openStatusEvent!.kind).toBe(1630)
@@ -1249,9 +1310,9 @@ test.describe("MockRelay waitForEvent Integration", () => {
     const allEvents = seeder.getSeededEvents()
 
     // Filter by kind
-    const openEvents = allEvents.filter((e) => e.kind === KIND_STATUS_OPEN)
-    const appliedEvents = allEvents.filter((e) => e.kind === KIND_STATUS_APPLIED)
-    const closedEvents = allEvents.filter((e) => e.kind === KIND_STATUS_CLOSED)
+    const openEvents = allEvents.filter(e => e.kind === KIND_STATUS_OPEN)
+    const appliedEvents = allEvents.filter(e => e.kind === KIND_STATUS_APPLIED)
+    const closedEvents = allEvents.filter(e => e.kind === KIND_STATUS_CLOSED)
 
     expect(openEvents.length).toBe(2)
     expect(appliedEvents.length).toBe(1)

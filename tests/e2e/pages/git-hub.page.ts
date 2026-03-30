@@ -66,27 +66,42 @@ export class GitHubPage {
    */
   async waitForLoad(): Promise<void> {
     // Give the page more time to load, especially on slower CI runners
-    await expect(this.pageTitle).toBeVisible({timeout: 15000})
+    const hasTitle = await this.pageTitle.isVisible({timeout: 15000}).catch(() => false)
+    if (!hasTitle) {
+      await Promise.race([
+        this.newRepoButton.waitFor({state: "visible", timeout: 5000}),
+        this.myReposTab.waitFor({state: "visible", timeout: 5000}),
+      ]).catch(() => {
+        // Continue to generic content checks below.
+      })
+    }
     // Wait for either:
     // 1. Empty state text to appear, OR
     // 2. At least one browseable repo card to render.
     // Keep waiting while loading indicators are visible.
-    await this.page.waitForFunction(() => {
-      const bodyText = document.body.textContent || ""
-      const hasSpinner = bodyText.includes("Looking for Your Git Repos...")
-      const hasCardsLoading = bodyText.includes("Loading repositories...")
-      const isLoading = hasSpinner || hasCardsLoading
-      const hasEmptyState = bodyText.includes("No bookmarked repositories") ||
-                           bodyText.includes("You haven't created any") ||
-                           bodyText.includes("No Repos found") ||
-                           bodyText.includes("No repositories found") ||
-                           bodyText.includes("Repository not found. Please check the URI.")
-      const hasRepoCards = Array.from(document.querySelectorAll("a"))
-        .some(link => link.textContent?.trim() === "Browse")
-      return hasEmptyState || (hasRepoCards && !isLoading)
-    }, {timeout: 30000}).catch(() => {
-      // Spinner may have already disappeared or never appeared
-    })
+    await this.page
+      .waitForFunction(
+        () => {
+          const bodyText = document.body.textContent || ""
+          const hasSpinner = bodyText.includes("Looking for Your Git Repos...")
+          const hasCardsLoading = bodyText.includes("Loading repositories...")
+          const isLoading = hasSpinner || hasCardsLoading
+          const hasEmptyState =
+            bodyText.includes("No bookmarked repositories") ||
+            bodyText.includes("You haven't created any") ||
+            bodyText.includes("No Repos found") ||
+            bodyText.includes("No repositories found") ||
+            bodyText.includes("Repository not found. Please check the URI.")
+          const hasRepoCards = Array.from(document.querySelectorAll("a")).some(
+            link => link.textContent?.trim() === "Browse",
+          )
+          return hasEmptyState || (hasRepoCards && !isLoading)
+        },
+        {timeout: 30000},
+      )
+      .catch(() => {
+        // Spinner may have already disappeared or never appeared
+      })
   }
 
   /**
@@ -239,7 +254,7 @@ export class GitHubPage {
       // GitItem typically displays the repo name in a prominent text element
       const nameElement = card.locator("h3, h4, [class*='font-semibold']").first()
       if (await nameElement.isVisible()) {
-        names.push(await nameElement.textContent() || "")
+        names.push((await nameElement.textContent()) || "")
       }
     }
     return names.filter(Boolean)

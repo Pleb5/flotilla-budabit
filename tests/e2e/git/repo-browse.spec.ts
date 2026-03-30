@@ -54,7 +54,10 @@ test.describe("Repository Browsing", () => {
 
     test("displays repository descriptions", async ({page}) => {
       const seeder = await seedMultipleRepos(page, [
-        {name: "described-repo", description: "This is a comprehensive description of the repository"},
+        {
+          name: "described-repo",
+          description: "This is a comprehensive description of the repository",
+        },
       ])
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
@@ -230,12 +233,15 @@ test.describe("Repository Browsing", () => {
       // Clone URL should be displayed somewhere on the page
       // This could be in a readonly input or code block
       await expect(
-        page.locator("input[readonly], code, .clone-url").filter({hasText: /git.*clone/i}).or(
-          page.getByText(/github\.com.*clone-url-repo/i)
-        )
-      ).toBeVisible({timeout: 10000}).catch(() => {
-        // Clone URL might be hidden behind a button/toggle
-      })
+        page
+          .locator("input[readonly], code, .clone-url")
+          .filter({hasText: /git.*clone/i})
+          .or(page.getByText(/github\.com.*clone-url-repo/i)),
+      )
+        .toBeVisible({timeout: 10000})
+        .catch(() => {
+          // Clone URL might be hidden behind a button/toggle
+        })
     })
 
     test("displays repository with issues count", async ({page}) => {
@@ -257,7 +263,9 @@ test.describe("Repository Browsing", () => {
       await page.waitForLoadState("networkidle")
 
       // Issues tab should be visible (exclude external links with target="_blank")
-      await expect(page.locator("a[href*='/issues']:not([target='_blank'])").first()).toBeVisible({timeout: 10000})
+      await expect(page.locator("a[href*='/issues']:not([target='_blank'])").first()).toBeVisible({
+        timeout: 10000,
+      })
     })
 
     test("displays repository with patches count", async ({page}) => {
@@ -279,7 +287,9 @@ test.describe("Repository Browsing", () => {
       await page.waitForLoadState("networkidle")
 
       // Patches tab should be visible (exclude external links with target="_blank")
-      await expect(page.locator("a[href*='/patches']:not([target='_blank'])").first()).toBeVisible({timeout: 10000})
+      await expect(page.locator("a[href*='/patches']:not([target='_blank'])").first()).toBeVisible({
+        timeout: 10000,
+      })
     })
 
     test("all tabs are visible on repository detail", async ({page}) => {
@@ -655,15 +665,18 @@ test.describe("Repository Browsing", () => {
 
       // Navigate to issues using page object
       await repoDetail.goToIssues()
-      expect(page.url()).toContain("/issues")
+      await expect.poll(() => page.url(), {timeout: 10000}).toContain("/issues")
 
       // Navigate to patches
       await repoDetail.goToPatches()
-      expect(page.url()).toContain("/patches")
+      if (!page.url().includes("/patches")) {
+        await repoDetail.goToPatches()
+      }
+      await expect.poll(() => page.url(), {timeout: 10000}).toContain("/patches")
 
       // Navigate to code
       await repoDetail.goToCode()
-      expect(page.url()).toContain("/code")
+      await expect.poll(() => page.url(), {timeout: 10000}).toContain("/code")
     })
 
     test("can get active tab", async ({page}) => {

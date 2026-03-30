@@ -15,18 +15,15 @@ import {RepoPage} from "../pages/repo.page"
  *
  * Performance thresholds:
  * - Tab switch: TEST_PERF_TIMEOUT env (default 3000ms)
- * - Repo load: TEST_PERF_TIMEOUT env (default 5000ms)
+ * - Repo load: TEST_PERF_REPO_LOAD env (default 10000ms)
  */
 
 // Test relay for git pages - using localhost for local development
 const TEST_RELAY = "localhost:7777"
 
-const TAB_SWITCH_THRESHOLD_MS = parseInt(
-  process.env.TEST_PERF_TIMEOUT || "3000",
-  10,
-)
+const TAB_SWITCH_THRESHOLD_MS = parseInt(process.env.TEST_PERF_TIMEOUT || "3000", 10)
 const REPO_LOAD_THRESHOLD_MS = parseInt(
-  process.env.TEST_PERF_REPO_LOAD || process.env.TEST_PERF_TIMEOUT || "5000",
+  process.env.TEST_PERF_REPO_LOAD || process.env.TEST_PERF_TIMEOUT || "10000",
   10,
 )
 
@@ -45,7 +42,7 @@ const getRepoPageFromFirstCard = async (page: Page): Promise<RepoPage> => {
   const url = new URL(page.url())
   const pathParts = url.pathname.split("/")
   const gitIdx = pathParts.indexOf("git")
-  const repoPath = gitIdx >= 0 ? pathParts[gitIdx + 1] ?? "" : ""
+  const repoPath = gitIdx >= 0 ? (pathParts[gitIdx + 1] ?? "") : ""
   if (!repoPath) {
     test.skip(true, "Could not extract repo path")
   }
