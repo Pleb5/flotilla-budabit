@@ -122,6 +122,8 @@
     return profile?.display_name || profile?.name || "Anonymous"
   }
 
+  const normalizeSearchValue = (value: unknown) => String(value ?? "").toLocaleLowerCase()
+
   // Connect the nostr-git toast store to the app toast component
   $effect(() => {
     const unsubscribe = toast.subscribe((toasts) => {
@@ -580,7 +582,7 @@
 
   const snippets = $derived.by(() => ($mySnippetsEvents ? ($mySnippetsEvents as NostrEvent[]) : []))
 
-  const snippetQuery = $derived.by(() => searchQuery.trim().toLowerCase())
+  const snippetQuery = $derived.by(() => normalizeSearchValue(searchQuery.trim()))
 
   const filteredSnippets = $derived.by(() => {
     const items = snippets
@@ -595,9 +597,8 @@
         getSnippetFilePath(evt),
         evt.content,
       ]
-        .filter(Boolean)
+        .map(normalizeSearchValue)
         .join(" ")
-        .toLowerCase()
       return haystack.includes(snippetQuery)
     })
   })
@@ -759,6 +760,18 @@
     )
   })
 
+  const accountSearchVisibleRepos = $derived.by(() => {
+    const {mode, identifier} = accountSearch
+    if (mode !== "naddr" || !identifier || !matchedNaddrRepo) {
+      return accountSearchRepos
+    }
+
+    return accountSearchRepos.filter(repo => {
+      const dTag = (repo.event.tags || []).find((t: string[]) => t[0] === "d")?.[1] || ""
+      return dTag === identifier
+    })
+  })
+
   // Filter repos based on search query (from current tab)
   const searchFilteredRepos = $derived.by(() => {
     const repos = filteredRepos
@@ -766,13 +779,14 @@
 
     if (!searchQuery.trim()) return repos
 
-    const query = searchQuery.toLowerCase().trim()
+    const query = normalizeSearchValue(searchQuery.trim())
     return repos.filter((repo: any) => {
       try {
         const parsed = parseRepoAnnouncementEvent((repo.event ?? repo) as any)
-        const title = parsed?.name || ""
-        const description = parsed?.description || ""
-        return title.toLowerCase().includes(query) || description.toLowerCase().includes(query)
+        const haystack = [parsed?.name, parsed?.description, parsed?.repoId]
+          .map(normalizeSearchValue)
+          .join(" ")
+        return haystack.includes(query)
       } catch {
         return false
       }
@@ -1173,7 +1187,7 @@
       return
     }
 
-    const repos = accountSearchRepos
+    const repos = accountSearchVisibleRepos
     if (repos.length > 0) {
       if (accountSearchCardsComputeTimer) {
         clearTimeout(accountSearchCardsComputeTimer)
@@ -1213,6 +1227,10 @@
       return
     }
 
+    if (isAccountSearch) {
+      return
+    }
+
     const reposToShow = searchFilteredRepos
     if (reposToShow.length > 0 || !loading) {
       loading = false
@@ -1243,6 +1261,8 @@
             repositoriesStore.set(cachedCards)
             cardsComputeTimer = null
           }, 0)
+        } else if (getStore(repositoriesStore).length === 0 && cachedCards.length > 0) {
+          repositoriesStore.set(cachedCards)
         }
 
       } else {
@@ -1929,7 +1949,7 @@
         {/if}
       {:else if accountSearch.mode === "naddr"}
         <p class="text-sm text-muted-foreground">
-          Found repository. Showing all repositories published by this account.
+          Found repository. Showing this repository only.
         </p>
       {:else if accountSearch.mode === "npub"}
         <p class="text-sm text-muted-foreground">Repositories published by this account.</p>
