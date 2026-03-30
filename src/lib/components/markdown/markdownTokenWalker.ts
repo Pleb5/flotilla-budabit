@@ -45,7 +45,6 @@ async function enrichNostrToken(token: Token, defaultRelays: string[]): Promise<
     }
 
     if (!pubkey) return
-
     ;(token as any).pubkey = pubkey
 
     // Get or load profile
@@ -97,4 +96,3 @@ async function enrichEmailToken(token: Token, defaultRelays: string[]): Promise<
     ;(token as any).isNip05 = false
   }
 }
-

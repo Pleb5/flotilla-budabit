@@ -11,7 +11,7 @@ import {publishThunk, repository} from "@welshman/app"
 import {load} from "@welshman/net"
 import {GIT_RELAYS} from "./state"
 import {Router} from "@welshman/router"
-import {publishDelete} from "@src/app/core/commands"
+import {publishDelete} from "@app/core/commands"
 import {
   COMMENT,
   GIT_PATCH,

@@ -1,5 +1,4 @@
 import twColors from "tailwindcss/colors"
-import {Capacitor} from "@capacitor/core"
 import {browser} from "$app/environment"
 import {get, derived, readable, writable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
@@ -170,7 +169,7 @@ export const ROOM = "h"
 
 export const PROTECTED = ["-"]
 
-export const ENABLE_ZAPS = Capacitor.getPlatform() != "ios"
+export const ENABLE_ZAPS = true
 
 export const NOTIFIER_PUBKEY = import.meta.env.VITE_NOTIFIER_PUBKEY
 

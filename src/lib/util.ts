@@ -54,4 +54,3 @@ export function deleteIndexedDB(name: string, timeoutMs = 1000): Promise<void> {
     }, timeoutMs)
   })
 }
-

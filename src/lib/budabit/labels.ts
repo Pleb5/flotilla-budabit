@@ -1,5 +1,5 @@
-import type { EffectiveLabelsV2 } from "@nostr-git/core/git"
-import { createRoleLabelEvent } from "@nostr-git/core/events"
+import type {EffectiveLabelsV2} from "@nostr-git/core/git"
+import {createRoleLabelEvent} from "@nostr-git/core/events"
 
 export type NormalizedEffectiveLabelsView = {
   flat: Set<string>
@@ -44,17 +44,19 @@ function toStringSet(value: unknown): Set<string> {
 /**
  * Normalize an EffectiveLabelsV2-like object into a consistent structure with Sets.
  */
-export function normalizeEffectiveLabels(eff?: Partial<EffectiveLabelsV2> | any | null): NormalizedEffectiveLabelsView {
+export function normalizeEffectiveLabels(
+  eff?: Partial<EffectiveLabelsV2> | any | null,
+): NormalizedEffectiveLabelsView {
   const flat = toStringSet(eff?.flat)
   const byNamespace: Record<string, Set<string>> = {}
-  
+
   if (eff && typeof eff.byNamespace === "object") {
     for (const ns of Object.keys(eff.byNamespace)) {
       byNamespace[ns] = toStringSet(eff.byNamespace[ns])
     }
   }
-  
-  return { flat, byNamespace }
+
+  return {flat, byNamespace}
 }
 
 export function buildRoleLabelEvent(params: {
@@ -72,7 +74,7 @@ export function buildRoleLabelEvent(params: {
   id: string
   sig: string
 } {
-  const { rootId, role, pubkeys, repoAddr, created_at } = params
+  const {rootId, role, pubkeys, repoAddr, created_at} = params
   return createRoleLabelEvent({
     rootId,
     role,
@@ -99,30 +101,26 @@ export function toNaturalArray(values?: Iterable<string> | null): string[] {
 
 export function extractRoleAssignments(
   events: any[],
-  rootId?: string | null
-): { assignees: Set<string>; reviewers: Set<string> } {
+  rootId?: string | null,
+): {assignees: Set<string>; reviewers: Set<string>} {
   const assignees = new Set<string>()
   const reviewers = new Set<string>()
-  if (!Array.isArray(events)) return { assignees, reviewers }
+  if (!Array.isArray(events)) return {assignees, reviewers}
 
   for (const ev of events) {
     if (!ev || ev.kind !== 1985 || !Array.isArray(ev.tags)) continue
-    const hasRoleNs = ev.tags.some(
-      (t: string[]) => t[0] === "L" && t[1] === ROLE_NS
-    )
+    const hasRoleNs = ev.tags.some((t: string[]) => t[0] === "L" && t[1] === ROLE_NS)
     if (!hasRoleNs) continue
     if (rootId && !ev.tags.some((t: string[]) => t[0] === "e" && t[1] === rootId)) continue
 
-    const roleTags = ev.tags.filter(
-      (t: string[]) => t[0] === "l" && t[2] === ROLE_NS
-    )
+    const roleTags = ev.tags.filter((t: string[]) => t[0] === "l" && t[2] === ROLE_NS)
     const hasAssignee = roleTags.some((t: string[]) => t[1] === "assignee")
     const hasReviewer = roleTags.some((t: string[]) => t[1] === "reviewer")
     const people = ev.tags.filter((t: string[]) => t[0] === "p").map((t: string[]) => t[1])
     if (hasAssignee) for (const p of people) assignees.add(p)
     if (hasReviewer) for (const p of people) reviewers.add(p)
   }
-  return { assignees, reviewers }
+  return {assignees, reviewers}
 }
 
 /**

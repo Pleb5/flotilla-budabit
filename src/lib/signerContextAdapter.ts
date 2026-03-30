@@ -1,36 +1,36 @@
-import { get } from 'svelte/store';
-import { signer, pubkey } from '@welshman/app';
-import type { SignerContext, NostrSigner } from '@nostr-git/ui';
+import {get} from "svelte/store"
+import {signer, pubkey} from "@welshman/app"
+import type {SignerContext, NostrSigner} from "@nostr-git/ui"
 
 /**
  * Adapter that wraps @welshman signer to match NostrSigner interface.
  * Handles both direct encrypt/decrypt and nip44-namespaced methods.
  */
 class WelshmanSignerAdapter implements NostrSigner {
-  private welshmanSigner: any;
+  private welshmanSigner: any
 
   constructor(welshmanSigner: any) {
-    this.welshmanSigner = welshmanSigner;
+    this.welshmanSigner = welshmanSigner
   }
 
   async encrypt(recipientPubkey: string, message: string): Promise<string> {
     if (this.welshmanSigner.nip44?.encrypt) {
       return this.welshmanSigner.nip44.encrypt(recipientPubkey, message)
     }
-    if (typeof this.welshmanSigner.encrypt === 'function') {
+    if (typeof this.welshmanSigner.encrypt === "function") {
       return this.welshmanSigner.encrypt(recipientPubkey, message)
     }
-    throw new Error('Signer does not support encrypt')
+    throw new Error("Signer does not support encrypt")
   }
 
   async decrypt(senderPubkey: string, encryptedMessage: string): Promise<string> {
     if (this.welshmanSigner.nip44?.decrypt) {
       return this.welshmanSigner.nip44.decrypt(senderPubkey, encryptedMessage)
     }
-    if (typeof this.welshmanSigner.decrypt === 'function') {
+    if (typeof this.welshmanSigner.decrypt === "function") {
       return this.welshmanSigner.decrypt(senderPubkey, encryptedMessage)
     }
-    throw new Error('Signer does not support decrypt')
+    throw new Error("Signer does not support decrypt")
   }
 }
 
@@ -38,22 +38,22 @@ class WelshmanSignerAdapter implements NostrSigner {
  * Create a signer context from @welshman stores
  */
 export function createSignerContext(): SignerContext {
-  const currentSigner = get(signer);
-  const currentPubkey = get(pubkey);
+  const currentSigner = get(signer)
+  const currentPubkey = get(pubkey)
 
   return {
     signer: currentSigner ? new WelshmanSignerAdapter(currentSigner) : null,
     pubkey: currentPubkey || null,
     isReady: !!(currentSigner && currentPubkey),
-  };
+  }
 }
 
 /**
  * Create a reactive signer context that updates when @welshman stores change
  */
-export function createReactiveSignerContext(): { 
-  getContext: () => SignerContext;
-  subscribe: (callback: (context: SignerContext) => void) => () => void;
+export function createReactiveSignerContext(): {
+  getContext: () => SignerContext
+  subscribe: (callback: (context: SignerContext) => void) => () => void
 } {
   let currentContext = createSignerContext()
   const subscribers = new Set<(context: SignerContext) => void>()
@@ -62,8 +62,10 @@ export function createReactiveSignerContext(): {
 
   const notifySubscribers = () => {
     const newContext = createSignerContext()
-    if (newContext.isReady !== currentContext.isReady || 
-        newContext.pubkey !== currentContext.pubkey) {
+    if (
+      newContext.isReady !== currentContext.isReady ||
+      newContext.pubkey !== currentContext.pubkey
+    ) {
       currentContext = newContext
       subscribers.forEach(callback => callback(currentContext))
     }
@@ -91,6 +93,6 @@ export function createReactiveSignerContext(): {
         subscribers.delete(callback)
         if (subscribers.size === 0) stopListening()
       }
-    }
+    },
   }
 }

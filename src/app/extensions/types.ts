@@ -82,8 +82,7 @@ export type RepoContext = {
  * Get the canonical repo address tag value (for use in #a tag filters).
  * Format: "30617:pubkey:name"
  */
-export const getRepoAddress = (ctx: RepoContext): string =>
-  `30617:${ctx.pubkey}:${ctx.name}`
+export const getRepoAddress = (ctx: RepoContext): string => `30617:${ctx.pubkey}:${ctx.name}`
 
 export type LoadedNip89Extension = {
   type: "nip89"

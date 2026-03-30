@@ -21,7 +21,7 @@ import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
 import {uploadFile} from "@app/core/commands"
 import {deriveSpaceMembers} from "@app/core/state"
 import {pushToast} from "@app/util/toast"
-import { PermalinkExtension } from "@nostr-git/ui"
+import {PermalinkExtension} from "@nostr-git/ui"
 import Spinner from "@lib/components/Spinner.svelte"
 
 export const makeEditor = async ({
@@ -91,7 +91,7 @@ export const makeEditor = async ({
     element: document.createElement("div"),
     extensions: [
       PermalinkExtension.configure({
-        signer: async (e) => await signer.get().sign(e),
+        signer: async e => await signer.get().sign(e),
         relays: Router.get().FromUser().getUrls(),
         spinnerComponent: Spinner,
       }),

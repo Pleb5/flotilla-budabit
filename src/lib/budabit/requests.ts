@@ -1,14 +1,30 @@
-import { GIT_REPO_BOOKMARK_SET, GRASP_SET_KIND, GIT_REPO_BOOKMARK_DTAG, DEFAULT_GRASP_SET_ID, validateGraspServerUrl } from "@nostr-git/core/events"
-import { tokens, type Token, bookmarksStore } from "@nostr-git/ui"
-import { graspServersStore } from "@nostr-git/ui"
-import { repository, pubkey, signer, ensurePlaintext } from "@welshman/app"
-import { load } from "@welshman/net"
-import { deriveEventsAsc, deriveEventsById } from "@welshman/store"
-import { NAMED_BOOKMARKS, APP_DATA, getAddressTags, normalizeRelayUrl, type TrustedEvent } from "@welshman/util"
-import { get } from "svelte/store"
+import {
+  GIT_REPO_BOOKMARK_SET,
+  GRASP_SET_KIND,
+  GIT_REPO_BOOKMARK_DTAG,
+  DEFAULT_GRASP_SET_ID,
+  validateGraspServerUrl,
+} from "@nostr-git/core/events"
+import {tokens, type Token, bookmarksStore} from "@nostr-git/ui"
+import {graspServersStore} from "@nostr-git/ui"
+import {repository, pubkey, signer, ensurePlaintext} from "@welshman/app"
+import {load} from "@welshman/net"
+import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+import {
+  NAMED_BOOKMARKS,
+  APP_DATA,
+  getAddressTags,
+  normalizeRelayUrl,
+  type TrustedEvent,
+} from "@welshman/util"
+import {get} from "svelte/store"
 
 const safeNormalizeRelayUrl = (u: string): string => {
-  try { return normalizeRelayUrl(u) } catch { return "" }
+  try {
+    return normalizeRelayUrl(u)
+  } catch {
+    return ""
+  }
 }
 
 // D-tag for git authentication tokens (intentionally not obvious)
@@ -17,22 +33,21 @@ export const GIT_AUTH_DTAG = "app/budabit/tokens"
 // D-tag for extension settings
 export const EXTENSION_SETTINGS_DTAG = "app/budabit/extensions"
 
-
 export const loadRepositories = async (pubkey: string, relays: string[] = []) => {
   // Load both the named bookmark list and any legacy/set variants
   load({
     relays,
     filters: [
-      { kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG] },
-      { kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey] },
-    ]
+      {kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG]},
+      {kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey]},
+    ],
   })
 }
 
 export const loadGraspServers = async (pubkey: string, relays: string[] = []) => {
   load({
     relays,
-    filters: [{ kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID] }]
+    filters: [{kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID]}],
   })
 }
 
@@ -40,7 +55,7 @@ export const loadTokens = async (pk: string, relays: string[] = []) => {
   // Load encrypted git tokens from relays
   load({
     relays,
-    filters: [{ kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG] }]
+    filters: [{kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG]}],
   })
 }
 
@@ -48,7 +63,7 @@ export const loadExtensionSettings = async (pk: string, relays: string[] = []) =
   // Load encrypted extension settings from relays
   load({
     relays,
-    filters: [{ kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG] }]
+    filters: [{kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG]}],
   })
 }
 
@@ -56,18 +71,19 @@ export const loadExtensionSettings = async (pk: string, relays: string[] = []) =
 let bookmarksUnsub: (() => void) | undefined
 
 export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
-  try { bookmarksUnsub?.() } catch { }
+  try {
+    bookmarksUnsub?.()
+  } catch {}
 
   // Query for both new format (with d-tag) and legacy format (without d-tag)
   const filters: any[] = [
-    { kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG] },
-    { kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey] },
+    {kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG]},
+    {kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey]},
   ]
 
-  const store = deriveEventsAsc(deriveEventsById({ repository, filters }))
+  const store = deriveEventsAsc(deriveEventsById({repository, filters}))
 
   bookmarksUnsub = store.subscribe((events: any[]) => {
-
     if (!events || events.length === 0) {
       console.log("[setupBookmarksSync] No events found")
       return
@@ -89,7 +105,7 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
   })
 
   // Ensure we fetch initial data for both formats
-  load({ relays, filters })
+  load({relays, filters})
 
   return bookmarksUnsub
 }
@@ -98,10 +114,12 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
 let graspUnsub: (() => void) | undefined
 
 export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
-  try { graspUnsub?.() } catch { }
+  try {
+    graspUnsub?.()
+  } catch {}
 
-  const filter = { kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID] }
-  const store = deriveEventsAsc(deriveEventsById({ repository, filters: [filter] }))
+  const filter = {kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID]}
+  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
 
   graspUnsub = store.subscribe((events: any[]) => {
     if (!events || events.length === 0) return
@@ -133,7 +151,7 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
     graspServersStore.set(Array.from(urls))
   })
 
-  load({ relays, filters: [filter] })
+  load({relays, filters: [filter]})
 
   return graspUnsub
 }
@@ -142,13 +160,14 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
 let tokensUnsub: (() => void) | undefined
 
 export function setupTokensSync(pk: string, relays: string[] = []) {
-  try { tokensUnsub?.() } catch { }
+  try {
+    tokensUnsub?.()
+  } catch {}
 
-  const filter = { kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG] }
-  const store = deriveEventsAsc(deriveEventsById({ repository, filters: [filter] }))
+  const filter = {kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG]}
+  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
 
   tokensUnsub = store.subscribe(async (events: TrustedEvent[]) => {
-
     if (!events || events.length === 0) {
       console.log("[setupTokensSync] No token events found")
       return
@@ -170,7 +189,8 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
       // Validate token format (no previews logged to avoid leaking secrets)
       if (import.meta.env.DEV) {
         loadedTokens.forEach((t: Token, i: number) => {
-          const isValidFormat = t.token && t.token.length >= 20 && !t.token.includes('\n') && !t.token.includes(' ')
+          const isValidFormat =
+            t.token && t.token.length >= 20 && !t.token.includes("\n") && !t.token.includes(" ")
           if (!isValidFormat) {
             console.warn(`[setupTokensSync] Token ${i + 1} may be invalid format`)
           }
@@ -184,7 +204,7 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
     }
   })
 
-  load({ relays, filters: [filter] })
+  load({relays, filters: [filter]})
 
   return tokensUnsub
 }
@@ -192,14 +212,19 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
 // --- Extension settings sync (centralized, encrypted) ---
 let extensionSettingsUnsub: (() => void) | undefined
 
-export function setupExtensionSettingsSync(pk: string, relays: string[] = [], onSettingsLoaded: (settings: any) => void) {
-  try { extensionSettingsUnsub?.() } catch { }
+export function setupExtensionSettingsSync(
+  pk: string,
+  relays: string[] = [],
+  onSettingsLoaded: (settings: any) => void,
+) {
+  try {
+    extensionSettingsUnsub?.()
+  } catch {}
 
-  const filter = { kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG] }
-  const store = deriveEventsAsc(deriveEventsById({ repository, filters: [filter] }))
+  const filter = {kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG]}
+  const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
 
   extensionSettingsUnsub = store.subscribe(async (events: TrustedEvent[]) => {
-
     if (!events || events.length === 0) {
       console.log("[setupExtensionSettingsSync] No extension settings events found")
       return
@@ -224,7 +249,7 @@ export function setupExtensionSettingsSync(pk: string, relays: string[] = [], on
     }
   })
 
-  load({ relays, filters: [filter] })
+  load({relays, filters: [filter]})
 
   return extensionSettingsUnsub
 }

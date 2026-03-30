@@ -29,13 +29,13 @@ export const modal = derived([page, modals], ([$page, $modals]) => {
 
 function isValidModalPath(path: string): boolean {
   if (!path) return true
-  if (path.startsWith('/') && !path.startsWith('//')) return true
+  if (path.startsWith("/") && !path.startsWith("//")) return true
   // Reject anything with a colon before the first ? or # (catches javascript:, data:, etc.)
   const schemeEnd = path.search(/[?#]/)
   const prefix = schemeEnd === -1 ? path : path.slice(0, schemeEnd)
-  if (prefix.includes(':')) return false
+  if (prefix.includes(":")) return false
   // Reject protocol-relative URLs
-  if (path.startsWith('//')) return false
+  if (path.startsWith("//")) return false
   return true
 }
 
@@ -48,7 +48,7 @@ export const pushModal = (
   const path = options.path || ""
 
   if (!isValidModalPath(path)) {
-    console.error('Invalid modal path:', path)
+    console.error("Invalid modal path:", path)
     return null
   }
 

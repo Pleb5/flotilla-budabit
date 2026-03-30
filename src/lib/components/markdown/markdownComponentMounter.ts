@@ -247,4 +247,3 @@ export function cleanupMountedComponents(mountedComponents: MountedComponent[]):
     }
   })
 }
-

@@ -15,16 +15,18 @@ export const setupAnalytics = () =>
   page.subscribe($page => {
     if ($page.route?.id && getSetting("report_usage")) {
       const routeId = $page.route.id
-      
+
       // Skip localhost, root, and invalid routes
-      if (routeId === "localhost" || 
-          routeId === "/" || 
-          routeId.includes("localhost") ||
-          !routeId ||
-          routeId === "undefined") {
+      if (
+        routeId === "localhost" ||
+        routeId === "/" ||
+        routeId.includes("localhost") ||
+        !routeId ||
+        routeId === "undefined"
+      ) {
         return
       }
-      
+
       try {
         w.plausible("pageview", {u: routeId})
       } catch (error) {

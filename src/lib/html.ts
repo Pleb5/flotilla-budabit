@@ -15,8 +15,8 @@ export const copyToClipboard = (text: string) => {
     document.body.removeChild(input)
 
     // Only focus if activeElement exists and has a focus method
-    if (activeElement && typeof (activeElement as HTMLElement).focus === 'function') {
-      (activeElement as HTMLElement).focus()
+    if (activeElement && typeof (activeElement as HTMLElement).focus === "function") {
+      ;(activeElement as HTMLElement).focus()
     }
 
     return result

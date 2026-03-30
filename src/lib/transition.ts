@@ -114,12 +114,7 @@ export const staggeredFade = (
  */
 export const staggeredScaleBounce = (
   node: Element,
-  {
-    delay = 0,
-    duration = 400,
-    staggerDelay = 50,
-    index = 0,
-  }: StaggeredFadeParams = {},
+  {delay = 0, duration = 400, staggerDelay = 50, index = 0}: StaggeredFadeParams = {},
 ) => {
   return {
     delay: delay + index * staggerDelay,

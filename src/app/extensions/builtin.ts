@@ -5,7 +5,6 @@ import {extensionRegistry} from "./registry"
 const BUILTIN_EXTENSIONS: ExtensionManifest[] = [
   // Pipelines extension is now a separate Smart Widget (kind 30033)
   // Install via naddr or discover from relays in Settings > Extensions
-  
   // Kanban extension is now loaded from Nostr events (kind 30033)
   // Install via naddr or discover from relays in Settings > Extensions
 ]

@@ -70,4 +70,3 @@ export function isMediaUrl(url: string): boolean {
 export function isStandaloneUrl(text: string | undefined, href: string): boolean {
   return !text || text === href || text.trim() === href.trim()
 }
-

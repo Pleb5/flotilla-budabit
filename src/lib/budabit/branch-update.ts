@@ -38,7 +38,9 @@ export const buildBranchUpdateDedupeKey = (repos: RepoUpdateForKey[]) =>
     .map(repo => {
       const sortedUpdates = [...repo.updates].sort((a, b) => a.name.localeCompare(b.name))
       const updateKey = sortedUpdates
-        .map(update => [update.name, update.change, update.oldOid || "", update.newOid || ""].join(":"))
+        .map(update =>
+          [update.name, update.change, update.oldOid || "", update.newOid || ""].join(":"),
+        )
         .join("|")
       return `${repo.repoId}:${updateKey}`
     })

@@ -33,9 +33,19 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
       const {href, text} = token
 
       // Check if href is a nostr URI
-      const nostrMatch = href.match(/^(?:nostr:\s*)?(n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,})$/)
+      const nostrMatch = href.match(
+        /^(?:nostr:\s*)?(n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,})$/,
+      )
       if (nostrMatch) {
-        return renderNostrLink(nostrMatch[1], text, event, url, minimalQuote, depth, hideMediaAtDepth)
+        return renderNostrLink(
+          nostrMatch[1],
+          text,
+          event,
+          url,
+          minimalQuote,
+          depth,
+          hideMediaAtDepth,
+        )
       }
 
       // Regular URL handling
@@ -60,9 +70,7 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
         })
         .join("\n")
 
-      return token.ordered
-        ? `<ol>${listItems}</ol>`
-        : `<ul>${listItems}</ul>`
+      return token.ordered ? `<ol>${listItems}</ol>` : `<ul>${listItems}</ul>`
     },
 
     code(token: Tokens.Code): string {
@@ -217,4 +225,3 @@ function createNaddrQuotePlaceholder(options: {
   const relaysAttr = JSON.stringify(relays).replace(/"/g, "&quot;")
   return `<span class="markdown-quote-placeholder" data-type="naddr" data-kind="${kind}" data-pubkey="${pubkey}" data-identifier="${identifier}" data-relays="${relaysAttr}" data-event-id="${eventId}" data-url="${url}" data-minimal="${minimal}" data-depth="${depth}" data-hide-media="${hideMedia}"></span>`
 }
-

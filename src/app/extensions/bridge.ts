@@ -84,10 +84,10 @@ const normalizeNostrFilter = (filterRaw: unknown): Record<string, unknown> => {
   }
 
   if (kinds.includes(30301)) {
-    requireNonEmptyStringArray(filter["#d"], "[\"#d\"]")
+    requireNonEmptyStringArray(filter["#d"], '["#d"]')
   }
   if (kinds.includes(30302)) {
-    requireNonEmptyStringArray(filter["#a"], "[\"#a\"]")
+    requireNonEmptyStringArray(filter["#a"], '["#a"]')
   }
 
   const limitRaw = filter.limit
@@ -105,7 +105,9 @@ const normalizeNostrFilter = (filterRaw: unknown): Record<string, unknown> => {
   return filter as Record<string, unknown>
 }
 
-const parseNostrQueryPayload = (payload: unknown): {relays: string[]; filter: Record<string, unknown>} => {
+const parseNostrQueryPayload = (
+  payload: unknown,
+): {relays: string[]; filter: Record<string, unknown>} => {
   if (!payload || typeof payload !== "object") {
     throw new Error("Invalid payload: expected { relays, filter }")
   }
@@ -219,12 +221,9 @@ export class ExtensionBridge {
     const targetWindow = this.targetWindow ?? this.extension.iframe?.contentWindow
     // Use the extension's known origin to prevent message leaks if the iframe navigates.
     // For sandboxed iframes (origin 'null'), we must use '*' but only for the expected window.
-    const isSandboxed = this.extension.origin === 'null'
-    const targetOrigin = isSandboxed ? '*' : this.extension.origin
-    targetWindow?.postMessage(
-      {type: "event", action, payload},
-      targetOrigin,
-    )
+    const isSandboxed = this.extension.origin === "null"
+    const targetOrigin = isSandboxed ? "*" : this.extension.origin
+    targetWindow?.postMessage({type: "event", action, payload}, targetOrigin)
   }
 
   request(action: string, payload: any): Promise<any> {
@@ -246,9 +245,12 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:publish from ${ext.id}`, payload)
   try {
     const {event, relays} = parseNostrPublishPayload(payload)
-    const hasIdAndSig = event && typeof event === "object" && 
-      typeof (event as any).id === "string" && typeof (event as any).sig === "string"
-    
+    const hasIdAndSig =
+      event &&
+      typeof event === "object" &&
+      typeof (event as any).id === "string" &&
+      typeof (event as any).sig === "string"
+
     console.log(`[bridge] nostr:publish event hasIdAndSig=${hasIdAndSig}, relays=${relays?.length}`)
 
     if (relays && relays.length > 0 && hasIdAndSig) {
@@ -257,32 +259,53 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
       const thunk = (publishThunk as any)({event, relays})
       await thunk.complete
       const results = thunk.results || {}
-      const successCount = Object.values(results).filter((r: any) => r?.status === PublishStatus.Success).length
-      console.log(`[bridge] nostr:publish signed event completed: ${successCount}/${relays.length} relays accepted`)
+      const successCount = Object.values(results).filter(
+        (r: any) => r?.status === PublishStatus.Success,
+      ).length
+      console.log(
+        `[bridge] nostr:publish signed event completed: ${successCount}/${relays.length} relays accepted`,
+      )
       const sanitizedResult = Object.entries(results).map(([relay, r]: [string, any]) => ({
         relay,
         status: r?.status === PublishStatus.Success ? "fulfilled" : "rejected",
         reason: r?.detail || r?.message,
       }))
       console.log(`[bridge] nostr:publish completed:`, sanitizedResult)
-      return {status: "ok", result: {published: true, relays: [...relays], publishResult: sanitizedResult, successCount}}
+      return {
+        status: "ok",
+        result: {
+          published: true,
+          relays: [...relays],
+          publishResult: sanitizedResult,
+          successCount,
+        },
+      }
     }
 
     // Event needs signing - use publishThunk
-    console.log(`[bridge] nostr:publish using publishThunk to sign and publish, event:`, JSON.stringify(event))
+    console.log(
+      `[bridge] nostr:publish using publishThunk to sign and publish, event:`,
+      JSON.stringify(event),
+    )
     if (relays && relays.length > 0) {
       try {
         const thunk = (publishThunk as any)({event, relays})
         await thunk.complete
         // Log publish results to debug - use PublishStatus enum
         const results = thunk.results || {}
-        const successCount = Object.values(results).filter((r: any) => r?.status === PublishStatus.Success).length
+        const successCount = Object.values(results).filter(
+          (r: any) => r?.status === PublishStatus.Success,
+        ).length
         // Log detailed results for each relay
         for (const [relay, result] of Object.entries(results)) {
           const r = result as any
-          console.log(`[bridge] nostr:publish relay ${relay}: status=${r?.status}, message=${r?.message || r?.detail || 'none'}`)
+          console.log(
+            `[bridge] nostr:publish relay ${relay}: status=${r?.status}, message=${r?.message || r?.detail || "none"}`,
+          )
         }
-        console.log(`[bridge] nostr:publish publishThunk completed: ${successCount}/${relays.length} relays accepted`)
+        console.log(
+          `[bridge] nostr:publish publishThunk completed: ${successCount}/${relays.length} relays accepted`,
+        )
         // Return immediately - client should handle retry logic
         return {status: "ok", result: {published: true, relays: [...relays], successCount}}
       } catch (e: any) {
@@ -293,7 +316,9 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
 
     const thunk = publishThunk(event)
     await thunk.complete
-    console.log(`[bridge] nostr:publish publishThunk completed (no relays), waiting for relay indexing`)
+    console.log(
+      `[bridge] nostr:publish publishThunk completed (no relays), waiting for relay indexing`,
+    )
     // Give relays time to index the event before returning
     await new Promise(r => setTimeout(r, 500))
     return {status: "ok", result: {published: true}}
@@ -307,7 +332,11 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:query from ${ext.id}`, payload)
   try {
     const {relays, filter} = parseNostrQueryPayload(payload)
-    console.log(`[bridge] nostr:query querying ${relays.length} relays:`, relays, JSON.stringify(filter))
+    console.log(
+      `[bridge] nostr:query querying ${relays.length} relays:`,
+      relays,
+      JSON.stringify(filter),
+    )
 
     // Use @welshman/net load() for better relay connection management
     const events: any[] = []
@@ -316,12 +345,12 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
     let resolveEarly: (() => void) | null = null
 
     // Promise that resolves when we get events (after a short delay to collect more)
-    const earlyResolvePromise = new Promise<void>((resolve) => {
+    const earlyResolvePromise = new Promise<void>(resolve => {
       resolveEarly = resolve
     })
 
     // Timeout after 5s (reduced from 10s)
-    const timeoutPromise = new Promise<void>((resolve) => {
+    const timeoutPromise = new Promise<void>(resolve => {
       setTimeout(() => {
         if (!resolved) {
           console.log(`[bridge] nostr:query timeout after 5s, got ${events.length} events`)

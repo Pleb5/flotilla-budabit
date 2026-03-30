@@ -233,4 +233,3 @@ function createNaddrQuotePlaceholder(options: {
   const relaysAttr = JSON.stringify(relays).replace(/"/g, "&quot;")
   return `<span class="markdown-quote-placeholder" data-type="naddr" data-kind="${kind}" data-pubkey="${pubkey}" data-identifier="${identifier}" data-relays="${relaysAttr}" data-event-id="${eventId}" data-url="${url}" data-minimal="${minimal}" data-depth="${depth}" data-hide-media="${hideMedia}"></span>`
 }
-

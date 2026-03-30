@@ -57,9 +57,10 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
 
   // Parse slot configuration for repo-tab integration
   const slotTag = getTag(tags, "slot")
-  const slot = slotTag && slotTag[1] === "repo-tab" && slotTag[2] && slotTag[3]
-    ? {type: "repo-tab" as const, label: slotTag[2], path: slotTag[3]}
-    : undefined
+  const slot =
+    slotTag && slotTag[1] === "repo-tab" && slotTag[2] && slotTag[3]
+      ? {type: "repo-tab" as const, label: slotTag[2], path: slotTag[3]}
+      : undefined
 
   return {
     id: event.id,
@@ -82,7 +83,9 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
 }
 
 const deriveWidgetOrigin = (widget: SmartWidgetEvent): string => {
-  const candidates = [widget.appUrl, widget.originHint, widget.iconUrl, widget.imageUrl].filter(Boolean) as string[]
+  const candidates = [widget.appUrl, widget.originHint, widget.iconUrl, widget.imageUrl].filter(
+    Boolean,
+  ) as string[]
   for (const url of candidates) {
     try {
       return new URL(url).origin
@@ -379,7 +382,10 @@ class ExtensionRegistry {
 
   async loadIframeExtension(manifest: ExtensionManifest): Promise<LoadedExtension> {
     const existing = this.get(manifest.id)
-    const base = existing && existing.type === "nip89" ? (existing as LoadedNip89Extension) : this.register(manifest)
+    const base =
+      existing && existing.type === "nip89"
+        ? (existing as LoadedNip89Extension)
+        : this.register(manifest)
     return this.loadRuntime(base)
   }
 
