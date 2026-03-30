@@ -9,7 +9,13 @@
   import type {Repo} from "@nostr-git/ui"
   import {onMount} from "svelte"
 
-  type RemoteHealth = "healthy" | "degraded" | "auth" | "unreachable" | "unknown"
+  type RemoteHealth =
+    | "healthy"
+    | "degraded"
+    | "auth"
+    | "unreachable"
+    | "unknown"
+    | "branch-drift"
 
   type RemoteStatus = {
     url: string
@@ -18,6 +24,8 @@
     message: string
     details?: string
     probeDetails?: string
+    headBranch?: string
+    missingBranch?: string
     updatedAt: number
   }
 
@@ -26,13 +34,16 @@
     onClose?: () => void
     onOpenSettings?: () => void
     onRefresh?: () => Promise<void> | void
+    onSyncBranchStateFromRemote?: (params: {remoteUrl: string; headBranch?: string}) => Promise<void> | void
   }
 
-  const {repoClass, onClose, onOpenSettings, onRefresh}: Props = $props()
+  const {repoClass, onClose, onOpenSettings, onRefresh, onSyncBranchStateFromRemote}: Props =
+    $props()
 
   let statuses = $state<RemoteStatus[]>([])
   let checking = $state(false)
   let syncing = $state(false)
+  let syncingBranchStateUrl = $state<string | null>(null)
   let actionMessage = $state<string>("")
 
   const cloneUrls = $derived.by(() =>
@@ -41,6 +52,13 @@
     ),
   )
   const primaryUrl = $derived.by(() => String(cloneUrls[0] || ""))
+  const expectedBranch = $derived.by(() => {
+    const candidates = [repoClass.mainBranch, repoClass.selectedBranch]
+      .map(branch => String(branch || "").trim())
+      .filter(Boolean)
+
+    return candidates[0] || ""
+  })
 
   const normalizeUrl = (url: string) => {
     const raw = String(url || "").trim()
@@ -68,6 +86,42 @@
     } catch {
       return ""
     }
+  }
+
+  const summarizeBranches = (branches: string[]) => {
+    if (branches.length === 0) return "none"
+    const visible = branches.slice(0, 4)
+    const suffix = branches.length > visible.length ? ` +${branches.length - visible.length} more` : ""
+    return `${visible.join(", ")}${suffix}`
+  }
+
+  const parseRemoteHeads = (refs: Array<any>) => {
+    const heads = new Map<string, string>()
+    for (const ref of refs || []) {
+      if (!ref?.ref || typeof ref.ref !== "string") continue
+      if (!ref.ref.startsWith("refs/heads/")) continue
+      if (!ref.oid || typeof ref.oid !== "string") continue
+      heads.set(ref.ref, ref.oid)
+    }
+
+    const headRef = (refs || []).find(ref => ref?.ref === "HEAD")
+    const symref = typeof headRef?.symref === "string" ? headRef.symref : headRef?.target
+    let headBranch =
+      typeof symref === "string" && symref.startsWith("refs/heads/")
+        ? symref.replace("refs/heads/", "")
+        : undefined
+
+    const branchNames = Array.from(heads.keys())
+      .map(ref => ref.replace(/^refs\/heads\//, ""))
+      .sort((a, b) => a.localeCompare(b))
+
+    if (!headBranch) {
+      if (branchNames.includes("main")) headBranch = "main"
+      else if (branchNames.includes("master")) headBranch = "master"
+      else headBranch = branchNames[0]
+    }
+
+    return {heads, headBranch, branchNames}
   }
 
   const classifyError = (error: unknown): {health: RemoteHealth; message: string; details: string} => {
@@ -139,14 +193,30 @@
       })
 
       const refs = (await Promise.race([listRefsPromise, timeoutPromise])) as Array<any>
-      const branchCount = Array.isArray(refs)
-        ? refs.filter(ref => String(ref?.ref || "").startsWith("refs/heads/")).length
-        : 0
+      const {heads, headBranch, branchNames} = parseRemoteHeads(Array.isArray(refs) ? refs : [])
+      const branchCount = branchNames.length
+      const expectedBranchRef = expectedBranch ? `refs/heads/${expectedBranch}` : ""
+      const missingExpectedBranch =
+        expectedBranchRef && !heads.has(expectedBranchRef) ? expectedBranch : undefined
 
       const hasHeads = branchCount > 0
       const probeDetails = hasHeads
-        ? `Git probe reachable (${branchCount} branch${branchCount === 1 ? "" : "es"})`
+        ? `Git probe reachable (${branchCount} branch${branchCount === 1 ? "" : "es"}); remote HEAD: ${headBranch || "unknown"}; branches: ${summarizeBranches(branchNames)}`
         : "Git probe reached the remote, but no branch heads were returned"
+
+      if (missingExpectedBranch) {
+        return {
+          url,
+          isPrimary: normalizeUrl(url) === normalizeUrl(primaryUrl),
+          health: "branch-drift",
+          message: `Remote is reachable, but expected branch '${missingExpectedBranch}' is missing here`,
+          details: recordedError?.error,
+          probeDetails,
+          headBranch,
+          missingBranch: missingExpectedBranch,
+          updatedAt: Date.now(),
+        }
+      }
 
       if (recordedError) {
         const classified = classifyError(recordedError.error)
@@ -159,6 +229,7 @@
             : "Remote responded, but recent app reads reported problems",
           details: recordedError.error,
           probeDetails,
+          headBranch,
           updatedAt: Date.now(),
         }
       }
@@ -171,6 +242,7 @@
           ? `Remote reachable (${branchCount} branch${branchCount === 1 ? "" : "es"})`
           : "Remote reachable but no branch heads were returned",
         probeDetails,
+        headBranch,
         updatedAt: Date.now(),
       }
     } catch (error) {
@@ -194,7 +266,10 @@
       const next = await Promise.all(cloneUrls.map(checkRemote))
       statuses = next
 
-      if (next.some(status => status.health !== "healthy" && status.probeDetails)) {
+      if (next.some(status => status.health === "branch-drift")) {
+        actionMessage =
+          "Some remotes are reachable but missing the repo's expected branch. Sync published branches from a healthy remote to reconcile deletions or default-branch changes."
+      } else if (next.some(status => status.health !== "healthy" && status.probeDetails)) {
         actionMessage =
           "Some remotes respond to git probes but still have recent app-level errors recorded. Clear the warning if you confirm it is stale."
       }
@@ -246,6 +321,26 @@
     }
   }
 
+  const syncBranchStateFromRemote = async (status: RemoteStatus) => {
+    if (!onSyncBranchStateFromRemote || syncingBranchStateUrl) return
+    syncingBranchStateUrl = status.url
+    actionMessage = ""
+
+    try {
+      await onSyncBranchStateFromRemote({remoteUrl: status.url, headBranch: status.headBranch})
+      repoClass.clearCloneUrlErrors()
+      await probeRemotes()
+      actionMessage = `Published branch state from ${status.url}. Remotes may take a moment to reconcile deleted branches.`
+      pushToast({message: "Published repo branch state from remote", theme: "success"})
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      actionMessage = `Failed to sync branch state: ${message}`
+      pushToast({message: `Failed to sync branch state: ${message}`, theme: "error"})
+    } finally {
+      syncingBranchStateUrl = null
+    }
+  }
+
   const openSettings = () => {
     onOpenSettings?.()
   }
@@ -273,6 +368,7 @@
 
   const statusTone = (health: RemoteHealth) => {
     if (health === "healthy") return "text-emerald-700 dark:text-emerald-300"
+    if (health === "branch-drift") return "text-amber-700 dark:text-amber-300"
     if (health === "degraded") return "text-amber-700 dark:text-amber-300"
     if (health === "auth") return "text-orange-700 dark:text-orange-300"
     if (health === "unreachable") return "text-rose-700 dark:text-rose-300"
@@ -281,6 +377,7 @@
 
   const healthLabel = (health: RemoteHealth) => {
     if (health === "auth") return "auth"
+    if (health === "branch-drift") return "branch drift"
     return health
   }
 </script>
@@ -332,7 +429,14 @@
                 <div class="mt-1 text-xs text-muted-foreground">{status.probeDetails}</div>
               {/if}
             </div>
-            {#if !status.isPrimary && status.health === "healthy"}
+            {#if status.health === "branch-drift" && onSyncBranchStateFromRemote}
+              <Button
+                class="btn btn-ghost btn-xs"
+                onclick={() => syncBranchStateFromRemote(status)}
+                disabled={Boolean(syncingBranchStateUrl)}>
+                {syncingBranchStateUrl === status.url ? "Syncing..." : "Sync Branch State"}
+              </Button>
+            {:else if !status.isPrimary && status.health === "healthy"}
               <Button class="btn btn-ghost btn-xs" onclick={() => useForReads(status.url)}>
                 Use For Reads
               </Button>

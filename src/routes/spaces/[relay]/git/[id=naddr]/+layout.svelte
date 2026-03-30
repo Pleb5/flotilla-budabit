@@ -824,7 +824,10 @@
           ],
         }),
       ),
-      (events: TrustedEvent[]) => events[0] as RepoAnnouncementEvent | undefined,
+      (events: TrustedEvent[]) =>
+        (events.length > 0 ? events[events.length - 1] : undefined) as
+          | RepoAnnouncementEvent
+          | undefined,
     ) as Readable<RepoAnnouncementEvent | undefined>
   }
 
@@ -834,7 +837,7 @@
     maintainers: Readable<string[]>,
   ) {
     return derived(maintainers, ($maintainers, set) => {
-      const authors = $maintainers.length > 0 ? $maintainers : [repoPubkey]
+      const authors = Array.from(new Set([repoPubkey, ...$maintainers].filter(Boolean)))
       const store = deriveEventsAsc(
         deriveEventsById({
           repository,
@@ -2169,7 +2172,10 @@
           nextName: string
           relays: string[]
         }) => {
-          if (!renamed) return
+          if (!renamed) {
+            await refreshRepo()
+            return
+          }
           await navigateToRenamedRepo(nextName, relays)
         },
         canDelete: !!$pubkey && repoPubkey === $pubkey,
@@ -2182,12 +2188,100 @@
     )
   }
 
+  async function syncRepoBranchStateFromRemote({
+    remoteUrl,
+    headBranch,
+  }: {
+    remoteUrl: string
+    headBranch?: string
+  }) {
+    if (!repoClass) {
+      throw new Error("Repository context is not ready")
+    }
+
+    if (!$pubkey || repoPubkey !== $pubkey) {
+      throw new Error("Only the owner can publish repository state updates")
+    }
+
+    const workerApi = await ensureStateUpdateWorkerApi()
+    const refs = (await workerApi.listServerRefs({url: remoteUrl, symrefs: true})) as ServerRef[]
+    const {heads, headBranch: remoteHeadBranch} = parseRemoteHeads(refs)
+
+    if (heads.size === 0) {
+      throw new Error("The selected remote did not return any branch heads")
+    }
+
+    const refsForEvent = refs
+      .filter(ref => {
+        if (!ref?.ref || typeof ref.ref !== "string") return false
+        if (!ref?.oid || typeof ref.oid !== "string") return false
+        return ref.ref.startsWith("refs/heads/") || ref.ref.startsWith("refs/tags/")
+      })
+      .map(ref => ({
+        type: ref.ref!.startsWith("refs/tags/") ? ("tags" as const) : ("heads" as const),
+        name: ref.ref!.replace(/^refs\/(heads|tags)\//, ""),
+        commit: ref.oid!,
+      }))
+
+    const preferredHead =
+      headBranch && heads.has(`refs/heads/${headBranch}`) ? headBranch : undefined
+    const currentMain =
+      repoClass.mainBranch && heads.has(`refs/heads/${repoClass.mainBranch}`)
+        ? repoClass.mainBranch
+        : undefined
+    const nextHead = preferredHead || remoteHeadBranch || currentMain || refsForEvent[0]?.name
+
+    if (!nextHead) {
+      throw new Error("Could not determine a default branch from the selected remote")
+    }
+
+    const baseRelays = getRepoAnnouncementRelaysFromEvent()
+    const relaysForPublish = Array.from(
+      new Set([...(baseRelays.length > 0 ? baseRelays : GIT_RELAYS), ...GIT_RELAYS]),
+    )
+      .map(relay => normalizeRelayUrl(relay))
+      .filter(Boolean) as string[]
+
+    if (relaysForPublish.length === 0) {
+      throw new Error("Repository relays are not ready")
+    }
+
+    const stateEvent = createRepoStateEvent({
+      repoId: repoName,
+      head: nextHead,
+      refs: refsForEvent,
+    })
+
+    const thunk = await publishRepoEventWithRelayPolicy(stateEvent, relaysForPublish)
+
+    if (thunk?.event && !repository.getEvent(thunk.event.id)) {
+      repository.publish(thunk.event as TrustedEvent)
+    }
+
+    if (thunk?.event) {
+      const published = thunk.event as RepoStateEvent
+      optimisticRepoStates = {
+        ...optimisticRepoStates,
+        [repoName]: published,
+      }
+      myRepoStateEvents = [published, ...myRepoStateEvents.filter(event => event.id !== published.id)]
+    }
+
+    pendingBranchUpdates = pendingBranchUpdates.filter(
+      update => update.repoId !== repoName && update.repoId !== repoId,
+    )
+
+    await refreshRepo()
+  }
+
   function openRemoteFixModal() {
     if (!repoClass) return
     pushModal(RemoteFixHelperModal, {
       repoClass,
       onOpenSettings: () => settingsRepo(true),
       onRefresh: refreshRepo,
+      onSyncBranchStateFromRemote:
+        $pubkey && repoPubkey === $pubkey ? syncRepoBranchStateFromRemote : undefined,
     })
   }
 
