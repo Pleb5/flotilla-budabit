@@ -78,10 +78,21 @@ export default defineConfig({
       timeout: 120_000,
     },
 
+    // Widget tests - require auth to access /settings/extensions
+    {
+      name: "widget",
+      testMatch: /widget-(acceptance|interop)\.spec\.ts/,
+      dependencies: ["setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: STORAGE_STATE,
+      },
+    },
+
     // Default chromium project for backward compatibility
     {
       name: "chromium",
-      testIgnore: [/.*\.setup\.ts/, /git\//],
+      testIgnore: [/.*\.setup\.ts/, /git\//, /widget-(acceptance|interop)\.spec\.ts/],
       use: {
         ...devices["Desktop Chrome"],
       },

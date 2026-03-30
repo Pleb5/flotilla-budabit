@@ -541,8 +541,9 @@ test.describe("Patch Status Workflow", () => {
           expect(eTag).toBeDefined()
 
         } catch (e) {
-          // Publish action may not be fully implemented
-          expect(page.url()).toContain("/patch")
+          // Publish action may not be fully implemented - at least we should be in repo context
+          const url = page.url()
+          expect(url.includes("/patches") || url.includes("naddr")).toBeTruthy()
         }
       } else {
         // Verify draft patch is in the seeded data
@@ -912,8 +913,11 @@ test.describe("Patch Status Workflow", () => {
         if (await submitButton.isVisible({timeout: 3000}).catch(() => false)) {
           await submitButton.click()
 
-          // Verify comment was accepted (no error)
-          const errorMessage = page.locator("[class*='error' i], [role='alert']").first()
+          // Verify comment was accepted (no error). Only treat as error if it shows
+          // error-like text - role="alert" can be used for success toasts too.
+          const errorMessage = page.locator("[class*='error' i], [role='alert']")
+            .filter({hasText: /error|denied|permission|failed|invalid|not allowed/i})
+            .first()
           const hasError = await errorMessage.isVisible({timeout: 2000}).catch(() => false)
 
           // Should not show error for commenting

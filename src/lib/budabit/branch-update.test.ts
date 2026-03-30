@@ -83,4 +83,27 @@ describe("branch-update helpers", () => {
     const merged = overlayLatestRepoStates(base, optimistic)
     expect(merged.get("neovim-flake")?.id).toBe("newer")
   })
+
+  it("adds new repo when not in base map", () => {
+    const base = new Map<string, {id: string; created_at: number}>()
+    const optimistic = {
+      "new-repo": {id: "state1", created_at: 100},
+    }
+
+    const merged = overlayLatestRepoStates(base, optimistic)
+    expect(merged.get("new-repo")?.id).toBe("state1")
+  })
+
+  it("buildBranchUpdateDedupeKey handles added change without oldOid", () => {
+    const key = buildBranchUpdateDedupeKey([
+      {
+        repoId: "repo-a",
+        updates: [{name: "feature", change: "added", newOid: "abc123"}],
+      },
+    ])
+    expect(key).toContain("repo-a:")
+    expect(key).toContain("feature")
+    expect(key).toContain("added")
+    expect(key).toContain("abc123")
+  })
 })

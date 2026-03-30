@@ -270,14 +270,9 @@ test.describe("Code Browser", () => {
       // Wait for potential loading/cloning to complete
       await page.waitForTimeout(3000)
 
-      // Should show empty state or loading
-      // The text "No files found in this branch." appears when branch has no files (text-muted-foreground)
-      const content = page
-        .locator('[data-component="code-browser-list"]')
-        .or(page.locator(".mt-2.rounded-lg .p-4"))
-        .or(page.locator(".p-4"))
-      const emptyText = page.getByText(/No files found/i)
-      await expect(content.first().or(emptyText)).toBeVisible({timeout: 30000})
+      // Should show empty state - "No files found in this branch." (avoid .p-4 - too broad, matches sidebar)
+      const emptyText = page.getByText(/No files found/i).first()
+      await expect(emptyText).toBeVisible({timeout: 30000})
     })
   })
 
