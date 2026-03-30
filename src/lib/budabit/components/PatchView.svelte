@@ -15,7 +15,18 @@
     User,
     X,
   } from "@lucide/svelte"
-  import {Button, MergeStatus, MergeAnalyzer, PatchViewer, Status, toast} from "@nostr-git/ui"
+  import {
+    Button,
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    MergeStatus,
+    MergeAnalyzer,
+    PatchViewer,
+    Status,
+    toast,
+  } from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {IssueThread, PeoplePicker} from "@nostr-git/ui"
@@ -38,7 +49,6 @@
   import type {PatchTag} from "@nostr-git/core/events"
   import {sortBy} from "@welshman/lib"
   import {derived as _derived} from "svelte/store"
-  import {slideAndFade} from "@src/lib/transition"
   import {normalizeRelayUrl} from "@welshman/util"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import {deriveRoleAssignments} from "@lib/budabit"
@@ -1088,56 +1098,57 @@
         </div>
       {/if}
 
-      {#if showMergeDialog}
-        <div
-          class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
-          transition:slideAndFade>
-          <div class="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-            <div class="mb-4 flex items-center gap-3">
+      <Dialog bind:open={showMergeDialog}>
+        <DialogContent
+          class="max-w-md bg-card [&>button]:hidden"
+          interactOutsideBehavior="ignore"
+          escapeKeydownBehavior="ignore">
+          <DialogHeader class="mb-4 text-left">
+            <div class="flex items-center gap-3">
               <GitBranch class="h-5 w-5 text-primary" />
-              <h3 class="text-lg font-semibold">Confirm Merge</h3>
+              <DialogTitle>Confirm Merge</DialogTitle>
             </div>
-            <div class="mb-6 space-y-4">
-              <div>
-                <p class="mb-2 text-sm text-muted-foreground">
-                  This will merge the entire patch set ({patchSet.length} patch{patchSet.length !== 1 ? "es" : ""}) into
-                  <code class="rounded bg-muted px-1">{patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</code>
-                  and push to all remotes.
-                </p>
-                <div class="rounded-lg bg-muted/30 p-3 text-sm">
-                  <div class="mb-1 font-medium">Patch Set Details:</div>
-                  <div>Patches: {patchSet.length}</div>
-                  <div>Total Commits: {patchSet.flatMap((p: Patch) => p.commits || []).length}</div>
-                  <div>Target: {patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</div>
-                  {#if patchSet.length > 1}
-                    <div class="mt-2 text-xs text-muted-foreground">
-                      Includes all patches in the set, not just the currently selected one
-                    </div>
-                  {/if}
-                </div>
-              </div>
-              <div>
-                <label for="merge-message" class="mb-2 block text-sm font-medium">
-                  Merge commit message:
-                </label>
-                <textarea
-                  id="merge-message"
-                  bind:value={mergeCommitMessage}
-                  class="w-full resize-none rounded-md border p-2 text-sm"
-                  rows="3"
-                  placeholder="Enter merge commit message..."></textarea>
+          </DialogHeader>
+          <div class="mb-6 space-y-4">
+            <div>
+              <p class="mb-2 text-sm text-muted-foreground">
+                This will merge the entire patch set ({patchSet.length} patch{patchSet.length !== 1 ? "es" : ""}) into
+                <code class="rounded bg-muted px-1">{patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</code>
+                and push to all remotes.
+              </p>
+              <div class="rounded-lg bg-muted/30 p-3 text-sm">
+                <div class="mb-1 font-medium">Patch Set Details:</div>
+                <div>Patches: {patchSet.length}</div>
+                <div>Total Commits: {patchSet.flatMap((p: Patch) => p.commits || []).length}</div>
+                <div>Target: {patchSet[0]?.baseBranch || repoClass.mainBranch || "-"}</div>
+                {#if patchSet.length > 1}
+                  <div class="mt-2 text-xs text-muted-foreground">
+                    Includes all patches in the set, not just the currently selected one
+                  </div>
+                {/if}
               </div>
             </div>
-            <div class="flex justify-end gap-3">
-              <Button variant="outline" onclick={cancelMerge}>Cancel</Button>
-              <Button variant="default" onclick={executeMerge}>
-                <GitMerge class="mr-2 h-4 w-4" />
-                Confirm Merge
-              </Button>
+            <div>
+              <label for="merge-message" class="mb-2 block text-sm font-medium">
+                Merge commit message:
+              </label>
+              <textarea
+                id="merge-message"
+                bind:value={mergeCommitMessage}
+                class="w-full resize-none rounded-md border p-2 text-sm"
+                rows="3"
+                placeholder="Enter merge commit message..."></textarea>
             </div>
           </div>
-        </div>
-      {/if}
+          <div class="flex justify-end gap-3">
+            <Button variant="outline" onclick={cancelMerge}>Cancel</Button>
+            <Button variant="default" onclick={executeMerge}>
+              <GitMerge class="mr-2 h-4 w-4" />
+              Confirm Merge
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div class="git-separator my-6"></div>
 

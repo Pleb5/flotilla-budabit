@@ -17,6 +17,10 @@
   } from "@lucide/svelte"
   import {
     Button,
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
     DiffViewer,
     IssueThread,
     MergeStatus,
@@ -26,6 +30,7 @@
     TabsList,
     TabsTrigger,
     prChangeToParseDiffFile,
+    prChangeToReviewParseDiffFile,
     toast,
   } from "@nostr-git/ui"
   import ProfileLink from "@app/components/ProfileLink.svelte"
@@ -55,15 +60,13 @@
     GIT_PULL_REQUEST_UPDATE,
     GIT_STATUS_APPLIED,
   } from "@nostr-git/core/events"
-  import {postComment, postPermalink, postStatus, publishEvent} from "@lib/budabit"
+  import {postComment, postStatus, publishEvent} from "@lib/budabit"
   import {effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
   import {getCloneUrlsFromEvent} from "@nostr-git/core/utils"
-  import {nip19} from "nostr-tools"
   import {normalizeRelayUrl} from "@welshman/util"
   import Profile from "@src/app/components/Profile.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
-  import {slideAndFade} from "@src/lib/transition"
   import type {Repo} from "@nostr-git/ui"
 
   type PrChange = {
@@ -1014,6 +1017,8 @@
     return {additions, deletions}
   }
 
+  const PR_COMMIT_DIFF_CONTEXT_LINES = 3
+
   const prDiffComments = $derived.by(() => {
     const comments = prThreadCommentsArray
     if (!comments || comments.length === 0) return []
@@ -1043,6 +1048,30 @@
       }
     })
   })
+
+  const prDiffCommentLinesByFile = $derived.by(() => {
+    const linesByFile = new Map<string, number[]>()
+
+    for (const comment of prDiffComments) {
+      if (!comment.filePath || !comment.lineNumber) continue
+
+      const lines = linesByFile.get(comment.filePath) || []
+      if (!lines.includes(comment.lineNumber)) lines.push(comment.lineNumber)
+      linesByFile.set(comment.filePath, lines)
+    }
+
+    for (const lines of linesByFile.values()) {
+      lines.sort((a, b) => a - b)
+    }
+
+    return linesByFile
+  })
+
+  const getPrCommitReviewDiff = (change: PrChange) =>
+    prChangeToReviewParseDiffFile(change, {
+      contextLines: PR_COMMIT_DIFF_CONTEXT_LINES,
+      includeLines: prDiffCommentLinesByFile.get(change.path) || [],
+    })
 
   const handlePrDiffCommentSubmit = async (comment: any) => {
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
@@ -2236,17 +2265,19 @@
         </div>
       {/if}
 
-      {#if showPrMergeDialog}
-        <div
-          class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
-          transition:slideAndFade>
-          <div class="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-            <div class="mb-4 flex items-center gap-3">
+      <Dialog bind:open={showPrMergeDialog}>
+        <DialogContent
+          class="max-w-md bg-card [&>button]:hidden"
+          interactOutsideBehavior="ignore"
+          escapeKeydownBehavior="ignore">
+          <DialogHeader class="mb-4 text-left">
+            <div class="flex items-center gap-3">
               <GitMerge class="h-5 w-5 text-primary" />
-              <h3 class="text-lg font-semibold">
+              <DialogTitle>
                 {prMergeAnalysisResult?.fastForward ? 'Confirm Fast-forward' : 'Confirm Merge'}
-              </h3>
+              </DialogTitle>
             </div>
+          </DialogHeader>
           <div class="mb-6 space-y-4">
             <p class="text-sm text-muted-foreground">
               {#if prMergeAnalysisResult?.fastForward}
@@ -2279,118 +2310,118 @@
               </div>
             {/if}
           </div>
-            <div class="flex justify-end gap-3">
-              <Button variant="outline" onclick={cancelPrMerge}>Cancel</Button>
-              <Button variant="default" onclick={executePRMerge}>
-                <GitMerge class="mr-2 h-4 w-4" />
-                {prMergeAnalysisResult?.fastForward ? 'Fast-forward' : 'Confirm Merge'}
-              </Button>
-            </div>
+          <div class="flex justify-end gap-3">
+            <Button variant="outline" onclick={cancelPrMerge}>Cancel</Button>
+            <Button variant="default" onclick={executePRMerge}>
+              <GitMerge class="mr-2 h-4 w-4" />
+              {prMergeAnalysisResult?.fastForward ? 'Fast-forward' : 'Confirm Merge'}
+            </Button>
           </div>
-        </div>
-      {/if}
+        </DialogContent>
+      </Dialog>
 
-      {#if showPrPushDialog}
-        <div
-          class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
-          transition:slideAndFade>
-          <div class="mx-4 w-full max-w-2xl rounded-lg border bg-card p-6 shadow-lg">
-            <div class="mb-4 flex items-center gap-3">
+      <Dialog bind:open={showPrPushDialog}>
+        <DialogContent
+          class="max-w-2xl bg-card [&>button]:hidden"
+          interactOutsideBehavior="ignore"
+          escapeKeydownBehavior="ignore">
+          <DialogHeader class="mb-4 text-left">
+            <div class="flex items-center gap-3">
               <GitMerge class="h-5 w-5 text-primary" />
-              <h3 class="text-lg font-semibold">Push merged commit</h3>
+              <DialogTitle>Push merged commit</DialogTitle>
             </div>
+          </DialogHeader>
 
-            {#if mergePrResult?.mergeCommitOid}
-              <p class="mb-3 text-sm text-muted-foreground">
-                Merge commit
-                <code class="ml-1 rounded bg-muted px-1">{mergePrResult.mergeCommitOid.slice(0, 8)}</code>
-                is local. Select remotes to push.
-              </p>
-            {/if}
+          {#if mergePrResult?.mergeCommitOid}
+            <p class="mb-3 text-sm text-muted-foreground">
+              Merge commit
+              <code class="ml-1 rounded bg-muted px-1">{mergePrResult.mergeCommitOid.slice(0, 8)}</code>
+              is local. Select remotes to push.
+            </p>
+          {/if}
 
-            {#if prPushSyncNotice}
-              <p class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-                {prPushSyncNotice}
-              </p>
-            {/if}
+          {#if prPushSyncNotice}
+            <p class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              {prPushSyncNotice}
+            </p>
+          {/if}
 
-            {#if isLoadingPrPushRemotes}
-              <div class="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 class="h-4 w-4 animate-spin" />
-                Loading remotes...
-              </div>
-            {:else if prPushRemotes.length === 0}
-              <p class="mb-4 text-sm text-muted-foreground">No remotes available to push.</p>
-            {:else}
-              <div class="mb-4 max-h-[45vh] space-y-2 overflow-y-auto">
-                {#each prPushRemotes as remote (remote.url)}
-                  <label class="flex items-start gap-3 rounded-md border border-border p-3">
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-sm mt-1"
-                      checked={remote.selected}
-                      disabled={isPushingPrRemotes}
-                      onchange={() => togglePrPushRemote(remote.url)} />
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="truncate text-sm font-medium">{remote.remote}</div>
-                        <div class="flex items-center gap-2 text-xs">
-                          <span class="rounded border px-2 py-0.5 text-muted-foreground">{remote.provider}</span>
-                          {#if remote.status !== "idle"}
-                            <span
-                              class={`rounded border px-2 py-0.5 ${remote.status === "pushed"
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
-                                : remote.status === "skipped"
-                                  ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
-                                  : remote.status === "failed"
-                                    ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
-                                    : "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"}`}>
-                              {remote.summary || remote.status}
-                            </span>
-                          {/if}
-                        </div>
+          {#if isLoadingPrPushRemotes}
+            <div class="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 class="h-4 w-4 animate-spin" />
+              Loading remotes...
+            </div>
+          {:else if prPushRemotes.length === 0}
+            <p class="mb-4 text-sm text-muted-foreground">No remotes available to push.</p>
+          {:else}
+            <div class="mb-4 max-h-[45vh] space-y-2 overflow-y-auto">
+              {#each prPushRemotes as remote (remote.url)}
+                <label class="flex items-start gap-3 rounded-md border border-border p-3">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm mt-1"
+                    checked={remote.selected}
+                    disabled={isPushingPrRemotes}
+                    onchange={() => togglePrPushRemote(remote.url)} />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between gap-2">
+                      <div class="truncate text-sm font-medium">{remote.remote}</div>
+                      <div class="flex items-center gap-2 text-xs">
+                        <span class="rounded border px-2 py-0.5 text-muted-foreground">{remote.provider}</span>
+                        {#if remote.status !== "idle"}
+                          <span
+                            class={`rounded border px-2 py-0.5 ${remote.status === "pushed"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+                              : remote.status === "skipped"
+                                ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
+                                : remote.status === "failed"
+                                  ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+                                  : "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"}`}>
+                            {remote.summary || remote.status}
+                          </span>
+                        {/if}
                       </div>
-                      <p class="mt-1 break-all text-xs text-muted-foreground">{remote.url}</p>
-                      {#if remote.error && (remote.status === "failed" || remote.status === "skipped")}
-                        <p class="mt-1 text-xs text-muted-foreground">{remote.error}</p>
-                      {/if}
                     </div>
-                  </label>
-                {/each}
-              </div>
-
-              {#if prPushCounts.pushed + prPushCounts.skipped + prPushCounts.failed > 0}
-                <div class="mb-4 rounded border border-border bg-muted/30 px-3 py-2 text-xs">
-                  <span class="font-medium">Results:</span>
-                  <span class="ml-2 text-emerald-800 dark:text-emerald-300">{prPushCounts.pushed} pushed</span>
-                  <span class="ml-2 text-amber-800 dark:text-amber-300">{prPushCounts.skipped} skipped</span>
-                  <span class="ml-2 text-rose-800 dark:text-rose-300">{prPushCounts.failed} failed</span>
-                </div>
-              {/if}
-            {/if}
-
-            <div class="flex justify-end gap-3">
-              <Button variant="outline" onclick={closePrPushDialog} disabled={isPushingPrRemotes}>Close</Button>
-              <Button
-                variant="default"
-                onclick={pushMergedCommitToSelectedRemotes}
-                disabled={
-                  isLoadingPrPushRemotes ||
-                  isPushingPrRemotes ||
-                  !mergePrMergedLocal ||
-                  prPushRemotes.filter((r) => r.selected).length === 0
-                }>
-                {#if isPushingPrRemotes}
-                  <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-                  Pushing...
-                {:else}
-                  Push selected
-                {/if}
-              </Button>
+                    <p class="mt-1 break-all text-xs text-muted-foreground">{remote.url}</p>
+                    {#if remote.error && (remote.status === "failed" || remote.status === "skipped")}
+                      <p class="mt-1 text-xs text-muted-foreground">{remote.error}</p>
+                    {/if}
+                  </div>
+                </label>
+              {/each}
             </div>
+
+            {#if prPushCounts.pushed + prPushCounts.skipped + prPushCounts.failed > 0}
+              <div class="mb-4 rounded border border-border bg-muted/30 px-3 py-2 text-xs">
+                <span class="font-medium">Results:</span>
+                <span class="ml-2 text-emerald-800 dark:text-emerald-300">{prPushCounts.pushed} pushed</span>
+                <span class="ml-2 text-amber-800 dark:text-amber-300">{prPushCounts.skipped} skipped</span>
+                <span class="ml-2 text-rose-800 dark:text-rose-300">{prPushCounts.failed} failed</span>
+              </div>
+            {/if}
+          {/if}
+
+          <div class="flex justify-end gap-3">
+            <Button variant="outline" onclick={closePrPushDialog} disabled={isPushingPrRemotes}>Close</Button>
+            <Button
+              variant="default"
+              onclick={pushMergedCommitToSelectedRemotes}
+              disabled={
+                isLoadingPrPushRemotes ||
+                isPushingPrRemotes ||
+                !mergePrMergedLocal ||
+                prPushRemotes.filter((r) => r.selected).length === 0
+              }>
+              {#if isPushingPrRemotes}
+                <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                Pushing...
+              {:else}
+                Push selected
+              {/if}
+            </Button>
           </div>
-        </div>
-      {/if}
+        </DialogContent>
+      </Dialog>
 
       <div class="mb-6 scroll-mt-4 rounded-lg border bg-muted/20 p-4" id="pr-changes">
         <Tabs bind:value={prReviewTab} class="w-full">
@@ -2506,10 +2537,10 @@
                             </div>
                           {/if}
                           {#if commitState.changes && commitState.changes.length > 0}
-                            <div class="space-y-4">
+                            <div class="space-y-3">
                               {#each commitState.changes as change (change.path)}
                                 <div class="rounded border border-border bg-background">
-                                  <div class="flex items-center justify-between px-3 py-2 text-xs">
+                                  <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
                                     <span class="truncate font-mono">{change.path}</span>
                                       <div class="flex items-center gap-2 text-muted-foreground">
                                         {#if getPrFileStats(change.diffHunks).additions > 0}
@@ -2524,9 +2555,9 @@
                                         {/if}
                                       </div>
                                   </div>
-                                  <div class="border-t border-border px-3 pb-3 pt-2">
+                                  <div class="border-t border-border px-2 pb-2 pt-1.5 sm:px-3 sm:pb-3">
                                     <DiffViewer
-                                      diff={[prChangeToParseDiffFile(change)]}
+                                      diff={[getPrCommitReviewDiff(change)]}
                                       showLineNumbers={true}
                                       expandAll={true}
                                       comments={prDiffComments}
@@ -2535,6 +2566,9 @@
                                       currentPubkey={$pubkey}
                                       repo={repoClass}
                                       enablePermalinks={false}
+                                      showFileHeaders={false}
+                                      compact={true}
+                                      framed={false}
                                     />
                                   </div>
                                 </div>
@@ -2612,7 +2646,7 @@
                       </div>
                     </button>
                     {#if isExpanded}
-                      <div class="border-t border-border px-4 pb-4 pt-2">
+                      <div class="border-t border-border px-2 pb-2 pt-1.5 sm:px-3 sm:pb-3">
                         <DiffViewer
                           diff={[prChangeToParseDiffFile(change)]}
                           showLineNumbers={true}
@@ -2622,21 +2656,11 @@
                           onComment={handlePrDiffCommentSubmit}
                           currentPubkey={$pubkey}
                           repo={repoClass}
-                          publish={async (permalink) => {
-                            const relays = (repoRelays || [])
-                              .map((u: string) => normalizeRelayUrl(u))
-                              .filter(Boolean)
-                            const thunk = postPermalink(permalink, relays)
-                            toast.push({message: "Permalink published", timeout: 2000})
-                            const nevent = nip19.neventEncode({
-                              id: thunk.event.id,
-                              kind: thunk.event.kind,
-                              relays,
-                            })
-                            await navigator.clipboard.writeText(nevent)
-                            toast.push({message: "Permalink copied", timeout: 2000})
-                          }}
                           enablePermalinks={false}
+                          showFileHeaders={false}
+                          showFileAnchors={false}
+                          compact={true}
+                          framed={false}
                         />
                       </div>
                     {/if}
