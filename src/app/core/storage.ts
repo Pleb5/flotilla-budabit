@@ -1,29 +1,27 @@
 import {call} from "@welshman/lib"
-import {Preferences} from "@capacitor/preferences"
-import {Filesystem, Directory} from "@capacitor/filesystem"
 import {IDB} from "@lib/indexeddb"
 
 export const kv = call(() => {
   let p = Promise.resolve()
 
   const get = async <T>(key: string): Promise<T | undefined> => {
-    const result = await Preferences.get({key})
-    if (!result.value) return undefined
+    const value = localStorage.getItem(key)
+    if (!value) return undefined
     try {
-      return JSON.parse(result.value)
+      return JSON.parse(value)
     } catch (e) {
       return undefined
     }
   }
 
   const set = async <T>(key: string, value: T): Promise<void> => {
-    p = p.then(() => Preferences.set({key, value: JSON.stringify(value)}))
+    p = p.then(() => localStorage.setItem(key, JSON.stringify(value)))
 
     await p
   }
 
   const clear = async () => {
-    p = p.then(() => Preferences.clear())
+    p = p.then(() => localStorage.clear())
 
     await p
   }
@@ -32,25 +30,3 @@ export const kv = call(() => {
 })
 
 export const db = new IDB({name: "flotilla-9gl", version: 1})
-
-// Migration - we used to use capacitor's filesystem for storage, clear it out since we're
-// going back to indexeddb
-call(async () => {
-  try {
-    const res = await Filesystem.readdir({
-      path: "",
-      directory: Directory.Data,
-    })
-
-    await Promise.all(
-      res.files.map(file =>
-        Filesystem.deleteFile({
-          path: file.name,
-          directory: Directory.Data,
-        }),
-      ),
-    )
-  } catch {
-    // Expected to fail on web or when directory is empty/missing
-  }
-})

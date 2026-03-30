@@ -6,7 +6,7 @@ This document summarizes how the Flotilla client is structured and how the main 
 
 - SvelteKit (Svelte 5) for the web UI (`svelte`, `@sveltejs/kit`, `vite`).
 - TailwindCSS 3 for styling (`tailwindcss`, `postcss`).
-- Capacitor 7 for mobile builds (`android/`, `ios/`).
+- Web-only SvelteKit deployment.
 - Nostr protocol via the Welshman libraries for data, networking, and state:
   - `@welshman/*`: app, store, net, router, signer, util.
   - `nostr-tools` for nip19, etc.
@@ -19,7 +19,7 @@ This document summarizes how the Flotilla client is structured and how the main 
 - Routes under `src/routes/` mount pages that read from derived stores and invoke thunks/loaders.
 - Reusable UI components live in `src/app/components/` and `src/lib/components/`.
 - Nostr Git (NIP‑34) UI flows are implemented in `packages/nostr-git/packages/ui/src/lib/components/git/`.
-- Packaging/build is orchestrated with `vite`, `build.sh`, and Capacitor configs.
+- Packaging/build is orchestrated with `vite` and `build.sh`.
 
 ## Key Directories
 
@@ -35,7 +35,6 @@ This document summarizes how the Flotilla client is structured and how the main 
   - `packages/ui/src/lib/components/git/`: Git feature UI (e.g., `NewRepoWizard.svelte`, `AdvancedSettingsStep.svelte`).
   - `packages/core`: Core logic for NIP‑34 repo announcements and helpers.
   - `packages/shared-types`: Shared types.
-- `android/`, `ios/`: Capacitor mobile projects.
 
 ## Central State and Data Flow
 
@@ -113,7 +112,6 @@ This document summarizes how the Flotilla client is structured and how the main 
 - Development: `pnpm dev` (SvelteKit dev server).
 - Type checks: `pnpm check`.
 - Build: `pnpm build` (delegates to `./build.sh`).
-- Mobile: Capacitor workflows under `android/` and `ios/`.
 
 ---
 

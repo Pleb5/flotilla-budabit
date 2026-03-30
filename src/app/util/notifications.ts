@@ -1,4 +1,3 @@
-import {Badge} from "@capawesome/capacitor-badge"
 import {derived, get, readable, writable, type Readable} from "svelte/store"
 import {synced, throttled} from "@welshman/store"
 import {pubkey, tracker, repository, relaysByUrl} from "@welshman/app"
@@ -288,7 +287,11 @@ export const badgeCount = derived(notifications, notifications => {
 export const handleBadgeCountChanges = async (count: number) => {
   if (get(userSettingsValues).show_notifications_badge) {
     try {
-      await Badge.set({count})
+      if ("setAppBadge" in navigator) {
+        await (
+          navigator as Navigator & {setAppBadge: (count?: number) => Promise<void>}
+        ).setAppBadge(count)
+      }
     } catch (err) {
       // failed to set badge
     }
@@ -298,7 +301,13 @@ export const handleBadgeCountChanges = async (count: number) => {
 }
 
 export const clearBadges = async () => {
-  await Badge.clear()
+  try {
+    if ("clearAppBadge" in navigator) {
+      await (navigator as Navigator & {clearAppBadge: () => Promise<void>}).clearAppBadge()
+    }
+  } catch {
+    // pass
+  }
 }
 
 type RepoNotificationKind = "issues" | "patches"

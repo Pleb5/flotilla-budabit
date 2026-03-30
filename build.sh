@@ -100,10 +100,3 @@ if (fs.existsSync(manifestPath)) {
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 NODE
-
-npx cap sync
-npx @capacitor/assets generate \
-	--iconBackgroundColor '#eeeeee' \
-	--iconBackgroundColorDark '#222222' \
-	--splashBackgroundColor '#ffffff' \
-	--splashBackgroundColorDark '#191E24'

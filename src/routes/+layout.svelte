@@ -1,12 +1,10 @@
 <script lang="ts">
   import "@src/app.css"
-  import "@capacitor-community/safe-area"
   import "@src/lib/crypto-polyfill"
   import {throttle} from "throttle-debounce"
   import * as nip19 from "nostr-tools/nip19"
   import type {Unsubscriber} from "svelte/store"
   import {get} from "svelte/store"
-  import {App, type URLOpenListenerEvent} from "@capacitor/app"
   import {browser, dev} from "$app/environment"
   import {beforeNavigate, goto} from "$app/navigation"
   import {sync} from "@welshman/store"
@@ -289,22 +287,6 @@
     }
   })
 
-  // Listen for deep link events
-  App.addListener("appUrlOpen", (event: URLOpenListenerEvent) => {
-    const url = new URL(event.url)
-    const target = `${url.pathname}${url.search}${url.hash}`
-    goto(target, {replaceState: false, noScroll: false})
-  })
-
-  // Handle back button on mobile
-  App.addListener("backButton", () => {
-    if (window.history.length > 1) {
-      window.history.back()
-    } else {
-      App.exitApp()
-    }
-  })
-
   // Cleanup on page close
   window.addEventListener("beforeunload", () => db.close())
 
@@ -448,7 +430,6 @@
 
   // Cleanup on hot reload
   import.meta.hot?.dispose(() => {
-    App.removeAllListeners()
     unsubscribe.then(call)
 
     if (updateCheckInterval) {

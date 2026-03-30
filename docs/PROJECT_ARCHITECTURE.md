@@ -12,7 +12,7 @@ flotilla-budabit/
 │   ├── nostr-git-ui/       # Svelte 5 UI components for Git features
 │   ├── budabit-kanban-extension/  # Kanban board extension
 │   └── flotilla-extension-template/
-├── android/, ios/          # Capacitor mobile apps
+├── docs/                   # Project and architecture documentation
 ```
 
 ---
@@ -31,12 +31,12 @@ The git functionality is abstracted through a **GitProvider interface** in `nost
 
 The project supports multiple git hosting platforms through a unified `GitServiceApi` interface:
 
-| Provider | Features |
-|----------|----------|
-| **GitHub** | REST API v3, token auth |
-| **GitLab** | REST API v4, cross-provider forking |
-| **GRASP** | Nostr-native git relay system (event-based state) |
-| **Gitea/Bitbucket** | Self-hosted support |
+| Provider            | Features                                          |
+| ------------------- | ------------------------------------------------- |
+| **GitHub**          | REST API v3, token auth                           |
+| **GitLab**          | REST API v4, cross-provider forking               |
+| **GRASP**           | Nostr-native git relay system (event-based state) |
+| **Gitea/Bitbucket** | Self-hosted support                               |
 
 Each provider handles: repos, commits, issues, PRs, comments, users, branches, tags.
 
@@ -55,22 +55,23 @@ Workers are **the backbone** of git operations. Since git operations are expensi
 ### Worker Architecture
 
 **Main Worker** (`worker.ts`):
+
 - Entry point exposing 50+ async methods via **Comlink** (RPC library)
 - Maintains state: `git` provider, `cacheManager`, `clonedRepos`, `repoDataLevels`
 
 **Specialized Workers** (`workers/`):
 
-| Worker | Purpose |
-|--------|---------|
-| `auth.ts` | Token storage, auth callbacks, retry with multiple tokens |
-| `branches.ts` | Branch resolution with fallbacks (HEAD → main → master → list) |
-| `cache.ts` | IndexedDB caching (repo metadata, commits, merge analysis) |
-| `fs-utils.ts` | Filesystem utilities (ensureDir, safeRmrf) |
-| `patches.ts` | Patch analysis, unified diff application |
-| `push.ts` | Safe push with preflight checks |
-| `repo-management.ts` | Create, fork, update repositories |
-| `repos.ts` | Clone operations, smart initialization |
-| `sync.ts` | Sync local with remote, check for updates |
+| Worker               | Purpose                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `auth.ts`            | Token storage, auth callbacks, retry with multiple tokens      |
+| `branches.ts`        | Branch resolution with fallbacks (HEAD → main → master → list) |
+| `cache.ts`           | IndexedDB caching (repo metadata, commits, merge analysis)     |
+| `fs-utils.ts`        | Filesystem utilities (ensureDir, safeRmrf)                     |
+| `patches.ts`         | Patch analysis, unified diff application                       |
+| `push.ts`            | Safe push with preflight checks                                |
+| `repo-management.ts` | Create, fork, update repositories                              |
+| `repos.ts`           | Clone operations, smart initialization                         |
+| `sync.ts`            | Sync local with remote, check for updates                      |
 
 ### Communication Pattern
 
@@ -90,6 +91,7 @@ Workers are **the backbone** of git operations. Since git operations are expensi
 ```
 
 **Messages from Worker → UI**:
+
 - `clone-progress`: `{ type, repoId, phase, loaded, total }`
 - `merge-progress`: Similar for merge operations
 
@@ -101,28 +103,33 @@ Workers are **the backbone** of git operations. Since git operations are expensi
 
 Located in `nostr-git-ui/src/lib/hooks/`:
 
-| Hook | Purpose |
-|------|---------|
-| `useForkRepo.svelte.ts` | Fork repository workflow |
-| `useNewRepo.svelte.ts` | Create new repository |
-| `useCloneRepo.svelte.ts` | Clone repository |
-| `useImportRepo.svelte.ts` | Import existing repo |
-| `useEditRepo.svelte.ts` | Edit repo metadata |
+| Hook                      | Purpose                  |
+| ------------------------- | ------------------------ |
+| `useForkRepo.svelte.ts`   | Fork repository workflow |
+| `useNewRepo.svelte.ts`    | Create new repository    |
+| `useCloneRepo.svelte.ts`  | Clone repository         |
+| `useImportRepo.svelte.ts` | Import existing repo     |
+| `useEditRepo.svelte.ts`   | Edit repo metadata       |
 
 ### How Hooks Work
 
 ```typescript
 // 1. Hook gets worker API
-const { getGitWorker } = await import("@nostr-git/core/worker");
-const { api, worker } = getGitWorker();
+const {getGitWorker} = await import("@nostr-git/core/worker")
+const {api, worker} = getGitWorker()
 
 // 2. Hook calls worker method
 const result = await api.forkAndCloneRepo({
-  owner, repo, forkName, token, provider, dir
-});
+  owner,
+  repo,
+  forkName,
+  token,
+  provider,
+  dir,
+})
 
 // 3. Progress updates via reactive state
-let progress = $state<ForkProgress[]>([]);
+let progress = $state<ForkProgress[]>([])
 ```
 
 ### Components
@@ -200,6 +207,7 @@ The project implements **NIP-34** (Git Stuff) for Nostr-native git:
 - **Kind 1617-1633**: Issues, Patches, Comments, Status events
 
 The `RepoCore` class in `repo-core.ts` orchestrates Nostr-based git workflows, including:
+
 - Issue/patch thread assembly
 - Status resolution (open/closed/merged)
 - Maintainer trust verification
@@ -221,6 +229,7 @@ Root Application
 ```
 
 **Data Flow:**
+
 - **Nostr Events**: Welshman store → App state → UI components
 - **Git Operations**: UI → `@nostr-git/core` → Git Worker → Git providers (GitHub/GitLab/etc.)
 

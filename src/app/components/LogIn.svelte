@@ -1,8 +1,6 @@
 <script lang="ts">
-  import {onMount} from "svelte"
-  import {Capacitor} from "@capacitor/core"
-  import {getNip07, getNip55, Nip55Signer} from "@welshman/signer"
-  import {addSession, type Session, makeNip07Session, makeNip55Session} from "@welshman/app"
+  import {getNip07} from "@welshman/signer"
+  import {addSession, type Session, makeNip07Session} from "@welshman/app"
   import Widget from "@assets/icons/widget-2.svg?dataurl"
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import Cpu from "@assets/icons/cpu-bolt.svg?dataurl"
@@ -19,7 +17,6 @@
   import {pushToast} from "@app/util/toast"
   import {setChecked} from "@app/util/notifications"
 
-  let signers: any[] = $state([])
   let loading: string | undefined = $state()
 
   const disabled = $derived(loading ? true : undefined)
@@ -52,37 +49,11 @@
     }
   }
 
-  const loginWithNip55 = async (app: any) => {
-    loading = "nip55"
-
-    try {
-      const signer = new Nip55Signer(app.packageName)
-      const pubkey = await signer.getPubkey()
-
-      if (pubkey) {
-        await onSuccess(makeNip55Session(pubkey, app.packageName))
-      } else {
-        pushToast({
-          theme: "error",
-          message: "Something went wrong! Please try again.",
-        })
-      }
-    } finally {
-      loading = undefined
-    }
-  }
-
   const loginWithPassword = () => pushModal(LogInPassword)
 
   const loginWithBunker = () => pushModal(LogInBunker)
 
-  const hasSigner = $derived(getNip07() || signers.length > 0)
-
-  onMount(async () => {
-    if (Capacitor.isNativePlatform()) {
-      signers = await getNip55()
-    }
-  })
+  const hasSigner = $derived(Boolean(getNip07()))
 </script>
 
 <div class="column gap-4" data-testid="login-modal">
@@ -102,16 +73,6 @@
       Log in with Extension
     </Button>
   {/if}
-  {#each signers as app}
-    <Button {disabled} class="btn btn-primary" onclick={() => loginWithNip55(app)}>
-      {#if loading === "nip55"}
-        <span class="loading loading-spinner mr-3"></span>
-      {:else}
-        <img src={app.iconUrl} alt={app.name} width="20" height="20" />
-      {/if}
-      Log in with {app.name}
-    </Button>
-  {/each}
   {#if BURROW_URL && !hasSigner}
     <Button {disabled} onclick={loginWithPassword} class="btn btn-primary">
       {#if loading === "password"}
