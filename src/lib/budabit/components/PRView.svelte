@@ -46,6 +46,7 @@
     type Filter,
     type TrustedEvent,
   } from "@welshman/util"
+  import {filterValidCloneUrls} from "@nostr-git/core"
   import {
     parseStatusEvent,
     parsePullRequestUpdateEvent,
@@ -113,6 +114,7 @@
     ok: boolean
     error?: string
     warning?: string | null
+    usedUrl?: string
   }
 
   interface Props {
@@ -346,6 +348,13 @@
 
   /** Target branch from PR event, fallback to repo selection */
   const prTargetBranch = $derived(pr?.branchName ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main")
+
+  const primaryTargetCloneUrl = $derived.by(() => {
+    const valid = filterValidCloneUrls(
+      (((repoClass as any).cloneUrls || []) as string[]).map(url => String(url || "").trim()),
+    )
+    return valid[0] || ""
+  })
 
   const canPublishPrUpdates = $derived.by(() => {
     if (!prEvent || !$pubkey || $pubkey !== prEvent.pubkey) return false
@@ -672,7 +681,7 @@
       return {ok: false, error: "Repository worker is not ready"}
     }
 
-    const targetCloneUrls = ((repoClass as any).cloneUrls || []) as string[]
+    const targetCloneUrls = filterValidCloneUrls(((repoClass as any).cloneUrls || []) as string[])
     if (targetCloneUrls.length === 0) {
       return {ok: false, error: "Repository has no clone URLs to sync target branch"}
     }
@@ -694,6 +703,7 @@
           branch: prTargetBranch,
           requireRemoteSync: true,
           requireTrackingRef: true,
+          preferredUrl: primaryTargetCloneUrl || undefined,
         })
       } catch (error) {
         const syncError = getErrorText(error)
@@ -712,6 +722,7 @@
             branch: prTargetBranch,
             requireRemoteSync: true,
             requireTrackingRef: true,
+            preferredUrl: primaryTargetCloneUrl || undefined,
           })
         } catch (retryError) {
           return {
@@ -745,6 +756,7 @@
             branch: prTargetBranch,
             requireRemoteSync: true,
             requireTrackingRef: true,
+            preferredUrl: primaryTargetCloneUrl || undefined,
           })
         } catch (error) {
           return {
@@ -787,7 +799,7 @@
         effectiveSync.warning || effectiveSync.synced === false
           ? effectiveSync.warning || `Sync finished with local data only before ${phase}`
           : null
-      return {ok: true, warning}
+      return {ok: true, warning, usedUrl: effectiveSync.usedUrl}
     } catch (error) {
       return {
         ok: false,
@@ -1440,6 +1452,7 @@
   let isLoadingPrPushRemotes = $state(false)
   let isPushingPrRemotes = $state(false)
   let prPushSyncNotice = $state<string | null>(null)
+  let prPushSyncSource = $state<string | null>(null)
   let prPushRemotes = $state<PrPushRemote[]>([])
   let isMarkingApplied = $state(false)
   let markAsAppliedSuccess = $state(false)
@@ -1472,21 +1485,30 @@
     const detail = String(error?.error || error?.message || error?.toString?.() || "Push failed")
     const lower = detail.toLowerCase()
 
-    if (/force\s*=\s*true|force push|requires confirmation|requiresconfirmation|non-fast-forward|non fast-forward/.test(lower)) {
+    if (reason === "remote_ahead" || /remote appears to have new commits/.test(lower)) {
       return {
         status: "skipped",
-        summary: "Skipped (remote ahead)",
-        detail: "Remote rejected non-fast-forward update.",
+        summary: "Skipped (preflight)",
+        detail: "Push was blocked before contacting the remote because the selected branch appears to be behind.",
       }
     }
 
-    if (reason === "remote_ahead") {
+    if (/force\s*=\s*true|force push|requires confirmation|requiresconfirmation/.test(lower)) {
       return {
         status: "skipped",
-        summary: "Skipped (remote ahead)",
-        detail: "Remote rejected non-fast-forward update.",
+        summary: "Skipped (confirmation)",
+        detail,
       }
     }
+
+    if (/non-fast-forward|non fast-forward|not a fast-forward/.test(lower)) {
+      return {
+        status: "failed",
+        summary: "Failed (remote rejected)",
+        detail: "The remote rejected the push as non-fast-forward after the push was attempted.",
+      }
+    }
+
     if (reason === "workflow_scope_missing") {
       return {status: "skipped", summary: "Skipped (read-only)", detail}
     }
@@ -1537,6 +1559,7 @@
     if (!repoClass.workerManager || !repoClass.key) return
     isLoadingPrPushRemotes = true
     prPushSyncNotice = null
+    prPushSyncSource = null
     try {
       const remotes = (await repoClass.workerManager.listRemotes({
         repoId: repoClass.key,
@@ -1568,7 +1591,9 @@
         repoId: repoClass.key,
         cloneUrls: combined.map((r) => r.url),
         branch: prTargetBranch,
+        preferredUrl: primaryTargetCloneUrl || undefined,
       })
+      prPushSyncSource = syncResult?.usedUrl || primaryTargetCloneUrl || null
       if (!syncResult?.success) {
         prPushSyncNotice = `Remote sync failed: ${syncResult?.error || "unknown"}. You can still try pushing.`
       } else if (syncResult?.warning || syncResult?.synced === false) {
@@ -1591,6 +1616,7 @@
 
   const closePrPushDialog = () => {
     showPrPushDialog = false
+    prPushSyncSource = null
   }
 
   const applyPR = () => {
@@ -1605,6 +1631,7 @@
     showPrPushDialog = false
     prPushRemotes = []
     prPushSyncNotice = null
+    prPushSyncSource = null
     // Only set a merge commit message if it's not a fast-forward merge
     mergePrCommitMessage = prMergeAnalysisResult?.fastForward ? "" : `Merge PR: ${pr.subject || "Untitled"}`
     showPrMergeDialog = true
@@ -2049,9 +2076,17 @@
               </div>
             </div>
           {/if}
+          {#if prMergeAnalysisResult.usedTargetCloneUrl}
+            <p class="mt-2 text-xs text-muted-foreground">
+              Target synced from: {prMergeAnalysisResult.usedTargetCloneUrl}
+              {#if primaryTargetCloneUrl && prMergeAnalysisResult.usedTargetCloneUrl !== primaryTargetCloneUrl}
+                (primary is {primaryTargetCloneUrl})
+              {/if}
+            </p>
+          {/if}
           {#if prMergeAnalysisResult.usedCloneUrl}
             <p class="mt-2 text-xs text-muted-foreground">
-              Fetched from: {prMergeAnalysisResult.usedCloneUrl}
+              PR fetched from: {prMergeAnalysisResult.usedCloneUrl}
             </p>
           {/if}
           {#if prMergeAnalysisResult.prCommits && prMergeAnalysisResult.prCommits.length > 0}
@@ -2343,6 +2378,15 @@
           {#if prPushSyncNotice}
             <p class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               {prPushSyncNotice}
+            </p>
+          {/if}
+
+          {#if prPushSyncSource}
+            <p class="mb-3 text-xs text-muted-foreground">
+              Target sync checked via: {prPushSyncSource}
+              {#if primaryTargetCloneUrl && prPushSyncSource !== primaryTargetCloneUrl}
+                (primary is {primaryTargetCloneUrl})
+              {/if}
             </p>
           {/if}
 

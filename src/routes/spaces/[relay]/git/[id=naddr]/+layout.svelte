@@ -828,22 +828,30 @@
     ) as Readable<RepoAnnouncementEvent | undefined>
   }
 
-  function deriveRepoStateEvent(repoPubkey: string, repoName: string) {
-    return derived(
-      deriveEventsAsc(
+  function deriveRepoStateEvents(
+    repoName: string,
+    repoPubkey: string,
+    maintainers: Readable<string[]>,
+  ) {
+    return derived(maintainers, ($maintainers, set) => {
+      const authors = $maintainers.length > 0 ? $maintainers : [repoPubkey]
+      const store = deriveEventsAsc(
         deriveEventsById({
           repository,
           filters: [
             {
-              authors: [repoPubkey],
+              authors,
               kinds: [GIT_REPO_STATE],
               "#d": [repoName],
             },
           ],
         }),
-      ),
-      (events: TrustedEvent[]) => events?.[0] as RepoStateEvent | undefined,
-    ) as Readable<RepoStateEvent | undefined>
+      )
+
+      return store.subscribe(events => {
+        set(((events as RepoStateEvent[]) || []).slice())
+      })
+    }) as Readable<RepoStateEvent[]>
   }
 
   function deriveRepoRelays(
@@ -1072,7 +1080,11 @@
 
   // Create stores at top level (not inside effect to avoid infinite loops)
   const repoEventStore = deriveRepoEvent(repoPubkey, repoName)
-  const repoStateEventStore = deriveRepoStateEvent(repoPubkey, repoName)
+  const repoStateEventsStore = deriveRepoStateEvents(repoName, repoPubkey, repoMaintainersStore)
+  const repoStateEventStore: Readable<RepoStateEvent | undefined> = derived(
+    repoStateEventsStore,
+    $events => ($events.length > 0 ? $events[$events.length - 1] : undefined),
+  )
   const maintainerAnnouncementLoads = new Set<string>()
   $effect(() => {
     const event = $repoEventStore
@@ -1141,8 +1153,6 @@
     return () => controller.abort()
   })
 
-  // Create empty stores for Repo class
-  const emptyRepoStateEvents = derived([], () => [] as RepoStateEvent[])
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
 
   let repoLoadKey = ""
@@ -1256,7 +1266,7 @@
       repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
       issues: issuesStore,
       patches: patchesStore,
-      repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
+      repoStateEvents: repoStateEventsStore,
       statusEvents: statusEventsStore,
       commentEvents: commentEventsStore,
       labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
@@ -1279,7 +1289,7 @@
         repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
         issues: issuesStore,
         patches: patchesStore,
-        repoStateEvents: emptyRepoStateEvents as unknown as Readable<RepoStateEvent[]>,
+        repoStateEvents: repoStateEventsStore,
         statusEvents: statusEventsStore,
         commentEvents: commentEventsStore,
         labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
