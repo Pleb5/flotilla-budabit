@@ -2,12 +2,7 @@
 
 import {describe, expect, it, vi} from "vitest"
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {getPlatform: () => "web"},
-}))
-
 describe("state", () => {
-
   it("fromCsv splits comma-separated values and filters empty", async () => {
     const {fromCsv} = await import("./state")
     expect(fromCsv("a,b,c")).toEqual(["a", "b", "c"])
@@ -41,17 +36,15 @@ describe("state", () => {
     expect(splitRoomId(id)).toEqual([url, h])
   })
 
-  it("makeChatId sorts and deduplicates pubkeys", async () => {
+  it("makeChatId returns recipient pubkey", async () => {
     const {makeChatId} = await import("./state")
-    const pk1 = "a".repeat(64)
-    const pk2 = "b".repeat(64)
-    expect(makeChatId([pk2, pk1])).toBe(`${pk1},${pk2}`)
-    expect(makeChatId([pk1, pk1, pk2])).toBe(`${pk1},${pk2}`)
+    const recipient = "a".repeat(64)
+    expect(makeChatId(recipient)).toBe(recipient)
   })
 
-  it("splitChatId splits by comma", async () => {
-    const {splitChatId} = await import("./state")
-    expect(splitChatId("pk1,pk2,pk3")).toEqual(["pk1", "pk2", "pk3"])
+  it("deriveChat id format is recipient pubkey", async () => {
+    const {makeChatId} = await import("./state")
+    expect(makeChatId("pk1")).toBe("pk1")
   })
 
   it("makeChannelId delegates to makeRoomId", async () => {
@@ -103,7 +96,9 @@ describe("state", () => {
 
   it("parseInviteLink extracts url and claim from query params", async () => {
     const {parseInviteLink} = await import("./state")
-    const result = parseInviteLink("https://app.example.com/invite?r=wss://relay.example.com&c=claim123")
+    const result = parseInviteLink(
+      "https://app.example.com/invite?r=wss://relay.example.com&c=claim123",
+    )
     expect(result).toBeDefined()
     expect(result!.url).toMatch(/relay\.example\.com/)
     expect(result!.claim).toBe("claim123")

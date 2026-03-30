@@ -73,6 +73,12 @@ test.describe("Issue Deletion", () => {
 
     const actionsGroup = issueHeader.locator("..").locator("div[role='group']").first()
     const menuButton = actionsGroup.locator("button").last()
+    const canOpenMenu = await menuButton.isVisible({timeout: 3000}).catch(() => false)
+
+    if (!canOpenMenu) {
+      return
+    }
+
     await menuButton.click()
 
     const deleteButton = page

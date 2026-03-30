@@ -38,7 +38,10 @@ describe("event-io", () => {
         id: "evt123",
         kind: 27235,
         created_at: Math.floor(Date.now() / 1000),
-        tags: [["u", "https://example.com"], ["method", "POST"]],
+        tags: [
+          ["u", "https://example.com"],
+          ["method", "POST"],
+        ],
         content: "",
         pubkey: "a".repeat(64),
         sig: "sig",
@@ -85,7 +88,15 @@ describe("event-io", () => {
     })
 
     it("publishEvent returns ok when signer signs and publishes", async () => {
-      const signed = {id: "evt", kind: 1, content: "", created_at: 0, tags: [], pubkey: "a".repeat(64), sig: "sig"}
+      const signed = {
+        id: "evt",
+        kind: 1,
+        content: "",
+        created_at: 0,
+        tags: [],
+        pubkey: "a".repeat(64),
+        sig: "sig",
+      }
       signerStore.set({sign: vi.fn().mockResolvedValue(signed)})
 
       const {createEventIO} = await import("./event-io")
@@ -102,13 +113,21 @@ describe("event-io", () => {
       const {createEventIO} = await import("./event-io")
       const eventIO = createEventIO()
 
-      await expect(eventIO.signEvent!({kind: 1, content: "", created_at: 0, tags: []})).rejects.toThrow(
-        "No signer available",
-      )
+      await expect(
+        eventIO.signEvent!({kind: 1, content: "", created_at: 0, tags: []}),
+      ).rejects.toThrow("No signer available")
     })
 
     it("signEvent returns signed event when signer available", async () => {
-      const signed = {id: "evt", kind: 1, content: "", created_at: 0, tags: [], pubkey: "a".repeat(64), sig: "sig"}
+      const signed = {
+        id: "evt",
+        kind: 1,
+        content: "",
+        created_at: 0,
+        tags: [],
+        pubkey: "a".repeat(64),
+        sig: "sig",
+      }
       signerStore.set({sign: vi.fn().mockResolvedValue(signed)})
 
       const {createEventIO} = await import("./event-io")
@@ -120,7 +139,15 @@ describe("event-io", () => {
     })
 
     it("publishEvents calls publishEvent for each event", async () => {
-      const signed = {id: "evt", kind: 1, content: "", created_at: 0, tags: [], pubkey: "a".repeat(64), sig: "sig"}
+      const signed = {
+        id: "evt",
+        kind: 1,
+        content: "",
+        created_at: 0,
+        tags: [],
+        pubkey: "a".repeat(64),
+        sig: "sig",
+      }
       signerStore.set({sign: vi.fn().mockResolvedValue(signed)})
 
       const {createEventIO} = await import("./event-io")

@@ -22,7 +22,11 @@ vi.mock("@nostr-git/core/worker/worker.js?url", () => ({
 }))
 
 vi.mock("./event-io", () => ({
-  createEventIO: vi.fn(() => ({fetchEvents: vi.fn(), publishEvent: vi.fn(), getCurrentPubkey: () => null})),
+  createEventIO: vi.fn(() => ({
+    fetchEvents: vi.fn(),
+    publishEvent: vi.fn(),
+    getCurrentPubkey: () => null,
+  })),
 }))
 
 describe("worker-singleton", () => {

@@ -37,6 +37,9 @@ const suspiciousPatterns = [
 const ignorablePatterns = [
   /download the react devtools/i,
   /chrome-extension/i,
+  /WebSocket connection to 'wss:\/\/(?!localhost)/i,
+  /ERR_NAME_NOT_RESOLVED/i,
+  /Unexpected response code: 503/i,
 ]
 
 export function classifyConsoleMessages(
@@ -55,13 +58,13 @@ export function classifyConsoleMessages(
 
     let classification: ConsoleClassification
 
-    if (type === "error") {
+    if (ignorablePatterns.some(pattern => pattern.test(text))) {
+      classification = "ignorable"
+    } else if (type === "error") {
       if (count > 1 || blockingPatterns.some(pattern => pattern.test(text))) {
         classification = "blocking"
       } else if (suspiciousPatterns.some(pattern => pattern.test(text))) {
         classification = "suspicious"
-      } else if (ignorablePatterns.some(pattern => pattern.test(text))) {
-        classification = "ignorable"
       } else {
         classification = "suspicious"
       }

@@ -2,13 +2,12 @@
 
 import {describe, expect, it, vi} from "vitest"
 
-vi.mock("@capacitor/core", () => ({Capacitor: {getPlatform: () => "web"}}))
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
   db: {},
 }))
 
-vi.mock("@app/core/state", async (importOriginal) => {
+vi.mock("@app/core/state", async importOriginal => {
   const actual = await importOriginal<typeof import("@app/core/state")>()
   return {
     ...actual,
@@ -16,7 +15,7 @@ vi.mock("@app/core/state", async (importOriginal) => {
   }
 })
 
-vi.mock("@welshman/util", async (importOriginal) => {
+vi.mock("@welshman/util", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/util")>()
   return {
     ...actual,

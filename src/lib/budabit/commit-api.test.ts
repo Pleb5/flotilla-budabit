@@ -5,7 +5,9 @@ vi.mock("@nostr-git/core", () => ({
   parseRepoUrl: vi.fn(),
   filterValidCloneUrls: vi.fn((urls: string[]) => urls),
   reorderUrlsByPreference: vi.fn((urls: string[], _repoId?: string) => urls),
-  hasRestApiSupport: vi.fn((url: string) => url.includes("github.com") || url.includes("gitlab.com")),
+  hasRestApiSupport: vi.fn(
+    (url: string) => url.includes("github.com") || url.includes("gitlab.com"),
+  ),
 }))
 
 describe("commit-api", () => {
@@ -41,10 +43,7 @@ describe("commit-api", () => {
     } as any)
 
     const {getCommitDetailsViaRestApi} = await import("./commit-api")
-    const result = await getCommitDetailsViaRestApi(
-      ["https://github.com/user/repo.git"],
-      "abc123",
-    )
+    const result = await getCommitDetailsViaRestApi(["https://github.com/user/repo.git"], "abc123")
 
     expect(result).toMatchObject({
       success: true,
@@ -66,10 +65,7 @@ describe("commit-api", () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {})
 
     const {getCommitDetailsViaRestApi} = await import("./commit-api")
-    const result = await getCommitDetailsViaRestApi(
-      ["https://example.com/git/repo.git"],
-      "abc123",
-    )
+    const result = await getCommitDetailsViaRestApi(["https://example.com/git/repo.git"], "abc123")
 
     expect(result).toBeNull()
 
@@ -84,10 +80,7 @@ describe("commit-api", () => {
     vi.mocked(parseRepoUrl).mockReturnValue(null as any)
 
     const {getCommitDetailsViaRestApi} = await import("./commit-api")
-    const result = await getCommitDetailsViaRestApi(
-      ["https://github.com/user/repo.git"],
-      "abc123",
-    )
+    const result = await getCommitDetailsViaRestApi(["https://github.com/user/repo.git"], "abc123")
 
     expect(result).toBeNull()
     expect(warnSpy).toHaveBeenCalled()

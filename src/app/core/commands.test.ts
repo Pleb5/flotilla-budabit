@@ -2,13 +2,35 @@
 
 import {describe, expect, it, vi} from "vitest"
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {getPlatform: () => "web"},
-}))
+vi.mock("@nostr-git/ui", () => ({}))
 
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
   db: {},
+}))
+
+vi.mock("@app/extensions/registry", () => ({
+  extensionRegistry: {
+    load: vi.fn(),
+    unloadExtension: vi.fn(),
+    register: vi.fn(),
+  },
+  parseSmartWidget: vi.fn(),
+}))
+
+vi.mock("@app/extensions/settings", () => ({
+  extensionSettings: {
+    update: vi.fn(),
+  },
+  getInstalledExtensions: vi.fn(() => []),
+  getInstalledExtension: vi.fn(),
+}))
+
+vi.mock("@lib/budabit/state", () => ({
+  DEFAULT_WORKER_PUBKEY: "test-worker",
+  activeRepoClass: {
+    subscribe: vi.fn(),
+  },
 }))
 
 describe("commands", () => {
@@ -203,9 +225,7 @@ describe("commands", () => {
       event,
     })
     expect(del.kind).toBe(5)
-    expect(del.tags).toEqual(
-      expect.arrayContaining([["k", "1"]]),
-    )
+    expect(del.tags).toEqual(expect.arrayContaining([["k", "1"]]))
     expect(del.tags.some((t: string[]) => t[0] === "e" && t[1] === event.id)).toBe(true)
   })
 })

@@ -30,7 +30,10 @@ export async function login(
   }
 }
 
-export async function loginAndAssertIdentity(page: Page, options: LoginOptions = {}): Promise<string> {
+export async function loginAndAssertIdentity(
+  page: Page,
+  options: LoginOptions = {},
+): Promise<string> {
   return login(page, "local-dev", options)
 }
 
@@ -51,11 +54,14 @@ async function loginWithLocalDev(page: Page, options: LoginOptions): Promise<str
   await page.waitForLoadState("networkidle")
 
   // Wait for SvelteKit to hydrate - look for any content that indicates the app loaded
-  await page.waitForFunction(() => {
-    // Check if there's any rendered content (not just the loading script)
-    const body = document.body
-    return body && body.innerText && body.innerText.length > 50
-  }, {timeout: 30000})
+  await page.waitForFunction(
+    () => {
+      // Check if there's any rendered content (not just the loading script)
+      const body = document.body
+      return body && body.innerText && body.innerText.length > 50
+    },
+    {timeout: 30000},
+  )
 
   // Additional wait for app to stabilize
   await page.waitForTimeout(2000)
@@ -101,11 +107,22 @@ async function loginWithLocalDev(page: Page, options: LoginOptions): Promise<str
   phaseHooks?.recordPhaseSnapshot?.(PHASE_B_LOGIN_SUBMIT)
 
   // Wait for login to complete by checking localStorage for pubkey
-  // The loginWithNip01 function stores the pubkey in CapacitorStorage.pubkey
-  await page.waitForFunction(() => {
-    const pubkeyStored = localStorage.getItem("CapacitorStorage.pubkey")
-    return pubkeyStored && pubkeyStored.length > 10
-  }, {timeout: 15000})
+  // Web-only builds persist directly under "pubkey" (JSON string), older builds may still use
+  // CapacitorStorage.pubkey.
+  await page.waitForFunction(
+    () => {
+      const raw = localStorage.getItem("pubkey") || localStorage.getItem("CapacitorStorage.pubkey")
+      if (!raw) return false
+
+      try {
+        const parsed = JSON.parse(raw)
+        return typeof parsed === "string" && parsed.length > 10
+      } catch {
+        return raw.length > 10
+      }
+    },
+    {timeout: 15000},
+  )
 
   // Give the app time to react to the pubkey change and render PrimaryNav
   await page.waitForTimeout(1000)

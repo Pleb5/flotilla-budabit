@@ -2,16 +2,12 @@
 
 import {describe, expect, it, vi} from "vitest"
 
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {getPlatform: () => "web"},
-}))
-
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
   db: {},
 }))
 
-vi.mock("@welshman/app", async (importOriginal) => {
+vi.mock("@welshman/app", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/app")>()
   return {
     ...actual,

@@ -1,7 +1,7 @@
 import {describe, expect, it, vi} from "vitest"
 import {nip19} from "nostr-tools"
 
-vi.mock("nostr-tools", async (importOriginal) => {
+vi.mock("nostr-tools", async importOriginal => {
   const actual = await importOriginal<typeof import("nostr-tools")>()
   return {
     ...actual,

@@ -108,7 +108,10 @@ export class MockRelay {
   private debug: boolean = false
   private interceptUrls: string[] = []
   private latency: number = 10
-  private eventWaiters: Map<number, {resolve: (event: NostrEvent) => void; reject: (error: Error) => void}[]> = new Map()
+  private eventWaiters: Map<
+    number,
+    {resolve: (event: NostrEvent) => void; reject: (error: Error) => void}[]
+  > = new Map()
   private isSetup: boolean = false
   private page?: Page
 
@@ -311,7 +314,11 @@ export class MockRelay {
             this.subscriptions.set(subId, filters)
 
             // Notify the test about the subscription
-            ;(window as unknown as {__mockRelaySubscribe: (subId: string, filters: NostrFilter[]) => void}).__mockRelaySubscribe?.(subId, filters)
+            ;(
+              window as unknown as {
+                __mockRelaySubscribe: (subId: string, filters: NostrFilter[]) => void
+              }
+            ).__mockRelaySubscribe?.(subId, filters)
 
             // Send matching events from seed data
             setTimeout(() => {
@@ -336,7 +343,9 @@ export class MockRelay {
             }
 
             // Notify the test about the published event
-            ;(window as unknown as {__mockRelayPublish: (event: NostrEvent) => void}).__mockRelayPublish?.(event)
+            ;(
+              window as unknown as {__mockRelayPublish: (event: NostrEvent) => void}
+            ).__mockRelayPublish?.(event)
 
             // Send OK response
             setTimeout(() => {
@@ -368,7 +377,7 @@ export class MockRelay {
 
           private eventMatchesFilters(event: NostrEvent, filters: NostrFilter[]): boolean {
             // Event matches if it matches ANY of the filters
-            return filters.some((filter) => this.eventMatchesFilter(event, filter))
+            return filters.some(filter => this.eventMatchesFilter(event, filter))
           }
 
           private eventMatchesFilter(event: NostrEvent, filter: NostrFilter): boolean {
@@ -400,13 +409,17 @@ export class MockRelay {
             // Check tag filters (e.g., #e, #p, #a, #d, #r, #t)
             for (const [key, values] of Object.entries(filter)) {
               if (key.startsWith("#") && Array.isArray(values)) {
+                const tagFilterValues = values.filter((v): v is string => typeof v === "string")
+                if (tagFilterValues.length === 0) {
+                  continue
+                }
                 const tagName = key.slice(1)
                 const eventTagValues = event.tags
-                  .filter((tag) => tag[0] === tagName)
-                  .map((tag) => tag[1])
+                  .filter(tag => tag[0] === tagName)
+                  .map(tag => tag[1])
 
                 // At least one of the filter values must match
-                if (!values.some((v) => eventTagValues.includes(v))) {
+                if (!tagFilterValues.some(v => eventTagValues.includes(v))) {
                   return false
                 }
               }
@@ -435,7 +448,7 @@ export class MockRelay {
           }
 
           // Check if URL matches any of the configured patterns
-          return interceptUrls.some((pattern) => {
+          return interceptUrls.some(pattern => {
             if (pattern.includes("*")) {
               const regex = new RegExp("^" + pattern.replace(/\*/g, ".*") + "$")
               return regex.test(url)
@@ -445,29 +458,32 @@ export class MockRelay {
         }
 
         // Replace global WebSocket
-        ;(window as unknown as {WebSocket: typeof WebSocket}).WebSocket = class ProxyWebSocket extends (
-          OriginalWebSocket
-        ) {
-          constructor(url: string | URL, protocols?: string | string[]) {
-            const urlStr = url.toString()
+        ;(window as unknown as {WebSocket: typeof WebSocket}).WebSocket =
+          class ProxyWebSocket extends OriginalWebSocket {
+            constructor(url: string | URL, protocols?: string | string[]) {
+              const urlStr = url.toString()
 
-            if (shouldIntercept(urlStr)) {
-              if (debug) {
-                console.log(`[MockRelay] Intercepting: ${urlStr}`)
+              if (shouldIntercept(urlStr)) {
+                if (debug) {
+                  console.log(`[MockRelay] Intercepting: ${urlStr}`)
+                }
+                return new MockWebSocket(url, protocols) as unknown as WebSocket
               }
-              return new MockWebSocket(url, protocols) as unknown as WebSocket
-            }
 
-            if (debug) {
-              console.log(`[MockRelay] Passing through: ${urlStr}`)
+              if (debug) {
+                console.log(`[MockRelay] Passing through: ${urlStr}`)
+              }
+              super(url, protocols)
             }
-            super(url, protocols)
           }
-        }
 
         // Store reference for debugging
-        ;(window as unknown as {__mockRelayConnections: typeof mockConnections}).__mockRelayConnections = mockConnections
-        ;(window as unknown as {__mockRelayOriginalWebSocket: typeof OriginalWebSocket}).__mockRelayOriginalWebSocket = OriginalWebSocket
+        ;(
+          window as unknown as {__mockRelayConnections: typeof mockConnections}
+        ).__mockRelayConnections = mockConnections
+        ;(
+          window as unknown as {__mockRelayOriginalWebSocket: typeof OriginalWebSocket}
+        ).__mockRelayOriginalWebSocket = OriginalWebSocket
 
         if (debug) {
           console.log("[MockRelay] Mock WebSocket installed")
@@ -493,7 +509,7 @@ export class MockRelay {
    * Get published events filtered by kind
    */
   getPublishedEventsByKind(kind: number): NostrEvent[] {
-    return this.publishedEvents.filter((e) => e.kind === kind)
+    return this.publishedEvents.filter(e => e.kind === kind)
   }
 
   /**
@@ -528,11 +544,14 @@ export class MockRelay {
       ({events, latency}) => {
         const connections = (
           window as unknown as {
-            __mockRelayConnections: Map<string, {
-              subscriptions: Map<string, NostrFilter[]>
-              dispatchEvent: (event: Event) => void
-              onmessage: ((this: WebSocket, ev: MessageEvent) => unknown) | null
-            }>
+            __mockRelayConnections: Map<
+              string,
+              {
+                subscriptions: Map<string, NostrFilter[]>
+                dispatchEvent: (event: Event) => void
+                onmessage: ((this: WebSocket, ev: MessageEvent) => unknown) | null
+              }
+            >
           }
         ).__mockRelayConnections
 
@@ -546,11 +565,15 @@ export class MockRelay {
 
           for (const [key, values] of Object.entries(filter)) {
             if (key.startsWith("#") && Array.isArray(values)) {
+              const tagFilterValues = values.filter((v): v is string => typeof v === "string")
+              if (tagFilterValues.length === 0) {
+                continue
+              }
               const tagName = key.slice(1)
               const eventTagValues = event.tags
                 .filter((tag: string[]) => tag[0] === tagName)
                 .map((tag: string[]) => tag[1])
-              if (!values.some((v: string) => eventTagValues.includes(v))) {
+              if (!tagFilterValues.some(v => eventTagValues.includes(v))) {
                 return false
               }
             }
@@ -589,7 +612,7 @@ export class MockRelay {
   waitForEvent(kind: number, timeout: number = 10000): Promise<NostrEvent> {
     return new Promise((resolve, reject) => {
       // Check if we already have an event of this kind
-      const existing = this.publishedEvents.find((e) => e.kind === kind)
+      const existing = this.publishedEvents.find(e => e.kind === kind)
       if (existing) {
         resolve(existing)
         return
@@ -605,7 +628,7 @@ export class MockRelay {
       setTimeout(() => {
         const waiters = this.eventWaiters.get(kind)
         if (waiters) {
-          const index = waiters.findIndex((w) => w.resolve === resolve)
+          const index = waiters.findIndex(w => w.resolve === resolve)
           if (index !== -1) {
             waiters.splice(index, 1)
             reject(new Error(`Timeout waiting for event kind ${kind}`))
@@ -627,20 +650,16 @@ export class MockRelay {
     const result: NostrEvent[] = []
 
     while (result.length < count && Date.now() - startTime < timeout) {
-      const matching = this.publishedEvents.filter(
-        (e) => predicate(e) && !result.includes(e),
-      )
+      const matching = this.publishedEvents.filter(e => predicate(e) && !result.includes(e))
       result.push(...matching)
 
       if (result.length < count) {
-        await new Promise((r) => setTimeout(r, 100))
+        await new Promise(r => setTimeout(r, 100))
       }
     }
 
     if (result.length < count) {
-      throw new Error(
-        `Timeout: expected ${count} events, got ${result.length}`,
-      )
+      throw new Error(`Timeout: expected ${count} events, got ${result.length}`)
     }
 
     return result
@@ -686,15 +705,16 @@ export function nowSeconds(): number {
  * Create a minimal valid Nostr event
  */
 export function createEvent(overrides: Partial<NostrEvent> & {kind: number}): NostrEvent {
+  const {kind, ...rest} = overrides
   return {
     id: randomHex(64),
     pubkey: randomHex(64),
     created_at: nowSeconds(),
-    kind: overrides.kind,
+    kind,
     tags: [],
     content: "",
     sig: randomHex(128),
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -829,9 +849,7 @@ export function createIssue(options: IssueOptions): NostrEvent {
   }
 
   // Title as first line of content, body as rest
-  const content = options.body
-    ? `${options.title}\n\n${options.body}`
-    : options.title
+  const content = options.body ? `${options.title}\n\n${options.body}` : options.title
 
   return createEvent({
     id: options.id,
@@ -999,7 +1017,7 @@ export class TestScenarioBuilder {
     this.repoCounter++
 
     // Build the "a" tag reference for the repo
-    const dTag = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+    const dTag = repo.tags.find(t => t[0] === "d")?.[1] || ""
     const repoRef = `${NIP34_KINDS.REPO_ANNOUNCEMENT}:${repo.pubkey}:${dTag}`
 
     // Add issues if provided

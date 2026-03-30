@@ -19,6 +19,8 @@
  * ```
  */
 
+import {BASE_TIMESTAMP} from "./repo"
+
 // ============================================================================
 // Repository Events (Kind 30617, 30618)
 // ============================================================================
@@ -54,7 +56,7 @@ export {
   TEST_PRIVATE_KEYS,
   TEST_COMMITS,
   BASE_TIMESTAMP,
-} from './repo';
+} from "./repo"
 
 // ============================================================================
 // Patch Events (Kind 1617, 1618, 1619)
@@ -87,7 +89,7 @@ export {
 
   // Test constants
   TEST_EVENT_IDS,
-} from './patch';
+} from "./patch"
 
 // ============================================================================
 // Issue Events (Kind 1621)
@@ -111,7 +113,7 @@ export {
 
   // Test constants
   TEST_ISSUE_IDS,
-} from './issue';
+} from "./issue"
 
 // ============================================================================
 // Status Events (Kind 1630-1633)
@@ -144,7 +146,7 @@ export {
   ISSUE_REOPENED_STATUS,
   MINIMAL_STATUS,
   STATUS_LIFECYCLE,
-} from './status';
+} from "./status"
 
 // ============================================================================
 // Label Events (Kind 1985 - NIP-32)
@@ -182,7 +184,7 @@ export {
   COMBINED_LABELS,
   MINIMAL_LABEL,
   BATCH_LABEL,
-} from './labels';
+} from "./labels"
 
 // ============================================================================
 // Event Kind Constants
@@ -212,12 +214,12 @@ export const GIT_EVENT_KINDS = {
 
   // Label events (NIP-32)
   LABEL: 1985,
-} as const;
+} as const
 
 /**
  * Type for all git event kinds
  */
-export type GitEventKind = typeof GIT_EVENT_KINDS[keyof typeof GIT_EVENT_KINDS];
+export type GitEventKind = (typeof GIT_EVENT_KINDS)[keyof typeof GIT_EVENT_KINDS]
 
 // ============================================================================
 // Utility Functions
@@ -226,17 +228,17 @@ export type GitEventKind = typeof GIT_EVENT_KINDS[keyof typeof GIT_EVENT_KINDS];
 /**
  * Generate a random 64-character hex event ID for testing
  */
-export function generateTestEventId(prefix = 'test'): string {
-  const random = Math.random().toString(16).slice(2);
-  return (prefix + random).padEnd(64, '0').slice(0, 64);
+export function generateTestEventId(prefix = "test"): string {
+  const random = Math.random().toString(16).slice(2)
+  return (prefix + random).padEnd(64, "0").slice(0, 64)
 }
 
 /**
  * Generate a random 40-character hex commit hash for testing
  */
-export function generateTestCommitHash(prefix = ''): string {
-  const random = Math.random().toString(16).slice(2);
-  return (prefix + random).padEnd(40, '0').slice(0, 40);
+export function generateTestCommitHash(prefix = ""): string {
+  const random = Math.random().toString(16).slice(2)
+  return (prefix + random).padEnd(40, "0").slice(0, 40)
 }
 
 /**
@@ -244,7 +246,7 @@ export function generateTestCommitHash(prefix = ''): string {
  * @param offsetSeconds - Seconds to add to BASE_TIMESTAMP
  */
 export function timestampOffset(offsetSeconds: number): number {
-  return BASE_TIMESTAMP + offsetSeconds;
+  return BASE_TIMESTAMP + offsetSeconds
 }
 
 /**
@@ -256,4 +258,4 @@ export const TIME = {
   DAY: 86400,
   WEEK: 604800,
   MONTH: 2592000,
-} as const;
+} as const

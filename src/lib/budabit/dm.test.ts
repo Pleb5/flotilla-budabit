@@ -10,23 +10,14 @@ import {
 describe("dm", () => {
   describe("normalizeRelayUrls", () => {
     it("normalizes and deduplicates relay URLs", () => {
-      const input = [
-        "wss://relay.damus.io",
-        "wss://relay.damus.io/",
-        "  wss://relay.damus.io  ",
-      ]
+      const input = ["wss://relay.damus.io", "wss://relay.damus.io/", "  wss://relay.damus.io  "]
       const result = normalizeRelayUrls(input)
       expect(result).toHaveLength(1)
       expect(result[0]).toMatch(/relay\.damus\.io/)
     })
 
     it("filters invalid URLs", () => {
-      const input = [
-        "wss://valid.relay.com",
-        "not-a-url",
-        "",
-        "wss://another.valid.com",
-      ]
+      const input = ["wss://valid.relay.com", "not-a-url", "", "wss://another.valid.com"]
       const result = normalizeRelayUrls(input)
       expect(result.length).toBeGreaterThanOrEqual(1)
       expect(result.every(url => url.startsWith("wss://"))).toBe(true)

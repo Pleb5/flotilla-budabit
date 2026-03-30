@@ -145,7 +145,15 @@ describe("labels", () => {
     it("ignores events that are not kind 1985", () => {
       const events = [
         {kind: 1111, tags: []},
-        {kind: 1985, tags: [["L", ROLE_NS], ["l", "assignee", ROLE_NS], ["e", "root1"], ["p", "pk1"]]},
+        {
+          kind: 1985,
+          tags: [
+            ["L", ROLE_NS],
+            ["l", "assignee", ROLE_NS],
+            ["e", "root1"],
+            ["p", "pk1"],
+          ],
+        },
       ]
       const result = extractRoleAssignments(events as any)
       expect(result.assignees).toEqual(new Set(["pk1"]))

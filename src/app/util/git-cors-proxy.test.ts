@@ -2,10 +2,22 @@
 
 import {describe, expect, it, vi} from "vitest"
 
+const toastStore = {
+  subscribe: (run: (items: Array<{message?: string}>) => void) => {
+    run([])
+    return () => {}
+  },
+}
+
 vi.mock("$app/environment", () => ({browser: true}))
 vi.mock("$app/navigation", () => ({goto: vi.fn()}))
+vi.mock("@nostr-git/ui", () => ({
+  WorkerManager: {
+    setGlobalGitConfig: vi.fn(),
+  },
+}))
 vi.mock("@app/util/toast", () => ({
-  toast: {subscribe: vi.fn(), get: vi.fn(() => [])},
+  toast: toastStore,
   pushToast: vi.fn(),
 }))
 vi.mock("@lib/budabit/worker-singleton", () => ({

@@ -21,7 +21,7 @@
  * })
  * ```
  */
-import type {TestType, Page, BrowserContext} from "@playwright/test"
+import type {Page, BrowserContext} from "@playwright/test"
 import {MockRelay, type NostrEvent} from "./mock-relay"
 import {TestSeeder} from "./seed"
 
@@ -67,21 +67,21 @@ const DEFAULT_CONFIG: Required<TestIsolationConfig> = {
  * Preserves auth-related keys that are needed for authenticated tests
  */
 export async function clearBrowserStorage(page: Page, preserveAuth: boolean = true): Promise<void> {
-  await page.evaluate((preserveAuthKeys) => {
+  await page.evaluate(preserveAuthKeys => {
     // Auth keys to preserve when preserveAuth is true
     const authKeys = [
-      'nostr-key',
-      'nostr:key',
-      'nsec',
-      'npub',
-      'pubkey',
-      'privateKey',
-      'secretKey',
-      'loginMethod',
-      'identity',
-      'auth',
-      'session',
-      'user',
+      "nostr-key",
+      "nostr:key",
+      "nsec",
+      "npub",
+      "pubkey",
+      "privateKey",
+      "secretKey",
+      "loginMethod",
+      "identity",
+      "auth",
+      "session",
+      "user",
     ]
 
     // Clear localStorage (preserving auth keys if needed)
@@ -106,9 +106,9 @@ export async function clearBrowserStorage(page: Page, preserveAuth: boolean = tr
     databases.then((dbs: Array<{name?: string}>) => {
       dbs.forEach((db: {name?: string}) => {
         if (db.name) {
-          const isAuthDb = preserveAuthKeys && authKeys.some(authKey =>
-            db.name!.toLowerCase().includes(authKey.toLowerCase())
-          )
+          const isAuthDb =
+            preserveAuthKeys &&
+            authKeys.some(authKey => db.name!.toLowerCase().includes(authKey.toLowerCase()))
           if (!isAuthDb) {
             indexedDB.deleteDatabase(db.name)
           }
@@ -138,7 +138,7 @@ export function resetMockRelay(mockRelay: MockRelay): void {
  */
 export function createFreshMockRelay(
   seedEvents?: NostrEvent[],
-  options?: {debug?: boolean}
+  options?: {debug?: boolean},
 ): MockRelay {
   return new MockRelay({
     seedEvents,
@@ -178,13 +178,10 @@ export function generateTestId(): string {
  * })
  * ```
  */
-export function useCleanState(
-  testInstance: TestType<{page: Page; context: BrowserContext}, unknown>,
-  config?: Partial<TestIsolationConfig>
-): void {
+export function useCleanState(testInstance: any, config?: Partial<TestIsolationConfig>): void {
   const finalConfig = {...DEFAULT_CONFIG, ...config}
 
-  testInstance.beforeEach(async ({page}) => {
+  testInstance.beforeEach(async ({page}: {page: Page}) => {
     if (finalConfig.clearStorage) {
       // Navigate to the app first to get a proper origin for localStorage access
       // about:blank doesn't allow localStorage access due to security restrictions
@@ -197,7 +194,7 @@ export function useCleanState(
     }
   })
 
-  testInstance.afterEach(async ({page}) => {
+  testInstance.afterEach(async ({page}: {page: Page}) => {
     // Clean up after test
     if (finalConfig.clearStorage) {
       try {
@@ -245,7 +242,7 @@ export async function createIsolatedContext(
     seedEvents?: NostrEvent[]
     relayUrl?: string
     debug?: boolean
-  }
+  },
 ): Promise<IsolatedTestContext> {
   const relayUrl = options?.relayUrl ?? DEFAULT_CONFIG.relayUrl
   const encodedRelayUrl = encodeURIComponent(relayUrl)
@@ -283,14 +280,14 @@ export async function createIsolatedContext(
  * })
  * ```
  */
-export function useIsolatedContext<T extends {page: Page; context: BrowserContext}>(
-  testInstance: TestType<T, unknown>,
-  config?: Partial<TestIsolationConfig>
-): TestType<T & {isolatedContext: IsolatedTestContext}, unknown> {
+export function useIsolatedContext(testInstance: any, config?: Partial<TestIsolationConfig>): any {
   const finalConfig = {...DEFAULT_CONFIG, ...config}
 
-  return testInstance.extend<{isolatedContext: IsolatedTestContext}>({
-    isolatedContext: async ({page}, use) => {
+  return testInstance.extend({
+    isolatedContext: async (
+      {page}: {page: Page},
+      use: (ctx: IsolatedTestContext) => Promise<void>,
+    ) => {
       // Create isolated context
       const ctx = await createIsolatedContext(page, {
         relayUrl: finalConfig.relayUrl,
@@ -409,7 +406,7 @@ export class IsolatedSeeder extends TestSeeder {
 export async function createIsolatedSeeder(
   page: Page,
   seedFn: (seeder: IsolatedSeeder) => void,
-  options?: {debug?: boolean; relayUrl?: string}
+  options?: {debug?: boolean; relayUrl?: string},
 ): Promise<IsolatedSeeder> {
   const seeder = new IsolatedSeeder(options)
   seedFn(seeder)
