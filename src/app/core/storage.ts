@@ -36,17 +36,21 @@ export const db = new IDB({name: "flotilla-9gl", version: 1})
 // Migration - we used to use capacitor's filesystem for storage, clear it out since we're
 // going back to indexeddb
 call(async () => {
-  const res = await Filesystem.readdir({
-    path: "",
-    directory: Directory.Data,
-  })
+  try {
+    const res = await Filesystem.readdir({
+      path: "",
+      directory: Directory.Data,
+    })
 
-  await Promise.all(
-    res.files.map(file =>
-      Filesystem.deleteFile({
-        path: file.name,
-        directory: Directory.Data,
-      }),
-    ),
-  )
+    await Promise.all(
+      res.files.map(file =>
+        Filesystem.deleteFile({
+          path: file.name,
+          directory: Directory.Data,
+        }),
+      ),
+    )
+  } catch {
+    // Expected to fail on web or when directory is empty/missing
+  }
 })

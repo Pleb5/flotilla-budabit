@@ -168,15 +168,15 @@ class ExtensionRegistry {
     const updated = {...ext, repoContext}
     this.setExtension(updated as LoadedExtension)
 
-    // If the extension has a bridge, notify it of the context update
-    if (ext.bridge && repoContext) {
-      ext.bridge.post("context:repoUpdate", {
+    // Notify the extension of context changes (including clears)
+    if (ext.bridge) {
+      ext.bridge.post("context:repoUpdate", repoContext ? {
         pubkey: repoContext.pubkey,
         name: repoContext.name,
         naddr: repoContext.naddr,
         relays: repoContext.relays,
         address: getRepoAddress(repoContext),
-      })
+      } : null)
     }
   }
 
@@ -190,16 +190,10 @@ class ExtensionRegistry {
     }
     const manifest: ExtensionManifest = await res.json()
 
-    if (manifest.sha256) {
-      const bodyText = JSON.stringify(manifest)
-      const enc = new TextEncoder().encode(bodyText)
-      const buf = await crypto.subtle.digest("SHA-256", enc)
-      const hashArray = Array.from(new Uint8Array(buf))
-      const hash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("")
-      if (hash !== manifest.sha256) {
-        throw new Error("Manifest integrity check failed")
-      }
-    }
+    // Note: manifest.sha256 is not verified here because hashing JSON.stringify(manifest)
+    // after parsing (which includes the sha256 field itself) is not a meaningful integrity
+    // check. True manifest authenticity should be verified via Nostr event signatures or
+    // a detached signature from a trusted key.
 
     this.register(manifest)
     return manifest

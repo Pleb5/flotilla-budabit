@@ -7,6 +7,10 @@ import { deriveEventsAsc, deriveEventsById } from "@welshman/store"
 import { NAMED_BOOKMARKS, APP_DATA, getAddressTags, normalizeRelayUrl, type TrustedEvent } from "@welshman/util"
 import { get } from "svelte/store"
 
+const safeNormalizeRelayUrl = (u: string): string => {
+  try { return normalizeRelayUrl(u) } catch { return "" }
+}
+
 // D-tag for git authentication tokens (intentionally not obvious)
 export const GIT_AUTH_DTAG = "app/budabit/tokens"
 
@@ -77,7 +81,7 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
     const mapped = aTags.map(([_, address, relayHint]: string[]) => ({
       address,
       event: null,
-      relayHint: relayHint ? normalizeRelayUrl(relayHint) : "",
+      relayHint: relayHint ? safeNormalizeRelayUrl(relayHint) : "",
       author: latest.pubkey,
       identifier: GIT_REPO_BOOKMARK_DTAG,
     }))
@@ -111,8 +115,8 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
         const parsed = JSON.parse(latest.content)
         const contentUrls = Array.isArray(parsed?.urls) ? parsed.urls : []
         for (const url of contentUrls) {
-          const normalized = normalizeRelayUrl(url)
-          if (validateGraspServerUrl(normalized)) urls.add(normalized)
+          const normalized = safeNormalizeRelayUrl(url)
+          if (normalized && validateGraspServerUrl(normalized)) urls.add(normalized)
         }
       }
     } catch {
@@ -120,7 +124,7 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
       const tags = latest.tags || []
       for (const t of tags) {
         if ((t[0] === "relay" || t[0] === "r") && t[1]) {
-          const normalized = normalizeRelayUrl(t[1])
+          const normalized = safeNormalizeRelayUrl(t[1])
           if (validateGraspServerUrl(normalized)) urls.add(normalized)
         }
       }
@@ -163,14 +167,15 @@ export function setupTokensSync(pk: string, relays: string[] = []) {
 
       const loadedTokens = JSON.parse(plaintext) as Token[]
 
-      // Validate and log token info for debugging (without exposing full token)
-      loadedTokens.forEach((t: Token, i: number) => {
-        const tokenPreview = t.token ? `${t.token.substring(0, 4)}...${t.token.substring(t.token.length - 4)}` : 'empty'
-        const isValidFormat = t.token && t.token.length >= 20 && !t.token.includes('\n') && !t.token.includes(' ')
-        if (!isValidFormat) {
-          console.warn(`[setupTokensSync] Token ${i + 1} may be invalid - check for whitespace, newlines, or incorrect format`)
-        }
-      })
+      // Validate token format (no previews logged to avoid leaking secrets)
+      if (import.meta.env.DEV) {
+        loadedTokens.forEach((t: Token, i: number) => {
+          const isValidFormat = t.token && t.token.length >= 20 && !t.token.includes('\n') && !t.token.includes(' ')
+          if (!isValidFormat) {
+            console.warn(`[setupTokensSync] Token ${i + 1} may be invalid format`)
+          }
+        })
+      }
 
       tokens.clear()
       loadedTokens.forEach((token: Token) => tokens.push(token))

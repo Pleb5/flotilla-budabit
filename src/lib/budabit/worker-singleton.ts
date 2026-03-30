@@ -67,7 +67,9 @@ let pendingGitConfig: GitWorkerConfig | null = {defaultCorsProxy: resolveStoredC
 export function setGitWorkerConfig(config: GitWorkerConfig): void {
   pendingGitConfig = {...pendingGitConfig, ...config}
   if (workerInstance?.api && typeof workerInstance.api.setGitConfig === "function") {
-    workerInstance.api.setGitConfig(pendingGitConfig)
+    void workerInstance.api.setGitConfig(pendingGitConfig).catch((err: unknown) =>
+      console.warn("[GitWorker] Failed to update git settings:", err),
+    )
   }
 }
 
@@ -115,11 +117,13 @@ export async function getInitializedGitWorker(): Promise<GitWorkerInstance> {
       // Ping the worker to verify it's alive (fast failure detection)
       const pingTimeout = 5000
       const pingPromise = api.ping()
+      let pingTimer: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Worker ping timed out")), pingTimeout)
+        pingTimer = setTimeout(() => reject(new Error("Worker ping timed out")), pingTimeout)
       })
 
       const pingResult = await Promise.race([pingPromise, timeoutPromise])
+      clearTimeout(pingTimer)
       console.log("[GitWorker] Worker ping successful:", pingResult)
 
       // Configure EventIO for GRASP/Nostr operations

@@ -145,9 +145,9 @@ export const installExtension = async (manifestUrl: string) => {
   return manifest
 }
 
-export const uninstallExtension = (id: string) => {
+export const uninstallExtension = async (id: string) => {
   // Unload runtime if present
-  extensionRegistry.unloadExtension(id)
+  await extensionRegistry.unloadExtension(id)
 
   extensionSettings.update(s => {
     const nip89 = {...(s.installed?.nip89 || {})}
@@ -239,7 +239,10 @@ export const discoverExtensions = async (): Promise<ExtensionManifest[]> => {
   // De-duplicate by id, prefer latest by created_at
   const byId = new Map<string, ExtensionManifest>()
   for (const m of manifests) {
-    if (!byId.has(m.id)) byId.set(m.id, m)
+    const existing = byId.get(m.id)
+    if (!existing || ((m as any).created_at ?? 0) > ((existing as any).created_at ?? 0)) {
+      byId.set(m.id, m)
+    }
   }
 
   return Array.from(byId.values())
@@ -308,9 +311,9 @@ export const enableExtension = async (id: string) => {
   }
 }
 
-export const disableExtension = (id: string) => {
+export const disableExtension = async (id: string) => {
   // Unload runtime
-  extensionRegistry.unloadExtension(id)
+  await extensionRegistry.unloadExtension(id)
 
   extensionSettings.update(s => ({
     ...s,

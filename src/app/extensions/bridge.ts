@@ -217,8 +217,10 @@ export class ExtensionBridge {
     this.enforcePolicy(action)
     // Use targetWindow if available (for sandboxed iframes), otherwise fall back to iframe.contentWindow
     const targetWindow = this.targetWindow ?? this.extension.iframe?.contentWindow
-    // Use '*' for sandboxed iframes since their origin is 'null'
-    const targetOrigin = this.targetWindow ? '*' : this.extension.origin
+    // Use the extension's known origin to prevent message leaks if the iframe navigates.
+    // For sandboxed iframes (origin 'null'), we must use '*' but only for the expected window.
+    const isSandboxed = this.extension.origin === 'null'
+    const targetOrigin = isSandboxed ? '*' : this.extension.origin
     targetWindow?.postMessage(
       {type: "event", action, payload},
       targetOrigin,
