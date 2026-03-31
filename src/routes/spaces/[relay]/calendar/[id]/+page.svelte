@@ -17,6 +17,7 @@
   import Button from "@lib/components/Button.svelte"
   import Content from "@lib/budabit/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
+  import CommentActions from "@app/components/CommentActions.svelte"
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
   import CalendarEventHeader from "@app/components/CalendarEventHeader.svelte"
@@ -110,7 +111,7 @@
       <NoteCard event={reply} {url} class="card2 bg-alt z-feature w-full">
         <div class="col-3 ml-12">
           <Content showEntire event={reply} {url} />
-          <CalendarEventActions event={reply} {url} />
+          <CommentActions event={reply} {url} />
         </div>
       </NoteCard>
     {/each}

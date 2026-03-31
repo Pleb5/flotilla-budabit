@@ -1,6 +1,6 @@
 <script lang="ts">
   import cx from "classnames"
-  import {preventDefault} from "@lib/html"
+  import {preventDefault, stopPropagation} from "@lib/html"
   import Button from "@lib/components/Button.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
@@ -19,7 +19,7 @@
 </script>
 
 <Button
-  onclick={preventDefault(openProfile)}
+  onclick={stopPropagation(preventDefault(openProfile))}
   class={cx(props.class, {"link-content bg-alt": !unstyled})}>
   @<ProfileName {pubkey} {url} />
 </Button>

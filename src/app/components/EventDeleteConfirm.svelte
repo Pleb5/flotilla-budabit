@@ -1,27 +1,30 @@
 <script lang="ts">
   import type {TrustedEvent} from "@welshman/util"
   import Confirm from "@lib/components/Confirm.svelte"
-  import {publishDelete, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, canEnforceNip70} from "@app/core/commands"
   import {clearModals} from "@app/util/modal"
 
   type Props = {
-    url: string
+    url?: string
     event: TrustedEvent
+    noun?: string
   }
 
-  const {url, event}: Props = $props()
-
-  const shouldProtect = canEnforceNip70(url)
+  const {url, event, noun = "Message"}: Props = $props()
 
   const confirm = async () => {
-    await publishDelete({event, relays: [url], protect: await shouldProtect})
+    const protect = url ? await canEnforceNip70(url) : false
+
+    await publishSocialDelete({url, event, protect})
 
     clearModals()
   }
+
+  const lowerNoun = noun.toLowerCase()
 </script>
 
 <Confirm
   {confirm}
-  title="Delete Message"
-  subtitle="Are you sure you want to delete this message?"
-  message="This will send a request to delete this message. Be aware that not all relays may honor this request." />
+  title={`Delete ${noun}`}
+  subtitle={`Are you sure you want to delete this ${lowerNoun}?`}
+  message={`This will send a request to delete this ${lowerNoun}. Be aware that not all relays may honor this request.`} />

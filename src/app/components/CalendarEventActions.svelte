@@ -11,7 +11,7 @@
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import CalendarEventEdit from "@app/components/CalendarEventEdit.svelte"
-  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
   import {makeCalendarPath, makeSpacePath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import Pen2 from "@assets/icons/pen-2.svg?dataurl"
@@ -32,27 +32,24 @@
   const editEvent = () => pushModal(CalendarEventEdit, {url, event})
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishDelete({relays: [url], event, protect: await shouldProtect})
+    publishSocialDelete({url, event, protect: await shouldProtect})
 
   const createReaction = async (template: EventContent) =>
     publishReaction({...template, event, relays: [url], protect: await shouldProtect})
 </script>
 
-<div class="flex items-center flex-grow flex-wrap justify-end gap-2">
+<div class="flex flex-grow flex-wrap items-center justify-end gap-2">
   {#if h && showRoom}
     <Link href={makeSpacePath(url, h)} class="btn btn-neutral btn-xs rounded-full">
       Posted in #<RoomName {h} {url} />
     </Link>
   {/if}
-    <Link class="cursor-pointer" href={path}>
-      <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Details</div>
-    </Link>
   <ReactionSummary {url} {event} {deleteReaction} {createReaction} reactionClass="tooltip-left" />
   <ThunkStatusOrDeleted {event} />
   {#if showActivity}
     <EventActivity {url} {path} {event} />
   {/if}
-  <EventActions {url} {event} noun="Event">
+  <EventActions {url} {event} noun="Event" showReport={false} allowAdminDelete={false}>
     {#snippet customActions()}
       {#if event.pubkey === $pubkey}
         <li>

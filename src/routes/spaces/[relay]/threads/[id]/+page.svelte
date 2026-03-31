@@ -20,6 +20,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
+  import CommentActions from "@app/components/CommentActions.svelte"
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
@@ -154,7 +155,7 @@
         <NoteCard event={reply} class="card2 bg-alt z-feature w-full">
           <div class="col-3 ml-12">
             <ChannelContent {url} event={reply} />
-            <ThreadActions showRoom event={reply} {url} />
+            <CommentActions event={reply} {url} />
           </div>
         </NoteCard>
       {/each}

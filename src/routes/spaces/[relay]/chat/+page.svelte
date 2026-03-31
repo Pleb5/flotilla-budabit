@@ -25,7 +25,7 @@
   import RoomComposeEdit from "@src/app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
   import {userSettingsValues, decodeRelay, PROTECTED, REACTION_KINDS, isPlatformRelay} from "@app/core/state"
-  import {prependParent, canEnforceNip70, publishDelete} from "@app/core/commands"
+  import {prependParent, canEnforceNip70, publishSocialDelete} from "@app/core/commands"
   import {setChecked, checked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {makeFeed} from "@app/core/requests"
@@ -60,7 +60,7 @@
     if (eventToEdit) {
       // Delete previous message, to be republished with same timestamp
       template.created_at = eventToEdit.created_at
-      publishDelete({relays: [url], event: eventToEdit, protect: await shouldProtect})
+      publishSocialDelete({url, event: eventToEdit, protect: await shouldProtect})
     }
 
     if (await shouldProtect) {

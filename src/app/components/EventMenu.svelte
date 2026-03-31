@@ -32,9 +32,20 @@
     onClick: () => void
     customActions?: Snippet
     relays?: string[]
+    showReport?: boolean
+    allowAdminDelete?: boolean
   }
 
-  const {url, noun, event, onClick, customActions, relays = []}: Props = $props()
+  const {
+    url,
+    noun,
+    event,
+    onClick,
+    customActions,
+    relays = [],
+    showReport = true,
+    allowAdminDelete = true,
+  }: Props = $props()
 
   const isRoot = event.kind !== COMMENT
   const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
@@ -83,7 +94,7 @@
       pushModal(PatchDeleteConfirm, {event, relays: deleteRelays})
       return
     }
-    pushModal(EventDeleteConfirm, {url, event})
+    pushModal(EventDeleteConfirm, {url, event, noun})
   }
 
   const showAdminDelete = () =>
@@ -139,13 +150,15 @@
       </li>
     {/if}
   {:else}
-    <li>
-      <Button class="text-error" onclick={report}>
-        <Icon size={4} icon={Danger} />
-        Report Content
-      </Button>
-    </li>
-    {#if $userIsAdmin && canDeleteEvent}
+    {#if showReport}
+      <li>
+        <Button class="text-error" onclick={report}>
+          <Icon size={4} icon={Danger} />
+          Report Content
+        </Button>
+      </li>
+    {/if}
+    {#if allowAdminDelete && $userIsAdmin && canDeleteEvent}
       <li>
         <Button class="text-error" onclick={showAdminDelete}>
           <Icon size={4} icon={TrashBin2} />

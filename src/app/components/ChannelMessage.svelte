@@ -17,7 +17,7 @@
   import ChannelMessageMenuButton from "@app/components/ChannelMessageMenuButton.svelte"
   import ChannelMessageMenuMobile from "@app/components/ChannelMessageMenuMobile.svelte"
   import {colors, ENABLE_ZAPS} from "@app/core/state"
-  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
   import {pushModal} from "@app/util/modal"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {isKnownEventKind, isKnownUnknown, Template, EventRenderer} from "@nostr-git/ui"
@@ -55,7 +55,7 @@
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, url})
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishDelete({relays: [url], event, protect: await shouldProtect})
+    publishSocialDelete({url, event, protect: await shouldProtect})
 
   const createReaction = async (template: EventContent) =>
     publishReaction({...template, event, relays: [url], protect: await shouldProtect})
@@ -125,7 +125,7 @@
       reactionClass="tooltip-right" />
   </div>
   {#if !isMobile}
-    <button
+    <div
       class="join absolute right-1 top-1 border border-solid border-neutral text-xs opacity-0 transition-all"
       class:group-hover:opacity-100={!isMobile}>
       {#if ENABLE_ZAPS}
@@ -139,6 +139,6 @@
       {/if}
       <ChannelMessageMenuButton {url} {event} />
       <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
-    </button>
+    </div>
   {/if}
 </TapTarget>

@@ -4,23 +4,23 @@
   import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
-  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
   import {makeThreadPath} from "@app/util/routes"
 
   interface Props {
     url: any
     event: any
     showActivity?: boolean
+    noun?: string
+    path?: string
   }
 
-  const {url, event, showActivity = false}: Props = $props()
+  const {url, event, showActivity = false, noun = "Comment", path = makeThreadPath(url, event.id)}: Props = $props()
 
   const shouldProtect = canEnforceNip70(url)
 
-  const path = makeThreadPath(url, event.id)
-
   const deleteReaction = async (event: TrustedEvent) =>
-    publishDelete({relays: [url], event, protect: await shouldProtect})
+    publishSocialDelete({url, event, protect: await shouldProtect})
 
   const createReaction = async (template: EventContent) =>
     publishReaction({...template, event, relays: [url], protect: await shouldProtect})
@@ -33,6 +33,6 @@
     {#if showActivity}
       <EventActivity {url} {path} {event} />
     {/if}
-    <EventActions {url} {event} noun="Comment" />
+    <EventActions {url} {event} {noun} showReport={false} allowAdminDelete={false} />
   </div>
 </div>

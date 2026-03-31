@@ -20,6 +20,16 @@
 
   const go = (e: Event) => {
     if (!external) {
+      const target = e.target as HTMLElement | null
+      const interactive = target?.closest?.(
+        "button, a, input, textarea, select, [role='button'], [data-stop-link]",
+      )
+
+      if (interactive && interactive !== e.currentTarget) {
+        e.preventDefault()
+        return
+      }
+
       e.preventDefault()
 
       goto(href, {replaceState})

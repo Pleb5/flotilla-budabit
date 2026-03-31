@@ -43,6 +43,7 @@ import {
   isSignedEvent,
   makeEvent,
   normalizeRelayUrl,
+  isRelayUrl,
   makeList,
   addToListPublicly,
   removeFromListByPredicate,
@@ -76,6 +77,7 @@ import {
   signer,
   session,
   repository,
+  tracker,
   publishThunk,
   tagEvent,
   tagEventForReaction,
@@ -109,10 +111,12 @@ import {
   getSetting,
   userGroupList,
   shouldIgnoreError,
+  PLATFORM_RELAYS,
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
 import {DM_KIND} from "@lib/budabit/dm"
+import {getMessagingRelayHints} from "@lib/budabit/dm"
 import {
   extensionSettings,
   getInstalledExtensions,
@@ -720,6 +724,53 @@ export const makeDelete = ({protect, event, tags = []}: DeleteParams) => {
 
 export const publishDelete = ({relays, ...params}: DeleteParams & {relays: string[]}) =>
   publishThunk({event: makeDelete(params), relays})
+
+const sanitizeDeleteRelays = (relays: string[]) =>
+  uniq(
+    (relays || [])
+      .map(relay => {
+        try {
+          return normalizeRelayUrl(relay)
+        } catch {
+          return ""
+        }
+      })
+      .filter(isRelayUrl),
+  )
+
+export const getDeleteRelaysForSocialEvent = ({
+  url,
+  event,
+}: {
+  url?: string
+  event: TrustedEvent
+}) => {
+  const seenRelays = sanitizeDeleteRelays(Array.from(tracker.getRelays(event.id)))
+
+  if (event.kind === DM_KIND) {
+    return sanitizeDeleteRelays([...seenRelays, ...getMessagingRelayHints()])
+  }
+
+  const platformRelays = sanitizeDeleteRelays(PLATFORM_RELAYS)
+  const currentRelay = url ? sanitizeDeleteRelays([url]) : []
+  const fallbackRelays =
+    platformRelays.length > 0 ? platformRelays : [...currentRelay, ...seenRelays]
+
+  return sanitizeDeleteRelays([...fallbackRelays, ...currentRelay, ...seenRelays])
+}
+
+export const publishSocialDelete = ({
+  url,
+  relays,
+  ...params
+}: DeleteParams & {url?: string; relays?: string[]}) =>
+  publishDelete({
+    ...params,
+    relays:
+      relays && relays.length > 0
+        ? sanitizeDeleteRelays(relays)
+        : getDeleteRelaysForSocialEvent({url, event: params.event}),
+  })
 
 // Reports
 

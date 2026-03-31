@@ -51,7 +51,7 @@
 
   const showInfo = () => pushModal(EventInfo, {url, event}, {replaceState: true})
 
-  const showDelete = () => pushModal(EventDeleteConfirm, {url, event})
+  const showDelete = () => pushModal(EventDeleteConfirm, {url, event, noun: "Message"})
 </script>
 
 <div class="flex flex-col gap-2">

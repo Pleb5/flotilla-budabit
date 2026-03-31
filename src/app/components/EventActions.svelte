@@ -23,9 +23,20 @@
     hideZap?: boolean
     customActions?: Snippet
     relays?: string[]
+    showReport?: boolean
+    allowAdminDelete?: boolean
   }
 
-  const {url, noun, event, hideZap, customActions, relays = []}: Props = $props()
+  const {
+    url,
+    noun,
+    event,
+    hideZap,
+    customActions,
+    relays = [],
+    showReport = true,
+    allowAdminDelete = true,
+  }: Props = $props()
 
   const shouldProtect = canEnforceNip70(url)
 
@@ -43,11 +54,15 @@
 
   // Stop right-click from bubbling up to parent context menu handlers
   const onContextMenu = stopPropagation(() => {})
-
   let popover: Instance | undefined = $state()
 </script>
 
-<div class="join rounded-full" role="group" oncontextmenu={onContextMenu}>
+<div
+  class="join rounded-full"
+  role="group"
+  data-stop-link
+  data-stop-tap
+  oncontextmenu={onContextMenu}>
   {#if ENABLE_ZAPS && !hideZap}
     <ZapButton {url} {event} class="btn join-item btn-neutral btn-xs">
       <Icon icon={Bolt} size={4} />
@@ -59,7 +74,7 @@
   <Tippy
     bind:popover
     component={EventMenu}
-    props={{url, noun, event, customActions, onClick: hidePopover, relays}}
+    props={{url, noun, event, customActions, onClick: hidePopover, relays, showReport, allowAdminDelete}}
     params={{trigger: "manual", interactive: true}}>
     <Button class="btn join-item btn-neutral btn-xs" onclick={showPopover}>
       <Icon icon={MenuDots} size={4} />

@@ -48,7 +48,7 @@
   import {
     canEnforceNip70,
     prependParent,
-    publishDelete,
+    publishSocialDelete,
   } from "@app/core/commands"
   import {makeFeed} from "@app/core/requests"
   import {popKey} from "@lib/implicit"
@@ -124,7 +124,7 @@
     if (eventToEdit) {
       // Delete previous message, to be republished with same timestamp
       template.created_at = eventToEdit.created_at
-      publishDelete({relays: [url], event: eventToEdit, protect: await shouldProtect})
+      publishSocialDelete({url, event: eventToEdit, protect: await shouldProtect})
     }
 
     if (share) {

@@ -24,10 +24,11 @@
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import RoomItemZapButton from "@app/components/RoomItemZapButton.svelte"
   import RoomItemEmojiButton from "@app/components/RoomItemEmojiButton.svelte"
+  import RoomItemMenuButton from "@app/components/RoomItemMenuButton.svelte"
   import RoomItemMenuMobile from "@app/components/RoomItemMenuMobile.svelte"
   import RoomItemContent from "@app/components/RoomItemContent.svelte"
   import {colors, ENABLE_ZAPS, deriveEventsForUrl} from "@app/core/state"
-  import {publishDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
+  import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
   import {getRoomItemPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
@@ -69,7 +70,7 @@
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, url})
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishDelete({relays: [url], event, protect: await shouldProtect})
+    publishSocialDelete({url, event, protect: await shouldProtect})
 
   const createReaction = async (template: EventContent) =>
     publishReaction({...template, event, relays: [url], protect: await shouldProtect})
@@ -140,7 +141,7 @@
     {/if}
   </div>
   {#if !isMobile}
-    <button
+    <div
       class="join absolute right-1 top-1 border border-solid border-neutral text-xs opacity-0 transition-all"
       class:group-hover:opacity-100={!isMobile}>
       {#if ENABLE_ZAPS}
@@ -157,7 +158,8 @@
           <Icon icon={Pen} size={4} />
         </Button>
       {/if}
+      <RoomItemMenuButton {url} {event} />
       <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
-    </button>
+    </div>
   {/if}
 </TapTarget>
