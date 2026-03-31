@@ -6,7 +6,7 @@
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {filterValidCloneUrls, updateUrlPreferenceCache} from "@nostr-git/core"
-  import type {Repo} from "@nostr-git/ui"
+  import {classifyCloneUrlIssue, type CloneUrlIssueKind, type Repo} from "@nostr-git/ui"
   import {onMount} from "svelte"
 
   type RemoteHealth =
@@ -26,6 +26,7 @@
     probeDetails?: string
     headBranch?: string
     missingBranch?: string
+    recordedIssueKind?: CloneUrlIssueKind
     updatedAt: number
   }
 
@@ -124,7 +125,7 @@
     return {heads, headBranch, branchNames}
   }
 
-  const classifyError = (error: unknown): {health: RemoteHealth; message: string; details: string} => {
+  const classifyProbeError = (error: unknown): {health: RemoteHealth; message: string; details: string} => {
     const details = error instanceof Error ? error.message : String(error || "Unknown error")
     const lower = details.toLowerCase()
 
@@ -133,8 +134,10 @@
       lower.includes("403") ||
       lower.includes("forbidden") ||
       lower.includes("unauthorized") ||
-      lower.includes("permission") ||
-      lower.includes("token")
+      lower.includes("permission denied") ||
+      lower.includes("bad credentials") ||
+      lower.includes("authentication required") ||
+      lower.includes("no tokens found")
     ) {
       return {
         health: "auth",
@@ -159,7 +162,11 @@
       lower.includes("enotfound") ||
       lower.includes("econn") ||
       lower.includes("certificate") ||
-      lower.includes("tls")
+      lower.includes("tls") ||
+      lower.includes("ssl") ||
+      lower.includes("abort") ||
+      lower.includes("429") ||
+      lower.includes("rate limit")
     ) {
       return {
         health: "unreachable",
@@ -198,6 +205,9 @@
       const expectedBranchRef = expectedBranch ? `refs/heads/${expectedBranch}` : ""
       const missingExpectedBranch =
         expectedBranchRef && !heads.has(expectedBranchRef) ? expectedBranch : undefined
+      const recordedIssue = recordedError
+        ? classifyCloneUrlIssue(recordedError.error, recordedError.status)
+        : null
 
       const hasHeads = branchCount > 0
       const probeDetails = hasHeads
@@ -219,17 +229,17 @@
       }
 
       if (recordedError) {
-        const classified = classifyError(recordedError.error)
         return {
           url,
           isPrimary: normalizeUrl(url) === normalizeUrl(primaryUrl),
-          health: classified.health,
+          health: hasHeads ? "healthy" : "degraded",
           message: hasHeads
-            ? `Git probe succeeded, but a recent app read failed for this remote`
-            : "Remote responded, but recent app reads reported problems",
+            ? `Git probe reachable; a recent app read issue was recorded for this remote`
+            : "Remote responded without branch heads, and a recent app read issue was recorded",
           details: recordedError.error,
           probeDetails,
           headBranch,
+          recordedIssueKind: recordedIssue?.kind,
           updatedAt: Date.now(),
         }
       }
@@ -246,13 +256,16 @@
         updatedAt: Date.now(),
       }
     } catch (error) {
-      const classified = classifyError(recordedError?.error || error)
+      const classified = classifyProbeError(error)
       return {
         url,
         isPrimary: normalizeUrl(url) === normalizeUrl(primaryUrl),
         health: classified.health,
         message: classified.message,
-        details: recordedError?.error || classified.details,
+        details: classified.details,
+        recordedIssueKind: recordedError
+          ? classifyCloneUrlIssue(recordedError.error, recordedError.status).kind
+          : undefined,
         updatedAt: Date.now(),
       }
     }
@@ -269,9 +282,12 @@
       if (next.some(status => status.health === "branch-drift")) {
         actionMessage =
           "Some remotes are reachable but missing the repo's expected branch. Sync published branches from a healthy remote to reconcile deletions or default-branch changes."
+      } else if (next.some(status => status.recordedIssueKind)) {
+        actionMessage =
+          "Some remotes passed git probing, but recent app-level reads hit transient or auth-related issues. Review the details, add credentials if needed, or clear the warning once it looks stale."
       } else if (next.some(status => status.health !== "healthy" && status.probeDetails)) {
         actionMessage =
-          "Some remotes respond to git probes but still have recent app-level errors recorded. Clear the warning if you confirm it is stale."
+          "Some remotes responded to git probes, but branch data still looks incomplete. Review the details before changing any remote preferences."
       }
     } finally {
       checking = false
@@ -384,10 +400,10 @@
 
 <ModalHeader>
   {#snippet title()}
-    Resolve Remote Issues
+    Review Remote Status
   {/snippet}
   {#snippet info()}
-    Keep primary clone URL as the source of truth, but recover safely when mirrors fail.
+    Probe remotes, review recent read observations, and choose a recovery path only when it is actually needed.
   {/snippet}
 </ModalHeader>
 
@@ -419,6 +435,11 @@
                 <span class="uppercase tracking-wide {statusTone(status.health)}">
                   {healthLabel(status.health)}
                 </span>
+                {#if status.recordedIssueKind}
+                  <span class="uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                    recent issue
+                  </span>
+                {/if}
               </div>
               <div class="mt-1 break-all font-mono text-xs">{status.url}</div>
               <div class="mt-2 text-sm">{status.message}</div>
@@ -440,7 +461,7 @@
               <Button class="btn btn-ghost btn-xs" onclick={() => useForReads(status.url)}>
                 Use For Reads
               </Button>
-            {:else if status.health === "auth"}
+            {:else if status.health === "auth" || status.recordedIssueKind === "auth"}
               <Button class="btn btn-ghost btn-xs" onclick={() => openAuthSetup(status.url)}>
                 Add credentials
               </Button>
