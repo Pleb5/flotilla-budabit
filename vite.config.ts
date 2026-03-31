@@ -88,6 +88,8 @@ export default defineConfig({
       "@codemirror/language",
       "@codemirror/legacy-modes",
       "@codemirror/theme-one-dark",
+      "@replit/codemirror-lang-svelte",
+      "highlight.svelte",
       "@nostr-git/core",
       "@nostr-git/ui",
     ],

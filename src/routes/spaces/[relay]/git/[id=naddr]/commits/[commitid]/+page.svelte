@@ -24,7 +24,17 @@
     FileX,
     FileCode,
   } from "@lucide/svelte"
-  import {CommitHeader, SplitDiff, toast} from "@nostr-git/ui"
+  import {
+    CommitHeader,
+    DiffViewer,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+    prChangeToParseDiffFile,
+    prChangeToReviewParseDiffFile,
+    toast,
+  } from "@nostr-git/ui"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import type {PageData} from "./$types"
   import {getContext, onMount, tick} from "svelte"
@@ -220,35 +230,96 @@
   // Handle missing data gracefully - show loading or error state instead of throwing
   const hasData = $derived(!!commitMeta && !!changes)
 
-  // State for collapsible file panels
+  type CommitDiffTab = "diffs" | "files"
+
+  const COMMIT_DIFF_CONTEXT_LINES = 3
+
+  // State for diff tabs and collapsible file panels
+  let commitDiffTab = $state<CommitDiffTab>("diffs")
+  let expandedDiffFiles = $state<Set<string>>(new Set())
   let expandedFiles = $state<Set<string>>(new Set())
   let diffAnchors = $state<Record<string, string>>({})
+  let currentHash = $state("")
+  let autoSelectedFilesAnchor = $state<string | null>(null)
 
-  const getDiffHashFromLocation = () => {
-    if (typeof window === "undefined") return null
-    const match = window.location.hash.match(/^#diff-([a-f0-9]+)/i)
+  const getCommitReviewDiff = (change: CommitChange) =>
+    prChangeToReviewParseDiffFile(change, {
+      contextLines: COMMIT_DIFF_CONTEXT_LINES,
+    })
+
+  const commitDiffRootEvent = $derived.by(() => {
+    if (!commitMeta?.sha) return undefined
+
+    const tags: string[][] = []
+    if (repoClass.address) tags.push(["a", repoClass.address])
+    tags.push(["commit", commitMeta.sha])
+
+    const parentCommit = commitMeta.parents?.[0]
+    if (parentCommit) tags.push(["parent-commit", parentCommit])
+
+    return {
+      id: `commit:${commitMeta.sha}`,
+      tags,
+    }
+  })
+
+  const getDiffHashFromLocation = (hash = currentHash) => {
+    const match = hash.match(/^#diff-([a-f0-9]+)/i)
     return match ? match[1] : null
   }
 
-  const hasDiffLineAnchor = () => {
-    if (typeof window === "undefined") return false
-    return /^#diff-[a-f0-9]+[LR]\d+(?:-[LR]\d+)?$/i.test(window.location.hash || "")
-  }
+  const hasDiffLineAnchor = (hash = currentHash) => /^#diff-[a-f0-9]+[LR]\d+(?:-[LR]\d+)?$/i.test(hash)
 
-  const scrollToDiffHash = async () => {
-    const hash = getDiffHashFromLocation()
+  const scrollToDiffHash = async (hashValue = currentHash, activeTab = commitDiffTab) => {
+    const hash = getDiffHashFromLocation(hashValue)
     if (!hash) return
     const path = Object.keys(diffAnchors).find(key => diffAnchors[key] === hash)
+    let expandedChanged = false
+
+    if (path && !expandedDiffFiles.has(path)) {
+      expandedDiffFiles = new Set(expandedDiffFiles).add(path)
+      expandedChanged = true
+    }
+
     if (path && !expandedFiles.has(path)) {
       expandedFiles = new Set(expandedFiles).add(path)
+      expandedChanged = true
+    }
+
+    if (expandedChanged) {
       await tick()
     }
-    if (hasDiffLineAnchor()) {
+
+    if (hasDiffLineAnchor(hashValue)) {
+      const anchor = hashValue.slice(1)
+      if (
+        anchor &&
+        !document.getElementById(anchor) &&
+        activeTab !== "files" &&
+        autoSelectedFilesAnchor !== anchor
+      ) {
+        commitDiffTab = "files"
+        autoSelectedFilesAnchor = anchor
+        await tick()
+      }
+
+      const lineEl = anchor ? document.getElementById(anchor) : null
+      if (lineEl) lineEl.scrollIntoView({block: "center"})
       return
     }
     await tick()
     const el = document.getElementById(`diff-${hash}`)
     if (el) el.scrollIntoView({ block: "start" })
+  }
+
+  // Toggle compact diff expansion
+  const toggleDiffFile = (filepath: string) => {
+    if (expandedDiffFiles.has(filepath)) {
+      expandedDiffFiles.delete(filepath)
+    } else {
+      expandedDiffFiles.add(filepath)
+    }
+    expandedDiffFiles = new Set(expandedDiffFiles)
   }
 
   // Toggle file expansion
@@ -282,15 +353,25 @@
 
   $effect(() => {
     const anchors = diffAnchors
-    if (Object.keys(anchors).length === 0) return
-    void scrollToDiffHash()
+    const hash = currentHash
+    const activeTab = commitDiffTab
+    if (!hash || Object.keys(anchors).length === 0) return
+    void scrollToDiffHash(hash, activeTab)
   })
 
   $effect(() => {
     if (typeof window === "undefined") return
-    const handler = () => void scrollToDiffHash()
-    window.addEventListener("hashchange", handler)
-    return () => window.removeEventListener("hashchange", handler)
+    currentHash = window.location.hash || ""
+    const syncHash = () => {
+      currentHash = window.location.hash || ""
+      void scrollToDiffHash(currentHash, commitDiffTab)
+    }
+    window.addEventListener("hashchange", syncHash)
+    return () => window.removeEventListener("hashchange", syncHash)
+  })
+
+  $effect(() => {
+    if (!hasDiffLineAnchor()) autoSelectedFilesAnchor = null
   })
 
   // Get file status icon and styling
@@ -363,39 +444,32 @@
     return {totalAdditions, totalDeletions}
   })
 
-  // Normalize hunks for SplitDiff to ensure patch.type is one of '+', '-', ' '
-  const normalizeHunks = (hunks: any[]) => {
-    if (!Array.isArray(hunks)) return []
-    return hunks.map(h => ({
-      oldStart: h.oldStart,
-      oldLines: h.oldLines,
-      newStart: h.newStart,
-      newLines: h.newLines,
-      patches: (h.patches || []).map((p: any) => ({
-        line: p.line,
-        type:
-          p.type === "add"
-            ? "+"
-            : p.type === "del"
-              ? "-"
-              : p.type === " " || p.type === "+" || p.type === "-"
-                ? p.type
-                : " ",
-      })),
-    }))
-  }
-
   // Expand all files by default if there are few changes
   $effect(() => {
     if (changes && changes.length <= 5 && !getDiffHashFromLocation()) {
+      expandedDiffFiles = new Set(changes.map(change => change.path))
       expandedFiles = new Set(changes.map(change => change.path))
     }
   })
 
   // Calculate expanded files count (safe for missing data)
-  const expandedCount = $derived(expandedFiles.size)
-  const allExpanded = $derived(changes ? expandedCount === changes.length && changes.length > 0 : false)
-  const allCollapsed = $derived(expandedCount === 0)
+  const expandedDiffCount = $derived(expandedDiffFiles.size)
+  const allDiffsExpanded = $derived(
+    changes ? expandedDiffCount === changes.length && changes.length > 0 : false,
+  )
+  const allDiffsCollapsed = $derived(expandedDiffCount === 0)
+  const expandedFileCount = $derived(expandedFiles.size)
+  const allFilesExpanded = $derived(
+    changes ? expandedFileCount === changes.length && changes.length > 0 : false,
+  )
+  const allFilesCollapsed = $derived(expandedFileCount === 0)
+  const activeExpandedCount = $derived(
+    commitDiffTab === "diffs" ? expandedDiffCount : expandedFileCount,
+  )
+  const activeAllExpanded = $derived(commitDiffTab === "diffs" ? allDiffsExpanded : allFilesExpanded)
+  const activeAllCollapsed = $derived(
+    commitDiffTab === "diffs" ? allDiffsCollapsed : allFilesCollapsed,
+  )
 </script>
 
 <svelte:head>
@@ -491,128 +565,234 @@
     {/if}
   </div>
 
-  <div
-    class="border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6 sm:py-4">
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <!-- Expand/Collapse Controls -->
-      <div class="flex items-center gap-2">
-        <button
-          onclick={() => {
-            expandedFiles = new Set(changes!.map(change => change.path))
-          }}
-          disabled={allExpanded}
-          aria-label="Expand all files"
-          class="inline-flex touch-manipulation items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground transition-all hover:border-border/80 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background">
-          <ChevronsDown class="h-4 w-4" />
-          <span>Expand all</span>
-        </button>
-        <button
-          onclick={() => {
-            expandedFiles = new Set()
-          }}
-          disabled={allCollapsed}
-          aria-label="Collapse all files"
-          class="inline-flex touch-manipulation items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground transition-all hover:border-border/80 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background">
-          <ChevronsUp class="h-4 w-4" />
-          <span>Collapse all</span>
-        </button>
+  <Tabs bind:value={commitDiffTab} class="w-full">
+    <div
+      class="border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur-sm sm:px-6 sm:py-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <TabsList class="grid w-full grid-cols-2 sm:max-w-sm">
+          <TabsTrigger value="diffs" class="px-2 text-xs sm:text-sm">
+            <span class="sm:hidden">Diffs</span>
+            <span class="hidden sm:inline">Diffs ({changes!.length})</span>
+          </TabsTrigger>
+          <TabsTrigger value="files" class="px-2 text-xs sm:text-sm">
+            <span class="sm:hidden">Files</span>
+            <span class="hidden sm:inline">Files changed ({changes!.length})</span>
+          </TabsTrigger>
+        </TabsList>
+
         {#if changes!.length > 0}
-          <span class="ml-2 text-sm text-muted-foreground">
-            ({expandedCount} of {changes!.length} {expandedCount === 1 ? "file" : "files"} expanded)
-          </span>
-        {/if}
-      </div>
-    </div>
-  </div>
-
-  <!-- File Changes -->
-  <div class="divide-y divide-border">
-    {#each changes as change (change.path)}
-      {@const isExpanded = expandedFiles.has(change.path)}
-      {@const statusInfo = getFileStatusIcon(change.status)}
-      {@const stats = getFileStats(change.diffHunks)}
-
-      <div
-        class="w-full overflow-x-auto bg-background"
-        id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}
-      >
-        <!-- File Header -->
-        <button
-          onclick={() => toggleFile(change.path)}
-          class="min-h-[44px] w-full touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
-          <div
-            class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <div class="flex min-w-fit items-center gap-2 sm:gap-3">
-              <!-- Expand/Collapse Icon -->
-              {#if isExpanded}
-                <ChevronDown class="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-              {:else}
-                <ChevronRight class="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-              {/if}
-
-              <!-- File Status Icon -->
-              {#if statusInfo.icon}
-                {@const IconComponent = statusInfo.icon}
-                <IconComponent class="h-4 w-4 {statusInfo.class} flex-shrink-0" />
-              {/if}
-
-              <!-- File Path -->
-              <span
-                class="whitespace-nowrap font-mono text-xs text-foreground sm:text-sm"
-                title={change.path}>{change.path}</span>
-
-              <!-- Status Badge -->
-              <span
-                class="flex-shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium {getStatusBadgeClass(
-                  change.status,
-                )}">
-                {change.status}
-              </span>
-            </div>
-
-            <!-- File Stats -->
-            <div
-              class="ml-6 flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground sm:ml-0">
-              {#if stats.additions > 0}
-                <span class="text-emerald-700 dark:text-emerald-300">+{stats.additions}</span>
-              {/if}
-              {#if stats.deletions > 0}
-                <span class="text-rose-700 dark:text-rose-300">-{stats.deletions}</span>
-              {/if}
-            </div>
-          </div>
-        </button>
-
-        <!-- File Diff Content -->
-        {#if isExpanded}
-          <div class="px-1 pb-3 sm:px-6 sm:pb-6">
-            <SplitDiff
-              hunks={normalizeHunks(change.diffHunks)}
-              filepath={change.path}
-              repo={repoClass}
-              publish={publishPermalink}
-              commitSha={commitMeta?.sha}
-              parentSha={commitMeta?.parents?.[0]}
-            />
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              onclick={() => {
+                if (commitDiffTab === "diffs") {
+                  expandedDiffFiles = new Set(changes!.map(change => change.path))
+                } else {
+                  expandedFiles = new Set(changes!.map(change => change.path))
+                }
+              }}
+              disabled={activeAllExpanded}
+              aria-label={`Expand all ${commitDiffTab === "diffs" ? "diffs" : "files"}`}
+              class="inline-flex touch-manipulation items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground transition-all hover:border-border/80 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background">
+              <ChevronsDown class="h-4 w-4" />
+              <span>Expand all</span>
+            </button>
+            <button
+              onclick={() => {
+                if (commitDiffTab === "diffs") {
+                  expandedDiffFiles = new Set()
+                } else {
+                  expandedFiles = new Set()
+                }
+              }}
+              disabled={activeAllCollapsed}
+              aria-label={`Collapse all ${commitDiffTab === "diffs" ? "diffs" : "files"}`}
+              class="inline-flex touch-manipulation items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground transition-all hover:border-border/80 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background">
+              <ChevronsUp class="h-4 w-4" />
+              <span>Collapse all</span>
+            </button>
+            <span class="text-sm text-muted-foreground">
+              ({activeExpandedCount} of {changes!.length} {activeExpandedCount === 1 ? "file" : "files"} expanded)
+            </span>
           </div>
         {/if}
       </div>
-    {/each}
-  </div>
-
-  <!-- Empty State -->
-  {#if changes!.length === 0}
-    <div class="px-4 py-12 text-center sm:px-6">
-      <FileText class="mx-auto h-12 w-12 text-muted-foreground" />
-      <h3 class="mt-4 text-lg font-medium text-foreground">
-        {diffUnavailable ? "Diff unavailable" : "No file changes"}
-      </h3>
-      <p class="mt-2 text-sm text-muted-foreground">
-        {diffUnavailable
-          ? "The commit exists, but file diffs could not be loaded from the current remotes."
-          : "This commit doesn't contain any file changes."}
-      </p>
     </div>
-  {/if}
+
+    <TabsContent value="diffs" class="mt-0">
+      {#if commitDiffTab === "diffs"}
+        {#if changes!.length === 0}
+          <div class="px-4 py-12 text-center sm:px-6">
+            <FileText class="mx-auto h-12 w-12 text-muted-foreground" />
+            <h3 class="mt-4 text-lg font-medium text-foreground">
+              {diffUnavailable ? "Diff unavailable" : "No file changes"}
+            </h3>
+            <p class="mt-2 text-sm text-muted-foreground">
+              {diffUnavailable
+                ? "The commit exists, but file diffs could not be loaded from the current remotes."
+                : "This commit doesn't contain any file changes."}
+            </p>
+          </div>
+        {:else}
+          <div class="divide-y divide-border">
+            {#each changes as change (change.path)}
+              {@const isExpanded = expandedDiffFiles.has(change.path)}
+              {@const statusInfo = getFileStatusIcon(change.status)}
+              {@const stats = getFileStats(change.diffHunks)}
+
+              <div
+                class="w-full overflow-x-auto bg-background"
+                id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}>
+                <button
+                  onclick={() => toggleDiffFile(change.path)}
+                  class="min-h-[44px] w-full touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
+                  <div
+                    class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                    <div class="flex min-w-fit items-center gap-2 sm:gap-3">
+                      {#if isExpanded}
+                        <ChevronDown class="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      {:else}
+                        <ChevronRight class="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      {/if}
+
+                      {#if statusInfo.icon}
+                        {@const IconComponent = statusInfo.icon}
+                        <IconComponent class="h-4 w-4 {statusInfo.class} flex-shrink-0" />
+                      {/if}
+
+                      <span
+                        class="whitespace-nowrap font-mono text-xs text-foreground sm:text-sm"
+                        title={change.path}>{change.path}</span>
+
+                      <span
+                        class="flex-shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium {getStatusBadgeClass(
+                          change.status,
+                        )}">
+                        {change.status}
+                      </span>
+                    </div>
+
+                    <div
+                      class="ml-6 flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground sm:ml-0">
+                      {#if stats.additions > 0}
+                        <span class="text-emerald-700 dark:text-emerald-300">+{stats.additions}</span>
+                      {/if}
+                      {#if stats.deletions > 0}
+                        <span class="text-rose-700 dark:text-rose-300">-{stats.deletions}</span>
+                      {/if}
+                    </div>
+                  </div>
+                </button>
+
+                {#if isExpanded}
+                  <div class="border-t border-border px-2 pb-2 pt-1.5 sm:px-3 sm:pb-3">
+                    <DiffViewer
+                      diff={[getCommitReviewDiff(change)]}
+                      showLineNumbers={true}
+                      expandAll={true}
+                      rootEvent={commitDiffRootEvent}
+                      repo={repoClass}
+                      publish={publishPermalink}
+                      showFileHeaders={false}
+                      showFileAnchors={false}
+                      compact={true}
+                      framed={false}
+                    />
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    </TabsContent>
+
+    <TabsContent value="files" class="mt-0">
+      {#if commitDiffTab === "files"}
+        {#if changes!.length === 0}
+          <div class="px-4 py-12 text-center sm:px-6">
+            <FileText class="mx-auto h-12 w-12 text-muted-foreground" />
+            <h3 class="mt-4 text-lg font-medium text-foreground">
+              {diffUnavailable ? "Diff unavailable" : "No file changes"}
+            </h3>
+            <p class="mt-2 text-sm text-muted-foreground">
+              {diffUnavailable
+                ? "The commit exists, but file diffs could not be loaded from the current remotes."
+                : "This commit doesn't contain any file changes."}
+            </p>
+          </div>
+        {:else}
+          <div class="divide-y divide-border">
+            {#each changes as change (change.path)}
+              {@const isExpanded = expandedFiles.has(change.path)}
+              {@const statusInfo = getFileStatusIcon(change.status)}
+              {@const stats = getFileStats(change.diffHunks)}
+
+              <div
+                class="w-full overflow-x-auto bg-background"
+                id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}>
+                <button
+                  onclick={() => toggleFile(change.path)}
+                  class="min-h-[44px] w-full touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
+                  <div
+                    class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                    <div class="flex min-w-fit items-center gap-2 sm:gap-3">
+                      {#if isExpanded}
+                        <ChevronDown class="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      {:else}
+                        <ChevronRight class="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      {/if}
+
+                      {#if statusInfo.icon}
+                        {@const IconComponent = statusInfo.icon}
+                        <IconComponent class="h-4 w-4 {statusInfo.class} flex-shrink-0" />
+                      {/if}
+
+                      <span
+                        class="whitespace-nowrap font-mono text-xs text-foreground sm:text-sm"
+                        title={change.path}>{change.path}</span>
+
+                      <span
+                        class="flex-shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium {getStatusBadgeClass(
+                          change.status,
+                        )}">
+                        {change.status}
+                      </span>
+                    </div>
+
+                    <div
+                      class="ml-6 flex flex-shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground sm:ml-0">
+                      {#if stats.additions > 0}
+                        <span class="text-emerald-700 dark:text-emerald-300">+{stats.additions}</span>
+                      {/if}
+                      {#if stats.deletions > 0}
+                        <span class="text-rose-700 dark:text-rose-300">-{stats.deletions}</span>
+                      {/if}
+                    </div>
+                  </div>
+                </button>
+
+                {#if isExpanded}
+                  <div class="border-t border-border px-2 pb-2 pt-1.5 sm:px-3 sm:pb-3">
+                    <DiffViewer
+                      diff={[prChangeToParseDiffFile(change)]}
+                      showLineNumbers={true}
+                      expandAll={true}
+                      rootEvent={commitDiffRootEvent}
+                      repo={repoClass}
+                      publish={publishPermalink}
+                      showFileHeaders={false}
+                      showFileAnchors={false}
+                      compact={true}
+                      framed={false}
+                    />
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    </TabsContent>
+  </Tabs>
 </div>
 {/if}

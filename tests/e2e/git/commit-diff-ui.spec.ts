@@ -62,4 +62,50 @@ test.describe("Commit diff UI", () => {
 
     await expect(page.getByLabel(/Add inline comment/i)).toHaveCount(0)
   })
+
+  test("drag-selecting diff lines opens the permalink menu with gutter-only highlighting", async ({
+    page,
+  }) => {
+    const {failedToLoad} = await openFirstCommitDetail(page)
+    if (failedToLoad) return
+
+    const filesChangedTab = page.getByRole("tab", {name: /files changed/i})
+    if (!(await filesChangedTab.isVisible({timeout: 5000}).catch(() => false))) return
+
+    await filesChangedTab.click()
+    await expect(filesChangedTab).toHaveAttribute("data-state", "active")
+
+    const expandAll = page.getByRole("button", {name: /expand all/i})
+    if (await expandAll.isVisible({timeout: 2000}).catch(() => false)) {
+      await expandAll.click()
+    }
+
+    const diffRows = page.locator("[data-diff-index]")
+    if ((await diffRows.count()) < 2) return
+
+    const startRow = diffRows.first()
+    const endRow = diffRows.nth(1)
+    await expect(startRow).toBeVisible({timeout: 10000})
+    await expect(endRow).toBeVisible({timeout: 10000})
+
+    const startBox = await startRow.boundingBox()
+    const endBox = await endRow.boundingBox()
+    if (!startBox || !endBox) return
+
+    const startX = startBox.x + Math.min(24, startBox.width / 4)
+    const endX = endBox.x + Math.min(24, endBox.width / 4)
+    const startY = startBox.y + startBox.height / 2
+    const endY = endBox.y + endBox.height / 2
+
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(endX, endY, {steps: 12})
+    await page.mouse.up()
+
+    await expect(page.getByRole("button", {name: /create permalink/i})).toBeVisible({
+      timeout: 10000,
+    })
+    await expect(page.locator(".diff-selected-gutter").first()).toBeVisible({timeout: 10000})
+    await expect(page.locator(".diff-line-selected")).toHaveCount(0)
+  })
 })

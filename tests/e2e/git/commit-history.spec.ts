@@ -1,11 +1,5 @@
 import {test, expect} from "@playwright/test"
-import {
-  TestSeeder,
-  seedTestRepo,
-  seedTestScenario,
-  useCleanState,
-  encodeRelay,
-} from "../helpers"
+import {TestSeeder, seedTestRepo, seedTestScenario, useCleanState, encodeRelay} from "../helpers"
 import {GitHubPage, RepoDetailPage} from "../pages"
 import {
   createRepoAnnouncement,
@@ -92,7 +86,7 @@ function createRepoWithState(opts: {
   const state = createRepoState({
     identifier,
     refs,
-    head: opts.head || (opts.branches?.[0]?.name),
+    head: opts.head || opts.branches?.[0]?.name,
     pubkey,
     created_at: BASE_TIMESTAMP + 1,
   })
@@ -174,7 +168,8 @@ test.describe("Commit History and Diff Viewing", () => {
       await page.waitForLoadState("networkidle")
 
       // Search input should be visible - the actual placeholder is "Search commits..."
-      const searchInput = page.locator("input[placeholder*='Search commits']")
+      const searchInput = page
+        .locator("input[placeholder*='Search commits']")
         .or(page.getByPlaceholder(/Search commits/i))
       await expect(searchInput.first()).toBeVisible({timeout: 10000})
     })
@@ -199,7 +194,8 @@ test.describe("Commit History and Diff Viewing", () => {
       await page.waitForLoadState("networkidle")
 
       // Author filter should be visible (contains "All authors" text in SelectTrigger)
-      const authorFilter = page.getByText(/All authors/i)
+      const authorFilter = page
+        .getByText(/All authors/i)
         .or(page.locator("button").filter({hasText: /author/i}))
         .or(page.locator("[class*='SelectTrigger']"))
       await expect(authorFilter.first()).toBeVisible({timeout: 10000})
@@ -255,9 +251,9 @@ test.describe("Commit History and Diff Viewing", () => {
       const commitsContent = page.getByText(/commits?/i)
       const commitsHeading = page.locator("h2")
 
-      await expect(
-        loadingText.or(commitsContent).or(commitsHeading).first()
-      ).toBeVisible({timeout: 10000})
+      await expect(loadingText.or(commitsContent).or(commitsHeading).first()).toBeVisible({
+        timeout: 10000,
+      })
     })
 
     test("shows error state when commits fail to load", async ({page}) => {
@@ -271,12 +267,16 @@ test.describe("Commit History and Diff Viewing", () => {
 
       // The page should load without crashing
       // Either shows empty state, error message, or the page title
-      const pageContent = page.locator("strong").filter({hasText: "Git Repositories"})
+      const pageContent = page
+        .locator("strong")
+        .filter({hasText: "Git Repositories"})
         .or(page.getByText(/no.*found/i))
         .or(page.locator(".text-muted-foreground"))
-      await expect(pageContent.first()).toBeVisible({timeout: 10000}).catch(() => {
-        // Page loaded without crashing - test passes
-      })
+      await expect(pageContent.first())
+        .toBeVisible({timeout: 10000})
+        .catch(() => {
+          // Page loaded without crashing - test passes
+        })
     })
   })
 
@@ -415,7 +415,7 @@ test.describe("Commit History and Diff Viewing", () => {
 
       // Look for any commit link (href contains /commits/ followed by hash)
       const commitLinks = page.locator("a[href*='/commits/']").filter({
-        has: page.locator("*")  // has any child
+        has: page.locator("*"), // has any child
       })
 
       const count = await commitLinks.count()
@@ -460,7 +460,7 @@ test.describe("Commit History and Diff Viewing", () => {
         // CommitHeader component should be visible
         // It contains SHA, author, email, date, message
         const header = page.locator("div").filter({
-          has: page.locator("*[class*='sha'], code")
+          has: page.locator("*[class*='sha'], code"),
         })
       }
     })
@@ -496,9 +496,11 @@ test.describe("Commit History and Diff Viewing", () => {
 
         // Should show "Commit Details" heading
         const commitDetails = page.getByText(/Commit Details/i)
-        await expect(commitDetails).toBeVisible({timeout: 10000}).catch(() => {
-          // May not have file changes to display
-        })
+        await expect(commitDetails)
+          .toBeVisible({timeout: 10000})
+          .catch(() => {
+            // May not have file changes to display
+          })
       }
     })
 
@@ -533,9 +535,11 @@ test.describe("Commit History and Diff Viewing", () => {
 
         // Should show "X files changed" or "X file changed"
         const filesChanged = page.getByText(/files? changed/i)
-        await expect(filesChanged).toBeVisible({timeout: 10000}).catch(() => {
-          // May have no file changes
-        })
+        await expect(filesChanged)
+          .toBeVisible({timeout: 10000})
+          .catch(() => {
+            // May have no file changes
+          })
       }
     })
 
@@ -573,10 +577,95 @@ test.describe("Commit History and Diff Viewing", () => {
         const linesRemoved = page.getByText(/Lines Removed/i)
 
         // At least one stat card should be visible if we have file changes
-        await expect(linesAdded.or(linesRemoved)).toBeVisible({timeout: 10000}).catch(() => {
-          // May have no changes to display
-        })
+        await expect(linesAdded.or(linesRemoved))
+          .toBeVisible({timeout: 10000})
+          .catch(() => {
+            // May have no changes to display
+          })
       }
+    })
+
+    test("commit detail page shows Diffs and Files changed tabs", async ({page}) => {
+      const seeder = await seedTestScenario(page, "full")
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
+      await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      await page.locator("a[href*='/commits']").first().click()
+      await page.waitForURL(/\/commits/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      await page.waitForTimeout(2000)
+
+      const commitLinks = page.locator("a[href*='/commits/']")
+      const count = await commitLinks.count()
+
+      if (count > 0) {
+        await commitLinks.first().click()
+        await page.waitForURL(/\/commits\/[a-f0-9]+/, {timeout: 10000})
+        await page.waitForLoadState("networkidle")
+
+        const diffsTab = page.getByRole("tab", {name: /diffs/i})
+        const filesChangedTab = page.getByRole("tab", {name: /files changed/i})
+
+        await expect(diffsTab).toBeVisible({timeout: 10000})
+        await expect(filesChangedTab).toBeVisible({timeout: 10000})
+        await expect(diffsTab).toHaveAttribute("data-state", "active")
+
+        await filesChangedTab.click()
+        await expect(filesChangedTab).toHaveAttribute("data-state", "active")
+      }
+    })
+
+    test("commit detail permalink line jumps still allow switching back to Diffs", async ({
+      page,
+    }) => {
+      await seedTestScenario(page, "full")
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      const repoCard = page.locator("div").filter({hasText: "flotilla-budabit"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await repoCard.locator("a").filter({hasText: "Browse"}).click()
+      await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      await page.locator("a[href*='/commits']").first().click()
+      await page.waitForURL(/\/commits/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+      await page.waitForTimeout(2000)
+
+      const commitLinks = page.locator("a[href*='/commits/']")
+      if ((await commitLinks.count()) === 0) return
+
+      await commitLinks.first().click()
+      await page.waitForURL(/\/commits\/[a-f0-9]+/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      const filesChangedTab = page.getByRole("tab", {name: /files changed/i})
+      await filesChangedTab.click()
+      await expect(filesChangedTab).toHaveAttribute("data-state", "active")
+
+      const lineAnchor = page.locator("span[id^='diff-'][id*='R']").first()
+      await expect(lineAnchor).toBeVisible({timeout: 10000})
+      const lineAnchorId = await lineAnchor.getAttribute("id")
+      expect(lineAnchorId).toBeTruthy()
+
+      await page.goto(`${page.url()}#${lineAnchorId}`)
+      await page.waitForLoadState("networkidle")
+
+      const diffsTab = page.getByRole("tab", {name: /diffs/i})
+      await diffsTab.click()
+      await expect(diffsTab).toHaveAttribute("data-state", "active")
     })
   })
 
@@ -610,14 +699,20 @@ test.describe("Commit History and Diff Viewing", () => {
         await page.waitForURL(/\/commits\/[a-f0-9]+/, {timeout: 10000})
         await page.waitForLoadState("networkidle")
 
+        const filesChangedTab = page.getByRole("tab", {name: /files changed/i})
+        await filesChangedTab.click()
+        await expect(filesChangedTab).toHaveAttribute("data-state", "active")
+
         // Should show Expand/Collapse all buttons
         const expandAll = page.getByText(/Expand all/i)
         const collapseAll = page.getByText(/Collapse all/i)
 
         // At least one should be visible if there are file changes
-        await expect(expandAll.or(collapseAll)).toBeVisible({timeout: 10000}).catch(() => {
-          // May have no file changes
-        })
+        await expect(expandAll.or(collapseAll))
+          .toBeVisible({timeout: 10000})
+          .catch(() => {
+            // May have no file changes
+          })
       }
     })
 
@@ -657,11 +752,11 @@ test.describe("Commit History and Diff Viewing", () => {
         const renamedBadge = page.getByText(/^renamed$/i)
 
         // At least one badge type should exist if there are changes
-        await expect(
-          addedBadge.or(modifiedBadge).or(deletedBadge).or(renamedBadge)
-        ).toBeVisible({timeout: 10000}).catch(() => {
-          // May have no changes to display
-        })
+        await expect(addedBadge.or(modifiedBadge).or(deletedBadge).or(renamedBadge))
+          .toBeVisible({timeout: 10000})
+          .catch(() => {
+            // May have no changes to display
+          })
       }
     })
 
@@ -696,7 +791,7 @@ test.describe("Commit History and Diff Viewing", () => {
 
         // Find file headers (buttons that toggle expansion)
         const fileHeaders = page.locator("button").filter({
-          has: page.locator(".font-mono, code")  // file paths are monospace
+          has: page.locator(".font-mono, code"), // file paths are monospace
         })
 
         const headerCount = await fileHeaders.count()
@@ -740,9 +835,11 @@ test.describe("Commit History and Diff Viewing", () => {
 
         // Look for expanded count indicator "(X of Y files expanded)"
         const expandedIndicator = page.getByText(/\d+ of \d+ files? expanded/i)
-        await expect(expandedIndicator).toBeVisible({timeout: 10000}).catch(() => {
-          // May not have file changes
-        })
+        await expect(expandedIndicator)
+          .toBeVisible({timeout: 10000})
+          .catch(() => {
+            // May not have file changes
+          })
       }
     })
 
@@ -881,9 +978,11 @@ test.describe("Commit History and Diff Viewing", () => {
       const prevButton = page.getByRole("button", {name: /Previous/i})
       const nextButton = page.getByRole("button", {name: /Next/i})
 
-      await expect(prevButton.or(nextButton)).toBeVisible({timeout: 10000}).catch(() => {
-        // May not have pagination if few commits
-      })
+      await expect(prevButton.or(nextButton))
+        .toBeVisible({timeout: 10000})
+        .catch(() => {
+          // May not have pagination if few commits
+        })
     })
 
     test("previous button is disabled on first page", async ({page}) => {
@@ -938,9 +1037,11 @@ test.describe("Commit History and Diff Viewing", () => {
 
       // Should show "Page X of Y" or similar
       const pageInfo = page.getByText(/Page \d+ of \d+/i)
-      await expect(pageInfo).toBeVisible({timeout: 10000}).catch(() => {
-        // May not show if no pagination needed
-      })
+      await expect(pageInfo)
+        .toBeVisible({timeout: 10000})
+        .catch(() => {
+          // May not show if no pagination needed
+        })
     })
 
     test("changing page size updates display", async ({page}) => {
@@ -1057,7 +1158,7 @@ test.describe("Commit History and Diff Viewing", () => {
       // Search by partial hash
       const searchInput = page.locator("input[placeholder*='Search commits']")
       if (await searchInput.isVisible()) {
-        await searchInput.fill("abc123")  // partial hash
+        await searchInput.fill("abc123") // partial hash
         await page.waitForTimeout(500)
         // Should filter by hash
       }
