@@ -19,6 +19,8 @@ import {
   GIT_STATUS_DRAFT,
   GIT_STATUS_CLOSED,
   GIT_STATUS_COMPLETE,
+  isRelayUrl,
+  normalizeRelayUrl,
   type Filter,
   type TrustedEvent,
 } from "@welshman/util"
@@ -37,33 +39,45 @@ const getUserRelayUrls = (): string[] => {
   }
 }
 
+const getScopedRelayUrls = (relays: string[] = []) =>
+  Array.from(
+    new Set(
+      relays
+        .map(relay => {
+          try {
+            return normalizeRelayUrl(relay)
+          } catch {
+            return ""
+          }
+        })
+        .filter(isRelayUrl),
+    ),
+  )
+
 export const publishEvent = <T extends NostrEvent>(event: T, relays?: string[]) => {
-  const merged = Array.from(new Set([...(relays ?? []), ...getUserRelayUrls(), ...GIT_RELAYS]))
   return publishThunk({
-    relays: merged,
+    relays: getScopedRelayUrls(relays),
     event: event,
   })
 }
 
 export const postComment = (comment: CommentEvent, relays: string[]) => {
   return publishThunk({
-    relays: relays ?? [...GIT_RELAYS, ...getUserRelayUrls()],
+    relays: getScopedRelayUrls(relays),
     event: comment,
   })
 }
 
 export const postIssue = (issue: IssueEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...getUserRelayUrls(), ...GIT_RELAYS]))
   return publishThunk({
     event: issue,
-    relays: merged,
+    relays: getScopedRelayUrls(relays),
   })
 }
 
 export const postStatus = (status: StatusEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...getUserRelayUrls(), ...GIT_RELAYS]))
   return publishThunk({
-    relays: merged,
+    relays: getScopedRelayUrls(relays),
     event: status,
   })
 }
@@ -77,27 +91,24 @@ export const postRepoAnnouncement = (repo: RepoAnnouncementEvent, relays: string
 }
 
 export const postRepoStateEvent = (repoEvent: RepoStateEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...getUserRelayUrls(), ...GIT_RELAYS]))
   return publishThunk({
-    relays: merged,
+    relays: getScopedRelayUrls(relays),
     event: repoEvent,
   })
 }
 
 // Publish a NIP-32 label event (kind 1985)
 export const postLabel = (labelEvent: any, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...getUserRelayUrls(), ...GIT_RELAYS]))
   return publishThunk({
-    relays: merged,
+    relays: getScopedRelayUrls(relays),
     event: labelEvent,
   })
 }
 
 export const postPermalink = (permalink: NostrEvent, relays: string[]) => {
-  const merged = Array.from(new Set([...(relays || []), ...getUserRelayUrls(), ...GIT_RELAYS]))
   return publishThunk({
     event: permalink,
-    relays: merged,
+    relays: getScopedRelayUrls(relays),
   })
 }
 
@@ -134,9 +145,8 @@ export const postRoleLabel = (params: {
     repoAddr,
     created_at,
   })
-  const merged = Array.from(new Set([...(relays || []), ...getUserRelayUrls(), ...GIT_RELAYS]))
   return publishThunk({
-    relays: merged,
+    relays: getScopedRelayUrls(relays),
     event: event,
   })
 }
@@ -163,7 +173,7 @@ export const deleteIssueWithLabels = async ({
   if (!issue) return {labelsDeleted: 0}
   if (issue.kind !== 1621) return {labelsDeleted: 0}
 
-  const merged = Array.from(new Set([...(relays ?? []), ...getUserRelayUrls(), ...GIT_RELAYS]))
+  const merged = getScopedRelayUrls(relays)
 
   publishDelete({event: issue, relays: merged, protect})
 
@@ -212,7 +222,7 @@ export const deletePatchOrPullRequestWithRelated = async ({
     return {deletedEvents: 0, relatedDeleted: 0}
   }
 
-  const merged = Array.from(new Set([...(relays ?? []), ...GIT_RELAYS]))
+  const merged = getScopedRelayUrls(relays)
 
   if (merged.length === 0) {
     return {deletedEvents: 0, relatedDeleted: 0}

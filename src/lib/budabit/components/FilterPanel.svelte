@@ -26,6 +26,8 @@
   interface Props {
     storageKey?: string
     mode?: "issues" | "patches"
+    statusValue?: string
+    statusBadgeCounts?: Record<string, number>
 
     // visibility handled by parent; this component just renders the panel box
     onStatusChange?: (v: string) => void
@@ -60,6 +62,8 @@
   let {
     storageKey = "",
     mode = "issues",
+    statusValue = "open",
+    statusBadgeCounts = {},
     onStatusChange,
     onSortChange,
     authors = [],
@@ -110,6 +114,19 @@
       ...(mode === "patches" ? [{value: "commits", label: "Commits", icon: GitCommit}] : []),
     ]
   })
+
+  $effect(() => {
+    if (statusValue !== statusFilter) {
+      statusFilter = statusValue
+    }
+  })
+
+  const getStatusBadgeCount = (value: string) => Math.max(0, statusBadgeCounts[value] || 0)
+
+  const formatStatusBadgeCount = (value: string) => {
+    const count = getStatusBadgeCount(value)
+    return count > 9 ? "9+" : String(count)
+  }
 
   const applyFromData = (data: any) => {
     if (!data) return
@@ -246,7 +263,12 @@
             {#if s.icon}
               <Icon icon={s.icon} class="h-3 w-3" />
             {/if}
-            {s.label}
+            <span>{s.label}</span>
+            {#if getStatusBadgeCount(s.value) > 0}
+              <span class="badge badge-secondary badge-sm min-w-5 px-1.5">
+                {formatStatusBadgeCount(s.value)}
+              </span>
+            {/if}
           </Button>
         {/each}
       </div>

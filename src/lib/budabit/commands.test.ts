@@ -38,7 +38,7 @@ describe("budabit commands", () => {
   })
 
   describe("publishEvent", () => {
-    it("merges relays with user and GIT_RELAYS", async () => {
+    it("uses only provided relays for repo-bound publish", async () => {
       const {publishEvent} = await import("./commands")
       const event = {
         id: "evt",
@@ -55,17 +55,14 @@ describe("budabit commands", () => {
       expect(mockPublishThunk).toHaveBeenCalledWith(
         expect.objectContaining({
           event,
-          relays: expect.arrayContaining([
-            "wss://custom.relay.com",
-            "wss://user.relay.example.com",
-          ]),
+          relays: ["wss://custom.relay.com/"],
         }),
       )
     })
   })
 
   describe("postComment", () => {
-    it("calls publishThunk with comment and relays", async () => {
+    it("publishes comments only to provided relays", async () => {
       const {postComment} = await import("./commands")
       const comment = {
         id: "c1",
@@ -82,7 +79,7 @@ describe("budabit commands", () => {
       expect(mockPublishThunk).toHaveBeenCalledWith(
         expect.objectContaining({
           event: comment,
-          relays: expect.any(Array),
+          relays: ["wss://relay.example.com/"],
         }),
       )
     })

@@ -71,6 +71,8 @@
   import {
     deriveRepoRefState,
     deriveMaintainersForEuc,
+    effectiveRepoAddressesByRepoAddress,
+    getEffectiveRepoAddresses,
     loadRepoAnnouncements,
     derivePatchGraph,
     GIT_RELAYS,
@@ -169,7 +171,11 @@
     } catch {
       return false
     }
-    return hasRepoNotification($notifications, {relay: url, repoAddress})
+    return hasRepoNotification($notifications, {
+      relay: url,
+      repoAddress,
+      repoAddresses: getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddress),
+    })
   }
 
   const isDeletedRepoAnnouncement = (event?: {tags?: string[][]} | null) =>

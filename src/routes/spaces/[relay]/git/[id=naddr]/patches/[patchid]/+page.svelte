@@ -8,17 +8,16 @@
   import {load, makeLoader} from "@welshman/net"
   import {repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
+  import {type TrustedEvent} from "@welshman/util"
   import {uniq} from "@welshman/lib"
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
-  import {REPO_KEY, REPO_RELAYS_KEY, PULL_REQUESTS_KEY, GIT_RELAYS} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_RELAYS_KEY, PULL_REQUESTS_KEY, getRepoScopedRelays} from "@lib/budabit/state"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import PRView from "@src/lib/budabit/components/PRView.svelte"
   import PatchView from "@src/lib/budabit/components/PatchView.svelte"
-  import {decodeRelay} from "@app/core/state"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
@@ -30,13 +29,8 @@
 
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []) as string[])
   const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []) as PullRequestEvent[])
-  const relayUrl = $derived.by(() => decodeRelay($page.params.relay || ""))
   const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
-  const normalizeUniqueRelays = (relays: Array<string | undefined | null>) =>
-    Array.from(new Set(relays.map(relay => normalizeRelayUrl(relay || "")).filter(Boolean)))
-  const prEditRelays = $derived.by(() =>
-    normalizeUniqueRelays([...(repoClass.relays || []), ...(naddrRelays || []), relayUrl]),
-  )
+  const prEditRelays = $derived.by(() => getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays))
   const LOAD_TIMEOUT_MS = 7000
   const loadDetail = makeLoader({delay: 100, timeout: LOAD_TIMEOUT_MS, threshold: 0.5})
 
@@ -114,9 +108,7 @@
   }
 
   const resolveCurrentPatchOrPr = async () => {
-    const repoScopedRelays = uniq(repoRelays.filter(Boolean))
-    const gitRelays = uniq(GIT_RELAYS.filter(Boolean))
-    const relays = uniq([...repoScopedRelays, ...gitRelays])
+    const relays = uniq(repoRelays.filter(Boolean))
 
     if (relays.length === 0) {
       hasStartedResolve = false
@@ -147,19 +139,16 @@
         getFirstTagValue(loadedEvent as {tags?: string[][]}, "E") ||
         getFirstTagValue(loadedEvent as {tags?: string[][]}, "e")
       if (rootId) {
-        const rootEvents = await load({
+        await load({
           relays,
           filters: [{ids: [rootId]}],
         }).catch(() => [] as TrustedEvent[])
-        const rootEvent =
-          rootEvents.find(event => event.id === rootId) ||
-          (repository.getEvent(rootId) as TrustedEvent | undefined)
       }
     }
   }
 
   $effect(() => {
-    patchId
+    void patchId
     hasStartedResolve = false
     isResolving = true
     didTimeout = false

@@ -10,6 +10,7 @@
   import {Eye, Plus, SearchX} from "@lucide/svelte"
   import {
     Address,
+    COMMENT,
     getTagValue,
     GIT_STATUS_COMPLETE,
     GIT_STATUS_DRAFT,
@@ -18,7 +19,7 @@
     getTag,
     type TrustedEvent,
   } from "@welshman/util"
-  import {createSearch, pubkey, repository} from "@welshman/app"
+  import {createSearch, pubkey, publishThunk, repository} from "@welshman/app"
   import {sortBy} from "@welshman/lib"
   import {request} from "@welshman/net"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -30,7 +31,7 @@
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
   import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
-  import {postComment, postIssue, publishEvent} from "@lib/budabit/commands.js"
+  import {postComment} from "@lib/budabit/commands.js"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import {isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
@@ -48,6 +49,8 @@
     deriveAssignmentsFor,
     effectiveMaintainersByRepoAddress,
     effectiveRepoAddressesByRepoAddress,
+    getEffectiveRepoAddresses,
+    getRepoScopedRelays,
   } from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
@@ -86,11 +89,13 @@
     value > 10_000_000_000 ? Math.round(value / 1000) : value
   const lastIssuesSeen = $derived.by(() => normalizeChecked($checked[issuesSeenKey] || 0))
   const repoAddress = $derived.by(() => repoClass?.address || "")
+  const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
+  const repoBoundRelays = $derived.by(() => {
+    return getRepoScopedRelays((repoClass as any).repoEvent, naddrRelays)
+  })
   const effectiveRepoAddresses = $derived.by((): string[] => {
     if (!repoAddress) return []
-    const addresses = $effectiveRepoAddressesByRepoAddress.get(repoAddress)
-    if (addresses && addresses.size > 0) return Array.from(addresses)
-    return [repoAddress]
+    return Array.from(getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddress))
   })
   const effectiveMaintainers = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
@@ -118,6 +123,23 @@
     created_at: number
     event: IssueEvent
   }
+
+  type IssueStatusKey = "open" | "resolved" | "closed" | "draft"
+
+  const ISSUE_STATUS_ORDER: IssueStatusKey[] = ["open", "resolved", "draft", "closed"]
+  const ISSUE_STATUS_LABELS: Record<IssueStatusKey, string> = {
+    open: "Open",
+    resolved: "Resolved",
+    closed: "Closed",
+    draft: "Draft",
+  }
+
+  const createIssueStatusCounts = (): Record<IssueStatusKey, number> => ({
+    open: 0,
+    resolved: 0,
+    closed: 0,
+    draft: 0,
+  })
 
   const LABEL_PREFETCH_LIMIT = 200
   const LABEL_PREFETCH_IDLE_MS = 2000
@@ -876,6 +898,35 @@
   const visibleIssues = $derived.by(() => searchedIssues.slice(0, visibleIssueCount))
   const canLoadMoreIssues = $derived.by(() => visibleIssueCount < searchedIssues.length)
 
+  $effect(() => {
+    const rootIds = visibleIssues.map(issue => issue.id).filter(Boolean)
+    const relays = repoBoundRelays
+
+    if (rootIds.length === 0 || relays.length === 0) return
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      request({
+        relays,
+        signal: controller.signal,
+        filters: [
+          {kinds: [COMMENT], "#E": rootIds},
+          {kinds: [COMMENT], "#e": rootIds},
+        ],
+        onEvent: event => {
+          if (!repository.getEvent(event.id)) {
+            repository.publish(event as CommentEvent)
+          }
+        },
+      })
+    }, 100)
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
   const loadMoreIssues = () => {
     visibleIssueCount = Math.min(visibleIssueCount + ITEMS_PER_PAGE, searchedIssues.length)
   }
@@ -950,6 +1001,7 @@
       setCheckedForRepoNotifications($notifications, {
         relay: relayUrl,
         repoAddress,
+        repoAddresses: effectiveRepoAddresses,
         kind: "issues",
       }, seenAt)
     }
@@ -967,7 +1019,7 @@
   })
 
   const onIssueCreated = async (issue: IssueEvent) => {
-    const relaysToUse = repoRelays
+    const relaysToUse = repoBoundRelays
     if (!relaysToUse || relaysToUse.length === 0) {
       console.warn("onIssueCreated: no relays available", {relaysToUse})
       toast.push({
@@ -983,7 +1035,7 @@
     ].filter(Boolean)))
     const issueWithRecipients = withIssueRecipients(issue, maintainers)
 
-    const postIssueEvent = postIssue(issueWithRecipients, relaysToUse)
+    const postIssueEvent = publishThunk({event: issueWithRecipients, relays: relaysToUse})
     pushToast({message: "Issue created"})
     try {
       pushRepoAlert({
@@ -1002,7 +1054,7 @@
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
       relays: relaysToUse,
     })
-    publishEvent(statusEvent, relaysToUse)
+    publishThunk({event: statusEvent, relays: relaysToUse})
   }
 
   const onNewIssue = () => {
@@ -1018,7 +1070,19 @@
   }
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    postComment(comment, repoRelays)
+    const thunk = postComment(comment, repoBoundRelays)
+    const publishLocalComment = () => {
+      const event = thunk?.event as CommentEvent | undefined
+      if (event?.id && !repository.getEvent(event.id)) {
+        repository.publish(event)
+      }
+    }
+
+    publishLocalComment()
+    if (thunk?.complete) {
+      await thunk.complete
+      publishLocalComment()
+    }
   }
 
   const scrollToTop = () => {
@@ -1043,6 +1107,38 @@
     }
     return latest
   }
+
+  const unreadStatusCounts = $derived.by(() => {
+    const counts = createIssueStatusCounts()
+
+    for (const issue of issueList) {
+      if (getLatestIssueActivityAt(issue) <= lastIssuesSeen) continue
+      const status = (statusMap[issue.id] || "open") as IssueStatusKey
+      counts[status] += 1
+    }
+
+    return counts
+  })
+
+  const suggestedUnreadStatus = $derived.by(() => {
+    if (searchTerm.trim()) return null
+    if (authorFilter) return null
+    if (selectedLabels.length > 0) return null
+    if (statusFilter === "all") return null
+
+    const currentStatus = statusFilter as IssueStatusKey
+    const candidates = ISSUE_STATUS_ORDER.filter(status => status !== currentStatus)
+
+    let nextStatus: IssueStatusKey | null = null
+    for (const status of candidates) {
+      if (unreadStatusCounts[status] === 0) continue
+      if (!nextStatus || unreadStatusCounts[status] > unreadStatusCounts[nextStatus]) {
+        nextStatus = status
+      }
+    }
+
+    return nextStatus
+  })
 
 </script>
 
@@ -1085,6 +1181,8 @@
   {#if showFilters}
     <FilterPanel
       {storageKey}
+      statusValue={statusFilter}
+      statusBadgeCounts={unreadStatusCounts}
       authors={uniqueAuthors}
       authorFilter={authorFilter}
       allLabels={allNormalizedLabels}
@@ -1112,6 +1210,20 @@
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No issues found.
+      {#if suggestedUnreadStatus}
+        <p class="mt-2 max-w-md text-center text-sm text-muted-foreground">
+          {unreadStatusCounts[suggestedUnreadStatus]}
+          new {unreadStatusCounts[suggestedUnreadStatus] === 1 ? "item is" : "items are"}
+          in {ISSUE_STATUS_LABELS[suggestedUnreadStatus]}.
+        </p>
+        <GitButton
+          variant="outline"
+          size="sm"
+          class="mt-3 gap-2"
+          onclick={() => (statusFilter = suggestedUnreadStatus)}>
+          Show {ISSUE_STATUS_LABELS[suggestedUnreadStatus]}
+        </GitButton>
+      {/if}
     </div>
   {:else}
     <div class="flex flex-col gap-y-4">

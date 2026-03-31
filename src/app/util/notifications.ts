@@ -314,12 +314,31 @@ type RepoNotificationKind = "issues" | "patches"
 
 const repoNotificationKinds = new Set<RepoNotificationKind>(["issues", "patches"])
 
-export const getRepoNotificationPaths = (
-  paths: Set<string>,
-  options: {relay: string; repoAddress: string; kind?: RepoNotificationKind},
-) => {
-  const {relay, repoAddress, kind} = options
-  if (!relay || !repoAddress) return []
+type RepoNotificationOptions = {
+  relay: string
+  repoAddress?: string
+  repoAddresses?: Iterable<string>
+  kind?: RepoNotificationKind
+}
+
+const getRepoAddressSet = (options: RepoNotificationOptions) => {
+  const repoAddresses = new Set<string>()
+
+  if (options.repoAddress) {
+    repoAddresses.add(options.repoAddress)
+  }
+
+  for (const repoAddress of options.repoAddresses || []) {
+    if (repoAddress) repoAddresses.add(repoAddress)
+  }
+
+  return repoAddresses
+}
+
+export const getRepoNotificationPaths = (paths: Set<string>, options: RepoNotificationOptions) => {
+  const {relay, kind} = options
+  const repoAddresses = getRepoAddressSet(options)
+  if (!relay || repoAddresses.size === 0) return []
   let relayPart = ""
   try {
     relayPart = encodeRelay(relay)
@@ -339,7 +358,7 @@ export const getRepoNotificationPaths = (
     if (kind && section !== kind) continue
     try {
       const address = Address.fromNaddr(naddr).toString()
-      if (address === repoAddress) {
+      if (repoAddresses.has(address)) {
         matches.push(path)
       }
     } catch {
@@ -350,14 +369,12 @@ export const getRepoNotificationPaths = (
   return matches
 }
 
-export const hasRepoNotification = (
-  paths: Set<string>,
-  options: {relay: string; repoAddress: string; kind?: RepoNotificationKind},
-) => getRepoNotificationPaths(paths, options).length > 0
+export const hasRepoNotification = (paths: Set<string>, options: RepoNotificationOptions) =>
+  getRepoNotificationPaths(paths, options).length > 0
 
 export const setCheckedForRepoNotifications = (
   paths: Set<string>,
-  options: {relay: string; repoAddress: string; kind?: RepoNotificationKind},
+  options: RepoNotificationOptions,
   timestamp?: number,
 ) => {
   const matches = getRepoNotificationPaths(paths, options)

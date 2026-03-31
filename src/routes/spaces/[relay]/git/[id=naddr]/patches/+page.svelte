@@ -50,6 +50,7 @@
     deriveAssignmentsFor,
     effectiveMaintainersByRepoAddress,
     effectiveRepoAddressesByRepoAddress,
+    getEffectiveRepoAddresses,
   } from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
@@ -82,9 +83,7 @@
   const repoAddress = $derived.by(() => repoClass?.address || "")
   const effectiveRepoAddresses = $derived.by((): string[] => {
     if (!repoAddress) return []
-    const addresses = $effectiveRepoAddressesByRepoAddress.get(repoAddress)
-    if (addresses && addresses.size > 0) return Array.from(addresses)
-    return [repoAddress]
+    return Array.from(getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddress))
   })
   const effectiveMaintainers = $derived.by((): string[] => {
     if (!repoAddress) {
@@ -127,6 +126,23 @@
     commitCount: number
     groups: LabelGroups
   }
+
+  type PatchStatusKey = "open" | "applied" | "closed" | "draft"
+
+  const PATCH_STATUS_ORDER: PatchStatusKey[] = ["open", "applied", "draft", "closed"]
+  const PATCH_STATUS_LABELS: Record<PatchStatusKey, string> = {
+    open: "Open",
+    applied: "Applied",
+    closed: "Closed",
+    draft: "Draft",
+  }
+
+  const createPatchStatusCounts = (): Record<PatchStatusKey, number> => ({
+    open: 0,
+    applied: 0,
+    closed: 0,
+    draft: 0,
+  })
 
   // Comments are managed locally, similar to issues page
   let comments = $state<CommentEvent[]>([])
@@ -417,7 +433,16 @@
     }
   }
 
+  const getPatchCommentRootId = (comment: CommentEvent) => {
+    const rootTag = (comment.tags || []).find(
+      (tag: string[]) => tag[0] === "E" || (tag[0] === "e" && tag[3] === "root"),
+    )
+
+    return rootTag?.[1] || getTagValue("E", comment.tags) || getTagValue("e", comment.tags) || ""
+  }
+
   // Compute patchList asynchronously to avoid blocking UI rendering
+  let allPatchItems = $state<PatchListItem[]>([])
   let patchList = $state<PatchListItem[]>([])
   let patchListCacheKey = ""
 
@@ -439,6 +464,7 @@
       const hasPatches = currentPatches && currentPatches.length > 0
       const hasPRs = currentPullRequests && currentPullRequests.length > 0
       if (!hasPatches && !hasPRs) {
+        allPatchItems = []
         patchList = []
         return
       }
@@ -489,9 +515,8 @@
       // Map of patch ID -> comments (reuse for PRs too)
       const commentsByPatch = new Map<string, CommentEvent[]>()
       for (const comment of currentComments) {
-        const patchTag = getTags(comment, "E").find((tag: string[]) => tag[1])
-        if (patchTag && patchTag[1]) {
-          const patchId = patchTag[1]
+        const patchId = getPatchCommentRootId(comment)
+        if (patchId) {
           if (!commentsByPatch.has(patchId)) {
             commentsByPatch.set(patchId, [])
           }
@@ -562,7 +587,9 @@
         })
 
         // Merge PR items into the unified list
-        let filteredPatches = [...allPatches, ...prItems]
+        const combinedPatches = [...allPatches, ...prItems]
+        allPatchItems = combinedPatches
+        let filteredPatches = [...combinedPatches]
 
         // Apply status filter
         if (currentStatusFilter !== "all") {
@@ -970,7 +997,7 @@
     for (const comment of patch.comments || []) {
       if (comment.created_at > commentAt) commentAt = comment.created_at
     }
-    const statusEvents = statusEventsByRoot?.get(patch.id) || []
+    const statusEvents = mergedStatusEventsByRoot?.get(patch.id) || []
     let statusAt = 0
     for (const event of statusEvents) {
       if (event.created_at > statusAt) statusAt = event.created_at
@@ -981,11 +1008,42 @@
 
   const getPatchesSeenAt = () => {
     let latest = lastPatchesSeen
-    for (const patch of patchList) {
+    for (const patch of allPatchItems) {
       latest = Math.max(latest, getLatestPatchActivityAt(patch))
     }
     return latest
   }
+
+  const unreadStatusCounts = $derived.by(() => {
+    const counts = createPatchStatusCounts()
+
+    for (const patch of allPatchItems) {
+      if (getLatestPatchActivityAt(patch) <= lastPatchesSeen) continue
+      counts[currentPatchStateFor(patch.id)] += 1
+    }
+
+    return counts
+  })
+
+  const suggestedUnreadStatus = $derived.by(() => {
+    if (searchTerm.trim()) return null
+    if (authorFilter) return null
+    if (selectedLabels.length > 0) return null
+    if (statusFilter === "all") return null
+
+    const currentStatus = statusFilter as PatchStatusKey
+    const candidates = PATCH_STATUS_ORDER.filter(status => status !== currentStatus)
+
+    let nextStatus: PatchStatusKey | null = null
+    for (const status of candidates) {
+      if (unreadStatusCounts[status] === 0) continue
+      if (!nextStatus || unreadStatusCounts[status] > unreadStatusCounts[nextStatus]) {
+        nextStatus = status
+      }
+    }
+
+    return nextStatus
+  })
 
 
   // Initialize feed asynchronously - don't block render
@@ -1039,6 +1097,7 @@
       setCheckedForRepoNotifications($notifications, {
         relay: relayUrl,
         repoAddress,
+        repoAddresses: effectiveRepoAddresses,
         kind: "patches",
       }, seenAt)
     }
@@ -1166,6 +1225,8 @@
     <FilterPanel
       mode="patches"
       {storageKey}
+      statusValue={statusFilter}
+      statusBadgeCounts={unreadStatusCounts}
       authors={Array.from(uniqueAuthors)}
       {authorFilter}
       on:authorChange={e => (authorFilter = e.detail)}
@@ -1191,6 +1252,20 @@
     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
       <SearchX class="mb-2 h-8 w-8" />
       No patches found.
+      {#if suggestedUnreadStatus}
+        <p class="mt-2 max-w-md text-center text-sm text-muted-foreground">
+          {unreadStatusCounts[suggestedUnreadStatus]}
+          new {unreadStatusCounts[suggestedUnreadStatus] === 1 ? "item is" : "items are"}
+          in {PATCH_STATUS_LABELS[suggestedUnreadStatus]}.
+        </p>
+        <GitButton
+          variant="outline"
+          size="sm"
+          class="mt-3 gap-2"
+          onclick={() => (statusFilter = suggestedUnreadStatus)}>
+          Show {PATCH_STATUS_LABELS[suggestedUnreadStatus]}
+        </GitButton>
+      {/if}
     </div>
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">

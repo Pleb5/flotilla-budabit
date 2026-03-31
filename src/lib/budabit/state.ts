@@ -1,4 +1,4 @@
-import {writable, derived, get as getStore, type Writable} from "svelte/store"
+import {writable, derived} from "svelte/store"
 import {load, request} from "@welshman/net"
 import {
   groupByEuc,
@@ -110,6 +110,27 @@ export const getRepoAnnouncementRelays = (extra: string[] = []) => {
   return Array.from(
     new Set(merged.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)),
   ) as string[]
+}
+
+export const getRepoScopedRelays = (
+  repoEvent?: RepoAnnouncementEvent | null,
+  relayHints: string[] = [],
+) => {
+  const hints = relayHints.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)
+
+  if (!repoEvent) {
+    return Array.from(new Set(hints)) as string[]
+  }
+
+  try {
+    const parsed = parseRepoAnnouncementEvent(repoEvent)
+    const relays = [...(parsed.relays || []), ...hints]
+    return Array.from(
+      new Set(relays.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)),
+    ) as string[]
+  } catch {
+    return Array.from(new Set(hints)) as string[]
+  }
 }
 
 export const ROOMS = 10009
@@ -238,6 +259,27 @@ export const effectiveRepoAddressesByRepoAddress = derived(
     return map
   },
 )
+
+export const getEffectiveRepoAddresses = (map: Map<string, Set<string>>, repoAddress: string) => {
+  const addresses = new Set<string>()
+  if (!repoAddress) return addresses
+
+  addresses.add(repoAddress)
+
+  const direct = map.get(repoAddress)
+  if (direct) {
+    direct.forEach(address => addresses.add(address))
+  }
+
+  for (const [ownerAddress, effectiveAddresses] of map.entries()) {
+    if (ownerAddress === repoAddress || effectiveAddresses.has(repoAddress)) {
+      addresses.add(ownerAddress)
+      effectiveAddresses.forEach(address => addresses.add(address))
+    }
+  }
+
+  return addresses
+}
 
 export const repoGroups = derived(repoAnnouncements, ($events): RepoGroup[] => {
   return groupByEuc($events as any)

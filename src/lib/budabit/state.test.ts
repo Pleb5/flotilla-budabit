@@ -1,10 +1,12 @@
 import {describe, expect, it} from "vitest"
+import {createRepoAnnouncementEvent} from "@nostr-git/core/events"
 import {
   splitChannelId,
   makeChannelId,
   jobLink,
   gitLink,
   getRepoAnnouncementRelays,
+  getRepoScopedRelays,
   ROOMS,
   GENERAL,
 } from "./state"
@@ -54,6 +56,25 @@ describe("budabit state", () => {
       const extra = "wss://extra.relay.example.com"
       const relays = getRepoAnnouncementRelays([extra])
       expect(relays.some(url => url.includes("extra.relay.example.com"))).toBe(true)
+    })
+  })
+
+  describe("getRepoScopedRelays", () => {
+    it("uses repo relays plus naddr hints only", () => {
+      const repoEvent = createRepoAnnouncementEvent({
+        repoId: `${"f".repeat(64)}:repo`,
+        relays: ["wss://repo.relay.example.com"],
+      }) as any
+
+      const relays = getRepoScopedRelays(repoEvent, ["wss://hint.relay.example.com"])
+
+      expect(relays).toEqual(["wss://repo.relay.example.com/", "wss://hint.relay.example.com/"])
+    })
+
+    it("falls back to hints when repo announcement is unavailable", () => {
+      const relays = getRepoScopedRelays(undefined, ["wss://hint.relay.example.com"])
+
+      expect(relays).toEqual(["wss://hint.relay.example.com/"])
     })
   })
 

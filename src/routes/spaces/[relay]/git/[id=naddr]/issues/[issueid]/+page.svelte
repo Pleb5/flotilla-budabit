@@ -22,24 +22,24 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
-  import {normalizeRelayUrl} from "@welshman/util"
-  import {decodeRelay} from "@app/core/state"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {slide} from "svelte/transition"
   import {getContext, onMount} from "svelte"
-  import {postComment, postStatus, postRoleLabel} from "@lib/budabit"
+  import {postComment} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent} from "@nostr-git/core/events"
   import {publishDelete} from "@app/core/commands"
   import EventActions from "@app/components/EventActions.svelte"
-  import {ROLE_NS} from "@lib/budabit/labels"
+  import {ROLE_NS, buildRoleLabelEvent} from "@lib/budabit/labels"
   import {
     repoAnnouncements,
     deriveMaintainersForEuc,
     loadRepoAnnouncements,
     deriveRoleAssignments,
+    getRepoScopedRelays,
+    loadRepoContext,
   } from "@lib/budabit/state"
   import {toNaturalArray} from "@lib/budabit/labels"
   import {resolveIssueEdits} from "@lib/budabit/issue-edits"
@@ -53,19 +53,9 @@
     throw new Error("Repo context not available")
   }
   
-  // Get relays reactively
-  const relayUrl = $derived(decodeRelay($page.params.relay || ""))
   const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
-  const normalizeUniqueRelays = (relays: Array<string | undefined | null>) =>
-    Array.from(new Set(relays.map(relay => normalizeRelayUrl(relay || "")).filter(Boolean)))
-  const issueRelays = $derived.by(() => {
-    const relays = normalizeUniqueRelays([
-      ...(repoClass.relays || []),
-      ...(naddrRelays || []),
-      relayUrl,
-    ])
-    if (relays.length > 0) return relays
-    return relayUrl ? [relayUrl] : []
+  const repoBoundRelays = $derived.by(() => {
+    return getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays)
   })
 
   const issueId = $page.params.issueid
@@ -73,8 +63,70 @@
   const getIssueRepoAddress = (event?: {tags?: string[][]}) =>
     (event?.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] || ""
   
-  // Make issue lookup reactive to handle data loading
-  const issueEvent = $derived.by(() => repoClass.issues.find(i => i.id === issueId))
+  const directIssueEventStore = $derived.by(() => {
+    if (!issueId) return undefined
+    return deriveEventsAsc(
+      deriveEventsById({
+        repository,
+        filters: [{ids: [issueId]}],
+      }),
+    )
+  })
+  const directIssueEvent = $derived.by(() => {
+    const event = directIssueEventStore ? $directIssueEventStore?.[0] : undefined
+    return event?.kind === GIT_ISSUE ? (event as any) : undefined
+  })
+  const issueEvent = $derived.by(
+    () => repoClass.issues.find(i => i.id === issueId) || (directIssueEvent as any),
+  )
+  const hasRepoAnnouncement = $derived.by(() => Boolean(repoClass.repoEvent))
+
+  let isResolvingIssue = $state(false)
+  let didResolveIssue = $state(false)
+  const ISSUE_RESOLVE_TIMEOUT_MS = 7000
+
+  $effect(() => {
+    if (!issueId) {
+      isResolvingIssue = false
+      didResolveIssue = true
+      return
+    }
+
+    if (issueEvent) {
+      isResolvingIssue = false
+      didResolveIssue = true
+      return
+    }
+
+    const relays = repoBoundRelays
+    if (relays.length === 0) {
+      isResolvingIssue = !hasRepoAnnouncement
+      didResolveIssue = hasRepoAnnouncement
+      return
+    }
+
+    isResolvingIssue = true
+    didResolveIssue = false
+
+    let cancelled = false
+    const timeout = setTimeout(() => {
+      if (cancelled) return
+      isResolvingIssue = false
+      didResolveIssue = true
+    }, ISSUE_RESOLVE_TIMEOUT_MS)
+
+    void loadRepoContext({rootId: issueId, relays}).finally(() => {
+      if (cancelled) return
+      clearTimeout(timeout)
+      isResolvingIssue = false
+      didResolveIssue = true
+    })
+
+    return () => {
+      cancelled = true
+      clearTimeout(timeout)
+    }
+  })
 
   // Filter helpers used when refreshing labels/description updates after publishing
   const getLabelFilter = (): Filter => ({kinds: [1985], "#e": [issueEvent?.id ?? ""]})
@@ -269,7 +321,7 @@
   })
 
   const getPublishRelays = () =>
-    normalizeUniqueRelays([...issueRelays])
+    [...repoBoundRelays]
 
   const publishTagDeleteMarker = (labelValue: string, relays: string[], includeUgc = false) => {
     if (!issue) return
@@ -479,7 +531,19 @@
 
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = getPublishRelays()
-    postComment(comment, relays)
+    const thunk = postComment(comment, relays)
+    const publishLocalComment = () => {
+      const event = thunk?.event as CommentEvent | undefined
+      if (event?.id && !repository.getEvent(event.id)) {
+        repository.publish(event)
+      }
+    }
+
+    publishLocalComment()
+    if (thunk?.complete) {
+      await thunk.complete
+      publishLocalComment()
+    }
   }
 
   onMount(() => {
@@ -503,7 +567,7 @@
       ...statusEvent,
       tags,
     }
-    return postStatus(statusWithRecipients as any, getPublishRelays())
+    return publishThunk({event: statusWithRecipients as any, relays: getPublishRelays()})
   }
 
   // Profile functions for PeoplePicker
@@ -519,7 +583,7 @@
     }
     // Try to load profile if not in cache
     // Filter out invalid relay URLs to prevent errors
-    const validRelays = (issueRelays || []).filter((relay: string) => {
+    const validRelays = repoBoundRelays.filter((relay: string) => {
       try {
         const url = new URL(relay)
         return url.protocol === "ws:" || url.protocol === "wss:"
@@ -632,8 +696,8 @@
             </div>
             <EventActions
               event={issueEvent as any}
-              url={issueRelays[0] || relayUrl || ""}
-              relays={issueRelays}
+              url={repoBoundRelays[0] || ""}
+              relays={repoBoundRelays}
               noun="issue" />
           </div>
           <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -755,13 +819,13 @@
               if (!issue) return
               try {
                 const publishRelays = getPublishRelays()
-                postRoleLabel({
+                const roleLabelEvent = buildRoleLabelEvent({
                   rootId: issue.id,
                   role: "assignee",
                   pubkeys: [pubkey],
                   repoAddr: issueEditRepoAddress,
-                  relays: publishRelays,
                 })
+                publishThunk({event: roleLabelEvent as any, relays: publishRelays})
                 await load({
                   relays: publishRelays,
                   filters: [{kinds: [1985], "#e": [issue.id]}],
@@ -819,6 +883,10 @@
         currentCommenter={$pubkey || ""}
         onCommentCreated={$pubkey ? onCommentCreated : undefined} />
     </Card>
+  </div>
+{:else if isResolvingIssue || !didResolveIssue}
+  <div class="flex flex-col items-center justify-center px-4 py-8 sm:py-12">
+    <p class="text-center text-sm text-muted-foreground sm:text-base">Loading issue...</p>
   </div>
 {:else}
   <div class="flex flex-col items-center justify-center px-4 py-8 sm:py-12">

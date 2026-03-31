@@ -8,7 +8,7 @@
   import {makeGitPath} from "@lib/budabit"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {Router} from "@welshman/router"
-  import {GIT_RELAYS} from "@lib/budabit/state"
+  import {GIT_RELAYS, effectiveRepoAddressesByRepoAddress, getEffectiveRepoAddresses} from "@lib/budabit/state"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
 
   const {
@@ -60,7 +60,11 @@
   const hasNotifications = $derived.by(
     () => {
       if (repoAddress) {
-        return hasRepoNotification($notifications, {relay: url, repoAddress})
+        return hasRepoNotification($notifications, {
+          relay: url,
+          repoAddress,
+          repoAddresses: getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddress),
+        })
       }
       return $notifications.has(issuesHref) || $notifications.has(patchesHref)
     },

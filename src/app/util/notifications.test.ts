@@ -74,6 +74,21 @@ describe("notifications", () => {
       expect(result).toContain("/spaces/r/git/naddr1valid/patches")
     })
 
+    it("matches any effective repo address alias", async () => {
+      const {getRepoNotificationPaths} = await import("./notifications")
+      const {encodeRelay} = await import("@app/core/state")
+      vi.mocked(encodeRelay).mockReturnValue("r")
+
+      const paths = new Set(["/spaces/r/git/naddr1valid/issues"])
+      const result = getRepoNotificationPaths(paths, {
+        relay: "wss://r.com",
+        repoAddresses: ["30617:other:repo", "30617:pubkey123:repo"],
+        kind: "issues",
+      })
+
+      expect(result).toEqual(["/spaces/r/git/naddr1valid/issues"])
+    })
+
     it("filters by kind when specified", async () => {
       const {getRepoNotificationPaths} = await import("./notifications")
       const {encodeRelay} = await import("@app/core/state")
@@ -117,6 +132,19 @@ describe("notifications", () => {
       })
 
       expect(result).toBe(false)
+    })
+
+    it("returns true when any alias matches", async () => {
+      const {hasRepoNotification} = await import("./notifications")
+      const {encodeRelay} = await import("@app/core/state")
+      vi.mocked(encodeRelay).mockReturnValue("r")
+
+      const result = hasRepoNotification(new Set(["/spaces/r/git/naddr1valid/patches"]), {
+        relay: "wss://r.com",
+        repoAddresses: ["30617:other:repo", "30617:pubkey123:repo"],
+      })
+
+      expect(result).toBe(true)
     })
   })
 })

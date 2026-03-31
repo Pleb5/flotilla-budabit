@@ -3,7 +3,6 @@ import {
   setNotificationsConfig,
   type NotificationCandidate,
 } from "@app/util/notifications"
-import {makeSpacePath} from "@app/util/routes"
 import {PLATFORM_RELAYS, getSpaceUrlsFromGroupList} from "@app/core/state"
 import {pubkey, repository} from "@welshman/app"
 import {derived, get, type Readable} from "svelte/store"
@@ -38,6 +37,7 @@ import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
 import {makeGitPath} from "@lib/budabit/routes"
 import {
   GIT_RELAYS,
+  getEffectiveRepoAddresses,
   loadRepoContext,
   repoAnnouncements,
   repoAnnouncementsByAddress,
@@ -46,7 +46,6 @@ import {
   loadRepoMaintainerAnnouncements,
 } from "@lib/budabit/state"
 import {defaultRepoWatchOptions, userRepoWatchValues} from "@lib/budabit/repo-watch"
-import {bookmarksStore} from "@nostr-git/ui"
 
 type RootType = "issue" | "patch"
 
@@ -153,31 +152,10 @@ const repoRelaysByAddress = derived(repoAnnouncements, $events => {
   return map
 })
 
-const listedRepoAddresses = derived(
-  [pubkey, repoAnnouncementsByAddress, bookmarksStore],
-  ([$pubkey, $repoAnnouncementsByAddress, $bookmarks]) => {
-    const listedAddresses = new Set<string>()
-
-    if ($pubkey) {
-      for (const [address, event] of $repoAnnouncementsByAddress.entries()) {
-        if (event.pubkey === $pubkey) {
-          listedAddresses.add(address)
-        }
-      }
-    }
-
-    for (const bookmark of $bookmarks || []) {
-      if (bookmark?.address) listedAddresses.add(bookmark.address)
-    }
-
-    return listedAddresses
-  },
-)
-
 const watchedRepoRelays = derived(
   [userRepoWatchValues, repoRelaysByAddress],
   ([$watchValues, $relaysByAddress]) => {
-    const relays = new Set<string>(GIT_RELAYS)
+    const relays = new Set<string>()
     for (const repoAddr of Object.keys($watchValues.repos || {})) {
       const repoRelays = $relaysByAddress.get(repoAddr) || []
       for (const relay of repoRelays) relays.add(relay)
@@ -260,8 +238,7 @@ export const repoNotificationCandidates = derived(
     const repoByEffectiveAddress = new Map<string, string>()
     const allEffectiveAddresses = new Set<string>()
     for (const repoAddr of repoAddresses) {
-      const effective =
-        $effectiveRepoAddressesByRepoAddress.get(repoAddr) || new Set<string>([repoAddr])
+      const effective = getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddr)
       for (const address of effective) {
         allEffectiveAddresses.add(address)
         if (!repoByEffectiveAddress.has(address)) {
@@ -500,8 +477,7 @@ const repoCommentRoots = derived(
 
     const repoByEffectiveAddress = new Map<string, string>()
     for (const repoAddr of repoAddresses) {
-      const effective =
-        $effectiveRepoAddressesByRepoAddress.get(repoAddr) || new Set<string>([repoAddr])
+      const effective = getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddr)
       for (const address of effective) {
         if (!repoByEffectiveAddress.has(address)) {
           repoByEffectiveAddress.set(address, repoAddr)
@@ -534,22 +510,13 @@ const repoCommentRoots = derived(
 export const setupBudabitNotifications = () => {
   const augmentPaths = (paths: Set<string>) => {
     if (PLATFORM_RELAYS.length === 0) return paths
-    const listedAddresses = get(listedRepoAddresses)
-    if (listedAddresses.size === 0) return paths
 
     for (const path of Array.from(paths)) {
       const parts = path.split("/")
-      if (parts.length < 5) continue
+      if (parts.length < 6) continue
       if (parts[1] !== "spaces" || parts[3] !== "git") continue
-      const naddr = parts[4]
-      let isListed = false
-      try {
-        const address = Address.fromNaddr(naddr).toString()
-        isListed = listedAddresses.has(address)
-      } catch {
-        isListed = false
-      }
-      if (!isListed) continue
+      const section = parts[5]
+      if (section !== "issues" && section !== "patches") continue
       const relayPart = parts[2]
       if (!relayPart) continue
       paths.add(`/spaces/${relayPart}/git`)
@@ -597,8 +564,9 @@ export const setupBudabitNotifications = () => {
     const key =
       repoAddresses
         .map(repoAddr => {
-          const effective = effectiveByRepo.get(repoAddr) || new Set<string>([repoAddr])
-          return `${repoAddr}::${Array.from(effective).sort().join(",")}`
+          const effective = getEffectiveRepoAddresses(effectiveByRepo, repoAddr)
+          const relays = (get(repoRelaysByAddress).get(repoAddr) || []).slice().sort().join(",")
+          return `${repoAddr}::${Array.from(effective).sort().join(",")}::${relays}`
         })
         .sort()
         .join("|") + `::viewer:${currentPubkey || ""}`
@@ -625,12 +593,11 @@ export const setupBudabitNotifications = () => {
       }
 
       const repoRelays = relaysByAddress.get(repoAddr) || []
-      const relays = Array.from(new Set([...GIT_RELAYS, ...repoRelays]))
-      const relayArgs = relays.length > 0 ? relays : undefined
+      if (repoRelays.length === 0) continue
 
-      const effective = effectiveByRepo.get(repoAddr) || new Set<string>([repoAddr])
+      const effective = getEffectiveRepoAddresses(effectiveByRepo, repoAddr)
       for (const effectiveAddr of effective) {
-        loadRepoContext({addressA: effectiveAddr, relays: relayArgs})
+        loadRepoContext({addressA: effectiveAddr, relays: repoRelays})
       }
 
       const controller = new AbortController()
@@ -646,7 +613,7 @@ export const setupBudabitNotifications = () => {
       const since = now() - 600
       const liveFilters = filters.map(filter => ({...filter, since}))
       request({
-        relays: relayArgs || GIT_RELAYS,
+        relays: repoRelays,
         filters: liveFilters,
         signal: controller.signal,
       })
@@ -684,18 +651,24 @@ export const setupBudabitNotifications = () => {
   const unsubscribeWatch = userRepoWatchValues.subscribe(rebuildRepoSubscriptions)
   const unsubscribeEffective =
     effectiveRepoAddressesByRepoAddress.subscribe(rebuildRepoSubscriptions)
+  const unsubscribeRepoRelays = repoRelaysByAddress.subscribe(rebuildRepoSubscriptions)
   const unsubscribePubkey = pubkey.subscribe(() => rebuildRepoSubscriptions())
 
   let lastCommentsKey = ""
   let commentsController: AbortController | undefined
-  const unsubscribeComments = repoCommentRoots.subscribe(rootIds => {
-    const key = rootIds.sort().join(",")
+  const unsubscribeComments = derived(
+    [repoCommentRoots, watchedRepoRelays],
+    ([$rootIds, $relays]) => ({
+      rootIds: $rootIds,
+      relays: $relays,
+    }),
+  ).subscribe(({rootIds, relays}) => {
+    const key = `${rootIds.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
     if (key === lastCommentsKey) return
     lastCommentsKey = key
     commentsController?.abort()
     commentsController = undefined
     if (rootIds.length === 0) return
-    const relays = get(watchedRepoRelays)
     if (relays.length === 0) return
     const filters: any[] = [
       {kinds: [GIT_COMMENT], "#E": rootIds},
@@ -719,16 +692,12 @@ export const setupBudabitNotifications = () => {
     })
   })
 
-  const unsubscribeListed = listedRepoAddresses.subscribe(() => {
-    setConfig()
-  })
-
   return () => {
     unsubscribeWatch()
     unsubscribeEffective()
+    unsubscribeRepoRelays()
     unsubscribePubkey()
     unsubscribeComments()
-    unsubscribeListed()
     commentsController?.abort()
     clearLiveControllers()
   }

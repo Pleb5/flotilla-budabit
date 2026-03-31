@@ -45,7 +45,6 @@
   import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
   import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, GIT_LABEL, parseRepoAnnouncementEvent, isCommentEvent, createRepoStateEvent} from "@nostr-git/core/events"
   import {
-    normalizeRelayUrl as normalizeRelayUrlShared,
     parseRepoId,
     filterValidCloneUrls,
     reorderUrlsByPreference,
@@ -77,7 +76,6 @@
     type TrustedEvent
   } from "@welshman/util"
   import {publishDelete} from "@src/app/core/commands"
-  import {nthEq} from "@welshman/lib"
   import {setContext, onDestroy} from "svelte"
   import {
     REPO_KEY,
@@ -87,8 +85,10 @@
     activeRepoClass,
     GIT_RELAYS,
     getRepoAnnouncementRelays,
+    getRepoScopedRelays,
     effectiveMaintainersByRepoAddress,
     effectiveRepoAddressesByRepoAddress,
+    getEffectiveRepoAddresses,
     loadRepoMaintainerAnnouncements,
   } from "@lib/budabit/state"
   import {userRepoWatchValues} from "@lib/budabit/repo-watch"
@@ -229,13 +229,23 @@
   const patchesPath = $derived.by(() => `${basePath}/patches`)
   const hasIssuesNotification = $derived.by(() => {
     if (repoAddress) {
-      return hasRepoNotification($notifications, {relay: url, repoAddress, kind: "issues"})
+      return hasRepoNotification($notifications, {
+        relay: url,
+        repoAddress,
+        repoAddresses: $repoAddressesStore,
+        kind: "issues",
+      })
     }
     return $notifications.has(issuesPath)
   })
   const hasPatchesNotification = $derived.by(() => {
     if (repoAddress) {
-      return hasRepoNotification($notifications, {relay: url, repoAddress, kind: "patches"})
+      return hasRepoNotification($notifications, {
+        relay: url,
+        repoAddress,
+        repoAddresses: $repoAddressesStore,
+        kind: "patches",
+      })
     }
     return $notifications.has(patchesPath)
   })
@@ -259,9 +269,7 @@
     [repoAddressStore, effectiveRepoAddressesByRepoAddress],
     ([$repoAddress, $byAddresses]) => {
       if (!$repoAddress) return []
-      const addresses = $byAddresses.get($repoAddress)
-      if (addresses && addresses.size > 0) return Array.from(addresses)
-      return [$repoAddress]
+      return Array.from(getEffectiveRepoAddresses($byAddresses, $repoAddress))
     },
   ) as Readable<string[]>
 
@@ -860,33 +868,9 @@
   function deriveRepoRelays(
     repoEvent: Readable<RepoAnnouncementEvent | undefined>,
     naddrRelays: string[],
-    fallbackRelays: string[],
   ) {
     return derived(repoEvent, (re: RepoAnnouncementEvent | undefined) => {
-      const relays = new Set<string>()
-      for (const relay of [...GIT_RELAYS, ...naddrRelays, ...fallbackRelays]) {
-        const normalized = normalizeRelayUrlShared(relay)
-        if (normalized) relays.add(normalized)
-      }
-      if (re) {
-        const relaysTag = re.tags.find(nthEq(0, "relays"))
-        if (relaysTag) {
-          const [_, ...relaysList] = relaysTag
-          for (const relay of relaysList) {
-            try {
-              const url = new URL(relay)
-              if (url.protocol === "ws:" || url.protocol === "wss:") {
-                const normalized = normalizeRelayUrlShared(relay)
-                if (normalized) relays.add(normalized)
-              }
-            } catch {
-              continue
-            }
-          }
-        }
-      }
-
-      return Array.from(relays)
+      return getRepoScopedRelays(re, naddrRelays)
     })
   }
 
@@ -1106,7 +1090,7 @@
     const editable = repoClass?.editable ? "1" : "0"
     return `repo:${eventId}:${stateId}:${refsCount}:${editable}`
   })
-  const repoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays, GIT_RELAYS)
+  const repoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays)
   const issuesStore = deriveIssues(repoAddressesStore)
   const patchesStore = derivePatches(repoAddressesStore)
   const pullRequestsStore = derivePullRequests(repoAddressesStore)
