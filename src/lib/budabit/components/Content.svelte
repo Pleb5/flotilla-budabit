@@ -153,7 +153,7 @@
             e.preventDefault()
           }
         }}>
-        <EventRenderer {event} />
+        <EventRenderer {event} relay={url} />
       </div>
     {:else if isKnownUnknown(event.kind)}
       <div class="unknown-kind">

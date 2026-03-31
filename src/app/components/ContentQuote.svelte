@@ -14,6 +14,7 @@
   import {pushToast} from "@app/util/toast"
   import {
     Button as GitButton,
+    highlightCodeLines,
     getHighlightLanguageForPath,
     highlightCodeSnippet,
   } from "@nostr-git/ui"
@@ -64,6 +65,7 @@
   let copyTimeout: ReturnType<typeof setTimeout> | null = null
   let shareState = $state<"idle" | "copied" | "error">("idle")
   let shareTimeout: ReturnType<typeof setTimeout> | null = null
+  let quoteTimedOut = $state(false)
 
   const onOpen = () => {
     isOpenPending = true
@@ -462,6 +464,20 @@
     }
   })
 
+  $effect(() => {
+    const target = idOrAddress
+    const quoteEvent = $quote
+
+    quoteTimedOut = false
+    if (quoteEvent || !target) return
+
+    const timeout = window.setTimeout(() => {
+      quoteTimedOut = true
+    }, 7000)
+
+    return () => window.clearTimeout(timeout)
+  })
+
   const gitCard = $derived.by(() => ($quote ? getGitShareCard($quote, url) : null))
 
   const handlePermalinkOpen = (event: MouseEvent, href: string) => {
@@ -493,8 +509,7 @@
     : "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/20"}
   {@const contentPreview = getContentPreview($quote)}
   {@const isTruncated = isContentTruncated($quote)}
-        {@const highlightLanguage = filePath ? getHighlightLanguageForPath(filePath) : "plaintext"}
-  {@const highlightedPreview = highlightPreview(contentPreview, highlightLanguage)}
+  {@const highlightLanguage = filePath ? getHighlightLanguageForPath(filePath) : "plaintext"}
   <div class="my-2 block w-full max-w-full text-left">
     <div class="rounded-lg border bg-card p-3 shadow-sm">
       <div class="flex items-start justify-between gap-3">
@@ -602,14 +617,16 @@
         {@const lineRange = getLineRange($quote)}
         {@const diffLines = isDiff ? parseDiffLines(contentPreview, lineRange.start) : []}
         {@const codeLines = !isDiff ? contentPreview.split("\n").map((l, i) => ({num: (lineRange.start ?? 1) + i, content: l})) : []}
+        {@const highlightedDiffLines = highlightCodeLines(diffLines.map(line => line.content), highlightLanguage)}
+        {@const highlightedCodeLines = highlightCodeLines(codeLines.map(line => line.content), highlightLanguage)}
         <div class="mt-3 rounded border border-border/40 bg-muted/30 overflow-hidden permalink-preview">
           {#if isDiff && diffLines.length > 0}
             <div class="cq-snippet-lines">
-              {#each diffLines as line}<div class="cq-snippet-line {getDiffLineClass(line.type)}"><span class="cq-snippet-num">{line.lineNum ?? ""}</span><span class="cq-snippet-diff-ind">{line.type === " " ? "\u00a0" : line.type}</span><pre class="cq-snippet-code"><code class="hljs">{@html highlightPreview(line.content, highlightLanguage)}</code></pre></div>{/each}
+              {#each diffLines as line, index}<div class="cq-snippet-line {getDiffLineClass(line.type)}"><span class="cq-snippet-num">{line.lineNum ?? ""}</span><span class="cq-snippet-diff-ind">{line.type === " " ? "\u00a0" : line.type}</span><pre class="cq-snippet-code"><span class="hljs">{@html highlightedDiffLines[index] ?? highlightPreview(line.content, highlightLanguage)}</span></pre></div>{/each}
             </div>
           {:else if codeLines.length > 0}
             <div class="cq-snippet-lines">
-              {#each codeLines as line}<div class="cq-snippet-line"><span class="cq-snippet-num">{line.num}</span><pre class="cq-snippet-code"><code class="hljs">{@html highlightPreview(line.content, highlightLanguage)}</code></pre></div>{/each}
+              {#each codeLines as line, index}<div class="cq-snippet-line"><span class="cq-snippet-num">{line.num}</span><pre class="cq-snippet-code"><span class="hljs">{@html highlightedCodeLines[index] ?? highlightPreview(line.content, highlightLanguage)}</span></pre></div>{/each}
             </div>
           {/if}
           {#if isTruncated}
@@ -697,6 +714,13 @@
         {/if}
       </div>
     </div>
+  {:else if quoteTimedOut}
+    <Button class="my-2 block w-full max-w-full text-left" {onclick}>
+      <div class="rounded-box p-4 text-sm text-muted-foreground">
+        <div class="font-medium text-foreground">Unable to load quoted event</div>
+        <div class="mt-1">Open the link to retry with the full relay context.</div>
+      </div>
+    </Button>
   {:else}
     <Button class="my-2 block w-full max-w-full text-left" {onclick}>
     {#if $quote}
@@ -720,78 +744,6 @@
 {/if}
 
 <style>
-  /* oneDark-matched syntax highlighting for permalink previews */
-  :global(.permalink-preview .hljs) {
-    background: transparent !important;
-    color: #abb2bf !important;
-  }
-
-  :global(.permalink-preview .hljs-keyword),
-  :global(.permalink-preview .hljs-selector-tag),
-  :global(.permalink-preview .hljs-literal),
-  :global(.permalink-preview .hljs-selector-attr) {
-    color: #c678dd;
-  }
-
-  :global(.permalink-preview .hljs-title),
-  :global(.permalink-preview .hljs-title.function_),
-  :global(.permalink-preview .hljs-selector-id) {
-    color: #61afef;
-  }
-
-  :global(.permalink-preview .hljs-title.class_),
-  :global(.permalink-preview .hljs-type),
-  :global(.permalink-preview .hljs-built_in),
-  :global(.permalink-preview .hljs-selector-class) {
-    color: #e5c07b;
-  }
-
-  :global(.permalink-preview .hljs-string),
-  :global(.permalink-preview .hljs-template-tag) {
-    color: #98c379;
-  }
-
-  :global(.permalink-preview .hljs-number),
-  :global(.permalink-preview .hljs-symbol),
-  :global(.permalink-preview .hljs-bullet),
-  :global(.permalink-preview .hljs-attr),
-  :global(.permalink-preview .hljs-attribute),
-  :global(.permalink-preview .hljs-meta) {
-    color: #d19a66;
-  }
-
-  :global(.permalink-preview .hljs-variable),
-  :global(.permalink-preview .hljs-template-variable),
-  :global(.permalink-preview .hljs-name),
-  :global(.permalink-preview .hljs-tag),
-  :global(.permalink-preview .hljs-property) {
-    color: #e06c75;
-  }
-
-  :global(.permalink-preview .hljs-regexp),
-  :global(.permalink-preview .hljs-selector-pseudo),
-  :global(.permalink-preview .hljs-link) {
-    color: #56b6c2;
-  }
-
-  :global(.permalink-preview .hljs-comment),
-  :global(.permalink-preview .hljs-quote) {
-    color: #7d8799;
-    font-style: italic;
-  }
-
-  :global(.permalink-preview .hljs-section) {
-    color: #61afef;
-  }
-
-  :global(.permalink-preview .hljs-meta .hljs-keyword) {
-    color: #c678dd;
-  }
-
-  :global(.permalink-preview .hljs-meta .hljs-string) {
-    color: #98c379;
-  }
-
   /* Snippet line layout */
   .cq-snippet-lines {
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;

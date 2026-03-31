@@ -24,6 +24,31 @@
     return [url, true]
   })
 
+  const localPreview = call(() => {
+    if (external) return null
+
+    try {
+      const parsed = url.startsWith("http") ? new URL(url) : new URL(href, PLATFORM_URL)
+      const path = `${parsed.pathname}${parsed.search}${parsed.hash}` || href || "/"
+
+      if (path.includes("/git/")) {
+        return {title: "Budabit Git link", description: path}
+      }
+
+      if (path.includes("/chat")) {
+        return {title: "Budabit chat link", description: path}
+      }
+
+      if (path.includes("/threads/")) {
+        return {title: "Budabit thread link", description: path}
+      }
+
+      return {title: "Budabit link", description: path}
+    } catch {
+      return {title: "Budabit link", description: href || displayUrl(url)}
+    }
+  })
+
   const loadPreview = async () => {
     const json = await postJson(dufflepud("link/preview"), {url})
 
@@ -51,6 +76,13 @@
       <button type="button" onclick={stopPropagation(preventDefault(expand))}>
         <ContentLinkBlockImage {value} {event} class="m-auto max-h-96 rounded-box" />
       </button>
+    {:else if localPreview}
+      <div class="bg-alt flex max-w-xl flex-col leading-normal">
+        <div class="flex flex-col gap-2 p-4">
+          <strong class="overflow-hidden text-ellipsis whitespace-nowrap">{localPreview.title}</strong>
+          <p class="font-mono text-sm text-muted-foreground break-all">{localPreview.description}</p>
+        </div>
+      </div>
     {:else}
       {#await loadPreview()}
         <div class="center my-12 w-full">
