@@ -1,8 +1,9 @@
 <script lang="ts">
-  import {FileView} from "@nostr-git/ui"
+  import {FileView, Input} from "@nostr-git/ui"
   import {fade, fly} from "svelte/transition"
   import {goto} from "$app/navigation"
-  import {ChevronLeft, PanelLeftClose, PanelLeftOpen} from "@lucide/svelte"
+  import {browser} from "$app/environment"
+  import {ChevronLeft, PanelLeftClose, PanelLeftOpen, Search} from "@lucide/svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -12,6 +13,7 @@
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {postPermalink} from "@lib/budabit/commands.js"
   import {nip19} from "nostr-tools"
+  import {createSearch} from "@welshman/app"
   import {getContext} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
@@ -33,6 +35,8 @@
   let selectedFile = $state<FileEntry | null>(null)
   let overlayFile = $state<FileEntry | null>(null)
   let isBrowserOpen = $state(true)
+  let isDesktopViewport = $state(true)
+  let fileSearchQuery = $state("")
   let showScrollButton = $state(false)
   let scrollParent: HTMLElement | null = $state(null)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -68,6 +72,26 @@
   }
 
   const dirFromPath = (value: string) => value.split("/").slice(0, -1).join("/")
+
+  const normalizeSearchValue = (value: unknown) => String(value ?? "").toLocaleLowerCase().trim()
+
+  const filterFileEntries = (entries: FileEntry[]) => {
+    const query = normalizeSearchValue(fileSearchQuery)
+    if (!query) return entries
+
+    const search = createSearch(entries, {
+      getValue: entry => entry.path,
+      fuseOptions: {
+        keys: ["name", "path"],
+        threshold: 0.42,
+        ignoreLocation: true,
+        minMatchCharLength: 1,
+        isCaseSensitive: false,
+      },
+    })
+
+    return search.searchOptions(query)
+  }
 
   const updateQueryParams = ({
     dir,
@@ -118,8 +142,31 @@
   })
   const canGoUp = $derived.by(() => path.length > 0)
   const parentPath = $derived.by(() => (path ? dirFromPath(path) : ""))
+  const showBrowserList = $derived.by(() => !isDesktopViewport || isBrowserOpen)
 
   const urlSearch = $derived($page.url.search)
+
+  $effect(() => {
+    if (!browser) return
+
+    const media = window.matchMedia("(min-width: 768px)")
+    const syncViewport = () => {
+      isDesktopViewport = media.matches
+    }
+
+    syncViewport()
+    media.addEventListener("change", syncViewport)
+
+    return () => {
+      media.removeEventListener("change", syncViewport)
+    }
+  })
+
+  $effect(() => {
+    if (!isDesktopViewport) {
+      isBrowserOpen = true
+    }
+  })
 
   $effect(() => {
     void urlSearch
@@ -552,20 +599,20 @@
   {:else}
     <div
       class={
-        isBrowserOpen
+        showBrowserList
           ? "grid md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]"
           : "grid md:grid-cols-[48px_minmax(0,1fr)]"
       }
     >
       <div
         class={
-          isBrowserOpen
+          showBrowserList
             ? "border-b border-border md:border-b-0 md:border-r"
             : "border-b border-border md:border-b-0 md:border-r"
         }
       >
         <div class="p-2 sm:p-3" data-component="code-browser-list">
-          {#if !isBrowserOpen}
+          {#if !showBrowserList}
             <div class="hidden md:flex h-full items-start justify-center pt-2">
               <Button
                 class="btn btn-ghost btn-sm"
@@ -587,6 +634,17 @@
                 <span class="hidden xl:inline">Hide files</span>
               </Button>
             </div>
+            <div class="relative pb-2">
+              <Search
+                class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                placeholder="Search files..."
+                bind:value={fileSearchQuery}
+                class="h-9 pl-9"
+                data-testid="code-browser-search"
+              />
+            </div>
             {#if error}
               <div class="text-sm text-red-500">{error}</div>
             {:else}
@@ -595,11 +653,16 @@
                 {#await files}
                   <Spinner {loading}>Loading files...</Spinner>
                 {:then fileEntries}
+                  {@const visibleFileEntries = filterFileEntries(fileEntries)}
                   {#if fileEntries.length === 0}
                     <div class="text-sm text-muted-foreground">No files found in this branch.</div>
+                  {:else if visibleFileEntries.length === 0}
+                    <div class="text-sm text-muted-foreground">
+                      No files match "{fileSearchQuery.trim()}".
+                    </div>
                   {:else}
                     <div class="flex flex-col">
-                      {#each fileEntries as file (file.path)}
+                      {#each visibleFileEntries as file (file.path)}
                         <FileView
                           {file}
                           {getFileContent}

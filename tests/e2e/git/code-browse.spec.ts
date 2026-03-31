@@ -252,6 +252,25 @@ test.describe("Code Browser", () => {
       await expect(contentArea.first()).toBeVisible({timeout: 30000})
     })
 
+    test("search input is visible on mobile", async ({page}) => {
+      await page.setViewportSize({width: 390, height: 844})
+
+      const seeder = await seedTestRepo(page, {
+        name: "mobile-search-repo",
+      })
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      await navigateToRepo(page, "mobile-search-repo")
+
+      await page.locator("a[href*='/code']").first().click()
+      await page.waitForLoadState("networkidle")
+
+      await expect(page.getByTestId("code-browser-search")).toBeVisible({timeout: 30000})
+    })
+
     test("empty repository shows no files message", async ({page}) => {
       const seeder = await seedTestRepo(page, {
         name: "empty-repo",
