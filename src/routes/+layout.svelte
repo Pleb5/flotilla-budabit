@@ -78,9 +78,12 @@
   const APP_RELOAD_QUERY_KEY = "v"
   const APP_VERSION_STORAGE_KEY = "appVersion"
   const APP_SW_CLEANUP_KEY = "appSwCleanupDone"
+  const APP_SERVICE_WORKER_UPDATE_TIMEOUT = 5000
   let updateCheckInterval: number | null = null
   let updateCheckOnFocus: (() => void) | null = null
   let updateCheckOnVisibilityChange: (() => void) | null = null
+  let serviceWorkerMessageHandler: ((event: MessageEvent) => void) | null = null
+  let serviceWorkerReloadInFlight = false
   let updateToastShown = false
 
   // Add stuff to window for convenience
@@ -141,6 +144,82 @@
     window.location.replace(buildReloadUrl())
   }
 
+  const getAppServiceWorkerRegistration = async () => {
+    if (!browser) return null
+    if (dev) return null
+    if (!("serviceWorker" in navigator)) return null
+
+    try {
+      await navigator.serviceWorker.ready
+    } catch {
+      // pass
+    }
+
+    try {
+      const scopePath = getAppBaseUrl().pathname
+
+      return (
+        (await navigator.serviceWorker.getRegistration(scopePath)) ||
+        (await navigator.serviceWorker.getRegistration())
+      )
+    } catch {
+      return null
+    }
+  }
+
+  const postSkipWaiting = (registration: ServiceWorkerRegistration) => {
+    if (!registration.waiting) return false
+
+    registration.waiting.postMessage({type: "SKIP_WAITING"})
+    return true
+  }
+
+  const waitForInstallingServiceWorker = async (registration: ServiceWorkerRegistration) => {
+    if (!registration.installing) return null
+
+    const installingWorker = registration.installing
+
+    if (installingWorker.state === "installed") {
+      return registration.waiting || installingWorker
+    }
+
+    return await new Promise<ServiceWorker | null>(resolve => {
+      const cleanup = () => {
+        clearTimeout(timeout)
+        installingWorker.removeEventListener("statechange", onStateChange)
+      }
+
+      const onStateChange = () => {
+        if (["installed", "activated", "redundant"].includes(installingWorker.state)) {
+          cleanup()
+          resolve(registration.waiting || null)
+        }
+      }
+
+      const timeout = window.setTimeout(() => {
+        cleanup()
+        resolve(registration.waiting || null)
+      }, APP_SERVICE_WORKER_UPDATE_TIMEOUT)
+
+      installingWorker.addEventListener("statechange", onStateChange)
+    })
+  }
+
+  const activateUpdatedServiceWorker = async () => {
+    const registration = await getAppServiceWorkerRegistration()
+
+    if (!registration) return false
+    if (postSkipWaiting(registration)) return true
+
+    await registration.update()
+
+    if (postSkipWaiting(registration)) return true
+
+    await waitForInstallingServiceWorker(registration)
+
+    return postSkipWaiting(registration)
+  }
+
   const getStoredVersion = () => {
     if (typeof localStorage === "undefined") return ""
     return localStorage.getItem(APP_VERSION_STORAGE_KEY) || ""
@@ -168,9 +247,49 @@
     }
   }
 
-  const requestAppReload = () => {
+  const requestAppReload = async () => {
     if (!browser) return
-    forceReload()
+    if (!("serviceWorker" in navigator)) {
+      forceReload()
+      return
+    }
+
+    if (serviceWorkerReloadInFlight) return
+    serviceWorkerReloadInFlight = true
+
+    let fallbackTimer: number | null = null
+
+    const cleanup = () => {
+      if (fallbackTimer !== null) {
+        clearTimeout(fallbackTimer)
+        fallbackTimer = null
+      }
+
+      navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange)
+      serviceWorkerReloadInFlight = false
+    }
+
+    const finalizeReload = () => {
+      cleanup()
+      forceReload()
+    }
+
+    const handleControllerChange = () => {
+      finalizeReload()
+    }
+
+    navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange)
+    fallbackTimer = window.setTimeout(finalizeReload, APP_SERVICE_WORKER_UPDATE_TIMEOUT)
+
+    try {
+      const activated = await activateUpdatedServiceWorker()
+
+      if (!activated) {
+        finalizeReload()
+      }
+    } catch {
+      finalizeReload()
+    }
   }
 
   const notifyUpdateReady = () => {
@@ -182,7 +301,7 @@
       timeout: 0,
       action: {
         message: "Reload",
-        onclick: requestAppReload,
+        onclick: () => void requestAppReload(),
       },
     })
   }
@@ -272,11 +391,13 @@
   void initAppUpdates()
 
   // Listen for navigation messages from service worker
-  navigator.serviceWorker?.addEventListener("message", event => {
+  serviceWorkerMessageHandler = event => {
     if (event.data && event.data.type === "NAVIGATE") {
       goto(event.data.url)
     }
-  })
+  }
+
+  navigator.serviceWorker?.addEventListener("message", serviceWorkerMessageHandler)
 
   beforeNavigate(nav => {
     if (!nav.to) return
@@ -445,6 +566,11 @@
     if (updateCheckOnVisibilityChange) {
       document.removeEventListener("visibilitychange", updateCheckOnVisibilityChange)
       updateCheckOnVisibilityChange = null
+    }
+
+    if (serviceWorkerMessageHandler) {
+      navigator.serviceWorker?.removeEventListener("message", serviceWorkerMessageHandler)
+      serviceWorkerMessageHandler = null
     }
   })
 </script>

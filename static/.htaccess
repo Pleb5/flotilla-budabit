@@ -15,12 +15,30 @@
     Header always set Access-Control-Allow-Methods "GET" 
 </If> 
 
-# https://stackoverflow.com/questions/49547/how-do-we-control-web-page-caching-across-all-browsers#2068407
 <IfModule mod_headers.c>
-#   Header set Cache-Control "no-cache, no-store, must-revalidate"
-    Header set Cache-Control "no-cache"
-    Header set Pragma "no-cache"
-    Header set Expires 0
+    Header unset Cache-Control
+    Header unset Pragma
+    Header unset Expires
+
+    # Default all mutable assets and SPA shell responses to revalidate.
+    Header always set Cache-Control "no-cache, no-store, must-revalidate"
+    Header always set Pragma "no-cache"
+    Header always set Expires "0"
+
+    # Only hashed build artifacts should be cached forever.
+    <If "%{REQUEST_URI} =~ m#^/_app/immutable/#">
+        Header always unset Cache-Control
+        Header always unset Pragma
+        Header always unset Expires
+        Header always set Cache-Control "public, max-age=31536000, immutable"
+    </If>
+
+    # These endpoints drive update detection and should never be pinned.
+    <If "%{REQUEST_URI} =~ m#^/(service-worker\.js|manifest\.webmanifest|_app/version\.json)$#">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+    </If>
 </IfModule>
 
 AddType application/manifest+json .webmanifest .json
