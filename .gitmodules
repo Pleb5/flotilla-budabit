@@ -12,3 +12,6 @@
 [submodule "packages/budabit-kanban-extension"]
 	path = packages/budabit-kanban-extension
 	url = https://github.com/chebizarro/budabit-kanban-extension.git
+[submodule "packages/budabit-pipelines-extension"]
+	path = packages/budabit-pipelines-extension
+	url = https://github.com/chebizarro/budabit-pipelines-extension.git

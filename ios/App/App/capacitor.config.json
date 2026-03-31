@@ -1,0 +1,34 @@
+{
+	"appId": "social.flotilla",
+	"appName": "Flotilla",
+	"webDir": "build",
+	"server": {
+		"androidScheme": "https"
+	},
+	"android": {
+		"adjustMarginsForEdgeToEdge": false
+	},
+	"plugins": {
+		"SplashScreen": {
+			"androidSplashResourceName": "splash"
+		},
+		"Keyboard": {
+			"style": "DARK",
+			"resizeOnFullScreen": true
+		},
+		"Badge": {
+			"persist": true,
+			"autoClear": true
+		}
+	},
+	"packageClassList": [
+		"SafeAreaPlugin",
+		"AppPlugin",
+		"FilesystemPlugin",
+		"KeyboardPlugin",
+		"PreferencesPlugin",
+		"PushNotificationsPlugin",
+		"BadgePlugin",
+		"NostrSignerPluginPlugin"
+	]
+}

@@ -9,7 +9,7 @@
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
-  import type {LoadedWidgetExtension, ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
+  import type {LoadedWidgetExtension, ExtensionManifest, SmartWidgetEvent, RepoContext} from "@app/extensions/types"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
 
   const repoClass = getContext<Repo>(REPO_KEY)
@@ -88,8 +88,19 @@
   // Iframe state
   let iframeEl: HTMLIFrameElement | null = $state(null)
   let bridge: ExtensionBridge | null = $state(null)
+  let extInstance: LoadedWidgetExtension | null = $state(null)
   let ready = $state(false)
   let error = $state<string | null>(null)
+
+  function buildRepoContext(): RepoContext | undefined {
+    if (!repoClass.repoEvent?.pubkey || !repoClass.name) return undefined
+    return {
+      pubkey: repoClass.repoEvent.pubkey,
+      name: repoClass.name,
+      naddr: naddr,
+      relays: [...repoRelays],
+    }
+  }
 
   function createExtensionInstance(): LoadedWidgetExtension | null {
     if (!extEntrypoint) return null
@@ -101,6 +112,7 @@
       type: "widget",
       id: identifier,
       origin,
+      repoContext: buildRepoContext(),
       widget: {
         id: `ext-${identifier}`,
         kind: 30033,
@@ -158,6 +170,7 @@
       ;(ext as any).iframe = iframeEl
       const b = new ExtensionBridge(ext)
       b.attachHandlers(iframeEl.contentWindow)
+      extInstance = ext
       bridge = b
       ready = true
       // Context will be sent reactively when repo data is available
@@ -171,6 +184,12 @@
     if (!ready || !bridge) return
     // Wait for repo context to be available
     if (!repoClass.repoEvent?.pubkey || !repoClass.name) return
+
+    // Keep repoContext on the extension object in sync so context:getRepo handler works
+    if (extInstance) {
+      extInstance.repoContext = buildRepoContext()
+    }
+
     sendContext()
   })
 

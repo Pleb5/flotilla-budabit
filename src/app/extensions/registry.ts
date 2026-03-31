@@ -110,7 +110,7 @@ class ExtensionRegistry {
 
   register(manifest: ExtensionManifest): LoadedNip89Extension {
     const extensions = new Map(get(this.store))
-    // Handle empty entrypoint (for built-in extensions like Pipelines)
+    // Handle empty entrypoint
     let origin = window.location.origin
     if (manifest.entrypoint) {
       try {

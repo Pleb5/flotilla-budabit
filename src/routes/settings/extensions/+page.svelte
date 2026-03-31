@@ -95,19 +95,7 @@
   let widgetNaddr = $state("")
   let installingWidget = $state(false)
 
-  // Curated recommended
-  const recommended: {name: string; url: string; description?: string; id: string}[] = [
-    {name: "Huddle", url: "/extensions/huddle.json", description: "Audio/room collaboration", id: "huddle"},
-    {name: "Repo Kanban", url: "/extensions/kanban.json", description: "NIP-100 Kanban board for repos", id: "budabit-kanban"},
-    {name: "CI/CD Pipelines", url: "/extensions/pipelines.json", description: "View and manage CI/CD pipeline runs", id: "budabit-pipelines"},
-    {name: "Hello World", url: "/extensions/example.json", description: "Minimal sample", id: "hello-world"},
-  ]
 
-  // Check if a recommended extension is already installed
-  const isRecommendedInstalled = (id: string) => {
-    return installedNip89.some((m: ExtensionManifest) => m.id === id) ||
-           installedWidgets.some((w: SmartWidgetEvent) => w.identifier === id)
-  }
 
   let controller: AbortController | null = null
 
@@ -310,32 +298,6 @@
         onclick={onInstallWidgetByNaddr}>
         {installingWidget ? "Installing..." : "Install Widget"}
       </Button>
-    </div>
-  </div>
-
-  <!-- Recommended -->
-  <div class="card2 bg-alt col-4 shadow-xl">
-    <strong class="text-lg">Recommended</strong>
-    <div class="mt-2 flex flex-col gap-2">
-      {#each recommended as r}
-        <div class="row-2 justify-between">
-          <div>
-            <div class="font-medium">{r.name}</div>
-            {#if r.description}<div class="text-xs opacity-70">{r.description}</div>{/if}
-            <div class="text-xs opacity-50">{r.url}</div>
-          </div>
-          {#if isRecommendedInstalled(r.id)}
-            <span class="text-sm text-success opacity-70">Installed</span>
-          {:else}
-            <Button
-              class="btn btn-primary btn-sm"
-              onclick={() => {
-                manifestUrl = r.url
-                onInstallByUrl()
-              }}>Install</Button>
-          {/if}
-        </div>
-      {/each}
     </div>
   </div>
 
