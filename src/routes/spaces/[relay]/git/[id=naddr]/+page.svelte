@@ -18,12 +18,27 @@
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
   import {formatDistanceToNow} from "date-fns"
-  import {nthEq} from "@welshman/lib"
+  import {getTagValue} from "@welshman/util"
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {pushModal} from "@app/util/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
+  import {
+    PULL_REQUESTS_KEY,
+    REPO_KEY,
+    REPO_RELAYS_KEY,
+    STATUS_EVENTS_BY_ROOT_KEY,
+    effectiveMaintainersByRepoAddress,
+  } from "@lib/budabit/state"
+  import {
+    parsePullRequestEvent,
+    type IssueEvent,
+    type PatchEvent,
+    type PullRequestEvent,
+    type StatusEvent,
+  } from "@nostr-git/core/events"
+  import {parseGitPatchFromEvent} from "@nostr-git/core/git"
   import type {LayoutProps} from "./$types.js"
   import {page} from "$app/stores"
   import {pubkey} from "@welshman/app"
@@ -32,7 +47,6 @@
   import {clip, pushToast} from "@app/util/toast"
 
   import {getContext} from "svelte"
-  import {REPO_KEY, REPO_RELAYS_KEY, effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
@@ -46,6 +60,8 @@
   // Get repoClass and repoRelays from context
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  const statusEventsByRootStore = getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
+  const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
   
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -53,6 +69,8 @@
   
   // Get relays reactively
   const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
+  const statusEventsByRoot = $derived.by(() => statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>())
+  const pullRequests = $derived.by(() => pullRequestsStore ? $pullRequestsStore : [])
 
   // Progressive loading states - show immediate content right away
   let initialLoading = $state(false)
@@ -429,6 +447,103 @@
     return hash ? hash.substring(0, length) : ""
   }
 
+  function shortenNip19(value: string, prefixLength = 12, suffixLength = 6) {
+    if (!value) return ""
+    if (value.length <= prefixLength + suffixLength + 3) return value
+    return `${value.slice(0, prefixLength)}...${value.slice(-suffixLength)}`
+  }
+
+  type RecentActivityItem = {
+    id: string
+    title: string
+    activityAt: number
+    createdAt: number
+  }
+
+  function getLatestCommentAt(rootId: string) {
+    let latest = 0
+    for (const comment of repoClass.getIssueThread(rootId).comments || []) {
+      if (comment.created_at > latest) latest = comment.created_at
+    }
+    return latest
+  }
+
+  function getLatestStatusAt(rootId: string) {
+    let latest = 0
+    for (const event of statusEventsByRoot.get(rootId) || []) {
+      if (event.created_at > latest) latest = event.created_at
+    }
+    return latest
+  }
+
+  function getLatestActivityAt(rootId: string, createdAt: number) {
+    return Math.max(createdAt || 0, getLatestCommentAt(rootId), getLatestStatusAt(rootId))
+  }
+
+  function sortRecentActivity(items: RecentActivityItem[]) {
+    return [...items].sort((a, b) => {
+      if (b.activityAt !== a.activityAt) return b.activityAt - a.activityAt
+      if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt
+      return a.id.localeCompare(b.id)
+    })
+  }
+
+  function getIssueTitle(issue: IssueEvent) {
+    return getTagValue("subject", issue.tags) || "Untitled Issue"
+  }
+
+  function getPatchTitle(event: PatchEvent | PullRequestEvent) {
+    if (event.kind === 1618) {
+      const parsed = parsePullRequestEvent(event as PullRequestEvent)
+      return parsed.subject || "Untitled Patch"
+    }
+
+    try {
+      const parsed = parseGitPatchFromEvent(event as any)
+      return parsed?.title || "Untitled Patch"
+    } catch {
+      return getTagValue("subject", event.tags) || "Untitled Patch"
+    }
+  }
+
+  const recentIssues = $derived.by(() => {
+    const items = repoClass.issues.map(issue => ({
+      id: issue.id,
+      title: getIssueTitle(issue),
+      createdAt: issue.created_at,
+      activityAt: getLatestActivityAt(issue.id, issue.created_at),
+    }))
+
+    return sortRecentActivity(items).slice(0, 3)
+  })
+
+  const recentPatches = $derived.by(() => {
+    const items: RecentActivityItem[] = []
+
+    for (const patch of repoClass.patches) {
+      const isRootPatch = patch.tags.some((tag: string[]) => tag[0] === "t" && tag[1] === "root")
+      if (!isRootPatch) continue
+
+      items.push({
+        id: patch.id,
+        title: getPatchTitle(patch),
+        createdAt: patch.created_at,
+        activityAt: getLatestActivityAt(patch.id, patch.created_at),
+      })
+    }
+
+    for (const pullRequest of pullRequests) {
+      items.push({
+        id: pullRequest.id,
+        title: getPatchTitle(pullRequest),
+        createdAt: pullRequest.created_at,
+        activityAt: getLatestActivityAt(pullRequest.id, pullRequest.created_at),
+      })
+    }
+
+    return sortRecentActivity(items).slice(0, 3)
+  })
+
   async function copyUrl(url: string) {
     try {
       await clip(url)
@@ -484,7 +599,7 @@
                 class="flex w-full items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/50 active:scale-[0.99] cursor-pointer group"
                 title="Click to copy"
                 onclick={() => copyUrl(url)}>
-                <code class="flex-1 font-mono text-sm overflow-x-auto whitespace-nowrap text-left">{url}</code>
+                <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-sm">{url}</code>
                 <div class="flex-shrink-0 p-1 rounded-md transition-colors group-hover:bg-gray-200 dark:group-hover:bg-gray-600">
                   {#if copiedUrl === url}
                     <Check class="h-4 w-4 text-green-600 dark:text-green-400" />
@@ -649,10 +764,10 @@
               <button
                 type="button"
                 class="flex w-full min-w-0 max-w-full items-start gap-2 text-left text-sm hover:opacity-80"
-                title="Click to copy"
+                title={naddr}
                 onclick={() => clip(naddr)}>
                 <Link class="mt-0.5 h-3 w-3 flex-shrink-0" />
-                <span class="break-all font-mono text-xs">{naddr}</span>
+                <span class="break-all font-mono text-xs">{shortenNip19(naddr)}</span>
               </button>
             </div>
 
@@ -685,15 +800,15 @@
                 <div class="space-y-1">
                   {#each repoMetadata.cloneUrls as url}
                   <button
-                    type="button"
-                    class="grid grid-cols-[auto_1fr] w-full items-center gap-2 text-left text-sm hover:opacity-80"
-                    title="Click to copy"
-                    onclick={() => clip(url)}>
-                    <Link class="h-3 w-3" />
-                    <span class="font-mono text-xs overflow-auto">{url}</span>
-                  </button>
-                  {/each}
-                </div>
+                     type="button"
+                     class="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-left text-sm hover:opacity-80"
+                     title="Click to copy"
+                     onclick={() => clip(url)}>
+                     <Link class="h-3 w-3" />
+                     <span class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs">{url}</span>
+                   </button>
+                   {/each}
+                 </div>
               </div>
             {/if}
 
@@ -702,12 +817,15 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Web URLs</span>
                 <div class="space-y-1">
                   {#each repoMetadata.webUrls as url}
-                  <div class="grid grid-cols-[auto_1fr] items-center gap-2 text-sm max-w-full overflow-x-auto">
-                    <Link class="h-3 w-3" />
-                    <a href={url} target="_blank" class="font-mono text-xs overflow-x-auto">{url}</a>
-                  </div>
-                  {/each}
-                </div>
+                  <div class="grid max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-sm">
+                     <Link class="h-3 w-3" />
+                     <a
+                       href={url}
+                       target="_blank"
+                       class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs">{url}</a>
+                   </div>
+                   {/each}
+                 </div>
               </div>
             {/if}
           </div>
@@ -715,27 +833,27 @@
       </Card>
 
       <!-- Activity Overview -->
-      {#if repoClass.issues.length > 0 || repoClass.patches.length > 0}
+      {#if recentIssues.length > 0 || recentPatches.length > 0}
         <Card class="p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <Eye class="h-5 w-5" />
             Recent Activity
           </h3>
           <div class="space-y-4">
-            {#if repoClass.issues.length > 0}
+            {#if recentIssues.length > 0}
               <div>
                 <h4 class="mb-2 text-sm font-medium text-muted-foreground">Recent Issues</h4>
                 <div class="space-y-2">
-                  {#each repoClass.issues.slice(0, 3) as issue}
+                  {#each recentIssues as issue}
                     <div
                       class="flex items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
                       <CircleAlert class="mt-0.5 h-4 w-4 text-red-500" />
                       <div class="min-w-0 flex-1">
                         <p class="truncate text-sm font-medium">
-                          {issue.tags.find(nthEq(0, "t"))?.[1] || "Untitled Issue"}
+                          {issue.title}
                         </p>
                         <p class="text-xs text-muted-foreground">
-                          {formatDate(new Date(issue.created_at * 1000))}
+                          {formatDate(new Date(issue.activityAt * 1000))}
                         </p>
                       </div>
                     </div>
@@ -744,20 +862,20 @@
               </div>
             {/if}
 
-            {#if repoClass.patches.length > 0}
+            {#if recentPatches.length > 0}
               <div>
                 <h4 class="mb-2 text-sm font-medium text-muted-foreground">Recent Patches</h4>
                 <div class="space-y-2">
-                  {#each repoClass.patches.slice(0, 3) as patch}
+                  {#each recentPatches as patch}
                     <div
                       class="flex items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
                       <GitPullRequest class="mt-0.5 h-4 w-4 text-purple-500" />
                       <div class="min-w-0 flex-1">
                         <p class="truncate text-sm font-medium">
-                          {patch.tags.find(nthEq(0, "t"))?.[1] || "Untitled Patch"}
+                          {patch.title}
                         </p>
                         <p class="text-xs text-muted-foreground">
-                          {formatDate(new Date(patch.created_at * 1000))}
+                          {formatDate(new Date(patch.activityAt * 1000))}
                         </p>
                       </div>
                     </div>

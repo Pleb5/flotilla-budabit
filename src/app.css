@@ -228,6 +228,15 @@
   @apply overflow-hidden text-ellipsis;
 }
 
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 [data-tip]::before {
   @apply ellipsize;
 }
