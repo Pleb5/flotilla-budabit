@@ -438,7 +438,9 @@
   const myReposEvents = $derived.by(() => {
     if (!isOwnedRepo || !$pubkey) return undefined
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]} as Filter
-    return deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
+    return derived(deriveEventsDesc(deriveEventsById({repository, filters: [filter]})), events =>
+      getVisibleRepositoryEvents(events as RepoAnnouncementEvent[]),
+    )
   })
 
   const latestMyRepos = $derived.by(() => {
@@ -512,7 +514,7 @@
     const filter = {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": myRepoIds} as Filter
     const store = deriveEventsDesc(deriveEventsById({repository, filters: [filter]}))
     const unsubscribe = store.subscribe(events => {
-      myRepoStateEvents = events as RepoStateEvent[]
+      myRepoStateEvents = getVisibleRepositoryEvents(events as RepoStateEvent[])
     })
     return () => unsubscribe()
   })
@@ -837,10 +839,13 @@
           ],
         }),
       ),
-      (events: TrustedEvent[]) =>
-        (events.length > 0 ? events[events.length - 1] : undefined) as
+      (events: TrustedEvent[]) => {
+        const visibleEvents = getVisibleRepositoryEvents(events)
+
+        return (visibleEvents.length > 0 ? visibleEvents[visibleEvents.length - 1] : undefined) as
           | RepoAnnouncementEvent
-          | undefined,
+          | undefined
+      },
     ) as Readable<RepoAnnouncementEvent | undefined>
   }
 
@@ -865,7 +870,7 @@
       )
 
       return store.subscribe(events => {
-        set(((events as RepoStateEvent[]) || []).slice())
+        set(getVisibleRepositoryEvents((events as RepoStateEvent[]) || []).slice())
       })
     }) as Readable<RepoStateEvent[]>
   }
@@ -963,6 +968,12 @@
     return chunks
   }
 
+  const isDeletedRepositoryEvent = (event: TrustedEvent | undefined) =>
+    Boolean(event && (repository as any).isDeleted?.(event))
+
+  const getVisibleRepositoryEvents = <T extends TrustedEvent>(events: T[] | undefined | null) =>
+    ((events || []).filter(event => !isDeletedRepositoryEvent(event)) as T[])
+
   const normalizeScopeValues = (values: string[]) =>
     [...new Set((values || []).filter(Boolean))].sort()
 
@@ -997,7 +1008,7 @@
           deriveEventsAsc(deriveEventsById({repository, filters})),
         )
         unsubscribeScoped = scopedEvents.subscribe(events => {
-          set((events || []) as TrustedEvent[])
+          set(getVisibleRepositoryEvents(events as TrustedEvent[]))
         })
       })
 
@@ -1048,7 +1059,7 @@
           deriveEventsAsc(deriveEventsById({repository, filters})),
         )
         unsubscribeScoped = scopedEvents.subscribe(events => {
-          set((events || []) as TrustedEvent[])
+          set(getVisibleRepositoryEvents(events as TrustedEvent[]))
         })
       })
 
@@ -1106,9 +1117,56 @@
 
   const DELETE_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
   const DELETE_SINCE_BUFFER_SECONDS = 60
-  const deleteKinds = [GIT_ISSUE, GIT_PATCH, GIT_PULL_REQUEST, GIT_LABEL, GIT_COVER_LETTER_KIND]
+  const deleteKinds = [
+    GIT_ISSUE,
+    GIT_PATCH,
+    GIT_PULL_REQUEST,
+    GIT_PULL_REQUEST_UPDATE,
+    GIT_LABEL,
+    GIT_COVER_LETTER_KIND,
+    GIT_STATUS_OPEN,
+    GIT_STATUS_DRAFT,
+    GIT_STATUS_CLOSED,
+    GIT_STATUS_COMPLETE,
+    COMMENT,
+  ]
   let deleteLoadKey = ""
   let latestDeleteSeen = 0
+
+  const hydrateRepoDeleteEvents = async ({
+    relays,
+    since,
+    signal,
+  }: {
+    relays: string[]
+    since: number
+    signal?: AbortSignal
+  }) => {
+    if (relays.length === 0) return []
+
+    return await request({
+      relays,
+      autoClose: true,
+      threshold: 0.5,
+      signal,
+      filters: [
+        {
+          kinds: [DELETE],
+          "#k": deleteKinds.map(String),
+          since,
+        },
+      ],
+      onEvent: event => {
+        if (!repository.getEvent(event.id)) {
+          repository.publish(event as TrustedEvent)
+        }
+        if (event.created_at > latestDeleteSeen) {
+          latestDeleteSeen = event.created_at
+        }
+      },
+    }).catch(() => [])
+  }
+
   $effect(() => {
     const relays = $repoRelaysStore || []
     if (relays.length === 0 || !repoAddress) return
@@ -1120,28 +1178,7 @@
     if (deleteLoadKey === key) return
     deleteLoadKey = key
     const controller = new AbortController()
-    request({
-      relays,
-      autoClose: true,
-      signal: controller.signal,
-      filters: [
-        {
-          kinds: [DELETE],
-          "#k": deleteKinds.map(String),
-          since,
-        },
-      ],
-      onEvent: event => {
-        const repoTag = getTagValue("repo", event.tags || [])
-        if (!repoTag || repoTag !== repoAddress) return
-        if (!repository.getEvent(event.id)) {
-          repository.publish(event as TrustedEvent)
-        }
-        if (event.created_at > latestDeleteSeen) {
-          latestDeleteSeen = event.created_at
-        }
-      },
-    })
+    void hydrateRepoDeleteEvents({relays, since, signal: controller.signal})
     return () => controller.abort()
   })
 
@@ -2308,6 +2345,7 @@
       repoEvent,
       repoName,
       repoRelays: relays,
+      repoAddresses: $repoAddressesStore,
       backPath: `/spaces/${encodedRelay}/git`,
       onClose: () => {
         suppressRelaysWarning = false

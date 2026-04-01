@@ -43,6 +43,8 @@
   let scrollParent: HTMLElement | null = $state(null)
 
   const patchId = $derived($page.params.patchid ?? "")
+  const isDeletedRepositoryEvent = (event?: TrustedEvent) =>
+    Boolean(event && (repository as any).isDeleted?.(event))
   const getFirstTagValue = (event: {tags?: string[][]} | undefined, tagName: string) =>
     event?.tags?.find(tag => tag[0] === tagName)?.[1] || ""
 
@@ -59,7 +61,9 @@
     )
   })
   const directEvent = $derived.by(() =>
-    directEventStore ? ($directEventStore?.[0] as TrustedEvent | undefined) : undefined,
+    directEventStore && !isDeletedRepositoryEvent($directEventStore?.[0] as TrustedEvent | undefined)
+      ? ($directEventStore?.[0] as TrustedEvent | undefined)
+      : undefined,
   )
   const directPatchEvent = $derived.by(() =>
     directEvent && directEvent.kind === 1617 ? (directEvent as PatchEvent) : undefined,
@@ -82,7 +86,9 @@
     )
   })
   const updateRootEvent = $derived.by(() =>
-    updateRootEventStore ? ($updateRootEventStore?.[0] as TrustedEvent | undefined) : undefined,
+    updateRootEventStore && !isDeletedRepositoryEvent($updateRootEventStore?.[0] as TrustedEvent | undefined)
+      ? ($updateRootEventStore?.[0] as TrustedEvent | undefined)
+      : undefined,
   )
   const updateRootPrEvent = $derived.by(() => {
     if (!updateRootId) return undefined
@@ -130,8 +136,12 @@
       filters: [{ids: [patchId]}],
     }).catch(() => [] as TrustedEvent[])
     const primaryEvent =
-      primaryEvents.find(event => event.id === patchId) ||
-      (repository.getEvent(patchId) as TrustedEvent | undefined)
+      primaryEvents.find(event => event.id === patchId && !isDeletedRepositoryEvent(event)) ||
+      (() => {
+        const event = repository.getEvent(patchId) as TrustedEvent | undefined
+
+        return isDeletedRepositoryEvent(event) ? undefined : event
+      })()
 
     const loadedEvent = primaryEvent
     if (loadedEvent?.kind === GIT_PULL_REQUEST_UPDATE) {

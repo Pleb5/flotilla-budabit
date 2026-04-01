@@ -48,6 +48,7 @@ import {
 } from "@welshman/app"
 import {isMobile} from "@lib/html"
 import type {IDBTable} from "@lib/indexeddb"
+import {isPersistedGitDeleteEvent} from "@app/util/storage-events"
 
 const kinds = {
   meta: [PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, MESSAGING_RELAYS, APP_DATA, ROOMS],
@@ -63,6 +64,7 @@ const rankEvent = (event: TrustedEvent) => {
   if (kinds.space.includes(event.kind)) return 7
   if (kinds.room.includes(event.kind)) return 6
   if (!isMobile && kinds.content.includes(event.kind)) return 5
+  if (isPersistedGitDeleteEvent(event)) return 4
   return 0
 }
 

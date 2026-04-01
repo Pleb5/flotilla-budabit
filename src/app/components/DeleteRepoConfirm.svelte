@@ -42,6 +42,7 @@
   import {detectVendorFromUrl, getGitServiceApiFromUrl, type GitVendor} from "@nostr-git/core/git"
   import {tokens as tokensStore, tryTokensForHost, getTokensForHost, type Token} from "@nostr-git/ui"
   import {getRepoAnnouncementRelays} from "@lib/budabit/state"
+  import {buildRepoOwnedDeleteFilters, getRepoDeleteAddresses} from "@lib/budabit/delete"
   import type {Repo} from "@nostr-git/ui"
 
   type Props = {
@@ -49,11 +50,20 @@
     repoEvent: RepoAnnouncementEvent
     repoName: string
     repoRelays: string[]
+    repoAddresses?: string[]
     backPath: string
     onClose?: () => void
   }
 
-  const {repoClass, repoEvent, repoName, repoRelays, backPath, onClose}: Props = $props()
+  const {
+    repoClass,
+    repoEvent,
+    repoName,
+    repoRelays,
+    repoAddresses = [],
+    backPath,
+    onClose,
+  }: Props = $props()
 
   type RemoteTarget = {
     id: string
@@ -590,29 +600,13 @@
 
     try {
       const repoAddress = Address.fromEvent(repoEvent).toString()
+      const deleteRepoAddresses = getRepoDeleteAddresses(repoAddresses, repoAddress)
       const relays = getRepoAnnouncementRelays(repoRelays)
-
-      const filters = [
-        {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey!], "#d": [repoName]},
-        {kinds: [GIT_REPO_STATE], authors: [$pubkey!], "#d": [repoName]},
-        {
-          kinds: [
-            GIT_PATCH,
-            GIT_STACK,
-            GIT_MERGE_METADATA,
-            GIT_CONFLICT_METADATA,
-            GIT_ISSUE,
-            GIT_PULL_REQUEST,
-            GIT_PULL_REQUEST_UPDATE,
-            GIT_STATUS_OPEN,
-            GIT_STATUS_APPLIED,
-            GIT_STATUS_CLOSED,
-            GIT_STATUS_DRAFT,
-          ],
-          authors: [$pubkey!],
-          "#a": [repoAddress],
-        },
-      ] as any[]
+      const filters = buildRepoOwnedDeleteFilters({
+        pubkey: $pubkey!,
+        repoName,
+        repoAddresses: deleteRepoAddresses,
+      })
 
       if (relays.length > 0) {
         await load({relays, filters}).catch(() => {})

@@ -60,6 +60,8 @@
 
   const issueId = $page.params.issueid
   const GIT_COVER_LETTER_KIND = 1624
+  const isDeletedRepositoryEvent = (event?: {id?: string}) =>
+    Boolean(event && (repository as any).isDeleted?.(event))
   const getIssueRepoAddress = (event?: {tags?: string[][]}) =>
     (event?.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] || ""
   
@@ -74,7 +76,8 @@
   })
   const directIssueEvent = $derived.by(() => {
     const event = directIssueEventStore ? $directIssueEventStore?.[0] : undefined
-    return event?.kind === GIT_ISSUE ? (event as any) : undefined
+    if (!event || isDeletedRepositoryEvent(event as any)) return undefined
+    return event.kind === GIT_ISSUE ? (event as any) : undefined
   })
   const issueEvent = $derived.by(
     () => repoClass.issues.find(i => i.id === issueId) || (directIssueEvent as any),

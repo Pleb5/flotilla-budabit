@@ -1,11 +1,15 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
 const mockPublishThunk = vi.fn((_opts?: unknown) => ({complete: Promise.resolve()}))
+const mockPublishDelete = vi.fn((_opts?: unknown) => ({complete: Promise.resolve()}))
+const mockLoad = vi.fn().mockResolvedValue(undefined)
+
 vi.mock("@welshman/app", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/app")>()
   return {
     ...actual,
     publishThunk: (opts?: unknown) => mockPublishThunk(opts),
+    abortThunk: vi.fn(),
     repository: {...actual.repository, query: vi.fn(() => [])},
   }
 })
@@ -25,16 +29,20 @@ vi.mock("@welshman/router", async importOriginal => {
 
 vi.mock("@welshman/net", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/net")>()
-  return {...actual, load: vi.fn().mockResolvedValue(undefined)}
+  return {...actual, load: (opts?: unknown) => mockLoad(opts)}
 })
 
 vi.mock("@app/core/commands", () => ({
-  publishDelete: vi.fn(() => ({complete: Promise.resolve()})),
+  publishDelete: (opts?: unknown) => mockPublishDelete(opts),
 }))
 
 describe("budabit commands", () => {
   beforeEach(() => {
     mockPublishThunk.mockClear()
+    mockPublishDelete.mockReset()
+    mockPublishDelete.mockReturnValue({complete: Promise.resolve()})
+    mockLoad.mockReset()
+    mockLoad.mockResolvedValue(undefined)
   })
 
   describe("publishEvent", () => {
@@ -133,6 +141,94 @@ describe("budabit commands", () => {
       const result = await deleteIssueWithLabels({issue})
 
       expect(result).toEqual({labelsDeleted: 0})
+    })
+
+    it("reports progress and waits for issue and label delete acknowledgements", async () => {
+      const {deleteIssueWithLabels} = await import("./commands")
+      const issue = {
+        id: "i1",
+        kind: 1621,
+        pubkey: "a".repeat(64),
+        tags: [],
+        content: "",
+        created_at: 0,
+        sig: "",
+      } as any
+      const labelEvent = {
+        id: "l1",
+        kind: 1985,
+        pubkey: issue.pubkey,
+        tags: [["e", issue.id]],
+        content: "",
+        created_at: 0,
+        sig: "",
+      } as any
+
+      const progress: Array<{label: string; completed: number; total: number; current?: string}> =
+        []
+      const app = await import("@welshman/app")
+      vi.mocked(app.repository.query).mockReturnValue([labelEvent] as any)
+
+      const result = await deleteIssueWithLabels({
+        issue,
+        relays: ["wss://relay.example.com"],
+        onProgress: next => progress.push(next),
+      })
+
+      expect(progress[0]).toEqual({
+        label: "Loading author labels...",
+        completed: 0,
+        total: 1,
+        current: "issue",
+      })
+
+      expect(result).toEqual({labelsDeleted: 1})
+      expect(mockPublishDelete).toHaveBeenCalledTimes(2)
+      expect(progress).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Waiting for relay acknowledgements...",
+            total: 2,
+            current: "issue",
+          }),
+          expect.objectContaining({
+            label: "Waiting for relay acknowledgements...",
+            total: 2,
+            current: "label",
+          }),
+          expect.objectContaining({label: "Delete requests acknowledged.", completed: 2, total: 2}),
+        ]),
+      )
+    })
+  })
+
+  describe("deletePatchOrPullRequestWithRelated", () => {
+    it("aborts while waiting for relay acknowledgements", async () => {
+      const {deletePatchOrPullRequestWithRelated} = await import("./commands")
+      const root = {
+        id: "pr1",
+        kind: 1618,
+        pubkey: "a".repeat(64),
+        tags: [],
+        content: "",
+        created_at: 0,
+        sig: "",
+      } as any
+
+      mockPublishDelete.mockImplementation(() => ({
+        complete: new Promise<void>(() => {}),
+      }))
+
+      const controller = new AbortController()
+      const deletion = deletePatchOrPullRequestWithRelated({
+        root,
+        relays: ["wss://relay.example.com"],
+        signal: controller.signal,
+      })
+
+      controller.abort()
+
+      await expect(deletion).rejects.toMatchObject({name: "AbortError"})
     })
   })
 })

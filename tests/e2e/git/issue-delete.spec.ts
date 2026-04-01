@@ -119,5 +119,11 @@ test.describe("Issue Deletion", () => {
       1,
       15000,
     )
+
+    await page.reload()
+    await repoDetail.goToIssues()
+    await page.waitForTimeout(1000)
+
+    await expect(page.getByRole("link", {name: issueTitle}).first()).toHaveCount(0)
   })
 })

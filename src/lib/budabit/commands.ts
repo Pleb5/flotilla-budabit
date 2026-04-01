@@ -7,7 +7,7 @@ import type {
   GraspSetEvent,
 } from "@nostr-git/core/events"
 import {buildRoleLabelEvent} from "./labels"
-import {publishThunk, repository} from "@welshman/app"
+import {abortThunk, publishThunk, repository} from "@welshman/app"
 import {load} from "@welshman/net"
 import {GIT_RELAYS} from "./state"
 import {Router} from "@welshman/router"
@@ -161,32 +161,173 @@ export const deleteRoleLabelEvent = ({
   protect?: boolean
 }) => publishDelete({event, relays, protect})
 
+export type DeleteProgress = {
+  label: string
+  completed: number
+  total: number
+  current?: string
+}
+
+type DeleteCallbacks = {
+  signal?: AbortSignal
+  onProgress?: (progress: DeleteProgress) => void
+}
+
+const createAbortError = () => new DOMException("Delete operation cancelled", "AbortError")
+
+const throwIfAborted = (signal?: AbortSignal) => {
+  if (signal?.aborted) {
+    throw createAbortError()
+  }
+}
+
+const awaitWithAbort = async <T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+  onAbort?: () => void,
+): Promise<T> => {
+  throwIfAborted(signal)
+
+  if (!signal) {
+    return await promise
+  }
+
+  return await new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      onAbort?.()
+      reject(createAbortError())
+    }
+
+    signal.addEventListener("abort", abort, {once: true})
+
+    promise.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort)
+    })
+  })
+}
+
+const reportDeleteProgress = (
+  onProgress: DeleteCallbacks["onProgress"],
+  progress: DeleteProgress,
+) => {
+  onProgress?.(progress)
+}
+
+const waitForDeletePublish = async (
+  thunk: {complete?: Promise<unknown>} | undefined,
+  signal?: AbortSignal,
+) => {
+  if (!thunk?.complete) return
+
+  await awaitWithAbort(thunk.complete, signal, () => abortThunk(thunk as any))
+}
+
+const getDeleteTargetLabel = (event: TrustedEvent, root: TrustedEvent) => {
+  if (event.id === root.id) {
+    return root.kind === GIT_PULL_REQUEST
+      ? "pull request"
+      : root.kind === GIT_PATCH
+        ? "patch"
+        : "issue"
+  }
+
+  if (event.kind === GIT_PULL_REQUEST_UPDATE) return "pull request update"
+  if (event.kind === COMMENT) return "comment"
+  if (event.kind === 1985) return "label"
+  if (
+    [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE].includes(event.kind)
+  ) {
+    return "status"
+  }
+  if (event.kind === GIT_PATCH) return "related patch"
+  return "event"
+}
+
+const deleteEventsSequentially = async ({
+  root,
+  events,
+  relays,
+  protect,
+  signal,
+  onProgress,
+}: {
+  root: TrustedEvent
+  events: TrustedEvent[]
+  relays: string[]
+  protect: boolean
+} & DeleteCallbacks) => {
+  let deletedEvents = 0
+
+  for (const event of events) {
+    throwIfAborted(signal)
+
+    reportDeleteProgress(onProgress, {
+      label: "Waiting for relay acknowledgements...",
+      completed: deletedEvents,
+      total: events.length,
+      current: getDeleteTargetLabel(event, root),
+    })
+
+    const thunk = publishDelete({
+      event,
+      relays,
+      protect: event.id === root.id ? protect : false,
+    })
+
+    await waitForDeletePublish(thunk, signal)
+    deletedEvents += 1
+
+    reportDeleteProgress(onProgress, {
+      label: "Delete requests acknowledged.",
+      completed: deletedEvents,
+      total: events.length,
+      current: getDeleteTargetLabel(event, root),
+    })
+  }
+
+  return deletedEvents
+}
+
 export const deleteIssueWithLabels = async ({
   issue,
   relays = [],
   protect = false,
+  signal,
+  onProgress,
 }: {
   issue: TrustedEvent
   relays?: string[]
   protect?: boolean
-}): Promise<{labelsDeleted: number}> => {
+} & DeleteCallbacks): Promise<{labelsDeleted: number}> => {
   if (!issue) return {labelsDeleted: 0}
   if (issue.kind !== 1621) return {labelsDeleted: 0}
 
   const merged = getScopedRelayUrls(relays)
 
-  publishDelete({event: issue, relays: merged, protect})
-
   if (!issue.id || !issue.pubkey || merged.length === 0) {
     return {labelsDeleted: 0}
   }
 
+  reportDeleteProgress(onProgress, {
+    label: "Loading author labels...",
+    completed: 0,
+    total: 1,
+    current: "issue",
+  })
+
+  throwIfAborted(signal)
+
   try {
-    await load({
-      relays: merged,
-      filters: [{kinds: [1985], "#e": [issue.id], authors: [issue.pubkey]}],
-    })
+    await awaitWithAbort(
+      load({
+        relays: merged,
+        filters: [{kinds: [1985], "#e": [issue.id], authors: [issue.pubkey]}],
+        signal,
+      }),
+      signal,
+    )
   } catch {
+    throwIfAborted(signal)
     // ignore label load errors; deletion can still proceed
   }
 
@@ -195,28 +336,29 @@ export const deleteIssueWithLabels = async ({
     {shouldSort: false},
   ) as TrustedEvent[]
 
-  for (const labelEvent of labelEvents) {
-    publishDelete({event: labelEvent, relays: merged, protect: false})
-  }
+  await deleteEventsSequentially({
+    root: issue,
+    events: [issue, ...labelEvents],
+    relays: merged,
+    protect,
+    signal,
+    onProgress,
+  })
 
   return {labelsDeleted: labelEvents.length}
-}
-
-const waitForDeletePublish = async (thunk: any) => {
-  if (thunk?.complete) {
-    await thunk.complete
-  }
 }
 
 export const deletePatchOrPullRequestWithRelated = async ({
   root,
   relays = [],
   protect = false,
+  signal,
+  onProgress,
 }: {
   root: TrustedEvent
   relays?: string[]
   protect?: boolean
-}): Promise<{deletedEvents: number; relatedDeleted: number}> => {
+} & DeleteCallbacks): Promise<{deletedEvents: number; relatedDeleted: number}> => {
   if (!root?.id) return {deletedEvents: 0, relatedDeleted: 0}
   if (![GIT_PATCH, GIT_PULL_REQUEST].includes(root.kind)) {
     return {deletedEvents: 0, relatedDeleted: 0}
@@ -227,6 +369,15 @@ export const deletePatchOrPullRequestWithRelated = async ({
   if (merged.length === 0) {
     return {deletedEvents: 0, relatedDeleted: 0}
   }
+
+  reportDeleteProgress(onProgress, {
+    label: "Loading related events...",
+    completed: 0,
+    total: 1,
+    current: root.kind === GIT_PULL_REQUEST ? "pull request" : "patch",
+  })
+
+  throwIfAborted(signal)
 
   const filters: Filter[] = [
     {
@@ -270,8 +421,9 @@ export const deletePatchOrPullRequestWithRelated = async ({
   }
 
   try {
-    await load({relays: merged, filters})
+    await awaitWithAbort(load({relays: merged, filters, signal}), signal)
   } catch {
+    throwIfAborted(signal)
     // pass
   }
 
@@ -285,16 +437,14 @@ export const deletePatchOrPullRequestWithRelated = async ({
     eventsToDelete.set(event.id, event)
   }
 
-  let deletedEvents = 0
-  for (const event of eventsToDelete.values()) {
-    const thunk = publishDelete({
-      event,
-      relays: merged,
-      protect: event.id === root.id ? protect : false,
-    })
-    await waitForDeletePublish(thunk)
-    deletedEvents += 1
-  }
+  const deletedEvents = await deleteEventsSequentially({
+    root,
+    events: Array.from(eventsToDelete.values()),
+    relays: merged,
+    protect,
+    signal,
+    onProgress,
+  })
 
   return {
     deletedEvents,

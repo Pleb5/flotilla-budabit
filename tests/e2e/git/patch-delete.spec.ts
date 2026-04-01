@@ -115,5 +115,10 @@ test.describe("Patch/PR Deletion", () => {
       1,
       15000,
     )
+
+    await page.reload()
+    await page.waitForTimeout(1000)
+
+    await expect(page.getByText(prTitle, {exact: false})).toHaveCount(0)
   })
 })

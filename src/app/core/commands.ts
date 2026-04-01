@@ -722,8 +722,55 @@ export const makeDelete = ({protect, event, tags = []}: DeleteParams) => {
   return makeEvent(DELETE, {tags: uniqTags(thisTags)})
 }
 
-export const publishDelete = ({relays, ...params}: DeleteParams & {relays: string[]}) =>
-  publishThunk({event: makeDelete(params), relays})
+const logDeleteDebug = ({
+  deleteEvent,
+  targetEvent,
+  relays,
+}: {
+  deleteEvent: TrustedEvent
+  targetEvent: TrustedEvent
+  relays: string[]
+}) => {
+  const targetAddress = (() => {
+    try {
+      return getAddress(targetEvent)
+    } catch {
+      return ""
+    }
+  })()
+
+  console.info("[budabit][delete-debug]", {
+    relays,
+    deleteEvent: {
+      id: deleteEvent.id,
+      kind: deleteEvent.kind,
+      pubkey: deleteEvent.pubkey,
+      created_at: deleteEvent.created_at,
+      tags: deleteEvent.tags,
+    },
+    targetEvent: {
+      id: targetEvent.id,
+      kind: targetEvent.kind,
+      pubkey: targetEvent.pubkey,
+      created_at: targetEvent.created_at,
+      address: targetAddress,
+      tags: targetEvent.tags,
+    },
+    targetDeletedLocally: (repository as any).isDeleted?.(targetEvent) ?? false,
+  })
+}
+
+export const publishDelete = ({relays, ...params}: DeleteParams & {relays: string[]}) => {
+  const thunk = publishThunk({event: makeDelete(params), relays})
+
+  logDeleteDebug({
+    deleteEvent: thunk.event as TrustedEvent,
+    targetEvent: params.event,
+    relays,
+  })
+
+  return thunk
+}
 
 const sanitizeDeleteRelays = (relays: string[]) =>
   uniq(
