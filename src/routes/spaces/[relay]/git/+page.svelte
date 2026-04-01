@@ -183,6 +183,24 @@
     })
   }
 
+  const prioritizeFreshRepoCards = <T extends {first?: RepoAnnouncementEvent | null}>(cards: T[]) => {
+    if (!Array.isArray(cards) || cards.length < 2) return cards || []
+
+    const freshCards: T[] = []
+    const otherCards: T[] = []
+
+    for (const card of cards) {
+      const event = card?.first
+      if (event && repoHasNotifications(event)) {
+        freshCards.push(card)
+      } else {
+        otherCards.push(card)
+      }
+    }
+
+    return [...freshCards, ...otherCards]
+  }
+
   const isDeletedRepoAnnouncement = (event?: {tags?: string[][]} | null) =>
     (event?.tags || []).some(tag => tag[0] === "deleted")
 
@@ -1161,6 +1179,9 @@
   // Store for account search (naddr/npub) repo cards
   let accountSearchRepoCards = $state<any[]>([])
   let accountSearchCardsComputeTimer: ReturnType<typeof setTimeout> | null = null
+  const sortedAccountSearchRepoCards = $derived.by(() =>
+    prioritizeFreshRepoCards(accountSearchRepoCards),
+  )
 
   // Update account search repo cards
   $effect(() => {
@@ -1205,6 +1226,7 @@
   let cachedCards: any[] = []
   let cachedCardsKey = ""
   let cardsComputeTimer: ReturnType<typeof setTimeout> | null = null
+  const sortedRepoCards = $derived.by(() => prioritizeFreshRepoCards($repositoriesStore as any[]))
   
   // Update repositoriesStore whenever repos change
   // Uses debouncing to wait for all repos to load before showing cards
@@ -1924,7 +1946,7 @@
       {:else if accountSearch.mode === "npub" && accountSearch.invalid}
         <p class="text-sm text-muted-foreground">Invalid npub.</p>
       {:else if accountSearch.mode === "naddr" && !matchedNaddrRepo}
-        {#if accountSearchRepoCards.length > 0}
+        {#if sortedAccountSearchRepoCards.length > 0}
           <p class="text-sm text-muted-foreground">
             Repository not found, but here are other repositories we found from this account.
           </p>
@@ -1941,9 +1963,9 @@
         <p class="text-sm text-muted-foreground">Repositories published by this account.</p>
       {/if}
 
-      {#if accountSearchRepoCards.length > 0}
+      {#if sortedAccountSearchRepoCards.length > 0}
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {#each accountSearchRepoCards as g, i (getRepoCardStableKey(g))}
+          {#each sortedAccountSearchRepoCards as g, i (getRepoCardStableKey(g))}
           <div
             class="rounded-md border border-border bg-card p-3"
             in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
@@ -2025,9 +2047,9 @@
           No bookmarked repositories found.
         {/if}
       </p>
-    {:else if $repositoriesStore.length > 0}
+    {:else if sortedRepoCards.length > 0}
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each $repositoriesStore as g, i (getRepoCardStableKey(g))}
+        {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
           {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
           {@const taggedMaintainers = g.taggedMaintainers ?? []}
           <div class="rounded-md border border-border bg-card p-3">
