@@ -91,6 +91,11 @@
   import {makeGitPath} from "@src/lib/budabit"
   import {gitSelectedTab, type GitTab} from "@app/util/git-tabs"
   import {
+    buildBookmarkRepoFilters,
+    buildBookmarkRepoLoadKey,
+    matchBookmarkedRepoEvents,
+  } from "@src/lib/budabit/bookmarks"
+  import {
     type BranchChange,
     diffBranchHeads,
     overlayLatestRepoStates,
@@ -355,24 +360,24 @@
     if (!hasBookmarkedAddresses) return undefined
 
     const addresses = toBookmarkAddresses(normalizeBookmarks($bookmarksStore))
-    if (addresses.length === 0) return undefined
+    const filters = buildBookmarkRepoFilters(addresses)
+    if (filters.length === 0) return undefined
 
-    const authors = addresses.map(b => b.author)
-    const identifiers = addresses.map(b => b.identifier)
-    const relayHints = Array.from(
-      new Set(addresses.map(b => b.relayHint).filter((hint): hint is string => Boolean(hint))),
-    )
+    const loadKey = buildBookmarkRepoLoadKey(addresses)
 
-    const repoFilter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors, "#d": identifiers}
-    const loadKey = `${authors.join(",")}|${identifiers.join(",")}`
+    return _derived(deriveEventsDesc(deriveEventsById({repository, filters})), events => {
+      const matched = matchBookmarkedRepoEvents({
+        bookmarks: addresses,
+        events: events as RepoAnnouncementEvent[],
+        getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+      })
 
-    return _derived(deriveEventsDesc(deriveEventsById({repository, filters: [repoFilter]})), events => {
-      if (events.length !== identifiers.length) {
+      if (matched.length !== addresses.length) {
         if (!attemptedBookmarkLoads.has(loadKey)) {
           attemptedBookmarkLoads.add(loadKey)
           const relaysToQuery = repoAnnouncementRelays.length > 0 ? repoAnnouncementRelays : GIT_RELAYS
           if (relaysToQuery.length > 0) {
-            load({relays: relaysToQuery, filters: [repoFilter]})
+            load({relays: relaysToQuery, filters})
           } else {
             loadRepoAnnouncements()
           }
@@ -389,38 +394,13 @@
     const addresses = toBookmarkAddresses(normalizeBookmarks($bookmarksStore))
     if (addresses.length === 0) return []
 
-    return ($repos as any[]).map((repo: RepoAnnouncementEvent) => {
-      let addressString = ""
-      try {
-        const address = Address.fromEvent(repo)
-        addressString = address.toString()
-      } catch (e) {
-        // Fallback: manually construct address if Address.fromEvent fails
-        const dTag = (repo.tags || []).find((t: string[]) => t[0] === "d")?.[1]
-        if (dTag && repo.pubkey && repo.kind) {
-          addressString = `${repo.kind}:${repo.pubkey}:${dTag}`
-          // Manually constructed address
-        } else {
-          console.error(`[loadedBookmarkedRepos] Failed to create address for event ${repo.id}:`, e)
-        }
-      }
-
-      if (addressString) {
-        const latest = repository.getEvent(addressString) as RepoAnnouncementEvent | undefined
-        if (latest && isDeletedRepoAnnouncement(latest)) {
-          return null
-        }
-      }
-
-      const bookmarkInfo = addresses.find(b => b.address === addressString)
-      const relayHintFromEvent = Router.get().getRelaysForPubkey(repo.pubkey)?.[0]
-      const hint = bookmarkInfo?.relayHint || relayHintFromEvent
-
-      return {address: addressString, event: repo, relayHint: hint}
-    }).filter(
-      (item): item is {address: string; event: RepoAnnouncementEvent; relayHint: string} =>
-        Boolean(item),
-    )
+    return matchBookmarkedRepoEvents({
+      bookmarks: addresses,
+      events: $repos as RepoAnnouncementEvent[],
+      getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+      isDeleted: isDeletedRepoAnnouncement,
+      getFallbackRelayHint: event => Router.get().getRelaysForPubkey(event.pubkey)?.[0] || "",
+    })
   })
 
   const myReposEvents = $derived.by(() => {
