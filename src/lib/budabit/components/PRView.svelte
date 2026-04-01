@@ -676,6 +676,122 @@
     }
   }
 
+  const forceRefreshTargetBranchForPR = async (
+    phase: "analysis" | "merge",
+    repoId: string,
+    cloneUrls: string[],
+  ): Promise<{ok: boolean; error?: string}> => {
+    setPrPhaseProgress(phase, `Refreshing ${prTargetBranch} from remote...`)
+    const progressTimer = startCloneProgressMirror(phase)
+    try {
+      const refreshResult = await repoClass.workerManager.smartInitializeRepo({
+        repoId,
+        cloneUrls,
+        branch: prTargetBranch,
+        forceUpdate: true,
+        timeoutMs: 90000,
+      })
+      if (!refreshResult?.success) {
+        return {
+          ok: false,
+          error: refreshResult?.error || `Failed to refresh target branch ${prTargetBranch}`,
+        }
+      }
+      return {ok: true}
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? `Failed to refresh target branch ${prTargetBranch}: ${error.message}`
+            : `Failed to refresh target branch ${prTargetBranch}`,
+      }
+    } finally {
+      clearInterval(progressTimer)
+    }
+  }
+
+  const finalizeTargetSync = async (
+    phase: "analysis" | "merge",
+    syncResult: any,
+    targetCloneUrls: string[],
+    allowRefresh = true,
+  ): Promise<PrSyncResult> => {
+    const verifyTargetSync = async () =>
+      await (repoClass.workerManager as any).syncWithRemote({
+        repoId: repoClass.key,
+        cloneUrls: targetCloneUrls,
+        branch: prTargetBranch,
+        requireRemoteSync: true,
+        requireTrackingRef: true,
+        preferredUrl: primaryTargetCloneUrl || undefined,
+      })
+
+    if (
+      allowRefresh &&
+      (!syncResult?.success || syncResult?.needsUpdate === true || syncResult?.synced !== true)
+    ) {
+      const refreshResult = await forceRefreshTargetBranchForPR(phase, repoClass.key, targetCloneUrls)
+      if (!refreshResult.ok) {
+        return {
+          ok: false,
+          error:
+            syncResult?.error ||
+            syncResult?.warning ||
+            refreshResult.error ||
+            `Failed to sync target branch ${prTargetBranch} before ${phase}`,
+        }
+      }
+
+      setPrPhaseProgress(phase, `Refresh complete, verifying ${prTargetBranch}...`)
+      try {
+        syncResult = await verifyTargetSync()
+      } catch (error) {
+        return {
+          ok: false,
+          error: getErrorText(error) || `Failed to sync target branch ${prTargetBranch}`,
+        }
+      }
+    }
+
+    if (!syncResult?.success) {
+      return {
+        ok: false,
+        error: syncResult?.error || `Failed to sync target branch ${prTargetBranch} before ${phase}`,
+      }
+    }
+
+    if (syncResult.branch && syncResult.branch !== prTargetBranch) {
+      return {
+        ok: false,
+        error: `Synced branch ${syncResult.branch}, but PR target is ${prTargetBranch}`,
+      }
+    }
+
+    if (syncResult?.needsUpdate === true) {
+      return {
+        ok: false,
+        error: `Target branch ${prTargetBranch} is still behind remote after sync`,
+      }
+    }
+
+    if (syncResult?.synced !== true) {
+      return {
+        ok: false,
+        error:
+          syncResult?.error ||
+          syncResult?.warning ||
+          `Target branch ${prTargetBranch} could not be synced with remote refs`,
+      }
+    }
+
+    const warning =
+      syncResult.warning || syncResult.synced === false
+        ? syncResult.warning || `Sync finished with local data only before ${phase}`
+        : null
+    return {ok: true, warning, usedUrl: syncResult.usedUrl}
+  }
+
   async function syncTargetBranchForPR(phase: "analysis" | "merge"): Promise<PrSyncResult> {
     if (!repoClass.key || !repoClass.workerManager) {
       return {ok: false, error: "Repository worker is not ready"}
@@ -685,6 +801,16 @@
     if (targetCloneUrls.length === 0) {
       return {ok: false, error: "Repository has no clone URLs to sync target branch"}
     }
+
+    const verifyTargetSync = async () =>
+      await (repoClass.workerManager as any).syncWithRemote({
+        repoId: repoClass.key,
+        cloneUrls: targetCloneUrls,
+        branch: prTargetBranch,
+        requireRemoteSync: true,
+        requireTrackingRef: true,
+        preferredUrl: primaryTargetCloneUrl || undefined,
+      })
 
     try {
       const cloned = await repoClass.workerManager
@@ -697,18 +823,30 @@
 
       let syncResult: any
       try {
-        syncResult = await (repoClass.workerManager as any).syncWithRemote({
-          repoId: repoClass.key,
-          cloneUrls: targetCloneUrls,
-          branch: prTargetBranch,
-          requireRemoteSync: true,
-          requireTrackingRef: true,
-          preferredUrl: primaryTargetCloneUrl || undefined,
-        })
+        syncResult = await verifyTargetSync()
       } catch (error) {
         const syncError = getErrorText(error)
         if (!isRepoNotClonedMessage(syncError)) {
-          return {ok: false, error: syncError || `Failed to sync target branch ${prTargetBranch}`}
+          const refreshResult = await forceRefreshTargetBranchForPR(
+            phase,
+            repoClass.key,
+            targetCloneUrls,
+          )
+          if (!refreshResult.ok) {
+            return {ok: false, error: syncError || refreshResult.error}
+          }
+
+          setPrPhaseProgress(phase, `Refresh complete, verifying ${prTargetBranch}...`)
+          try {
+            syncResult = await verifyTargetSync()
+          } catch (retryError) {
+            return {
+              ok: false,
+              error: getErrorText(retryError) || `Failed to sync target branch ${prTargetBranch}`,
+            }
+          }
+
+          return finalizeTargetSync(phase, syncResult, targetCloneUrls, false)
         }
 
         const cloneResult = await ensureRepoClonedForPR(phase, repoClass.key, targetCloneUrls)
@@ -716,14 +854,7 @@
 
         setPrPhaseProgress(phase, "Repository clone complete, syncing target branch...")
         try {
-          syncResult = await (repoClass.workerManager as any).syncWithRemote({
-            repoId: repoClass.key,
-            cloneUrls: targetCloneUrls,
-            branch: prTargetBranch,
-            requireRemoteSync: true,
-            requireTrackingRef: true,
-            preferredUrl: primaryTargetCloneUrl || undefined,
-          })
+          syncResult = await verifyTargetSync()
         } catch (retryError) {
           return {
             ok: false,
@@ -732,74 +863,7 @@
         }
       }
 
-      if (!syncResult?.success) {
-        return {
-          ok: false,
-          error: syncResult?.error || `Failed to sync target branch ${prTargetBranch} before ${phase}`,
-        }
-      }
-
-      if (syncResult.branch && syncResult.branch !== prTargetBranch) {
-        return {
-          ok: false,
-          error: `Synced branch ${syncResult.branch}, but PR target is ${prTargetBranch}`,
-        }
-      }
-
-      let effectiveSync = syncResult
-      if (syncResult.needsUpdate === true) {
-        try {
-          await repoClass.workerManager.resetRepoToRemote(repoClass.key, prTargetBranch)
-          effectiveSync = await (repoClass.workerManager as any).syncWithRemote({
-            repoId: repoClass.key,
-            cloneUrls: targetCloneUrls,
-            branch: prTargetBranch,
-            requireRemoteSync: true,
-            requireTrackingRef: true,
-            preferredUrl: primaryTargetCloneUrl || undefined,
-          })
-        } catch (error) {
-          return {
-            ok: false,
-            error:
-              error instanceof Error
-                ? `Target branch is stale and reset failed: ${error.message}`
-                : "Target branch is stale and reset failed",
-          }
-        }
-
-        if (!effectiveSync?.success) {
-          return {
-            ok: false,
-            error:
-              effectiveSync?.error ||
-              `Target branch remained stale after reset before ${phase}`,
-          }
-        }
-      }
-
-      if (effectiveSync?.needsUpdate === true) {
-        return {
-          ok: false,
-          error: `Target branch ${prTargetBranch} is still behind remote after sync`,
-        }
-      }
-
-      if (effectiveSync?.synced !== true) {
-        return {
-          ok: false,
-          error:
-            effectiveSync?.error ||
-            effectiveSync?.warning ||
-            `Target branch ${prTargetBranch} could not be synced with remote refs`,
-        }
-      }
-
-      const warning =
-        effectiveSync.warning || effectiveSync.synced === false
-          ? effectiveSync.warning || `Sync finished with local data only before ${phase}`
-          : null
-      return {ok: true, warning, usedUrl: effectiveSync.usedUrl}
+      return finalizeTargetSync(phase, syncResult, targetCloneUrls)
     } catch (error) {
       return {
         ok: false,
