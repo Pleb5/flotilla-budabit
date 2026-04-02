@@ -2572,7 +2572,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="flex flex-grow flex-col gap-2 overflow-auto p-4 sm:p-6 lg:p-8">
+<PageContent class="flex min-w-0 flex-grow flex-col gap-2 overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}

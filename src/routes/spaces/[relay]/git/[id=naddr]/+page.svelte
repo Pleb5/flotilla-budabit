@@ -85,11 +85,13 @@
   let repoInfoLoaded = $state(false)
   let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
   let commitLoadInProgress = $state(false)
+  let expandedRecentPatchIds = $state<Set<string>>(new Set())
   
   // Expandable sections state
   let showAllRelays = $state(false)
   let showAllBranches = $state(false)
   let showTaggedMaintainers = $state(false)
+  const RECENT_PATCH_PREVIEW_LIMIT = 150
   const normalizePubkey = (value: string | undefined | null): string => {
     if (!value) return ""
     if (/^[0-9a-f]{64}$/i.test(value)) return value
@@ -544,6 +546,32 @@
     return sortRecentActivity(items).slice(0, 3)
   })
 
+  function shouldClampRecentPatchTitle(title: string): boolean {
+    return title.replace(/\s+/g, " ").trim().length > RECENT_PATCH_PREVIEW_LIMIT
+  }
+
+  function getRecentPatchTitlePreview(title: string, expanded: boolean): string {
+    const normalizedTitle = title.replace(/\s+/g, " ").trim()
+
+    if (expanded || normalizedTitle.length <= RECENT_PATCH_PREVIEW_LIMIT) {
+      return normalizedTitle
+    }
+
+    return `${normalizedTitle.slice(0, RECENT_PATCH_PREVIEW_LIMIT).trimEnd()}...`
+  }
+
+  function toggleRecentPatchExpanded(id: string) {
+    const next = new Set(expandedRecentPatchIds)
+
+    if (next.has(id)) {
+      next.delete(id)
+    } else {
+      next.add(id)
+    }
+
+    expandedRecentPatchIds = next
+  }
+
   async function copyUrl(url: string) {
     try {
       await clip(url)
@@ -561,7 +589,7 @@
   <title>{repoClass.name || 'Repository'}</title>
 </svelte:head>
 
-<div class="relative flex flex-col gap-6 py-2">
+<div class="relative flex min-w-0 flex-col gap-6 py-2">
   {#if initialLoading}
     <div class="flex justify-center py-8">
       <Spinner />
@@ -570,7 +598,7 @@
     <!-- Stats Grid -->
     <div class="grid grid-cols-2 gap-4 md:grid-cols-4" transition:fade>
       {#each stats as stat}
-        <Card class="p-4 transition-shadow hover:shadow-md">
+        <Card class="min-w-0 p-4 transition-shadow hover:shadow-md">
           <div class="flex items-center gap-3">
             <div>
               <p class="text-sm text-muted-foreground">{stat.label}</p>
@@ -587,19 +615,19 @@
     <!-- Clone URL Section - Prominent Display -->
     {#if repoMetadata.cloneUrls.length > 0}
       <div transition:fade>
-        <Card class="p-6">
-          <h3 class="mb-3 text-lg font-semibold flex items-center gap-2">
+        <Card class="min-w-0 p-4 sm:p-6">
+          <h3 class="mb-3 flex items-center gap-2 text-lg font-semibold">
             <GitBranch class="h-5 w-5" />
             Clone Repository
           </h3>
           <div class="space-y-2">
-            {#each repoMetadata.cloneUrls as url, index}
+            {#each repoMetadata.cloneUrls as url}
               <button
                 type="button"
-                class="flex w-full items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 transition-all hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/50 active:scale-[0.99] cursor-pointer group"
+                class="group flex min-w-0 w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5 transition-all hover:border-gray-300 hover:bg-gray-100 active:scale-[0.99] dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-gray-600 dark:hover:bg-gray-700/50 sm:p-3"
                 title="Click to copy"
                 onclick={() => copyUrl(url)}>
-                <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-sm">{url}</code>
+                <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs sm:text-sm">{url}</code>
                 <div class="flex-shrink-0 p-1 rounded-md transition-colors group-hover:bg-gray-200 dark:group-hover:bg-gray-600">
                   {#if copiedUrl === url}
                     <Check class="h-4 w-4 text-green-600 dark:text-green-400" />
@@ -616,8 +644,8 @@
 
     <div class="grid gap-6 md:grid-cols-2" transition:fly>
       <!-- Repository Details -->
-      <Card class="p-6">
-        <div class="mb-4 flex items-center justify-between">
+      <Card class="min-w-0 p-4 sm:p-6">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 class="flex items-center gap-2 text-lg font-semibold">
             <GitCommit class="h-5 w-5" />
             Repo Information
@@ -658,7 +686,7 @@
               </div>
             {:else if lastCommit}
               <div class="border-t pt-3" transition:fade>
-                <div class="mb-2 flex items-start justify-between">
+                <div class="mb-2 flex items-start justify-between gap-3">
                   <span class="text-sm text-muted-foreground">Latest Commit</span>
                   <span class="rounded px-2 py-1 font-mono text-xs">
                     {truncateHash(lastCommit.oid)}
@@ -708,7 +736,7 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Effective Maintainers</span>
                 <div class="space-y-2">
                   {#each effectiveMaintainerPubkeys as maintainer}
-                    <div class="flex items-center gap-2 text-sm">
+                    <div class="flex min-w-0 items-center gap-2 text-sm">
                       <ProfileCircle
                         pubkey={maintainer}
                         url={relayUrl}
@@ -719,7 +747,7 @@
                         pubkey={maintainer}
                         url={relayUrl}
                         unstyled
-                        class="text-xs hover:underline"
+                        class="min-w-0 truncate text-xs hover:underline"
                       />
                     </div>
                   {/each}
@@ -738,7 +766,7 @@
                       <span class="block text-xs text-muted-foreground"
                         >Tagged maintainers (unverified)</span>
                       {#each unverifiedTaggedPubkeys as maintainer}
-                        <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                        <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                           <ProfileCircle
                             pubkey={maintainer}
                             url={relayUrl}
@@ -749,7 +777,7 @@
                             pubkey={maintainer}
                             url={relayUrl}
                             unstyled
-                            class="text-xs text-muted-foreground hover:underline"
+                            class="min-w-0 truncate text-xs text-muted-foreground hover:underline"
                           />
                         </div>
                       {/each}
@@ -776,9 +804,9 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Relays</span>
                 <div class="space-y-1">
                   {#each showAllRelays ? repoMetadata.relays : repoMetadata.relays.slice(0, 3) as relay}
-                    <div class="flex items-center gap-2 text-sm">
+                    <div class="flex min-w-0 items-center gap-2 text-sm">
                       <Globe class="h-3 w-3" />
-                      <span class="truncate">{relay}</span>
+                      <span class="min-w-0 truncate">{relay}</span>
                     </div>
                   {/each}
                   {#if repoMetadata.relays.length > 3}
@@ -834,7 +862,7 @@
 
       <!-- Activity Overview -->
       {#if recentIssues.length > 0 || recentPatches.length > 0}
-        <Card class="p-6">
+        <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <Eye class="h-5 w-5" />
             Recent Activity
@@ -846,10 +874,10 @@
                 <div class="space-y-2">
                   {#each recentIssues as issue}
                     <div
-                      class="flex items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
+                      class="flex min-w-0 items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
                       <CircleAlert class="mt-0.5 h-4 w-4 text-red-500" />
                       <div class="min-w-0 flex-1">
-                        <p class="truncate text-sm font-medium">
+                        <p class="break-words text-sm font-medium">
                           {issue.title}
                         </p>
                         <p class="text-xs text-muted-foreground">
@@ -867,13 +895,24 @@
                 <h4 class="mb-2 text-sm font-medium text-muted-foreground">Recent Patches</h4>
                 <div class="space-y-2">
                   {#each recentPatches as patch}
+                    {@const isExpanded = expandedRecentPatchIds.has(patch.id)}
+                    {@const shouldClamp = shouldClampRecentPatchTitle(patch.title)}
                     <div
-                      class="flex items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
+                      class="flex min-w-0 items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
                       <GitPullRequest class="mt-0.5 h-4 w-4 text-purple-500" />
                       <div class="min-w-0 flex-1">
-                        <p class="truncate text-sm font-medium">
-                          {patch.title}
+                        <p class="break-words text-sm font-medium">
+                          {getRecentPatchTitlePreview(patch.title, isExpanded)}
                         </p>
+                        {#if shouldClamp}
+                          <button
+                            type="button"
+                            class="mt-1 text-xs text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                            aria-expanded={isExpanded}
+                            onclick={() => toggleRecentPatchExpanded(patch.id)}>
+                            {isExpanded ? 'Show less' : 'Show more'}
+                          </button>
+                        {/if}
                         <p class="text-xs text-muted-foreground">
                           {formatDate(new Date(patch.activityAt * 1000))}
                         </p>
@@ -917,7 +956,7 @@
     <!-- README -->
     {#if readmeLoading}
       <div transition:slide>
-        <Card class="p-6">
+        <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
             README
@@ -933,12 +972,12 @@
       </div>
     {:else if renderedReadme}
       <div transition:slide>
-        <Card class="p-6">
+        <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
             README
           </h3>
-          <div class="prose max-w-2xl overflow-x-scroll bg-white dark:bg-zinc-900" in:fly>
+          <div class="prose max-w-full overflow-x-auto bg-white dark:bg-zinc-900" in:fly>
             {@html renderedReadme}
             <style>
               .prose {
