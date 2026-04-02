@@ -226,6 +226,7 @@
         {#each installed as item (item.id)}
           {@const widgetDisplay = settings.widgetDisplay || {}}
           {@const displayLocation = widgetDisplay[item.id]?.location || "modal"}
+          {@const manifestUrl = settings.manifestUrls?.[item.id]}
           <ExtensionCard
             manifest={item.manifest}
             type={item.type}
@@ -233,7 +234,8 @@
             ontoggle={({enabled}) => toggle(item.id, enabled)}
             onuninstall={() => onUninstall(item.id)}
             displayLocation={displayLocation}
-            onDisplayLocationChange={(loc) => setWidgetDisplayConfig(item.id, {location: loc})} />
+            onDisplayLocationChange={(loc) => setWidgetDisplayConfig(item.id, {location: loc})}
+            manifestUrl={manifestUrl} />
         {/each}
       </div>
     {:else}

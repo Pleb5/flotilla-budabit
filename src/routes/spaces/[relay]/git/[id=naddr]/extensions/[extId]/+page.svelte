@@ -93,6 +93,15 @@
   let ready = $state(false)
   let loading = $state(true)
   let error = $state<string | null>(null)
+  let retryCount = $state(0)
+  let iframeSrc = $state<string | undefined>(undefined)
+
+  // Initialize iframe src when entrypoint is available
+  $effect(() => {
+    if (extEntrypoint && !iframeSrc) {
+      iframeSrc = extEntrypoint
+    }
+  })
 
   function buildRepoContext(): RepoContext | undefined {
     if (!repoClass.repoEvent?.pubkey || !repoClass.name) return undefined
@@ -176,9 +185,29 @@
       extInstance = ext
       bridge = b
       ready = true
+      retryCount = 0
       // Context will be sent reactively when repo data is available
     } catch (e) {
       error = `Failed to initialize extension: ${String(e)}`
+      loading = false
+    }
+  }
+
+  function handleIframeError(): void {
+    loading = false
+    error = `Failed to load ${extName}. The extension server may be temporarily unavailable.`
+  }
+
+  function retryLoad(): void {
+    error = null
+    loading = true
+    retryCount++
+    // Force iframe reload by updating src with cache buster
+    if (extEntrypoint) {
+      const url = new URL(extEntrypoint)
+      url.searchParams.set('_retry', retryCount.toString())
+      url.searchParams.set('_t', Date.now().toString())
+      iframeSrc = url.toString()
     }
   }
 
@@ -255,7 +284,12 @@
   <div class="extension-panel">
     {#if error}
       <div class="extension-error">
-        {error}
+        <div class="flex items-center justify-between gap-4">
+          <span class="flex-1">{error}</span>
+          <Button size="sm" onclick={retryLoad}>
+            Retry
+          </Button>
+        </div>
       </div>
     {/if}
 
@@ -267,12 +301,13 @@
 
     <iframe
       bind:this={iframeEl}
-      src={extEntrypoint}
+      src={iframeSrc}
       title={extName}
       class="extension-iframe"
       class:loading={loading}
       sandbox="allow-scripts allow-same-origin allow-forms"
       onload={handleIframeLoad}
+      onerror={handleIframeError}
     ></iframe>
   </div>
 {/if}

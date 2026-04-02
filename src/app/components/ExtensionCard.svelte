@@ -4,6 +4,9 @@
   import ProfileCircle from "./ProfileCircle.svelte"
   import ProfileLink from "./ProfileLink.svelte"
   import type {ExtensionManifest, SmartWidgetEvent, WidgetDisplayLocation} from "@app/extensions/types"
+  import {checkForExtensionUpdate, refreshExtension} from "@app/core/commands"
+  import {pushToast} from "@app/util/toast"
+  import {RefreshCw} from "@lucide/svelte"
 
   type Props = {
     manifest: ExtensionManifest | SmartWidgetEvent
@@ -13,9 +16,10 @@
     onuninstall?: () => void
     displayLocation?: WidgetDisplayLocation
     onDisplayLocationChange?: (location: WidgetDisplayLocation) => void
+    manifestUrl?: string // URL to check for updates (NIP-89 extensions only)
   }
 
-  const {manifest, enabled = false, type = "nip89", ontoggle, onuninstall, displayLocation = "modal", onDisplayLocationChange}: Props = $props()
+  const {manifest, enabled = false, type = "nip89", ontoggle, onuninstall, displayLocation = "modal", onDisplayLocationChange, manifestUrl}: Props = $props()
 
   const onToggle = (value: boolean) => ontoggle?.({enabled: value})
 
@@ -43,6 +47,40 @@
       : undefined
     : extension?.description
   const permissions = isWidget ? widget?.permissions : extension?.permissions
+
+  // Update checking state
+  let checkingUpdate = $state(false)
+  let updateAvailable = $state<ExtensionManifest | null>(null)
+  let refreshing = $state(false)
+
+  async function checkUpdate() {
+    if (!manifestUrl || !extension?.id || isWidget) return
+    
+    checkingUpdate = true
+    try {
+      const newManifest = await checkForExtensionUpdate(extension.id, manifestUrl)
+      updateAvailable = newManifest
+    } catch (e) {
+      console.error('Failed to check for update:', e)
+    } finally {
+      checkingUpdate = false
+    }
+  }
+
+  async function handleRefresh() {
+    if (!updateAvailable || !extension?.id) return
+    
+    refreshing = true
+    try {
+      await refreshExtension(extension.id, updateAvailable)
+      pushToast({theme: "success", message: `Updated ${extension.name} to v${updateAvailable.version}`})
+      updateAvailable = null
+    } catch (e: any) {
+      pushToast({theme: "error", message: e?.message || "Failed to refresh extension"})
+    } finally {
+      refreshing = false
+    }
+  }
 </script>
 
 <div class="flex w-full flex-col gap-2 rounded border border-base-300 bg-base-100 p-4 shadow-sm">
@@ -55,9 +93,30 @@
       {#if version}
         <span class="text-xs opacity-70">v{version}</span>
       {/if}
+      {#if updateAvailable}
+        <span class="badge badge-warning badge-sm">Update Available: v{updateAvailable.version}</span>
+      {/if}
       <span class="badge badge-sm">{isWidget ? "Smart Widget" : "Extension"}</span>
     </div>
     <div class="ml-auto flex items-center gap-3">
+      {#if !isWidget && manifestUrl}
+        {#if updateAvailable}
+          <button 
+            class="btn btn-warning btn-xs" 
+            onclick={handleRefresh}
+            disabled={refreshing}>
+            {refreshing ? "Updating..." : "Update Now"}
+          </button>
+        {:else}
+          <button 
+            class="btn btn-ghost btn-xs" 
+            onclick={checkUpdate}
+            disabled={checkingUpdate}
+            title="Check for updates">
+            <RefreshCw size={14} class={checkingUpdate ? "animate-spin" : ""} />
+          </button>
+        {/if}
+      {/if}
       <label class="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
