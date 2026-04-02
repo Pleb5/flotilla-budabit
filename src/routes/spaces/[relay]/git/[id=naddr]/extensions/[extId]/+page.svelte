@@ -11,6 +11,7 @@
   import type {Repo} from "@nostr-git/ui"
   import type {LoadedWidgetExtension, ExtensionManifest, SmartWidgetEvent, RepoContext} from "@app/extensions/types"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
 
   const repoClass = getContext<Repo>(REPO_KEY)
 
@@ -90,6 +91,7 @@
   let bridge: ExtensionBridge | null = $state(null)
   let extInstance: LoadedWidgetExtension | null = $state(null)
   let ready = $state(false)
+  let loading = $state(true)
   let error = $state<string | null>(null)
 
   function buildRepoContext(): RepoContext | undefined {
@@ -154,6 +156,7 @@
 
   function handleIframeLoad(): void {
     error = null
+    loading = false
 
     if (!iframeEl?.contentWindow) {
       error = "Extension iframe not available."
@@ -256,11 +259,18 @@
       </div>
     {/if}
 
+    {#if loading}
+      <div class="extension-loading">
+        <Spinner loading={true}>Loading {extName}...</Spinner>
+      </div>
+    {/if}
+
     <iframe
       bind:this={iframeEl}
       src={extEntrypoint}
       title={extName}
       class="extension-iframe"
+      class:loading={loading}
       sandbox="allow-scripts allow-same-origin allow-forms"
       onload={handleIframeLoad}
     ></iframe>
@@ -274,6 +284,8 @@
     border-radius: 12px;
     overflow: hidden;
     background: var(--card, #fff);
+    position: relative;
+    min-height: 600px;
   }
 
   .extension-error {
@@ -285,10 +297,36 @@
     word-break: break-word;
   }
 
+  .extension-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(4px);
+    z-index: 10;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .extension-loading {
+      background: rgba(0, 0, 0, 0.85);
+    }
+  }
+
   .extension-iframe {
     width: 100%;
     height: 600px;
     border: none;
     display: block;
+    opacity: 0;
+    transition: opacity 0.3s ease-in;
+  }
+
+  .extension-iframe:not(.loading) {
+    opacity: 1;
   }
 </style>

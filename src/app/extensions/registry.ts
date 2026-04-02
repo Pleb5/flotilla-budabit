@@ -13,6 +13,22 @@ import {getRepoAddress} from "./types"
 const getTag = (tags: string[][], name: string) => tags.find(t => t[0] === name)
 const getTags = (tags: string[][], name: string) => tags.filter(t => t[0] === name)
 
+/**
+ * Add cache-busting parameter to URL to force fresh content.
+ * Preserves existing query parameters and hash fragments.
+ */
+const addCacheBuster = (url: string): string => {
+  try {
+    const urlObj = new URL(url)
+    urlObj.searchParams.set("_t", Date.now().toString())
+    return urlObj.toString()
+  } catch {
+    // If URL parsing fails, append cache buster as fallback
+    const separator = url.includes("?") ? "&" : "?"
+    return `${url}${separator}_t=${Date.now()}`
+  }
+}
+
 export const parseSmartWidget = (event: any): SmartWidgetEvent => {
   if (!event || event.kind !== 30033 || !Array.isArray(event.tags)) {
     throw new Error("Invalid smart widget event: wrong kind or missing tags")
@@ -187,7 +203,15 @@ class ExtensionRegistry {
    * Fetch and validate an extension manifest before registering.
    */
   async load(manifestUrl: string): Promise<ExtensionManifest> {
-    const res = await fetch(manifestUrl)
+    // Add cache-busting parameter and set no-cache headers to ensure fresh manifest
+    const cacheBustedUrl = addCacheBuster(manifestUrl)
+    const res = await fetch(cacheBustedUrl, {
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+      },
+    })
     if (!res.ok) {
       throw new Error(`Failed to fetch manifest: ${res.status}`)
     }
@@ -291,7 +315,8 @@ class ExtensionRegistry {
       }
 
       const iframe = document.createElement("iframe")
-      iframe.src = ext.manifest.entrypoint
+      // Add cache-busting parameter to ensure fresh extension content
+      iframe.src = addCacheBuster(ext.manifest.entrypoint)
       iframe.sandbox.add("allow-scripts", "allow-same-origin")
       iframe.classList.add("extension-frame")
 
@@ -338,7 +363,8 @@ class ExtensionRegistry {
     if (existing?.iframe) return existing
 
     const iframe = document.createElement("iframe")
-    iframe.src = ext.widget.appUrl
+    // Add cache-busting parameter to ensure fresh widget content
+    iframe.src = addCacheBuster(ext.widget.appUrl)
     iframe.sandbox.add("allow-scripts", "allow-same-origin")
     iframe.classList.add("extension-frame")
 
