@@ -137,6 +137,31 @@ export type Room = RoomMeta & {url: string; id: string}
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
+const isHexPubkey = (value: string) => /^[0-9a-f]{64}$/i.test(value)
+
+const normalizePubkey = (value: string) => {
+  const trimmed = (value || "").trim()
+
+  if (!trimmed) return ""
+  if (isHexPubkey(trimmed)) return trimmed.toLowerCase()
+
+  if (trimmed.startsWith("npub")) {
+    try {
+      const decoded = nip19.decode(trimmed)
+
+      if (decoded.type === "npub" && typeof decoded.data === "string") {
+        return decoded.data.toLowerCase()
+      }
+    } catch {
+      return ""
+    }
+  }
+
+  return ""
+}
+
+const normalizePubkeysCsv = (value: string) => fromCsv(value).map(normalizePubkey).filter(identity)
+
 const safeNormalizeRelayUrl = (url: string) => {
   try {
     return normalizeRelayUrl(url)
@@ -201,6 +226,36 @@ const normalizedPlatformRelays = PLATFORM_RELAYS.map(normalizeRelayUrl)
 
 export const isPlatformRelay = (url: string) =>
   normalizedPlatformRelays.includes(normalizeRelayUrl(url))
+
+export const PLATFORM_ROOM_CREATOR_PUBKEYS = normalizePubkeysCsv(
+  import.meta.env.VITE_PLATFORM_ROOM_CREATOR_PUBKEYS,
+)
+
+export const canCreateRoomByPlatformPolicy = ({
+  relayUrl,
+  viewerPubkey,
+  relayOwnerPubkey,
+}: {
+  relayUrl: string
+  viewerPubkey?: string | null
+  relayOwnerPubkey?: string | null
+}) => {
+  const viewer = normalizePubkey(viewerPubkey || "")
+
+  if (!viewer) return false
+
+  const normalizedRelayUrl = safeNormalizeRelayUrl(relayUrl)
+  const isPlatform =
+    normalizedRelayUrl !== "" && normalizedPlatformRelays.includes(normalizedRelayUrl)
+
+  if (isPlatform && PLATFORM_ROOM_CREATOR_PUBKEYS.length > 0) {
+    return PLATFORM_ROOM_CREATOR_PUBKEYS.includes(viewer)
+  }
+
+  const owner = normalizePubkey(relayOwnerPubkey || "")
+
+  return Boolean(owner && owner === viewer)
+}
 
 export const PLATFORM_ACCENT = import.meta.env.VITE_PLATFORM_ACCENT
 
@@ -442,11 +497,9 @@ export const alertStatusesByAddress = deriveItemsByKey<AlertStatus>({
 export const deriveAlertStatus = (address: string) =>
   derived(alertStatusesByAddress, statuses => statuses.get(address))
 
-// BudaBit ROOM create function
-// Create kind 39_000 (ROOM_META) event instea of 9007
-// Normally this event should only be created by the relay owner pubkey
-// but since we do NOT want other ppl to create rooms on BudaBit relay
-// this is fine. Room creation is only enabled for @Five
+// BudaBit room create helper.
+// This flow needs a ROOM_META (39000) event with a d-tag, while welshman currently
+// creates regular room events through createRoom/editRoom helpers.
 export const createBudaBitRoom = (url: string, room: RoomMeta) => {
   const event = makeRoomEditEvent(room)
   const roomEventThunkOptions: ThunkOptions = {

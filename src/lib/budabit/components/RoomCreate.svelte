@@ -1,8 +1,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {uniqBy, nth} from "@welshman/lib"
   import {displayRelayUrl, makeRoomMeta} from "@welshman/util"
-  import {waitForThunkError} from "@welshman/app"
+  import {deriveRelay, pubkey, waitForThunkError} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Field from "@lib/components/Field.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -13,17 +12,27 @@
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {createBudaBitRoom, loadRoom} from "@app/core/state"
+  import {canCreateRoomByPlatformPolicy, createBudaBitRoom, loadRoom} from "@app/core/state"
   import {makeSpacePath} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
 
   const {url} = $props()
+
+  const relay = deriveRelay(url)
+  const owner = $derived($relay?.pubkey)
+  const canCreateRoom = $derived(
+    canCreateRoomByPlatformPolicy({relayUrl: url, viewerPubkey: $pubkey, relayOwnerPubkey: owner}),
+  )
 
   const room = makeRoomMeta()
 
   const back = () => history.back()
 
   const tryCreate = async () => {
+    if (!canCreateRoom) {
+      return pushToast({theme: "error", message: "You are not allowed to create rooms on this relay."})
+    }
+
     room.name = name
 
     const createMessage = await waitForThunkError(createBudaBitRoom(url, room))
@@ -78,7 +87,7 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary" disabled={!name || loading}>
+    <Button type="submit" class="btn btn-primary" disabled={!name || loading || !canCreateRoom}>
       <Spinner {loading}>Create Room</Spinner>
       <Icon icon={AltArrowRight} />
     </Button>

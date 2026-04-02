@@ -28,7 +28,7 @@
   import RoomCreate from "@lib/budabit/components/RoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
   import MenuSpaceRoomItem from "@lib/budabit/components/MenuSpaceRoomItem.svelte"
-  import {ENABLE_ZAPS, hasNip29} from "@app/core/state"
+  import {ENABLE_ZAPS, canCreateRoomByPlatformPolicy, hasNip29} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {makeSpacePath} from "@app/util/routes"
   import {channelsByUrl} from "@lib/budabit/state"
@@ -37,6 +37,9 @@
 
   const relay = deriveRelay(url)
   const owner = $derived($relay?.pubkey)
+  const canCreateRoom = $derived(
+    canCreateRoomByPlatformPolicy({relayUrl: url, viewerPubkey: $pubkey, relayOwnerPubkey: owner}),
+  )
 
   const chatPath = makeSpacePath(url, "chat")
   const gitPath = makeSpacePath(url, "git")
@@ -61,9 +64,9 @@
   const goHome = () => goto(makeSpacePath(url))
 
   const addRoom = () => {
-    if ($pubkey && owner && owner === $pubkey) {
-      pushModal(RoomCreate, {url}, {replaceState})
-    }
+    if (!canCreateRoom) return
+
+    pushModal(RoomCreate, {url}, {replaceState})
   }
 
   const manageAlerts = () => {
@@ -137,7 +140,7 @@
         </SecondaryNavItem>
       {/if}
 
-      {#if owner && owner == $pubkey}
+      {#if canCreateRoom}
         <SecondaryNavItem {replaceState} onclick={addRoom}>
           <Icon icon={AddCircle} />
           Create room

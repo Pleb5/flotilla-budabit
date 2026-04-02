@@ -164,4 +164,59 @@ describe("state", () => {
     const rooms = getSpaceRoomsFromGroupList("wss://relay.damus.io", list)
     expect(rooms).toContain("room1")
   })
+
+  it("canCreateRoomByPlatformPolicy uses env allowlist on platform relays", async () => {
+    vi.resetModules()
+    vi.stubEnv("VITE_PLATFORM_RELAYS", "wss://relay.example.com")
+    vi.stubEnv(
+      "VITE_PLATFORM_ROOM_CREATOR_PUBKEYS",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )
+
+    const {canCreateRoomByPlatformPolicy} = await import("./state")
+
+    expect(
+      canCreateRoomByPlatformPolicy({
+        relayUrl: "wss://relay.example.com",
+        viewerPubkey: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        relayOwnerPubkey: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      }),
+    ).toBe(true)
+
+    expect(
+      canCreateRoomByPlatformPolicy({
+        relayUrl: "wss://relay.example.com",
+        viewerPubkey: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        relayOwnerPubkey: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      }),
+    ).toBe(false)
+
+    vi.unstubAllEnvs()
+  })
+
+  it("canCreateRoomByPlatformPolicy falls back to relay owner when allowlist is unset", async () => {
+    vi.resetModules()
+    vi.stubEnv("VITE_PLATFORM_RELAYS", "wss://relay.example.com")
+    vi.stubEnv("VITE_PLATFORM_ROOM_CREATOR_PUBKEYS", "")
+
+    const {canCreateRoomByPlatformPolicy} = await import("./state")
+
+    expect(
+      canCreateRoomByPlatformPolicy({
+        relayUrl: "wss://relay.example.com",
+        viewerPubkey: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        relayOwnerPubkey: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      }),
+    ).toBe(true)
+
+    expect(
+      canCreateRoomByPlatformPolicy({
+        relayUrl: "wss://relay.example.com",
+        viewerPubkey: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        relayOwnerPubkey: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      }),
+    ).toBe(false)
+
+    vi.unstubAllEnvs()
+  })
 })
