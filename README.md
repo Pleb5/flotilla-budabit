@@ -191,6 +191,8 @@ Playwright will start (or reuse) the dev server at `http://127.0.0.1:1847`.
 
 ## Deployment
 
+If you want the shortest path for running your own instance, read `docs/self-hosting.md`.
+
 To run your own Flotilla Budabit, it's as simple as:
 
 ```sh

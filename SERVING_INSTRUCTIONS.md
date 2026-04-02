@@ -1,5 +1,7 @@
 # Serving the Production Build
 
+If you need the full clone/build/deploy workflow, start with `docs/self-hosting.md`.
+
 The production build is a static SPA (Single Page Application) that requires proper server configuration to handle client-side routing.
 
 ## Recommended: Using `serve` (Node.js)
@@ -17,6 +19,7 @@ npx serve build -s -p 3000
 **IMPORTANT:** The `-s` or `--single` flag is required to enable SPA routing. Without it, direct route access will return 404 errors.
 
 The `-s` flag tells `serve` to:
+
 - Redirect all non-file routes to index.html (enabling SPA routing)
 - Properly handle client-side routing for routes like `/settings`, `/spaces/...`, etc.
 
@@ -46,7 +49,7 @@ class SPAHandler(http.server.SimpleHTTPRequestHandler):
         # Parse the URL
         parsed_path = urlparse(self.path)
         path = parsed_path.path
-        
+
         # Check if file exists
         if path != '/' and os.path.exists('.' + path):
             # Serve the file normally
@@ -65,13 +68,14 @@ with socketserver.TCPServer(("", PORT), SPAHandler) as httpd:
 ```
 
 Then run:
+
 ```bash
 python3 spa-server.py
 ```
 
 ## Alternative: Using Apache
 
-If you're using Apache, the `.htaccess` file in the build directory already handles SPA routing. Just point your Apache virtual host to the `build` directory.
+If you're using Apache or LiteSpeed, the `.htaccess` file in the build directory already handles SPA routing and cache headers. Just point your vhost to the `build` directory and keep that file in place.
 
 ## Alternative: Using Nginx
 
@@ -112,6 +116,7 @@ When you access `http://192.168.10.103:3000/settings` directly:
 3. Server returns 404
 
 For SPAs to work, the server must:
+
 1. Check if the requested path is a real file
 2. If not, serve `index.html` instead
 3. Let the client-side router (SvelteKit) handle the route
