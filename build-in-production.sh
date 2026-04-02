@@ -2,16 +2,22 @@
 
 set -e
 
-# Fetch tags and set to env vars
+# Fetch tags and set build metadata env vars
 if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
 	git fetch --prune --unshallow --tags || true
 else
 	git fetch --prune --tags || true
 fi
 
-git describe --tags --abbrev=0 2>/dev/null || true
-export VITE_BUILD_VERSION=$RENDER_GIT_COMMIT
-export VITE_BUILD_HASH=$RENDER_GIT_COMMIT
+build_commit="${RENDER_GIT_COMMIT:-}"
+if [ -z "$build_commit" ]; then
+	build_commit="$(git rev-parse --short HEAD 2>/dev/null || true)"
+fi
+
+if [ -n "$build_commit" ]; then
+	export VITE_BUILD_VERSION="$build_commit"
+	export VITE_BUILD_HASH="$build_commit"
+fi
 
 # Install dependencies
 CI=0 pnpm i
@@ -20,4 +26,8 @@ CI=0 pnpm i
 pnpm rebuild || true
 
 # Use unified build script (builds core, UI, app, and copies worker libs)
-NODE_OPTIONS=--max_old_space_size=16384 ./build.sh
+if [ -z "${NODE_OPTIONS:-}" ]; then
+	export NODE_OPTIONS="--max-old-space-size=16384"
+fi
+
+./build.sh

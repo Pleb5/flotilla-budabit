@@ -49,21 +49,18 @@ pnpm --version
 
 ```bash
 # Clone the repository
-git clone https://github.com/chebizarro/flotilla-budabit.git
-cd flotilla-budabit
+git clone https://github.com/Pleb5/flotilla-budabit.git budabit
+cd budabit
 ```
 
 ### 4. Initialize Git Submodules
 
-This project includes the `nostr-git` submodule which provides Git functionality:
+This project includes multiple Git submodules (nostr-git core/ui and extension workspaces):
 
 ```bash
-# Initialize and update submodules
-git submodule init
-git submodule update
-
-# Or clone with submodules in one command
-git clone --recursive https://github.com/chebizarro/flotilla-budabit.git
+# Sync submodule remotes from .gitmodules and fetch pinned commits
+git submodule sync --recursive
+git submodule update --init --recursive
 ```
 
 ### 5. Install Dependencies
@@ -73,18 +70,7 @@ git clone --recursive https://github.com/chebizarro/flotilla-budabit.git
 pnpm install
 ```
 
-### 6. Build nostr-git Components
-
-The nostr-git submodule needs to be built:
-
-```bash
-# Build the nostr-git UI components
-cd packages/nostr-git/packages/ui
-pnpm build
-cd ../../..
-```
-
-### 7. Start Development Server
+### 6. Start Development Server
 
 ```bash
 # Start the development server
@@ -117,13 +103,12 @@ You can also optionally create an `.env` file and populate it with the following
 - `VITE_GLITCHTIP_API_KEY` - A Sentry DSN for use with glitchtip (error reporting)
 - `GLITCHTIP_AUTH_TOKEN` - A glitchtip auth token for error reporting
 
-If you're deploying a custom version of flotilla, be sure to remove the `plausible.coracle.social` script from `app.html`. This sends analytics to a server hosted by the developer.
-
 ## Troubleshooting
 
 ### Common Issues
 
 **"Cannot find module" errors**: If you encounter module resolution errors, try:
+
 ```bash
 # Clear node_modules and reinstall
 rm -rf node_modules
@@ -133,14 +118,15 @@ pnpm install
 rm -rf .svelte-kit
 ```
 
-**nostr-git components not working**: Make sure you've built the nostr-git UI components:
+**Submodule mismatch errors**: Make sure submodule remotes are synced and pinned commits are fetched:
+
 ```bash
-cd packages/nostr-git/packages/ui
-pnpm build
-cd ../../..
+git submodule sync --recursive
+git submodule update --init --recursive
 ```
 
 **Node.js version issues**: Ensure you're using the correct Node.js version:
+
 ```bash
 # Check current version
 node --version
@@ -149,10 +135,12 @@ node --version
 nvm use lts/jod
 ```
 
-**Submodule issues**: If the nostr-git submodule is not properly initialized:
+**Submodule issues**: If submodules are in a broken local state:
+
 ```bash
 # Remove and reinitialize submodules
-git submodule deinit -f packages/nostr-git
+git submodule deinit -f --all
+git submodule sync --recursive
 git submodule update --init --recursive
 ```
 
@@ -207,17 +195,28 @@ To run your own Flotilla Budabit, it's as simple as:
 
 ```sh
 # Install dependencies (including submodules)
+git clone https://github.com/Pleb5/flotilla-budabit.git budabit
+cd budabit
+git submodule sync --recursive
 git submodule update --init --recursive
-pnpm install
 
-# Build the application (automatically builds nostr-git components)
-pnpm run build
+# Build for production (installs deps, rebuilds native modules, then runs build.sh)
+pnpm run build-in-production
 
 # Serve the built application
 npx serve -s build
 ```
 
-The build script automatically handles building the nostr-git UI components, so you don't need to build them manually for deployment.
+`build-in-production.sh` wraps the full production flow, including dependency install and native rebuilds.
+
+For frequent self-hosted updates:
+
+```sh
+git pull --rebase
+git submodule sync --recursive
+git submodule update --init --recursive
+pnpm run build-in-production
+```
 
 Or, if you prefer to use a container:
 

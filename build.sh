@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
-# Increase Node.js memory limit globally for this script
-export NODE_OPTIONS="--max-old-space-size=8192"
+# Set a default Node.js memory limit unless caller already defined one
+if [[ -z "${NODE_OPTIONS:-}" ]]; then
+	export NODE_OPTIONS="--max-old-space-size=8192"
+fi
 
 load_env_defaults() {
 	local file="$1"

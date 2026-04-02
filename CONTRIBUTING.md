@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Flotilla Budabit is a fork of [Flotilla](https://github.com/coracle-social/flotilla) - a svelte/typescript/capacitor project that serves as an alternative to Discord for Nostr users. This fork adds budabit-specific features and integrates the [nostr-git](https://github.com/chebizarro/nostr-git) protocol for decentralized Git operations.
+Flotilla Budabit is a fork of [Flotilla](https://github.com/coracle-social/flotilla) - a svelte/typescript/capacitor project that serves as an alternative to Discord for Nostr users. This fork adds budabit-specific features and integrates nostr-git for decentralized Git operations.
 
 A high-quality UX is a priority, with an emphasis on well-tested, intuitive designs, and robust implementations.
 
@@ -14,19 +14,20 @@ The `master` branch is intended to be automatically deployed to production, so a
 
 ### Working with Submodules
 
-This project uses the `nostr-git` package as a **git submodule** located at `packages/nostr-git`. Most git-related functionality is handled by this separate package. When cloning or updating:
+This project uses multiple **git submodules**, including:
+
+- `packages/nostr-git-core` (`https://github.com/Pleb5/nostr-git-fork.git`)
+- `packages/nostr-git-ui` (`https://github.com/Pleb5/nostr-git-ui.git`)
+
+When cloning or updating:
 
 ```bash
-# Initialize and update submodules
+# Sync submodule remotes from .gitmodules and fetch pinned commits
+git submodule sync --recursive
 git submodule update --init --recursive
-
-# Build nostr-git UI components
-cd packages/nostr-git/packages/ui
-pnpm build
-cd ../../../..
 ```
 
-Changes to the nostr-git submodule should be contributed to the [nostr-git repository](https://github.com/chebizarro/nostr-git) directly, not to this repository.
+Changes to `packages/nostr-git-core` and `packages/nostr-git-ui` should be contributed to their own repositories, then pulled into this repo by updating submodule pointers.
 
 ### Working with Welshman
 
@@ -35,22 +36,22 @@ This project may use unreleased versions of [welshman](https://welshman.coracle.
 ```javascript
 #!/usr/bin/env node
 
-import fs from 'fs'
-import path from 'path'
+import fs from "fs"
+import path from "path"
 
-const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'))
+const packageJson = JSON.parse(fs.readFileSync("./package.json", "utf8"))
 
 packageJson.pnpm.overrides = Object.keys(packageJson.dependencies)
-  .filter(pkg => pkg.startsWith('@welshman/'))
+  .filter(pkg => pkg.startsWith("@welshman/"))
   .reduce((acc, pkg) => {
-    const packageName = pkg.split('/')[1]
-    acc[pkg] = `link:../welshman/packages/${packageName}` 
+    const packageName = pkg.split("/")[1]
+    acc[pkg] = `link:../welshman/packages/${packageName}`
     return acc
   }, {})
 
-fs.writeFileSync('./package.json', JSON.stringify(packageJson, null, 2) + '\n')
+fs.writeFileSync("./package.json", JSON.stringify(packageJson, null, 2) + "\n")
 
-console.log('Added welshman package overrides.')
+console.log("Added welshman package overrides.")
 ```
 
 **Important:** Avoid committing overrides to `package.json` or `pnpm-lock.yaml`. These overrides persist until another `pnpm install` command runs.
@@ -70,13 +71,14 @@ The main parts of the application are as follows:
 - `src/app/editor` - configuration for `@welshman/editor` for use in various app views.
 - `src/app/components` - reusable components that depend on other `app` stuff.
 - `src/routes` - file-based routing interpreted by sveltekit.
-- **`packages/nostr-git`** - **git submodule** containing nostr-git protocol implementation (separate repository).
+- **`packages/nostr-git-core`** - **git submodule** containing nostr-git core protocol logic.
+- **`packages/nostr-git-ui`** - **git submodule** containing nostr-git UI and worker integration.
 
 Application organization is based on an acyclic dependency graph:
 
 - `routes` can depend on anything
-- `app/components` can depend on anything in `app` or `lib` 
-- `app/utils` and `app/core` can only depend on `lib` 
+- `app/components` can depend on anything in `app` or `lib`
+- `app/utils` and `app/core` can only depend on `lib`
 - `lib` (and everything else) can depend only on external libraries
 - **`lib/budabit` follows the same rules as `lib`** - it can only depend on external libraries and other `lib` modules
 
@@ -136,26 +138,26 @@ If you find bugs or want to add features that would benefit **all Flotilla users
 
 #### 3. **Git Functionality → `nostr-git` Submodule**
 
-The `packages/nostr-git` directory is a **separate git repository** managed as a submodule. For changes to git-related functionality:
+The `packages/nostr-git-core` and `packages/nostr-git-ui` directories are **separate git repositories** managed as submodules. For changes to git-related functionality:
 
-1. Contribute to the [nostr-git repository](https://github.com/chebizarro/nostr-git) directly
-2. Update the submodule reference in this repository after changes are merged
-3. Do not modify files inside `packages/nostr-git/` directly in this repository
+1. Contribute to [Pleb5/nostr-git-fork](https://github.com/Pleb5/nostr-git-fork) and/or [Pleb5/nostr-git-ui](https://github.com/Pleb5/nostr-git-ui)
+2. Update the relevant submodule reference in this repository after changes are merged
+3. Do not mix unrelated app changes and submodule updates in the same commit unless they are tightly coupled
 
 ```bash
-# To update the nostr-git submodule to latest
-cd packages/nostr-git
-git pull origin main
-cd ../..
-git add packages/nostr-git
-git commit -m "Update nostr-git submodule"
+# To update submodules to tracked branch heads
+git submodule sync --recursive
+git submodule update --init --remote packages/nostr-git-core packages/nostr-git-ui
+git add packages/nostr-git-core packages/nostr-git-ui
+git commit -m "chore(submodules): update nostr-git core/ui"
 ```
 
 ### Issues and Pull Requests
 
-All work by contributors should be done against an issue. If there is no issue for the work you're doing, please open one or ask the project owner to open one. 
+All work by contributors should be done against an issue. If there is no issue for the work you're doing, please open one or ask the project owner to open one.
 
 All PRs should be opened against the `dev` branch (unless for hotfixes). **Clearly indicate in your PR** whether the change is:
+
 - Budabit-specific (changes in `src/lib/budabit/`)
 - A potential upstream contribution (core Flotilla changes)
 - A submodule update (nostr-git)
@@ -163,6 +165,7 @@ All PRs should be opened against the `dev` branch (unless for hotfixes). **Clear
 ## Communication
 
 Discussion about Flotilla Budabit development should be done through:
+
 - **Issues**: For bugs, features, and general development discussion
 - **Pull Requests**: For code review and implementation discussion
 
@@ -171,4 +174,3 @@ For upstream Flotilla discussions, visit [the upstream Flotilla space](https://a
 ## Project License
 
 This project is licensed under the MIT license. By contributing, you agree to waive all intellectual property rights to your contributions to this project.
-
