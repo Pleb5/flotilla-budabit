@@ -1902,11 +1902,11 @@
               </Button>
             {/if}
             <label
-              class="input input-bordered order-1 flex w-full items-center gap-2 sm:order-2 sm:w-auto sm:max-w-md">
+              class="input input-bordered order-1 flex w-full min-w-0 items-center gap-2 overflow-x-hidden sm:order-2 sm:w-auto sm:max-w-md">
               <Icon icon={Magnifier} />
               <input
                 bind:value={searchQuery}
-                class="grow"
+                class="grow min-w-0"
                 type="text"
                 placeholder={activeTab === "snippets" ? "Search snippets..." : "npub naddr or repo name"} />
             </label>
@@ -2038,9 +2038,10 @@
         </Spinner>
       </p>
     {:else if $repositoriesStore.length === 0}
-      <p class="flex h-10 items-center justify-center py-20 text-muted-foreground">
+      <p class="mx-auto max-w-full break-words px-4 py-20 text-center text-muted-foreground">
         {#if searchQuery.trim()}
-          No repositories found matching "{searchQuery}".
+          No repositories found matching
+          <span class="inline max-w-full break-all">"{searchQuery}"</span>.
         {:else if activeTab === "my-repos"}
           You haven't created any repositories yet.
         {:else}
