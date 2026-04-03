@@ -1806,6 +1806,7 @@
             }
           },
           defaultRelays: [...defaultRepoRelays],
+          searchRelays: searchRelaysForWizard,
         },
         {fullscreen: true},
       )

@@ -53,7 +53,7 @@
     getTaggedRelaysFromRepoEvent,
   } from "@nostr-git/core/utils"
   import {derived, get as getStore, readable, type Readable} from "svelte/store"
-  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile} from "@welshman/app"
+  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile, abortThunk} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById, deriveEventsDesc, throttled} from "@welshman/store"
   import {load, request, PublishStatus} from "@welshman/net"
   import {Router} from "@welshman/router"
@@ -118,6 +118,7 @@
   const COMMENT_LOAD_CHUNK_SIZE = 100
   const EFFECTIVE_ADDRESS_LOAD_DEBOUNCE_MS = 200
   const EFFECTIVE_ADDRESS_LOAD_CHUNK_SIZE = 50
+  const FORK_PUBLISH_TIMEOUT_MS = 20000
   const ADDRESS_DERIVE_FILTER_CHUNK_SIZE = 50
   const COMMENT_DERIVE_FILTER_CHUNK_SIZE = 100
   const SCOPED_DERIVE_THROTTLE_MS = 120
@@ -142,13 +143,12 @@
 
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
-  let forkWorkerApi: any = null
+  let forkWorkerClient: {api: any; worker: Worker} | null = null
 
-  const ensureForkWorkerApi = async () => {
-    if (forkWorkerApi) return forkWorkerApi
-    const {api} = await getInitializedGitWorker()
-    forkWorkerApi = api
-    return forkWorkerApi
+  const ensureForkWorkerClient = async () => {
+    if (forkWorkerClient) return forkWorkerClient
+    forkWorkerClient = await getInitializedGitWorker()
+    return forkWorkerClient
   }
 
   $effect(() => {
@@ -2042,7 +2042,53 @@
     return getTaggedRelaysFromRepoEvent(event)
   }
 
-  async function publishRepoEventWithRelayPolicy(event: RepoAnnouncementEvent | RepoStateEvent, fallbackRelays: string[] = []) {
+  async function awaitPublishThunk(
+    thunk: {complete?: Promise<unknown>} | undefined,
+    {
+      timeoutMs = 0,
+      label = "Publish",
+    }: {
+      timeoutMs?: number
+      label?: string
+    } = {},
+  ) {
+    if (!thunk?.complete) return
+
+    if (!timeoutMs || timeoutMs <= 0) {
+      await thunk.complete
+      return
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        try {
+          abortThunk(thunk as any)
+        } catch {
+          // pass
+        }
+
+        reject(new Error(`${label} timed out after ${Math.ceil(timeoutMs / 1000)}s`))
+      }, timeoutMs)
+    })
+
+    try {
+      await Promise.race([thunk.complete, timeoutPromise])
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
+  }
+
+  async function publishRepoEventWithRelayPolicy(
+    event: RepoAnnouncementEvent | RepoStateEvent,
+    fallbackRelays: string[] = [],
+    options: {
+      timeoutMs?: number
+      label?: string
+    } = {},
+  ) {
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: fallbackRelays,
@@ -2056,9 +2102,7 @@
       }
 
       const thunk = publishThunk({event, relays: policy.publishRelays})
-      if (thunk?.complete) {
-        await thunk.complete
-      }
+      await awaitPublishThunk(thunk, options)
       return thunk
     }
 
@@ -2067,9 +2111,7 @@
         ? postRepoStateEvent(event as RepoStateEvent, policy.publishRelays)
         : postRepoAnnouncement(event as RepoAnnouncementEvent, policy.publishRelays)
 
-    if (thunk?.complete) {
-      await thunk.complete
-    }
+    await awaitPublishThunk(thunk, options)
 
     return thunk
   }
@@ -2078,8 +2120,11 @@
     if (!repoClass) return
 
     let workerApi: any = null
+    let workerInstance: Worker | null = null
     try {
-      workerApi = await ensureForkWorkerApi()
+      const forkWorker = await ensureForkWorkerClient()
+      workerApi = forkWorker.api
+      workerInstance = forkWorker.worker
     } catch (error) {
       console.warn("[repo/+layout] Failed to initialize shared git worker for fork flow:", error)
     }
@@ -2147,11 +2192,19 @@
       repo: repoClass,
       pubkey: $pubkey || "",
       workerApi,
+      workerInstance,
       onPublishEvent: async (event: any) => {
         const taggedRelays = getEventRelayTargets(event)
         const thunk = await publishRepoEventWithRelayPolicy(
           event,
           taggedRelays.length > 0 ? taggedRelays : defaultRelays,
+          {
+            timeoutMs: FORK_PUBLISH_TIMEOUT_MS,
+            label:
+              event.kind === GIT_REPO_STATE
+                ? "Fork repo state publish"
+                : "Fork repo announcement publish",
+          },
         )
         return extractRelayAck(thunk)
       },

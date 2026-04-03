@@ -86,7 +86,7 @@ test.describe("Repository Fork Flow", () => {
       expect(repos).toHaveLength(1)
 
       const repoEvent = repos[0]
-      const identifier = repoEvent.tags.find((t) => t[0] === "d")?.[1]
+      const identifier = repoEvent.tags.find(t => t[0] === "d")?.[1]
 
       // Build naddr for navigation (simplified - real app would encode properly)
       await page.goto(`/spaces/${ENCODED_RELAY}/git`)
@@ -172,9 +172,9 @@ test.describe("Repository Fork Flow", () => {
           const forkDialog = new ForkDialogPage(page)
           await forkDialog.waitForDialogOpen()
 
-          // Fork name should be pre-filled with "{repo-name}-fork"
+          // Fork name should be pre-filled with the source repository name
           const defaultName = await forkDialog.forkNameInput.inputValue()
-          expect(defaultName).toContain("fork")
+          expect(defaultName).toBe("prefill-test-repo")
         }
       }
     })
@@ -297,7 +297,9 @@ test.describe("Repository Fork Flow", () => {
 
           // Validation error should appear for invalid characters
           await expect(forkDialog.forkNameError).toBeVisible()
-          await expect(forkDialog.forkNameError).toContainText(/letters|numbers|dots|hyphens|underscores/i)
+          await expect(forkDialog.forkNameError).toContainText(
+            /letters|numbers|dots|hyphens|underscores/i,
+          )
         }
       }
     })
@@ -612,7 +614,7 @@ test.describe("Repository Fork Flow", () => {
 
           // GRASP should always be available as an option
           const options = await forkDialog.gitServiceSelect.locator("option").allTextContents()
-          expect(options.some((opt) => opt.toLowerCase().includes("grasp"))).toBe(true)
+          expect(options.some(opt => opt.toLowerCase().includes("grasp"))).toBe(true)
         }
       }
     })
