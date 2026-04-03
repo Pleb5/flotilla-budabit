@@ -93,22 +93,6 @@
     <div class="md:text-xl">
       <RelayDescription {url} />
     </div>
-    {#if $relay?.terms_of_service || $relay?.privacy_policy}
-      <div class="flex gap-3">
-        {#if $relay.terms_of_service}
-          <Link href={$relay.terms_of_service} class="badge badge-neutral flex gap-2">
-            <Icon icon={BillList} size={4} />
-            Terms of Service
-          </Link>
-        {/if}
-        {#if $relay.privacy_policy}
-          <Link href={$relay?.privacy_policy} class="badge badge-neutral flex gap-2">
-            <Icon icon={ShieldUser} size={4} />
-            Privacy Policy
-          </Link>
-        {/if}
-      </div>
-    {/if}
   </div>
   <DemoDayPromo {url}/>
   <div class="grid max-sm:grid-cols-2 sm:grid-cols-3 gap-2">
