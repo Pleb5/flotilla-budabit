@@ -17,7 +17,9 @@
     GIT_STATUS_COMPLETE,
     GIT_STATUS_DRAFT,
     GIT_STATUS_OPEN,
+    type EventContent,
     type Filter,
+    type TrustedEvent,
   } from "@welshman/util"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {load} from "@welshman/net"
@@ -30,8 +32,9 @@
   import {postComment} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent} from "@nostr-git/core/events"
-  import {publishDelete} from "@app/core/commands"
+  import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
   import EventActions from "@app/components/EventActions.svelte"
+  import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import {ROLE_NS, buildRoleLabelEvent} from "@lib/budabit/labels"
   import {
     repoAnnouncements,
@@ -325,6 +328,42 @@
 
   const getPublishRelays = () =>
     [...repoBoundRelays]
+
+  const getReactionProtect = async () => {
+    const relay = repoBoundRelays[0] || ""
+    if (!relay) return false
+
+    try {
+      return await canEnforceNip70(relay)
+    } catch {
+      return false
+    }
+  }
+
+  const deleteReaction = async (event: TrustedEvent) => {
+    const relays = getPublishRelays()
+    if (relays.length === 0) return
+
+    publishDelete({
+      event,
+      relays,
+      protect: await getReactionProtect(),
+    })
+  }
+
+  const createReaction = async (template: EventContent) => {
+    if (!issueEvent) return
+
+    const relays = getPublishRelays()
+    if (relays.length === 0) return
+
+    publishReaction({
+      ...template,
+      event: issueEvent as TrustedEvent,
+      relays,
+      protect: await getReactionProtect(),
+    })
+  }
 
   const publishTagDeleteMarker = (labelValue: string, relays: string[], includeUgc = false) => {
     if (!issue) return
@@ -697,11 +736,19 @@
                 {/if}
               {/if}
             </div>
-            <EventActions
-              event={issueEvent as any}
-              url={repoBoundRelays[0] || ""}
-              relays={repoBoundRelays}
-              noun="issue" />
+            <div class="flex items-center gap-2">
+              <ReactionSummary
+                event={issueEvent as any}
+                url={repoBoundRelays[0] || ""}
+                {deleteReaction}
+                {createReaction}
+                reactionClass="tooltip-left" />
+              <EventActions
+                event={issueEvent as any}
+                url={repoBoundRelays[0] || ""}
+                relays={repoBoundRelays}
+                noun="issue" />
+            </div>
           </div>
           <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
             <Status

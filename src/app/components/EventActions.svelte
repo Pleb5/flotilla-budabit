@@ -38,7 +38,26 @@
     allowAdminDelete = true,
   }: Props = $props()
 
-  const shouldProtect = canEnforceNip70(url)
+  const reactionRelays = $derived.by(() => {
+    const scopedRelays = (relays || []).filter(Boolean)
+
+    if (scopedRelays.length > 0) {
+      return scopedRelays
+    }
+
+    return url ? [url] : []
+  })
+
+  const getShouldProtect = async () => {
+    const relay = reactionRelays[0] || url
+    if (!relay) return false
+
+    try {
+      return await canEnforceNip70(relay)
+    } catch {
+      return false
+    }
+  }
 
   const showPopover = () => popover?.show()
 
@@ -48,8 +67,8 @@
     publishReaction({
       event,
       content: emoji.unicode,
-      relays: [url],
-      protect: await shouldProtect,
+      relays: reactionRelays,
+      protect: await getShouldProtect(),
     })
 
   // Stop right-click from bubbling up to parent context menu handlers

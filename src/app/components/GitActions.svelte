@@ -80,14 +80,25 @@
       tracker.getRelays(event.id).size === 0,
   )
 
-  const onPublishDelete = (event: TrustedEvent) =>
-    publishDelete({relays: [normalizeRelayUrl(url)], event, protect: false})
+  const publishRelays = $derived.by(() =>
+    ((relays && relays.length > 0 ? relays : [url]) as string[])
+      .map(relay => normalizeRelayUrl(relay))
+      .filter(Boolean),
+  )
 
-  const onPublishReaction = (event: EventContent) => {
+  const onPublishDelete = (event: TrustedEvent) =>
+    publishDelete({
+      relays: publishRelays,
+      event,
+      protect: false,
+    })
+
+  const onPublishReaction = (eventContent: EventContent) => {
     publishReaction({
-      event: event as TrustedEvent,
-      content: event.content,
-      relays: [normalizeRelayUrl(url)],
+      event,
+      content: eventContent.content,
+      tags: eventContent.tags,
+      relays: publishRelays,
       protect: false,
     })
   }
@@ -275,7 +286,7 @@
       {:else if showThunkPending}
         <ThunkPending {thunk} />
       {/if}
-      <EventActions {url} {event} noun="Repo" />
+      <EventActions {url} {event} noun="Repo" relays={publishRelays} />
     {/if}
   </div>
 </div>

@@ -41,6 +41,7 @@
   import {page} from "$app/stores"
   import {beforeNavigate} from "$app/navigation"
   import {decodeRelay} from "@app/core/state"
+  import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
   import {
     REPO_KEY,
     REPO_RELAYS_KEY,
@@ -76,6 +77,49 @@
   )
   const scrollStorageKey = $derived.by(() => `repoScroll:${$page.params.id}:patches`)
   const relayUrl = $derived.by(() => ($page.params.relay ? decodeRelay($page.params.relay) : ""))
+  const reactionRelays = $derived.by(() => {
+    const scoped = [...repoRelays].filter(Boolean)
+
+    if (scoped.length > 0) return scoped
+
+    return relayUrl ? [relayUrl] : []
+  })
+
+  const getReactionProtect = async () => {
+    if (!relayUrl) return false
+
+    try {
+      return await canEnforceNip70(relayUrl)
+    } catch {
+      return false
+    }
+  }
+
+  const deleteReaction = async (event: TrustedEvent) => {
+    const relays = reactionRelays
+    if (relays.length === 0) return
+
+    publishDelete({
+      relays,
+      event,
+      protect: await getReactionProtect(),
+    })
+  }
+
+  const createReaction = async (
+    target: TrustedEvent,
+    template: {content: string; tags?: string[][]},
+  ) => {
+    const relays = reactionRelays
+    if (relays.length === 0) return
+
+    publishReaction({
+      ...template,
+      event: target,
+      relays,
+      protect: await getReactionProtect(),
+    })
+  }
   const patchesSeenKey = $derived.by(() => `${patchesPath}:seen`)
   const normalizeChecked = (value: number) =>
     value > 10_000_000_000 ? Math.round(value / 1000) : value
@@ -1285,9 +1329,9 @@
           }}>
           <div class="relative">
             <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
-              <PatchCard
-                event={patch.event}
-                patches={patch.patches}
+                <PatchCard
+                  event={patch.event}
+                  patches={patch.patches}
                 status={patch.status as StatusEvent}
                 comments={patch.comments}
                 currentCommenter={$pubkey || ""}
@@ -1298,6 +1342,8 @@
                   onCommentCreated={$pubkey ? onCommentCreated : undefined}
                   relays={repoRelays}
                   reviewersCount={$roleAssignments?.get(patch.id)?.reviewers?.size || 0}
+                  onDeleteReaction={deleteReaction}
+                  onCreateReaction={template => createReaction(patch.event as TrustedEvent, template)}
                 />
             </div>
             {#if labelsByPatch.get(patch.id)?.length}

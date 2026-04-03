@@ -57,6 +57,7 @@
   import type {StatusEvent} from "@nostr-git/core/events"
   import {fade} from "svelte/transition"
   import {resolveIssueEdits} from "@lib/budabit/issue-edits"
+  import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
 
   let showScrollButton = $state(false)
   let pageContainerRef: HTMLElement | undefined = $state()
@@ -93,6 +94,49 @@
   const repoBoundRelays = $derived.by(() => {
     return getRepoScopedRelays((repoClass as any).repoEvent, naddrRelays)
   })
+  const reactionRelays = $derived.by(() => {
+    const scoped = [...repoBoundRelays].filter(Boolean)
+
+    if (scoped.length > 0) return scoped
+
+    return relayUrl ? [relayUrl] : []
+  })
+
+  const getReactionProtect = async () => {
+    if (!relayUrl) return false
+
+    try {
+      return await canEnforceNip70(relayUrl)
+    } catch {
+      return false
+    }
+  }
+
+  const deleteReaction = async (event: TrustedEvent) => {
+    const relays = reactionRelays
+    if (relays.length === 0) return
+
+    publishDelete({
+      relays,
+      event,
+      protect: await getReactionProtect(),
+    })
+  }
+
+  const createReaction = async (
+    target: TrustedEvent,
+    template: {content: string; tags?: string[][]},
+  ) => {
+    const relays = reactionRelays
+    if (relays.length === 0) return
+
+    publishReaction({
+      ...template,
+      event: target,
+      relays,
+      protect: await getReactionProtect(),
+    })
+  }
   const effectiveRepoAddresses = $derived.by((): string[] => {
     if (!repoAddress) return []
     return Array.from(getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddress))
@@ -1254,6 +1298,8 @@
               assignees={Array.from($roleAssignments.get(issue.id)?.assignees || [])}
               assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
               relays={repoRelays}
+              onDeleteReaction={deleteReaction}
+              onCreateReaction={template => createReaction(issue.event as TrustedEvent, template)}
             />
           </div>
         </div>
