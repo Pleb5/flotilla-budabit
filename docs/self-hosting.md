@@ -93,6 +93,142 @@ pnpm run build-in-production
 
 Then upload the new `build/` contents.
 
+## Deploying with SFTP/LFTP (Recommended Strategy)
+
+If you deploy with `lftp mirror -R --delete` over SFTP, be aware of one important detail:
+
+- Budabit emits cache-busted assets under `/_app/immutable/*`.
+- Filenames are content-hashed, so each new build creates new names.
+- `--delete` removes old hash files one-by-one on the remote host.
+
+If you deploy often, this can create very long delete phases as old immutable files accumulate.
+
+### Why this happens
+
+- **Hashed immutable assets are intentional.** They let browsers cache files safely for a long time.
+- **Users do not download every file in `/_app/immutable`.** Browsers request only the files referenced by the current `index.html` plus route chunks needed for navigation.
+- **Delete storms are a deployment-side cost.** SFTP deletes are still per-file operations, so removing thousands of old hashes is slow even when transfer size is small.
+
+### Recommended approach
+
+Use a two-pass deploy:
+
+1. Upload `build/_app/immutable` **without** `--delete`
+2. Upload the rest of `build/` **with** `--delete`, excluding `/_app/immutable`
+
+This keeps deploys fast and avoids deleting assets that may still be needed by users with older tabs open.
+
+### Password-safe dry run (no password in shell history)
+
+```sh
+SFTP_HOST='sftp://example.com'
+SFTP_USER='your-user'
+REMOTE_PATH='.'              # e.g. '/public_html'
+
+read -rsp 'SFTP password: ' LFTP_PASSWORD
+printf '\n'
+export LFTP_PASSWORD
+
+lftp -u "$SFTP_USER" --env-password "$SFTP_HOST" <<LFTP
+set cmd:fail-exit yes
+
+# Pass 1: immutable assets (no delete)
+mirror -R \
+  --dry-run \
+  --verbose=1 \
+  --parallel=4 \
+  --ignore-time \
+  build/_app/immutable \
+  "$REMOTE_PATH/_app/immutable"
+
+# Pass 2: everything else (delete enabled, immutable excluded)
+mirror -R \
+  --dry-run \
+  --verbose=1 \
+  --parallel=4 \
+  --delete \
+  --exclude-rx '(^|/)_app/immutable(/|$)' \
+  build \
+  "$REMOTE_PATH"
+
+bye
+LFTP
+
+unset LFTP_PASSWORD
+```
+
+### Actual deploy
+
+```sh
+SFTP_HOST='sftp://example.com'
+SFTP_USER='your-user'
+REMOTE_PATH='.'              # e.g. '/public_html'
+
+read -rsp 'SFTP password: ' LFTP_PASSWORD
+printf '\n'
+export LFTP_PASSWORD
+
+lftp -u "$SFTP_USER" --env-password "$SFTP_HOST" <<LFTP
+set cmd:fail-exit yes
+
+# Pass 1: immutable assets (no delete)
+mirror -R \
+  --verbose=1 \
+  --parallel=4 \
+  --ignore-time \
+  build/_app/immutable \
+  "$REMOTE_PATH/_app/immutable"
+
+# Pass 2: everything else (delete enabled, immutable excluded)
+mirror -R \
+  --verbose=1 \
+  --parallel=4 \
+  --delete \
+  --exclude-rx '(^|/)_app/immutable(/|$)' \
+  build \
+  "$REMOTE_PATH"
+
+bye
+LFTP
+
+unset LFTP_PASSWORD
+```
+
+Notes:
+
+- Do **not** add `--delete-excluded` in pass 2, or excluded immutable files may be removed.
+- If your SFTP server is unstable, reduce `--parallel=4` to `--parallel=2`.
+- Keep source maps (`*.map`) deployed if your error pipeline depends on public source map fetches.
+- If your Glitchtip/Sentry upload pipeline is fully configured in CI, you may choose to stop uploading `*.map` publicly.
+
+### Remote storage growth and cleanup
+
+Because immutable files are not deleted on every deploy, remote storage will grow over time. That is expected.
+
+Recommended policy:
+
+- Keep fast, safe deploys day-to-day (strategy above)
+- Run cleanup in a maintenance window (for example weekly or monthly)
+
+For cleanup, you can temporarily run a full mirror with delete once during off-hours:
+
+```sh
+lftp -u "$SFTP_USER" --env-password "$SFTP_HOST" <<LFTP
+set cmd:fail-exit yes
+
+mirror -R \
+  --verbose=1 \
+  --parallel=2 \
+  --delete \
+  build \
+  "$REMOTE_PATH"
+
+bye
+LFTP
+```
+
+This trades occasional planned cleanup time for much faster regular deploys.
+
 ## One Real External Dependency
 
 Git-over-HTTP operations use a CORS proxy. If you do not set one, Budabit falls back to `https://corsproxy.budabit.club`.
