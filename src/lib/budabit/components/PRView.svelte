@@ -29,6 +29,7 @@
     TabsContent,
     TabsList,
     TabsTrigger,
+    publishGraspRepoStateForPush,
     prChangeToParseDiffFile,
     prChangeToReviewParseDiffFile,
     toast,
@@ -52,7 +53,6 @@
     parsePullRequestUpdateEvent,
     createPullRequestUpdateEvent,
     createStatusEvent,
-    createRepoStateEvent,
     type CommentEvent,
     type StatusEvent,
     type PullRequestEvent,
@@ -349,11 +349,18 @@
   /** Target branch from PR event, fallback to repo selection */
   const prTargetBranch = $derived(pr?.branchName ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main")
 
-  const primaryTargetCloneUrl = $derived.by(() => {
-    const valid = filterValidCloneUrls(
+  const prTargetCloneUrls = $derived.by(() =>
+    filterValidCloneUrls(
       (((repoClass as any).cloneUrls || []) as string[]).map(url => String(url || "").trim()),
-    )
-    return valid[0] || ""
+    ),
+  )
+
+  const prFetchCloneUrls = $derived.by(() =>
+    Array.from(new Set([...prEffectiveCloneUrls, ...prTargetCloneUrls])),
+  )
+
+  const primaryTargetCloneUrl = $derived.by(() => {
+    return prTargetCloneUrls[0] || ""
   })
 
   const canPublishPrUpdates = $derived.by(() => {
@@ -443,6 +450,7 @@
       const result = await repoClass.workerManager.getCommitDetails({
         repoId: repoClass.key,
         commitId: oid,
+        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
       })
 
       if (!result?.success || !result?.meta) {
@@ -797,7 +805,7 @@
       return {ok: false, error: "Repository worker is not ready"}
     }
 
-    const targetCloneUrls = filterValidCloneUrls(((repoClass as any).cloneUrls || []) as string[])
+    const targetCloneUrls = prTargetCloneUrls
     if (targetCloneUrls.length === 0) {
       return {ok: false, error: "Repository has no clone URLs to sync target branch"}
     }
@@ -963,6 +971,7 @@
       const mergeDetails = await repoClass.workerManager.getCommitDetails({
         repoId: repoClass.key,
         commitId: prStatus.mergedCommit,
+        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
       })
       const parentOid = mergeDetails?.meta?.parents?.[0]
       if (mergeDetails?.success && parentOid) {
@@ -982,6 +991,7 @@
       const oldestDetails = await repoClass.workerManager.getCommitDetails({
         repoId: repoClass.key,
         commitId: oldestOid,
+        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
       })
       const parentOid = oldestDetails?.meta?.parents?.[0]
       if (oldestDetails?.success && parentOid) {
@@ -1024,6 +1034,7 @@
         repoId: repoClass.key,
         baseOid: range.baseOid,
         headOid: range.headOid,
+        ...(prFetchCloneUrls.length > 0 ? {cloneUrls: prFetchCloneUrls} : {}),
       })
 
       if (prChangesGeneration !== currentGen) return
@@ -1588,35 +1599,67 @@
     return {status: "failed", summary: "Failed", detail}
   }
 
-  const parseGraspRelayContext = (remoteUrl: string) => {
-    const url = new URL(remoteUrl)
-    const relayUrl = `wss://${url.host}`
-    const parts = url.pathname.replace(/^\//, "").split("/")
-    const repoName = (parts[1] || "").replace(/\.git$/, "") || repoClass.name || "repo"
-    return {relayUrl, repoName}
-  }
-
   const publishMergeStateToRelay = async (remoteUrl: string, branch: string, commitSha: string) => {
-    const {relayUrl, repoName} = parseGraspRelayContext(remoteUrl)
-    const stateEvent = createRepoStateEvent({
-      repoId: repoName,
-      head: branch,
-      refs: [{type: "heads", name: branch, commit: commitSha}],
-    })
-    const thunk = publishEvent(stateEvent as any, [relayUrl])
-    await Promise.race([thunk.complete, new Promise((resolve) => setTimeout(resolve, 15000))])
+    const remote = new URL(remoteUrl)
+    const relayUrl = `${remote.protocol === "http:" ? "ws" : "wss"}://${remote.host}`
 
-    const confirmed = Object.entries(thunk.results ?? {}).some(
-      ([url, result]) =>
-        result?.status === PublishStatus.Success &&
-        (url === relayUrl || url.replace(/\/$/, "") === relayUrl.replace(/\/$/, "")),
-    )
+    const fetchRelayEvents = async (params: {
+      relays: string[]
+      filters: any[]
+      timeoutMs?: number
+    }) => {
+      const events: any[] = []
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs || 2500))
 
-    if (!confirmed) {
-      throw new Error(
-        `State event (kind 30618) was not confirmed by ${relayUrl}. Push skipped for this remote.`,
-      )
+      try {
+        await load({
+          relays: params.relays,
+          filters: params.filters,
+          signal: controller.signal,
+          onEvent: event => {
+            events.push(event)
+          },
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
+
+      return events
     }
+
+    const publishRepoState = async (event: any) => {
+      const thunk = publishEvent(event, [relayUrl])
+
+      if (thunk?.complete) {
+        await thunk.complete
+      }
+
+      const results = thunk?.results || {}
+      const ackedRelays = Object.entries(results)
+        .filter(([, result]: [string, any]) => result?.status === PublishStatus.Success)
+        .map(([url]) => url)
+      const failedRelays = Object.entries(results)
+        .filter(([, result]: [string, any]) => result?.status !== PublishStatus.Success)
+        .map(([url]) => url)
+
+      return {
+        ackedRelays,
+        failedRelays,
+        successCount: ackedRelays.length,
+        hasRelayOutcomes: ackedRelays.length + failedRelays.length > 0,
+      }
+    }
+
+    await publishGraspRepoStateForPush({
+      remoteUrl,
+      branch,
+      commitSha,
+      fallbackRepoName: repoClass.name || "repo",
+      authorPubkey: $pubkey || undefined,
+      fetchRelayEvents,
+      onPublishEvent: publishRepoState,
+    })
   }
 
   const openPrPushDialog = async () => {
@@ -1717,7 +1760,17 @@
       updatePushRemote(remote.url, {status: "pushing", summary: "Pushing...", error: undefined})
       try {
         if (isGraspRemote(remote.url, remote.provider)) {
+          updatePushRemote(remote.url, {
+            status: "pushing",
+            summary: "Publishing state...",
+            error: undefined,
+          })
           await publishMergeStateToRelay(remote.url, prTargetBranch, mergeCommitOid)
+          updatePushRemote(remote.url, {
+            status: "pushing",
+            summary: "Pushing...",
+            error: undefined,
+          })
         }
 
         const pushResult = await repoClass.pushToAllRemotes({
@@ -1820,6 +1873,7 @@
       const result = await repoClass.workerManager.mergePRAndPush({
         repoId: repoClass.key,
         cloneUrls: prCloneUrls,
+        targetCloneUrls: prTargetCloneUrls,
         tipCommitOid: tipOid,
         targetBranch: prTargetBranch,
         mergeCommitMessage: mergePrCommitMessage || undefined,

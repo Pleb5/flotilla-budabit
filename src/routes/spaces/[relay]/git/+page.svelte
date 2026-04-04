@@ -207,19 +207,20 @@
   const getRepoCardStableKey = (card: any) => {
     const event = card?.first
     const euc = card?.euc || ""
+    const eventId = event?.id || ""
 
     if (event?.kind && event?.pubkey && Array.isArray(event?.tags)) {
       const d = getTagValue("d", event.tags)
-      if (d) return `${event.kind}:${event.pubkey}:${d}:${euc}`
+      if (d) return `${event.kind}:${event.pubkey}:${d}:${euc}:${eventId}`
 
       const eucTag =
         event.tags.find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
-      if (eucTag) return `${event.kind}:${event.pubkey}:euc:${eucTag}:${euc}`
+      if (eucTag) return `${event.kind}:${event.pubkey}:euc:${eucTag}:${euc}:${eventId}`
 
       if (event.id) return `${event.kind}:${event.pubkey}:id:${event.id}:${euc}`
     }
 
-    return `${euc}:${card?.title || ""}`
+    return `${euc}:${card?.title || ""}:${eventId}`
   }
 
   type RepoBranchUpdate = {
@@ -1501,6 +1502,29 @@
     }
   }
 
+  const fetchRelayEvents = async (params: {
+    relays: string[]
+    filters: NostrFilter[]
+    timeoutMs?: number
+  }): Promise<NostrEvent[]> => {
+    const events: NostrEvent[] = []
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs || 2500))
+
+    try {
+      await load({
+        relays: params.relays,
+        filters: params.filters as any,
+        signal: controller.signal,
+        onEvent: event => events.push(event as NostrEvent),
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
+
+    return events
+  }
+
   const getProfileForWizard = async (pubkey: string) => {
     try {
       const map = getStore(profilesByPubkey)
@@ -1612,7 +1636,15 @@
           onNavigateToRepo: (result: NewRepoResult) => {
             try {
               const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent, $pubkey || "")
-              goto(makeGitPath(url, naddr))
+              const destination = makeGitPath(url, naddr)
+              clearModals()
+              void goto(destination).catch(error => {
+                console.error("[+page.svelte] Failed to navigate to new repo:", error)
+                pushToast({
+                  message: `Failed to navigate to repository: ${String(error)}`,
+                  theme: "error",
+                })
+              })
             } catch (error) {
               console.error("[+page.svelte] Failed to navigate to new repo:", error)
               pushToast({
@@ -1631,6 +1663,7 @@
             const thunk = await publishEventToRelays(repoEvent, targetRelays)
             return extractRelayAck(thunk)
           },
+          onFetchRelayEvents: fetchRelayEvents,
           getProfile: getProfileForWizard,
           searchProfiles: searchProfilesForWizard,
           searchRelays: searchRelaysForWizard,
@@ -1765,6 +1798,7 @@
             });
             return events;
           },
+          onFetchRelayEvents: fetchRelayEvents,
           onClose: () => {
             clearModals()
           },
@@ -1785,7 +1819,14 @@
             try {
               const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent as any, $pubkey || "")
               const destination = makeGitPath(url, naddr)
-              goto(destination)
+              clearModals()
+              void goto(destination).catch(error => {
+                console.error("[+page.svelte] Failed to navigate to imported repo:", error)
+                pushToast({
+                  message: `Failed to navigate to repository: ${String(error)}`,
+                  theme: "error",
+                })
+              })
             } catch (error) {
               console.error("[+page.svelte] Failed to navigate to imported repo:", error)
               pushToast({

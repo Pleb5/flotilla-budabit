@@ -31,6 +31,7 @@
   import {postRepoAnnouncement, postRepoStateEvent} from "@lib/budabit/commands.js"
   import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
+  import type {NostrFilter, NostrEvent} from "@nostr-git/core"
   
   // ForkResult type definition (matches @nostr-git/ui)
   interface ForkResult {
@@ -1929,7 +1930,14 @@
       
       // Navigate to the forked repo page
       const targetPath = `/spaces/${encodedRelay}/git/${naddr}`
-      goto(targetPath)
+      clearModals()
+      void goto(targetPath).catch(error => {
+        console.error("Failed to navigate to forked repo:", error)
+        pushToast({ 
+          message: "Fork completed, but navigation failed. Please manually navigate to the repository.", 
+          theme: "error" 
+        })
+      })
     } catch (error) {
       console.error("Failed to navigate to forked repo:", error)
       pushToast({ 
@@ -2187,6 +2195,29 @@
       }
     }
 
+    const fetchRelayEvents = async (params: {
+      relays: string[]
+      filters: NostrFilter[]
+      timeoutMs?: number
+    }): Promise<NostrEvent[]> => {
+      const events: NostrEvent[] = []
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs || 2500))
+
+      try {
+        await load({
+          relays: params.relays,
+          filters: params.filters as any,
+          signal: controller.signal,
+          onEvent: event => events.push(event as NostrEvent),
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
+
+      return events
+    }
+
     pushModal(ForkRepoDialog, {
       repo: repoClass,
       pubkey: $pubkey || "",
@@ -2207,6 +2238,7 @@
         )
         return extractRelayAck(thunk)
       },
+      onFetchRelayEvents: fetchRelayEvents,
       onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
       graspServerUrls: graspServerUrls,
       navigateToForkedRepo: navigateToForkedRepo,
