@@ -1,14 +1,7 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
   import {onMount} from "svelte"
-  import {
-    int,
-    sortBy,
-    remove,
-    formatTimestampAsDate,
-    MINUTE,
-    uniq,
-  } from "@welshman/lib"
+  import {int, sortBy, remove, formatTimestampAsDate, MINUTE} from "@welshman/lib"
   import type {TrustedEvent, EventContent, EventTemplate} from "@welshman/util"
   import {makeEvent} from "@welshman/util"
   import {
@@ -18,7 +11,12 @@
     forceLoadMessagingRelayList,
     messagingRelayListsByPubkey,
   } from "@welshman/app"
-  import {DM_KIND, getDmRelayUrls, getMessagingRelayHints, normalizeRelayUrls} from "@lib/budabit/dm"
+  import {
+    DM_KIND,
+    getDmPublishRelays,
+    getDmRelayUrls,
+    getMessagingRelayHints,
+  } from "@lib/budabit/dm"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
@@ -140,7 +138,7 @@
       tags: [["p", recipientPubkey]],
     })
 
-    const sendRelays = normalizeRelayUrls(recipientInboxRelays)
+    const sendRelays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
 
     if (sendRelays.length === 0) {
       pushToast({

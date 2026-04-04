@@ -131,7 +131,6 @@ import {
   userFollowList,
 } from "@welshman/app"
 import type {ThunkOptions} from "@welshman/app"
-import type {RepositoryUpdate} from "@welshman/net"
 import {DM_KIND} from "@lib/budabit/constants"
 
 export type Room = RoomMeta & {
@@ -693,70 +692,49 @@ export const makeChannelId = (url: string, room: string) => makeRoomId(url, room
 
 export const splitChannelId = (id: string) => splitRoomId(id)
 
-export const chatsById = call(() => {
+export const buildChatsById = (events: TrustedEvent[], selfPubkey?: string) => {
   const chatsById = new Map<string, Chat>()
 
-  const addChat = (chat: Chat) => {
-    chatsById.set(chat.id, chat)
+  if (!selfPubkey) {
+    return chatsById
   }
 
-  return readable(chatsById, set => {
-    const publish = () => set(chatsById)
-
-    const addEvents = (events: TrustedEvent[]) => {
-      let changed = false
-      const selfPubkey = get(pubkey)
-
-      if (!selfPubkey) {
-        return
-      }
-
-      for (const event of events) {
-        if (event.kind === DM_KIND) {
-          const recipient = getDmCounterparty(event, selfPubkey)
-
-          if (!recipient) {
-            continue
-          }
-
-          const id = makeChatId(recipient)
-          const pubkeys = recipient === selfPubkey ? [selfPubkey] : [selfPubkey, recipient]
-
-          if (!chatsById.has(id)) {
-            addChat({
-              id,
-              pubkeys,
-              messages: [event],
-              last_activity: event.created_at,
-              search_text: recipient,
-            })
-            changed = true
-          } else {
-            const chat = chatsById.get(id)!
-
-            if (!chat.messages.some(e => e.id === event.id)) {
-              chat.messages.push(event)
-              chat.last_activity = Math.max(chat.last_activity, event.created_at)
-              changed = true
-            }
-          }
-        }
-      }
-
-      if (changed) {
-        publish()
-      }
+  for (const event of events) {
+    if (event.kind !== DM_KIND) {
+      continue
     }
 
-    addEvents(repository.query([{kinds: [DM_KIND]}]) as TrustedEvent[])
+    const recipient = getDmCounterparty(event, selfPubkey)
 
-    const unsubscribers = [
-      on(repository, "update", ({added}: RepositoryUpdate) => addEvents(Array.from(added))),
-    ]
+    if (!recipient) {
+      continue
+    }
 
-    return () => unsubscribers.forEach(call)
-  })
-})
+    const id = makeChatId(recipient)
+    const pubkeys = recipient === selfPubkey ? [selfPubkey] : [selfPubkey, recipient]
+    const chat = chatsById.get(id)
+
+    if (!chat) {
+      chatsById.set(id, {
+        id,
+        pubkeys,
+        messages: [event],
+        last_activity: event.created_at,
+        search_text: recipient,
+      })
+      continue
+    }
+
+    chat.messages.push(event)
+    chat.last_activity = Math.max(chat.last_activity, event.created_at)
+  }
+
+  return chatsById
+}
+
+export const chatsById = derived([pubkey, chatMessages], ([$pubkey, $chatMessages]) =>
+  buildChatsById($chatMessages, $pubkey),
+)
 
 export const chatSearch = derived(throttled(800, chatsById), $chatsById =>
   createSearch(Array.from($chatsById.values()), {

@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest"
 import {
   normalizeRelayUrls,
   getDmRelayUrls,
+  getDmPublishRelays,
   hasDmInbox,
   getDmCounterparty,
   getMessagingRelayHints,
@@ -56,6 +57,21 @@ describe("dm", () => {
       const list = {publicTags: [["r", "wss://relay.nostr.info"]], privateTags: []} as any
       const result = getDmRelayUrls(list)
       expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  describe("getDmPublishRelays", () => {
+    it("includes both recipient and self inbox relays without duplicates", () => {
+      const result = getDmPublishRelays(
+        ["wss://self.relay.example.com", "wss://shared.relay.example.com"],
+        ["wss://shared.relay.example.com", "wss://recipient.relay.example.com"],
+      )
+
+      expect(result).toEqual([
+        "wss://shared.relay.example.com/",
+        "wss://recipient.relay.example.com/",
+        "wss://self.relay.example.com/",
+      ])
     })
   })
 

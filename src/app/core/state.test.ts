@@ -47,6 +47,59 @@ describe("state", () => {
     expect(makeChatId("pk1")).toBe("pk1")
   })
 
+  it("buildChatsById groups inbound and outbound DMs after pubkey loads", async () => {
+    const {buildChatsById} = await import("./state")
+    const selfPubkey = "a".repeat(64)
+    const otherPubkey = "b".repeat(64)
+
+    const chats = buildChatsById(
+      [
+        {
+          id: "sent-1",
+          kind: 4444,
+          pubkey: selfPubkey,
+          tags: [["p", otherPubkey]],
+          created_at: 10,
+        },
+        {
+          id: "recv-1",
+          kind: 4444,
+          pubkey: otherPubkey,
+          tags: [["p", selfPubkey]],
+          created_at: 20,
+        },
+      ] as any,
+      selfPubkey,
+    )
+
+    expect(Array.from(chats.keys())).toEqual([otherPubkey])
+    expect(chats.get(otherPubkey)).toMatchObject({
+      id: otherPubkey,
+      pubkeys: [selfPubkey, otherPubkey],
+      last_activity: 20,
+      search_text: otherPubkey,
+    })
+    expect(chats.get(otherPubkey)?.messages.map(event => event.id)).toEqual(["sent-1", "recv-1"])
+  })
+
+  it("buildChatsById returns empty when pubkey is unavailable", async () => {
+    const {buildChatsById} = await import("./state")
+    const selfPubkey = "a".repeat(64)
+    const otherPubkey = "b".repeat(64)
+
+    const chats = buildChatsById([
+      {
+        id: "recv-1",
+        kind: 4444,
+        pubkey: otherPubkey,
+        tags: [["p", selfPubkey]],
+        created_at: 20,
+      },
+    ] as any)
+
+    expect(chats.size).toBe(0)
+  })
+
   it("makeChannelId delegates to makeRoomId", async () => {
     const {makeChannelId, makeRoomId} = await import("./state")
     expect(makeChannelId("wss://r.com", "h1")).toBe(makeRoomId("wss://r.com", "h1"))

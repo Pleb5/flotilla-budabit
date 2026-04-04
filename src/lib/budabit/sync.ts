@@ -1,3 +1,4 @@
+import {page} from "$app/stores"
 import type {Unsubscriber} from "svelte/store"
 import {derived, get} from "svelte/store"
 import {partition, call, sortBy, assoc, chunk, sleep, identity, WEEK, ago} from "@welshman/lib"
@@ -66,6 +67,10 @@ type PullOpts = {
   signal: AbortSignal
 }
 
+type DmPullOpts = PullOpts & {
+  fullHistory?: boolean
+}
+
 const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
   const [smart, dumb] = partition(hasNegentropy, relays)
   const events = repository.query(filters, {shouldSort: false}).filter(isSignedEvent)
@@ -88,7 +93,7 @@ const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
 
 const dmLoad = makeLoader({delay: 200, threshold: 0.5})
 
-const pullWithFallbackDm = ({relays, filters, signal}: PullOpts) => {
+const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
   const [smart, dumb] = partition(hasNegentropy, relays)
   const events = repository.query(filters, {shouldSort: false}).filter(isSignedEvent)
   const promises: Promise<TrustedEvent[]>[] = []
@@ -100,13 +105,16 @@ const pullWithFallbackDm = ({relays, filters, signal}: PullOpts) => {
   // For DMs, always run loader-based backfill. Even when relays support negentropy,
   // this protects us from false capability detection or partial negentropy failures.
   for (const url of [...smart, ...dumb]) {
+    let relayFilters = filters
     const urlEvents = events.filter(e => tracker.getRelays(e.id).has(url))
 
-    if (urlEvents.length >= 100) {
-      filters = filters.map(assoc("since", sortBy(e => -e.created_at, urlEvents)[10]!.created_at))
+    if (!fullHistory && urlEvents.length >= 100) {
+      relayFilters = relayFilters.map(
+        assoc("since", sortBy(e => -e.created_at, urlEvents)[10]!.created_at),
+      )
     }
 
-    promises.push(dmLoad({relays: [url], filters, signal}))
+    promises.push(dmLoad({relays: [url], filters: relayFilters, signal}))
   }
 
   return Promise.all(promises)
@@ -126,14 +134,15 @@ const pullAndListen = ({relays, filters, signal}: PullOpts) => {
   })
 }
 
-const pullAndListenDm = ({relays, filters, signal}: PullOpts) => {
-  const backfillFilters = filters.map(f => ({limit: 100, ...f}))
+const pullAndListenDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
+  const backfillFilters = fullHistory ? filters : filters.map(f => ({limit: 100, ...f}))
   const liveFilters = unionFilters(filters).map(assoc("limit", 0))
 
   pullWithFallbackDm({
     relays,
     signal,
     filters: backfillFilters,
+    fullHistory,
   })
 
   request({
@@ -283,15 +292,21 @@ const buildDmFilters = (pubkey: string, extra: Filter = {}) => [
   {kinds: [DM_KIND], authors: [pubkey], ...extra},
 ]
 
-const syncDMRelay = (url: string, pubkey: string) => {
-  const controller = new AbortController()
+export const shouldLoadFullDmHistory = (pathname = "") =>
+  pathname === "/chat" || pathname.startsWith("/chat/")
 
-  const filters = buildDmFilters(pubkey, {since: ago(WEEK, 2)})
+export const buildDmSyncFilters = (pubkey: string, fullHistory = false) =>
+  buildDmFilters(pubkey, fullHistory ? {} : {since: ago(WEEK, 2)})
+
+const syncDMRelay = (url: string, pubkey: string, fullHistory = false) => {
+  const controller = new AbortController()
+  const filters = buildDmSyncFilters(pubkey, fullHistory)
 
   pullAndListenDm({
     relays: [url],
     signal: controller.signal,
     filters,
+    fullHistory,
   })
 
   return () => controller.abort()
@@ -301,6 +316,8 @@ const syncDMs = () => {
   const unsubscribersByUrl = new Map<string, Unsubscriber>()
 
   let currentPubkey: string | undefined
+  let currentFullHistory = false
+  let hasRequestedFullHistory = false
 
   const unsubscribeAll = () => {
     for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
@@ -309,8 +326,13 @@ const syncDMs = () => {
     }
   }
 
-  const subscribeAll = (pubkey: string, urls: string[]) => {
+  const subscribeAll = (pubkey: string, urls: string[], fullHistory = false) => {
     const sanitizedUrls = sanitizeRelayList(urls)
+
+    if (fullHistory !== currentFullHistory) {
+      unsubscribeAll()
+      currentFullHistory = fullHistory
+    }
 
     if (sanitizedUrls.length === 0) {
       unsubscribeAll()
@@ -319,7 +341,7 @@ const syncDMs = () => {
     // Start syncing newly added relays
     for (const url of sanitizedUrls) {
       if (!unsubscribersByUrl.has(url)) {
-        unsubscribersByUrl.set(url, syncDMRelay(url, pubkey))
+        unsubscribersByUrl.set(url, syncDMRelay(url, pubkey, fullHistory))
       }
     }
 
@@ -336,6 +358,8 @@ const syncDMs = () => {
   const unsubscribePubkey = pubkey.subscribe($pubkey => {
     if ($pubkey !== currentPubkey) {
       unsubscribeAll()
+      currentFullHistory = false
+      hasRequestedFullHistory = false
     }
 
     // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.
@@ -349,16 +373,23 @@ const syncDMs = () => {
   })
 
   // When user messaging relays change, update synchronization
-  const unsubscribeList = derived([pubkey, userMessagingRelayList], identity).subscribe(
-    ([$pubkey, $userMessagingRelayList]) => {
+  const unsubscribeList = derived([pubkey, userMessagingRelayList, page], identity).subscribe(
+    ([$pubkey, $userMessagingRelayList, $page]) => {
       if ($pubkey) {
+        if (!hasRequestedFullHistory && shouldLoadFullDmHistory($page?.url?.pathname || "")) {
+          hasRequestedFullHistory = true
+          const relayHints = getMessagingRelayHints()
+          loadUserRelayList($pubkey)
+          forceLoadUserMessagingRelayList(relayHints)
+        }
+
         const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
         // Filter out any non-string values before sanitizing
         const stringRelays = Array.isArray(rawRelays)
           ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
           : []
         const relayUrls = sanitizeRelayList(stringRelays)
-        subscribeAll($pubkey, relayUrls)
+        subscribeAll($pubkey, relayUrls, hasRequestedFullHistory)
       }
     },
   )

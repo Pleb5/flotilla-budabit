@@ -38,6 +38,9 @@ export const normalizeRelayUrls = (relays: string[]) => {
 export const getDmRelayUrls = (list?: List) =>
   normalizeRelayUrls(getRelayTagValues(getListTags(list)))
 
+export const getDmPublishRelays = (selfRelays: string[], recipientRelays: string[]) =>
+  normalizeRelayUrls([...recipientRelays, ...selfRelays])
+
 export const hasDmInbox = (list?: List) => getDmRelayUrls(list).length > 0
 
 export const getMessagingRelayHints = () => {
