@@ -20,6 +20,7 @@
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
+  import ArchivedMinimalistic from "@assets/icons/archived-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -44,6 +45,8 @@
     ENABLE_ZAPS,
     CONTENT_KINDS,
     deriveSpaceMembers,
+    deriveArchivedRooms,
+    deriveUserRooms,
     deriveOtherRooms,
     userSpaceUrls,
     hasNip29,
@@ -55,8 +58,7 @@
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath, makeChatPath} from "@app/util/routes"
-  import {deriveUserRooms} from "@lib/budabit/state"
-  
+
   const {url} = $props()
 
   const relay = deriveRelay(url)
@@ -66,6 +68,7 @@
   const calendarPath = makeSpacePath(url, "calendar")
   const userRooms = deriveUserRooms(url)
   const otherRooms = deriveOtherRooms(url)
+  const archivedRooms = deriveArchivedRooms(url)
   const members = deriveSpaceMembers(url)
   const userIsAdmin = deriveUserIsSpaceAdmin(url)
   const reports = deriveEventsForUrl(url, [{kinds: [REPORT]}])
@@ -253,6 +256,22 @@
             <Icon icon={AddCircle} />
             Create room
           </SecondaryNavItem>
+        {/if}
+        {#if $archivedRooms.length > 0}
+          <details class="mt-2 rounded-xl bg-base-200/50">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-base-content/70">
+              <span class="flex items-center gap-2">
+                <Icon icon={ArchivedMinimalistic} />
+                Archived Rooms
+              </span>
+              <span class="text-xs uppercase tracking-wide">{$archivedRooms.length} read-only</span>
+            </summary>
+            <div class="flex flex-col gap-1 pb-2">
+              {#each $archivedRooms as h, i (h)}
+                <MenuSpaceRoomItem {replaceState} {url} {h} archived />
+              {/each}
+            </div>
+          </details>
         {/if}
       {/if}
     </div>

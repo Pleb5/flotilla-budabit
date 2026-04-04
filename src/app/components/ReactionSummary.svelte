@@ -33,6 +33,7 @@
     url?: string
     reactionClass?: string
     noTooltip?: boolean
+    readOnly?: boolean
     children?: Snippet
   }
 
@@ -43,6 +44,7 @@
     url = "",
     reactionClass = "",
     noTooltip = false,
+    readOnly = false,
     children,
   }: Props = $props()
 
@@ -167,9 +169,10 @@
             tooltip: !noTooltip && !isMobile,
             "border-neutral-content/20": !isOwn,
             "btn-primary": isOwn,
+            "cursor-default": readOnly,
           },
         )}
-        onclick={stopPropagation(preventDefault(onClick))}>
+        onclick={readOnly ? undefined : stopPropagation(preventDefault(onClick))}>
         <Reaction event={events[0]} />
         {#if events.length > 1}
           <span>{events.length}</span>

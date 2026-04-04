@@ -23,10 +23,11 @@
   type Props = {
     url: string
     event: TrustedEvent
-    reply: () => void
+    reply?: () => void
+    readOnly?: boolean
   }
 
-  const {url, event, reply}: Props = $props()
+  const {url, event, reply, readOnly = false}: Props = $props()
 
   const path = getRoomItemPath(url, event)
 
@@ -45,6 +46,10 @@
   const showEmojiPicker = () => pushModal(EmojiPicker, {onClick: onEmoji}, {replaceState: true})
 
   const sendReply = () => {
+    if (!reply) {
+      return
+    }
+
     history.back()
     reply()
   }
@@ -55,7 +60,7 @@
 </script>
 
 <div class="flex flex-col gap-2">
-  {#if event.pubkey === $pubkey}
+  {#if event.pubkey === $pubkey && !readOnly}
     <Button class="btn btn-neutral text-error" onclick={showDelete}>
       <Icon size={4} icon={TrashBin2} />
       Delete Message
@@ -71,18 +76,22 @@
       View Details
     </Link>
   {/if}
-  {#if ENABLE_ZAPS}
+  {#if ENABLE_ZAPS && !readOnly}
     <ZapButton replaceState {url} {event} class="btn btn-neutral w-full">
       <Icon size={4} icon={Bolt} />
       Send Zap
     </ZapButton>
   {/if}
-  <Button class="btn btn-neutral w-full" onclick={sendReply}>
-    <Icon size={4} icon={Reply} />
-    Send Reply
-  </Button>
-  <Button class="btn btn-neutral w-full" onclick={showEmojiPicker}>
-    <Icon size={4} icon={SmileCircle} />
-    Send Reaction
-  </Button>
+  {#if reply && !readOnly}
+    <Button class="btn btn-neutral w-full" onclick={sendReply}>
+      <Icon size={4} icon={Reply} />
+      Send Reply
+    </Button>
+  {/if}
+  {#if !readOnly}
+    <Button class="btn btn-neutral w-full" onclick={showEmojiPicker}>
+      <Icon size={4} icon={SmileCircle} />
+      Send Reaction
+    </Button>
+  {/if}
 </div>

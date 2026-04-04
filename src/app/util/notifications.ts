@@ -22,8 +22,11 @@ import {
   getSpaceUrlsFromGroupList,
   getSpaceRoomsFromGroupList,
   encodeRelay,
+  roomsById,
 } from "@app/core/state"
 import {kv} from "@app/core/storage"
+import {channelsById} from "@lib/budabit/state"
+import {isArchivedRoomReference} from "@app/util/room-archive"
 
 // Checked state
 
@@ -106,6 +109,8 @@ export const notifications = call(() => {
           chatsById,
           userGroupList,
           relaysByUrl,
+          roomsById,
+          channelsById,
           deriveEventsByIdByUrl({tracker, repository, filters: goalCommentFilters}),
           deriveEventsByIdByUrl({tracker, repository, filters: threadCommentFilters}),
           deriveEventsByIdByUrl({tracker, repository, filters: calendarCommentFilters}),
@@ -122,6 +127,8 @@ export const notifications = call(() => {
       $chatsById,
       $userGroupList,
       $relaysByUrl,
+      $roomsById,
+      $channelsById,
       goalCommentsByUrl,
       threadCommentsByUrl,
       calendarCommentsByUrl,
@@ -246,6 +253,12 @@ export const notifications = call(() => {
 
         if (hasNip29($relaysByUrl.get(url))) {
           for (const h of getSpaceRoomsFromGroupList(url, $userGroupList)) {
+            if (
+              isArchivedRoomReference({url, h, roomsById: $roomsById, channelsById: $channelsById})
+            ) {
+              continue
+            }
+
             const roomPath = makeRoomPath(url, h)
             const latestEvent = find((e: TrustedEvent) => e.tags.some(spec(["h", h])), messages)
 

@@ -81,6 +81,7 @@ import {
   getListTags,
   getPubkeyTagValues,
   getRelayTagValues,
+  getTag,
   getTagValue,
   getTagValues,
   isRelayUrl,
@@ -133,7 +134,12 @@ import type {ThunkOptions} from "@welshman/app"
 import type {RepositoryUpdate} from "@welshman/net"
 import {DM_KIND} from "@lib/budabit/constants"
 
-export type Room = RoomMeta & {url: string; id: string}
+export type Room = RoomMeta & {
+  url: string
+  id: string
+  isArchived: boolean
+  creatorPubkey?: string
+}
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
@@ -223,6 +229,12 @@ export const PLATFORM_NAME = import.meta.env.VITE_PLATFORM_NAME
 export const PLATFORM_RELAYS = fromCsv(import.meta.env.VITE_PLATFORM_RELAYS)
 
 const normalizedPlatformRelays = PLATFORM_RELAYS.map(normalizeRelayUrl)
+
+const hasRoomArchiveTag = (tags: string[][] = []) =>
+  tags.some(tag => tag[0] === "archived" && (tag[1] || "true") !== "false")
+
+const getRoomMetaIdentifier = (event: TrustedEvent) =>
+  getTagValue("d", event.tags) || getTagValue("h", event.tags) || ""
 
 export const isPlatformRelay = (url: string) =>
   normalizedPlatformRelays.includes(normalizeRelayUrl(url))
@@ -500,25 +512,77 @@ export const deriveAlertStatus = (address: string) =>
 // BudaBit room create helper.
 // This flow needs a ROOM_META (39000) event with a d-tag, while welshman currently
 // creates regular room events through createRoom/editRoom helpers.
-export const createBudaBitRoom = (url: string, room: RoomMeta) => {
-  const event = makeRoomEditEvent(room)
-  const roomEventThunkOptions: ThunkOptions = {
-    event,
-    relays: [url],
+export const getRoomMetaRelays = (url?: string) => {
+  const platformRelays = uniq(
+    PLATFORM_RELAYS.map(relay => {
+      try {
+        return normalizeRelayUrl(relay)
+      } catch {
+        return ""
+      }
+    }).filter(isRelayUrl),
+  )
+
+  if (platformRelays.length > 0) {
+    return platformRelays
   }
 
-  // Hack: welshman does not have makeRoomMetaEvent so kind must be overwritten
-  event.kind = ROOM_META
+  if (!url) {
+    return []
+  }
 
-  // Replace h-tag with d-tag according to spec
-  event.tags.forEach(t => {
-    if (t[0] === "h") {
-      t[0] = "d"
-    }
-  })
+  try {
+    const normalized = normalizeRelayUrl(url)
+
+    return isRelayUrl(normalized) ? [normalized] : []
+  } catch {
+    return []
+  }
+}
+
+export const makeBudaBitRoomMetaEvent = (room: RoomMeta, {archived}: {archived?: boolean} = {}) => {
+  const event = makeRoomEditEvent(room)
+  const existingArchived = hasRoomArchiveTag(event.tags)
+
+  event.kind = ROOM_META
+  event.tags = event.tags
+    .map(tag => {
+      if (tag[0] === "h") {
+        return ["d", tag[1], ...tag.slice(2)]
+      }
+
+      return tag
+    })
+    .filter(tag => tag[0] !== "archived")
+
+  if (archived ?? existingArchived) {
+    event.tags.push(["archived", "true"])
+  }
+
+  return event
+}
+
+export const publishBudaBitRoomMeta = ({
+  url,
+  room,
+  archived,
+  relays,
+}: {
+  url: string
+  room: RoomMeta
+  archived?: boolean
+  relays?: string[]
+}) => {
+  const roomEventThunkOptions: ThunkOptions = {
+    event: makeBudaBitRoomMetaEvent(room, {archived}),
+    relays: relays || getRoomMetaRelays(url),
+  }
 
   return publishThunk(roomEventThunkOptions)
 }
+
+export const createBudaBitRoom = (url: string, room: RoomMeta) =>
+  publishBudaBitRoomMeta({url, room})
 
 // Membership
 
@@ -736,11 +800,15 @@ export const roomMetaEventsByIdByUrl = deriveEventsByIdByUrl({
 })
 
 export const roomsByUrl = derived(roomMetaEventsByIdByUrl, roomMetaEventsByIdByUrl => {
-  const metaByIdByUrl = new Map<string, Map<string, Room>>()
+  const result = new Map<string, Room[]>()
 
   for (const [url, events] of roomMetaEventsByIdByUrl.entries()) {
     const [metaEvents, deleteEvents] = partition(spec({kind: ROOM_META}), events.values())
     const deletedByH = new Map<string, number>()
+    const metaEventsByH = new Map<
+      string,
+      Array<RoomMeta & {event: TrustedEvent; isArchived: boolean}>
+    >()
 
     for (const event of deleteEvents) {
       for (const h of getTagValues("h", event.tags)) {
@@ -749,12 +817,12 @@ export const roomsByUrl = derived(roomMetaEventsByIdByUrl, roomMetaEventsByIdByU
     }
 
     for (const event of metaEvents) {
-      let meta: any
+      let meta: (RoomMeta & {event: TrustedEvent}) | undefined
 
       try {
         meta = readRoomMeta(event)
       } catch {
-        const h = getTagValue("d", event.tags) || getTagValue("h", event.tags)
+        const h = getRoomMetaIdentifier(event)
 
         if (!h) continue
 
@@ -766,31 +834,49 @@ export const roomsByUrl = derived(roomMetaEventsByIdByUrl, roomMetaEventsByIdByU
           name: (tags as any).name || h,
           about: (tags as any).about,
           picture: (tags as any).picture,
-          isClosed: Boolean(getTagValue("closed", event.tags)),
-          isPrivate: Boolean(getTagValue("private", event.tags)),
+          isClosed: Boolean(getTag("closed", event.tags)),
+          isHidden: Boolean(getTag("hidden", event.tags)),
+          isPrivate: Boolean(getTag("private", event.tags)),
+          isRestricted: Boolean(getTag("restricted", event.tags)),
         }
       }
 
-      if (gt(deletedByH.get(meta.h), meta.event.created_at)) {
+      if (!meta?.h) {
         continue
       }
 
-      let metaById = metaByIdByUrl.get(url)
-      if (!metaById) {
-        metaById = new Map()
-        metaByIdByUrl.set(url, metaById)
+      const current = metaEventsByH.get(meta.h) || []
+
+      current.push({...meta, isArchived: hasRoomArchiveTag(event.tags)})
+      metaEventsByH.set(meta.h, current)
+    }
+
+    const rooms: Room[] = []
+
+    for (const [h, roomMetaEvents] of metaEventsByH.entries()) {
+      const creatorPubkey = sortBy(
+        (room: RoomMeta & {event: TrustedEvent}) => room.event.created_at,
+        roomMetaEvents,
+      )[0]?.event.pubkey
+      const visibleRoom = sortBy(
+        (room: RoomMeta & {event: TrustedEvent}) => -room.event.created_at,
+        roomMetaEvents,
+      ).find(room => !gt(deletedByH.get(h), room.event.created_at))
+
+      if (!visibleRoom) {
+        continue
       }
 
-      const id = makeRoomId(url, meta.h)
-
-      metaById.set(id, {...meta, url, id})
+      rooms.push({
+        ...visibleRoom,
+        url,
+        id: makeRoomId(url, h),
+        isArchived: Boolean(visibleRoom.isArchived),
+        creatorPubkey,
+      })
     }
-  }
 
-  const result = new Map<string, Room[]>()
-
-  for (const [url, metaById] of metaByIdByUrl.entries()) {
-    result.set(url, Array.from(metaById.values()))
+    result.set(url, rooms)
   }
 
   return result
@@ -828,7 +914,10 @@ export const deriveRoom = call(() => {
   const _deriveRoom = makeDeriveItem(roomsById, loadRoom)
 
   return (url: string, h: string) =>
-    derived(_deriveRoom(makeRoomId(url, h)), room => room || makeRoomMeta({h}))
+    derived(
+      _deriveRoom(makeRoomId(url, h)),
+      room => room || ({...makeRoomMeta({h}), isArchived: false} as Room),
+    )
 })
 
 export const displayRoom = (url: string, h: string) => getRoom(makeRoomId(url, h))?.name || h
@@ -925,7 +1014,9 @@ export const deriveUserRooms = (url: string) =>
     const rooms: string[] = []
 
     for (const h of getSpaceRoomsFromGroupList(url, $userGroupList)) {
-      if ($roomsById.has(makeRoomId(url, h))) {
+      const room = $roomsById.get(makeRoomId(url, h))
+
+      if (room && !room.isArchived) {
         rooms.push(h)
       }
     }
@@ -937,9 +1028,22 @@ export const deriveOtherRooms = (url: string) =>
   derived([deriveUserRooms(url), roomsByUrl], ([$userRooms, $roomsByUrl]) => {
     const rooms: string[] = []
 
-    for (const {h} of $roomsByUrl.get(url) || []) {
-      if (!$userRooms.includes(h)) {
-        rooms.push(h)
+    for (const room of $roomsByUrl.get(url) || []) {
+      if (!room.isArchived && !$userRooms.includes(room.h)) {
+        rooms.push(room.h)
+      }
+    }
+
+    return sortBy(roomComparator(url), rooms)
+  })
+
+export const deriveArchivedRooms = (url: string) =>
+  derived(roomsByUrl, $roomsByUrl => {
+    const rooms: string[] = []
+
+    for (const room of $roomsByUrl.get(url) || []) {
+      if (room.isArchived) {
+        rooms.push(room.h)
       }
     }
 

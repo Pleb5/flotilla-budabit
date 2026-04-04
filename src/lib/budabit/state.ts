@@ -36,6 +36,7 @@ import {
   type TrustedEvent,
   ROOM_META,
   getTag,
+  readRoomMeta,
   getTagValue,
   getAddress,
 } from "@welshman/util"
@@ -595,15 +596,21 @@ export type Channel = {
   id: string
   url: string
   room: string
+  metaId: string
   event: TrustedEvent
   name: string
   closed: boolean
   private: boolean
+  archived: boolean
+  creatorPubkey?: string
   picture?: string
   about?: string
 }
 
 export const splitChannelId = (id: string) => id.split("'")
+
+const hasRoomArchiveTag = (tags: string[][] = []) =>
+  tags.some(tag => tag[0] === "archived" && (tag[1] || "true") !== "false")
 
 // Only load channel events from platform relays to avoid showing rooms from other relays
 export const channelEvents = deriveEventsAsc(
@@ -678,15 +685,22 @@ export const displayChannel = (url: string, room: string) => {
 }
 
 export const deriveUserRooms = (url: string) =>
-  derived(userRoomsByUrl, $userRoomsByUrl =>
-    sortBy(roomComparator(url), uniq(Array.from($userRoomsByUrl.get(url) || [GENERAL]))),
-  )
+  derived([userRoomsByUrl, activeChannelsByUrl], ([$userRoomsByUrl, $activeChannelsByUrl]) => {
+    const activeRooms = new Set(($activeChannelsByUrl.get(url) || []).map(channel => channel.room))
+    const rooms = uniq(Array.from($userRoomsByUrl.get(url) || [GENERAL])).filter(
+      room => room === GENERAL || activeRooms.has(room),
+    )
+
+    return sortBy(roomComparator(url), rooms)
+  })
 
 export const deriveOtherRooms = (url: string) =>
   derived([deriveUserRooms(url), channelsByUrl], ([$userRooms, $channelsByUrl]) =>
     sortBy(
       roomComparator(url),
-      ($channelsByUrl.get(url) || []).filter(c => !$userRooms.includes(c.room)).map(c => c.room),
+      ($channelsByUrl.get(url) || [])
+        .filter(c => !c.archived && !$userRooms.includes(c.room))
+        .map(c => c.room),
     ),
   )
 
@@ -695,6 +709,19 @@ export const channels = derived(
   ([$channelEvents, $getUrlsForEvent]) => {
     const $channels: Channel[] = []
     const normalizedPlatformRelays = PLATFORM_RELAYS.map(normalizeRelayUrl)
+    const metaEventsByRoomId = new Map<
+      string,
+      Array<{
+        metaId: string
+        event: TrustedEvent
+        name: string
+        closed: boolean
+        private: boolean
+        archived: boolean
+        picture?: string
+        about?: string
+      }>
+    >()
 
     for (const event of $channelEvents) {
       // Only include events that were received from platform relays
@@ -705,25 +732,74 @@ export const channels = derived(
         continue
       }
 
-      const meta = fromPairs(event.tags)
-      // Use the room name for the room identifier since messages are tagged with the name, not the d tag
-      const room = meta.name || meta.d
-      if (room) {
-        for (const url of $getUrlsForEvent(event.id)) {
-          const id = makeChannelId(url, room)
+      let metaId = getTagValue("d", event.tags) || getTagValue("h", event.tags)
+      let name = ""
+      let picture: string | undefined
+      let about: string | undefined
 
-          $channels.push({
-            id,
-            url,
-            room,
-            event,
-            name: meta.name || room,
-            closed: Boolean(getTag("closed", event.tags)),
-            private: Boolean(getTag("private", event.tags)),
-            picture: meta.picture,
-            about: meta.about,
-          })
-        }
+      try {
+        const meta = readRoomMeta(event)
+
+        metaId = meta.h
+        name = meta.name || meta.h
+        picture = meta.picture
+        about = meta.about
+      } catch {
+        const meta = fromPairs(event.tags)
+
+        metaId = metaId || meta.d
+        name = meta.name || metaId || ""
+        picture = meta.picture
+        about = meta.about
+      }
+
+      if (!metaId) {
+        continue
+      }
+
+      const items = metaEventsByRoomId.get(metaId) || []
+
+      items.push({
+        metaId,
+        event,
+        name: name || metaId,
+        closed: Boolean(getTag("closed", event.tags)),
+        private: Boolean(getTag("private", event.tags)),
+        archived: hasRoomArchiveTag(event.tags),
+        picture,
+        about,
+      })
+      metaEventsByRoomId.set(metaId, items)
+    }
+
+    for (const [metaId, events] of metaEventsByRoomId.entries()) {
+      const latest = sortBy(item => -item.event.created_at, events)[0]
+      const creatorPubkey = sortBy(item => item.event.created_at, events)[0]?.event.pubkey
+
+      if (!latest) {
+        continue
+      }
+
+      // Use the room name for the room identifier since messages are tagged with the name, not the d tag
+      const room = latest.name || metaId
+
+      for (const url of $getUrlsForEvent(latest.event.id)) {
+        const id = makeChannelId(url, room)
+
+        $channels.push({
+          id,
+          url,
+          room,
+          metaId,
+          event: latest.event,
+          name: latest.name || room,
+          closed: latest.closed,
+          private: latest.private,
+          archived: latest.archived,
+          creatorPubkey,
+          picture: latest.picture,
+          about: latest.about,
+        })
       }
     }
 
@@ -752,6 +828,8 @@ export const _loadChannel = async (id: string) => {
 
 export const _deriveChannel = (id: string) => withGetter(derived(channelsById, $m => $m.get(id)))
 
+export const deriveChannel = (url: string, room: string) => _deriveChannel(makeChannelId(url, room))
+
 export const channelsByUrl = derived(channelsById, $channelsById => {
   const $channelsByUrl = new Map<string, Channel[]>()
 
@@ -760,6 +838,32 @@ export const channelsByUrl = derived(channelsById, $channelsById => {
   }
 
   return $channelsByUrl
+})
+
+export const activeChannelsByUrl = derived(channelsByUrl, $channelsByUrl => {
+  const result = new Map<string, Channel[]>()
+
+  for (const [url, channels] of $channelsByUrl.entries()) {
+    result.set(
+      url,
+      channels.filter(channel => !channel.archived),
+    )
+  }
+
+  return result
+})
+
+export const archivedChannelsByUrl = derived(channelsByUrl, $channelsByUrl => {
+  const result = new Map<string, Channel[]>()
+
+  for (const [url, channels] of $channelsByUrl.entries()) {
+    result.set(
+      url,
+      channels.filter(channel => channel.archived),
+    )
+  }
+
+  return result
 })
 
 export async function loadPlatformChannels() {

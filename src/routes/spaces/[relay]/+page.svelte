@@ -12,6 +12,7 @@
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
+  import ArchivedMinimalistic from "@assets/icons/archived-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
@@ -24,9 +25,10 @@
   import {notifications} from "@app/util/notifications"
   import {fade} from "@lib/transition"
   import SpaceMenuButton from "@src/lib/budabit/components/SpaceMenuButton.svelte"
-  import { channelsByUrl } from "@lib/budabit/state"
+  import {channelsByUrl} from "@lib/budabit/state"
   import ChannelName from "@src/lib/budabit/components/ChannelName.svelte"
   import DemoDayPromo from "@src/lib/budabit/components/DemoDayPromo.svelte"
+  import {partitionArchivedItems} from "@app/util/room-archive"
 
   const url = decodeRelay($page.params.relay!)
   const relay = deriveRelay(url)
@@ -36,10 +38,11 @@
   const gitPath = makeGitPath(url)
   const owner = $derived($relay?.pubkey)
 
-  const channelsByUrlFiltered = $derived.by(() => {
-    const channels = $channelsByUrl.get(url) || []
-    return channels.reverse()
-  })
+  const roomSections = $derived.by(() =>
+    partitionArchivedItems(($channelsByUrl.get(url) || []).slice().reverse()),
+  )
+  const activeChannels = $derived.by(() => roomSections.active)
+  const archivedChannels = $derived.by(() => roomSections.archived)
 </script>
 
 <PageBar>
@@ -96,7 +99,7 @@
   </div>
   <DemoDayPromo {url}/>
   <div class="grid max-sm:grid-cols-2 sm:grid-cols-3 gap-2">
-    {#each channelsByUrlFiltered as channel (channel.id)}
+    {#each activeChannels as channel (channel.id)}
       {@const roomPath = makeRoomPath(url, channel.room)}
       <Link href={roomPath} class="btn btn-neutral relative">
         <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap  md:text-lg">
@@ -109,6 +112,29 @@
         {/if}
       </Link>
     {/each}
+    {#if archivedChannels.length > 0}
+      <details class="card2 bg-base-200/50 col-span-full overflow-hidden">
+        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+          <div class="flex items-center gap-2 md:text-lg">
+            <Icon icon={ArchivedMinimalistic} />
+            Archived Rooms
+          </div>
+          <span class="text-xs uppercase opacity-70">{archivedChannels.length} read-only</span>
+        </summary>
+        <div class="grid gap-2 px-3 pb-3 max-sm:grid-cols-2 sm:grid-cols-3">
+          {#each archivedChannels as channel (channel.id)}
+            {@const roomPath = makeRoomPath(url, channel.room)}
+            <Link href={roomPath} class="btn btn-neutral relative opacity-80">
+              <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap md:text-lg">
+                <Icon icon={ArchivedMinimalistic} />
+                <ChannelName {url} room={channel.room} />
+              </div>
+              <span class="badge badge-outline badge-xs absolute right-2 top-2">Archived</span>
+            </Link>
+          {/each}
+        </div>
+      </details>
+    {/if}
     <Link href={chatPath} class="btn btn-success w-full">
       <div class="relative flex items-center gap-2 md:text-lg">
         <Icon icon={ChatRound} size={6}/>

@@ -18,6 +18,9 @@
   import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
   import Login2 from "@assets/icons/login-3.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
+  import ArchiveDown from "@assets/icons/archive-down.svg?dataurl"
+  import ArchiveUp from "@assets/icons/archive-up.svg?dataurl"
+  import ArchivedMinimalistic from "@assets/icons/archived-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -55,6 +58,10 @@
   import {pushToast} from "@app/util/toast"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {makeSpacePath} from "@app/util/routes"
+  import {pushModal} from "@app/util/modal"
+  import ArchiveRoomConfirm from "@app/components/ArchiveRoomConfirm.svelte"
+  import {deriveChannel} from "@lib/budabit/state"
+  import {getRoomInteractionState} from "@app/util/room-archive"
 
   const {h, relay} = $page.params as MakeNonOptional<typeof $page.params> as MakeNonOptional<typeof $page.params>
   const mounted = now()
@@ -62,8 +69,39 @@
   const url = decodeRelay(relay)
   const isPlatform = isPlatformRelay(url)
   const room = deriveRoom(url, h)
+  const channel = deriveChannel(url, h)
   const shouldProtect = canEnforceNip70(url)
   const membershipStatus = deriveUserRoomMembershipStatus(url, h)
+  const isArchivedRoom = $derived.by(() => Boolean($room?.isArchived || $channel?.archived))
+  const roomInteraction = $derived.by(() =>
+    getRoomInteractionState({
+      isArchivedRoom,
+      isPrivate: Boolean($room.isPrivate),
+      isRestricted: Boolean($room.isRestricted),
+      isClosed: Boolean($room.isClosed),
+      membershipStatus: $membershipStatus,
+    }),
+  )
+  const roomName = $derived.by(() => $room?.name || $channel?.name || h)
+  const roomEvent = $derived.by(() => $room?.event || $channel?.event)
+  const roomCreatorPubkey = $derived.by(
+    () => $room?.creatorPubkey || $channel?.creatorPubkey || roomEvent?.pubkey || "",
+  )
+  const userIsRoomCreator = $derived.by(() => Boolean($pubkey && roomCreatorPubkey === $pubkey))
+
+  const openArchiveConfirm = () => {
+    if (!roomEvent) {
+      pushToast({theme: "error", message: "Room metadata is not available yet."})
+      return
+    }
+
+    pushModal(ArchiveRoomConfirm, {
+      url,
+      roomEvent,
+      roomName,
+      archived: isArchivedRoom,
+    })
+  }
 
   const join = async () => {
     joining = true
@@ -342,19 +380,46 @@
   {/snippet}
   {#snippet action()}
     <div class="row-2">
+      {#if userIsRoomCreator}
+        <Button class="btn btn-neutral btn-sm" onclick={openArchiveConfirm}>
+          <Icon icon={roomInteraction.isReadOnly ? ArchiveUp : ArchiveDown} />
+          {roomInteraction.isReadOnly ? "Unarchive" : "Archive"}
+        </Button>
+      {/if}
       <SpaceMenuButton {url} />
       <SlotRenderer slotId="room:header:actions" context={{url, room}} />
     </div>
   {/snippet}
 </PageBar>
 
+{#if roomInteraction.showArchivedBanner}
+  <div class="px-2 pt-3">
+    <div class="card2 bg-base-200/70 flex flex-col gap-2 border border-base-300">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="badge badge-warning gap-1">
+          <Icon icon={ArchivedMinimalistic} size={3} />
+          Archived
+        </span>
+        <span class="badge badge-neutral">Read-only</span>
+      </div>
+      <p class="text-sm opacity-75">
+        This room stays available for reference, but posting and interactions are disabled.
+      </p>
+    </div>
+  </div>
+{/if}
+
 <PageContent bind:element onscroll={onScroll} class="flex flex-col-reverse pt-4">
   <div bind:this={dynamicPadding}></div>
-  {#if $room.isPrivate && $membershipStatus !== MembershipStatus.Granted}
+  {#if roomInteraction.showPrivateGate}
     <div class="py-20">
       <div class="card2 col-8 m-auto max-w-md items-center text-center">
         <p class="opacity-75">You aren't currently a member of this room.</p>
-        {#if !$room.isClosed}
+        {#if roomInteraction.isReadOnly}
+          <p class="mt-2 text-sm opacity-60">
+            Archived rooms are read-only, so membership requests are disabled.
+          </p>
+        {:else if roomInteraction.allowMembershipRequest}
           {#if $membershipStatus === MembershipStatus.Pending}
             <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
               <Icon icon={ClockCircle} />
@@ -397,6 +462,7 @@
             <RoomItem
               {url}
               {event}
+              readOnly={roomInteraction.isReadOnly}
               {replyTo}
               {showPubkey}
               canEdit={canEditEvent}
@@ -416,12 +482,22 @@
 </PageContent>
 
 <div class="chat__compose bg-base-200" bind:this={chatCompose}>
-  {#if $room.isPrivate && $membershipStatus !== MembershipStatus.Granted}
+  {#if roomInteraction.showPrivateGate}
     <!-- pass -->
-  {:else if $room.isRestricted && $membershipStatus !== MembershipStatus.Granted}
+  {:else if roomInteraction.isReadOnly}
+    <div class="bg-alt card m-4 flex flex-col gap-2 px-4 py-3">
+      <div class="flex items-center gap-2 font-medium">
+        <Icon icon={ArchivedMinimalistic} />
+        Archived room
+      </div>
+      <p class="opacity-75">
+        This room is read-only. Posting, replies, reactions, and moderation actions are disabled.
+      </p>
+    </div>
+  {:else if roomInteraction.showRestrictedGate}
     <div class="bg-alt card m-4 flex flex-row items-center justify-between px-4 py-3">
       <p class="opacity-75">Only members are allowed to post to this room.</p>
-      {#if !$room.isClosed}
+      {#if roomInteraction.allowMembershipRequest}
         {#if $membershipStatus === MembershipStatus.Pending}
           <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
             <Icon icon={ClockCircle} />

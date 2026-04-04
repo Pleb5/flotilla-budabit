@@ -13,9 +13,10 @@
     url: string
     event: TrustedEvent
     onClick: () => void
+    readOnly?: boolean
   }
 
-  const {url, event, onClick}: Props = $props()
+  const {url, event, onClick, readOnly = false}: Props = $props()
 
   const showInfo = () => {
     onClick()
@@ -35,7 +36,7 @@
       Show JSON
     </Button>
   </li>
-  {#if event.pubkey === $pubkey}
+  {#if event.pubkey === $pubkey && !readOnly}
     <li>
       <Button onclick={showDelete} class="text-error">
         <Icon size={4} icon={TrashBin2} />

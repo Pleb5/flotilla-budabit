@@ -10,9 +10,10 @@
     h: any
     notify?: boolean
     replaceState?: boolean
+    archived?: boolean
   }
 
-  const {url, h, notify = false, replaceState = false}: Props = $props()
+  const {url, h, notify = false, replaceState = false, archived = false}: Props = $props()
 
   const path = makeRoomPath(url, h)
 </script>
@@ -20,6 +21,11 @@
 <SecondaryNavItem
   href={path}
   {replaceState}
-  notification={notify ? $notifications.has(path) : false}>
-  <RoomNameWithImage {url} {h} />
+  notification={archived ? false : notify ? $notifications.has(path) : false}>
+  <div class="flex min-w-0 flex-1 items-center gap-2">
+    <RoomNameWithImage {url} {h} class="min-w-0 flex-1" />
+    {#if archived}
+      <span class="badge badge-outline badge-xs">Archived</span>
+    {/if}
+  </div>
 </SecondaryNavItem>

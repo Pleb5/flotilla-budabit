@@ -20,7 +20,7 @@
     GIT_REPO_STATE,
     GRASP_SET_KIND,
   } from "@nostr-git/core/events"
-  import { channelsByUrl, loadPlatformChannels } from "@src/lib/budabit"
+  import {activeChannelsByUrl, loadPlatformChannels} from "@src/lib/budabit"
   import {AuthStatus, SocketStatus} from "@welshman/net"
   import {request} from "@welshman/net"
   import {onMount} from "svelte"
@@ -37,7 +37,7 @@
   const url = decodeRelay($page.params.relay!)
   const isPlatform = isPlatformRelay(url)
 
-  const rooms = Array.from($channelsByUrl.get(url)|| [])
+  const rooms = Array.from($activeChannelsByUrl.get(url) || [])
 
   const socket = deriveSocket(url)
 
@@ -95,7 +95,7 @@
     loadPlatformChannels()
 
     const messageFilters = isPlatform
-      ? [{kinds: [MESSAGE], since}, ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.id], since}))]
+      ? [{kinds: [MESSAGE], since}, ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.room], since}))]
       : []
 
     const gitFilters = isPlatform
@@ -119,7 +119,7 @@
 
   $effect(() => {
     if (!isPlatform) return
-    const currentRooms = Array.from($channelsByUrl.get(url) || [])
+    const currentRooms = Array.from($activeChannelsByUrl.get(url) || [])
     if ($socket.status === SocketStatus.Open && currentRooms.length === 0) {
       loadPlatformChannels()
     }

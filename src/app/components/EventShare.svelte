@@ -39,7 +39,7 @@
     {/snippet}
   </ModalHeader>
   <div class="grid grid-cols-3 gap-2">
-    {#each $roomsByUrl.get(url) || [] as room (room.h)}
+    {#each ($roomsByUrl.get(url) || []).filter(room => !room.isArchived) as room (room.h)}
       <button
         type="button"
         class="btn"

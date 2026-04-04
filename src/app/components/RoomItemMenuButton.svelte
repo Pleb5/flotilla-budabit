@@ -7,7 +7,7 @@
   import Tippy from "@lib/components/Tippy.svelte"
   import RoomItemMenu from "@app/components/RoomItemMenu.svelte"
 
-  const {url, event} = $props()
+  const {url, event, readOnly = false} = $props()
 
   const open = () => popover?.show()
 
@@ -35,6 +35,6 @@
   <Tippy
     bind:popover
     component={RoomItemMenu}
-    props={{url, event, onClick}}
+    props={{url, event, onClick, readOnly}}
     params={{trigger: "manual", interactive: true}} />
 </div>

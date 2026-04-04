@@ -40,6 +40,7 @@
     replyTo?: (event: TrustedEvent) => void
     showPubkey?: boolean
     inert?: boolean
+    readOnly?: boolean
     canEdit: (event: TrustedEvent) => boolean
     onEdit: (event: TrustedEvent) => void
   }
@@ -50,6 +51,7 @@
     replyTo = undefined,
     showPubkey = false,
     inert = false,
+    readOnly = false,
     canEdit,
     onEdit,
   }: Props = $props()
@@ -62,10 +64,10 @@
   const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
   const comments = deriveEventsForUrl(url, [{kinds: [COMMENT], "#e": [event.id]}])
 
-  const reply = () => replyTo!(event)
-  const edit = canEdit(event) ? () => onEdit(event) : undefined
+  const reply = !readOnly && replyTo ? () => replyTo(event) : undefined
+  const edit = !readOnly && canEdit(event) ? () => onEdit(event) : undefined
 
-  const onTap = () => pushModal(RoomItemMenuMobile, {url, event, reply, edit})
+  const onTap = () => pushModal(RoomItemMenuMobile, {url, event, reply, edit, readOnly})
 
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, url})
 
@@ -119,6 +121,7 @@
     <ReactionSummary
       {url}
       {event}
+      {readOnly}
       {deleteReaction}
       {createReaction}
       reactionClass="tooltip-right" />
@@ -144,11 +147,13 @@
     <div
       class="join absolute right-1 top-1 border border-solid border-neutral text-xs opacity-0 transition-all"
       class:group-hover:opacity-100={!isMobile}>
-      {#if ENABLE_ZAPS}
+      {#if ENABLE_ZAPS && !readOnly}
         <RoomItemZapButton {url} {event} />
       {/if}
-      <RoomItemEmojiButton {url} {event} />
-      {#if replyTo}
+      {#if !readOnly}
+        <RoomItemEmojiButton {url} {event} />
+      {/if}
+      {#if reply}
         <Button class="btn join-item btn-xs" onclick={reply}>
           <Icon icon={Reply} size={4} />
         </Button>
@@ -158,8 +163,10 @@
           <Icon icon={Pen} size={4} />
         </Button>
       {/if}
-      <RoomItemMenuButton {url} {event} />
-      <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
+      <RoomItemMenuButton {url} {event} {readOnly} />
+      {#if !readOnly}
+        <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
+      {/if}
     </div>
   {/if}
 </TapTarget>

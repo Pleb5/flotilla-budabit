@@ -219,4 +219,66 @@ describe("state", () => {
 
     vi.unstubAllEnvs()
   })
+
+  it("makeBudaBitRoomMetaEvent publishes room meta with archived tag", async () => {
+    const {makeBudaBitRoomMetaEvent} = await import("./state")
+
+    const event = makeBudaBitRoomMetaEvent({h: "room-1", name: "Demo Room"} as any, {
+      archived: true,
+    })
+
+    expect(event.kind).toBe(39000)
+    expect(event.tags).toEqual(
+      expect.arrayContaining([
+        ["d", "room-1"],
+        ["name", "Demo Room"],
+        ["archived", "true"],
+      ]),
+    )
+    expect(event.tags.some(tag => tag[0] === "h")).toBe(false)
+  })
+
+  it("makeBudaBitRoomMetaEvent removes archived tag when restoring a room", async () => {
+    const {makeBudaBitRoomMetaEvent} = await import("./state")
+
+    const event = makeBudaBitRoomMetaEvent(
+      {
+        h: "room-1",
+        name: "Demo Room",
+        event: {
+          tags: [
+            ["d", "room-1"],
+            ["name", "Demo Room"],
+            ["archived", "true"],
+          ],
+        },
+      } as any,
+      {archived: false},
+    )
+
+    expect(event.tags.some(tag => tag[0] === "archived")).toBe(false)
+    expect(event.tags).toEqual(
+      expect.arrayContaining([
+        ["d", "room-1"],
+        ["name", "Demo Room"],
+      ]),
+    )
+  })
+
+  it("getRoomMetaRelays prefers platform relays and falls back to current relay", async () => {
+    vi.resetModules()
+    vi.stubEnv("VITE_PLATFORM_RELAYS", "wss://relay.one,wss://relay.two")
+
+    let {getRoomMetaRelays} = await import("./state")
+
+    expect(getRoomMetaRelays("wss://relay.other")).toEqual(["wss://relay.one/", "wss://relay.two/"])
+
+    vi.resetModules()
+    vi.stubEnv("VITE_PLATFORM_RELAYS", "")
+    ;({getRoomMetaRelays} = await import("./state"))
+
+    expect(getRoomMetaRelays("wss://relay.other")).toEqual(["wss://relay.other/"])
+
+    vi.unstubAllEnvs()
+  })
 })

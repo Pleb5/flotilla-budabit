@@ -16,6 +16,7 @@
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import Exit from "@assets/icons/logout-3.svg?dataurl"
+  import ArchivedMinimalistic from "@assets/icons/archived-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
@@ -32,6 +33,7 @@
   import {notifications} from "@app/util/notifications"
   import {makeSpacePath} from "@app/util/routes"
   import {channelsByUrl} from "@lib/budabit/state"
+  import {partitionArchivedItems} from "@app/util/room-archive"
 
   const {url} = $props()
 
@@ -47,9 +49,9 @@
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
 
-  const channelsByUrlFiltered = $derived.by(() => {
-    return $channelsByUrl.get(url) || []
-  })
+  const roomSections = $derived.by(() => partitionArchivedItems($channelsByUrl.get(url) || []))
+  const activeChannels = $derived.by(() => roomSections.active)
+  const archivedChannels = $derived.by(() => roomSections.archived)
 
   const showDetail = () => pushModal(SpaceDetail, {url}, {replaceState})
   const openWallet = () => pushModal(CashuWalletModal)
@@ -147,9 +149,26 @@
         </SecondaryNavItem>
       {/if}
 
-      {#each channelsByUrlFiltered as channel (channel.id)}
+      {#each activeChannels as channel (channel.id)}
         <MenuSpaceRoomItem {replaceState} notify {url} room={channel.room} />
       {/each}
+
+      {#if archivedChannels.length > 0}
+        <details class="mt-2 rounded-xl bg-base-200/50">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-base-content/70">
+            <span class="flex items-center gap-2">
+              <Icon icon={ArchivedMinimalistic} />
+              Archived Rooms
+            </span>
+            <span class="text-xs uppercase tracking-wide">{archivedChannels.length} read-only</span>
+          </summary>
+          <div class="flex flex-col gap-1 pb-2">
+            {#each archivedChannels as channel (channel.id)}
+              <MenuSpaceRoomItem {replaceState} {url} room={channel.room} archived />
+            {/each}
+          </div>
+        </details>
+      {/if}
     </div>
   </SecondaryNavSection>
 

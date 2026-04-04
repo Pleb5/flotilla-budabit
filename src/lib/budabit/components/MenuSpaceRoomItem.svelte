@@ -13,9 +13,10 @@
     room: any
     notify?: boolean
     replaceState?: boolean
+    archived?: boolean
   }
 
-  const {url, room, notify = false, replaceState = false}: Props = $props()
+  const {url, room, notify = false, replaceState = false, archived = false}: Props = $props()
 
   const path = makeRoomPath(url, room)
   const channel = deriveRoom(url, room)
@@ -24,13 +25,16 @@
 <SecondaryNavItem
   href={path}
   {replaceState}
-  notification={notify ? $notifications.has(path) : false}>
+  notification={archived ? false : notify ? $notifications.has(path) : false}>
   {#if $channel?.isClosed || $channel?.isPrivate}
     <Icon icon={Lock} size={4} />
   {:else}
     <Icon icon={Hashtag} />
   {/if}
-  <div class="min-w-0 overflow-hidden text-ellipsis">
+  <div class="min-w-0 flex-1 overflow-hidden text-ellipsis">
     <ChannelName {url} {room} />
   </div>
+  {#if archived}
+    <span class="badge badge-outline badge-xs">Archived</span>
+  {/if}
 </SecondaryNavItem>
