@@ -172,7 +172,7 @@
   const repoTabExtensions = $derived.by(() => {
     const settings = $extensionSettings
     const enabledIds = settings.enabled
-    const extensionsMap = new Map<string, {id: string; label: string; path: string; icon?: string; builtinRoute?: string}>()
+    const extensionsMap = new Map<string, {id: string; label: string; path: string; icon?: string}>()
     
     // Check NIP-89 extensions first
     for (const [extId, manifest] of Object.entries(settings.installed.nip89)) {
@@ -182,7 +182,6 @@
           label: manifest.slot.label,
           path: manifest.slot.path,
           icon: manifest.icon,
-          builtinRoute: manifest.slot.builtinRoute,
         })
       }
     }
@@ -2702,9 +2701,9 @@
           {#if $pubkey}
             {#each repoTabExtensions as ext (ext.id)}
             <RepoTab
-              tabValue={ext.builtinRoute ?? ext.path}
+              tabValue={ext.path}
               label={ext.label}
-              href={ext.builtinRoute ? `${basePath}/${ext.builtinRoute}` : `${basePath}/extensions/${ext.id}`}
+              href={`${basePath}/extensions/${ext.id}`}
               {activeTab}>
               {#snippet icon()}
                 <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />

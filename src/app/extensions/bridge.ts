@@ -1,6 +1,8 @@
-import {publishThunk} from "@welshman/app"
+import {publishThunk, signer, pubkey} from "@welshman/app"
 import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
+import {activeRepoClass} from "@lib/budabit/state"
+import {get} from "svelte/store"
 import type {LoadedExtension, RepoContext} from "./types"
 import {getRepoAddress} from "./types"
 
@@ -27,7 +29,13 @@ let messageCounter = 0
 
 // Using @welshman/net load() for queries - better relay connection management
 
-const NIP100_ALLOWED_KINDS = new Set<number>([30301, 30302])
+const NIP100_ALLOWED_KINDS = new Set<number>([
+  30301, 30302,   // NIP-100 Kanban
+  5100, 5101,     // Loom job / result
+  5401, 5402,     // Hive CI workflow run / result
+  30100,          // Loom status
+  10100,          // Loom worker advertisement
+])
 const MAX_NOSTR_QUERY_LIMIT = 500
 
 const normalizeRelayUrls = (relays: unknown): string[] => {
@@ -83,12 +91,14 @@ const normalizeNostrFilter = (filterRaw: unknown): Record<string, unknown> => {
     }
   }
 
+  // NIP-100 Kanban: boards require #d, cards require #a
   if (kinds.includes(30301)) {
     requireNonEmptyStringArray(filter["#d"], '["#d"]')
   }
   if (kinds.includes(30302)) {
     requireNonEmptyStringArray(filter["#a"], '["#a"]')
   }
+  // Hive CI / Loom: no additional required tag constraints beyond kinds
 
   const limitRaw = filter.limit
   if (limitRaw === undefined) {
@@ -132,6 +142,79 @@ const parseNostrPublishPayload = (payload: any): {event: any; relays?: string[]}
   }
 
   return {event: payload}
+}
+
+const getActiveRepo = () => {
+  const repo = get(activeRepoClass)
+  if (!repo) {
+    throw new Error("Active repository is not available")
+  }
+  return repo
+}
+
+const getRepoBranchesPayload = () => {
+  const repo = getActiveRepo()
+  const branches = Array.isArray(repo.branches)
+    ? repo.branches
+        .map((branch: any) => ({
+          name: typeof branch?.name === "string" ? branch.name : "",
+          commitId:
+            (typeof branch?.commitId === "string" && branch.commitId) ||
+            (typeof branch?.oid === "string" && branch.oid) ||
+            "",
+        }))
+        .filter((branch: {name: string}) => branch.name.length > 0)
+    : []
+
+  return {
+    defaultBranch: repo.mainBranch || "main",
+    selectedBranch: repo.selectedBranch || "",
+    branches,
+  }
+}
+
+const listRepoWorkflowFiles = async () => {
+  const repo = getActiveRepo()
+  const branch = repo.selectedBranch || repo.mainBranch || undefined
+  console.log(`[bridge] listRepoWorkflowFiles: listing .github/workflows on branch=${branch || "(default)"}`)
+  const filesResult = await repo.listRepoFiles({path: ".github/workflows", branch})
+  const files = Array.isArray(filesResult?.files) ? filesResult.files : []
+  console.log(
+    `[bridge] listRepoWorkflowFiles: got ${files.length} entries:`,
+    files.map((f: any) => ({path: f?.path, type: f?.type})),
+  )
+
+  const workflowFiles = files.filter(
+    (file: any) =>
+      file?.type === "file" &&
+      typeof file?.path === "string" &&
+      (file.path.endsWith(".yml") || file.path.endsWith(".yaml")),
+  )
+  console.log(`[bridge] listRepoWorkflowFiles: ${workflowFiles.length} workflow files after filter`)
+
+  const workflows = await Promise.all(
+    workflowFiles.map(async (file: any) => {
+      const contentResult = await repo.getFileContent({path: file.path, branch})
+      const content = typeof contentResult?.content === "string" ? contentResult.content : ""
+      const fileName = file.path.split("/").pop() || file.path
+      const nameMatch = content.match(/^name:\s*['\"]?(.+?)['\"]?$/m)
+      const name = nameMatch
+        ? nameMatch[1].trim()
+        : fileName.replace(/\.(yml|yaml)$/i, "").replace(/[-_]/g, " ")
+
+      return {
+        name,
+        path: file.path,
+        content,
+      }
+    }),
+  )
+
+  console.log(
+    `[bridge] listRepoWorkflowFiles: returning ${workflows.length} workflows:`,
+    workflows.map(w => ({name: w.name, path: w.path})),
+  )
+  return workflows.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export class ExtensionBridge {
@@ -271,15 +354,7 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
         reason: r?.detail || r?.message,
       }))
       console.log(`[bridge] nostr:publish completed:`, sanitizedResult)
-      return {
-        status: "ok",
-        result: {
-          published: true,
-          relays: [...relays],
-          publishResult: sanitizedResult,
-          successCount,
-        },
-      }
+      return {status: "ok", result: {published: true, relays: [...relays], publishResult: sanitizedResult, successCount, eventId: event.id}}
     }
 
     // Event needs signing - use publishThunk
@@ -307,7 +382,8 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
           `[bridge] nostr:publish publishThunk completed: ${successCount}/${relays.length} relays accepted`,
         )
         // Return immediately - client should handle retry logic
-        return {status: "ok", result: {published: true, relays: [...relays], successCount}}
+        const signedEventId = thunk.event?.id || null
+        return {status: "ok", result: {published: true, relays: [...relays], successCount, eventId: signedEventId}}
       } catch (e: any) {
         console.error(`[bridge] nostr:publish publishThunk with relays failed:`, e)
         // Fallback to legacy behavior below.
@@ -321,7 +397,8 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
     )
     // Give relays time to index the event before returning
     await new Promise(r => setTimeout(r, 500))
-    return {status: "ok", result: {published: true}}
+    const signedEventId = thunk.event?.id || null
+    return {status: "ok", result: {published: true, eventId: signedEventId}}
   } catch (err: any) {
     console.error("Error in nostr:publish bridge handler:", err)
     return {error: err.message}
@@ -519,6 +596,33 @@ registerBridgeHandler("storage:keys", (payload, ext) => {
   }
 })
 
+registerBridgeHandler("repo:getBranches", async (payload, ext) => {
+  if (ext) console.log(`[bridge] repo:getBranches from ${ext.id}`)
+  try {
+    return {
+      status: "ok",
+      ...getRepoBranchesPayload(),
+    }
+  } catch (err: any) {
+    console.error("Error in repo:getBranches bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+registerBridgeHandler("repo:listWorkflows", async (payload, ext) => {
+  if (ext) console.log(`[bridge] repo:listWorkflows from ${ext.id}`)
+  try {
+    return {
+      status: "ok",
+      workflows: await listRepoWorkflowFiles(),
+      ...getRepoBranchesPayload(),
+    }
+  } catch (err: any) {
+    console.error("Error in repo:listWorkflows bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
 // Handler to get current repo context (if available)
 registerBridgeHandler("context:getRepo", (payload, ext) => {
   if (ext) console.log(`[bridge] context:getRepo from ${ext.id}`)
@@ -538,6 +642,148 @@ registerBridgeHandler("context:getRepo", (payload, ext) => {
     }
   } catch (err: any) {
     console.error("Error in context:getRepo bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+// ── NIP-44 Encryption ────────────────────────────────────────────────
+// Allows extensions to encrypt plaintext to a recipient pubkey using the host's signer.
+
+registerBridgeHandler("nostr:nip44Encrypt", async (payload, ext) => {
+  if (ext) console.log(`[bridge] nostr:nip44Encrypt from ${ext.id}`)
+  try {
+    const {recipientPubkey, plaintext} = payload || {}
+    if (typeof recipientPubkey !== "string" || recipientPubkey.length !== 64) {
+      throw new Error("Invalid recipientPubkey: expected 64-char hex string")
+    }
+    if (typeof plaintext !== "string") {
+      throw new Error("Invalid plaintext: expected string")
+    }
+
+    const $signer = signer.get()
+    if (!$signer) {
+      throw new Error("No active signer available")
+    }
+    if (!$signer.nip44) {
+      throw new Error("Active signer does not support NIP-44 encryption")
+    }
+
+    const ciphertext = await $signer.nip44.encrypt(recipientPubkey, plaintext)
+    return {status: "ok", ciphertext}
+  } catch (err: any) {
+    console.error("Error in nostr:nip44Encrypt bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+// ── Nostr Subscriptions ─────────────────────────────────────────────
+// Persistent subscriptions that stream events back to extensions via bridge events.
+// Uses nostr-tools SimplePool since welshman/net only exposes one-shot load().
+
+import {SimplePool} from "nostr-tools"
+
+const MAX_SUBSCRIPTIONS_PER_EXT = 10
+let subscriptionCounter = 0
+
+// Track active subscriptions: extId → Map<subId, cleanup>
+const extensionSubscriptions = new Map<string, Map<string, () => void>>()
+
+/**
+ * Post an event to an extension's iframe.
+ * Uses the same mechanism as ExtensionBridge.post() but callable from handlers.
+ */
+function postEventToExtension(ext: LoadedExtension, action: string, payload: any): void {
+  const targetWindow = ext.iframe?.contentWindow
+  if (!targetWindow) return
+  const isSandboxed = ext.origin === "null"
+  const targetOrigin = isSandboxed ? "*" : ext.origin
+  targetWindow.postMessage({type: "event", action, payload}, targetOrigin)
+}
+
+/**
+ * Clean up all subscriptions for an extension.
+ * Called when the extension is unloaded.
+ */
+export function cleanupExtensionSubscriptions(extId: string): void {
+  const subs = extensionSubscriptions.get(extId)
+  if (!subs) return
+  for (const [subId, cleanup] of Array.from(subs)) {
+    console.log(`[bridge] cleaning up subscription ${subId} for ${extId}`)
+    cleanup()
+  }
+  subs.clear()
+  extensionSubscriptions.delete(extId)
+}
+
+registerBridgeHandler("nostr:subscribe", async (payload, ext) => {
+  if (ext) console.log(`[bridge] nostr:subscribe from ${ext.id}`, payload)
+  try {
+    const {relays, filter} = parseNostrQueryPayload(payload)
+
+    // Enforce per-extension subscription limit
+    if (!extensionSubscriptions.has(ext.id)) {
+      extensionSubscriptions.set(ext.id, new Map())
+    }
+    const extSubs = extensionSubscriptions.get(ext.id)!
+    if (extSubs.size >= MAX_SUBSCRIPTIONS_PER_EXT) {
+      throw new Error(`Subscription limit reached (max ${MAX_SUBSCRIPTIONS_PER_EXT})`)
+    }
+
+    const subId = `sub-${ext.id.slice(0, 8)}-${++subscriptionCounter}`
+    const pool = new SimplePool()
+
+    console.log(`[bridge] opening subscription ${subId} on ${relays.length} relays, filter:`, JSON.stringify(filter))
+
+    const sub = pool.subscribeMany(relays, [filter] as any, {
+      onevent(event: any) {
+        // Stream each event to the extension
+        postEventToExtension(ext, "nostr:subscription:event", {
+          subscriptionId: subId,
+          event,
+        })
+      },
+      oneose() {
+        console.log(`[bridge] subscription ${subId} EOSE`)
+      },
+    })
+
+    const cleanup = () => {
+      try {
+        sub.close()
+        pool.close(relays)
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+
+    extSubs.set(subId, cleanup)
+
+    return {status: "ok", subscriptionId: subId}
+  } catch (err: any) {
+    console.error("Error in nostr:subscribe bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
+registerBridgeHandler("nostr:unsubscribe", async (payload, ext) => {
+  if (ext) console.log(`[bridge] nostr:unsubscribe from ${ext.id}`, payload)
+  try {
+    const {subscriptionId} = payload || {}
+    if (typeof subscriptionId !== "string") {
+      throw new Error("Invalid subscriptionId")
+    }
+
+    const extSubs = extensionSubscriptions.get(ext.id)
+    const cleanup = extSubs?.get(subscriptionId)
+    if (cleanup) {
+      cleanup()
+      extSubs!.delete(subscriptionId)
+      console.log(`[bridge] closed subscription ${subscriptionId}`)
+    }
+
+    return {status: "ok"}
+  } catch (err: any) {
+    console.error("Error in nostr:unsubscribe bridge handler:", err)
     return {error: err.message}
   }
 })

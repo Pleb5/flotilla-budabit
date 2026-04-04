@@ -121,6 +121,7 @@ import {
   extensionSettings,
   getInstalledExtensions,
   getInstalledExtension,
+  isExtensionEnabled,
 } from "@app/extensions/settings"
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {request} from "@welshman/net"
@@ -136,7 +137,7 @@ export const installExtension = async (manifestUrl: string) => {
   // Fetch + validate + register the manifest in the registry
   const manifest = await extensionRegistry.load(manifestUrl)
 
-  // Persist into settings.installed and leave enablement to the user
+  // Persist into settings.installed and store manifest URL for update checking
   extensionSettings.update(s => ({
     ...s,
     installed: {
@@ -144,6 +145,7 @@ export const installExtension = async (manifestUrl: string) => {
       widget: s.installed?.widget || {},
       legacy: s.installed?.legacy,
     },
+    manifestUrls: {...(s.manifestUrls || {}), [manifest.id]: manifestUrl},
   }))
 
   return manifest
@@ -327,6 +329,72 @@ export const disableExtension = async (id: string) => {
     ...s,
     enabled: s.enabled.filter(e => e !== id),
   }))
+}
+
+/**
+ * Check if an extension has an update available by fetching the latest manifest.
+ * Returns the new manifest if an update is available, null otherwise.
+ */
+export const checkForExtensionUpdate = async (
+  id: string,
+  manifestUrl: string
+): Promise<ExtensionManifest | null> => {
+  try {
+    const latestManifest = await extensionRegistry.load(manifestUrl)
+    const installed = getInstalledExtension(id)
+
+    if (!installed || !('version' in installed)) return null
+
+    const installedVersion = (installed as ExtensionManifest).version
+    const latestVersion = latestManifest.version
+
+    // Compare versions
+    if (latestVersion && installedVersion) {
+      const installedParts = installedVersion.replace(/^v/, '').split('.').map(Number)
+      const latestParts = latestVersion.replace(/^v/, '').split('.').map(Number)
+
+      for (let i = 0; i < Math.max(installedParts.length, latestParts.length); i++) {
+        const installed = installedParts[i] || 0
+        const latest = latestParts[i] || 0
+        if (latest > installed) return latestManifest
+        if (latest < installed) return null
+      }
+    }
+
+    return null
+  } catch (e) {
+    console.error('Failed to check for extension update:', e)
+    return null
+  }
+}
+
+/**
+ * Refresh an extension by unloading it, updating the manifest, and reloading if enabled.
+ */
+export const refreshExtension = async (id: string, newManifest: ExtensionManifest) => {
+  const wasEnabled = isExtensionEnabled(id)
+
+  // Unload if currently loaded
+  if (wasEnabled) {
+    await extensionRegistry.unloadExtension(id)
+  }
+
+  // Update the installed manifest
+  extensionSettings.update(s => ({
+    ...s,
+    installed: {
+      nip89: {...(s.installed?.nip89 || {}), [id]: newManifest},
+      widget: s.installed?.widget || {},
+      legacy: s.installed?.legacy,
+    },
+  }))
+
+  // Reload if it was enabled
+  if (wasEnabled) {
+    await extensionRegistry.loadIframeExtension(newManifest)
+  }
+
+  return newManifest
 }
 
 export const getPubkeyHints = (pubkey: string) => {

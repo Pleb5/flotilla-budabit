@@ -9,8 +9,9 @@
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
-  import type {LoadedWidgetExtension, ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
+  import type {LoadedWidgetExtension, ExtensionManifest, SmartWidgetEvent, RepoContext} from "@app/extensions/types"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
 
   const repoClass = getContext<Repo>(REPO_KEY)
 
@@ -88,8 +89,29 @@
   // Iframe state
   let iframeEl: HTMLIFrameElement | null = $state(null)
   let bridge: ExtensionBridge | null = $state(null)
+  let extInstance: LoadedWidgetExtension | null = $state(null)
   let ready = $state(false)
+  let loading = $state(true)
   let error = $state<string | null>(null)
+  let retryCount = $state(0)
+  let iframeSrc = $state<string | undefined>(undefined)
+
+  // Initialize iframe src when entrypoint is available
+  $effect(() => {
+    if (extEntrypoint && !iframeSrc) {
+      iframeSrc = extEntrypoint
+    }
+  })
+
+  function buildRepoContext(): RepoContext | undefined {
+    if (!repoClass.repoEvent?.pubkey || !repoClass.name) return undefined
+    return {
+      pubkey: repoClass.repoEvent.pubkey,
+      name: repoClass.name,
+      naddr: naddr,
+      relays: [...repoRelays],
+    }
+  }
 
   function createExtensionInstance(): LoadedWidgetExtension | null {
     if (!extEntrypoint) return null
@@ -101,6 +123,7 @@
       type: "widget",
       id: identifier,
       origin,
+      repoContext: buildRepoContext(),
       widget: {
         id: `ext-${identifier}`,
         kind: 30033,
@@ -142,6 +165,7 @@
 
   function handleIframeLoad(): void {
     error = null
+    loading = false
 
     if (!iframeEl?.contentWindow) {
       error = "Extension iframe not available."
@@ -158,11 +182,32 @@
       ;(ext as any).iframe = iframeEl
       const b = new ExtensionBridge(ext)
       b.attachHandlers(iframeEl.contentWindow)
+      extInstance = ext
       bridge = b
       ready = true
+      retryCount = 0
       // Context will be sent reactively when repo data is available
     } catch (e) {
       error = `Failed to initialize extension: ${String(e)}`
+      loading = false
+    }
+  }
+
+  function handleIframeError(): void {
+    loading = false
+    error = `Failed to load ${extName}. The extension server may be temporarily unavailable.`
+  }
+
+  function retryLoad(): void {
+    error = null
+    loading = true
+    retryCount++
+    // Force iframe reload by updating src with cache buster
+    if (extEntrypoint) {
+      const url = new URL(extEntrypoint)
+      url.searchParams.set('_retry', retryCount.toString())
+      url.searchParams.set('_t', Date.now().toString())
+      iframeSrc = url.toString()
     }
   }
 
@@ -171,6 +216,12 @@
     if (!ready || !bridge) return
     // Wait for repo context to be available
     if (!repoClass.repoEvent?.pubkey || !repoClass.name) return
+
+    // Keep repoContext on the extension object in sync so context:getRepo handler works
+    if (extInstance) {
+      extInstance.repoContext = buildRepoContext()
+    }
+
     sendContext()
   })
 
@@ -233,17 +284,30 @@
   <div class="extension-panel">
     {#if error}
       <div class="extension-error">
-        {error}
+        <div class="flex items-center justify-between gap-4">
+          <span class="flex-1">{error}</span>
+          <Button size="sm" onclick={retryLoad}>
+            Retry
+          </Button>
+        </div>
+      </div>
+    {/if}
+
+    {#if loading}
+      <div class="extension-loading">
+        <Spinner loading={true}>Loading {extName}...</Spinner>
       </div>
     {/if}
 
     <iframe
       bind:this={iframeEl}
-      src={extEntrypoint}
+      src={iframeSrc}
       title={extName}
       class="extension-iframe"
+      class:loading={loading}
       sandbox="allow-scripts allow-same-origin allow-forms"
       onload={handleIframeLoad}
+      onerror={handleIframeError}
     ></iframe>
   </div>
 {/if}
@@ -255,6 +319,8 @@
     border-radius: 12px;
     overflow: hidden;
     background: var(--card, #fff);
+    position: relative;
+    min-height: 600px;
   }
 
   .extension-error {
@@ -266,10 +332,36 @@
     word-break: break-word;
   }
 
+  .extension-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(4px);
+    z-index: 10;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .extension-loading {
+      background: rgba(0, 0, 0, 0.85);
+    }
+  }
+
   .extension-iframe {
     width: 100%;
     height: 600px;
     border: none;
     display: block;
+    opacity: 0;
+    transition: opacity 0.3s ease-in;
+  }
+
+  .extension-iframe:not(.loading) {
+    opacity: 1;
   }
 </style>

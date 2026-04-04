@@ -53,6 +53,7 @@ export type ExtensionSettings = {
   enabled: string[]
   installed: InstalledExtensions
   widgetDisplay: Record<string, WidgetDisplayConfig>
+  manifestUrls: Record<string, string> // Track manifest URLs for update checking
 }
 
 export const defaultExtensionSettings: ExtensionSettings = {
@@ -62,6 +63,7 @@ export const defaultExtensionSettings: ExtensionSettings = {
     widget: {},
   },
   widgetDisplay: {},
+  manifestUrls: {},
 }
 
 export const extensionSettings = synced({
@@ -116,11 +118,17 @@ export const getWidgetsForLocation = (location: WidgetDisplayLocation): SmartWid
   return widgets
 }
 
+export const getManifestUrl = (id: string): string | undefined => {
+  const settings = get(extensionSettings)
+  return settings.manifestUrls?.[id]
+}
+
 extensionSettings.update(s => {
   return {
     enabled: s.enabled || [],
     installed: normalizeInstalled(s.installed),
     widgetDisplay: s.widgetDisplay || {},
+    manifestUrls: s.manifestUrls || {},
   }
 })
 
@@ -147,6 +155,12 @@ const mergeSettings = (local: ExtensionSettings, remote: ExtensionSettings): Ext
     ...(remote.widgetDisplay || {}),
   }
 
+  // Merge manifestUrls - keep both local and remote
+  const mergedManifestUrls = {
+    ...(local.manifestUrls || {}),
+    ...(remote.manifestUrls || {}),
+  }
+
   return {
     enabled: mergedEnabled,
     installed: {
@@ -154,6 +168,7 @@ const mergeSettings = (local: ExtensionSettings, remote: ExtensionSettings): Ext
       widget: mergedWidget,
     },
     widgetDisplay: mergedWidgetDisplay,
+    manifestUrls: mergedManifestUrls,
   }
 }
 
@@ -166,6 +181,7 @@ export const applyRemoteExtensionSettings = (remoteSettings: Partial<ExtensionSe
       enabled: remoteSettings.enabled || [],
       installed: normalizeInstalled(remoteSettings.installed),
       widgetDisplay: remoteSettings.widgetDisplay || {},
+      manifestUrls: remoteSettings.manifestUrls || {},
     }
     const merged = mergeSettings(currentSettings, normalized)
     extensionSettings.set(merged)

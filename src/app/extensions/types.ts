@@ -2,7 +2,6 @@ export type ExtensionSlotConfig = {
   type: "repo-tab"
   label: string
   path: string // URL path segment (e.g., "kanban", "pipelines")
-  builtinRoute?: string // For built-in extensions, the actual route path (e.g., "cicd")
 }
 
 export type ExtensionManifest = {
