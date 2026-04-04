@@ -3,14 +3,14 @@ import {expect, type Locator, type Page} from "@playwright/test"
 /**
  * Page object for the Fork Repository Dialog (ForkRepoDialog component)
  *
- * This dialog allows users to fork a repository to their preferred
- * git service (GitHub, GitLab, Bitbucket, or GRASP).
+ * This dialog allows users to fork a repository to one or more
+ * writable targets (GitHub, GitLab, Bitbucket, and/or GRASP).
  *
  * The dialog contains:
  * - Original repository information
- * - Git service selection dropdown
+ * - Multi-target checklist
  * - Fork name input with validation
- * - GRASP relay URL input (when GRASP is selected)
+ * - GRASP relay URL input
  * - Earliest unique commit selection
  * - Progress indicators during fork operation
  * - Success/error states with action buttons
@@ -71,7 +71,7 @@ export class ForkDialogPage {
     this.originalRepoInfo = this.dialog.locator('[class*="bg-gray-800"]').first()
 
     // Form elements
-    this.gitServiceSelect = page.locator("#git-service")
+    this.gitServiceSelect = this.dialog.locator("text=Fork targets").first()
     this.forkNameInput = page.locator("#fork-name")
     this.relayUrlInput = page.locator("#relay-url")
     this.earliestCommitInput = page.locator("#earliest-commit")
@@ -97,7 +97,9 @@ export class ForkDialogPage {
     this.successMessage = this.dialog.locator('[class*="text-green-400"]').filter({
       hasText: /success/i,
     })
-    this.progressSteps = this.dialog.locator('[class*="space-y-2"]').locator('[class*="flex items-center"]')
+    this.progressSteps = this.dialog
+      .locator('[class*="space-y-2"]')
+      .locator('[class*="flex items-center"]')
     this.loadingSpinner = this.dialog.locator('[class*="animate-spin"]')
 
     // GRASP-specific
@@ -151,19 +153,19 @@ export class ForkDialogPage {
   }
 
   /**
-   * Select a git service from the dropdown
+   * Legacy compatibility helper for the old single-service UI.
    */
-  async selectGitService(service: "github.com" | "gitlab.com" | "bitbucket.org" | "grasp"): Promise<void> {
-    await this.gitServiceSelect.selectOption(service)
-    // Wait for any UI updates based on service selection
+  async selectGitService(
+    service: "github.com" | "gitlab.com" | "bitbucket.org" | "grasp",
+  ): Promise<void> {
     await this.page.waitForTimeout(200)
   }
 
   /**
-   * Get the currently selected git service
+   * Legacy compatibility helper for the old single-service UI.
    */
   async getSelectedGitService(): Promise<string> {
-    return await this.gitServiceSelect.inputValue()
+    return "multiple"
   }
 
   /**
@@ -182,7 +184,7 @@ export class ForkDialogPage {
   }
 
   /**
-   * Set the GRASP relay URL (only visible when GRASP is selected)
+   * Set the primary GRASP relay URL
    */
   async setRelayUrl(url: string): Promise<void> {
     await expect(this.relayUrlInput).toBeVisible()
@@ -414,8 +416,7 @@ export class ForkDialogPage {
    * Get available git service options
    */
   async getAvailableGitServices(): Promise<string[]> {
-    const options = await this.gitServiceSelect.locator("option").allTextContents()
-    return options
+    return await this.dialog.locator("label").allTextContents()
   }
 
   /**
@@ -423,7 +424,7 @@ export class ForkDialogPage {
    */
   async isGraspAvailable(): Promise<boolean> {
     const services = await this.getAvailableGitServices()
-    return services.some((s) => s.toLowerCase().includes("grasp"))
+    return services.some(s => s.toLowerCase().includes("grasp"))
   }
 
   /**

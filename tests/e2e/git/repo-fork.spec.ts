@@ -115,7 +115,7 @@ test.describe("Repository Fork Flow", () => {
 
         // Verify form elements are present
         await expect(forkDialog.forkNameInput).toBeVisible()
-        await expect(forkDialog.gitServiceSelect).toBeVisible()
+        await expect(forkDialog.relayUrlInput).toBeVisible()
         await expect(forkDialog.forkButton).toBeVisible()
         await expect(forkDialog.cancelButton).toBeVisible()
       }
@@ -357,10 +357,7 @@ test.describe("Repository Fork Flow", () => {
           const forkDialog = new ForkDialogPage(page)
           await forkDialog.waitForDialogOpen()
 
-          // Select GRASP as the git service
-          await forkDialog.selectGitService("grasp")
-
-          // Relay URL input should now be visible
+          // Relay URL input should be visible by default
           await expect(forkDialog.relayUrlInput).toBeVisible()
 
           // Enter invalid relay URL
@@ -609,12 +606,9 @@ test.describe("Repository Fork Flow", () => {
           const forkDialog = new ForkDialogPage(page)
           await forkDialog.waitForDialogOpen()
 
-          // Verify git service dropdown is visible
-          await expect(forkDialog.gitServiceSelect).toBeVisible()
-
-          // GRASP should always be available as an option
-          const options = await forkDialog.gitServiceSelect.locator("option").allTextContents()
-          expect(options.some(opt => opt.toLowerCase().includes("grasp"))).toBe(true)
+          // GRASP configuration should always be visible
+          await expect(forkDialog.relayUrlInput).toBeVisible()
+          await expect(forkDialog.dialog).toContainText("GRASP target relays")
         }
       }
     })
@@ -640,13 +634,7 @@ test.describe("Repository Fork Flow", () => {
           const forkDialog = new ForkDialogPage(page)
           await forkDialog.waitForDialogOpen()
 
-          // Initially relay URL input should not be visible
-          await expect(forkDialog.relayUrlInput).not.toBeVisible()
-
-          // Select GRASP
-          await forkDialog.selectGitService("grasp")
-
-          // Now relay URL input should be visible
+          // Relay URL input should be visible immediately
           await expect(forkDialog.relayUrlInput).toBeVisible()
 
           // Should show placeholder text
@@ -677,9 +665,6 @@ test.describe("Repository Fork Flow", () => {
 
           const forkDialog = new ForkDialogPage(page)
           await forkDialog.waitForDialogOpen()
-
-          // Select GRASP
-          await forkDialog.selectGitService("grasp")
 
           // If GRASP servers are configured, chips should be visible
           const graspServerChips = forkDialog.dialog.locator("button").filter({
