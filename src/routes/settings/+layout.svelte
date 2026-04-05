@@ -5,6 +5,7 @@
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
   import Wallet from "@assets/icons/wallet.svg?dataurl"
   import Server from "@assets/icons/server.svg?dataurl"
+  import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import Moon from "@assets/icons/moon.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import InfoSquare from "@assets/icons/info-square.svg?dataurl"
@@ -56,26 +57,31 @@
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 200}}>
+      <SecondaryNavItem href="/settings/trust">
+        <Icon icon={ShieldCheck} /> Trust
+      </SecondaryNavItem>
+    </div>
+    <div in:fly|local={{delay: 225}}>
       <SecondaryNavItem href="/settings/content">
         <Icon icon={GalleryMinimalistic} /> Content
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 225}}>
+    <div in:fly|local={{delay: 250}}>
       <SecondaryNavItem href="/settings/extensions">
         <Icon icon={Plugins} /> Extensions
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 250}}>
+    <div in:fly|local={{delay: 275}}>
       <SecondaryNavItem onclick={toggleTheme}>
         <Icon icon={Moon} /> Theme
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 300}}>
+    <div in:fly|local={{delay: 325}}>
       <SecondaryNavItem href="/settings/about">
         <Icon icon={InfoSquare} /> About
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 350}} class="lg:mb-4">
+    <div in:fly|local={{delay: 375}} class="lg:mb-4">
       <SecondaryNavItem class="text-error hover:text-error" onclick={logout}>
         <Icon icon={Exit} /> Log Out
       </SecondaryNavItem>

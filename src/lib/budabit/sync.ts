@@ -57,6 +57,7 @@ import {
   applyRemoteExtensionSettings,
   startExtensionSettingsAutoSync,
 } from "@app/extensions/settings"
+import {loadNip85ProviderConfig} from "./nip85"
 import {loadRepoWatch} from "./repo-watch"
 
 // Utils
@@ -221,6 +222,7 @@ const syncUserData = () => {
       loadUserMuteList($userRelayList.event.pubkey)
       loadProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
+      loadNip85ProviderConfig($userRelayList.event.pubkey)
       loadRepoWatch($userRelayList.event.pubkey)
     }
   })

@@ -8,6 +8,7 @@
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Wallet from "@assets/icons/wallet.svg?dataurl"
   import Plugins from "@assets/icons/plug-circle.svg?dataurl"
+  import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -72,6 +73,19 @@
       {/snippet}
       {#snippet info()}
         <div>Control how {PLATFORM_NAME} talks to the network</div>
+      {/snippet}
+    </CardButton>
+  </Link>
+  <Link replaceState href="/settings/trust">
+    <CardButton class="btn-neutral">
+      {#snippet icon()}
+        <div><Icon icon={ShieldCheck} size={7} /></div>
+      {/snippet}
+      {#snippet title()}
+        <div>Trust</div>
+      {/snippet}
+      {#snippet info()}
+        <div>Manage trusted assertion providers and WoT-based recommendations</div>
       {/snippet}
     </CardButton>
   </Link>
