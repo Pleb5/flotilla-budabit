@@ -7,6 +7,7 @@
   import {pushModal} from "@app/util/modal"
   import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
+  import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import History from "@assets/icons/history.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic-2.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
@@ -52,6 +53,7 @@
   const roomSections = $derived.by(() => partitionArchivedItems($channelsByUrl.get(url) || []))
   const activeChannels = $derived.by(() => roomSections.active)
   const archivedChannels = $derived.by(() => roomSections.archived)
+  const archivedSectionId = "space-menu-archived-rooms"
 
   const showDetail = () => pushModal(SpaceDetail, {url}, {replaceState})
   const openWallet = () => pushModal(CashuWalletModal)
@@ -77,6 +79,11 @@
 
   const logout = () => pushModal(LogOut)
 
+  const toggleArchivedRooms = () => {
+    showArchivedRooms = !showArchivedRooms
+  }
+
+  let showArchivedRooms = $state(false)
   let replaceState = $state(false)
   let element: Element | undefined = $state()
 
@@ -154,20 +161,32 @@
       {/each}
 
       {#if archivedChannels.length > 0}
-        <details class="mt-2 rounded-xl bg-base-200/50">
-          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-base-content/70">
+        <div class="mt-2 rounded-xl bg-base-200/50">
+          <Button
+            class="flex w-full items-center justify-between gap-2 rounded-xl px-4 py-3 text-sm font-medium text-base-content/70 transition-all hover:bg-base-100 hover:text-base-content"
+            onclick={toggleArchivedRooms}
+            aria-controls={archivedSectionId}
+            aria-expanded={showArchivedRooms}>
             <span class="flex items-center gap-2">
               <Icon icon={ArchivedMinimalistic} />
               Archived Rooms
             </span>
-            <span class="text-xs uppercase tracking-wide">{archivedChannels.length} read-only</span>
-          </summary>
-          <div class="flex flex-col gap-1 pb-2">
-            {#each archivedChannels as channel (channel.id)}
-              <MenuSpaceRoomItem {replaceState} {url} room={channel.room} archived />
-            {/each}
-          </div>
-        </details>
+            <span class="flex items-center gap-2 text-xs uppercase tracking-wide">
+              {archivedChannels.length} read-only
+              <Icon
+                icon={AltArrowDown}
+                size={4}
+                class={showArchivedRooms ? "rotate-180 transition-transform duration-150" : "transition-transform duration-150"} />
+            </span>
+          </Button>
+          {#if showArchivedRooms}
+            <div id={archivedSectionId} class="flex flex-col gap-1 pb-2">
+              {#each archivedChannels as channel (channel.id)}
+                <MenuSpaceRoomItem {replaceState} {url} room={channel.room} archived />
+              {/each}
+            </div>
+          {/if}
+        </div>
       {/if}
     </div>
   </SecondaryNavSection>
