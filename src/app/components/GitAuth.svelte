@@ -122,30 +122,6 @@
     </div>
   </div>
 
-  <FieldInline>
-    {#snippet label()}
-      <p>CORS Proxy</p>
-    {/snippet}
-    {#snippet input()}
-      <label class="input input-bordered flex w-full items-center gap-2">
-        <input
-          class="grow"
-          type="url"
-          placeholder={DEFAULT_GIT_CORS_PROXY}
-          bind:value={corsProxyDraft}
-          onchange={saveCorsProxy}
-        />
-        <Button class="btn btn-ghost btn-xs" onclick={resetCorsProxy}>Default</Button>
-      </label>
-    {/snippet}
-    {#snippet info()}
-      <p>
-        Default: <span class="font-mono">{DEFAULT_GIT_CORS_PROXY}</span>. Leave blank to use it.
-        Current: <span class="font-mono">{effectiveCorsProxy}</span>.
-      </p>
-    {/snippet}
-  </FieldInline>
-
   {#if $tokensStore.length}
     <div class="w-full">
       <table class="w-full table-fixed">
@@ -176,4 +152,28 @@
   {:else}
     <p class="py-12 text-center opacity-75">No tokens saved yet!</p>
   {/if}
+
+  <FieldInline>
+    {#snippet label()}
+      <p>CORS Proxy</p>
+    {/snippet}
+    {#snippet input()}
+      <label class="input input-bordered flex w-full items-center gap-2">
+        <input
+          class="grow"
+          type="url"
+          placeholder={DEFAULT_GIT_CORS_PROXY}
+          bind:value={corsProxyDraft}
+          onchange={saveCorsProxy}
+        />
+        <Button class="btn btn-ghost btn-xs" onclick={resetCorsProxy}>Default</Button>
+      </label>
+    {/snippet}
+    {#snippet info()}
+      <p>
+        Default: <span class="font-mono">{DEFAULT_GIT_CORS_PROXY}</span>. Leave blank to use it.
+        Current: <span class="font-mono">{effectiveCorsProxy}</span>.
+      </p>
+    {/snippet}
+  </FieldInline>
 </div>
