@@ -43,7 +43,6 @@ export interface Nip85ConfiguredProvider extends Nip85Provider {
 export interface Nip85RecommendedProvider extends Nip85Provider {
   usageCount: number
   recommenders: string[]
-  score: number
 }
 
 export interface Nip85MetricDefinition {
@@ -480,25 +479,6 @@ export const getNip85CapabilityDescription = (kindTag: string) => {
 
 export const isNip85KnownCapability = (kindTag: string) => USER_METRICS_BY_KIND_TAG.has(kindTag)
 
-export const getNip85RecommenderWeight = (
-  author: string,
-  currentPubkey: string,
-  follows: string[] | Set<string>,
-  wotGraph: Map<string, number>,
-) => {
-  const followSet = follows instanceof Set ? follows : new Set(follows)
-
-  if (author === currentPubkey) {
-    return 5
-  }
-
-  if (followSet.has(author)) {
-    return 3
-  }
-
-  return Math.max(1, wotGraph.get(author) || 0)
-}
-
 export const getNip85UserMetricDefinition = (tag: string) => USER_METRICS_BY_TAG.get(tag)
 
 export const getNip85UserMetricLabel = (tag: string) => USER_METRICS_BY_TAG.get(tag)?.label || tag
@@ -823,23 +803,15 @@ export const getNip85VerificationSamplePubkeys = (
 }
 
 export const aggregateNip85RecommendedProviders = ({
-  currentPubkey,
-  follows,
-  wotGraph,
   configsByAuthor,
   kind = NIP85_USER_ASSERTION_KIND,
 }: {
-  currentPubkey: string
-  follows: string[]
-  wotGraph: Map<string, number>
   configsByAuthor: Map<string, Nip85ConfiguredProvider[]>
   kind?: number
 }) => {
-  const followsSet = new Set(follows)
   const aggregated = new Map<string, Nip85RecommendedProvider>()
 
   for (const [author, providers] of configsByAuthor.entries()) {
-    const weight = getNip85RecommenderWeight(author, currentPubkey, followsSet, wotGraph)
     const seen = new Set<string>()
 
     for (const provider of providers) {
@@ -856,7 +828,6 @@ export const aggregateNip85RecommendedProviders = ({
         aggregated.set(key, {
           ...existing,
           usageCount: existing.usageCount + 1,
-          score: existing.score + weight,
           recommenders: [...existing.recommenders, author].filter(
             (pubkey, index, all) => all.indexOf(pubkey) === index,
           ),
@@ -870,7 +841,6 @@ export const aggregateNip85RecommendedProviders = ({
           relayHint: provider.relayHint,
           usageCount: 1,
           recommenders: [author],
-          score: weight,
         })
       }
     }
@@ -887,7 +857,6 @@ export const aggregateNip85RecommendedProviders = ({
 
   for (const providers of byCapability.values()) {
     providers.sort((a, b) => {
-      if (a.score !== b.score) return b.score - a.score
       if (a.usageCount !== b.usageCount) return b.usageCount - a.usageCount
       return a.serviceKey.localeCompare(b.serviceKey)
     })

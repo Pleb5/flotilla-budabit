@@ -1,3 +1,7 @@
+<script module lang="ts">
+  declare const __TERMINAL__: boolean
+</script>
+
 <script lang="ts">
   import markdownit from "markdown-it"
   import {Card} from "@nostr-git/ui"
@@ -9,7 +13,7 @@
     Globe,
     GitCommit,
     User,
-    Link,
+    Link as LinkIcon,
     Eye,
     BookOpen,
     Copy,
@@ -17,6 +21,8 @@
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
+  import InlinePopover from "@lib/components/InlinePopover.svelte"
+  import AppLink from "@lib/components/Link.svelte"
   import {formatDistanceToNow} from "date-fns"
   import {getTagValue} from "@welshman/util"
   import Button from "@lib/components/Button.svelte"
@@ -32,6 +38,11 @@
     effectiveMaintainersByRepoAddress,
   } from "@lib/budabit/state"
   import {
+    REPO_TRUST_METRICS_KEY,
+    defaultRepoTrustMetrics,
+    type RepoTrustMetrics,
+  } from "@lib/budabit/repo-trust-metrics"
+  import {
     parsePullRequestEvent,
     type IssueEvent,
     type PatchEvent,
@@ -39,8 +50,8 @@
     type StatusEvent,
   } from "@nostr-git/core/events"
   import {parseGitPatchFromEvent} from "@nostr-git/core/git"
-  import type {LayoutProps} from "./$types.js"
   import {page} from "$app/stores"
+  import {goto} from "$app/navigation"
   import {pubkey} from "@welshman/app"
   import {decodeRelay} from "@app/core/state"
   import {nip19} from "nostr-tools"
@@ -50,18 +61,17 @@
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
-  let Terminal = $state<any>(null);
+  let Terminal = $state<any>(null)
   if (__TERMINAL__) {
-    import("@nostr-git/ui").then(m => Terminal = m.Terminal);
+    import("@nostr-git/ui").then(m => (Terminal = m.Terminal))
   }
 
-  let {data}: LayoutProps = $props()
-  
   // Get repoClass and repoRelays from context
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const statusEventsByRootStore = getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
+  const repoTrustMetricsStore = getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
   
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -71,9 +81,112 @@
   const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
   const statusEventsByRoot = $derived.by(() => statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>())
   const pullRequests = $derived.by(() => pullRequestsStore ? $pullRequestsStore : [])
+  const repoTrustMetrics = $derived.by(() =>
+    repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
+  )
+  const patchesHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/patches`)
+  let openTrustMetricPopover = $state<"trusted-merged" | "trusted-maintainer" | "trusted-collaborators" | null>(null)
+  const repoTrustStatus = $derived.by(() => {
+    if (repoTrustMetrics.status === "loading") {
+      return `Refreshing ${repoTrustMetrics.graphLabel.toLowerCase()} activity...`
+    }
+
+    if (repoTrustMetrics.status === "error") {
+      return repoTrustMetrics.error || "Unable to compute trust activity."
+    }
+
+    if (repoTrustMetrics.totalPullRequests === 0) {
+      return "No pull requests loaded yet for trust activity metrics."
+    }
+
+    if (repoTrustMetrics.enabledRuleCount > 0) {
+      return `Using ${repoTrustMetrics.graphLabel} across ${repoTrustMetrics.enabledRuleCount} graph rules.`
+    }
+
+    return "Using the basic WoT fallback. Add graph rules in Trust settings to refine these repo metrics."
+  })
+
+  const openPatchesTrustView = (trust = "", trustSort = "") => {
+    const search = new URLSearchParams()
+
+    if (trust) {
+      search.set("trust", trust)
+    }
+
+    if (trustSort) {
+      search.set("trustSort", trustSort)
+    }
+
+    goto(search.size > 0 ? `${patchesHref}?${search.toString()}` : patchesHref)
+  }
+
+  const getRepoTrustPatchHref = (rootId: string) => `${patchesHref}/${rootId}`
+
+  const getPullRequestSubject = (pullRequest: PullRequestEvent) =>
+    getTagValue("subject", pullRequest.tags) || "Pull Request"
+
+  const repoTrustMetricCards = $derived.by(() => {
+    const trustedMergedDetails = pullRequests
+      .filter(pullRequest => {
+        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
+
+        return Boolean(metric?.merged && metric.trustedAuthor)
+      })
+      .map(pullRequest => {
+        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
+
+        return {
+          rootId: pullRequest.id,
+          subject: getPullRequestSubject(pullRequest),
+          authorPubkey: pullRequest.pubkey,
+          mergedByPubkey: metric?.mergedByPubkey,
+        }
+      })
+      .slice(0, 5)
+    const trustedMaintainerDetails = pullRequests
+      .filter(pullRequest => {
+        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
+
+        return Boolean(metric?.merged && metric.trustedMaintainerMerge)
+      })
+      .map(pullRequest => ({
+        rootId: pullRequest.id,
+        subject: getPullRequestSubject(pullRequest),
+        authorPubkey: pullRequest.pubkey,
+        mergedByPubkey: undefined,
+      }))
+      .slice(0, 5)
+
+    return [
+      {
+        key: "trusted-merged" as const,
+        label: "Trusted merged contributions",
+        value: repoTrustMetrics.trustedMergedContributions,
+        description:
+          "Merged pull requests in this repo whose authors are in your active trust graph.",
+        details: trustedMergedDetails,
+      },
+      {
+        key: "trusted-maintainer" as const,
+        label: "Trusted maintainer merges",
+        value: repoTrustMetrics.trustedMaintainerMerges,
+        description:
+          "Merged pull requests in this repo where the effective maintainer who applied the status is in your active trust graph.",
+        details: trustedMaintainerDetails,
+      },
+      {
+        key: "trusted-collaborators" as const,
+        label: "Trusted collaborators",
+        value: repoTrustMetrics.trustedCollaborators,
+        description:
+          "Distinct trusted authors and maintainers involved in merged pull request activity for this repo.",
+        actors: repoTrustMetrics.topActors.slice(0, 5),
+      },
+    ]
+  })
 
   // Progressive loading states - show immediate content right away
-  let initialLoading = $state(false)
+  const initialLoading = false
   let readmeLoading = $state(true)
   let commitLoading = $state(true)
   let lastCommit = $state<any>(null)
@@ -99,7 +212,9 @@
       try {
         const decoded = nip19.decode(value)
         if (decoded.type === "npub") return decoded.data as string
-      } catch {}
+      } catch {
+        // pass
+      }
     }
     return ""
   }
@@ -221,7 +336,7 @@
     relays: repoClass.relays || [],
     cloneUrls: (() => {
       // Get clone URLs from repoClass directly
-      let urls = [...(repoClass.cloneUrls || [])]
+      const urls = [...(repoClass.cloneUrls || [])]
       if (!urls.find(u => u.startsWith("nostr://"))) {
         const def = buildDefaultNgitCloneUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -230,7 +345,7 @@
     })(),
     webUrls: (() => {
       // Get web URLs from repoClass directly
-      let urls = [...(repoClass.web || [])]
+      const urls = [...(repoClass.web || [])]
       if (!urls.find(u => u.startsWith("https://gitworkshop.dev"))) {
         const def = buildDefaultViewRepoUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -274,7 +389,9 @@
       // Heuristic: ws/wss relay → grasp, but pushes must use HTTP(S) Grasp endpoint
       if (u.protocol === "ws:" || u.protocol === "wss:") return "grasp"
       if (host.includes("ngit.dev") || host.includes("grasp")) return "grasp"
-    } catch {}
+    } catch {
+      // pass
+    }
     return undefined
   }
 
@@ -642,9 +759,9 @@
       </div>
     {/if}
 
-    <div class="grid gap-6 md:grid-cols-2" transition:fly>
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]" transition:fly>
       <!-- Repository Details -->
-      <Card class="min-w-0 p-4 sm:p-6">
+      <Card class="min-w-0 p-4 sm:p-6 xl:row-span-2">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 class="flex items-center gap-2 text-lg font-semibold">
             <GitCommit class="h-5 w-5" />
@@ -794,7 +911,7 @@
                 class="flex w-full min-w-0 max-w-full items-start gap-2 text-left text-sm hover:opacity-80"
                 title={naddr}
                 onclick={() => clip(naddr)}>
-                <Link class="mt-0.5 h-3 w-3 flex-shrink-0" />
+                <LinkIcon class="mt-0.5 h-3 w-3 flex-shrink-0" />
                 <span class="break-all font-mono text-xs">{shortenNip19(naddr)}</span>
               </button>
             </div>
@@ -832,7 +949,7 @@
                      class="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-left text-sm hover:opacity-80"
                      title="Click to copy"
                      onclick={() => clip(url)}>
-                     <Link class="h-3 w-3" />
+                     <LinkIcon class="h-3 w-3" />
                      <span class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs">{url}</span>
                    </button>
                    {/each}
@@ -846,7 +963,7 @@
                 <div class="space-y-1">
                   {#each repoMetadata.webUrls as url}
                   <div class="grid max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-sm">
-                     <Link class="h-3 w-3" />
+                     <LinkIcon class="h-3 w-3" />
                      <a
                        href={url}
                        target="_blank"
@@ -858,6 +975,177 @@
             {/if}
           </div>
         </div>
+      </Card>
+
+      <Card class="min-w-0 p-4 sm:p-6">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 class="flex items-center gap-2 text-lg font-semibold">
+              <Users class="h-5 w-5" />
+              Trust Activity
+            </h3>
+            <p class="mt-1 text-sm text-muted-foreground">{repoTrustStatus}</p>
+          </div>
+
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="badge badge-neutral">{repoTrustMetrics.graphLabel}</span>
+            {#if repoTrustMetrics.enabledRuleCount > 0}
+              <span class="badge badge-neutral">
+                {repoTrustMetrics.enabledRuleCount} rule{repoTrustMetrics.enabledRuleCount === 1 ? "" : "s"}
+              </span>
+            {/if}
+          </div>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+          {#each repoTrustMetricCards as metric (metric.key)}
+            <div class="rounded-box bg-base-200/40 p-3">
+              <div class="text-xs uppercase tracking-wide opacity-60">{metric.label}</div>
+              <div class="mt-2 flex items-center gap-2">
+                <div class="relative">
+                  <button
+                    type="button"
+                    class="badge badge-neutral cursor-pointer px-3 py-3 text-sm font-medium"
+                    onclick={() =>
+                      (openTrustMetricPopover = openTrustMetricPopover === metric.key ? null : metric.key)}>
+                    {metric.value}
+                  </button>
+
+                  {#if openTrustMetricPopover === metric.key}
+                    <InlinePopover onClose={() => (openTrustMetricPopover = null)} align="left" widthClass="w-80">
+                      <div class="flex flex-col gap-3 text-sm">
+                        <div>
+                          <div class="font-medium">{metric.label}</div>
+                          <div class="mt-1 text-xs opacity-70">{metric.description}</div>
+                        </div>
+
+                        {#if metric.key === "trusted-merged"}
+                          <div class="text-xs opacity-60">
+                            {repoTrustMetrics.trustedMergedContributions} of {repoTrustMetrics.mergedPullRequests} merged pull request{repoTrustMetrics.mergedPullRequests === 1 ? "" : "s"} matched a trusted author.
+                          </div>
+                        {:else if metric.key === "trusted-maintainer"}
+                          <div class="text-xs opacity-60">
+                            {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges === 1 ? "" : "s"} were applied by trusted maintainers.
+                          </div>
+                        {:else}
+                          <div class="text-xs opacity-60">
+                            {repoTrustMetrics.trustedCollaborators} distinct trusted collaborator{repoTrustMetrics.trustedCollaborators === 1 ? "" : "s"} participated in merged pull request activity.
+                          </div>
+                        {/if}
+
+                        {#if metric.details && metric.details.length > 0}
+                          <div class="flex flex-col gap-2">
+                            {#each metric.details as detail (detail.rootId)}
+                              <div class="rounded-box bg-base-200/50 p-3">
+                                <AppLink
+                                  href={getRepoTrustPatchHref(detail.rootId)}
+                                  class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                                  {detail.subject}
+                                </AppLink>
+                                <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                                  <span>Author</span>
+                                  <ProfileLink
+                                    pubkey={detail.authorPubkey}
+                                    url={relayUrl}
+                                    unstyled
+                                    class="font-medium text-primary underline-offset-2 hover:underline" />
+                                </div>
+                                {#if detail.mergedByPubkey}
+                                  <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                                    <span>Merged by</span>
+                                    <ProfileLink
+                                      pubkey={detail.mergedByPubkey}
+                                      url={relayUrl}
+                                      unstyled
+                                      class="font-medium text-primary underline-offset-2 hover:underline" />
+                                  </div>
+                                {/if}
+                              </div>
+                            {/each}
+                          </div>
+                        {:else if metric.actors && metric.actors.length > 0}
+                          <div class="flex flex-col gap-2">
+                            {#each metric.actors as actor (actor.pubkey)}
+                              <div class="rounded-box bg-base-200/50 p-3">
+                                <div class="flex min-w-0 items-center gap-3">
+                                  <ProfileCircle pubkey={actor.pubkey} url={relayUrl} size={6} class="border border-border" />
+                                  <div class="min-w-0">
+                                    <ProfileLink
+                                      pubkey={actor.pubkey}
+                                      url={relayUrl}
+                                      unstyled
+                                      class="block truncate text-sm font-medium text-primary underline-offset-2 hover:underline" />
+                                    <div class="text-xs opacity-70">
+                                      {actor.authoredMergedPullRequests} authored merges • {actor.appliedMergedPullRequests} maintainer merges
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                        {:else}
+                          <div class="text-xs opacity-60">No evidence captured for this metric yet.</div>
+                        {/if}
+                      </div>
+                    </InlinePopover>
+                  {/if}
+                </div>
+                <span class="text-xs opacity-60">Click for meaning and evidence</span>
+              </div>
+              <div class="mt-2 text-xs opacity-70">
+                {#if metric.key === "trusted-merged"}
+                  of {repoTrustMetrics.mergedPullRequests} merged pull request{repoTrustMetrics.mergedPullRequests === 1 ? "" : "s"}
+                {:else if metric.key === "trusted-maintainer"}
+                  by {repoTrustMetrics.trustedMaintainers} trusted maintainer{repoTrustMetrics.trustedMaintainers === 1 ? "" : "s"}
+                {:else}
+                  {repoTrustMetrics.trustedAuthors} authors and {repoTrustMetrics.trustedMaintainers} maintainers
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+
+        <div class="mt-4 flex flex-wrap gap-2 border-t border-base-300/50 pt-4">
+          <Button
+            class="btn btn-neutral btn-sm"
+            onclick={() => openPatchesTrustView("trusted", "first")}>
+            View trusted patches
+          </Button>
+          <Button
+            class="btn btn-neutral btn-sm"
+            onclick={() => openPatchesTrustView("trusted-maintainer", "first")}>
+            View maintainer merges
+          </Button>
+        </div>
+
+        {#if repoTrustMetrics.topActors.length > 0}
+          <div class="mt-4 border-t border-base-300/50 pt-4">
+            <div class="mb-3 flex items-center justify-between gap-2">
+              <strong class="text-sm">Top trusted collaborators</strong>
+              <span class="text-xs opacity-60">Recent merged pull requests</span>
+            </div>
+
+            <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              {#each repoTrustMetrics.topActors.slice(0, 3) as actor (actor.pubkey)}
+                <div class="rounded-box bg-base-200/30 p-3">
+                  <div class="flex min-w-0 items-center gap-3">
+                    <ProfileCircle pubkey={actor.pubkey} url={relayUrl} size={7} class="border border-border" />
+                    <div class="min-w-0">
+                      <ProfileLink
+                        pubkey={actor.pubkey}
+                        url={relayUrl}
+                        unstyled
+                        class="block truncate text-sm font-medium hover:underline" />
+                      <div class="text-xs opacity-60">
+                        WoT {actor.trustScore} • {actor.totalInteractions} interaction{actor.totalInteractions === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </Card>
 
       <!-- Activity Overview -->

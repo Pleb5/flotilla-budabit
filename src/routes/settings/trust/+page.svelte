@@ -1,6 +1,6 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {getFollows, getWotGraph, loadProfile, pubkey as sessionPubkey} from "@welshman/app"
+  import {loadProfile} from "@welshman/app"
   import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import Refresh from "@assets/icons/refresh.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -12,13 +12,32 @@
   import {pushToast} from "@app/util/toast"
   import ProviderRecommendationRow from "./ProviderRecommendationRow.svelte"
   import {
+    defaultTrustGraphConfig,
+    getTrustGraphMetricSourceLabel,
+    getTrustGraphMetricSourceValue,
+    hasEnabledTrustGraphRules,
+    makeEmptyTrustGraphRule,
+    makeTrustGraphMetricSourceOptions,
+    makeTrustGraphPreset,
+    normalizeTrustGraphConfig,
+    parseTrustGraphMetricSourceValue,
+    pruneUnavailableTrustGraphRules,
+    removeTrustGraphRule,
+    saveTrustGraphConfig,
+    type TrustGraphConfig,
+    type TrustGraphMetricSourceOption,
+    type TrustGraphPreset,
+    type TrustGraphRule,
+    upsertTrustGraphRule,
+    userTrustGraphConfigValues,
+  } from "@lib/budabit/trust-graph-config"
+  import {
     discoverNip85ExtraCapabilities,
     NIP85_USER_ASSERTION_KIND,
     getNip85CapabilityDescription,
     getNip85CapabilityLabel,
     getNip85ConfiguredProvidersByCapability,
     getNip85ProviderKey,
-    getNip85RecommenderWeight,
     isNip85KnownCapability,
     nip85DiscoveredProviderCapabilities,
     nip85ExtraCapabilityDiscoveryState,
@@ -42,8 +61,7 @@
   type CapabilityRow = {
     provider: Nip85Provider | Nip85ConfiguredProvider | Nip85RecommendedProvider
     usageCount: number
-    score: number
-    recommenders: Array<{pubkey: string; weight: number}>
+    recommenders: Array<{pubkey: string}>
     selectedProvider?: Nip85ConfiguredProvider
   }
 
@@ -77,6 +95,8 @@
   let customServiceKey = $state("")
   let customRelayHint = $state("")
   let customVisibility = $state<Nip85ProviderVisibility>("public")
+  let graphConfig = $state<TrustGraphConfig>({...defaultTrustGraphConfig})
+  let selectedGraphPreset = $state<TrustGraphPreset | "">("")
   let verificationResults = $state<Map<string, Nip85ProviderVerificationResult>>(new Map())
   let verificationSamplePubkeys = $state<string[]>([])
   let verificationState = $state<"idle" | "running" | "done" | "error">("idle")
@@ -101,6 +121,45 @@
   const providersByCapability = $derived.by(() =>
     getNip85ConfiguredProvidersByCapability(managedProviders),
   )
+
+  const graphMetricSourceOptions = $derived.by<TrustGraphMetricSourceOption[]>(() => {
+    const options = makeTrustGraphMetricSourceOptions(managedProviders)
+    const byValue = new Map(options.map(option => [option.value, option]))
+
+    for (const rule of graphConfig.rules) {
+      const value = getTrustGraphMetricSourceValue(rule.source)
+
+      if (!byValue.has(value)) {
+        byValue.set(value, {
+          value,
+          label: `${getTrustGraphMetricSourceLabel(rule.source, managedProviders)} (unavailable)`,
+          source: rule.source,
+        })
+      }
+    }
+
+    return Array.from(byValue.values()).sort((a, b) => a.label.localeCompare(b.label))
+  })
+
+  const hasGraphAdjustments = $derived.by(() => hasEnabledTrustGraphRules(graphConfig))
+
+  const graphAdjustmentStatus = $derived.by(() => {
+    if (!hasGraphAdjustments) {
+      return "Using basic WoT only. Add include/exclude rules to widen or narrow collaboration analysis."
+    }
+
+    return `${graphConfig.rules.filter(rule => rule.enabled).length} graph rule${graphConfig.rules.filter(rule => rule.enabled).length === 1 ? "" : "s"} active. Adjusted WoT will be used anywhere Budabit runs trust-based collaboration analysis.`
+  })
+
+  const graphAdjustmentHint = $derived.by(() => {
+    const hasProviderSources = graphMetricSourceOptions.some(option => option.value !== "basic_wot")
+
+    if (!hasProviderSources) {
+      return "Select one or more trusted assertion providers below to unlock provider-based graph rules like rank, followers, and reports."
+    }
+
+    return "Presets use your selected providers for rank, followers, and report metrics when available."
+  })
 
   const recommendedProvidersByCapability = $derived.by(() => {
     const byCapability = new Map<string, Nip85RecommendedProvider[]>()
@@ -148,8 +207,6 @@
   })
 
   const capabilityOptions = $derived.by<CapabilityOption[]>(() => {
-    const follows = $sessionPubkey ? getFollows($sessionPubkey) : []
-    const wotGraph = getWotGraph()
     const capabilityKeys = new Set<string>()
 
     for (const provider of managedProviders) {
@@ -181,13 +238,9 @@
           rows.set(getNip85ProviderKey(provider), {
             provider,
             usageCount: provider.usageCount,
-            score: provider.score,
             recommenders: provider.recommenders
-              .map(pubkey => ({
-                pubkey,
-                weight: getNip85RecommenderWeight(pubkey, $sessionPubkey || "", follows, wotGraph),
-              }))
-              .sort((a, b) => b.weight - a.weight || a.pubkey.localeCompare(b.pubkey)),
+              .map(pubkey => ({pubkey}))
+              .sort((a, b) => a.pubkey.localeCompare(b.pubkey)),
             selectedProvider: selectedByKey.get(getNip85ProviderKey(provider)),
           })
         }
@@ -199,7 +252,6 @@
           rows.set(key, {
             provider: existing?.provider || provider,
             usageCount: existing?.usageCount || 0,
-            score: existing?.score || 0,
             recommenders: existing?.recommenders || [],
             selectedProvider: provider,
           })
@@ -224,7 +276,6 @@
               relayHint: existingProvider.relayHint,
             },
             usageCount: existing?.usageCount || 0,
-            score: existing?.score || 0,
             recommenders: existing?.recommenders || [],
             selectedProvider: existing?.selectedProvider || selectedByKey.get(key),
           })
@@ -242,7 +293,6 @@
             const bSelected = Boolean(b.selectedProvider)
 
             if (aSelected !== bSelected) return aSelected ? -1 : 1
-            if (a.score !== b.score) return b.score - a.score
             if (a.usageCount !== b.usageCount) return b.usageCount - a.usageCount
 
             return a.provider.serviceKey.localeCompare(b.provider.serviceKey)
@@ -461,6 +511,8 @@
     if (dirty) return
 
     providers = [...$userNip85ConfiguredProviders]
+    graphConfig = normalizeTrustGraphConfig($userTrustGraphConfigValues)
+    selectedGraphPreset = $userTrustGraphConfigValues.preset || ""
   })
 
   $effect(() => {
@@ -537,8 +589,69 @@
     }
   }
 
+  const applyGraphPreset = (preset: TrustGraphPreset) => {
+    const presetConfig = makeTrustGraphPreset(preset, managedProviders)
+
+    if (presetConfig.rules.length === 0) {
+      pushToast({
+        theme: "error",
+        message: "This preset needs selected rank, follower, or report providers first.",
+      })
+      return
+    }
+
+    graphConfig = presetConfig
+    selectedGraphPreset = preset
+    dirty = true
+  }
+
+  const addGraphRule = () => {
+    graphConfig = normalizeTrustGraphConfig({
+      ...upsertTrustGraphRule(graphConfig, makeEmptyTrustGraphRule(managedProviders)),
+      preset: undefined,
+    })
+    selectedGraphPreset = ""
+    dirty = true
+  }
+
+  const updateGraphRule = (ruleId: string, patch: Partial<TrustGraphRule>) => {
+    const rule = graphConfig.rules.find(rule => rule.id === ruleId)
+
+    if (!rule) return
+
+    graphConfig = normalizeTrustGraphConfig({
+      ...upsertTrustGraphRule(graphConfig, {...rule, ...patch}),
+      preset: undefined,
+    })
+    selectedGraphPreset = ""
+    dirty = true
+  }
+
+  const updateGraphRuleSource = (ruleId: string, value: string) => {
+    const source = parseTrustGraphMetricSourceValue(value)
+
+    if (!source) return
+
+    updateGraphRule(ruleId, {
+      source,
+      threshold: source.type === "basic_wot" ? 1 : 50,
+      operator: "gte",
+    })
+  }
+
+  const deleteGraphRule = (ruleId: string) => {
+    graphConfig = normalizeTrustGraphConfig({
+      ...removeTrustGraphRule(graphConfig, ruleId),
+      preset: undefined,
+    })
+    selectedGraphPreset = ""
+    dirty = true
+  }
+
   const reset = () => {
     providers = [...$userNip85ConfiguredProviders]
+    graphConfig = normalizeTrustGraphConfig($userTrustGraphConfigValues)
+    selectedGraphPreset = $userTrustGraphConfigValues.preset || ""
     dirty = false
   }
 
@@ -618,13 +731,18 @@
     saving = true
 
     try {
+      const nextGraphConfig = pruneUnavailableTrustGraphRules(graphConfig, managedProviders)
+
       await saveUserNip85ProviderConfig(providers)
+      await saveTrustGraphConfig(nextGraphConfig)
+
+      graphConfig = nextGraphConfig
       dirty = false
-      pushToast({message: "Trusted assertion providers saved"})
+      pushToast({message: "Trust settings saved"})
     } catch (error: any) {
       pushToast({
         theme: "error",
-        message: error?.message || "Failed to save trusted assertion providers",
+        message: error?.message || "Failed to save trust settings",
       })
     } finally {
       saving = false
@@ -680,6 +798,152 @@
         Budabit is preserving {unmanagedProvidersCount}
         {unmanagedProvidersCount === 1 ? " non-profile entry" : " non-profile entries"} already
         present in your NIP-85 config.
+      </div>
+    {/if}
+  </div>
+
+  <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
+    <div class="flex items-center gap-3">
+      <Icon icon={ShieldCheck} />
+      <strong class="text-base sm:text-lg">Graph Adjustments</strong>
+    </div>
+    <p class="text-sm opacity-75">
+      Refine the basic WoT graph Budabit uses for collaboration analysis. These private rules can
+      add or exclude people based on your selected scores; if you leave them empty, Budabit falls
+      back to the basic WoT graph.
+    </p>
+
+    <div class="flex flex-wrap gap-2 text-xs">
+      <span class={hasGraphAdjustments ? softBadgeSuccess : softBadgeWarning}>
+        {hasGraphAdjustments ? "Adjusted WoT active" : "Basic WoT fallback"}
+      </span>
+      <span class={softBadgeNeutral}>{graphConfig.rules.length} rules</span>
+    </div>
+
+    <p class="text-sm opacity-75">{graphAdjustmentStatus}</p>
+    <p class="text-xs opacity-60">{graphAdjustmentHint}</p>
+
+    <div class="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+      <Button
+        type="button"
+        class={selectedGraphPreset === "balanced"
+          ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
+          : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
+        onclick={() => applyGraphPreset("balanced")}>
+        Balanced
+      </Button>
+      <Button
+        type="button"
+        class={selectedGraphPreset === "conservative"
+          ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
+          : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
+        onclick={() => applyGraphPreset("conservative")}>
+        Conservative
+      </Button>
+      <Button
+        type="button"
+        class={selectedGraphPreset === "open"
+          ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2"
+          : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"}
+        onclick={() => applyGraphPreset("open")}>
+        Open
+      </Button>
+      <Button
+        type="button"
+        class="btn btn-neutral btn-sm inline-flex items-center justify-center gap-2"
+        onclick={addGraphRule}>
+        <Icon icon={AddCircle} /> Add rule
+      </Button>
+    </div>
+
+    {#if graphConfig.rules.length > 0}
+      <div class="flex flex-col gap-3">
+        {#each graphConfig.rules as rule (rule.id)}
+          <div class="rounded-box bg-base-100/40 p-3">
+            <div class="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]">
+              <label class="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  class="toggle toggle-sm"
+                  checked={rule.enabled}
+                  onchange={event =>
+                    updateGraphRule(rule.id, {
+                      enabled: (event.currentTarget as HTMLInputElement).checked,
+                    })} />
+                <span>Enabled</span>
+              </label>
+
+              <label class="flex flex-col gap-2">
+                <span class="text-xs font-medium opacity-70">Metric source</span>
+                <select
+                  class="select select-bordered select-sm"
+                  value={getTrustGraphMetricSourceValue(rule.source)}
+                  onchange={event =>
+                    updateGraphRuleSource(rule.id, (event.currentTarget as HTMLSelectElement).value)}>
+                  {#each graphMetricSourceOptions as option (option.value)}
+                    <option value={option.value}>{option.label}</option>
+                  {/each}
+                </select>
+              </label>
+
+              <label class="flex flex-col gap-2">
+                <span class="text-xs font-medium opacity-70">Action</span>
+                <select
+                  class="select select-bordered select-sm"
+                  value={rule.action}
+                  onchange={event =>
+                    updateGraphRule(rule.id, {
+                      action: (event.currentTarget as HTMLSelectElement)
+                        .value as TrustGraphRule["action"],
+                    })}>
+                  <option value="include">Include</option>
+                  <option value="exclude">Exclude</option>
+                </select>
+              </label>
+
+              <label class="flex flex-col gap-2">
+                <span class="text-xs font-medium opacity-70">Comparison</span>
+                <select
+                  class="select select-bordered select-sm"
+                  value={rule.operator}
+                  onchange={event =>
+                    updateGraphRule(rule.id, {
+                      operator: (event.currentTarget as HTMLSelectElement)
+                        .value as TrustGraphRule["operator"],
+                    })}>
+                  <option value="gte">at least</option>
+                  <option value="lte">at most</option>
+                </select>
+              </label>
+
+              <label class="flex flex-col gap-2">
+                <span class="text-xs font-medium opacity-70">Threshold</span>
+                <input
+                  type="number"
+                  class="input input-bordered input-sm"
+                  value={rule.threshold}
+                  step="1"
+                  onchange={event =>
+                    updateGraphRule(rule.id, {
+                      threshold: Number((event.currentTarget as HTMLInputElement).value) || 0,
+                    })} />
+              </label>
+            </div>
+
+            <div class="mt-3 flex justify-end">
+              <Button
+                type="button"
+                class="btn btn-neutral btn-xs inline-flex items-center justify-center gap-2 sm:btn-sm"
+                onclick={() => deleteGraphRule(rule.id)}>
+                Remove rule
+              </Button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
+        No graph rules yet. Start with the Balanced preset or add a rule manually.
       </div>
     {/if}
   </div>
@@ -857,9 +1121,8 @@
           </strong>
           <p class="text-sm opacity-75">{activeCapability.description}</p>
           <p class="text-xs opacity-60">
-            User counts show how many people in your current WoT sample publicly selected each
-            provider for this capability. WoT score weights those endorsements by self, follows,
-            and stronger graph edges.
+            Endorsements count how many distinct people in your current WoT sample publicly
+            selected each provider for this capability.
           </p>
         </div>
 
@@ -868,7 +1131,6 @@
             <ProviderRecommendationRow
               provider={row.provider}
               usageCount={row.usageCount}
-              score={row.score}
               recommenders={row.recommenders}
               selectedProvider={row.selectedProvider}
               verification={
@@ -908,7 +1170,7 @@
       {#if saving}
         <span class="loading loading-spinner loading-sm shrink-0"></span>
       {/if}
-      <span class="leading-none">Save Providers</span>
+      <span class="leading-none">Save Trust Settings</span>
     </Button>
   </div>
 </form>

@@ -525,9 +525,6 @@ export const loadNip85RecommendedUserProviders = async () => {
     }
 
     const recommendedProviders = aggregateNip85RecommendedProviders({
-      currentPubkey: $pubkey,
-      follows,
-      wotGraph,
       configsByAuthor,
     })
     const providers = Array.from(recommendedProviders.values()).flat()

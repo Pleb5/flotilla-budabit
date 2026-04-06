@@ -24,14 +24,14 @@
     type StatusEvent,
   } from "@nostr-git/core/events"
   import {COMMENT} from "@welshman/util"
-  import {parseGitPatchFromEvent} from "@nostr-git/core/git"
-  import {request} from "@welshman/net"
-  import {parsePullRequestEvent} from "@nostr-git/core/events"
-  import Icon from "@src/lib/components/Icon.svelte"
-  import {isMobile} from "@src/lib/html.js"
+import {parseGitPatchFromEvent} from "@nostr-git/core/git"
+import {request} from "@welshman/net"
+import {GIT_PULL_REQUEST, parsePullRequestEvent} from "@nostr-git/core/events"
+import Icon from "@src/lib/components/Icon.svelte"
+import {isMobile} from "@src/lib/html.js"
   import {postComment, publishEvent} from "@lib/budabit/commands.js"
   import {pushModal} from "@app/util/modal"
-  import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
+  import {checked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import {pushToast} from "@src/app/util/toast"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
@@ -39,7 +39,7 @@
 
   import {getContext, onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
-  import {beforeNavigate} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   import {decodeRelay} from "@app/core/state"
   import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
   import {
@@ -53,6 +53,11 @@
     effectiveRepoAddressesByRepoAddress,
     getEffectiveRepoAddresses,
   } from "@lib/budabit/state"
+  import {
+    REPO_TRUST_METRICS_KEY,
+    defaultRepoTrustMetrics,
+    type RepoTrustMetrics,
+  } from "@lib/budabit/repo-trust-metrics"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
@@ -61,6 +66,7 @@
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
+  const repoTrustMetricsStore = getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -72,6 +78,9 @@
   )
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
   const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
+  const repoTrustMetrics = $derived.by(() =>
+    repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
+  )
   const patchesPath = $derived.by(
     () => `/spaces/${encodeURIComponent($page.params.relay ?? "")}/git/${$page.params.id}/patches`,
   )
@@ -172,6 +181,7 @@
   }
 
   type PatchStatusKey = "open" | "applied" | "closed" | "draft"
+  type TrustFilterKey = "all" | "trusted" | "trusted-author" | "trusted-maintainer"
 
   const PATCH_STATUS_ORDER: PatchStatusKey[] = ["open", "applied", "draft", "closed"]
   const PATCH_STATUS_LABELS: Record<PatchStatusKey, string> = {
@@ -190,74 +200,7 @@
 
   // Comments are managed locally, similar to issues page
   let comments = $state<CommentEvent[]>([])
-
-  // Status events loaded directly for patches + PRs (layout's statusEventsByRoot may not include PR status)
-  let localStatusEventsByRoot = $state<Map<string, StatusEvent[]>>(new Map())
-  const statusMapAccumulator = new Map<string, StatusEvent[]>() // persists across effect runs
-
-  // Load status events for all root IDs (patches + PRs) - ensures PR status shows correctly on listing
-  $effect(() => {
-    if (!repoClass) return
-
-    const currentPatches = repoClass.patches
-    const currentPullRequests = pullRequests
-    const currentRepoRelays = repoRelays
-
-    const controller = new AbortController()
-    abortControllers.push(controller)
-
-    const timeout = setTimeout(() => {
-      const rootPatchIds = (currentPatches || [])
-        .filter((p: PatchEvent) => getTags(p, "t").some((t: string[]) => t[1] === "root"))
-        .map((p: PatchEvent) => p.id)
-      const allRootIds = [...rootPatchIds, ...(currentPullRequests || []).map((pr: PullRequestEvent) => pr.id)]
-
-      if (allRootIds.length > 0) {
-        request({
-          relays: currentRepoRelays,
-          signal: controller.signal,
-          filters: [
-            {
-              kinds: [GIT_STATUS_OPEN, GIT_STATUS_COMPLETE, GIT_STATUS_CLOSED, GIT_STATUS_DRAFT],
-              "#e": allRootIds,
-            },
-          ],
-          onEvent: e => {
-            const rootId = getTagValue("e", (e as any).tags)
-            if (rootId) {
-              const current = statusMapAccumulator.get(rootId) || []
-              const updated = [
-                ...current.filter((ev: StatusEvent) => ev.id !== (e as any).id),
-                e as StatusEvent,
-              ].sort((a, b) => b.created_at - a.created_at)
-              statusMapAccumulator.set(rootId, updated)
-              localStatusEventsByRoot = new Map(statusMapAccumulator)
-            }
-          },
-        })
-      }
-    }, 100)
-
-    return () => {
-      clearTimeout(timeout)
-      controller.abort()
-    }
-  })
-
-  // Merge layout's statusEventsByRoot with locally loaded status events (local takes precedence for freshness)
-  const mergedStatusEventsByRoot = $derived.by(() => {
-    const layout = statusEventsByRoot || new Map<string, StatusEvent[]>()
-    const merged = new Map<string, StatusEvent[]>(layout)
-    for (const [rootId, events] of localStatusEventsByRoot) {
-      const existing = merged.get(rootId) || []
-      const combined = [
-        ...existing.filter((ex: StatusEvent) => !events.some((le: StatusEvent) => le.id === ex.id)),
-        ...events,
-      ].sort((a, b) => b.created_at - a.created_at)
-      merged.set(rootId, combined)
-    }
-    return merged
-  })
+  const mergedStatusEventsByRoot = $derived.by(() => statusEventsByRoot || new Map<string, StatusEvent[]>())
 
   // Load comments for patches and PRs - defer to avoid blocking render
   $effect(() => {
@@ -327,12 +270,13 @@
   let statusFilter = $state<string>("open") // all, open, applied, closed, draft
   let sortBy = $state<string>("newest") // newest, oldest, status, commits
   let authorFilter = $state<string>("") // empty string means all authors
+  let trustFilter = $state<TrustFilterKey>("all")
+  let trustSortFirst = $state(false)
   let showFilters = $state(true)
   let searchTerm = $state("")
   // Label filters (NIP-32)
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
-  let labelSearch = $state("")
   // Centralized labels via app state
 
   // Optimize labelsData: compute lazily and cache results to avoid blocking render
@@ -419,10 +363,75 @@
     }
 
   // Persist filters per repo (delegated to FilterPanel)
-  let storageKey = repoClass?.key ? `patchesFilters:${repoClass.key}` : ""
+  const storageKey = repoClass?.key ? `patchesFilters:${repoClass.key}` : ""
   const allNormalizedLabels = $derived.by(() =>
     Array.from(new Set(Array.from(labelsByPatch.values()).flat())),
   )
+  const trustFilterOptions: Array<{value: TrustFilterKey; label: string}> = [
+    {value: "all", label: "All activity"},
+    {value: "trusted", label: "Trusted only"},
+    {value: "trusted-author", label: "Trusted authors"},
+    {value: "trusted-maintainer", label: "Trusted maintainer merges"},
+  ]
+  const trustFilterStatus = $derived.by(() => {
+    if (repoTrustMetrics.status === "loading") {
+      return `Refreshing ${repoTrustMetrics.graphLabel.toLowerCase()} metrics for this repository...`
+    }
+
+    if (repoTrustMetrics.status === "error") {
+      return repoTrustMetrics.error || "Unable to compute trust metrics right now."
+    }
+
+    if (repoTrustMetrics.totalPullRequests === 0) {
+      return "No pull requests loaded yet for trust activity metrics."
+    }
+
+    if (repoTrustMetrics.enabledRuleCount > 0) {
+      return `Using ${repoTrustMetrics.graphLabel} across ${repoTrustMetrics.enabledRuleCount} graph rule${repoTrustMetrics.enabledRuleCount === 1 ? "" : "s"}.`
+    }
+
+    return "Using the basic WoT fallback. Add graph adjustments in Trust settings to refine these metrics."
+  })
+
+  $effect(() => {
+    const searchParams = $page.url.searchParams
+    const trustParam = searchParams.get("trust") || ""
+    const sortParam = searchParams.get("trustSort") || ""
+    trustFilter = trustFilterOptions.find(option => option.value === trustParam)?.value || "all"
+    trustSortFirst = sortParam === "first"
+  })
+
+  $effect(() => {
+    const currentTrust = $page.url.searchParams.get("trust") || ""
+    const currentTrustSort = $page.url.searchParams.get("trustSort") || ""
+    const nextTrust = trustFilter === "all" ? "" : trustFilter
+    const nextTrustSort = trustSortFirst ? "first" : ""
+
+    if (currentTrust === nextTrust && currentTrustSort === nextTrustSort) {
+      return
+    }
+
+    const params = new URLSearchParams($page.url.searchParams)
+
+    if (nextTrust) {
+      params.set("trust", nextTrust)
+    } else {
+      params.delete("trust")
+    }
+
+    if (nextTrustSort) {
+      params.set("trustSort", nextTrustSort)
+    } else {
+      params.delete("trustSort")
+    }
+
+    goto(`${patchesPath}${params.toString() ? `?${params.toString()}` : ""}`, {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true,
+      invalidateAll: false,
+    })
+  })
 
   // Precompute status via PatchManager; map state -> kind where needed (fallback)
   const statusData = $derived.by(() =>
@@ -500,9 +509,12 @@
     const currentPullRequests = pullRequests
     const currentStatusFilter = statusFilter
     const currentAuthorFilter = authorFilter
+    const currentTrustFilter = trustFilter
+    const currentTrustSortFirst = trustSortFirst
     const currentSortBy = sortBy
     const currentPatchListCacheKey = patchListCacheKey
     const currentMergedStatusEventsByRoot = mergedStatusEventsByRoot
+    const currentRepoTrustMetrics = repoTrustMetrics
 
     const timeout = setTimeout(() => {
       const hasPatches = currentPatches && currentPatches.length > 0
@@ -536,8 +548,17 @@
           .join(","),
         currentStatusFilter,
         currentAuthorFilter,
+        currentTrustFilter,
+        currentTrustSortFirst ? "trust-first" : "trust-normal",
         currentSortBy,
         statusKey,
+        Array.from(currentRepoTrustMetrics.byRootId.entries())
+          .map(
+            ([id, metric]) =>
+              `${id}:${metric.trustedActorCount}:${metric.trustedAuthor ? 1 : 0}:${metric.trustedMaintainerMerge ? 1 : 0}`,
+          )
+          .sort()
+          .join(","),
       ].join("|")
 
       if (currentPatchListCacheKey === currentKey) return
@@ -652,6 +673,29 @@
           filteredPatches = filteredPatches.filter(patch => patch.pubkey === currentAuthorFilter)
         }
 
+        // Apply trust filter
+        if (currentTrustFilter !== "all") {
+          filteredPatches = filteredPatches.filter(patch => {
+            const metric = currentRepoTrustMetrics.byRootId.get(patch.id)
+
+            if (!metric) return false
+
+            if (currentTrustFilter === "trusted") {
+              return metric.trustedActorCount > 0
+            }
+
+            if (currentTrustFilter === "trusted-author") {
+              return metric.trustedAuthor
+            }
+
+            if (currentTrustFilter === "trusted-maintainer") {
+              return metric.trustedMaintainerMerge
+            }
+
+            return true
+          })
+        }
+
         // Apply sorting
         const sortedPatches = [...filteredPatches]
         if (currentSortBy === "newest") {
@@ -670,6 +714,25 @@
           sortedPatches.sort((a, b) => b.commitCount - a.commitCount)
         }
 
+        if (currentTrustSortFirst) {
+          sortedPatches.sort((a, b) => {
+            const trustA = currentRepoTrustMetrics.byRootId.get(a.id)
+            const trustB = currentRepoTrustMetrics.byRootId.get(b.id)
+            const actorCountA = trustA?.trustedActorCount || 0
+            const actorCountB = trustB?.trustedActorCount || 0
+            const authorA = trustA?.trustedAuthor ? 1 : 0
+            const authorB = trustB?.trustedAuthor ? 1 : 0
+            const maintainerA = trustA?.trustedMaintainerMerge ? 1 : 0
+            const maintainerB = trustB?.trustedMaintainerMerge ? 1 : 0
+
+            if (actorCountA !== actorCountB) return actorCountB - actorCountA
+            if (authorA !== authorB) return authorB - authorA
+            if (maintainerA !== maintainerB) return maintainerB - maintainerA
+
+            return b.created_at - a.created_at
+          })
+        }
+
         // Update patchList with final filtered and sorted result
         patchList = sortedPatches
         patchListCacheKey = currentKey
@@ -686,7 +749,7 @@
 
 
   // Set loading to false immediately - show content right away
-  let loading = $state(false)
+  const loading = false
   const ITEMS_PER_PAGE = 20
   let visiblePatchCount = $state(ITEMS_PER_PAGE)
   let element: HTMLElement | undefined = $state()
@@ -1198,12 +1261,7 @@
   })
 
   $effect(() => {
-    searchTerm
-    statusFilter
-    authorFilter
-    selectedLabels
-    matchAllLabels
-    sortBy
+    void [searchTerm, statusFilter, authorFilter, trustFilter, trustSortFirst, selectedLabels, matchAllLabels, sortBy]
     visiblePatchCount = ITEMS_PER_PAGE
   })
 
@@ -1265,6 +1323,72 @@
     </div>
   </div>
 
+  <div class="mb-4 rounded-box bg-base-200/40 p-3 sm:p-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <div class="text-sm font-medium">Trust activity</div>
+        <div class="text-xs opacity-70">{trustFilterStatus}</div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 text-xs">
+        <span class="badge badge-neutral">{repoTrustMetrics.graphLabel}</span>
+        {#if repoTrustMetrics.enabledRuleCount > 0}
+          <span class="badge badge-neutral">
+            {repoTrustMetrics.enabledRuleCount} rule{repoTrustMetrics.enabledRuleCount === 1 ? "" : "s"}
+          </span>
+        {/if}
+      </div>
+    </div>
+
+    <div class="mt-3 grid gap-2 sm:grid-cols-3">
+      <div class="rounded-box bg-base-100/40 p-3">
+        <div class="text-xs uppercase tracking-wide opacity-60">Trusted merged contributions</div>
+        <div class="mt-1 text-lg font-semibold">{repoTrustMetrics.trustedMergedContributions}</div>
+      </div>
+      <div class="rounded-box bg-base-100/40 p-3">
+        <div class="text-xs uppercase tracking-wide opacity-60">Trusted maintainer merges</div>
+        <div class="mt-1 text-lg font-semibold">{repoTrustMetrics.trustedMaintainerMerges}</div>
+      </div>
+      <div class="rounded-box bg-base-100/40 p-3">
+        <div class="text-xs uppercase tracking-wide opacity-60">Trusted collaborators</div>
+        <div class="mt-1 text-lg font-semibold">{repoTrustMetrics.trustedCollaborators}</div>
+      </div>
+    </div>
+
+    <div class="mt-3 flex flex-col gap-3 border-t border-base-300/40 pt-3">
+      <div class="flex flex-wrap gap-2 text-xs">
+        {#each trustFilterOptions as option (option.value)}
+          <Button
+            type="button"
+            class={trustFilter === option.value
+              ? "btn btn-primary btn-xs"
+              : "btn btn-neutral btn-xs"}
+            onclick={() => (trustFilter = option.value)}>
+            {option.label}
+          </Button>
+        {/each}
+
+        <Button
+          type="button"
+          class={trustSortFirst ? "btn btn-info btn-xs" : "btn btn-neutral btn-xs"}
+          onclick={() => (trustSortFirst = !trustSortFirst)}>
+          Trusted first
+        </Button>
+      </div>
+
+      {#if trustFilter !== "all" || trustSortFirst}
+        <div class="text-xs opacity-60">
+          Showing {searchedPatches.length} matching item{searchedPatches.length === 1 ? "" : "s"}
+          with trust filters applied.
+        </div>
+      {/if}
+
+      <div class="text-xs opacity-50">
+        Trust filters currently apply to pull request roots and their maintainer-applied merges.
+      </div>
+    </div>
+  </div>
+
   {#if showFilters}
     <FilterPanel
       mode="patches"
@@ -1314,6 +1438,7 @@
   {:else}
     <div class="flex flex-col gap-y-4 overflow-y-auto">
       {#each visiblePatches as patch, index (patch.id)}
+        {@const trustMetric = repoTrustMetrics.byRootId.get(patch.id)}
         <div
           in:slideAndFade={{duration: 200}}
           data-index={index}
@@ -1346,6 +1471,21 @@
                   onCreateReaction={template => createReaction(patch.event as TrustedEvent, template)}
                 />
             </div>
+            {#if patch.event.kind === GIT_PULL_REQUEST && trustMetric && (trustMetric.trustedAuthor || trustMetric.trustedMaintainerMerge || trustMetric.trustedActorCount > 0)}
+              <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                {#if trustMetric.trustedAuthor}
+                  <span class="badge badge-success badge-sm">Trusted author</span>
+                {/if}
+                {#if trustMetric.trustedMaintainerMerge}
+                  <span class="badge badge-info badge-sm">Trusted maintainer merge</span>
+                {/if}
+                {#if trustMetric.trustedActorCount > 1}
+                  <span class="badge badge-neutral badge-sm">
+                    {trustMetric.trustedActorCount} trusted actors
+                  </span>
+                {/if}
+              </div>
+            {/if}
             {#if labelsByPatch.get(patch.id)?.length}
               <div class="mt-2 flex flex-wrap gap-2 text-xs">
                 {#if patch.groups.Status.length}

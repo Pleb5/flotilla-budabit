@@ -20,6 +20,7 @@
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
+  import ProfileCodeTrustAnalysis from "@app/components/ProfileCodeTrustAnalysis.svelte"
   import ProfileNip85Metrics from "@app/components/ProfileNip85Metrics.svelte"
   import {pubkeyLink, deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
@@ -113,6 +114,7 @@
   <ProfileInfo {pubkey} {url} />
   <ProfileBadges {pubkey} {url} />
   <ProfileNip85Metrics {pubkey} />
+  <ProfileCodeTrustAnalysis {pubkey} />
   <ModalFooter>
     <Button onclick={back} class="hidden md:btn md:btn-link">
       <Icon icon={AltArrowLeft} />

@@ -8,7 +8,6 @@ import {
   getNip85CapabilityDescription,
   getNip85CapabilityLabel,
   getNip85RecommendationAuthors,
-  getNip85RecommenderWeight,
   getNip85VerificationSamplePubkeys,
   makeNip85KindTag,
   parseNip85ProviderTag,
@@ -203,27 +202,28 @@ describe("nip85 recommendation aggregation", () => {
     expect(sample).toEqual([currentPubkey, "3".repeat(64), "2".repeat(64)])
   })
 
-  it("aggregates providers by capability and sorts by weighted score", () => {
-    const currentPubkey = "1".repeat(64)
+  it("aggregates providers by capability and sorts by endorsement count", () => {
     const providerA = makeProvider("rank", "a".repeat(64))
     const providerB = makeProvider("rank", "b".repeat(64))
     const aggregated = aggregateNip85RecommendedProviders({
-      currentPubkey,
-      follows: ["2".repeat(64)],
-      wotGraph: new Map([
-        ["2".repeat(64), 5],
-        ["3".repeat(64), 2],
-      ]),
       configsByAuthor: new Map([
-        [currentPubkey, [providerA]],
+        ["1".repeat(64), [providerA]],
         ["2".repeat(64), [providerA]],
         ["3".repeat(64), [providerB]],
       ]),
     })
 
     expect(aggregated.get("30382:rank")).toEqual([
-      expect.objectContaining({serviceKey: providerA.serviceKey, usageCount: 2, score: 8}),
-      expect.objectContaining({serviceKey: providerB.serviceKey, usageCount: 1, score: 2}),
+      expect.objectContaining({
+        serviceKey: providerA.serviceKey,
+        usageCount: 2,
+        recommenders: ["1".repeat(64), "2".repeat(64)],
+      }),
+      expect.objectContaining({
+        serviceKey: providerB.serviceKey,
+        usageCount: 1,
+        recommenders: ["3".repeat(64)],
+      }),
     ])
   })
 
@@ -234,20 +234,6 @@ describe("nip85 recommendation aggregation", () => {
     )
     expect(getNip85CapabilityLabel("30382:hops")).toBe("User - hops")
     expect(getNip85CapabilityDescription("30382:hops")).toContain("Provider-defined user metric")
-  })
-
-  it("uses the same recommender weights for summary and UI details", () => {
-    const currentPubkey = "1".repeat(64)
-    const follows = ["2".repeat(64)]
-    const wotGraph = new Map([
-      ["3".repeat(64), 7],
-      ["4".repeat(64), 0],
-    ])
-
-    expect(getNip85RecommenderWeight(currentPubkey, currentPubkey, follows, wotGraph)).toBe(5)
-    expect(getNip85RecommenderWeight("2".repeat(64), currentPubkey, follows, wotGraph)).toBe(3)
-    expect(getNip85RecommenderWeight("3".repeat(64), currentPubkey, follows, wotGraph)).toBe(7)
-    expect(getNip85RecommenderWeight("4".repeat(64), currentPubkey, follows, wotGraph)).toBe(1)
   })
 
   it("ranks relays by how often they appear in WoT relay lists", () => {

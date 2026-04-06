@@ -69,6 +69,13 @@
   import Profile from "@src/app/components/Profile.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import type {Repo} from "@nostr-git/ui"
+  import {getContext, hasContext} from "svelte"
+  import type {Readable} from "svelte/store"
+  import {
+    REPO_TRUST_METRICS_KEY,
+    defaultRepoTrustMetrics,
+    type RepoTrustMetrics,
+  } from "@lib/budabit/repo-trust-metrics"
 
   type PrChange = {
     path: string
@@ -126,6 +133,9 @@
   }
 
   const {pr, prEvent, repo: repoClass, repoRelays, prEditRelays}: Props = $props()
+  const repoTrustMetricsStore = hasContext(REPO_TRUST_METRICS_KEY)
+    ? getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
+    : undefined
 
   const GIT_COVER_LETTER_KIND = 1624
   const normalizeUniqueRelays = (relays: Array<string | undefined | null>) =>
@@ -151,6 +161,33 @@
   })
 
   const effectiveMaintainerSet = $derived.by(() => new Set(effectiveMaintainers))
+  const repoTrustMetrics = $derived.by<RepoTrustMetrics>(() =>
+    repoTrustMetricsStore ? ($repoTrustMetricsStore ?? defaultRepoTrustMetrics) : defaultRepoTrustMetrics,
+  )
+  const prTrustMetric = $derived.by(() => repoTrustMetrics.byRootId.get(prEvent?.id || ""))
+  const prTrustSummary = $derived.by(() => {
+    const metric = prTrustMetric
+
+    if (repoTrustMetrics.status === "loading") {
+      return `Refreshing ${repoTrustMetrics.graphLabel.toLowerCase()} activity for this PR...`
+    }
+
+    if (repoTrustMetrics.status === "error") {
+      return repoTrustMetrics.error || "Unable to compute trust activity for this PR."
+    }
+
+    if (!metric) {
+      return "No trust data for this PR yet."
+    }
+
+    if (metric.trustedActorCount > 0) {
+      return `${metric.trustedActorCount} trusted actor${metric.trustedActorCount === 1 ? "" : "s"} matched this PR.`
+    }
+
+    return metric.merged
+      ? "No trusted actors matched this merged PR."
+      : "No trusted actors matched this PR yet."
+  })
 
   const canManagePr = $derived.by(() => {
     if (!$pubkey) return false
@@ -2030,6 +2067,43 @@
             <span>{formatTimestamp(pr?.createdAt || "")}</span>
           </div>
         </div>
+      </div>
+
+      <div class="mb-6 rounded-lg border bg-muted/20 p-4 text-sm">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 class="font-medium">Trust activity</h3>
+            <p class="mt-1 text-xs text-muted-foreground">{prTrustSummary}</p>
+          </div>
+
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="rounded-full border border-border bg-background px-2.5 py-1">
+              {repoTrustMetrics.graphLabel}
+            </span>
+            {#if repoTrustMetrics.enabledRuleCount > 0}
+              <span class="rounded-full border border-border bg-background px-2.5 py-1">
+                {repoTrustMetrics.enabledRuleCount} rule{repoTrustMetrics.enabledRuleCount === 1 ? "" : "s"}
+              </span>
+            {/if}
+            {#if prTrustMetric?.trustedAuthor}
+              <span class="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                Trusted author
+              </span>
+            {/if}
+            {#if prTrustMetric?.trustedMaintainerMerge}
+              <span class="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300">
+                Trusted maintainer merge
+              </span>
+            {/if}
+          </div>
+        </div>
+
+        {#if prTrustMetric?.mergedByPubkey && prTrustMetric.trustedMaintainerMerge}
+          <div class="mt-3 text-xs text-muted-foreground">
+            Merged by
+            <ProfileLink pubkey={prTrustMetric.mergedByPubkey} unstyled class="font-medium hover:underline" />
+          </div>
+        {/if}
       </div>
 
       <div

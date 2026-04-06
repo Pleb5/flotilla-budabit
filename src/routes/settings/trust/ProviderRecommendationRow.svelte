@@ -20,7 +20,6 @@
 
   type Recommender = {
     pubkey: string
-    weight: number
   }
 
   type Verification = {
@@ -35,7 +34,6 @@
   interface Props {
     provider: Nip85Provider | Nip85ConfiguredProvider | Nip85RecommendedProvider
     usageCount: number
-    score: number
     recommenders: Recommender[]
     selectedProvider?: Nip85ConfiguredProvider
     verification?: Verification
@@ -48,7 +46,6 @@
   const {
     provider,
     usageCount,
-    score,
     recommenders,
     selectedProvider,
     verification,
@@ -59,11 +56,6 @@
   }: Props = $props()
 
   let showRecommenders = $state(false)
-  let showScoreHelp = $state(false)
-  let openRecommenderWeight = $state<string | null>(null)
-
-  const providerKey = `${provider.serviceKey}:${provider.kindTag}`
-  const softBadgeAccent = "badge border border-accent/25 bg-accent/15 text-accent"
   const softBadgeInfo = "badge border border-info/25 bg-info/15 text-info"
   const softBadgePrimary = "badge border border-primary/25 bg-primary/15 text-primary"
   const softBadgeSuccess = "badge border border-success/25 bg-success/15 text-success"
@@ -72,12 +64,6 @@
   const softBadgeNeutral = "badge border border-base-content/10 bg-base-200/80 text-base-content/75"
 
   const usageLabel = $derived(usageCount === 1 ? "1 user" : `${usageCount} users`)
-  const scoreHelp = $derived(
-    `WoT ${score} is the sum of recommender weights for this capability. Weight = 5 if it was selected by you, 3 by a direct follow, otherwise max(1, their WoT graph score).`,
-  )
-
-  const getRecommenderWeightHelp = (weight: number) =>
-    `This recommender contributes ${weight} point${weight === 1 ? "" : "s"}. Weight = 5 if it is you, 3 if it is a direct follow, otherwise max(1, their WoT graph score).`
   const verificationSummary = $derived.by(() => {
     if (!verification) return ""
 
@@ -119,31 +105,6 @@
 
   const openProfile = (pubkey: string) => pushModal(ProfileDetail, {pubkey})
 
-  const onWindowMouseUp = (event: MouseEvent) => {
-    const target = event.target as HTMLElement | null
-
-    if (
-      showScoreHelp &&
-      !target?.closest(`[data-score-help-root="${providerKey}"]`)
-    ) {
-      showScoreHelp = false
-    }
-
-    if (
-      openRecommenderWeight &&
-      !target?.closest(`[data-weight-help-root="${providerKey}:${openRecommenderWeight}"]`)
-    ) {
-      openRecommenderWeight = null
-    }
-  }
-
-  const onWindowKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      showScoreHelp = false
-      openRecommenderWeight = null
-    }
-  }
-
   $effect(() => {
     if (!verification) return
 
@@ -164,8 +125,6 @@
     }
   })
 </script>
-
-<svelte:window onmouseup={onWindowMouseUp} onkeydown={onWindowKeyDown} />
 
 <div
   class={`rounded-box border bg-base-100/40 p-3 sm:p-4 ${selectedProvider ? "border-primary/50" : "border-base-300/60"}`}>
@@ -190,24 +149,6 @@
         <span class={softBadgeInfo}>{usageLabel}</span>
       {:else}
         <span class={softBadgeNeutral}>Custom only</span>
-      {/if}
-
-      {#if score > 0}
-        <div class="relative" data-score-help-root={providerKey}>
-          <Button
-            type="button"
-            class={`${softBadgeAccent} inline-flex cursor-help items-center justify-center px-2`}
-            title={scoreHelp}
-            onclick={() => (showScoreHelp = !showScoreHelp)}>
-            WoT {score}
-          </Button>
-
-          {#if showScoreHelp}
-            <div class="absolute right-0 top-full z-popover mt-2 w-64 max-w-[calc(100vw-4rem)] rounded-box border border-base-300/70 bg-base-100 p-3 text-xs leading-relaxed shadow-md sm:w-72">
-              {scoreHelp}
-            </div>
-          {/if}
-        </div>
       {/if}
 
       {#if selectedProvider}
@@ -259,26 +200,6 @@
                   </Button>
                   <div class="text-xs opacity-60">{displayPubkey(recommender.pubkey)}</div>
                 </div>
-              </div>
-
-              <div
-                class="relative shrink-0"
-                data-weight-help-root={`${providerKey}:${recommender.pubkey}`}>
-                <Button
-                  type="button"
-                  class={`${softBadgeAccent} inline-flex cursor-help items-center justify-center px-2`}
-                  title={getRecommenderWeightHelp(recommender.weight)}
-                  onclick={() =>
-                    (openRecommenderWeight =
-                      openRecommenderWeight === recommender.pubkey ? null : recommender.pubkey)}>
-                  WoT {recommender.weight}
-                </Button>
-
-                {#if openRecommenderWeight === recommender.pubkey}
-                  <div class="absolute right-0 top-full z-popover mt-2 w-64 max-w-[calc(100vw-4rem)] rounded-box border border-base-300/70 bg-base-100 p-3 text-xs leading-relaxed shadow-md sm:w-72">
-                    {getRecommenderWeightHelp(recommender.weight)}
-                  </div>
-                {/if}
               </div>
             </div>
           {/each}

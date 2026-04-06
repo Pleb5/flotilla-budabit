@@ -92,6 +92,7 @@
     getEffectiveRepoAddresses,
     loadRepoMaintainerAnnouncements,
   } from "@lib/budabit/state"
+  import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@lib/budabit/repo-trust-metrics"
   import {userRepoWatchValues} from "@lib/budabit/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
@@ -117,6 +118,8 @@
 
   const COMMENT_LOAD_DEBOUNCE_MS = 300
   const COMMENT_LOAD_CHUNK_SIZE = 100
+  const PR_STATUS_ROOT_LOAD_DEBOUNCE_MS = 250
+  const PR_STATUS_ROOT_LOAD_CHUNK_SIZE = 100
   const EFFECTIVE_ADDRESS_LOAD_DEBOUNCE_MS = 200
   const EFFECTIVE_ADDRESS_LOAD_CHUNK_SIZE = 50
   const FORK_PUBLISH_TIMEOUT_MS = 20000
@@ -931,6 +934,48 @@
     ) as Readable<StatusEvent[]>
   }
 
+  function deriveRootScopedStatusEvents(rootIds: Readable<string[]>) {
+    return readable<StatusEvent[]>([], set => {
+      let previousKey = ""
+      let unsubscribeScoped: (() => void) | undefined
+
+      const unsubscribeRootIds = rootIds.subscribe((ids: string[]) => {
+        const normalized = normalizeScopeValues(ids)
+        const key = normalized.join("|")
+
+        if (key === previousKey) return
+        previousKey = key
+
+        if (unsubscribeScoped) {
+          unsubscribeScoped()
+          unsubscribeScoped = undefined
+        }
+
+        if (normalized.length === 0) {
+          set([])
+          return
+        }
+
+        const filters: Filter[] = chunkBySize(normalized, COMMENT_DERIVE_FILTER_CHUNK_SIZE).map(ids => ({
+          kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+          "#e": ids,
+        }))
+        const scopedEvents = throttled(
+          SCOPED_DERIVE_THROTTLE_MS,
+          deriveEventsAsc(deriveEventsById({repository, filters})),
+        )
+        unsubscribeScoped = scopedEvents.subscribe(events => {
+          set(getVisibleRepositoryEvents(events as StatusEvent[]))
+        })
+      })
+
+      return () => {
+        if (unsubscribeScoped) unsubscribeScoped()
+        unsubscribeRootIds()
+      }
+    })
+  }
+
   function deriveStatusEventsByRoot(statusEvents: Readable<StatusEvent[]>) {
     return derived(
       statusEvents,
@@ -1111,9 +1156,40 @@
   const patchesStore = derivePatches(repoAddressesStore)
   const pullRequestsStore = derivePullRequests(repoAddressesStore)
   const statusEventsStore = deriveStatusEvents(repoAddressesStore)
-  const statusEventsByRootStore = deriveStatusEventsByRoot(statusEventsStore)
+  const pullRequestRootIdsStore: Readable<string[]> = derived(pullRequestsStore, $pullRequests =>
+    [...new Set(($pullRequests || []).map(pullRequest => pullRequest.id).filter(Boolean))].sort(),
+  )
+  const rootStatusEventsStore = deriveRootScopedStatusEvents(pullRequestRootIdsStore)
+  const mergedStatusEventsStore: Readable<StatusEvent[]> = derived(
+    [statusEventsStore, rootStatusEventsStore],
+    ([$addressScopedEvents, $rootScopedEvents]) => {
+      const byId = new Map<string, StatusEvent>()
+
+      for (const event of [...($addressScopedEvents || []), ...($rootScopedEvents || [])]) {
+        const existing = byId.get(event.id)
+
+        if (!existing || event.created_at > existing.created_at) {
+          byId.set(event.id, event)
+        }
+      }
+
+      return Array.from(byId.values()).sort(
+        (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
+      )
+    },
+  )
+  const appliedStatusEventsStore: Readable<StatusEvent[]> = derived(
+    mergedStatusEventsStore,
+    $events => ($events || []).filter(event => event.kind === GIT_STATUS_COMPLETE) as StatusEvent[],
+  )
+  const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
   const allRootIdsStore = deriveAllRootIds(issuesStore, patchesStore, pullRequestsStore)
   const commentEventsStore = deriveComments(allRootIdsStore)
+  const repoTrustMetricsStore = createRepoTrustMetricsStore({
+    repoAddresses: repoAddressesStore,
+    pullRequests: pullRequestsStore,
+    appliedStatuses: appliedStatusEventsStore,
+  })
 
   const DELETE_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
   const DELETE_SINCE_BUFFER_SECONDS = 60
@@ -1296,7 +1372,7 @@
       issues: issuesStore,
       patches: patchesStore,
       repoStateEvents: repoStateEventsStore,
-      statusEvents: statusEventsStore,
+      statusEvents: mergedStatusEventsStore,
       commentEvents: commentEventsStore,
       labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
       viewerPubkey: viewerPubkeyStore,
@@ -1319,7 +1395,7 @@
         issues: issuesStore,
         patches: patchesStore,
         repoStateEvents: repoStateEventsStore,
-        statusEvents: statusEventsStore,
+        statusEvents: mergedStatusEventsStore,
         commentEvents: commentEventsStore,
         labelEvents: emptyLabelEvents as unknown as Readable<LabelEvent[]>,
         viewerPubkey: viewerPubkeyStore,
@@ -1336,6 +1412,7 @@
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
+  setContext(REPO_TRUST_METRICS_KEY, repoTrustMetricsStore)
 
   // Initialize tracking for data loading
   let unsubscribers: (() => void)[] = []
@@ -1343,6 +1420,10 @@
   let pendingCommentRootIds = new Set<string>()
   let commentLoadRelaysKey = ""
   let commentLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
+  let requestedPrStatusRootIds = new Set<string>()
+  let pendingPrStatusRootIds = new Set<string>()
+  let prStatusRootLoadRelaysKey = ""
+  let prStatusRootLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
   let loadedEffectiveAddresses = new Set<string>()
   let pendingEffectiveAddresses = new Set<string>()
   let effectiveAddressLoadRelaysKey = ""
@@ -1555,6 +1636,86 @@
     })
       .catch(() => {})
 
+    const flushPendingPrStatusRootLoads = async (relays: string[], relaysKey: string) => {
+      if (relaysKey !== prStatusRootLoadRelaysKey) return
+
+      while (pendingPrStatusRootIds.size > 0 && relaysKey === prStatusRootLoadRelaysKey) {
+        const rootIds = Array.from(pendingPrStatusRootIds).slice(0, PR_STATUS_ROOT_LOAD_CHUNK_SIZE)
+
+        if (rootIds.length === 0) return
+
+        for (const rootId of rootIds) {
+          pendingPrStatusRootIds.delete(rootId)
+        }
+
+        try {
+          await load({
+            relays,
+            filters: [
+              {
+                kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+                "#e": rootIds,
+              },
+            ],
+          })
+
+          for (const rootId of rootIds) {
+            requestedPrStatusRootIds.add(rootId)
+          }
+        } catch {
+          for (const rootId of rootIds) {
+            pendingPrStatusRootIds.add(rootId)
+          }
+          break
+        }
+      }
+    }
+
+    const schedulePrStatusRootLoadFlush = (relays: string[], relaysKey: string) => {
+      if (prStatusRootLoadFlushTimer) return
+
+      prStatusRootLoadFlushTimer = setTimeout(() => {
+        prStatusRootLoadFlushTimer = null
+        void flushPendingPrStatusRootLoads(relays, relaysKey)
+      }, PR_STATUS_ROOT_LOAD_DEBOUNCE_MS)
+    }
+
+    const prStatusLoadTrigger = derived(pullRequestRootIdsStore, (rootIds: string[]) => {
+      if (rootIds.length > 0) {
+        const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
+        if (currentRelays.length === 0) return rootIds
+
+        const relaysKey = [...currentRelays].sort().join("|")
+
+        if (prStatusRootLoadRelaysKey !== relaysKey) {
+          prStatusRootLoadRelaysKey = relaysKey
+          requestedPrStatusRootIds = new Set<string>()
+          pendingPrStatusRootIds = new Set<string>()
+          if (prStatusRootLoadFlushTimer) {
+            clearTimeout(prStatusRootLoadFlushTimer)
+            prStatusRootLoadFlushTimer = null
+          }
+        }
+
+        for (const rootId of new Set(rootIds.filter(Boolean))) {
+          if (!requestedPrStatusRootIds.has(rootId) && !pendingPrStatusRootIds.has(rootId)) {
+            pendingPrStatusRootIds.add(rootId)
+          }
+        }
+
+        if (pendingPrStatusRootIds.size > 0) {
+          schedulePrStatusRootLoadFlush(currentRelays, relaysKey)
+        }
+      }
+
+      return rootIds
+    })
+
+    const prStatusLoadTriggerUnsubscribe = prStatusLoadTrigger.subscribe(() => {
+      // Trigger the load
+    })
+    unsubscribers.push(prStatusLoadTriggerUnsubscribe)
+
     const flushPendingCommentLoads = async (relays: string[], relaysKey: string) => {
       if (relaysKey !== commentLoadRelaysKey) return
 
@@ -1679,6 +1840,13 @@
 
     unsubscribers.forEach(unsub => unsub())
     unsubscribers = []
+    requestedPrStatusRootIds.clear()
+    pendingPrStatusRootIds.clear()
+    if (prStatusRootLoadFlushTimer) {
+      clearTimeout(prStatusRootLoadFlushTimer)
+      prStatusRootLoadFlushTimer = null
+    }
+    prStatusRootLoadRelaysKey = ""
     requestedCommentRootIds.clear()
     pendingCommentRootIds.clear()
     if (commentLoadFlushTimer) {
@@ -2123,6 +2291,46 @@
     return thunk
   }
 
+  const extractPublishedRelayAck = (thunk: any) => {
+    const results = thunk?.results || {}
+    const ackedRelays = Object.entries(results)
+      .filter(([, result]: [string, any]) => result?.status === PublishStatus.Success)
+      .map(([relay]) => relay)
+    const failedRelays = Object.entries(results)
+      .filter(([, result]: [string, any]) => result?.status !== PublishStatus.Success)
+      .map(([relay]) => relay)
+
+    return {
+      ackedRelays,
+      failedRelays,
+      successCount: ackedRelays.length,
+      hasRelayOutcomes: ackedRelays.length + failedRelays.length > 0,
+    }
+  }
+
+  const fetchRepoRelayEvents = async (params: {
+    relays: string[]
+    filters: NostrFilter[]
+    timeoutMs?: number
+  }): Promise<NostrEvent[]> => {
+    const events: NostrEvent[] = []
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs || 2500))
+
+    try {
+      await load({
+        relays: params.relays,
+        filters: params.filters as any,
+        signal: controller.signal,
+        onEvent: event => events.push(event as NostrEvent),
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
+
+    return events
+  }
+
   async function forkRepo() {
     if (!repoClass) return
 
@@ -2179,66 +2387,27 @@
       }
     }
 
-    const extractRelayAck = (thunk: any) => {
-      const results = thunk?.results || {}
-      const ackedRelays = Object.entries(results)
-        .filter(([, result]: [string, any]) => result?.status === PublishStatus.Success)
-        .map(([relay]) => relay)
-      const failedRelays = Object.entries(results)
-        .filter(([, result]: [string, any]) => result?.status !== PublishStatus.Success)
-        .map(([relay]) => relay)
-
-      return {
-        ackedRelays,
-        failedRelays,
-        successCount: ackedRelays.length,
-      }
-    }
-
-    const fetchRelayEvents = async (params: {
-      relays: string[]
-      filters: NostrFilter[]
-      timeoutMs?: number
-    }): Promise<NostrEvent[]> => {
-      const events: NostrEvent[] = []
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs || 2500))
-
-      try {
-        await load({
-          relays: params.relays,
-          filters: params.filters as any,
-          signal: controller.signal,
-          onEvent: event => events.push(event as NostrEvent),
-        })
-      } finally {
-        clearTimeout(timeoutId)
-      }
-
-      return events
-    }
-
-    pushModal(ForkRepoDialog, {
-      repo: repoClass,
-      pubkey: $pubkey || "",
+      pushModal(ForkRepoDialog, {
+        repo: repoClass,
+        pubkey: $pubkey || "",
       workerApi,
       workerInstance,
       onPublishEvent: async (event: any) => {
         const taggedRelays = getEventRelayTargets(event)
-        const thunk = await publishRepoEventWithRelayPolicy(
-          event,
-          taggedRelays.length > 0 ? taggedRelays : defaultRelays,
+          const thunk = await publishRepoEventWithRelayPolicy(
+            event,
+            taggedRelays.length > 0 ? taggedRelays : defaultRelays,
           {
             timeoutMs: FORK_PUBLISH_TIMEOUT_MS,
             label:
               event.kind === GIT_REPO_STATE
                 ? "Fork repo state publish"
                 : "Fork repo announcement publish",
-          },
-        )
-        return extractRelayAck(thunk)
-      },
-      onFetchRelayEvents: fetchRelayEvents,
+            },
+          )
+          return extractPublishedRelayAck(thunk)
+        },
+        onFetchRelayEvents: fetchRepoRelayEvents,
       onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
       graspServerUrls: graspServerUrls,
       navigateToForkedRepo: navigateToForkedRepo,
@@ -2407,6 +2576,16 @@
       repoClass,
       onOpenSettings: () => settingsRepo(true),
       onRefresh: refreshRepo,
+      onPublishEvent: async (event: any) => {
+        const taggedRelays = getEventRelayTargets(event)
+        const relaysForPublish = taggedRelays.length > 0 ? taggedRelays : getRepoRelaysForModal()
+        const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish, {
+          timeoutMs: FORK_PUBLISH_TIMEOUT_MS,
+          label: event.kind === GIT_REPO_STATE ? "Remote backfill state publish" : "Remote backfill publish",
+        })
+        return extractPublishedRelayAck(thunk)
+      },
+      onFetchRelayEvents: fetchRepoRelayEvents,
       onSyncBranchStateFromRemote:
         $pubkey && repoPubkey === $pubkey ? syncRepoBranchStateFromRemote : undefined,
     })

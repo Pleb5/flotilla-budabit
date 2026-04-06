@@ -59,6 +59,7 @@ import {
 } from "@app/extensions/settings"
 import {loadNip85ProviderConfig} from "./nip85"
 import {loadRepoWatch} from "./repo-watch"
+import {loadTrustGraphConfig} from "./trust-graph-config"
 
 // Utils
 
@@ -223,6 +224,7 @@ const syncUserData = () => {
       loadProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
       loadNip85ProviderConfig($userRelayList.event.pubkey)
+      loadTrustGraphConfig($userRelayList.event.pubkey)
       loadRepoWatch($userRelayList.event.pubkey)
     }
   })
