@@ -62,6 +62,7 @@
     GIT_STATUS_APPLIED,
   } from "@nostr-git/core/events"
   import {postComment, postStatus, publishEvent} from "@lib/budabit"
+  import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
   import {effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
   import {getCloneUrlsFromEvent} from "@nostr-git/core/utils"
@@ -1644,26 +1645,12 @@
       relays: string[]
       filters: any[]
       timeoutMs?: number
-    }) => {
-      const events: any[] = []
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs || 2500))
-
-      try {
-        await load({
-          relays: params.relays,
-          filters: params.filters,
-          signal: controller.signal,
-          onEvent: event => {
-            events.push(event)
-          },
-        })
-      } finally {
-        clearTimeout(timeoutId)
-      }
-
-      return events
-    }
+    }) =>
+      fetchRelayEventsWithTimeout({
+        relays: params.relays,
+        filters: params.filters,
+        timeoutMs: params.timeoutMs,
+      })
 
     const publishRepoState = async (event: any) => {
       const thunk = publishEvent(event, [relayUrl])

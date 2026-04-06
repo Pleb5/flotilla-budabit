@@ -80,6 +80,7 @@
     repoAnnouncements,
   } from "@lib/budabit/state"
   import {getInitializedGitWorker, terminateGitWorker} from "@src/lib/budabit/worker-singleton"
+  import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
   import {createNip98AuthHeader} from "@src/lib/budabit/event-io"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Bookmark from "@assets/icons/bookmark.svg?dataurl"
@@ -1506,24 +1507,12 @@
     relays: string[]
     filters: NostrFilter[]
     timeoutMs?: number
-  }): Promise<NostrEvent[]> => {
-    const events: NostrEvent[] = []
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs || 2500))
-
-    try {
-      await load({
-        relays: params.relays,
-        filters: params.filters as any,
-        signal: controller.signal,
-        onEvent: event => events.push(event as NostrEvent),
-      })
-    } finally {
-      clearTimeout(timeoutId)
-    }
-
-    return events
-  }
+  }): Promise<NostrEvent[]> =>
+    fetchRelayEventsWithTimeout<NostrEvent>({
+      relays: params.relays,
+      filters: params.filters as any,
+      timeoutMs: params.timeoutMs,
+    })
 
   const getProfileForWizard = async (pubkey: string) => {
     try {

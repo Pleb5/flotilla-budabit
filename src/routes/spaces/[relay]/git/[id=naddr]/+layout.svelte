@@ -100,6 +100,7 @@
   import Icon from "@src/lib/components/Icon.svelte"
   import {makeGitPath} from "@lib/budabit/routes"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
+  import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
   import {diffBranchHeads, overlayLatestRepoStates, type BranchChange} from "@src/lib/budabit/branch-update"
   import {
     getRepoBookmarkAddressSet,
@@ -2312,24 +2313,12 @@
     relays: string[]
     filters: NostrFilter[]
     timeoutMs?: number
-  }): Promise<NostrEvent[]> => {
-    const events: NostrEvent[] = []
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs || 2500))
-
-    try {
-      await load({
-        relays: params.relays,
-        filters: params.filters as any,
-        signal: controller.signal,
-        onEvent: event => events.push(event as NostrEvent),
-      })
-    } finally {
-      clearTimeout(timeoutId)
-    }
-
-    return events
-  }
+  }): Promise<NostrEvent[]> =>
+    fetchRelayEventsWithTimeout<NostrEvent>({
+      relays: params.relays,
+      filters: params.filters as any,
+      timeoutMs: params.timeoutMs,
+    })
 
   async function forkRepo() {
     if (!repoClass) return
