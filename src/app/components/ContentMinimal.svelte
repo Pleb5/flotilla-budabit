@@ -29,6 +29,7 @@
   import ContentNewline from "@app/components/ContentNewline.svelte"
   import ContentTopic from "@app/components/ContentTopic.svelte"
   import ContentMention from "@app/components/ContentMention.svelte"
+  import GitQuoteFallback from "@app/components/GitQuoteFallback.svelte"
   import {entityLink, userSettingsValues} from "@app/core/state"
 
   interface Props {
@@ -80,15 +81,32 @@
     return result
   }
 
-  const shortContent = $derived.by(() => {
-    let result = fullContent
+  const hasVisibleContent = (parsed: Parsed) => {
+    if (isNewline(parsed)) return false
+    if (isText(parsed)) return Boolean(parsed.value.trim())
 
-    if (trimParent && result.length > 0 && isQuote(result[0])) {
-      result = dropWhile(p => isQuote(p) || isNewline(p), result)
+    return true
+  }
+
+  const leadingQuote = $derived.by(() =>
+    trimParent && fullContent.length > 0 && isQuote(fullContent[0]) ? fullContent[0] : null,
+  )
+
+  const trimmedContent = $derived.by(() => {
+    if (leadingQuote) {
+      return dropWhile(p => isQuote(p) || isNewline(p), fullContent)
     }
 
-    return truncate(result, {minLength: 200, maxLength: 300, mediaLength: 20})
+    return fullContent
   })
+
+  const shortContent = $derived.by(() => {
+    return truncate(trimmedContent, {minLength: 200, maxLength: 300, mediaLength: 20})
+  })
+
+  const showQuoteFallback = $derived.by(
+    () => Boolean(leadingQuote) && !trimmedContent.some(hasVisibleContent),
+  )
 </script>
 
 <div class="relative">
@@ -102,34 +120,38 @@
     </div>
   {:else}
     <div class="overflow-hidden text-ellipsis break-words">
-      {#each shortContent as parsed, i}
-        {#if isNewline(parsed)}
-          <ContentNewline value={parsed.value} />
-        {:else if isTopic(parsed)}
-          <ContentTopic value={parsed.value} />
-        {:else if isEmoji(parsed)}
-          <ContentEmoji value={parsed.value} />
-        {:else if isCode(parsed)}
-          <ContentCode
-            value={parsed.value}
-            isBlock={isStartAndEnd(i) || parsed.value.includes("\n")} />
-        {:else if isCashu(parsed) || isInvoice(parsed)}
-          <ContentToken value={parsed.value} />
-        {:else if isLink(parsed)}
-          <ContentLinkInline value={parsed.value} />
-        {:else if isProfile(parsed)}
-          <ContentMention value={parsed.value} {url} />
-        {:else if isQuote(parsed)}
-          <Link
-            external
-            class="overflow-hidden text-ellipsis whitespace-nowrap underline"
-            href={entityLink(parsed.raw)}>
-            {fromNostrURI(parsed.raw).slice(0, 16) + "…"}
-          </Link>
-        {:else}
-          {@html renderAsHtml(parsed)}
-        {/if}
-      {/each}
+      {#if showQuoteFallback && leadingQuote}
+        <GitQuoteFallback {event} value={leadingQuote.value} {url} />
+      {:else}
+        {#each shortContent as parsed, i}
+          {#if isNewline(parsed)}
+            <ContentNewline value={parsed.value} />
+          {:else if isTopic(parsed)}
+            <ContentTopic value={parsed.value} />
+          {:else if isEmoji(parsed)}
+            <ContentEmoji value={parsed.value} />
+          {:else if isCode(parsed)}
+            <ContentCode
+              value={parsed.value}
+              isBlock={isStartAndEnd(i) || parsed.value.includes("\n")} />
+          {:else if isCashu(parsed) || isInvoice(parsed)}
+            <ContentToken value={parsed.value} />
+          {:else if isLink(parsed)}
+            <ContentLinkInline value={parsed.value} />
+          {:else if isProfile(parsed)}
+            <ContentMention value={parsed.value} {url} />
+          {:else if isQuote(parsed)}
+            <Link
+              external
+              class="overflow-hidden text-ellipsis whitespace-nowrap underline"
+              href={entityLink(parsed.raw)}>
+              {fromNostrURI(parsed.raw).slice(0, 16) + "…"}
+            </Link>
+          {:else}
+            {@html renderAsHtml(parsed)}
+          {/if}
+        {/each}
+      {/if}
     </div>
   {/if}
 </div>
