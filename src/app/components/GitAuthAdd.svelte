@@ -9,7 +9,7 @@
   import Field from "@src/lib/components/Field.svelte"
   import {GithubIcon} from "@lucide/svelte"
   import {pushToast} from "@app/util/toast"
-  import {toast, tokens as tokensStore} from "@nostr-git/ui"
+  import {ACCESS_TOKEN_SETTINGS_LINKS, toast, tokens as tokensStore} from "@nostr-git/ui"
   import {signer, pubkey, publishThunk} from "@welshman/app"
   import {Router} from "@welshman/router"
   import {APP_DATA, makeEvent} from "@welshman/util"
@@ -37,6 +37,9 @@
     host: string
     token: string
   }
+
+  const githubTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "github")
+  const gitlabTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "gitlab")
 
   function reset() {
     host = token = ""
@@ -175,8 +178,14 @@
     {/snippet}
     {#snippet info()}
       <p>Use this form to {editToken ? 'edit your existing' : 'add a'} Git auth token.</p>
-      <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token" target="_blank">Learn more about personal access tokens</a>
-      <a href="https://github.com/settings/tokens" target="_blank">Create a new token</a>
+      <p>
+        Need a token?
+        <a href={githubTokenSettings?.url} target="_blank" rel="noopener noreferrer"
+          >GitHub token settings</a>
+        |
+        <a href={gitlabTokenSettings?.url} target="_blank" rel="noopener noreferrer"
+          >GitLab access token settings</a>
+      </p>
     {/snippet}
   </ModalHeader>
 

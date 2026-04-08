@@ -8,6 +8,7 @@
   import {filterValidCloneUrls, getGitServiceApiFromUrl, parseRepoUrl, updateUrlPreferenceCache} from "@nostr-git/core"
   import {isGraspRelayUrl, isGraspRepoHttpUrl, parseGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {
+    ACCESS_TOKEN_SETTINGS_PATH,
     classifyCloneUrlIssue,
     syncLocalRepoToTargets,
     type CloneUrlIssueKind,
@@ -1794,10 +1795,18 @@
                 </div>
               </label>
               {#if remote.actions.length > 0 && !isGraspLikeRemote(remote.remoteUrl) && (authState.status === "no-token" || authState.status === "read-only")}
-                <div class="mt-2">
+                <div class="mt-2 flex flex-wrap gap-2">
                   <Button class="btn btn-ghost btn-xs" onclick={() => openAuthSetup(remote.remoteUrl)}>
                     Add credentials
                   </Button>
+                  <a
+                    href={ACCESS_TOKEN_SETTINGS_PATH}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-ghost btn-xs text-blue-600 hover:text-blue-500"
+                  >
+                    Token settings
+                  </a>
                 </div>
               {/if}
             </div>

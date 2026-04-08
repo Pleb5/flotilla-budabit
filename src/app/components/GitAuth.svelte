@@ -4,7 +4,7 @@
   import FieldInline from "@lib/components/FieldInline.svelte"
   import {pushModal} from "@app/util/modal"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
-  import {tokens as tokensStore} from "@nostr-git/ui"
+  import {ACCESS_TOKEN_SETTINGS_LINKS, tokens as tokensStore} from "@nostr-git/ui"
   import {
     DEFAULT_GIT_CORS_PROXY,
     gitCorsProxy,
@@ -50,6 +50,9 @@
   function mask(t: string) {
     return t.length <= 8 ? "••••••••" : `${t.slice(0, 4)}…${t.slice(-4)}`
   }
+
+  const githubTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "github")
+  const gitlabTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "gitlab")
 
   // Use the store directly for reactivity
   // $tokensStore is reactive and will update when tokens are loaded
@@ -120,6 +123,25 @@
         REDUCE RISK.
       </p>
     </div>
+  </div>
+
+  <div class="rounded border border-base-300 bg-base-200/40 p-3 text-sm leading-5">
+    Need a token?
+    <a
+      href={githubTokenSettings?.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="ml-1 underline underline-offset-2">
+      GitHub token settings
+    </a>
+    <span class="mx-1 opacity-60">or</span>
+    <a
+      href={gitlabTokenSettings?.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="underline underline-offset-2">
+      GitLab access token settings
+    </a>
   </div>
 
   {#if $tokensStore.length}
