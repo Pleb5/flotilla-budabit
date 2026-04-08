@@ -6,7 +6,7 @@ import {
   validateGraspServerUrl,
 } from "@nostr-git/core/events"
 import {tokens, type Token, bookmarksStore} from "@nostr-git/ui"
-import {graspServersStore} from "@nostr-git/ui"
+import {DEFAULT_GRASP_SERVER_URL, graspServersStore} from "@nostr-git/ui"
 import {repository, pubkey, signer, ensurePlaintext} from "@welshman/app"
 import {load} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -122,7 +122,10 @@ export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
   const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
 
   graspUnsub = store.subscribe((events: any[]) => {
-    if (!events || events.length === 0) return
+    if (!events || events.length === 0) {
+      graspServersStore.set([DEFAULT_GRASP_SERVER_URL])
+      return
+    }
 
     const latest = events.reduce((acc, cur) => (cur.created_at > acc.created_at ? cur : acc))
     const urls = new Set<string>()

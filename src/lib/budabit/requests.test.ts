@@ -4,6 +4,7 @@ vi.mock("@welshman/net", () => ({load: vi.fn()}))
 vi.mock("@nostr-git/ui", () => ({
   tokens: {clear: vi.fn(), push: vi.fn()},
   bookmarksStore: {set: vi.fn()},
+  DEFAULT_GRASP_SERVER_URL: "wss://grasp.budabit.club",
   graspServersStore: {set: vi.fn()},
 }))
 
