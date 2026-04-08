@@ -65,7 +65,7 @@
   import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
   import {effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
-  import {getCloneUrlsFromEvent} from "@nostr-git/core/utils"
+  import {getCloneUrlsFromEvent, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {normalizeRelayUrl} from "@welshman/util"
   import Profile from "@src/app/components/Profile.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
@@ -556,10 +556,10 @@
   }
 
   const inferRemoteProvider = (url: string) => {
+    if (isGraspRepoHttpUrl(url)) return "grasp"
+
     try {
       const host = new URL(url).hostname.toLowerCase()
-      if (/relay\.ngit\.dev|gitnostr\.com|grasp/.test(host) || /^wss?:\/\//i.test(url))
-        return "grasp"
       if (host.includes("github")) return "github"
       if (host.includes("gitlab")) return "gitlab"
       return "git"
@@ -569,7 +569,7 @@
   }
 
   const isGraspRemote = (url: string, provider?: string) =>
-    provider === "grasp" || /^wss?:\/\//i.test(url) || /relay\.ngit\.dev|gitnostr\.com|grasp/i.test(url)
+    provider === "grasp" || provider === "grasp-rest" || isGraspRepoHttpUrl(url)
 
   const formatMergeAnalysisError = (message: string) => {
     const raw = (message || "Unknown merge analysis error").trim()

@@ -50,6 +50,7 @@
     type StatusEvent,
   } from "@nostr-git/core/events"
   import {parseGitPatchFromEvent} from "@nostr-git/core/git"
+  import {isGraspRelayUrl, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import {pubkey} from "@welshman/app"
@@ -381,14 +382,13 @@
   // Simple provider detection from URL
   function detectProviderFromUrl(url: string | undefined): string | undefined {
     if (!url) return undefined
+    if (isGraspRepoHttpUrl(url) || isGraspRelayUrl(url)) return "grasp"
+
     try {
       const u = new URL(url)
       const host = u.hostname
       if (host.includes("github.com")) return "github"
       if (host.includes("gitlab.com")) return "gitlab"
-      // Heuristic: ws/wss relay → grasp, but pushes must use HTTP(S) Grasp endpoint
-      if (u.protocol === "ws:" || u.protocol === "wss:") return "grasp"
-      if (host.includes("ngit.dev") || host.includes("grasp")) return "grasp"
     } catch {
       // pass
     }

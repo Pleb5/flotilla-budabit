@@ -6,6 +6,7 @@
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {filterValidCloneUrls, getGitServiceApiFromUrl, parseRepoUrl, updateUrlPreferenceCache} from "@nostr-git/core"
+  import {isGraspRelayUrl, isGraspRepoHttpUrl, parseGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {
     classifyCloneUrlIssue,
     syncLocalRepoToTargets,
@@ -324,15 +325,7 @@
   }
 
   const isGraspLikeRemote = (remoteUrl: string) => {
-    const normalized = String(remoteUrl || "").trim().toLowerCase()
-    if (!normalized) return false
-
-    return (
-      normalized.startsWith("ws://") ||
-      normalized.startsWith("wss://") ||
-      normalized.includes("relay.ngit.dev/") ||
-      normalized.includes("gitnostr.com/")
-    )
+    return isGraspRepoHttpUrl(remoteUrl) || isGraspRelayUrl(remoteUrl)
   }
 
   const isKnownBackfillVendor = (
@@ -369,16 +362,7 @@
   }
 
   const parseGraspOwnerNpub = (remoteUrl: string) => {
-    try {
-      const parsed = new URL(remoteUrl)
-      const segments = parsed.pathname
-        .split("/")
-        .filter(Boolean)
-        .map(segment => decodeURIComponent(segment))
-      return segments.length >= 2 ? segments[segments.length - 2] : ""
-    } catch {
-      return ""
-    }
+    return parseGraspRepoHttpUrl(remoteUrl)?.ownerNpub || ""
   }
 
   const classifyBackfillRemoteCheckError = (error: unknown) => {
@@ -860,7 +844,7 @@
 
   const deriveGraspRelayUrl = (remoteUrl: string) => {
     const raw = String(remoteUrl || "").trim()
-    if (raw.startsWith("wss://") || raw.startsWith("ws://")) {
+    if (isGraspRelayUrl(raw)) {
       try {
         const parsed = new URL(raw)
         return `${parsed.protocol}//${parsed.host}`
