@@ -29,6 +29,9 @@
     TabsContent,
     TabsList,
     TabsTrigger,
+    ACCESS_TOKEN_SETTINGS_PATH,
+    getAccessTokenManagementMessage,
+    isAccessTokenManagementIssue,
     publishGraspRepoStateForPush,
     prChangeToParseDiffFile,
     prChangeToReviewParseDiffFile,
@@ -1581,6 +1584,15 @@
     }
     return {pushed, skipped, failed}
   })
+  const mergePrTokenIssue = $derived.by(() => Boolean(mergePrError && isAccessTokenManagementIssue(mergePrError)))
+  const prPushTokenIssue = $derived.by(() =>
+    prPushRemotes.some(
+      remote =>
+        (remote.status === "failed" || remote.status === "skipped") &&
+        remote.error &&
+        isAccessTokenManagementIssue(remote.error),
+    ),
+  )
 
   const updatePushRemote = (url: string, next: Partial<PrPushRemote>) => {
     prPushRemotes = prPushRemotes.map((remote) =>
@@ -2366,9 +2378,16 @@
                 <div class="flex-1">
                   <p class="text-sm font-medium text-red-800 dark:text-red-200">Merge failed</p>
                   <p class="mt-1 text-sm text-red-700 dark:text-red-300">{mergePrError}</p>
-                  {#if mergePrError.toLowerCase().includes("push") || mergePrError.toLowerCase().includes("auth") || mergePrError.toLowerCase().includes("permission")}
+                  {#if mergePrTokenIssue}
                     <p class="mt-2 text-xs text-rose-700 dark:text-rose-400">
-                      Tip: Configure a GitHub token in Settings to enable pushing to remotes.
+                      {getAccessTokenManagementMessage(mergePrError)}
+                      <a
+                        href={ACCESS_TOKEN_SETTINGS_PATH}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="ml-1 underline underline-offset-2">
+                        Open token settings
+                      </a>
                     </p>
                   {/if}
                 </div>
@@ -2566,6 +2585,19 @@
               {#if primaryTargetCloneUrl && prPushSyncSource !== primaryTargetCloneUrl}
                 (primary is {primaryTargetCloneUrl})
               {/if}
+            </p>
+          {/if}
+
+          {#if prPushTokenIssue}
+            <p class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+              Review your Git access tokens before retrying these pushes.
+              <a
+                href={ACCESS_TOKEN_SETTINGS_PATH}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="ml-1 underline underline-offset-2">
+                Open token settings
+              </a>
             </p>
           {/if}
 
