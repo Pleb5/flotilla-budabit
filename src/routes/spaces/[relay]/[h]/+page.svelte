@@ -218,6 +218,7 @@
   let joining = $state(false)
   let leaving = $state(false)
   let loadingEvents = $state(true)
+  let exhaustedEvents = $state(false)
   let share = $state(popKey<TrustedEvent | undefined>("share"))
   let parent: TrustedEvent | undefined = $state()
   let element: HTMLElement | undefined = $state()
@@ -299,6 +300,8 @@
 
   const start = () => {
     cleanup?.()
+    loadingEvents = true
+    exhaustedEvents = false
 
     if (!isPlatform) {
       loadingEvents = false
@@ -312,8 +315,12 @@
       relays: [url],
       feedFilters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]}],
       subscriptionFilters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]}],
+      onInitialLoad: () => {
+        loadingEvents = false
+      },
       onExhausted: () => {
         loadingEvents = false
+        exhaustedEvents = true
       },
     })
 
@@ -471,13 +478,17 @@
         {/if}
       {/if}
     {/each}
-    <p class="flex h-10 items-center justify-center py-20">
-      {#if loadingEvents}
-        <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-      {:else}
-        <Spinner>End of message history</Spinner>
-      {/if}
-    </p>
+    {#if loadingEvents || elements.length === 0 || exhaustedEvents}
+      <p class="flex h-10 items-center justify-center py-20">
+        {#if loadingEvents}
+          <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
+        {:else if elements.length === 0}
+          <span>No messages yet.</span>
+        {:else}
+          <Spinner>End of message history</Spinner>
+        {/if}
+      </p>
+    {/if}
   {/if}
 </PageContent>
 

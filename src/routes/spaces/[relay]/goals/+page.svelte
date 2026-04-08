@@ -24,6 +24,7 @@
   const url = decodeRelay($page.params.relay!!)
 
   let loading = $state(true)
+  let exhausted = $state(false)
   let element: HTMLElement | undefined = $state()
   let events: Readable<TrustedEvent[]> = $state(readable([]))
 
@@ -50,8 +51,12 @@
       relays: [url],
       feedFilters: [{kinds: [ZAP_GOAL]}, makeCommentFilter([ZAP_GOAL])],
       subscriptionFilters: [{kinds: [ZAP_GOAL]}, makeCommentFilter([ZAP_GOAL])],
+      onInitialLoad: () => {
+        loading = false
+      },
       onExhausted: () => {
         loading = false
+        exhausted = true
       },
     })
 
@@ -90,15 +95,13 @@
       <GoalItem {url} event={$state.snapshot(event)} />
     </div>
   {/each}
-  <p class="flex h-10 items-center justify-center py-20">
-    <Spinner {loading}>
-      {#if loading}
-        Looking for goals...
-      {:else if items.length === 0}
-        No goals found.
-      {:else}
-        That's all!
-      {/if}
-    </Spinner>
-  </p>
+  {#if loading}
+    <p class="flex h-10 items-center justify-center py-20">
+      <Spinner {loading}>Looking for goals...</Spinner>
+    </p>
+  {:else if items.length === 0}
+    <p class="flex h-10 items-center justify-center py-20">No goals found.</p>
+  {:else if exhausted}
+    <p class="flex h-10 items-center justify-center py-20">That's all!</p>
+  {/if}
 </PageContent>

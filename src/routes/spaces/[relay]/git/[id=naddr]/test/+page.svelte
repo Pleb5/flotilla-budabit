@@ -26,6 +26,9 @@
       feedFilters: [workflowFilter],
       subscriptionFilters: [workflowFilter],
       initialEvents: getEventsForUrl(url, [workflowFilter]),
+      onInitialLoad: () => {
+        loading = false
+      },
       onExhausted: () => {
         console.log(`🎉 Feed exhausted. Total events: ${events.length}`)
         loading = false

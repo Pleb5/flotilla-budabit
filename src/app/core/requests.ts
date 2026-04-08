@@ -4,6 +4,7 @@ import {
   int,
   YEAR,
   DAY,
+  sleep,
   insertAt,
   sortBy,
   now,
@@ -36,12 +37,23 @@ import {NOTIFIER_RELAY, getEventsForUrl} from "@app/core/state"
 
 // Utils
 
+const INITIAL_FEED_LOAD_TIMEOUT = 3000
+const CALENDAR_REQUEST_TIMEOUT = 3000
+
+const waitForSettled = async (promise: Promise<unknown>, timeoutMs: number) => {
+  await Promise.race([Promise.allSettled([promise]), sleep(timeoutMs)])
+}
+
+const withTimeoutSignal = (signal: AbortSignal, timeoutMs: number) =>
+  AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+
 export interface FeedOptions {
   element: HTMLElement
   relays: string[]
   feedFilters: Filter[]
   subscriptionFilters?: Filter[]
   initialEvents?: TrustedEvent[]
+  onInitialLoad?: () => void
   onExhausted?: () => void
 }
 
@@ -51,6 +63,7 @@ export const makeFeed = ({
   feedFilters,
   subscriptionFilters,
   initialEvents,
+  onInitialLoad,
   onExhausted,
 }: FeedOptions) => {
   const seen = new Set<string>()
@@ -58,8 +71,45 @@ export const makeFeed = ({
   const buffer = writable<TrustedEvent[]>([])
   const events = writable<TrustedEvent[]>([])
 
+  let initialLoadComplete = false
+  let initialLoadTimeout: ReturnType<typeof setTimeout> | undefined
+
+  const markInitialLoadComplete = () => {
+    if (initialLoadComplete || controller.signal.aborted) {
+      return
+    }
+
+    initialLoadComplete = true
+    if (initialLoadTimeout) {
+      clearTimeout(initialLoadTimeout)
+      initialLoadTimeout = undefined
+    }
+    onInitialLoad?.()
+  }
+
+  const markExhausted = () => {
+    if (controller.signal.aborted) {
+      return
+    }
+
+    onExhausted?.()
+  }
+
+  initialLoadTimeout = setTimeout(markInitialLoadComplete, INITIAL_FEED_LOAD_TIMEOUT)
+
   const relaysSet = new Set(relays)
   const liveFilters = subscriptionFilters || feedFilters
+
+  const flushBuffer = (limit = 30) => {
+    const $buffer = get(buffer)
+    const nextEvents = $buffer.splice(0, limit)
+
+    if (nextEvents.length > 0) {
+      events.update($events => [...$events, ...nextEvents])
+    }
+
+    return nextEvents.length
+  }
 
   const insertEvent = (event: TrustedEvent) => {
     let handled = false
@@ -125,7 +175,7 @@ export const makeFeed = ({
       onExhausted: () => {
         exhausted += 1
         if (exhausted >= relays.length) {
-          onExhausted?.()
+          markExhausted()
         }
       },
     }),
@@ -136,15 +186,22 @@ export const makeFeed = ({
     delay: 300,
     threshold: 10_000,
     onScroll: async () => {
+      const initialBatchSize = flushBuffer()
+
+      if (initialBatchSize > 0) {
+        markInitialLoadComplete()
+      }
+
       const $buffer = get(buffer)
 
-      events.update($events => [...$events, ...$buffer.splice(0, 30)])
-
       if ($buffer.length < 100) {
-        for (const ctrl of controllers) {
-          ctrl.load(100)
-        }
+        await waitForSettled(
+          Promise.all(controllers.map(ctrl => ctrl.load(100))),
+          INITIAL_FEED_LOAD_TIMEOUT,
+        )
       }
+
+      markInitialLoadComplete()
     },
   })
 
@@ -160,13 +217,23 @@ export const makeFeed = ({
     }
   }
 
+  if (flushBuffer() > 0) {
+    markInitialLoadComplete()
+  }
+
   if (relays.length === 0) {
-    setTimeout(() => onExhausted?.(), 0)
+    setTimeout(() => {
+      markInitialLoadComplete()
+      markExhausted()
+    }, 0)
   }
 
   return {
     events,
     cleanup: () => {
+      if (initialLoadTimeout) {
+        clearTimeout(initialLoadTimeout)
+      }
       unsubscribe()
       scroller.stop()
       controller.abort()
@@ -178,25 +245,30 @@ export const makeCalendarFeed = ({
   url,
   filters,
   element,
+  onInitialLoad,
   onExhausted,
 }: {
   url: string
   filters: Filter[]
   element: HTMLElement
+  onInitialLoad?: () => void
   onExhausted?: () => void
 }) => {
   const interval = int(5, DAY)
   const controller = new AbortController()
 
   let exhaustedScrollers = 0
-  let backwardWindow = [now() - interval, now()]
-  let forwardWindow = [now(), now() + interval]
+  const initialBackwardWindow = [now() - interval, now()] as const
+  const initialForwardWindow = [now(), now() + interval] as const
+  let backwardWindow = [initialBackwardWindow[0] - interval, initialBackwardWindow[0]]
+  let forwardWindow = [initialForwardWindow[1], initialForwardWindow[1] + interval]
 
   const getStart = (event: TrustedEvent) => parseInt(getTagValue("start", event.tags) || "")
 
   const getEnd = (event: TrustedEvent) => parseInt(getTagValue("end", event.tags) || "")
 
-  const events = writable(sortBy(getStart, getEventsForUrl(url, filters)))
+  const initialEvents = sortBy(getStart, getEventsForUrl(url, filters))
+  const events = writable(initialEvents)
 
   const insertEvent = (event: TrustedEvent) => {
     const start = getStart(event)
@@ -226,33 +298,52 @@ export const makeCalendarFeed = ({
     }
   })
 
-  const loadTimeframe = (since: number, until: number) => {
+  let initialLoadComplete = false
+
+  const markInitialLoadComplete = () => {
+    if (initialLoadComplete || controller.signal.aborted) {
+      return
+    }
+
+    initialLoadComplete = true
+    onInitialLoad?.()
+  }
+
+  const markExhausted = () => {
+    if (controller.signal.aborted) {
+      return
+    }
+
+    onExhausted?.()
+  }
+
+  const loadTimeframe = async (since: number, until: number) => {
     const hashes = daysBetween(since, until).map(String)
 
-    request({
+    await request({
       relays: [url],
       autoClose: true,
-      signal: controller.signal,
+      signal: withTimeoutSignal(controller.signal, CALENDAR_REQUEST_TIMEOUT),
       filters: [{kinds: [EVENT_TIME], "#D": hashes}],
     })
   }
 
   const maybeExhausted = () => {
     if (++exhaustedScrollers === 2) {
-      onExhausted?.()
+      markExhausted()
     }
   }
 
   const backwardScroller = createScroller({
     element,
     reverse: true,
-    onScroll: () => {
+    onScroll: async () => {
       const [since, until] = backwardWindow
 
       backwardWindow = [since - interval, since]
 
       if (until > now() - int(2, YEAR)) {
-        loadTimeframe(since, until)
+        await loadTimeframe(since, until)
       } else {
         backwardScroller.stop()
         maybeExhausted()
@@ -262,19 +353,30 @@ export const makeCalendarFeed = ({
 
   const forwardScroller = createScroller({
     element,
-    onScroll: () => {
+    onScroll: async () => {
       const [since, until] = forwardWindow
 
       forwardWindow = [until, until + interval]
 
       if (until < now() + int(2, YEAR)) {
-        loadTimeframe(since, until)
+        await loadTimeframe(since, until)
       } else {
         forwardScroller.stop()
         maybeExhausted()
       }
     },
   })
+
+  const initialLoad = Promise.allSettled([
+    loadTimeframe(...initialBackwardWindow),
+    loadTimeframe(...initialForwardWindow),
+  ]).finally(markInitialLoadComplete)
+
+  if (initialEvents.length > 0) {
+    markInitialLoadComplete()
+  }
+
+  void initialLoad
 
   return {
     events,

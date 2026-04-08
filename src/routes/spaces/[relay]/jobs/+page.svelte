@@ -28,6 +28,7 @@
   const commentFilter = {kinds: [COMMENT], "#K": [String(FREELANCE_JOB)]}
 
   let loading = $state(true)
+  let exhausted = $state(false)
   let element: HTMLElement | undefined = $state()
   let feedEvents = $state<Readable<TrustedEvent[]>>(readable([]))
 
@@ -58,8 +59,12 @@
       initialEvents: getEventsForUrl(url, [
         {kinds: [FREELANCE_JOB, COMMENT], "#s": ["0"], limit: 10},
       ]),
+      onInitialLoad: () => {
+        loading = false
+      },
       onExhausted: () => {
         loading = false
+        exhausted = true
       },
     })
 
@@ -119,6 +124,9 @@
             showActivity={true} />
         </div>
       {/each}
+      {#if exhausted}
+        <div class="flex h-16 items-center justify-center text-gray-400">That's all!</div>
+      {/if}
     </div>
   {/if}
 </PageContent>

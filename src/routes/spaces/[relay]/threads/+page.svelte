@@ -25,6 +25,7 @@
   const url = decodeRelay($page.params.relay!!)
 
   let loading = $state(true)
+  let exhausted = $state(false)
   let element: HTMLElement | undefined = $state()
   let events: Readable<TrustedEvent[]> = $state(readable([]))
 
@@ -51,8 +52,12 @@
       relays: [url],
       feedFilters: [{kinds: [THREAD]}, makeCommentFilter([THREAD])],
       subscriptionFilters: [{kinds: [THREAD]}, makeCommentFilter([THREAD])],
+      onInitialLoad: () => {
+        loading = false
+      },
       onExhausted: () => {
         loading = false
+        exhausted = true
       },
     })
 
@@ -91,15 +96,13 @@
       <ThreadItem {url} event={$state.snapshot(event)} />
     </div>
   {/each}
-  <p class="flex h-10 items-center justify-center py-20">
-    <Spinner {loading}>
-      {#if loading}
-        Looking for threads...
-      {:else if items.length === 0}
-        No threads found.
-      {:else}
-        That's all!
-      {/if}
-    </Spinner>
-  </p>
+  {#if loading}
+    <p class="flex h-10 items-center justify-center py-20">
+      <Spinner {loading}>Looking for threads...</Spinner>
+    </p>
+  {:else if items.length === 0}
+    <p class="flex h-10 items-center justify-center py-20">No threads found.</p>
+  {:else if exhausted}
+    <p class="flex h-10 items-center justify-center py-20">That's all!</p>
+  {/if}
 </PageContent>

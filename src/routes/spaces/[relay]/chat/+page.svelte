@@ -118,6 +118,7 @@
   const scrollToBottom = () => element?.scrollTo({top: 0, behavior: "smooth"})
 
   let loadingEvents = $state(true)
+  let exhaustedEvents = $state(false)
   let share = $state(popKey<TrustedEvent | undefined>("share"))
   let parent: TrustedEvent | undefined = $state()
   let element: HTMLElement | undefined = $state()
@@ -259,8 +260,12 @@
       subscriptionFilters: [
         {kinds: [DELETE, MESSAGE, ...REACTION_KINDS, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER], since: now()},
       ],
+      onInitialLoad: () => {
+        loadingEvents = false
+      },
       onExhausted: () => {
         loadingEvents = false
+        exhaustedEvents = true
       },
     })
 
@@ -328,13 +333,17 @@
       {/if}
     {/if}
   {/each}
-  <p class="flex h-10 items-center justify-center py-20">
-    {#if loadingEvents}
-      <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-    {:else}
-      <Spinner>End of message history</Spinner>
-    {/if}
-  </p>
+  {#if loadingEvents || elements.length === 0 || exhaustedEvents}
+    <p class="flex h-10 items-center justify-center py-20">
+      {#if loadingEvents}
+        <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
+      {:else if elements.length === 0}
+        <span>No messages yet.</span>
+      {:else}
+        <Spinner>End of message history</Spinner>
+      {/if}
+    </p>
+  {/if}
 </PageContent>
 
 <div class="chat__compose bg-base-200" bind:this={chatCompose}>

@@ -31,6 +31,7 @@
 
   let element: HTMLElement | undefined = $state()
   let loading = $state(true)
+  let exhausted = $state(false)
   let events: Readable<TrustedEvent[]> = $state(readable([]))
 
   type Item = {
@@ -99,8 +100,12 @@
       url,
       element: element!,
       filters: [{kinds: [EVENT_TIME]}, makeCommentFilter([EVENT_TIME])],
+      onInitialLoad: () => {
+        loading = false
+      },
       onExhausted: () => {
         loading = false
+        exhausted = true
       },
     })
 
@@ -155,7 +160,7 @@
     </p>
   {:else if items.length === 0}
     <p class="flex h-10 items-center justify-center py-20" transition:fly>No events found.</p>
-  {:else}
+  {:else if exhausted}
     <p class="flex h-10 items-center justify-center py-20" transition:fly>That's all!</p>
   {/if}
 </PageContent>
