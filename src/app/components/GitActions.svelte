@@ -63,6 +63,9 @@
     )
   })
 
+  const browseHref = $derived.by(() => makeGitPath(url, repoNaddr))
+  const codeHref = $derived.by(() => `${browseHref}/code`)
+
   const deleted = deriveIsDeleted(repository, event)
   const thunk = $derived(mergeThunks($thunks.filter(t => t.event.id === event.id)))
   const thunkSuccessCount = $derived.by(() =>
@@ -254,7 +257,7 @@
         <button class="btn btn-primary btn-2xs" disabled={syncing} onclick={pushLocal}>Push</button>
       </div>
     {/if}
-    <Link class="cursor-pointer" href={makeGitPath(url, repoNaddr)}>
+    <Link class="cursor-pointer" href={codeHref}>
       <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Browse</div>
     </Link>
     {#if showIssues}
@@ -266,7 +269,7 @@
     {#if showPatches}
       <Link
         class="cursor-pointer"
-        href={makeGitPath(url, repoNaddr) + "/patches"}>
+        href={`${browseHref}/patches`}>
         <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">
           <span>Patches</span>
         </div>

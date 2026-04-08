@@ -1,6 +1,36 @@
 import {sleep, last, randomId} from "@welshman/lib"
 export {preventDefault, stopPropagation} from "svelte/legacy"
 
+const INTERACTIVE_CARD_SELECTOR = [
+  "a[href]",
+  "button",
+  "input",
+  "textarea",
+  "select",
+  "summary",
+  "label",
+  "[role='button']",
+  "[role='link']",
+  "[contenteditable='true']",
+  "[data-stop-link]",
+  "[data-stop-tap]",
+].join(", ")
+
+export const getInteractiveCardTarget = (
+  target: EventTarget | null,
+  currentTarget?: EventTarget | null,
+): HTMLElement | null => {
+  const element =
+    target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+  const interactive = element?.closest(INTERACTIVE_CARD_SELECTOR) as HTMLElement | null
+
+  if (!interactive || interactive === currentTarget) {
+    return null
+  }
+
+  return interactive
+}
+
 export const copyToClipboard = (text: string) => {
   const {activeElement} = document
   const input = document.createElement("textarea")

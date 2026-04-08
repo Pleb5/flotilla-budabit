@@ -162,6 +162,33 @@ test.describe("Patch Browse & Filter", () => {
       const patches = seeder.getPatches()
       expect(patches.length).toBe(5)
     })
+
+    test("clicking patch card neutral area navigates to detail page", async ({page}) => {
+      const seeder = await seedTestRepo(page, {
+        name: "neutral-patch-click-repo",
+        description: "Repository for patch neutral click test",
+        withPatches: 3,
+      })
+
+      const repos = seeder.getRepos()
+      const repo = repos[0]
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || "neutral-patch-click-repo"
+
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
+      const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
+      await repoDetail.goto()
+      await repoDetail.goToPatches()
+
+      const patchCard = page.locator("[data-patch-id]").first()
+      await expect(patchCard).toBeVisible({timeout: 10000})
+
+      const patchId = await patchCard.getAttribute("data-patch-id")
+      expect(patchId).toBeTruthy()
+
+      await patchCard.dispatchEvent("click")
+
+      await page.waitForURL(new RegExp(`/patches/${patchId}$`), {timeout: 10000})
+    })
   })
 
   test.describe("Filter by Status", () => {

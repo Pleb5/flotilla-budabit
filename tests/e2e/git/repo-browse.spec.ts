@@ -182,6 +182,39 @@ test.describe("Repository Browsing", () => {
       // Should navigate to repo detail - URL should contain repo identifier
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
     })
+
+    test("browse button opens code tab directly", async ({page}) => {
+      await seedTestRepo(page, {
+        name: "browse-to-code-repo",
+        description: "Browse button should land on code tab",
+      })
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      await gitHub.clickRepoByName("browse-to-code-repo")
+
+      await page.waitForURL(/\/git\/.*naddr.*\/code$/, {timeout: 10000})
+    })
+
+    test("clicking repo card neutral area navigates to detail page", async ({page}) => {
+      await seedTestRepo(page, {
+        name: "neutral-click-repo",
+        description: "Repo card neutral area should open detail",
+      })
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      const repoCard = gitHub.repoCards.filter({hasText: "neutral-click-repo"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+
+      await repoCard.dispatchEvent("click")
+
+      await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
+    })
   })
 
   test.describe("Repository Detail", () => {

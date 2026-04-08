@@ -24,11 +24,11 @@
     type StatusEvent,
   } from "@nostr-git/core/events"
   import {COMMENT} from "@welshman/util"
-import {parseGitPatchFromEvent} from "@nostr-git/core/git"
-import {request} from "@welshman/net"
-import {GIT_PULL_REQUEST, parsePullRequestEvent} from "@nostr-git/core/events"
-import Icon from "@src/lib/components/Icon.svelte"
-import {isMobile} from "@src/lib/html.js"
+  import {parseGitPatchFromEvent} from "@nostr-git/core/git"
+  import {request} from "@welshman/net"
+  import {GIT_PULL_REQUEST, parsePullRequestEvent} from "@nostr-git/core/events"
+  import Icon from "@src/lib/components/Icon.svelte"
+  import {getInteractiveCardTarget, isMobile} from "@src/lib/html.js"
   import {postComment, publishEvent} from "@lib/budabit/commands.js"
   import {pushModal} from "@app/util/modal"
   import {checked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
@@ -849,19 +849,10 @@ import {isMobile} from "@src/lib/html.js"
     lastKnownPatchTitle = patch?.parsedPatch?.title || ""
   }
 
-  const handlePatchClick = (event: MouseEvent, patch: PatchListItem, index: number) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-    const target = event.target as HTMLElement | null
-    const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null
-    if (!anchor) return
-
-    const href = anchor.getAttribute("href") || ""
-    if (!href.includes(`patches/${patch.id}`)) return
-
+  const setPendingPatchRestore = (patch: PatchListItem, index: number, itemElement?: HTMLElement | null) => {
     const scrollEl = scrollParent
     if (!scrollEl) return
 
-    const itemElement = event.currentTarget as HTMLElement | null
     const containerRect = scrollEl.getBoundingClientRect()
     const itemRect = itemElement?.getBoundingClientRect()
     const anchorOffset = itemRect ? itemRect.top - containerRect.top : lastKnownPatchOffset
@@ -873,6 +864,31 @@ import {isMobile} from "@src/lib/html.js"
       title: patch.parsedPatch?.title || "",
       visibleCount: Math.max(visiblePatchCount, index + 1),
     }
+  }
+
+  const handlePatchClick = (event: MouseEvent, patch: PatchListItem, index: number) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+
+    const interactive = getInteractiveCardTarget(event.target, event.currentTarget)
+    if (interactive) {
+      const href = interactive.closest("a[href]")?.getAttribute("href") || ""
+      if (!href.includes(`patches/${patch.id}`)) return
+
+      setPendingPatchRestore(patch, index, event.currentTarget as HTMLElement | null)
+      return
+    }
+
+    setPendingPatchRestore(patch, index, event.currentTarget as HTMLElement | null)
+    void goto(`${patchesPath}/${patch.id}`)
+  }
+
+  const handlePatchKeydown = (event: KeyboardEvent, patch: PatchListItem, index: number) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    if (getInteractiveCardTarget(event.target, event.currentTarget)) return
+
+    event.preventDefault()
+    setPendingPatchRestore(patch, index, event.currentTarget as HTMLElement | null)
+    void goto(`${patchesPath}/${patch.id}`)
   }
 
   $effect(() => {
@@ -1444,14 +1460,9 @@ import {isMobile} from "@src/lib/html.js"
           data-index={index}
           data-patch-id={patch.id}
           onclick={event => handlePatchClick(event, patch, index)}
-          role="button"
+          role="link"
           tabindex="0"
-          onkeydown={event => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault()
-              handlePatchClick(event as unknown as MouseEvent, patch, index)
-            }
-          }}>
+          onkeydown={event => handlePatchKeydown(event, patch, index)}>
           <div class="relative">
             <div class={getLatestPatchActivityAt(patch) > lastPatchesSeen ? "border-l-2 border-primary pl-2" : ""}>
                 <PatchCard

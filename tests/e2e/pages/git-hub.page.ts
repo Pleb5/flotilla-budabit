@@ -212,7 +212,7 @@ export class GitHubPage {
     if (index >= cards.length) {
       throw new Error(`Repo index ${index} out of bounds (${cards.length} cards)`)
     }
-    const browseLink = cards[index].locator('a:has-text("Browse")').first()
+    const browseLink = cards[index].getByRole("link", {name: "Browse", exact: true}).first()
     await expect(browseLink).toBeVisible()
     await browseLink.click()
   }
@@ -225,7 +225,7 @@ export class GitHubPage {
     const repoCard = this.repoCards.filter({hasText: name}).first()
     await expect(repoCard).toBeVisible()
     // Click the "Browse" link inside the card to navigate to repo detail
-    const browseLink = repoCard.locator('a:has-text("Browse")')
+    const browseLink = repoCard.getByRole("link", {name: "Browse", exact: true}).first()
     await expect(browseLink).toBeVisible()
     await browseLink.click()
   }

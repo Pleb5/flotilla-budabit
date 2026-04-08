@@ -33,13 +33,13 @@
   import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
   import {postComment} from "@lib/budabit/commands.js"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
-  import {isMobile} from "@lib/html"
+  import {getInteractiveCardTarget, isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"
   import {toNaturalArray} from "@lib/budabit/labels"
   import {page} from "$app/stores"
   import {decodeRelay} from "@app/core/state"
-  import {beforeNavigate} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   
   import {getContext} from "svelte"
   import {
@@ -277,24 +277,11 @@
   })
 
 
-  const handleIssueClick = (
-    event: MouseEvent,
-    issue: IssueListItem,
-    index: number,
-  ) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-    const target = event.target as HTMLElement | null
-    const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null
-    if (!anchor) return
-
-    const href = anchor.getAttribute("href") || ""
-    if (!href.includes(`issues/${issue.id}`)) return
-
+  const setPendingIssueRestore = (issue: IssueListItem, index: number, itemElement?: HTMLElement | null) => {
     const scrollEl = scrollParent
     if (!scrollEl) return
 
     const title = getTagValue("subject", issue.event.tags) ?? ""
-    const itemElement = event.currentTarget as HTMLElement | null
     const containerRect = scrollEl.getBoundingClientRect()
     const itemRect = itemElement?.getBoundingClientRect()
     const anchorOffset = itemRect ? itemRect.top - containerRect.top : lastKnownIssueOffset
@@ -306,7 +293,35 @@
       title,
       visibleCount: Math.max(visibleIssueCount, index + 1),
     }
+  }
 
+  const handleIssueClick = (
+    event: MouseEvent,
+    issue: IssueListItem,
+    index: number,
+  ) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+
+    const interactive = getInteractiveCardTarget(event.target, event.currentTarget)
+    if (interactive) {
+      const href = interactive.closest("a[href]")?.getAttribute("href") || ""
+      if (!href.includes(`issues/${issue.id}`)) return
+
+      setPendingIssueRestore(issue, index, event.currentTarget as HTMLElement | null)
+      return
+    }
+
+    setPendingIssueRestore(issue, index, event.currentTarget as HTMLElement | null)
+    void goto(`${issuesPath}/${issue.id}`)
+  }
+
+  const handleIssueKeydown = (event: KeyboardEvent, issue: IssueListItem, index: number) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    if (getInteractiveCardTarget(event.target, event.currentTarget)) return
+
+    event.preventDefault()
+    setPendingIssueRestore(issue, index, event.currentTarget as HTMLElement | null)
+    void goto(`${issuesPath}/${issue.id}`)
   }
 
   $effect(() => {
@@ -1277,14 +1292,9 @@
           data-issue-id={issue.id}
           class="w-full pr-2"
           onclick={event => handleIssueClick(event, issue, index)}
-          role="button"
+          role="link"
           tabindex="0"
-          onkeydown={event => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault()
-              handleIssueClick(event as unknown as MouseEvent, issue, index)
-            }
-          }}>
+          onkeydown={event => handleIssueKeydown(event, issue, index)}>
           <div class={getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-2 border-primary pl-2" : ""}>
             <IssueCard
               event={issue.event}

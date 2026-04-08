@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {goto} from "$app/navigation"
   import {nthEq} from "@welshman/lib"
   import {Address, type TrustedEvent} from "@welshman/util"
   import NoteCard from "./NoteCard.svelte"
@@ -6,14 +7,20 @@
   import Link from "@lib/components/Link.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
   import {makeGitPath} from "@lib/budabit"
+  import {getInteractiveCardTarget} from "@lib/html"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {Router} from "@welshman/router"
   import {GIT_RELAYS, effectiveRepoAddressesByRepoAddress, getEffectiveRepoAddresses} from "@lib/budabit/state"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
+  import {Bookmark} from "@lucide/svelte"
 
   const {
     url,
     event,
+    bookmarked = false,
+    bookmarkDisabled = false,
+    onToggleBookmark,
+    tabbable = true,
     showActivity = true,
     showIssues = true,
     showActions = true,
@@ -21,6 +28,10 @@
   }: {
     url: string
     event: TrustedEvent
+    bookmarked?: boolean
+    bookmarkDisabled?: boolean
+    onToggleBookmark?: () => void
+    tabbable?: boolean
     showActivity?: boolean
     showIssues?: boolean
     showActions?: boolean
@@ -120,38 +131,84 @@
 
   const descriptionPreview = $derived.by(() => truncateDescription(description || ""))
 
+  const navigateToRepo = () => void goto(browseHref)
+
+  const handleCardClick = (event: MouseEvent) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    if (getInteractiveCardTarget(event.target, event.currentTarget)) return
+
+    event.stopPropagation()
+    navigateToRepo()
+  }
+
+  const handleCardKeydown = (event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    if (getInteractiveCardTarget(event.target, event.currentTarget)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    navigateToRepo()
+  }
+
 </script>
 
-<NoteCard event={event} class="card2 sm:card2-sm bg-alt" {hideDate}>
-  {#if name}
-    <Link href={browseHref} class="block w-full">
-      <div class="flex w-full items-center justify-between gap-2">
-        <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>
-        {#if hasNotifications}
-          <span
-            class="h-2 w-2 rounded-full bg-primary"
-            aria-label="Unread repository updates"
-            title="Unread updates"></span>
-        {/if}
+<div
+  class="w-full"
+  role="link"
+  tabindex={tabbable ? 0 : undefined}
+  aria-label={name ? `Open repository ${name}` : "Open repository"}
+  onclick={handleCardClick}
+  onkeydown={tabbable ? handleCardKeydown : undefined}>
+  <NoteCard event={event} class="card2 sm:card2-sm bg-alt" {hideDate}>
+    {#if name}
+      <div class="flex w-full items-start justify-between gap-2">
+        <Link href={browseHref} class="block min-w-0 flex-1">
+          <div class="flex w-full items-center gap-2">
+            <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>
+          </div>
+        </Link>
+        <div class="flex items-center gap-2">
+          {#if onToggleBookmark}
+            <button
+              type="button"
+              class={`rounded-full border p-1.5 transition-colors ${
+                bookmarked
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border bg-background/80 text-muted-foreground hover:text-foreground"
+              }`}
+              onclick={onToggleBookmark}
+              disabled={bookmarkDisabled}
+              aria-label={bookmarked ? "Remove bookmark" : "Bookmark repository"}
+              title={bookmarked ? "Remove bookmark" : "Bookmark repository"}>
+              <Bookmark class={`h-4 w-4 ${bookmarked ? "fill-current" : ""}`} />
+            </button>
+          {/if}
+          {#if hasNotifications}
+            <span
+              class="h-2 w-2 rounded-full bg-primary"
+              aria-label="Unread repository updates"
+              title="Unread updates"></span>
+          {/if}
+        </div>
       </div>
-    </Link>
-  {:else}
-    <p class="mb-3 h-0 text-xs opacity-75">
-      Name missing!
-    </p>
-  {/if}
-  {#if description}
-    <div class="flex w-full items-start">
-      <Markdown content={descriptionPreview} {event} {url} variant="comment" />
-    </div>
-  {:else}
-    <p class="mb-3 h-0 text-xs opacity-75">
-      Description missing!
-    </p>
-  {/if}
-  {#if showActions}
-    <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
-      <GitActions {showActivity} {showIssues} {url} {event} />
-    </div>
-  {/if}
-</NoteCard>
+    {:else}
+      <p class="mb-3 h-0 text-xs opacity-75">
+        Name missing!
+      </p>
+    {/if}
+    {#if description}
+      <div class="flex w-full items-start">
+        <Markdown content={descriptionPreview} {event} {url} variant="comment" />
+      </div>
+    {:else}
+      <p class="mb-3 h-0 text-xs opacity-75">
+        Description missing!
+      </p>
+    {/if}
+    {#if showActions}
+      <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
+        <GitActions {showActivity} {showIssues} {url} {event} />
+      </div>
+    {/if}
+  </NoteCard>
+</div>
