@@ -49,10 +49,10 @@
         </div>
       {/if}
       {#if showPubkey}
-        <div class="flex items-center gap-1 overflow-hidden text-ellipsis text-xs opacity-60">
+        <div class="flex items-center gap-2 overflow-hidden text-ellipsis text-sm opacity-70">
           {displayPubkey(pubkey)}
-          <Button onclick={copyPubkey} class="pt-1">
-            <Icon size={3} icon={Copy} />
+          <Button onclick={copyPubkey} class="shrink-0 p-1">
+            <Icon size={4} icon={Copy} />
           </Button>
         </div>
       {/if}
