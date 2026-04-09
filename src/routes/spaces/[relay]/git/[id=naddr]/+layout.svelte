@@ -1193,11 +1193,28 @@
     pullRequests: pullRequestsStore,
     appliedStatuses: appliedStatusEventsStore,
   })
-  const forkTrustedBranchNames = $derived.by(() =>
-    Array.from(
-      new Set(($repoTrustMetricsStore?.trustedTargetBranches || []).map(branch => branch.trim()).filter(Boolean)),
-    ).sort((a, b) => a.localeCompare(b)),
-  )
+  const forkBranchCopyFilter = $derived.by(() => {
+    const status = $repoTrustMetricsStore?.status || "idle"
+
+    const branchNames = Array.from(
+      new Set(
+        ($repoTrustMetricsStore?.trustedTargetBranches || [])
+          .map(branch => branch.trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b))
+
+    return {
+      branchNames,
+      status,
+      label: "Copy only branches with trusted maintainer merges",
+      description:
+        "For repositories with many branches, limit the fork to the default branch plus branches that have accepted merges from trusted maintainers in your active web of trust.",
+      tooltip:
+        "Trusted branches are branches targeted by merged pull requests whose applying maintainer is in your active web of trust. When none are found, Budabit includes all branches in the fork.",
+      minBranchCount: FORK_BRANCH_FILTER_THRESHOLD,
+    }
+  })
 
   const DELETE_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
   const DELETE_SINCE_BUFFER_SECONDS = 60
@@ -2390,16 +2407,7 @@
     pushModal(ForkRepoDialog, {
       repo: repoClass,
       pubkey: $pubkey || "",
-      branchCopyFilter:
-        forkTrustedBranchNames.length > 0
-          ? {
-              branchNames: forkTrustedBranchNames,
-              label: "Copy only branches with trusted maintainer merges",
-              description:
-                "For repositories with many branches, limit the fork to the default branch plus branches that have accepted merges from trusted maintainers in your active web of trust.",
-              minBranchCount: FORK_BRANCH_FILTER_THRESHOLD,
-            }
-          : undefined,
+      branchCopyFilter: forkBranchCopyFilter,
       workerApi,
       workerInstance,
       onPublishEvent: async (event: any) => {
