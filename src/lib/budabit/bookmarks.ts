@@ -1,5 +1,7 @@
 import {
   GIT_REPO_ANNOUNCEMENT,
+  buildRepoKey,
+  parseRepoAnnouncementEvent,
   type BookmarkAddress,
   type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
@@ -42,6 +44,37 @@ export const getRepoAddressFromEvent = (event: RepoAnnouncementEvent): string =>
     const dTag = (event.tags || []).find((tag: string[]) => tag[0] === "d")?.[1] || ""
     return dTag && event.pubkey && event.kind ? `${event.kind}:${event.pubkey}:${dTag}` : ""
   }
+}
+
+export const getCanonicalRepoKeyFromEvent = (event?: RepoAnnouncementEvent | null): string => {
+  if (!event?.pubkey) return ""
+
+  try {
+    const parsed = parseRepoAnnouncementEvent(event)
+    return buildRepoKey(event.pubkey, parsed.name || parsed.repoId || "")
+  } catch {
+    const dTag = (event.tags || []).find((tag: string[]) => tag[0] === "d")?.[1] || ""
+    return buildRepoKey(event.pubkey, dTag)
+  }
+}
+
+export const getCanonicalRepoKeyFromBookmark = ({
+  bookmark,
+  getCachedEvent,
+}: {
+  bookmark: BookmarkAddress
+  getCachedEvent?: (address: string) => RepoAnnouncementEvent | undefined
+}): string => {
+  const cachedEvent = getCachedEvent?.(bookmark.address)
+  if (cachedEvent) {
+    return getCanonicalRepoKeyFromEvent(cachedEvent)
+  }
+
+  const parts = String(bookmark.address || "").split(":")
+  const author = parts[1] || bookmark.author || ""
+  const repoName = parts.slice(2).join(":")
+
+  return buildRepoKey(author, repoName)
 }
 
 export const buildBookmarkRepoFilters = (bookmarks: BookmarkAddress[]): Filter[] => {
@@ -88,30 +121,55 @@ export const getRepoBookmarkAddressSet = ({
 export const isAnyBookmarked = (
   bookmarks: BookmarkAddress[],
   candidateAddresses: Iterable<string>,
+  options?: {
+    candidateRepoKeys?: Iterable<string>
+    getCachedEvent?: (address: string) => RepoAnnouncementEvent | undefined
+  },
 ): boolean => {
   const addressSet = new Set(Array.from(candidateAddresses).filter(Boolean))
-  if (addressSet.size === 0) return false
+  const repoKeySet = new Set(Array.from(options?.candidateRepoKeys || []).filter(Boolean))
+  if (addressSet.size === 0 && repoKeySet.size === 0) return false
 
-  return dedupeBookmarks(bookmarks).some(bookmark => addressSet.has(bookmark.address))
+  return dedupeBookmarks(bookmarks).some(bookmark => {
+    if (addressSet.has(bookmark.address)) return true
+    if (repoKeySet.size === 0) return false
+
+    return (
+      getCanonicalRepoKeyFromBookmark({bookmark, getCachedEvent: options?.getCachedEvent}) &&
+      repoKeySet.has(
+        getCanonicalRepoKeyFromBookmark({bookmark, getCachedEvent: options?.getCachedEvent}),
+      )
+    )
+  })
 }
 
 export const toggleRepoBookmarks = ({
   bookmarks,
   candidateAddresses,
   nextBookmark,
+  candidateRepoKeys = [],
+  getCachedEvent,
 }: {
   bookmarks: BookmarkAddress[]
   candidateAddresses: Iterable<string>
   nextBookmark: BookmarkAddress
+  candidateRepoKeys?: Iterable<string>
+  getCachedEvent?: (address: string) => RepoAnnouncementEvent | undefined
 }): {isRemoving: boolean; nextBookmarks: BookmarkAddress[]} => {
   const dedupedBookmarks = dedupeBookmarks(bookmarks)
   const addressSet = new Set(Array.from(candidateAddresses).filter(Boolean))
-  const isRemoving = dedupedBookmarks.some(bookmark => addressSet.has(bookmark.address))
+  const repoKeySet = new Set(Array.from(candidateRepoKeys).filter(Boolean))
+  const matchesBookmark = (bookmark: BookmarkAddress) =>
+    addressSet.has(bookmark.address) ||
+    (repoKeySet.size > 0 &&
+      repoKeySet.has(getCanonicalRepoKeyFromBookmark({bookmark, getCachedEvent})))
+
+  const isRemoving = dedupedBookmarks.some(matchesBookmark)
 
   if (isRemoving) {
     return {
       isRemoving,
-      nextBookmarks: dedupedBookmarks.filter(bookmark => !addressSet.has(bookmark.address)),
+      nextBookmarks: dedupedBookmarks.filter(bookmark => !matchesBookmark(bookmark)),
     }
   }
 

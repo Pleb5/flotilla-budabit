@@ -56,7 +56,11 @@ test.describe("Network Errors", () => {
       await expect(gitHub.pageTitle).toBeVisible({timeout: 15000})
 
       // Either shows loading state or empty state - both are acceptable for empty relay
-      const showsLoadingOrEmpty = await page.getByText(/Looking for Your Git Repos|No.*found|haven't created/i).first().isVisible().catch(() => false)
+      const showsLoadingOrEmpty = await page
+        .getByText(/Looking for Your Git Repos|No.*found|haven't created/i)
+        .first()
+        .isVisible()
+        .catch(() => false)
 
       // Page should be functional - title and new repo button should be visible
       await expect(gitHub.newRepoButton).toBeVisible()
@@ -283,9 +287,10 @@ test.describe("Empty States", () => {
       expect(page.url()).toContain("/issues")
 
       // Check for empty state message or zero issues
-      const emptyStateText = page.getByText(/no.*issues/i).or(
-        page.getByText(/no issues found/i)
-      ).or(page.getByText(/create.*issue/i))
+      const emptyStateText = page
+        .getByText(/no.*issues/i)
+        .or(page.getByText(/no issues found/i))
+        .or(page.getByText(/create.*issue/i))
 
       // Either shows empty state or the page handles it gracefully
       const hasEmptyIndicator = await emptyStateText.isVisible().catch(() => false)
@@ -343,9 +348,10 @@ test.describe("Empty States", () => {
       // Should show loading state or empty state (both acceptable for empty relay)
       // The app may stay in loading state when relay has no data
       const pageContent = await page.textContent("body")
-      const hasValidState = pageContent?.includes("Looking for Your Git Repos") ||
-                           pageContent?.includes("No") ||
-                           pageContent?.includes("haven't created")
+      const hasValidState =
+        pageContent?.includes("Looking for Your Git Repos") ||
+        pageContent?.includes("No") ||
+        pageContent?.includes("haven't created")
       expect(hasValidState).toBeTruthy()
     })
   })
@@ -363,9 +369,10 @@ test.describe("Empty States", () => {
 
       // Check for empty state or loading state (both acceptable with empty relay)
       const pageContent = await page.textContent("body")
-      const hasValidState = pageContent?.includes("Looking for Git Repos") ||
-                           pageContent?.includes("No Git Repos found") ||
-                           pageContent?.includes("No")
+      const hasValidState =
+        pageContent?.includes("Looking for Git Repos") ||
+        pageContent?.includes("No Git Repos found") ||
+        pageContent?.includes("No")
       expect(hasValidState).toBeTruthy()
     })
 
@@ -382,13 +389,9 @@ test.describe("Empty States", () => {
       await gitHub.bookmarksTab.click()
       await page.waitForTimeout(500)
 
-      // Should show bookmark repo button for adding bookmarks or empty state message
-      // Use getByRole to avoid strict mode violation (button contains span)
-      const bookmarkButton = page.getByRole("button", {name: /Bookmark a Repo/i})
       const emptyStateText = page.getByText(/no bookmarked/i)
 
-      // Either the button or empty state message should be visible
-      await expect(bookmarkButton.or(emptyStateText)).toBeVisible({timeout: 10000})
+      await expect(emptyStateText).toBeVisible({timeout: 10000})
     })
 
     test("search with no results shows appropriate message", async ({page}) => {
@@ -425,7 +428,8 @@ test.describe("Data Edge Cases", () => {
         // Using ASCII-safe name for d-tag but Unicode for display name
         identifier: "unicode-repo",
         name: "Unicode-Repo",
-        description: "Testing Japanese: \u3053\u3093\u306B\u3061\u306F, Chinese: \u4F60\u597D, Emoji: \uD83D\uDE80\uD83C\uDF1F\uD83D\uDCA1",
+        description:
+          "Testing Japanese: \u3053\u3093\u306B\u3061\u306F, Chinese: \u4F60\u597D, Emoji: \uD83D\uDE80\uD83C\uDF1F\uD83D\uDCA1",
       })
       await seeder.setup(page)
 
@@ -455,7 +459,8 @@ test.describe("Data Edge Cases", () => {
       seeder.seedIssue({
         repoAddress: repo.address,
         title: "Bug: Japanese characters - \u30D0\u30B0\u306E\u5831\u544A",
-        content: "This issue contains: Japanese (\u65E5\u672C\u8A9E), Chinese (\u4E2D\u6587), Korean (\uD55C\uAD6D\uC5B4), Arabic (\u0639\u0631\u0628\u064A), Hebrew (\u05E2\u05D1\u05E8\u05D9\u05EA), and emojis: \uD83D\uDC1B\uD83D\uDEE0\u2728",
+        content:
+          "This issue contains: Japanese (\u65E5\u672C\u8A9E), Chinese (\u4E2D\u6587), Korean (\uD55C\uAD6D\uC5B4), Arabic (\u0639\u0631\u0628\u064A), Hebrew (\u05E2\u05D1\u05E8\u05D9\u05EA), and emojis: \uD83D\uDC1B\uD83D\uDEE0\u2728",
         status: "open",
       })
 
@@ -484,7 +489,8 @@ test.describe("Data Edge Cases", () => {
       seeder.seedRepo({
         identifier: "rtl-test-repo",
         name: "RTL-Test-Repo",
-        description: "\u0647\u0630\u0627 \u0648\u0635\u0641 \u0639\u0631\u0628\u064A - Arabic description with RTL text",
+        description:
+          "\u0647\u0630\u0627 \u0648\u0635\u0641 \u0639\u0631\u0628\u064A - Arabic description with RTL text",
       })
       await seeder.setup(page)
 
@@ -499,7 +505,9 @@ test.describe("Data Edge Cases", () => {
 
   test.describe("Long Content", () => {
     test("handles very long repository description", async ({page}) => {
-      const longDescription = "A".repeat(5000) + " - This is a very long description that should be handled gracefully by the UI, potentially truncated or scrollable."
+      const longDescription =
+        "A".repeat(5000) +
+        " - This is a very long description that should be handled gracefully by the UI, potentially truncated or scrollable."
 
       const seeder = new TestSeeder({debug: true})
       seeder.seedRepo({
@@ -560,7 +568,9 @@ test.describe("Data Edge Cases", () => {
 
     test("handles very long patch content", async ({page}) => {
       // Create a patch with many lines
-      const manyLines = Array.from({length: 1000}, (_, i) => `+// Line ${i + 1}: Added code`).join("\n")
+      const manyLines = Array.from({length: 1000}, (_, i) => `+// Line ${i + 1}: Added code`).join(
+        "\n",
+      )
       const longPatch = `diff --git a/large-file.ts b/large-file.ts
 index abc123..def456 100644
 --- a/large-file.ts
@@ -816,16 +826,25 @@ test.describe("Concurrent Operations", () => {
 
       // Try to click elements while loading
       // The page title uses <strong> with text "Git Repositories"
-      const pageTitle = page.locator("strong").filter({hasText: "Git Repositories"})
+      const pageTitle = page
+        .locator("strong")
+        .filter({hasText: "Git Repositories"})
         .or(page.getByText("Git Repositories"))
 
       // Wait for page title to be visible before clicking
       await expect(pageTitle.first()).toBeVisible({timeout: 10000})
 
       // Click on tabs while potentially still loading - tabs use role="tab"
-      const myReposTab = page.getByRole("tab").filter({hasText: "My Repos"})
+      const myReposTab = page
+        .getByRole("tab")
+        .filter({hasText: "My Repos"})
         .or(page.locator("[role='tab']").filter({hasText: /my repos/i}))
-      if (await myReposTab.first().isVisible().catch(() => false)) {
+      if (
+        await myReposTab
+          .first()
+          .isVisible()
+          .catch(() => false)
+      ) {
         await myReposTab.first().click()
       }
 
@@ -861,7 +880,10 @@ test.describe("Concurrent Operations", () => {
       await page.waitForLoadState("networkidle")
 
       // Try to click bookmark rapidly if button exists
-      const bookmarkBtn = page.locator("button").filter({hasText: /bookmark/i}).first()
+      const bookmarkBtn = page
+        .locator("button")
+        .filter({hasText: /bookmark/i})
+        .first()
       if (await bookmarkBtn.isVisible().catch(() => false)) {
         // Click rapidly 3 times
         await bookmarkBtn.click()
@@ -1031,11 +1053,7 @@ test.describe("Permission Scenarios", () => {
       seeder.seedRepo({
         name: "multi-maintainer-repo",
         description: "Repository with multiple maintainers",
-        maintainers: [
-          TEST_PUBKEYS.alice,
-          TEST_PUBKEYS.bob,
-          TEST_PUBKEYS.charlie,
-        ],
+        maintainers: [TEST_PUBKEYS.alice, TEST_PUBKEYS.bob, TEST_PUBKEYS.charlie],
         pubkey: TEST_PUBKEYS.alice,
       })
 
@@ -1155,8 +1173,9 @@ test.describe("Boundary Conditions", () => {
   })
 
   test("handles repo with many clone URLs", async ({page}) => {
-    const manyUrls = Array.from({length: 10}, (_, i) =>
-      `https://mirror${i + 1}.example.com/repo.git`
+    const manyUrls = Array.from(
+      {length: 10},
+      (_, i) => `https://mirror${i + 1}.example.com/repo.git`,
     )
 
     const seeder = new TestSeeder({debug: true})

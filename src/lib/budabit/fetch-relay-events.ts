@@ -6,9 +6,12 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   relays: string[]
   filters: any[]
   timeoutMs?: number
+  signal?: AbortSignal
 }): Promise<TEvent[]> {
   const events: TEvent[] = []
   const controller = new AbortController()
+  const onAbort = () => controller.abort()
+  params.signal?.addEventListener("abort", onAbort, {once: true})
   const timeoutId = setTimeout(
     () => controller.abort(),
     Math.max(1, params.timeoutMs || DEFAULT_RELAY_FETCH_TIMEOUT_MS),
@@ -34,6 +37,7 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
     }
   } finally {
     clearTimeout(timeoutId)
+    params.signal?.removeEventListener("abort", onAbort)
   }
 
   return events

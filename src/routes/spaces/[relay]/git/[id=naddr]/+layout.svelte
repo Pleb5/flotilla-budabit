@@ -103,6 +103,7 @@
   import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
   import {diffBranchHeads, overlayLatestRepoStates, type BranchChange} from "@src/lib/budabit/branch-update"
   import {
+    getCanonicalRepoKeyFromEvent,
     getRepoBookmarkAddressSet,
     isAnyBookmarked,
     toggleRepoBookmarks,
@@ -1902,7 +1903,11 @@
 
   const syncBookmarkState = () => {
     try {
-      isBookmarked = isAnyBookmarked(getStore(bookmarksStore), getBookmarkAddressCandidates())
+      const repoKey = getCanonicalRepoKeyFromEvent(repoClass?.repoEvent as RepoAnnouncementEvent | null)
+      isBookmarked = isAnyBookmarked(getStore(bookmarksStore), getBookmarkAddressCandidates(), {
+        candidateRepoKeys: repoKey ? [repoKey] : [],
+        getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+      })
     } catch {
       isBookmarked = false
     }
@@ -2669,13 +2674,16 @@
         address,
         relayHint: normalizedRelayHint,
         author: repoClass.repoEvent.pubkey,
-        identifier: GIT_REPO_BOOKMARK_DTAG,
+        identifier: address.split(":").slice(2).join(":") || getTagValue("d", repoClass.repoEvent.tags) || "",
       }
+      const repoKey = getCanonicalRepoKeyFromEvent(repoClass.repoEvent)
 
       const toggleResult = toggleRepoBookmarks({
         bookmarks: currentBookmarks,
         candidateAddresses,
+        candidateRepoKeys: repoKey ? [repoKey] : [],
         nextBookmark: bookmarkEntry,
+        getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
       })
       wasRemoving = toggleResult.isRemoving
 

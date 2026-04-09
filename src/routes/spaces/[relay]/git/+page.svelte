@@ -7,22 +7,25 @@
     profilesByPubkey,
     tracker,
     profileSearch,
+    getFollows,
     loadProfile,
     relaySearch,
     pubkey,
     session,
     deriveProfile,
   } from "@welshman/app"
-  import {deriveEventsAsc, deriveEventsById, deriveEventsDesc} from "@welshman/store"
+  import {deriveEventsById, deriveEventsDesc} from "@welshman/store"
   import {Router} from "@welshman/router"
   import {load, PublishStatus} from "@welshman/net"
-  import {fly, staggeredFade, staggeredSlideScale, staggeredScaleBounce, staggeredFlip} from "@lib/transition"
+  import {fly, staggeredFade} from "@lib/transition"
   import {fade} from "svelte/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import RepoSearchSettingsModal from "@app/components/RepoSearchSettingsModal.svelte"
+  import {getInteractiveCardTarget} from "@lib/html"
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
@@ -34,8 +37,10 @@
   import {onMount, onDestroy, untrack} from "svelte"
   import {derived as _derived, get as getStore} from "svelte/store"
   import {nip19, type NostrEvent} from "nostr-tools"
+  import {ListFilter, X} from "@lucide/svelte"
   import {
     GIT_REPO_ANNOUNCEMENT,
+    GIT_REPO_BOOKMARK_DTAG,
     GIT_REPO_STATE,
     parseRepoAnnouncementEvent,
     type BookmarkAddress,
@@ -59,7 +64,6 @@
     EventRenderer,
     toast,
     NewRepoWizard,
-    RepoPicker,
     ImportRepoDialog,
   } from "@nostr-git/ui"
   import type {ImportResult, NewRepoResult} from "@nostr-git/ui"
@@ -90,12 +94,30 @@
   import {
     buildBookmarkRepoFilters,
     buildBookmarkRepoLoadKey,
+    getCanonicalRepoKeyFromEvent,
+    getRepoAddressFromEvent,
+    isAnyBookmarked,
     matchBookmarkedRepoEvents,
+    toggleRepoBookmarks,
   } from "@src/lib/budabit/bookmarks"
+  import {getActiveTrustGraph} from "@src/lib/budabit/trust-graph"
+  import {
+    REPO_DISCOVERY_TIMEOUT_MS,
+    REPO_DISCOVERY_SETTINGS_STORAGE_KEY,
+    buildRepoDiscoveryBuckets,
+    coerceRepoDiscoveryPrioritySettings,
+    dedupeRepoDiscoveryBuckets,
+    getDefaultRepoDiscoveryPrioritySettings,
+    mergeLoadedRepoSearchItems,
+    repoMatchesSearchQuery,
+    toLoadedRepoSearchItem,
+    type RepoDiscoveryBucket,
+    type RepoDiscoveryPriorityKey,
+    type RepoDiscoveryPrioritySetting,
+    type RepoOwnerProfile,
+  } from "@src/lib/budabit/repo-discovery-search"
 
   const url = decodeRelay($page.params.relay!)
-
-  const gitPath = makeGitPath(url)
 
   // Derive current user's profile for git commit author info
   const userProfile = $derived($pubkey ? deriveProfile($pubkey) : null)
@@ -213,6 +235,83 @@
     return `${euc}:${card?.title || ""}:${eventId}`
   }
 
+  type RepoDiscoveryStatus = {
+    phase:
+      | "idle"
+      | "typing"
+      | "preparing"
+      | "fetching_profiles"
+      | "fetching_repos"
+      | "complete"
+      | "aborted"
+    currentBucketKey: RepoDiscoveryPriorityKey | null
+    currentBucketLabel: string
+    currentBucketIndex: number
+    totalBuckets: number
+    currentBucketProcessedAuthors: number
+    currentBucketTotalAuthors: number
+    loading: boolean
+    timedOut: boolean
+    searchedAuthors: number
+    totalAuthors: number
+    fetchedProfileAuthors: number
+    fetchedRepoAuthors: number
+    foundRepos: number
+    matchedRepos: number
+  }
+
+  type RepoDiscoveryRunMode = "smart" | "exhaustive"
+
+  type RepoDiscoverySnapshot = {
+    query: string
+    buckets: RepoDiscoveryBucket[]
+    totalAuthors: number
+    nextBucketIndex: number
+    nextBucketOffset: number
+    searchedAuthors: number
+    fetchedProfileAuthors: number
+    fetchedRepoAuthors: number
+    foundRepos: number
+    matchedRepos: number
+  }
+
+  const createEmptyRepoDiscoveryStatus = (): RepoDiscoveryStatus => ({
+    phase: "idle",
+    currentBucketKey: null,
+    currentBucketLabel: "",
+    currentBucketIndex: 0,
+    totalBuckets: 0,
+    currentBucketProcessedAuthors: 0,
+    currentBucketTotalAuthors: 0,
+    loading: false,
+    timedOut: false,
+    searchedAuthors: 0,
+    totalAuthors: 0,
+    fetchedProfileAuthors: 0,
+    fetchedRepoAuthors: 0,
+    foundRepos: 0,
+    matchedRepos: 0,
+  })
+
+  let loading = $state(true)
+  let activeTab = $state<GitTab>("my-repos")
+  let gitTabHydrated = $state(false)
+  let searchQuery = $state("")
+  let activeTextSearchQuery = $state("")
+  let repoDiscoveryRunMode = $state<RepoDiscoveryRunMode>("smart")
+  let repoDiscoveryRunNonce = $state(0)
+  let repoDiscoverySnapshot = $state<RepoDiscoverySnapshot | null>(null)
+  let repoDiscoveryPrioritySettings = $state<RepoDiscoveryPrioritySetting[]>(
+    getDefaultRepoDiscoveryPrioritySettings(),
+  )
+  let discoveredSearchRepoPool = $state<Array<{address: string; event: RepoAnnouncementEvent; relayHint: string}>>([])
+  let discoveredOwnerProfiles = $state<Record<string, RepoOwnerProfile>>({})
+  let repoDiscoveryStatus = $state<RepoDiscoveryStatus>(createEmptyRepoDiscoveryStatus())
+  let repoDiscoveryController: AbortController | null = null
+  let repoDiscoveryDebounceTimer: ReturnType<typeof setTimeout> | null = null
+  let snippetsLoadedFor = $state<string | null>(null)
+
+
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
   let workerApi: any = null
@@ -234,12 +333,39 @@
       activeTab = savedTab
     }
     gitTabHydrated = true
+
+    try {
+      const raw = localStorage.getItem(REPO_DISCOVERY_SETTINGS_STORAGE_KEY)
+      if (raw) {
+        repoDiscoveryPrioritySettings = coerceRepoDiscoveryPrioritySettings(JSON.parse(raw))
+      }
+    } catch {
+      repoDiscoveryPrioritySettings = getDefaultRepoDiscoveryPrioritySettings()
+    }
   })
 
   $effect(() => {
     if (!gitTabHydrated) return
     if ($gitSelectedTab !== activeTab) {
       gitSelectedTab.set(activeTab)
+    }
+  })
+
+  $effect(() => {
+    if (typeof localStorage === "undefined") return
+
+    try {
+      localStorage.setItem(
+        REPO_DISCOVERY_SETTINGS_STORAGE_KEY,
+        JSON.stringify(
+          repoDiscoveryPrioritySettings.map(setting => ({
+            key: setting.key,
+            enabled: setting.enabled,
+          })),
+        ),
+      )
+    } catch {
+      // pass
     }
   })
 
@@ -535,6 +661,151 @@
       .filter(Boolean) as string[]
   }
 
+  const getDiscoveryRelays = (pubkeys: string[]) => {
+    let outboxRelays: string[] = []
+
+    try {
+      outboxRelays = Router.get().FromPubkeys(pubkeys.filter(Boolean)).getUrls()
+    } catch {
+      outboxRelays = []
+    }
+
+    return Array.from(new Set([...outboxRelays, ...repoAnnouncementRelays, ...GIT_RELAYS]))
+      .map(relay => normalizeRelayUrl(relay))
+      .filter(Boolean) as string[]
+  }
+
+  const getProfileSearchMatches = (query: string) => {
+    try {
+      const searchStore = getStore(profileSearch)
+      return (searchStore?.searchValues?.(query) || []) as string[]
+    } catch {
+      return []
+    }
+  }
+
+  const getSearchProfile = (pubkey: string) =>
+    discoveredOwnerProfiles[pubkey] || $profilesByPubkey.get(pubkey) || null
+
+  const parseDiscoveryProfileEvent = (event: NostrEvent): RepoOwnerProfile | null => {
+    try {
+      const content = JSON.parse(event.content || "{}")
+      if (!content || typeof content !== "object") return null
+
+      return {
+        display_name:
+          typeof content.display_name === "string" ? content.display_name : undefined,
+        name: typeof content.name === "string" ? content.name : undefined,
+        nip05: typeof content.nip05 === "string" ? content.nip05 : undefined,
+        picture: typeof content.picture === "string" ? content.picture : undefined,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const updateDiscoveredOwnerProfiles = (events: NostrEvent[]) => {
+    const nextProfiles = {...discoveredOwnerProfiles}
+    let changed = false
+
+    for (const event of events) {
+      if (event.kind !== 0 || !event.pubkey) continue
+      const parsed = parseDiscoveryProfileEvent(event)
+      if (!parsed) continue
+      nextProfiles[event.pubkey] = {
+        ...(nextProfiles[event.pubkey] || {}),
+        ...parsed,
+      }
+      changed = true
+    }
+
+    if (changed) {
+      discoveredOwnerProfiles = nextProfiles
+    }
+  }
+
+  const openRepoSearchSettingsModal = () => {
+    pushModal(RepoSearchSettingsModal, {
+      settings: repoDiscoveryPrioritySettings,
+      onApply: (nextSettings: RepoDiscoveryPrioritySetting[]) => {
+        repoDiscoveryPrioritySettings = nextSettings
+      },
+    })
+  }
+
+  const abortRepoDiscovery = ({
+    phase = "aborted",
+    keepResults = true,
+  }: {
+    phase?: RepoDiscoveryStatus["phase"]
+    keepResults?: boolean
+  } = {}) => {
+    if (repoDiscoveryDebounceTimer) {
+      clearTimeout(repoDiscoveryDebounceTimer)
+      repoDiscoveryDebounceTimer = null
+    }
+
+    if (repoDiscoveryController) {
+      repoDiscoveryController.abort()
+      repoDiscoveryController = null
+    }
+
+    const shouldReset = !keepResults || !searchQuery.trim()
+
+    if (shouldReset) {
+      discoveredSearchRepoPool = []
+      discoveredOwnerProfiles = {}
+      activeTextSearchQuery = ""
+      repoDiscoveryRunMode = "smart"
+      repoDiscoverySnapshot = null
+      repoDiscoveryStatus = createEmptyRepoDiscoveryStatus()
+      return
+    }
+
+    const currentStatus = untrack(() => repoDiscoveryStatus)
+
+    repoDiscoveryStatus = {
+      ...currentStatus,
+      loading: false,
+      phase,
+    }
+  }
+
+  const stopRepoDiscovery = () => {
+    if (!repoDiscoveryController) return
+    abortRepoDiscovery({phase: "aborted", keepResults: true})
+  }
+
+  const continueRepoDiscovery = () => {
+    if (!trimmedSearchQuery || trimmedSearchQuery !== activeTextSearchQuery) return
+    repoDiscoveryRunMode = "exhaustive"
+    repoDiscoveryRunNonce += 1
+  }
+
+  const bookmarkedRepoOwners = $derived.by(() =>
+    Array.from(new Set(bookmarkedAddresses.map(bookmark => bookmark.author).filter(Boolean))),
+  )
+
+  const followedPubkeys = $derived.by(() => {
+    if (!$pubkey) return [] as string[]
+
+    try {
+      return Array.from(new Set(getFollows($pubkey).filter(Boolean)))
+    } catch {
+      return []
+    }
+  })
+
+  const knownRepoOwners = $derived.by(() => {
+    const owners = new Set<string>()
+
+    latestMyRepos.forEach(repo => owners.add(repo.event.pubkey))
+    loadedBookmarkedRepos.forEach(repo => owners.add(repo.event.pubkey))
+    ;(($repoAnnouncements as RepoAnnouncementEvent[]) || []).forEach(event => owners.add(event.pubkey))
+
+    return Array.from(owners).filter(Boolean)
+  })
+
   $effect(() => {
     const {pubkey, relayHints} = accountSearch
     if (!pubkey) return
@@ -606,25 +877,546 @@
     })
   })
 
+  const trimmedSearchQuery = $derived.by(() => searchQuery.trim())
+
+  const hasRepoSearchInput = $derived.by(
+    () => activeTab !== "snippets" && !isAccountSearch && trimmedSearchQuery.length > 0,
+  )
+
+  const shouldLaunchTextSearch = $derived.by(
+    () => activeTab !== "snippets" && !isAccountSearch && trimmedSearchQuery.length >= 2,
+  )
+
+  const localSearchFilteredRepos = $derived.by(() => {
+    if (activeTab === "snippets" || isAccountSearch || !searchQuery.trim()) return []
+
+    return filteredRepos.filter(repo =>
+      repoMatchesSearchQuery({
+        repo,
+        query: searchQuery.trim(),
+        profile: getSearchProfile(repo.event.pubkey),
+      }),
+    )
+  })
+
+  const matchedDiscoveredSearchRepos = $derived.by(() => {
+    if (!hasRepoSearchInput) return [] as typeof discoveredSearchRepoPool
+
+    return discoveredSearchRepoPool.filter(item =>
+      repoMatchesSearchQuery({
+        repo: item,
+        query: trimmedSearchQuery,
+        profile: getSearchProfile(item.event.pubkey),
+      }),
+    )
+  })
+
+  const canContinueRepoDiscovery = $derived.by(
+    () =>
+      Boolean(trimmedSearchQuery) &&
+      trimmedSearchQuery === activeTextSearchQuery &&
+      !repoDiscoveryStatus.loading &&
+      Boolean(repoDiscoverySnapshot) &&
+      repoDiscoverySnapshot!.query === activeTextSearchQuery &&
+      repoDiscoverySnapshot!.nextBucketIndex < repoDiscoverySnapshot!.buckets.length,
+  )
+
+  const syncDiscoveredSearchRepos = ({
+    query,
+    repoItemsByAddress,
+    nextRepoEvents = [],
+  }: {
+    query: string
+    repoItemsByAddress: Map<string, {address: string; event: RepoAnnouncementEvent; relayHint: string}>
+    nextRepoEvents?: RepoAnnouncementEvent[]
+  }) => {
+    for (const event of nextRepoEvents) {
+      if (isDeletedRepoAnnouncement(event)) continue
+
+      const item = toLoadedRepoSearchItem(event, Router.get().getRelaysForPubkey(event.pubkey)?.[0] || "")
+      if (!item) continue
+
+      const existing = repoItemsByAddress.get(item.address)
+      if (!existing || item.event.created_at > existing.event.created_at) {
+        repoItemsByAddress.set(item.address, item)
+      }
+    }
+
+    const matchingItems = Array.from(repoItemsByAddress.values()).filter(item =>
+      repoMatchesSearchQuery({
+        repo: item,
+        query,
+        profile: getSearchProfile(item.event.pubkey),
+      }),
+    )
+
+    discoveredSearchRepoPool = Array.from(repoItemsByAddress.values())
+
+    return {
+      foundRepos: repoItemsByAddress.size,
+      matchedRepos: matchingItems.length,
+    }
+  }
+
+  const repoDiscoveryStatusLines = $derived.by(() => {
+    if (!hasRepoSearchInput) return [] as string[]
+
+    if (
+      !repoDiscoveryStatus.loading &&
+      !repoDiscoveryStatus.timedOut &&
+      repoDiscoveryStatus.phase === "idle" &&
+      repoDiscoveryStatus.searchedAuthors === 0 &&
+      repoDiscoveryStatus.foundRepos === 0
+    ) {
+      return [] as string[]
+    }
+
+    const lines: string[] = []
+
+    if (repoDiscoveryStatus.phase === "preparing") {
+      lines.push(
+        repoDiscoveryRunMode === "exhaustive"
+          ? "Preparing exhaustive discovery across all enabled search sources."
+          : "Preparing discovery targets from your enabled search sources.",
+      )
+    }
+
+    if (repoDiscoveryStatus.phase === "typing") {
+      lines.push(
+        trimmedSearchQuery.length < 2
+          ? "Type at least 2 characters to discover repos beyond the local list."
+          : "Typing... waiting to launch a new search.",
+      )
+    }
+
+    if (repoDiscoveryStatus.phase === "fetching_profiles" && repoDiscoveryStatus.currentBucketLabel) {
+      lines.push(`Loading owner profiles from ${repoDiscoveryStatus.currentBucketLabel}.`)
+    }
+
+    if (repoDiscoveryStatus.phase === "fetching_repos" && repoDiscoveryStatus.currentBucketLabel) {
+      lines.push(`Loading repository announcements from ${repoDiscoveryStatus.currentBucketLabel}.`)
+    }
+
+    if (repoDiscoveryStatus.loading && repoDiscoveryRunMode === "exhaustive") {
+      lines.push("Continuing search until all enabled targets are exhausted or you press Stop.")
+    }
+
+    if (repoDiscoveryStatus.totalBuckets > 0 && repoDiscoveryStatus.currentBucketLabel) {
+      lines.push(
+        `Target group ${repoDiscoveryStatus.currentBucketIndex}/${repoDiscoveryStatus.totalBuckets}: ${repoDiscoveryStatus.currentBucketLabel}.`,
+      )
+    }
+
+    if (repoDiscoveryStatus.totalAuthors > 0) {
+      lines.push(
+        `Owners processed ${Math.min(repoDiscoveryStatus.searchedAuthors, repoDiscoveryStatus.totalAuthors)}/${repoDiscoveryStatus.totalAuthors}.`,
+      )
+    }
+
+    if (repoDiscoveryStatus.currentBucketTotalAuthors > 0) {
+      lines.push(
+        `Current group progress ${Math.min(repoDiscoveryStatus.currentBucketProcessedAuthors, repoDiscoveryStatus.currentBucketTotalAuthors)}/${repoDiscoveryStatus.currentBucketTotalAuthors}.`,
+      )
+    }
+
+    lines.push(
+      `Profiles checked ${repoDiscoveryStatus.fetchedProfileAuthors}, repo owners checked ${repoDiscoveryStatus.fetchedRepoAuthors}.`,
+    )
+    lines.push(
+      `Found ${repoDiscoveryStatus.foundRepos} repositories, ${repoDiscoveryStatus.matchedRepos} matching this search.`,
+    )
+
+    if (repoDiscoveryStatus.timedOut) {
+      lines.push("Timed out after 30 seconds. Showing current results.")
+    } else if (repoDiscoveryStatus.phase === "aborted") {
+      lines.push("Search stopped. Showing results found so far.")
+    } else if (!repoDiscoveryStatus.loading && repoDiscoveryStatus.phase === "complete") {
+      lines.push(
+        repoDiscoveryRunMode === "exhaustive"
+          ? "Searched all enabled targets."
+          : "Discovery finished within the 30 second budget.",
+      )
+    }
+
+    return lines
+  })
+
+  $effect(() => {
+    const query = trimmedSearchQuery
+
+    if (activeTab === "snippets" || isAccountSearch) {
+      abortRepoDiscovery({phase: "idle", keepResults: true})
+      activeTextSearchQuery = ""
+      return
+    }
+
+    if (!query) {
+      abortRepoDiscovery({phase: "idle", keepResults: false})
+      return
+    }
+
+    if (query !== activeTextSearchQuery) {
+      abortRepoDiscovery({phase: "typing", keepResults: true})
+    }
+
+    if (query.length < 2) {
+      activeTextSearchQuery = ""
+      return
+    }
+
+    if (query === activeTextSearchQuery) {
+      return
+    }
+
+    repoDiscoveryDebounceTimer = setTimeout(() => {
+      repoDiscoveryRunMode = "smart"
+      repoDiscoveryRunNonce += 1
+      repoDiscoverySnapshot = null
+      activeTextSearchQuery = query
+      repoDiscoveryDebounceTimer = null
+    }, 250)
+
+    return () => {
+      if (repoDiscoveryDebounceTimer) {
+        clearTimeout(repoDiscoveryDebounceTimer)
+        repoDiscoveryDebounceTimer = null
+      }
+    }
+  })
+
+  $effect(() => {
+    const query = activeTextSearchQuery.trim()
+    const runMode = repoDiscoveryRunMode
+    repoDiscoveryRunNonce
+
+    if (!query || activeTab === "snippets" || isAccountSearch) {
+      return
+    }
+
+    const discoveryInputs = untrack(() => ({
+      settings: repoDiscoveryPrioritySettings.map(setting => ({...setting})),
+      viewerPubkey: $pubkey,
+      bookmarkedOwners: [...bookmarkedRepoOwners],
+      followPubkeys: [...followedPubkeys],
+      knownOwners: [...knownRepoOwners],
+      trustScores: new Map(getActiveTrustGraph().scores),
+      profileMatches: getProfileSearchMatches(query),
+      existingRepoPool: [...discoveredSearchRepoPool],
+      runMode,
+    }))
+
+    const previousSnapshot = untrack(() => repoDiscoverySnapshot)
+
+    let snapshot: RepoDiscoverySnapshot
+
+    if (previousSnapshot?.query === query && previousSnapshot.nextBucketIndex < previousSnapshot.buckets.length) {
+      snapshot = {
+        ...previousSnapshot,
+      }
+    } else {
+      const buckets = dedupeRepoDiscoveryBuckets(
+        buildRepoDiscoveryBuckets({
+          settings: discoveryInputs.settings,
+          viewerPubkey: discoveryInputs.viewerPubkey,
+          bookmarkedOwners: discoveryInputs.bookmarkedOwners,
+          followPubkeys: discoveryInputs.followPubkeys,
+          knownOwners: discoveryInputs.knownOwners,
+          profileMatches: discoveryInputs.profileMatches,
+          trustScores: discoveryInputs.trustScores,
+        }),
+      )
+
+      snapshot = {
+        query,
+        buckets,
+        totalAuthors: buckets.reduce((sum, bucket) => sum + bucket.pubkeys.length, 0),
+        nextBucketIndex: 0,
+        nextBucketOffset: 0,
+        searchedAuthors: 0,
+        fetchedProfileAuthors: 0,
+        fetchedRepoAuthors: 0,
+        foundRepos: 0,
+        matchedRepos: 0,
+      }
+
+      repoDiscoverySnapshot = snapshot
+    }
+
+    const controller = new AbortController()
+    repoDiscoveryController = controller
+
+    const repoItemsByAddress = new Map<
+      string,
+      {address: string; event: RepoAnnouncementEvent; relayHint: string}
+    >(discoveryInputs.existingRepoPool.map(item => [item.address, item]))
+    const initialSync = untrack(() => syncDiscoveredSearchRepos({query, repoItemsByAddress}))
+    const startedAt = Date.now()
+
+    let searchedAuthors = snapshot.searchedAuthors
+    let fetchedProfileAuthors = snapshot.fetchedProfileAuthors
+    let fetchedRepoAuthors = snapshot.fetchedRepoAuthors
+    let foundRepos = Math.max(snapshot.foundRepos, initialSync.foundRepos)
+    let matchedRepos = Math.max(snapshot.matchedRepos, initialSync.matchedRepos)
+    let timedOut = false
+    let finalBucketKey: RepoDiscoveryPriorityKey | null =
+      snapshot.buckets[snapshot.nextBucketIndex]?.key || null
+    let finalBucketLabel = snapshot.buckets[snapshot.nextBucketIndex]?.label || ""
+    let finalBucketIndex = snapshot.buckets[snapshot.nextBucketIndex]
+      ? snapshot.nextBucketIndex + 1
+      : 0
+    let finalBucketProcessedAuthors = snapshot.nextBucketOffset
+    let finalBucketTotalAuthors = snapshot.buckets[snapshot.nextBucketIndex]?.pubkeys.length || 0
+
+    void (async () => {
+      try {
+        const buckets = snapshot.buckets
+        const totalAuthors = snapshot.totalAuthors
+
+        if (totalAuthors === 0) {
+          if (!controller.signal.aborted) {
+            repoDiscoverySnapshot = {
+              ...snapshot,
+              nextBucketIndex: buckets.length,
+              nextBucketOffset: 0,
+              foundRepos,
+              matchedRepos,
+            }
+            repoDiscoveryStatus = {
+              ...createEmptyRepoDiscoveryStatus(),
+              phase: "complete",
+              foundRepos,
+              matchedRepos,
+            }
+          }
+          return
+        }
+
+        repoDiscoveryStatus = {
+          ...createEmptyRepoDiscoveryStatus(),
+          loading: true,
+          phase: "preparing",
+          totalAuthors,
+          totalBuckets: buckets.length,
+          foundRepos,
+          matchedRepos,
+        }
+
+        outer: for (let bucketIndex = snapshot.nextBucketIndex; bucketIndex < buckets.length; bucketIndex += 1) {
+          const bucket = buckets[bucketIndex]
+          finalBucketKey = bucket.key
+          finalBucketLabel = bucket.label
+          finalBucketIndex = bucketIndex + 1
+          finalBucketTotalAuthors = bucket.pubkeys.length
+
+          const initialOffset = bucketIndex === snapshot.nextBucketIndex ? snapshot.nextBucketOffset : 0
+
+          for (let offset = initialOffset; offset < bucket.pubkeys.length; offset += 24) {
+            if (controller.signal.aborted) return
+
+            let remainingMs =
+              discoveryInputs.runMode === "smart"
+                ? REPO_DISCOVERY_TIMEOUT_MS - (Date.now() - startedAt)
+                : Number.POSITIVE_INFINITY
+            if (remainingMs <= 0) {
+              timedOut = true
+              break outer
+            }
+
+            const authors = bucket.pubkeys.slice(offset, offset + 24)
+            const relays = getDiscoveryRelays(authors)
+            finalBucketProcessedAuthors = offset
+
+            repoDiscoveryStatus = {
+              loading: true,
+              timedOut: false,
+              phase: "fetching_profiles",
+              currentBucketKey: bucket.key,
+              currentBucketLabel: bucket.label,
+              currentBucketIndex: bucketIndex + 1,
+              totalBuckets: buckets.length,
+              currentBucketProcessedAuthors: offset,
+              currentBucketTotalAuthors: bucket.pubkeys.length,
+              searchedAuthors,
+              totalAuthors,
+              fetchedProfileAuthors,
+              fetchedRepoAuthors,
+              foundRepos,
+              matchedRepos,
+            }
+
+              if (relays.length > 0) {
+                const profileEvents = await fetchRelayEventsWithTimeout<NostrEvent>({
+                  relays,
+                  filters: [{kinds: [0], authors}],
+                timeoutMs: Math.min(4000, remainingMs),
+                signal: controller.signal,
+              })
+
+                if (controller.signal.aborted) return
+
+                fetchedProfileAuthors += authors.length
+                untrack(() => updateDiscoveredOwnerProfiles(profileEvents))
+
+                const profileSync = untrack(() => syncDiscoveredSearchRepos({
+                  query,
+                  repoItemsByAddress,
+                }))
+                foundRepos = profileSync.foundRepos
+                matchedRepos = profileSync.matchedRepos
+              }
+
+            remainingMs =
+              discoveryInputs.runMode === "smart"
+                ? REPO_DISCOVERY_TIMEOUT_MS - (Date.now() - startedAt)
+                : Number.POSITIVE_INFINITY
+            if (remainingMs <= 0) {
+              timedOut = true
+              break outer
+            }
+
+            repoDiscoveryStatus = {
+              loading: true,
+              timedOut: false,
+              phase: "fetching_repos",
+              currentBucketKey: bucket.key,
+              currentBucketLabel: bucket.label,
+              currentBucketIndex: bucketIndex + 1,
+              totalBuckets: buckets.length,
+              currentBucketProcessedAuthors: offset,
+              currentBucketTotalAuthors: bucket.pubkeys.length,
+              searchedAuthors,
+              totalAuthors,
+              fetchedProfileAuthors,
+              fetchedRepoAuthors,
+              foundRepos,
+              matchedRepos,
+            }
+
+            if (relays.length > 0) {
+              const repoEvents = await fetchRelayEventsWithTimeout<RepoAnnouncementEvent>({
+                relays,
+                filters: [{kinds: [GIT_REPO_ANNOUNCEMENT], authors}],
+                timeoutMs: Math.min(5000, remainingMs),
+                signal: controller.signal,
+              })
+
+              if (controller.signal.aborted) return
+
+                fetchedRepoAuthors += authors.length
+
+                const repoSync = untrack(() => syncDiscoveredSearchRepos({
+                  query,
+                  repoItemsByAddress,
+                  nextRepoEvents: repoEvents,
+                }))
+                foundRepos = repoSync.foundRepos
+                matchedRepos = repoSync.matchedRepos
+              }
+
+            searchedAuthors += authors.length
+            finalBucketProcessedAuthors = Math.min(offset + authors.length, bucket.pubkeys.length)
+
+            snapshot = {
+              ...snapshot,
+              nextBucketIndex:
+                finalBucketProcessedAuthors < bucket.pubkeys.length ? bucketIndex : bucketIndex + 1,
+              nextBucketOffset:
+                finalBucketProcessedAuthors < bucket.pubkeys.length ? finalBucketProcessedAuthors : 0,
+              searchedAuthors,
+              fetchedProfileAuthors,
+              fetchedRepoAuthors,
+              foundRepos,
+              matchedRepos,
+            }
+            repoDiscoverySnapshot = snapshot
+
+            repoDiscoveryStatus = {
+              loading: true,
+              timedOut: false,
+              phase: "fetching_repos",
+              currentBucketKey: bucket.key,
+              currentBucketLabel: bucket.label,
+              currentBucketIndex: bucketIndex + 1,
+              totalBuckets: buckets.length,
+              currentBucketProcessedAuthors: finalBucketProcessedAuthors,
+              currentBucketTotalAuthors: bucket.pubkeys.length,
+              searchedAuthors,
+              totalAuthors,
+              fetchedProfileAuthors,
+              fetchedRepoAuthors,
+              foundRepos,
+              matchedRepos,
+            }
+          }
+        }
+
+        if (controller.signal.aborted) return
+
+        if (!timedOut) {
+          snapshot = {
+            ...snapshot,
+            nextBucketIndex: buckets.length,
+            nextBucketOffset: 0,
+            searchedAuthors,
+            fetchedProfileAuthors,
+            fetchedRepoAuthors,
+            foundRepos,
+            matchedRepos,
+          }
+          repoDiscoverySnapshot = snapshot
+        }
+
+        repoDiscoveryStatus = {
+          loading: false,
+          timedOut,
+          phase: "complete",
+          currentBucketKey: finalBucketKey,
+          currentBucketLabel: finalBucketLabel,
+          currentBucketIndex: finalBucketIndex,
+          totalBuckets: buckets.length,
+          currentBucketProcessedAuthors: finalBucketProcessedAuthors,
+          currentBucketTotalAuthors: finalBucketTotalAuthors,
+          searchedAuthors,
+          totalAuthors,
+          fetchedProfileAuthors,
+          fetchedRepoAuthors,
+          foundRepos,
+          matchedRepos,
+        }
+        if (repoDiscoveryController === controller) {
+          repoDiscoveryController = null
+        }
+        } catch (error) {
+          if (controller.signal.aborted) return
+          console.error("[git/+page] Failed to discover repositories from search", error)
+          const currentStatus = untrack(() => repoDiscoveryStatus)
+          repoDiscoveryStatus = {
+            ...currentStatus,
+            loading: false,
+            phase: "aborted",
+          }
+          if (repoDiscoveryController === controller) {
+            repoDiscoveryController = null
+          }
+      }
+    })()
+
+    return () => {
+      controller.abort()
+      if (repoDiscoveryController === controller) {
+        repoDiscoveryController = null
+      }
+    }
+  })
+
   // Filter repos based on search query (from current tab)
   const searchFilteredRepos = $derived.by(() => {
     const repos = filteredRepos
     if (isAccountSearch) return []
 
-    if (!searchQuery.trim()) return repos
+    if (!trimmedSearchQuery) return repos
 
-    const query = normalizeSearchValue(searchQuery.trim())
-    return repos.filter((repo: any) => {
-      try {
-        const parsed = parseRepoAnnouncementEvent((repo.event ?? repo) as any)
-        const haystack = [parsed?.name, parsed?.description, parsed?.repoId]
-          .map(normalizeSearchValue)
-          .join(" ")
-        return haystack.includes(query)
-      } catch {
-        return false
-      }
-    })
+    return mergeLoadedRepoSearchItems(localSearchFilteredRepos, matchedDiscoveredSearchRepos)
   })
 
   // Store for account search (naddr/npub) repo cards
@@ -745,85 +1537,118 @@
       clearTimeout(accountSearchCardsComputeTimer)
       accountSearchCardsComputeTimer = null
     }
+    if (repoDiscoveryDebounceTimer) {
+      clearTimeout(repoDiscoveryDebounceTimer)
+      repoDiscoveryDebounceTimer = null
+    }
+    if (repoDiscoveryController) {
+      repoDiscoveryController.abort()
+      repoDiscoveryController = null
+    }
   })
 
   const back = () => history.back()
 
-  const onAddRepo = () => {
-    // Open RepoPicker in a modal for editing followed repos
+  const shouldShowRepoCardBookmark = () => activeTab !== "my-repos"
+
+  const getRepoCardRelayHint = (event: RepoAnnouncementEvent, address = getRepoAddressFromEvent(event)) => {
+    const fromLoadedBookmarks = loadedBookmarkedRepos.find(repo => repo.address === address)?.relayHint || ""
+    const fromTracker = Array.from(tracker.getRelays(event.id) || [])[0] || ""
+    const fromPubkey = Router.get().getRelaysForPubkey(event.pubkey)?.[0] || ""
+    const relayTag = (event.tags || []).find((tag: string[]) => tag[0] === "relays")?.[1] || ""
+
+    return fromLoadedBookmarks || fromTracker || fromPubkey || relayTag || ""
+  }
+
+  const getRepoCardCanonicalKeys = (event?: RepoAnnouncementEvent | null) => {
+    const canonicalKey = getCanonicalRepoKeyFromEvent(event)
+    return canonicalKey ? [canonicalKey] : []
+  }
+
+  const getRepoCardCandidateAddresses = (event?: RepoAnnouncementEvent | null) => {
+    if (!event) return new Set<string>()
+
+    const address = getRepoAddressFromEvent(event)
+    if (!address) return new Set<string>()
+
+    const candidates = getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, address)
+    candidates.add(address)
+    return candidates
+  }
+
+  const isRepoCardBookmarked = (event?: RepoAnnouncementEvent | null) =>
+    Boolean(event) &&
+    isAnyBookmarked(bookmarkedAddresses, getRepoCardCandidateAddresses(event), {
+      candidateRepoKeys: getRepoCardCanonicalKeys(event),
+      getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+    })
+
+  let pendingBookmarkAddresses = $state<Record<string, boolean>>({})
+
+  const isRepoCardBookmarkPending = (event?: RepoAnnouncementEvent | null) => {
+    if (!event) return false
+    const address = getRepoAddressFromEvent(event)
+    return address ? Boolean(pendingBookmarkAddresses[address]) : false
+  }
+
+  const setRepoCardBookmarkPending = (address: string, value: boolean) => {
+    const next = {...pendingBookmarkAddresses}
+    if (value) next[address] = true
+    else delete next[address]
+    pendingBookmarkAddresses = next
+  }
+
+  const toggleRepoCardBookmark = async (event?: RepoAnnouncementEvent | null) => {
+    if (!event || !$pubkey) {
+      if (!$pubkey) {
+        pushToast({message: "Sign in to bookmark repositories", theme: "warning"})
+      }
+      return
+    }
+
+    const address = getRepoAddressFromEvent(event)
+    if (!address || pendingBookmarkAddresses[address]) return
+
+    setRepoCardBookmarkPending(address, true)
+
     try {
-      // Inject closures matching ThunkFunction signature
-      const fetchRepos = (evt: {filters: any[]; onResult: (events: any[]) => void}) => {
-        const controller = new AbortController()
-        const store = deriveEventsAsc(deriveEventsById({repository, filters: evt.filters}))
-        store.subscribe((events: any[]) => {
-          evt.onResult(events as any[])
-        })
-        load({relays: bookmarkRelays, filters: evt.filters})
-        return {controller}
-      }
-      const publishBookmarks = ({tags, relays}: {tags: string[][]; relays?: string[]}) => {
-        const eventToPublish = makeEvent(NAMED_BOOKMARKS, {tags, content: ""})
-        const targetRelays = relays || bookmarkRelays
-
-        console.log("[publishBookmarks] Creating bookmark event:", eventToPublish)
-        console.log("[publishBookmarks] Tags:", tags)
-        console.log("[publishBookmarks] Target relays:", targetRelays)
-
-        // Extract a-tags and update the bookmarks store immediately
-        const aTags = tags.filter(t => t[0] === "a")
-        const newBookmarks: BookmarkAddress[] = aTags.map(([_, address, relayHint]) => ({
-          address,
-          author: address.split(":")[1] || "",
-          identifier: address.split(":")[2] || "",
-          relayHint: relayHint || "",
-        }))
-
-        bookmarksStore.set(newBookmarks)
-
-        // Publish to relays and return the thunk for awaiting
-        const thunk = publishThunk({
-          event: eventToPublish,
-          relays: targetRelays,
-          onSuccess: (result) => {
-            console.log("[publishBookmarks] Success on relay:", result.relay, result)
-          },
-          onFailure: (result) => {
-            console.error("[publishBookmarks] Failed on relay:", result.relay, result.detail)
-          },
-          onComplete: (result) => {
-            console.log("[publishBookmarks] Complete:", result)
-          },
-        })
-        
-        console.log("[publishBookmarks] Thunk created, event id:", thunk.event?.id)
-
-        return {controller: new AbortController(), complete: thunk.complete}
-      }
-      const makeRelayHint = (event: any) => {
-        try {
-          const relayTag = (event.tags || []).find((t: string[]) => t[0] === "relays")?.[1] || ""
-          const fromTracker = Array.from(tracker.getRelays(event.id) || [])[0] || ""
-          const fromPubkey = Router.get().getRelaysForPubkey(event.pubkey)?.[0] || ""
-          return relayTag || fromTracker || fromPubkey || ""
-        } catch {
-          return ""
-        }
+      const relayHint = getRepoCardRelayHint(event, address)
+      const bookmarkEntry: BookmarkAddress = {
+        address,
+        relayHint,
+        author: event.pubkey,
+        identifier: address.split(":").slice(2).join(":") || getTagValue("d", event.tags) || "",
       }
 
-      pushModal(RepoPicker, {
-        selectedRepos: loadedBookmarkedRepos,
-        fetchRepos,
-        publishBookmarks,
-        filters: [{kinds: [30617]}],
-        relays: repoAnnouncementRelays,
-        makeRelayHint,
-        onClose: back,
+      const toggleResult = toggleRepoBookmarks({
+        bookmarks: bookmarkedAddresses,
+        candidateAddresses: getRepoCardCandidateAddresses(event),
+        candidateRepoKeys: getRepoCardCanonicalKeys(event),
+        nextBookmark: bookmarkEntry,
+        getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
       })
-    } catch (e) {
-      // Fallback to settings route if modal fails for any reason
-      console.error("Failed to open RepoPicker modal:", e)
-      goto(gitPath)
+
+      const tags: string[][] = [["d", GIT_REPO_BOOKMARK_DTAG]]
+      toggleResult.nextBookmarks.forEach(bookmark => {
+        const aTag = ["a", bookmark.address]
+        if (bookmark.relayHint) aTag.push(bookmark.relayHint)
+        tags.push(aTag)
+      })
+
+      bookmarksStore.set(toggleResult.nextBookmarks)
+
+      const bookmarkEvent = makeEvent(NAMED_BOOKMARKS, {tags, content: ""})
+      const relays = Array.from(
+        new Set([relayHint, ...bookmarkRelays].map(relay => normalizeRelayUrl(relay)).filter(Boolean)),
+      ) as string[]
+
+      publishThunk({event: bookmarkEvent, relays})
+      pushToast({message: toggleResult.isRemoving ? "Bookmark removed" : "Repository bookmarked"})
+    } catch (error) {
+      console.error("[git/+page] Failed to toggle bookmark from repo card", error)
+      pushToast({message: "Failed to update bookmark", theme: "error"})
+    } finally {
+      setRepoCardBookmarkPending(address, false)
     }
   }
 
@@ -894,6 +1719,33 @@
     }
 
     return naddr
+  }
+
+  const getRepoBrowseHref = (event: RepoAnnouncementEvent) =>
+    makeGitPath(url, buildRepoNaddrFromAnnouncement(event, event.pubkey || ""))
+
+  const navigateToRepoCard = (announcement: RepoAnnouncementEvent) =>
+    void goto(getRepoBrowseHref(announcement)).catch(error => {
+      console.error("[+page.svelte] Failed to navigate to repository:", error)
+      pushToast({
+        message: `Failed to navigate to repository: ${String(error)}`,
+        theme: "error",
+      })
+    })
+
+  const handleRepoCardNeutralClick = (event: MouseEvent, announcement: RepoAnnouncementEvent) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    if (getInteractiveCardTarget(event.target, event.currentTarget)) return
+
+    navigateToRepoCard(announcement)
+  }
+
+  const handleRepoCardNeutralKeydown = (event: KeyboardEvent, announcement: RepoAnnouncementEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    if (getInteractiveCardTarget(event.target, event.currentTarget)) return
+
+    event.preventDefault()
+    navigateToRepoCard(announcement)
   }
 
   const extractRelayAck = (thunk: any) => {
@@ -1304,9 +2156,9 @@
   <div class="flex flex-col gap-3">
     <Tabs bind:value={activeTab} class="w-full">
       <div class="flex flex-col gap-3">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <TabsList class="flex w-full sm:w-auto">
-            <TabsTrigger value="my-repos" class="flex-1 sm:flex-none">
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <TabsList class="flex w-full overflow-x-auto sm:w-fit sm:max-w-full sm:self-start">
+            <TabsTrigger value="my-repos" class="flex-1 whitespace-nowrap sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={FolderWithFiles} />
                 <span>My Repos</span>
@@ -1315,7 +2167,7 @@
                 {/if}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="bookmarks" class="flex-1 sm:flex-none">
+            <TabsTrigger value="bookmarks" class="flex-1 whitespace-nowrap sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={Bookmark} />
                 <span>Bookmarks</span>
@@ -1324,31 +2176,55 @@
                 {/if}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="snippets" class="flex-1 sm:flex-none">
+            <TabsTrigger value="snippets" class="flex-1 whitespace-nowrap sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={Code} />
                 <span>Snippets</span>
               </span>
             </TabsTrigger>
           </TabsList>
-          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            {#if activeTab === "bookmarks"}
-              <Button
-                class="btn btn-primary btn-sm order-2 w-full sm:order-1 sm:w-auto"
-                onclick={onAddRepo}>
-                <Icon icon={Bookmark} />
-                <span>Bookmark a Repo</span>
-              </Button>
-            {/if}
+          <div class="flex w-full items-center gap-2 xl:w-[30rem] xl:max-w-[45vw] xl:shrink-0">
             <label
-              class="input input-bordered order-1 flex w-full min-w-0 items-center gap-2 overflow-x-hidden sm:order-2 sm:w-auto sm:max-w-md">
+              class="input input-bordered flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <Icon icon={Magnifier} />
               <input
                 bind:value={searchQuery}
                 class="grow min-w-0"
                 type="text"
-                placeholder={activeTab === "snippets" ? "Search snippets..." : "npub naddr or repo name"} />
+                placeholder={
+                  activeTab === "snippets" ? "Search snippets..." : "Search repo, owner, npub, or naddr"
+                } />
             </label>
+            {#if activeTab !== "snippets"}
+              {#if repoDiscoveryStatus.loading}
+                <button
+                  type="button"
+                  class="btn btn-error btn-outline btn-sm shrink-0 gap-1"
+                  aria-label="Stop repository discovery"
+                  title="Stop repository discovery"
+                  onclick={stopRepoDiscovery}>
+                  <X class="h-4 w-4" />
+                  <span>Stop</span>
+                </button>
+              {:else if canContinueRepoDiscovery}
+                <button
+                  type="button"
+                  class="btn btn-primary btn-outline btn-sm shrink-0"
+                  aria-label="Continue searching"
+                  title="Continue searching"
+                  onclick={continueRepoDiscovery}>
+                  <span>Continue searching</span>
+                </button>
+              {/if}
+              <button
+                type="button"
+                class="btn btn-ghost btn-square btn-sm shrink-0"
+                aria-label="Search discovery settings"
+                title="Search discovery settings"
+                onclick={openRepoSearchSettingsModal}>
+                <ListFilter class="h-4 w-4" />
+              </button>
+            {/if}
           </div>
         </div>
       </div>
@@ -1407,11 +2283,23 @@
           {#each sortedAccountSearchRepoCards as g, i (getRepoCardStableKey(g))}
           <div
             class="rounded-md border border-border bg-card p-3"
+            role="link"
+            tabindex="0"
+            onclick={g.first
+              ? event => handleRepoCardNeutralClick(event, g.first as RepoAnnouncementEvent)
+              : undefined}
+            onkeydown={g.first
+              ? event => handleRepoCardNeutralKeydown(event, g.first as RepoAnnouncementEvent)
+              : undefined}
             in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
             {#if g.first}
               <GitItem
                 {url}
                 event={g.first as any}
+                tabbable={false}
+                bookmarked={shouldShowRepoCardBookmark() ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent) : false}
+                bookmarkDisabled={shouldShowRepoCardBookmark() ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent) : false}
+                onToggleBookmark={shouldShowRepoCardBookmark() ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent) : undefined}
                 showActivity={true}
                 showIssues={true}
                 showActions={true}
@@ -1456,6 +2344,32 @@
 
   <!-- Tab-filtered Repos Grid -->
   <div>
+    {#if repoDiscoveryStatusLines.length > 0}
+      <div class="mb-3 rounded-md border border-border bg-card/70 p-3">
+        <div class="flex items-center gap-2 text-sm font-medium text-foreground">
+          {#if repoDiscoveryStatus.loading}
+            <Spinner loading={repoDiscoveryStatus.loading}>
+              {repoDiscoveryRunMode === "exhaustive"
+                ? "Continuing search..."
+                : "Discovering new Repos..."}
+            </Spinner>
+          {:else if repoDiscoveryStatus.phase === "typing"}
+            <span>Waiting to search</span>
+          {:else if repoDiscoveryStatus.phase === "aborted"}
+            <span>Search stopped</span>
+          {:else if repoDiscoveryStatus.timedOut}
+            <span>Discovery timed out</span>
+          {:else}
+            <span>Discovery complete</span>
+          {/if}
+        </div>
+        <div class="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
+          {#each repoDiscoveryStatusLines as line}
+            <p>{line}</p>
+          {/each}
+        </div>
+      </div>
+    {/if}
     {#if loading}
       <p class="flex h-10 items-center justify-center py-20" out:fly>
         <Spinner {loading}>
@@ -1482,12 +2396,25 @@
         {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
           {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
           {@const taggedMaintainers = g.taggedMaintainers ?? []}
-          <div class="rounded-md border border-border bg-card p-3">
+          <div
+            class="rounded-md border border-border bg-card p-3"
+            role="link"
+            tabindex="0"
+            onclick={g.first
+              ? event => handleRepoCardNeutralClick(event, g.first as RepoAnnouncementEvent)
+              : undefined}
+            onkeydown={g.first
+              ? event => handleRepoCardNeutralKeydown(event, g.first as RepoAnnouncementEvent)
+              : undefined}>
             <!-- Use GitItem for consistent repo card rendering -->
             {#if g.first}
               <GitItem
                 {url}
                 event={g.first as any}
+                tabbable={false}
+                bookmarked={shouldShowRepoCardBookmark() ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent) : false}
+                bookmarkDisabled={shouldShowRepoCardBookmark() ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent) : false}
+                onToggleBookmark={shouldShowRepoCardBookmark() ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent) : undefined}
                 showActivity={true}
                 showIssues={true}
                 showActions={true}

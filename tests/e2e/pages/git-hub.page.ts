@@ -5,7 +5,7 @@ import {expect, type Locator, type Page} from "@playwright/test"
  *
  * This page displays:
  * - Tab navigation between "My Repos" and "Bookmarks"
- * - Search functionality (including naddr URI search)
+ * - Search functionality (including repo-owner search and naddr/npub search)
  * - New repo creation button
  * - Grid of repository cards
  */
@@ -19,7 +19,6 @@ export class GitHubPage {
   readonly searchInput: Locator
   readonly myReposTab: Locator
   readonly bookmarksTab: Locator
-  readonly bookmarkRepoButton: Locator
   readonly repoGrid: Locator
   readonly repoCards: Locator
   readonly loadingSpinner: Locator
@@ -40,9 +39,6 @@ export class GitHubPage {
 
     // Search
     this.searchInput = page.locator('input[placeholder*="naddr"]')
-
-    // Bookmark action
-    this.bookmarkRepoButton = page.locator("button").filter({hasText: "Bookmark a Repo"})
 
     // Content area
     this.repoGrid = page.locator(".grid.gap-3")
@@ -197,14 +193,6 @@ export class GitHubPage {
   }
 
   /**
-   * Click the "Bookmark a Repo" button (only visible on Bookmarks tab)
-   */
-  async clickBookmarkRepo(): Promise<void> {
-    await expect(this.bookmarkRepoButton).toBeVisible()
-    await this.bookmarkRepoButton.click()
-  }
-
-  /**
    * Click on a specific repository card by index
    */
   async clickRepoByIndex(index: number): Promise<void> {
@@ -218,8 +206,8 @@ export class GitHubPage {
   }
 
   /**
-   * Click on a repository card by name to navigate to its detail page.
-   * Clicks the "Browse" link within the repo card which handles navigation.
+   * Click on a repository card by name using its Browse action.
+   * The Browse link now lands on the repository code tab directly.
    */
   async clickRepoByName(name: string): Promise<void> {
     const repoCard = this.repoCards.filter({hasText: name}).first()
@@ -228,6 +216,23 @@ export class GitHubPage {
     const browseLink = repoCard.getByRole("link", {name: "Browse", exact: true}).first()
     await expect(browseLink).toBeVisible()
     await browseLink.click()
+  }
+
+  /**
+   * Get the bookmark toggle button for a repository card.
+   */
+  getRepoBookmarkButton(name: string): Locator {
+    const repoCard = this.repoCards.filter({hasText: name}).first()
+    return repoCard.getByRole("button", {name: /bookmark|remove bookmark/i}).first()
+  }
+
+  /**
+   * Toggle the bookmark button for a repository card by name.
+   */
+  async toggleBookmarkForRepo(name: string): Promise<void> {
+    const button = this.getRepoBookmarkButton(name)
+    await expect(button).toBeVisible()
+    await button.click()
   }
 
   /**

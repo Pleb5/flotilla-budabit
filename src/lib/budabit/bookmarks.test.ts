@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest"
 
 import {
   GIT_REPO_ANNOUNCEMENT,
+  buildRepoKey,
   type BookmarkAddress,
   type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
@@ -22,7 +23,11 @@ const makeBookmark = (address: string, relayHint = "wss://relay.example") =>
     identifier: address.split(":")[2] || "",
   }) satisfies BookmarkAddress
 
-const makeRepoEvent = (pubkey: string, identifier: string): RepoAnnouncementEvent =>
+const makeRepoEvent = (
+  pubkey: string,
+  identifier: string,
+  name = identifier,
+): RepoAnnouncementEvent =>
   ({
     kind: GIT_REPO_ANNOUNCEMENT,
     pubkey,
@@ -32,7 +37,7 @@ const makeRepoEvent = (pubkey: string, identifier: string): RepoAnnouncementEven
     sig: "sig",
     tags: [
       ["d", identifier],
-      ["name", identifier],
+      ["name", name],
     ],
   }) as RepoAnnouncementEvent
 
@@ -104,5 +109,48 @@ describe("bookmarks helpers", () => {
         }),
       ),
     ).toBe(true)
+  })
+
+  it("uses canonical owner/name keys without colliding same-name repos from different owners", () => {
+    const ownerA = "a".repeat(64)
+    const ownerB = "b".repeat(64)
+    const repoName = "shared-name"
+
+    expect(
+      isAnyBookmarked([makeBookmark(`30617:${ownerA}:${repoName}`)], [], {
+        candidateRepoKeys: [buildRepoKey(ownerA, repoName)],
+      }),
+    ).toBe(true)
+
+    expect(
+      isAnyBookmarked([makeBookmark(`30617:${ownerA}:${repoName}`)], [], {
+        candidateRepoKeys: [buildRepoKey(ownerB, repoName)],
+      }),
+    ).toBe(false)
+  })
+
+  it("toggleRepoBookmarks removes canonical matches but keeps same-name repos from other owners", () => {
+    const ownerA = "a".repeat(64)
+    const ownerB = "b".repeat(64)
+    const repoName = "shared-name"
+    const bookmarks = [
+      makeBookmark(`30617:${ownerA}:${repoName}`),
+      makeBookmark(`30617:${ownerB}:${repoName}`),
+    ]
+    const cachedEvents = new Map([
+      [`30617:${ownerA}:${repoName}`, makeRepoEvent(ownerA, repoName, repoName)],
+      [`30617:${ownerB}:${repoName}`, makeRepoEvent(ownerB, repoName, repoName)],
+    ])
+
+    const {isRemoving, nextBookmarks} = toggleRepoBookmarks({
+      bookmarks,
+      candidateAddresses: [],
+      candidateRepoKeys: [buildRepoKey(ownerA, repoName)],
+      nextBookmark: makeBookmark(`30617:${ownerA}:${repoName}`),
+      getCachedEvent: address => cachedEvents.get(address),
+    })
+
+    expect(isRemoving).toBe(true)
+    expect(nextBookmarks.map(bookmark => bookmark.address)).toEqual([`30617:${ownerB}:${repoName}`])
   })
 })

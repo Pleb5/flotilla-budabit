@@ -521,7 +521,7 @@ test.describe("Repository Browsing", () => {
       expect(activeTab).toBe("my-repos")
     })
 
-    test("bookmark repo button is visible on bookmarks tab", async ({page}) => {
+    test("search stays available on bookmarks tab", async ({page}) => {
       // Seed a repo to ensure the page loads properly (bookmarks tab will still be empty)
       const seeder = await seedTestRepo(page, {
         name: "bookmark-button-test-repo",
@@ -534,8 +534,7 @@ test.describe("Repository Browsing", () => {
       // Switch to bookmarks tab
       await gitHub.goToBookmarks()
 
-      // Bookmark repo button should be visible (only shown on bookmarks tab)
-      await expect(gitHub.bookmarkRepoButton).toBeVisible({timeout: 10000})
+      await expect(gitHub.searchInput).toBeVisible({timeout: 10000})
     })
 
     test("bookmarks tab shows empty state initially", async ({page}) => {
@@ -551,13 +550,36 @@ test.describe("Repository Browsing", () => {
       // Switch to bookmarks tab
       await gitHub.goToBookmarks()
 
-      // Should show empty state or bookmark prompt
-      // On bookmarks tab with no bookmarks, either:
-      // 1. Empty state message is shown, OR
-      // 2. "Bookmark a Repo" button is visible (indicates no bookmarks)
       const isEmpty = await gitHub.isEmpty()
-      const hasBookmarkButton = await gitHub.bookmarkRepoButton.isVisible()
-      expect(isEmpty || hasBookmarkButton).toBeTruthy()
+      expect(isEmpty).toBeTruthy()
+    })
+
+    test("my repos cards do not expose bookmark toggle", async ({page}) => {
+      const seeder = await seedTestRepo(page, {
+        name: "bookmark-toggle-card-repo",
+      })
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      await expect(gitHub.getRepoBookmarkButton("bookmark-toggle-card-repo")).toBeHidden()
+    })
+
+    test("bookmarks search results expose bookmark toggle", async ({page}) => {
+      const seeder = new TestSeeder()
+      const repo = seeder.seedRepo({name: "bookmark-search-result-repo"})
+      await seeder.setup(page)
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+      await gitHub.goToBookmarks()
+      await gitHub.searchByNaddr(repo.naddr)
+
+      await expect(gitHub.getRepoBookmarkButton("bookmark-search-result-repo")).toBeVisible({
+        timeout: 10000,
+      })
     })
   })
 
