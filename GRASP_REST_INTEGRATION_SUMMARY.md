@@ -2,13 +2,14 @@
 
 ## Overview
 
-Successfully implemented GRASP REST API vendor support across the `nostr-git-core` and `nostr-git-ui` packages. This provides an alternative to the event-based GRASP API by using Smart HTTP Git protocol for querying repository data.
+Successfully implemented GRASP Smart HTTP support across the `nostr-git-core` and `nostr-git-ui` packages. The current design treats GRASP clone URLs as standard Smart HTTP Git endpoints (`https://host/<npub>/<repo>.git`) and keeps relay URLs (`wss://host`) separate for Nostr event publishing.
 
 ## What Was Completed
 
 ### ✅ Core Package (`nostr-git-core`)
 
 **Files Created/Modified:**
+
 - ✅ `src/api/providers/grasp-rest.ts` - Core provider implementation
 - ✅ `src/api/providers/grasp-rest-utils.ts` - Parsing utilities framework
 - ✅ `src/git/vendor-providers.ts` - Added `grasp-rest` vendor type
@@ -19,6 +20,7 @@ Successfully implemented GRASP REST API vendor support across the `nostr-git-cor
 - ✅ `GRASP_REST_ROADMAP.md` - Completion roadmap
 
 **Features Implemented:**
+
 - Repository metadata retrieval via `info/refs`
 - Branch and tag listing
 - User information lookup (npub resolution)
@@ -31,19 +33,16 @@ Successfully implemented GRASP REST API vendor support across the `nostr-git-cor
 ### ✅ UI Package (`nostr-git-ui`)
 
 **Files Modified:**
+
 - ✅ `src/lib/components/git/VendorReadRouter.ts` - Complete vendor support
 - ✅ `GRASP_REST_UI_INTEGRATION.md` - UI integration documentation
 
 **Features Implemented:**
-- Added `grasp-rest` to `SupportedVendor` type
-- Vendor detection for WebSocket URLs
-- API base URL conversion (ws:// → http://)
-- Bearer token authentication
-- Complete vendor method implementations:
-  - `vendorListRefsGraspRest()` - Branch/tag listing
-  - `vendorListDirectoryGraspRest()` - Directory contents
-  - `vendorGetFileContentGraspRest()` - File retrieval
-  - `vendorListCommitsGraspRest()` - Commit history
+
+- GRASP clone URL detection for strict Smart HTTP URLs
+- Relay-origin normalization (`wss://host` -> `https://host`) where provider setup needs an HTTP base
+- Direct Smart HTTP ref reads via `info/refs`
+- UI fallback to generic git reads for GRASP clone URLs instead of assuming a separate JSON REST API
 - All switch statements updated with default error handling
 
 **Build Status:** ✅ Compiles successfully
@@ -54,48 +53,43 @@ Successfully implemented GRASP REST API vendor support across the `nostr-git-cor
 
 ```typescript
 // Core package usage
-import { GraspRestApiProvider } from '@nostr-git/core';
+import {GraspRestApiProvider} from "@nostr-git/core"
 
-const provider = new GraspRestApiProvider('wss://relay.example.com', 'pubkey');
+const provider = new GraspRestApiProvider("wss://relay.example.com", "pubkey")
 
 // ✅ Get repository info
-await provider.getRepo('owner-npub', 'repo-name');
+await provider.getRepo("owner-npub", "repo-name")
 
 // ✅ List branches
-await provider.listBranches('owner-npub', 'repo-name');
+await provider.listBranches("owner-npub", "repo-name")
 
 // ✅ List tags
-await provider.listTags('owner-npub', 'repo-name');
+await provider.listTags("owner-npub", "repo-name")
 
 // ✅ Get branch info
-await provider.getBranch('owner-npub', 'repo-name', 'main');
+await provider.getBranch("owner-npub", "repo-name", "main")
 ```
 
 ```typescript
 // UI package usage
-import { VendorReadRouter } from '@nostr-git/ui';
+import {VendorReadRouter} from "@nostr-git/ui"
 
 const router = new VendorReadRouter({
-  getTokens: async () => [{ host: 'relay.example.com', token: 'token' }],
+  getTokens: async () => [{host: "relay.example.com", token: "token"}],
   preferVendorReads: true,
-});
+})
 
-// ✅ List refs
-await router.listRefs(['wss://relay.example.com/npub.../repo.git']);
+// ✅ List refs (falls back to git advertised refs for GRASP)
+await router.listRefs(["https://relay.example.com/npub.../repo.git"])
 
-// ✅ Get file content
-await router.getFileContent(
-  ['wss://relay.example.com/npub.../repo.git'],
-  'main',
-  'src/index.ts'
-);
+// ✅ Get file content via git fallback
+await router.getFileContent(["https://relay.example.com/npub.../repo.git"], "main", "src/index.ts")
 
-// ✅ List commits
-await router.listCommits(
-  ['wss://relay.example.com/npub.../repo.git'],
-  'main',
-  { page: 1, perPage: 30 }
-);
+// ✅ List commits via git fallback
+await router.listCommits(["https://relay.example.com/npub.../repo.git"], "main", {
+  page: 1,
+  perPage: 30,
+})
 ```
 
 ### Not Yet Implemented (Core Package)
@@ -107,7 +101,7 @@ The following require packfile parsing implementation:
 - ❌ `getFileContent()` - Needs packfile parsing
 - ❌ `listDirectory()` - Needs tree parsing
 
-**Note:** The UI package has placeholder implementations that call REST API endpoints. These will work if the GRASP relay provides GitHub-compatible REST endpoints.
+**Note:** The UI package no longer assumes GitHub-like `/repos/...` endpoints for GRASP. GRASP reads route through Smart HTTP git behavior and generic git fallbacks instead.
 
 ## Architecture
 
@@ -119,21 +113,24 @@ wss://relay.example.com → https://relay.example.com
 ws://relay.example.com  → http://relay.example.com
 ```
 
-### API Endpoints (UI Package)
+### Smart HTTP URL Shape
 
-The UI implementation expects these REST endpoints:
+GRASP clone URLs are expected to use this shape:
 
-| Endpoint | Purpose |
-|----------|---------|
-| `/repos/{owner}/{repo}/branches` | List branches |
-| `/repos/{owner}/{repo}/tags` | List tags |
-| `/repos/{owner}/{repo}/tree/{branch}/{path}` | List directory |
-| `/repos/{owner}/{repo}/blob/{branch}/{path}` | Get file content |
-| `/repos/{owner}/{repo}/commits?sha={branch}` | List commits |
+```text
+https://<host>/<npub>/<repo>.git
+```
+
+Relay URLs stay separate and are used only for Nostr publication and relay discovery:
+
+```text
+wss://<host>
+```
 
 ### Authentication
 
 Both packages use Bearer token authentication:
+
 ```
 Authorization: Bearer {token}
 ```
@@ -145,6 +142,7 @@ Authorization: Bearer {token}
 **Priority:** High
 
 1. Add dependencies:
+
    ```bash
    cd packages/nostr-git-core
    pnpm add pako js-sha1
@@ -171,7 +169,7 @@ Authorization: Bearer {token}
 1. Update repository selection UI to support grasp-rest
 2. Add GRASP relay configuration options
 3. Update vendor icons/badges
-4. Add grasp-rest specific error messages
+4. Add GRASP-specific error messages
 
 ### Phase 3: Testing
 
@@ -201,7 +199,7 @@ Authorization: Bearer {token}
 3. **`packages/nostr-git-ui/GRASP_REST_UI_INTEGRATION.md`**
    - UI integration details
    - Method implementations
-   - API endpoints
+   - Smart HTTP behavior
    - Usage examples
 
 4. **`GRASP_REST_INTEGRATION_SUMMARY.md`** (this file)
@@ -228,33 +226,30 @@ pnpm build  # ✅ Should succeed
 ### Integration Test (When GRASP Relay Available)
 
 ```typescript
-import { GraspRestApiProvider } from '@nostr-git/core';
+import {GraspRestApiProvider} from "@nostr-git/core"
 
-const provider = new GraspRestApiProvider(
-  'wss://your-grasp-relay.com',
-  'your-pubkey-hex'
-);
+const provider = new GraspRestApiProvider("wss://your-grasp-relay.com", "your-pubkey-hex")
 
 // Test basic operations
-const repo = await provider.getRepo('owner-npub', 'repo-name');
-console.log('Repository:', repo);
+const repo = await provider.getRepo("owner-npub", "repo-name")
+console.log("Repository:", repo)
 
-const branches = await provider.listBranches('owner-npub', 'repo-name');
-console.log('Branches:', branches);
+const branches = await provider.listBranches("owner-npub", "repo-name")
+console.log("Branches:", branches)
 ```
 
 ## Migration Path
 
 For existing code using the event-based GRASP API:
 
-1. URLs starting with `ws://` or `wss://` will automatically default to `grasp-rest`
+1. Relay URLs starting with `ws://` or `wss://` normalize to an HTTP base when constructing GRASP providers
 2. To use the old event-based API, explicitly specify `vendor: 'grasp'`
 3. Both vendors can coexist during transition
 
 ## Known Limitations
 
 1. **Packfile Parsing** - Core package needs packfile parsing for commit/file operations
-2. **API Compatibility** - UI package assumes GitHub-like REST endpoints
+2. **UI Reads** - UI GRASP reads currently rely on Smart HTTP git fallbacks instead of a dedicated JSON API
 3. **Delta Objects** - Not yet supported in packfile parsing
 4. **Large Repositories** - May have performance issues without optimization
 5. **Authentication** - Currently simple Bearer token only
@@ -266,6 +261,7 @@ For existing code using the event-based GRASP API:
 - ✅ Vendor type system integration complete
 - ✅ Basic operations (branches, tags, repo info) work
 - ✅ URL conversion (WebSocket to HTTP) works
+- ✅ No `/repos/...` endpoint assumptions remain in this summary
 - ✅ Documentation complete
 - ⏳ Packfile parsing implementation (next phase)
 - ⏳ Full commit/file operations (next phase)
@@ -281,7 +277,7 @@ For existing code using the event-based GRASP API:
 
 ## Summary
 
-The GRASP REST API vendor has been successfully integrated into both `nostr-git-core` and `nostr-git-ui` packages. The foundation is solid and ready for:
+The GRASP Smart HTTP support has been integrated into both `nostr-git-core` and `nostr-git-ui` packages. The foundation is solid and ready for:
 
 1. Packfile parsing completion (to enable full functionality)
 2. Flotilla app integration
