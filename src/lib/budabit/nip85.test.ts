@@ -4,12 +4,14 @@ import {
   NIP85_USER_ASSERTION_KIND,
   aggregateNip85RecommendedProviders,
   aggregateNip85UserAssertions,
+  displayNip85ProviderWebsite,
   extractNip85AssertionTagNames,
   getNip85CapabilityDescription,
   getNip85CapabilityLabel,
   getNip85RecommendationAuthors,
   getNip85VerificationSamplePubkeys,
   makeNip85KindTag,
+  normalizeNip85ProviderWebsite,
   parseNip85ProviderTag,
   parseNip85UserAssertion,
   rankNip85Relays,
@@ -218,11 +220,38 @@ describe("nip85 recommendation aggregation", () => {
         serviceKey: providerA.serviceKey,
         usageCount: 2,
         recommenders: ["1".repeat(64), "2".repeat(64)],
+        serviceIdentity: providerA.serviceKey,
       }),
       expect.objectContaining({
         serviceKey: providerB.serviceKey,
         usageCount: 1,
         recommenders: ["3".repeat(64)],
+        serviceIdentity: providerB.serviceKey,
+      }),
+    ])
+  })
+
+  it("groups provider endorsements by shared website when profile metadata matches", () => {
+    const providerA = makeProvider("rank", "a".repeat(64), "public", "wss://a.example.com")
+    const providerB = makeProvider("rank", "b".repeat(64), "public", "wss://b.example.com")
+    const aggregated = aggregateNip85RecommendedProviders({
+      configsByAuthor: new Map([
+        ["1".repeat(64), [providerA]],
+        ["2".repeat(64), [providerB]],
+      ]),
+      profilesByPubkey: new Map([
+        [providerA.serviceKey, {website: "https://nip85.example.com/"}],
+        [providerB.serviceKey, {website: "https://www.nip85.example.com"}],
+      ]),
+    })
+
+    expect(aggregated.get("30382:rank")).toEqual([
+      expect.objectContaining({
+        usageCount: 2,
+        serviceIdentity: "https://nip85.example.com",
+        website: "https://nip85.example.com",
+        providerKeys: [providerA.serviceKey, providerB.serviceKey],
+        recommenders: ["1".repeat(64), "2".repeat(64)],
       }),
     ])
   })
@@ -247,5 +276,12 @@ describe("nip85 recommendation aggregation", () => {
     )
 
     expect(relays).toEqual(["wss://relay-one.example.com", "wss://relay-two.example.com"])
+  })
+
+  it("normalizes and displays provider websites consistently", () => {
+    const normalized = normalizeNip85ProviderWebsite("https://www.nip85.example.com/")
+
+    expect(normalized).toBe("https://nip85.example.com")
+    expect(displayNip85ProviderWebsite(normalized)).toBe("nip85.example.com")
   })
 })

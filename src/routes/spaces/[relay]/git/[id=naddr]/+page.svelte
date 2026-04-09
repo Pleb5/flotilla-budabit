@@ -1137,7 +1137,7 @@
                         unstyled
                         class="block truncate text-sm font-medium hover:underline" />
                       <div class="text-xs opacity-60">
-                        WoT {actor.trustScore} • {actor.totalInteractions} interaction{actor.totalInteractions === 1 ? "" : "s"}
+                        {actor.totalInteractions} interaction{actor.totalInteractions === 1 ? "" : "s"}
                       </div>
                     </div>
                   </div>

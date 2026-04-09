@@ -128,21 +128,21 @@
 
 <div
   class={`rounded-box border bg-base-100/40 p-3 sm:p-4 ${selectedProvider ? "border-primary/50" : "border-base-300/60"}`}>
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-    <div class="flex min-w-0 gap-3">
-      <Button type="button" class="shrink-0 p-0" onclick={() => openProfile(provider.serviceKey)}>
-        <ProfileCircle pubkey={provider.serviceKey} size={8} />
-      </Button>
-      <div class="min-w-0">
-        <Button
-          type="button"
-          class="truncate p-0 text-sm font-medium sm:text-base"
-          onclick={() => openProfile(provider.serviceKey)}>
-          <ProfileName pubkey={provider.serviceKey} />
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div class="flex min-w-0 gap-3">
+        <Button type="button" class="shrink-0 p-0" onclick={() => openProfile(provider.serviceKey)}>
+          <ProfileCircle pubkey={provider.serviceKey} size={8} />
         </Button>
-        <div class="text-xs opacity-60">{displayPubkey(provider.serviceKey)}</div>
+        <div class="min-w-0">
+          <Button
+            type="button"
+            class="truncate p-0 text-sm font-medium sm:text-base"
+            onclick={() => openProfile(provider.serviceKey)}>
+            <ProfileName pubkey={provider.serviceKey} />
+          </Button>
+          <div class="text-xs opacity-60">{displayPubkey(provider.serviceKey)}</div>
+        </div>
       </div>
-    </div>
 
     <div class="flex flex-wrap items-center gap-2 text-xs sm:justify-end">
       {#if usageCount > 0}

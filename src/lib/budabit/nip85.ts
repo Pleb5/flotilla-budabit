@@ -25,6 +25,7 @@ import {
   makeUserData,
   makeUserLoader,
   nip44EncryptToSelf,
+  profilesByPubkey,
   pubkey,
   publishThunk,
   repository,
@@ -121,6 +122,7 @@ const NIP85_RECOMMENDATION_RELAY_CACHE_PREFIX = "budabit:nip85:recommendation-re
 const nip85DiscoveryLoad = makeLoader({delay: 200, timeout: 6000, threshold: 0.5})
 const nip85ExtraCapabilityLoad = makeLoader({delay: 200, timeout: 5000, threshold: 0.5})
 const NIP85_EXTRA_CAPABILITY_EVENT_LIMIT = 10
+const NIP85_RECOMMENDATION_PROFILE_LOAD_TIMEOUT = 4500
 
 const getLatestEvent = (events: Iterable<TrustedEvent>) => {
   let latest: TrustedEvent | undefined
@@ -221,6 +223,9 @@ const countNip85RelayUsage = (events: Iterable<TrustedEvent>) => {
 const updateRecommendationProgress = (updates: Partial<Nip85RecommendationState>) =>
   nip85RecommendationState.update(state => ({...state, ...updates}))
 
+const withTimeout = async <T>(promise: Promise<T>, timeout: number) =>
+  await Promise.race([promise, new Promise<undefined>(resolve => setTimeout(resolve, timeout))])
+
 const countDiscoveredCapabilities = (discovered: Map<string, Set<string>>) => {
   const capabilities = new Set<string>()
 
@@ -312,9 +317,35 @@ const loadNip85RecommendationConfigs = async (
   relays: string[],
   currentRun: number,
   usedCachedRelays: boolean,
+  onUpdate?: (latestEvents: Map<string, TrustedEvent>, fetchedEvents: number) => void,
 ) => {
   const authorsSet = new Set(authors)
   let fetchedEvents = 0
+  const latestEvents = new Map<string, TrustedEvent>()
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+  const flush = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+
+    updateRecommendationProgress({
+      phase: "provider_configs",
+      relayCount: relays.length,
+      loadedAuthors: authors.length,
+      fetchedEvents,
+      usedCachedRelays,
+    })
+
+    onUpdate?.(new Map(latestEvents), fetchedEvents)
+  }
+
+  const scheduleFlush = () => {
+    if (flushTimer) return
+
+    flushTimer = setTimeout(flush, 150)
+  }
 
   updateRecommendationProgress({
     phase: "provider_configs",
@@ -331,29 +362,35 @@ const loadNip85RecommendationConfigs = async (
   const events = await nip85DiscoveryLoad({
     filters: [{kinds: [NIP85_PROVIDER_CONFIG_KIND]}],
     relays,
+    onEvent: event => {
+      if (currentRun !== recommendationRun) return
+
+      fetchedEvents += 1
+
+      if (authorsSet.has(event.pubkey)) {
+        const existing = latestEvents.get(event.pubkey)
+
+        if (!existing || event.created_at > existing.created_at) {
+          latestEvents.set(event.pubkey, event)
+        }
+      }
+
+      scheduleFlush()
+    },
   })
 
   if (currentRun !== recommendationRun) {
+    if (flushTimer) clearTimeout(flushTimer)
     return new Map<string, TrustedEvent>()
   }
-
-  fetchedEvents += events.length
-
-  updateRecommendationProgress({
-    phase: "provider_configs",
-    relayCount: relays.length,
-    loadedAuthors: authors.length,
-    fetchedEvents,
-    usedCachedRelays,
-  })
-
-  const latestEvents = new Map<string, TrustedEvent>()
 
   for (const [author, event] of getLatestEventsByPubkey(events)) {
     if (authorsSet.has(author)) {
       latestEvents.set(author, event)
     }
   }
+
+  flush()
 
   return latestEvents
 }
@@ -460,6 +497,65 @@ export const loadNip85RecommendedUserProviders = async () => {
   const wotGraph = getWotGraph()
   const authors = getNip85RecommendationAuthors($pubkey, follows, wotGraph)
   const currentRun = ++recommendationRun
+  let providerConfigStreamComplete = false
+  let currentRecommendationRelays: string[] = []
+  let currentConfigsByAuthor = new Map<string, Nip85ConfiguredProvider[]>()
+  const hydratingServiceKeys = new Set<string>()
+  const publishRecommendedProviders = (configsByAuthor: Map<string, Nip85ConfiguredProvider[]>) => {
+    currentConfigsByAuthor = configsByAuthor
+
+    const rawProviders = Array.from(configsByAuthor.values()).flat()
+
+    for (const serviceKey of new Set(rawProviders.map(provider => provider.serviceKey))) {
+      if (hydratingServiceKeys.has(serviceKey)) continue
+
+      hydratingServiceKeys.add(serviceKey)
+
+      const relayHints = Array.from(
+        new Set(
+          rawProviders
+            .filter(provider => provider.serviceKey === serviceKey)
+            .map(provider => provider.relayHint)
+            .filter(Boolean),
+        ),
+      )
+
+      void withTimeout(
+        loadProfile(serviceKey, relayHints).catch(() => undefined),
+        NIP85_RECOMMENDATION_PROFILE_LOAD_TIMEOUT,
+      ).then(() => {
+        if (currentRun !== recommendationRun) return
+
+        const recommendedProviders = aggregateNip85RecommendedProviders({
+          configsByAuthor: currentConfigsByAuthor,
+          profilesByPubkey: get(profilesByPubkey),
+        })
+
+        nip85RecommendedUserProviders.set(recommendedProviders)
+      })
+    }
+
+    const recommendedProviders = aggregateNip85RecommendedProviders({
+      configsByAuthor,
+      profilesByPubkey: get(profilesByPubkey),
+    })
+    const providers = Array.from(recommendedProviders.values()).flat()
+    const progress = get(nip85RecommendationState)
+
+    nip85WotProviderConfigs.set(configsByAuthor)
+    nip85RecommendedUserProviders.set(recommendedProviders)
+    nip85RecommendationState.set({
+      ...progress,
+      status: providerConfigStreamComplete ? "ready" : "loading",
+      authors: authors.length,
+      loadedAuthors: authors.length,
+      relayCount: currentRecommendationRelays.length,
+      usedCachedRelays: progress.usedCachedRelays,
+      providerCount: providers.length,
+      capabilityCount: recommendedProviders.size,
+      error: undefined,
+    })
+  }
 
   nip85WotProviderConfigs.set(new Map())
   nip85RecommendedUserProviders.set(new Map())
@@ -473,6 +569,7 @@ export const loadNip85RecommendedUserProviders = async () => {
 
   try {
     let recommendationRelays = await loadNip85RecommendationRelays(authors, $pubkey, currentRun)
+    currentRecommendationRelays = recommendationRelays
 
     if (currentRun !== recommendationRun) return
 
@@ -482,6 +579,19 @@ export const loadNip85RecommendedUserProviders = async () => {
       recommendationRelays,
       currentRun,
       usedCachedRelays,
+      latestEvents => {
+        const partialConfigsByAuthor = new Map<string, Nip85ConfiguredProvider[]>()
+
+        for (const [author, event] of latestEvents.entries()) {
+          const publicProviders = parseNip85ProviderTags(event.tags || [], "public")
+
+          if (publicProviders.length > 0) {
+            partialConfigsByAuthor.set(author, publicProviders)
+          }
+        }
+
+        publishRecommendedProviders(partialConfigsByAuthor)
+      },
     )
 
     if (currentRun !== recommendationRun) return
@@ -500,6 +610,7 @@ export const loadNip85RecommendedUserProviders = async () => {
       recommendationRelays = await loadNip85RecommendationRelays(authors, $pubkey, currentRun, {
         preferCache: false,
       })
+      currentRecommendationRelays = recommendationRelays
 
       if (currentRun !== recommendationRun) return
 
@@ -509,6 +620,19 @@ export const loadNip85RecommendedUserProviders = async () => {
         recommendationRelays,
         currentRun,
         false,
+        latestEvents => {
+          const partialConfigsByAuthor = new Map<string, Nip85ConfiguredProvider[]>()
+
+          for (const [author, event] of latestEvents.entries()) {
+            const publicProviders = parseNip85ProviderTags(event.tags || [], "public")
+
+            if (publicProviders.length > 0) {
+              partialConfigsByAuthor.set(author, publicProviders)
+            }
+          }
+
+          publishRecommendedProviders(partialConfigsByAuthor)
+        },
       )
 
       if (currentRun !== recommendationRun) return
@@ -524,32 +648,8 @@ export const loadNip85RecommendedUserProviders = async () => {
       }
     }
 
-    const recommendedProviders = aggregateNip85RecommendedProviders({
-      configsByAuthor,
-    })
-    const providers = Array.from(recommendedProviders.values()).flat()
-
-    nip85WotProviderConfigs.set(configsByAuthor)
-    nip85RecommendedUserProviders.set(recommendedProviders)
-    const progress = get(nip85RecommendationState)
-
-    nip85RecommendationState.set({
-      ...progress,
-      status: "ready",
-      authors: authors.length,
-      loadedAuthors: authors.length,
-      relayCount: recommendationRelays.length,
-      usedCachedRelays,
-      providerCount: providers.length,
-      capabilityCount: recommendedProviders.size,
-      error: undefined,
-    })
-
-    await Promise.all(
-      providers.map(provider =>
-        loadProfile(provider.serviceKey, [provider.relayHint]).catch(() => undefined),
-      ),
-    )
+    providerConfigStreamComplete = true
+    publishRecommendedProviders(configsByAuthor)
   } catch (error) {
     if (currentRun !== recommendationRun) return
 

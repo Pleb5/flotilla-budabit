@@ -43,6 +43,9 @@ export interface Nip85ConfiguredProvider extends Nip85Provider {
 export interface Nip85RecommendedProvider extends Nip85Provider {
   usageCount: number
   recommenders: string[]
+  serviceIdentity: string
+  providerKeys: string[]
+  website?: string
 }
 
 export interface Nip85MetricDefinition {
@@ -179,6 +182,40 @@ export const normalizeNip85RelayHint = (value: string) => {
 
 export const getNip85ProviderKey = (provider: Pick<Nip85Provider, "serviceKey" | "kindTag">) =>
   `${provider.serviceKey}:${provider.kindTag}`
+
+export const normalizeNip85ProviderWebsite = (value: string | undefined) => {
+  const raw = (value || "").trim()
+
+  if (!raw) return ""
+
+  const withScheme = raw.match(/^https?:\/\//i) ? raw : `https://${raw}`
+
+  try {
+    const url = new URL(withScheme)
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "")
+    const pathname = url.pathname.replace(/\/+$/, "")
+
+    if (!hostname) return ""
+
+    return `${url.protocol}//${hostname}${pathname}`
+  } catch {
+    return ""
+  }
+}
+
+export const displayNip85ProviderWebsite = (value: string | undefined) => {
+  const normalized = normalizeNip85ProviderWebsite(value)
+
+  if (!normalized) return ""
+
+  try {
+    const url = new URL(normalized)
+
+    return `${url.hostname}${url.pathname === "/" ? "" : url.pathname}`
+  } catch {
+    return normalized
+  }
+}
 
 export const makeNip85KindTag = (kind: number, tag: string) => `${kind}:${tag}`
 
@@ -804,12 +841,20 @@ export const getNip85VerificationSamplePubkeys = (
 
 export const aggregateNip85RecommendedProviders = ({
   configsByAuthor,
+  profilesByPubkey = new Map<string, {website?: string}>(),
   kind = NIP85_USER_ASSERTION_KIND,
 }: {
   configsByAuthor: Map<string, Nip85ConfiguredProvider[]>
+  profilesByPubkey?: Map<string, {website?: string}>
   kind?: number
 }) => {
-  const aggregated = new Map<string, Nip85RecommendedProvider>()
+  const aggregated = new Map<
+    string,
+    Nip85RecommendedProvider & {
+      serviceKeyCounts: Map<string, number>
+      providersByKey: Map<string, Nip85Provider>
+    }
+  >()
 
   for (const [author, providers] of configsByAuthor.entries()) {
     const seen = new Set<string>()
@@ -817,7 +862,11 @@ export const aggregateNip85RecommendedProviders = ({
     for (const provider of providers) {
       if (provider.kind !== kind) continue
 
-      const key = getNip85ProviderKey(provider)
+      const website = normalizeNip85ProviderWebsite(
+        profilesByPubkey.get(provider.serviceKey)?.website,
+      )
+      const serviceIdentity = website || provider.serviceKey
+      const key = `${provider.kindTag}:${serviceIdentity}`
 
       if (seen.has(key)) continue
       seen.add(key)
@@ -825,11 +874,20 @@ export const aggregateNip85RecommendedProviders = ({
       const existing = aggregated.get(key)
 
       if (existing) {
+        existing.serviceKeyCounts.set(
+          provider.serviceKey,
+          (existing.serviceKeyCounts.get(provider.serviceKey) || 0) + 1,
+        )
+        existing.providersByKey.set(provider.serviceKey, provider)
+
         aggregated.set(key, {
           ...existing,
           usageCount: existing.usageCount + 1,
           recommenders: [...existing.recommenders, author].filter(
             (pubkey, index, all) => all.indexOf(pubkey) === index,
+          ),
+          providerKeys: [...existing.providerKeys, provider.serviceKey].filter(
+            (serviceKey, index, all) => all.indexOf(serviceKey) === index,
           ),
         })
       } else {
@@ -841,6 +899,11 @@ export const aggregateNip85RecommendedProviders = ({
           relayHint: provider.relayHint,
           usageCount: 1,
           recommenders: [author],
+          serviceIdentity,
+          providerKeys: [provider.serviceKey],
+          website: website || undefined,
+          serviceKeyCounts: new Map([[provider.serviceKey, 1]]),
+          providersByKey: new Map([[provider.serviceKey, provider]]),
         })
       }
     }
@@ -849,15 +912,37 @@ export const aggregateNip85RecommendedProviders = ({
   const byCapability = new Map<string, Nip85RecommendedProvider[]>()
 
   for (const provider of aggregated.values()) {
+    const representativeServiceKey = Array.from(provider.serviceKeyCounts.entries()).sort(
+      (a, b) => {
+        if (a[1] !== b[1]) return b[1] - a[1]
+        return a[0].localeCompare(b[0])
+      },
+    )[0]?.[0]
+    const representative =
+      (representativeServiceKey && provider.providersByKey.get(representativeServiceKey)) ||
+      provider
     const providersForCapability = byCapability.get(provider.kindTag) || []
 
-    providersForCapability.push(provider)
+    providersForCapability.push({
+      kindTag: provider.kindTag,
+      kind: provider.kind,
+      tag: provider.tag,
+      serviceKey: representative.serviceKey,
+      relayHint: representative.relayHint,
+      usageCount: provider.usageCount,
+      recommenders: provider.recommenders,
+      serviceIdentity: provider.serviceIdentity,
+      providerKeys: provider.providerKeys,
+      website: provider.website,
+    })
     byCapability.set(provider.kindTag, providersForCapability)
   }
 
   for (const providers of byCapability.values()) {
     providers.sort((a, b) => {
       if (a.usageCount !== b.usageCount) return b.usageCount - a.usageCount
+      if (a.serviceIdentity !== b.serviceIdentity)
+        return a.serviceIdentity.localeCompare(b.serviceIdentity)
       return a.serviceKey.localeCompare(b.serviceKey)
     })
   }

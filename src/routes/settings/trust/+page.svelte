@@ -1,6 +1,6 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {loadProfile} from "@welshman/app"
+  import {loadProfile, profilesByPubkey} from "@welshman/app"
   import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import Refresh from "@assets/icons/refresh.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -8,12 +8,15 @@
   import Lock from "@assets/icons/lock.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
+  import InlinePopover from "@lib/components/InlinePopover.svelte"
+  import Link from "@lib/components/Link.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
+  import {displayProfile, displayPubkey} from "@welshman/util"
+  import MetricSourcePicker, {type MetricSourcePickerOption} from "./MetricSourcePicker.svelte"
   import ProviderRecommendationRow from "./ProviderRecommendationRow.svelte"
   import {
     defaultTrustGraphConfig,
-    getTrustGraphMetricSourceLabel,
     getTrustGraphMetricSourceValue,
     hasEnabledTrustGraphRules,
     makeEmptyTrustGraphRule,
@@ -25,7 +28,6 @@
     removeTrustGraphRule,
     saveTrustGraphConfig,
     type TrustGraphConfig,
-    type TrustGraphMetricSourceOption,
     type TrustGraphPreset,
     type TrustGraphRule,
     upsertTrustGraphRule,
@@ -44,6 +46,8 @@
     loadNip85RecommendedUserProviders,
     nip85RecommendedUserProviders,
     nip85RecommendationState,
+    displayNip85ProviderWebsite,
+    normalizeNip85ProviderWebsite,
     parseNip85ProviderTag,
     removeNip85ConfiguredProvider,
     saveUserNip85ProviderConfig,
@@ -84,6 +88,15 @@
     rows: CapabilityRow[]
   }
 
+  type ServiceProviderWebsiteEntry = {
+    serviceIdentity: string
+    website: string
+    websiteLabel: string
+    providerKeys: string[]
+    capabilityCount: number
+    endorsementCount: number
+  }
+
   let providers = $state<Nip85ConfiguredProvider[]>([])
   let dirty = $state(false)
   let saving = $state(false)
@@ -97,6 +110,7 @@
   let customVisibility = $state<Nip85ProviderVisibility>("public")
   let graphConfig = $state<TrustGraphConfig>({...defaultTrustGraphConfig})
   let selectedGraphPreset = $state<TrustGraphPreset | "">("")
+  let showServiceProviderHelp = $state(false)
   let verificationResults = $state<Map<string, Nip85ProviderVerificationResult>>(new Map())
   let verificationSamplePubkeys = $state<string[]>([])
   let verificationState = $state<"idle" | "running" | "done" | "error">("idle")
@@ -122,23 +136,68 @@
     getNip85ConfiguredProvidersByCapability(managedProviders),
   )
 
-  const graphMetricSourceOptions = $derived.by<TrustGraphMetricSourceOption[]>(() => {
-    const options = makeTrustGraphMetricSourceOptions(managedProviders)
+  const graphMetricSourceOptions = $derived.by<MetricSourcePickerOption[]>(() => {
+    const options: MetricSourcePickerOption[] = makeTrustGraphMetricSourceOptions(
+      managedProviders,
+    ).map(option => {
+      if (option.source.type === "basic_wot") {
+        return {
+          ...option,
+          capabilityLabel: "Basic WoT score",
+          providerLabel: "Base social graph",
+          unavailable: false,
+          searchText: "basic wot score base social graph",
+        }
+      }
+
+      const profile = $profilesByPubkey.get(option.source.serviceKey)
+      const providerLabel = displayProfile(profile, displayPubkey(option.source.serviceKey))
+      const capabilityLabel = getNip85CapabilityLabel(option.source.kindTag)
+
+      return {
+        ...option,
+        capabilityLabel,
+        providerLabel,
+        unavailable: false,
+        searchText: `${capabilityLabel} ${providerLabel}`.toLowerCase(),
+      }
+    })
     const byValue = new Map(options.map(option => [option.value, option]))
 
     for (const rule of graphConfig.rules) {
       const value = getTrustGraphMetricSourceValue(rule.source)
 
       if (!byValue.has(value)) {
+        const providerLabel =
+          rule.source.type === "basic_wot"
+            ? "Basic WoT score"
+            : displayProfile(
+                $profilesByPubkey.get(rule.source.serviceKey),
+                displayPubkey(rule.source.serviceKey),
+              )
+        const capabilityLabel =
+          rule.source.type === "basic_wot"
+            ? "Basic WoT score"
+            : getNip85CapabilityLabel(rule.source.kindTag)
+
         byValue.set(value, {
           value,
-          label: `${getTrustGraphMetricSourceLabel(rule.source, managedProviders)} (unavailable)`,
           source: rule.source,
+          capabilityLabel,
+          providerLabel,
+          unavailable: rule.source.type !== "basic_wot",
+          searchText: `${capabilityLabel} ${providerLabel}`.toLowerCase(),
         })
       }
     }
 
-    return Array.from(byValue.values()).sort((a, b) => a.label.localeCompare(b.label))
+    return Array.from(byValue.values()).sort((a, b) => {
+      if (a.capabilityLabel !== b.capabilityLabel) {
+        return a.capabilityLabel.localeCompare(b.capabilityLabel)
+      }
+
+      return a.providerLabel.localeCompare(b.providerLabel)
+    })
   })
 
   const hasGraphAdjustments = $derived.by(() => hasEnabledTrustGraphRules(graphConfig))
@@ -161,6 +220,9 @@
     return "Presets use your selected providers for rank, followers, and report metrics when available."
   })
 
+  const serviceProviderHelperText =
+    "Budabit groups provider keys that share the same website in profile metadata into one service. Endorsed scores may be personalized to the endorser's viewpoint, so a provider-capability pair might reflect the view behind that key. To enforce your own view, visit the provider website and configure there. BudaBit should load your config automatically after setup."
+
   const recommendedProvidersByCapability = $derived.by(() => {
     const byCapability = new Map<string, Nip85RecommendedProvider[]>()
 
@@ -178,11 +240,23 @@
   const recommendedEntryCount = $derived.by(() => recommendedEntries.length)
 
   const recommendedServiceCount = $derived.by(
-    () => new Set(recommendedEntries.map(provider => provider.serviceKey)).size,
+    () =>
+      new Set(
+        recommendedEntries.map(provider =>
+          "serviceIdentity" in provider && provider.serviceIdentity ? provider.serviceIdentity : provider.serviceKey,
+        ),
+      ).size,
   )
 
   const selectedServiceCount = $derived.by(
-    () => new Set(managedProviders.map(provider => provider.serviceKey)).size,
+    () =>
+      new Set(
+        managedProviders.map(provider => {
+          const profile = $profilesByPubkey.get(provider.serviceKey)
+
+          return normalizeNip85ProviderWebsite(profile?.website) || provider.serviceKey
+        }),
+      ).size,
   )
 
   const providerCatalogByServiceKey = $derived.by(() => {
@@ -204,6 +278,92 @@
     }
 
     return providersByServiceKey
+  })
+
+  const serviceProviderWebsiteEntries = $derived.by<ServiceProviderWebsiteEntry[]>(() => {
+    const entries = new Map<
+      string,
+      {
+        website?: string
+        representativeServiceKey: string
+        providerKeys: Set<string>
+        capabilityLabels: Set<string>
+        endorsementCount: number
+        selectedCount: number
+      }
+    >()
+
+    const upsertEntry = (
+      provider: Nip85ConfiguredProvider | Nip85RecommendedProvider,
+      source: "selected" | "recommended",
+    ) => {
+      const website =
+        ("website" in provider && provider.website) ||
+        normalizeNip85ProviderWebsite($profilesByPubkey.get(provider.serviceKey)?.website)
+      const serviceIdentity =
+        ("serviceIdentity" in provider && provider.serviceIdentity) || website || provider.serviceKey
+      const existing =
+        entries.get(serviceIdentity) ||
+        {
+          website: website || undefined,
+          representativeServiceKey: provider.serviceKey,
+          providerKeys: new Set<string>(),
+          capabilityLabels: new Set<string>(),
+          endorsementCount: 0,
+          selectedCount: 0,
+        }
+
+      existing.website = existing.website || website || undefined
+
+      const providerKeys =
+        "providerKeys" in provider && provider.providerKeys?.length > 0
+          ? provider.providerKeys
+          : [provider.serviceKey]
+
+      for (const providerKey of providerKeys) {
+        existing.providerKeys.add(providerKey)
+      }
+
+      existing.capabilityLabels.add(getNip85CapabilityLabel(provider.kindTag))
+
+      if (source === "recommended") {
+        existing.endorsementCount +=
+          "usageCount" in provider && typeof provider.usageCount === "number" ? provider.usageCount : 0
+      } else {
+        existing.selectedCount += 1
+      }
+
+      entries.set(serviceIdentity, existing)
+    }
+
+    for (const provider of recommendedEntries) {
+      upsertEntry(provider, "recommended")
+    }
+
+    for (const provider of managedProviders) {
+      upsertEntry(provider, "selected")
+    }
+
+    return Array.from(entries.entries())
+      .map(([serviceIdentity, entry]) => {
+        if (!entry.website) {
+          return null
+        }
+
+        return {
+          serviceIdentity,
+          website: entry.website,
+          websiteLabel: displayNip85ProviderWebsite(entry.website),
+          providerKeys: Array.from(entry.providerKeys).sort((a, b) => a.localeCompare(b)),
+          capabilityCount: entry.capabilityLabels.size,
+          endorsementCount: entry.endorsementCount,
+        }
+      })
+      .filter((entry): entry is ServiceProviderWebsiteEntry => Boolean(entry))
+      .sort((a, b) => {
+        if (a.endorsementCount !== b.endorsementCount) return b.endorsementCount - a.endorsementCount
+        return a.websiteLabel.localeCompare(b.websiteLabel)
+      })
   })
 
   const capabilityOptions = $derived.by<CapabilityOption[]>(() => {
@@ -483,6 +643,10 @@
     }
 
     if (state.status === "loading" && state.phase === "provider_configs") {
+      if (recommendedEntryCount > 0) {
+        return `Showing ${recommendedEntryCount} provider recommendation${recommendedEntryCount === 1 ? "" : "s"} so far while scanning ${state.relayCount} relays${state.fetchedEvents > 0 ? ` (${state.fetchedEvents} events)` : ""}...`
+      }
+
       if (state.usedCachedRelays) {
         return `Using ${state.relayCount} cached relays to fetch provider configs${state.fetchedEvents > 0 ? ` (${state.fetchedEvents} events)` : ""}...`
       }
@@ -513,6 +677,18 @@
     providers = [...$userNip85ConfiguredProviders]
     graphConfig = normalizeTrustGraphConfig($userTrustGraphConfigValues)
     selectedGraphPreset = $userTrustGraphConfigValues.preset || ""
+  })
+
+  $effect(() => {
+    for (const provider of managedProviders) {
+      loadProfile(provider.serviceKey, [provider.relayHint]).catch(() => undefined)
+    }
+
+    for (const option of graphMetricSourceOptions) {
+      if (option.source.type === "nip85") {
+        loadProfile(option.source.serviceKey).catch(() => undefined)
+      }
+    }
   })
 
   $effect(() => {
@@ -793,12 +969,87 @@
       if people in your WoT use it for multiple capabilities.
     </p>
 
-    {#if unmanagedProvidersCount > 0}
+  {#if unmanagedProvidersCount > 0}
       <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
         Budabit is preserving {unmanagedProvidersCount}
         {unmanagedProvidersCount === 1 ? " non-profile entry" : " non-profile entries"} already
         present in your NIP-85 config.
       </div>
+    {/if}
+  </div>
+
+  <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
+    <div class="flex items-start justify-between gap-3">
+      <div class="flex flex-col gap-2">
+        <strong class="text-base sm:text-lg">Service Provider Websites</strong>
+        <p class="text-sm opacity-75">
+          Aggregated from provider profiles Budabit has already collected from discovered service
+          keys.
+        </p>
+      </div>
+
+      <div class="flex shrink-0 items-center gap-3">
+        <span class={softBadgeNeutral}>{serviceProviderWebsiteEntries.length} discovered</span>
+        <div class="relative shrink-0">
+          <button
+            type="button"
+            class="text-sm text-primary underline-offset-2 hover:underline"
+            onclick={() => (showServiceProviderHelp = !showServiceProviderHelp)}>
+            How this works
+          </button>
+
+          {#if showServiceProviderHelp}
+            <InlinePopover onClose={() => (showServiceProviderHelp = false)} align="right" widthClass="w-80">
+              <div class="flex flex-col gap-3 text-sm">
+                <div class="font-medium">Service grouping and view hints</div>
+                <div class="text-xs leading-relaxed opacity-75">{serviceProviderHelperText}</div>
+              </div>
+            </InlinePopover>
+          {/if}
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-box border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+      Endorsed scores may be personalized to the endorser's viewpoint.
+    </div>
+
+    {#if serviceProviderWebsiteEntries.length > 0}
+      <div class="grid gap-3 lg:grid-cols-2">
+        {#each serviceProviderWebsiteEntries as entry (entry.serviceIdentity)}
+          <div class="rounded-box bg-base-100/40 p-4">
+            <div class="flex flex-col gap-3">
+              <div class="min-w-0">
+                <Link
+                  href={entry.website}
+                  external
+                  class="block truncate text-lg font-medium text-primary underline-offset-2 hover:underline">
+                  {entry.websiteLabel}
+                </Link>
+                <div class="truncate text-sm opacity-65">{entry.website}</div>
+              </div>
+
+              <div class="flex flex-wrap gap-2 text-xs">
+                {#if entry.endorsementCount > 0}
+                  <span class={softBadgeInfo}>{entry.endorsementCount} endorsement{entry.endorsementCount === 1 ? "" : "s"}</span>
+                {/if}
+                <span class={softBadgeNeutral}>{entry.providerKeys.length} key{entry.providerKeys.length === 1 ? "" : "s"}</span>
+                <span class={softBadgeNeutral}>{entry.capabilityCount} capabilit{entry.capabilityCount === 1 ? "y" : "ies"}</span>
+              </div>
+
+              <div class="text-xs opacity-70">
+                To enforce your own view,
+                <Link href={entry.website} external class="text-primary underline-offset-2 hover:underline">
+                  visit the provider website
+                </Link>
+                and configure there. BudaBit should load your config automatically after setup.
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">No provider websites found.</div>
     {/if}
   </div>
 
@@ -860,7 +1111,7 @@
       <div class="flex flex-col gap-3">
         {#each graphConfig.rules as rule (rule.id)}
           <div class="rounded-box bg-base-100/40 p-3">
-            <div class="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]">
+            <div class="grid gap-3 xl:grid-cols-[auto_minmax(0,2.2fr)_minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
               <label class="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -875,21 +1126,16 @@
 
               <label class="flex flex-col gap-2">
                 <span class="text-xs font-medium opacity-70">Metric source</span>
-                <select
-                  class="select select-bordered select-sm"
+                <MetricSourcePicker
                   value={getTrustGraphMetricSourceValue(rule.source)}
-                  onchange={event =>
-                    updateGraphRuleSource(rule.id, (event.currentTarget as HTMLSelectElement).value)}>
-                  {#each graphMetricSourceOptions as option (option.value)}
-                    <option value={option.value}>{option.label}</option>
-                  {/each}
-                </select>
+                  options={graphMetricSourceOptions}
+                  onChange={value => updateGraphRuleSource(rule.id, value)} />
               </label>
 
               <label class="flex flex-col gap-2">
                 <span class="text-xs font-medium opacity-70">Action</span>
                 <select
-                  class="select select-bordered select-sm"
+                  class="select select-bordered select-sm w-full"
                   value={rule.action}
                   onchange={event =>
                     updateGraphRule(rule.id, {
@@ -904,7 +1150,7 @@
               <label class="flex flex-col gap-2">
                 <span class="text-xs font-medium opacity-70">Comparison</span>
                 <select
-                  class="select select-bordered select-sm"
+                  class="select select-bordered select-sm w-full"
                   value={rule.operator}
                   onchange={event =>
                     updateGraphRule(rule.id, {
@@ -920,7 +1166,7 @@
                 <span class="text-xs font-medium opacity-70">Threshold</span>
                 <input
                   type="number"
-                  class="input input-bordered input-sm"
+                  class="input input-bordered input-sm w-full"
                   value={rule.threshold}
                   step="1"
                   onchange={event =>
@@ -946,83 +1192,6 @@
         No graph rules yet. Start with the Balanced preset or add a rule manually.
       </div>
     {/if}
-  </div>
-
-  <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
-    <div class="flex items-center gap-3">
-      <Icon icon={AddCircle} />
-      <strong class="text-base sm:text-lg">Custom Provider</strong>
-    </div>
-    <p class="text-sm opacity-75">
-      Add a provider directly if it is not yet recommended by your web of trust.
-    </p>
-    <div class="grid gap-3 sm:gap-4 md:grid-cols-2">
-      <label class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Known capability</span>
-        <select class="select select-bordered select-sm sm:select-md" bind:value={customKindTag}>
-          {#each suggestedKindTags as kindTag (kindTag)}
-            <option value={kindTag}>{getNip85CapabilityLabel(kindTag)}</option>
-          {/each}
-        </select>
-      </label>
-
-      <label class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Provider pubkey or npub</span>
-        <input
-          class="input input-bordered input-sm sm:input-md"
-          bind:value={customServiceKey}
-          placeholder="npub1... or hex pubkey" />
-      </label>
-
-      <label class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Relay hint</span>
-        <input
-          class="input input-bordered input-sm sm:input-md"
-          bind:value={customRelayHint}
-          placeholder="wss://relay.example.com" />
-      </label>
-
-      <label class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Custom capability override</span>
-        <input
-          class="input input-bordered input-sm sm:input-md"
-          bind:value={customKindTagOverride}
-          placeholder="30382:personalizedPageRank" />
-        <span class="text-xs opacity-60">
-          Optional. Use this if the capability you want is not in the known list yet.
-        </span>
-      </label>
-
-      <div class="flex flex-col gap-2">
-        <span class="text-sm font-medium">Visibility</span>
-        <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <Button
-            type="button"
-            class={customVisibility === "public"
-              ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"
-              : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"}
-            onclick={() => (customVisibility = "public")}>
-            <Icon icon={Global} /> Public
-          </Button>
-          <Button
-            type="button"
-            class={customVisibility === "private"
-              ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"
-              : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"}
-            onclick={() => (customVisibility = "private")}>
-            <Icon icon={Lock} /> Private
-          </Button>
-        </div>
-      </div>
-    </div>
-    <div class="flex justify-end">
-      <Button
-        type="button"
-        class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:w-auto sm:btn-md"
-        onclick={addCustomProvider}>
-        <Icon icon={AddCircle} /> Add Provider
-      </Button>
-    </div>
   </div>
 
   {#if capabilityOptions.length > 0}
@@ -1154,6 +1323,83 @@
       </p>
     </div>
   {/if}
+
+  <div class="card2 bg-alt flex flex-col gap-3 shadow-md sm:gap-4">
+    <div class="flex items-center gap-3">
+      <Icon icon={AddCircle} />
+      <strong class="text-base sm:text-lg">Custom Provider</strong>
+    </div>
+    <p class="text-sm opacity-75">
+      Add a provider directly if it is not yet recommended by your web of trust.
+    </p>
+    <div class="grid gap-3 sm:gap-4 md:grid-cols-2">
+      <label class="flex flex-col gap-2">
+        <span class="text-sm font-medium">Known capability</span>
+        <select class="select select-bordered select-sm sm:select-md" bind:value={customKindTag}>
+          {#each suggestedKindTags as kindTag (kindTag)}
+            <option value={kindTag}>{getNip85CapabilityLabel(kindTag)}</option>
+          {/each}
+        </select>
+      </label>
+
+      <label class="flex flex-col gap-2">
+        <span class="text-sm font-medium">Provider pubkey or npub</span>
+        <input
+          class="input input-bordered input-sm sm:input-md"
+          bind:value={customServiceKey}
+          placeholder="npub1... or hex pubkey" />
+      </label>
+
+      <label class="flex flex-col gap-2">
+        <span class="text-sm font-medium">Relay hint</span>
+        <input
+          class="input input-bordered input-sm sm:input-md"
+          bind:value={customRelayHint}
+          placeholder="wss://relay.example.com" />
+      </label>
+
+      <label class="flex flex-col gap-2">
+        <span class="text-sm font-medium">Custom capability override</span>
+        <input
+          class="input input-bordered input-sm sm:input-md"
+          bind:value={customKindTagOverride}
+          placeholder="30382:personalizedPageRank" />
+        <span class="text-xs opacity-60">
+          Optional. Use this if the capability you want is not in the known list yet.
+        </span>
+      </label>
+
+      <div class="flex flex-col gap-2">
+        <span class="text-sm font-medium">Visibility</span>
+        <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          <Button
+            type="button"
+            class={customVisibility === "public"
+              ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"
+              : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"}
+            onclick={() => (customVisibility = "public")}>
+            <Icon icon={Global} /> Public
+          </Button>
+          <Button
+            type="button"
+            class={customVisibility === "private"
+              ? "btn btn-primary btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"
+              : "btn btn-neutral btn-sm inline-flex items-center justify-center gap-2 sm:btn-md"}
+            onclick={() => (customVisibility = "private")}>
+            <Icon icon={Lock} /> Private
+          </Button>
+        </div>
+      </div>
+    </div>
+    <div class="flex justify-end">
+      <Button
+        type="button"
+        class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:w-auto sm:btn-md"
+        onclick={addCustomProvider}>
+        <Icon icon={AddCircle} /> Add Provider
+      </Button>
+    </div>
+  </div>
 
   <div class="mt-2 flex flex-col-reverse gap-2 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
     <Button
