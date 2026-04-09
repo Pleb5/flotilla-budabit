@@ -163,7 +163,14 @@
           href="/settings"
           prefix="/settings"
           class="tooltip-right">
-          <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
+          {#if $userProfile?.picture}
+            <img
+              alt="Settings"
+              src={$userProfile.picture}
+              class="h-7 w-7 min-h-7 min-w-7 rounded-full object-cover" />
+          {:else}
+            <ImageIcon alt="Settings" src={UserRounded} size={7} class="rounded-full" />
+          {/if}
         </PrimaryNavItem>
       </div>
       <div class="hidden lg:block">
@@ -172,7 +179,14 @@
           href="/settings/profile"
           prefix="/settings"
           class="tooltip-right">
-          <ImageIcon alt="Settings" src={$userProfile?.picture || UserRounded} class="rounded-full" />
+          {#if $userProfile?.picture}
+            <img
+              alt="Settings"
+              src={$userProfile.picture}
+              class="h-7 w-7 min-h-7 min-w-7 rounded-full object-cover" />
+          {:else}
+            <ImageIcon alt="Settings" src={UserRounded} size={7} class="rounded-full" />
+          {/if}
         </PrimaryNavItem>
       </div>
       <PrimaryNavItem
@@ -218,35 +232,41 @@
 </div>
 <div
   class="bottom-nav hide-on-keyboard border-top bottom-sai fixed left-0 right-0 z-nav h-14 border border-base-200 bg-base-100 md:hidden">
-  <div class="content-padding-x content-sizing flex justify-between px-2">
-    <div class="flex gap-2 sm:gap-6">
-      <PrimaryNavItem title="Home" href="/home">
-        <ImageIcon alt="Home" src={HomeSmile} size={7} />
+  <div class="content-padding-x content-sizing flex items-center gap-1 px-1">
+    <PrimaryNavItem compact title="Home" href="/home">
+      <ImageIcon alt="Home" src={HomeSmile} size={5} />
+    </PrimaryNavItem>
+    <PrimaryNavItem
+      compact
+      title="Messages"
+      onclick={openChat}
+      notification={$notifications.has("/chat")}>
+      <ImageIcon alt="Messages" src={Letter} size={5} />
+    </PrimaryNavItem>
+    <PrimaryNavItem
+      compact
+      title="Git"
+      onclick={openGit}
+      notification={gitNotification}>
+      <ImageIcon alt="Git" src={Git} size={5} />
+    </PrimaryNavItem>
+    <PrimaryNavItem compact title="Search" href="/people">
+      <ImageIcon alt="Search" src={Magnifier} size={5} />
+    </PrimaryNavItem>
+    {#if PLATFORM_RELAYS.length !== 1}
+      <PrimaryNavItem compact title="Spaces" href="/spaces" notification={anySpaceNotifications}>
+        <ImageIcon alt="Spaces" src={SettingsMinimalistic} size={5} />
       </PrimaryNavItem>
-      <PrimaryNavItem
-        title="Messages"
-        onclick={openChat}
-        notification={$notifications.has("/chat")}>
-        <ImageIcon alt="Messages" src={Letter} size={7} />
-      </PrimaryNavItem>
-      <PrimaryNavItem
-        title="Git"
-        onclick={openGit}
-        notification={gitNotification}>
-        <ImageIcon alt="Git" src={Git} size={7} />
-      </PrimaryNavItem>
-      {#if PLATFORM_RELAYS.length !== 1}
-        <PrimaryNavItem title="Spaces" href="/spaces" notification={anySpaceNotifications}>
-          <ImageIcon alt="Spaces" src={SettingsMinimalistic} size={7} />
-        </PrimaryNavItem>
+    {/if}
+    <PrimaryNavItem compact title="Settings" onclick={showSettingsMenu}>
+      {#if $userProfile?.picture}
+        <img
+          alt="Settings"
+          src={$userProfile.picture}
+          class="h-9 w-9 min-h-9 min-w-9 rounded-full object-cover" />
+      {:else}
+        <ImageIcon alt="Settings" src={Settings} size={9} class="rounded-full" />
       {/if}
-    </div>
-    <PrimaryNavItem title="Settings" onclick={showSettingsMenu}>
-      <ImageIcon
-        alt="Settings"
-        src={$userProfile?.picture || Settings}
-        size={7}
-        class="rounded-full" />
     </PrimaryNavItem>
   </div>
 </div>
