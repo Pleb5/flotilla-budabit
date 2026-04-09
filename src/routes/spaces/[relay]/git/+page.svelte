@@ -2194,6 +2194,16 @@
                 placeholder={
                   activeTab === "snippets" ? "Search snippets..." : "Search repo, owner, npub, or naddr"
                 } />
+              {#if searchQuery}
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-circle btn-xs h-7 min-h-7 w-7 shrink-0"
+                  aria-label="Clear search"
+                  title="Clear search"
+                  onclick={() => (searchQuery = "")}>
+                  <X class="h-3.5 w-3.5" />
+                </button>
+              {/if}
             </label>
             {#if activeTab !== "snippets"}
               {#if repoDiscoveryStatus.loading}
