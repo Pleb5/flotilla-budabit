@@ -1,10 +1,5 @@
 import {test, expect} from "@playwright/test"
-import {
-  TestSeeder,
-  seedTestRepo,
-  useCleanState,
-  encodeRepoNaddr,
-} from "../helpers"
+import {TestSeeder, seedTestRepo, useCleanState, encodeRepoNaddr} from "../helpers"
 import {RepoDetailPage} from "../pages"
 import {TEST_PUBKEYS} from "../fixtures"
 
@@ -42,7 +37,7 @@ test.describe("Issue Browse & Filter", () => {
       const repos = seeder.getRepos()
       expect(repos.length).toBeGreaterThan(0)
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || "browse-test-repo"
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || "browse-test-repo"
 
       // Navigate to the repository issues tab
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
@@ -55,9 +50,10 @@ test.describe("Issue Browse & Filter", () => {
       await page.waitForTimeout(1000)
 
       // Verify issues are displayed
-      const issueList = page.locator(
-        '[data-testid="issue-list"], [class*="issue-list"], [class*="IssueList"], ul, div'
-      ).filter({has: page.locator('a[href*="issue"], [class*="issue"]')}).first()
+      const issueList = page
+        .locator('[data-testid="issue-list"], [class*="issue-list"], [class*="IssueList"], ul, div')
+        .filter({has: page.locator('a[href*="issue"], [class*="issue"]')})
+        .first()
 
       // Wait for issues to load
       await page.waitForTimeout(2000)
@@ -79,7 +75,7 @@ test.describe("Issue Browse & Filter", () => {
       // Wait for at least one issue to be visible
       let foundIssue = false
       for (const title of possibleTitles) {
-        const issueTitle = page.getByRole('link', { name: title }).first()
+        const issueTitle = page.getByRole("link", {name: title}).first()
         if (await issueTitle.isVisible({timeout: 2000}).catch(() => false)) {
           foundIssue = true
           break
@@ -91,14 +87,14 @@ test.describe("Issue Browse & Filter", () => {
       // Count visible issue links (links that point to issues/{id})
       // Note: href may be relative (issues/...) or absolute (/spaces/.../issues/...)
       const issueLinks = page.locator('a[href*="issues/"]').filter({
-        hasNot: page.locator('[href$="/issues"]') // Exclude links ending with just "/issues"
+        hasNot: page.locator('[href$="/issues"]'), // Exclude links ending with just "/issues"
       })
       const issueCount = await issueLinks.count()
       // We expect at least some issues to be visible (may be filtered)
       expect(issueCount).toBeGreaterThanOrEqual(1)
 
       // At least check that the page has some content indicating issues
-      const issueContent = page.locator('text=/bug|feature|enhancement|issue/i').first()
+      const issueContent = page.locator("text=/bug|feature|enhancement|issue/i").first()
       await expect(issueContent).toBeVisible({timeout: 10000})
     })
 
@@ -112,7 +108,7 @@ test.describe("Issue Browse & Filter", () => {
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -121,18 +117,50 @@ test.describe("Issue Browse & Filter", () => {
       await page.waitForTimeout(1000)
 
       // Check for empty state or "no issues" message
-      const emptyState = page.locator(
-        'text=/no issues|no results|empty|nothing/i, [class*="empty"], [data-testid="empty-state"]'
-      ).first()
+      const emptyState = page
+        .locator(
+          'text=/no issues|no results|empty|nothing/i, [class*="empty"], [data-testid="empty-state"]',
+        )
+        .first()
 
       // Or check for "New Issue" button being prominent (indicating empty state)
-      const newIssueButton = page.locator("button").filter({hasText: /new issue/i}).first()
+      const newIssueButton = page
+        .locator("button")
+        .filter({hasText: /new issue/i})
+        .first()
 
       // Either empty state is shown or we can create a new issue
       const hasEmptyState = await emptyState.isVisible({timeout: 5000}).catch(() => false)
       const hasNewButton = await newIssueButton.isVisible({timeout: 5000}).catch(() => false)
 
       expect(hasEmptyState || hasNewButton).toBeTruthy()
+    })
+
+    test("clicking issue card neutral area navigates to detail page", async ({page}) => {
+      const seeder = await seedTestRepo(page, {
+        name: "neutral-issue-click-repo",
+        description: "Repository for issue neutral click test",
+        withIssues: 3,
+      })
+
+      const repos = seeder.getRepos()
+      const repo = repos[0]
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || "neutral-issue-click-repo"
+
+      const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
+      const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
+      await repoDetail.goto()
+      await repoDetail.goToIssues()
+
+      const issueCard = page.locator("[data-issue-id]").first()
+      await expect(issueCard).toBeVisible({timeout: 10000})
+
+      const issueId = await issueCard.getAttribute("data-issue-id")
+      expect(issueId).toBeTruthy()
+
+      await issueCard.dispatchEvent("click")
+
+      await page.waitForURL(new RegExp(`/issues/${issueId}$`), {timeout: 10000})
     })
   })
 
@@ -148,7 +176,7 @@ test.describe("Issue Browse & Filter", () => {
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -157,9 +185,11 @@ test.describe("Issue Browse & Filter", () => {
       await page.waitForTimeout(1000)
 
       // Look for status filter controls
-      const openFilter = page.locator(
-        'button:has-text("Open"), [role="tab"]:has-text("Open"), a:has-text("Open"), [data-testid="filter-open"]'
-      ).first()
+      const openFilter = page
+        .locator(
+          'button:has-text("Open"), [role="tab"]:has-text("Open"), a:has-text("Open"), [data-testid="filter-open"]',
+        )
+        .first()
 
       if (await openFilter.isVisible({timeout: 5000}).catch(() => false)) {
         await openFilter.click()
@@ -168,11 +198,12 @@ test.describe("Issue Browse & Filter", () => {
         // Verify that only open issues are shown
         // Check for open status indicators (use separate locators to avoid CSS parsing issues)
         const openIndicatorsCss = page.locator('[class*="open"], [data-status="open"]')
-        const openIndicatorsText = page.locator('text=/open/i')
+        const openIndicatorsText = page.locator("text=/open/i")
 
         // At minimum, we should see some indication of filtering
         const currentUrl = page.url()
-        const hasFilterInUrl = currentUrl.includes('status=open') || currentUrl.includes('filter=open')
+        const hasFilterInUrl =
+          currentUrl.includes("status=open") || currentUrl.includes("filter=open")
 
         // Either URL reflects filter or page content shows open issues
         const openCountCss = await openIndicatorsCss.count()
@@ -190,7 +221,7 @@ test.describe("Issue Browse & Filter", () => {
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -199,9 +230,11 @@ test.describe("Issue Browse & Filter", () => {
       await page.waitForTimeout(1000)
 
       // Look for closed filter
-      const closedFilter = page.locator(
-        'button:has-text("Closed"), [role="tab"]:has-text("Closed"), a:has-text("Closed"), [data-testid="filter-closed"]'
-      ).first()
+      const closedFilter = page
+        .locator(
+          'button:has-text("Closed"), [role="tab"]:has-text("Closed"), a:has-text("Closed"), [data-testid="filter-closed"]',
+        )
+        .first()
 
       if (await closedFilter.isVisible({timeout: 5000}).catch(() => false)) {
         await closedFilter.click()
@@ -209,10 +242,11 @@ test.describe("Issue Browse & Filter", () => {
 
         // Verify closed issues are shown (use separate locators to avoid CSS parsing issues)
         const closedIndicatorsCss = page.locator('[class*="closed"], [data-status="closed"]')
-        const closedIndicatorsText = page.locator('text=/closed/i')
+        const closedIndicatorsText = page.locator("text=/closed/i")
 
         const currentUrl = page.url()
-        const hasFilterInUrl = currentUrl.includes('status=closed') || currentUrl.includes('filter=closed')
+        const hasFilterInUrl =
+          currentUrl.includes("status=closed") || currentUrl.includes("filter=closed")
 
         const closedCountCss = await closedIndicatorsCss.count()
         const closedCountText = await closedIndicatorsText.count()
@@ -229,7 +263,7 @@ test.describe("Issue Browse & Filter", () => {
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -238,9 +272,11 @@ test.describe("Issue Browse & Filter", () => {
       await page.waitForTimeout(1000)
 
       // Look for "All" filter
-      const allFilter = page.locator(
-        'button:has-text("All"), [role="tab"]:has-text("All"), a:has-text("All"), [data-testid="filter-all"]'
-      ).first()
+      const allFilter = page
+        .locator(
+          'button:has-text("All"), [role="tab"]:has-text("All"), a:has-text("All"), [data-testid="filter-all"]',
+        )
+        .first()
 
       if (await allFilter.isVisible({timeout: 5000}).catch(() => false)) {
         await allFilter.click()
@@ -248,7 +284,7 @@ test.describe("Issue Browse & Filter", () => {
 
         // When "All" is selected, we should see issues. Count format varies (e.g. "6 issues", tab badges).
         await page.waitForTimeout(1500) // Allow list to populate
-        const issueCountText = page.locator('text=/\\d+\\s*(issues?|total)/i').first()
+        const issueCountText = page.locator("text=/\\d+\\s*(issues?|total)/i").first()
         const issueCards = page.locator('a[href*="/issues/"]:not([target="_blank"])')
         if (await issueCountText.isVisible({timeout: 3000}).catch(() => false)) {
           const countText = await issueCountText.textContent()
@@ -273,7 +309,7 @@ test.describe("Issue Browse & Filter", () => {
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -283,24 +319,23 @@ test.describe("Issue Browse & Filter", () => {
 
       // Look for count badges or tabs with counts
       // e.g., "Open (4)" or "4 Open"
-      const openCountBadge = page.locator(
-        'text=/open.*\\(\\d+\\)|\\d+\\s*open/i'
-      ).first()
+      const openCountBadge = page.locator("text=/open.*\\(\\d+\\)|\\d+\\s*open/i").first()
 
-      const closedCountBadge = page.locator(
-        'text=/closed.*\\(\\d+\\)|\\d+\\s*closed/i'
-      ).first()
+      const closedCountBadge = page.locator("text=/closed.*\\(\\d+\\)|\\d+\\s*closed/i").first()
 
       // At least verify the issues tab is active and shows content
-      const issuesTabActive = page.locator(
-        'a[href*="issues"][class*="active"], [data-state="active"]:has-text("Issues")'
-      ).first()
+      const issuesTabActive = page
+        .locator('a[href*="issues"][class*="active"], [data-state="active"]:has-text("Issues")')
+        .first()
 
-      const hasIssueCounts = await openCountBadge.isVisible({timeout: 5000}).catch(() => false) ||
-        await closedCountBadge.isVisible({timeout: 5000}).catch(() => false)
+      const hasIssueCounts =
+        (await openCountBadge.isVisible({timeout: 5000}).catch(() => false)) ||
+        (await closedCountBadge.isVisible({timeout: 5000}).catch(() => false))
 
       // Either counts are shown or tab is active with issues content
-      expect(hasIssueCounts || await issuesTabActive.isVisible({timeout: 5000}).catch(() => false)).toBeTruthy()
+      expect(
+        hasIssueCounts || (await issuesTabActive.isVisible({timeout: 5000}).catch(() => false)),
+      ).toBeTruthy()
     })
   })
 
@@ -355,9 +390,10 @@ An error message appears and settings are not saved.
       await page.waitForTimeout(1000)
 
       // Click on an issue to view details
-      const issueLink = page.locator(
-        'a[href*="issue"], [data-testid*="issue"], [class*="issue"]'
-      ).filter({has: page.locator('text=/bug|feature|enhancement/i')}).first()
+      const issueLink = page
+        .locator('a[href*="issue"], [data-testid*="issue"], [class*="issue"]')
+        .filter({has: page.locator("text=/bug|feature|enhancement/i")})
+        .first()
 
       if (await issueLink.isVisible({timeout: 5000}).catch(() => false)) {
         await issueLink.click()
@@ -365,15 +401,17 @@ An error message appears and settings are not saved.
 
         // Verify issue detail content is displayed
         // Should see markdown sections
-        const descriptionSection = page.locator(
-          'text=/description|steps to reproduce|expected|actual/i'
-        ).first()
+        const descriptionSection = page
+          .locator("text=/description|steps to reproduce|expected|actual/i")
+          .first()
 
-        const hasDetailContent = await descriptionSection.isVisible({timeout: 5000}).catch(() => false)
+        const hasDetailContent = await descriptionSection
+          .isVisible({timeout: 5000})
+          .catch(() => false)
 
         // Or at least verify we're on an issue detail page
         const currentUrl = page.url()
-        const isOnIssuePage = currentUrl.includes('issue')
+        const isOnIssuePage = currentUrl.includes("issue")
 
         expect(hasDetailContent || isOnIssuePage).toBeTruthy()
       }
@@ -388,7 +426,7 @@ An error message appears and settings are not saved.
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -397,42 +435,45 @@ An error message appears and settings are not saved.
       await page.waitForTimeout(1000)
 
       // Click on first issue
-      const issueLink = page.locator(
-        'a[href*="issue"], [data-testid*="issue-item"], [class*="issue"]'
-      ).first()
+      const issueLink = page
+        .locator('a[href*="issue"], [data-testid*="issue-item"], [class*="issue"]')
+        .first()
 
       if (await issueLink.isVisible({timeout: 5000}).catch(() => false)) {
         await issueLink.click()
         await page.waitForTimeout(1000)
 
         // Look for metadata sections
-        const metadataSection = page.locator(
-          '[class*="metadata"], [class*="sidebar"], [class*="details"], aside'
-        ).first()
+        const metadataSection = page
+          .locator('[class*="metadata"], [class*="sidebar"], [class*="details"], aside')
+          .first()
 
         // Check for labels display
-        const labelsSection = page.locator(
-          '[class*="label"], [data-testid="labels"], text=/labels?:/i'
-        ).first()
+        const labelsSection = page
+          .locator('[class*="label"], [data-testid="labels"], text=/labels?:/i')
+          .first()
 
         // Check for assignee display
-        const assigneeSection = page.locator(
-          '[class*="assignee"], [data-testid="assignee"], text=/assignee|assigned/i'
-        ).first()
+        const assigneeSection = page
+          .locator('[class*="assignee"], [data-testid="assignee"], text=/assignee|assigned/i')
+          .first()
 
         // Check for author display
-        const authorSection = page.locator(
-          '[class*="author"], [data-testid="author"], text=/author|created by|opened by/i'
-        ).first()
+        const authorSection = page
+          .locator('[class*="author"], [data-testid="author"], text=/author|created by|opened by/i')
+          .first()
 
         // Verify at least some metadata is visible
-        const hasMetadata = await metadataSection.isVisible({timeout: 3000}).catch(() => false) ||
-          await labelsSection.isVisible({timeout: 3000}).catch(() => false) ||
-          await assigneeSection.isVisible({timeout: 3000}).catch(() => false) ||
-          await authorSection.isVisible({timeout: 3000}).catch(() => false)
+        const hasMetadata =
+          (await metadataSection.isVisible({timeout: 3000}).catch(() => false)) ||
+          (await labelsSection.isVisible({timeout: 3000}).catch(() => false)) ||
+          (await assigneeSection.isVisible({timeout: 3000}).catch(() => false)) ||
+          (await authorSection.isVisible({timeout: 3000}).catch(() => false))
 
         // At minimum, the issue content should be visible
-        const issueContent = page.locator('[class*="content"], [class*="body"], main, article').first()
+        const issueContent = page
+          .locator('[class*="content"], [class*="body"], main, article')
+          .first()
         const hasContent = await issueContent.isVisible({timeout: 5000}).catch(() => false)
 
         expect(hasMetadata || hasContent).toBeTruthy()
@@ -449,7 +490,7 @@ An error message appears and settings are not saved.
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
       const repoAddress = `30617:${repo.pubkey}:${repoIdentifier}`
 
       // Seed issue with comments
@@ -470,28 +511,30 @@ An error message appears and settings are not saved.
       await page.waitForTimeout(1000)
 
       // Click on the issue
-      const issueLink = page.locator(
-        'a[href*="issue"], [data-testid*="issue"]'
-      ).first()
+      const issueLink = page.locator('a[href*="issue"], [data-testid*="issue"]').first()
 
       if (await issueLink.isVisible({timeout: 5000}).catch(() => false)) {
         await issueLink.click()
         await page.waitForTimeout(1000)
 
         // Look for comments section
-        const commentsSection = page.locator(
-          '[class*="comment"], [data-testid="comments"], text=/comment|discussion|reply/i'
-        ).first()
+        const commentsSection = page
+          .locator('[class*="comment"], [data-testid="comments"], text=/comment|discussion|reply/i')
+          .first()
 
         const hasComments = await commentsSection.isVisible({timeout: 5000}).catch(() => false)
 
         // Comments section should be present (even if empty in some cases)
         // Or there should be a way to add comments
-        const addCommentButton = page.locator(
-          'button:has-text("Comment"), button:has-text("Reply"), textarea[placeholder*="comment" i]'
-        ).first()
+        const addCommentButton = page
+          .locator(
+            'button:has-text("Comment"), button:has-text("Reply"), textarea[placeholder*="comment" i]',
+          )
+          .first()
 
-        expect(hasComments || await addCommentButton.isVisible({timeout: 3000}).catch(() => false)).toBeTruthy()
+        expect(
+          hasComments || (await addCommentButton.isVisible({timeout: 3000}).catch(() => false)),
+        ).toBeTruthy()
       }
     })
   })
@@ -536,7 +579,7 @@ An error message appears and settings are not saved.
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -545,18 +588,22 @@ An error message appears and settings are not saved.
       await page.waitForTimeout(1000)
 
       // Look for label filter dropdown or controls
-      const labelFilter = page.locator(
-        '[data-testid="label-filter"], select[name*="label"], button:has-text("Label"), [class*="filter"]:has-text("Label")'
-      ).first()
+      const labelFilter = page
+        .locator(
+          '[data-testid="label-filter"], select[name*="label"], button:has-text("Label"), [class*="filter"]:has-text("Label")',
+        )
+        .first()
 
       if (await labelFilter.isVisible({timeout: 5000}).catch(() => false)) {
         await labelFilter.click()
         await page.waitForTimeout(300)
 
         // Try to select a priority label
-        const priorityOption = page.locator(
-          'option:has-text("priority"), [role="option"]:has-text("priority"), li:has-text("priority")'
-        ).first()
+        const priorityOption = page
+          .locator(
+            'option:has-text("priority"), [role="option"]:has-text("priority"), li:has-text("priority")',
+          )
+          .first()
 
         if (await priorityOption.isVisible({timeout: 3000}).catch(() => false)) {
           await priorityOption.click()
@@ -564,16 +611,16 @@ An error message appears and settings are not saved.
 
           // Verify filter is applied
           const currentUrl = page.url()
-          const hasLabelFilter = currentUrl.includes('label=') || currentUrl.includes('filter=')
+          const hasLabelFilter = currentUrl.includes("label=") || currentUrl.includes("filter=")
 
           expect(hasLabelFilter || true).toBeTruthy() // Graceful test
         }
       }
 
       // Alternative: Click on a label badge directly
-      const labelBadge = page.locator(
-        '[class*="label"], [class*="tag"], span:has-text("priority")'
-      ).first()
+      const labelBadge = page
+        .locator('[class*="label"], [class*="tag"], span:has-text("priority")')
+        .first()
 
       if (await labelBadge.isVisible({timeout: 3000}).catch(() => false)) {
         await labelBadge.click()
@@ -624,7 +671,7 @@ An error message appears and settings are not saved.
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -633,9 +680,11 @@ An error message appears and settings are not saved.
       await page.waitForTimeout(1000)
 
       // Look for bug label to filter by
-      const bugLabel = page.locator(
-        '[class*="label"]:has-text("bug"), [class*="tag"]:has-text("bug"), span:has-text("bug")'
-      ).first()
+      const bugLabel = page
+        .locator(
+          '[class*="label"]:has-text("bug"), [class*="tag"]:has-text("bug"), span:has-text("bug")',
+        )
+        .first()
 
       if (await bugLabel.isVisible({timeout: 5000}).catch(() => false)) {
         await bugLabel.click()
@@ -651,9 +700,9 @@ An error message appears and settings are not saved.
       }
 
       // Try enhancement filter
-      const enhancementLabel = page.locator(
-        '[class*="label"]:has-text("enhancement"), [class*="tag"]:has-text("feature")'
-      ).first()
+      const enhancementLabel = page
+        .locator('[class*="label"]:has-text("enhancement"), [class*="tag"]:has-text("feature")')
+        .first()
 
       if (await enhancementLabel.isVisible({timeout: 3000}).catch(() => false)) {
         await enhancementLabel.click()
@@ -701,7 +750,7 @@ An error message appears and settings are not saved.
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -710,18 +759,18 @@ An error message appears and settings are not saved.
       await page.waitForTimeout(1000)
 
       // Look for assignee filter
-      const assigneeFilter = page.locator(
-        '[data-testid="assignee-filter"], select[name*="assignee"], button:has-text("Assignee"), [class*="filter"]:has-text("Assignee")'
-      ).first()
+      const assigneeFilter = page
+        .locator(
+          '[data-testid="assignee-filter"], select[name*="assignee"], button:has-text("Assignee"), [class*="filter"]:has-text("Assignee")',
+        )
+        .first()
 
       if (await assigneeFilter.isVisible({timeout: 5000}).catch(() => false)) {
         await assigneeFilter.click()
         await page.waitForTimeout(300)
 
         // Try to select an assignee
-        const assigneeOption = page.locator(
-          '[role="option"], li[role="option"], option'
-        ).first()
+        const assigneeOption = page.locator('[role="option"], li[role="option"], option').first()
 
         if (await assigneeOption.isVisible({timeout: 3000}).catch(() => false)) {
           await assigneeOption.click()
@@ -729,7 +778,8 @@ An error message appears and settings are not saved.
 
           // Verify filter is applied
           const currentUrl = page.url()
-          const hasAssigneeFilter = currentUrl.includes('assignee=') || currentUrl.includes('filter=')
+          const hasAssigneeFilter =
+            currentUrl.includes("assignee=") || currentUrl.includes("filter=")
 
           // Graceful assertion - filtering may work differently
           expect(hasAssigneeFilter || true).toBeTruthy()
@@ -737,9 +787,9 @@ An error message appears and settings are not saved.
       }
 
       // Alternative: Click on an avatar or user name to filter
-      const userAvatar = page.locator(
-        '[class*="avatar"], [class*="user"], img[alt*="avatar"]'
-      ).first()
+      const userAvatar = page
+        .locator('[class*="avatar"], [class*="user"], img[alt*="avatar"]')
+        .first()
 
       if (await userAvatar.isVisible({timeout: 3000}).catch(() => false)) {
         // Verify avatars are displayed (indicating assignee info is shown)
@@ -785,7 +835,7 @@ An error message appears and settings are not saved.
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -794,9 +844,9 @@ An error message appears and settings are not saved.
       await page.waitForTimeout(1000)
 
       // Apply status filter first
-      const openFilter = page.locator(
-        'button:has-text("Open"), [role="tab"]:has-text("Open")'
-      ).first()
+      const openFilter = page
+        .locator('button:has-text("Open"), [role="tab"]:has-text("Open")')
+        .first()
 
       if (await openFilter.isVisible({timeout: 5000}).catch(() => false)) {
         await openFilter.click()
@@ -804,9 +854,9 @@ An error message appears and settings are not saved.
       }
 
       // Then apply label filter
-      const bugLabel = page.locator(
-        '[class*="label"]:has-text("bug"), button:has-text("bug")'
-      ).first()
+      const bugLabel = page
+        .locator('[class*="label"]:has-text("bug"), button:has-text("bug")')
+        .first()
 
       if (await bugLabel.isVisible({timeout: 3000}).catch(() => false)) {
         await bugLabel.click()
@@ -823,7 +873,7 @@ An error message appears and settings are not saved.
       // Verify filter state is preserved
       const currentUrl = page.url()
       // URL might contain filter params
-      const hasFiltersInUrl = currentUrl.includes('status=') || currentUrl.includes('label=')
+      const hasFiltersInUrl = currentUrl.includes("status=") || currentUrl.includes("label=")
 
       // Filter state should be somehow indicated
       expect(hasFiltersInUrl || true).toBeTruthy()
@@ -838,7 +888,7 @@ An error message appears and settings are not saved.
 
       const repos = seeder.getRepos()
       const repo = repos[0]
-      const repoIdentifier = repo.tags.find((t) => t[0] === "d")?.[1] || ""
+      const repoIdentifier = repo.tags.find(t => t[0] === "d")?.[1] || ""
 
       const naddr = encodeRepoNaddr(repo.pubkey, repoIdentifier)
       const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, naddr)
@@ -851,18 +901,20 @@ An error message appears and settings are not saved.
       const initialCount = await initialIssues.count()
 
       // Apply a filter
-      const closedFilter = page.locator(
-        'button:has-text("Closed"), [role="tab"]:has-text("Closed")'
-      ).first()
+      const closedFilter = page
+        .locator('button:has-text("Closed"), [role="tab"]:has-text("Closed")')
+        .first()
 
       if (await closedFilter.isVisible({timeout: 5000}).catch(() => false)) {
         await closedFilter.click()
         await page.waitForTimeout(500)
 
         // Look for clear/reset filter button
-        const clearButton = page.locator(
-          'button:has-text("Clear"), button:has-text("Reset"), button:has-text("All"), [data-testid="clear-filters"]'
-        ).first()
+        const clearButton = page
+          .locator(
+            'button:has-text("Clear"), button:has-text("Reset"), button:has-text("All"), [data-testid="clear-filters"]',
+          )
+          .first()
 
         if (await clearButton.isVisible({timeout: 3000}).catch(() => false)) {
           await clearButton.click()
