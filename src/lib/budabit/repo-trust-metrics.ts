@@ -40,6 +40,7 @@ export type RepoTrustMetrics = {
   trustedCollaborators: number
   trustedAuthors: number
   trustedMaintainers: number
+  trustedTargetBranches: string[]
   byRootId: Map<string, RepoTrustRootMetric>
   topActors: RepoTrustActorMetric[]
   error?: string
@@ -64,6 +65,7 @@ export const defaultRepoTrustMetrics: RepoTrustMetrics = {
   trustedCollaborators: 0,
   trustedAuthors: 0,
   trustedMaintainers: 0,
+  trustedTargetBranches: [],
   byRootId: new Map(),
   topActors: [],
 }
@@ -75,6 +77,9 @@ const getStatusRootId = (status: Pick<StatusEvent, "tags">) =>
 
 const getPullRequestRepoAddress = (pullRequest: Pick<PullRequestEvent, "tags">) =>
   getTagValue("a", pullRequest.tags) || ""
+
+const getPullRequestTargetBranch = (pullRequest: Pick<PullRequestEvent, "tags">) =>
+  getTagValue("branch-name", pullRequest.tags) || ""
 
 const getRepoOwner = (repoAddress: string) => repoAddress.split(":")[1] || ""
 
@@ -157,6 +162,7 @@ export const buildRepoTrustMetrics = ({
   const trustedAuthors = new Set<string>()
   const trustedMaintainers = new Set<string>()
   const trustedCollaborators = new Set<string>()
+  const trustedTargetBranches = new Set<string>()
   const actorMetrics = new Map<string, RepoTrustActorMetric>()
   const statusesByRoot = groupStatusesByRoot(appliedStatuses)
 
@@ -170,6 +176,7 @@ export const buildRepoTrustMetrics = ({
       statusesByRoot.get(pullRequest.id) || [],
       effectiveMaintainersByRepoAddress,
     )
+    const targetBranch = getPullRequestTargetBranch(pullRequest)
     const authorScore = trustGraph.scores.get(pullRequest.pubkey) || 0
     const maintainerScore = latestStatus ? trustGraph.scores.get(latestStatus.pubkey) || 0 : 0
     const trustedActorCount = new Set(
@@ -197,6 +204,9 @@ export const buildRepoTrustMetrics = ({
         trustedMaintainerMerges += 1
         trustedMaintainers.add(latestStatus.pubkey)
         trustedCollaborators.add(latestStatus.pubkey)
+        if (targetBranch) {
+          trustedTargetBranches.add(targetBranch)
+        }
         addActorMetric(actorMetrics, {
           pubkey: latestStatus.pubkey,
           trustScore: maintainerScore,
@@ -229,6 +239,7 @@ export const buildRepoTrustMetrics = ({
     trustedCollaborators: trustedCollaborators.size,
     trustedAuthors: trustedAuthors.size,
     trustedMaintainers: trustedMaintainers.size,
+    trustedTargetBranches: Array.from(trustedTargetBranches).sort((a, b) => a.localeCompare(b)),
     byRootId,
     topActors: Array.from(actorMetrics.values()).sort((a, b) => {
       if (a.totalInteractions !== b.totalInteractions)

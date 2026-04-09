@@ -125,6 +125,7 @@
   const EFFECTIVE_ADDRESS_LOAD_DEBOUNCE_MS = 200
   const EFFECTIVE_ADDRESS_LOAD_CHUNK_SIZE = 50
   const FORK_PUBLISH_TIMEOUT_MS = 20000
+  const FORK_BRANCH_FILTER_THRESHOLD = 20
   const ADDRESS_DERIVE_FILTER_CHUNK_SIZE = 50
   const COMMENT_DERIVE_FILTER_CHUNK_SIZE = 100
   const SCOPED_DERIVE_THROTTLE_MS = 120
@@ -1192,6 +1193,11 @@
     pullRequests: pullRequestsStore,
     appliedStatuses: appliedStatusEventsStore,
   })
+  const forkTrustedBranchNames = $derived.by(() =>
+    Array.from(
+      new Set(($repoTrustMetricsStore?.trustedTargetBranches || []).map(branch => branch.trim()).filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b)),
+  )
 
   const DELETE_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
   const DELETE_SINCE_BUFFER_SECONDS = 60
@@ -2381,27 +2387,37 @@
       }
     }
 
-      pushModal(ForkRepoDialog, {
-        repo: repoClass,
-        pubkey: $pubkey || "",
+    pushModal(ForkRepoDialog, {
+      repo: repoClass,
+      pubkey: $pubkey || "",
+      branchCopyFilter:
+        forkTrustedBranchNames.length > 0
+          ? {
+              branchNames: forkTrustedBranchNames,
+              label: "Copy only branches with trusted maintainer merges",
+              description:
+                "For repositories with many branches, limit the fork to the default branch plus branches that have accepted merges from trusted maintainers in your active web of trust.",
+              minBranchCount: FORK_BRANCH_FILTER_THRESHOLD,
+            }
+          : undefined,
       workerApi,
       workerInstance,
       onPublishEvent: async (event: any) => {
         const taggedRelays = getEventRelayTargets(event)
-          const thunk = await publishRepoEventWithRelayPolicy(
-            event,
-            taggedRelays.length > 0 ? taggedRelays : defaultRelays,
+        const thunk = await publishRepoEventWithRelayPolicy(
+          event,
+          taggedRelays.length > 0 ? taggedRelays : defaultRelays,
           {
             timeoutMs: FORK_PUBLISH_TIMEOUT_MS,
             label:
               event.kind === GIT_REPO_STATE
                 ? "Fork repo state publish"
                 : "Fork repo announcement publish",
-            },
-          )
-          return extractPublishedRelayAck(thunk)
-        },
-        onFetchRelayEvents: fetchRepoRelayEvents,
+          },
+        )
+        return extractPublishedRelayAck(thunk)
+      },
+      onFetchRelayEvents: fetchRepoRelayEvents,
       onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
       graspServerUrls: graspServerUrls,
       navigateToForkedRepo: navigateToForkedRepo,

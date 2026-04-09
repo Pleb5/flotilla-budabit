@@ -15,14 +15,20 @@ describe("repo trust metrics", () => {
           kind: 1618,
           pubkey: trustedAuthor,
           created_at: 10,
-          tags: [["a", repoAddress]],
+          tags: [
+            ["a", repoAddress],
+            ["branch-name", "main"],
+          ],
         },
         {
           id: "b".repeat(64),
           kind: 1618,
           pubkey: untrustedAuthor,
           created_at: 20,
-          tags: [["a", repoAddress]],
+          tags: [
+            ["a", repoAddress],
+            ["branch-name", "release"],
+          ],
         },
       ] as any,
       appliedStatuses: [
@@ -61,6 +67,7 @@ describe("repo trust metrics", () => {
     expect(metrics.trustedCollaborators).toBe(2)
     expect(metrics.trustedAuthors).toBe(1)
     expect(metrics.trustedMaintainers).toBe(1)
+    expect(metrics.trustedTargetBranches).toEqual(["main", "release"])
     expect(metrics.byRootId.get("a".repeat(64))).toEqual(
       expect.objectContaining({trustedAuthor: true, trustedMaintainerMerge: true}),
     )
@@ -84,7 +91,10 @@ describe("repo trust metrics", () => {
           kind: 1618,
           pubkey: author,
           created_at: 10,
-          tags: [["a", repoAddress]],
+          tags: [
+            ["a", repoAddress],
+            ["branch-name", "main"],
+          ],
         },
       ] as any,
       appliedStatuses: [
@@ -112,6 +122,7 @@ describe("repo trust metrics", () => {
     expect(metrics.trustedMergedContributions).toBe(0)
     expect(metrics.trustedMaintainerMerges).toBe(0)
     expect(metrics.trustedCollaborators).toBe(0)
+    expect(metrics.trustedTargetBranches).toEqual([])
     expect(metrics.byRootId.get("a".repeat(64))).toEqual(
       expect.objectContaining({merged: false, trustedMaintainerMerge: false}),
     )
@@ -128,7 +139,10 @@ describe("repo trust metrics", () => {
           kind: 1618,
           pubkey: trustedAuthor,
           created_at: 10,
-          tags: [["a", repoAddress]],
+          tags: [
+            ["a", repoAddress],
+            ["branch-name", "main"],
+          ],
         },
       ] as any,
       appliedStatuses: [],
@@ -145,6 +159,7 @@ describe("repo trust metrics", () => {
     expect(metrics.trustedMergedContributions).toBe(0)
     expect(metrics.trustedAuthors).toBe(0)
     expect(metrics.trustedCollaborators).toBe(0)
+    expect(metrics.trustedTargetBranches).toEqual([])
     expect(metrics.byRootId.get("a".repeat(64))).toEqual(
       expect.objectContaining({trustedAuthor: true, merged: false}),
     )
