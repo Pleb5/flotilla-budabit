@@ -89,29 +89,29 @@
   }
 </script>
 
-<div class="flex max-h-[85vh] w-[min(42rem,calc(100vw-1.5rem))] flex-col gap-4 overflow-hidden rounded-box border border-border bg-card p-4 shadow-xl">
+<div class="flex max-h-[85vh] w-[calc(100vw-1rem)] max-w-full min-w-0 flex-col gap-4 overflow-hidden rounded-box border border-border bg-card p-4 shadow-xl sm:w-[min(38rem,calc(100vw-3rem))] md:w-[min(42rem,calc(100vw-3rem))]">
   <div class="flex items-start justify-between gap-3">
-    <div class="flex min-w-0 items-start gap-3">
+    <div class="flex min-w-0 flex-1 items-start gap-3">
       <div class="mt-0.5 rounded-full border border-border bg-background/80 p-2 text-muted-foreground">
         <ListFilter class="h-4 w-4" />
       </div>
       <div class="min-w-0">
-        <h2 class="text-lg font-semibold">Search Discovery</h2>
-        <p class="text-sm text-muted-foreground">
+        <h2 class="break-words text-lg font-semibold">Search Discovery</h2>
+        <p class="break-words text-sm text-muted-foreground">
           Enabled targets are searched in this order until the 30 second time budget is used.
         </p>
       </div>
     </div>
     <button
       type="button"
-      class="btn btn-circle btn-ghost btn-sm"
+      class="btn btn-circle btn-ghost btn-sm shrink-0"
       aria-label="Close search discovery settings"
       onclick={back}>
       <X class="h-4 w-4" />
     </button>
   </div>
 
-  <div class="rounded-md border border-border bg-background/60 p-3 text-sm text-muted-foreground">
+  <div class="min-w-0 rounded-md border border-border bg-background/60 p-3 text-sm text-muted-foreground">
     Drag rows to reorder them. Turn rows off to skip that source completely during search.
   </div>
 
@@ -123,7 +123,7 @@
 
       <div
         role="listitem"
-        class={`flex items-center gap-3 rounded-md border p-3 transition-colors ${
+        class={`flex min-w-0 items-start gap-3 rounded-md border p-3 transition-colors ${
           isDragOver ? "border-primary/50 bg-primary/5" : "border-border bg-background/60"
         } ${item.enabled ? "" : "opacity-65"}`}
         ondragover={event => handleDragOver(index, event)}
@@ -148,7 +148,7 @@
 
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
-            <p class="font-medium text-foreground">{item.label}</p>
+            <p class="break-words font-medium text-foreground">{item.label}</p>
             {#if index === 0}
               <span class="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
                 Primary
@@ -160,10 +160,10 @@
               </span>
             {/if}
           </div>
-          <p class="text-sm text-muted-foreground">{item.description}</p>
+          <p class="break-words text-sm text-muted-foreground">{item.description}</p>
         </div>
 
-        <div class="flex flex-col sm:hidden">
+        <div class="flex self-start flex-col sm:hidden">
           <button
             type="button"
             class="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
