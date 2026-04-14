@@ -7,6 +7,7 @@ import {
   useCleanState,
   encodeRelay,
 } from "../helpers"
+import {TEST_PUBKEYS} from "../fixtures/events"
 import {GitHubPage, RepoListPage, RepoDetailPage} from "../pages"
 
 /**
@@ -566,9 +567,36 @@ test.describe("Repository Browsing", () => {
       await expect(gitHub.getRepoBookmarkButton("bookmark-toggle-card-repo")).toBeHidden()
     })
 
-    test("bookmarks search results expose bookmark toggle", async ({page}) => {
+    test("my repos search results expose bookmark toggle for other people's repos", async ({
+      page,
+    }) => {
       const seeder = new TestSeeder()
-      const repo = seeder.seedRepo({name: "bookmark-search-result-repo"})
+      seeder.seedRepo({name: "bookmark-my-repos-baseline-repo"})
+      const repo = seeder.seedRepo({
+        name: "bookmark-my-repos-search-result-repo",
+        pubkey: TEST_PUBKEYS.bob,
+      })
+      await seeder.setup(page)
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+      await gitHub.searchByNaddr(repo.naddr)
+
+      await expect(
+        gitHub.getRepoBookmarkButton("bookmark-my-repos-search-result-repo"),
+      ).toBeVisible({timeout: 10000})
+    })
+
+    test("bookmarks search results expose bookmark toggle for other people's repos", async ({
+      page,
+    }) => {
+      const seeder = new TestSeeder()
+      seeder.seedRepo({name: "bookmark-bookmarks-baseline-repo"})
+      const repo = seeder.seedRepo({
+        name: "bookmark-search-result-repo",
+        pubkey: TEST_PUBKEYS.bob,
+      })
       await seeder.setup(page)
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
@@ -580,6 +608,20 @@ test.describe("Repository Browsing", () => {
       await expect(gitHub.getRepoBookmarkButton("bookmark-search-result-repo")).toBeVisible({
         timeout: 10000,
       })
+    })
+
+    test("bookmarks search results hide bookmark toggle for my own repos", async ({page}) => {
+      const seeder = new TestSeeder()
+      const repo = seeder.seedRepo({name: "bookmark-own-search-result-repo"})
+      await seeder.setup(page)
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+      await gitHub.goToBookmarks()
+      await gitHub.searchByNaddr(repo.naddr)
+
+      await expect(gitHub.getRepoBookmarkButton("bookmark-own-search-result-repo")).toBeHidden()
     })
   })
 

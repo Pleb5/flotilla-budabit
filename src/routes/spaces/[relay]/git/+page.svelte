@@ -1549,7 +1549,8 @@
 
   const back = () => history.back()
 
-  const shouldShowRepoCardBookmark = () => activeTab !== "my-repos"
+  const shouldShowRepoCardBookmark = (event?: RepoAnnouncementEvent | null) =>
+    Boolean(event && event.pubkey !== $pubkey)
 
   const getRepoCardRelayHint = (event: RepoAnnouncementEvent, address = getRepoAddressFromEvent(event)) => {
     const fromLoadedBookmarks = loadedBookmarkedRepos.find(repo => repo.address === address)?.relayHint || ""
@@ -2307,9 +2308,9 @@
                 {url}
                 event={g.first as any}
                 tabbable={false}
-                bookmarked={shouldShowRepoCardBookmark() ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent) : false}
-                bookmarkDisabled={shouldShowRepoCardBookmark() ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent) : false}
-                onToggleBookmark={shouldShowRepoCardBookmark() ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent) : undefined}
+                bookmarked={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent) : false}
+                bookmarkDisabled={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent) : false}
+                onToggleBookmark={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent) : undefined}
                 showActivity={true}
                 showIssues={true}
                 showActions={true}
@@ -2422,9 +2423,9 @@
                 {url}
                 event={g.first as any}
                 tabbable={false}
-                bookmarked={shouldShowRepoCardBookmark() ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent) : false}
-                bookmarkDisabled={shouldShowRepoCardBookmark() ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent) : false}
-                onToggleBookmark={shouldShowRepoCardBookmark() ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent) : undefined}
+                bookmarked={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent) : false}
+                bookmarkDisabled={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent) : false}
+                onToggleBookmark={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent) : undefined}
                 showActivity={true}
                 showIssues={true}
                 showActions={true}
