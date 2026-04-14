@@ -529,6 +529,12 @@
   const assignees = $derived.by(() =>
     Array.from((roleAssignments?.get()?.assignees || new Set()) as Set<string>),
   )
+  const recommendedAssigneePubkeys = $derived.by(() => {
+    const selectedAssignees = new Set(assignees)
+    return Array.from(authoritativeEditors).filter(
+      (pubkey): pubkey is string => Boolean(pubkey) && !selectedAssignees.has(pubkey),
+    )
+  })
 
   // PeoplePicker will render from LabelEvent[] directly
 
@@ -612,6 +618,38 @@
     return publishThunk({event: statusWithRecipients as any, relays: getPublishRelays()})
   }
 
+  const getValidProfileRelays = () =>
+    repoBoundRelays.filter((relay: string) => {
+      try {
+        const url = new URL(relay)
+        return url.protocol === "ws:" || url.protocol === "wss:"
+      } catch {
+        console.warn(`Invalid relay URL filtered out: ${relay}`)
+        return false
+      }
+    })
+
+  const toPersonSuggestion = (pubkey: string) => {
+    const profile = $profilesByPubkey.get(pubkey)
+    return {
+      pubkey,
+      name: profile?.name,
+      picture: profile?.picture,
+      nip05: profile?.nip05,
+      display_name: profile?.display_name,
+    }
+  }
+
+  $effect(() => {
+    const validRelays = getValidProfileRelays()
+    if (validRelays.length === 0) return
+
+    for (const pubkey of recommendedAssigneePubkeys) {
+      if ($profilesByPubkey.get(pubkey)) continue
+      loadProfile(pubkey, validRelays).catch(() => undefined)
+    }
+  })
+
   // Profile functions for PeoplePicker
   const getProfile = async (pubkey: string) => {
     const profile = $profilesByPubkey.get(pubkey)
@@ -623,49 +661,23 @@
         display_name: profile.display_name,
       }
     }
-    // Try to load profile if not in cache
-    // Filter out invalid relay URLs to prevent errors
-    const validRelays = repoBoundRelays.filter((relay: string) => {
-      try {
-        const url = new URL(relay)
-        return url.protocol === "ws:" || url.protocol === "wss:"
-      } catch {
-        console.warn(`Invalid relay URL filtered out: ${relay}`)
-        return false
-      }
-    })
+    const validRelays = getValidProfileRelays()
 
     if (validRelays.length > 0) {
       await loadProfile(pubkey, validRelays)
     }
 
-    const loadedProfile = $profilesByPubkey.get(pubkey)
-    if (loadedProfile) {
-      return {
-        name: loadedProfile.name,
-        picture: loadedProfile.picture,
-        nip05: loadedProfile.nip05,
-        display_name: loadedProfile.display_name,
-      }
-    }
-    return null
+    return $profilesByPubkey.get(pubkey) ? toPersonSuggestion(pubkey) : null
   }
 
   const searchProfiles = async (query: string) => {
-    // profileSearch.searchValues returns an array of pubkeys (strings)
-    const pubkeys = $profileSearch.searchValues(query)
+    const trimmedQuery = query.trim()
+    const selectedAssignees = new Set(assignees)
+    const pubkeys = trimmedQuery ? $profileSearch.searchValues(trimmedQuery) : recommendedAssigneePubkeys
 
-    // Map each pubkey to a profile object by looking it up in profilesByPubkey
-    return pubkeys.map((pubkey: string) => {
-      const profile = $profilesByPubkey.get(pubkey)
-      return {
-        pubkey: pubkey,
-        name: profile?.name,
-        picture: profile?.picture,
-        nip05: profile?.nip05,
-        display_name: profile?.display_name,
-      }
-    })
+    return Array.from(new Set(pubkeys))
+      .filter((pubkey): pubkey is string => Boolean(pubkey) && !selectedAssignees.has(pubkey))
+      .map(toPersonSuggestion)
   }
 </script>
 
@@ -862,6 +874,7 @@
             placeholder="Search for assignees..."
             maxSelections={10}
             showAvatars={true}
+            showSuggestionsOnFocus={true}
             compact={false}
             {getProfile}
             {searchProfiles}
