@@ -25,9 +25,6 @@ export const load: LayoutLoad = async ({params}) => {
     )
   }
 
-  const url = decodeRelay(relay)
-  const fallbackRelays = getRepoAnnouncementRelays()
-
   // Extract relays from naddr if present
   const naddrRelays =
     (decoded.relays?.length ?? 0) > 0
@@ -35,6 +32,9 @@ export const load: LayoutLoad = async ({params}) => {
           .map((u: string) => normalizeRelayUrl(u))
           .filter(Boolean) as string[])
       : []
+
+  const url = decodeRelay(relay)
+  const fallbackRelays = getRepoAnnouncementRelays(naddrRelays)
 
   return {
     url,

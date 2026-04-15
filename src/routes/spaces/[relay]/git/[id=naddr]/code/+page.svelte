@@ -9,6 +9,7 @@
   import Icon from "@src/lib/components/Icon.svelte"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import {type FileEntry, type PermalinkEvent} from "@nostr-git/core/types"
+  import {filterValidCloneUrls} from "@nostr-git/core/utils"
   import {pushToast} from "@src/app/util/toast"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {postPermalink} from "@lib/budabit/commands.js"
@@ -52,6 +53,9 @@
   // Using $derived instead of $effect + $state prevents the read-write cycle
   // that was causing effect_update_depth_exceeded errors.
   const selectedBranch = $derived(repoClass.selectedBranch || repoClass.mainBranch || "")
+  const repoEventId = $derived.by(() => repoClass.repoEvent?.id || "")
+  const supportedCloneUrls = $derived.by(() => filterValidCloneUrls(repoClass.cloneUrls || []))
+  const supportedCloneUrlKey = $derived.by(() => supportedCloneUrls.join("|"))
 
   let branchLoadTrigger = $state(0)
 
@@ -218,15 +222,21 @@
   // Check if repo is cloned and clone if needed (only on code tab)
   // Skip this entirely if vendor API is available - files can be loaded directly from API
   $effect(() => {
+    const currentRepoEventId = repoEventId
+    const currentCloneUrlKey = supportedCloneUrlKey
+
     if (!repoClass) return
+    if (!currentRepoEventId) return
     // Wait for repo key to be populated (set when repoEvent is processed)
     if (!repoClass.key) return
     // Only attempt clone check once per page load
     if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
     
+    const cloneUrls = [...supportedCloneUrls]
+    if (cloneUrls.length === 0) return
+
     // Check if vendor API is available - if so, skip clone entirely
     // The vendor API (GitHub, GitLab, etc.) can provide files immediately
-    const cloneUrls = repoClass.cloneUrls
     const hasVendorApi = repoClass.vendorReadRouter?.hasVendorSupport(cloneUrls) ?? false
     if (hasVendorApi) {
       console.log("[code/+page] Vendor API available, skipping git clone check for fast UI")
@@ -237,7 +247,10 @@
     const timeout = setTimeout(() => {
       ;(async () => {
         if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
+        if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) return
         if (!repoClass.key) return // Double-check key is still valid
+        const cloneUrls = [...supportedCloneUrls]
+        if (cloneUrls.length === 0) return
         cloneCheckInProgress = true
         cloneCheckAttempted = true
         
@@ -348,8 +361,11 @@
   $effect(() => {
     // Track branchChangeTrigger from Repo class to ensure effect re-runs after branch changes
     const currentBranch = selectedBranch;
+    const currentRepoEventId = repoEventId
+    const currentCloneUrlKey = supportedCloneUrlKey
     const switchTrigger = repoClass.branchChangeTrigger; // Increments when branch switch completes
     const refs = repoClass.refs;
+    const cloneUrls = supportedCloneUrls;
 
     // Don't attempt to load files until we have a valid branch name
     // Branch should come from repo state event or git clone, not hardcoded
@@ -358,11 +374,21 @@
     if (!refs || refs.length === 0) return;
     const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name);
     if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return;
+    if (!currentRepoEventId || cloneUrls.length === 0) {
+      loading = false
+      return
+    }
 
     // Show loading only when actually fetching
     loading = true
+    error = null
     // Defer file loading slightly to avoid blocking render
     const timeout = setTimeout(() => {
+      if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
+        loading = false
+        return
+      }
+
       console.log("🔄 Loading files for branch:", currentBranch, "trigger:", switchTrigger);
       files = repoClass
         .listRepoFiles({
@@ -370,6 +396,10 @@
           path: undefined,
         })
         .then(result => {
+          if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
+            return []
+          }
+
           loading = false
           console.log("✅ Files loaded:", result.files.length, "files");
           const mapped = result.files.map(
@@ -382,9 +412,14 @@
               }) as FileEntry,
           )
           currentFiles = mapped
+          error = null
           return mapped
         })
         .catch((e) => {
+          if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
+            return []
+          }
+
           loading = false
           const message = e instanceof Error ? e.message : "Failed to load files"
           const activeBranch = normalizeBranchRef(selectedBranch)
@@ -405,8 +440,11 @@
   $effect(() => {
     const currentBranch = selectedBranch;
     const currentPath = path;
+    const currentRepoEventId = repoEventId
+    const currentCloneUrlKey = supportedCloneUrlKey
     const switchTrigger = repoClass.branchChangeTrigger; // Track branch switches via Repo class
     const refs = repoClass.refs;
+    const cloneUrls = supportedCloneUrls;
 
     // Don't attempt to load files until we have a valid branch name
     const branchName = normalizeBranchRef(currentBranch);
@@ -414,8 +452,13 @@
     if (!refs || refs.length === 0) return;
     const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name);
     if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return;
+    if (!currentRepoEventId || cloneUrls.length === 0) {
+      loading = false
+      return
+    }
 
     loading = true
+    error = null
     console.log("🔄 Loading files for branch:", currentBranch, "path:", currentPath, "trigger:", switchTrigger);
     files = repoClass
       .listRepoFiles({
@@ -423,6 +466,10 @@
         path: currentPath,
       })
         .then(result => {
+          if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
+            return []
+          }
+
           loading = false
           console.log("✅ Files loaded:", result.files.length, "files");
           const mapped = result.files.map(
@@ -435,9 +482,14 @@
               }) as FileEntry,
           )
           currentFiles = mapped
+          error = null
           return mapped
         })
         .catch((e) => {
+          if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
+            return []
+          }
+
           loading = false
           const message = e instanceof Error ? e.message : "Failed to load files"
           const activeBranch = normalizeBranchRef(selectedBranch)

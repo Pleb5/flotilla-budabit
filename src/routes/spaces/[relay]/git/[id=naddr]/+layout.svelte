@@ -20,7 +20,7 @@
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
-  import {pushToast} from "@src/app/util/toast"
+  import {pushToast, popToast} from "@src/app/util/toast"
   import {notifications, hasRepoNotification, checked, setCheckedAt} from "@app/util/notifications"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {PLATFORM_RELAYS, decodeRelay, encodeRelay, isPlatformRelay} from "@app/core/state"
@@ -1432,7 +1432,40 @@
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
 
   let repoLoadKey = ""
+  let repoAnnouncementLoadKey = ""
+  let repoAnnouncementSettled = $state(false)
+  let repoAnnouncementSettleTimer: ReturnType<typeof setTimeout> | null = null
   let repoLoadRetryTimer: ReturnType<typeof setTimeout> | null = null
+
+  $effect(() => {
+    const eventId = $repoEventStore?.id || ""
+
+    if (fallbackRelays.length === 0 || !eventId) {
+      repoAnnouncementLoadKey = ""
+      repoAnnouncementSettled = false
+      if (repoAnnouncementSettleTimer) {
+        clearTimeout(repoAnnouncementSettleTimer)
+        repoAnnouncementSettleTimer = null
+      }
+      return
+    }
+
+    const key = `${repoPubkey}:${repoName}:${fallbackRelays.slice().sort().join(",")}:${eventId}`
+    if (repoAnnouncementLoadKey === key) return
+
+    repoAnnouncementLoadKey = key
+    repoAnnouncementSettled = false
+
+    if (repoAnnouncementSettleTimer) {
+      clearTimeout(repoAnnouncementSettleTimer)
+    }
+
+    repoAnnouncementSettleTimer = setTimeout(() => {
+      repoAnnouncementSettled = true
+      repoAnnouncementSettleTimer = null
+    }, 2500)
+  })
+
   $effect(() => {
     const relays = $repoRelaysStore || []
     const announcementRelays = fallbackRelays
@@ -1468,7 +1501,7 @@
         const currentRepoEvent = getStore(repoEventStore)
         const currentRepoStateEvent = getStore(repoStateEventStore)
         if (currentRepoEvent && currentRepoStateEvent) return
-        const announcementRelaysRetry = getRepoAnnouncementRelays()
+        const announcementRelaysRetry = getRepoAnnouncementRelays(naddrRelays)
         const relaysRetry = getStore(repoRelaysStore)
         if (announcementRelaysRetry.length === 0 || relaysRetry.length === 0) return
         const maintainersRetry = getStore(repoMaintainersStore)
@@ -1626,7 +1659,7 @@
     ]
 
     const relayListFromUrl = getStore(repoRelaysStore)
-    const announcementRelays = getRepoAnnouncementRelays()
+    const announcementRelays = getRepoAnnouncementRelays(naddrRelays)
     const repoLoadPromise = load({relays: announcementRelays, filters: repoFilters})
 
     const allReposFilter = {
@@ -2037,6 +2070,11 @@
     if (repoLoadRetryTimer) {
       clearTimeout(repoLoadRetryTimer)
       repoLoadRetryTimer = null
+    }
+
+    if (repoAnnouncementSettleTimer) {
+      clearTimeout(repoAnnouncementSettleTimer)
+      repoAnnouncementSettleTimer = null
     }
 
     if (repoStateSettleTimer) {
@@ -2782,37 +2820,60 @@
   }
 
   let relaysWarningDebounce: ReturnType<typeof setTimeout> | null = null
+  let relaysWarningToastId: string | null = null
   
   $effect(() => {
-    if (!$pubkey) return
-    if (suppressRelaysWarning) return
-    if (!repoClass?.repoEvent) return
+    const clearWarningDebounce = () => {
+      if (relaysWarningDebounce) {
+        clearTimeout(relaysWarningDebounce)
+        relaysWarningDebounce = null
+      }
+    }
+
+    const dismissWarningToast = () => {
+      if (relaysWarningToastId) {
+        popToast(relaysWarningToastId)
+        relaysWarningToastId = null
+      }
+    }
+
+    clearWarningDebounce()
+
+    if (!$pubkey || suppressRelaysWarning || !repoAnnouncementSettled || !repoClass?.repoEvent) {
+      dismissWarningToast()
+      return
+    }
+
     let parsed
     try {
       parsed = parseRepoAnnouncementEvent(repoClass.repoEvent)
     } catch {
+      dismissWarningToast()
       return
     }
     const relays = parsed.relays || []
-    if (relays.length > 0) return
+    if (relays.length > 0) {
+      dismissWarningToast()
+      return
+    }
     const key = repoClass.repoEvent.id
     if (relaysWarningKey === key) return
-    
-    // Debounce to prevent duplicate toasts during initialization
-    if (relaysWarningDebounce) {
-      clearTimeout(relaysWarningDebounce)
-    }
-    
+
     relaysWarningDebounce = setTimeout(() => {
       relaysWarningKey = key
-      pushToast({
+      relaysWarningToastId = pushToast({
         message:
           "This repository announcement has no relays defined. Add preferred relays so others can discover updates.",
         theme: "warning",
         timeout: 8000, // 8 seconds - visible but eventually dismisses
         action: {message: "Repo settings", onclick: () => settingsRepo()},
       })
+      relaysWarningDebounce = null
     }, 100)
+
+    return () => {
+      clearWarningDebounce()
+    }
   })
 
   async function bookmarkRepo() {
