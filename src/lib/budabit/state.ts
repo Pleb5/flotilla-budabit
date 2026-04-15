@@ -1,4 +1,4 @@
-import {writable, derived} from "svelte/store"
+import {writable, derived, get} from "svelte/store"
 import {load, request} from "@welshman/net"
 import {
   groupByEuc,
@@ -9,8 +9,11 @@ import {
   extractSelfLabels,
   extractLabelEvents,
   mergeEffectiveLabels,
+  DEFAULT_GRASP_SET_ID,
   GIT_REPO_ANNOUNCEMENT,
   GIT_ISSUE,
+  GRASP_SET_KIND,
+  parseGraspServersEvent,
   parseRepoAnnouncementEvent,
   type RepoGroup,
   type RepoAnnouncementEvent,
@@ -20,7 +23,7 @@ import {
 } from "@nostr-git/core/events"
 import {RepoCore} from "@nostr-git/core/git"
 import {deriveEventsAsc, deriveEventsById, withGetter} from "@welshman/store"
-import {repository, tracker, pubkey} from "@welshman/app"
+import {repository, tracker, pubkey, userRelayList} from "@welshman/app"
 import {
   PLATFORM_RELAYS,
   deriveEvent,
@@ -44,7 +47,7 @@ import {nip19} from "nostr-tools"
 import {fromPairs, pushToMapKey, sortBy, uniq, uniqBy} from "@welshman/lib"
 import {extractRoleAssignments} from "./labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "./issue-edits"
-import type {Repo} from "@nostr-git/ui"
+import {graspServersStore, type Repo} from "@nostr-git/ui"
 
 export const shouldReloadRepos = writable(false)
 
@@ -102,18 +105,44 @@ const getRepoEuc = (event: RepoAnnouncementEvent) => {
 
 const GIT_COVER_LETTER_KIND = 1624
 
-export const getRepoAnnouncementRelays = (extra: string[] = []) => {
+const getExplicitGraspServerRelays = (viewerPubkey = get(pubkey)) => {
+  const author = normalizePubkey(String(viewerPubkey || ""))
+  if (!author) return [] as string[]
+
+  const filters = [{kinds: [GRASP_SET_KIND], authors: [author], "#d": [DEFAULT_GRASP_SET_ID]}]
+  const events = repository.query(filters, {shouldSort: false}) as TrustedEvent[]
+  const latest = sortBy(event => -event.created_at, events)[0]
+
+  if (!latest) return [] as string[]
+
+  try {
+    return parseGraspServersEvent(latest as any)
+      .map(safeNormalizeRelayUrl)
+      .filter(isRelayUrl) as string[]
+  } catch {
+    return [] as string[]
+  }
+}
+
+export const getRepoAnnouncementRelays = (extra: string[] = [], viewerPubkey = get(pubkey)) => {
   let userRelays: string[] = []
   try {
     userRelays = Router.get().FromUser().getUrls()
   } catch {
     userRelays = []
   }
-  const merged = [...userRelays, ...GIT_RELAYS, ...extra]
+
+  const explicitGraspRelays = getExplicitGraspServerRelays(viewerPubkey)
+  const merged = [...userRelays, ...GIT_RELAYS, ...explicitGraspRelays, ...extra]
   return Array.from(
     new Set(merged.map(u => safeNormalizeRelayUrl(u)).filter(isRelayUrl)),
   ) as string[]
 }
+
+export const repoAnnouncementRelaysStore = derived(
+  [pubkey, userRelayList, graspServersStore],
+  ([viewerPubkey]) => getRepoAnnouncementRelays([], viewerPubkey),
+)
 
 export const getRepoScopedRelays = (
   repoEvent?: RepoAnnouncementEvent | null,

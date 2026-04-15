@@ -76,7 +76,7 @@
     loadRepoAnnouncements,
     derivePatchGraph,
     GIT_RELAYS,
-    getRepoAnnouncementRelays,
+    repoAnnouncementRelaysStore,
     repoAnnouncements,
   } from "@lib/budabit/state"
   import {getInitializedGitWorker, terminateGitWorker} from "@src/lib/budabit/worker-singleton"
@@ -402,12 +402,12 @@
     ),
   ) as string[]
 
-  // Repo announcements should always be fetched from user outbox + GIT_RELAYS
+  // Repo announcements should always be fetched from the current derived relay set
   // Memoize to prevent effect loops from array reference changes
   let cachedRepoRelays: string[] = []
   let cachedRepoRelaysKey = ""
   const repoAnnouncementRelays = $derived.by(() => {
-    const relays = getRepoAnnouncementRelays()
+    const relays = $repoAnnouncementRelaysStore
     const key = relays.slice().sort().join(",")
     if (key === cachedRepoRelaysKey) {
       return cachedRepoRelays

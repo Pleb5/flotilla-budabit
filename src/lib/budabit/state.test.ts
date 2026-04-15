@@ -1,5 +1,10 @@
-import {describe, expect, it} from "vitest"
-import {createRepoAnnouncementEvent} from "@nostr-git/core/events"
+import {beforeEach, describe, expect, it} from "vitest"
+import {
+  createRepoAnnouncementEvent,
+  DEFAULT_GRASP_SET_ID,
+  GRASP_SET_KIND,
+} from "@nostr-git/core/events"
+import {repository, pubkey} from "@welshman/app"
 import {
   splitChannelId,
   makeChannelId,
@@ -12,6 +17,11 @@ import {
 } from "./state"
 
 describe("budabit state", () => {
+  beforeEach(() => {
+    repository.load([])
+    pubkey.set(undefined)
+  })
+
   describe("splitChannelId", () => {
     it("splits channel id by apostrophe", () => {
       expect(splitChannelId("wss://relay.com'room1")).toEqual(["wss://relay.com", "room1"])
@@ -56,6 +66,25 @@ describe("budabit state", () => {
       const extra = "wss://extra.relay.example.com"
       const relays = getRepoAnnouncementRelays([extra])
       expect(relays.some(url => url.includes("extra.relay.example.com"))).toBe(true)
+    })
+
+    it("includes explicit GRASP relays saved by the current user", () => {
+      const currentPubkey = "a".repeat(64)
+      pubkey.set(currentPubkey)
+
+      repository.publish({
+        id: "1".repeat(64),
+        sig: "2".repeat(128),
+        kind: GRASP_SET_KIND,
+        pubkey: currentPubkey,
+        created_at: 10,
+        tags: [["d", DEFAULT_GRASP_SET_ID]],
+        content: JSON.stringify({urls: ["wss://custom.grasp.example"]}),
+      } as any)
+
+      const relays = getRepoAnnouncementRelays()
+
+      expect(relays).toContain("wss://custom.grasp.example/")
     })
   })
 

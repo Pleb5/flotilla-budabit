@@ -9,19 +9,18 @@
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {decodeRelay} from "@app/core/state"
-  import {getRepoAnnouncementRelays} from "@lib/budabit/state"
+  import {repoAnnouncementRelaysStore} from "@lib/budabit/state"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {derived as _derived} from "svelte/store"
-  import {onMount} from "svelte"
   import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
   import Git from "@assets/icons/git.svg?dataurl"
   
   const url = decodeRelay($page.params.relay)
 
   let loading = $state(true)
+  let lastLoadedRelays = $state("")
 
   const filters: Filter[] = [{kinds: [GIT_REPO_ANNOUNCEMENT]}]
   const repoEvents = deriveEventsAsc(deriveEventsById({repository, filters}))
@@ -58,12 +57,14 @@
     }
   })
 
-  onMount(() => {
-    const relays = getRepoAnnouncementRelays()
-    load({
-      relays,
-      filters,
-    })
+  $effect(() => {
+    const relays = $repoAnnouncementRelaysStore
+    const relayKey = relays.slice().sort().join(",")
+
+    if (!relayKey || relayKey === lastLoadedRelays) return
+    lastLoadedRelays = relayKey
+
+    load({relays, filters})
   })
 </script>
 
