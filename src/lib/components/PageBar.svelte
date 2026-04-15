@@ -15,7 +15,7 @@
 <div data-component="PageBar" class="cw top-sai fixed z-nav p-2 {props.class}">
   <div
     class="flex min-h-12 items-center justify-between gap-4 rounded-xl bg-base-100 px-4 shadow-md">
-    <div class="ellipsize flex items-center gap-4 whitespace-nowrap">
+    <div class="flex min-w-0 flex-1 items-center gap-4 overflow-hidden whitespace-nowrap">
       {@render props.icon?.()}
       {@render props.title?.()}
     </div>

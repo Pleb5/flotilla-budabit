@@ -14,6 +14,7 @@
     GitPullRequest,
     GitCommit,
     ChevronLeft,
+    Home,
   } from "@lucide/svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
@@ -77,7 +78,7 @@
     type TrustedEvent
   } from "@welshman/util"
   import {publishDelete} from "@src/app/core/commands"
-  import {setContext, onDestroy} from "svelte"
+  import {setContext, onDestroy, tick} from "svelte"
   import {
     REPO_KEY,
     REPO_RELAYS_KEY,
@@ -150,7 +151,11 @@
 
   // Derive repoClass from activeRepoClass store
   const repoClass = $derived($activeRepoClass)
+  const displayRepoName = $derived.by(() => repoClass?.name || repoName)
   let forkWorkerClient: {api: any; worker: Worker} | null = null
+  let pageContentElement = $state<Element | undefined>()
+  let repoTabsHeight = $state(0)
+  let mobileCodeBreadcrumbHeight = $state(0)
 
   const ensureForkWorkerClient = async () => {
     if (forkWorkerClient) return forkWorkerClient
@@ -831,6 +836,99 @@
     }
   }
 
+  const syncMobileStickyHeights = () => {
+    const root = pageContentElement as HTMLElement | undefined
+    if (!root) {
+      repoTabsHeight = 0
+      mobileCodeBreadcrumbHeight = 0
+      return {tabsEl: null as HTMLElement | null, breadcrumbEl: null as HTMLElement | null}
+    }
+
+    const tabsEl = root.querySelector("[data-repo-tabs]") as HTMLElement | null
+    const breadcrumbEl = root.querySelector("[data-mobile-code-breadcrumb]") as HTMLElement | null
+
+    repoTabsHeight = tabsEl?.offsetHeight || 0
+    mobileCodeBreadcrumbHeight = activeTab === "code" ? breadcrumbEl?.offsetHeight || 0 : 0
+
+    return {tabsEl, breadcrumbEl}
+  }
+
+  const alignMobileCodeStack = () => {
+    const root = pageContentElement as HTMLElement | undefined
+    if (!root || root.clientWidth >= 768) return
+
+    const tabsEl = root.querySelector("[data-repo-tabs]") as HTMLElement | null
+    if (!tabsEl) return
+
+    const rootRect = root.getBoundingClientRect()
+    const tabsRect = tabsEl.getBoundingClientRect()
+    const delta = tabsRect.top - rootRect.top
+
+    if (Math.abs(delta) <= 1) return
+
+    root.scrollTo({top: root.scrollTop + delta, behavior: "auto"})
+  }
+
+  $effect(() => {
+    void activeTab
+    void codeBreadcrumbPath
+    void repoHeaderKey
+
+    const root = pageContentElement
+    if (!root) {
+      repoTabsHeight = 0
+      mobileCodeBreadcrumbHeight = 0
+      return
+    }
+
+    if (typeof ResizeObserver === "undefined") {
+      syncMobileStickyHeights()
+      return
+    }
+
+    let observer: ResizeObserver | null = null
+    let cancelled = false
+
+    void tick().then(() => {
+      if (cancelled) return
+
+      const {tabsEl, breadcrumbEl} = syncMobileStickyHeights()
+
+      observer = new ResizeObserver(() => {
+        syncMobileStickyHeights()
+      })
+
+      if (tabsEl) observer.observe(tabsEl)
+      if (breadcrumbEl) observer.observe(breadcrumbEl)
+    })
+
+    return () => {
+      cancelled = true
+      observer?.disconnect()
+    }
+  })
+
+  $effect(() => {
+    void activeTab
+    void codeBreadcrumbPath
+    void repoHeaderKey
+
+    const root = pageContentElement as HTMLElement | undefined
+    if (!root || activeTab !== "code") return
+
+    let cancelled = false
+
+    void tick().then(() => {
+      if (!cancelled) {
+        alignMobileCodeStack()
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  })
+
   function deriveRepoEvent(repoPubkey: string, repoName: string) {
     return derived(
       deriveEventsAsc(
@@ -860,24 +958,52 @@
     repoPubkey: string,
     maintainers: Readable<string[]>,
   ) {
-    return derived(maintainers, ($maintainers, set) => {
-      const authors = Array.from(new Set([repoPubkey, ...$maintainers].filter(Boolean)))
-      const store = deriveEventsAsc(
-        deriveEventsById({
-          repository,
-          filters: [
-            {
-              authors,
-              kinds: [GIT_REPO_STATE],
-              "#d": [repoName],
-            },
-          ],
-        }),
-      )
+    return readable<RepoStateEvent[]>([], set => {
+      let previousKey = ""
+      let unsubscribeScoped: (() => void) | undefined
 
-      return store.subscribe(events => {
-        set(getVisibleRepositoryEvents((events as RepoStateEvent[]) || []).slice())
+      const unsubscribeMaintainers = maintainers.subscribe(($maintainers: string[]) => {
+        const authors = normalizeScopeValues([repoPubkey, ...$maintainers])
+        const key = authors.join("|")
+
+        if (key === previousKey) return
+        previousKey = key
+
+        if (unsubscribeScoped) {
+          unsubscribeScoped()
+          unsubscribeScoped = undefined
+        }
+
+        if (authors.length === 0) {
+          set([])
+          return
+        }
+
+        const scopedEvents = throttled(
+          SCOPED_DERIVE_THROTTLE_MS,
+          deriveEventsAsc(
+            deriveEventsById({
+              repository,
+              filters: [
+                {
+                  authors,
+                  kinds: [GIT_REPO_STATE],
+                  "#d": [repoName],
+                },
+              ],
+            }),
+          ),
+        )
+
+        unsubscribeScoped = scopedEvents.subscribe(events => {
+          set(getVisibleRepositoryEvents((events as RepoStateEvent[]) || []).slice())
+        })
       })
+
+      return () => {
+        if (unsubscribeScoped) unsubscribeScoped()
+        unsubscribeMaintainers()
+      }
     }) as Readable<RepoStateEvent[]>
   }
 
@@ -2786,7 +2912,7 @@
   <title>{repoClass?.name}</title>
 </svelte:head>
 
-<PageBar class="w-full my-2">
+<PageBar class="w-full pb-0">
   {#snippet icon()}
     <div>
       <Button class="btn btn-neutral btn-sm flex-nowrap whitespace-nowrap" onclick={back}>
@@ -2796,52 +2922,19 @@
     </div>
   {/snippet}
   {#snippet title()}
-    {#if activeTab === "code"}
-      <div class="flex min-w-0 items-center gap-2 md:hidden">
-        {#if codeCanGoUp}
-          <button
-            type="button"
-            class="flex items-center gap-1 rounded-md px-2 py-1 text-xs sm:text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors"
-            onclick={() => setCodeDirectory(codeParentPath)}
-            title="Up"
-          >
-            <ChevronLeft class="h-4 w-4" />
-            <span class="hidden sm:inline">Up</span>
-          </button>
-        {/if}
-        <nav
-          class="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto text-xs sm:text-sm text-muted-foreground whitespace-nowrap"
-          aria-label="Breadcrumb"
-        >
-          <button
-            type="button"
-            class="hover:text-foreground hover:underline transition-colors flex-shrink-0 whitespace-nowrap"
-            onclick={() => setCodeDirectory("")}
-          >
-            {repoClass?.name || repoName}
-          </button>
-          {#each codeBreadcrumbSegments as segment, i}
-            <span class="text-muted-foreground/50 flex-shrink-0">/</span>
-            {#if i === codeBreadcrumbSegments.length - 1}
-              <span class="text-foreground font-medium whitespace-nowrap" title={segment}>
-                {segment}
-              </span>
-            {:else}
-              <button
-                type="button"
-                class="hover:text-foreground hover:underline transition-colors whitespace-nowrap"
-                onclick={() => setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}
-              >
-                {segment}
-              </button>
-            {/if}
-          {/each}
-        </nav>
-      </div>
-      <h1 class="hidden md:block text-xl">{""}</h1>
-    {:else}
-      <h1 class="text-xl">{""}</h1>
-    {/if}
+    <div class="min-w-0 flex-1">
+      <button
+        type="button"
+        class="scrollbar-hide flex w-full min-w-0 items-center gap-2 overflow-x-auto rounded-md px-2 py-1.5 text-left text-[1.05rem] font-semibold leading-none transition-colors hover:bg-secondary/40 sm:gap-3 sm:px-3 sm:text-xl lg:text-2xl"
+        onclick={overviewRepo}
+        title={`Go to ${displayRepoName}`}
+        aria-label={`Go to ${displayRepoName}`}
+        data-testid="repo-topbar-home"
+      >
+        <Home class="h-5 w-5 shrink-0 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
+        <span class="whitespace-nowrap pr-1">{displayRepoName}</span>
+      </button>
+    </div>
   {/snippet}
   {#snippet action()}
     {#if activeTab !== "code"}
@@ -2856,7 +2949,10 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="flex min-w-0 flex-grow flex-col gap-2 overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8">
+<PageContent
+  bind:element={pageContentElement}
+  style={`--repo-tabs-height: ${repoTabsHeight}px; --mobile-code-breadcrumb-height: ${mobileCodeBreadcrumbHeight}px;`}
+  class="!top-[calc(var(--sait)+3.5rem)] flex min-w-0 flex-grow flex-col gap-2 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-0 sm:px-6 sm:pb-6 sm:pt-0 lg:px-8 lg:pb-8 lg:pt-0">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}
@@ -2946,6 +3042,59 @@
         {/snippet}
       </RepoHeader>
     {/key}
+    {#if activeTab === "code"}
+      <div
+        data-mobile-code-breadcrumb
+        data-testid="repo-mobile-code-breadcrumb"
+        class="sticky z-10 -mt-1 rounded-md border border-border/60 bg-base-100/95 px-3 py-2 text-xs text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-base-100/80 md:px-4 md:py-2.5 md:text-sm"
+        style="top: var(--repo-tabs-height, 0px);"
+      >
+        <div class="flex min-w-0 items-center gap-2">
+          {#if codeCanGoUp}
+            <button
+              type="button"
+              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+              onclick={() => setCodeDirectory(codeParentPath)}
+              title="Up one folder"
+            >
+              <ChevronLeft class="h-4 w-4" />
+            </button>
+          {/if}
+          <nav
+            class="scrollbar-hide flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap"
+            aria-label="Code breadcrumb"
+          >
+            <button
+              type="button"
+              class="shrink-0 rounded-sm font-medium transition-colors hover:text-foreground hover:underline"
+              onclick={() => setCodeDirectory("")}
+              title="Repository root"
+              aria-label="Repository root"
+            >
+              /
+            </button>
+            {#each codeBreadcrumbSegments as segment, i}
+              {#if i > 0}
+                <span class="shrink-0 text-muted-foreground/50">/</span>
+              {/if}
+              {#if i === codeBreadcrumbSegments.length - 1}
+                <span class="font-medium text-foreground" title={segment}>
+                  {segment}
+                </span>
+              {:else}
+                <button
+                  type="button"
+                  class="rounded-sm transition-colors hover:text-foreground hover:underline"
+                  onclick={() => setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}
+                >
+                  {segment}
+                </button>
+              {/if}
+            {/each}
+          </nav>
+        </div>
+      </div>
+    {/if}
     {@render children()}
   {/if}
 </PageContent>

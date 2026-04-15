@@ -1,9 +1,9 @@
 <script lang="ts">
   import {FileView, Input} from "@nostr-git/ui"
-  import {fade, fly} from "svelte/transition"
+  import {fade} from "svelte/transition"
   import {goto} from "$app/navigation"
   import {browser} from "$app/environment"
-  import {ChevronLeft, PanelLeftClose, PanelLeftOpen, Search} from "@lucide/svelte"
+  import {PanelLeftClose, PanelLeftOpen, Search} from "@lucide/svelte"
   import Spinner from "@src/lib/components/Spinner.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
@@ -33,15 +33,12 @@
   let path = $state("")
   let autoOpenPath = $state<string | undefined>(undefined)
   let selectedFile = $state<FileEntry | null>(null)
-  let overlayFile = $state<FileEntry | null>(null)
   let isBrowserOpen = $state(true)
   let isDesktopViewport = $state(true)
   let fileSearchQuery = $state("")
   let showScrollButton = $state(false)
   let scrollParent: HTMLElement | null = $state(null)
   let pageContainerRef: HTMLElement | undefined = $state()
-  let showOverlayScrollButton = $state(false)
-  let overlayScrollParent: HTMLElement | null = $state(null)
   
   // Clone progress state - only show when actually cloning
   let isCloning = $state(false)
@@ -188,18 +185,6 @@
   })
 
   $effect(() => {
-    if (selectedFile) {
-      overlayFile = selectedFile
-    }
-  })
-
-  $effect(() => {
-    if (!selectedFile) {
-      showOverlayScrollButton = false
-    }
-  })
-
-  $effect(() => {
     const container = pageContainerRef
     if (!container) return
     scrollParent = container.closest(".scroll-container") as HTMLElement | null
@@ -218,25 +203,8 @@
     return () => scrollEl.removeEventListener("scroll", handleScroll)
   })
 
-  $effect(() => {
-    const scrollEl = overlayScrollParent
-    if (!scrollEl) return
-
-    const handleScroll = () => {
-      showOverlayScrollButton = scrollEl.scrollTop > 600
-    }
-
-    handleScroll()
-    scrollEl.addEventListener("scroll", handleScroll, {passive: true})
-    return () => scrollEl.removeEventListener("scroll", handleScroll)
-  })
-
   const scrollToTop = () => {
     scrollParent?.scrollTo({top: 0, behavior: "smooth"})
-  }
-
-  const scrollOverlayToTop = () => {
-    overlayScrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
 
   let refs: Array<{name: string; type: "heads" | "tags"; fullRef: string; commitId: string}> =
@@ -533,50 +501,6 @@
   <title>{repoClass.name} - Code</title>
 </svelte:head>
 
-<div class="hidden md:flex items-center justify-between px-1 text-sm text-muted-foreground">
-  <div class="flex min-w-0 items-center gap-2">
-    {#if canGoUp}
-      <button
-        type="button"
-        class="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors"
-        onclick={() => setDirectory(parentPath)}
-        title="Up"
-      >
-        <ChevronLeft class="h-4 w-4" />
-        <span class="hidden xl:inline">Up</span>
-      </button>
-    {/if}
-    <nav
-      class="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap"
-      aria-label="Breadcrumb"
-    >
-      <button
-        type="button"
-        class="hover:text-foreground hover:underline transition-colors flex-shrink-0 whitespace-nowrap"
-        onclick={() => setDirectory("")}
-      >
-        {repoClass.name}
-      </button>
-      {#each breadcrumbSegments as segment, i}
-        <span class="text-muted-foreground/50 flex-shrink-0">/</span>
-        {#if i === breadcrumbSegments.length - 1}
-          <span class="text-foreground font-medium whitespace-nowrap" title={segment}>
-            {segment}
-          </span>
-        {:else}
-          <button
-            type="button"
-            class="hover:text-foreground hover:underline transition-colors whitespace-nowrap"
-            onclick={() => setDirectory(breadcrumbSegments.slice(0, i + 1).join("/"))}
-          >
-            {segment}
-          </button>
-        {/if}
-      {/each}
-    </nav>
-  </div>
-</div>
-
 <div class="mt-2 rounded-lg border border-border bg-card" data-component="code-browser" data-testid="code-browser" bind:this={pageContainerRef}>
   {#if isCloning}
     <div class="p-4 sm:p-6">
@@ -595,6 +519,21 @@
           {/if}
         </div>
       </div>
+    </div>
+  {:else if !isDesktopViewport && selectedFile}
+    <div class="p-3 md:hidden">
+      {#key selectedFile.path}
+        <FileView
+          file={selectedFile}
+          {getFileContent}
+          {setDirectory}
+          {publish}
+          repo={repoClass}
+          displayMode="viewer"
+          autoOpenPath={autoOpenPath}
+          onClose={closeFilePreview}
+        />
+      {/key}
     </div>
   {:else}
     <div
@@ -709,47 +648,9 @@
   {/if}
 </div>
 
-{#if selectedFile}
-    <div
-      class="fixed left-0 right-0 top-[calc(var(--sait)+3rem)] cb z-40 bg-background md:hidden overflow-y-auto overscroll-contain"
-      bind:this={overlayScrollParent}
-      in:fly={{y: 24, duration: 200}}
-      out:fly={{y: 24, duration: 200}}
-      onoutroend={() => {
-        if (!selectedFile) overlayFile = null
-      }}
-    >
-      <div class="min-h-full">
-        <div class="p-3">
-          {#if overlayFile}
-            {#key overlayFile.path}
-              <FileView
-              file={overlayFile}
-              {getFileContent}
-              {setDirectory}
-              {publish}
-              repo={repoClass}
-              displayMode="viewer"
-              autoOpenPath={autoOpenPath}
-            />
-            {/key}
-        {/if}
-      </div>
-    </div>
-  </div>
-{/if}
-
 {#if showScrollButton}
   <div in:fade class="chat__scroll-down">
     <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
-      <Icon icon={AltArrowUp} />
-    </Button>
-  </div>
-{/if}
-
-{#if selectedFile && showOverlayScrollButton}
-  <div class="chat__scroll-down z-50 md:hidden" in:fade>
-    <Button class="btn btn-circle btn-neutral" onclick={scrollOverlayToTop}>
       <Icon icon={AltArrowUp} />
     </Button>
   </div>

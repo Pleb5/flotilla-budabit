@@ -295,6 +295,150 @@ test.describe("Code Browser", () => {
     })
   })
 
+  test.describe("Mobile Header and Breadcrumb", () => {
+    test("shows a root breadcrumb link on mobile code view", async ({page}) => {
+      await page.setViewportSize({width: 390, height: 844})
+      await seedTestScenario(page, "full")
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      await navigateToRepo(page, "flotilla-budabit")
+
+      await page.locator("a[href*='/code']").first().click()
+      await page.waitForURL(/\/code/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      const breadcrumb = page.getByTestId("repo-mobile-code-breadcrumb")
+      const rootLink = breadcrumb.getByRole("button", {name: "Repository root"})
+
+      await expect(breadcrumb).toBeVisible()
+      await expect(rootLink).toBeVisible()
+      await expect(rootLink).toContainText("/")
+    })
+
+    test("shows repo name in the mobile top bar and keeps breadcrumb below repo tabs", async ({
+      page,
+    }) => {
+      await page.setViewportSize({width: 390, height: 844})
+      await seedTestScenario(page, "full")
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      await navigateToRepo(page, "flotilla-budabit")
+
+      await page.locator("a[href*='/code']").first().click()
+      await page.waitForURL(/\/code/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      const codeUrl = `${page.url().split("?")[0]}?dir=${encodeURIComponent(".github/workflows")}`
+
+      await page.goto(codeUrl)
+      await page.waitForURL(/\/code\?dir=/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      const topBarHome = page.getByTestId("repo-topbar-home")
+      const repoTabs = page.locator("[data-repo-tabs]")
+      const breadcrumb = page.getByTestId("repo-mobile-code-breadcrumb")
+      const rootLink = breadcrumb.getByRole("button", {name: "Repository root"})
+
+      await expect(topBarHome).toBeVisible()
+      await expect(topBarHome).toContainText("flotilla-budabit")
+      await expect(breadcrumb).toBeVisible()
+      await expect(rootLink).toBeVisible()
+      await expect(breadcrumb).toContainText(".github")
+      await expect(breadcrumb).toContainText("workflows")
+      await expect(breadcrumb).not.toContainText("flotilla-budabit")
+
+      const tabsBox = await repoTabs.boundingBox()
+      const breadcrumbBox = await breadcrumb.boundingBox()
+
+      expect(tabsBox).not.toBeNull()
+      expect(breadcrumbBox).not.toBeNull()
+      expect(breadcrumbBox!.y).toBeGreaterThanOrEqual(tabsBox!.y + tabsBox!.height - 8)
+    })
+
+    test("shows file breadcrumb segments below repo tabs on mobile", async ({page}) => {
+      await page.setViewportSize({width: 390, height: 844})
+      await seedTestScenario(page, "full")
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      await navigateToRepo(page, "flotilla-budabit")
+
+      await page.locator("a[href*='/code']").first().click()
+      await page.waitForURL(/\/code/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      const codeUrl = `${page.url().split("?")[0]}?path=${encodeURIComponent(".github/workflows/docker-publish.yml")}`
+
+      await page.goto(codeUrl)
+      await page.waitForURL(/\/code\?path=/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      const repoTabs = page.locator("[data-repo-tabs]")
+      const breadcrumb = page.getByTestId("repo-mobile-code-breadcrumb")
+      const rootLink = breadcrumb.getByRole("button", {name: "Repository root"})
+
+      await expect(breadcrumb).toBeVisible()
+      await expect(rootLink).toBeVisible()
+      await expect(breadcrumb).toContainText(".github")
+      await expect(breadcrumb).toContainText("workflows")
+      await expect(breadcrumb).toContainText("docker-publish.yml")
+      await expect(breadcrumb).not.toContainText("flotilla-budabit")
+
+      const tabsBox = await repoTabs.boundingBox()
+      const breadcrumbBox = await breadcrumb.boundingBox()
+
+      expect(tabsBox).not.toBeNull()
+      expect(breadcrumbBox).not.toBeNull()
+      expect(breadcrumbBox!.y).toBeGreaterThanOrEqual(tabsBox!.y + tabsBox!.height - 8)
+    })
+  })
+
+  test.describe("Desktop Header and Breadcrumb", () => {
+    test("shows the shared breadcrumb row under repo tabs on desktop", async ({page}) => {
+      await seedTestScenario(page, "full")
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+
+      await navigateToRepo(page, "flotilla-budabit")
+
+      await page.locator("a[href*='/code']").first().click()
+      await page.waitForURL(/\/code/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      const codeUrl = `${page.url().split("?")[0]}?dir=${encodeURIComponent(".github/workflows")}`
+
+      await page.goto(codeUrl)
+      await page.waitForURL(/\/code\?dir=/, {timeout: 10000})
+      await page.waitForLoadState("networkidle")
+
+      const repoTabs = page.locator("[data-repo-tabs]")
+      const breadcrumb = page.getByTestId("repo-mobile-code-breadcrumb")
+      const rootLink = breadcrumb.getByRole("button", {name: "Repository root"})
+
+      await expect(breadcrumb).toBeVisible()
+      await expect(rootLink).toBeVisible()
+      await expect(breadcrumb).toContainText(".github")
+      await expect(breadcrumb).toContainText("workflows")
+
+      const tabsBox = await repoTabs.boundingBox()
+      const breadcrumbBox = await breadcrumb.boundingBox()
+
+      expect(tabsBox).not.toBeNull()
+      expect(breadcrumbBox).not.toBeNull()
+      expect(breadcrumbBox!.y).toBeGreaterThanOrEqual(tabsBox!.y + tabsBox!.height - 8)
+    })
+  })
+
   test.describe("Page Title and Metadata", () => {
     test("page title includes repo name and Code", async ({page}) => {
       const seeder = await seedTestRepo(page, {
