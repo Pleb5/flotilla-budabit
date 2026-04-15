@@ -120,7 +120,11 @@ export const createScroller = ({
   }
 }
 
-export const isMobile = "ontouchstart" in document.documentElement
+export const isMobile =
+  typeof window !== "undefined" &&
+  ("ontouchstart" in document.documentElement ||
+    navigator.maxTouchPoints > 0 ||
+    window.matchMedia?.("(pointer: coarse)")?.matches)
 
 export const downloadText = (filename: string, text: string) => {
   const blob = new Blob([text], {type: "text/plain"})

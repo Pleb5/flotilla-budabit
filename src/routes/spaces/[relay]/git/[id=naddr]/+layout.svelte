@@ -84,6 +84,7 @@
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     PULL_REQUESTS_KEY,
+    REPO_FEED_ACTIVITY_KEY,
     activeRepoClass,
     GIT_RELAYS,
     getRepoAnnouncementRelays,
@@ -869,6 +870,7 @@
     root.scrollTo({top: root.scrollTop + delta, behavior: "auto"})
   }
 
+
   $effect(() => {
     void activeTab
     void codeBreadcrumbPath
@@ -1314,6 +1316,24 @@
   const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
   const allRootIdsStore = deriveAllRootIds(issuesStore, patchesStore, pullRequestsStore)
   const commentEventsStore = deriveComments(allRootIdsStore)
+  const repoFeedActivityStore: Readable<TrustedEvent[]> = derived(
+    [issuesStore, patchesStore, pullRequestsStore],
+    ([$issues, $patches, $pullRequests]) => {
+      const rootPatches = ($patches || []).filter((patch: PatchEvent) =>
+        (patch.tags || []).some((tag: string[]) => tag[0] === "t" && tag[1] === "root"),
+      )
+
+      const deduped = new Map<string, TrustedEvent>()
+
+      for (const event of [...($issues || []), ...rootPatches, ...($pullRequests || [])]) {
+        deduped.set(event.id, event)
+      }
+
+      return Array.from(deduped.values()).sort(
+        (a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id),
+      )
+    },
+  )
   const repoTrustMetricsStore = createRepoTrustMetricsStore({
     repoAddresses: repoAddressesStore,
     pullRequests: pullRequestsStore,
@@ -1563,6 +1583,7 @@
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
+  setContext(REPO_FEED_ACTIVITY_KEY, repoFeedActivityStore)
   setContext(REPO_TRUST_METRICS_KEY, repoTrustMetricsStore)
 
   // Initialize tracking for data loading

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type {NativeEmoji} from "emoji-picker-element/shared"
-  import type {TrustedEvent} from "@welshman/util"
+  import {getTag, type TrustedEvent} from "@welshman/util"
   import SmileCircle from "@assets/icons/smile-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
@@ -9,18 +9,32 @@
   interface Props {
     url: string
     event: TrustedEvent
+    relays?: string[]
+    scopeH?: string
+    protect?: boolean
   }
 
-  const {url, event}: Props = $props()
+  const {url, event, relays = [], scopeH = "", protect = true}: Props = $props()
 
-  const shouldProtect = canEnforceNip70(url)
+  const reactionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
+
+  const shouldProtect = protect ? canEnforceNip70(url) : undefined
+
+  const scopedTags = $derived.by(() => {
+    if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
+      return [] as string[][]
+    }
+
+    return [["h", scopeH]]
+  })
 
   const onEmoji = async (emoji: NativeEmoji) =>
     publishReaction({
       event,
-      relays: [url],
+      relays: reactionRelays,
       content: emoji.unicode,
-      protect: await shouldProtect,
+      tags: scopedTags,
+      protect: protect ? await shouldProtect! : false,
     })
 </script>
 

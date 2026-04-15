@@ -1,11 +1,12 @@
 <script lang="ts">
   import {hash, now, formatTimestampAsTime, formatTimestampAsDate} from "@welshman/lib"
-  import type {TrustedEvent, EventContent} from "@welshman/util"
+  import {getTag, type TrustedEvent, type EventContent} from "@welshman/util"
   import {thunks, deriveProfile, deriveProfileDisplay} from "@welshman/app"
   import {isMobile} from "@lib/html"
   import TapTarget from "@lib/components/TapTarget.svelte"
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
+  import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
@@ -28,20 +29,50 @@
     replyTo?: (event: TrustedEvent) => void
     showPubkey?: boolean
     inert?: boolean
+    interactionRelays?: string[]
+    scopeH?: string
+    protectInteractions?: boolean
   }
 
-  const {url, event, replyTo = undefined, showPubkey = false, inert = false}: Props = $props()
+  const {
+    url,
+    event,
+    replyTo = undefined,
+    showPubkey = false,
+    inert = false,
+    interactionRelays = [],
+    scopeH = "",
+    protectInteractions = true,
+  }: Props = $props()
 
   const thunk = $derived($thunks.find(t => t.event.id === event.id))
-  const shouldProtect = canEnforceNip70(url)
+  const shouldProtect = protectInteractions ? canEnforceNip70(url) : undefined
   const today = formatTimestampAsDate(now())
   const profile = deriveProfile(event.pubkey, [url])
   const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
   const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
+  const relayTargets = $derived.by(() => (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean))
+  const scopedTags = $derived.by(() => {
+    if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
+      return [] as string[][]
+    }
 
-  const reply = () => replyTo!(event)
+    return [["h", scopeH]]
+  })
 
-  const onTap = () => pushModal(ChannelMessageMenuMobile, {url, event, reply})
+  const reply = replyTo ? () => replyTo(event) : undefined
+
+  const openMobileMenu = () =>
+    pushModal(ChannelMessageMenuMobile, {
+      url,
+      event,
+      reply,
+      relays: relayTargets,
+      scopeH,
+      protectActions: protectInteractions,
+    })
+
+  const onTap = () => openMobileMenu()
 
   const stopTapFromInteractive = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null
@@ -55,10 +86,21 @@
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, url})
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishSocialDelete({url, event, protect: await shouldProtect})
+    publishSocialDelete({
+      url,
+      relays: relayTargets,
+      event,
+      protect: protectInteractions ? await shouldProtect! : false,
+    })
 
   const createReaction = async (template: EventContent) =>
-    publishReaction({...template, event, relays: [url], protect: await shouldProtect})
+    publishReaction({
+      ...template,
+      event,
+      relays: relayTargets,
+      tags: [...(template.tags || []), ...scopedTags],
+      protect: protectInteractions ? await shouldProtect! : false,
+    })
 </script>
 
 <TapTarget
@@ -116,13 +158,21 @@
       </div>
     </div>
   </div>
-  <div class="row-2 ml-10 mt-1 pl-1">
+  <div class="row-2 ml-10 mt-1 flex items-center gap-2 pl-1">
     <ReactionSummary
       {url}
+      relays={relayTargets}
+      {scopeH}
       {event}
       {deleteReaction}
       {createReaction}
       reactionClass="tooltip-right" />
+    {#if isMobile && !inert}
+      <Button class="btn btn-ghost btn-xs gap-1" onclick={openMobileMenu} data-stop-tap>
+        <Icon icon={MenuDots} size={4} />
+        <span>Actions</span>
+      </Button>
+    {/if}
   </div>
   {#if !isMobile}
     <div
@@ -131,8 +181,8 @@
       {#if ENABLE_ZAPS}
         <ChannelMessageZapButton {url} {event} />
       {/if}
-      <ChannelMessageEmojiButton {url} {event} />
-      {#if replyTo}
+      <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} protect={protectInteractions} />
+      {#if reply}
         <Button class="btn join-item btn-xs" onclick={reply}>
           <Icon icon={Reply} size={4} />
         </Button>

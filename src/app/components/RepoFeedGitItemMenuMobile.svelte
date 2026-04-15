@@ -1,36 +1,39 @@
 <script lang="ts">
+  import {goto} from "$app/navigation"
   import type {NativeEmoji} from "emoji-picker-element/shared"
   import {getTag, type TrustedEvent} from "@welshman/util"
-  import {pubkey} from "@welshman/app"
-  import Bolt from "@assets/icons/bolt.svg?dataurl"
+  import {ArrowUpRight} from "@lucide/svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
-  import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import SmileCircle from "@assets/icons/smile-circle.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import EmojiPicker from "@lib/components/EmojiPicker.svelte"
-  import ZapButton from "@app/components/ZapButton.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
-  import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
-  import {ENABLE_ZAPS} from "@app/core/state"
-  import {publishReaction, canEnforceNip70} from "@app/core/commands"
-  import {pushModal} from "@app/util/modal"
+  import {publishReaction} from "@app/core/commands"
+  import {clearModals, pushModal} from "@app/util/modal"
 
   type Props = {
     url: string
     event: TrustedEvent
+    openHref: string
+    openLabel?: string
     reply?: () => void
     relays?: string[]
     scopeH?: string
-    protectActions?: boolean
   }
 
-  const {url, event, reply, relays = [], scopeH = "", protectActions = true}: Props = $props()
+  const {
+    url,
+    event,
+    openHref,
+    openLabel = "Open",
+    reply,
+    relays = [],
+    scopeH = "",
+  }: Props = $props()
 
   const reactionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
-
-  const shouldProtect = protectActions ? canEnforceNip70(url) : undefined
 
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
@@ -47,7 +50,7 @@
       relays: reactionRelays,
       content: emoji.unicode,
       tags: scopedTags,
-      protect: protectActions ? await shouldProtect! : false,
+      protect: false,
     })
   }).bind(undefined, event)
 
@@ -64,35 +67,17 @@
 
   const showInfo = () => pushModal(EventInfo, {url, event}, {replaceState: true})
 
-  const showDelete = () =>
-    pushModal(EventDeleteConfirm, {
-      url,
-      relays: reactionRelays,
-      event,
-      noun: "Message",
-      ...(protectActions ? {} : {protect: false}),
-    })
+  const openItem = () => {
+    clearModals()
+    goto(openHref)
+  }
 </script>
 
 <div class="flex flex-col gap-2">
-  {#if event.pubkey === $pubkey}
-    <Button class="btn btn-neutral text-error" onclick={showDelete}>
-      <Icon size={4} icon={TrashBin2} />
-      Delete Message
-    </Button>
-  {/if}
-
-  <Button class="btn btn-neutral" onclick={showInfo}>
-    <Icon size={4} icon={Code2} />
-    Message Info
+  <Button class="btn btn-neutral w-full" onclick={openItem}>
+    <ArrowUpRight class="h-4 w-4" />
+    {openLabel}
   </Button>
-
-  {#if ENABLE_ZAPS}
-    <ZapButton replaceState {url} {event} class="btn btn-neutral w-full">
-      <Icon size={4} icon={Bolt} />
-      Send Zap
-    </ZapButton>
-  {/if}
 
   {#if reply}
     <Button class="btn btn-neutral w-full" onclick={sendReply}>
@@ -104,5 +89,10 @@
   <Button class="btn btn-neutral w-full" onclick={showEmojiPicker}>
     <Icon size={4} icon={SmileCircle} />
     Send Reaction
+  </Button>
+
+  <Button class="btn btn-neutral" onclick={showInfo}>
+    <Icon size={4} icon={Code2} />
+    Message Info
   </Button>
 </div>

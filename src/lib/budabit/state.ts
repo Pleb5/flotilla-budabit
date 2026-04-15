@@ -58,6 +58,8 @@ export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")
 
 export const PULL_REQUESTS_KEY = Symbol("pull-requests")
 
+export const REPO_FEED_ACTIVITY_KEY = Symbol("repo-feed-activity")
+
 export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767

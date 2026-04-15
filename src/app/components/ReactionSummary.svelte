@@ -13,11 +13,12 @@
     fromMsats,
     getTag,
     DELETE,
+    normalizeRelayUrl,
   } from "@welshman/util"
-  import type {TrustedEvent, EventContent, Zap} from "@welshman/util"
+  import type {TrustedEvent, EventContent, Filter, Zap} from "@welshman/util"
   import {deriveArray, deriveEventsById, deriveItemsByKey} from "@welshman/store"
   import {load} from "@welshman/net"
-  import {pubkey, repository, getValidZap, displayProfileByPubkey} from "@welshman/app"
+  import {pubkey, repository, tracker, getValidZap, displayProfileByPubkey} from "@welshman/app"
   import {isMobile, preventDefault, stopPropagation} from "@lib/html"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -31,6 +32,8 @@
     deleteReaction: (event: TrustedEvent) => void
     createReaction: (event: EventContent) => void
     url?: string
+    relays?: string[]
+    scopeH?: string
     reactionClass?: string
     noTooltip?: boolean
     readOnly?: boolean
@@ -42,11 +45,49 @@
     deleteReaction,
     createReaction,
     url = "",
+    relays = [],
+    scopeH = "",
     reactionClass = "",
     noTooltip = false,
     readOnly = false,
     children,
   }: Props = $props()
+
+  const normalizeRelay = (relay: string) => {
+    try {
+      return normalizeRelayUrl(relay)
+    } catch {
+      return ""
+    }
+  }
+
+  const loadRelays = $derived.by(() => {
+    const candidates = relays.length > 0 ? relays : url ? [url] : []
+    return uniq(candidates.map(normalizeRelay).filter(Boolean))
+  })
+
+  const relaySet = $derived.by(() => new Set(relays.map(normalizeRelay).filter(Boolean)))
+
+  const hasScopeH = $derived.by(() => Boolean(scopeH))
+
+  const withScopeH = (filters: Filter[]) =>
+    hasScopeH ? filters.map(filter => ({...filter, "#h": [scopeH]})) : filters
+
+  const matchesRelayScope = (event: TrustedEvent) => {
+    if (relaySet.size === 0) return true
+
+    for (const relay of tracker.getRelays(event.id)) {
+      if (relaySet.has(normalizeRelay(relay))) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  const matchesScopeH = (event: TrustedEvent) => !scopeH || getTag("h", event.tags)?.[1] === scopeH
+
+  const matchesScope = (event: TrustedEvent) => matchesRelayScope(event) && matchesScopeH(event)
 
   const reports = deriveArray(
     deriveEventsById({repository, filters: [{kinds: [REPORT], "#e": [event.id]}]}),
@@ -65,6 +106,14 @@
     }),
   )
 
+  const scopedReports = $derived.by(() => Array.from($reports.values()).filter(matchesScope))
+
+  const scopedReactions = $derived.by(() => Array.from($reactions.values()).filter(matchesScope))
+
+  const scopedZaps = $derived.by(() =>
+    Array.from($zaps.values()).filter(zap => matchesRelayScope(zap.response) && matchesScopeH(zap.request)),
+  )
+
   const onReactionClick = (events: TrustedEvent[]) => {
     const reaction = events.find(e => e.pubkey === $pubkey)
 
@@ -80,33 +129,33 @@
     }
   }
 
-  const onReportClick = () => pushModal(ReportDetails, {url, event})
+  const onReportClick = () => pushModal(ReportDetails, {url: url || loadRelays[0] || "", event})
 
-  const reportReasons = $derived(uniq(map(e => getTag("e", e.tags)?.[2], $reports.values())))
+  const reportReasons = $derived(uniq(map(e => getTag("e", e.tags)?.[2], scopedReports)))
 
   const getReactionKey = (e: TrustedEvent) => getEmojiTag(e.content, e.tags)?.join("") || e.content
 
   const groupedReactions = $derived(
     groupBy(
       getReactionKey,
-      uniqBy(e => `${e.pubkey}${getReactionKey(e)}`, $reactions.values()),
+      uniqBy(e => `${e.pubkey}${getReactionKey(e)}`, scopedReactions),
     ),
   )
 
-  const groupedZaps = $derived(groupBy(e => getReactionKey(e.request), $zaps.values()))
+  const groupedZaps = $derived(groupBy(e => getReactionKey(e.request), scopedZaps))
 
   onMount(() => {
     const controller = new AbortController()
 
-    if (url) {
+    if (loadRelays.length > 0) {
       load({
-        relays: [url],
+        relays: loadRelays,
         signal: controller.signal,
-        filters: getReplyFilters([event], {kinds: REACTION_KINDS}),
+        filters: withScopeH(getReplyFilters([event], {kinds: REACTION_KINDS}) as Filter[]),
         onEvent: batch(300, (events: TrustedEvent[]) => {
           load({
-            relays: [url],
-            filters: getReplyFilters(events, {kinds: [DELETE]}),
+            relays: loadRelays,
+            filters: withScopeH(getReplyFilters(events, {kinds: [DELETE]}) as Filter[]),
           })
         }),
       })
@@ -118,9 +167,9 @@
   })
 </script>
 
-{#if $reactions.length > 0 || $zaps.length || $reports.length > 0}
+{#if scopedReactions.length > 0 || scopedZaps.length || scopedReports.length > 0}
   <div class="flex min-w-0 flex-wrap gap-2">
-    {#if url && $reports.length > 0}
+    {#if (url || loadRelays.length > 0) && scopedReports.length > 0}
       <button
         type="button"
         data-tip={`This content has been reported as "${displayList(reportReasons)}".`}
@@ -128,7 +177,7 @@
         class:tooltip={!noTooltip && !isMobile}
         onclick={stopPropagation(preventDefault(onReportClick))}>
         <Icon icon={Danger} />
-        <span>{$reports.length}</span>
+        <span>{scopedReports.length}</span>
       </button>
     {/if}
     {#each groupedZaps.entries() as [key, zaps]}

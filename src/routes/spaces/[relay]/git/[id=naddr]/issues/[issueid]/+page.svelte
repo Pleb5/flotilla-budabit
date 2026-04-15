@@ -563,15 +563,15 @@
   function getStatusIcon(kind: number | undefined) {
     switch (kind) {
       case GIT_STATUS_OPEN:
-        return {icon: CircleDot, color: "text-amber-500"}
+        return {icon: CircleDot, color: "text-emerald-400", bg: "bg-emerald-500/10"}
       case GIT_STATUS_COMPLETE:
-        return {icon: CircleCheck, color: "text-green-500"}
+        return {icon: CircleCheck, color: "text-sky-400", bg: "bg-sky-500/10"}
       case GIT_STATUS_CLOSED:
-        return {icon: CircleCheck, color: "text-red-500"}
+        return {icon: CircleCheck, color: "text-rose-400", bg: "bg-rose-500/10"}
       case GIT_STATUS_DRAFT:
-        return {icon: FileCode, color: "text-gray-500"}
+        return {icon: FileCode, color: "text-amber-300", bg: "bg-amber-500/10"}
       default:
-        return {icon: CircleDot, color: "text-red-100"}
+        return {icon: CircleDot, color: "text-muted-foreground", bg: "bg-muted"}
     }
   }
 
@@ -692,10 +692,9 @@
     <Card class="git-card p-4 transition-colors sm:p-6">
       <div class="flex items-start gap-2 sm:gap-4">
         {#if statusIcon}
-          {@const {icon: Icon, color} = statusIcon()}
+          {@const {icon: Icon, color, bg} = statusIcon()}
           <div class="mt-1 flex-shrink-0">
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10 sm:h-10 sm:w-10">
+            <div class={`flex h-8 w-8 items-center justify-center rounded-full ${bg} sm:h-10 sm:w-10`}>
               <Icon class={`h-4 w-4 sm:h-6 sm:w-6 ${color}`} />
             </div>
           </div>

@@ -8,11 +8,13 @@
 
   type Props = {
     url?: string
+    relays?: string[]
     event: TrustedEvent
     noun?: string
+    protect?: boolean
   }
 
-  const {url, event, noun = "Message"}: Props = $props()
+  const {url, relays = [], event, noun = "Message", protect}: Props = $props()
 
   const waitForDeletePublish = async (
     thunk: {complete?: Promise<unknown>} | undefined,
@@ -42,7 +44,7 @@
     onProgress: (progress: DeleteProgress) => void
   }) => {
     onProgress({label: "Checking relay delete policy...", completed: 0, total: 1, current: noun})
-    const protect = url ? await canEnforceNip70(url) : false
+    const resolvedProtect = protect ?? (url ? await canEnforceNip70(url) : false)
     if (signal.aborted) {
       throw new DOMException("Delete operation cancelled", "AbortError")
     }
@@ -54,7 +56,7 @@
       current: noun.toLowerCase(),
     })
 
-    const thunk = publishSocialDelete({url, event, protect})
+    const thunk = publishSocialDelete({url, relays, event, protect: resolvedProtect})
     await waitForDeletePublish(thunk, signal)
 
     return thunk
