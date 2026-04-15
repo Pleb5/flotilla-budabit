@@ -152,13 +152,7 @@
 
 </script>
 
-<div
-  class="w-full"
-  role="link"
-  tabindex={tabbable ? 0 : undefined}
-  aria-label={name ? `Open repository ${name}` : "Open repository"}
-  onclick={handleCardClick}
-  onkeydown={tabbable ? handleCardKeydown : undefined}>
+{#snippet cardContent()}
   <NoteCard event={event} class="card2 sm:card2-sm bg-alt" {hideDate}>
     {#if name}
       <div class="flex w-full items-start justify-between gap-2">
@@ -211,4 +205,20 @@
       </div>
     {/if}
   </NoteCard>
-</div>
+{/snippet}
+
+{#if tabbable}
+  <div
+    class="w-full"
+    role="link"
+    tabindex="0"
+    aria-label={name ? `Open repository ${name}` : "Open repository"}
+    onclick={handleCardClick}
+    onkeydown={handleCardKeydown}>
+    {@render cardContent()}
+  </div>
+{:else}
+  <div class="w-full">
+    {@render cardContent()}
+  </div>
+{/if}

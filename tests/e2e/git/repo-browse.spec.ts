@@ -1,4 +1,4 @@
-import {test, expect} from "@playwright/test"
+import {test, expect, type Locator} from "@playwright/test"
 import {
   TestSeeder,
   seedTestRepo,
@@ -29,6 +29,18 @@ const ENCODED_RELAY = encodeURIComponent(TEST_RELAY)
 
 // Apply clean state to ensure test isolation between tests
 useCleanState(test)
+
+const clickRepoCardNeutralArea = async (repoCard: Locator) => {
+  const box = await repoCard.boundingBox()
+  expect(box).not.toBeNull()
+
+  await repoCard.click({
+    position: {
+      x: Math.max(Math.round((box?.width || 0) / 2), 8),
+      y: Math.max(Math.round((box?.height || 0) / 2), 8),
+    },
+  })
+}
 
 test.describe("Repository Browsing", () => {
   test.describe("Repository List", () => {
@@ -212,9 +224,63 @@ test.describe("Repository Browsing", () => {
       const repoCard = gitHub.repoCards.filter({hasText: "neutral-click-repo"}).first()
       await expect(repoCard).toBeVisible({timeout: 10000})
 
-      await repoCard.dispatchEvent("click")
+      await clickRepoCardNeutralArea(repoCard)
 
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
+    })
+
+    test("clicking neutral repo card area still navigates when bookmark toggle is shown", async ({
+      page,
+    }) => {
+      const seeder = new TestSeeder()
+      seeder.seedRepo({name: "neutral-click-bookmark-baseline-repo"})
+      const repo = seeder.seedRepo({
+        name: "neutral-click-bookmark-repo",
+        description: "Neutral card clicks should still work with bookmark actions visible",
+        pubkey: TEST_PUBKEYS.bob,
+      })
+      await seeder.setup(page)
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+      await gitHub.searchByNaddr(repo.naddr)
+
+      const repoCard = gitHub.repoCards.filter({hasText: "neutral-click-bookmark-repo"}).first()
+      await expect(repoCard).toBeVisible({timeout: 10000})
+      await expect(gitHub.getRepoBookmarkButton("neutral-click-bookmark-repo")).toBeVisible({
+        timeout: 10000,
+      })
+
+      await clickRepoCardNeutralArea(repoCard)
+
+      await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
+    })
+
+    test("bookmark toggle takes precedence over repo card navigation", async ({page}) => {
+      const seeder = new TestSeeder()
+      seeder.seedRepo({name: "bookmark-precedence-baseline-repo"})
+      const repo = seeder.seedRepo({
+        name: "bookmark-precedence-repo",
+        description: "Bookmark actions should not trigger repo navigation",
+        pubkey: TEST_PUBKEYS.bob,
+      })
+      await seeder.setup(page)
+
+      const gitHub = new GitHubPage(page, ENCODED_RELAY)
+      await gitHub.goto()
+      await gitHub.waitForLoad()
+      await gitHub.searchByNaddr(repo.naddr)
+
+      const bookmarkButton = gitHub.getRepoBookmarkButton("bookmark-precedence-repo")
+      await expect(bookmarkButton).toBeVisible({timeout: 10000})
+
+      const startingUrl = page.url()
+      await bookmarkButton.click()
+      await page.waitForTimeout(300)
+
+      expect(page.url()).toBe(startingUrl)
+      await expect(gitHub.searchInput).toBeVisible()
     })
   })
 
