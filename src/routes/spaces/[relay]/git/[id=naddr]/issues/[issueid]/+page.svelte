@@ -682,7 +682,7 @@
 
 {#if issue}
   <div
-    class="z-10 sticky top-0 items-center justify-between px-2 py-2 backdrop-blur sm:px-0 sm:py-4"
+    class="px-2 py-2 sm:px-0 sm:py-4"
     transition:slide>
     <Card class="git-card p-4 transition-colors sm:p-6">
       <div class="flex items-start gap-2 sm:gap-4">

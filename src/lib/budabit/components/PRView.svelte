@@ -2039,7 +2039,9 @@
   }
 </script>
 
-<div class="z-10 items-center justify-between py-4 backdrop-blur">
+<div
+  class="sticky z-10 items-center justify-between py-4 backdrop-blur"
+  style="top: var(--repo-tabs-height, 0px);">
   <div>
     <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
       <div class="mb-4 flex flex-col items-start justify-between gap-2">
