@@ -28,7 +28,7 @@
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {slide} from "svelte/transition"
-  import {getContext, onMount} from "svelte"
+  import {getContext} from "svelte"
   import {postComment} from "@lib/budabit"
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent} from "@nostr-git/core/events"
@@ -39,7 +39,6 @@
   import {
     repoAnnouncements,
     deriveMaintainersForEuc,
-    loadRepoAnnouncements,
     deriveRoleAssignments,
     getRepoScopedRelays,
     loadRepoContext,
@@ -593,10 +592,6 @@
       publishLocalComment()
     }
   }
-
-  onMount(() => {
-    loadRepoAnnouncements()
-  })
 
   const isMaintainerOrAuthor = $derived.by(() => {
     if (!issue || !$pubkey) return false
