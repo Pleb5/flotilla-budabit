@@ -107,6 +107,25 @@
   data-event={event.id}
   onTap={inert ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left">
+  {#if isMobile && !inert}
+    <div
+      class="join absolute right-1 top-1 z-10 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
+      <ChannelMessageEmojiButton
+        {url}
+        {event}
+        relays={relayTargets}
+        {scopeH}
+        protect={protectInteractions} />
+      {#if reply}
+        <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message" data-stop-tap>
+          <Icon icon={Reply} size={4} />
+        </Button>
+      {/if}
+      <Button class="btn join-item btn-xs" onclick={openMobileMenu} aria-label="Open message actions" data-stop-tap>
+        <Icon icon={MenuDots} size={4} />
+      </Button>
+    </div>
+  {/if}
   <div class="flex w-full gap-3 overflow-auto">
     {#if showPubkey}
       <Button onclick={openProfile} class="flex items-start">
@@ -115,7 +134,7 @@
     {:else}
       <div class="w-8 min-w-8 max-w-8"></div>
     {/if}
-    <div class="min-w-0 flex-grow pr-1">
+    <div class="min-w-0 flex-grow pr-24 sm:pr-32">
       {#if showPubkey}
         <div class="flex items-center gap-2">
           <Button onclick={openProfile} class="text-sm font-bold" style="color: {colorValue}">
@@ -167,17 +186,10 @@
       {deleteReaction}
       {createReaction}
       reactionClass="tooltip-right" />
-    {#if isMobile && !inert}
-      <Button class="btn btn-ghost btn-xs gap-1" onclick={openMobileMenu} data-stop-tap>
-        <Icon icon={MenuDots} size={4} />
-        <span>Actions</span>
-      </Button>
-    {/if}
   </div>
   {#if !isMobile}
     <div
-      class="join absolute right-1 top-1 border border-solid border-neutral text-xs opacity-0 transition-all"
-      class:group-hover:opacity-100={!isMobile}>
+      class="join absolute right-1 top-1 z-10 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
       {#if ENABLE_ZAPS}
         <ChannelMessageZapButton {url} {event} />
       {/if}
@@ -187,7 +199,12 @@
           <Icon icon={Reply} size={4} />
         </Button>
       {/if}
-      <ChannelMessageMenuButton {url} {event} />
+      <ChannelMessageMenuButton
+        {url}
+        {event}
+        relays={relayTargets}
+        protect={protectInteractions ? undefined : false}
+        readOnly={inert} />
       <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
     </div>
   {/if}

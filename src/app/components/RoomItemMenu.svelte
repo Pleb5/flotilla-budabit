@@ -14,9 +14,11 @@
     event: TrustedEvent
     onClick: () => void
     readOnly?: boolean
+    relays?: string[]
+    protect?: boolean
   }
 
-  const {url, event, onClick, readOnly = false}: Props = $props()
+  const {url, event, onClick, readOnly = false, relays = [], protect}: Props = $props()
 
   const showInfo = () => {
     onClick()
@@ -25,7 +27,13 @@
 
   const showDelete = () => {
     onClick()
-    pushModal(EventDeleteConfirm, {url, event, noun: "Message"})
+    pushModal(EventDeleteConfirm, {
+      url,
+      relays,
+      event,
+      noun: "Message",
+      ...(protect === undefined ? {} : {protect}),
+    })
   }
 </script>
 

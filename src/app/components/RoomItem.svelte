@@ -11,6 +11,7 @@
     displayProfileByPubkey,
   } from "@welshman/app"
   import {isMobile} from "@lib/html"
+  import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import ReplyAlt from "@assets/icons/reply.svg?dataurl"
@@ -82,6 +83,26 @@
   data-event={event.id}
   onTap={inert ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left hover:bg-base-100/50">
+  {#if isMobile && !inert}
+    <div class="join absolute right-1 top-1 z-10 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
+      {#if !readOnly}
+        <RoomItemEmojiButton {url} {event} />
+      {/if}
+      {#if reply}
+        <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
+          <Icon icon={Reply} size={4} />
+        </Button>
+      {/if}
+      {#if edit}
+        <Button class="btn join-item btn-xs" onclick={edit} aria-label="Edit message">
+          <Icon icon={Pen} size={4} />
+        </Button>
+      {/if}
+      <Button class="btn join-item btn-xs" onclick={onTap} aria-label="Open message actions">
+        <Icon icon={MenuDots} size={4} />
+      </Button>
+    </div>
+  {/if}
   <div class="flex w-full gap-3 overflow-auto">
     {#if showPubkey}
       <Button onclick={openProfile} class="flex items-start">
@@ -93,7 +114,7 @@
     {:else}
       <div class="w-8 min-w-8 max-w-8"></div>
     {/if}
-    <div class="min-w-0 flex-grow pr-1">
+    <div class="min-w-0 flex-grow pr-24 sm:pr-32">
       {#if showPubkey}
         <div class="flex items-center gap-2">
           <Button onclick={openProfile} class="text-sm font-bold" style="color: {colorValue}">
@@ -145,8 +166,7 @@
   </div>
   {#if !isMobile}
     <div
-      class="join absolute right-1 top-1 border border-solid border-neutral text-xs opacity-0 transition-all"
-      class:group-hover:opacity-100={!isMobile}>
+      class="join absolute right-1 top-1 z-10 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
       {#if ENABLE_ZAPS && !readOnly}
         <RoomItemZapButton {url} {event} />
       {/if}

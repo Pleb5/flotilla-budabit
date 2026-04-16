@@ -1,9 +1,9 @@
 <script lang="ts">
-  import {readable, writable, type Readable} from "svelte/store"
-  import {getContext, onDestroy, onMount} from "svelte"
+  import {readable, type Readable} from "svelte/store"
+  import {getContext, onDestroy, onMount, tick} from "svelte"
   import {beforeNavigate} from "$app/navigation"
   import {page} from "$app/stores"
-  import {now, formatTimestampAsDate, on} from "@welshman/lib"
+  import {now, formatTimestampAsDate} from "@welshman/lib"
   import type {EventContent, TrustedEvent} from "@welshman/util"
   import {
     DELETE,
@@ -14,11 +14,9 @@
     GIT_STATUS_CLOSED,
     GIT_STATUS_COMPLETE,
     makeEvent,
-    matchFilters,
     normalizeRelayUrl,
   } from "@welshman/util"
-  import {pubkey, publishThunk, repository, tracker} from "@welshman/app"
-  import {request} from "@welshman/net"
+  import {pubkey, publishThunk} from "@welshman/app"
   import {fade, fly, slide} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -28,7 +26,8 @@
   import RepoFeedGitItem from "@app/components/RepoFeedGitItem.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
-  import {PLATFORM_RELAYS, REACTION_KINDS, decodeRelay, getEventsForUrl, userSettingsValues} from "@app/core/state"
+  import {PLATFORM_RELAYS, REACTION_KINDS, decodeRelay, userSettingsValues} from "@app/core/state"
+  import {makeFeed} from "@app/core/requests"
   import {checked} from "@app/util/notifications"
   import {prependParent} from "@app/core/commands"
   import {popKey} from "@lib/implicit"
@@ -98,6 +97,8 @@
       return
     }
 
+    pendingOwnMessageCount = Math.max(pendingOwnMessageCount ?? ownCommunityMessageCount, ownCommunityMessageCount) + 1
+
     tags.push(["h", communityScope])
 
     let template = {content, tags}
@@ -129,7 +130,7 @@
     clearParent()
     clearShare()
 
-    setTimeout(scrollToBottom, 100)
+    void scrollToFreshestPost()
   }
 
   const getDistanceFromBottom = () => {
@@ -141,6 +142,7 @@
   const onScroll = () => {
     const distanceFromBottom = getDistanceFromBottom()
 
+    stickToBottom = distanceFromBottom < 120
     showScrollButton = distanceFromBottom > 800
 
     if (!newMessages || newMessagesSeen) {
@@ -163,8 +165,44 @@
   const scrollToNewMessages = () =>
     newMessages?.scrollIntoView({behavior: "smooth", block: "center"})
 
-  const scrollToBottom = () => {
-    bottomAnchor?.scrollIntoView({behavior: "smooth", block: "end"})
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    if (element) {
+      element.scrollTo({top: element.scrollHeight, behavior})
+      return
+    }
+
+    bottomAnchor?.scrollIntoView({behavior, block: "end"})
+  }
+
+  const scrollToFreshestPost = async () => {
+    await tick()
+    updateFloatingLayout()
+    scrollToBottom("auto")
+
+    requestAnimationFrame(() => {
+      updateFloatingLayout()
+      scrollToBottom("auto")
+    })
+
+    setTimeout(() => {
+      updateFloatingLayout()
+      scrollToBottom("auto")
+    }, 80)
+  }
+
+  const updateFloatingLayout = () => {
+    if (dynamicPadding && chatCompose) {
+      dynamicPadding.style.minHeight = `${chatCompose.offsetHeight}px`
+    }
+
+    if (!chatCompose?.classList.contains("chat__compose")) {
+      scrollButtonBottom = undefined
+      return
+    }
+
+    const bottomInset = Math.max(0, window.innerHeight - chatCompose.getBoundingClientRect().top)
+
+    scrollButtonBottom = `${bottomInset + 16}px`
   }
 
   const restoreFeedScroll = () => {
@@ -225,11 +263,19 @@
   let communityEvents: Readable<TrustedEvent[]> = $state(readable([]))
   let compose: RoomCompose | undefined = $state()
   let pendingScrollRestore: number | null = $state(null)
+  let scrollButtonBottom = $state<string | undefined>(undefined)
+  let initialScrollStateReady = $state(false)
+  let shouldScrollToLatestOnLoad = $state(false)
+  let didScrollToLatestOnLoad = $state(false)
+  let pendingOwnMessageCount = $state<number | null>(null)
+  let stickToBottom = $state(true)
+  let lastCommunityEventId = $state("")
 
   const repoFeedActivity = $derived.by(() => $repoFeedActivityStore || [])
   const statusEventsByRoot = $derived.by(() => $statusEventsByRootStore || new Map())
 
   const visibleCommunityEvents = $derived.by(() => $communityEvents.filter(event => event.kind === MESSAGE))
+  const ownCommunityMessageCount = $derived.by(() => visibleCommunityEvents.filter(event => event.pubkey === $pubkey).length)
 
   const displayEvents = $derived.by(() => {
     const deduped = new Map<string, TrustedEvent>()
@@ -329,82 +375,32 @@
   )
 
   const startFeed = () => {
-    if (feedInitialized || !communityScope || platformRelays.length === 0) {
+    if (feedInitialized || !element || !communityScope || platformRelays.length === 0) {
       return
     }
 
     loadingEvents = true
     newMessagesSeen = false
     showFixedNewMessages = false
+    didScrollToLatestOnLoad = false
     feedInitialized = true
     lastFeedKey = feedKey
 
-    const historyFilters = [{kinds: [MESSAGE], "#h": [communityScope]}]
-    const liveFilters = [{kinds: [DELETE, MESSAGE, ...REACTION_KINDS], "#h": [communityScope], since: now()}]
-    const allFilters = [...historyFilters, ...liveFilters]
-    const controller = new AbortController()
-    const platformRelaySet = new Set(platformRelays)
-    const initialEvents = new Map<string, TrustedEvent>()
-
-    for (const relay of platformRelays) {
-      for (const event of getEventsForUrl(relay, historyFilters)) {
-        initialEvents.set(event.id, event)
-      }
-    }
-
-    const events = writable(
-      Array.from(initialEvents.values()).sort(
-        (a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id),
-      ),
-    )
-
-    const matchesPlatformRelay = (event: TrustedEvent) => {
-      for (const relay of tracker.getRelays(event.id)) {
-        if (platformRelaySet.has(normalizeRelay(relay))) {
-          return true
-        }
-      }
-
-      return false
-    }
-
-    const unsubscribe = on(repository, "update", ({added, removed}) => {
-      if (removed.size > 0) {
-        events.update($events => $events.filter(event => !removed.has(event.id)))
-      }
-
-      for (const event of added) {
-        if (!matchFilters(allFilters, event) || !matchesPlatformRelay(event) || event.kind !== MESSAGE) {
-          continue
-        }
-
-        events.update($events => {
-          if ($events.some(existing => existing.id === event.id)) {
-            return $events
-          }
-
-          return [...$events, event].sort(
-            (a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id),
-          )
-        })
-      }
-    })
-
-    void request({relays: platformRelays, signal: controller.signal, autoClose: true, filters: historyFilters}).finally(() => {
-      if (!controller.signal.aborted) {
+    const feed = makeFeed({
+      element,
+      relays: platformRelays,
+      feedFilters: [{kinds: [MESSAGE], "#h": [communityScope]}],
+      subscriptionFilters: [{kinds: [DELETE, MESSAGE, ...REACTION_KINDS], "#h": [communityScope]}],
+      onInitialLoad: () => {
         loadingEvents = false
-      }
+      },
+      onExhausted: () => {
+        loadingEvents = false
+      },
     })
 
-    void request({relays: platformRelays, signal: controller.signal, filters: liveFilters})
-
-    communityEvents = events
-    feedCleanup = () => {
-      unsubscribe()
-      controller.abort()
-    }
-
-    setTimeout(scrollToBottom, 100)
+    communityEvents = feed.events
+    feedCleanup = feed.cleanup
   }
 
   const resetFeed = () => {
@@ -414,7 +410,52 @@
     feedInitialized = false
     lastFeedKey = ""
     loadingEvents = false
+    pendingOwnMessageCount = null
   }
+
+  $effect(() => {
+    if (
+      !initialScrollStateReady ||
+      loadingEvents ||
+      !feedInitialized ||
+      !shouldScrollToLatestOnLoad ||
+      didScrollToLatestOnLoad
+    ) {
+      return
+    }
+
+    didScrollToLatestOnLoad = true
+    void scrollToFreshestPost()
+  })
+
+  $effect(() => {
+    if (pendingOwnMessageCount === null || ownCommunityMessageCount < pendingOwnMessageCount) {
+      return
+    }
+
+    pendingOwnMessageCount = null
+    void scrollToFreshestPost()
+  })
+
+  $effect(() => {
+    const latestCommunityEventId = visibleCommunityEvents[0]?.id || ""
+
+    if (!latestCommunityEventId) {
+      lastCommunityEventId = ""
+      return
+    }
+
+    if (
+      lastCommunityEventId &&
+      latestCommunityEventId !== lastCommunityEventId &&
+      stickToBottom &&
+      pendingOwnMessageCount === null
+    ) {
+      void scrollToFreshestPost()
+    }
+
+    lastCommunityEventId = latestCommunityEventId
+  })
 
   $effect(() => {
     const key = feedKey
@@ -437,26 +478,34 @@
 
   onMount(() => {
     if (typeof sessionStorage !== "undefined") {
-      const saved = Number(sessionStorage.getItem(scrollStorageKey) || "")
-      pendingScrollRestore = Number.isFinite(saved) ? saved : null
+      const saved = sessionStorage.getItem(scrollStorageKey)
+
+      if (saved !== null) {
+        const parsed = Number(saved)
+
+        pendingScrollRestore = Number.isFinite(parsed) ? parsed : null
+      }
     }
 
-    syncScrollParent()
+    shouldScrollToLatestOnLoad = pendingScrollRestore === null
+    initialScrollStateReady = true
 
-    const observer = new ResizeObserver(() => {
-      if (dynamicPadding && chatCompose) {
-        dynamicPadding.style.minHeight = `${chatCompose.offsetHeight}px`
-      }
-    })
+    syncScrollParent()
+    updateFloatingLayout()
+
+    const observer = new ResizeObserver(updateFloatingLayout)
 
     if (chatCompose) observer.observe(chatCompose)
     if (dynamicPadding) observer.observe(dynamicPadding)
+    window.addEventListener("resize", updateFloatingLayout)
 
     const timeout = setTimeout(() => {
       syncScrollParent()
       startFeed()
-      if (!restoreFeedScroll()) {
-        scrollToBottom()
+      updateFloatingLayout()
+
+      if (restoreFeedScroll()) {
+        shouldScrollToLatestOnLoad = false
       }
     }, 100)
 
@@ -465,6 +514,7 @@
       if (chatCompose) observer.unobserve(chatCompose)
       if (dynamicPadding) observer.unobserve(dynamicPadding)
       observer.disconnect()
+      window.removeEventListener("resize", updateFloatingLayout)
     }
   })
 
@@ -576,8 +626,8 @@
 {/if}
 
 {#if showScrollButton}
-  <div in:fade class="chat__scroll-down right-2 bottom-16 sm:right-4 sm:bottom-20">
-    <Button class="btn btn-circle btn-neutral btn-sm sm:btn-md" onclick={scrollToBottom}>
+  <div in:fade class="chat__scroll-down right-2 sm:right-4" style:bottom={scrollButtonBottom}>
+    <Button class="btn btn-circle btn-neutral btn-sm sm:btn-md" onclick={() => scrollToBottom()}>
       <Icon icon={AltArrowDown} />
     </Button>
   </div>

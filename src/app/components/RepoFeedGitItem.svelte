@@ -204,7 +204,7 @@
           </div>
         </div>
 
-        <h3 class="mt-2 text-base font-semibold leading-tight text-foreground">
+        <h3 class="mt-2 line-clamp-4 break-words text-base font-semibold leading-tight text-foreground">
           {parsedContent.title}
         </h3>
 
@@ -215,7 +215,7 @@
         </div>
 
         {#if bodyPreview}
-          <p class="mt-3 line-clamp-3 text-sm text-muted-foreground">
+          <p class="mt-3 line-clamp-3 break-words text-sm text-muted-foreground">
             {bodyPreview}
           </p>
         {/if}
