@@ -52,6 +52,7 @@
   import {normalizeRelayUrl} from "@welshman/util"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import {deriveRoleAssignments} from "@lib/budabit"
+  import {effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
   import Profile from "@src/app/components/Profile.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {GIT_STATUS_APPLIED} from "@nostr-git/core/events"
@@ -119,6 +120,39 @@
   $effect(() => {
     selectedPatch = patch
   })
+
+  const repoAddress = $derived.by(
+    () =>
+      selectedPatch?.raw?.tags?.find((tag: PatchTag) => tag[0] === "a")?.[1] ||
+      ((repoClass as any)?.address as string) ||
+      "",
+  )
+  const effectiveMaintainers = $derived.by((): string[] => {
+    const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
+    const maintainers = (((repoClass as any)?.maintainers as string[]) || []).filter(
+      (value): value is string => Boolean(value),
+    )
+    const fallback = Array.from(
+      new Set([...maintainers, owner].filter((value): value is string => Boolean(value))),
+    )
+
+    if (!repoAddress) return fallback
+
+    const mappedMaintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+    if (mappedMaintainers && mappedMaintainers.size > 0) return Array.from(mappedMaintainers)
+
+    return fallback
+  })
+  const effectiveMaintainerSet = $derived.by(() => new Set(effectiveMaintainers))
+  const statusRepo = $derived.by(
+    () =>
+      ({
+        maintainers: effectiveMaintainers,
+        relays: repoClass.relays || repoRelays || [],
+        repoEvent: (repoClass as any).repoEvent,
+        getCommitHistory: (...args: any[]) => (repoClass as any).getCommitHistory(...args),
+      }) as Repo,
+  )
 
   let mergeAnalysisResult: MergeAnalysisResult | null = $state(null)
   let isAnalyzingMerge = $state(false)
@@ -282,10 +316,13 @@
   }
 
   const status = $derived.by(() => {
-    if (!statusEvents) return undefined
-    const events = $statusEvents as StatusEvent[]
-    if (events && events.length > 0) {
-      const statusEvent = events.sort((a, b) => b.created_at - a.created_at)[0]
+    if (!statusEvents || !selectedPatch) return undefined
+    const rootAuthor = selectedPatch.author.pubkey
+    const events = ($statusEvents as StatusEvent[]).filter(
+      event => event.pubkey === rootAuthor || effectiveMaintainerSet.has(event.pubkey),
+    )
+    if (events.length > 0) {
+      const statusEvent = [...events].sort((a, b) => b.created_at - a.created_at)[0]
       return statusEvent ? parseStatusEvent(statusEvent as StatusEvent) : undefined
     }
     return undefined
@@ -478,12 +515,15 @@
       const firstPatch = patchSet[0]
       const allCommits = patchSet.flatMap((p: Patch) => p.commits || [])
       const commitIds = allCommits.map((c: Commit) => c.oid).filter(Boolean)
+      const recipients = Array.from(
+        new Set([...effectiveMaintainers, firstPatch?.author?.pubkey, $pubkey].filter(Boolean)),
+      )
       const statusEvent = createStatusEvent({
         kind: GIT_STATUS_APPLIED,
         content: mergeCommitMessage || `Patch set applied: ${firstPatch?.title || "Multiple patches"}`,
         rootId: firstPatch?.id || "",
-        recipients: repoClass.maintainers,
-        repoAddr: repoClass.repoId,
+        recipients,
+        repoAddr: repoAddress || ((repoClass as any)?.address as string) || "",
         relays: repoClass.relays,
         appliedCommits: commitIds,
         mergedCommit: mergeCommitOid,
@@ -753,7 +793,7 @@
       </div>
 
       <Status
-        repo={repoClass}
+        repo={statusRepo}
         rootId={selectedPatch?.id ?? ""}
         rootKind={GIT_PATCH}
         rootAuthor={selectedPatch?.author.pubkey ?? ""}

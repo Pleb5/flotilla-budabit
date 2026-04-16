@@ -1947,12 +1947,17 @@
       const recipients = Array.from(
         new Set([...effectiveMaintainers, prEvent.pubkey, $pubkey].filter(Boolean)),
       )
+      const repoAddress =
+        (prEvent.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] ||
+        ((repoClass as any).address as string) ||
+        ((repoClass as any).repoId as string) ||
+        ""
       const statusEvent = createStatusEvent({
         kind: GIT_STATUS_APPLIED,
         content: mergePrCommitMessage || `PR applied: ${pr?.subject || "Untitled"}`,
         rootId: prEvent.id,
         recipients,
-        repoAddr: (repoClass as any).repoId || (repoClass as any).address || "",
+        repoAddr: repoAddress,
         relays: repoClass.relays || repoRelays || [],
         appliedCommits,
         mergedCommit: mergeCommitOid,

@@ -433,12 +433,6 @@
     })
   })
 
-  // Precompute status via PatchManager; map state -> kind where needed (fallback)
-  const statusData = $derived.by(() =>
-    repoClass
-      ? repoClass.patchManager.getStatusData(repoClass)
-      : {stateById: {}, commentsByPatch: {}},
-  )
   const kindFromState = (s?: string) =>
     s === "open"
       ? GIT_STATUS_OPEN
@@ -449,16 +443,15 @@
           : GIT_STATUS_COMPLETE // merged/resolved
 
   // Compute current status state using Status.svelte rules (authorized events)
-  const patchMaintainerSet = $derived.by(() => {
-    if (!repoClass) return new Set<string>()
-    try {
-      const maintainers = repoClass.maintainers || []
-      const owner = (repoClass as any).repoEvent?.pubkey
-      return new Set([...(maintainers || []), owner].filter(Boolean))
-    } catch {
-      return new Set<string>()
-    }
-  })
+  const patchMaintainerSet = $derived.by(() => new Set(effectiveMaintainers))
+  const statusRepo = $derived.by(
+    () =>
+      ({
+        maintainers: effectiveMaintainers,
+        relays: repoClass?.relays || repoRelays || [],
+        repoEvent: (repoClass as any)?.repoEvent,
+      }) as Repo,
+  )
   const currentPatchStateFor = (rootId: string): "open" | "draft" | "closed" | "applied" => {
     if (!repoClass) return "open"
     try {
@@ -505,7 +498,6 @@
 
     const currentPatches = repoClass.patches
     const currentComments = comments
-    const currentStatusData = statusData
     const currentPullRequests = pullRequests
     const currentStatusFilter = statusFilter
     const currentAuthorFilter = authorFilter
@@ -515,6 +507,7 @@
     const currentPatchListCacheKey = patchListCacheKey
     const currentMergedStatusEventsByRoot = mergedStatusEventsByRoot
     const currentRepoTrustMetrics = repoTrustMetrics
+    const currentEffectiveMaintainers = [...effectiveMaintainers].sort()
 
     const timeout = setTimeout(() => {
       const hasPatches = currentPatches && currentPatches.length > 0
@@ -527,7 +520,12 @@
 
       // Create cache key from patch IDs, comments, status, filters, and sort to detect changes
       const statusKey = [...(currentMergedStatusEventsByRoot?.entries() || [])]
-        .map(([id, evts]) => `${id}:${evts[0]?.kind ?? ""}`)
+        .map(
+          ([id, evts]) =>
+            `${id}:${evts
+              .map(event => `${event.id}:${event.kind}:${event.created_at}:${event.pubkey}`)
+              .join("~")}`,
+        )
         .sort()
         .join(",")
       const currentKey = [
@@ -539,9 +537,6 @@
           .map(c => c.id)
           .sort()
           .join(","),
-        currentStatusData.stateById
-          ? Object.keys(currentStatusData.stateById).sort().join(",")
-          : "",
         currentPullRequests
           .map(pr => pr.id)
           .sort()
@@ -559,6 +554,7 @@
           )
           .sort()
           .join(","),
+        currentEffectiveMaintainers.join(","),
       ].join("|")
 
       if (currentPatchListCacheKey === currentKey) return
@@ -597,8 +593,7 @@
       // Process all patches at once
       const processed: PatchListItem[] = []
       for (const patch of rootPatches) {
-        // Use manager-provided state and derive kind for UI
-        const status = {kind: kindFromState((currentStatusData.stateById as any)[patch.id])} as any
+        const status = {kind: kindFromState(currentPatchStateFor(patch.id))} as any
 
         // O(1) lookup instead of O(n) filter
         const patches = childPatchesByRoot.get(patch.id) || []
@@ -1472,7 +1467,7 @@
                 comments={patch.comments}
                 currentCommenter={$pubkey || ""}
                 extraLabels={labelsByPatch.get(patch.id) || []}
-                repo={repoClass}
+                repo={statusRepo}
                   statusEvents={mergedStatusEventsByRoot?.get(patch.id) || []}
                   actorPubkey={$pubkey}
                   onCommentCreated={$pubkey ? onCommentCreated : undefined}

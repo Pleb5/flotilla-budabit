@@ -1113,7 +1113,10 @@
       (events: StatusEvent[]) => {
         const map = new Map<string, StatusEvent[]>()
         for (const event of events) {
-          const rootId = getTagValue("e", event.tags)
+          const rootTag = (event.tags || []).find(
+            (tag: string[]) => tag[0] === "e" && tag[1] && tag[3] === "root",
+          )
+          const rootId = rootTag?.[1] || getTagValue("e", event.tags)
           if (rootId) {
             if (!map.has(rootId)) {
               map.set(rootId, [])
@@ -1287,10 +1290,21 @@
   const patchesStore = derivePatches(repoAddressesStore)
   const pullRequestsStore = derivePullRequests(repoAddressesStore)
   const statusEventsStore = deriveStatusEvents(repoAddressesStore)
-  const pullRequestRootIdsStore: Readable<string[]> = derived(pullRequestsStore, $pullRequests =>
-    [...new Set(($pullRequests || []).map(pullRequest => pullRequest.id).filter(Boolean))].sort(),
+  const patchAndPullRequestRootIdsStore: Readable<string[]> = derived(
+    [patchesStore, pullRequestsStore],
+    ([$patches, $pullRequests]) => {
+      const rootPatchIds = ($patches || [])
+        .filter((patch: PatchEvent) =>
+          (patch.tags || []).some((tag: string[]) => tag[0] === "t" && tag[1] === "root"),
+        )
+        .map((patch: PatchEvent) => patch.id)
+      const pullRequestIds = ($pullRequests || []).map((pullRequest: PullRequestEvent) => pullRequest.id)
+
+      return [...new Set([...rootPatchIds, ...pullRequestIds].filter(Boolean))].sort()
+    },
   )
-  const rootStatusEventsStore = deriveRootScopedStatusEvents(pullRequestRootIdsStore)
+  const allRootIdsStore = deriveAllRootIds(issuesStore, patchesStore, pullRequestsStore)
+  const rootStatusEventsStore = deriveRootScopedStatusEvents(patchAndPullRequestRootIdsStore)
   const mergedStatusEventsStore: Readable<StatusEvent[]> = derived(
     [statusEventsStore, rootStatusEventsStore],
     ([$addressScopedEvents, $rootScopedEvents]) => {
@@ -1314,7 +1328,6 @@
     $events => ($events || []).filter(event => event.kind === GIT_STATUS_COMPLETE) as StatusEvent[],
   )
   const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
-  const allRootIdsStore = deriveAllRootIds(issuesStore, patchesStore, pullRequestsStore)
   const commentEventsStore = deriveComments(allRootIdsStore)
   const repoFeedActivityStore: Readable<TrustedEvent[]> = derived(
     [issuesStore, patchesStore, pullRequestsStore],
@@ -1885,7 +1898,7 @@
       }, PR_STATUS_ROOT_LOAD_DEBOUNCE_MS)
     }
 
-    const prStatusLoadTrigger = derived(pullRequestRootIdsStore, (rootIds: string[]) => {
+    const prStatusLoadTrigger = derived(patchAndPullRequestRootIdsStore, (rootIds: string[]) => {
       if (rootIds.length > 0) {
         const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
         if (currentRelays.length === 0) return rootIds
