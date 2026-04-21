@@ -775,12 +775,14 @@
       {/each}
     </div>
 
+    <div class="grid gap-4 lg:grid-cols-3" transition:fly>
+    <div class="lg:col-start-3 lg:row-start-1 lg:col-span-1">
+    <Card class="min-w-0 p-3 text-sm divide-y divide-border">
     <!-- Clone URL Section - Prominent Display -->
     {#if repoMetadata.cloneUrls.length > 0}
-      <div transition:fade>
-        <Card class="min-w-0 p-4 sm:p-6">
-          <h3 class="mb-3 flex items-center gap-2 text-lg font-semibold">
-            <GitBranch class="h-5 w-5" />
+      <section class="pb-3">
+          <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <GitBranch class="h-4 w-4" />
             Clone Repository
           </h3>
           <div class="space-y-2">
@@ -801,16 +803,14 @@
               </button>
             {/each}
           </div>
-        </Card>
-      </div>
+      </section>
     {/if}
 
-    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]" transition:fly>
       <!-- Repository Details -->
-      <Card class="min-w-0 p-4 sm:p-6 xl:row-span-2">
+      <section class="py-3">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h3 class="flex items-center gap-2 text-lg font-semibold">
-            <GitCommit class="h-5 w-5" />
+          <h3 class="flex items-center gap-2 text-sm font-semibold">
+            <GitCommit class="h-4 w-4" />
             Repo Information
           </h3>
           {#if $pubkey}
@@ -1021,16 +1021,16 @@
             {/if}
           </div>
         </div>
-      </Card>
+      </section>
 
-      <Card class="min-w-0 p-4 sm:p-6">
+      <section class="py-3">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 class="flex items-center gap-2 text-lg font-semibold">
-              <Users class="h-5 w-5" />
+            <h3 class="flex items-center gap-2 text-sm font-semibold">
+              <Users class="h-4 w-4" />
               Trust Activity
             </h3>
-            <p class="mt-1 text-sm text-muted-foreground">{repoTrustStatus}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{repoTrustStatus}</p>
           </div>
 
           <div class="flex flex-wrap gap-2 text-xs">
@@ -1192,13 +1192,13 @@
             </div>
           </div>
         {/if}
-      </Card>
+      </section>
 
       <!-- Activity Overview -->
       {#if recentIssues.length > 0 || recentPatches.length > 0}
-        <Card class="min-w-0 p-4 sm:p-6">
-          <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
-            <Eye class="h-5 w-5" />
+        <section class="pt-3">
+          <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <Eye class="h-4 w-4" />
             Recent Activity
           </h3>
           <div class="space-y-4">
@@ -1257,8 +1257,9 @@
               </div>
             {/if}
           </div>
-        </Card>
+        </section>
       {/if}
+    </Card>
     </div>
 
     <div class="flex-1" transition:slide>
@@ -1289,7 +1290,7 @@
 
     <!-- README -->
     {#if readmeLoading}
-      <div transition:slide>
+      <div transition:slide class="lg:col-start-1 lg:row-start-1 lg:col-span-2">
         <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
@@ -1305,7 +1306,7 @@
         </Card>
       </div>
     {:else if renderedReadme}
-      <div transition:slide>
+      <div transition:slide class="lg:col-start-1 lg:row-start-1 lg:col-span-2">
         <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
@@ -1408,5 +1409,6 @@
         </Card>
       </div>
     {/if}
+    </div>
   {/if}
 </div>
