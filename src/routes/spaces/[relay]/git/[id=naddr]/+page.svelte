@@ -31,6 +31,8 @@
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import ProfileName from "@app/components/ProfileName.svelte"
   import {pushModal} from "@app/util/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import {
@@ -92,6 +94,9 @@
     repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
   )
   const patchesHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/patches`)
+  const repoBasePath = $derived.by(() => $page.url.pathname.replace(/\/+$/, ""))
+  const activityHref = (item: {kind: "issue" | "patch"; id: string}) =>
+    `${repoBasePath}/${item.kind === "issue" ? "issues" : "patches"}/${item.id}`
   let openTrustMetricPopover = $state<"trusted-merged" | "trusted-maintainer" | "trusted-collaborators" | null>(null)
   const repoTrustStatus = $derived.by(() => {
     if (repoTrustMetrics.status === "loading") {
@@ -557,6 +562,8 @@
     title: string
     activityAt: number
     createdAt: number
+    pubkey: string
+    kind: "issue" | "patch"
   }
 
   function getLatestCommentAt(rootId: string) {
@@ -605,19 +612,19 @@
     }
   }
 
-  const recentIssues = $derived.by(() => {
-    const items = repoClass.issues.map(issue => ({
-      id: issue.id,
-      title: getIssueTitle(issue),
-      createdAt: issue.created_at,
-      activityAt: getLatestActivityAt(issue.id, issue.created_at),
-    }))
-
-    return sortRecentActivity(items).slice(0, 3)
-  })
-
-  const recentPatches = $derived.by(() => {
+  const recentActivity = $derived.by(() => {
     const items: RecentActivityItem[] = []
+
+    for (const issue of repoClass.issues) {
+      items.push({
+        id: issue.id,
+        title: getIssueTitle(issue),
+        createdAt: issue.created_at,
+        activityAt: getLatestActivityAt(issue.id, issue.created_at),
+        pubkey: issue.pubkey,
+        kind: "issue",
+      })
+    }
 
     for (const patch of repoClass.patches) {
       const isRootPatch = patch.tags.some((tag: string[]) => tag[0] === "t" && tag[1] === "root")
@@ -628,6 +635,8 @@
         title: getPatchTitle(patch),
         createdAt: patch.created_at,
         activityAt: getLatestActivityAt(patch.id, patch.created_at),
+        pubkey: patch.pubkey,
+        kind: "patch",
       })
     }
 
@@ -637,11 +646,16 @@
         title: getPatchTitle(pullRequest),
         createdAt: pullRequest.created_at,
         activityAt: getLatestActivityAt(pullRequest.id, pullRequest.created_at),
+        pubkey: pullRequest.pubkey,
+        kind: "patch",
       })
     }
 
-    return sortRecentActivity(items).slice(0, 3)
+    return sortRecentActivity(items).slice(0, 7)
   })
+
+  let activityExpanded = $state(false)
+  const visibleActivity = $derived(activityExpanded ? recentActivity : recentActivity.slice(0, 4))
 
   function shouldClampRecentPatchTitle(title: string): boolean {
     return title.replace(/\s+/g, " ").trim().length > RECENT_PATCH_PREVIEW_LIMIT
@@ -942,20 +956,20 @@
                 <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
                 <div class="grid grid-cols-2 gap-x-3 gap-y-2">
                   {#each effectiveMaintainerPubkeys as maintainer}
-                    <div class="flex min-w-0 items-center gap-2 text-sm">
+                    <button
+                      type="button"
+                      class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
+                      onclick={() => pushModal(ProfileDetail, {pubkey: maintainer, url: relayUrl})}>
                       <ProfileCircle
                         pubkey={maintainer}
                         url={relayUrl}
                         size={8}
                         class="border border-border"
                       />
-                      <ProfileLink
-                        pubkey={maintainer}
-                        url={relayUrl}
-                        unstyled
-                        class="min-w-0 truncate text-xs hover:underline"
-                      />
-                    </div>
+                      <span class="min-w-0 truncate text-sm hover:underline">
+                        <ProfileName pubkey={maintainer} url={relayUrl} />
+                      </span>
+                    </button>
                   {/each}
                 </div>
                 {#if unverifiedTaggedPubkeys.length > 0}
@@ -998,6 +1012,58 @@
           </div>
         </div>
       </section>
+
+      <!-- Recent Activity -->
+      {#if recentActivity.length > 0}
+        <section class="py-3">
+          <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Eye class="h-4 w-4" />
+            Recent Activity
+          </h3>
+          <div class="space-y-1">
+            {#each visibleActivity as item, i}
+              {@const isPeek = !activityExpanded && i === 3}
+              <a
+                href={activityHref(item)}
+                class="group/act relative flex min-w-0 items-center gap-2 rounded px-1 py-1 hover:bg-secondary/20 {isPeek ? 'pointer-events-none opacity-40 [mask-image:linear-gradient(to_bottom,black_15%,transparent_70%)]' : ''}">
+                <ProfileCircle pubkey={item.pubkey} url={relayUrl} size={6} class="flex-shrink-0" />
+                <div class="flex min-w-0 flex-1 flex-col">
+                  <div class="flex min-w-0 items-center gap-1.5 text-xs">
+                    <span class="min-w-0 truncate font-medium">
+                      <ProfileName pubkey={item.pubkey} url={relayUrl} />
+                    </span>
+                    <span class="flex-shrink-0 text-muted-foreground">·</span>
+                    <span class="flex-shrink-0 text-muted-foreground">{formatDate(new Date(item.activityAt * 1000))}</span>
+                  </div>
+                  <span class="truncate text-xs text-muted-foreground group-hover/act:underline" title={item.title}>{item.title}</span>
+                </div>
+                {#if item.kind === "issue"}
+                  <CircleAlert class="h-4 w-4 flex-shrink-0 text-red-400/70" />
+                {:else}
+                  <GitPullRequest class="h-4 w-4 flex-shrink-0 text-purple-400" />
+                {/if}
+              </a>
+            {/each}
+            {#if recentActivity.length > 4 && !activityExpanded}
+              <button
+                type="button"
+                class="mx-auto mt-1 flex items-center gap-1 bg-transparent px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                onclick={() => (activityExpanded = true)}>
+                Show more
+                <ChevronDown class="h-3.5 w-3.5" />
+              </button>
+            {:else if activityExpanded && recentActivity.length > 4}
+              <button
+                type="button"
+                class="mx-auto mt-1 flex items-center gap-1 bg-transparent px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                onclick={() => (activityExpanded = false)}>
+                Show less
+                <ChevronDown class="h-3.5 w-3.5 rotate-180" />
+              </button>
+            {/if}
+          </div>
+        </section>
+      {/if}
 
       <section class="py-3">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1169,72 +1235,6 @@
           </div>
         {/if}
       </section>
-
-      <!-- Activity Overview -->
-      {#if recentIssues.length > 0 || recentPatches.length > 0}
-        <section class="pt-3">
-          <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Eye class="h-4 w-4" />
-            Recent Activity
-          </h3>
-          <div class="space-y-4">
-            {#if recentIssues.length > 0}
-              <div>
-                <h4 class="mb-2 text-sm font-medium text-muted-foreground">Recent Issues</h4>
-                <div class="space-y-2">
-                  {#each recentIssues as issue}
-                    <div
-                      class="flex min-w-0 items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
-                      <CircleAlert class="mt-0.5 h-4 w-4 text-red-500" />
-                      <div class="min-w-0 flex-1">
-                        <p class="break-words text-sm font-medium">
-                          {issue.title}
-                        </p>
-                        <p class="text-xs text-muted-foreground">
-                          {formatDate(new Date(issue.activityAt * 1000))}
-                        </p>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-
-            {#if recentPatches.length > 0}
-              <div>
-                <h4 class="mb-2 text-sm font-medium text-muted-foreground">Recent Patches</h4>
-                <div class="space-y-2">
-                  {#each recentPatches as patch}
-                    {@const isExpanded = expandedRecentPatchIds.has(patch.id)}
-                    {@const shouldClamp = shouldClampRecentPatchTitle(patch.title)}
-                    <div
-                      class="flex min-w-0 items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
-                      <GitPullRequest class="mt-0.5 h-4 w-4 text-purple-500" />
-                      <div class="min-w-0 flex-1">
-                        <p class="break-words text-sm font-medium">
-                          {getRecentPatchTitlePreview(patch.title, isExpanded)}
-                        </p>
-                        {#if shouldClamp}
-                          <button
-                            type="button"
-                            class="mt-1 text-xs text-muted-foreground transition-colors hover:text-foreground hover:underline"
-                            aria-expanded={isExpanded}
-                            onclick={() => toggleRecentPatchExpanded(patch.id)}>
-                            {isExpanded ? 'Show less' : 'Show more'}
-                          </button>
-                        {/if}
-                        <p class="text-xs text-muted-foreground">
-                          {formatDate(new Date(patch.activityAt * 1000))}
-                        </p>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-          </div>
-        </section>
-      {/if}
     </Card>
     </div>
 
