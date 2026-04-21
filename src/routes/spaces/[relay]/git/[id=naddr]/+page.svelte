@@ -11,9 +11,7 @@
     GitPullRequest,
     Users,
     Globe,
-    GitCommit,
     User,
-    Link as LinkIcon,
     Eye,
     BookOpen,
     Copy,
@@ -697,27 +695,6 @@
     <!-- Repo actions -->
     {#if repoActions}
       <div class="flex flex-wrap items-center gap-2">
-        {#if $pubkey}
-          <Button
-            class="btn btn-sm {repoActions.isBookmarked ? 'btn-primary' : 'btn-outline'} gap-1"
-            onclick={repoActions.bookmarkRepo}
-            disabled={repoActions.isTogglingBookmark}
-            title={repoActions.isBookmarked ? 'Remove bookmark' : 'Bookmark'}>
-            <Bookmark class="h-4 w-4 {repoActions.isBookmarked ? 'fill-current' : ''}" />
-            {repoActions.isBookmarked ? 'Bookmarked' : 'Bookmark'}
-          </Button>
-          <Button
-            class="btn btn-sm {repoActions.isWatching ? 'btn-primary' : 'btn-outline'} gap-1"
-            onclick={repoActions.openWatchModal}
-            title={repoActions.isWatching ? 'Watching' : 'Watch'}>
-            <Bell class="h-4 w-4 {repoActions.isWatching ? 'fill-current' : ''}" />
-            {repoActions.isWatching ? 'Watching' : 'Watch'}
-          </Button>
-          <Button class="btn btn-sm btn-outline gap-1" onclick={repoActions.forkRepo} title="Fork">
-            <GitFork class="h-4 w-4" />
-            Fork
-          </Button>
-        {/if}
         <Button
           class="btn btn-sm btn-outline gap-1"
           onclick={repoActions.refreshRepo}
@@ -730,6 +707,37 @@
           <Globe class="h-4 w-4" />
           Remotes
         </Button>
+        {#if $pubkey}
+          <Button
+            class="btn btn-sm btn-outline btn-error gap-1"
+            onclick={() => pushModal(ResetRepoConfirm, {repoClass, repoName: repoMetadata.name})}
+            title="Reset local repo state">
+            Reset
+          </Button>
+        {/if}
+        {#if $pubkey}
+          <div class="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              class="btn btn-sm {repoActions.isBookmarked ? 'btn-primary' : 'btn-outline'} gap-1"
+              onclick={repoActions.bookmarkRepo}
+              disabled={repoActions.isTogglingBookmark}
+              title={repoActions.isBookmarked ? 'Remove bookmark' : 'Bookmark'}>
+              <Bookmark class="h-4 w-4 {repoActions.isBookmarked ? 'fill-current' : ''}" />
+              {repoActions.isBookmarked ? 'Bookmarked' : 'Bookmark'}
+            </Button>
+            <Button
+              class="btn btn-sm {repoActions.isWatching ? 'btn-primary' : 'btn-outline'} gap-1"
+              onclick={repoActions.openWatchModal}
+              title={repoActions.isWatching ? 'Watching' : 'Watch'}>
+              <Bell class="h-4 w-4 {repoActions.isWatching ? 'fill-current' : ''}" />
+              {repoActions.isWatching ? 'Watching' : 'Watch'}
+            </Button>
+            <Button class="btn btn-sm btn-outline gap-1" onclick={repoActions.forkRepo} title="Fork">
+              <GitFork class="h-4 w-4" />
+              Fork
+            </Button>
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -739,25 +747,29 @@
     <!-- Clone dropdown -->
     {#if repoMetadata.cloneUrls.length > 0}
       {@const sortedCloneUrls = [...repoMetadata.cloneUrls].sort((a, b) => {
-        const an = a.startsWith("nostr://") ? 0 : a.includes("ngit.dev") ? 1 : 2
-        const bn = b.startsWith("nostr://") ? 0 : b.includes("ngit.dev") ? 1 : 2
+        const an = a.startsWith("nostr://") ? 0 : 1
+        const bn = b.startsWith("nostr://") ? 0 : 1
         return an - bn
       })}
-      <section class="pb-3">
-        <details class="group">
-          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2 text-sm font-medium hover:bg-secondary/50">
+      <section class="flex items-center justify-between pb-3">
+        <span class="flex items-center gap-2 text-base font-semibold">
+          <GitBranch class="h-5 w-5" />
+          Details
+        </span>
+        <details class="group relative">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-500/40 bg-green-600/20 px-3 py-2 text-sm font-medium text-green-300 hover:bg-green-600/30">
             <span class="flex items-center gap-2">
               <GitBranch class="h-4 w-4" />
               Clone
             </span>
             <ChevronDown class="h-4 w-4 transition-transform group-open:rotate-180" />
           </summary>
-          <div class="mt-2 space-y-1">
+          <div class="absolute right-0 z-20 mt-2 w-[min(22rem,calc(100vw-2rem))] space-y-1 rounded-md border border-border bg-base-100 p-2 shadow-lg">
             {#each sortedCloneUrls as url}
-              {@const isNostr = url.startsWith("nostr://") || url.includes("ngit.dev")}
+              {@const isNostr = url.startsWith("nostr://")}
               <button
                 type="button"
-                class="group/row flex min-w-0 w-full items-center gap-2 rounded-md border p-2 transition-all hover:bg-secondary/40 active:scale-[0.995] {isNostr ? 'border-purple-500/40 bg-purple-500/5' : 'border-border bg-secondary/20'}"
+                class="group/row flex min-w-0 w-full items-center gap-2 rounded-md border p-2 transition-all hover:bg-secondary/40 active:scale-[0.995] {isNostr ? 'border-purple-500/40 bg-purple-500/5' : 'border-transparent'}"
                 title="Click to copy"
                 onclick={() => copyUrl(url)}>
                 <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs {isNostr ? 'text-purple-300' : ''}">{url}</code>
@@ -777,75 +789,162 @@
 
       <!-- Repository Details -->
       <section class="py-3">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h3 class="flex items-center gap-2 text-sm font-semibold">
-            <GitCommit class="h-4 w-4" />
-            Repo Information
-          </h3>
-          {#if $pubkey}
-            <Button
-              onclick={() => {
-                pushModal(ResetRepoConfirm, {
-                  repoClass,
-                  repoName: repoMetadata.name,
-                })
-              }}
-              class="rounded border border-gray-300 px-3 py-1 text-xs transition-colors hover:bg-gray-50">
-              Reset Repo
-            </Button>
-          {/if}
-        </div>
-        <div class="grid gap-6 md:grid-cols-1">
-          <!-- Git Information -->
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="text-sm text-muted-foreground">Branches</span>
-              <span class="rounded px-2 py-1 font-mono text-sm">{branchCount}</span>
+        <div class="space-y-3">
+          <!-- Compact info rows -->
+          <div class="space-y-1 text-sm">
+            <!-- Address -->
+            <div class="flex items-center gap-2 py-1">
+              <span class="flex-shrink-0 text-muted-foreground">Address</span>
+              <code class="min-w-0 flex-1 truncate font-mono text-xs" title={naddr}>{shortenNip19(naddr)}</code>
+              <button
+                type="button"
+                class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                title="Copy address"
+                onclick={() => clip(naddr)}>
+                <Copy class="h-3.5 w-3.5" />
+              </button>
             </div>
 
-            {#if commitLoading}
-              <div class="border-t pt-3">
-                <div class="mb-2 flex items-center justify-between">
-                  <span class="text-sm text-muted-foreground">Latest Commit</span>
-                  <div class="h-4 w-16 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="h-4 w-3/4 animate-pulse rounded bg-muted"></div>
-                <div class="h-4 w-2/3 animate-pulse rounded bg-muted"></div>
-                <div class="h-4 w-5/6 animate-pulse rounded bg-muted"></div>
-                <div class="h-4 w-1/2 animate-pulse rounded bg-muted"></div>
-              </div>
-            {:else if lastCommit}
-              <div class="border-t pt-3" transition:fade>
-                <div class="mb-2 flex items-start justify-between gap-3">
-                  <span class="text-sm text-muted-foreground">Latest Commit</span>
-                  <span class="rounded px-2 py-1 font-mono text-xs">
-                    {truncateHash(lastCommit.oid)}
-                  </span>
-                </div>
-                <p class="text-sm break-all whitespace-normal">{lastCommit.commit.message}</p>
-                <div class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                  <User class="h-3 w-3" />
-                  <span>{lastCommit.commit.author.name}</span>
-                  <span>•</span>
-                  <span>{formatDate(new Date(lastCommit.commit.author.timestamp * 1000))}</span>
-                </div>
-              </div>
+            <!-- Website(s) -->
+            {#if repoMetadata.webUrls.length > 0}
+              {@const hostname = (u: string) => { try { return new URL(u).hostname } catch { return u } }}
+              <details class="group/urls">
+                <summary class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                  <span class="flex-shrink-0 text-muted-foreground">Website{repoMetadata.webUrls.length > 1 ? "s" : ""}</span>
+                  <a
+                    href={repoMetadata.webUrls[0]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="min-w-0 flex-1 truncate font-mono text-xs hover:underline"
+                    title={repoMetadata.webUrls[0]}
+                    onclick={(e) => e.stopPropagation()}>{hostname(repoMetadata.webUrls[0])}</a>
+                  <button
+                    type="button"
+                    class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                    title="Copy URL"
+                    onclick={(e) => { e.preventDefault(); e.stopPropagation(); clip(repoMetadata.webUrls[0]) }}>
+                    <Copy class="h-3.5 w-3.5" />
+                  </button>
+                  {#if repoMetadata.webUrls.length > 1}
+                    <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/urls:rotate-180" />
+                  {/if}
+                </summary>
+                {#if repoMetadata.webUrls.length > 1}
+                  <div class="mt-1 space-y-1">
+                    {#each repoMetadata.webUrls.slice(1) as url}
+                      <div class="flex items-center gap-2">
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="min-w-0 flex-1 truncate font-mono text-xs hover:underline"
+                          title={url}>{hostname(url)}</a>
+                        <button
+                          type="button"
+                          class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                          title="Copy URL"
+                          onclick={() => clip(url)}>
+                          <Copy class="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </details>
             {/if}
 
+            <!-- Branches -->
+            {#if repoClass.branches && repoClass.branches.length > 0}
+              {@const isDefaultBranch = (b: any) => (('isHead' in b && b.isHead) || b.name === repoMetadata.mainBranch)}
+              {@const sortedBranches = [...repoClass.branches].sort((a, b) => (isDefaultBranch(a) ? 0 : 1) - (isDefaultBranch(b) ? 0 : 1))}
+              <details class="group/branches">
+                <summary class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                  <span class="flex-shrink-0 text-muted-foreground">Branches</span>
+                  <span class="min-w-0 flex-1 font-mono text-xs">{branchCount}</span>
+                  <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/branches:rotate-180" />
+                </summary>
+                <div class="mt-1 space-y-0.5">
+                  {#each sortedBranches as branch}
+                    {@const isDefault = isDefaultBranch(branch)}
+                    <div class="flex items-center gap-2">
+                      <span class="min-w-0 flex-1 truncate font-mono text-xs" title={branch.name}>
+                        {branch.name}
+                        {#if isDefault}
+                          <span class="ml-1 text-muted-foreground">(default)</span>
+                        {/if}
+                      </span>
+                      <button
+                        type="button"
+                        class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                        title="Copy branch name"
+                        onclick={() => clip(branch.name)}>
+                        <Copy class="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              </details>
+            {/if}
+
+            <!-- Relays -->
+            {#if repoMetadata.relays.length > 0}
+              {@const relayHostname = (u: string) => { try { return new URL(u).hostname } catch { return u } }}
+              <details class="group/relays">
+                <summary class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                  <span class="flex-shrink-0 text-muted-foreground">Relays</span>
+                  <span class="min-w-0 flex-1 font-mono text-xs">{repoMetadata.relays.length}</span>
+                  <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/relays:rotate-180" />
+                </summary>
+                <div class="mt-1 space-y-0.5">
+                  {#each repoMetadata.relays as relay}
+                    <div class="flex items-center gap-2">
+                      <span class="min-w-0 flex-1 truncate font-mono text-xs" title={relay}>{relayHostname(relay)}</span>
+                      <button
+                        type="button"
+                        class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                        title="Copy relay URL"
+                        onclick={() => clip(relay)}>
+                        <Copy class="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              </details>
+            {/if}
+
+            <!-- Latest commit -->
+            {#if lastCommit}
+              <details class="group/commit" transition:fade>
+                <summary class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                  <span class="flex-shrink-0 text-muted-foreground">Latest</span>
+                  <span class="flex min-w-0 flex-1 items-center gap-2 font-mono text-xs">
+                    <span>{truncateHash(lastCommit.oid)}</span>
+                    <span class="text-muted-foreground">·</span>
+                    <span class="truncate text-muted-foreground">{formatDate(new Date(lastCommit.commit.author.timestamp * 1000))}</span>
+                  </span>
+                  <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/commit:rotate-180" />
+                </summary>
+                <div class="mt-1 flex items-center gap-1.5 text-xs">
+                  <User class="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                  <span class="flex-shrink-0 font-medium">{lastCommit.commit.author.name}:</span>
+                  <span class="min-w-0 flex-1 truncate text-muted-foreground" title={lastCommit.commit.message}>{lastCommit.commit.message}</span>
+                </div>
+              </details>
+            {/if}
           </div>
 
           <!-- Nostr Information -->
           <div class="space-y-3">
             {#if effectiveMaintainerPubkeys.length > 0}
               <div>
-                <span class="mb-2 block text-sm text-muted-foreground">Effective Maintainers</span>
-                <div class="space-y-2">
+                <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
+                <div class="grid grid-cols-2 gap-x-3 gap-y-2">
                   {#each effectiveMaintainerPubkeys as maintainer}
                     <div class="flex min-w-0 items-center gap-2 text-sm">
                       <ProfileCircle
                         pubkey={maintainer}
                         url={relayUrl}
-                        size={6}
+                        size={8}
                         class="border border-border"
                       />
                       <ProfileLink
@@ -892,75 +991,8 @@
               </div>
             {/if}
 
-            <div class="border-t pt-3">
-              <span class="mb-2 block text-sm text-muted-foreground">Repo Address</span>
-              <button
-                type="button"
-                class="flex w-full min-w-0 max-w-full items-start gap-2 text-left text-sm hover:opacity-80"
-                title={naddr}
-                onclick={() => clip(naddr)}>
-                <LinkIcon class="mt-0.5 h-3 w-3 flex-shrink-0" />
-                <span class="break-all font-mono text-xs">{shortenNip19(naddr)}</span>
-              </button>
-            </div>
 
-            {#if repoMetadata.relays.length > 0}
-              <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground">Relays</span>
-                <div class="space-y-1">
-                  {#each showAllRelays ? repoMetadata.relays : repoMetadata.relays.slice(0, 3) as relay}
-                    <div class="flex min-w-0 items-center gap-2 text-sm">
-                      <Globe class="h-3 w-3" />
-                      <span class="min-w-0 truncate">{relay}</span>
-                    </div>
-                  {/each}
-                  {#if repoMetadata.relays.length > 3}
-                    <button
-                      type="button"
-                      class="text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
-                      onclick={() => showAllRelays = !showAllRelays}
-                    >
-                      {showAllRelays ? 'Show less' : `+${repoMetadata.relays.length - 3} more relays`}
-                    </button>
-                  {/if}
-                </div>
-              </div>
-            {/if}
 
-            {#if repoMetadata.cloneUrls.length > 0}
-              <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground">Clone URLs</span>
-                <div class="space-y-1">
-                  {#each repoMetadata.cloneUrls as url}
-                  <button
-                     type="button"
-                     class="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-left text-sm hover:opacity-80"
-                     title="Click to copy"
-                     onclick={() => clip(url)}>
-                     <LinkIcon class="h-3 w-3" />
-                     <span class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs">{url}</span>
-                   </button>
-                   {/each}
-                 </div>
-              </div>
-            {/if}
-
-            {#if repoMetadata.webUrls.length > 0}
-              <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground">Web URLs</span>
-                <div class="space-y-1">
-                  {#each repoMetadata.webUrls as url}
-                  <div class="grid max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-sm">
-                     <LinkIcon class="h-3 w-3" />
-                     <a
-                       href={url}
-                       target="_blank"
-                       class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs">{url}</a>
-                   </div>
-                   {/each}
-                 </div>
-              </div>
-            {/if}
           </div>
         </div>
       </section>
