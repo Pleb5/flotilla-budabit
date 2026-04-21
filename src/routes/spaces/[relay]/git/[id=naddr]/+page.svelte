@@ -21,6 +21,7 @@
     RotateCcw,
     ChevronDown,
     HeartPulse,
+    Info,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -1066,174 +1067,111 @@
       {/if}
 
       <section class="py-3">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h3 class="flex items-center gap-2 text-sm font-semibold">
-              <Users class="h-4 w-4" />
-              Trust Activity
-            </h3>
-            <p class="mt-1 text-xs text-muted-foreground">{repoTrustStatus}</p>
-          </div>
-
-          <div class="flex flex-wrap gap-2 text-xs">
-            <span class="badge badge-neutral">{repoTrustMetrics.graphLabel}</span>
-            {#if repoTrustMetrics.enabledRuleCount > 0}
-              <span class="badge badge-neutral">
-                {repoTrustMetrics.enabledRuleCount} rule{repoTrustMetrics.enabledRuleCount === 1 ? "" : "s"}
-              </span>
-            {/if}
-          </div>
+        <div class="mb-2 flex items-center gap-2">
+          <h3 class="flex items-center gap-2 text-sm font-semibold">
+            <Users class="h-4 w-4" />
+            Trust Activity
+          </h3>
+          <span class="ml-auto text-[11px] text-muted-foreground">{repoTrustMetrics.graphLabel}</span>
         </div>
-
-        <div class="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+        {#if repoTrustStatus}
+          <p class="mb-2 text-xs text-muted-foreground">{repoTrustStatus}</p>
+        {/if}
+        <div class="space-y-1">
           {#each repoTrustMetricCards as metric (metric.key)}
-            <div class="rounded-box bg-base-200/40 p-3">
-              <div class="text-xs uppercase tracking-wide opacity-60">{metric.label}</div>
-              <div class="mt-2 flex items-center gap-2">
-                <div class="relative">
-                  <button
-                    type="button"
-                    class="badge badge-neutral cursor-pointer px-3 py-3 text-sm font-medium"
-                    onclick={() =>
-                      (openTrustMetricPopover = openTrustMetricPopover === metric.key ? null : metric.key)}>
-                    {metric.value}
-                  </button>
-
-                  {#if openTrustMetricPopover === metric.key}
-                    <InlinePopover onClose={() => (openTrustMetricPopover = null)} align="left" widthClass="w-80">
-                      <div class="flex flex-col gap-3 text-sm">
-                        <div>
-                          <div class="font-medium">{metric.label}</div>
-                          <div class="mt-1 text-xs opacity-70">{metric.description}</div>
-                        </div>
-
-                        {#if metric.key === "trusted-merged"}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedMergedContributions} of {repoTrustMetrics.mergedPullRequests} merged pull request{repoTrustMetrics.mergedPullRequests === 1 ? "" : "s"} matched a trusted author.
-                          </div>
-                        {:else if metric.key === "trusted-maintainer"}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges === 1 ? "" : "s"} were applied by trusted maintainers.
-                          </div>
-                        {:else}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedCollaborators} distinct trusted collaborator{repoTrustMetrics.trustedCollaborators === 1 ? "" : "s"} participated in merged pull request activity.
-                          </div>
-                        {/if}
-
-                        {#if metric.details && metric.details.length > 0}
-                          <div class="flex flex-col gap-2">
-                            {#each metric.details as detail (detail.rootId)}
-                              <div class="rounded-box bg-base-200/50 p-3">
-                                <AppLink
-                                  href={getRepoTrustPatchHref(detail.rootId)}
-                                  class="text-sm font-medium text-primary underline-offset-2 hover:underline">
-                                  {detail.subject}
-                                </AppLink>
-                                <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                                  <span>Author</span>
-                                  <ProfileLink
-                                    pubkey={detail.authorPubkey}
-                                    url={relayUrl}
-                                    unstyled
-                                    class="font-medium text-primary underline-offset-2 hover:underline" />
-                                </div>
-                                {#if detail.mergedByPubkey}
-                                  <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                                    <span>Merged by</span>
-                                    <ProfileLink
-                                      pubkey={detail.mergedByPubkey}
-                                      url={relayUrl}
-                                      unstyled
-                                      class="font-medium text-primary underline-offset-2 hover:underline" />
-                                  </div>
-                                {/if}
-                              </div>
-                            {/each}
-                          </div>
-                        {:else if metric.actors && metric.actors.length > 0}
-                          <div class="flex flex-col gap-2">
-                            {#each metric.actors as actor (actor.pubkey)}
-                              <div class="rounded-box bg-base-200/50 p-3">
-                                <div class="flex min-w-0 items-center gap-3">
-                                  <ProfileCircle pubkey={actor.pubkey} url={relayUrl} size={6} class="border border-border" />
-                                  <div class="min-w-0">
-                                    <ProfileLink
-                                      pubkey={actor.pubkey}
-                                      url={relayUrl}
-                                      unstyled
-                                      class="block truncate text-sm font-medium text-primary underline-offset-2 hover:underline" />
-                                    <div class="text-xs opacity-70">
-                                      {actor.authoredMergedPullRequests} authored merges • {actor.appliedMergedPullRequests} maintainer merges
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            {/each}
-                          </div>
-                        {:else}
-                          <div class="text-xs opacity-60">No evidence captured for this metric yet.</div>
-                        {/if}
+            {@const accent = metric.key === "trusted-merged" ? "text-emerald-400" : metric.key === "trusted-maintainer" ? "text-sky-400" : "text-amber-400"}
+            <div class="relative">
+              <button
+                type="button"
+                class="group/trust flex w-full min-w-0 items-center gap-3 rounded px-1 py-1 text-left hover:bg-secondary/20"
+                onclick={() =>
+                  (openTrustMetricPopover = openTrustMetricPopover === metric.key ? null : metric.key)}>
+                <span class="flex-shrink-0 font-mono text-lg font-semibold tabular-nums {accent}">{metric.value}</span>
+                <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{metric.label}</span>
+                <span class="flex-shrink-0 rounded p-1 group-hover/trust:bg-secondary/40 {openTrustMetricPopover === metric.key ? accent : 'text-muted-foreground group-hover/trust:text-foreground'}">
+                  <Info class="h-3.5 w-3.5" />
+                </span>
+              </button>
+              {#if openTrustMetricPopover === metric.key}
+                {@const bgTint = metric.key === "trusted-merged" ? "bg-emerald-500/10" : metric.key === "trusted-maintainer" ? "bg-sky-500/10" : "bg-amber-500/10"}
+                <InlinePopover onClose={() => (openTrustMetricPopover = null)} align="left" widthClass="w-80">
+                  <div class="-m-3 flex flex-col gap-3 rounded-box p-3 text-sm {bgTint}">
+                    <div>
+                      <div class="font-medium">{metric.label}</div>
+                      <div class="mt-1 text-xs opacity-70">{metric.description}</div>
+                    </div>
+                    {#if metric.key === "trusted-merged"}
+                      <div class="text-xs opacity-60">
+                        {repoTrustMetrics.trustedMergedContributions} of {repoTrustMetrics.mergedPullRequests} merged pull request{repoTrustMetrics.mergedPullRequests === 1 ? "" : "s"} matched a trusted author.
                       </div>
-                    </InlinePopover>
-                  {/if}
-                </div>
-                <span class="text-xs opacity-60">Click for meaning and evidence</span>
-              </div>
-              <div class="mt-2 text-xs opacity-70">
-                {#if metric.key === "trusted-merged"}
-                  of {repoTrustMetrics.mergedPullRequests} merged pull request{repoTrustMetrics.mergedPullRequests === 1 ? "" : "s"}
-                {:else if metric.key === "trusted-maintainer"}
-                  by {repoTrustMetrics.trustedMaintainers} trusted maintainer{repoTrustMetrics.trustedMaintainers === 1 ? "" : "s"}
-                {:else}
-                  {repoTrustMetrics.trustedAuthors} authors and {repoTrustMetrics.trustedMaintainers} maintainers
-                {/if}
-              </div>
+                    {:else if metric.key === "trusted-maintainer"}
+                      <div class="text-xs opacity-60">
+                        {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges === 1 ? "" : "s"} were applied by trusted maintainers.
+                      </div>
+                    {:else}
+                      <div class="text-xs opacity-60">
+                        {repoTrustMetrics.trustedCollaborators} distinct trusted collaborator{repoTrustMetrics.trustedCollaborators === 1 ? "" : "s"} participated in merged pull request activity.
+                      </div>
+                    {/if}
+                    {#if metric.details && metric.details.length > 0}
+                      <div class="flex flex-col gap-2">
+                        {#each metric.details as detail (detail.rootId)}
+                          <div class="rounded-box bg-base-200/50 p-3">
+                            <AppLink
+                              href={getRepoTrustPatchHref(detail.rootId)}
+                              class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                              {detail.subject}
+                            </AppLink>
+                            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                              <span>Author</span>
+                              <ProfileLink
+                                pubkey={detail.authorPubkey}
+                                url={relayUrl}
+                                unstyled
+                                class="font-medium text-primary underline-offset-2 hover:underline" />
+                            </div>
+                            {#if detail.mergedByPubkey}
+                              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                                <span>Merged by</span>
+                                <ProfileLink
+                                  pubkey={detail.mergedByPubkey}
+                                  url={relayUrl}
+                                  unstyled
+                                  class="font-medium text-primary underline-offset-2 hover:underline" />
+                              </div>
+                            {/if}
+                          </div>
+                        {/each}
+                      </div>
+                    {:else if metric.actors && metric.actors.length > 0}
+                      <div class="flex flex-col gap-2">
+                        {#each metric.actors as actor (actor.pubkey)}
+                          <div class="rounded-box bg-base-200/50 p-3">
+                            <div class="flex min-w-0 items-center gap-3">
+                              <ProfileCircle pubkey={actor.pubkey} url={relayUrl} size={6} class="border border-border" />
+                              <div class="min-w-0">
+                                <ProfileLink
+                                  pubkey={actor.pubkey}
+                                  url={relayUrl}
+                                  unstyled
+                                  class="block truncate text-sm font-medium text-primary underline-offset-2 hover:underline" />
+                                <div class="text-xs opacity-70">
+                                  {actor.authoredMergedPullRequests} authored merges • {actor.appliedMergedPullRequests} maintainer merges
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    {:else}
+                      <div class="text-xs opacity-60">No evidence captured for this metric yet.</div>
+                    {/if}
+                  </div>
+                </InlinePopover>
+              {/if}
             </div>
           {/each}
         </div>
-
-        <div class="mt-4 flex flex-wrap gap-2 border-t border-base-300/50 pt-4">
-          <Button
-            class="btn btn-neutral btn-sm"
-            onclick={() => openPatchesTrustView("trusted", "first")}>
-            View trusted patches
-          </Button>
-          <Button
-            class="btn btn-neutral btn-sm"
-            onclick={() => openPatchesTrustView("trusted-maintainer", "first")}>
-            View maintainer merges
-          </Button>
-        </div>
-
-        {#if repoTrustMetrics.topActors.length > 0}
-          <div class="mt-4 border-t border-base-300/50 pt-4">
-            <div class="mb-3 flex items-center justify-between gap-2">
-              <strong class="text-sm">Top trusted collaborators</strong>
-              <span class="text-xs opacity-60">Recent merged pull requests</span>
-            </div>
-
-            <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              {#each repoTrustMetrics.topActors.slice(0, 3) as actor (actor.pubkey)}
-                <div class="rounded-box bg-base-200/30 p-3">
-                  <div class="flex min-w-0 items-center gap-3">
-                    <ProfileCircle pubkey={actor.pubkey} url={relayUrl} size={7} class="border border-border" />
-                    <div class="min-w-0">
-                      <ProfileLink
-                        pubkey={actor.pubkey}
-                        url={relayUrl}
-                        unstyled
-                        class="block truncate text-sm font-medium hover:underline" />
-                      <div class="text-xs opacity-60">
-                        {actor.totalInteractions} interaction{actor.totalInteractions === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
       </section>
     </Card>
     </div>
