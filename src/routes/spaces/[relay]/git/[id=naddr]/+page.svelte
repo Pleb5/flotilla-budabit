@@ -10,7 +10,6 @@
     GitBranch,
     GitPullRequest,
     Users,
-    Globe,
     User,
     Eye,
     BookOpen,
@@ -21,6 +20,7 @@
     GitFork,
     RotateCcw,
     ChevronDown,
+    HeartPulse,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -695,6 +695,10 @@
     <!-- Repo actions -->
     {#if repoActions}
       <div class="flex flex-wrap items-center gap-2">
+        <Button class="btn btn-sm btn-outline gap-1" onclick={repoActions.openRemoteFixModal} title="Repo health">
+          <HeartPulse class="h-4 w-4" />
+          Health
+        </Button>
         <Button
           class="btn btn-sm btn-outline gap-1"
           onclick={repoActions.refreshRepo}
@@ -703,13 +707,9 @@
           <RotateCcw class="h-4 w-4 {repoActions.isRefreshing ? 'animate-spin' : ''}" />
           {repoActions.isRefreshing ? 'Syncing...' : 'Refresh'}
         </Button>
-        <Button class="btn btn-sm btn-outline gap-1" onclick={repoActions.openRemoteFixModal} title="Review remotes">
-          <Globe class="h-4 w-4" />
-          Remotes
-        </Button>
         {#if $pubkey}
           <Button
-            class="btn btn-sm btn-outline btn-error gap-1"
+            class="btn btn-sm btn-ghost gap-1 text-muted-foreground hover:text-error"
             onclick={() => pushModal(ResetRepoConfirm, {repoClass, repoName: repoMetadata.name})}
             title="Reset local repo state">
             Reset
@@ -925,7 +925,9 @@
                   <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/commit:rotate-180" />
                 </summary>
                 <div class="mt-1 flex items-center gap-1.5 text-xs">
-                  <User class="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                  <span class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-semibold uppercase text-muted-foreground">
+                    {(lastCommit.commit.author.name || "?").charAt(0)}
+                  </span>
                   <span class="flex-shrink-0 font-medium">{lastCommit.commit.author.name}:</span>
                   <span class="min-w-0 flex-1 truncate text-muted-foreground" title={lastCommit.commit.message}>{lastCommit.commit.message}</span>
                 </div>
