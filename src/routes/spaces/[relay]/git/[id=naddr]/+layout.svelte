@@ -252,6 +252,8 @@
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
   const issuesPath = $derived.by(() => `${basePath}/issues`)
   const patchesPath = $derived.by(() => `${basePath}/patches`)
+  const issuesCount = $derived(repoClass?.issues?.length ?? 0)
+  const patchesCount = $derived(repoClass?.patches?.length ?? 0)
   const hasIssuesNotification = $derived.by(() => {
     if (repoAddress) {
       return hasRepoNotification($notifications, {
@@ -3130,7 +3132,7 @@
           </RepoTab>
           <RepoTab
             tabValue="issues"
-            label="Issues"
+            label={issuesCount > 0 ? `Issues (${issuesCount})` : "Issues"}
             href={`${basePath}/issues`}
             notification={hasIssuesNotification}
             {activeTab}>
@@ -3140,7 +3142,7 @@
           </RepoTab>
           <RepoTab
             tabValue="patches"
-            label="Patches"
+            label={patchesCount > 0 ? `Patches (${patchesCount})` : "Patches"}
             href={`${basePath}/patches`}
             notification={hasPatchesNotification}
             {activeTab}>
