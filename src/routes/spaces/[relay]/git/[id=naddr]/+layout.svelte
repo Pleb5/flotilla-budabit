@@ -252,8 +252,18 @@
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
   const issuesPath = $derived.by(() => `${basePath}/issues`)
   const patchesPath = $derived.by(() => `${basePath}/patches`)
-  const issuesCount = $derived(repoClass?.issues?.length ?? 0)
-  const patchesCount = $derived(repoClass?.patches?.length ?? 0)
+  const isItemOpen = (item: {id: string}) => {
+    // Prefer the latest status event from the shared map (covers both issues
+    // and patches and matches what the issues/patches pages use).
+    const events = $statusEventsByRootStore?.get(item.id)
+    if (events && events.length > 0) {
+      const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
+      return latest.kind === GIT_STATUS_OPEN
+    }
+    return true
+  }
+  const issuesCount = $derived((repoClass?.issues ?? []).filter(isItemOpen).length)
+  const patchesCount = $derived((repoClass?.patches ?? []).filter(isItemOpen).length)
   const hasIssuesNotification = $derived.by(() => {
     if (repoAddress) {
       return hasRepoNotification($notifications, {
