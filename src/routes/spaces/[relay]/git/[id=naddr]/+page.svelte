@@ -18,6 +18,10 @@
     BookOpen,
     Copy,
     Check,
+    Bookmark,
+    Bell,
+    GitFork,
+    RotateCcw,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -35,6 +39,8 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
+    REPO_ACTIONS_KEY,
+    type RepoActions,
     effectiveMaintainersByRepoAddress,
   } from "@lib/budabit/state"
   import {
@@ -69,6 +75,7 @@
 
   // Get repoClass and repoRelays from context
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const statusEventsByRootStore = getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
@@ -712,6 +719,45 @@
       <Spinner />
     </div>
   {:else}
+    <!-- Repo actions -->
+    {#if repoActions}
+      <div class="flex flex-wrap items-center gap-2">
+        {#if $pubkey}
+          <Button
+            class="btn btn-sm {repoActions.isBookmarked ? 'btn-primary' : 'btn-outline'} gap-1"
+            onclick={repoActions.bookmarkRepo}
+            disabled={repoActions.isTogglingBookmark}
+            title={repoActions.isBookmarked ? 'Remove bookmark' : 'Bookmark'}>
+            <Bookmark class="h-4 w-4 {repoActions.isBookmarked ? 'fill-current' : ''}" />
+            {repoActions.isBookmarked ? 'Bookmarked' : 'Bookmark'}
+          </Button>
+          <Button
+            class="btn btn-sm {repoActions.isWatching ? 'btn-primary' : 'btn-outline'} gap-1"
+            onclick={repoActions.openWatchModal}
+            title={repoActions.isWatching ? 'Watching' : 'Watch'}>
+            <Bell class="h-4 w-4 {repoActions.isWatching ? 'fill-current' : ''}" />
+            {repoActions.isWatching ? 'Watching' : 'Watch'}
+          </Button>
+          <Button class="btn btn-sm btn-outline gap-1" onclick={repoActions.forkRepo} title="Fork">
+            <GitFork class="h-4 w-4" />
+            Fork
+          </Button>
+        {/if}
+        <Button
+          class="btn btn-sm btn-outline gap-1"
+          onclick={repoActions.refreshRepo}
+          disabled={repoActions.isRefreshing}
+          title={repoActions.isRefreshing ? 'Syncing...' : 'Refresh'}>
+          <RotateCcw class="h-4 w-4 {repoActions.isRefreshing ? 'animate-spin' : ''}" />
+          {repoActions.isRefreshing ? 'Syncing...' : 'Refresh'}
+        </Button>
+        <Button class="btn btn-sm btn-outline gap-1" onclick={repoActions.openRemoteFixModal} title="Review remotes">
+          <Globe class="h-4 w-4" />
+          Remotes
+        </Button>
+      </div>
+    {/if}
+
     <!-- Stats Grid -->
     <div class="grid grid-cols-2 gap-4 md:grid-cols-4" transition:fade>
       {#each stats as stat}

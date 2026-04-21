@@ -3,7 +3,9 @@
 </script>
 
 <script lang="ts">
-  import {RepoHeader, RepoTab, toast, bookmarksStore, Repo, WorkerManager, ForkRepoDialog} from "@nostr-git/ui"
+  import {RepoHeader, RepoTab, BranchSelector, toast, bookmarksStore, Repo, WorkerManager, ForkRepoDialog} from "@nostr-git/ui"
+  import ProfileName from "@app/components/ProfileName.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
   // Import worker URL using Vite's ?url suffix for correct asset resolution
   // This must be done at the app level, not inside pre-built packages
   import gitWorkerUrl from "@nostr-git/core/worker/worker.js?url"
@@ -15,6 +17,11 @@
     GitCommit,
     ChevronLeft,
     Home,
+    Bookmark,
+    Bell,
+    GitFork,
+    RotateCcw,
+    Globe,
   } from "@lucide/svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
@@ -85,6 +92,7 @@
     STATUS_EVENTS_BY_ROOT_KEY,
     PULL_REQUESTS_KEY,
     REPO_FEED_ACTIVITY_KEY,
+    REPO_ACTIONS_KEY,
     activeRepoClass,
     GIT_RELAYS,
     getRepoAnnouncementRelays,
@@ -1631,6 +1639,17 @@
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
   setContext(REPO_FEED_ACTIVITY_KEY, repoFeedActivityStore)
   setContext(REPO_TRUST_METRICS_KEY, repoTrustMetricsStore)
+  setContext(REPO_ACTIONS_KEY, {
+    refreshRepo: () => refreshRepo(),
+    forkRepo: () => forkRepo(),
+    bookmarkRepo: () => bookmarkRepo(),
+    openWatchModal: () => openWatchModal(),
+    openRemoteFixModal: () => openRemoteFixModal(),
+    get isRefreshing() { return isRefreshing },
+    get isBookmarked() { return isBookmarked },
+    get isTogglingBookmark() { return isTogglingBookmark },
+    get isWatching() { return isWatching },
+  })
 
   // Initialize tracking for data loading
   let unsubscribers: (() => void)[] = []
@@ -3017,17 +3036,25 @@
     </div>
   {/snippet}
   {#snippet title()}
-    <div class="min-w-0 flex-1">
+    <div class="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2 py-1 text-sm font-semibold leading-none sm:text-base">
+      {#if repoPubkey}
+        <button
+          type="button"
+          class="whitespace-nowrap rounded-md px-1 py-0.5 transition-colors hover:bg-secondary/40"
+          onclick={() => pushModal(ProfileDetail, {pubkey: repoPubkey})}
+          title="View owner profile">
+          <ProfileName pubkey={repoPubkey} />
+        </button>
+        <span class="text-muted-foreground">/</span>
+      {/if}
       <button
         type="button"
-        class="scrollbar-hide flex w-full min-w-0 items-center gap-2 overflow-x-auto rounded-md px-2 py-1.5 text-left text-[1.05rem] font-semibold leading-none transition-colors hover:bg-secondary/40 sm:gap-3 sm:px-3 sm:text-xl lg:text-2xl"
+        class="whitespace-nowrap rounded-md px-1 py-0.5 transition-colors hover:bg-secondary/40"
         onclick={overviewRepo}
         title={`Go to ${displayRepoName}`}
         aria-label={`Go to ${displayRepoName}`}
-        data-testid="repo-topbar-home"
-      >
-        <Home class="h-5 w-5 shrink-0 sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
-        <span class="whitespace-nowrap pr-1">{displayRepoName}</span>
+        data-testid="repo-topbar-home">
+        {displayRepoName}
       </button>
     </div>
   {/snippet}
@@ -3047,7 +3074,7 @@
 <PageContent
   bind:element={pageContentElement}
   style={`--repo-tabs-height: ${repoTabsHeight}px; --mobile-code-breadcrumb-height: ${mobileCodeBreadcrumbHeight}px;`}
-  class="!top-[calc(var(--sait)+3.5rem)] flex min-w-0 flex-grow flex-col gap-2 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-0 sm:px-6 sm:pb-6 sm:pt-0 lg:px-8 lg:pb-8 lg:pt-0">
+  class="!top-[calc(var(--sait)+3.5rem)] flex min-w-0 flex-grow flex-col gap-2 overflow-y-auto overflow-x-hidden px-2 pb-4 pt-0 sm:px-3 sm:pb-6 sm:pt-0 lg:px-4 lg:pb-8 lg:pt-0">
   {#if repoClass === undefined}
     <div class="p-4 text-center">Loading repository...</div>
   {:else if !repoClass}
@@ -3059,19 +3086,19 @@
         {activeTab}
         {refreshRepo}
         {isRefreshing}
-        forkRepo={$pubkey ? forkRepo : undefined}
+        forkRepo={undefined}
         settingsRepo={$pubkey ? () => settingsRepo() : undefined}
         {overviewRepo}
-        bookmarkRepo={$pubkey ? bookmarkRepo : undefined}
-        isBookmarked={$pubkey ? isBookmarked : false}
-        isTogglingBookmark={$pubkey ? isTogglingBookmark : false}
-        watchRepo={$pubkey ? openWatchModal : undefined}
-        isWatching={$pubkey ? isWatching : false}
+        bookmarkRepo={undefined}
+        isBookmarked={false}
+        isTogglingBookmark={false}
+        watchRepo={undefined}
+        isWatching={false}
         canEditSettings={!!$pubkey && repoPubkey === $pubkey}
         updateRepoState={isOwnedRepo ? refreshBranchUpdatesAndOpen : undefined}
         hasRepoStateUpdate={hasCurrentRepoBranchUpdate}
         isCheckingRepoStateUpdate={updateStateActionChecking}
-        resolveCloneUrlIssues={openRemoteFixModal}
+        resolveCloneUrlIssues={undefined}
         >
         {#snippet children(activeTab: string)}
           <RepoTab
