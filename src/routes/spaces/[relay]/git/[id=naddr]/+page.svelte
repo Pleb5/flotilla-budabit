@@ -22,6 +22,7 @@
     Bell,
     GitFork,
     RotateCcw,
+    ChevronDown,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -210,7 +211,6 @@
   
   // Expandable sections state
   let showAllRelays = $state(false)
-  let showAllBranches = $state(false)
   let showTaggedMaintainers = $state(false)
   const RECENT_PATCH_PREVIEW_LIMIT = 150
   const normalizePubkey = (value: string | undefined | null): string => {
@@ -279,32 +279,7 @@
     return taggedMaintainerPubkeys.filter(pk => !effective.has(pk))
   })
 
-  const stats = $derived([
-    {
-      label: "Branches",
-      value: repoClass.branches?.length || 0,
-      icon: GitBranch,
-      color: "text-blue-600",
-    },
-    {
-      label: "Effective Maintainers",
-      value: effectiveMaintainerPubkeys.length || 0,
-      icon: Users,
-      color: "text-green-600",
-    },
-    {
-      label: "Issues",
-      value: repoClass.issues?.length || 0,
-      icon: CircleAlert,
-      color: "text-red-600",
-    },
-    {
-      label: "Patches",
-      value: repoClass.patches?.length || 0,
-      icon: GitPullRequest,
-      color: "text-purple-600",
-    },
-  ])
+  const branchCount = $derived(repoClass.branches?.length || 0)
 
   function getNostrOwnerAndName(): {ownerNpub: string; name: string} | undefined {
     const key = (repoClass.key || '').trim()
@@ -758,51 +733,45 @@
       </div>
     {/if}
 
-    <!-- Stats Grid -->
-    <div class="grid grid-cols-2 gap-4 md:grid-cols-4" transition:fade>
-      {#each stats as stat}
-        <Card class="min-w-0 p-4 transition-shadow hover:shadow-md">
-          <div class="flex items-center gap-3">
-            <div>
-              <p class="text-sm text-muted-foreground">{stat.label}</p>
-              <div class="flex items-center gap-3 py-2">
-                <stat.icon class="h-5 w-5 {stat.color}" />
-                <p class="text-2xl font-semibold">{stat.value}</p>
-              </div>
-            </div>
-          </div>
-        </Card>
-      {/each}
-    </div>
-
     <div class="grid gap-4 lg:grid-cols-3" transition:fly>
     <div class="lg:col-start-3 lg:row-start-1 lg:col-span-1">
     <Card class="min-w-0 p-3 text-sm divide-y divide-border">
-    <!-- Clone URL Section - Prominent Display -->
+    <!-- Clone dropdown -->
     {#if repoMetadata.cloneUrls.length > 0}
+      {@const sortedCloneUrls = [...repoMetadata.cloneUrls].sort((a, b) => {
+        const an = a.startsWith("nostr://") ? 0 : a.includes("ngit.dev") ? 1 : 2
+        const bn = b.startsWith("nostr://") ? 0 : b.includes("ngit.dev") ? 1 : 2
+        return an - bn
+      })}
       <section class="pb-3">
-          <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold">
-            <GitBranch class="h-4 w-4" />
-            Clone Repository
-          </h3>
-          <div class="space-y-2">
-            {#each repoMetadata.cloneUrls as url}
+        <details class="group">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2 text-sm font-medium hover:bg-secondary/50">
+            <span class="flex items-center gap-2">
+              <GitBranch class="h-4 w-4" />
+              Clone
+            </span>
+            <ChevronDown class="h-4 w-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div class="mt-2 space-y-1">
+            {#each sortedCloneUrls as url}
+              {@const isNostr = url.startsWith("nostr://") || url.includes("ngit.dev")}
               <button
                 type="button"
-                class="group flex min-w-0 w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5 transition-all hover:border-gray-300 hover:bg-gray-100 active:scale-[0.99] dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-gray-600 dark:hover:bg-gray-700/50 sm:p-3"
+                class="group/row flex min-w-0 w-full items-center gap-2 rounded-md border p-2 transition-all hover:bg-secondary/40 active:scale-[0.995] {isNostr ? 'border-purple-500/40 bg-purple-500/5' : 'border-border bg-secondary/20'}"
                 title="Click to copy"
                 onclick={() => copyUrl(url)}>
-                <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs sm:text-sm">{url}</code>
-                <div class="flex-shrink-0 p-1 rounded-md transition-colors group-hover:bg-gray-200 dark:group-hover:bg-gray-600">
+                <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs {isNostr ? 'text-purple-300' : ''}">{url}</code>
+                <div class="flex-shrink-0 rounded p-1 transition-colors group-hover/row:bg-background/50">
                   {#if copiedUrl === url}
-                    <Check class="h-4 w-4 text-green-600 dark:text-green-400" />
+                    <Check class="h-3.5 w-3.5 text-green-500" />
                   {:else}
-                    <Copy class="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    <Copy class="h-3.5 w-3.5 text-muted-foreground" />
                   {/if}
                 </div>
               </button>
             {/each}
           </div>
+        </details>
       </section>
     {/if}
 
@@ -830,10 +799,8 @@
           <!-- Git Information -->
           <div class="space-y-3">
             <div class="flex items-center justify-between">
-              <span class="text-sm text-muted-foreground">Default Branch</span>
-              <span class="rounded px-2 py-1 font-mono text-sm">
-                {repoMetadata.mainBranch}
-              </span>
+              <span class="text-sm text-muted-foreground">Branches</span>
+              <span class="rounded px-2 py-1 font-mono text-sm">{branchCount}</span>
             </div>
 
             {#if commitLoading}
@@ -865,31 +832,6 @@
               </div>
             {/if}
 
-            {#if repoClass.branches && repoClass.branches.length > 0}
-              <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground ">Branches</span>
-                <div class="flex flex-wrap gap-1">
-                  {#each showAllBranches ? repoClass.branches : repoClass.branches.slice(0, 5) as branch}
-                    <span
-                      class="truncate rounded outline outline-1 outline-gray-200 px-2 py-1 text-xs text-white dark:bg-blue-900/30 dark:text-blue-200">
-                      {branch.name}
-                      {#if 'isHead' in branch && branch.isHead}
-                        <span class="ml-1">•</span>
-                      {/if}
-                    </span>
-                  {/each}
-                  {#if repoClass.branches.length > 5}
-                    <button
-                      type="button"
-                      class="px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
-                      onclick={() => showAllBranches = !showAllBranches}
-                    >
-                      {showAllBranches ? 'Show less' : `+${repoClass.branches.length - 5} more`}
-                    </button>
-                  {/if}
-                </div>
-              </div>
-            {/if}
           </div>
 
           <!-- Nostr Information -->
