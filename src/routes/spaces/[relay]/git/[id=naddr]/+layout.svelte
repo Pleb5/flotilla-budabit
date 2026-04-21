@@ -224,11 +224,11 @@
     const pathname = $page.url.pathname.replace(/\/+$/, "")
     const repoPath = basePath.replace(/\/+$/, "")
 
-    if (pathname === repoPath) return undefined
+    if (pathname === repoPath) return "overview"
     if (!pathname.startsWith(`${repoPath}/`)) return undefined
 
     const segments = pathname.slice(repoPath.length + 1).split("/").filter(Boolean)
-    if (segments.length === 0) return undefined
+    if (segments.length === 0) return "overview"
 
     if (segments[0] === "extensions") {
       return segments[1] || "extensions"
@@ -3074,6 +3074,15 @@
         resolveCloneUrlIssues={openRemoteFixModal}
         >
         {#snippet children(activeTab: string)}
+          <RepoTab
+            tabValue="overview"
+            label="Overview"
+            href={basePath}
+            {activeTab}>
+            {#snippet icon()}
+              <Home class="h-4 w-4" />
+            {/snippet}
+          </RepoTab>
           <RepoTab
             tabValue="feed"
             label="Feed"
