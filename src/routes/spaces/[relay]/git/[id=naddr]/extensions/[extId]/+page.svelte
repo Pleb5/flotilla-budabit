@@ -315,12 +315,15 @@
 <style>
   .extension-panel {
     width: 100%;
+    height: calc(100vh - 4rem);
+    min-height: 600px;
     border: 1px solid var(--border, #e5e7eb);
     border-radius: 12px;
     overflow: hidden;
     background: var(--card, #fff);
     position: relative;
-    min-height: 600px;
+    display: flex;
+    flex-direction: column;
   }
 
   .extension-error {
@@ -354,7 +357,8 @@
 
   .extension-iframe {
     width: 100%;
-    height: 600px;
+    flex: 1 1 auto;
+    min-height: 0;
     border: none;
     display: block;
     opacity: 0;
