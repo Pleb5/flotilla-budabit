@@ -10,14 +10,18 @@
     GitBranch,
     GitPullRequest,
     Users,
-    Globe,
-    GitCommit,
     User,
-    Link as LinkIcon,
     Eye,
     BookOpen,
     Copy,
     Check,
+    Bookmark,
+    Bell,
+    GitFork,
+    RotateCcw,
+    ChevronDown,
+    HeartPulse,
+    Info,
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -28,6 +32,8 @@
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import ProfileName from "@app/components/ProfileName.svelte"
   import {pushModal} from "@app/util/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import {
@@ -35,6 +41,8 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
+    REPO_ACTIONS_KEY,
+    type RepoActions,
     effectiveMaintainersByRepoAddress,
   } from "@lib/budabit/state"
   import {
@@ -69,6 +77,7 @@
 
   // Get repoClass and repoRelays from context
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const statusEventsByRootStore = getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
@@ -86,6 +95,9 @@
     repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
   )
   const patchesHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/patches`)
+  const repoBasePath = $derived.by(() => $page.url.pathname.replace(/\/+$/, ""))
+  const activityHref = (item: {kind: "issue" | "patch"; id: string}) =>
+    `${repoBasePath}/${item.kind === "issue" ? "issues" : "patches"}/${item.id}`
   let openTrustMetricPopover = $state<"trusted-merged" | "trusted-maintainer" | "trusted-collaborators" | null>(null)
   const repoTrustStatus = $derived.by(() => {
     if (repoTrustMetrics.status === "loading") {
@@ -203,7 +215,6 @@
   
   // Expandable sections state
   let showAllRelays = $state(false)
-  let showAllBranches = $state(false)
   let showTaggedMaintainers = $state(false)
   const RECENT_PATCH_PREVIEW_LIMIT = 150
   const normalizePubkey = (value: string | undefined | null): string => {
@@ -272,32 +283,7 @@
     return taggedMaintainerPubkeys.filter(pk => !effective.has(pk))
   })
 
-  const stats = $derived([
-    {
-      label: "Branches",
-      value: repoClass.branches?.length || 0,
-      icon: GitBranch,
-      color: "text-blue-600",
-    },
-    {
-      label: "Effective Maintainers",
-      value: effectiveMaintainerPubkeys.length || 0,
-      icon: Users,
-      color: "text-green-600",
-    },
-    {
-      label: "Issues",
-      value: repoClass.issues?.length || 0,
-      icon: CircleAlert,
-      color: "text-red-600",
-    },
-    {
-      label: "Patches",
-      value: repoClass.patches?.length || 0,
-      icon: GitPullRequest,
-      color: "text-purple-600",
-    },
-  ])
+  const branchCount = $derived(repoClass.branches?.length || 0)
 
   function getNostrOwnerAndName(): {ownerNpub: string; name: string} | undefined {
     const key = (repoClass.key || '').trim()
@@ -577,6 +563,8 @@
     title: string
     activityAt: number
     createdAt: number
+    pubkey: string
+    kind: "issue" | "patch"
   }
 
   function getLatestCommentAt(rootId: string) {
@@ -625,19 +613,19 @@
     }
   }
 
-  const recentIssues = $derived.by(() => {
-    const items = repoClass.issues.map(issue => ({
-      id: issue.id,
-      title: getIssueTitle(issue),
-      createdAt: issue.created_at,
-      activityAt: getLatestActivityAt(issue.id, issue.created_at),
-    }))
-
-    return sortRecentActivity(items).slice(0, 3)
-  })
-
-  const recentPatches = $derived.by(() => {
+  const recentActivity = $derived.by(() => {
     const items: RecentActivityItem[] = []
+
+    for (const issue of repoClass.issues) {
+      items.push({
+        id: issue.id,
+        title: getIssueTitle(issue),
+        createdAt: issue.created_at,
+        activityAt: getLatestActivityAt(issue.id, issue.created_at),
+        pubkey: issue.pubkey,
+        kind: "issue",
+      })
+    }
 
     for (const patch of repoClass.patches) {
       const isRootPatch = patch.tags.some((tag: string[]) => tag[0] === "t" && tag[1] === "root")
@@ -648,6 +636,8 @@
         title: getPatchTitle(patch),
         createdAt: patch.created_at,
         activityAt: getLatestActivityAt(patch.id, patch.created_at),
+        pubkey: patch.pubkey,
+        kind: "patch",
       })
     }
 
@@ -657,11 +647,16 @@
         title: getPatchTitle(pullRequest),
         createdAt: pullRequest.created_at,
         activityAt: getLatestActivityAt(pullRequest.id, pullRequest.created_at),
+        pubkey: pullRequest.pubkey,
+        kind: "patch",
       })
     }
 
-    return sortRecentActivity(items).slice(0, 3)
+    return sortRecentActivity(items).slice(0, 7)
   })
+
+  let activityExpanded = $state(false)
+  const visibleActivity = $derived(activityExpanded ? recentActivity : recentActivity.slice(0, 4))
 
   function shouldClampRecentPatchTitle(title: string): boolean {
     return title.replace(/\s+/g, " ").trim().length > RECENT_PATCH_PREVIEW_LIMIT
@@ -712,137 +707,246 @@
       <Spinner />
     </div>
   {:else}
-    <!-- Stats Grid -->
-    <div class="grid grid-cols-2 gap-4 md:grid-cols-4" transition:fade>
-      {#each stats as stat}
-        <Card class="min-w-0 p-4 transition-shadow hover:shadow-md">
-          <div class="flex items-center gap-3">
-            <div>
-              <p class="text-sm text-muted-foreground">{stat.label}</p>
-              <div class="flex items-center gap-3 py-2">
-                <stat.icon class="h-5 w-5 {stat.color}" />
-                <p class="text-2xl font-semibold">{stat.value}</p>
-              </div>
-            </div>
+    <!-- Repo actions -->
+    {#if repoActions}
+      <div class="flex flex-wrap items-center gap-2">
+        <Button class="btn btn-sm btn-outline gap-1" onclick={repoActions.openRemoteFixModal} title="Repo health">
+          <HeartPulse class="h-4 w-4" />
+          Health
+        </Button>
+        <Button
+          class="btn btn-sm btn-outline gap-1"
+          onclick={repoActions.refreshRepo}
+          disabled={repoActions.isRefreshing}
+          title={repoActions.isRefreshing ? 'Syncing...' : 'Refresh'}>
+          <RotateCcw class="h-4 w-4 {repoActions.isRefreshing ? 'animate-spin' : ''}" />
+          {repoActions.isRefreshing ? 'Syncing...' : 'Refresh'}
+        </Button>
+        {#if $pubkey}
+          <Button
+            class="btn btn-sm btn-ghost gap-1 text-muted-foreground hover:text-error"
+            onclick={() => pushModal(ResetRepoConfirm, {repoClass, repoName: repoMetadata.name})}
+            title="Reset local repo state">
+            Reset
+          </Button>
+        {/if}
+        {#if $pubkey}
+          <div class="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              class="btn btn-sm {repoActions.isBookmarked ? 'btn-primary' : 'btn-outline'} gap-1"
+              onclick={repoActions.bookmarkRepo}
+              disabled={repoActions.isTogglingBookmark}
+              title={repoActions.isBookmarked ? 'Remove bookmark' : 'Bookmark'}>
+              <Bookmark class="h-4 w-4 {repoActions.isBookmarked ? 'fill-current' : ''}" />
+              {repoActions.isBookmarked ? 'Bookmarked' : 'Bookmark'}
+            </Button>
+            <Button
+              class="btn btn-sm {repoActions.isWatching ? 'btn-primary' : 'btn-outline'} gap-1"
+              onclick={repoActions.openWatchModal}
+              title={repoActions.isWatching ? 'Watching' : 'Watch'}>
+              <Bell class="h-4 w-4 {repoActions.isWatching ? 'fill-current' : ''}" />
+              {repoActions.isWatching ? 'Watching' : 'Watch'}
+            </Button>
+            <Button class="btn btn-sm btn-outline gap-1" onclick={repoActions.forkRepo} title="Fork">
+              <GitFork class="h-4 w-4" />
+              Fork
+            </Button>
           </div>
-        </Card>
-      {/each}
-    </div>
+        {/if}
+      </div>
+    {/if}
 
-    <!-- Clone URL Section - Prominent Display -->
+    <div class="grid gap-4 lg:grid-cols-3" transition:fly>
+    <div class="lg:col-start-3 lg:row-start-1 lg:col-span-1">
+    <Card class="min-w-0 p-3 text-sm divide-y divide-border">
+    <!-- Clone dropdown -->
     {#if repoMetadata.cloneUrls.length > 0}
-      <div transition:fade>
-        <Card class="min-w-0 p-4 sm:p-6">
-          <h3 class="mb-3 flex items-center gap-2 text-lg font-semibold">
-            <GitBranch class="h-5 w-5" />
-            Clone Repository
-          </h3>
-          <div class="space-y-2">
-            {#each repoMetadata.cloneUrls as url}
+      {@const sortedCloneUrls = [...repoMetadata.cloneUrls].sort((a, b) => {
+        const an = a.startsWith("nostr://") ? 0 : 1
+        const bn = b.startsWith("nostr://") ? 0 : 1
+        return an - bn
+      })}
+      <section class="flex items-center justify-between pb-3">
+        <span class="flex items-center gap-2 text-base font-semibold">
+          <GitBranch class="h-5 w-5" />
+          Details
+        </span>
+        <details class="group relative">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-500/40 bg-green-600/20 px-3 py-2 text-sm font-medium text-green-300 hover:bg-green-600/30">
+            <span class="flex items-center gap-2">
+              <GitBranch class="h-4 w-4" />
+              Clone
+            </span>
+            <ChevronDown class="h-4 w-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div class="absolute right-0 z-20 mt-2 w-[min(22rem,calc(100vw-2rem))] space-y-1 rounded-md border border-border bg-base-100 p-2 shadow-lg">
+            {#each sortedCloneUrls as url}
+              {@const isNostr = url.startsWith("nostr://")}
               <button
                 type="button"
-                class="group flex min-w-0 w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5 transition-all hover:border-gray-300 hover:bg-gray-100 active:scale-[0.99] dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-gray-600 dark:hover:bg-gray-700/50 sm:p-3"
+                class="group/row flex min-w-0 w-full items-center gap-2 rounded-md border p-2 transition-all hover:bg-secondary/40 active:scale-[0.995] {isNostr ? 'border-purple-500/40 bg-purple-500/5' : 'border-transparent'}"
                 title="Click to copy"
                 onclick={() => copyUrl(url)}>
-                <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs sm:text-sm">{url}</code>
-                <div class="flex-shrink-0 p-1 rounded-md transition-colors group-hover:bg-gray-200 dark:group-hover:bg-gray-600">
+                <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs {isNostr ? 'text-purple-300' : ''}">{url}</code>
+                <div class="flex-shrink-0 rounded p-1 transition-colors group-hover/row:bg-background/50">
                   {#if copiedUrl === url}
-                    <Check class="h-4 w-4 text-green-600 dark:text-green-400" />
+                    <Check class="h-3.5 w-3.5 text-green-500" />
                   {:else}
-                    <Copy class="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                    <Copy class="h-3.5 w-3.5 text-muted-foreground" />
                   {/if}
                 </div>
               </button>
             {/each}
           </div>
-        </Card>
-      </div>
+        </details>
+      </section>
     {/if}
 
-    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]" transition:fly>
       <!-- Repository Details -->
-      <Card class="min-w-0 p-4 sm:p-6 xl:row-span-2">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h3 class="flex items-center gap-2 text-lg font-semibold">
-            <GitCommit class="h-5 w-5" />
-            Repo Information
-          </h3>
-          {#if $pubkey}
-            <Button
-              onclick={() => {
-                pushModal(ResetRepoConfirm, {
-                  repoClass,
-                  repoName: repoMetadata.name,
-                })
-              }}
-              class="rounded border border-gray-300 px-3 py-1 text-xs transition-colors hover:bg-gray-50">
-              Reset Repo
-            </Button>
-          {/if}
-        </div>
-        <div class="grid gap-6 md:grid-cols-1">
-          <!-- Git Information -->
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="text-sm text-muted-foreground">Default Branch</span>
-              <span class="rounded px-2 py-1 font-mono text-sm">
-                {repoMetadata.mainBranch}
-              </span>
+      <section class="py-3">
+        <div class="space-y-3">
+          <!-- Compact info rows -->
+          <div class="space-y-1 text-sm">
+            <!-- Address -->
+            <div class="flex items-center gap-2 py-1">
+              <span class="flex-shrink-0 text-muted-foreground">Address</span>
+              <code class="min-w-0 flex-1 truncate font-mono text-xs" title={naddr}>{shortenNip19(naddr)}</code>
+              <button
+                type="button"
+                class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                title="Copy address"
+                onclick={() => clip(naddr)}>
+                <Copy class="h-3.5 w-3.5" />
+              </button>
             </div>
 
-            {#if commitLoading}
-              <div class="border-t pt-3">
-                <div class="mb-2 flex items-center justify-between">
-                  <span class="text-sm text-muted-foreground">Latest Commit</span>
-                  <div class="h-4 w-16 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="h-4 w-3/4 animate-pulse rounded bg-muted"></div>
-                <div class="h-4 w-2/3 animate-pulse rounded bg-muted"></div>
-                <div class="h-4 w-5/6 animate-pulse rounded bg-muted"></div>
-                <div class="h-4 w-1/2 animate-pulse rounded bg-muted"></div>
-              </div>
-            {:else if lastCommit}
-              <div class="border-t pt-3" transition:fade>
-                <div class="mb-2 flex items-start justify-between gap-3">
-                  <span class="text-sm text-muted-foreground">Latest Commit</span>
-                  <span class="rounded px-2 py-1 font-mono text-xs">
-                    {truncateHash(lastCommit.oid)}
-                  </span>
-                </div>
-                <p class="text-sm break-all whitespace-normal">{lastCommit.commit.message}</p>
-                <div class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                  <User class="h-3 w-3" />
-                  <span>{lastCommit.commit.author.name}</span>
-                  <span>•</span>
-                  <span>{formatDate(new Date(lastCommit.commit.author.timestamp * 1000))}</span>
-                </div>
-              </div>
+            <!-- Website(s) -->
+            {#if repoMetadata.webUrls.length > 0}
+              {@const hostname = (u: string) => { try { return new URL(u).hostname } catch { return u } }}
+              <details class="group/urls">
+                <summary class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                  <span class="flex-shrink-0 text-muted-foreground">Website{repoMetadata.webUrls.length > 1 ? "s" : ""}</span>
+                  <a
+                    href={repoMetadata.webUrls[0]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="min-w-0 flex-1 truncate font-mono text-xs hover:underline"
+                    title={repoMetadata.webUrls[0]}
+                    onclick={(e) => e.stopPropagation()}>{hostname(repoMetadata.webUrls[0])}</a>
+                  <button
+                    type="button"
+                    class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                    title="Copy URL"
+                    onclick={(e) => { e.preventDefault(); e.stopPropagation(); clip(repoMetadata.webUrls[0]) }}>
+                    <Copy class="h-3.5 w-3.5" />
+                  </button>
+                  {#if repoMetadata.webUrls.length > 1}
+                    <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/urls:rotate-180" />
+                  {/if}
+                </summary>
+                {#if repoMetadata.webUrls.length > 1}
+                  <div class="mt-1 space-y-1">
+                    {#each repoMetadata.webUrls.slice(1) as url}
+                      <div class="flex items-center gap-2">
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="min-w-0 flex-1 truncate font-mono text-xs hover:underline"
+                          title={url}>{hostname(url)}</a>
+                        <button
+                          type="button"
+                          class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                          title="Copy URL"
+                          onclick={() => clip(url)}>
+                          <Copy class="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </details>
             {/if}
 
+            <!-- Branches -->
             {#if repoClass.branches && repoClass.branches.length > 0}
-              <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground ">Branches</span>
-                <div class="flex flex-wrap gap-1">
-                  {#each showAllBranches ? repoClass.branches : repoClass.branches.slice(0, 5) as branch}
-                    <span
-                      class="truncate rounded outline outline-1 outline-gray-200 px-2 py-1 text-xs text-white dark:bg-blue-900/30 dark:text-blue-200">
-                      {branch.name}
-                      {#if 'isHead' in branch && branch.isHead}
-                        <span class="ml-1">•</span>
-                      {/if}
-                    </span>
+              {@const isDefaultBranch = (b: any) => (('isHead' in b && b.isHead) || b.name === repoMetadata.mainBranch)}
+              {@const sortedBranches = [...repoClass.branches].sort((a, b) => (isDefaultBranch(a) ? 0 : 1) - (isDefaultBranch(b) ? 0 : 1))}
+              <details class="group/branches">
+                <summary class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                  <span class="flex-shrink-0 text-muted-foreground">Branches</span>
+                  <span class="min-w-0 flex-1 font-mono text-xs">{branchCount}</span>
+                  <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/branches:rotate-180" />
+                </summary>
+                <div class="mt-1 space-y-0.5">
+                  {#each sortedBranches as branch}
+                    {@const isDefault = isDefaultBranch(branch)}
+                    <div class="flex items-center gap-2">
+                      <span class="min-w-0 flex-1 truncate font-mono text-xs" title={branch.name}>
+                        {branch.name}
+                        {#if isDefault}
+                          <span class="ml-1 text-muted-foreground">(default)</span>
+                        {/if}
+                      </span>
+                      <button
+                        type="button"
+                        class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                        title="Copy branch name"
+                        onclick={() => clip(branch.name)}>
+                        <Copy class="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   {/each}
-                  {#if repoClass.branches.length > 5}
-                    <button
-                      type="button"
-                      class="px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
-                      onclick={() => showAllBranches = !showAllBranches}
-                    >
-                      {showAllBranches ? 'Show less' : `+${repoClass.branches.length - 5} more`}
-                    </button>
-                  {/if}
                 </div>
-              </div>
+              </details>
+            {/if}
+
+            <!-- Relays -->
+            {#if repoMetadata.relays.length > 0}
+              {@const relayHostname = (u: string) => { try { return new URL(u).hostname } catch { return u } }}
+              <details class="group/relays">
+                <summary class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                  <span class="flex-shrink-0 text-muted-foreground">Relays</span>
+                  <span class="min-w-0 flex-1 font-mono text-xs">{repoMetadata.relays.length}</span>
+                  <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/relays:rotate-180" />
+                </summary>
+                <div class="mt-1 space-y-0.5">
+                  {#each repoMetadata.relays as relay}
+                    <div class="flex items-center gap-2">
+                      <span class="min-w-0 flex-1 truncate font-mono text-xs" title={relay}>{relayHostname(relay)}</span>
+                      <button
+                        type="button"
+                        class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                        title="Copy relay URL"
+                        onclick={() => clip(relay)}>
+                        <Copy class="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              </details>
+            {/if}
+
+            <!-- Latest commit -->
+            {#if lastCommit}
+              <details class="group/commit" transition:fade>
+                <summary class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                  <span class="flex-shrink-0 text-muted-foreground">Latest</span>
+                  <span class="flex min-w-0 flex-1 items-center gap-2 font-mono text-xs">
+                    <span>{truncateHash(lastCommit.oid)}</span>
+                    <span class="text-muted-foreground">·</span>
+                    <span class="truncate text-muted-foreground">{formatDate(new Date(lastCommit.commit.author.timestamp * 1000))}</span>
+                  </span>
+                  <ChevronDown class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/commit:rotate-180" />
+                </summary>
+                <div class="mt-1 flex items-center gap-1.5 text-xs">
+                  <span class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-semibold uppercase text-muted-foreground">
+                    {(lastCommit.commit.author.name || "?").charAt(0)}
+                  </span>
+                  <span class="flex-shrink-0 font-medium">{lastCommit.commit.author.name}:</span>
+                  <span class="min-w-0 flex-1 truncate text-muted-foreground" title={lastCommit.commit.message}>{lastCommit.commit.message}</span>
+                </div>
+              </details>
             {/if}
           </div>
 
@@ -850,23 +954,23 @@
           <div class="space-y-3">
             {#if effectiveMaintainerPubkeys.length > 0}
               <div>
-                <span class="mb-2 block text-sm text-muted-foreground">Effective Maintainers</span>
-                <div class="space-y-2">
+                <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
+                <div class="grid grid-cols-2 gap-x-3 gap-y-2">
                   {#each effectiveMaintainerPubkeys as maintainer}
-                    <div class="flex min-w-0 items-center gap-2 text-sm">
+                    <button
+                      type="button"
+                      class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
+                      onclick={() => pushModal(ProfileDetail, {pubkey: maintainer, url: relayUrl})}>
                       <ProfileCircle
                         pubkey={maintainer}
                         url={relayUrl}
-                        size={6}
+                        size={8}
                         class="border border-border"
                       />
-                      <ProfileLink
-                        pubkey={maintainer}
-                        url={relayUrl}
-                        unstyled
-                        class="min-w-0 truncate text-xs hover:underline"
-                      />
-                    </div>
+                      <span class="min-w-0 truncate text-sm hover:underline">
+                        <ProfileName pubkey={maintainer} url={relayUrl} />
+                      </span>
+                    </button>
                   {/each}
                 </div>
                 {#if unverifiedTaggedPubkeys.length > 0}
@@ -904,315 +1008,172 @@
               </div>
             {/if}
 
-            <div class="border-t pt-3">
-              <span class="mb-2 block text-sm text-muted-foreground">Repo Address</span>
+
+
+          </div>
+        </div>
+      </section>
+
+      <!-- Recent Activity -->
+      {#if recentActivity.length > 0}
+        <section class="py-3">
+          <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Eye class="h-4 w-4" />
+            Recent Activity
+          </h3>
+          <div class="space-y-1">
+            {#each visibleActivity as item, i}
+              {@const isPeek = !activityExpanded && i === 3}
+              <a
+                href={activityHref(item)}
+                class="group/act relative flex min-w-0 items-center gap-2 rounded px-1 py-1 hover:bg-secondary/20 {isPeek ? 'pointer-events-none opacity-40 [mask-image:linear-gradient(to_bottom,black_15%,transparent_70%)]' : ''}">
+                <ProfileCircle pubkey={item.pubkey} url={relayUrl} size={6} class="flex-shrink-0" />
+                <div class="flex min-w-0 flex-1 flex-col">
+                  <div class="flex min-w-0 items-center gap-1.5 text-xs">
+                    <span class="min-w-0 truncate font-medium">
+                      <ProfileName pubkey={item.pubkey} url={relayUrl} />
+                    </span>
+                    <span class="flex-shrink-0 text-muted-foreground">·</span>
+                    <span class="flex-shrink-0 text-muted-foreground">{formatDate(new Date(item.activityAt * 1000))}</span>
+                  </div>
+                  <span class="truncate text-xs text-muted-foreground group-hover/act:underline" title={item.title}>{item.title}</span>
+                </div>
+                {#if item.kind === "issue"}
+                  <CircleAlert class="h-4 w-4 flex-shrink-0 text-red-400/70" />
+                {:else}
+                  <GitPullRequest class="h-4 w-4 flex-shrink-0 text-purple-400" />
+                {/if}
+              </a>
+            {/each}
+            {#if recentActivity.length > 4 && !activityExpanded}
               <button
                 type="button"
-                class="flex w-full min-w-0 max-w-full items-start gap-2 text-left text-sm hover:opacity-80"
-                title={naddr}
-                onclick={() => clip(naddr)}>
-                <LinkIcon class="mt-0.5 h-3 w-3 flex-shrink-0" />
-                <span class="break-all font-mono text-xs">{shortenNip19(naddr)}</span>
+                class="mx-auto mt-1 flex items-center gap-1 bg-transparent px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                onclick={() => (activityExpanded = true)}>
+                Show more
+                <ChevronDown class="h-3.5 w-3.5" />
               </button>
-            </div>
-
-            {#if repoMetadata.relays.length > 0}
-              <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground">Relays</span>
-                <div class="space-y-1">
-                  {#each showAllRelays ? repoMetadata.relays : repoMetadata.relays.slice(0, 3) as relay}
-                    <div class="flex min-w-0 items-center gap-2 text-sm">
-                      <Globe class="h-3 w-3" />
-                      <span class="min-w-0 truncate">{relay}</span>
-                    </div>
-                  {/each}
-                  {#if repoMetadata.relays.length > 3}
-                    <button
-                      type="button"
-                      class="text-xs text-muted-foreground hover:text-foreground hover:underline cursor-pointer transition-colors"
-                      onclick={() => showAllRelays = !showAllRelays}
-                    >
-                      {showAllRelays ? 'Show less' : `+${repoMetadata.relays.length - 3} more relays`}
-                    </button>
-                  {/if}
-                </div>
-              </div>
-            {/if}
-
-            {#if repoMetadata.cloneUrls.length > 0}
-              <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground">Clone URLs</span>
-                <div class="space-y-1">
-                  {#each repoMetadata.cloneUrls as url}
-                  <button
-                     type="button"
-                     class="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-left text-sm hover:opacity-80"
-                     title="Click to copy"
-                     onclick={() => clip(url)}>
-                     <LinkIcon class="h-3 w-3" />
-                     <span class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs">{url}</span>
-                   </button>
-                   {/each}
-                 </div>
-              </div>
-            {/if}
-
-            {#if repoMetadata.webUrls.length > 0}
-              <div class="border-t pt-3">
-                <span class="mb-2 block text-sm text-muted-foreground">Web URLs</span>
-                <div class="space-y-1">
-                  {#each repoMetadata.webUrls as url}
-                  <div class="grid max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-sm">
-                     <LinkIcon class="h-3 w-3" />
-                     <a
-                       href={url}
-                       target="_blank"
-                       class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs">{url}</a>
-                   </div>
-                   {/each}
-                 </div>
-              </div>
+            {:else if activityExpanded && recentActivity.length > 4}
+              <button
+                type="button"
+                class="mx-auto mt-1 flex items-center gap-1 bg-transparent px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                onclick={() => (activityExpanded = false)}>
+                Show less
+                <ChevronDown class="h-3.5 w-3.5 rotate-180" />
+              </button>
             {/if}
           </div>
+        </section>
+      {/if}
+
+      <section class="py-3">
+        <div class="mb-2 flex items-center gap-2">
+          <h3 class="flex items-center gap-2 text-sm font-semibold">
+            <Users class="h-4 w-4" />
+            Trust Activity
+          </h3>
+          <span class="ml-auto text-[11px] text-muted-foreground">{repoTrustMetrics.graphLabel}</span>
         </div>
-      </Card>
-
-      <Card class="min-w-0 p-4 sm:p-6">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h3 class="flex items-center gap-2 text-lg font-semibold">
-              <Users class="h-5 w-5" />
-              Trust Activity
-            </h3>
-            <p class="mt-1 text-sm text-muted-foreground">{repoTrustStatus}</p>
-          </div>
-
-          <div class="flex flex-wrap gap-2 text-xs">
-            <span class="badge badge-neutral">{repoTrustMetrics.graphLabel}</span>
-            {#if repoTrustMetrics.enabledRuleCount > 0}
-              <span class="badge badge-neutral">
-                {repoTrustMetrics.enabledRuleCount} rule{repoTrustMetrics.enabledRuleCount === 1 ? "" : "s"}
-              </span>
-            {/if}
-          </div>
-        </div>
-
-        <div class="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+        {#if repoTrustStatus}
+          <p class="mb-2 text-xs text-muted-foreground">{repoTrustStatus}</p>
+        {/if}
+        <div class="space-y-1">
           {#each repoTrustMetricCards as metric (metric.key)}
-            <div class="rounded-box bg-base-200/40 p-3">
-              <div class="text-xs uppercase tracking-wide opacity-60">{metric.label}</div>
-              <div class="mt-2 flex items-center gap-2">
-                <div class="relative">
-                  <button
-                    type="button"
-                    class="badge badge-neutral cursor-pointer px-3 py-3 text-sm font-medium"
-                    onclick={() =>
-                      (openTrustMetricPopover = openTrustMetricPopover === metric.key ? null : metric.key)}>
-                    {metric.value}
-                  </button>
-
-                  {#if openTrustMetricPopover === metric.key}
-                    <InlinePopover onClose={() => (openTrustMetricPopover = null)} align="left" widthClass="w-80">
-                      <div class="flex flex-col gap-3 text-sm">
-                        <div>
-                          <div class="font-medium">{metric.label}</div>
-                          <div class="mt-1 text-xs opacity-70">{metric.description}</div>
-                        </div>
-
-                        {#if metric.key === "trusted-merged"}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedMergedContributions} of {repoTrustMetrics.mergedPullRequests} merged pull request{repoTrustMetrics.mergedPullRequests === 1 ? "" : "s"} matched a trusted author.
-                          </div>
-                        {:else if metric.key === "trusted-maintainer"}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges === 1 ? "" : "s"} were applied by trusted maintainers.
-                          </div>
-                        {:else}
-                          <div class="text-xs opacity-60">
-                            {repoTrustMetrics.trustedCollaborators} distinct trusted collaborator{repoTrustMetrics.trustedCollaborators === 1 ? "" : "s"} participated in merged pull request activity.
-                          </div>
-                        {/if}
-
-                        {#if metric.details && metric.details.length > 0}
-                          <div class="flex flex-col gap-2">
-                            {#each metric.details as detail (detail.rootId)}
-                              <div class="rounded-box bg-base-200/50 p-3">
-                                <AppLink
-                                  href={getRepoTrustPatchHref(detail.rootId)}
-                                  class="text-sm font-medium text-primary underline-offset-2 hover:underline">
-                                  {detail.subject}
-                                </AppLink>
-                                <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                                  <span>Author</span>
-                                  <ProfileLink
-                                    pubkey={detail.authorPubkey}
-                                    url={relayUrl}
-                                    unstyled
-                                    class="font-medium text-primary underline-offset-2 hover:underline" />
-                                </div>
-                                {#if detail.mergedByPubkey}
-                                  <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                                    <span>Merged by</span>
-                                    <ProfileLink
-                                      pubkey={detail.mergedByPubkey}
-                                      url={relayUrl}
-                                      unstyled
-                                      class="font-medium text-primary underline-offset-2 hover:underline" />
-                                  </div>
-                                {/if}
-                              </div>
-                            {/each}
-                          </div>
-                        {:else if metric.actors && metric.actors.length > 0}
-                          <div class="flex flex-col gap-2">
-                            {#each metric.actors as actor (actor.pubkey)}
-                              <div class="rounded-box bg-base-200/50 p-3">
-                                <div class="flex min-w-0 items-center gap-3">
-                                  <ProfileCircle pubkey={actor.pubkey} url={relayUrl} size={6} class="border border-border" />
-                                  <div class="min-w-0">
-                                    <ProfileLink
-                                      pubkey={actor.pubkey}
-                                      url={relayUrl}
-                                      unstyled
-                                      class="block truncate text-sm font-medium text-primary underline-offset-2 hover:underline" />
-                                    <div class="text-xs opacity-70">
-                                      {actor.authoredMergedPullRequests} authored merges • {actor.appliedMergedPullRequests} maintainer merges
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            {/each}
-                          </div>
-                        {:else}
-                          <div class="text-xs opacity-60">No evidence captured for this metric yet.</div>
-                        {/if}
+            {@const accent = metric.key === "trusted-merged" ? "text-emerald-400" : metric.key === "trusted-maintainer" ? "text-sky-400" : "text-amber-400"}
+            <div class="relative">
+              <button
+                type="button"
+                class="group/trust flex w-full min-w-0 items-center gap-3 rounded px-1 py-1 text-left hover:bg-secondary/20"
+                onclick={() =>
+                  (openTrustMetricPopover = openTrustMetricPopover === metric.key ? null : metric.key)}>
+                <span class="flex-shrink-0 font-mono text-lg font-semibold tabular-nums {accent}">{metric.value}</span>
+                <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{metric.label}</span>
+                <span class="flex-shrink-0 rounded p-1 group-hover/trust:bg-secondary/40 {openTrustMetricPopover === metric.key ? accent : 'text-muted-foreground group-hover/trust:text-foreground'}">
+                  <Info class="h-3.5 w-3.5" />
+                </span>
+              </button>
+              {#if openTrustMetricPopover === metric.key}
+                {@const bgTint = metric.key === "trusted-merged" ? "bg-emerald-500/10" : metric.key === "trusted-maintainer" ? "bg-sky-500/10" : "bg-amber-500/10"}
+                <InlinePopover onClose={() => (openTrustMetricPopover = null)} align="left" widthClass="w-80">
+                  <div class="-m-3 flex flex-col gap-3 rounded-box p-3 text-sm {bgTint}">
+                    <div>
+                      <div class="font-medium">{metric.label}</div>
+                      <div class="mt-1 text-xs opacity-70">{metric.description}</div>
+                    </div>
+                    {#if metric.key === "trusted-merged"}
+                      <div class="text-xs opacity-60">
+                        {repoTrustMetrics.trustedMergedContributions} of {repoTrustMetrics.mergedPullRequests} merged pull request{repoTrustMetrics.mergedPullRequests === 1 ? "" : "s"} matched a trusted author.
                       </div>
-                    </InlinePopover>
-                  {/if}
-                </div>
-                <span class="text-xs opacity-60">Click for meaning and evidence</span>
-              </div>
-              <div class="mt-2 text-xs opacity-70">
-                {#if metric.key === "trusted-merged"}
-                  of {repoTrustMetrics.mergedPullRequests} merged pull request{repoTrustMetrics.mergedPullRequests === 1 ? "" : "s"}
-                {:else if metric.key === "trusted-maintainer"}
-                  by {repoTrustMetrics.trustedMaintainers} trusted maintainer{repoTrustMetrics.trustedMaintainers === 1 ? "" : "s"}
-                {:else}
-                  {repoTrustMetrics.trustedAuthors} authors and {repoTrustMetrics.trustedMaintainers} maintainers
-                {/if}
-              </div>
+                    {:else if metric.key === "trusted-maintainer"}
+                      <div class="text-xs opacity-60">
+                        {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges === 1 ? "" : "s"} were applied by trusted maintainers.
+                      </div>
+                    {:else}
+                      <div class="text-xs opacity-60">
+                        {repoTrustMetrics.trustedCollaborators} distinct trusted collaborator{repoTrustMetrics.trustedCollaborators === 1 ? "" : "s"} participated in merged pull request activity.
+                      </div>
+                    {/if}
+                    {#if metric.details && metric.details.length > 0}
+                      <div class="flex flex-col gap-2">
+                        {#each metric.details as detail (detail.rootId)}
+                          <div class="rounded-box bg-base-200/50 p-3">
+                            <AppLink
+                              href={getRepoTrustPatchHref(detail.rootId)}
+                              class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                              {detail.subject}
+                            </AppLink>
+                            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                              <span>Author</span>
+                              <ProfileLink
+                                pubkey={detail.authorPubkey}
+                                url={relayUrl}
+                                unstyled
+                                class="font-medium text-primary underline-offset-2 hover:underline" />
+                            </div>
+                            {#if detail.mergedByPubkey}
+                              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                                <span>Merged by</span>
+                                <ProfileLink
+                                  pubkey={detail.mergedByPubkey}
+                                  url={relayUrl}
+                                  unstyled
+                                  class="font-medium text-primary underline-offset-2 hover:underline" />
+                              </div>
+                            {/if}
+                          </div>
+                        {/each}
+                      </div>
+                    {:else if metric.actors && metric.actors.length > 0}
+                      <div class="flex flex-col gap-2">
+                        {#each metric.actors as actor (actor.pubkey)}
+                          <div class="rounded-box bg-base-200/50 p-3">
+                            <div class="flex min-w-0 items-center gap-3">
+                              <ProfileCircle pubkey={actor.pubkey} url={relayUrl} size={6} class="border border-border" />
+                              <div class="min-w-0">
+                                <ProfileLink
+                                  pubkey={actor.pubkey}
+                                  url={relayUrl}
+                                  unstyled
+                                  class="block truncate text-sm font-medium text-primary underline-offset-2 hover:underline" />
+                                <div class="text-xs opacity-70">
+                                  {actor.authoredMergedPullRequests} authored merges • {actor.appliedMergedPullRequests} maintainer merges
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    {:else}
+                      <div class="text-xs opacity-60">No evidence captured for this metric yet.</div>
+                    {/if}
+                  </div>
+                </InlinePopover>
+              {/if}
             </div>
           {/each}
         </div>
-
-        <div class="mt-4 flex flex-wrap gap-2 border-t border-base-300/50 pt-4">
-          <Button
-            class="btn btn-neutral btn-sm"
-            onclick={() => openPatchesTrustView("trusted", "first")}>
-            View trusted patches
-          </Button>
-          <Button
-            class="btn btn-neutral btn-sm"
-            onclick={() => openPatchesTrustView("trusted-maintainer", "first")}>
-            View maintainer merges
-          </Button>
-        </div>
-
-        {#if repoTrustMetrics.topActors.length > 0}
-          <div class="mt-4 border-t border-base-300/50 pt-4">
-            <div class="mb-3 flex items-center justify-between gap-2">
-              <strong class="text-sm">Top trusted collaborators</strong>
-              <span class="text-xs opacity-60">Recent merged pull requests</span>
-            </div>
-
-            <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              {#each repoTrustMetrics.topActors.slice(0, 3) as actor (actor.pubkey)}
-                <div class="rounded-box bg-base-200/30 p-3">
-                  <div class="flex min-w-0 items-center gap-3">
-                    <ProfileCircle pubkey={actor.pubkey} url={relayUrl} size={7} class="border border-border" />
-                    <div class="min-w-0">
-                      <ProfileLink
-                        pubkey={actor.pubkey}
-                        url={relayUrl}
-                        unstyled
-                        class="block truncate text-sm font-medium hover:underline" />
-                      <div class="text-xs opacity-60">
-                        {actor.totalInteractions} interaction{actor.totalInteractions === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-      </Card>
-
-      <!-- Activity Overview -->
-      {#if recentIssues.length > 0 || recentPatches.length > 0}
-        <Card class="min-w-0 p-4 sm:p-6">
-          <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
-            <Eye class="h-5 w-5" />
-            Recent Activity
-          </h3>
-          <div class="space-y-4">
-            {#if recentIssues.length > 0}
-              <div>
-                <h4 class="mb-2 text-sm font-medium text-muted-foreground">Recent Issues</h4>
-                <div class="space-y-2">
-                  {#each recentIssues as issue}
-                    <div
-                      class="flex min-w-0 items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
-                      <CircleAlert class="mt-0.5 h-4 w-4 text-red-500" />
-                      <div class="min-w-0 flex-1">
-                        <p class="break-words text-sm font-medium">
-                          {issue.title}
-                        </p>
-                        <p class="text-xs text-muted-foreground">
-                          {formatDate(new Date(issue.activityAt * 1000))}
-                        </p>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-
-            {#if recentPatches.length > 0}
-              <div>
-                <h4 class="mb-2 text-sm font-medium text-muted-foreground">Recent Patches</h4>
-                <div class="space-y-2">
-                  {#each recentPatches as patch}
-                    {@const isExpanded = expandedRecentPatchIds.has(patch.id)}
-                    {@const shouldClamp = shouldClampRecentPatchTitle(patch.title)}
-                    <div
-                      class="flex min-w-0 items-start gap-3 rounded-lg p-3 outline outline-1 outline-gray-200">
-                      <GitPullRequest class="mt-0.5 h-4 w-4 text-purple-500" />
-                      <div class="min-w-0 flex-1">
-                        <p class="break-words text-sm font-medium">
-                          {getRecentPatchTitlePreview(patch.title, isExpanded)}
-                        </p>
-                        {#if shouldClamp}
-                          <button
-                            type="button"
-                            class="mt-1 text-xs text-muted-foreground transition-colors hover:text-foreground hover:underline"
-                            aria-expanded={isExpanded}
-                            onclick={() => toggleRecentPatchExpanded(patch.id)}>
-                            {isExpanded ? 'Show less' : 'Show more'}
-                          </button>
-                        {/if}
-                        <p class="text-xs text-muted-foreground">
-                          {formatDate(new Date(patch.activityAt * 1000))}
-                        </p>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-          </div>
-        </Card>
-      {/if}
+      </section>
+    </Card>
     </div>
 
     <div class="flex-1" transition:slide>
@@ -1243,7 +1204,7 @@
 
     <!-- README -->
     {#if readmeLoading}
-      <div transition:slide>
+      <div transition:slide class="lg:col-start-1 lg:row-start-1 lg:col-span-2">
         <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
@@ -1259,7 +1220,7 @@
         </Card>
       </div>
     {:else if renderedReadme}
-      <div transition:slide>
+      <div transition:slide class="lg:col-start-1 lg:row-start-1 lg:col-span-2">
         <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
@@ -1362,5 +1323,6 @@
         </Card>
       </div>
     {/if}
+    </div>
   {/if}
 </div>
