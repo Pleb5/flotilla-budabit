@@ -15,6 +15,7 @@
     CircleAlert,
     GitPullRequest,
     GitCommit,
+    Settings as SettingsIcon,
     ChevronLeft,
     Home,
     Bookmark,
@@ -331,6 +332,11 @@
   }
 
   const isOwnedRepo = $derived.by(() => !!$pubkey && repoPubkey === $pubkey)
+  const isMaintainer = $derived.by(() => {
+    if (!$pubkey) return false
+    if (repoPubkey === $pubkey) return true
+    return ($repoMaintainersStore || []).includes($pubkey)
+  })
 
   let myRepoStateEvents = $state<RepoStateEvent[]>([])
   let optimisticRepoStates = $state<Record<string, RepoStateEvent>>({})
@@ -3169,6 +3175,17 @@
               <GitCommit class="h-4 w-4" />
             {/snippet}
           </RepoTab>
+          {#if isMaintainer}
+            <RepoTab
+              tabValue="settings"
+              label="Settings"
+              href={`${basePath}/settings`}
+              {activeTab}>
+              {#snippet icon()}
+                <SettingsIcon class="h-4 w-4" />
+              {/snippet}
+            </RepoTab>
+          {/if}
           {#if $pubkey}
             {#each repoTabExtensions as ext (ext.id)}
             <RepoTab

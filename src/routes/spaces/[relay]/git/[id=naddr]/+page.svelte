@@ -96,6 +96,30 @@
   )
   const patchesHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/patches`)
   const repoBasePath = $derived.by(() => $page.url.pathname.replace(/\/+$/, ""))
+
+  const isMaintainer = $derived.by(() => {
+    const me = $pubkey
+    if (!me) return false
+    return (repoClass.maintainers || []).includes(me)
+  })
+
+  const HEAD_REF_PREFIX = "ref: refs/heads/"
+  const defaultBranchStatus = $derived.by<{kind: "ok"} | {kind: "unset"} | {kind: "missing"; head: string}>(() => {
+    const event = repoClass.repoStateEvent
+    if (!event?.tags) return {kind: "ok"}
+    let head = ""
+    const heads = new Set<string>()
+    for (const tag of event.tags) {
+      if (tag?.[0] === "HEAD" && typeof tag[1] === "string") {
+        head = tag[1].startsWith(HEAD_REF_PREFIX) ? tag[1].slice(HEAD_REF_PREFIX.length) : tag[1]
+      } else if (typeof tag?.[0] === "string" && tag[0].startsWith("refs/heads/")) {
+        heads.add(tag[0].slice("refs/heads/".length))
+      }
+    }
+    if (!head) return {kind: "unset"}
+    if (heads.size > 0 && !heads.has(head)) return {kind: "missing", head}
+    return {kind: "ok"}
+  })
   const activityHref = (item: {kind: "issue" | "patch"; id: string}) =>
     `${repoBasePath}/${item.kind === "issue" ? "issues" : "patches"}/${item.id}`
   let openTrustMetricPopover = $state<"trusted-merged" | "trusted-maintainer" | "trusted-collaborators" | null>(null)
@@ -753,6 +777,24 @@
             </Button>
           </div>
         {/if}
+      </div>
+    {/if}
+
+    {#if defaultBranchStatus.kind !== "ok"}
+      <div class="mb-4 flex items-start gap-3 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
+        <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-yellow-400" />
+        <div class="flex-1">
+          {#if defaultBranchStatus.kind === "unset"}
+            No default branch has been set. Some parts of this page may not load.
+          {:else}
+            The default branch <code class="font-mono">{defaultBranchStatus.head}</code> no longer exists. Some parts of this page may not load.
+          {/if}
+          {#if isMaintainer}
+            <a href={`${repoBasePath}/settings`} class="ml-1 underline">Update in Settings</a>
+          {:else}
+            Ask a maintainer to pick a replacement.
+          {/if}
+        </div>
       </div>
     {/if}
 
