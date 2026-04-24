@@ -1129,19 +1129,7 @@
   }
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    const thunk = postComment(comment, repoBoundRelays)
-    const publishLocalComment = () => {
-      const event = thunk?.event as CommentEvent | undefined
-      if (event?.id && !repository.getEvent(event.id)) {
-        repository.publish(event)
-      }
-    }
-
-    publishLocalComment()
-    if (thunk?.complete) {
-      await thunk.complete
-      publishLocalComment()
-    }
+    postComment(comment, repoBoundRelays)
   }
 
   const scrollToTop = () => {

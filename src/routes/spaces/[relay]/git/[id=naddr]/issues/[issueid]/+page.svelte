@@ -577,20 +577,7 @@
   // Remove inline status state and auto-publish; Status component handles publishing
 
   const onCommentCreated = async (comment: CommentEvent) => {
-    const relays = getPublishRelays()
-    const thunk = postComment(comment, relays)
-    const publishLocalComment = () => {
-      const event = thunk?.event as CommentEvent | undefined
-      if (event?.id && !repository.getEvent(event.id)) {
-        repository.publish(event)
-      }
-    }
-
-    publishLocalComment()
-    if (thunk?.complete) {
-      await thunk.complete
-      publishLocalComment()
-    }
+    postComment(comment, getPublishRelays())
   }
 
   const isMaintainerOrAuthor = $derived.by(() => {

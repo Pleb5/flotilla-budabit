@@ -30,6 +30,7 @@
   import ModalContainer from "@app/components/ModalContainer.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
+  import ThunkStatusOrDeleted from "@app/components/ThunkStatusOrDeleted.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import NostrGitProfileLink from "@app/components/NostrGitProfileLink.svelte"
@@ -67,6 +68,7 @@
       AvatarImage,
       ProfileComponent: NostrGitProfileComponent,
       ProfileLink: NostrGitProfileLink,
+      CommentStatus: ThunkStatusOrDeleted,
       EventActions,
       ReactionSummary,
       Markdown,
