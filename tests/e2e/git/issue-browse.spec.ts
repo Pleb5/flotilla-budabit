@@ -98,6 +98,44 @@ test.describe("Issue Browse & Filter", () => {
       await expect(issueContent).toBeVisible({timeout: 10000})
     })
 
+    test("preserves ordinary links that contain an embedded naddr path segment", async ({page}) => {
+      const seeder = new TestSeeder()
+      const repoResult = seeder.seedRepo({
+        name: "issue-link-preview-repo",
+        description: "Repository for issue link preview regression",
+      })
+
+      const embeddedNaddr = encodeRepoNaddr(TEST_PUBKEYS.alice, "preview-link-target")
+      const ordinaryUrl = `https://budabit.club/spaces/budabit.nostr1.com/git/${embeddedNaddr}`
+
+      seeder.seedIssue({
+        repoAddress: repoResult.address,
+        title: "Link parsing error in issue list",
+        content: `See: ${ordinaryUrl}`,
+        status: "open",
+      })
+
+      await seeder.setup(page)
+
+      const repoDetail = new RepoDetailPage(page, ENCODED_RELAY, repoResult.naddr)
+      await repoDetail.goto()
+      await repoDetail.waitForLoad()
+      await repoDetail.goToIssues()
+
+      const previewLink = page
+        .locator(`a[href="/spaces/budabit.nostr1.com/git/${embeddedNaddr}"]`)
+        .first()
+      await expect(page.getByText("Budabit Git link")).toBeVisible({timeout: 10000})
+      await expect(previewLink).toBeVisible({timeout: 10000})
+      await expect(previewLink).toHaveAttribute(
+        "href",
+        `/spaces/budabit.nostr1.com/git/${embeddedNaddr}`,
+      )
+
+      await expect(page.locator(`a[href*="njump.me"][href*="${embeddedNaddr}"]`)).toHaveCount(0)
+      await expect(page.getByText(`/spaces/budabit.nostr1.com/git/${embeddedNaddr}`)).toBeVisible()
+    })
+
     test("shows empty state when no issues exist", async ({page}) => {
       // Seed a repository without any issues
       const seeder = await seedTestRepo(page, {

@@ -19,6 +19,74 @@ export interface EmailTokenizerOptions {
   // Future: add options if needed
 }
 
+const NOSTR_INLINE_REGEX = /(?:nostr:\s*)?n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,}/g
+const NOSTR_START_REGEX = /^(?:nostr:\s*)?(n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,})/
+const ALLOWED_BOUNDARY_BEFORE = new Set([
+  "",
+  " ",
+  "\t",
+  "\n",
+  "\r",
+  "(",
+  "[",
+  "{",
+  "<",
+  '"',
+  "'",
+  "`",
+])
+const ALLOWED_BOUNDARY_AFTER = new Set([
+  "",
+  " ",
+  "\t",
+  "\n",
+  "\r",
+  ")",
+  "]",
+  "}",
+  ">",
+  '"',
+  "'",
+  "`",
+  ".",
+  ",",
+  "!",
+  "?",
+  ";",
+  ":",
+])
+
+const hasValidBoundaryBefore = (src: string, index: number) =>
+  ALLOWED_BOUNDARY_BEFORE.has(index > 0 ? src[index - 1] : "")
+
+const hasValidBoundaryAfter = (src: string, index: number) => {
+  const char = index < src.length ? src[index] : ""
+  const nextChar = index + 1 < src.length ? src[index + 1] : ""
+
+  if (char === "?" || char === "#") {
+    return nextChar === "" || /\s|[)}\]>"'`.,!?;:]/.test(nextChar)
+  }
+
+  return ALLOWED_BOUNDARY_AFTER.has(char)
+}
+
+const findStandaloneNostrStart = (src: string) => {
+  NOSTR_INLINE_REGEX.lastIndex = 0
+
+  let match: RegExpExecArray | null
+  while ((match = NOSTR_INLINE_REGEX.exec(src))) {
+    const index = match.index
+    const raw = match[0]
+
+    if (!hasValidBoundaryBefore(src, index)) continue
+    if (!hasValidBoundaryAfter(src, index + raw.length)) continue
+
+    return index
+  }
+
+  return -1
+}
+
 /**
  * Creates a Nostr tokenizer extension
  */
@@ -27,20 +95,19 @@ export function createNostrTokenizer(
 ): TokenizerAndRendererExtension {
   const {event, url, minimalQuote = false, depth = 0, hideMediaAtDepth = 1} = options
 
-  // Bech32 characters are alphanumeric excluding '1', 'b', 'i', 'o'
-  const nostrRegex = /^(?:nostr:\s*)?(n(?:event|ote|pub|profile|addr)1[ac-hj-np-z02-9]{6,})/
-
   return {
     name: "nostr",
     level: "inline",
     start(src: string) {
-      const match = src.match(/(?:nostr:\s*)?n(?:event|ote|pub|profile|addr)1/)
-      return match ? match.index! : -1
+      return findStandaloneNostrStart(src)
     },
     tokenizer(src: string) {
-      const match = nostrRegex.exec(src)
+      const match = NOSTR_START_REGEX.exec(src)
       if (match) {
         const [fullMatch, fullId] = match
+
+        if (!hasValidBoundaryAfter(src, fullMatch.length)) return
+
         return {
           type: "nostr",
           raw: fullMatch,

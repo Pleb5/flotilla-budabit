@@ -83,8 +83,20 @@ describe("markdownTokenizers", () => {
 
     it("finds nostr URI start index", () => {
       const tokenizer = getTokenizer()
-      expect(tokenizer.start("check out nostr:note1abc123")).toBeGreaterThanOrEqual(0)
+      expect(tokenizer.start("check out nostr:note1acdef023456")).toBeGreaterThanOrEqual(0)
       expect(tokenizer.start("plain text")).toBe(-1)
+    })
+
+    it("does not find nostr identifiers embedded in URL paths", () => {
+      const tokenizer = getTokenizer()
+      expect(
+        tokenizer.start(
+          "budabit.club/spaces/budabit.nostr1.com/git/naddr1acdef0ghjkmnpqrstuvwxyz023456789",
+        ),
+      ).toBe(-1)
+      expect(
+        tokenizer.start("https://example.com/path/nevent1acdef0ghjkmnpqrstuvwxyz023456789"),
+      ).toBe(-1)
     })
 
     it("tokenizes npub URIs", () => {
@@ -111,6 +123,14 @@ describe("markdownTokenizers", () => {
       const token = tokenizer.tokenizer(src)
       expect(token).toBeDefined()
       expect((token as any).fullId).toContain("npub1")
+    })
+
+    it("does not tokenize nostr identifiers when they continue as URL paths", () => {
+      const tokenizer = getTokenizer()
+      expect(
+        tokenizer.tokenizer("naddr1acdef0ghjkmnpqrstuvwxyz023456789/more-path"),
+      ).toBeUndefined()
+      expect(tokenizer.tokenizer("nevent1acdef0ghjkmnpqrstuvwxyz023456789?foo=bar")).toBeUndefined()
     })
 
     it("renders npub as profile placeholder when pubkey in token", () => {
