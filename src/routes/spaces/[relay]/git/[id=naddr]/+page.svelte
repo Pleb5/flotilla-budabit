@@ -201,6 +201,7 @@
   // Progressive loading states - show immediate content right away
   const initialLoading = false
   let readmeLoading = $state(true)
+  let readmeError = $state(false)
   let commitLoading = $state(true)
   let lastCommit = $state<any>(null)
   let lastCommitReqSeq = $state(0)
@@ -456,16 +457,15 @@
   }
 
   async function loadReadme() {
+    readmeError = false
     try {
-      // Try to get README - if repo not cloned, that's okay (overview doesn't need clone)
-      // The getFileContent will attempt to fetch, but won't block if it fails
-      // Don't attempt to load README without a valid branch
       const branchName = normalizeBranchRef(repoClass.mainBranch);
       if (!branchName) {
         console.debug("README: Cannot load - branch not yet determined");
+        readmeError = true
         return;
       }
-      
+
       const readmeContent = await repoClass.getFileContent({
         path: "README.md",
         branch: branchName,
@@ -473,10 +473,10 @@
       })
       readme = readmeContent.content
       renderedReadme = readme ? md.render(readme) : ""
+      if (!readme) readmeError = true
     } catch (e) {
-      // Silently fail - README is optional and shouldn't block page load
-      // If repo not cloned, user can still see overview without README
-      console.debug("README: Failed to load (repo may not be cloned, which is fine for overview)", e)
+      console.debug("README: Failed to load", e)
+      readmeError = true
     } finally {
       readmeLoading = false
     }
@@ -1320,6 +1320,16 @@
               }
             </style>
           </div>
+        </Card>
+      </div>
+    {:else if readmeError}
+      <div transition:slide class="lg:col-start-1 lg:row-start-1 lg:col-span-2">
+        <Card class="min-w-0 p-4 sm:p-6">
+          <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+            <BookOpen class="h-5 w-5" />
+            README
+          </h3>
+          <p class="text-sm text-muted-foreground">Unable to load README.md</p>
         </Card>
       </div>
     {/if}
