@@ -798,8 +798,8 @@
       </div>
     {/if}
 
-    <div class="grid gap-4 lg:grid-cols-3" transition:fly>
-    <div class="lg:col-start-3 lg:row-start-1 lg:col-span-1">
+    <div class="grid min-w-0 gap-4 lg:grid-cols-3" transition:fly>
+    <div class="min-w-0 lg:col-start-3 lg:row-start-1 lg:col-span-1">
     <Card class="min-w-0 p-3 text-sm divide-y divide-border">
     <!-- Clone dropdown -->
     {#if repoMetadata.cloneUrls.length > 0}
@@ -1246,7 +1246,7 @@
 
     <!-- README -->
     {#if readmeLoading}
-      <div transition:slide class="lg:col-start-1 lg:row-start-1 lg:col-span-2">
+      <div transition:slide class="min-w-0 lg:col-start-1 lg:row-start-1 lg:col-span-2">
         <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
@@ -1262,7 +1262,7 @@
         </Card>
       </div>
     {:else if renderedReadme}
-      <div transition:slide class="lg:col-start-1 lg:row-start-1 lg:col-span-2">
+      <div transition:slide class="min-w-0 lg:col-start-1 lg:row-start-1 lg:col-span-2">
         <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
@@ -1365,7 +1365,7 @@
         </Card>
       </div>
     {:else if readmeError}
-      <div transition:slide class="lg:col-start-1 lg:row-start-1 lg:col-span-2">
+      <div transition:slide class="min-w-0 lg:col-start-1 lg:row-start-1 lg:col-span-2">
         <Card class="min-w-0 p-4 sm:p-6">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
             <BookOpen class="h-5 w-5" />
