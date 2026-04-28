@@ -20,6 +20,7 @@
     "applesauce-loaders": "^5.1.0",
     "applesauce-relay": "^5.2.0",
     "applesauce-sqlite": "^5.2.0",
+    "blossom-client-sdk": "^5.0.0",
     "date-fns": "^4.1.0",
     "js-yaml": "^4.1.1",
     "nostr-tools": "^2.11.0",

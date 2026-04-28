@@ -33,7 +33,6 @@
     availableWorkflows?: WorkflowDefinition[]
     availableBranches?: string[]
     defaultBranch?: string
-    suggestedPaymentAmount: (worker: LoomWorker | null) => number
     onRefreshWorkers: () => void
     onRefreshWallet: () => void
     onGeneratePaymentToken: () => void
@@ -78,7 +77,6 @@
     availableWorkflows = [],
     availableBranches = [],
     defaultBranch = 'main',
-    suggestedPaymentAmount: _suggestedPaymentAmount,
     onRefreshWorkers,
     onRefreshWallet,
     onGeneratePaymentToken: _onGeneratePaymentToken,
@@ -95,15 +93,6 @@
     !!rerunDraft.workerPubkey && (submissionMode !== 'new' || !!rerunDraft.workflowPath)
   )
 
-  const perSecondRate = $derived(selectedWorker?.pricing?.perSecondRate ?? 0)
-  const minCost = $derived(
-    selectedWorker?.minDuration && perSecondRate
-      ? Math.ceil(selectedWorker.minDuration * perSecondRate)
-      : 0
-  )
-  const suggestedPrepayment = $derived(
-    perSecondRate && maxDuration > 0 ? Math.ceil(maxDuration * perSecondRate * 1.1) : paymentAmount
-  )
   const selectedMintBalance = $derived(selectedMint ? walletBalancesByMint[selectedMint] || 0 : 0)
 
   const validationMessage = $derived.by(() => {
@@ -122,15 +111,6 @@
       (a, b) => (walletBalancesByMint[b] || 0) - (walletBalancesByMint[a] || 0),
     )[0]
     if (best && best !== selectedMint) selectedMint = best
-  })
-
-  // Keep the amount sensible whenever the suggested prepayment updates
-  // (worker/duration change). Users can still override via the sidebar buttons.
-  $effect(() => {
-    if (!selectedWorker) return
-    if (paymentAmount <= 0 || paymentAmount < minCost) {
-      paymentAmount = Math.max(minCost, suggestedPrepayment)
-    }
   })
 
   // Default the branch selection to the repo's default branch on first render
@@ -440,11 +420,19 @@
       {/if}
     </div>
 
-    <!-- Prepayment (prominent) -->
-    <div class="rounded-md border border-primary/30 bg-primary/5 p-4">
+    <!-- Prepayment (prominent, editable) -->
+    <label class="block rounded-md border border-primary/30 bg-primary/5 p-4">
       <div class="text-xs uppercase tracking-wide text-muted-foreground">Prepayment</div>
-      <div class="mt-1 text-2xl font-semibold">{suggestedPrepayment.toLocaleString()} <span class="text-base font-normal text-muted-foreground">sats</span></div>
-    </div>
+      <div class="mt-1 flex items-baseline gap-2">
+        <input
+          class="w-full bg-transparent text-2xl font-semibold focus:outline-none"
+          type="number"
+          min="1"
+          step="1"
+          bind:value={paymentAmount} />
+        <span class="text-base font-normal text-muted-foreground">sats</span>
+      </div>
+    </label>
 
     {#if selectedWorker && walletAvailable && compatibleMints.length === 0}
       <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">No overlapping mints between your wallet and the selected worker.</div>

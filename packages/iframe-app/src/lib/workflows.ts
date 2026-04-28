@@ -9,19 +9,10 @@ import type {
   WorkflowStatus,
 } from './types';
 import { toRepoNostrUrl } from './nip07';
-import { eventStore, pool } from './nostr';
-import { onlyEvents } from 'applesauce-relay';
+import { buildRepoEvents, eventStore } from './nostr';
 import {
   BehaviorSubject,
-  EMPTY,
-  combineLatest,
-  distinctUntilChanged,
-  filter,
-  map,
-  merge,
-  scan,
   shareReplay,
-  switchMap,
   tap,
   type Observable,
 } from 'rxjs';
@@ -35,12 +26,6 @@ export const KIND_LOOM_JOB = 5100;
 export const KIND_LOOM_RESULT = 5101;
 export const KIND_LOOM_STATUS = 30100;
 export const KIND_LOOM_WORKER = 10100;
-
-function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
-  if (a.size !== b.size) return false;
-  for (const v of a) if (!b.has(v)) return false;
-  return true;
-}
 
 function dedupe(values: string[]): string[] {
   return Array.from(
@@ -102,7 +87,7 @@ function resolveRunStatus(
   workflowLogEvent?: NostrEvent,
   loomStatusEvent?: NostrEvent,
   loomResultEvent?: NostrEvent
-): { status: WorkflowStatus; duration?: number } {
+): { status: WorkflowStatus; duration?: number; inferredFailure: boolean } {
   if (workflowLogEvent) {
     // The workflow log event is the authoritative final workflow-level
     // outcome from the Hive CI publisher. An individual loom job may have
@@ -112,24 +97,28 @@ function resolveRunStatus(
     return {
       status,
       duration: Number.isFinite(duration) ? duration : undefined,
+      inferredFailure: false,
     };
   }
 
   if (loomResultEvent) {
     const success = eventTagValue(loomResultEvent, 'success');
     const exitCode = eventTagValue(loomResultEvent, 'exit_code');
+    const isSuccess = success === 'true' || exitCode === '0';
     return {
-      status: success === 'true' || exitCode === '0' ? 'success' : 'failure',
+      status: isSuccess ? 'success' : 'failure',
+      inferredFailure: !isSuccess,
     };
   }
 
   if (loomStatusEvent) {
     return {
       status: normalizeStatus(eventTagValue(loomStatusEvent, 'status')),
+      inferredFailure: false,
     };
   }
 
-  return { status: 'pending' };
+  return { status: 'pending', inferredFailure: false };
 }
 
 function parseLegacyJobEvent(event: NostrEvent): WorkflowRun {
@@ -624,115 +613,6 @@ function updateRunByERefs(
 }
 
 // ── Live streams ───────────────────────────────────────────────────
-
-/**
- * Layered event stream for a repo's pipelines view.
- *
- * Untrusted identities can't spam us with bogus status/result events — every
- * secondary subscription is keyed on pubkeys or ids that have already appeared
- * in a trust-gated primary event.
- *
- * - **Primary**: workflow runs + loom jobs authored by maintainers, scoped to
- *   the repo's `#a`.
- * - **Worker layer**: loom status/result/worker-profile events authored by any
- *   worker pubkey observed as the `p` tag on a layer-1 loom job — scoped to
- *   the known job ids.
- * - **Publisher layer**: kind-5402 events authored by any pubkey observed as
- *   the `publisher` tag on a layer-1 workflow run — scoped to the known run
- *   ids.
- */
-function buildRepoEvents(
-  repoAddress: string,
-  relays: string[],
-  trustedAuthors: string[],
-): Observable<NostrEvent> {
-  const authors = [...new Set(trustedAuthors)];
-  if (authors.length === 0) return EMPTY;
-
-  const primary$ = pool
-    .subscription(relays, {
-      kinds: [KIND_WORKFLOW_RUN, KIND_LOOM_JOB],
-      '#a': [repoAddress],
-      authors,
-    })
-    .pipe(onlyEvents(), shareReplay({bufferSize: Infinity, refCount: true}));
-
-  const accumulateToSet = <T>(values$: Observable<T>) =>
-    values$.pipe(
-      scan((set, v) => (set.has(v) ? set : new Set(set).add(v)), new Set<T>()),
-      distinctUntilChanged(setsEqual),
-    );
-
-  const workers$ = accumulateToSet(
-    primary$.pipe(
-      filter(e => e.kind === KIND_LOOM_JOB),
-      map(e => eventTagValue(e, 'p')),
-      filter((pk): pk is string => !!pk),
-    ),
-  );
-
-  const jobIds$ = accumulateToSet(
-    primary$.pipe(
-      filter(e => e.kind === KIND_LOOM_JOB),
-      map(e => e.id),
-    ),
-  );
-
-  const publishers$ = accumulateToSet(
-    primary$.pipe(
-      filter(e => e.kind === KIND_WORKFLOW_RUN),
-      map(e => eventTagValue(e, 'publisher')),
-      filter((pk): pk is string => !!pk),
-    ),
-  );
-
-  const runIds$ = accumulateToSet(
-    primary$.pipe(
-      filter(e => e.kind === KIND_WORKFLOW_RUN),
-      map(e => e.id),
-    ),
-  );
-
-  const workerEvents$ = combineLatest([workers$, jobIds$]).pipe(
-    switchMap(([workers, jobIds]) => {
-      if (!workers.size || !jobIds.size) return EMPTY;
-      return pool
-        .subscription(relays, {
-          kinds: [KIND_LOOM_RESULT, KIND_LOOM_STATUS],
-          authors: [...workers],
-          '#e': [...jobIds],
-        })
-        .pipe(onlyEvents());
-    }),
-  );
-
-  const workerInfo$ = workers$.pipe(
-    switchMap(workers => {
-      if (!workers.size) return EMPTY;
-      return pool
-        .subscription(relays, {
-          kinds: [KIND_LOOM_WORKER],
-          authors: [...workers],
-        })
-        .pipe(onlyEvents());
-    }),
-  );
-
-  const workflowResults$ = combineLatest([publishers$, runIds$]).pipe(
-    switchMap(([publishers, runIds]) => {
-      if (!publishers.size || !runIds.size) return EMPTY;
-      return pool
-        .subscription(relays, {
-          kinds: [KIND_WORKFLOW_RESULT],
-          authors: [...publishers],
-          '#e': [...runIds],
-        })
-        .pipe(onlyEvents());
-    }),
-  );
-
-  return merge(primary$, workerEvents$, workerInfo$, workflowResults$);
-}
 
 // Module-scoped caches keyed on repoAddress. Survive component HMR so
 // remounted subscribers get the current state immediately.

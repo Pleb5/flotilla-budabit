@@ -15,8 +15,6 @@
   } from '@lucide/svelte'
   import {friendlyErrorMessage, normalizeRepo} from './lib/context'
   import {
-    eventERefs,
-    eventSummary,
     eventTagValue,
     externalUrlForEvent,
     mergeEventIntoDetail,
@@ -32,9 +30,9 @@
     getStatusColor,
     getStatusIcon,
     shortId,
-    suggestedPaymentAmount,
   } from './lib/presentation'
   import {reconcileAutoTokenPrompt, reconcileWalletSelection} from './lib/wallet-prompt'
+  import {refundCashuToken} from './lib/wallet'
   import {
     canGenerateSuggestedToken as canGenerateSuggestedTokenValue,
     getCompatibleMints,
@@ -611,12 +609,24 @@
     // selectedRunDetail.
     const previousMaxDuration = selectedRunDetail.worker?.maxDuration || 900
 
+    // Capture the prior loom job's payment tag too, so we can decode it and
+    // pre-fill paymentAmount with whatever the last run paid. Falls back
+    // silently to whatever paymentAmount was already; the input is editable.
+    const priorPaymentTag = selectedRunDetail.run.loomJobEvent?.tags.find(t => t[0] === 'payment')?.[1]
+
     // Close the detail view so the rerun-setup form takes over the main pane
     // instead of stacking on top of the existing run detail.
     applyDetailSessionState(createClosedDetailSessionState())
     signerError = null
     applySubmissionState(nextState)
     maxDuration = previousMaxDuration
+    if (priorPaymentTag) {
+      void parseCashuTokenAmount(priorPaymentTag)
+        .then(amount => {
+          if (amount > 0) paymentAmount = amount
+        })
+        .catch(() => {/* leave default */})
+    }
     void refreshWorkers()
     void refreshWallet()
   }
@@ -685,6 +695,11 @@
     rerunSubmitting = true
     signerError = null
 
+    // The token has already been minted (sats deducted from the wallet). If
+    // anything below this line throws, the token is unspent — redeem it back
+    // before surfacing the error so the user doesn't lose value to a failed
+    // submission.
+    const tokenToRefund = rerunPaymentToken
     try {
       const nextState = await submitRunViewModel({
         bridge,
@@ -705,7 +720,16 @@
       await showToast(`${submissionMode === 'new' ? 'Run' : 'Rerun'} submitted: ${nextState.runId.slice(0, 8)}`, 'success')
     } catch (err) {
       signerError = friendlyErrorMessage(err instanceof Error ? err.message : String(err))
-      await showToast(signerError, 'error')
+      let refundNote = ''
+      if (tokenToRefund.trim()) {
+        try {
+          await refundCashuToken(bridge, tokenToRefund)
+          refundNote = ' (payment refunded to your wallet)'
+        } catch {
+          refundNote = ' (refund failed — token logged to console for manual import)'
+        }
+      }
+      await showToast(`${signerError}${refundNote}`, 'error')
     } finally {
       rerunSubmitting = false
     }
@@ -923,16 +947,10 @@
       compatibleMints,
       walletBalancesByMint,
       selectedMint,
-      rerunPaymentToken,
-      paymentAmount,
     })
 
     if (nextState.selectedMint !== selectedMint) {
       selectedMint = nextState.selectedMint
-    }
-
-    if (nextState.paymentAmount !== paymentAmount) {
-      paymentAmount = nextState.paymentAmount
     }
   })
 
@@ -1176,7 +1194,6 @@
           {availableBranches}
           {defaultBranch}
           availableWorkflows={repoWorkflows}
-          suggestedPaymentAmount={suggestedPaymentAmount}
           onRefreshWorkers={() => void refreshWorkers()}
           onRefreshWallet={() => void refreshWallet()}
           onGeneratePaymentToken={() => void generatePaymentToken()}
@@ -1324,15 +1341,16 @@
           </div>
         {:else if selectedRunDetail}
           {@const run = selectedRunDetail.run}
-          {@const StatusIcon = getStatusIcon(run.status)}
+          {@const visualOpts = {inferred: run.inferredFailure}}
+          {@const StatusIcon = getStatusIcon(run.status, visualOpts)}
           {@const hiveciEvents = [
-            {label: 'Workflow run (5401)', event: run.runEvent},
-            {label: 'Workflow result (5402)', event: run.workflowLogEvent},
+            {label: 'Workflow run (5401)', event: run.runEvent, tone: 'request' as const},
+            {label: 'Workflow result (5402)', event: run.workflowLogEvent, tone: 'result' as const},
           ]}
           {@const loomEvents = [
-            {label: 'Loom job (5100)', event: run.loomJobEvent},
-            {label: 'Loom status (30100)', event: run.loomStatusEvent},
-            {label: 'Loom result (5101)', event: run.loomResultEvent},
+            {label: 'Loom job (5100)', event: run.loomJobEvent, tone: 'request' as const},
+            {label: 'Loom status (30100)', event: run.loomStatusEvent, tone: 'status' as const},
+            {label: 'Loom result (5101)', event: run.loomResultEvent, tone: 'result' as const},
           ]}
           <div class="space-y-4">
             <!-- Top bar -->
@@ -1342,7 +1360,7 @@
               </button>
               <div class="min-w-0 flex-1">
                 <div class="flex min-w-0 flex-wrap items-center gap-2">
-                  <div class={`shrink-0 ${getStatusColor(run.status)}`}>
+                  <div class={`shrink-0 ${getStatusColor(run.status, visualOpts)}`}>
                     {#if run.status === 'running' || run.status === 'in_progress'}
                       <RotateCw class="h-5 w-5 animate-spin" />
                     {:else}
@@ -1427,7 +1445,6 @@
                   {availableBranches}
                   {defaultBranch}
                   availableWorkflows={repoWorkflows}
-                  suggestedPaymentAmount={suggestedPaymentAmount}
                   onRefreshWorkers={() => void refreshWorkers()}
                   onRefreshWallet={() => void refreshWallet()}
                   onGeneratePaymentToken={() => void generatePaymentToken()}
@@ -1472,7 +1489,7 @@
                   </div>
                   <div class="space-y-1">
                     <div class="text-xs text-muted-foreground">Status</div>
-                    <span class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBadge(run.status)}`}>
+                    <span class={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${getStatusBadge(run.status, visualOpts)}`}>
                       {#if run.status === 'running' || run.status === 'in_progress'}
                         <RotateCw class="h-3.5 w-3.5 animate-spin" />
                       {:else}
@@ -1542,41 +1559,68 @@
                     <span>Raw event chain</span>
                     <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
                   </summary>
-                  <div class="border-t border-border p-3">
-                    <div class="space-y-3">
-                      {#each [...hiveciEvents, ...loomEvents] as block (block.label)}
-                        <div class="rounded-md border border-border p-3">
-                          <div class="flex items-center justify-between gap-3">
-                            <div class="text-sm font-medium">{block.label}</div>
+                  <div class="space-y-3 border-t border-border p-3">
+                    {#each [...hiveciEvents, ...loomEvents] as block (block.label)}
+                      {@const headerTone =
+                        block.tone === 'request'
+                          ? 'border-zinc-500/30 bg-zinc-500/10'
+                          : block.tone === 'status'
+                            ? 'border-sky-500/30 bg-sky-500/10'
+                            : 'border-emerald-500/30 bg-emerald-500/10'}
+                      {@const titleTone =
+                        block.tone === 'request'
+                          ? 'text-zinc-200'
+                          : block.tone === 'status'
+                            ? 'text-sky-200'
+                            : 'text-emerald-200'}
+                      {@const subTone =
+                        block.tone === 'request'
+                          ? 'text-zinc-400'
+                          : block.tone === 'status'
+                            ? 'text-sky-300/80'
+                            : 'text-emerald-300/80'}
+                      {@const bodyTone =
+                        block.tone === 'request'
+                          ? 'bg-zinc-500/5'
+                          : block.tone === 'status'
+                            ? 'bg-sky-500/5'
+                            : 'bg-emerald-500/5'}
+                      <div class={`overflow-hidden rounded-md border ${headerTone.split(' ')[0]}`}>
+                        <div class={`flex items-center justify-between gap-3 border-b px-3 py-2 ${headerTone}`}>
+                          <div class="min-w-0 flex-1">
+                            <div class={`text-sm font-medium ${titleTone}`}>{block.label}</div>
                             {#if block.event}
-                              <div class="flex items-center gap-2">
-                                <button class="inline-flex items-center gap-1 text-xs text-primary hover:underline" onclick={() => void copyText(block.event?.id, `${block.label} ID`)}>
-                                  <Copy class="h-3 w-3" />
-                                  Copy
-                                </button>
-                                <a class="inline-flex items-center gap-1 text-xs text-primary hover:underline" href={publicLinkForRun(block.event.id)} target="_blank" rel="noreferrer">
-                                  Open
-                                  <ExternalLink class="h-3 w-3" />
-                                </a>
+                              <div class={`mt-0.5 break-all font-mono text-[11px] ${subTone}`}>
+                                Kind: {block.event.kind} • ID: {block.event.id}
                               </div>
+                            {:else}
+                              <div class={`mt-0.5 text-xs ${subTone}`}>— not yet seen —</div>
                             {/if}
                           </div>
-                          <div class="mt-2 text-xs text-muted-foreground">{eventSummary(block.event)}</div>
                           {#if block.event}
-                            <div class="mt-2 break-all font-mono text-xs">{block.event.id}</div>
-                            {#if eventERefs(block.event).length > 0}
-                              <div class="mt-2 text-xs text-muted-foreground">refs: {eventERefs(block.event).join(', ')}</div>
-                            {/if}
-                            {#if externalUrlForEvent(block.event)}
-                              <a class="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline" href={externalUrlForEvent(block.event)} target="_blank" rel="noreferrer">
-                                View attached output
+                            <div class="flex shrink-0 items-center gap-2">
+                              <button class="inline-flex items-center gap-1 text-xs text-primary hover:underline" onclick={() => void copyText(block.event?.id, `${block.label} ID`)}>
+                                <Copy class="h-3 w-3" />
+                                Copy
+                              </button>
+                              <a class="inline-flex items-center gap-1 text-xs text-primary hover:underline" href={publicLinkForRun(block.event.id)} target="_blank" rel="noreferrer">
+                                Open
                                 <ExternalLink class="h-3 w-3" />
                               </a>
-                            {/if}
+                              {#if externalUrlForEvent(block.event)}
+                                <a class="inline-flex items-center gap-1 text-xs text-primary hover:underline" href={externalUrlForEvent(block.event)} target="_blank" rel="noreferrer">
+                                  Output
+                                  <ExternalLink class="h-3 w-3" />
+                                </a>
+                              {/if}
+                            </div>
                           {/if}
                         </div>
-                      {/each}
-                    </div>
+                        {#if block.event}
+                          <pre class={`overflow-x-auto p-3 text-[11px] leading-snug ${bodyTone}`}><code>{JSON.stringify(block.event, null, 2)}</code></pre>
+                        {/if}
+                      </div>
+                    {/each}
                   </div>
                 </details>
               </div>
@@ -1629,7 +1673,6 @@
               {availableBranches}
               {defaultBranch}
               availableWorkflows={repoWorkflows}
-              suggestedPaymentAmount={suggestedPaymentAmount}
               onRefreshWorkers={() => void refreshWorkers()}
               onRefreshWallet={() => void refreshWallet()}
               onGeneratePaymentToken={() => void generatePaymentToken()}
