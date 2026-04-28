@@ -236,44 +236,46 @@ export async function queryEvents(
   return merged;
 }
 
+/**
+ * Builds the detail view for a run by reading exclusively from the local
+ * applesauce eventStore. The store is fed by the live `repoEvents$` /
+ * `buildRepoEvents` subscription mounted in App.svelte, so events for any run
+ * the user can see in the list are already present. No bridge round-trips.
+ *
+ * Returns null if neither a 5401 nor a 5100 anchor for `runId` is in the store
+ * yet (cold deep-link before the live feed has caught up). The caller can
+ * retry, or wait for the subscription's `mergeEventIntoDetail` path to fill
+ * in events as they arrive.
+ */
 export async function loadWorkflowRunDetail(
-  bridge: BridgeLike,
-  repo: RepoContextNormalized,
+  _bridge: BridgeLike,
+  _repo: RepoContextNormalized,
   runId: string
 ): Promise<WorkflowRunDetail | null> {
-  const relays = dedupe([...repo.repoRelays, ...FALLBACK_RELAYS]);
-  const [runEvents, workflowLogEvents, loomJobEvents, topLevelResultEvents, topLevelStatusEvents] =
-    await Promise.all([
-      queryEvents(bridge, relays, [{ kinds: [5401], ids: [runId], limit: 1 }]),
-      queryEvents(bridge, relays, [{ kinds: [5402], '#e': [runId], limit: 20 }]),
-      queryEvents(bridge, relays, [
-        { kinds: [5100], '#e': [runId], limit: 20 },
-        { kinds: [5100], ids: [runId], limit: 1 },
-      ]),
-      queryEvents(bridge, relays, [{ kinds: [5101], '#e': [runId], limit: 20 }]),
-      queryEvents(bridge, relays, [{ kinds: [30100], '#e': [runId], limit: 20 }]),
-    ]);
+  const newest = (events: NostrEvent[]) =>
+    events.sort((a, b) => b.created_at - a.created_at)[0];
 
-  const runEvent = runEvents[0];
-  const loomJobEvent = loomJobEvents.sort((a, b) => b.created_at - a.created_at)[0];
+  // Anchor: 5401 by id, or legacy 5100 with the run id. Loom jobs that #e the
+  // run id are also picked up here (worker spawned for this run).
+  const directRunEvent = eventStore.getEvent(runId);
+  const loomJobsByRef = eventStore.getByFilters({ kinds: [KIND_LOOM_JOB], '#e': [runId] });
+  const legacyLoomJob =
+    directRunEvent?.kind === KIND_LOOM_JOB ? directRunEvent : undefined;
+  const loomJobEvent = newest([...loomJobsByRef, ...(legacyLoomJob ? [legacyLoomJob] : [])]);
+  const runEvent = directRunEvent?.kind === KIND_WORKFLOW_RUN ? directRunEvent : undefined;
   const loomJobId = loomJobEvent?.id;
 
-  const [childResultEvents, childStatusEvents] = loomJobId
-    ? await Promise.all([
-        queryEvents(bridge, relays, [{ kinds: [5101], '#e': [loomJobId], limit: 20 }]),
-        queryEvents(bridge, relays, [{ kinds: [30100], '#e': [loomJobId], limit: 20 }]),
-      ])
-    : [[], []];
-
-  const workflowLogEvent = workflowLogEvents.sort((a, b) => b.created_at - a.created_at)[0];
-  const loomResultEvent = [...topLevelResultEvents, ...childResultEvents].sort(
-    (a, b) => b.created_at - a.created_at
-  )[0];
-  const loomStatusEvent = [...topLevelStatusEvents, ...childStatusEvents].sort(
-    (a, b) => b.created_at - a.created_at
-  )[0];
-
   if (!runEvent && !loomJobEvent) return null;
+
+  const workflowLogEvent = newest(
+    eventStore.getByFilters({ kinds: [KIND_WORKFLOW_RESULT], '#e': [runId] }),
+  );
+  const loomResultEvent = loomJobId
+    ? newest(eventStore.getByFilters({ kinds: [KIND_LOOM_RESULT], '#e': [loomJobId] }))
+    : undefined;
+  const loomStatusEvent = loomJobId
+    ? newest(eventStore.getByFilters({ kinds: [KIND_LOOM_STATUS], '#e': [loomJobId] }))
+    : undefined;
 
   const baseRun = runEvent ? parseWorkflowRunEvent(runEvent) : parseLegacyJobEvent(loomJobEvent!);
   const resolved = resolveRunStatus(workflowLogEvent, loomStatusEvent, loomResultEvent);
@@ -288,18 +290,11 @@ export async function loadWorkflowRunDetail(
     workerPubkey: eventTagValue(loomJobEvent, 'p'),
   };
 
-  const workerPubkey = run.workerPubkey;
   let worker: LoomWorker | null = null;
-
+  const workerPubkey = run.workerPubkey;
   if (workerPubkey) {
-    const workerEvents = await queryEvents(bridge, relays, [
-      { kinds: [10100], authors: [workerPubkey], limit: 10 },
-    ]);
-    worker =
-      workerEvents
-        .sort((a, b) => b.created_at - a.created_at)
-        .map(parseLoomWorker)
-        .find((candidate): candidate is LoomWorker => candidate !== null) || null;
+    const workerEvent = eventStore.getReplaceable(KIND_LOOM_WORKER, workerPubkey);
+    worker = workerEvent ? parseLoomWorker(workerEvent) : null;
   }
 
   return { run, worker };
