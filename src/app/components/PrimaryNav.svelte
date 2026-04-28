@@ -3,7 +3,8 @@
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import {splitAt} from "@welshman/lib"
-  import {userProfile} from "@welshman/app"
+  import {userProfile, pubkey} from "@welshman/app"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import Widget from "@assets/icons/widget.svg?dataurl"
   import Compass from "@assets/icons/compass.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
@@ -36,6 +37,10 @@
   const {children}: Props = $props()
 
   const spaceUrls = $derived($userSpaceUrls)
+
+  const openProfile = () => {
+    if ($pubkey) pushModal(ProfileDetail, {pubkey: $pubkey})
+  }
 
   const showOtherSpacesMenu = () => pushModal(MenuOtherSpaces, {urls: secondarySpaceUrls})
 
@@ -158,34 +163,29 @@
     {/if}
     <div>
       <div class="hidden md:block lg:hidden">
-        <PrimaryNavItem
-          title="Settings"
-          href="/settings"
-          prefix="/settings"
-          class="tooltip-right">
+        <PrimaryNavItem title="Profile" onclick={openProfile} class="tooltip-right">
           {#if $userProfile?.picture}
             <img
-              alt="Settings"
+              alt="Profile"
               src={$userProfile.picture}
               class="h-7 w-7 min-h-7 min-w-7 rounded-full object-cover" />
           {:else}
-            <ImageIcon alt="Settings" src={UserRounded} size={7} class="rounded-full" />
+            <ImageIcon alt="Profile" src={UserRounded} size={7} class="rounded-full" />
           {/if}
         </PrimaryNavItem>
       </div>
       <div class="hidden lg:block">
         <PrimaryNavItem
-          title="Settings"
-          href="/settings/profile"
-          prefix="/settings"
+          title="Profile"
+          onclick={openProfile}
           class="tooltip-right">
           {#if $userProfile?.picture}
             <img
-              alt="Settings"
+              alt="Profile"
               src={$userProfile.picture}
               class="h-7 w-7 min-h-7 min-w-7 rounded-full object-cover" />
           {:else}
-            <ImageIcon alt="Settings" src={UserRounded} size={7} class="rounded-full" />
+            <ImageIcon alt="Profile" src={UserRounded} size={7} class="rounded-full" />
           {/if}
         </PrimaryNavItem>
       </div>
@@ -220,6 +220,15 @@
         </PrimaryNavItem>
       {/each}
       <SlotRenderer slotId="space:sidebar:widgets" context={{urls: spaceUrls}} />
+      <div class="hidden md:block">
+        <PrimaryNavItem
+          title="Settings"
+          href="/settings/profile"
+          prefix="/settings"
+          class="tooltip-right">
+          <ImageIcon alt="Settings" src={Settings} size={7} />
+        </PrimaryNavItem>
+      </div>
     </div>
   </div>
 </div>
@@ -259,14 +268,7 @@
       </PrimaryNavItem>
     {/if}
     <PrimaryNavItem compact title="Settings" onclick={showSettingsMenu}>
-      {#if $userProfile?.picture}
-        <img
-          alt="Settings"
-          src={$userProfile.picture}
-          class="h-9 w-9 min-h-9 min-w-9 rounded-full object-cover" />
-      {:else}
-        <ImageIcon alt="Settings" src={Settings} size={9} class="rounded-full" />
-      {/if}
+      <ImageIcon alt="Settings" src={Settings} size={5} />
     </PrimaryNavItem>
   </div>
 </div>
