@@ -89,3 +89,11 @@ GoogleService-Info.plist
 # OS generated
 .DS_Store
 Thumbs.db
+
+# Agent config (local to each contributor)
+CLAUDE.md
+AGENTS.md
+agents/
+
+# Dev logs
+dev.log
