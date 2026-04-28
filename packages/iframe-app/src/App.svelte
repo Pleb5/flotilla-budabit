@@ -607,12 +607,16 @@
       return
     }
 
+    // Capture worker fields before closing the detail session — that call nulls
+    // selectedRunDetail.
+    const previousMaxDuration = selectedRunDetail.worker?.maxDuration || 900
+
     // Close the detail view so the rerun-setup form takes over the main pane
     // instead of stacking on top of the existing run detail.
     applyDetailSessionState(createClosedDetailSessionState())
     signerError = null
     applySubmissionState(nextState)
-    maxDuration = selectedRunDetail.worker?.maxDuration || 900
+    maxDuration = previousMaxDuration
     void refreshWorkers()
     void refreshWallet()
   }
