@@ -63,6 +63,20 @@ export const PULL_REQUESTS_KEY = Symbol("pull-requests")
 
 export const REPO_FEED_ACTIVITY_KEY = Symbol("repo-feed-activity")
 
+export const REPO_ACTIONS_KEY = Symbol("repo-actions")
+
+export type RepoActions = {
+  refreshRepo: () => void | Promise<void>
+  forkRepo: () => void | Promise<void>
+  bookmarkRepo: () => void | Promise<void>
+  openWatchModal: () => void
+  openRemoteFixModal: () => void
+  readonly isRefreshing: boolean
+  readonly isBookmarked: boolean
+  readonly isTogglingBookmark: boolean
+  readonly isWatching: boolean
+}
+
 export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
 
 export const FREELANCE_JOB = 32767
