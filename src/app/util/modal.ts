@@ -1,7 +1,7 @@
 import type {Component} from "svelte"
-import {derived, writable} from "svelte/store"
+import {derived, get, writable} from "svelte/store"
 import {randomId, always, assoc, Emitter} from "@welshman/lib"
-import {goto} from "$app/navigation"
+import {goto, replaceState} from "$app/navigation"
 import {page} from "$app/stores"
 
 export type ModalOptions = {
@@ -66,6 +66,16 @@ export const pushDrawer = (
 ) => pushModal(component, props, {...options, drawer: true})
 
 export const clearModals = () => {
+  const currentPage = get(page)
+  const currentModalId = currentPage.url.hash.slice(1)
+  const currentModals = get(modals)
+
   modals.update(always({}))
   emitter.emit("close")
+
+  if (currentModalId && currentModals[currentModalId]) {
+    const url = new URL(currentPage.url)
+    url.hash = ""
+    replaceState(`${url.pathname}${url.search}`, currentPage.state)
+  }
 }

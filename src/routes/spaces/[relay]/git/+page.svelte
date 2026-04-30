@@ -1,6 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address, getTagValue, type Filter} from "@welshman/util"
+  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
   import {
     repository,
     publishThunk,
@@ -1765,6 +1765,14 @@
     }
   }
 
+  const hydrateImportedRepoEvents = (result: ImportResult) => {
+    for (const event of [result.announcementEvent, result.stateEvent]) {
+      if (event?.id && !repository.getEvent(event.id)) {
+        repository.publish(event as TrustedEvent)
+      }
+    }
+  }
+
   const fetchRelayEvents = async (params: {
     relays: string[]
     filters: NostrFilter[]
@@ -2060,6 +2068,7 @@
           },
           onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
           onImportComplete: (result: ImportResult) => {
+            hydrateImportedRepoEvents(result)
             // Reload repos by forcing bookmarks refresh and announcements
             loadRepoAnnouncements(repoAnnouncementRelays)
             pushToast({
@@ -2068,6 +2077,7 @@
           },
           onNavigateToRepo: (result: ImportResult) => {
             try {
+              hydrateImportedRepoEvents(result)
               const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent as any, $pubkey || "")
               const destination = makeGitPath(url, naddr)
               clearModals()
