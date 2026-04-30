@@ -2,6 +2,7 @@
 accounting.txt
 # Env
 .env
+.codex
 
 # Vite
 vite.config.js.timestamp-*
