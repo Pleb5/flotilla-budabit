@@ -109,6 +109,26 @@ const CONFLICT_DETECTION_CONSTANTS = {
   } as const,
 } as const
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message || error.name
+  return String(error || "Unknown error")
+}
+
+function isLikelyMergeConflictError(error: unknown): boolean {
+  const value = error as any
+  if (Array.isArray(value?.data?.filepaths) && value.data.filepaths.length > 0) return true
+
+  const name = String(value?.name || "").toLowerCase()
+  const message = getErrorMessage(error).toLowerCase()
+  return (
+    name.includes("mergeconflict") ||
+    name.includes("mergenotsupported") ||
+    message.includes("merge conflict") ||
+    message.includes("automatic merge failed") ||
+    message.includes("conflict markers")
+  )
+}
+
 /**
  * Resolve the target branch using robust multi-fallback strategy
  */
@@ -1373,15 +1393,31 @@ async function detectConflictsFromStatusMatrix(
   }
   await git.branch({dir: repoDir, ref: tempBranch, checkout: true})
 
-  await git.merge({
-    dir: repoDir,
-    ours: tempBranch,
-    theirs: prTipRef,
-    fastForward: false,
-    abortOnConflict: false, // Allow merge to continue with conflict markers
-    message: `Analysis fallback merge test (${tipOid.substring(0, 8)})`,
-    author: {name: "Repository Maintainer", email: "maintainer@nostr-git.local"},
-  } as any)
+  const fallbackConflictFiles: string[] = []
+
+  try {
+    await git.merge({
+      dir: repoDir,
+      ours: tempBranch,
+      theirs: prTipRef,
+      fastForward: false,
+      abortOnConflict: false, // Allow merge to continue with conflict markers
+      message: `Analysis fallback merge test (${tipOid.substring(0, 8)})`,
+      author: {name: "Repository Maintainer", email: "maintainer@nostr-git.local"},
+    } as any)
+  } catch (mergeError) {
+    const fromError = await detectConflictsFromError(mergeError)
+    fallbackConflictFiles.push(...fromError)
+
+    if (fromError.length === 0 && !isLikelyMergeConflictError(mergeError)) {
+      throw mergeError
+    }
+
+    console.warn(
+      "[performPRDryRunMerge] Fallback merge reported conflicts; scanning status matrix:",
+      mergeError,
+    )
+  }
 
   // Check status matrix for conflicted files
   const status = await git.statusMatrix({dir: repoDir})
@@ -1401,7 +1437,9 @@ async function detectConflictsFromStatusMatrix(
 
   // Additional check: scan for conflict markers in modified files
   const additionalConflicts = await detectConflictsFromMarkers(git, repoDir, status, conflictFiles)
-  const allConflicts = [...new Set([...conflictFiles, ...additionalConflicts])]
+  const allConflicts = [
+    ...new Set([...fallbackConflictFiles, ...conflictFiles, ...additionalConflicts]),
+  ]
 
   console.log(
     `[performPRDryRunMerge] Status matrix + marker detection: ${allConflicts.length} conflicted files`,
@@ -1552,7 +1590,9 @@ async function handleMergeConflicts(
     }
   } catch (detectionError) {
     console.error("[performPRDryRunMerge] All conflict detection methods failed:", detectionError)
-    throw new Error("Unable to determine merge conflicts")
+    throw new Error(
+      `Unable to determine merge conflicts: ${getErrorMessage(err)}; fallback detection failed: ${getErrorMessage(detectionError)}`,
+    )
   }
 
   // Early return for clean merges
@@ -1651,6 +1691,10 @@ async function performPRDryRunMerge(
     )
     return {hasConflicts: false, conflictFiles: [], conflictDetails: []}
   } catch (err: any) {
+    if (!isLikelyMergeConflictError(err)) {
+      throw err
+    }
+
     const conflictResult = await handleMergeConflicts(
       err,
       git,

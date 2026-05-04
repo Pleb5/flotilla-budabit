@@ -361,5 +361,69 @@ describe("pr-merge", () => {
         }),
       )
     })
+
+    it("returns conflicts when fallback merge reports conflict filepaths", async () => {
+      const gitWithFallbackConflict = {
+        ...mockGit,
+        merge: vi
+          .fn()
+          .mockRejectedValueOnce(new Error("Automatic merge failed"))
+          .mockRejectedValueOnce(
+            Object.assign(new Error("Automatic merge failed with conflicts"), {
+              name: "MergeConflictError",
+              data: {filepaths: ["src/conflicted.ts"]},
+            }),
+          ),
+        statusMatrix: vi.fn().mockResolvedValue([]),
+      } as any
+
+      const result = await analyzePRMergeUtil(
+        gitWithFallbackConflict,
+        {
+          repoId: "repo",
+          prCloneUrls: ["https://github.com/user/fork.git"],
+          targetCloneUrls: ["https://github.com/upstream/repo.git"],
+          tipCommitOid: "tip-oid",
+          targetBranch: "main",
+        } as AnalyzePRMergeOptions,
+        baseDeps as any,
+      )
+
+      expect(result.analysis).toBe("conflicts")
+      expect(result.hasConflicts).toBe(true)
+      expect(result.conflictFiles).toEqual(["src/conflicted.ts"])
+      expect(gitWithFallbackConflict.merge).toHaveBeenCalledTimes(2)
+    })
+
+    it("returns conflicts when initial merge reports conflict filepaths", async () => {
+      const gitWithInitialConflict = {
+        ...mockGit,
+        merge: vi.fn().mockRejectedValueOnce(
+          Object.assign(new Error("Automatic merge failed with conflicts"), {
+            name: "MergeConflictError",
+            data: {filepaths: ["src/direct-conflict.ts"]},
+          }),
+        ),
+        statusMatrix: vi.fn().mockResolvedValue([]),
+      } as any
+
+      const result = await analyzePRMergeUtil(
+        gitWithInitialConflict,
+        {
+          repoId: "repo",
+          prCloneUrls: ["https://github.com/user/fork.git"],
+          targetCloneUrls: ["https://github.com/upstream/repo.git"],
+          tipCommitOid: "tip-oid",
+          targetBranch: "main",
+        } as AnalyzePRMergeOptions,
+        baseDeps as any,
+      )
+
+      expect(result.analysis).toBe("conflicts")
+      expect(result.hasConflicts).toBe(true)
+      expect(result.conflictFiles).toEqual(["src/direct-conflict.ts"])
+      expect(gitWithInitialConflict.merge).toHaveBeenCalledTimes(1)
+      expect(gitWithInitialConflict.statusMatrix).not.toHaveBeenCalled()
+    })
   })
 })
