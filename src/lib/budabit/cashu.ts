@@ -1,20 +1,23 @@
 import {writable, get} from "svelte/store"
 import type {Writable} from "svelte/store"
-import {Manager, initializeCoco, ConsoleLogger, getEncodedToken} from "coco-cashu-core"
-import {IndexedDbRepositories} from "coco-cashu-indexeddb"
+import {
+  Manager,
+  initializeCoco,
+  ConsoleLogger,
+  getEncodedToken,
+  getDecodedToken,
+} from "@cashu/coco-core"
+import type {HistoryEntry} from "@cashu/coco-core"
+import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import * as bip39 from "@scure/bip39"
 import {wordlist} from "@scure/bip39/wordlists/english"
 import {storageGet, storageSet} from "@lib/budabit/cashu-storage"
-import {randomId} from "@welshman/lib"
 
-// Storage keys
 const KEY_MNEMONIC = "budabit_cashu_mnemonic"
 const KEY_BACKUP_CONFIRMED = "budabit_cashu_backup_confirmed"
-const KEY_MINTS = "budabit_cashu_mints"
-const KEY_HISTORY = "budabit_cashu_history"
 const KEY_AUTOPAY_WHITELIST = "budabit_cashu_autopay_whitelist"
 const DB_NAME = "budabit-coco-wallet"
-const HISTORY_CAP = 100
+const HISTORY_PAGE_SIZE = 100
 
 export interface TokenHistoryEntry {
   id: string
@@ -23,10 +26,8 @@ export interface TokenHistoryEntry {
   mintUrl: string
   token?: string
   createdAt: number
-  label?: string
 }
 
-// Reactive stores
 export const cashuInitialized: Writable<boolean> = writable(false)
 export const cashuBackupConfirmed: Writable<boolean> = writable(false)
 export const cashuTotalBalance: Writable<number> = writable(0)
@@ -51,7 +52,6 @@ export const initializeCashuWallet = (): Promise<void> => {
 
 const _doInitialize = async (): Promise<void> => {
   try {
-    // Load or generate mnemonic
     const existing = await storageGet(KEY_MNEMONIC)
     if (existing) {
       _mnemonic = existing
@@ -60,55 +60,41 @@ const _doInitialize = async (): Promise<void> => {
       await storageSet(KEY_MNEMONIC, _mnemonic)
     }
 
-    // Load backup confirmed flag from storage
     const backupFlag = await storageGet(KEY_BACKUP_CONFIRMED)
     cashuBackupConfirmed.set(backupFlag === "true")
 
-    // Load saved mints
-    const mintsRaw = localStorage.getItem(KEY_MINTS)
-    const savedMints: string[] = mintsRaw ? JSON.parse(mintsRaw) : []
-    cashuMints.set(savedMints)
-
-    // Load token history
-    const historyRaw = localStorage.getItem(KEY_HISTORY)
-    const history: TokenHistoryEntry[] = historyRaw ? JSON.parse(historyRaw) : []
-    cashuTokenHistory.set(history)
-
-    // Load auto-pay whitelist
     const whitelistRaw = localStorage.getItem(KEY_AUTOPAY_WHITELIST)
     const whitelist: string[] = whitelistRaw ? JSON.parse(whitelistRaw) : []
     cashuAutoPayWhitelist.set(whitelist)
 
-    // Initialize IndexedDB repositories
     const repo = new IndexedDbRepositories({name: DB_NAME})
     await repo.init()
 
-    // Initialize coco manager
     const seedGetter = async () => bip39.mnemonicToSeedSync(_mnemonic!)
     manager = await initializeCoco({
       repo,
       seedGetter,
       logger: new ConsoleLogger("coco", {level: "warn" as any}),
       watchers: {
-        mintQuoteWatcher: {disabled: true},
+        mintOperationWatcher: {disabled: true},
         proofStateWatcher: {disabled: true},
       },
       processors: {
-        mintQuoteProcessor: {disabled: true},
+        mintOperationProcessor: {disabled: true},
       },
     })
 
-    // Add saved mints to coco
-    for (const mintUrl of savedMints) {
-      try {
-        await manager.mint.addMint(mintUrl, {trusted: true})
-      } catch {
-        // pass — mint may already be registered
-      }
-    }
+    manager.on("mint:added", refreshCashuMints)
+    manager.on("mint:trusted", refreshCashuMints)
+    manager.on("mint:untrusted", refreshCashuMints)
+    manager.on("mint:updated", refreshCashuMints)
+    manager.on("history:updated", refreshCashuHistory)
+    manager.on("proofs:saved", refreshCashuBalances)
+    manager.on("proofs:deleted", refreshCashuBalances)
+    manager.on("proofs:wiped", refreshCashuBalances)
 
     cashuInitialized.set(true)
-    await refreshCashuBalances()
+    await Promise.all([refreshCashuMints(), refreshCashuHistory(), refreshCashuBalances()])
   } catch (e) {
     console.error("[cashu] Failed to initialize wallet:", e)
   }
@@ -128,29 +114,61 @@ export const confirmCashuBackup = async (): Promise<void> => {
 
 // ─── Mint Management ──────────────────────────────────────────────────────────
 
+const refreshCashuMints = async (): Promise<void> => {
+  if (!manager) return
+  try {
+    const mints = await manager.mint.getAllTrustedMints()
+    cashuMints.set(mints.map(m => m.mintUrl))
+  } catch (e) {
+    console.error("[cashu] Failed to refresh mints:", e)
+  }
+}
+
 export const addCashuMint = async (url: string): Promise<void> => {
   if (!manager) throw new Error("Wallet not initialized")
   await manager.mint.addMint(url, {trusted: true})
-  const current = get(cashuMints)
-  if (!current.includes(url)) {
-    const updated = [...current, url]
-    cashuMints.set(updated)
-    localStorage.setItem(KEY_MINTS, JSON.stringify(updated))
+  // mint:added / mint:trusted events drive the store refresh
+}
+
+export class UntrustedMintError extends Error {
+  readonly code = "untrusted_mint" as const
+  constructor(public readonly mintUrl: string) {
+    super(`Mint ${mintUrl} is not trusted`)
+    this.name = "UntrustedMintError"
   }
+}
+
+/**
+ * Cancels any in-flight receive operations for the mint and runs a deterministic
+ * restore. Use after the mint returns "outputs already signed" — the wallet's
+ * counter has drifted past proofs the mint signed, and restore reclaims them.
+ */
+export const recoverCashuMint = async (mintUrl: string): Promise<void> => {
+  if (!manager) throw new Error("Wallet not initialized")
+  const inFlight = await manager.ops.receive.listInFlight()
+  for (const op of inFlight) {
+    if (op.mintUrl === mintUrl) {
+      try {
+        await manager.ops.receive.cancel(op.id)
+      } catch (e) {
+        console.warn("[cashu] Failed to cancel stuck receive op:", e)
+      }
+    }
+  }
+  await manager.wallet.restore(mintUrl)
   await refreshCashuBalances()
+}
+
+export const trustCashuMint = async (url: string): Promise<void> => {
+  if (!manager) throw new Error("Wallet not initialized")
+  await manager.mint.addMint(url, {trusted: true})
+  // mint:added / mint:trusted events drive the store refresh
 }
 
 export const removeCashuMint = async (url: string): Promise<void> => {
   if (!manager) throw new Error("Wallet not initialized")
-  try {
-    await (manager.mint as any).removeMint(url)
-  } catch {
-    // pass — API may differ; remove from local list regardless
-  }
-  const updated = get(cashuMints).filter(m => m !== url)
-  cashuMints.set(updated)
-  localStorage.setItem(KEY_MINTS, JSON.stringify(updated))
-  await refreshCashuBalances()
+  await manager.mint.untrustMint(url)
+  // mint:untrusted event drops it from the trusted-mints store
 }
 
 // ─── Balance ──────────────────────────────────────────────────────────────────
@@ -158,10 +176,10 @@ export const removeCashuMint = async (url: string): Promise<void> => {
 export const refreshCashuBalances = async (): Promise<void> => {
   if (!manager) return
   try {
-    const balances = (await manager.wallet.getBalances()) as Record<string, number>
-    const map = new Map(Object.entries(balances))
+    const byMint = await manager.wallet.balances.byMint()
+    const map = new Map(Object.entries(byMint).map(([url, snap]) => [url, snap.total]))
     cashuBalancesByMint.set(map)
-    const total = Object.values(balances).reduce((sum, b) => sum + b, 0)
+    const {total} = await manager.wallet.balances.total()
     cashuTotalBalance.set(total)
   } catch (e) {
     console.error("[cashu] Failed to refresh balances:", e)
@@ -172,56 +190,34 @@ export const refreshCashuBalances = async (): Promise<void> => {
 
 export const receiveCashuToken = async (token: string): Promise<number> => {
   if (!manager) throw new Error("Wallet not initialized")
+
+  let mintUrl = ""
+  try {
+    mintUrl = (getDecodedToken(token) as any).mint || ""
+  } catch {
+    // pass — let manager.wallet.receive surface the decode error
+  }
+
+  if (mintUrl && !(await manager.mint.isTrustedMint(mintUrl))) {
+    throw new UntrustedMintError(mintUrl)
+  }
+
   const before = get(cashuTotalBalance)
   await manager.wallet.receive(token)
   await refreshCashuBalances()
   const after = get(cashuTotalBalance)
-  const amount = after - before
-
-  // Determine mint from token (best-effort)
-  let mintUrl = ""
-  try {
-    const {getDecodedToken} = await import("@cashu/cashu-ts")
-    mintUrl = (getDecodedToken(token) as any).mint || ""
-  } catch {
-    // pass
-  }
-
-  _appendHistory({
-    id: randomId(),
-    direction: "received",
-    amount,
-    mintUrl,
-    createdAt: Math.floor(Date.now() / 1000),
-  })
-
-  return amount
+  return after - before
 }
 
-export const createCashuToken = async (
-  amount: number,
-  mintUrl: string,
-  label?: string,
-): Promise<string> => {
+export const createCashuToken = async (amount: number, mintUrl: string): Promise<string> => {
   if (!manager) throw new Error("Wallet not initialized")
   if (!get(cashuBackupConfirmed)) {
     throw new Error("backup_required")
   }
-  const tokenData = await manager.wallet.send(mintUrl, amount)
-  const token = getEncodedToken(tokenData)
-
-  _appendHistory({
-    id: randomId(),
-    direction: "sent",
-    amount,
-    mintUrl,
-    token,
-    createdAt: Math.floor(Date.now() / 1000),
-    label,
-  })
-
+  const prepared = await manager.ops.send.prepare({mintUrl, amount})
+  const {token: tokenData} = await manager.ops.send.execute(prepared)
   await refreshCashuBalances()
-  return token
+  return getEncodedToken(tokenData)
 }
 
 // ─── Lightning Top-up ─────────────────────────────────────────────────────────
@@ -264,14 +260,6 @@ export const mintTokensFromQuote = async (
   const token = encodeToken({mint: mintUrl, proofs})
   await manager.wallet.receive(token)
   await refreshCashuBalances()
-
-  _appendHistory({
-    id: randomId(),
-    direction: "minted",
-    amount,
-    mintUrl,
-    createdAt: Math.floor(Date.now() / 1000),
-  })
 }
 
 // ─── Auto-pay Whitelist ───────────────────────────────────────────────────────
@@ -293,9 +281,37 @@ export const removeAutoPayWhitelist = (extensionId: string): void => {
 
 // ─── History ──────────────────────────────────────────────────────────────────
 
-const _appendHistory = (entry: TokenHistoryEntry): void => {
-  const current = get(cashuTokenHistory)
-  const updated = [entry, ...current].slice(0, HISTORY_CAP)
-  cashuTokenHistory.set(updated)
-  localStorage.setItem(KEY_HISTORY, JSON.stringify(updated))
+const mapHistoryEntry = (entry: HistoryEntry): TokenHistoryEntry | null => {
+  const base = {
+    id: entry.id,
+    mintUrl: entry.mintUrl,
+    amount: (entry as any).amount ?? 0,
+    createdAt: entry.createdAt,
+  }
+  switch (entry.type) {
+    case "send":
+      return {
+        ...base,
+        direction: "sent",
+        token: entry.token ? getEncodedToken(entry.token) : undefined,
+      }
+    case "receive":
+      return {...base, direction: "received"}
+    case "mint":
+      return {...base, direction: "minted"}
+    case "melt":
+      return {...base, direction: "sent"}
+    default:
+      return null
+  }
+}
+
+const refreshCashuHistory = async (): Promise<void> => {
+  if (!manager) return
+  try {
+    const entries = await manager.history.getPaginatedHistory(0, HISTORY_PAGE_SIZE)
+    cashuTokenHistory.set(entries.map(mapHistoryEntry).filter((e): e is TokenHistoryEntry => !!e))
+  } catch (e) {
+    console.error("[cashu] Failed to refresh history:", e)
+  }
 }

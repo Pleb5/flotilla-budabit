@@ -60,9 +60,6 @@
             </span>
           </div>
           <span class="text-xs opacity-50">{formatDate(entry.createdAt)}</span>
-          {#if entry.label}
-            <span class="text-xs opacity-60">{entry.label}</span>
-          {/if}
         </div>
         {#if entry.direction === "sent" && entry.token}
           <Button

@@ -17,6 +17,59 @@ type BridgeHandler = (payload: any, ext: LoadedExtension) => Promise<any> | any
 
 const bridgeHandlers = new Map<string, BridgeHandler>()
 
+/**
+ * Deep copy that unwraps Proxy values (e.g. Svelte 5 `$state`) while preserving
+ * Date, ArrayBuffer, typed arrays, Map, Set. Used as a fallback when
+ * `postMessage` rejects the original payload with DataCloneError.
+ */
+const deepSnapshot = (value: unknown): unknown => {
+  if (value === null || typeof value !== "object") return value
+  if (value instanceof Date) return new Date(value)
+  if (value instanceof ArrayBuffer) return value.slice(0)
+  if (ArrayBuffer.isView(value)) {
+    const view = value as any
+    return new view.constructor(view.buffer.slice(0), view.byteOffset, view.length)
+  }
+  if (Array.isArray(value)) return value.map(deepSnapshot)
+  if (value instanceof Map) {
+    const out = new Map()
+    for (const [k, v] of value) out.set(deepSnapshot(k), deepSnapshot(v))
+    return out
+  }
+  if (value instanceof Set) {
+    const out = new Set()
+    for (const v of value) out.add(deepSnapshot(v))
+    return out
+  }
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(value as Record<string, unknown>)) {
+    out[k] = deepSnapshot((value as Record<string, unknown>)[k])
+  }
+  return out
+}
+
+/**
+ * Wraps `postMessage` with a fallback for DataCloneError — typically caused by
+ * Svelte 5 `$state` proxies leaking into a handler's return value. Retries with
+ * a deep-snapshotted copy and warns so the offending site can be tracked down.
+ */
+const safePostMessage = (target: Window, message: unknown, origin: string): void => {
+  try {
+    target.postMessage(message, origin)
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "DataCloneError") {
+      console.warn(
+        "[bridge] postMessage payload not cloneable, retrying with snapshot:",
+        err.message,
+        message,
+      )
+      target.postMessage(deepSnapshot(message), origin)
+    } else {
+      throw err
+    }
+  }
+}
+
 export const registerBridgeHandler = (action: string, handler: BridgeHandler) => {
   bridgeHandlers.set(action, handler)
 }
@@ -284,16 +337,24 @@ export class ExtensionBridge {
         const handler = bridgeHandlers.get(msg.action)
         let result
         if (handler) result = await handler(msg.payload, this.extension)
-        ;(source as Window)?.postMessage(
-          {id: msg.id, type: "response", action: msg.action, payload: result},
-          origin,
-        )
+        const win = source as Window | null
+        if (win) {
+          safePostMessage(
+            win,
+            {id: msg.id, type: "response", action: msg.action, payload: result},
+            origin,
+          )
+        }
       } catch (e: any) {
         console.error("Bridge handler error:", e)
-        ;(source as Window)?.postMessage(
-          {id: msg.id, type: "response", action: msg.action, payload: {error: e.message}},
-          origin,
-        )
+        const win = source as Window | null
+        if (win) {
+          safePostMessage(
+            win,
+            {id: msg.id, type: "response", action: msg.action, payload: {error: e.message}},
+            origin,
+          )
+        }
       }
     }
   }
@@ -306,7 +367,9 @@ export class ExtensionBridge {
     // For sandboxed iframes (origin 'null'), we must use '*' but only for the expected window.
     const isSandboxed = this.extension.origin === "null"
     const targetOrigin = isSandboxed ? "*" : this.extension.origin
-    targetWindow?.postMessage({type: "event", action, payload}, targetOrigin)
+    if (targetWindow) {
+      safePostMessage(targetWindow, {type: "event", action, payload}, targetOrigin)
+    }
   }
 
   request(action: string, payload: any): Promise<any> {
@@ -316,7 +379,8 @@ export class ExtensionBridge {
     return new Promise((resolve, reject) => {
       this.pending.set(id, resolve)
       try {
-        this.extension.iframe?.contentWindow?.postMessage(msg, this.extension.origin)
+        const target = this.extension.iframe?.contentWindow
+        if (target) safePostMessage(target, msg, this.extension.origin)
       } catch (e) {
         reject(e)
       }
@@ -648,6 +712,34 @@ registerBridgeHandler("context:getRepo", (payload, ext) => {
 
 // ── NIP-44 Encryption ────────────────────────────────────────────────
 // Allows extensions to encrypt plaintext to a recipient pubkey using the host's signer.
+
+registerBridgeHandler("nostr:sign", async (payload, ext) => {
+  if (ext) console.log(`[bridge] nostr:sign from ${ext.id}`)
+  try {
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Invalid payload: expected an unsigned event template")
+    }
+    const template = payload as {kind?: number; created_at?: number; content?: string; tags?: any[]}
+    if (typeof template.kind !== "number") {
+      throw new Error("Invalid event template: missing numeric `kind`")
+    }
+    const $signer = signer.get()
+    if (!$signer) {
+      throw new Error("No active signer available")
+    }
+    const event = {
+      kind: template.kind,
+      created_at: template.created_at ?? Math.floor(Date.now() / 1000),
+      content: template.content ?? "",
+      tags: Array.isArray(template.tags) ? template.tags : [],
+    }
+    const signed = await $signer.sign(event)
+    return {status: "ok", event: signed}
+  } catch (err: any) {
+    console.error("Error in nostr:sign bridge handler:", err)
+    return {error: err.message}
+  }
+})
 
 registerBridgeHandler("nostr:nip44Encrypt", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:nip44Encrypt from ${ext.id}`)

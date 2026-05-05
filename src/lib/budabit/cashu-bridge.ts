@@ -62,7 +62,7 @@ export const registerCashuBridgeHandlers = (CashuPayConfirm: Component<any>) => 
 
       if (whitelist.includes(extensionId)) {
         // Auto-approved
-        const token = await createCashuToken(amount, mintUrl, label || extensionId)
+        const token = await createCashuToken(amount, mintUrl)
         return {token}
       }
 

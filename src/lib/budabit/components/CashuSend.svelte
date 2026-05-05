@@ -6,7 +6,6 @@
 
   let selectedMint = $state("")
   let amount = $state(0)
-  let label = $state("")
   let loading = $state(false)
   let token = $state("")
   let error = $state("")
@@ -38,7 +37,7 @@
     error = ""
     token = ""
     try {
-      token = await createCashuToken(amount, selectedMint, label || undefined)
+      token = await createCashuToken(amount, selectedMint)
     } catch (e: any) {
       if (e?.message === "backup_required") {
         pushModal(CashuSeedBackup, {onconfirmed: send})
@@ -59,7 +58,6 @@
   const reset = () => {
     token = ""
     amount = 0
-    label = ""
     error = ""
   }
 </script>
@@ -105,15 +103,6 @@
             min="1"
             max={selectedBalance}
             bind:value={amount} />
-        </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium" for="send-label">Label (optional)</label>
-          <input
-            id="send-label"
-            class="input input-bordered input-sm"
-            type="text"
-            placeholder="e.g. payment for..."
-            bind:value={label} />
         </div>
       </div>
 
