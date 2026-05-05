@@ -49,6 +49,13 @@ export interface WorkflowRun {
   name: string;
   workflowPath?: string;
   status: WorkflowStatus;
+  /**
+   * True when the failure status was inferred from the loom result event
+   * (worker-reported) without an authoritative workflow log event. Renderers
+   * should signal "the workflow itself never confirmed failure" — e.g. a
+   * warning glyph instead of a hard red X.
+   */
+  inferredFailure?: boolean;
   branch: string;
   commit: string;
   commitMessage: string;

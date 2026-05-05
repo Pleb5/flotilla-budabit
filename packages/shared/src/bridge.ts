@@ -31,6 +31,60 @@ function makeId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+/**
+ * Deep copy that unwraps Proxy values (e.g. Svelte 5 `$state`) while preserving
+ * structured-clone-friendly types: Date, ArrayBuffer, typed arrays, Map, Set.
+ * Used as a fallback when `postMessage` rejects the original value.
+ */
+function deepSnapshot(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Date) return new Date(value);
+  if (value instanceof ArrayBuffer) return value.slice(0);
+  if (ArrayBuffer.isView(value)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const view = value as any;
+    return new view.constructor(view.buffer.slice(0), view.byteOffset, view.length);
+  }
+  if (Array.isArray(value)) return value.map(deepSnapshot);
+  if (value instanceof Map) {
+    const out = new Map();
+    for (const [k, v] of value) out.set(deepSnapshot(k), deepSnapshot(v));
+    return out;
+  }
+  if (value instanceof Set) {
+    const out = new Set();
+    for (const v of value) out.add(deepSnapshot(v));
+    return out;
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(value as Record<string, unknown>)) {
+    out[k] = deepSnapshot((value as Record<string, unknown>)[k]);
+  }
+  return out;
+}
+
+/**
+ * Wraps `postMessage` with a fallback for `DataCloneError` (commonly caused by
+ * Svelte 5 `$state` proxies). On failure, retries with a deep-snapshotted copy
+ * and warns so the offending call site can be tracked down.
+ */
+function safePostMessage(target: Window, message: unknown, origin: string): void {
+  try {
+    target.postMessage(message, origin);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'DataCloneError') {
+      console.warn(
+        '[WidgetBridge] postMessage payload not cloneable, retrying with snapshot:',
+        err.message,
+        message,
+      );
+      target.postMessage(deepSnapshot(message), origin);
+    } else {
+      throw err;
+    }
+  }
+}
+
 export class WidgetBridge {
   /** Whether `signalReady()` has been called. */
   private _readySent = false;
@@ -93,7 +147,7 @@ export class WidgetBridge {
       this.pending.set(id, { action, resolve, reject, timeoutId });
 
       try {
-        this.targetWindow.postMessage(msg, this.targetOrigin);
+        safePostMessage(this.targetWindow, msg, this.targetOrigin);
       } catch (err) {
         if (timeoutId) clearTimeout(timeoutId);
         this.pending.delete(id);
@@ -167,7 +221,7 @@ export class WidgetBridge {
       payload: { timestamp: Date.now() },
     };
     try {
-      this.targetWindow.postMessage(msg, this.targetOrigin);
+      safePostMessage(this.targetWindow, msg, this.targetOrigin);
     } catch {
       // Ignore — host may not be listening yet
     }
@@ -321,7 +375,7 @@ export class WidgetBridge {
           payload: result,
         };
 
-        source.postMessage(response, event.origin);
+        safePostMessage(source, response, event.origin);
       } catch (err) {
         const response: WidgetWireMessage = {
           type: 'response',
@@ -330,7 +384,7 @@ export class WidgetBridge {
           payload: { error: err instanceof Error ? err.message : String(err) },
         };
 
-        source.postMessage(response, event.origin);
+        safePostMessage(source, response, event.origin);
       }
     }
   }

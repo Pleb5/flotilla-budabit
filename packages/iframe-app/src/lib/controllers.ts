@@ -1,5 +1,5 @@
 import type { WidgetBridge } from '@flotilla/ext-shared'
-import { buildInlineRunnerArgs } from './runner-script'
+import { buildScriptArgs } from './blossom'
 import { loadWorkflowRunDetail, loadWorkers } from './workflows'
 import { createCashuPaymentToken, loadCashuWalletState } from './wallet'
 import { submitRerun } from './nip07'
@@ -104,7 +104,7 @@ export async function submitRunController(args: {
 
   if (submissionMode === 'new' || (submissionMode === 'rerun' && rerunCommandMode === 'regenerate')) {
     nextDraft.command = 'bash'
-    nextDraft.args = buildInlineRunnerArgs(runnerScriptTemplate)
+    nextDraft.args = await buildScriptArgs(bridge, runnerScriptTemplate)
   }
 
   return submitRerun(

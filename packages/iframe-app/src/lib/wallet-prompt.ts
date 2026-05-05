@@ -1,61 +1,30 @@
-import { suggestedPaymentAmount } from './presentation';
 import { getBestCompatibleMint } from './submission';
 import type { LoomWorker } from './types';
 
 export interface WalletPromptState {
   selectedMint: string;
-  paymentAmount: number;
   autoTokenPromptOpen: boolean;
   autoTokenPromptKey: string;
   autoTokenDismissedKey: string;
 }
 
+/**
+ * Picks a sensible mint for the selected worker. Payment amount is owned
+ * by the form's number input and is not touched here.
+ */
 export function reconcileWalletSelection(args: {
   selectedWorker: LoomWorker | null;
   compatibleMints: string[];
   walletBalancesByMint: Record<string, number>;
   selectedMint: string;
-  rerunPaymentToken: string;
-  paymentAmount: number;
 }) {
-  const {
-    selectedWorker,
-    compatibleMints,
-    walletBalancesByMint,
-    selectedMint,
-    rerunPaymentToken,
-    paymentAmount,
-  } = args;
-
-  if (!selectedWorker) {
-    return {
-      selectedMint,
-      paymentAmount,
-    };
-  }
+  const { selectedWorker, compatibleMints, walletBalancesByMint, selectedMint } = args;
+  if (!selectedWorker) return { selectedMint };
 
   const bestCompatibleMint = getBestCompatibleMint(compatibleMints, walletBalancesByMint);
   const nextSelectedMint =
     bestCompatibleMint && selectedMint !== bestCompatibleMint ? bestCompatibleMint : selectedMint;
-
-  const suggested = suggestedPaymentAmount(selectedWorker);
-  let nextPaymentAmount = paymentAmount;
-  
-  if (!rerunPaymentToken) {
-    if (paymentAmount <= 0) {
-      nextPaymentAmount = suggested;
-    } else {
-      const defaultAmount = suggestedPaymentAmount(null);
-      if (paymentAmount === defaultAmount && suggested !== defaultAmount) {
-        nextPaymentAmount = suggested;
-      }
-    }
-  }
-
-  return {
-    selectedMint: nextSelectedMint,
-    paymentAmount: nextPaymentAmount,
-  };
+  return { selectedMint: nextSelectedMint };
 }
 
 export function reconcileAutoTokenPrompt(args: {

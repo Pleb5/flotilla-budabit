@@ -15,14 +15,15 @@
 
   const {run, selected = false, divider = false, refreshing = false, onSelect}: Props = $props()
 
-  const StatusIcon = $derived(getStatusIcon(run.status))
+  const visualOpts = $derived({inferred: run.inferredFailure})
+  const StatusIcon = $derived(getStatusIcon(run.status, visualOpts))
   const spinning = $derived(run.status === 'running' || run.status === 'in_progress')
 </script>
 
 <button
   class={`group flex w-full items-start gap-4 px-4 py-3 text-left transition-colors hover:bg-accent/40 sm:items-center ${divider ? 'border-t border-border' : ''} ${selected ? 'bg-accent/30' : ''}`}
   onclick={onSelect}>
-  <div class={`shrink-0 pt-0.5 sm:pt-0 ${getStatusColor(run.status)}`}>
+  <div class={`shrink-0 pt-0.5 sm:pt-0 ${getStatusColor(run.status, visualOpts)}`}>
     {#if spinning}
       <RotateCw class="h-5 w-5 animate-spin" />
     {:else}
@@ -78,7 +79,7 @@
         {/if}
       </div>
 
-      <span class={`hidden w-24 shrink-0 items-center justify-center rounded-full border px-2 py-0.5 font-medium md:inline-flex ${getStatusBadge(run.status)}`}>
+      <span class={`hidden w-24 shrink-0 items-center justify-center rounded-full border px-2 py-0.5 font-medium md:inline-flex ${getStatusBadge(run.status, visualOpts)}`}>
         {statusLabel(run.status)}
       </span>
     </div>

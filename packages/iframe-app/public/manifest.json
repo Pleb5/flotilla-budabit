@@ -8,6 +8,7 @@
     "nostr:publish",
     "nostr:query",
     "nostr:subscribe",
+    "nostr:sign",
     "nostr:nip44Encrypt",
     "ui:toast"
   ],

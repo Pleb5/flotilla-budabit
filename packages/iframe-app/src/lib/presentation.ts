@@ -1,15 +1,24 @@
 // date-fns' formatDistanceToNow was dropped — it jumps straight from
 // "days" to "about N months" with no week bucket, which reads oddly for
 // CI runs in that 1-8 week range.
-import { Check, Circle, Clock, RotateCw, X } from '@lucide/svelte'
+import { TriangleAlert, Check, Circle, Clock, RotateCw, X } from '@lucide/svelte'
 import type { LoomWorker, RepoContextNormalized, WorkflowStatus, RerunDraft } from './types'
 
-export function getStatusIcon(status: WorkflowStatus) {
+interface StatusVisualOpts {
+  /**
+   * True when failure was inferred from a loom result event without an
+   * authoritative workflow log event. Renderers should signal this softer
+   * "loom-only failure" with a warning glyph instead of a hard X.
+   */
+  inferred?: boolean
+}
+
+export function getStatusIcon(status: WorkflowStatus, opts: StatusVisualOpts = {}) {
   switch (status) {
     case 'success':
       return Check
     case 'failure':
-      return X
+      return opts.inferred ? TriangleAlert : X
     case 'running':
     case 'in_progress':
       return RotateCw
@@ -24,7 +33,7 @@ export function getStatusIcon(status: WorkflowStatus) {
   }
 }
 
-export function getStatusColor(status: WorkflowStatus) {
+export function getStatusColor(status: WorkflowStatus, _opts: StatusVisualOpts = {}) {
   switch (status) {
     case 'success':
       return 'text-green-400'
@@ -42,7 +51,7 @@ export function getStatusColor(status: WorkflowStatus) {
   }
 }
 
-export function getStatusBadge(status: WorkflowStatus) {
+export function getStatusBadge(status: WorkflowStatus, _opts: StatusVisualOpts = {}) {
   switch (status) {
     case 'success':
       return 'border-green-500/20 bg-green-500/10 text-green-300'
@@ -109,11 +118,6 @@ export function shortId(value?: string, size = 8) {
 
 export function repoName(value: RepoContextNormalized | null) {
   return value?.repoName || 'Loading repository…'
-}
-
-export function suggestedPaymentAmount(worker: LoomWorker | null) {
-  if (!worker?.pricing?.perSecondRate || !worker.minDuration) return 100
-  return Math.max(1, Math.ceil(worker.pricing.perSecondRate * worker.minDuration))
 }
 
 export function buildAutoTokenCandidateKey(args: {

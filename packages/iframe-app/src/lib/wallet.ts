@@ -55,3 +55,27 @@ export async function createCashuPaymentToken(
 
   return (result as any).token;
 }
+
+/**
+ * Redeem an unused Cashu token back into the host wallet. Used to refund the
+ * user when a run submission fails after a payment token has already been
+ * minted — without this, the value sits in the unsent token string and is
+ * effectively lost when the form unmounts.
+ */
+export async function refundCashuToken(
+  bridge: WidgetBridge,
+  token: string
+): Promise<void> {
+  if (!token.trim()) return;
+  try {
+    const result = await bridge.request('cashu:receiveToken', {token});
+    if (isBridgeError(result)) {
+      throw new Error(result.error);
+    }
+  } catch (err) {
+    // Don't shadow the original failure that triggered the refund — log so the
+    // user can manually paste the token back into the wallet if needed.
+    console.error('[wallet] failed to refund payment token; copy this and paste into wallet manually:', token, err);
+    throw err;
+  }
+}
