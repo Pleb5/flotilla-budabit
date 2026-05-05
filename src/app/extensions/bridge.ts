@@ -22,28 +22,39 @@ const bridgeHandlers = new Map<string, BridgeHandler>()
  * Date, ArrayBuffer, typed arrays, Map, Set. Used as a fallback when
  * `postMessage` rejects the original payload with DataCloneError.
  */
-const deepSnapshot = (value: unknown): unknown => {
+const deepSnapshot = (value: unknown, seen: WeakMap<object, unknown> = new WeakMap()): unknown => {
   if (value === null || typeof value !== "object") return value
+  const obj = value as object
+  const cached = seen.get(obj)
+  if (cached !== undefined) return cached
   if (value instanceof Date) return new Date(value)
   if (value instanceof ArrayBuffer) return value.slice(0)
   if (ArrayBuffer.isView(value)) {
     const view = value as any
     return new view.constructor(view.buffer.slice(0), view.byteOffset, view.length)
   }
-  if (Array.isArray(value)) return value.map(deepSnapshot)
+  if (Array.isArray(value)) {
+    const out: unknown[] = []
+    seen.set(obj, out)
+    for (const v of value) out.push(deepSnapshot(v, seen))
+    return out
+  }
   if (value instanceof Map) {
     const out = new Map()
-    for (const [k, v] of value) out.set(deepSnapshot(k), deepSnapshot(v))
+    seen.set(obj, out)
+    for (const [k, v] of value) out.set(deepSnapshot(k, seen), deepSnapshot(v, seen))
     return out
   }
   if (value instanceof Set) {
     const out = new Set()
-    for (const v of value) out.add(deepSnapshot(v))
+    seen.set(obj, out)
+    for (const v of value) out.add(deepSnapshot(v, seen))
     return out
   }
   const out: Record<string, unknown> = {}
+  seen.set(obj, out)
   for (const k of Object.keys(value as Record<string, unknown>)) {
-    out[k] = deepSnapshot((value as Record<string, unknown>)[k])
+    out[k] = deepSnapshot((value as Record<string, unknown>)[k], seen)
   }
   return out
 }
