@@ -3,37 +3,11 @@ import {
   generatePaymentTokenController,
   loadRunDetailController,
   refreshWalletController,
-  refreshWorkersController,
   submitRunController,
 } from './controllers';
 import { createClosedDetailSessionState, createOpenedDetailSessionState } from './detail-session';
 import type { DetailSessionState } from './detail-session';
 import type { RepoContextNormalized, RerunDraft } from './types';
-
-export async function refreshWorkersViewModel(args: {
-  bridge: WidgetBridge;
-  repo: RepoContextNormalized;
-  rerunDraft: RerunDraft | null;
-}) {
-  const nextState = await refreshWorkersController(
-    args.bridge,
-    args.repo,
-    args.rerunDraft?.workerPubkey
-  );
-
-  let updatedRerunDraft = args.rerunDraft;
-  if (args.rerunDraft && !args.rerunDraft.workerPubkey && nextState.nextWorkerPubkey) {
-    updatedRerunDraft = {
-      ...args.rerunDraft,
-      workerPubkey: nextState.nextWorkerPubkey,
-    };
-  }
-
-  return {
-    discoveredWorkers: nextState.workers,
-    rerunDraft: updatedRerunDraft,
-  };
-}
 
 export async function refreshWalletViewModel(args: { bridge: WidgetBridge; selectedMint: string }) {
   const state = await refreshWalletController(args.bridge, args.selectedMint);

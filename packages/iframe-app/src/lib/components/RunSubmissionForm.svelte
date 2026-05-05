@@ -12,7 +12,6 @@
     rerunSecrets?: {key: string; value: string}[]
     rerunSubmitting?: boolean
     discoveredWorkers?: LoomWorker[]
-    loadingWorkers?: boolean
     walletAvailable?: boolean
     walletLoading?: boolean
     walletError?: string | null
@@ -34,7 +33,6 @@
     availableWorkflows?: WorkflowDefinition[]
     availableBranches?: string[]
     defaultBranch?: string
-    onRefreshWorkers: () => void
     onRefreshWallet: () => void
     onGeneratePaymentToken: () => void
     onConfirmAutoTokenGeneration: () => void
@@ -57,7 +55,6 @@
     rerunSecrets = $bindable([{key: '', value: ''}]),
     rerunSubmitting = false,
     discoveredWorkers = [],
-    loadingWorkers = false,
     walletAvailable = false,
     walletLoading = false,
     walletError = null,
@@ -79,7 +76,6 @@
     availableWorkflows = [],
     availableBranches = [],
     defaultBranch = 'main',
-    onRefreshWorkers,
     onRefreshWallet,
     onGeneratePaymentToken: _onGeneratePaymentToken,
     onConfirmAutoTokenGeneration: _onConfirmAutoTokenGeneration,
@@ -297,10 +293,7 @@
     </div>
 
     <div class="space-y-2">
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-muted-foreground">Worker</span>
-        <button class="text-xs text-primary hover:underline" onclick={onRefreshWorkers}>{loadingWorkers ? 'Refreshing…' : 'Refresh'}</button>
-      </div>
+      <span class="text-xs text-muted-foreground">Worker</span>
       {#if rankedWorkers.length > 0}
         <div class="grid gap-2">
           {#each rankedWorkers as worker (worker.pubkey)}
@@ -341,7 +334,7 @@
           {/each}
         </div>
       {:else}
-        <div class="rounded-md border border-input p-3 text-sm text-muted-foreground">{loadingWorkers ? 'Discovering workers…' : 'No workers discovered yet.'}</div>
+        <div class="rounded-md border border-input p-3 text-sm text-muted-foreground">No online workers yet.</div>
       {/if}
     </div>
 

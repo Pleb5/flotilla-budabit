@@ -16,12 +16,14 @@
     type ReleaseArtifact,
     type ArtifactGroup,
     type ConsensusStatus,
-    loadReleaseData,
+    releaseData$,
     groupArtifacts,
     getConsensusStatus,
     signAndPublishReleases,
     resolveNip51List,
   } from '../releases';
+  import {onDestroy} from 'svelte';
+  import type {Subscription} from 'rxjs';
   import ReleaseSankey from './ReleaseSankey.svelte';
 
   interface Props {
@@ -81,7 +83,10 @@
   };
 
   // ── Actions ──────────────────────────────────────────────────────
-  async function loadData() {
+  let releaseSub: Subscription | null = null;
+  let everReceived = false;
+
+  function loadData() {
     if (!bridge || !repo) return;
     if (trustedMaintainers.length === 0) {
       error = 'Add at least one trusted maintainer pubkey or resolve a NIP-51 list.';
@@ -92,22 +97,26 @@
     error = null;
     artifacts = [];
     signResult = null;
+    everReceived = false;
 
-    try {
-      const result = await loadReleaseData(bridge, repo, trustedMaintainers);
-      artifacts = result.artifacts;
-      workerNames = result.workerNames;
-      ephemeralToWorker = result.ephemeralToWorker;
-
-      if (artifacts.length === 0) {
-        error = 'No release artifacts found for the trusted maintainers.';
+    releaseSub?.unsubscribe();
+    releaseSub = releaseData$({repo, trustedMaintainers}).subscribe(state => {
+      artifacts = state.artifacts;
+      workerNames = state.workerNames;
+      ephemeralToWorker = state.ephemeralToWorker;
+      // First emit from a fresh subscription is the empty seed; flip out of
+      // the loading state on the first event-driven emit, or on any emit
+      // that has data.
+      if (state.artifacts.length > 0 || everReceived) {
+        loading = false;
       }
-    } catch (e: any) {
-      error = e.message || 'Failed to load release data.';
-    } finally {
-      loading = false;
-    }
+      everReceived = true;
+    });
   }
+
+  onDestroy(() => {
+    releaseSub?.unsubscribe();
+  });
 
   async function resolveNip51() {
     if (!bridge || !nip51Input.trim()) return;

@@ -64,11 +64,10 @@
     createOpeningDetailSessionState,
   } from './lib/detail-session'
   import {setupWidgetLifecycle} from './lib/widget-lifecycle'
-  import {repoEvents$, repoRuns$} from './lib/workflows'
+  import {repoEvents$, repoRuns$, repoWorkerRelays, workers$} from './lib/workflows'
   import {
     generatePaymentTokenViewModel,
     refreshWalletViewModel,
-    refreshWorkersViewModel,
     submitRunViewModel,
   } from './lib/view-model'
   import {buildRunnerScriptTemplate} from './lib/runner-script'
@@ -113,7 +112,6 @@
   let maxDuration = $state(900)
 
   let discoveredWorkers = $state<LoomWorker[]>([])
-  let loadingWorkers = $state(false)
   let walletAvailable = $state(false)
   let walletLoading = $state(false)
   let walletError = $state<string | null>(null)
@@ -495,24 +493,10 @@
 
 
 
-  async function refreshWorkers() {
-    if (!bridge || !repo) return
+  // Workers stream into `discoveredWorkers` reactively from the applesauce
+  // subscription set up in the repo $effect below. The "Refresh" button is
+  // now a no-op visual affordance — the underlying data is always live.
 
-    loadingWorkers = true
-    try {
-      const nextState = await refreshWorkersViewModel({
-        bridge,
-        repo,
-        rerunDraft,
-      })
-      discoveredWorkers = nextState.discoveredWorkers
-      rerunDraft = nextState.rerunDraft
-    } catch (err) {
-      signerError = friendlyErrorMessage(err instanceof Error ? err.message : String(err))
-    } finally {
-      loadingWorkers = false
-    }
-  }
 
   async function refreshWallet() {
     if (!bridge) return
@@ -602,7 +586,6 @@
       rerunDraft = {...(rerunDraft || nextState.rerunDraft), branch: nextBranch}
     }
 
-    void refreshWorkers()
     void refreshWallet()
     void refreshRepoMetadata()
   }
@@ -626,7 +609,6 @@
     signerError = null
     applySubmissionState(nextState)
     maxDuration = previousMaxDuration
-    void refreshWorkers()
     void refreshWallet()
   }
 
@@ -653,7 +635,6 @@
     signerError = null
     applySubmissionState(nextState)
     maxDuration = previousMaxDuration
-    void refreshWorkers()
 
     try {
       // The form's auto-pick effect never mounts on this path, so seed the
@@ -898,9 +879,15 @@
       if (updated !== detail) selectedRunDetail = updated
     })
 
+    // Worker discovery — kind 10100 stream, deduped by pubkey, latest wins.
+    const workersSub = workers$(repoWorkerRelays(repo)).subscribe(list => {
+      discoveredWorkers = list
+    })
+
     return () => {
       runsSub.unsubscribe()
       detailSub.unsubscribe()
+      workersSub.unsubscribe()
     }
   })
 
@@ -1178,7 +1165,6 @@
           bind:runnerScriptAutoManaged
           {rerunSubmitting}
           {discoveredWorkers}
-          {loadingWorkers}
           {walletAvailable}
           {walletLoading}
           {walletError}
@@ -1194,7 +1180,6 @@
           {availableBranches}
           {defaultBranch}
           availableWorkflows={repoWorkflows}
-          onRefreshWorkers={() => void refreshWorkers()}
           onRefreshWallet={() => void refreshWallet()}
           onGeneratePaymentToken={() => void generatePaymentToken()}
           onConfirmAutoTokenGeneration={() => void confirmAutoTokenGeneration()}
@@ -1430,7 +1415,6 @@
                   bind:runnerScriptAutoManaged
                   {rerunSubmitting}
                   {discoveredWorkers}
-                  {loadingWorkers}
                   {walletAvailable}
                   {walletLoading}
                   {walletError}
@@ -1446,7 +1430,6 @@
                   {availableBranches}
                   {defaultBranch}
                   availableWorkflows={repoWorkflows}
-                  onRefreshWorkers={() => void refreshWorkers()}
                   onRefreshWallet={() => void refreshWallet()}
                   onGeneratePaymentToken={() => void generatePaymentToken()}
                   onConfirmAutoTokenGeneration={() => void confirmAutoTokenGeneration()}
@@ -1659,7 +1642,6 @@
               bind:runnerScriptAutoManaged
               {rerunSubmitting}
               {discoveredWorkers}
-              {loadingWorkers}
               {walletAvailable}
               {walletLoading}
               {walletError}
@@ -1675,7 +1657,6 @@
               {availableBranches}
               {defaultBranch}
               availableWorkflows={repoWorkflows}
-              onRefreshWorkers={() => void refreshWorkers()}
               onRefreshWallet={() => void refreshWallet()}
               onGeneratePaymentToken={() => void generatePaymentToken()}
               onConfirmAutoTokenGeneration={() => void confirmAutoTokenGeneration()}

@@ -1,9 +1,9 @@
 import type { WidgetBridge } from '@flotilla/ext-shared'
 import { buildScriptArgs } from './blossom'
-import { loadWorkflowRunDetail, loadWorkers } from './workflows'
+import { loadWorkflowRunDetail } from './workflows'
 import { createCashuPaymentToken, loadCashuWalletState } from './wallet'
 import { submitRerun } from './nip07'
-import type { LoomWorker, RepoContextNormalized, RerunDraft, WorkflowRunDetail } from './types'
+import type { RepoContextNormalized, RerunDraft, WorkflowRunDetail } from './types'
 
 export async function loadRunDetailController(
   bridge: WidgetBridge,
@@ -11,18 +11,6 @@ export async function loadRunDetailController(
   runId: string
 ): Promise<WorkflowRunDetail | null> {
   return loadWorkflowRunDetail(bridge, repo, runId)
-}
-
-export async function refreshWorkersController(
-  bridge: WidgetBridge,
-  repo: RepoContextNormalized,
-  currentWorkerPubkey?: string
-): Promise<{ workers: LoomWorker[]; nextWorkerPubkey: string }> {
-  const workers = await loadWorkers(bridge, repo)
-  return {
-    workers,
-    nextWorkerPubkey: currentWorkerPubkey || workers[0]?.pubkey || '',
-  }
 }
 
 export async function refreshWalletController(
