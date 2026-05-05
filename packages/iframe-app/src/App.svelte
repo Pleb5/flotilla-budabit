@@ -121,7 +121,6 @@
   let walletBalancesByMint = $state<Record<string, number>>({})
   let walletMints = $state<string[]>([])
   let selectedMint = $state('')
-  let paymentAmount = $state(100)
   let generatingPaymentToken = $state(false)
   let autoTokenPromptOpen = $state(false)
   let autoTokenPromptKey = $state('')
@@ -176,6 +175,18 @@
   const selectedWorker = $derived(getSelectedWorker(rerunDraft, discoveredWorkers))
   const compatibleMints = $derived.by(() => getCompatibleMints(selectedWorker, walletMints))
   const visibleMintOptions = $derived(getVisibleMintOptions(compatibleMints, walletMints))
+  const paymentAmount = $derived.by(() => {
+    const rate = selectedWorker?.pricing?.perSecondRate ?? 0
+    if (rate <= 0 || maxDuration <= 0) return 0
+    return Math.ceil(rate * maxDuration)
+  })
+
+  // Clamp maxDuration up to the selected worker's minimum so we never submit
+  // a duration the worker would reject. Runs whenever the worker changes.
+  $effect(() => {
+    const min = selectedWorker?.minDuration ?? 0
+    if (min > 0 && maxDuration < min) maxDuration = min
+  })
   const canGenerateSuggestedToken = $derived(
     canGenerateSuggestedTokenValue({
       walletAvailable,
@@ -609,24 +620,12 @@
     // selectedRunDetail.
     const previousMaxDuration = selectedRunDetail.worker?.maxDuration || 900
 
-    // Capture the prior loom job's payment tag too, so we can decode it and
-    // pre-fill paymentAmount with whatever the last run paid. Falls back
-    // silently to whatever paymentAmount was already; the input is editable.
-    const priorPaymentTag = selectedRunDetail.run.loomJobEvent?.tags.find(t => t[0] === 'payment')?.[1]
-
     // Close the detail view so the rerun-setup form takes over the main pane
     // instead of stacking on top of the existing run detail.
     applyDetailSessionState(createClosedDetailSessionState())
     signerError = null
     applySubmissionState(nextState)
     maxDuration = previousMaxDuration
-    if (priorPaymentTag) {
-      void parseCashuTokenAmount(priorPaymentTag)
-        .then(amount => {
-          if (amount > 0) paymentAmount = amount
-        })
-        .catch(() => {/* leave default */})
-    }
     void refreshWorkers()
     void refreshWallet()
   }
@@ -1172,8 +1171,9 @@
           bind:rerunPaymentToken
           bind:rerunSecrets
           bind:selectedMint
-          bind:paymentAmount
+          {paymentAmount}
           bind:maxDuration
+          minDurationSeconds={selectedWorker?.minDuration ?? 0}
           bind:runnerScriptTemplate
           bind:runnerScriptAutoManaged
           {rerunSubmitting}
@@ -1423,8 +1423,9 @@
                   bind:rerunPaymentToken
                   bind:rerunSecrets
                   bind:selectedMint
-                  bind:paymentAmount
+                  {paymentAmount}
                   bind:maxDuration
+                  minDurationSeconds={selectedWorker?.minDuration ?? 0}
                   bind:runnerScriptTemplate
                   bind:runnerScriptAutoManaged
                   {rerunSubmitting}
@@ -1651,8 +1652,9 @@
               bind:rerunPaymentToken
               bind:rerunSecrets
               bind:selectedMint
-              bind:paymentAmount
+              {paymentAmount}
               bind:maxDuration
+              minDurationSeconds={selectedWorker?.minDuration ?? 0}
               bind:runnerScriptTemplate
               bind:runnerScriptAutoManaged
               {rerunSubmitting}
