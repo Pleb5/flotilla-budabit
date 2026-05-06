@@ -28,8 +28,11 @@
     return "text-success"
   }
 
+  // coco's HistoryEntry.createdAt is unix milliseconds (Date.now()), not
+  // seconds. The pre-coco-upgrade history wrote seconds, hence the legacy
+  // `ts * 1000` here — leftover from that migration.
   const formatDate = (ts: number) =>
-    new Date(ts * 1000).toLocaleString(undefined, {
+    new Date(ts).toLocaleString(undefined, {
       month: "short",
       day: "numeric",
       hour: "2-digit",
