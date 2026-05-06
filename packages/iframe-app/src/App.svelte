@@ -74,11 +74,27 @@
   import {loadRepoMetadata} from './lib/repo'
   import {getJobGroups, parseActLog, parseWorkflowJobsFromYaml} from './lib/cicd'
   import {parseCashuTokenAmount} from './lib/payment'
+  import {
+    STALE_PENDING_MS,
+    classifyReclaimError,
+    getReclaimCandidate,
+    isP2PKLocked,
+    loadRateLimit,
+    loadRedeemed,
+    markRedeemed,
+    receiveReclaimToken,
+    saveRateLimit,
+    sha256Hex,
+    RateLimitError,
+    type RateLimitState,
+    type RedeemedMap,
+  } from './lib/reclaim'
   import type {
     RepoBranchInfo,
     RepoContext,
     RerunDraft,
     LoomWorker,
+    ReclaimUiState,
     WorkflowDefinition,
     WorkflowRun,
     WorkflowRunDetail,
@@ -155,11 +171,24 @@
   let actorFilter = $state<Set<string>>(new Set())
   let showStalePending = $state(false)
 
-  const STALE_PENDING_MS = 72 * 60 * 60 * 1000
-
   // Bump on every event store insert so profile-name lookups used in the
   // filtered-runs derivation recompute when a kind-0 loads.
   let profileTick = $state(0)
+
+  // ─── Reclaim controller ────────────────────────────────────────────────────
+  // Persisted across sessions:
+  let reclaimRedeemed = $state<RedeemedMap>({})
+  let reclaimRateLimit = $state<RateLimitState>({until: 0})
+  let reclaimReady = $state(false)
+  // Session-only — pending/failed/p2pkUnsupported transitions.
+  let reclaimTransient = $state<Record<string, ReclaimUiState>>({})
+  // Tick once a second so rate-limit cooldown UI updates without forcing a
+  // re-render of every run row.
+  let reclaimTick = $state(0)
+  // Plain set, not reactive — guards against double-firing the same run while
+  // an attempt is in flight. The effect re-runs after each state update so it
+  // picks up the next candidate naturally.
+  const reclaimInFlight = new Set<string>()
 
   let currentView = $state<'pipelines' | 'releases'>('pipelines')
 
@@ -209,6 +238,142 @@
   const actJobByName = $derived(new Map(parsedActJobs.map(job => [job.name.toLowerCase(), job])))
   const jobGroups = $derived(getJobGroups(workflowJobs))
   const actualCost = $derived(prepaidAmount !== null ? prepaidAmount - (changeAmount ?? 0) : null)
+
+  // ─── Reclaim derivation + handlers ──────────────────────────────────────
+  // Per-run UI state. Computed from the persisted redeemed log + transient
+  // session state + live run state. Keyed by runId.
+  const reclaimByRunId = $derived.by<Record<string, ReclaimUiState>>(() => {
+    void reclaimTick
+    const map: Record<string, ReclaimUiState> = {}
+    if (!reclaimReady) return map
+    const userPubkey = repoCtx?.userPubkey
+    if (!userPubkey) return map
+    const limited = reclaimRateLimit.until > Date.now()
+    for (const run of workflowRuns) {
+      const transient = reclaimTransient[run.id]
+      if (transient) {
+        map[run.id] = transient
+        continue
+      }
+      const redeemedEntry = reclaimRedeemed[run.id]
+      if (redeemedEntry) {
+        map[run.id] = {
+          kind: redeemedEntry.kind,
+          status: 'redeemed',
+          amount: redeemedEntry.amount,
+        }
+        continue
+      }
+      const candidate = getReclaimCandidate(run, userPubkey, reclaimRedeemed)
+      if (candidate) {
+        map[run.id] = limited
+          ? {kind: candidate.kind, status: 'rateLimited', rateLimitUntil: reclaimRateLimit.until}
+          : {kind: candidate.kind, status: 'idle'}
+      }
+    }
+    return map
+  })
+
+  const eligibleReclaimCount = $derived(
+    Object.values(reclaimByRunId).filter(s => s.status === 'idle').length
+  )
+
+  const selectedReclaim = $derived(
+    selectedRunDetail ? (reclaimByRunId[selectedRunDetail.run.id] ?? null) : null
+  )
+
+  async function attemptReclaim(runId: string): Promise<void> {
+    if (!bridge) return
+    if (reclaimInFlight.has(runId)) return
+    if (reclaimRateLimit.until > Date.now()) return
+    if (reclaimRedeemed[runId]) return
+
+    const userPubkey = repoCtx?.userPubkey
+    const run = workflowRuns.find(r => r.id === runId)
+    if (!run || !userPubkey) return
+    const candidate = getReclaimCandidate(run, userPubkey, reclaimRedeemed)
+    if (!candidate) return
+
+    reclaimInFlight.add(runId)
+    // Mark pending immediately so the serial-effect guard sees this attempt
+    // even before async work starts (P2PK decode, mint roundtrip).
+    reclaimTransient = {
+      ...reclaimTransient,
+      [runId]: {kind: candidate.kind, status: 'pending'},
+    }
+
+    try {
+      // Phase 1: no host keyring bootstrap yet, so we cannot unlock P2PK.
+      // Skip these without spending a mint request.
+      if (await isP2PKLocked(candidate.token)) {
+        reclaimTransient = {
+          ...reclaimTransient,
+          [runId]: {kind: candidate.kind, status: 'p2pkUnsupported'},
+        }
+        return
+      }
+
+      const result = await receiveReclaimToken(bridge!, candidate.token)
+      const tokenHash = await sha256Hex(candidate.token)
+      const amount = result.kind === 'redeemed' ? result.amount : undefined
+
+      reclaimRedeemed = await markRedeemed(reclaimRedeemed, runId, {
+        kind: candidate.kind,
+        tokenHash,
+        amount,
+        redeemedAt: Date.now(),
+      })
+      const next = {...reclaimTransient}
+      delete next[runId]
+      reclaimTransient = next
+
+      if (result.kind === 'redeemed' && amount && amount > 0) {
+        void showToast(
+          `Reclaimed ₿${amount.toLocaleString()} from ${candidate.kind === 'change' ? 'change' : 'refund'}.`,
+          'success',
+        )
+        // Surface the new balance immediately if the wallet panel is open.
+        void refreshWallet().catch(() => undefined)
+      }
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        const state: RateLimitState = {until: err.until, reason: err.message}
+        try {
+          await saveRateLimit(state)
+        } catch {
+          // best-effort persist; still apply the cooldown in memory
+        }
+        reclaimRateLimit = state
+        // Drop the transient state — the derived map will paint the badge
+        // 'rateLimited' from the persisted state until the cooldown lifts.
+        const next = {...reclaimTransient}
+        delete next[runId]
+        reclaimTransient = next
+      } else {
+        const classified = classifyReclaimError(err)
+        reclaimTransient = {
+          ...reclaimTransient,
+          [runId]: {
+            kind: candidate.kind,
+            status: 'failed',
+            error: classified.message,
+          },
+        }
+      }
+    } finally {
+      reclaimInFlight.delete(runId)
+    }
+  }
+
+  async function reclaimAllEligible() {
+    const ids = workflowRuns
+      .filter(run => reclaimByRunId[run.id]?.status === 'idle')
+      .map(run => run.id)
+    for (const id of ids) {
+      if (reclaimRateLimit.until > Date.now()) break
+      await attemptReclaim(id)
+    }
+  }
 
   async function showToast(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
     if (!bridge) return
@@ -1065,6 +1230,56 @@
     }
   })
 
+  // Hydrate the persisted reclaim ledger + rate-limit state. Storage lives in
+  // the iframe's own localStorage (per-extension-origin), so this doesn't
+  // depend on the bridge being ready — but we still gate on bridge so the
+  // controller waits until the rest of the widget has its hooks.
+  $effect(() => {
+    if (!bridge) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const [redeemed, rateLimit] = await Promise.all([loadRedeemed(), loadRateLimit()])
+        if (cancelled) return
+        reclaimRedeemed = redeemed
+        reclaimRateLimit = rateLimit
+        reclaimReady = true
+      } catch (err) {
+        console.error('[reclaim] failed to load persisted state', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  })
+
+  // Drive auto-reclaim — picks the next idle candidate and fires a single
+  // attempt at a time. The state update at the end of attemptReclaim
+  // re-triggers this effect, so it walks the queue serially.
+  $effect(() => {
+    if (!reclaimReady || !bridge) return
+    if (reclaimRateLimit.until > Date.now()) return
+    // Serial: skip if any attempt is in progress. attemptReclaim sets the
+    // run's transient state to 'pending' before yielding, so this guard
+    // catches both "actively awaiting the mint" and "decoding token".
+    const anyPending = Object.values(reclaimTransient).some(s => s.status === 'pending')
+    if (anyPending) return
+    const states = reclaimByRunId
+    const next = workflowRuns.find(run => states[run.id]?.status === 'idle')
+    if (next) void attemptReclaim(next.id)
+  })
+
+  // Tick once a second to refresh the rate-limit countdown badge.
+  $effect(() => {
+    if (reclaimRateLimit.until <= Date.now()) return
+    const id = setInterval(() => {
+      reclaimTick = (reclaimTick + 1) % Number.MAX_SAFE_INTEGER
+      // When the cooldown lifts, this effect will tear down on the next run
+      // because the guard above flips to true.
+    }, 1000)
+    return () => clearInterval(id)
+  })
+
   $effect(() => {
     return setupWidgetLifecycle({
       onBridgeChange: nextBridge => {
@@ -1256,6 +1471,20 @@
               </FilterDropdown>
             </div>
           </div>
+
+          {#if eligibleReclaimCount > 0}
+            <div class="flex items-center justify-between gap-3 border-b border-border bg-emerald-500/5 px-4 py-2 text-xs text-emerald-200">
+              <span>
+                {eligibleReclaimCount} {eligibleReclaimCount === 1 ? 'run has' : 'runs have'} funds to reclaim.
+              </span>
+              <button
+                type="button"
+                class="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 font-medium text-emerald-200 hover:bg-emerald-500/20"
+                onclick={() => void reclaimAllEligible()}>
+                Reclaim all
+              </button>
+            </div>
+          {/if}
 
           {#if loading}
             <div class="flex items-center justify-center py-16">
@@ -1615,6 +1844,8 @@
                 {prepaidAmount}
                 {changeAmount}
                 {actualCost}
+                reclaim={selectedReclaim}
+                onReclaim={() => void attemptReclaim(run.id)}
                 {copyText} />
             </div>
           </div>

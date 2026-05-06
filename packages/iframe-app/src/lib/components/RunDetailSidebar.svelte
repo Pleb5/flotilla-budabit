@@ -2,7 +2,8 @@
   import {ChevronDown, Copy, ExternalLink, GitBranch, GitCommit, Server} from '@lucide/svelte'
   import {shortId} from '../presentation'
   import {publicLinkForRun} from '../workflows'
-  import type {WorkflowRun, LoomWorker} from '../types'
+  import ReclaimBadge from './ReclaimBadge.svelte'
+  import type {WorkflowRun, LoomWorker, ReclaimUiState} from '../types'
 
   interface Props {
     run: WorkflowRun
@@ -12,7 +13,9 @@
     actualCost: number | null
     prepaymentFee?: number | null
     changeFee?: number | null
+    reclaim?: ReclaimUiState | null
     copyText: (value: string | undefined, label: string) => void | Promise<void>
+    onReclaim?: () => void
   }
 
   const {
@@ -23,7 +26,9 @@
     actualCost,
     prepaymentFee = 0,
     changeFee = 0,
+    reclaim = null,
     copyText,
+    onReclaim,
   }: Props = $props()
 
   const fmt = (n: number | null | undefined, sign: '' | '+' | '−' = '') =>
@@ -148,5 +153,21 @@
         </div>
       </div>
     </details>
+
+    {#if reclaim}
+      <section class="flex items-center justify-between gap-2 pt-3">
+        <span class="text-xs font-semibold text-muted-foreground">
+          {reclaim.kind === 'change' ? 'Change' : 'Refund'}
+        </span>
+        <ReclaimBadge
+          status={reclaim.status}
+          kind={reclaim.kind}
+          amount={reclaim.amount}
+          rateLimitUntil={reclaim.rateLimitUntil}
+          error={reclaim.error}
+          interactive
+          onclick={onReclaim} />
+      </section>
+    {/if}
   </div>
 </aside>
