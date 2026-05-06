@@ -22,6 +22,7 @@
     cashuBackupConfirmed,
     cashuAutoPayWhitelist,
     removeAutoPayWhitelist,
+    recoverAllTrustedMints,
   } from "@lib/budabit/cashu"
   import CashuMintManager from "@lib/budabit/components/CashuMintManager.svelte"
   import CashuSeedBackup from "@lib/budabit/components/CashuSeedBackup.svelte"
@@ -47,6 +48,25 @@
 
   const openCashuWallet = () => pushModal(CashuWalletModal)
   const openBackup = () => pushModal(CashuSeedBackup)
+
+  let recovering = $state(false)
+  let recoverResult = $state<
+    | {succeeded: string[]; failed: {mintUrl: string; error: string}[]}
+    | {topLevelError: string}
+    | null
+  >(null)
+
+  const runRecovery = async () => {
+    recovering = true
+    recoverResult = null
+    try {
+      recoverResult = await recoverAllTrustedMints()
+    } catch (e: any) {
+      recoverResult = {topLevelError: e?.message || "Recovery failed"}
+    } finally {
+      recovering = false
+    }
+  }
 </script>
 
 <div class="content column gap-4">
@@ -197,6 +217,56 @@
       <Button class="btn btn-neutral btn-sm self-start" onclick={openCashuWallet}>
         Open Wallet
       </Button>
+
+      <details class="rounded-md border border-base-300 bg-base-200/40">
+        <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+          Advanced
+        </summary>
+        <div class="flex flex-col gap-3 border-t border-base-300 px-3 py-3 text-sm">
+          <div>
+            <p class="font-medium">Recover wallet</p>
+            <p class="text-xs opacity-70">
+              Cancels stuck receive operations and asks every trusted mint for any
+              proofs the wallet may have missed. Use after token redeems fail with
+              "outputs already signed" or after restoring from a seed backup.
+            </p>
+          </div>
+          <Button
+            class="btn btn-warning btn-sm self-start"
+            onclick={runRecovery}
+            disabled={recovering}>
+            {recovering ? "Recovering…" : "Recover from all trusted mints"}
+          </Button>
+          {#if recoverResult}
+            {#if "topLevelError" in recoverResult}
+              <p class="text-xs text-error">{recoverResult.topLevelError}</p>
+            {:else}
+              <div class="flex flex-col gap-1 text-xs">
+                {#if recoverResult.succeeded.length > 0}
+                  <p class="text-success">
+                    Recovered {recoverResult.succeeded.length} mint{recoverResult.succeeded.length === 1 ? "" : "s"}.
+                  </p>
+                {/if}
+                {#if recoverResult.failed.length > 0}
+                  <div class="flex flex-col gap-1">
+                    <p class="text-error">
+                      {recoverResult.failed.length} mint{recoverResult.failed.length === 1 ? "" : "s"} failed:
+                    </p>
+                    {#each recoverResult.failed as f (f.mintUrl)}
+                      <p class="break-all opacity-80">
+                        <span class="font-mono">{f.mintUrl}</span>: {f.error}
+                      </p>
+                    {/each}
+                  </div>
+                {/if}
+                {#if recoverResult.succeeded.length === 0 && recoverResult.failed.length === 0}
+                  <p class="opacity-70">No trusted mints to recover.</p>
+                {/if}
+              </div>
+            {/if}
+          {/if}
+        </div>
+      </details>
     </div>
   </div>
 </div>

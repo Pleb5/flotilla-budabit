@@ -43,9 +43,33 @@ let _mnemonic: string | null = null
 // ─── Initialization ───────────────────────────────────────────────────────────
 
 let _initPromise: Promise<void> | null = null
+// Resolves the moment `manager` is assigned, *before* the warmup refresh
+// batch. Handler-facing functions wait on this so they don't get stuck
+// behind a slow mint roundtrip or IndexedDB seek that's running purely
+// for store-warmup purposes.
+let _managerReadyPromise: Promise<void> | null = null
+let _resolveManagerReady: (() => void) | null = null
+
+const ensureManagerReady = async (): Promise<void> => {
+  if (!_managerReadyPromise) {
+    _managerReadyPromise = new Promise<void>(resolve => {
+      _resolveManagerReady = resolve
+    })
+  }
+  // Kick off init if it hasn't started; we don't await the full init
+  // promise here, only the manager-ready half.
+  if (!_initPromise) initializeCashuWallet()
+  await _managerReadyPromise
+
+}
 
 export const initializeCashuWallet = (): Promise<void> => {
   if (_initPromise) return _initPromise
+  if (!_managerReadyPromise) {
+    _managerReadyPromise = new Promise<void>(resolve => {
+      _resolveManagerReady = resolve
+    })
+  }
   _initPromise = _doInitialize()
   return _initPromise
 }
@@ -76,11 +100,12 @@ const _doInitialize = async (): Promise<void> => {
       seedGetter,
       logger: new ConsoleLogger("coco", {level: "warn" as any}),
       watchers: {
-        mintOperationWatcher: {disabled: true},
+        // proofStateWatcher polls mints to detect remotely-spent proofs;
+        // we don't need that telemetry, so leave it off. The
+        // mintOperationWatcher and mintOperationProcessor are required
+        // in coco v1 for receive/send promises to resolve, so leave
+        // them at their defaults (enabled).
         proofStateWatcher: {disabled: true},
-      },
-      processors: {
-        mintOperationProcessor: {disabled: true},
       },
     })
 
@@ -94,9 +119,16 @@ const _doInitialize = async (): Promise<void> => {
     manager.on("proofs:wiped", refreshCashuBalances)
 
     cashuInitialized.set(true)
+    // Manager is fully wired — unblock any handler-facing callers waiting on
+    // ensureManagerReady() before we run the (potentially slow) warmup
+    // refresh batch.
+    _resolveManagerReady?.()
     await Promise.all([refreshCashuMints(), refreshCashuHistory(), refreshCashuBalances()])
   } catch (e) {
     console.error("[cashu] Failed to initialize wallet:", e)
+    // Unblock waiters even on failure so they hit the !manager throw rather
+    // than hanging forever.
+    _resolveManagerReady?.()
   }
 }
 
@@ -125,7 +157,9 @@ const refreshCashuMints = async (): Promise<void> => {
 }
 
 export const addCashuMint = async (url: string): Promise<void> => {
+  await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
+
   await manager.mint.addMint(url, {trusted: true})
   // mint:added / mint:trusted events drive the store refresh
 }
@@ -144,7 +178,9 @@ export class UntrustedMintError extends Error {
  * counter has drifted past proofs the mint signed, and restore reclaims them.
  */
 export const recoverCashuMint = async (mintUrl: string): Promise<void> => {
+  await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
+
   const inFlight = await manager.ops.receive.listInFlight()
   for (const op of inFlight) {
     if (op.mintUrl === mintUrl) {
@@ -159,14 +195,44 @@ export const recoverCashuMint = async (mintUrl: string): Promise<void> => {
   await refreshCashuBalances()
 }
 
-export const trustCashuMint = async (url: string): Promise<void> => {
+/**
+ * Run `recoverCashuMint` over every trusted mint. Per-mint failures are
+ * collected and returned alongside successes; the caller decides how to
+ * surface the partial result.
+ */
+export const recoverAllTrustedMints = async (): Promise<{
+  succeeded: string[]
+  failed: {mintUrl: string; error: string}[]
+}> => {
+  await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
+
+  const trusted = await manager.mint.getAllTrustedMints()
+  const succeeded: string[] = []
+  const failed: {mintUrl: string; error: string}[] = []
+  for (const {mintUrl} of trusted) {
+    try {
+      await recoverCashuMint(mintUrl)
+      succeeded.push(mintUrl)
+    } catch (e: any) {
+      failed.push({mintUrl, error: e?.message || String(e)})
+    }
+  }
+  return {succeeded, failed}
+}
+
+export const trustCashuMint = async (url: string): Promise<void> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+
   await manager.mint.addMint(url, {trusted: true})
   // mint:added / mint:trusted events drive the store refresh
 }
 
 export const removeCashuMint = async (url: string): Promise<void> => {
+  await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
+
   await manager.mint.untrustMint(url)
   // mint:untrusted event drops it from the trusted-mints store
 }
@@ -189,7 +255,9 @@ export const refreshCashuBalances = async (): Promise<void> => {
 // ─── Token Operations ─────────────────────────────────────────────────────────
 
 export const receiveCashuToken = async (token: string): Promise<number> => {
+  await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
+
 
   let mintUrl = ""
   try {
@@ -210,7 +278,9 @@ export const receiveCashuToken = async (token: string): Promise<number> => {
 }
 
 export const createCashuToken = async (amount: number, mintUrl: string): Promise<string> => {
+  await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
+
   if (!get(cashuBackupConfirmed)) {
     throw new Error("backup_required")
   }
@@ -249,7 +319,9 @@ export const mintTokensFromQuote = async (
   quote: string,
   amount: number,
 ): Promise<void> => {
+  await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
+
   if (!get(cashuBackupConfirmed)) {
     throw new Error("backup_required")
   }
