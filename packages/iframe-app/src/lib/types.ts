@@ -109,6 +109,23 @@ export interface RepoBranchInfo {
   commitId?: string;
 }
 
+export type ReclaimStatus =
+  | 'idle'
+  | 'pending'
+  | 'redeemed'
+  | 'rateLimited'
+  | 'failed'
+  | 'p2pkUnsupported';
+
+export interface ReclaimUiState {
+  kind: 'change' | 'original';
+  status: ReclaimStatus;
+  amount?: number;
+  error?: string;
+  /** Unix ms when a rate-limit cooldown lifts. */
+  rateLimitUntil?: number;
+}
+
 export interface RerunDraft {
   repoAddress: string;
   workflowPath: string;

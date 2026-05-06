@@ -9,7 +9,8 @@ import type {
   WorkflowStatus,
 } from './types';
 import { toRepoNostrUrl } from './nip07';
-import { buildRepoEvents, eventStore } from './nostr';
+import { buildRepoEvents, buildWorkerEvents, eventStore, WORKER_ONLINE_WINDOW_MS } from './nostr';
+import { interval, merge as mergeRx } from 'rxjs';
 import {
   BehaviorSubject,
   shareReplay,
@@ -339,28 +340,62 @@ export function parseLoomWorker(event: NostrEvent): LoomWorker | null {
   }
 }
 
-export async function loadWorkers(
-  bridge: BridgeLike,
-  repo: RepoContextNormalized
-): Promise<LoomWorker[]> {
-  const relays = dedupe([...repo.repoRelays, ...FALLBACK_RELAYS]);
-  const workerEvents = await queryEvents(bridge, relays, [{ kinds: [10100], limit: 200 }]);
+/**
+ * Live-updated online-worker list. Subscribes to kind 10100 advertisements
+ * via applesauce (filtered server-side to the last 5 minutes via `since`),
+ * deduplicates by pubkey (keeping the latest event), parses each into a
+ * `LoomWorker`, and emits a sorted array of *online* workers (those whose
+ * latest ad is still within the online window).
+ *
+ * A periodic ticker re-evaluates the list so workers whose ads age out of
+ * the window drop off without needing a fresh subscription event. Cached
+ * per relay-set so the subscription persists across remounts.
+ */
+const workersCache = new Map<string, BehaviorSubject<LoomWorker[]>>();
 
+export function workers$(relays: string[]): Observable<LoomWorker[]> {
+  const key = [...new Set(relays)].sort().join(',');
+  const existing = workersCache.get(key);
+  if (existing) return existing;
+
+  const subject = new BehaviorSubject<LoomWorker[]>([]);
   const latestByPubkey = new Map<string, NostrEvent>();
-  for (const event of workerEvents) {
-    const existing = latestByPubkey.get(event.pubkey);
-    if (!existing || event.created_at > existing.created_at) {
+
+  const recompute = () => {
+    const next = Array.from(latestByPubkey.values())
+      .map(parseLoomWorker)
+      .filter((worker): worker is LoomWorker => worker !== null && worker.online)
+      .sort((a, b) => (a.currentQueueDepth || 0) - (b.currentQueueDepth || 0));
+    subject.next(next);
+  };
+
+  const events$ = buildWorkerEvents(relays).pipe(
+    tap(event => eventStore.add(event as Parameters<typeof eventStore.add>[0])),
+  );
+  // Tick every 30s so a worker whose ad ages past the online window drops
+  // off without us needing a new event. The interval emits void; recompute
+  // reads `latestByPubkey` directly.
+  const ticker$ = interval(30_000);
+  mergeRx(events$, ticker$).subscribe(value => {
+    if (value && typeof value === 'object' && 'pubkey' in value) {
+      const event = value as NostrEvent;
+      const prior = latestByPubkey.get(event.pubkey);
+      if (prior && prior.created_at >= event.created_at) return;
       latestByPubkey.set(event.pubkey, event);
     }
-  }
+    // Drop entries we already know are too old to ever be online again.
+    const cutoff = (Date.now() - WORKER_ONLINE_WINDOW_MS) / 1000;
+    for (const [pk, ev] of latestByPubkey) {
+      if (ev.created_at < cutoff) latestByPubkey.delete(pk);
+    }
+    recompute();
+  });
+  workersCache.set(key, subject);
+  return subject;
+}
 
-  return Array.from(latestByPubkey.values())
-    .map(parseLoomWorker)
-    .filter((worker): worker is LoomWorker => worker !== null)
-    .sort((a, b) => {
-      if (a.online !== b.online) return a.online ? -1 : 1;
-      return (a.currentQueueDepth || 0) - (b.currentQueueDepth || 0);
-    });
+export function repoWorkerRelays(repo: RepoContextNormalized): string[] {
+  return dedupe([...repo.repoRelays, ...FALLBACK_RELAYS]);
 }
 
 export function statusLabel(status: WorkflowStatus): string {

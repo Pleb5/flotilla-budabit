@@ -12,7 +12,6 @@
     rerunSecrets?: {key: string; value: string}[]
     rerunSubmitting?: boolean
     discoveredWorkers?: LoomWorker[]
-    loadingWorkers?: boolean
     walletAvailable?: boolean
     walletLoading?: boolean
     walletError?: string | null
@@ -22,6 +21,7 @@
     selectedMint?: string
     paymentAmount?: number
     maxDuration?: number
+    minDurationSeconds?: number
     generatingPaymentToken?: boolean
     autoTokenPromptOpen?: boolean
     selectedWorker?: LoomWorker | null
@@ -33,7 +33,6 @@
     availableWorkflows?: WorkflowDefinition[]
     availableBranches?: string[]
     defaultBranch?: string
-    onRefreshWorkers: () => void
     onRefreshWallet: () => void
     onGeneratePaymentToken: () => void
     onConfirmAutoTokenGeneration: () => void
@@ -56,7 +55,6 @@
     rerunSecrets = $bindable([{key: '', value: ''}]),
     rerunSubmitting = false,
     discoveredWorkers = [],
-    loadingWorkers = false,
     walletAvailable = false,
     walletLoading = false,
     walletError = null,
@@ -64,8 +62,9 @@
     walletBalancesByMint = {},
     visibleMintOptions = [],
     selectedMint = $bindable(''),
-    paymentAmount = $bindable(100),
+    paymentAmount = 0,
     maxDuration = $bindable(600),
+    minDurationSeconds = 0,
     generatingPaymentToken = false,
     autoTokenPromptOpen: _autoTokenPromptOpen = false,
     selectedWorker = null,
@@ -77,7 +76,6 @@
     availableWorkflows = [],
     availableBranches = [],
     defaultBranch = 'main',
-    onRefreshWorkers,
     onRefreshWallet,
     onGeneratePaymentToken: _onGeneratePaymentToken,
     onConfirmAutoTokenGeneration: _onConfirmAutoTokenGeneration,
@@ -195,6 +193,41 @@
   const isCustomDuration = $derived(
     showCustomDuration || !durationPresets.some(p => p.seconds === maxDuration),
   )
+  const customMinSeconds = $derived(Math.max(60, minDurationSeconds || 0))
+  const formatDuration = (seconds: number) => {
+    if (seconds >= 3600) {
+      const h = seconds / 3600
+      return Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`
+    }
+    if (seconds >= 60) {
+      const m = seconds / 60
+      return Number.isInteger(m) ? `${m}m` : `${m.toFixed(1)}m`
+    }
+    return `${seconds}s`
+  }
+
+  // Hours / minutes / seconds breakdown for the custom-duration input. Edits to
+  // any field recompose maxDuration in seconds; we only resync the local fields
+  // from `maxDuration` when the change came from outside (preset buttons, parent
+  // clamp), to avoid clobbering an in-progress entry like "0h 9m 0s".
+  let customHours = $state(0)
+  let customMinutes = $state(0)
+  let customSeconds = $state(0)
+  let lastSyncedFromMaxDuration = -1
+  $effect(() => {
+    if (maxDuration === lastSyncedFromMaxDuration) return
+    const total = Math.max(0, Math.floor(maxDuration))
+    customHours = Math.floor(total / 3600)
+    customMinutes = Math.floor((total % 3600) / 60)
+    customSeconds = total % 60
+    lastSyncedFromMaxDuration = maxDuration
+  })
+  const setCustomDuration = () => {
+    const total = (customHours || 0) * 3600 + (customMinutes || 0) * 60 + (customSeconds || 0)
+    const clamped = Math.max(customMinSeconds, total)
+    lastSyncedFromMaxDuration = clamped
+    maxDuration = clamped
+  }
 
   const formatLastSeen = (ts?: number) => {
     if (!ts) return ''
@@ -260,10 +293,7 @@
     </div>
 
     <div class="space-y-2">
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-muted-foreground">Worker</span>
-        <button class="text-xs text-primary hover:underline" onclick={onRefreshWorkers}>{loadingWorkers ? 'Refreshing…' : 'Refresh'}</button>
-      </div>
+      <span class="text-xs text-muted-foreground">Worker</span>
       {#if rankedWorkers.length > 0}
         <div class="grid gap-2">
           {#each rankedWorkers as worker (worker.pubkey)}
@@ -304,7 +334,7 @@
           {/each}
         </div>
       {:else}
-        <div class="rounded-md border border-input p-3 text-sm text-muted-foreground">{loadingWorkers ? 'Discovering workers…' : 'No workers discovered yet.'}</div>
+        <div class="rounded-md border border-input p-3 text-sm text-muted-foreground">No online workers yet.</div>
       {/if}
     </div>
 
@@ -400,8 +430,11 @@
       <span class="text-xs text-muted-foreground">Max duration</span>
       <div class="flex flex-wrap gap-2">
         {#each durationPresets as preset}
+          {@const belowMin = preset.seconds < customMinSeconds}
           <button
-            class="rounded-md border px-3 py-1.5 text-sm {maxDuration === preset.seconds && !showCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'}"
+            class="rounded-md border px-3 py-1.5 text-sm {maxDuration === preset.seconds && !showCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'} {belowMin ? 'cursor-not-allowed opacity-40' : ''}"
+            disabled={belowMin}
+            title={belowMin ? `Worker requires at least ${formatDuration(customMinSeconds)}` : ''}
             onclick={() => { showCustomDuration = false; maxDuration = preset.seconds }}>
             {preset.label}
           </button>
@@ -413,26 +446,40 @@
         </button>
       </div>
       {#if isCustomDuration}
-        <div class="flex items-center gap-2">
-          <input class="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm" type="number" min="60" step="60" bind:value={maxDuration} />
-          <span class="text-xs text-muted-foreground">seconds</span>
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <label class="flex items-center gap-1">
+            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" step="1" bind:value={customHours} oninput={setCustomDuration} onchange={setCustomDuration} />
+            <span class="text-xs text-muted-foreground">h</span>
+          </label>
+          <label class="flex items-center gap-1">
+            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customMinutes} oninput={setCustomDuration} onchange={setCustomDuration} />
+            <span class="text-xs text-muted-foreground">m</span>
+          </label>
+          <label class="flex items-center gap-1">
+            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customSeconds} oninput={setCustomDuration} onchange={setCustomDuration} />
+            <span class="text-xs text-muted-foreground">s</span>
+          </label>
+          <span class="text-xs text-muted-foreground">= {maxDuration}s</span>
         </div>
+      {/if}
+      {#if minDurationSeconds && minDurationSeconds > 0}
+        <p class="text-[11px] text-muted-foreground">Worker minimum: {formatDuration(minDurationSeconds)}</p>
       {/if}
     </div>
 
-    <!-- Prepayment (prominent, editable) -->
-    <label class="block rounded-md border border-primary/30 bg-primary/5 p-4">
+    <!-- Prepayment (derived from duration × worker rate) -->
+    <div class="block rounded-md border border-primary/30 bg-primary/5 p-4">
       <div class="text-xs uppercase tracking-wide text-muted-foreground">Prepayment</div>
       <div class="mt-1 flex items-baseline gap-2">
-        <input
-          class="w-full bg-transparent text-2xl font-semibold focus:outline-none"
-          type="number"
-          min="1"
-          step="1"
-          bind:value={paymentAmount} />
+        <span class="text-2xl font-semibold">{paymentAmount.toLocaleString()}</span>
         <span class="text-base font-normal text-muted-foreground">sats</span>
       </div>
-    </label>
+      <p class="mt-1 text-[11px] text-muted-foreground">
+        {selectedWorker?.pricing?.perSecondRate
+          ? `${selectedWorker.pricing.perSecondRate} ${selectedWorker.pricing.unit || 'sat'}/s × ${formatDuration(maxDuration)}`
+          : 'Pick a worker to compute prepayment'}
+      </p>
+    </div>
 
     {#if selectedWorker && walletAvailable && compatibleMints.length === 0}
       <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">No overlapping mints between your wallet and the selected worker.</div>
