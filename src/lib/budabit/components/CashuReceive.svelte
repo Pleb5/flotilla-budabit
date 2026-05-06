@@ -3,8 +3,27 @@
     receiveCashuToken,
     trustCashuMint,
     recoverCashuMint,
-    UntrustedMintError,
   } from "@lib/budabit/cashu"
+
+  // Recognize the untrusted-mint error by any of the surface markers — class
+  // identity (instanceof) breaks across HMR / module duplication, and even
+  // class-field code/name attributes can vary depending on emit. Falls back
+  // to message-shape match, which catches both our own UntrustedMintError
+  // and any equivalent coco-internal "Mint X is not trusted" raise.
+  const matchUntrustedMint = (e: any): {mintUrl: string} | null => {
+    if (!e || typeof e !== "object") return null
+    const code = (e as {code?: string}).code
+    const name = (e as {name?: string}).name
+    const msg = typeof (e as {message?: unknown}).message === "string" ? (e as {message: string}).message : ""
+    const looksUntrusted =
+      code === "untrusted_mint" || name === "UntrustedMintError" || /\bis not trusted\b/i.test(msg)
+    if (!looksUntrusted) return null
+    const explicit = (e as {mintUrl?: unknown}).mintUrl
+    if (typeof explicit === "string" && explicit) return {mintUrl: explicit}
+    const fromMsg = msg.match(/Mint\s+(\S+)\s+is not trusted/i)
+    if (fromMsg && fromMsg[1]) return {mintUrl: fromMsg[1]}
+    return null
+  }
   import {getDecodedToken} from "@cashu/coco-core"
   import Button from "@lib/components/Button.svelte"
 
@@ -39,8 +58,10 @@
       received = amount
       token = ""
     } catch (e: any) {
-      if (e instanceof UntrustedMintError) {
-        trustPrompt = e.mintUrl
+      console.error("[cashu] redeem error:", e, {name: e?.name, code: e?.code, message: e?.message})
+      const untrusted = matchUntrustedMint(e)
+      if (untrusted) {
+        trustPrompt = untrusted.mintUrl
       } else if (isOutputsSignedError(e?.message || "")) {
         recoverPrompt = extractMintUrl(t)
         if (!recoverPrompt) error = e?.message || "Failed to redeem token"
