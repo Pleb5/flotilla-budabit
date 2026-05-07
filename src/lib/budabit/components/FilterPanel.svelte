@@ -413,7 +413,7 @@
 <style>
   @media (hover: none) {
     :global(.label-filter-button:not(.label-selected):hover) {
-      background-color: hsl(var(--background));
+      background-color: hsl(var(--ng-background));
       color: inherit;
     }
   }

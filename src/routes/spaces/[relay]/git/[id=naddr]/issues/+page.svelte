@@ -1254,7 +1254,7 @@
       </Spinner>
     </div>
   {:else if searchedIssues.length === 0}
-    <div class="flex flex-col items-center justify-center py-12 text-gray-500">
+    <div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
       <SearchX class="mb-2 h-8 w-8" />
       No issues found.
       {#if suggestedUnreadStatus}

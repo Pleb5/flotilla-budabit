@@ -1268,96 +1268,94 @@
             <BookOpen class="h-5 w-5" />
             README
           </h3>
-          <div class="prose max-w-full overflow-x-auto bg-white dark:bg-zinc-900" in:fly>
+          <div class="git-readme prose max-w-full overflow-x-auto" in:fly>
             {@html renderedReadme}
             <style>
-              .prose {
-                color: theme("colors.zinc.50");
+              .git-readme {
+                color: hsl(var(--ng-foreground));
                 background: none;
               }
-              .dark .prose {
-                color: theme("colors.white");
-              }
-              .prose h1,
-              .prose h2,
-              .prose h3 {
+              .git-readme h1,
+              .git-readme h2,
+              .git-readme h3 {
                 font-weight: 600;
                 line-height: 1.25;
-                color: theme("colors.zinc.50");
+                color: hsl(var(--ng-foreground));
                 margin-top: 2rem;
                 margin-bottom: 1rem;
               }
-              .prose h1 {
+              .git-readme h1 {
                 font-size: 2rem;
-                border-bottom: 1px solid theme("colors.zinc.50");
+                border-bottom: 1px solid hsl(var(--ng-border));
                 padding-bottom: 0.3em;
               }
-              .prose h2 {
+              .git-readme h2 {
                 font-size: 1.5rem;
-                border-bottom: 1px solid theme("colors.zinc.50");
+                border-bottom: 1px solid hsl(var(--ng-border));
                 padding-bottom: 0.2em;
               }
-              .prose h3 {
+              .git-readme h3 {
                 font-size: 1.25rem;
                 padding-bottom: 0.1em;
               }
-              .prose ul,
-              .prose ol {
+              .git-readme ul,
+              .git-readme ol {
                 margin: 1em 0;
                 padding-left: 2em;
               }
-              .prose li {
+              .git-readme li {
                 margin: 0.3em 0;
               }
-              .prose a {
-                color: theme("colors.accent");
+              .git-readme a {
+                color: hsl(var(--ng-primary));
                 text-decoration: underline;
                 text-underline-offset: 2px;
                 transition: color 0.2s;
               }
-              .prose a:hover {
-                color: theme("colors.primary");
+              .git-readme a:hover {
+                color: hsl(var(--ng-accent));
               }
-              .prose code {
-                background: theme("colors.zinc.700");
-                color: theme("colors.zinc.100");
+              .git-readme code {
+                background: hsl(var(--ng-muted));
+                color: hsl(var(--ng-foreground));
                 border-radius: 4px;
                 padding: 0.2em 0.4em;
                 font-size: 0.95em;
               }
-              .prose pre {
-                background: theme("colors.zinc.900");
-                color: theme("colors.zinc.100");
+              .git-readme pre {
+                background: hsl(var(--ng-background));
+                color: hsl(var(--ng-foreground));
+                border: 1px solid hsl(var(--ng-border));
                 border-radius: 8px;
                 padding: 1em;
                 margin: 1.5em 0;
                 font-size: 1em;
                 overflow-x: auto;
               }
-              .prose blockquote {
-                border-left: 4px solid theme("colors.zinc.300");
-                background: theme("colors.zinc.50");
-                color: theme("colors.zinc.600");
+              .git-readme blockquote {
+                border-left: 4px solid hsl(var(--ng-primary));
+                background: hsl(var(--ng-muted));
+                color: hsl(var(--ng-muted-foreground));
                 padding: 1em 1.5em;
                 border-radius: 0.5em;
                 margin: 1.5em 0;
                 font-style: italic;
               }
-              .prose table {
+              .git-readme table {
                 width: 100%;
                 border-collapse: collapse;
                 margin-bottom: 1.5em;
-                background: theme("colors.zinc.50");
+                background: hsl(var(--ng-card));
                 border-radius: 0.5em;
                 overflow: hidden;
               }
-              .prose th,
-              .prose td {
-                border: 1px solid theme("colors.zinc.200");
+              .git-readme th,
+              .git-readme td {
+                border: 1px solid hsl(var(--ng-border));
                 padding: 0.6em 1em;
               }
-              .prose th {
-                background: theme("colors.zinc.100");
+              .git-readme th {
+                background: hsl(var(--ng-muted));
                 font-weight: 600;
               }
             </style>

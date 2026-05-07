@@ -67,16 +67,16 @@
 <div class="space-y-6 p-8">
   <h1 class="mb-6 text-3xl font-bold">Kind 5100 Workflow Events Test</h1>
 
-  <div class="mb-6 rounded-lg border bg-gray-50 p-4">
+  <div class="mb-6 rounded-lg border border-border bg-card p-4">
     <h2 class="mb-2 font-semibold">Relay</h2>
-    <code class="block break-all rounded bg-gray-800 p-3 text-sm text-gray-100">
+    <code class="block break-all rounded bg-background p-3 text-sm text-foreground">
       wss://relay.sharegap.net
     </code>
   </div>
 
   <div class="mb-6 rounded-lg border bg-purple-50 p-4">
     <h2 class="mb-2 font-semibold">Repository Filter</h2>
-    <p class="mb-2 text-sm text-gray-600">
+    <p class="mb-2 text-sm text-muted-foreground">
       Only showing events with #a tag matching this repository:
     </p>
     <code class="block break-all rounded bg-purple-800 p-3 text-sm text-purple-100">
@@ -102,14 +102,14 @@
       </h2>
 
       {#each events as event, i}
-        <div class="space-y-3 rounded-lg border bg-white p-4">
+        <div class="space-y-3 rounded-lg border border-border bg-card p-4">
           <div class="mb-3 flex items-center gap-2">
             <span class="text-lg font-semibold">Event {i + 1}</span>
             <span class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800">
               Kind {event.kind}
             </span>
           </div>
-          <div class="mb-3 font-mono text-sm text-gray-700">ID: {event.id}</div>
+          <div class="mb-3 font-mono text-sm text-muted-foreground">ID: {event.id}</div>
           <div class="mb-3 text-sm">
             Created: {new Date(event.created_at * 1000).toLocaleString()}
           </div>
@@ -127,25 +127,25 @@
                 )}{event.content.length > 500 ? "..." : ""}</pre>
             </div>
           {/if}
-          <div class="mb-3 rounded bg-gray-100 p-3">
+          <div class="mb-3 rounded bg-muted p-3">
             <h3 class="mb-2 font-semibold">Full Tags Array</h3>
             <pre
-              class="max-h-48 overflow-auto bg-gray-800 p-2 text-xs text-gray-100">{JSON.stringify(
+              class="max-h-48 overflow-auto bg-background p-2 text-xs text-foreground">{JSON.stringify(
                 event.tags,
                 null,
                 2,
               )}</pre>
           </div>
-          <div class="mb-3 rounded bg-gray-100 p-3">
+          <div class="mb-3 rounded bg-muted p-3">
             <h3 class="mb-2 font-semibold">#a Tags Only</h3>
             {#if event.tags.find((t: string[]) => t[0] === "a")}
-              <pre class="overflow-auto bg-gray-800 p-2 text-xs text-gray-100">{JSON.stringify(
+              <pre class="overflow-auto bg-background p-2 text-xs text-foreground">{JSON.stringify(
                   event.tags.find((t: string[]) => t[0] === "a"),
                   null,
                   2,
                 )}</pre>
             {:else}
-              <p class="text-sm text-gray-500">No #a tag found</p>
+              <p class="text-sm text-muted-foreground">No #a tag found</p>
             {/if}
           </div>
           <details class="mt-3">
@@ -153,7 +153,7 @@
               View full event JSON
             </summary>
             <pre
-              class="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 text-xs text-gray-100">{JSON.stringify(
+              class="mt-2 max-h-96 overflow-auto rounded bg-background p-3 text-xs text-foreground">{JSON.stringify(
                 event,
                 null,
                 2,
@@ -163,9 +163,9 @@
       {/each}
     </div>
   {:else if !loading}
-    <div class="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">
-      <p class="text-lg text-gray-600">No events found.</p>
-      <p class="mt-2 text-sm text-gray-500">Check browser console for detailed logs.</p>
+    <div class="rounded-lg border border-border bg-card p-8 text-center">
+      <p class="text-lg text-muted-foreground">No events found.</p>
+      <p class="mt-2 text-sm text-muted-foreground">Check browser console for detailed logs.</p>
     </div>
   {/if}
 </div>

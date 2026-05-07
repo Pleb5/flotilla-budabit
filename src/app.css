@@ -168,7 +168,7 @@
 
 @media (hover: none) {
   .git-card:hover {
-    background-color: hsl(var(--card));
+    background-color: hsl(var(--ng-card));
   }
   .git-card:hover .hover\:text-accent,
   .git-card:hover .hover\:text-foreground {

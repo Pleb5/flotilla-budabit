@@ -375,7 +375,7 @@
         {/if}
       </h2>
       {#if commits.length > 0}
-        <p class="mt-1 text-sm text-gray-500">
+        <p class="mt-1 text-sm text-muted-foreground">
           Showing {(currentPage - 1) * selectedPageSize + 1} to
           {#if totalCommits !== undefined}
             {` ${Math.min(currentPage * selectedPageSize, commits.length)} of ${totalCommits.toLocaleString()}${hasMoreCommits ? "+" : ""}`}
@@ -389,12 +389,12 @@
     <div>{$context.error}</div>
 
     <div class="flex items-center gap-2">
-      <label for="page-size" class="text-sm text-gray-700">Commits per page:</label>
+      <label for="page-size" class="text-sm text-muted-foreground">Commits per page:</label>
       <select
         id="page-size"
         value={selectedPageSize}
         onchange={handlePageSizeChange}
-        class="rounded-md border-gray-300 py-1 pl-2 pr-8 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+        class="rounded-md border border-border bg-background py-1 pl-2 pr-8 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">
         {#each pageSizeOptions as size}
           <option value={size}>
             {size}
@@ -432,7 +432,7 @@
             {/each}
           </div>
           <div class="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
-            <div class="text-sm text-gray-500">
+            <div class="text-sm text-muted-foreground">
               {#if totalCommits !== undefined}
                 {#if hasMoreCommits}
                   <span>Page {currentPage}</span>
@@ -451,14 +451,14 @@
                   }
                 }}
                 disabled={currentPage <= 1 || commitsLoading}
-                class="focus:z-10 inline-flex items-center rounded-l-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
+                class="focus:z-10 inline-flex items-center rounded-l-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
                 Previous
               </button>
 
               <button
                 onclick={loadMore}
                 disabled={!hasMoreCommits || commitsLoading}
-                class="focus:z-10 inline-flex items-center rounded-r-md border border-l-0 border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
+                class="focus:z-10 inline-flex items-center rounded-r-md border border-l-0 border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50">
                 {#if commitsLoading}
                   <Spinner loading={commitsLoading}>Loading...</Spinner>
                 {:else}

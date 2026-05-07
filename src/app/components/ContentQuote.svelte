@@ -762,7 +762,7 @@
     min-width: 2.5ch;
     padding: 0 0.5ch;
     text-align: right;
-    color: hsl(var(--muted-foreground) / 0.45);
+    color: hsl(var(--ng-muted-foreground) / 0.45);
     user-select: none;
   }
 
