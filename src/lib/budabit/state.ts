@@ -17,6 +17,7 @@ import {
   parseRepoAnnouncementEvent,
   type RepoGroup,
   type RepoAnnouncementEvent,
+  type RepoStateEvent,
   type IssueEvent,
   type LabelEvent,
   type CoverLetterEvent,
@@ -43,7 +44,7 @@ import {
   getTagValue,
   getAddress,
 } from "@welshman/util"
-import {nip19} from "nostr-tools"
+import {nip19, type NostrEvent} from "nostr-tools"
 import {fromPairs, pushToMapKey, sortBy, uniq, uniqBy} from "@welshman/lib"
 import {extractRoleAssignments} from "./labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "./issue-edits"
@@ -75,6 +76,26 @@ export type RepoActions = {
   readonly isBookmarked: boolean
   readonly isTogglingBookmark: boolean
   readonly isWatching: boolean
+}
+
+export const REPO_SETTINGS_ACTIONS_KEY = Symbol("repo-settings-actions")
+
+type RepoProfileSummary = {
+  name?: string
+  picture?: string
+  nip05?: string
+  display_name?: string
+}
+
+export type RepoSettingsActions = {
+  publishRepoEvent: (event: NostrEvent) => Promise<void>
+  onSaveComplete: (result: {renamed: boolean; previousName: string; nextName: string; relays: string[]}) => Promise<void>
+  openDeleteRepoModal: () => void
+  getProfile: (pubkey: string) => Promise<RepoProfileSummary | null>
+  searchProfiles: (query: string) => Promise<Array<RepoProfileSummary & {pubkey: string}>>
+  searchRelays: (query: string) => Promise<string[]>
+  readonly canEditAnnouncement: boolean
+  readonly canDelete: boolean
 }
 
 export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID

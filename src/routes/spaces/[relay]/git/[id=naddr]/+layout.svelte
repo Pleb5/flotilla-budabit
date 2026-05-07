@@ -94,6 +94,7 @@
     PULL_REQUESTS_KEY,
     REPO_FEED_ACTIVITY_KEY,
     REPO_ACTIONS_KEY,
+    REPO_SETTINGS_ACTIONS_KEY,
     activeRepoClass,
     GIT_RELAYS,
     getRepoAnnouncementRelays,
@@ -1667,6 +1668,46 @@
     get isBookmarked() { return isBookmarked },
     get isTogglingBookmark() { return isTogglingBookmark },
     get isWatching() { return isWatching },
+  })
+  setContext(REPO_SETTINGS_ACTIONS_KEY, {
+    publishRepoEvent: async (event: RepoAnnouncementEvent | RepoStateEvent) => {
+      if (!$pubkey || repoPubkey !== $pubkey) {
+        throw new Error("Only the owner can edit this repo announcement")
+      }
+
+      const repoRelays = getStore(repoRelaysStore)
+      const relaysForPublish = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
+      if (relaysForPublish.length === 0) {
+        throw new Error("Repository relays not ready. Please wait...")
+      }
+
+      const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish)
+
+      if (thunk?.event && !repository.getEvent(thunk.event.id)) {
+        repository.publish(thunk.event as TrustedEvent)
+      }
+
+      if (event.kind === GIT_REPO_STATE && thunk?.event) {
+        const published = thunk.event as RepoStateEvent
+        optimisticRepoStates = {
+          ...optimisticRepoStates,
+          [repoName]: published,
+        }
+      }
+    },
+    onSaveComplete: async ({renamed, nextName, relays}: {renamed: boolean; nextName: string; relays: string[]}) => {
+      if (!renamed) {
+        await refreshRepo()
+        return
+      }
+      await navigateToRenamedRepo(nextName, relays)
+    },
+    openDeleteRepoModal: () => openDeleteRepoModal(),
+    getProfile: (pubkey: string) => getRepoProfile(pubkey),
+    searchProfiles: (query: string) => searchRepoProfiles(query),
+    searchRelays: (query: string) => searchRepoRelays(query),
+    get canEditAnnouncement() { return !!$pubkey && repoPubkey === $pubkey },
+    get canDelete() { return !!$pubkey && repoPubkey === $pubkey },
   })
 
   // Initialize tracking for data loading

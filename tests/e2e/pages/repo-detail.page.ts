@@ -3,7 +3,7 @@ import {expect, type Locator, type Page} from "@playwright/test"
 /**
  * Valid tab values for the repository detail page
  */
-export type RepoTab = "feed" | "code" | "issues" | "patches" | "commits" | "cicd" | "workbench"
+export type RepoTab = "overview" | "feed" | "code" | "issues" | "patches" | "commits" | "settings" | "cicd" | "workbench"
 
 /**
  * Page object for the Repository Detail page (/spaces/[relay]/git/[naddr]/)
@@ -33,11 +33,13 @@ export class RepoDetailPage {
   readonly bookmarkButton: Locator
 
   // Tab navigation
+  readonly overviewTab: Locator
   readonly feedTab: Locator
   readonly codeTab: Locator
   readonly issuesTab: Locator
   readonly patchesTab: Locator
   readonly commitsTab: Locator
+  readonly settingsTab: Locator
 
   constructor(page: Page, relay: string, naddr: string) {
     this.page = page
@@ -62,17 +64,19 @@ export class RepoDetailPage {
     // Action buttons (typically in RepoHeader)
     this.refreshButton = page.locator("button[title*='Refresh'], button[aria-label*='refresh' i]").first()
     this.forkButton = page.locator("button").filter({hasText: /fork/i}).first()
-    this.settingsButton = page.locator("button[title*='Settings'], button[aria-label*='settings' i]").first()
+    this.settingsButton = page.locator("nav a[href*='/settings'], button[title*='Settings'], button[aria-label*='settings' i]").first()
     this.bookmarkButton = page.locator("button").filter({hasText: /bookmark/i}).first()
 
     // Tab navigation (using RepoTab components with links inside RepoHeader nav)
     // Use nav selector to target only the tab navigation bar, not repo card action buttons
     const tabNav = page.locator("nav")
+    this.overviewTab = tabNav.locator("a[href*='/git/']").filter({hasText: "Overview"})
     this.feedTab = tabNav.locator("a[href*='/feed']").filter({hasText: "Feed"})
     this.codeTab = tabNav.locator("a[href*='/code']").filter({hasText: "Code"})
     this.issuesTab = tabNav.locator("a[href*='/issues']").filter({hasText: "Issues"})
     this.patchesTab = tabNav.locator("a[href*='/patches']").filter({hasText: "Patches"})
     this.commitsTab = tabNav.locator("a[href*='/commits']").filter({hasText: "Commits"})
+    this.settingsTab = tabNav.locator("a[href*='/settings']").filter({hasText: "Settings"})
   }
 
   /**
@@ -173,20 +177,24 @@ export class RepoDetailPage {
 
     // Check URL in order of specificity (longer paths first to avoid false matches)
     if (url.includes("/commits")) return "commits"
+    if (url.includes("/settings")) return "settings"
     if (url.includes("/patches")) return "patches"
     if (url.includes("/issues")) return "issues"
     if (url.includes("/workbench")) return "workbench"
     if (url.includes("/cicd")) return "cicd"
     if (url.includes("/code")) return "code"
     if (url.includes("/feed")) return "feed"
+    if (/\/git\/[^/]+\/?$/.test(new URL(url).pathname)) return "overview"
 
     // Fallback: check DOM attributes
     const tabs: Array<{locator: Locator; name: RepoTab}> = [
+      {locator: this.overviewTab, name: "overview"},
       {locator: this.feedTab, name: "feed"},
       {locator: this.codeTab, name: "code"},
       {locator: this.issuesTab, name: "issues"},
       {locator: this.patchesTab, name: "patches"},
       {locator: this.commitsTab, name: "commits"},
+      {locator: this.settingsTab, name: "settings"},
     ]
 
     for (const {locator, name} of tabs) {
@@ -213,11 +221,13 @@ export class RepoDetailPage {
    */
   async clickTab(tab: RepoTab): Promise<void> {
     const tabLocators: Record<RepoTab, Locator> = {
+      overview: this.overviewTab,
       feed: this.feedTab,
       code: this.codeTab,
       issues: this.issuesTab,
       patches: this.patchesTab,
       commits: this.commitsTab,
+      settings: this.settingsTab,
       cicd: this.page.locator("a[href*='/cicd']").filter({hasText: /ci/i}),
       workbench: this.page.locator("a[href*='/workbench']").filter({hasText: /workbench/i}),
     }
@@ -303,6 +313,7 @@ export class RepoDetailPage {
   async clickSettings(): Promise<void> {
     await expect(this.settingsButton).toBeVisible()
     await this.settingsButton.click()
+    await this.waitForTabContent()
   }
 
   /**
@@ -338,11 +349,13 @@ export class RepoDetailPage {
    */
   async hasTab(tab: RepoTab): Promise<boolean> {
     const tabLocators: Record<RepoTab, Locator> = {
+      overview: this.overviewTab,
       feed: this.feedTab,
       code: this.codeTab,
       issues: this.issuesTab,
       patches: this.patchesTab,
       commits: this.commitsTab,
+      settings: this.settingsTab,
       cicd: this.page.locator("a[href*='/cicd']"),
       workbench: this.page.locator("a[href*='/workbench']"),
     }
@@ -361,6 +374,7 @@ export class RepoDetailPage {
    * Get the full URL for a specific tab
    */
   getTabUrl(tab: RepoTab): string {
+    if (tab === "overview") return this.getBasePath()
     return `${this.getBasePath()}/${tab}`
   }
 

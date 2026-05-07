@@ -42,7 +42,7 @@
   const isMaintainer = $derived.by(() => {
     const me = $pubkey
     if (!me) return false
-    return (repo.maintainers || []).includes(me)
+    return repo.isAuthorized(me)
   })
 
   let selected = $state("")

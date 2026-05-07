@@ -786,7 +786,7 @@
   }
 </script>
 
-<form class="column gap-4" onsubmit={preventDefault(deleteRepo)}>
+<form class="column min-w-0 gap-4 overflow-x-hidden" onsubmit={preventDefault(deleteRepo)}>
   <ModalHeader>
     {#snippet title()}
       Delete repository
@@ -824,18 +824,18 @@
         {:else}
           <div class="mt-2 grid gap-1">
             {#each summary.remotes as remote}
-              <div class="flex items-center justify-between">
-                <span>{remote.label} · {remote.repoPath}</span>
+              <div class="flex min-w-0 items-center justify-between gap-3">
+                <span class="min-w-0 truncate" title={`${remote.label} · ${remote.repoPath}`}>{remote.label} · {remote.repoPath}</span>
                 {#if remote.status === "deleted"}
-                  <span class="text-green-400">Deleted</span>
+                  <span class="shrink-0 whitespace-nowrap text-green-400">Deleted</span>
                 {:else if remote.status === "failed"}
-                  <span class="text-red-400">Failed</span>
+                  <span class="shrink-0 whitespace-nowrap text-red-400">Failed</span>
                 {:else}
-                  <span class="text-gray-400">Skipped</span>
+                  <span class="shrink-0 whitespace-nowrap text-gray-400">Skipped</span>
                 {/if}
               </div>
               {#if remote.detail}
-                <div class="text-xs text-gray-400">{remote.detail}</div>
+                <div class="truncate text-xs text-gray-400" title={remote.detail}>{remote.detail}</div>
               {/if}
             {/each}
           </div>
@@ -875,7 +875,7 @@
           <div class="mt-2 grid gap-2">
             {#each remoteTargets as target}
               {@const access = getAccessForTarget(target)}
-              <label class="flex items-start gap-3 text-sm">
+              <label class="flex min-w-0 items-start gap-3 text-sm">
                 <input
                   type="checkbox"
                   value={target.id}
@@ -883,14 +883,14 @@
                   disabled={isDeleting || !canSelectAccess(access)}
                   class="mt-1"
                 />
-                <div class="flex-1">
-                  <div class="flex items-center justify-between">
-                    <span>{target.label}</span>
-                    <span class={accessTone(access)}>{accessLabel(access)}</span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex min-w-0 items-center justify-between gap-3">
+                    <span class="min-w-0 truncate" title={target.label}>{target.label}</span>
+                    <span class={`${accessTone(access)} shrink-0 whitespace-nowrap`}>{accessLabel(access)}</span>
                   </div>
-                  <div class="text-xs text-gray-400">{target.repoPath}</div>
+                  <div class="truncate text-xs text-gray-400" title={target.repoPath}>{target.repoPath}</div>
                   {#if access.detail}
-                    <div class="text-xs text-gray-400">{access.detail}</div>
+                    <div class="truncate text-xs text-gray-400" title={access.detail}>{access.detail}</div>
                   {/if}
                 </div>
               </label>
