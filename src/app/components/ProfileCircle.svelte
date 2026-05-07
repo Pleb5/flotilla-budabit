@@ -14,7 +14,7 @@
 
   const {pubkey, url, size = 7, ...props}: Props = $props()
 
-  const profile = deriveProfile(pubkey, removeUndefined([url]))
+  const profile = $derived(deriveProfile(pubkey, removeUndefined([url])))
 </script>
 
 <ImageIcon

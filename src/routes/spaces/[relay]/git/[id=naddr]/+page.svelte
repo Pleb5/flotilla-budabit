@@ -998,7 +998,7 @@
               <div>
                 <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
                 <div class="grid grid-cols-2 gap-x-3 gap-y-2">
-                  {#each effectiveMaintainerPubkeys as maintainer}
+                  {#each effectiveMaintainerPubkeys as maintainer (maintainer)}
                     <button
                       type="button"
                       class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
@@ -1028,7 +1028,7 @@
                     <div class="mt-2 space-y-2">
                       <span class="block text-xs text-muted-foreground"
                         >Tagged maintainers (unverified)</span>
-                      {#each unverifiedTaggedPubkeys as maintainer}
+                      {#each unverifiedTaggedPubkeys as maintainer (maintainer)}
                         <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                           <ProfileCircle
                             pubkey={maintainer}

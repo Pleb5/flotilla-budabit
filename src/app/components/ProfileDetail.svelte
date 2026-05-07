@@ -34,13 +34,13 @@
 
   const {pubkey, url}: Props = $props()
 
-  const profile = deriveProfile(pubkey, removeUndefined([url]))
+  const profile = $derived(deriveProfile(pubkey, removeUndefined([url])))
 
-  const userIsAdmin = deriveUserIsSpaceAdmin(url)
+  const userIsAdmin = $derived(deriveUserIsSpaceAdmin(url))
 
   const back = () => history.back()
 
-  const chatPath = makeChatPath(pubkey)
+  const chatPath = $derived(makeChatPath(pubkey))
 
   const showInfo = () => pushModal(EventInfo, {url, event: $profile!.event})
 

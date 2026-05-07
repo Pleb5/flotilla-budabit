@@ -9,7 +9,7 @@
 
   const {pubkey, url}: Props = $props()
 
-  const profileDisplay = deriveProfileDisplay(pubkey, removeUndefined([url]))
+  const profileDisplay = $derived(deriveProfileDisplay(pubkey, removeUndefined([url])))
 </script>
 
 {$profileDisplay}

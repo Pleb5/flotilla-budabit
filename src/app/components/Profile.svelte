@@ -22,9 +22,9 @@
 
   const {pubkey, url, showPubkey, avatarSize = 10, hideDetails = false}: Props = $props()
 
-  const relays = removeUndefined([url])
-  const profileDisplay = deriveProfileDisplay(pubkey, relays)
-  const handle = deriveHandleForPubkey(pubkey)
+  const relays = $derived(removeUndefined([url]))
+  const profileDisplay = $derived(deriveProfileDisplay(pubkey, relays))
+  const handle = $derived(deriveHandleForPubkey(pubkey))
 
   const openProfile = () => pushModal(ProfileDetail, {pubkey, url})
 
