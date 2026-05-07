@@ -23,6 +23,11 @@
   import { Repo } from "./Repo.svelte";
   import { nip19 } from "nostr-tools";
   import { commonHashtags } from "../../stores/hashtags";
+  import {
+    getEditableRepoRelayUrls,
+    getEffectiveRepoRelayUrls,
+    getSuccessfulGraspRelayUrls,
+  } from "../../utils/grasp-pipeline.js";
 
   // Types for edit configuration and progress
   interface EditProgress {
@@ -58,6 +63,7 @@
     progress?: EditProgress;
     error?: string;
     isEditing?: boolean;
+    variant?: "modal" | "page";
     canDelete?: boolean;
     onRequestDelete?: () => void;
     onSaveComplete?: (result: SaveCompleteResult) => Promise<void> | void;
@@ -82,6 +88,7 @@
     progress,
     error,
     isEditing = false,
+    variant = "modal",
     canDelete = false,
     onRequestDelete,
     onSaveComplete,
@@ -89,6 +96,8 @@
     searchProfiles,
     searchRelays,
   }: Props = $props();
+
+  const isPage = $derived(variant === "page");
 
   const copyList = (values?: string[] | null) => (Array.isArray(values) ? [...values] : []);
 
@@ -135,7 +144,7 @@
       visibility: isPrivate ? "private" : ("public" as "public" | "private"),
       defaultBranch,
       maintainers: copyList(repo.maintainers),
-      relays: copyList(repo.relays),
+      relays: getEditableRepoRelayUrls(copyList(repo.relays), editableCloneUrls),
       webUrls: copyList(repo.web),
       cloneUrls: editableCloneUrls,
       hashtags: copyList(repo.hashtags),
@@ -162,6 +171,23 @@
 
   // Handle relay search with debounce
   let relaySearchTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const mandatoryGraspRelays = $derived.by(() =>
+    getSuccessfulGraspRelayUrls(formData.cloneUrls || [])
+  );
+
+  function normalizeRelayValue(value: string): string {
+    return String(value || "").trim().replace(/\/+$/, "");
+  }
+
+  function hasRelay(relayUrl: string): boolean {
+    const normalized = normalizeRelayValue(relayUrl);
+
+    return [...mandatoryGraspRelays, ...formData.relays].some(
+      (existing) => normalizeRelayValue(existing) === normalized
+    );
+  }
+
   $effect(() => {
     const query = relaySearchQuery;
 
@@ -172,8 +198,8 @@
       relaySearchTimeout = setTimeout(async () => {
         try {
           const results = await searchRelays(query);
-          relaySearchResults = results;
-          showRelayAutocomplete = results.length > 0;
+          relaySearchResults = results.filter((relayUrl) => !hasRelay(relayUrl));
+          showRelayAutocomplete = relaySearchResults.length > 0;
         } catch (e) {
           console.error("Failed to search relays", e);
           relaySearchResults = [];
@@ -578,6 +604,14 @@
   const back = () => history.back();
 
   function handleCancel() {
+    if (isPage) {
+      formData = cloneFormData(originalFormData);
+      commitSearchQuery = "";
+      showCommitDropdown = false;
+      earliestUniqueCommitTouched = false;
+      return;
+    }
+
     if (!isEditing) {
       back();
     }
@@ -585,6 +619,8 @@
 
   // Keyboard navigation support
   function handleKeydown(event: KeyboardEvent) {
+    if (isPage) return;
+
     if (event.key === "Escape" && !isEditing) {
       event.preventDefault();
       back();
@@ -594,7 +630,7 @@
   // Focus management
   let dialogElement = $state<HTMLDivElement>();
   $effect(() => {
-    if (dialogElement) {
+    if (dialogElement && !isPage) {
       // Focus the first focusable element when dialog opens
       const firstFocusable = dialogElement.querySelector(
         'input, textarea, button, [tabindex]:not([tabindex="-1"])'
@@ -630,9 +666,12 @@
         }
         return v.toLowerCase();
       });
-      const cleanRelays = formData.relays.filter((r) => r.trim());
       const cleanWebUrls = formData.webUrls.filter((w) => w.trim());
       const cleanCloneUrls = formData.cloneUrls.filter((c) => c.trim());
+      const cleanRelays = getEffectiveRepoRelayUrls(
+        formData.relays.filter((r) => r.trim()),
+        cleanCloneUrls
+      );
       const cleanHashtags = formData.hashtags.filter((h) => h.trim());
       const previousName = originalFormData.name.trim();
       const nextName = formData.name.trim();
@@ -687,6 +726,11 @@
         });
       }
 
+      if (isPage) {
+        originalFormData = cloneFormData(formData);
+        return;
+      }
+
       if (!renamed || !onSaveComplete) {
         back();
       }
@@ -703,6 +747,8 @@
 
   // Prevent panel close when editing
   function handleBackdropClick(event: MouseEvent) {
+    if (isPage) return;
+
     if (event.target === event.currentTarget && !isEditing) {
       back();
     }
@@ -746,18 +792,21 @@
 
 <!-- Edit Repository Panel -->
 <div
-  class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 outline-none isolate"
-  role="dialog"
-  aria-modal="true"
+  class={isPage
+    ? "outline-none"
+    : "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 outline-none isolate"}
+  role={isPage ? undefined : "dialog"}
+  aria-modal={isPage ? undefined : "true"}
   aria-labelledby="edit-repo-title"
   onclick={handleBackdropClick}
   onkeydown={handleKeydown}
-  tabindex={0}
 >
   <div
     bind:this={dialogElement}
-    class="ng-themed-modal bg-gray-900 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] border border-gray-700 flex flex-col overflow-hidden relative z-[60]"
-    role="document"
+    class={isPage
+      ? "ng-themed-modal bg-gray-900 rounded-lg shadow-xl w-full border border-gray-700 flex flex-col overflow-hidden"
+      : "ng-themed-modal bg-gray-900 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] border border-gray-700 flex flex-col overflow-hidden relative z-[60]"}
+    role={isPage ? undefined : "document"}
   >
     <!-- Header -->
     <div class="flex items-center justify-between p-6 border-b border-gray-700">
@@ -765,7 +814,7 @@
         <Settings class="w-6 h-6 text-blue-400" />
         <h2 id="edit-repo-title" class="text-xl font-semibold text-white">Edit Repository</h2>
       </div>
-      {#if !isEditing}
+      {#if !isEditing && !isPage}
         <button
           onclick={handleCancel}
           class="text-gray-400 hover:text-gray-200 transition-colors"
@@ -963,15 +1012,32 @@
             Relays
           </label>
           <div class="space-y-2">
+            {#each mandatoryGraspRelays as relayUrl}
+              <div class="flex min-w-0 items-center space-x-2">
+                <input
+                  type="text"
+                  value={relayUrl}
+                  readonly
+                  aria-label="GRASP target relay"
+                  class="min-w-0 flex-1 rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-blue-700 placeholder-gray-400 focus:outline-none dark:bg-gray-800/60 dark:text-blue-300"
+                />
+                <span
+                  class="shrink-0 whitespace-nowrap rounded border border-blue-500/30 bg-blue-500/20 px-1.5 py-1 text-[10px] text-blue-700 dark:text-blue-300 sm:px-2 sm:text-xs"
+                >
+                  GRASP target
+                </span>
+              </div>
+            {/each}
+
             {#each formData.relays as relay, index}
-              <div class="flex items-center space-x-2">
+              <div class="flex min-w-0 items-center space-x-2">
                 <input
                   type="text"
                   bind:value={formData.relays[index]}
                   oninput={(e) =>
                     updateArrayItem("relays", index, (e.target as HTMLInputElement).value)}
                   disabled={isEditing}
-                  class="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="min-w-0 flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                   placeholder="wss://relay.example.com"
                 />
                 <button
@@ -1007,7 +1073,7 @@
                       <button
                         type="button"
                         onclick={() => {
-                          if (!formData.relays.includes(relayUrl)) {
+                          if (!hasRelay(relayUrl)) {
                             formData.relays = [...formData.relays, relayUrl];
                           }
                           relaySearchQuery = "";
@@ -1109,7 +1175,7 @@
               {@const isLastClone = index === formData.cloneUrls.length - 1}
               <div
                 role="listitem"
-                class={`flex items-center space-x-2 rounded-lg ${
+                class={`flex min-w-0 items-center space-x-2 rounded-lg ${
                   isCloneDragOver ? "bg-gray-800/40 ring-1 ring-blue-500/40" : ""
                 }`}
                 ondragover={(event) => handleCloneDragOver(index, event)}
@@ -1156,12 +1222,12 @@
                   oninput={(e) =>
                     updateArrayItem("cloneUrls", index, (e.target as HTMLInputElement).value)}
                   disabled={isEditing}
-                  class="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="min-w-0 flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                   placeholder="https://github.com/user/repo.git"
                 />
                 {#if index === 0}
                   <span
-                    class="px-2 py-1 text-xs rounded bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                    class="shrink-0 whitespace-nowrap rounded border border-blue-500/30 bg-blue-500/20 px-1.5 py-1 text-[10px] text-blue-700 dark:text-blue-300 sm:px-2 sm:text-xs"
                   >
                     Primary
                   </span>
@@ -1435,15 +1501,15 @@
         </div>
 
         {#if onRequestDelete}
-          <div class="border border-red-600/40 rounded-lg p-4 bg-red-950/30">
+          <div class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-600/40 dark:bg-red-950/30">
             <div class="flex items-start justify-between gap-4">
-              <div>
-                <h3 class="text-red-300 font-semibold">Danger Zone</h3>
-                <p class="text-sm text-red-200/80 mt-1">
+              <div class="min-w-0">
+                <h3 class="font-semibold text-red-700 dark:text-red-300">Danger Zone</h3>
+                <p class="mt-1 text-sm text-red-700/80 dark:text-red-200/80">
                   Delete this repository and its related Nostr events. This action cannot be undone.
                 </p>
                 {#if !canDelete}
-                  <p class="text-sm text-red-200/70 mt-2">
+                  <p class="mt-2 text-sm text-red-700/70 dark:text-red-200/70">
                     Only the repository owner can delete it.
                   </p>
                 {/if}
@@ -1452,7 +1518,7 @@
                 type="button"
                 onclick={onRequestDelete}
                 disabled={isEditing || !canDelete}
-                class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                class="flex shrink-0 items-center space-x-2 rounded-lg bg-red-600 px-3 py-2 text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 class="w-4 h-4" />
                 <span>Delete repo</span>
@@ -1540,7 +1606,7 @@
             disabled={isEditing}
             class="px-4 py-2 text-gray-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Cancel
+            {isPage ? "Reset" : "Cancel"}
           </button>
           <button
             onclick={handleSave}
