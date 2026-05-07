@@ -18,8 +18,6 @@
   } from "../../hooks/useNewRepo.svelte";
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { graspServersStore } from "../../stores/graspServers.js";
-  import { PLATFORM_RELAYS, PLATFORM_URL } from "@app/core/state";
-  import { makeGitPath } from "@lib/budabit/routes";
   const { Button } = useRegistry();
 
   function deriveOrigins(input: string): { wsOrigin: string; httpOrigin: string } {
@@ -56,6 +54,9 @@
       event: Omit<NostrEvent, "id" | "sig" | "pubkey" | "created_at">
     ) => Promise<unknown>;
     defaultRelays?: string[];
+    platformRelays?: string[];
+    platformUrl?: string;
+    makeRepoPath?: (relayUrl: string, naddr: string) => string;
     userPubkey?: string; // User's nostr pubkey (required for GRASP repos)
     /** Default author name for git commits (from user profile) */
     defaultAuthorName?: string;
@@ -92,6 +93,9 @@
     onCancel,
     onPublishEvent,
     defaultRelays = [],
+    platformRelays = [],
+    platformUrl = "",
+    makeRepoPath,
     userPubkey,
     defaultAuthorName = "",
     defaultAuthorEmail = "",
@@ -232,15 +236,15 @@
   );
 
   function buildBudabitRepoUrl(name: string): string | undefined {
-    if (!userPubkey || typeof window === "undefined") return undefined;
-    const platformRelays = [...PLATFORM_RELAYS];
-    const routeRelay = platformRelays[0] || defaultRelays[0] || advancedSettings.relays[0];
+    if (!userPubkey || !makeRepoPath || typeof window === "undefined") return undefined;
+    const configuredPlatformRelays = [...platformRelays];
+    const routeRelay = configuredPlatformRelays[0] || defaultRelays[0] || advancedSettings.relays[0];
     if (!routeRelay) return undefined;
 
-    const platformOrigin = (PLATFORM_URL || "").trim().replace(/\/$/, "") || window.location.origin;
+    const platformOrigin = (platformUrl || "").trim().replace(/\/$/, "") || window.location.origin;
 
     const relays = dedupeStrings([
-      ...platformRelays,
+      ...configuredPlatformRelays,
       ...getEffectiveRepoRelays(),
       ...defaultRelays,
       routeRelay,
@@ -253,7 +257,7 @@
         identifier: name,
         relays,
       });
-      return `${platformOrigin}${makeGitPath(routeRelay, naddr)}`;
+      return `${platformOrigin}${makeRepoPath(routeRelay, naddr)}`;
     } catch {
       return undefined;
     }

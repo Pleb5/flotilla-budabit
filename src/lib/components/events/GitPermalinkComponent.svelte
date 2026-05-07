@@ -56,7 +56,9 @@
     return deriveRelayFromLocation();
   });
 
-  const relayHints = $derived.by(() => Array.from(new Set([relay, relayValue].filter(Boolean))));
+  const relayHints = $derived.by(() =>
+    Array.from(new Set([relay, relayValue].filter((value): value is string => !!value)))
+  );
 
   const shareLink = $derived.by(() => {
     if (!event?.id) return "";

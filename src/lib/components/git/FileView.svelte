@@ -567,12 +567,14 @@
 
   function syncEditorLineHighlight() {
     if (!editorView) return;
-    const hasSelection = !!selectedStart && !!selectedEnd;
+    const start = selectedStart;
+    const end = selectedEnd;
+    const hasSelection = start !== null && end !== null;
 
     if (hasSelection) {
       const maxLine = editorView.state.doc.lines;
-      const safeStart = Math.max(1, Math.min(selectedStart, maxLine));
-      const safeEnd = Math.max(1, Math.min(selectedEnd, maxLine));
+      const safeStart = Math.max(1, Math.min(start, maxLine));
+      const safeEnd = Math.max(1, Math.min(end, maxLine));
       const startPos = editorView.state.doc.line(safeStart).from;
       const endPos = editorView.state.doc.line(safeEnd).to;
       const scroller = editorView.scrollDOM;
