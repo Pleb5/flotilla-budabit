@@ -512,11 +512,11 @@
   {@const highlightLanguage = filePath ? getHighlightLanguageForPath(filePath) : "plaintext"}
   <div class="my-2 block w-full max-w-full text-left">
     <div class="rounded-lg border bg-card p-3 shadow-sm">
-      <div class="flex items-start justify-between gap-3">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div class="min-w-0 flex items-start gap-2">
           <KindIcon class={`h-4 w-4 mt-0.5 ${kindIconClass}`} />
           <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
               <div class="text-sm font-semibold">{kindTitle}</div>
               <span
                 class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${kindBadgeClass}`}
@@ -524,28 +524,28 @@
                 {kindLabel}
               </span>
             </div>
-            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {#if displayRepo}
-              <span class="font-mono">{displayRepo}</span>
-            {/if}
-            {#if filePath}
-              <span class="font-mono truncate" title={filePath}>{filePath}</span>
-            {/if}
-            {#if lineLabel}
-              <span class="font-mono">{lineLabel}</span>
-            {/if}
-            {#if commitShort}
-              <span class="font-mono">{commitShort}</span>
-            {/if}
+            <div class="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {#if displayRepo}
+                <span class="max-w-full truncate font-mono" title={displayRepo}>{displayRepo}</span>
+              {/if}
+              {#if filePath}
+                <span class="max-w-full truncate font-mono" title={filePath}>{filePath}</span>
+              {/if}
+              {#if lineLabel}
+                <span class="font-mono">{lineLabel}</span>
+              {/if}
+              {#if commitShort}
+                <span class="font-mono">{commitShort}</span>
+              {/if}
             </div>
           </div>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
           {#if permalinkHref}
             <GitButton
               variant="outline"
               size="sm"
-              class="shrink-0"
+              class="min-w-0 shrink-0 justify-center sm:w-auto"
               href={permalinkHref}
               onclick={event => handlePermalinkOpen(event, permalinkHref)}
               aria-busy={isOpenPending}
@@ -559,7 +559,7 @@
           <GitButton
             variant="outline"
             size="sm"
-            class="shrink-0"
+            class="min-w-0 shrink-0 justify-center sm:w-auto"
             onclick={() => copyPermalinkContent($quote)}
             disabled={!$quote?.content}
             aria-live="polite"
@@ -575,7 +575,7 @@
           <GitButton
             variant="outline"
             size="sm"
-            class="shrink-0 w-9 p-0"
+            class="w-9 shrink-0 justify-center p-0"
             onclick={(event) => copyShareLink(entity, event)}
             disabled={!entity}
             data-stop-tap
@@ -619,7 +619,7 @@
         {@const codeLines = !isDiff ? contentPreview.split("\n").map((l, i) => ({num: (lineRange.start ?? 1) + i, content: l})) : []}
         {@const highlightedDiffLines = highlightCodeLines(diffLines.map(line => line.content), highlightLanguage)}
         {@const highlightedCodeLines = highlightCodeLines(codeLines.map(line => line.content), highlightLanguage)}
-        <div class="mt-3 rounded border border-border/40 bg-muted/30 overflow-hidden permalink-preview">
+        <div class="mt-3 max-w-full overflow-x-auto rounded border border-border/40 bg-muted/30 permalink-preview">
           {#if isDiff && diffLines.length > 0}
             <div class="cq-snippet-lines">
               {#each diffLines as line, index}<div class="cq-snippet-line {getDiffLineClass(line.type)}"><span class="cq-snippet-num">{line.lineNum ?? ""}</span><span class="cq-snippet-diff-ind">{line.type === " " ? "\u00a0" : line.type}</span><pre class="cq-snippet-code"><span class="hljs">{@html highlightedDiffLines[index] ?? highlightPreview(line.content, highlightLanguage)}</span></pre></div>{/each}
@@ -640,22 +640,22 @@
     {@const openHref = gitCard.href || entityLink(entity)}
     <div class="my-2 block w-full max-w-full text-left">
       <div class="rounded-lg border bg-card p-3 shadow-sm">
-        <div class="flex items-start justify-between gap-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div class="min-w-0">
             <div class="text-sm font-semibold">{gitCard.label}</div>
             {#if gitCard.meta?.length}
               <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 {#each gitCard.meta as item}
-                  <span class="font-mono truncate" title={item}>{item}</span>
+                  <span class="max-w-full truncate font-mono" title={item}>{item}</span>
                 {/each}
               </div>
             {/if}
           </div>
-          <div class="flex items-center gap-2">
+          <div class="grid w-full grid-cols-[minmax(0,1fr)_2.25rem] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
             <GitButton
               variant="outline"
               size="sm"
-              class="shrink-0"
+              class="min-w-0 shrink-0 justify-center sm:w-auto"
               href={openHref}
               onclick={onOpen}
               aria-busy={isOpenPending}
@@ -668,7 +668,7 @@
             <GitButton
               variant="outline"
               size="sm"
-              class="shrink-0 w-9 p-0"
+              class="w-9 shrink-0 justify-center p-0"
               onclick={(event) => copyShareLink(entity, event)}
               disabled={!entity}
               data-stop-tap
@@ -745,16 +745,23 @@
 
 <style>
   /* Snippet line layout */
+  .permalink-preview {
+    -webkit-overflow-scrolling: touch;
+  }
+
   .cq-snippet-lines {
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.6875rem;
+    min-width: max-content;
     padding: 3px 0;
   }
 
   .cq-snippet-line {
     display: flex;
     align-items: baseline;
-    line-height: 1.4;
+    min-width: 100%;
+    width: max-content;
+    line-height: 1.45;
   }
 
   .cq-snippet-num {
@@ -775,11 +782,11 @@
   }
 
   :global(.cq-snippet-code) {
-    flex: 1;
+    flex: 0 0 auto;
     margin: 0 !important;
     padding: 0 0.5ch !important;
-    white-space: pre-wrap;
-    word-break: break-all;
+    white-space: pre;
+    word-break: normal;
     font: inherit;
     line-height: inherit;
   }
