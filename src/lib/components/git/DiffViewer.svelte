@@ -1233,7 +1233,7 @@
     ? "git-diff-view relative rounded-md border border-border"
     : "git-diff-view relative"}
   class:select-none={enablePermalinks && (isPointerSelecting || isTouchSelecting)}
-  style="border-color: hsl(var(--border));"
+  style="border-color: hsl(var(--ng-border));"
   bind:this={diffContainer}
 >
   {#if parsed.length === 0}
@@ -1411,7 +1411,7 @@
                                   <span class="font-medium text-sm">{c.author.name}</span>
                                   <span
                                     class="text-xs"
-                                    style="color: hsl(var(--muted-foreground));"
+                                    style="color: hsl(var(--ng-muted-foreground));"
                                   >
                                     {formatDistanceToNow(new Date(c.createdAt), {
                                       addSuffix: true,
@@ -1509,7 +1509,7 @@
     {@const anchorRange = selection ? getRightAnchorRange(selection) : null}
     <div
       class="permalink-menu-popup absolute z-20 w-48 rounded border bg-popover text-popover-foreground shadow-md"
-      style="left: {permalinkMenuX}px; top: {permalinkMenuY}px; border-color: hsl(var(--border));"
+      style="left: {permalinkMenuX}px; top: {permalinkMenuY}px; border-color: hsl(var(--ng-border));"
     >
       <button class="w-full text-left px-3 py-2 hover:bg-secondary/50" onclick={copyLinkToLines}>
         Copy link to {anchorRange

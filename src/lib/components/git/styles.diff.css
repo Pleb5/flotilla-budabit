@@ -4,13 +4,13 @@
 .stacked-diff {
   --diff-bg-added: #f0fdf4;
   --diff-bg-removed: #fef2f2;
-  --diff-bg-context: hsl(var(--background));
+  --diff-bg-context: hsl(var(--ng-background));
   --diff-border-added: #22c55e;
   --diff-border-removed: #ef4444;
   --diff-text-added: #14532d;
   --diff-text-removed: #7f1d1d;
-  --diff-line-num-bg: hsl(var(--muted));
-  --diff-line-num-text: hsl(var(--muted-foreground));
+  --diff-line-num-bg: hsl(var(--ng-muted));
+  --diff-line-num-text: hsl(var(--ng-muted-foreground));
 }
 
 /* Dark mode adjustments */
@@ -48,10 +48,10 @@
 @keyframes highlight-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 0 0 hsl(var(--ng-primary) / 0.4);
   }
   50% {
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.1);
+    box-shadow: 0 0 0 4px hsl(var(--ng-primary) / 0.1);
   }
 }
 
@@ -83,7 +83,7 @@
 }
 
 .diff-line-context:hover {
-  background-color: hsl(var(--muted) / 0.3);
+  background-color: hsl(var(--ng-muted) / 0.3);
 }
 
 /* Line numbers */
@@ -96,7 +96,7 @@
   background-color: var(--diff-line-num-bg);
   color: var(--diff-line-num-text);
   font-size: 0.75rem;
-  border-right: 1px solid hsl(var(--border));
+  border-right: 1px solid hsl(var(--ng-border));
   user-select: none;
 }
 
@@ -118,7 +118,7 @@
   width: 1.5rem;
   padding: 0.25rem;
   background-color: var(--diff-line-num-bg);
-  border-right: 1px solid hsl(var(--border));
+  border-right: 1px solid hsl(var(--ng-border));
 }
 
 .diff-change-indicator.added {
@@ -166,8 +166,8 @@
   width: 1.5rem;
   height: 1.5rem;
   border-radius: 0.25rem;
-  background-color: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--ng-background));
+  border: 1px solid hsl(var(--ng-border));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -175,8 +175,8 @@
 }
 
 .diff-comment-button button:hover {
-  background-color: hsl(var(--muted));
-  border-color: hsl(var(--border));
+  background-color: hsl(var(--ng-muted));
+  border-color: hsl(var(--ng-border));
 }
 
 /* File status indicators */
@@ -186,8 +186,8 @@
 }
 
 .file-status-modified {
-  color: hsl(var(--primary));
-  background-color: hsl(var(--primary) / 0.15);
+  color: hsl(var(--ng-primary));
+  background-color: hsl(var(--ng-primary) / 0.15);
 }
 
 .file-status-deleted {
@@ -196,19 +196,19 @@
 }
 
 .file-status-renamed {
-  color: hsl(var(--accent));
-  background-color: hsl(var(--accent) / 0.15);
+  color: hsl(var(--ng-accent));
+  background-color: hsl(var(--ng-accent) / 0.15);
 }
 
 /* Hunk headers */
 .diff-hunk-header {
-  background-color: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  background-color: hsl(var(--ng-muted));
+  color: hsl(var(--ng-muted-foreground));
   padding: 0.5rem 1rem;
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.875rem;
-  border-bottom: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--ng-border));
   position: sticky;
   top: 0;
   z-index: 10;
@@ -216,12 +216,12 @@
 
 /* Virtualization helpers */
 .diff-virtual-spacer {
-  background-color: hsl(var(--muted) / 0.1);
-  border: 1px dashed hsl(var(--border));
+  background-color: hsl(var(--ng-muted) / 0.1);
+  border: 1px dashed hsl(var(--ng-border));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--ng-muted-foreground));
   font-size: 0.875rem;
 }
 
@@ -231,7 +231,7 @@
   align-items: center;
   justify-content: center;
   padding: 2rem;
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--ng-muted-foreground));
 }
 
 .diff-loading-spinner {
@@ -241,16 +241,16 @@
 
 /* Error states */
 .diff-error {
-  background-color: hsl(var(--destructive) / 0.12);
-  border: 1px solid hsl(var(--destructive) / 0.45);
-  color: hsl(var(--destructive));
+  background-color: hsl(var(--ng-destructive) / 0.12);
+  border: 1px solid hsl(var(--ng-destructive) / 0.45);
+  color: hsl(var(--ng-destructive));
   padding: 1rem;
   border-radius: 0.5rem;
   margin: 1rem 0;
 }
 
 .diff-error-icon {
-  color: hsl(var(--destructive));
+  color: hsl(var(--ng-destructive));
   margin-right: 0.5rem;
 }
 
@@ -290,12 +290,12 @@
 
 /* Accessibility improvements */
 .diff-line:focus-within {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ng-primary));
   outline-offset: -2px;
 }
 
 .diff-line-number:focus {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ng-primary));
   outline-offset: -2px;
 }
 
@@ -326,6 +326,6 @@
 
   .file-diff.highlighted {
     animation: none;
-    box-shadow: 0 0 0 2px hsl(var(--primary));
+    box-shadow: 0 0 0 2px hsl(var(--ng-primary));
   }
 }

@@ -909,7 +909,7 @@
     <div
       bind:this={dialogEl}
       role="document"
-      class="bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden border border-gray-700 relative z-[60] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 transform-gpu"
+      class="ng-themed-modal bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden border border-gray-700 relative z-[60] outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 transform-gpu"
     >
       <div class="flex items-center justify-between p-6 border-b border-gray-700">
         <div class="flex items-center space-x-3">

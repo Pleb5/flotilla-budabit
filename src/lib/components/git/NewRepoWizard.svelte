@@ -742,7 +742,7 @@
 </script>
 
 <div
-  class="bg-background text-foreground rounded-lg border border-border shadow w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto max-h-[calc(100vh-4rem)] flex flex-col overflow-hidden"
+  class="ng-themed-modal bg-background text-foreground rounded-lg border border-border shadow w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto max-h-[calc(100vh-4rem)] flex flex-col overflow-hidden"
 >
   <div class="px-6 pt-6 pb-4 border-b border-border space-y-4">
     <!-- Header -->

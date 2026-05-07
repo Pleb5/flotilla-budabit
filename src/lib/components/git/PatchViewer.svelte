@@ -395,6 +395,6 @@
 
 <style>
   .diff-viewer-container {
-    border-top: 1px solid hsl(var(--border));
+    border-top: 1px solid hsl(var(--ng-border));
   }
 </style>

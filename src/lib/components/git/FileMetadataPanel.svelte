@@ -99,7 +99,7 @@
     <!-- Modal Content -->
     <div
       class="bg-background border rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col z-[9999]"
-      style="border-color: hsl(var(--border));"
+      style="border-color: hsl(var(--ng-border));"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.key === 'Escape' && closePanel()}
       role="dialog"
@@ -110,7 +110,7 @@
     <!-- Header -->
     <div
       class="flex items-center justify-between p-4 border-b"
-      style="border-color: hsl(var(--border));"
+      style="border-color: hsl(var(--ng-border));"
     >
       <div class="flex items-center gap-2">
         <Info class="h-5 w-5 text-muted-foreground" />

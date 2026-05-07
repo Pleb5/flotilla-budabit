@@ -7,34 +7,85 @@
 
 @layer base {
   :root {
-    --background: 220 20% 14%;
-    --foreground: 220 10% 97%;
-    --card: 220 22% 18%;
-    --card-foreground: 220 10% 97%;
-    --popover: 220 22% 18%;
-    --popover-foreground: 220 10% 97%;
-    --primary: 265 84% 70%;
-    --primary-foreground: 240 10% 97%;
-    --secondary: 240 5% 25%;
-    --secondary-foreground: 210 10% 97%;
-    --muted: 240 5% 25%;
-    --muted-foreground: 240 5% 65%;
-    --accent: 265 84% 70%;
-    --accent-foreground: 210 10% 97%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 10% 97%;
-    --border: 240 5% 26%;
-    --input: 240 5% 25%;
-    --ring: 265 84% 70%;
+    --ng-background: 214 42% 96%;
+    --ng-foreground: 216 33% 22%;
+    --ng-card: 0 0% 100%;
+    --ng-card-foreground: 216 33% 22%;
+    --ng-popover: 0 0% 100%;
+    --ng-popover-foreground: 216 33% 22%;
+    --ng-primary: 45 73% 52%;
+    --ng-primary-foreground: 222 47% 16%;
+    --ng-secondary: 214 38% 91%;
+    --ng-secondary-foreground: 216 33% 26%;
+    --ng-muted: 214 35% 92%;
+    --ng-muted-foreground: 215 21% 43%;
+    --ng-accent: 45 73% 52%;
+    --ng-accent-foreground: 222 47% 16%;
+    --ng-destructive: 0 72% 50%;
+    --ng-destructive-foreground: 0 0% 100%;
+    --ng-border: 214 30% 84%;
+    --ng-input: 214 30% 87%;
+    --ng-ring: 45 73% 52%;
     --radius: 0.5rem;
-    --sidebar-background: 220 25% 12%;
-    --sidebar-foreground: 220 10% 90%;
-    --sidebar-primary: 265 84% 70%;
-    --sidebar-primary-foreground: 240 10% 97%;
-    --sidebar-accent: 240 15% 20%;
-    --sidebar-accent-foreground: 220 10% 90%;
-    --sidebar-border: 240 15% 22%;
-    --sidebar-ring: 265 84% 70%;
+    --ng-sidebar-background: 214 42% 96%;
+    --ng-sidebar-foreground: 216 33% 22%;
+    --ng-sidebar-primary: 45 73% 52%;
+    --ng-sidebar-primary-foreground: 222 47% 16%;
+    --ng-sidebar-accent: 214 38% 91%;
+    --ng-sidebar-accent-foreground: 216 33% 26%;
+    --ng-sidebar-border: 214 30% 84%;
+    --ng-sidebar-ring: 45 73% 52%;
+    --ng-code-foreground: #24292f;
+    --ng-syntax-keyword: #cf222e;
+    --ng-syntax-title: #8250df;
+    --ng-syntax-type: #953800;
+    --ng-syntax-string: #0a3069;
+    --ng-syntax-number: #0550ae;
+    --ng-syntax-variable: #953800;
+    --ng-syntax-regexp: #116329;
+    --ng-syntax-comment: #6e7781;
+    --ng-syntax-section: #0550ae;
+  }
+
+  body[data-theme="dark"],
+  .dark {
+    --ng-background: 220 20% 14%;
+    --ng-foreground: 220 10% 97%;
+    --ng-card: 220 22% 18%;
+    --ng-card-foreground: 220 10% 97%;
+    --ng-popover: 220 22% 18%;
+    --ng-popover-foreground: 220 10% 97%;
+    --ng-primary: 45 73% 52%;
+    --ng-primary-foreground: 222 47% 16%;
+    --ng-secondary: 240 5% 25%;
+    --ng-secondary-foreground: 210 10% 97%;
+    --ng-muted: 240 5% 25%;
+    --ng-muted-foreground: 240 5% 65%;
+    --ng-accent: 45 73% 52%;
+    --ng-accent-foreground: 222 47% 16%;
+    --ng-destructive: 0 84% 60%;
+    --ng-destructive-foreground: 210 10% 97%;
+    --ng-border: 240 5% 26%;
+    --ng-input: 240 5% 25%;
+    --ng-ring: 45 73% 52%;
+    --ng-sidebar-background: 220 25% 12%;
+    --ng-sidebar-foreground: 220 10% 90%;
+    --ng-sidebar-primary: 45 73% 52%;
+    --ng-sidebar-primary-foreground: 222 47% 16%;
+    --ng-sidebar-accent: 240 15% 20%;
+    --ng-sidebar-accent-foreground: 220 10% 90%;
+    --ng-sidebar-border: 240 15% 22%;
+    --ng-sidebar-ring: 45 73% 52%;
+    --ng-code-foreground: #abb2bf;
+    --ng-syntax-keyword: #c678dd;
+    --ng-syntax-title: #61afef;
+    --ng-syntax-type: #e5c07b;
+    --ng-syntax-string: #98c379;
+    --ng-syntax-number: #d19a66;
+    --ng-syntax-variable: #e06c75;
+    --ng-syntax-regexp: #56b6c2;
+    --ng-syntax-comment: #7d8799;
+    --ng-syntax-section: #61afef;
   }
 }
 
@@ -49,7 +100,7 @@
 
   .hljs {
     background: transparent !important;
-    color: #abb2bf !important;
+    color: var(--ng-code-foreground) !important;
   }
 
   .diff-code-content .hljs,
@@ -70,12 +121,14 @@
   .hljs-literal,
   .hljs-selector-attr {
     color: #c678dd;
+    color: var(--ng-syntax-keyword);
   }
 
   .hljs-title,
   .hljs-title.function_,
   .hljs-selector-id {
     color: #61afef;
+    color: var(--ng-syntax-title);
   }
 
   .hljs-title.class_,
@@ -83,11 +136,13 @@
   .hljs-built_in,
   .hljs-selector-class {
     color: #e5c07b;
+    color: var(--ng-syntax-type);
   }
 
   .hljs-string,
   .hljs-template-tag {
     color: #98c379;
+    color: var(--ng-syntax-string);
   }
 
   .hljs-number,
@@ -97,6 +152,7 @@
   .hljs-attribute,
   .hljs-meta {
     color: #d19a66;
+    color: var(--ng-syntax-number);
   }
 
   .hljs-variable,
@@ -105,30 +161,36 @@
   .hljs-tag,
   .hljs-property {
     color: #e06c75;
+    color: var(--ng-syntax-variable);
   }
 
   .hljs-regexp,
   .hljs-selector-pseudo,
   .hljs-link {
     color: #56b6c2;
+    color: var(--ng-syntax-regexp);
   }
 
   .hljs-comment,
   .hljs-quote {
     color: #7d8799;
+    color: var(--ng-syntax-comment);
     font-style: italic;
   }
 
   .hljs-section {
     color: #61afef;
+    color: var(--ng-syntax-section);
   }
 
   .hljs-meta .hljs-keyword {
     color: #c678dd;
+    color: var(--ng-syntax-keyword);
   }
 
   .hljs-meta .hljs-string {
     color: #98c379;
+    color: var(--ng-syntax-string);
   }
 }
 
@@ -137,65 +199,115 @@
 @layer utilities {
   /* Primary color utilities */
   .text-primary-foreground {
-    color: hsl(var(--primary-foreground));
+    color: hsl(var(--ng-primary-foreground));
   }
   .bg-primary-foreground {
-    background-color: hsl(var(--primary-foreground));
+    background-color: hsl(var(--ng-primary-foreground));
   }
   .border-primary-foreground {
-    border-color: hsl(var(--primary-foreground));
+    border-color: hsl(var(--ng-primary-foreground));
   }
 
   /* Secondary color utilities */
   .text-secondary-foreground {
-    color: hsl(var(--secondary-foreground));
+    color: hsl(var(--ng-secondary-foreground));
   }
   .bg-secondary-foreground {
-    background-color: hsl(var(--secondary-foreground));
+    background-color: hsl(var(--ng-secondary-foreground));
   }
 
   /* Destructive color utilities */
   .text-destructive-foreground {
-    color: hsl(var(--destructive-foreground));
+    color: hsl(var(--ng-destructive-foreground));
   }
   .bg-destructive-foreground {
-    background-color: hsl(var(--destructive-foreground));
+    background-color: hsl(var(--ng-destructive-foreground));
   }
 
   /* Muted color utilities */
   .text-muted-foreground {
-    color: hsl(var(--muted-foreground));
+    color: hsl(var(--ng-muted-foreground));
   }
   .bg-muted-foreground {
-    background-color: hsl(var(--muted-foreground));
+    background-color: hsl(var(--ng-muted-foreground));
   }
 
   /* Accent color utilities */
   .text-accent-foreground {
-    color: hsl(var(--accent-foreground));
+    color: hsl(var(--ng-accent-foreground));
   }
   .bg-accent-foreground {
-    background-color: hsl(var(--accent-foreground));
+    background-color: hsl(var(--ng-accent-foreground));
   }
 
   /* Popover color utilities */
   .text-popover-foreground {
-    color: hsl(var(--popover-foreground));
+    color: hsl(var(--ng-popover-foreground));
   }
   .bg-popover-foreground {
-    background-color: hsl(var(--popover-foreground));
+    background-color: hsl(var(--ng-popover-foreground));
   }
 
   /* Card color utilities */
   .text-card-foreground {
-    color: hsl(var(--card-foreground));
+    color: hsl(var(--ng-card-foreground));
   }
   .bg-card-foreground {
-    background-color: hsl(var(--card-foreground));
+    background-color: hsl(var(--ng-card-foreground));
   }
 }
 
 @layer components {
+  body[data-theme="light"] .ng-themed-modal.bg-gray-900,
+  body[data-theme="light"] .ng-themed-modal .bg-gray-900,
+  body[data-theme="light"] .ng-themed-modal .bg-gray-900\/60,
+  body[data-theme="light"] .ng-themed-modal .bg-gray-800,
+  body[data-theme="light"] .ng-themed-modal .bg-gray-800\/40,
+  body[data-theme="light"] .ng-themed-modal .bg-gray-800\/50,
+  body[data-theme="light"] .ng-themed-modal .bg-gray-800\/60 {
+    background-color: hsl(var(--ng-card)) !important;
+  }
+
+  body[data-theme="light"] .ng-themed-modal .bg-gray-700,
+  body[data-theme="light"] .ng-themed-modal .bg-gray-700\/50,
+  body[data-theme="light"] .ng-themed-modal .bg-gray-600 {
+    background-color: hsl(var(--ng-muted)) !important;
+  }
+
+  body[data-theme="light"] .ng-themed-modal .text-white,
+  body[data-theme="light"] .ng-themed-modal .text-gray-100,
+  body[data-theme="light"] .ng-themed-modal .text-gray-200,
+  body[data-theme="light"] .ng-themed-modal .text-gray-300 {
+    color: hsl(var(--ng-foreground)) !important;
+  }
+
+  body[data-theme="light"] .ng-themed-modal .text-gray-400,
+  body[data-theme="light"] .ng-themed-modal .text-gray-500 {
+    color: hsl(var(--ng-muted-foreground)) !important;
+  }
+
+  body[data-theme="light"] .ng-themed-modal .border-gray-700,
+  body[data-theme="light"] .ng-themed-modal .border-gray-600,
+  body[data-theme="light"] .ng-themed-modal .border-gray-500,
+  body[data-theme="light"] .ng-themed-modal .border-gray-300 {
+    border-color: hsl(var(--ng-border)) !important;
+  }
+
+  body[data-theme="light"] .ng-themed-modal .placeholder-gray-400::placeholder,
+  body[data-theme="light"] .ng-themed-modal .placeholder-gray-500::placeholder {
+    color: hsl(var(--ng-muted-foreground) / 0.72) !important;
+  }
+
+  body[data-theme="light"] .ng-themed-modal input.bg-gray-800,
+  body[data-theme="light"] .ng-themed-modal input.bg-gray-900,
+  body[data-theme="light"] .ng-themed-modal textarea.bg-gray-800,
+  body[data-theme="light"] .ng-themed-modal textarea.bg-gray-900,
+  body[data-theme="light"] .ng-themed-modal select.bg-gray-800,
+  body[data-theme="light"] .ng-themed-modal select.bg-gray-900 {
+    background-color: hsl(var(--ng-background)) !important;
+    color: hsl(var(--ng-foreground)) !important;
+  }
+
   .git-menu-item {
     @apply flex items-center gap-2 rounded-md px-4 py-3 font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground;
   }

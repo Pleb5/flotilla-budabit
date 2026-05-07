@@ -756,7 +756,7 @@
 >
   <div
     bind:this={dialogElement}
-    class="bg-gray-900 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] border border-gray-700 flex flex-col overflow-hidden relative z-[60]"
+    class="ng-themed-modal bg-gray-900 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] border border-gray-700 flex flex-col overflow-hidden relative z-[60]"
     role="document"
   >
     <!-- Header -->

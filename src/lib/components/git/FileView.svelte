@@ -1475,10 +1475,10 @@
         </Button>
       {/if}
       {#if type === "directory"}
-        <Folder class="h-4 w-4 flex-shrink-0" style="color: hsl(var(--muted-foreground));" />
+        <Folder class="h-4 w-4 flex-shrink-0" style="color: hsl(var(--ng-muted-foreground));" />
       {:else}
         {@const IconComponent = getFileIcon()}
-        <IconComponent class="h-4 w-4 flex-shrink-0" style="color: hsl(var(--muted-foreground));" />
+        <IconComponent class="h-4 w-4 flex-shrink-0" style="color: hsl(var(--ng-muted-foreground));" />
       {/if}
       <span class="truncate" title={name}>{name}</span>
       {#if fileTypeInfo && type === "file"}
@@ -1516,7 +1516,7 @@
         {#if showFileMenu}
           <div
             class="file-actions-menu absolute right-0 mt-1 z-10 w-48 rounded border bg-popover text-popover-foreground shadow-md"
-            style="border-color: hsl(var(--border));"
+            style="border-color: hsl(var(--ng-border));"
           >
             <button
               class="w-full text-left px-3 py-2 text-sm hover:bg-secondary/50"
@@ -1577,7 +1577,7 @@
   </div>
 
   {#if isExpanded && type === "file" && !isList}
-    <div class="border-t" style="border-color: hsl(var(--border));">
+    <div class="border-t" style="border-color: hsl(var(--ng-border));">
       {#if isLoading}
         <div class="p-3 sm:p-4">
           <Spinner>Fetching content...</Spinner>
@@ -1604,10 +1604,10 @@
             <BinaryViewer content={content} filename={name} />
           </div>
         {:else}
-          <div class="p-3 sm:p-4 border-t" style="border-color: hsl(var(--border));">
+          <div class="p-3 sm:p-4 border-t" style="border-color: hsl(var(--ng-border));">
             <div
               class="relative bg-background text-foreground rounded border"
-              style="border-color: hsl(var(--border));"
+              style="border-color: hsl(var(--ng-border));"
               bind:this={editorHost}
               role="group"
               data-permalink-menu
@@ -1625,7 +1625,7 @@
               {#if showGutterMenu}
                 <div
                   class="permalink-menu-popup absolute z-20 w-44 rounded border bg-popover text-popover-foreground shadow-md"
-                  style="left: {gutterMenuX}px; top: {gutterMenuY}px; border-color: hsl(var(--border));"
+                  style="left: {gutterMenuX}px; top: {gutterMenuY}px; border-color: hsl(var(--ng-border));"
                 >
                   <button
                     class="w-full text-left px-3 py-2 hover:bg-secondary/50"
@@ -1666,8 +1666,8 @@
 <style>
   /* Ensure CodeMirror has proper contrast */
   :global(.file-view .cm-editor) {
-    background-color: hsl(var(--background)) !important;
-    color: hsl(var(--foreground)) !important;
+    background-color: hsl(var(--ng-background)) !important;
+    color: hsl(var(--ng-foreground)) !important;
     font-size: 0.875rem;
     line-height: 1.5;
     max-width: 100%;
@@ -1678,39 +1678,39 @@
   }
 
   :global(.file-view .cm-gutters) {
-    background-color: hsl(var(--secondary) / 0.85) !important;
-    color: hsl(var(--muted-foreground) / 0.95) !important;
-    border-right: 1px solid hsl(var(--border)) !important;
+    background-color: hsl(var(--ng-secondary) / 0.85) !important;
+    color: hsl(var(--ng-muted-foreground) / 0.95) !important;
+    border-right: 1px solid hsl(var(--ng-border)) !important;
   }
 
   :global(.file-view .cm-activeLineGutter) {
-    background-color: hsl(var(--primary) / 0.32) !important;
-    color: hsl(var(--foreground)) !important;
+    background-color: hsl(var(--ng-primary) / 0.32) !important;
+    color: hsl(var(--ng-foreground)) !important;
   }
 
   :global(.file-view .cm-activeLine) {
-    background-color: hsl(var(--secondary) / 0.5) !important;
+    background-color: hsl(var(--ng-secondary) / 0.5) !important;
   }
 
   :global(.file-view .cm-selected-line),
   :global(.file-view .cm-selected-line-dom) {
-    background-color: hsl(var(--primary) / 0.22) !important;
+    background-color: hsl(var(--ng-primary) / 0.22) !important;
     box-shadow:
-      inset 3px 0 0 hsl(var(--primary)),
-      inset 0 1px 0 hsl(var(--primary) / 0.36),
-      inset 0 -1px 0 hsl(var(--primary) / 0.36),
-      inset 0 0 0 1px hsl(var(--primary) / 0.3);
+      inset 3px 0 0 hsl(var(--ng-primary)),
+      inset 0 1px 0 hsl(var(--ng-primary) / 0.36),
+      inset 0 -1px 0 hsl(var(--ng-primary) / 0.36),
+      inset 0 0 0 1px hsl(var(--ng-primary) / 0.3);
   }
 
   :global(.file-view .cm-selected-line-text) {
-    background-color: hsl(var(--primary) / 0.3) !important;
-    color: hsl(var(--foreground)) !important;
+    background-color: hsl(var(--ng-primary) / 0.3) !important;
+    color: hsl(var(--ng-foreground)) !important;
     border-radius: 0.125rem;
-    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.45);
+    box-shadow: inset 0 0 0 1px hsl(var(--ng-primary) / 0.45);
   }
 
   :global(.file-view .cm-selected-line-text *) {
-    color: hsl(var(--foreground)) !important;
+    color: hsl(var(--ng-foreground)) !important;
   }
 
   :global(.file-view .cm-selected-gutter) {
@@ -1732,10 +1732,10 @@
   :global(.file-view .cm-selected-line-start),
   :global(.file-view .cm-selected-gutter-start) {
     box-shadow:
-      inset 3px 0 0 hsl(var(--primary)),
-      inset 0 1px 0 hsl(var(--primary) / 0.6),
-      inset 0 -1px 0 hsl(var(--primary) / 0.28),
-      inset 0 0 0 1px hsl(var(--primary) / 0.28);
+      inset 3px 0 0 hsl(var(--ng-primary)),
+      inset 0 1px 0 hsl(var(--ng-primary) / 0.6),
+      inset 0 -1px 0 hsl(var(--ng-primary) / 0.28),
+      inset 0 0 0 1px hsl(var(--ng-primary) / 0.28);
   }
 
   :global(.file-view .cm-selected-gutter-start) {
@@ -1749,10 +1749,10 @@
   :global(.file-view .cm-selected-line-end),
   :global(.file-view .cm-selected-gutter-end) {
     box-shadow:
-      inset 3px 0 0 hsl(var(--primary)),
-      inset 0 1px 0 hsl(var(--primary) / 0.28),
-      inset 0 -1px 0 hsl(var(--primary) / 0.6),
-      inset 0 0 0 1px hsl(var(--primary) / 0.28);
+      inset 3px 0 0 hsl(var(--ng-primary)),
+      inset 0 1px 0 hsl(var(--ng-primary) / 0.28),
+      inset 0 -1px 0 hsl(var(--ng-primary) / 0.6),
+      inset 0 0 0 1px hsl(var(--ng-primary) / 0.28);
   }
 
   :global(.file-view .cm-selected-gutter-end) {
@@ -1764,11 +1764,11 @@
   }
 
   :global(.file-view .cm-line) {
-    color: hsl(var(--foreground)) !important;
+    color: hsl(var(--ng-foreground)) !important;
   }
 
   :global(.file-view .cm-content) {
-    caret-color: hsl(var(--foreground)) !important;
+    caret-color: hsl(var(--ng-foreground)) !important;
     filter: brightness(1.2) saturate(1.08);
     -webkit-user-select: text;
     user-select: text;
@@ -1777,11 +1777,11 @@
   }
 
   :global(.file-view .cm-selectionBackground) {
-    background-color: hsl(var(--primary) / 0.32) !important;
+    background-color: hsl(var(--ng-primary) / 0.32) !important;
   }
 
   :global(.file-view .cm-focused .cm-selectionBackground) {
-    background-color: hsl(var(--primary) / 0.42) !important;
+    background-color: hsl(var(--ng-primary) / 0.42) !important;
   }
 
   :global(.file-view .cm-cursor) {
@@ -1789,13 +1789,13 @@
   }
 
   :global(.file-view .cm-content ::selection) {
-    background-color: hsl(var(--primary) / 0.42);
-    color: hsl(var(--foreground));
+    background-color: hsl(var(--ng-primary) / 0.42);
+    color: hsl(var(--ng-foreground));
   }
 
   :global(.file-view .cm-content ::-moz-selection) {
-    background-color: hsl(var(--primary) / 0.42);
-    color: hsl(var(--foreground));
+    background-color: hsl(var(--ng-primary) / 0.42);
+    color: hsl(var(--ng-foreground));
   }
 
   @media (min-width: 768px) {

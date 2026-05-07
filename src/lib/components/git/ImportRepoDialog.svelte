@@ -1266,7 +1266,7 @@
   onkeydown={handleBackdropKeydown}
 >
   <div
-    class="bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl border border-gray-700 overflow-hidden max-h-[90vh] flex flex-col"
+    class="ng-themed-modal bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl border border-gray-700 overflow-hidden max-h-[90vh] flex flex-col"
   >
     <!-- Header -->
     <div class="flex items-center justify-between p-6 border-b border-gray-700">

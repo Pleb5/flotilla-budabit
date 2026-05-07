@@ -1095,7 +1095,7 @@
       {@const anchorRange = selection ? getRightAnchorRange(selection) : null}
       <div
         class="permalink-menu-popup absolute z-20 w-48 rounded border bg-popover text-popover-foreground shadow-md"
-        style="left: {permalinkMenuX}px; top: {permalinkMenuY}px; border-color: hsl(var(--border));"
+        style="left: {permalinkMenuX}px; top: {permalinkMenuY}px; border-color: hsl(var(--ng-border));"
       >
         <button class="w-full text-left px-3 py-2 hover:bg-secondary/50" onclick={copyLinkToLines}>
           Copy link to {anchorRange
@@ -1130,12 +1130,12 @@
   }
 
   .overflow-x-auto::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--muted-foreground) / 0.35);
+    background-color: hsl(var(--ng-muted-foreground) / 0.35);
     border-radius: 3px;
   }
 
   .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(var(--muted-foreground) / 0.55);
+    background-color: hsl(var(--ng-muted-foreground) / 0.55);
   }
 
   :global(.diff-selected-gutter) {

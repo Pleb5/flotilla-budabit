@@ -358,11 +358,11 @@
   }
 
   .overflow-x-auto::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--muted-foreground) / 0.35);
+    background-color: hsl(var(--ng-muted-foreground) / 0.35);
     border-radius: 3px;
   }
 
   .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(var(--muted-foreground) / 0.55);
+    background-color: hsl(var(--ng-muted-foreground) / 0.55);
   }
 </style>
