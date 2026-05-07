@@ -377,184 +377,189 @@
   };
 </script>
 
-<Card class="git-card git-permalink-card">
-  <div class="flex items-start gap-3">
-    <IconComponent class={`h-6 w-6 mt-1 ${kindIconClass}`} />
-
-    <div class="flex-1 min-w-0">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div class="min-w-0">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <h3 class="text-base font-semibold leading-tight">{kindTitle}</h3>
-                <span
-                  class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${kindBadgeClass}`}
+<Card class="git-card git-permalink-card overflow-hidden">
+  <div class="min-w-0">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div class="min-w-0">
+        <div class="flex min-w-0 items-start gap-3">
+          <IconComponent class={`h-5 w-5 shrink-0 sm:h-6 sm:w-6 mt-1 ${kindIconClass}`} />
+          <div class="min-w-0 flex-1">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
+                  <h3 class="text-base font-semibold leading-tight">{kindTitle}</h3>
+                  <span
+                    class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${kindBadgeClass}`}
+                  >
+                    {kindLabel}
+                  </span>
+                </div>
+                <div
+                  class="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground"
                 >
-                  {kindLabel}
-                </span>
+                  {#if displayRepo}
+                    <span class="max-w-full truncate font-mono" title={displayRepo}
+                      >{displayRepo}</span
+                    >
+                  {/if}
+                  {#if filePath}
+                    <span class="max-w-full truncate font-mono" title={filePath}>{filePath}</span>
+                  {/if}
+                  {#if lineLabel}
+                    <span class="font-mono">{lineLabel}</span>
+                  {/if}
+                  {#if commitShort}
+                    <span class="font-mono">{commitShort}</span>
+                  {/if}
+                </div>
               </div>
-              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                {#if displayRepo}
-                  <span class="font-mono">{displayRepo}</span>
-                {/if}
-                {#if filePath}
-                  <span class="font-mono truncate" title={filePath}>{filePath}</span>
-                {/if}
-                {#if lineLabel}
-                  <span class="font-mono">{lineLabel}</span>
-                {/if}
-                {#if commitShort}
-                  <span class="font-mono">{commitShort}</span>
-                {/if}
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              class="git-share-button shrink-0 w-9 p-0 sm:hidden"
-              onclick={(event) => copyShareLink(event)}
-              disabled={!shareLink}
-              data-stop-tap
-              aria-label="Share"
-              title={shareTitle}
-            >
-              <svg
-                class="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
+              <Button
+                variant="outline"
+                size="sm"
+                class="git-share-button shrink-0 w-9 p-0 sm:hidden"
+                onclick={(event) => copyShareLink(event)}
+                disabled={!shareLink}
+                data-stop-tap
+                aria-label="Share"
+                title={shareTitle}
               >
-                <path
-                  d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                ></path>
-              </svg>
-            </Button>
+                <svg
+                  class="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  ></path>
+                  <path
+                    d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  ></path>
+                  <path
+                    d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  ></path>
+                  <path
+                    d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  ></path>
+                </svg>
+              </Button>
+            </div>
           </div>
         </div>
-        <div class="flex flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap">
-          {#if hasLink}
-            <Button
-              variant="outline"
-              size="sm"
-              class="shrink-0 w-full sm:w-auto"
-              href={targetHref}
-              onclick={onOpen}
-              aria-busy={isOpening}
-            >
-              {#if isOpening}
-                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
-              {/if}
-              Open
-              <ArrowUpRight class="h-4 w-4" />
-            </Button>
-          {/if}
-          <Button
-            variant="outline"
-            size="sm"
-            class="git-copy-button shrink-0 w-full sm:w-auto"
-            onclick={copyContent}
-            disabled={!event.content}
-            aria-live="polite"
-          >
-            {#if copyState === "copied"}
-              Copied
-            {:else if copyState === "error"}
-              Copy failed
-            {:else}
-              Copy
-            {/if}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            class="git-share-button hidden shrink-0 w-9 p-0 sm:inline-flex"
-            onclick={(event) => copyShareLink(event)}
-            disabled={!shareLink}
-            data-stop-tap
-            aria-label="Share"
-            title={shareTitle}
-          >
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-                stroke="currentColor"
-                stroke-width="1.5"
-              ></path>
-              <path
-                d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-                stroke="currentColor"
-                stroke-width="1.5"
-              ></path>
-              <path
-                d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-                stroke="currentColor"
-                stroke-width="1.5"
-              ></path>
-              <path
-                d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-              ></path>
-            </svg>
-          </Button>
-        </div>
       </div>
-
-      {#if contentPreview}
-        <div
-          class="mt-3 rounded border border-border/40 bg-muted/30 overflow-hidden permalink-snippet"
+      <div class="flex flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap">
+        {#if hasLink}
+          <Button
+            variant="outline"
+            size="sm"
+            class="shrink-0 w-full sm:w-auto"
+            href={targetHref}
+            onclick={onOpen}
+            aria-busy={isOpening}
+          >
+            {#if isOpening}
+              <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+            {/if}
+            Open
+            <ArrowUpRight class="h-4 w-4" />
+          </Button>
+        {/if}
+        <Button
+          variant="outline"
+          size="sm"
+          class="git-copy-button shrink-0 w-full sm:w-auto"
+          onclick={copyContent}
+          disabled={!event.content}
+          aria-live="polite"
         >
-          {#if isDiff && highlightedDiffLines.length > 0}
-            <div class="snippet-lines">
-              {#each highlightedDiffLines as line}<div
-                  class="snippet-line {getDiffLineClass(line.type)}"
-                >
-                  <span class="snippet-num">{line.lineNum ?? ""}</span><span
-                    class="snippet-diff-ind">{line.type === " " ? "\u00a0" : line.type}</span
-                  >
-                  <pre class="snippet-code"><span class="hljs">{@html line.html}</span></pre>
-                </div>{/each}
-            </div>
-          {:else if highlightedCodeLines.length > 0}
-            <div class="snippet-lines">
-              {#each highlightedCodeLines as line}<div class="snippet-line">
-                  <span class="snippet-num">{line.num}</span>
-                  <pre class="snippet-code"><span class="hljs">{@html line.html}</span></pre>
-                </div>{/each}
-            </div>
+          {#if copyState === "copied"}
+            Copied
+          {:else if copyState === "error"}
+            Copy failed
+          {:else}
+            Copy
           {/if}
-          {#if isTruncated}
-            <div class="px-3 pb-2 pt-1 text-[11px] text-muted-foreground">Excerpt truncated</div>
-          {/if}
-        </div>
-      {/if}
-
-      {#if !hasLink}
-        <div class="mt-2 text-xs text-muted-foreground">
-          Missing repository context to build a Budabit link.
-        </div>
-      {/if}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          class="git-share-button hidden shrink-0 w-9 p-0 sm:inline-flex"
+          onclick={(event) => copyShareLink(event)}
+          disabled={!shareLink}
+          data-stop-tap
+          aria-label="Share"
+          title={shareTitle}
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
+              stroke="currentColor"
+              stroke-width="1.5"
+            ></path>
+            <path
+              d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
+              stroke="currentColor"
+              stroke-width="1.5"
+            ></path>
+            <path
+              d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
+              stroke="currentColor"
+              stroke-width="1.5"
+            ></path>
+            <path
+              d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            ></path>
+          </svg>
+        </Button>
+      </div>
     </div>
+
+    {#if contentPreview}
+      <div
+        class="mt-3 max-w-full overflow-x-auto rounded border border-border/40 bg-muted/30 permalink-snippet"
+      >
+        {#if isDiff && highlightedDiffLines.length > 0}
+          <div class="snippet-lines">
+            {#each highlightedDiffLines as line}<div
+                class="snippet-line {getDiffLineClass(line.type)}"
+              >
+                <span class="snippet-num">{line.lineNum ?? ""}</span><span class="snippet-diff-ind"
+                  >{line.type === " " ? "\u00a0" : line.type}</span
+                >
+                <pre class="snippet-code"><span class="hljs">{@html line.html}</span></pre>
+              </div>{/each}
+          </div>
+        {:else if highlightedCodeLines.length > 0}
+          <div class="snippet-lines">
+            {#each highlightedCodeLines as line}<div class="snippet-line">
+                <span class="snippet-num">{line.num}</span>
+                <pre class="snippet-code"><span class="hljs">{@html line.html}</span></pre>
+              </div>{/each}
+          </div>
+        {/if}
+        {#if isTruncated}
+          <div class="px-3 pb-2 pt-1 text-[11px] text-muted-foreground">Excerpt truncated</div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if !hasLink}
+      <div class="mt-2 text-xs text-muted-foreground">
+        Missing repository context to build a Budabit link.
+      </div>
+    {/if}
   </div>
 </Card>
 
@@ -571,18 +576,35 @@
     }
   }
 
+  :global(.git-permalink-card) {
+    max-width: 100%;
+  }
+
+  @media (max-width: 640px) {
+    :global(.git-permalink-card) {
+      padding: 0.875rem !important;
+    }
+  }
+
+  .permalink-snippet {
+    -webkit-overflow-scrolling: touch;
+  }
+
   /* Snippet line layout */
   .snippet-lines {
     font-family:
       ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.6875rem;
+    min-width: max-content;
     padding: 3px 0;
   }
 
   .snippet-line {
     display: flex;
     align-items: baseline;
-    line-height: 1.4;
+    min-width: 100%;
+    width: max-content;
+    line-height: 1.45;
   }
 
   .snippet-num {
@@ -603,11 +625,11 @@
   }
 
   :global(.snippet-code) {
-    flex: 1;
+    flex: 0 0 auto;
     margin: 0 !important;
     padding: 0 0.5ch !important;
-    white-space: pre-wrap;
-    word-break: break-all;
+    white-space: pre;
+    word-break: normal;
     font: inherit;
     line-height: inherit;
   }
