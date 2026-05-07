@@ -2169,7 +2169,9 @@
       <div class="flex flex-col gap-3">
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <TabsList class="flex w-full overflow-x-auto sm:w-fit sm:max-w-full sm:self-start">
-            <TabsTrigger value="my-repos" class="flex-1 whitespace-nowrap sm:flex-none">
+            <TabsTrigger
+              value="my-repos"
+              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:ring-1 data-[state=active]:ring-border data-[state=active]:shadow-md sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={FolderWithFiles} />
                 <span>My Repos</span>
@@ -2178,7 +2180,9 @@
                 {/if}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="bookmarks" class="flex-1 whitespace-nowrap sm:flex-none">
+            <TabsTrigger
+              value="bookmarks"
+              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:ring-1 data-[state=active]:ring-border data-[state=active]:shadow-md sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={Bookmark} />
                 <span>Bookmarks</span>
@@ -2187,7 +2191,9 @@
                 {/if}
               </span>
             </TabsTrigger>
-            <TabsTrigger value="snippets" class="flex-1 whitespace-nowrap sm:flex-none">
+            <TabsTrigger
+              value="snippets"
+              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:ring-1 data-[state=active]:ring-border data-[state=active]:shadow-md sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={Code} />
                 <span>Snippets</span>
@@ -2253,7 +2259,7 @@
   </div>
 
   {#if activeTab === "snippets"}
-    <div class="flex flex-col gap-3" in:fade={{duration: 150}}>
+    <div class="flex min-w-0 flex-col gap-3" in:fade={{duration: 150}}>
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-semibold text-muted-foreground">Your Snippets</h3>
         {#if $pubkey}
@@ -2267,7 +2273,7 @@
           No snippets yet. Create a permalink from a code file or diff.
         </p>
       {:else}
-        <div class="flex flex-col gap-3">
+        <div class="flex min-w-0 flex-col gap-3">
           {#each filteredSnippets as snippet (snippet.id)}
             <EventRenderer event={snippet as any} />
           {/each}
@@ -2276,7 +2282,7 @@
     </div>
   {:else}
   {#if isAccountSearch}
-    <div class="flex flex-col gap-2" in:fade={{duration: 200}}>
+    <div class="flex min-w-0 flex-col gap-2" in:fade={{duration: 200}}>
       {#if accountSearch.mode === "naddr" && accountSearch.invalid}
         <p class="text-sm text-muted-foreground">Invalid repository naddr.</p>
       {:else if accountSearch.mode === "npub" && accountSearch.invalid}
@@ -2300,10 +2306,10 @@
       {/if}
 
       {#if sortedAccountSearchRepoCards.length > 0}
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {#each sortedAccountSearchRepoCards as g, i (getRepoCardStableKey(g))}
           <div
-            class="rounded-md border border-border bg-card p-3"
+            class="min-w-0 rounded-md border border-border bg-card p-3"
             role="link"
             tabindex="0"
             onclick={g.first
@@ -2364,7 +2370,7 @@
   {:else}
 
   <!-- Tab-filtered Repos Grid -->
-  <div>
+  <div class="min-w-0">
     {#if repoDiscoveryStatusLines.length > 0}
       <div class="mb-3 rounded-md border border-border bg-card/70 p-3">
         <div class="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -2413,12 +2419,12 @@
         {/if}
       </p>
     {:else if sortedRepoCards.length > 0}
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
           {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
           {@const taggedMaintainers = g.taggedMaintainers ?? []}
           <div
-            class="rounded-md border border-border bg-card p-3"
+            class="min-w-0 rounded-md border border-border bg-card p-3"
             role="link"
             tabindex="0"
             onclick={g.first

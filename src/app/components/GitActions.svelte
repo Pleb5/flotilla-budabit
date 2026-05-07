@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {Address, type EventContent, type TrustedEvent} from "@welshman/util"
+  import {Address, type TrustedEvent} from "@welshman/util"
   import {
     getFailedThunkUrls,
     mergeThunks,
@@ -9,11 +9,9 @@
     tracker,
   } from "@welshman/app"
   import {PublishStatus} from "@welshman/net"
-  import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import ThunkPending from "@app/components/ThunkPending.svelte"
-  import EventActions from "@app/components/EventActions.svelte"
-  import {publishDelete, publishReaction} from "@app/core/commands"
+  import EventMenu from "@app/components/EventMenu.svelte"
   import {makeGitIssuePath, makeGitPath} from "@lib/budabit"
   import {deriveIsDeleted} from "@welshman/store"
   import {nthEq} from "@welshman/lib"
@@ -28,6 +26,11 @@
   import {tryTokensForHost, getTokensForHost} from "@nostr-git/ui"
   import {Router} from "@welshman/router"
   import {GIT_RELAYS} from "@lib/budabit/state"
+  import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
+  import Button from "@lib/components/Button.svelte"
+  import Icon from "@lib/components/Icon.svelte"
+  import Tippy from "@lib/components/Tippy.svelte"
+  import type {Instance} from "tippy.js"
 
   interface Props {
     url: any
@@ -89,22 +92,9 @@
       .filter(Boolean),
   )
 
-  const onPublishDelete = (event: TrustedEvent) =>
-    publishDelete({
-      relays: publishRelays,
-      event,
-      protect: false,
-    })
+  const showPopover = () => popover?.show()
 
-  const onPublishReaction = (eventContent: EventContent) => {
-    publishReaction({
-      event,
-      content: eventContent.content,
-      tags: eventContent.tags,
-      relays: publishRelays,
-      protect: false,
-    })
-  }
+  const hidePopover = () => popover?.hide()
 
   // This might be broken depending on repo owners updating their links or
   // even including one in the first place
@@ -243,12 +233,31 @@
       syncing = false
     }
   }
+
+  let popover: Instance | undefined = $state()
 </script>
 
-<div class="flex flex-wrap items-center justify-between gap-2">
-  <div class="flex flex-grow flex-wrap justify-end gap-2">
+<div class="flex w-full flex-wrap items-center justify-between gap-2">
+  {#if showActivity}
+    <div class="absolute right-2 top-2 z-10" data-stop-link data-stop-tap>
+      <Tippy
+        bind:popover
+        component={EventMenu}
+        props={{url, noun: "Repo", event, onClick: hidePopover, relays: publishRelays}}
+        params={{trigger: "manual", interactive: true, placement: "bottom-end"}}>
+        <Button
+          class="btn btn-ghost btn-circle btn-xs h-7 min-h-7 w-7"
+          onclick={showPopover}
+          aria-label="Open repository actions"
+          title="Repository actions">
+          <Icon icon={MenuDots} size={4} />
+        </Button>
+      </Tippy>
+    </div>
+  {/if}
+  <div class="flex min-w-0 flex-grow flex-wrap justify-end gap-1.5">
     {#if syncStatus && (syncStatus.needsUpdate || (syncStatus.localCommit && syncStatus.headCommit && syncStatus.localCommit !== syncStatus.headCommit))}
-      <div class="flex items-center gap-2 rounded-full border border-border bg-muted px-2 py-1 text-xs">
+      <div class="flex min-w-0 flex-wrap items-center gap-2 rounded-full border border-border bg-muted px-2 py-1 text-xs">
         <span class="opacity-80">Out of sync</span>
         {#if syncStatus.localCommit && syncStatus.headCommit}
           <span class="opacity-60">{syncStatus.localCommit?.slice(0,7)} → {syncStatus.headCommit?.slice(0,7)}</span>
@@ -257,18 +266,18 @@
         <button class="btn btn-primary btn-2xs" disabled={syncing} onclick={pushLocal}>Push</button>
       </div>
     {/if}
-    <Link class="cursor-pointer" href={codeHref}>
+    <Link class="cursor-pointer shrink-0" href={codeHref}>
       <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Browse</div>
     </Link>
     {#if showIssues}
-      <Link class="cursor-pointer" href={makeGitIssuePath(url, repoNaddr)}>
+      <Link class="cursor-pointer shrink-0" href={makeGitIssuePath(url, repoNaddr)}>
         <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">Issues</div>
       </Link>
     {/if}
 
     {#if showPatches}
       <Link
-        class="cursor-pointer"
+        class="cursor-pointer shrink-0"
         href={`${browseHref}/patches`}>
         <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">
           <span>Patches</span>
@@ -276,12 +285,6 @@
       </Link>
     {/if}
     {#if showActivity}
-      <ReactionSummary
-        {url}
-        {event}
-        createReaction={onPublishReaction}
-        deleteReaction={onPublishDelete}
-        reactionClass="tooltip-left" />
       {#if $deleted}
         <div class="btn btn-error btn-xs rounded-full">Deleted</div>
       {:else if showThunkFailure}
@@ -289,7 +292,6 @@
       {:else if showThunkPending}
         <ThunkPending {thunk} />
       {/if}
-      <EventActions {url} {event} noun="Repo" relays={publishRelays} />
     {/if}
   </div>
 </div>

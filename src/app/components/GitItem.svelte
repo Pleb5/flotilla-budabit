@@ -153,7 +153,7 @@
 </script>
 
 {#snippet cardContent()}
-  <NoteCard event={event} class="card2 sm:card2-sm bg-alt" {hideDate}>
+  <NoteCard event={event} class="card2 sm:card2-sm bg-alt relative" {hideDate}>
     {#if name}
       <div class="flex w-full items-start justify-between gap-2">
         <Link href={browseHref} class="block min-w-0 flex-1">
@@ -161,7 +161,7 @@
             <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>
           </div>
         </Link>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 {showActions ? 'mr-9' : ''}">
           {#if onToggleBookmark}
             <button
               type="button"
@@ -200,7 +200,7 @@
       </p>
     {/if}
     {#if showActions}
-      <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
+      <div class="flex w-full min-w-0 flex-col items-stretch justify-between gap-2 sm:flex-row">
         <GitActions {showActivity} {showIssues} {url} {event} />
       </div>
     {/if}
