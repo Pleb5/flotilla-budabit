@@ -31,7 +31,7 @@
   import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
-  import {decodeRelay} from "@app/core/state"
+  import {PLATFORM_RELAYS, PLATFORM_URL, decodeRelay} from "@app/core/state"
   import {publishDelete} from "@app/core/commands"
   import {goto} from "$app/navigation"
   import {onMount, onDestroy, untrack} from "svelte"
@@ -1914,6 +1914,9 @@
           },
           onCancel: back,
           defaultRelays: [...defaultRepoRelays],
+          platformRelays: [...PLATFORM_RELAYS],
+          platformUrl: PLATFORM_URL,
+          makeRepoPath: makeGitPath,
           userPubkey: $pubkey,
           defaultAuthorName: authorName,
           defaultAuthorEmail: authorEmail,
