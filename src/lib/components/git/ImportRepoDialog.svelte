@@ -1393,7 +1393,7 @@
                 type="button"
                 onclick={handleStep1Next}
                 disabled={!canProceedStep1 || isCheckingOwnership}
-                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                class="px-4 py-2 bg-blue-600 !text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {#if isCheckingOwnership}
                   <Loader2 class="w-4 h-4 animate-spin" />
@@ -1602,7 +1602,7 @@
                     />
                     <button
                       type="button"
-                      class="px-2 py-1 text-xs bg-blue-600 text-white rounded-r-full hover:bg-blue-700"
+                      class="px-2 py-1 text-xs bg-blue-600 !text-white rounded-r-full hover:bg-blue-700"
                       onclick={commitNewGraspRelay}
                     >
                       +
@@ -1924,7 +1924,7 @@
                 type="button"
                 onclick={handleStep2Next}
                 disabled={!canProceedStep2 || importState.isImporting}
-                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                class="px-6 py-2 bg-blue-600 !text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 SET THIS REPO FREE
               </button>
@@ -2095,7 +2095,7 @@
                   type="button"
                   onclick={handleAbort}
                   disabled={isCancelingImport}
-                  class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                  class="px-4 py-2 bg-red-600 !text-white rounded-lg hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {#if isCancelingImport}
                     <Loader2 class="w-4 h-4 animate-spin" />
@@ -2125,7 +2125,7 @@
                         onNavigateToRepo(completedResult);
                       }
                     }}
-                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                    class="px-4 py-2 bg-blue-600 !text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
                   >
                     <ExternalLink class="w-4 h-4" />
                     View repository

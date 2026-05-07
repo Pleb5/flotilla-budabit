@@ -742,7 +742,7 @@
 </script>
 
 <div
-  class="ng-themed-modal bg-background text-foreground rounded-lg border border-border shadow w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto max-h-[calc(100vh-4rem)] flex flex-col overflow-hidden"
+  class="ng-themed-modal bg-card text-card-foreground rounded-lg border border-border shadow w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto max-h-[calc(100vh-4rem)] flex flex-col overflow-hidden"
 >
   <div class="px-6 pt-6 pb-4 border-b border-border space-y-4">
     <!-- Header -->
@@ -885,13 +885,23 @@
 
   <!-- Navigation Buttons -->
   {#if currentStep < 4}
-    <div class="px-6 py-4 border-t border-border bg-background">
+    <div class="px-6 py-4 border-t border-border bg-card">
       <div class="flex justify-between">
-        <Button onclick={onCancel} variant="outline" class="btn btn-secondary">Cancel</Button>
+        <Button
+          onclick={onCancel}
+          variant="outline"
+          class="border-border bg-card text-foreground hover:bg-muted hover:text-foreground"
+          >Cancel</Button
+        >
 
         <div class="flex space-x-3">
           {#if currentStep > 1}
-            <Button onclick={prevStep} variant="outline" class="btn btn-secondary">Previous</Button>
+            <Button
+              onclick={prevStep}
+              variant="outline"
+              class="border-border bg-card text-foreground hover:bg-muted hover:text-foreground"
+              >Previous</Button
+            >
           {/if}
 
           <Button
@@ -902,7 +912,6 @@
               (currentStep === 2 && !validateStep1()) ||
               (currentStep === 3 && getEffectiveRepoRelays().length === 0)}
             variant="git"
-            class="btn btn-primary"
           >
             {currentStep === 3 ? "Create Repository" : "Next"}
           </Button>

@@ -1796,7 +1796,7 @@
               targetPreflightPending ||
               !!validationError ||
               selectedForkTargets.length === 0}
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
             {#if isForking}
               <Loader2 class="w-4 h-4 animate-spin" />
@@ -1812,7 +1812,7 @@
           <button
             type="button"
             onclick={handleClose}
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors inline-flex items-center gap-2"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors inline-flex items-center gap-2"
           >
             <CheckCircle2 class="w-4 h-4" />
             <span>Done</span>
