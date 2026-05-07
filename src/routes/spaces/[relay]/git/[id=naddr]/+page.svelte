@@ -814,7 +814,7 @@
           Details
         </span>
         <details class="group relative">
-          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-500/40 bg-green-600/20 px-3 py-2 text-sm font-medium text-green-300 hover:bg-green-600/30">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-600/40 bg-green-100 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-200 dark:border-green-500/40 dark:bg-green-600/20 dark:text-green-300 dark:hover:bg-green-600/30">
             <span class="flex items-center gap-2">
               <GitBranch class="h-4 w-4" />
               Clone

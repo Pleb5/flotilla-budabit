@@ -56,12 +56,12 @@
   }: Props = $props()
 
   let showRecommenders = $state(false)
-  const softBadgeInfo = "badge border border-info/25 bg-info/15 text-info"
-  const softBadgePrimary = "badge border border-primary/25 bg-primary/15 text-primary"
-  const softBadgeSuccess = "badge border border-success/25 bg-success/15 text-success"
-  const softBadgeWarning = "badge border border-warning/30 bg-warning/15 text-warning"
-  const softBadgeError = "badge border border-error/25 bg-error/15 text-error"
-  const softBadgeNeutral = "badge border border-base-content/10 bg-base-200/80 text-base-content/75"
+  const softBadgeInfo = "badge border border-cyan-500/35 bg-cyan-100/70 font-medium text-cyan-700 dark:border-info/25 dark:bg-info/15 dark:text-info"
+  const softBadgePrimary = "badge border border-amber-500/35 bg-amber-100/70 font-medium text-amber-700 dark:border-primary/25 dark:bg-primary/15 dark:text-primary"
+  const softBadgeSuccess = "badge border border-teal-500/35 bg-teal-100/70 font-medium text-teal-700 dark:border-success/25 dark:bg-success/15 dark:text-success"
+  const softBadgeWarning = "badge border border-orange-500/35 bg-orange-100/70 font-medium text-orange-700 dark:border-warning/30 dark:bg-warning/15 dark:text-warning"
+  const softBadgeError = "badge border border-red-500/35 bg-red-100/70 font-medium text-red-700 dark:border-error/25 dark:bg-error/15 dark:text-error"
+  const softBadgeNeutral = "badge border border-base-content/15 bg-base-200 font-medium text-base-content/80"
 
   const usageLabel = $derived(usageCount === 1 ? "1 user" : `${usageCount} users`)
   const verificationSummary = $derived.by(() => {
