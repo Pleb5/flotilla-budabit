@@ -151,6 +151,16 @@
 
   const strictPrEditRelays = $derived.by(() => normalizeUniqueRelays(prEditRelays || []))
 
+  const normalizeBranchName = (input?: string | null) => {
+    const value = String(input || "").trim()
+    if (!value) return ""
+    if (value.startsWith("ref: refs/heads/")) return value.slice("ref: refs/heads/".length)
+    if (value.startsWith("refs/heads/")) return value.slice("refs/heads/".length)
+    if (value.startsWith("refs/remotes/origin/")) return value.slice("refs/remotes/origin/".length)
+    if (value.startsWith("origin/")) return value.slice("origin/".length)
+    return value
+  }
+
   const effectiveMaintainers = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
     const maintainers = (((repoClass as any)?.maintainers as string[]) || []).filter(
@@ -425,7 +435,10 @@
   })
 
   /** Target branch from PR event, fallback to repo selection */
-  const prTargetBranch = $derived(pr?.branchName ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main")
+  const prTargetBranch = $derived(
+    normalizeBranchName(pr?.branchName ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main") ||
+      "main",
+  )
 
   const prTargetCloneUrls = $derived.by(() =>
     filterValidCloneUrls(
@@ -958,6 +971,54 @@
     }
   }
 
+  async function validatePRTargetBranchForAnalysis(): Promise<PrSyncResult> {
+    const targetBranch = normalizeBranchName(prTargetBranch)
+    if (!targetBranch) {
+      return {ok: false, error: "PR target branch is missing"}
+    }
+
+    try {
+      const refs =
+        typeof (repoClass as any)?.loadRefsForPRAnalysis === "function"
+          ? await (repoClass as any).loadRefsForPRAnalysis()
+          : ((repoClass as any)?.refs || [])
+      const heads = Array.from(
+        new Set<string>(
+          (refs || [])
+            .filter((ref: any) => ref?.type === "heads")
+            .map((ref: any) => normalizeBranchName(ref?.name))
+            .filter(Boolean),
+        ),
+      ).sort((a, b) => a.localeCompare(b))
+
+      if (heads.length === 0) {
+        return {
+          ok: false,
+          error: `Could not verify target branch ${targetBranch}; repository branches have not loaded yet.`,
+        }
+      }
+
+      if (!heads.includes(targetBranch)) {
+        const visibleBranches = heads.slice(0, 12).join(", ")
+        const moreBranches = heads.length > 12 ? `, and ${heads.length - 12} more` : ""
+        return {
+          ok: false,
+          error: `Target branch "${targetBranch}" is not advertised by this repository. Available branches: ${visibleBranches}${moreBranches}.`,
+        }
+      }
+
+      return {ok: true}
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? `Could not load repository branches before merge analysis: ${error.message}`
+            : "Could not load repository branches before merge analysis",
+      }
+    }
+  }
+
   async function runPRMergeAnalysis() {
     if (!pr || !prEvent || !prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
     const tipOid = prEffectiveTipOid
@@ -971,11 +1032,24 @@
     const myGen = prAnalysisGeneration
     lastPrAnalysisKey = analysisKey
     isAnalyzingPRMerge = true
-    prAnalysisProgress = "Syncing target branch..."
+    prAnalysisProgress = "Loading target branches..."
     prAnalysisWarning = null
     prMergeAnalysisResult = null
 
     try {
+      const targetBranchCheck = await validatePRTargetBranchForAnalysis()
+      if (prAnalysisGeneration !== myGen) return
+      if (!targetBranchCheck.ok) {
+        prMergeAnalysisResult = toAnalysisErrorResult(
+          `Cannot run merge analysis until target branch is available: ${
+            targetBranchCheck.error || `Target branch ${prTargetBranch} could not be verified`
+          }`,
+          [],
+        )
+        return
+      }
+
+      prAnalysisProgress = "Syncing target branch..."
       const sync = await syncTargetBranchForPR("analysis")
       if (prAnalysisGeneration !== myGen) return
       if (!sync.ok) {
