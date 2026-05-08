@@ -1762,14 +1762,47 @@
       ackedRelays,
       failedRelays,
       successCount: ackedRelays.length,
+      event: thunk?.event,
     }
   }
 
-  const hydrateImportedRepoEvents = (result: ImportResult) => {
+  const hydrateRepoEvents = (
+    result: Pick<ImportResult | NewRepoResult, "announcementEvent" | "stateEvent">,
+  ) => {
     for (const event of [result.announcementEvent, result.stateEvent]) {
-      if (event?.id && !repository.getEvent(event.id)) {
-        repository.publish(event as TrustedEvent)
+      const publishedEvent = event as TrustedEvent | undefined
+      if (publishedEvent?.id && !repository.getEvent(publishedEvent.id)) {
+        repository.publish(publishedEvent)
       }
+    }
+  }
+
+  const navigateToCreatedRepo = (
+    result: Pick<ImportResult | NewRepoResult, "announcementEvent" | "stateEvent">,
+    failureContext: string,
+  ) => {
+    try {
+      const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent as any, $pubkey || "")
+      const destination = makeGitPath(url, naddr)
+
+      void goto(destination, {replaceState: true})
+        .then(() => {
+          hydrateRepoEvents(result)
+          clearModals()
+        })
+        .catch(error => {
+          console.error(`[+page.svelte] Failed to navigate to ${failureContext}:`, error)
+          pushToast({
+            message: `Failed to navigate to repository: ${String(error)}`,
+            theme: "error",
+          })
+        })
+    } catch (error) {
+      console.error(`[+page.svelte] Failed to navigate to ${failureContext}:`, error)
+      pushToast({
+        message: `Failed to navigate to repository: ${String(error)}`,
+        theme: "error",
+      })
     }
   }
 
@@ -1888,29 +1921,11 @@
         {
           workerApi, // Pass initialized worker API
           workerInstance, // Pass worker instance for event signing
-          onRepoCreated: () => {
-            // Reload repos by forcing bookmarks refresh and announcements
-            loadRepoAnnouncements(repoAnnouncementRelays)
+          onRepoCreated: (result: NewRepoResult) => {
+            setTimeout(() => hydrateRepoEvents(result), 0)
           },
           onNavigateToRepo: (result: NewRepoResult) => {
-            try {
-              const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent, $pubkey || "")
-              const destination = makeGitPath(url, naddr)
-              clearModals()
-              void goto(destination).catch(error => {
-                console.error("[+page.svelte] Failed to navigate to new repo:", error)
-                pushToast({
-                  message: `Failed to navigate to repository: ${String(error)}`,
-                  theme: "error",
-                })
-              })
-            } catch (error) {
-              console.error("[+page.svelte] Failed to navigate to new repo:", error)
-              pushToast({
-                message: `Failed to navigate to repository: ${String(error)}`,
-                theme: "error",
-              })
-            }
+            navigateToCreatedRepo(result, "new repo")
           },
           onCancel: back,
           defaultRelays: [...defaultRepoRelays],
@@ -2071,7 +2086,7 @@
           },
           onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
           onImportComplete: (result: ImportResult) => {
-            hydrateImportedRepoEvents(result)
+            hydrateRepoEvents(result)
             // Reload repos by forcing bookmarks refresh and announcements
             loadRepoAnnouncements(repoAnnouncementRelays)
             pushToast({
@@ -2079,25 +2094,7 @@
             })
           },
           onNavigateToRepo: (result: ImportResult) => {
-            try {
-              hydrateImportedRepoEvents(result)
-              const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent as any, $pubkey || "")
-              const destination = makeGitPath(url, naddr)
-              clearModals()
-              void goto(destination).catch(error => {
-                console.error("[+page.svelte] Failed to navigate to imported repo:", error)
-                pushToast({
-                  message: `Failed to navigate to repository: ${String(error)}`,
-                  theme: "error",
-                })
-              })
-            } catch (error) {
-              console.error("[+page.svelte] Failed to navigate to imported repo:", error)
-              pushToast({
-                message: `Failed to navigate to repository: ${String(error)}`,
-                theme: "error",
-              })
-            }
+            navigateToCreatedRepo(result, "imported repo")
           },
           onAbortImport: async () => {
             try {
