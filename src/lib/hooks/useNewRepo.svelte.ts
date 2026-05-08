@@ -19,6 +19,11 @@ import {
   type FetchRelayEvents,
 } from "../utils/grasp-pipeline.js";
 
+export function getPublishedEventFromPublishResult(result: unknown): NostrEvent | undefined {
+  const event = (result as { event?: NostrEvent } | undefined)?.event;
+  return event?.id ? event : undefined;
+}
+
 async function checkGraspRepoAvailability(
   repoName: string,
   relayUrl?: string,
@@ -898,9 +903,12 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
 
       if (onPublishEvent) {
         updateProgress("publish", "Publishing to Nostr relays...", "running");
-        await onPublishEvent(announcementEvent);
+        announcementEvent =
+          getPublishedEventFromPublishResult(await onPublishEvent(announcementEvent)) ||
+          announcementEvent;
         if (!includesGrasp) {
-          await onPublishEvent(stateEvent);
+          stateEvent =
+            getPublishedEventFromPublishResult(await onPublishEvent(stateEvent)) || stateEvent;
         }
         updateProgress("publish", "Successfully published to Nostr relays", "completed");
       }
