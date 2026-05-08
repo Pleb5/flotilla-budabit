@@ -257,56 +257,57 @@
   }
 }
 
+body[data-theme="light"] .ng-themed-modal.bg-gray-900,
+body[data-theme="light"] .ng-themed-modal .bg-gray-900,
+body[data-theme="light"] .ng-themed-modal .bg-gray-900\/60,
+body[data-theme="light"] .ng-themed-modal .bg-gray-800,
+body[data-theme="light"] .ng-themed-modal .bg-gray-800\/40,
+body[data-theme="light"] .ng-themed-modal .bg-gray-800\/50,
+body[data-theme="light"] .ng-themed-modal .bg-gray-800\/60 {
+  background-color: hsl(var(--ng-card)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .bg-gray-700,
+body[data-theme="light"] .ng-themed-modal .bg-gray-700\/50,
+body[data-theme="light"] .ng-themed-modal .bg-gray-600 {
+  background-color: hsl(var(--ng-muted)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .text-white,
+body[data-theme="light"] .ng-themed-modal .text-gray-100,
+body[data-theme="light"] .ng-themed-modal .text-gray-200,
+body[data-theme="light"] .ng-themed-modal .text-gray-300 {
+  color: hsl(var(--ng-foreground)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .text-gray-400,
+body[data-theme="light"] .ng-themed-modal .text-gray-500 {
+  color: hsl(var(--ng-muted-foreground)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .border-gray-700,
+body[data-theme="light"] .ng-themed-modal .border-gray-600,
+body[data-theme="light"] .ng-themed-modal .border-gray-500,
+body[data-theme="light"] .ng-themed-modal .border-gray-300 {
+  border-color: hsl(var(--ng-border)) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal .placeholder-gray-400::placeholder,
+body[data-theme="light"] .ng-themed-modal .placeholder-gray-500::placeholder {
+  color: hsl(var(--ng-muted-foreground) / 0.72) !important;
+}
+
+body[data-theme="light"] .ng-themed-modal input.bg-gray-800,
+body[data-theme="light"] .ng-themed-modal input.bg-gray-900,
+body[data-theme="light"] .ng-themed-modal textarea.bg-gray-800,
+body[data-theme="light"] .ng-themed-modal textarea.bg-gray-900,
+body[data-theme="light"] .ng-themed-modal select.bg-gray-800,
+body[data-theme="light"] .ng-themed-modal select.bg-gray-900 {
+  background-color: hsl(var(--ng-background)) !important;
+  color: hsl(var(--ng-foreground)) !important;
+}
+
 @layer components {
-  body[data-theme="light"] .ng-themed-modal.bg-gray-900,
-  body[data-theme="light"] .ng-themed-modal .bg-gray-900,
-  body[data-theme="light"] .ng-themed-modal .bg-gray-900\/60,
-  body[data-theme="light"] .ng-themed-modal .bg-gray-800,
-  body[data-theme="light"] .ng-themed-modal .bg-gray-800\/40,
-  body[data-theme="light"] .ng-themed-modal .bg-gray-800\/50,
-  body[data-theme="light"] .ng-themed-modal .bg-gray-800\/60 {
-    background-color: hsl(var(--ng-card)) !important;
-  }
-
-  body[data-theme="light"] .ng-themed-modal .bg-gray-700,
-  body[data-theme="light"] .ng-themed-modal .bg-gray-700\/50,
-  body[data-theme="light"] .ng-themed-modal .bg-gray-600 {
-    background-color: hsl(var(--ng-muted)) !important;
-  }
-
-  body[data-theme="light"] .ng-themed-modal .text-white,
-  body[data-theme="light"] .ng-themed-modal .text-gray-100,
-  body[data-theme="light"] .ng-themed-modal .text-gray-200,
-  body[data-theme="light"] .ng-themed-modal .text-gray-300 {
-    color: hsl(var(--ng-foreground)) !important;
-  }
-
-  body[data-theme="light"] .ng-themed-modal .text-gray-400,
-  body[data-theme="light"] .ng-themed-modal .text-gray-500 {
-    color: hsl(var(--ng-muted-foreground)) !important;
-  }
-
-  body[data-theme="light"] .ng-themed-modal .border-gray-700,
-  body[data-theme="light"] .ng-themed-modal .border-gray-600,
-  body[data-theme="light"] .ng-themed-modal .border-gray-500,
-  body[data-theme="light"] .ng-themed-modal .border-gray-300 {
-    border-color: hsl(var(--ng-border)) !important;
-  }
-
-  body[data-theme="light"] .ng-themed-modal .placeholder-gray-400::placeholder,
-  body[data-theme="light"] .ng-themed-modal .placeholder-gray-500::placeholder {
-    color: hsl(var(--ng-muted-foreground) / 0.72) !important;
-  }
-
-  body[data-theme="light"] .ng-themed-modal input.bg-gray-800,
-  body[data-theme="light"] .ng-themed-modal input.bg-gray-900,
-  body[data-theme="light"] .ng-themed-modal textarea.bg-gray-800,
-  body[data-theme="light"] .ng-themed-modal textarea.bg-gray-900,
-  body[data-theme="light"] .ng-themed-modal select.bg-gray-800,
-  body[data-theme="light"] .ng-themed-modal select.bg-gray-900 {
-    background-color: hsl(var(--ng-background)) !important;
-    color: hsl(var(--ng-foreground)) !important;
-  }
 
   .git-menu-item {
     @apply flex items-center gap-2 rounded-md px-4 py-3 font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground;
