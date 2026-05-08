@@ -66,7 +66,11 @@
   } from "@nostr-git/core/events"
   import {postComment, postStatus, publishEvent} from "@lib/budabit"
   import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
-  import {effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
+  import {
+    getMaintainerSetRepoAddresses,
+    maintainerSetByRepoAddress,
+    maintainerSetRepoAddressesByRepoAddress,
+  } from "@lib/budabit/state"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
   import {getCloneUrlsFromEvent, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {normalizeRelayUrl} from "@welshman/util"
@@ -159,12 +163,21 @@
     if (!repoAddress) {
       return fallback
     }
-    const mappedMaintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+    const mappedMaintainers = $maintainerSetByRepoAddress.get(repoAddress)
     if (mappedMaintainers && mappedMaintainers.size > 0) return Array.from(mappedMaintainers)
     return fallback
   })
 
   const effectiveMaintainerSet = $derived.by(() => new Set(effectiveMaintainers))
+  const maintainerSetRepoAddresses = $derived.by(() => {
+    const address = (repoClass as any)?.address || ""
+    return address ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, address)) : []
+  })
+  const commentRepoRefs = $derived.by(() => maintainerSetRepoAddresses)
+  const commentRelayHint = $derived.by(() => {
+    const relays = (repoRelays || repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    return relays[0] || undefined
+  })
   const repoTrustMetrics = $derived.by<RepoTrustMetrics>(() =>
     repoTrustMetricsStore ? ($repoTrustMetricsStore ?? defaultRepoTrustMetrics) : defaultRepoTrustMetrics,
   )
@@ -283,9 +296,23 @@
     return content
   })
 
+  let prCommentParentIds = $state<string[]>([])
+
+  const prThreadCommentFilters = $derived.by(() => {
+    if (!prEvent) return []
+    const filters: Filter[] = [
+      {kinds: [COMMENT], "#E": [prEvent.id]},
+      {kinds: [COMMENT], "#e": [prEvent.id]},
+    ]
+    if (prCommentParentIds.length > 0) {
+      filters.push({kinds: [COMMENT], "#e": prCommentParentIds})
+    }
+    return filters
+  })
+
   const prThreadComments = $derived.by(() => {
     if (!prEvent) return undefined
-    const filters: Filter[] = [{kinds: [COMMENT], "#E": [prEvent.id]}]
+    const filters = prThreadCommentFilters
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     load({relays: relays as string[], filters})
     return deriveEventsAsc(deriveEventsById({repository, filters}))
@@ -296,6 +323,15 @@
     return $prThreadComments as CommentEvent[]
   })
   const prThreadCommentsCount = $derived.by(() => prThreadCommentsArray.length)
+
+  let prCommentParentIdsKey = ""
+  $effect(() => {
+    const nextIds = Array.from(new Set(prThreadCommentsArray.map(comment => comment.id).filter(Boolean))).sort()
+    const nextKey = nextIds.join(",")
+    if (nextKey === prCommentParentIdsKey) return
+    prCommentParentIdsKey = nextKey
+    prCommentParentIds = nextIds
+  })
 
   const prUpdatesFilter = $derived.by(() =>
     prEvent ? [{kinds: [GIT_PULL_REQUEST_UPDATE], "#E": [prEvent.id]}] as Filter[] : [],
@@ -1147,22 +1183,27 @@
 
   const PR_COMMIT_DIFF_CONTEXT_LINES = 3
 
+  const getCommentTagValue = (comment: CommentEvent, name: string) =>
+    (comment.tags || []).find((tag: string[]) => tag[0] === name)?.[1] || ""
+
+  const getInlineCommentLine = (comment: CommentEvent) => {
+    const lineTag = (comment.tags || []).find((tag: string[]) => tag[0] === "line")
+    const raw = lineTag?.[1] || ""
+    if (!raw) return {lineNumber: 0, lineSide: undefined as "del" | undefined}
+    const parts = raw.split("-")
+    const lineNumber = parseInt(parts[parts.length - 1] || parts[0], 10)
+    return {
+      lineNumber: Number.isFinite(lineNumber) ? lineNumber : 0,
+      lineSide: lineTag?.[2] === "del" ? "del" as const : undefined,
+    }
+  }
+
   const prDiffComments = $derived.by(() => {
     const comments = prThreadCommentsArray
     if (!comments || comments.length === 0) return []
-    return comments.map((commentEvent: CommentEvent) => {
-      let lineNumber = 0
-      let filePath = ""
-      let content = commentEvent.content
-      const separatorIndex = content.indexOf("\n\n---\n")
-      if (separatorIndex !== -1) {
-        content = content.substring(0, separatorIndex).trim()
-        const metadataSection = commentEvent.content.substring(separatorIndex + 6)
-        const fileMatch = metadataSection.match(/File:\s*(.+?)(?:\n|$)/i)
-        if (fileMatch) filePath = fileMatch[1].trim()
-        const lineMatch = metadataSection.match(/Line:\s*(\d+)/i)
-        if (lineMatch) lineNumber = parseInt(lineMatch[1], 10)
-      }
+    return comments.filter((commentEvent: CommentEvent) => getCommentTagValue(commentEvent, "f") && getCommentTagValue(commentEvent, "line")).map((commentEvent: CommentEvent) => {
+      const filePath = getCommentTagValue(commentEvent, "f")
+      const {lineNumber, lineSide} = getInlineCommentLine(commentEvent)
       const profile = $profilesByPubkey.get(commentEvent.pubkey)
       const authorName = profile?.name || profile?.display_name || commentEvent.pubkey.slice(0, 8)
       const authorAvatar = profile?.picture || ""
@@ -1170,7 +1211,10 @@
         id: commentEvent.id || "",
         lineNumber,
         filePath,
-        content,
+        commitId: getCommentTagValue(commentEvent, "c"),
+        lineSide,
+        content: commentEvent.content,
+        rawEvent: commentEvent,
         author: {name: authorName, avatar: authorAvatar},
         createdAt: new Date(commentEvent.created_at * 1000).toISOString(),
       }
@@ -1201,13 +1245,12 @@
       includeLines: prDiffCommentLinesByFile.get(change.path) || [],
     })
 
-  const handlePrDiffCommentSubmit = async (comment: any) => {
+  const handlePrDiffCommentSubmit = (comment: any) => {
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     try {
-      await postComment(comment, relays)
-      toast.push({message: "Comment posted", timeout: 2000})
+      postComment(comment, relays)
     } catch (e) {
-      toast.push({message: "Failed to post comment", timeout: 3000, variant: "destructive"})
+      toast.push({message: "Failed to start sending comment", timeout: 3000, variant: "destructive"})
     }
   }
 
@@ -1442,6 +1485,7 @@
       const recipients = effectiveMaintainers
       const unsigned = createPullRequestUpdateEvent({
         repoAddr,
+        repoAddrs: maintainerSetRepoAddresses,
         pullRequestEventId: prEvent.id,
         pullRequestAuthorPubkey: prEvent.pubkey,
         tipCommitOid: updateTipOid,
@@ -1525,7 +1569,12 @@
 
   const onCommentCreated = async (comment: CommentEvent) => {
     const relays = (repoRelays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
-    postComment(comment, relays)
+    try {
+      postComment(comment, relays)
+    } catch (error) {
+      toast.push({message: "Failed to start sending comment", timeout: 3000, variant: "destructive"})
+      throw error
+    }
   }
 
   const handlePrStatusPublish = async (statusEvent: StatusEvent) => {
@@ -1958,6 +2007,7 @@
         rootId: prEvent.id,
         recipients,
         repoAddr: repoAddress,
+        repoAddrs: maintainerSetRepoAddresses,
         relays: repoClass.relays || repoRelays || [],
         appliedCommits,
         mergedCommit: mergeCommitOid,
@@ -2827,6 +2877,9 @@
                                       onComment={handlePrDiffCommentSubmit}
                                       currentPubkey={$pubkey}
                                       repo={repoClass}
+                                      repoRefs={commentRepoRefs}
+                                      relayHint={commentRelayHint}
+                                      inlineCommentStyle="gitworkshop"
                                       enablePermalinks={false}
                                       showFileHeaders={false}
                                       compact={true}
@@ -2918,6 +2971,9 @@
                           onComment={handlePrDiffCommentSubmit}
                           currentPubkey={$pubkey}
                           repo={repoClass}
+                          repoRefs={commentRepoRefs}
+                          relayHint={commentRelayHint}
+                          inlineCommentStyle="gitworkshop"
                           enablePermalinks={false}
                           showFileHeaders={false}
                           showFileAnchors={false}
@@ -3083,7 +3139,12 @@
             currentCommenter={$pubkey!}
             {onCommentCreated}
             relays={repoClass.relays || repoRelays || []}
-            repoAddress={repoClass.address || ""} />
+            repoAddress={repoClass.address || ""}
+            rootEvent={prEvent}
+            repoRefs={commentRepoRefs}
+            relayHint={commentRelayHint}
+            useGitworkshopCommentTags
+            enableReplies />
         {/if}
       </div>
     </div>

@@ -37,8 +37,9 @@
   } from "@nostr-git/ui"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import type {PageData} from "./$types"
-  import {getContext, onMount, tick} from "svelte"
-  import {REPO_KEY} from "@lib/budabit/state"
+  import {getContext, hasContext, onMount, tick} from "svelte"
+  import {REPO_CLONE_URLS_KEY, REPO_KEY} from "@lib/budabit/state"
+  import {readable, type Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
   import { githubPermalinkDiffId } from "@nostr-git/core/git"
@@ -50,6 +51,9 @@
 
   // Get repoClass from context
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoCloneUrlsStore = hasContext(REPO_CLONE_URLS_KEY)
+    ? getContext<Readable<string[]>>(REPO_CLONE_URLS_KEY)
+    : readable<string[]>([])
 
   // Create navigation helper for parent commits
   const getParentHref = (commitId: string) => {
@@ -119,7 +123,7 @@
       }
 
       // Try REST API first (much faster for GitHub/GitLab repos)
-      const cloneUrls = repoClass.cloneUrls
+      const cloneUrls = $repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         loadError = "No clone URLs available for this repository"
         return

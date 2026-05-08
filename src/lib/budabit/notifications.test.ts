@@ -90,10 +90,10 @@ vi.mock("@lib/budabit/state", () => ({
   loadRepoContext: mockLoadRepoContext,
   repoAnnouncements: mockRepoAnnouncements,
   repoAnnouncementsByAddress: mockRepoAnnouncementsByAddress,
-  effectiveRepoAddressesByRepoAddress: mockEffectiveRepoAddresses,
+  maintainerSetRepoAddressesByRepoAddress: mockEffectiveRepoAddresses,
   loadRepoAnnouncementByAddress: mockLoadRepoAnnouncementByAddress,
   loadRepoMaintainerAnnouncements: mockLoadRepoMaintainerAnnouncements,
-  getEffectiveRepoAddresses: (map: Map<string, Set<string>>, repoAddress: string) =>
+  getMaintainerSetRepoAddresses: (map: Map<string, Set<string>>, repoAddress: string) =>
     map.get(repoAddress) || new Set([repoAddress]),
 }))
 

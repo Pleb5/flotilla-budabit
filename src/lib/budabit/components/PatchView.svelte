@@ -52,7 +52,11 @@
   import {normalizeRelayUrl} from "@welshman/util"
   import {profilesByPubkey, profileSearch, loadProfile} from "@welshman/app"
   import {deriveRoleAssignments} from "@lib/budabit"
-  import {effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
+  import {
+    getMaintainerSetRepoAddresses,
+    maintainerSetByRepoAddress,
+    maintainerSetRepoAddressesByRepoAddress,
+  } from "@lib/budabit/state"
   import Profile from "@src/app/components/Profile.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {GIT_STATUS_APPLIED} from "@nostr-git/core/events"
@@ -138,12 +142,15 @@
 
     if (!repoAddress) return fallback
 
-    const mappedMaintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+    const mappedMaintainers = $maintainerSetByRepoAddress.get(repoAddress)
     if (mappedMaintainers && mappedMaintainers.size > 0) return Array.from(mappedMaintainers)
 
     return fallback
   })
   const effectiveMaintainerSet = $derived.by(() => new Set(effectiveMaintainers))
+  const maintainerSetRepoAddresses = $derived.by(() =>
+    repoAddress ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress)) : [],
+  )
   const statusRepo = $derived.by(
     () =>
       ({
@@ -524,6 +531,7 @@
         rootId: firstPatch?.id || "",
         recipients,
         repoAddr: repoAddress || ((repoClass as any)?.address as string) || "",
+        repoAddrs: maintainerSetRepoAddresses,
         relays: repoClass.relays,
         appliedCommits: commitIds,
         mergedCommit: mergeCommitOid,

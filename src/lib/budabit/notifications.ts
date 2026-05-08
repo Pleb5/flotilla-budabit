@@ -37,11 +37,11 @@ import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
 import {makeGitPath} from "@lib/budabit/routes"
 import {
   GIT_RELAYS,
-  getEffectiveRepoAddresses,
+  getMaintainerSetRepoAddresses,
   loadRepoContext,
   repoAnnouncements,
   repoAnnouncementsByAddress,
-  effectiveRepoAddressesByRepoAddress,
+  maintainerSetRepoAddressesByRepoAddress,
   loadRepoAnnouncementByAddress,
   loadRepoMaintainerAnnouncements,
 } from "@lib/budabit/state"
@@ -196,7 +196,7 @@ export const repoNotificationCandidates = derived(
     pubkey,
     userRepoWatchValues,
     repoAnnouncementsByAddress,
-    effectiveRepoAddressesByRepoAddress,
+    maintainerSetRepoAddressesByRepoAddress,
     issueEventsStore,
     patchEventsStore,
     prUpdateEventsStore,
@@ -208,7 +208,7 @@ export const repoNotificationCandidates = derived(
     $pubkey,
     $watchValues,
     $repoAnnouncementsByAddress,
-    $effectiveRepoAddressesByRepoAddress,
+    $maintainerSetRepoAddressesByRepoAddress,
     $issueEvents,
     $patchEvents,
     $prUpdateEvents,
@@ -238,7 +238,7 @@ export const repoNotificationCandidates = derived(
     const repoByEffectiveAddress = new Map<string, string>()
     const allEffectiveAddresses = new Set<string>()
     for (const repoAddr of repoAddresses) {
-      const effective = getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddr)
+      const effective = getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddr)
       for (const address of effective) {
         allEffectiveAddresses.add(address)
         if (!repoByEffectiveAddress.has(address)) {
@@ -469,15 +469,15 @@ export const repoNotificationCandidates = derived(
 )
 
 const repoCommentRoots = derived(
-  [userRepoWatchValues, issueEventsStore, patchEventsStore, effectiveRepoAddressesByRepoAddress],
-  ([$watchValues, $issueEvents, $patchEvents, $effectiveRepoAddressesByRepoAddress]) => {
+  [userRepoWatchValues, issueEventsStore, patchEventsStore, maintainerSetRepoAddressesByRepoAddress],
+  ([$watchValues, $issueEvents, $patchEvents, $maintainerSetRepoAddressesByRepoAddress]) => {
     const watchedRepos = $watchValues.repos || {}
     const repoAddresses = Object.keys(watchedRepos)
     if (repoAddresses.length === 0) return []
 
     const repoByEffectiveAddress = new Map<string, string>()
     for (const repoAddr of repoAddresses) {
-      const effective = getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddr)
+      const effective = getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddr)
       for (const address of effective) {
         if (!repoByEffectiveAddress.has(address)) {
           repoByEffectiveAddress.set(address, repoAddr)
@@ -560,11 +560,11 @@ export const setupBudabitNotifications = () => {
       return
     }
 
-    const effectiveByRepo = get(effectiveRepoAddressesByRepoAddress)
+    const effectiveByRepo = get(maintainerSetRepoAddressesByRepoAddress)
     const key =
       repoAddresses
         .map(repoAddr => {
-          const effective = getEffectiveRepoAddresses(effectiveByRepo, repoAddr)
+          const effective = getMaintainerSetRepoAddresses(effectiveByRepo, repoAddr)
           const relays = (get(repoRelaysByAddress).get(repoAddr) || []).slice().sort().join(",")
           return `${repoAddr}::${Array.from(effective).sort().join(",")}::${relays}`
         })
@@ -595,7 +595,7 @@ export const setupBudabitNotifications = () => {
       const repoRelays = relaysByAddress.get(repoAddr) || []
       if (repoRelays.length === 0) continue
 
-      const effective = getEffectiveRepoAddresses(effectiveByRepo, repoAddr)
+      const effective = getMaintainerSetRepoAddresses(effectiveByRepo, repoAddr)
       for (const effectiveAddr of effective) {
         loadRepoContext({addressA: effectiveAddr, relays: repoRelays})
       }
@@ -650,7 +650,7 @@ export const setupBudabitNotifications = () => {
 
   const unsubscribeWatch = userRepoWatchValues.subscribe(rebuildRepoSubscriptions)
   const unsubscribeEffective =
-    effectiveRepoAddressesByRepoAddress.subscribe(rebuildRepoSubscriptions)
+    maintainerSetRepoAddressesByRepoAddress.subscribe(rebuildRepoSubscriptions)
   const unsubscribeRepoRelays = repoRelaysByAddress.subscribe(rebuildRepoSubscriptions)
   const unsubscribePubkey = pubkey.subscribe(() => rebuildRepoSubscriptions())
 

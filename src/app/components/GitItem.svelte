@@ -10,7 +10,7 @@
   import {getInteractiveCardTarget} from "@lib/html"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {Router} from "@welshman/router"
-  import {GIT_RELAYS, effectiveRepoAddressesByRepoAddress, getEffectiveRepoAddresses} from "@lib/budabit/state"
+  import {GIT_RELAYS, maintainerSetRepoAddressesByRepoAddress, getMaintainerSetRepoAddresses} from "@lib/budabit/state"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {Bookmark} from "@lucide/svelte"
 
@@ -74,7 +74,7 @@
         return hasRepoNotification($notifications, {
           relay: url,
           repoAddress,
-          repoAddresses: getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddress),
+          repoAddresses: getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
         })
       }
       return $notifications.has(issuesHref) || $notifications.has(patchesHref)

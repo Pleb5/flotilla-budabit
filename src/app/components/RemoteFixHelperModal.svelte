@@ -159,6 +159,7 @@
 
   interface Props {
     repoClass: Repo
+    cloneUrls?: string[]
     onClose?: () => void
     onOpenSettings?: () => void
     onRefresh?: () => Promise<void> | void
@@ -173,6 +174,7 @@
 
   const {
     repoClass,
+    cloneUrls: providedCloneUrls = [],
     onClose,
     onOpenSettings,
     onRefresh,
@@ -197,7 +199,7 @@
 
   const cloneUrls = $derived.by(() =>
     Array.from(
-      new Set(filterValidCloneUrls((repoClass.cloneUrls || []).map(url => String(url || "").trim()))),
+      new Set(filterValidCloneUrls((providedCloneUrls.length > 0 ? providedCloneUrls : repoClass.cloneUrls || []).map(url => String(url || "").trim()))),
     ),
   )
   const primaryUrl = $derived.by(() => String(cloneUrls[0] || ""))

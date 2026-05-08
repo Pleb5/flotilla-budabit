@@ -46,7 +46,12 @@
   import {toNaturalArray} from "@lib/budabit/labels"
   import {resolveIssueEdits} from "@lib/budabit/issue-edits"
   import Markdown from "@src/lib/components/Markdown.svelte"
-  import {REPO_KEY, effectiveMaintainersByRepoAddress} from "@lib/budabit/state"
+  import {
+    REPO_KEY,
+    getMaintainerSetRepoAddresses,
+    maintainerSetByRepoAddress,
+    maintainerSetRepoAddressesByRepoAddress,
+  } from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
   
   const repoClass = getContext<Repo>(REPO_KEY)
@@ -185,13 +190,18 @@
   const currentRepoAddress = $derived.by(() => ((repoClass as any)?.address as string) || "")
   const issueRepoAddress = $derived.by(() => getIssueRepoAddress(issueEvent as any))
   const issueEditRepoAddress = $derived.by(() => issueRepoAddress || currentRepoAddress)
+  const issueMaintainerSetRepoAddresses = $derived.by(() =>
+    issueEditRepoAddress
+      ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, issueEditRepoAddress))
+      : [],
+  )
 
   const effectiveIssueMaintainers = $derived.by(() => {
     const maintainersFromAddress =
-      issueRepoAddress && $effectiveMaintainersByRepoAddress.get(issueRepoAddress)
+      issueRepoAddress && $maintainerSetByRepoAddress.get(issueRepoAddress)
     if (maintainersFromAddress && maintainersFromAddress.size > 0) return maintainersFromAddress
     const maintainersFromCurrentRepo =
-      currentRepoAddress && $effectiveMaintainersByRepoAddress.get(currentRepoAddress)
+      currentRepoAddress && $maintainerSetByRepoAddress.get(currentRepoAddress)
     if (maintainersFromCurrentRepo && maintainersFromCurrentRepo.size > 0) {
       return maintainersFromCurrentRepo
     }
@@ -591,7 +601,8 @@
     const recipients = Array.from(
       new Set([...(effectiveMaintainers || []), issue?.author.pubkey, $pubkey].filter(Boolean)),
     )
-    const tags = (statusEvent.tags || []).filter((tag: string[]) => tag[0] !== "p")
+    const tags = (statusEvent.tags || []).filter((tag: string[]) => tag[0] !== "p" && tag[0] !== "a")
+    tags.unshift(...issueMaintainerSetRepoAddresses.map(address => ["a", address] as ["a", string]))
     tags.push(...recipients.map(recipient => ["p", recipient] as ["p", string]))
     const statusWithRecipients = {
       ...statusEvent,

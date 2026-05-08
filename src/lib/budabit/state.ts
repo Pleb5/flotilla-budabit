@@ -58,6 +58,8 @@ export const REPO_KEY = Symbol("repo")
 
 export const REPO_RELAYS_KEY = Symbol("repo-relays")
 
+export const REPO_CLONE_URLS_KEY = Symbol("repo-clone-urls")
+
 export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")
 
 export const PULL_REQUESTS_KEY = Symbol("pull-requests")
@@ -136,6 +138,62 @@ const normalizePubkey = (value: string) => {
 const getRepoEuc = (event: RepoAnnouncementEvent) => {
   const tag = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
   return tag?.[1] || ""
+}
+
+export type MaintainerSetRepoValueSource = {
+  value: string
+  repoAddress: string
+  maintainer: string
+  root: boolean
+}
+
+export type RepoMaintainerSetProfile = {
+  rootAddress: string
+  rootMaintainer: string
+  identifier: string
+  maintainerSet: string[]
+  pendingMaintainers: string[]
+  repoAddresses: string[]
+  cloneUrls: string[]
+  relays: string[]
+  cloneUrlSources: MaintainerSetRepoValueSource[]
+  relaySources: MaintainerSetRepoValueSource[]
+}
+
+const parseRepoAnnouncementSafe = (event: RepoAnnouncementEvent) => {
+  try {
+    return parseRepoAnnouncementEvent(event)
+  } catch {
+    return null
+  }
+}
+
+const getRepoMaintainers = (event: RepoAnnouncementEvent) =>
+  (parseRepoAnnouncementSafe(event)?.maintainers || []).map(normalizePubkey).filter(Boolean)
+
+const areRepoAnnouncementsCompatible = (rootEvent: RepoAnnouncementEvent, candidateEvent: RepoAnnouncementEvent) => {
+  const rootEuc = getRepoEuc(rootEvent)
+  const candidateEuc = getRepoEuc(candidateEvent)
+  if (!rootEuc && !candidateEuc) return true
+  return Boolean(rootEuc && candidateEuc && rootEuc === candidateEuc)
+}
+
+const addUnique = <T>(values: T[], value: T) => {
+  if (!values.includes(value)) values.push(value)
+}
+
+const addUniqueSource = (
+  sources: MaintainerSetRepoValueSource[],
+  seen: Set<string>,
+  value: string,
+  repoAddress: string,
+  maintainer: string,
+  root: boolean,
+) => {
+  const trimmed = String(value || "").trim()
+  if (!trimmed || seen.has(trimmed)) return
+  seen.add(trimmed)
+  sources.push({value: trimmed, repoAddress, maintainer, root})
 }
 
 const GIT_COVER_LETTER_KIND = 1624
@@ -258,76 +316,140 @@ export const repoAnnouncementsByAddress = derived(repoAnnouncements, $events => 
   return map
 })
 
-export const effectiveMaintainersByRepoAddress = derived(
+export const repoMaintainerSetProfilesByRepoAddress = derived(
   [repoAnnouncements, repoAnnouncementsByAddress],
   ([$events, $byAddress]) => {
-    const map = new Map<string, Set<string>>()
+    const profiles = new Map<string, RepoMaintainerSetProfile>()
+    const eventsByRepoId = new Map<string, RepoAnnouncementEvent[]>()
 
-    for (const ownerEvent of $events as RepoAnnouncementEvent[]) {
-      const repoId = getTagValue("d", ownerEvent.tags) || ""
+    for (const event of $events as RepoAnnouncementEvent[]) {
+      const repoId = getTagValue("d", event.tags) || ""
       if (!repoId) continue
-      const ownerEuc = getRepoEuc(ownerEvent)
-      const owner = normalizePubkey(ownerEvent.pubkey)
-      if (!owner) continue
+      pushToMapKey(eventsByRepoId, repoId, event)
+    }
 
-      let maintainers: string[] = []
-      try {
-        const parsed = parseRepoAnnouncementEvent(ownerEvent)
-        maintainers = (parsed.maintainers || []).map(normalizePubkey).filter(Boolean)
-      } catch {
-        maintainers = []
+    for (const rootEvent of $events as RepoAnnouncementEvent[]) {
+      const identifier = getTagValue("d", rootEvent.tags) || ""
+      if (!identifier) continue
+
+      const rootMaintainer = normalizePubkey(rootEvent.pubkey)
+      if (!rootMaintainer) continue
+
+      const rootAddress = `${GIT_REPO_ANNOUNCEMENT}:${rootMaintainer}:${identifier}`
+      const rootListedMaintainers = getRepoMaintainers(rootEvent)
+      const rootListedSet = new Set(rootListedMaintainers)
+      const candidatePubkeys = new Set<string>([rootMaintainer, ...rootListedMaintainers])
+
+      for (const event of eventsByRepoId.get(identifier) || []) {
+        const pubkey = normalizePubkey(event.pubkey)
+        if (!pubkey || pubkey === rootMaintainer) continue
+        if (getRepoMaintainers(event).includes(rootMaintainer)) candidatePubkeys.add(pubkey)
       }
 
-      const candidates = new Set<string>([owner, ...maintainers])
-      const effective = new Set<string>()
-      const ownerAddress = `${GIT_REPO_ANNOUNCEMENT}:${owner}:${repoId}`
-      effective.add(owner)
+      const maintainerSet: string[] = [rootMaintainer]
+      const pendingMaintainers: string[] = []
 
-      for (const pubkey of candidates) {
-        const candidateAddress = `${GIT_REPO_ANNOUNCEMENT}:${pubkey}:${repoId}`
+      for (const candidate of candidatePubkeys) {
+        if (candidate === rootMaintainer) continue
+
+        const candidateAddress = `${GIT_REPO_ANNOUNCEMENT}:${candidate}:${identifier}`
         const candidateEvent = $byAddress.get(candidateAddress)
-        if (!candidateEvent) continue
-        const candidateEuc = getRepoEuc(candidateEvent)
-        if (ownerEuc || candidateEuc) {
-          if (ownerEuc && candidateEuc && ownerEuc === candidateEuc) {
-            effective.add(pubkey)
-          }
-        } else {
-          effective.add(pubkey)
+        const rootListsCandidate = rootListedSet.has(candidate)
+        const candidateListsRoot = candidateEvent ? getRepoMaintainers(candidateEvent).includes(rootMaintainer) : false
+        const compatible = candidateEvent ? areRepoAnnouncementsCompatible(rootEvent, candidateEvent) : false
+
+        if (rootListsCandidate && candidateListsRoot && compatible) {
+          addUnique(maintainerSet, candidate)
+        } else if (rootListsCandidate || candidateListsRoot) {
+          addUnique(pendingMaintainers, candidate)
         }
       }
 
-      if (effective.size > 0) {
-        map.set(ownerAddress, effective)
+      const repoAddresses = maintainerSet.map(
+        maintainer => `${GIT_REPO_ANNOUNCEMENT}:${maintainer}:${identifier}`,
+      )
+      const cloneUrlSources: MaintainerSetRepoValueSource[] = []
+      const relaySources: MaintainerSetRepoValueSource[] = []
+      const seenCloneUrls = new Set<string>()
+      const seenRelays = new Set<string>()
+
+      for (const maintainer of maintainerSet) {
+        const repoAddress = `${GIT_REPO_ANNOUNCEMENT}:${maintainer}:${identifier}`
+        const event = $byAddress.get(repoAddress)
+        if (!event) continue
+
+        const parsed = parseRepoAnnouncementSafe(event)
+        if (!parsed) continue
+        for (const cloneUrl of parsed.clone || []) {
+          addUniqueSource(cloneUrlSources, seenCloneUrls, cloneUrl, repoAddress, maintainer, maintainer === rootMaintainer)
+        }
+        for (const relay of parsed.relays || []) {
+          const normalized = safeNormalizeRelayUrl(relay)
+          if (isRelayUrl(normalized)) {
+            addUniqueSource(relaySources, seenRelays, normalized, repoAddress, maintainer, maintainer === rootMaintainer)
+          }
+        }
       }
+
+      profiles.set(rootAddress, {
+        rootAddress,
+        rootMaintainer,
+        identifier,
+        maintainerSet,
+        pendingMaintainers,
+        repoAddresses,
+        cloneUrls: cloneUrlSources.map(source => source.value),
+        relays: relaySources.map(source => source.value),
+        cloneUrlSources,
+        relaySources,
+      })
     }
 
-    return map
+    return profiles
   },
 )
 
-export const effectiveRepoAddressesByRepoAddress = derived(
-  effectiveMaintainersByRepoAddress,
-  $byMaintainers => {
-    const map = new Map<string, Set<string>>()
-    for (const [repoAddress, maintainers] of $byMaintainers.entries()) {
-      const parts = repoAddress.split(":")
-      if (parts.length < 3) continue
-      const [kind, , identifier] = parts
-      const addresses = new Set<string>()
-      for (const pubkey of maintainers) {
-        if (!pubkey) continue
-        addresses.add(`${kind}:${pubkey}:${identifier}`)
-      }
-      if (addresses.size > 0) {
-        map.set(repoAddress, addresses)
-      }
-    }
-    return map
-  },
-)
+export const maintainerSetByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
+  const map = new Map<string, Set<string>>()
+  for (const [repoAddress, profile] of $profiles.entries()) {
+    map.set(repoAddress, new Set(profile.maintainerSet))
+  }
+  return map
+})
 
-export const getEffectiveRepoAddresses = (map: Map<string, Set<string>>, repoAddress: string) => {
+export const pendingMaintainersByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
+  const map = new Map<string, Set<string>>()
+  for (const [repoAddress, profile] of $profiles.entries()) {
+    map.set(repoAddress, new Set(profile.pendingMaintainers))
+  }
+  return map
+})
+
+export const maintainerSetRepoAddressesByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
+  const map = new Map<string, Set<string>>()
+  for (const [repoAddress, profile] of $profiles.entries()) {
+    map.set(repoAddress, new Set(profile.repoAddresses))
+  }
+  return map
+})
+
+export const maintainerSetCloneUrlsByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
+  const map = new Map<string, string[]>()
+  for (const [repoAddress, profile] of $profiles.entries()) {
+    map.set(repoAddress, profile.cloneUrls)
+  }
+  return map
+})
+
+export const maintainerSetRelaysByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
+  const map = new Map<string, string[]>()
+  for (const [repoAddress, profile] of $profiles.entries()) {
+    map.set(repoAddress, profile.relays)
+  }
+  return map
+})
+
+export const getMaintainerSetRepoAddresses = (map: Map<string, Set<string>>, repoAddress: string) => {
   const addresses = new Set<string>()
   if (!repoAddress) return addresses
 
@@ -436,7 +558,19 @@ export const loadRepoMaintainerAnnouncements = (repoEvent: RepoAnnouncementEvent
   }
   const pubkeys = Array.from(new Set([owner, ...maintainers].filter(Boolean)))
   const euc = getRepoEuc(repoEvent)
-  return loadRepoAnnouncementsForPubkeys(pubkeys, repoId, euc || undefined)
+  loadRepoAnnouncementsForPubkeys(pubkeys, repoId, euc || undefined)
+
+  if (!owner) return
+  let relays: string[] = []
+  try {
+    relays = Router.get().FromPubkeys([owner]).getUrls()
+  } catch {
+    relays = []
+  }
+  return load({
+    relays: Array.from(new Set([...GIT_RELAYS, ...relays])),
+    filters: [{kinds: [GIT_REPO_ANNOUNCEMENT], "#d": [repoId], "#maintainers": [owner]}] as any,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -601,7 +735,7 @@ export const deriveEffectiveLabels = (eventId: string) =>
 
 /**
  * Resolve effective issue title/description/labels from root issue + 1985 labels + 1624 cover letters.
- * Author + effective maintainers are authoritative.
+ * Author + maintainer-set members are authoritative.
  */
 export const deriveEffectiveIssueEdits = (issueId: string) =>
   withGetter(
@@ -617,7 +751,7 @@ export const deriveEffectiveIssueEdits = (issueId: string) =>
             filters: [{kinds: [GIT_COVER_LETTER_KIND], "#e": [issueId]}],
           }),
         ),
-        effectiveMaintainersByRepoAddress,
+        maintainerSetByRepoAddress,
       ],
       ([$issueEvent, $labelEvents, $coverLetters, $maintainersByRepoAddress]) => {
         if (!$issueEvent || $issueEvent.kind !== GIT_ISSUE) return undefined

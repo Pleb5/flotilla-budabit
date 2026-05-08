@@ -10,7 +10,7 @@ import {
   type StatusEvent,
 } from "@nostr-git/core/events"
 import {
-  effectiveMaintainersByRepoAddress,
+  maintainerSetByRepoAddress,
   getRepoAnnouncementRelays,
   loadRepoAnnouncementByAddress,
   loadRepoMaintainerAnnouncements,
@@ -568,7 +568,7 @@ export const loadProfileCodeTrustAnalysis = async (
     trustGraph,
     pullRequests,
     appliedStatuses,
-    effectiveMaintainers: get(effectiveMaintainersByRepoAddress),
+    effectiveMaintainers: get(maintainerSetByRepoAddress),
     repoNamesByAddress,
     relays,
   })

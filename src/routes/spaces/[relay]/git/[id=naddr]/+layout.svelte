@@ -90,6 +90,7 @@
   import {
     REPO_KEY,
     REPO_RELAYS_KEY,
+    REPO_CLONE_URLS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     PULL_REQUESTS_KEY,
     REPO_FEED_ACTIVITY_KEY,
@@ -99,9 +100,11 @@
     GIT_RELAYS,
     getRepoAnnouncementRelays,
     getRepoScopedRelays,
-    effectiveMaintainersByRepoAddress,
-    effectiveRepoAddressesByRepoAddress,
-    getEffectiveRepoAddresses,
+    maintainerSetByRepoAddress,
+    maintainerSetCloneUrlsByRepoAddress,
+    maintainerSetRepoAddressesByRepoAddress,
+    maintainerSetRelaysByRepoAddress,
+    getMaintainerSetRepoAddresses,
     loadRepoMaintainerAnnouncements,
   } from "@lib/budabit/state"
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@lib/budabit/repo-trust-metrics"
@@ -296,7 +299,7 @@
   })
 
   const repoMaintainersStore: Readable<string[]> = derived(
-    [repoAddressStore, effectiveMaintainersByRepoAddress],
+    [repoAddressStore, maintainerSetByRepoAddress],
     ([$repoAddress, $byMaintainers]) => {
       if (!$repoAddress) return []
       const maintainers = $byMaintainers.get($repoAddress)
@@ -305,10 +308,26 @@
     },
   ) as Readable<string[]>
   const repoAddressesStore: Readable<string[]> = derived(
-    [repoAddressStore, effectiveRepoAddressesByRepoAddress],
+    [repoAddressStore, maintainerSetRepoAddressesByRepoAddress],
     ([$repoAddress, $byAddresses]) => {
       if (!$repoAddress) return []
-      return Array.from(getEffectiveRepoAddresses($byAddresses, $repoAddress))
+      return Array.from(getMaintainerSetRepoAddresses($byAddresses, $repoAddress))
+    },
+  ) as Readable<string[]>
+
+  const maintainerSetCloneUrlsStore: Readable<string[]> = derived(
+    [repoAddressStore, maintainerSetCloneUrlsByRepoAddress],
+    ([$repoAddress, $byCloneUrls]) => {
+      if (!$repoAddress) return []
+      return $byCloneUrls.get($repoAddress) || []
+    },
+  ) as Readable<string[]>
+
+  const maintainerSetRelaysStore: Readable<string[]> = derived(
+    [repoAddressStore, maintainerSetRelaysByRepoAddress],
+    ([$repoAddress, $byRelays]) => {
+      if (!$repoAddress) return []
+      return $byRelays.get($repoAddress) || []
     },
   ) as Readable<string[]>
 
@@ -1312,7 +1331,12 @@
     const editable = repoClass?.editable ? "1" : "0"
     return `repo:${eventId}:${stateId}:${refsCount}:${editable}`
   })
-  const repoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays)
+  const rootRepoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays)
+  const repoRelaysStore: Readable<string[]> = derived(
+    [rootRepoRelaysStore, maintainerSetRelaysStore],
+    ([$rootRelays, $maintainerSetRelays]) =>
+      Array.from(new Set([...($rootRelays || []), ...($maintainerSetRelays || [])].filter(Boolean))),
+  ) as Readable<string[]>
   const issuesStore = deriveIssues(repoAddressesStore)
   const patchesStore = derivePatches(repoAddressesStore)
   const pullRequestsStore = derivePullRequests(repoAddressesStore)
@@ -1384,7 +1408,7 @@
 
     const branchNames = Array.from(
       new Set(
-        ($repoTrustMetricsStore?.trustedTargetBranches || [])
+        ($repoTrustMetricsStore?.maintainerSetTargetBranches || [])
           .map(branch => branch.trim())
           .filter(Boolean),
       ),
@@ -1393,11 +1417,11 @@
     return {
       branchNames,
       status,
-      label: "Copy only branches with trusted maintainer merges",
+      label: "Copy only maintainer-set branches",
       description:
-        "For repositories with many branches, limit the fork to the default branch plus branches that have accepted merges from trusted maintainers in your active web of trust.",
+        "For repositories with many branches, limit the fork to the default branch plus branches targeted by accepted merges from the repo maintainer set.",
       tooltip:
-        "Trusted branches are branches targeted by merged pull requests whose applying maintainer is in your active web of trust. When none are found, Budabit includes all branches in the fork.",
+        "Maintainer-set branches are branches targeted by merged pull requests applied by the root maintainer or direct mutual maintainers. When none are found, Budabit includes all branches in the fork.",
       minBranchCount: FORK_BRANCH_FILTER_THRESHOLD,
     }
   })
@@ -1654,6 +1678,7 @@
   // Set context for child components (only once, not in effect)
   setContext(REPO_KEY, $activeRepoClass)
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
+  setContext(REPO_CLONE_URLS_KEY, maintainerSetCloneUrlsStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
   setContext(REPO_FEED_ACTIVITY_KEY, repoFeedActivityStore)
@@ -2305,7 +2330,9 @@
 
     try {
       // Get clone URLs from the repo event
-      const cloneUrls = repoClass.cloneUrls
+      const cloneUrls = getStore(maintainerSetCloneUrlsStore).length > 0
+        ? getStore(maintainerSetCloneUrlsStore)
+        : repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         throw new Error("No clone URLs found for repository")
       }
@@ -2639,6 +2666,8 @@
 
     const repoRelays = getRepoAnnouncementRelaysFromEvent()
     const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
+    const sourceCloneUrls = getStore(maintainerSetCloneUrlsStore)
+    const defaultMaintainers = Array.from(new Set([...(getStore(repoMaintainersStore) || []), $pubkey].filter(Boolean)))
 
     const rollbackPublishedRepoEvents = async (params: {
       repoName: string
@@ -2706,6 +2735,8 @@
       graspServerUrls: graspServerUrls,
       navigateToForkedRepo: navigateToForkedRepo,
       defaultRelays,
+      sourceCloneUrls,
+      defaultMaintainers,
       getProfile: getRepoProfile,
       searchProfiles: searchRepoProfiles,
       searchRelays: searchRepoRelays,
@@ -2868,6 +2899,7 @@
     if (!repoClass) return
     pushModal(RemoteFixHelperModal, {
       repoClass,
+      cloneUrls: getStore(maintainerSetCloneUrlsStore),
       onOpenSettings: () => settingsRepo(true),
       onRefresh: refreshRepo,
       onPublishEvent: async (event: any) => {

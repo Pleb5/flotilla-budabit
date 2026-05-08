@@ -1,4 +1,30 @@
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
+
+const {inertReadable} = vi.hoisted(() => ({
+  inertReadable: () => ({subscribe: () => () => {}}),
+}))
+
+vi.mock("./state", () => ({
+  maintainerSetByRepoAddress: inertReadable(),
+}))
+
+vi.mock("./nip85", () => ({
+  userNip85ConfiguredProviders: inertReadable(),
+}))
+
+vi.mock("./trust-graph-config", () => ({
+  userTrustGraphConfigValues: inertReadable(),
+}))
+
+vi.mock("./trust-graph", () => ({
+  getTrustGraphSourceLabel: (source: string) => source,
+  loadActiveTrustGraph: vi.fn(),
+}))
+
+vi.mock("@welshman/app", () => ({
+  pubkey: inertReadable(),
+}))
+
 import {buildRepoTrustMetrics} from "./repo-trust-metrics"
 
 describe("repo trust metrics", () => {
@@ -47,7 +73,7 @@ describe("repo trust metrics", () => {
           tags: [["e", "b".repeat(64), "", "root"]],
         },
       ] as any,
-      effectiveMaintainersByRepoAddress: new Map([[repoAddress, new Set([trustedMaintainer])]]),
+      maintainerSetByRepoAddress: new Map([[repoAddress, new Set([trustedMaintainer])]]),
       trustGraph: {
         viewerPubkey: "9".repeat(64),
         source: "adjusted_wot",
@@ -67,7 +93,7 @@ describe("repo trust metrics", () => {
     expect(metrics.trustedCollaborators).toBe(2)
     expect(metrics.trustedAuthors).toBe(1)
     expect(metrics.trustedMaintainers).toBe(1)
-    expect(metrics.trustedTargetBranches).toEqual(["main", "release"])
+    expect(metrics.maintainerSetTargetBranches).toEqual(["main", "release"])
     expect(metrics.byRootId.get("a".repeat(64))).toEqual(
       expect.objectContaining({trustedAuthor: true, trustedMaintainerMerge: true}),
     )
@@ -106,7 +132,7 @@ describe("repo trust metrics", () => {
           tags: [["e", "a".repeat(64), "", "root"]],
         },
       ] as any,
-      effectiveMaintainersByRepoAddress: new Map([[repoAddress, new Set(["f".repeat(64)])]]),
+      maintainerSetByRepoAddress: new Map([[repoAddress, new Set(["f".repeat(64)])]]),
       trustGraph: {
         viewerPubkey: "9".repeat(64),
         source: "basic_wot",
@@ -122,7 +148,7 @@ describe("repo trust metrics", () => {
     expect(metrics.trustedMergedContributions).toBe(0)
     expect(metrics.trustedMaintainerMerges).toBe(0)
     expect(metrics.trustedCollaborators).toBe(0)
-    expect(metrics.trustedTargetBranches).toEqual([])
+    expect(metrics.maintainerSetTargetBranches).toEqual([])
     expect(metrics.byRootId.get("a".repeat(64))).toEqual(
       expect.objectContaining({merged: false, trustedMaintainerMerge: false}),
     )
@@ -146,7 +172,7 @@ describe("repo trust metrics", () => {
         },
       ] as any,
       appliedStatuses: [],
-      effectiveMaintainersByRepoAddress: new Map([[repoAddress, new Set(["f".repeat(64)])]]),
+      maintainerSetByRepoAddress: new Map([[repoAddress, new Set(["f".repeat(64)])]]),
       trustGraph: {
         viewerPubkey: "9".repeat(64),
         source: "basic_wot",
@@ -159,7 +185,7 @@ describe("repo trust metrics", () => {
     expect(metrics.trustedMergedContributions).toBe(0)
     expect(metrics.trustedAuthors).toBe(0)
     expect(metrics.trustedCollaborators).toBe(0)
-    expect(metrics.trustedTargetBranches).toEqual([])
+    expect(metrics.maintainerSetTargetBranches).toEqual([])
     expect(metrics.byRootId.get("a".repeat(64))).toEqual(
       expect.objectContaining({trustedAuthor: true, merged: false}),
     )

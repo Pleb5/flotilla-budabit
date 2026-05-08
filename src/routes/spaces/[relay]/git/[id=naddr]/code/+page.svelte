@@ -15,12 +15,16 @@
   import {postPermalink} from "@lib/budabit/commands.js"
   import {nip19} from "nostr-tools"
   import {createSearch} from "@welshman/app"
-  import {getContext} from "svelte"
-  import {REPO_KEY} from "@lib/budabit/state"
+  import {getContext, hasContext} from "svelte"
+  import {REPO_CLONE_URLS_KEY, REPO_KEY} from "@lib/budabit/state"
+  import {readable, type Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import {page} from "$app/stores"
 
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoCloneUrlsStore = hasContext(REPO_CLONE_URLS_KEY)
+    ? getContext<Readable<string[]>>(REPO_CLONE_URLS_KEY)
+    : readable<string[]>([])
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -54,7 +58,9 @@
   // that was causing effect_update_depth_exceeded errors.
   const selectedBranch = $derived(repoClass.selectedBranch || repoClass.mainBranch || "")
   const repoEventId = $derived.by(() => repoClass.repoEvent?.id || "")
-  const supportedCloneUrls = $derived.by(() => filterValidCloneUrls(repoClass.cloneUrls || []))
+  const supportedCloneUrls = $derived.by(() =>
+    filterValidCloneUrls(($repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls) || []),
+  )
   const supportedCloneUrlKey = $derived.by(() => supportedCloneUrls.join("|"))
 
   let branchLoadTrigger = $state(0)

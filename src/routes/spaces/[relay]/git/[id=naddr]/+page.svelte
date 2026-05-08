@@ -38,12 +38,14 @@
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import {
     PULL_REQUESTS_KEY,
+    REPO_CLONE_URLS_KEY,
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     REPO_ACTIONS_KEY,
     type RepoActions,
-    effectiveMaintainersByRepoAddress,
+    maintainerSetByRepoAddress,
+    pendingMaintainersByRepoAddress,
   } from "@lib/budabit/state"
   import {
     REPO_TRUST_METRICS_KEY,
@@ -79,6 +81,7 @@
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  const repoCloneUrlsStore = getContext<Readable<string[]>>(REPO_CLONE_URLS_KEY)
   const statusEventsByRootStore = getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
   const repoTrustMetricsStore = getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
@@ -89,6 +92,7 @@
   
   // Get relays reactively
   const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
+  const maintainerSetCloneUrls = $derived.by(() => repoCloneUrlsStore ? $repoCloneUrlsStore : [])
   const statusEventsByRoot = $derived.by(() => statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>())
   const pullRequests = $derived.by(() => pullRequestsStore ? $pullRequestsStore : [])
   const repoTrustMetrics = $derived.by(() =>
@@ -208,7 +212,7 @@
         label: "Trusted maintainer merges",
         value: repoTrustMetrics.trustedMaintainerMerges,
         description:
-          "Merged pull requests in this repo where the effective maintainer who applied the status is in your active trust graph.",
+          "Merged pull requests in this repo where the maintainer-set member who applied the status is in your active trust graph.",
         details: trustedMaintainerDetails,
       },
       {
@@ -291,9 +295,9 @@
     return `30617:${event.pubkey}:${dTag}`
   })
 
-  const effectiveMaintainerPubkeys = $derived.by(() => {
+  const maintainerSetPubkeys = $derived.by(() => {
     if (repoAddress) {
-      const maintainers = $effectiveMaintainersByRepoAddress.get(repoAddress)
+      const maintainers = $maintainerSetByRepoAddress.get(repoAddress)
       if (maintainers && maintainers.size > 0) {
         return Array.from(maintainers)
       }
@@ -303,9 +307,14 @@
     return owner ? [owner] : []
   })
 
-  const unverifiedTaggedPubkeys = $derived.by(() => {
-    const effective = new Set(effectiveMaintainerPubkeys)
-    return taggedMaintainerPubkeys.filter(pk => !effective.has(pk))
+  const pendingMaintainerPubkeys = $derived.by(() => {
+    if (repoAddress) {
+      const maintainers = $pendingMaintainersByRepoAddress.get(repoAddress)
+      if (maintainers && maintainers.size > 0) return Array.from(maintainers)
+    }
+
+    const maintainerSet = new Set(maintainerSetPubkeys)
+    return taggedMaintainerPubkeys.filter(pk => !maintainerSet.has(pk))
   })
 
   const branchCount = $derived(repoClass.branches?.length || 0)
@@ -345,10 +354,10 @@
     name: repoClass.name || "Unknown Repository",
     description: repoClass.description || "",
     repoId: repoClass.key || "",
-    relays: repoClass.relays || [],
+    relays: repoRelays.length > 0 ? repoRelays : repoClass.relays || [],
     cloneUrls: (() => {
       // Get clone URLs from repoClass directly
-      const urls = [...(repoClass.cloneUrls || [])]
+      const urls = [...(maintainerSetCloneUrls.length > 0 ? maintainerSetCloneUrls : repoClass.cloneUrls || [])]
       if (!urls.find(u => u.startsWith("nostr://"))) {
         const def = buildDefaultNgitCloneUrl()
         if (def && !urls.includes(def)) urls.push(def)
@@ -994,11 +1003,11 @@
 
           <!-- Nostr Information -->
           <div class="space-y-3">
-            {#if effectiveMaintainerPubkeys.length > 0}
+            {#if maintainerSetPubkeys.length > 0}
               <div>
                 <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
                 <div class="grid grid-cols-2 gap-x-3 gap-y-2">
-                  {#each effectiveMaintainerPubkeys as maintainer (maintainer)}
+                  {#each maintainerSetPubkeys as maintainer (maintainer)}
                     <button
                       type="button"
                       class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
@@ -1015,20 +1024,20 @@
                     </button>
                   {/each}
                 </div>
-                {#if unverifiedTaggedPubkeys.length > 0}
+                {#if pendingMaintainerPubkeys.length > 0}
                   <button
                     type="button"
                     class="mt-2 text-xs text-muted-foreground hover:text-foreground hover:underline"
                     onclick={() => (showTaggedMaintainers = !showTaggedMaintainers)}>
                     {showTaggedMaintainers
                       ? "Hide tagged maintainers"
-                      : `Show tagged maintainers (${unverifiedTaggedPubkeys.length})`}
+                      : `Show pending maintainers (${pendingMaintainerPubkeys.length})`}
                   </button>
                   {#if showTaggedMaintainers}
                     <div class="mt-2 space-y-2">
                       <span class="block text-xs text-muted-foreground"
-                        >Tagged maintainers (unverified)</span>
-                      {#each unverifiedTaggedPubkeys as maintainer (maintainer)}
+                         >Pending maintainers</span>
+                      {#each pendingMaintainerPubkeys as maintainer (maintainer)}
                         <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                           <ProfileCircle
                             pubkey={maintainer}

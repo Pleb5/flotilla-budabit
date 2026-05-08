@@ -71,8 +71,8 @@
   import {
     deriveRepoRefState,
     deriveMaintainersForEuc,
-    effectiveRepoAddressesByRepoAddress,
-    getEffectiveRepoAddresses,
+    maintainerSetRepoAddressesByRepoAddress,
+    getMaintainerSetRepoAddresses,
     loadRepoAnnouncements,
     derivePatchGraph,
     GIT_RELAYS,
@@ -191,7 +191,7 @@
     return hasRepoNotification($notifications, {
       relay: url,
       repoAddress,
-      repoAddresses: getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, repoAddress),
+      repoAddresses: getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
     })
   }
 
@@ -1572,7 +1572,7 @@
     const address = getRepoAddressFromEvent(event)
     if (!address) return new Set<string>()
 
-    const candidates = getEffectiveRepoAddresses($effectiveRepoAddressesByRepoAddress, address)
+    const candidates = getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, address)
     candidates.add(address)
     return candidates
   }
@@ -2421,7 +2421,7 @@
     {:else if sortedRepoCards.length > 0}
       <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
-          {@const effectiveMaintainers = g.effectiveMaintainers ?? g.maintainers ?? []}
+          {@const maintainerSet = g.effectiveMaintainers ?? g.maintainers ?? []}
           {@const taggedMaintainers = g.taggedMaintainers ?? []}
           <div
             class="min-w-0 rounded-md border border-border bg-card p-3"
@@ -2452,7 +2452,7 @@
             <div class="mt-3 flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <div class="flex -space-x-2">
-                  {#each effectiveMaintainers.slice(0, 4) as pk (pk)}
+                  {#each maintainerSet.slice(0, 4) as pk (pk)}
                     {@const prof = $profilesByPubkey.get(pk)}
                     <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
                       <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
@@ -2462,15 +2462,15 @@
                           .toUpperCase()}</AvatarFallback>
                     </Avatar>
                   {/each}
-                  {#if effectiveMaintainers.length > 4}
+                  {#if maintainerSet.length > 4}
                     <div
                       class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                      +{effectiveMaintainers.length - 4}
+                      +{maintainerSet.length - 4}
                     </div>
                   {/if}
                 </div>
                 <span class="text-xs opacity-60"
-                  >{effectiveMaintainers.length} effective maintainer{effectiveMaintainers.length !== 1 ? "s" : ""}
+                  >{maintainerSet.length} maintainer-set member{maintainerSet.length !== 1 ? "s" : ""}
                   / {taggedMaintainers.length} tagged</span>
               </div>
               {#if g.first}
