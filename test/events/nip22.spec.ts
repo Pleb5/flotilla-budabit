@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { createCommentEvent, type CommentEvent, type CommentTag } from '../../src/events/nip22/nip22.js';
+import {
+  createCommentEvent,
+  createGitCommentEvent,
+  createGitInlineCommentEvent,
+  type CommentEvent,
+  type CommentTag
+} from '../../src/events/nip22/nip22.js';
 import { parseCommentEvent } from '../../src/events/nip22/nip22-utils.js';
 
 describe('NIP-22: comments (create + parse)', () => {
@@ -109,5 +115,63 @@ describe('NIP-22: comments (create + parse)', () => {
     expect(parsed.author.pubkey).toBe('');
     expect(parsed.content).toBe('No id/pubkey');
     expect(parsed.createdAt).toBe(new Date(1700002000 * 1000).toISOString());
+  });
+
+  it('creates a NIP-34 PR comment with root, parent, and repo q tags', () => {
+    const evt = createGitCommentEvent({
+      content: 'Review note',
+      root: {
+        id: 'pr-id',
+        kind: 1618,
+        pubkey: 'pr-author',
+        relay: 'wss://relay.root'
+      },
+      parent: {
+        id: 'parent-comment-id',
+        kind: 1111,
+        pubkey: 'parent-author',
+        relay: 'wss://relay.parent'
+      },
+      authorPubkey: 'reviewer',
+      repoRefs: ['30617:maintainer:repo'],
+      relayHint: 'wss://relay.repo',
+      created_at: 1700003000
+    });
+
+    expect(evt.kind).toBe(1111);
+    expect(evt.content).toBe('Review note');
+    expect(evt.pubkey).toBe('reviewer');
+    expect(evt.created_at).toBe(1700003000);
+    expect(evt.tags).toContainEqual(['E', 'pr-id', 'wss://relay.root', 'pr-author']);
+    expect(evt.tags).toContainEqual(['K', '1618']);
+    expect(evt.tags).toContainEqual(['P', 'pr-author', 'wss://relay.root']);
+    expect(evt.tags).toContainEqual(['e', 'parent-comment-id', 'wss://relay.parent', 'parent-author']);
+    expect(evt.tags).toContainEqual(['k', '1111']);
+    expect(evt.tags).toContainEqual(['p', 'parent-author', 'wss://relay.parent']);
+    expect(evt.tags).toContainEqual(['q', '30617:maintainer:repo', 'wss://relay.repo']);
+    expect(evt.tags.some((tag) => tag[0] === 'repo')).toBe(false);
+  });
+
+  it('creates a NIP-34 inline comment with file, commit, and deleted-line tags', () => {
+    const evt = createGitInlineCommentEvent({
+      content: 'This removed line needs explanation',
+      root: { id: 'pr-id', kind: 1618, pubkey: 'pr-author' },
+      authorPubkey: 'reviewer',
+      relayHint: 'wss://relay.example',
+      repoRefs: ['30617:maintainer:repo'],
+      filePath: 'src/example.ts',
+      commitId: 'abc123',
+      line: '42',
+      lineSide: 'del'
+    });
+
+    expect(evt.content).toBe('This removed line needs explanation');
+    expect(evt.tags).toContainEqual(['E', 'pr-id', 'wss://relay.example', 'pr-author']);
+    expect(evt.tags).toContainEqual(['e', 'pr-id', 'wss://relay.example', 'pr-author']);
+    expect(evt.tags).toContainEqual(['f', 'src/example.ts']);
+    expect(evt.tags).toContainEqual(['c', 'abc123']);
+    expect(evt.tags).toContainEqual(['line', '42', 'del']);
+    expect(evt.tags).toContainEqual(['q', '30617:maintainer:repo', 'wss://relay.example']);
+    expect(evt.content).not.toContain('File:');
   });
 });

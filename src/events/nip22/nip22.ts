@@ -32,6 +32,11 @@ export type CommentTag =
   // Optional: citation and mention tags per NIP-21
   | ["q", string, ...string[]] // Cited event or address
   | ["p", string, ...string[]] // Mentioned pubkey
+  | ["f", string]
+  | ["c", string]
+  | ["line", string]
+  | ["line", string, "del"]
+  | ["l", string]
   | ["repo", string]
 
 /**
@@ -52,6 +57,32 @@ export interface CreateCommentOpts {
   created_at?: number
   id?: string
   extraTags?: CommentTag[]
+}
+
+export type CommentTargetEvent = {
+  id: string
+  kind: number | string
+  pubkey?: string
+  relay?: string
+}
+
+export interface CreateGitCommentOpts {
+  content: string
+  root: CommentTargetEvent
+  parent?: CommentTargetEvent
+  authorPubkey?: string
+  created_at?: number
+  id?: string
+  repoRefs?: string[]
+  relayHint?: string
+  extraTags?: CommentTag[]
+}
+
+export interface CreateGitInlineCommentOpts extends CreateGitCommentOpts {
+  filePath: string
+  commitId?: string
+  line?: string
+  lineSide?: "del"
 }
 
 /**
@@ -102,4 +133,64 @@ export function createCommentEvent(opts: CreateCommentOpts): CommentEvent {
     id: opts.id || "",
     sig: "",
   }
+}
+
+const appendRelayAndPubkey = (base: string[], relay?: string, pubkey?: string) => {
+  if (!relay && !pubkey) return base
+  return [...base, relay || "", ...(pubkey ? [pubkey] : [])]
+}
+
+const appendRelay = (base: string[], relay?: string) => (relay ? [...base, relay] : base)
+
+/**
+  * Create a NIP-22 comment for NIP-34 git threads.
+ * Root tags always point at the original issue/PR, while parent tags point at
+ * the immediate event being replied to. Repo references are encoded as q-tags.
+ */
+export function createGitCommentEvent(opts: CreateGitCommentOpts): CommentEvent {
+  const parent = opts.parent || opts.root
+  const rootRelay = opts.root.relay || opts.relayHint
+  const parentRelay = parent.relay || opts.relayHint
+  const tags: CommentTag[] = [
+    appendRelayAndPubkey(["E", opts.root.id], rootRelay, opts.root.pubkey) as CommentTag,
+    ["K", String(opts.root.kind)],
+    ...(opts.root.pubkey
+      ? ([appendRelay(["P", opts.root.pubkey], rootRelay) as CommentTag] as CommentTag[])
+      : []),
+    appendRelayAndPubkey(["e", parent.id], parentRelay, parent.pubkey) as CommentTag,
+    ["k", String(parent.kind)],
+    ...(parent.pubkey
+      ? ([appendRelay(["p", parent.pubkey], parentRelay) as CommentTag] as CommentTag[])
+      : []),
+  ]
+
+  for (const repoRef of opts.repoRefs || []) {
+    if (repoRef) tags.push(appendRelay(["q", repoRef], opts.relayHint) as CommentTag)
+  }
+
+  if (opts.extraTags) tags.push(...opts.extraTags)
+
+  return {
+    kind: 1111,
+    content: opts.content,
+    tags,
+    pubkey: opts.authorPubkey || "",
+    created_at: opts.created_at || Math.floor(Date.now() / 1000),
+    id: opts.id || "",
+    sig: "",
+  }
+}
+
+/** Create a NIP-34 inline PR review comment with f/c/line tags. */
+export function createGitInlineCommentEvent(opts: CreateGitInlineCommentOpts): CommentEvent {
+  const extraTags: CommentTag[] = [["f", opts.filePath]]
+  if (opts.commitId) extraTags.push(["c", opts.commitId])
+  if (opts.line) {
+    extraTags.push(opts.lineSide === "del" ? ["line", opts.line, "del"] : ["line", opts.line])
+  }
+
+  return createGitCommentEvent({
+    ...opts,
+    extraTags: [...extraTags, ...(opts.extraTags || [])],
+  })
 }
