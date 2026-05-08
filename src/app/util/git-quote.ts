@@ -1,5 +1,5 @@
 import type {TrustedEvent} from "@welshman/util"
-import {getTagValue} from "@welshman/util"
+import {getTagValue, isRelayUrl, normalizeRelayUrl} from "@welshman/util"
 import {parse, isAddress, isEvent, isNewline, isText} from "@welshman/content"
 import type {Parsed} from "@welshman/content"
 import {
@@ -21,6 +21,12 @@ export type QuoteValue = {
   relays?: string[]
 }
 
+export type QuoteEventTagValue = {
+  id: string
+  author?: string
+  relays?: string[]
+}
+
 type EventLike = Pick<TrustedEvent, "content" | "tags"> & Partial<Pick<TrustedEvent, "kind">>
 
 const isQuote = (parsed: Parsed) => isEvent(parsed) || isAddress(parsed)
@@ -33,6 +39,47 @@ const isBoundary = (parsed?: Parsed) => {
 }
 
 const normalizeText = (text: string) => text.replace(/\s+/g, " ").trim()
+
+const normalizeQuoteRelay = (relay: string | undefined) => {
+  if (!relay) return ""
+
+  try {
+    const normalized = normalizeRelayUrl(relay)
+    return isRelayUrl(normalized) ? normalized : ""
+  } catch {
+    return ""
+  }
+}
+
+export const getQuoteRelayHints = (
+  ...relayGroups: Array<Iterable<string | undefined> | undefined>
+) => {
+  const relays = new Set<string>()
+
+  for (const group of relayGroups) {
+    for (const relay of group || []) {
+      const normalized = normalizeQuoteRelay(relay)
+      if (normalized) relays.add(normalized)
+    }
+  }
+
+  return Array.from(relays)
+}
+
+export const getQuoteTagRelayHints = (event: EventLike, idOrAddress: string) =>
+  getQuoteRelayHints(
+    ...event.tags.filter(tag => tag[0] === "q" && tag[1] === idOrAddress).map(tag => tag.slice(2)),
+  )
+
+export const getQuoteEventTags = ({id, author, relays}: QuoteEventTagValue, hints = true) => {
+  if (!hints) return [["q", id]]
+
+  const relayHints = getQuoteRelayHints(relays)
+  const makeTag = (relay: string) => (author ? ["q", id, relay, author] : ["q", id, relay])
+  if (relayHints.length === 0) return [makeTag("")]
+
+  return relayHints.map(makeTag)
+}
 
 const truncateText = (text: string, max = 220) => {
   const normalized = normalizeText(text)

@@ -8,6 +8,8 @@
   import {
     getCommentRootQuoteValue,
     getGitQuoteFallback,
+    getQuoteRelayHints,
+    getQuoteTagRelayHints,
     getTrimmedReplyPreview,
     type QuoteValue,
   } from "@app/util/git-quote"
@@ -27,12 +29,12 @@
       : "")
 
   const mergedRelays = idOrAddress
-    ? Array.from(
-        new Set([
-          ...Router.get().Quote(event, idOrAddress, value?.relays || []).getUrls(),
-          ...(value?.pubkey ? Router.get().FromPubkey(value.pubkey).getUrls() : []),
-          ...(url ? [url] : []),
-        ]),
+    ? getQuoteRelayHints(
+        value?.relays || [],
+        getQuoteTagRelayHints(event, idOrAddress),
+        Router.get().Quote(event, idOrAddress, value?.relays || []).getUrls(),
+        value?.pubkey ? Router.get().FromPubkey(value.pubkey).getUrls() : [],
+        url ? [url] : undefined,
       )
     : []
 

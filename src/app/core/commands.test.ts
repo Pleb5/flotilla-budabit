@@ -160,13 +160,20 @@ describe("commands", () => {
       sig: "b".repeat(128),
     } as any
 
-    const result = prependParent(parent, {content: "Looks good", tags: []}, {relays: ["wss://actual.relay"]})
+    const result = prependParent(
+      parent,
+      {content: "Looks good", tags: []},
+      {
+        relays: ["wss://actual.relay", "wss://fallback.relay"],
+      },
+    )
     const uri = result.content.split("\n", 1)[0].replace(/^nostr:/, "")
     const decoded = nip19.decode(uri)
 
     expect(decoded.type).toBe("nevent")
-    expect((decoded.data as any).relays).toEqual(["wss://actual.relay/"])
+    expect((decoded.data as any).relays).toEqual(["wss://actual.relay/", "wss://fallback.relay/"])
     expect(result.tags).toContainEqual(["q", parent.id, "wss://actual.relay/", parent.pubkey])
+    expect(result.tags).toContainEqual(["q", parent.id, "wss://fallback.relay/", parent.pubkey])
     expect((decoded.data as any).relays).not.toContain("wss://repo.relay/")
     expect((decoded.data as any).relays).not.toContain("wss://root.relay/")
   })

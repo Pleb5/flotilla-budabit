@@ -21,8 +21,32 @@ import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
 import {uploadFile} from "@app/core/commands"
 import {deriveSpaceMembers} from "@app/core/state"
 import {pushToast} from "@app/util/toast"
+import {getQuoteEventTags} from "@app/util/git-quote"
 import {PermalinkExtension} from "@nostr-git/ui"
 import Spinner from "@lib/components/Spinner.svelte"
+
+type NEventNodeAttrs = {
+  id: string
+  author?: string
+  relays?: string[]
+}
+
+const expandNeventQTags = (nostrStorage: any) => {
+  nostrStorage.getQtags = (hints = true) =>
+    nostrStorage
+      .getNevents()
+      .flatMap(({id, author, relays}: NEventNodeAttrs) =>
+        getQuoteEventTags({id, author, relays}, hints),
+      )
+
+  nostrStorage.getEditorTags = (hints = true) => [
+    ...nostrStorage.getPtags(hints),
+    ...nostrStorage.getQtags(hints),
+    ...nostrStorage.getAtags(hints),
+    ...nostrStorage.getImetaTags(),
+    ...nostrStorage.getTtags(),
+  ]
+}
 
 export const makeEditor = async ({
   encryptFiles = false,
@@ -84,7 +108,7 @@ export const makeEditor = async ({
     },
   )
 
-  return new Editor({
+  const editor = new Editor({
     content,
     autofocus,
     editorProps,
@@ -151,6 +175,10 @@ export const makeEditor = async ({
       charCount?.set(editor.storage.wordCount.chars)
     },
   })
+
+  expandNeventQTags(editor.storage.nostr)
+
+  return editor
 }
 // Convert plain text (with \n) into HTML that Tiptap will keep as line breaks.
 const escapeHtml = (s: string) =>

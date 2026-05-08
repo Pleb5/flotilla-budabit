@@ -1,7 +1,14 @@
 import * as nip19 from "nostr-tools/nip19"
 import {describe, expect, it} from "vitest"
 import {GIT_ISSUE, GIT_PATCH, GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
-import {getCommentRootQuoteValue, getGitQuoteFallback, getTrimmedReplyPreview} from "./git-quote"
+import {
+  getCommentRootQuoteValue,
+  getGitQuoteFallback,
+  getQuoteEventTags,
+  getQuoteRelayHints,
+  getQuoteTagRelayHints,
+  getTrimmedReplyPreview,
+} from "./git-quote"
 
 const pubkey = "a".repeat(64)
 const sig = "b".repeat(128)
@@ -145,5 +152,91 @@ describe("reply preview helpers", () => {
         tags: [["A", `30617:${pubkey}:budabit`]],
       } as any),
     ).toEqual({identifier: "budabit", kind: 30617, pubkey, relays: []})
+  })
+})
+
+describe("getQuoteRelayHints", () => {
+  it("preserves all relays from parsed nevent hints before router-limited relays", () => {
+    const neventRelays = [
+      "wss://relay.ngit.dev/",
+      "wss://gitnostr.com/",
+      "wss://relay.damus.io/",
+      "wss://nos.lol/",
+      "wss://relay.nostr.band/",
+      "wss://relay.sharegap.net/",
+    ]
+    const routerRelays = neventRelays.slice(0, 3)
+
+    expect(getQuoteRelayHints(neventRelays, routerRelays)).toEqual(neventRelays)
+  })
+
+  it("normalizes and deduplicates relay hints", () => {
+    expect(
+      getQuoteRelayHints(
+        ["wss://relay.damus.io", "not-a-relay"],
+        ["wss://relay.damus.io/", "not-a-relay"],
+      ),
+    ).toEqual(["wss://relay.damus.io/"])
+  })
+})
+
+describe("getQuoteEventTags", () => {
+  it("creates one q tag per relay hint", () => {
+    const quotedId = "c".repeat(64)
+
+    expect(
+      getQuoteEventTags({
+        id: quotedId,
+        author: pubkey,
+        relays: ["wss://relay.ngit.dev/", "wss://relay.damus.io/", "wss://nos.lol/"],
+      }),
+    ).toEqual([
+      ["q", quotedId, "wss://relay.ngit.dev/", pubkey],
+      ["q", quotedId, "wss://relay.damus.io/", pubkey],
+      ["q", quotedId, "wss://nos.lol/", pubkey],
+    ])
+  })
+})
+
+describe("getQuoteTagRelayHints", () => {
+  it("extracts relay hints from repeated q tags", () => {
+    const quotedId = "c".repeat(64)
+
+    expect(
+      getQuoteTagRelayHints(
+        {
+          content: "",
+          tags: [
+            ["q", quotedId, "wss://relay.ngit.dev/", pubkey],
+            ["q", quotedId, "wss://relay.damus.io/", pubkey],
+            ["q", quotedId, "wss://nos.lol/", pubkey],
+          ],
+        },
+        quotedId,
+      ),
+    ).toEqual(["wss://relay.ngit.dev/", "wss://relay.damus.io/", "wss://nos.lol/"])
+  })
+
+  it("extracts every relay hint from expanded q tags", () => {
+    const quotedId = "c".repeat(64)
+
+    expect(
+      getQuoteTagRelayHints(
+        {
+          content: "",
+          tags: [
+            [
+              "q",
+              quotedId,
+              "wss://relay.ngit.dev/",
+              pubkey,
+              "wss://relay.damus.io/",
+              "wss://nos.lol/",
+            ],
+          ],
+        },
+        quotedId,
+      ),
+    ).toEqual(["wss://relay.ngit.dev/", "wss://relay.damus.io/", "wss://nos.lol/"])
   })
 })

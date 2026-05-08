@@ -12,6 +12,7 @@
   import {deriveEvent, entityLink} from "@app/core/state"
   import {goToEvent} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
+  import {getQuoteRelayHints, getQuoteTagRelayHints} from "@app/util/git-quote"
   import {
     Button as GitButton,
     highlightCodeLines,
@@ -40,11 +41,13 @@
   const {id, identifier, kind, pubkey, relays = []} = value
   const idOrAddress = id || new Address(kind, pubkey, identifier).toString()
   const authorRelays = pubkey ? Router.get().FromPubkey(pubkey).getUrls() : []
-  const mergedRelays = Array.from(new Set([...Router.get().Quote(event, idOrAddress, relays).getUrls(), ...authorRelays]))
-
-  if (url) {
-    mergedRelays.push(url)
-  }
+  const mergedRelays = getQuoteRelayHints(
+    relays,
+    getQuoteTagRelayHints(event, idOrAddress),
+    Router.get().Quote(event, idOrAddress, relays).getUrls(),
+    authorRelays,
+    url ? [url] : undefined,
+  )
 
   const quote = deriveEvent(idOrAddress, mergedRelays)
   const entity = id

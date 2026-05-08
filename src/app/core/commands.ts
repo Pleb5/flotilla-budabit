@@ -126,6 +126,7 @@ import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {DEFAULT_WORKER_PUBKEY, activeRepoClass} from "@lib/budabit/state"
 import {deleteIndexedDB} from "@lib/util"
+import {getQuoteEventTags} from "@app/util/git-quote"
 
 // Utils
 
@@ -417,15 +418,11 @@ const getEventRelayHints = (event: TrustedEvent, explicitRelays: string[] = []) 
   for (const relay of explicitRelays) addRelay(relay)
   for (const relay of tracker.getRelays(event.id)) addRelay(relay)
 
-  return Array.from(relays).slice(0, 5)
+  return Array.from(relays)
 }
 
-const tagEventForShareQuote = (event: TrustedEvent, relays: string[]) => [
-  "q",
-  event.id,
-  relays[0] || "",
-  event.pubkey,
-]
+const tagEventForShareQuote = (event: TrustedEvent, relays: string[]) =>
+  getQuoteEventTags({id: event.id, author: event.pubkey, relays})
 
 export const prependParent = (
   parent: TrustedEvent | undefined,
@@ -441,7 +438,7 @@ export const prependParent = (
       relays: relayHints,
     })
 
-    tags = [...tags, tagEventForShareQuote(parent, relayHints)]
+    tags = [...tags, ...tagEventForShareQuote(parent, relayHints)]
     content = toNostrURI(nevent) + "\n\n" + content
   }
 
