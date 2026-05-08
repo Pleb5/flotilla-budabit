@@ -245,6 +245,11 @@ export function isCommentEvent(event: {kind: number}): event is CommentEvent {
   return event.kind === 1111
 }
 
+const getRepoAddressTags = (repoAddr?: string, repoAddrs: string[] = []) => {
+  const addresses = Array.from(new Set([repoAddr, ...repoAddrs].map(value => String(value || "").trim()).filter(Boolean)))
+  return addresses.map(address => ["a", address] as ["a", string])
+}
+
 /** Type guard for StackEvent (kind: 30410) */
 export function isStackEvent(event: Nip34Event): event is StackEvent {
   return event.kind === 30410
@@ -465,13 +470,14 @@ export function createPatchEvent(opts: {
 export function createIssueEvent(opts: {
   content: string
   repoAddr: string
+  repoAddrs?: string[]
   recipients?: string[]
   subject?: string
   labels?: string[]
   tags?: IssueTag[]
   created_at?: number
 }): IssueEvent {
-  const tags: IssueTag[] = [["a", opts.repoAddr]]
+  const tags: IssueTag[] = getRepoAddressTags(opts.repoAddr, opts.repoAddrs) as IssueTag[]
   if (opts.recipients) opts.recipients.forEach(p => tags.push(["p", p]))
   if (opts.subject) tags.push(["subject", opts.subject])
   if (opts.labels) opts.labels.forEach(l => tags.push(["t", l]))
@@ -522,6 +528,7 @@ export function createCoverLetterEvent(opts: {
 export function createPullRequestEvent(opts: {
   content: string
   repoAddr: string
+  repoAddrs?: string[]
   recipients?: string[]
   subject?: string
   labels?: string[]
@@ -533,7 +540,7 @@ export function createPullRequestEvent(opts: {
   tags?: PullRequestTag[]
   created_at?: number
 }): PullRequestEvent {
-  const tags: PullRequestTag[] = [["a", opts.repoAddr]]
+  const tags: PullRequestTag[] = getRepoAddressTags(opts.repoAddr, opts.repoAddrs) as PullRequestTag[]
   if (opts.recipients) opts.recipients.forEach(p => tags.push(["p", p]))
   if (opts.subject) tags.push(["subject", opts.subject])
   if (opts.labels) opts.labels.forEach(l => tags.push(["t", l]))
@@ -556,6 +563,7 @@ export function createPullRequestEvent(opts: {
  */
 export function createPullRequestUpdateEvent(opts: {
   repoAddr: string
+  repoAddrs?: string[]
   pullRequestEventId: string
   pullRequestAuthorPubkey: string
   recipients?: string[]
@@ -565,7 +573,7 @@ export function createPullRequestUpdateEvent(opts: {
   tags?: PullRequestUpdateTag[]
   created_at?: number
 }): PullRequestUpdateEvent {
-  const tags: PullRequestUpdateTag[] = [["a", opts.repoAddr]]
+  const tags: PullRequestUpdateTag[] = getRepoAddressTags(opts.repoAddr, opts.repoAddrs) as PullRequestUpdateTag[]
   tags.push(["E", opts.pullRequestEventId])
   tags.push(["P", opts.pullRequestAuthorPubkey])
   if (opts.recipients) opts.recipients.forEach(p => tags.push(["p", p]))
@@ -607,6 +615,7 @@ export function createStatusEvent(opts: {
   replyId?: string
   recipients?: string[]
   repoAddr?: string
+  repoAddrs?: string[]
   relays?: string[]
   appliedCommits?: string[]
   mergedCommit?: string
@@ -616,7 +625,7 @@ export function createStatusEvent(opts: {
   const tags: StatusTag[] = [["e", opts.rootId, "", "root"]]
   if (opts.replyId) tags.push(["e", opts.replyId, "", "reply"])
   if (opts.recipients) opts.recipients.forEach(p => tags.push(["p", p]))
-  if (opts.repoAddr) tags.push(["a", opts.repoAddr])
+  tags.push(...(getRepoAddressTags(opts.repoAddr, opts.repoAddrs) as StatusTag[]))
   if (opts.relays && opts.relays.length) tags.push(["r", opts.relays[0]])
   if (opts.mergedCommit) tags.push(["merge-commit", opts.mergedCommit])
   if (opts.appliedCommits && opts.appliedCommits.length > 0)

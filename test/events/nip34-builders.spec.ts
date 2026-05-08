@@ -147,6 +147,19 @@ describe("NIP-34 builders", () => {
     ).toEqual(["bug", "ui"].sort())
   })
 
+  it("createIssueEvent emits primary and maintainer-set repo addresses", () => {
+    const evt = createIssueEvent({
+      content: "issue body",
+      repoAddr: "30617:root:repo",
+      repoAddrs: ["30617:root:repo", "30617:maintainer:repo"],
+    })
+
+    expect(getTags(evt as any, "a")).toEqual([
+      ["a", "30617:root:repo"],
+      ["a", "30617:maintainer:repo"],
+    ])
+  })
+
   it("createCoverLetterEvent encodes root, references, and recipients", () => {
     const evt = createCoverLetterEvent({
       rootId: "issue-id-1",
@@ -206,6 +219,21 @@ describe("NIP-34 builders", () => {
         .sort(),
     ).toEqual(["pk1", "pk2"].sort())
     expect(getTagValue(evt as any, "a")).toBe("30617:pubkey:repo")
+    expect(
+      getTags(
+        createStatusEvent({
+          kind: 1631,
+          content: "merged",
+          rootId: "root-id",
+          repoAddr: "30617:pubkey:repo",
+          repoAddrs: ["30617:pubkey:repo", "30617:maintainer:repo"],
+        }) as any,
+        "a",
+      ),
+    ).toEqual([
+      ["a", "30617:pubkey:repo"],
+      ["a", "30617:maintainer:repo"],
+    ])
 
     // createStatusEvent uses only first relay in an 'r' tag
     expect(getTagValue(evt as any, "r")).toBe("wss://relay.one")
