@@ -348,6 +348,18 @@ export async function syncWithRemoteUtil(
         console.warn(
           `[syncWithRemote] Failed to fetch requested branch '${targetBranch}' from all ${fetchResult.attempts.length} URLs`,
         )
+
+        if (requireRemoteSync || requireTrackingRef) {
+          return toPlain({
+            success: false,
+            repoId,
+            branch: targetBranch,
+            error: `Requested branch '${targetBranch}' could not be fetched from any remote. ${summarizeAttempts(fetchResult.attempts)}`,
+            duration: Date.now() - startTime,
+            synced: false,
+            serializable: true,
+          })
+        }
       }
     }
 

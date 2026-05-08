@@ -227,6 +227,46 @@ describe("worker/sync utils", () => {
     expect(fetchSpy.mock.calls[0][0]?.ref).toBe("fix/ipk-builds")
   })
 
+  it("syncWithRemoteUtil: strict target sync does not fall back when requested branch is missing", async () => {
+    const cache = cacheMgr()
+    const fetchSpy = vi.fn(async () => {
+      throw new Error("could not find ref repo-state-getters")
+    }) as any
+    const checkoutSpy = vi.fn(async () => undefined) as any
+    const resolveBranchName = vi.fn(async () => "master")
+    const git = makeGit({
+      fetch: fetchSpy,
+      listRemotes: vi.fn(async () => [
+        {remote: "origin", url: "https://example.com/repo.git"},
+      ]) as any,
+      listBranches: vi.fn(async () => ["master"]) as any,
+      checkout: checkoutSpy,
+    })
+
+    const res = await syncWithRemoteUtil(
+      git,
+      cache,
+      {
+        repoId: "Org/MissingTarget",
+        cloneUrls: ["https://example.com/repo.git"],
+        branch: "repo-state-getters",
+        requireRemoteSync: true,
+        requireTrackingRef: true,
+      },
+      {
+        ...depsBase,
+        resolveBranchName,
+        isRepoCloned: async () => true,
+      },
+    )
+
+    expect(res.success).toBe(false)
+    expect((res as any).branch).toBe("repo-state-getters")
+    expect((res as any).error).toContain("repo-state-getters")
+    expect(resolveBranchName).not.toHaveBeenCalled()
+    expect(checkoutSpy).not.toHaveBeenCalled()
+  })
+
   it("syncWithRemoteUtil: prefers an explicitly requested primary URL before origin", async () => {
     const cache = cacheMgr()
     const fetchSpy = vi.fn(async ({url}: any) => ({
