@@ -1690,6 +1690,10 @@ export class Repo {
     return this.#branchSwitching;
   }
 
+  get isRefsLoading() {
+    return this.#refsLoading;
+  }
+
   /**
    * Counter that increments when a branch switch completes.
    * Components can track this to know when to reload data for the new branch.

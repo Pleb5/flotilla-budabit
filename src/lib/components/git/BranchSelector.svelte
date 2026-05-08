@@ -16,6 +16,7 @@
   );
   const selectedBranch = $derived.by(() => repo.selectedBranch || mainBranch || "");
   const selectedLabel = $derived.by(() => {
+    if (repo.isRefsLoading && !refs.length) return "Loading branches...";
     if (!refs.length) return "No branches found";
     if (!selectedBranch) return "";
     const isMainBranch =
@@ -26,9 +27,14 @@
     const label = selectedLabel || "Branch";
     const paddingCh = 6;
     const minCh = 12;
-    return Math.max(minCh, label.length + paddingCh);
+    const maxCh = 22;
+    return Math.min(maxCh, Math.max(minCh, label.length + paddingCh));
   });
   const isSwitching = $derived.by(() => repo.isBranchSwitching);
+  const isLoading = $derived.by(() => repo.isBranchSwitching || repo.isRefsLoading);
+  const loadingLabel = $derived.by(() =>
+    repo.isRefsLoading && !isSwitching ? "Loading branches" : `Switching to ${selectedBranch}`
+  );
 
   // Debug logging disabled for performance - uncomment if needed for debugging
   // $effect(() => {
@@ -48,35 +54,27 @@
     const target = e.target as HTMLSelectElement;
     const branchName = target.value;
     const currentSelected = repo.selectedBranch;
-    console.log(
-      "[BranchSelector] handleChange called with:",
-      branchName,
-      "current:",
-      currentSelected,
-      "isSwitching:",
-      isSwitching
-    );
     if (branchName && !isSwitching && branchName !== currentSelected) {
-      console.log("[BranchSelector] Calling setSelectedBranch with:", branchName);
       repo.setSelectedBranch(branchName);
-    } else if (branchName === currentSelected) {
-      console.log("[BranchSelector] Branch already selected, skipping:", branchName);
     }
   }
 </script>
 
-<div class="flex items-center gap-2 min-w-0">
-  <div class="relative min-w-0">
+<div class="flex max-w-full items-center gap-2 min-w-0">
+  <div class="relative max-w-full min-w-0">
     <select
       value={selectedBranch}
       onchange={handleChange}
-      disabled={isSwitching}
-      aria-busy={isSwitching}
+      disabled={isLoading}
+      aria-busy={isLoading}
       aria-label="Branch selector"
-      style:width={`${selectWidthCh}ch`}
-      class="appearance-none rounded-md border border-border bg-background pl-2 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed min-w-0 max-w-full sm:pl-3 sm:pr-10"
+      title={selectedLabel}
+      style={`width: min(${selectWidthCh}ch, 14rem); max-width: 100%;`}
+      class="min-w-0 max-w-[11rem] appearance-none truncate rounded-md border border-border bg-background py-2 pl-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-[12rem] sm:pl-3 sm:pr-10 xl:max-w-[14rem]"
     >
-      {#if refs.length === 0}
+      {#if repo.isRefsLoading && refs.length === 0}
+        <option value="">Loading branches...</option>
+      {:else if refs.length === 0}
         <option value="">No branches found</option>
       {:else}
         {#if branches.length > 0}
@@ -102,15 +100,15 @@
       class="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-muted-foreground sm:right-3"
       aria-hidden="true"
     >
-      {#if isSwitching}
+      {#if isLoading}
         <Loader2 class="h-3.5 w-3.5 animate-spin" />
       {:else}
         <ChevronDown class="h-3.5 w-3.5 opacity-70" />
       {/if}
     </span>
 
-    {#if isSwitching}
-      <span class="sr-only" aria-live="polite">Switching to {selectedBranch}</span>
+    {#if isLoading}
+      <span class="sr-only" aria-live="polite">{loadingLabel}</span>
     {/if}
   </div>
 </div>
