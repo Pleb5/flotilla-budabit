@@ -1,6 +1,7 @@
 import {
   GIT_REPO_BOOKMARK_SET,
   GRASP_SET_KIND,
+  GIT_REPO_ANNOUNCEMENT,
   GIT_REPO_BOOKMARK_DTAG,
   DEFAULT_GRASP_SET_ID,
   validateGraspServerUrl,
@@ -40,6 +41,7 @@ export const loadRepositories = async (pubkey: string, relays: string[] = []) =>
     filters: [
       {kinds: [NAMED_BOOKMARKS], authors: [pubkey], "#d": [GIT_REPO_BOOKMARK_DTAG]},
       {kinds: [GIT_REPO_BOOKMARK_SET], authors: [pubkey]},
+      {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [pubkey]},
     ],
   })
 }

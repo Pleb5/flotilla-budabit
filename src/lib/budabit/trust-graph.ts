@@ -1,8 +1,9 @@
 import {get} from "svelte/store"
 import {chunk} from "@welshman/lib"
 import {makeLoader} from "@welshman/net"
-import {getFollows, getWotGraph, pubkey} from "@welshman/app"
+import {getFollows, getWotGraph, pubkey, repository} from "@welshman/app"
 import {type TrustedEvent} from "@welshman/util"
+import {GIT_REPO_ANNOUNCEMENT, parseRepoAnnouncementEvent} from "@nostr-git/core/events"
 import {
   getNip85UserAssertionValue,
   hasNip85MetricValue,
@@ -11,6 +12,7 @@ import {
   type Nip85UserAssertion,
   userNip85ConfiguredProviders,
 } from "./nip85"
+import {normalizePubkey} from "./pubkeys"
 import {
   hasEnabledTrustGraphRules,
   isNip85MetricSource,
@@ -34,23 +36,55 @@ const SELF_WEIGHT = 5
 const FOLLOW_WEIGHT = 3
 const trustGraphMetricLoad = makeLoader({delay: 200, timeout: 5000, threshold: 0.5})
 
+export const getDeclaredRepoMaintainerPubkeys = (viewerPubkey: string) => {
+  if (!viewerPubkey) return []
+
+  const events = repository.query([{kinds: [GIT_REPO_ANNOUNCEMENT], authors: [viewerPubkey]}], {
+    shouldSort: false,
+  }) as TrustedEvent[]
+  const maintainers = new Set<string>()
+
+  for (const event of events) {
+    try {
+      const repo = parseRepoAnnouncementEvent(event as any)
+
+      if (repo.deleted) continue
+
+      for (const maintainer of repo.maintainers || []) {
+        const normalized = normalizePubkey(maintainer)
+
+        if (normalized) maintainers.add(normalized)
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return Array.from(maintainers)
+}
+
 export const getBasicTrustGraphScore = (
   viewerPubkey: string,
   targetPubkey: string,
   follows: string[],
   wotGraph: Map<string, number>,
+  declaredMaintainers: string[] = [],
 ) => {
   if (!viewerPubkey || !targetPubkey) return 0
-  if (targetPubkey === viewerPubkey) return SELF_WEIGHT
-  if (follows.includes(targetPubkey)) return FOLLOW_WEIGHT
+  const wotScore = Math.max(0, wotGraph.get(targetPubkey) || 0)
 
-  return Math.max(0, wotGraph.get(targetPubkey) || 0)
+  if (targetPubkey === viewerPubkey) return Math.max(SELF_WEIGHT, wotScore)
+  if (follows.includes(targetPubkey)) return Math.max(FOLLOW_WEIGHT, wotScore)
+  if (declaredMaintainers.includes(targetPubkey)) return Math.max(FOLLOW_WEIGHT, wotScore)
+
+  return wotScore
 }
 
 export const buildBasicTrustGraph = (
   viewerPubkey: string,
   follows: string[],
   wotGraph: Map<string, number>,
+  declaredMaintainers: string[] = [],
 ) => {
   const scores = new Map<string, number>()
 
@@ -66,6 +100,12 @@ export const buildBasicTrustGraph = (
     scores.set(follow, Math.max(FOLLOW_WEIGHT, scores.get(follow) || 0))
   }
 
+  for (const maintainer of declaredMaintainers) {
+    if (!maintainer) continue
+
+    scores.set(maintainer, Math.max(FOLLOW_WEIGHT, scores.get(maintainer) || 0))
+  }
+
   for (const [targetPubkey, rawScore] of wotGraph.entries()) {
     if (!targetPubkey || rawScore <= 0) continue
 
@@ -79,11 +119,12 @@ export const getActiveTrustGraph = (): ActiveTrustGraph => {
   const viewerPubkey = pubkey.get() || ""
   const follows = viewerPubkey ? getFollows(viewerPubkey) : []
   const wotGraph = getWotGraph()
+  const declaredMaintainers = getDeclaredRepoMaintainerPubkeys(viewerPubkey)
 
   return {
     viewerPubkey,
     source: "basic_wot",
-    scores: buildBasicTrustGraph(viewerPubkey, follows, wotGraph),
+    scores: buildBasicTrustGraph(viewerPubkey, follows, wotGraph, declaredMaintainers),
     enabledRuleCount: 0,
   }
 }
@@ -93,11 +134,18 @@ const getBasicTrustGraphScoresForCandidates = (
   candidatePubkeys: string[],
   follows: string[],
   wotGraph: Map<string, number>,
+  declaredMaintainers: string[] = [],
 ) => {
   const scores = new Map<string, number>()
 
   for (const candidatePubkey of candidatePubkeys) {
-    const score = getBasicTrustGraphScore(viewerPubkey, candidatePubkey, follows, wotGraph)
+    const score = getBasicTrustGraphScore(
+      viewerPubkey,
+      candidatePubkey,
+      follows,
+      wotGraph,
+      declaredMaintainers,
+    )
 
     if (score > 0) {
       scores.set(candidatePubkey, score)
@@ -257,12 +305,14 @@ export const loadActiveTrustGraph = async (candidatePubkeys: string[]) => {
   const viewerPubkey = pubkey.get() || ""
   const follows = viewerPubkey ? getFollows(viewerPubkey) : []
   const wotGraph = getWotGraph()
+  const declaredMaintainers = getDeclaredRepoMaintainerPubkeys(viewerPubkey)
   const normalizedCandidates = Array.from(new Set(candidatePubkeys.filter(Boolean)))
   const basicScores = getBasicTrustGraphScoresForCandidates(
     viewerPubkey,
     normalizedCandidates,
     follows,
     wotGraph,
+    declaredMaintainers,
   )
   const config = get(userTrustGraphConfigValues)
 

@@ -9,6 +9,8 @@ vi.mock("@nostr-git/ui", () => ({
 }))
 
 const {load} = await import("@welshman/net")
+const {GIT_REPO_ANNOUNCEMENT, GIT_REPO_BOOKMARK_SET} = await import("@nostr-git/core/events")
+const {NAMED_BOOKMARKS} = await import("@welshman/util")
 const {loadRepositories, loadGraspServers, loadTokens, GIT_AUTH_DTAG} = await import("./requests")
 
 describe("requests", () => {
@@ -23,7 +25,9 @@ describe("requests", () => {
         expect.objectContaining({
           relays: ["wss://relay.example.com"],
           filters: expect.arrayContaining([
-            expect.objectContaining({kinds: expect.any(Array), authors: ["pk123"]}),
+            {kinds: [NAMED_BOOKMARKS], authors: ["pk123"], "#d": expect.any(Array)},
+            {kinds: [GIT_REPO_BOOKMARK_SET], authors: ["pk123"]},
+            {kinds: [GIT_REPO_ANNOUNCEMENT], authors: ["pk123"]},
           ]),
         }),
       )

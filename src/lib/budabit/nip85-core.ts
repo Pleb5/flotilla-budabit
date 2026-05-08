@@ -1,5 +1,5 @@
-import * as nip19 from "nostr-tools/nip19"
 import {normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
+import {normalizePubkey} from "./pubkeys"
 
 export const NIP85_PROVIDER_CONFIG_KIND = 10040
 export const NIP85_USER_ASSERTION_KIND = 30382
@@ -115,8 +115,6 @@ export interface Nip85VerificationSample {
 
 const DEFAULT_IGNORED_ASSERTION_TAGS = new Set(["d"])
 
-const isHexPubkey = (value: string) => /^[0-9a-f]{64}$/i.test(value)
-
 const getTagValue = (name: string, tags: string[][]) => tags.find(tag => tag[0] === name)?.[1]
 
 const parseNumberValue = (value: string | undefined) => {
@@ -147,29 +145,6 @@ const normalizeKindTag = (value: string) => {
   }
 
   return `${kind}:${tag}`
-}
-
-export const normalizeNip85Pubkey = (value: string) => {
-  const trimmed = (value || "").trim()
-
-  if (!trimmed) return ""
-  if (isHexPubkey(trimmed)) return trimmed.toLowerCase()
-
-  try {
-    const decoded = nip19.decode(trimmed)
-
-    if (decoded.type === "npub" && typeof decoded.data === "string") {
-      return decoded.data.toLowerCase()
-    }
-
-    if (decoded.type === "nprofile" && typeof decoded.data?.pubkey === "string") {
-      return decoded.data.pubkey.toLowerCase()
-    }
-  } catch {
-    return ""
-  }
-
-  return ""
 }
 
 export const normalizeNip85RelayHint = (value: string) => {
@@ -226,7 +201,7 @@ export const parseNip85ProviderTag = (
   if (tag.length < 3) return
 
   const kindTag = normalizeKindTag(tag[0] || "")
-  const serviceKey = normalizeNip85Pubkey(tag[1] || "")
+  const serviceKey = normalizePubkey(tag[1] || "")
   const relayHint = normalizeNip85RelayHint(tag[2] || "")
 
   if (!kindTag || !serviceKey || !relayHint) return
@@ -806,7 +781,7 @@ export const getNip85RecommendationAuthors = (
   {followLimit, wotLimit}: {followLimit?: number; wotLimit?: number} = {},
 ) => {
   const directFollows = follows
-    .map(normalizeNip85Pubkey)
+    .map(normalizePubkey)
     .filter(pubkey => pubkey && pubkey !== currentPubkey)
   const limitedFollows = Number.isFinite(followLimit)
     ? directFollows.slice(0, followLimit)
