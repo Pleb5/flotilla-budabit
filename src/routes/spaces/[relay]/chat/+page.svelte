@@ -24,8 +24,8 @@
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import RoomComposeEdit from "@src/app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
-  import {userSettingsValues, decodeRelay, PROTECTED, REACTION_KINDS, isPlatformRelay} from "@app/core/state"
-  import {prependParent, canEnforceNip70, publishSocialDelete} from "@app/core/commands"
+  import {userSettingsValues, decodeRelay, REACTION_KINDS, isPlatformRelay} from "@app/core/state"
+  import {prependParent, publishSocialDelete} from "@app/core/commands"
   import {setChecked, checked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {makeFeed} from "@app/core/requests"
@@ -35,8 +35,6 @@
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay($page.params.relay!!)
   const isPlatform = isPlatformRelay(url)
-  const shouldProtect = canEnforceNip70(url)
-
   const replyTo = (event: TrustedEvent) => {
     parent = event
     compose?.focus()
@@ -60,19 +58,15 @@
     if (eventToEdit) {
       // Delete previous message, to be republished with same timestamp
       template.created_at = eventToEdit.created_at
-      publishSocialDelete({url, event: eventToEdit, protect: await shouldProtect})
-    }
-
-    if (await shouldProtect) {
-      tags.push(PROTECTED)
+      publishSocialDelete({url, event: eventToEdit, protect: false})
     }
 
     if (share) {
-      template = prependParent(share, template)
+      template = prependParent(share, template, {relays: [url]})
     }
 
     if (parent) {
-      template = prependParent(parent, template)
+      template = prependParent(parent, template, {relays: [url]})
     }
 
     const thunk = publishThunk({

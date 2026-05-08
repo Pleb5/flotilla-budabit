@@ -43,13 +43,11 @@
     deriveUserRoomMembershipStatus,
     deriveRoom,
     MembershipStatus,
-    PROTECTED,
     MESSAGE_KINDS,
     isPlatformRelay,
   } from "@app/core/state"
   import {setChecked, checked} from "@app/util/notifications"
   import {
-    canEnforceNip70,
     prependParent,
     publishSocialDelete,
   } from "@app/core/commands"
@@ -70,7 +68,6 @@
   const isPlatform = isPlatformRelay(url)
   const room = deriveRoom(url, h)
   const channel = deriveChannel(url, h)
-  const shouldProtect = canEnforceNip70(url)
   const membershipStatus = deriveUserRoomMembershipStatus(url, h)
   const isArchivedRoom = $derived.by(() => Boolean($room?.isArchived || $channel?.archived))
   const roomInteraction = $derived.by(() =>
@@ -153,24 +150,20 @@
   const onSubmit = async ({content, tags}: EventContent) => {
     tags.push(["h", h])
 
-    if (await shouldProtect) {
-      tags.push(PROTECTED)
-    }
-
     let template: EventContent & {created_at?: number} = {content, tags}
 
     if (eventToEdit) {
       // Delete previous message, to be republished with same timestamp
       template.created_at = eventToEdit.created_at
-      publishSocialDelete({url, event: eventToEdit, protect: await shouldProtect})
+      publishSocialDelete({url, event: eventToEdit, protect: false})
     }
 
     if (share) {
-      template = prependParent(share, template)
+      template = prependParent(share, template, {relays: [url]})
     }
 
     if (parent) {
-      template = prependParent(parent, template)
+      template = prependParent(parent, template, {relays: [url]})
     }
 
     const thunk = publishThunk({

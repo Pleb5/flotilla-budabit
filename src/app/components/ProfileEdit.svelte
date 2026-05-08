@@ -1,16 +1,15 @@
 <script lang="ts">
   import type {Profile} from "@welshman/util"
-  import {getTag, makeProfile} from "@welshman/util"
+  import {makeProfile} from "@welshman/util"
   import {pubkey, profilesByPubkey} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
   import ProfileEditForm from "@app/components/ProfileEditForm.svelte"
   import {clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {PROTECTED} from "@app/core/state"
   import {updateProfile} from "../core/commands"
 
   const profile = $profilesByPubkey.get($pubkey!) || makeProfile()
-  const shouldBroadcast = !getTag(PROTECTED, profile.event?.tags || [])
+  const shouldBroadcast = true
   const initialValues = {profile, shouldBroadcast}
 
   const back = () => history.back()

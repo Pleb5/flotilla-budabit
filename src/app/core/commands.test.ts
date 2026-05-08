@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {describe, expect, it, vi} from "vitest"
+import * as nip19 from "nostr-tools/nip19"
 
 vi.mock("@nostr-git/ui", () => ({}))
 
@@ -112,7 +113,7 @@ describe("commands", () => {
     expect(reaction.content).toBe("+")
   })
 
-  it("makeReaction adds PROTECTED tag when protect is true", async () => {
+  it("makeReaction never adds protected tags", async () => {
     const {makeReaction} = await import("./commands")
     const event = {
       id: "evt",
@@ -127,8 +128,10 @@ describe("commands", () => {
       protect: true,
       event,
       content: "❤️",
+      tags: [["-"], ["custom", "value"]],
     })
-    expect(reaction.tags).toContainEqual(["-"])
+    expect(reaction.tags).not.toContainEqual(["-"])
+    expect(reaction.tags).toContainEqual(["custom", "value"])
   })
 
   it("prependParent returns content and tags unchanged when parent is undefined", async () => {
@@ -138,6 +141,34 @@ describe("commands", () => {
     const result = prependParent(undefined, {content, tags})
     expect(result.content).toBe("Hello")
     expect(result.tags).toEqual([["t", "topic"]])
+  })
+
+  it("prependParent uses explicit event relays for quoted git comments", async () => {
+    const {prependParent} = await import("./commands")
+    const parent = {
+      id: "c".repeat(64),
+      pubkey: "a".repeat(64),
+      kind: 1111,
+      created_at: 0,
+      content: "Inline comment",
+      tags: [
+        ["q", "30617:maintainer:repo", "wss://repo.relay"],
+        ["E", "e".repeat(64), "wss://root.relay", "b".repeat(64)],
+        ["f", "src/file.ts"],
+        ["line", "42"],
+      ],
+      sig: "b".repeat(128),
+    } as any
+
+    const result = prependParent(parent, {content: "Looks good", tags: []}, {relays: ["wss://actual.relay"]})
+    const uri = result.content.split("\n", 1)[0].replace(/^nostr:/, "")
+    const decoded = nip19.decode(uri)
+
+    expect(decoded.type).toBe("nevent")
+    expect((decoded.data as any).relays).toEqual(["wss://actual.relay/"])
+    expect(result.tags).toContainEqual(["q", parent.id, "wss://actual.relay/", parent.pubkey])
+    expect((decoded.data as any).relays).not.toContain("wss://repo.relay/")
+    expect((decoded.data as any).relays).not.toContain("wss://root.relay/")
   })
 
   it("makeComment includes extra tags when provided", async () => {
@@ -179,7 +210,7 @@ describe("commands", () => {
     expect(reaction.tags.some((t: string[]) => t[0] === "custom")).toBe(true)
   })
 
-  it("makeDelete adds PROTECTED tag when protect is true", async () => {
+  it("makeDelete never adds protected tags", async () => {
     const {makeDelete} = await import("./commands")
     const event = {
       id: "evt",
@@ -190,8 +221,8 @@ describe("commands", () => {
       tags: [],
       sig: "",
     } as any
-    const del = makeDelete({protect: true, event})
-    expect(del.tags).toContainEqual(["-"])
+    const del = makeDelete({protect: true, event, tags: [["-"]]})
+    expect(del.tags).not.toContainEqual(["-"])
   })
 
   it("makeDelete includes group tag when event has h tag", async () => {

@@ -1214,7 +1214,10 @@
           currentCommenter={$pubkey!}
           {onCommentCreated}
           relays={repoClass.relays || repoRelays || []}
-          repoAddress={repoClass.address || ""} />
+          repoAddress={repoClass.address || ""}
+          rootEvent={selectedPatch?.raw}
+          repoRefs={repoAddress ? [repoAddress] : []}
+          relayHint={(repoClass.relays || repoRelays || [])[0]} />
       </div>
     </div>
   </div>

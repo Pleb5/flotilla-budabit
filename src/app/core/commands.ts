@@ -84,7 +84,6 @@ import {
   nip44EncryptToSelf,
   dropSession,
   tagEventForComment,
-  tagEventForQuote,
   waitForThunkError,
   getPubkeyRelays,
   loadRelay,
@@ -98,7 +97,6 @@ import {kv, db} from "@app/core/storage"
 import type {SettingsValues, Alert} from "@app/core/state"
 import {
   SETTINGS,
-  PROTECTED,
   INDEXER_RELAYS,
   NOTIFIER_PUBKEY,
   NOTIFIER_RELAY,
@@ -404,16 +402,46 @@ export const getPubkeyHints = (pubkey: string) => {
   return hints
 }
 
-export const prependParent = (parent: TrustedEvent | undefined, {content, tags}: EventContent) => {
+const getEventRelayHints = (event: TrustedEvent, explicitRelays: string[] = []) => {
+  const relays = new Set<string>()
+  const addRelay = (relay: string | undefined) => {
+    if (!relay) return
+    try {
+      const normalized = normalizeRelayUrl(relay)
+      if (isRelayUrl(normalized)) relays.add(normalized)
+    } catch {
+      // Ignore non-relay tag values such as addresses, pubkeys, and labels.
+    }
+  }
+
+  for (const relay of explicitRelays) addRelay(relay)
+  for (const relay of tracker.getRelays(event.id)) addRelay(relay)
+
+  return Array.from(relays).slice(0, 5)
+}
+
+const tagEventForShareQuote = (event: TrustedEvent, relays: string[]) => [
+  "q",
+  event.id,
+  relays[0] || "",
+  event.pubkey,
+]
+
+export const prependParent = (
+  parent: TrustedEvent | undefined,
+  {content, tags}: EventContent,
+  {relays = []}: {relays?: string[]} = {},
+) => {
   if (parent) {
+    const relayHints = getEventRelayHints(parent, relays)
     const nevent = nip19.neventEncode({
       id: parent.id,
       kind: parent.kind,
       author: parent.pubkey,
-      relays: Router.get().Event(parent).limit(3).getUrls(),
+      relays: relayHints,
     })
 
-    tags = [...tags, tagEventForQuote(parent)]
+    tags = [...tags, tagEventForShareQuote(parent, relayHints)]
     content = toNostrURI(nevent) + "\n\n" + content
   }
 
@@ -655,12 +683,8 @@ export const setMessagingRelayPolicy = (url: string, enabled: boolean) => {
 
 // Relay access
 
-export const canEnforceNip70 = async (url: string) => {
-  const socket = Pool.get().get(url)
-
-  await socket.auth.attemptAuth(e => signer.get()?.sign(e))
-
-  return socket.auth.status !== AuthStatus.None
+export const canEnforceNip70 = async (_url: string) => {
+  return false
 }
 
 export const attemptRelayAccess = async (url: string, claim = "") => {
@@ -771,8 +795,10 @@ const getRepoAddressForDelete = (event: TrustedEvent) => {
   return ""
 }
 
-export const makeDelete = ({protect, event, tags = []}: DeleteParams) => {
-  const thisTags = [["k", String(event.kind)], ...tagEvent(event), ...tags]
+const stripProtectedTags = (tags: string[][] = []) => tags.filter(nthNe(0, "-"))
+
+export const makeDelete = ({event, tags = []}: DeleteParams) => {
+  const thisTags = [["k", String(event.kind)], ...tagEvent(event), ...stripProtectedTags(tags)]
   const repoAddress = getRepoAddressForDelete(event)
   if (repoAddress) {
     thisTags.push(["repo", repoAddress])
@@ -781,10 +807,6 @@ export const makeDelete = ({protect, event, tags = []}: DeleteParams) => {
 
   if (groupTag) {
     thisTags.push(groupTag)
-  }
-
-  if (protect) {
-    thisTags.push(PROTECTED)
   }
 
   return makeEvent(DELETE, {tags: uniqTags(thisTags)})
@@ -921,16 +943,12 @@ export type ReactionParams = {
   tags?: string[][]
 }
 
-export const makeReaction = ({protect, content, event, tags: paramTags = []}: ReactionParams) => {
-  const tags = [...paramTags, ...tagEventForReaction(event)]
+export const makeReaction = ({content, event, tags: paramTags = []}: ReactionParams) => {
+  const tags = [...stripProtectedTags(paramTags), ...tagEventForReaction(event)]
   const groupTag = getTag("h", event.tags)
 
   if (groupTag) {
     tags.push(groupTag)
-  }
-
-  if (protect) {
-    tags.push(PROTECTED)
   }
 
   return makeEvent(REACTION, {content, tags})
@@ -948,7 +966,7 @@ export type CommentParams = {
 }
 
 export const makeComment = ({event, content, tags = []}: CommentParams) =>
-  makeEvent(COMMENT, {content, tags: [...tags, ...tagEventForComment(event)]})
+  makeEvent(COMMENT, {content, tags: [...stripProtectedTags(tags), ...tagEventForComment(event)]})
 
 export const publishComment = ({relays, ...params}: CommentParams & {relays: string[]}) =>
   publishThunk({event: makeComment(params), relays})
@@ -1298,20 +1316,18 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
 
 export const updateProfile = async ({
   profile,
-  shouldBroadcast = !getTag(PROTECTED, profile.event?.tags || []),
+  shouldBroadcast = true,
 }: {
   profile: Profile
   shouldBroadcast?: boolean
 }) => {
   const router = Router.get()
   const template = isPublishedProfile(profile) ? editProfile(profile) : createProfile(profile)
+  template.tags = stripProtectedTags(template.tags)
   const scenarios = [router.FromRelays(get(userSpaceUrls))]
 
   if (shouldBroadcast) {
     scenarios.push(router.FromUser(), router.Index())
-    template.tags = template.tags.filter(nthNe(0, "-"))
-  } else {
-    template.tags = uniqTags([...template.tags, PROTECTED])
   }
 
   const event = makeEvent(template.kind, template)

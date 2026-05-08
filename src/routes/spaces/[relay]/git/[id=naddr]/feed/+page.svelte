@@ -104,11 +104,11 @@
     let template = {content, tags}
 
     if (share) {
-      template = prependParent(share, template)
+      template = prependParent(share, template, {relays: platformRelays})
     }
 
     if (parent) {
-      template = prependParent(parent, template)
+      template = prependParent(parent, template, {relays: platformRelays})
     }
 
     const thunk = publishThunk({

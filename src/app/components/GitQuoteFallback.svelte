@@ -30,6 +30,7 @@
     ? Array.from(
         new Set([
           ...Router.get().Quote(event, idOrAddress, value?.relays || []).getUrls(),
+          ...(value?.pubkey ? Router.get().FromPubkey(value.pubkey).getUrls() : []),
           ...(url ? [url] : []),
         ]),
       )

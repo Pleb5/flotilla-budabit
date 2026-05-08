@@ -77,7 +77,7 @@
   import Profile from "@src/app/components/Profile.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import type {Repo} from "@nostr-git/ui"
-  import {getContext, hasContext} from "svelte"
+  import {getContext, hasContext, tick} from "svelte"
   import type {Readable} from "svelte/store"
   import {
     REPO_TRUST_METRICS_KEY,
@@ -175,7 +175,8 @@
   })
   const commentRepoRefs = $derived.by(() => maintainerSetRepoAddresses)
   const commentRelayHint = $derived.by(() => {
-    const relays = (repoRelays || repoClass.relays || []).map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
+    const sourceRelays = repoRelays?.length ? repoRelays : repoClass.relays || []
+    const relays = sourceRelays.map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
     return relays[0] || undefined
   })
   const repoTrustMetrics = $derived.by<RepoTrustMetrics>(() =>
@@ -1196,6 +1197,118 @@
       lineNumber: Number.isFinite(lineNumber) ? lineNumber : 0,
       lineSide: lineTag?.[2] === "del" ? "del" as const : undefined,
     }
+  }
+
+  const getInlineCommentLocation = (comment: CommentEvent) => {
+    const filePath = getCommentTagValue(comment, "f")
+    if (!filePath) return null
+    const lineTag = (comment.tags || []).find((tag: string[]) => tag[0] === "line")
+    const rawLine = lineTag?.[1] || ""
+    const parts = rawLine.split("-")
+    const start = Number.parseInt(parts[0] || "", 10)
+    const end = Number.parseInt(parts[parts.length - 1] || "", 10)
+    const targetLine = Number.isFinite(end) ? end : Number.isFinite(start) ? start : null
+    return {
+      filePath,
+      targetLine,
+      lineSide: lineTag?.[2] === "del" ? "del" as const : undefined,
+    }
+  }
+
+  const getPrFilePathByDiffHash = (hash: string) => {
+    for (const [filePath, value] of Object.entries(prDiffAnchors)) {
+      if (value === hash) return filePath
+    }
+    return null
+  }
+
+  const nextFrame = () =>
+    new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve())
+    })
+
+  const waitForInlineDiffTarget = async (anchor: string) => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const lineEl = document.getElementById(anchor) as HTMLElement | null
+      const row = lineEl?.closest("[data-diff-index]") as HTMLElement | null
+      if (row || lineEl) return row || lineEl
+      await tick()
+      await nextFrame()
+    }
+    const lineEl = document.getElementById(anchor) as HTMLElement | null
+    return (lineEl?.closest("[data-diff-index]") as HTMLElement | null) || lineEl
+  }
+
+  const scrollInlineDiffTarget = async (anchor: string) => {
+    if (typeof window === "undefined") return
+    const target = await waitForInlineDiffTarget(anchor)
+    if (!target) return
+
+    const scrollParent = target.closest(".scroll-container") as HTMLElement | null
+    const stickyOffset = 120
+    if (scrollParent) {
+      const parentRect = scrollParent.getBoundingClientRect()
+      const targetRect = target.getBoundingClientRect()
+      const top = targetRect.top - parentRect.top + scrollParent.scrollTop - stickyOffset
+      scrollParent.scrollTo({top: Math.max(0, top), behavior: "smooth"})
+      return
+    }
+
+    const top = target.getBoundingClientRect().top + window.scrollY - stickyOffset
+    window.scrollTo({top: Math.max(0, top), behavior: "smooth"})
+  }
+
+  const openPrDiffHashFromLocation = async () => {
+    if (typeof window === "undefined") return false
+    const currentHash = window.location.hash || ""
+    const match = currentHash.match(/^#diff-([a-f0-9]+)/i)
+    if (!match) return false
+    const filePath = getPrFilePathByDiffHash(match[1])
+    if (!filePath) return false
+    prReviewTab = "files"
+    if (!prExpandedFiles.has(filePath)) {
+      prExpandedFiles = new Set([...prExpandedFiles, filePath])
+    }
+    const anchor = currentHash.slice(1)
+    await tick()
+    await nextFrame()
+    await scrollInlineDiffTarget(anchor)
+    return true
+  }
+
+  $effect(() => {
+    const anchors = prDiffAnchors
+    if (Object.keys(anchors).length === 0) return
+    void openPrDiffHashFromLocation()
+  })
+
+  $effect(() => {
+    if (typeof window === "undefined") return
+    const handler = () => void openPrDiffHashFromLocation()
+    window.addEventListener("hashchange", handler)
+    return () => window.removeEventListener("hashchange", handler)
+  })
+
+  const openPrInlineCommentLocation = async (comment: CommentEvent) => {
+    const location = getInlineCommentLocation(comment)
+    if (!location) return
+    prReviewTab = "files"
+    if (!prExpandedFiles.has(location.filePath)) {
+      prExpandedFiles = new Set([...prExpandedFiles, location.filePath])
+    }
+    const hash = prDiffAnchors[location.filePath] || await githubPermalinkDiffId(location.filePath)
+    const side = location.lineSide === "del" ? "L" : "R"
+    const anchor = location.targetLine ? `diff-${hash}${side}${location.targetLine}` : `diff-${hash}`
+    await tick()
+    if (typeof window === "undefined") return
+    const nextHash = `#${anchor}`
+    if (window.location.hash === nextHash) {
+      window.dispatchEvent(new HashChangeEvent("hashchange"))
+    } else {
+      window.location.hash = anchor
+    }
+    await nextFrame()
+    await scrollInlineDiffTarget(anchor)
   }
 
   const prDiffComments = $derived.by(() => {
@@ -2879,7 +2992,6 @@
                                       repo={repoClass}
                                       repoRefs={commentRepoRefs}
                                       relayHint={commentRelayHint}
-                                      inlineCommentStyle="gitworkshop"
                                       enablePermalinks={false}
                                       showFileHeaders={false}
                                       compact={true}
@@ -2973,7 +3085,6 @@
                           repo={repoClass}
                           repoRefs={commentRepoRefs}
                           relayHint={commentRelayHint}
-                          inlineCommentStyle="gitworkshop"
                           enablePermalinks={false}
                           showFileHeaders={false}
                           showFileAnchors={false}
@@ -3138,12 +3249,12 @@
             comments={prThreadCommentsArray}
             currentCommenter={$pubkey!}
             {onCommentCreated}
-            relays={repoClass.relays || repoRelays || []}
+            relays={repoRelays?.length ? repoRelays : repoClass.relays || []}
             repoAddress={repoClass.address || ""}
             rootEvent={prEvent}
             repoRefs={commentRepoRefs}
             relayHint={commentRelayHint}
-            useGitworkshopCommentTags
+            onInlineCommentOpen={openPrInlineCommentLocation}
             enableReplies />
         {/if}
       </div>

@@ -12,9 +12,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {pushToast} from "@app/util/toast"
-  import {PROTECTED} from "@app/core/state"
   import {makeEditor} from "@app/editor"
-  import {canEnforceNip70} from "@app/core/commands"
 
   type Props = {
     url: string
@@ -22,8 +20,6 @@
   }
 
   const {url, h}: Props = $props()
-
-  const shouldProtect = canEnforceNip70(url)
 
   const uploading = writable(false)
 
@@ -52,10 +48,6 @@
     }
 
     const tags = [...ed.storage.nostr.getEditorTags(), ["title", title]]
-
-    if (await shouldProtect) {
-      tags.push(PROTECTED)
-    }
 
     if (h) {
       tags.push(["h", h])

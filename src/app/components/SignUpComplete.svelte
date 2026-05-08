@@ -10,7 +10,6 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import {clearModals} from "@app/util/modal"
-  import {PROTECTED} from "@app/core/state"
 
   type Props = {
     secret: string
@@ -23,9 +22,6 @@
 
   const next = () => {
     const template = createProfile(profile)
-
-    // Start out protected by default
-    template.tags.push(PROTECTED)
 
     const event = makeEvent(PROFILE, template)
 

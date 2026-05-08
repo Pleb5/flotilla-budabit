@@ -197,8 +197,6 @@ const canManageRelayFromBrowser = (url: string) => {
 
 export const ROOM = "h"
 
-export const PROTECTED = ["-"]
-
 export const ENABLE_ZAPS = true
 
 export const NOTIFIER_PUBKEY = import.meta.env.VITE_NOTIFIER_PUBKEY

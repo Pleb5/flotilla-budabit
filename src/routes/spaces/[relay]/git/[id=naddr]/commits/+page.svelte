@@ -315,6 +315,7 @@
     // Create a NIP-22 comment event referencing the commit by its OID
     // Using "I" (external identifier) tag since commits are git objects, not Nostr events
     const repoAddr = repoClass.address // e.g., "30617:pubkey:repo-name"
+    const relays = repoClass.relays || []
     const commentEvent = createCommentEvent({
       content: comment,
       root: {
@@ -322,11 +323,10 @@
         value: `git:commit:${commitId}`, // External identifier for git commit
         kind: "commit", // Descriptive kind for the external resource
       },
-      extraTags: repoAddr ? [["repo", repoAddr] as any] : undefined, // Link to repo for context
+      extraTags: repoAddr ? [["q", repoAddr, relays[0]].filter(Boolean) as any] : undefined,
     })
     
     // Publish the comment to repo relays
-    const relays = repoClass.relays || []
     postComment(commentEvent as CommentEvent, relays)
   }
 

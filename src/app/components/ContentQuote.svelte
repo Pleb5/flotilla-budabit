@@ -39,7 +39,8 @@
 
   const {id, identifier, kind, pubkey, relays = []} = value
   const idOrAddress = id || new Address(kind, pubkey, identifier).toString()
-  const mergedRelays = Router.get().Quote(event, idOrAddress, relays).getUrls()
+  const authorRelays = pubkey ? Router.get().FromPubkey(pubkey).getUrls() : []
+  const mergedRelays = Array.from(new Set([...Router.get().Quote(event, idOrAddress, relays).getUrls(), ...authorRelays]))
 
   if (url) {
     mergedRelays.push(url)
@@ -176,15 +177,19 @@
     getTagValue(evt, "file") || getTagValue(evt, "path") || getTagValue(evt, "f")
 
   const getLineRange = (evt: TrustedEvent) => {
-    const tag = getTag(evt, "lines")
+    const tag = getTag(evt, "lines") || getTag(evt, "line")
     if (!tag) return {start: null, end: null}
-    const start = Number.parseInt(tag[1] || "", 10)
-    const end = Number.parseInt(tag[2] || "", 10)
+    const raw = tag[1] || ""
+    const parts = raw.split("-")
+    const start = Number.parseInt(parts[0] || "", 10)
+    const end = Number.parseInt(parts[1] || tag[2] || "", 10)
     return {
       start: Number.isNaN(start) ? null : start,
       end: Number.isNaN(end) ? null : end,
     }
   }
+
+  const getLineSide = (evt: TrustedEvent) => getTag(evt, "line")?.[2] === "del" ? "del" : undefined
 
   const getLineLabel = (evt: TrustedEvent) => {
     const {start, end} = getLineRange(evt)
@@ -261,7 +266,7 @@
         kind: parsed.kind,
         pubkey: parsed.pubkey,
         identifier: parsed.identifier,
-        relays: [],
+        relays: relay ? [relay] : [],
       })
       return `/spaces/${encodeURIComponent(relay)}/git/${naddr}`
     } catch {
@@ -359,18 +364,27 @@
     }
 
     if (evt.kind === GIT_COMMENT) {
-      const repoAddress = getTagValue(evt, "repo")
+      const repoAddress = getTagValue(evt, "q") || getTagValue(evt, "repo")
       const repoLabel = getDisplayRepo(evt, repoAddress)
       const rootId = getCommentRootId(evt)
       const rootKind = getCommentRootKind(evt)
       const contextLabel = getCommentContextLabel(rootKind)
       const baseHref = buildRepoHrefFromAddress(repoAddress, relay)
+      const filePath = getFilePath(evt)
+      const line = getLineRange(evt)
+      const targetLine = line.end || line.start
+      const inlineLocationLabel = filePath
+        ? `${filePath}${targetLine ? `:${line.start && line.end && line.end !== line.start ? `${line.start}-${line.end}` : targetLine}` : ""}`
+        : ""
+      const inlineDiffAnchor = filePath && targetLine && diffHash
+        ? `#diff-${diffHash}${getLineSide(evt) === "del" ? "L" : "R"}${targetLine}`
+        : ""
       let href = ""
       if (baseHref) {
         if (rootKind === GIT_ISSUE) {
           href = `${baseHref}/issues/${rootId}#comment-${evt.id}`
         } else if (rootKind === GIT_PATCH || rootKind === GIT_PULL_REQUEST) {
-          href = `${baseHref}/patches/${rootId}#comment-${evt.id}`
+          href = `${baseHref}/patches/${rootId}${inlineDiffAnchor || `#comment-${evt.id}`}`
         } else if (rootId) {
           href = `${baseHref}#comment-${evt.id}`
         } else {
@@ -378,9 +392,9 @@
         }
       }
       return {
-        label: "Comment",
-        title: `Comment on ${contextLabel}`,
-        meta: repoLabel ? [repoLabel] : [],
+        label: filePath ? "Inline Comment" : "Comment",
+        title: filePath ? `Inline comment on ${contextLabel}` : `Comment on ${contextLabel}`,
+        meta: [repoLabel, inlineLocationLabel].filter(Boolean),
         preview: getCommentPreview(evt),
         href,
       }
@@ -447,7 +461,8 @@
     if (!$quote) return
     const parentCommit = getTagValue($quote, "parent-commit")
     const filePath = getFilePath($quote)
-    if (!parentCommit || !filePath) {
+    const inlineComment = $quote.kind === GIT_COMMENT && getTagValue($quote, "line") && filePath
+    if ((!parentCommit && !inlineComment) || !filePath) {
       diffHash = ""
       return
     }

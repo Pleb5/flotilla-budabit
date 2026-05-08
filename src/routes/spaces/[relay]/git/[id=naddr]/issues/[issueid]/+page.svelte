@@ -195,6 +195,14 @@
       ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, issueEditRepoAddress))
       : [],
   )
+  const issueCommentRepoRefs = $derived.by(() =>
+    issueMaintainerSetRepoAddresses.length > 0
+      ? issueMaintainerSetRepoAddresses
+      : issueEditRepoAddress
+        ? [issueEditRepoAddress]
+        : [],
+  )
+  const issueCommentRelayHint = $derived.by(() => repoBoundRelays[0] || undefined)
 
   const effectiveIssueMaintainers = $derived.by(() => {
     const maintainersFromAddress =
@@ -936,7 +944,12 @@
         issueKind={GIT_ISSUE.toString() as "1621"}
         comments={$threadComments as CommentEvent[]}
         currentCommenter={$pubkey || ""}
-        onCommentCreated={$pubkey ? onCommentCreated : undefined} />
+        onCommentCreated={$pubkey ? onCommentCreated : undefined}
+        relays={repoBoundRelays}
+        repoAddress={issueEditRepoAddress}
+        rootEvent={issueEvent as any}
+        repoRefs={issueCommentRepoRefs}
+        relayHint={issueCommentRelayHint} />
     </Card>
   </div>
 {:else if isResolvingIssue || !didResolveIssue}

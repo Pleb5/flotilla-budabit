@@ -8,14 +8,11 @@
   import Button from "@lib/components/Button.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
-  import {publishComment, canEnforceNip70} from "@app/core/commands"
-  import {PROTECTED} from "@app/core/state"
+  import {publishComment} from "@app/core/commands"
   import {makeEditor} from "@app/editor"
   import {pushToast} from "@app/util/toast"
 
   const {url, event, onClose, onSubmit} = $props()
-
-  const shouldProtect = canEnforceNip70(url)
 
   const uploading = writable(false)
 
@@ -27,10 +24,6 @@
     const ed = await editor
     const content = ed.getText({blockSeparator: "\n"}).trim()
     const tags = ed.storage.nostr.getEditorTags()
-
-    if (await shouldProtect) {
-      tags.push(PROTECTED)
-    }
 
     if (!content) {
       return pushToast({

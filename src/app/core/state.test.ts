@@ -191,10 +191,9 @@ describe("state", () => {
     expect(defaultSettings.font_size).toBe(1.1)
   })
 
-  it("ROOM and PROTECTED constants are defined", async () => {
-    const {ROOM, PROTECTED} = await import("./state")
+  it("ROOM constant is defined", async () => {
+    const {ROOM} = await import("./state")
     expect(ROOM).toBe("h")
-    expect(PROTECTED).toEqual(["-"])
   })
 
   it("getSpaceUrlsFromGroupList returns empty for undefined list", async () => {
