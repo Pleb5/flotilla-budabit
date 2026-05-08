@@ -317,6 +317,9 @@
       onCommentCreated={onCommentCreated}
       relays={commentRelays}
       repoAddress={repoAddress}
+      rootEvent={event}
+      repoRefs={repoAddress ? [repoAddress] : []}
+      relayHint={commentRelays[0]}
     />
   </Card>
 {/if}

@@ -7,8 +7,8 @@
   import { tick } from "svelte";
   import parseDiff from "parse-diff";
   import { ChevronDown, ChevronUp } from "@lucide/svelte";
-  import { createCommentEvent, getTagValue } from "@nostr-git/core/events";
-  import type { CommentEvent, CommentTag } from "@nostr-git/core/events";
+  import { createGitInlineCommentEvent, getTagValue } from "@nostr-git/core/events";
+  import type { CommentEvent } from "@nostr-git/core/events";
   import { toast } from "../../stores/toast.js";
   import { toUserMessage } from "../../utils/gitErrorUi.js";
   import {
@@ -25,6 +25,8 @@
     id: string;
     lineNumber: number;
     filePath?: string;
+    commitId?: string;
+    lineSide?: "del";
     content: string;
     rawEvent?: CommentEvent;
     author: {
@@ -72,9 +74,12 @@
     expandAll = false,
     comments = [],
     rootEvent,
+    parentEvent,
     onComment,
     currentPubkey,
     repo,
+    repoRefs,
+    relayHint,
     publish,
     enablePermalinks = true,
     showFileHeaders = true,
@@ -87,9 +92,12 @@
     expandAll?: boolean;
     comments?: Comment[];
     rootEvent?: DiffViewerRootEvent;
+    parentEvent?: DiffViewerRootEvent;
     onComment?: (comment: Omit<CommentEvent, "id" | "pubkey" | "sig">) => void;
     currentPubkey?: string | null;
     repo?: Repo;
+    repoRefs?: string[];
+    relayHint?: string;
     publish?: (permalink: PermalinkEvent) => Promise<void>;
     enablePermalinks?: boolean;
     showFileHeaders?: boolean;
@@ -99,6 +107,7 @@
   } = $props();
 
   const canComment = $derived(canUseInlineComments({ rootEvent, onComment, currentPubkey }));
+  const activeParentEvent = $derived(parentEvent || rootEvent);
 
   let selectedLine = $state<number | null>(null);
   let selectedFileIdx = $state<number | null>(null);
@@ -715,6 +724,12 @@
       if (c.lineNumber !== lineNumberToMatch) {
         return false;
       }
+      if (c.lineSide === "del" && change.type !== "del") {
+        return false;
+      }
+      if (c.lineSide !== "del" && change.type === "del") {
+        return false;
+      }
       // If comment has a filePath, it must match; if comment doesn't have filePath (legacy), allow it
       // This provides backward compatibility with old comments that don't have file paths
       if (c.filePath !== undefined && c.filePath !== "") {
@@ -1185,30 +1200,32 @@
         actualLineNumber = (change as any).ln2 ?? (change as any).ln1 ?? null;
       }
 
-      // Build comment content with context
       const commentContent = newComment.trim();
-      const contextInfo = `File: ${filePath}${actualLineNumber !== null ? `\nLine: ${actualLineNumber}` : ""}`;
-      const fullContent = `${commentContent}\n\n---\n${contextInfo}`;
-
-      // No extra tags needed - file/line info is in content
-      const extraTags: CommentTag[] = [];
-      const rootRepoAddress =
-        repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
-      if (rootRepoAddress) {
-        extraTags.push(["repo", rootRepoAddress] as unknown as CommentTag);
-      }
-
-      // Create NIP-22 comment event
-      const commentEvent = createCommentEvent({
-        content: fullContent,
+      const commitId = (rootEvent as any)?.tags ? getTagValue(rootEvent as any, "commit") : "";
+      const defaultRepoRef = repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
+      const commentEvent = createGitInlineCommentEvent({
+        content: commentContent,
         root: {
-          type: "E",
-          value: rootEvent.id,
+          id: rootEvent.id,
           kind: rootEvent.kind?.toString() || "",
           pubkey: rootEvent.pubkey,
+          relay: relayHint,
         },
+        parent: activeParentEvent
+          ? {
+              id: activeParentEvent.id,
+              kind: activeParentEvent.kind?.toString() || "",
+              pubkey: activeParentEvent.pubkey,
+              relay: relayHint,
+            }
+          : undefined,
         authorPubkey: currentPubkey,
-        extraTags,
+        repoRefs: repoRefs?.length ? repoRefs : defaultRepoRef ? [defaultRepoRef] : [],
+        relayHint,
+        filePath,
+        commitId,
+        line: actualLineNumber !== null ? String(actualLineNumber) : undefined,
+        lineSide: change.type === "del" ? "del" : undefined,
       });
 
       // Publish the comment

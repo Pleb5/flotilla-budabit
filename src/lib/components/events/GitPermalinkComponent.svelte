@@ -57,7 +57,13 @@
   });
 
   const relayHints = $derived.by(() =>
-    Array.from(new Set([relay, relayValue].filter((value): value is string => !!value)))
+    Array.from(
+      new Set(
+        [relay, relayValue, ...tags.flatMap((tag) => tag.slice(1))].filter(
+          (value): value is string => Boolean(value?.match(/^wss?:\/\//))
+        )
+      )
+    )
   );
 
   const shareLink = $derived.by(() => {
@@ -154,7 +160,7 @@
         kind: parsed.kind,
         pubkey: parsed.pubkey,
         identifier: parsed.identifier,
-        relays: [],
+        relays: relayHints,
       });
     } catch {
       return "";

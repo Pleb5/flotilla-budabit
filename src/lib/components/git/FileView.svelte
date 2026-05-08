@@ -1242,26 +1242,35 @@
     }
   }
 
+  function toRelayHint(value: string | null | undefined) {
+    if (!value) return "";
+    if (value.match(/^wss?:\/\//)) return value;
+    return `wss://${value}`;
+  }
+
   function deriveBasePath() {
     if (typeof window === "undefined") return "";
     const repoAddress = repo?.address || "";
+    const relayValue = deriveRelayFromLocation();
     let repoNaddr = "";
     if (repoAddress) {
       const parsed = parseRepoAddress(repoAddress);
       if (parsed) {
+        const relayHints = Array.from(
+          new Set([...(repo?.relays || []), toRelayHint(relayValue)].filter(Boolean))
+        );
         try {
           repoNaddr = nip19.naddrEncode({
             kind: parsed.kind,
             pubkey: parsed.pubkey,
             identifier: parsed.identifier,
-            relays: [],
+            relays: relayHints,
           });
         } catch {
           repoNaddr = "";
         }
       }
     }
-    const relayValue = deriveRelayFromLocation();
     if (repoNaddr && relayValue) {
       return `/spaces/${encodeURIComponent(relayValue)}/git/${repoNaddr}`;
     }

@@ -81,6 +81,10 @@
     return match ? match[1] : "";
   };
 
+  const repoRelayHints = $derived.by(() =>
+    relay?.match(/^wss?:\/\//) ? [relay] : []
+  );
+
   const repoNaddr = $derived.by(() => {
     if (!repoAddress) return "";
     const parsed = parseRepoAddress(repoAddress);
@@ -90,7 +94,7 @@
         kind: parsed.kind,
         pubkey: parsed.pubkey,
         identifier: parsed.identifier,
-        relays: [],
+        relays: repoRelayHints,
       });
     } catch {
       return "";
