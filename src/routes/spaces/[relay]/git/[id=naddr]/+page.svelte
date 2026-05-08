@@ -4,7 +4,7 @@
 
 <script lang="ts">
   import markdownit from "markdown-it"
-  import {Card} from "@nostr-git/ui"
+  import {BranchSelector, Card} from "@nostr-git/ui"
   import {
     CircleAlert,
     GitBranch,
@@ -384,6 +384,13 @@
 
   // Defaults for Terminal
   const repoCloneUrls = $derived(repoMetadata.cloneUrls || [])
+  const sortedCloneUrls = $derived(
+    [...repoCloneUrls].sort((a, b) => {
+      const an = a.startsWith("nostr://") ? 0 : 1
+      const bn = b.startsWith("nostr://") ? 0 : 1
+      return an - bn
+    }),
+  )
   const defaultRemoteUrl = $derived(repoCloneUrls[0])
   const defaultBranch = $derived(repoMetadata.mainBranch || "")
   const detectedProvider = $derived(
@@ -810,48 +817,46 @@
     <div class="grid min-w-0 gap-4 lg:grid-cols-3" transition:fly>
     <div class="min-w-0 lg:col-start-3 lg:row-start-1 lg:col-span-1">
     <Card class="min-w-0 p-3 text-sm divide-y divide-border">
-    <!-- Clone dropdown -->
-    {#if repoMetadata.cloneUrls.length > 0}
-      {@const sortedCloneUrls = [...repoMetadata.cloneUrls].sort((a, b) => {
-        const an = a.startsWith("nostr://") ? 0 : 1
-        const bn = b.startsWith("nostr://") ? 0 : 1
-        return an - bn
-      })}
-      <section class="flex items-center justify-between pb-3">
-        <span class="flex items-center gap-2 text-base font-semibold">
+      <!-- Details header -->
+      <section class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pb-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_auto]">
+        <span class="col-span-2 row-start-1 flex items-center gap-2 text-base font-semibold sm:col-span-1 sm:col-start-1 lg:col-span-2">
           <GitBranch class="h-5 w-5" />
           Details
         </span>
-        <details class="group relative">
-          <summary class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-600/40 bg-green-100 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-200 dark:border-green-500/40 dark:bg-green-600/20 dark:text-green-300 dark:hover:bg-green-600/30">
-            <span class="flex items-center gap-2">
-              <GitBranch class="h-4 w-4" />
-              Clone
-            </span>
-            <ChevronDown class="h-4 w-4 transition-transform group-open:rotate-180" />
-          </summary>
-          <div class="absolute right-0 z-20 mt-2 w-[min(22rem,calc(100vw-2rem))] space-y-1 rounded-md border border-border bg-base-100 p-2 shadow-lg">
-            {#each sortedCloneUrls as url}
-              {@const isNostr = url.startsWith("nostr://")}
-              <button
-                type="button"
-                class="group/row flex min-w-0 w-full items-center gap-2 rounded-md border p-2 transition-all hover:bg-secondary/40 active:scale-[0.995] {isNostr ? 'border-purple-500/40 bg-purple-500/5' : 'border-transparent'}"
-                title="Click to copy"
-                onclick={() => copyUrl(url)}>
-                <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs {isNostr ? 'text-purple-300' : ''}">{url}</code>
-                <div class="flex-shrink-0 rounded p-1 transition-colors group-hover/row:bg-background/50">
-                  {#if copiedUrl === url}
-                    <Check class="h-3.5 w-3.5 text-green-500" />
-                  {:else}
-                    <Copy class="h-3.5 w-3.5 text-muted-foreground" />
-                  {/if}
-                </div>
-              </button>
-            {/each}
-          </div>
-        </details>
+        <div class="col-start-1 row-start-2 min-w-0 justify-self-end sm:col-start-2 sm:row-start-1 lg:col-start-1 lg:row-start-3 lg:justify-self-start">
+          <BranchSelector repo={repoClass} />
+        </div>
+        {#if sortedCloneUrls.length > 0}
+          <details class="group relative col-start-2 row-start-2 shrink-0 justify-self-end sm:col-start-3 sm:row-start-1 lg:col-start-1 lg:row-start-2 lg:justify-self-start">
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-600/40 bg-green-100 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-200 dark:border-green-500/40 dark:bg-green-600/20 dark:text-green-300 dark:hover:bg-green-600/30">
+                <span class="flex items-center gap-2">
+                  <GitBranch class="h-4 w-4" />
+                  Clone
+                </span>
+                <ChevronDown class="h-4 w-4 transition-transform group-open:rotate-180" />
+              </summary>
+              <div class="absolute right-0 z-20 mt-2 w-[min(22rem,calc(100vw-2rem))] space-y-1 rounded-md border border-border bg-base-100 p-2 shadow-lg">
+                {#each sortedCloneUrls as url}
+                  {@const isNostr = url.startsWith("nostr://")}
+                  <button
+                    type="button"
+                    class="group/row flex min-w-0 w-full items-center gap-2 rounded-md border p-2 transition-all hover:bg-secondary/40 active:scale-[0.995] {isNostr ? 'border-purple-500/40 bg-purple-500/5' : 'border-transparent'}"
+                    title="Click to copy"
+                    onclick={() => copyUrl(url)}>
+                    <code class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs {isNostr ? 'text-purple-300' : ''}">{url}</code>
+                    <div class="flex-shrink-0 rounded p-1 transition-colors group-hover/row:bg-background/50">
+                      {#if copiedUrl === url}
+                        <Check class="h-3.5 w-3.5 text-green-500" />
+                      {:else}
+                        <Copy class="h-3.5 w-3.5 text-muted-foreground" />
+                      {/if}
+                    </div>
+                  </button>
+                {/each}
+              </div>
+          </details>
+        {/if}
       </section>
-    {/if}
 
       <!-- Repository Details -->
       <section class="py-3">

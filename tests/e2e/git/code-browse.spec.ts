@@ -489,7 +489,7 @@ test.describe("Code Browser", () => {
       await expect(codeContent.first()).toBeVisible({timeout: 30000})
     })
 
-    test("branch selector area is accessible from code view", async ({page}) => {
+    test("branch selector is accessible from repo overview", async ({page}) => {
       const seeder = await seedTestScenario(page, "full")
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
@@ -498,12 +498,14 @@ test.describe("Code Browser", () => {
 
       await navigateToRepo(page, "flotilla-budabit")
 
+      await page.locator("nav a").filter({hasText: "Overview"}).first().click()
+      await page.waitForLoadState("networkidle")
+
+      await expect(page.getByLabel("Branch selector")).toBeVisible({timeout: 30000})
+
       await page.locator("a[href*='/code']").first().click()
       await page.waitForLoadState("networkidle")
 
-      // The repository layout should include branch selection
-      // This is typically in the RepoHeader or a BranchSelector component
-      // For now, verify the code interface is present (mt-2 rounded-lg)
       const codeInterface = page.locator(".mt-2.rounded-lg").or(page.locator(".rounded-lg"))
       await expect(codeInterface.first()).toBeVisible({timeout: 30000})
     })
