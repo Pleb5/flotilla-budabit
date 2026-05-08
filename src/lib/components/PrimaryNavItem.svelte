@@ -15,7 +15,7 @@
   } = $props()
 
   const active = $derived($page.url?.pathname?.startsWith(prefix || href || "bogus"))
-  const tooltipEnabled = $derived(Boolean(title) && !isMobile)
+  const tooltipEnabled = $derived(Boolean(title) && !compact && !isMobile)
   const wrapperClass = $derived(
     compact
       ? "relative z-nav-item flex h-14 min-w-0 flex-1 items-center justify-center"
