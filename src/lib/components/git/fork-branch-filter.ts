@@ -14,11 +14,11 @@ export interface BranchCopyFilterState {
   threshold: number;
   totalBranches: number;
   availableBranchNames: string[];
-  trustedBranchNames: string[];
+  maintainerSetBranchNames: string[];
 }
 
 export const DEFAULT_BRANCH_COPY_FILTER_TOOLTIP =
-  "Trusted branches are branches targeted by merged pull requests whose applying maintainer is in your active web of trust. When none are found, Budabit includes all branches in the fork.";
+  "Maintainer-set branches are branches targeted by merged pull requests applied by the root maintainer or direct mutual maintainers. When none are found, Budabit includes all branches in the fork.";
 
 export function getUniqueBranchNames(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean)));
@@ -39,7 +39,7 @@ export function deriveBranchCopyFilterState(params: {
       threshold,
       totalBranches,
       availableBranchNames,
-      trustedBranchNames: [],
+      maintainerSetBranchNames: [],
     };
   }
 
@@ -49,25 +49,25 @@ export function deriveBranchCopyFilterState(params: {
       threshold,
       totalBranches,
       availableBranchNames,
-      trustedBranchNames: [],
+      maintainerSetBranchNames: [],
     };
   }
 
   const availableBranchSet = new Set(availableBranchNames);
-  const trustedBranchNames = getUniqueBranchNames(branchCopyFilter.branchNames || []).filter(
+  const maintainerSetBranchNames = getUniqueBranchNames(branchCopyFilter.branchNames || []).filter(
     (branchName) => availableBranchSet.has(branchName)
   );
 
   return {
     mode:
-      trustedBranchNames.length === 0
+      maintainerSetBranchNames.length === 0
         ? "empty"
-        : trustedBranchNames.length < totalBranches
+        : maintainerSetBranchNames.length < totalBranches
           ? "toggle"
           : "all",
     threshold,
     totalBranches,
     availableBranchNames,
-    trustedBranchNames,
+    maintainerSetBranchNames,
   };
 }
