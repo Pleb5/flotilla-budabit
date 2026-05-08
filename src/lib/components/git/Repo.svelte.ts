@@ -1363,6 +1363,22 @@ export class Repo {
     return this.branchManager.getBranches();
   }
 
+  async loadRefsForPRAnalysis(): Promise<
+    Array<{ name: string; type: "heads" | "tags"; fullRef: string; commitId: string }>
+  > {
+    if (this.#refsLoading) {
+      for (let attempt = 0; attempt < 20 && this.#refsLoading; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    if (this.repoEvent && !this.#refsLoading) {
+      await this.#loadBranchesFromRepo(this.repoEvent);
+    }
+
+    return this.refs.length > 0 ? this.refs : this.branchManager.getAllRefs();
+  }
+
   // Expose clone URLs from the parsed repo announcement
   get cloneUrls(): string[] {
     return this.#repo?.clone ?? [];
