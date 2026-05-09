@@ -1,4 +1,4 @@
-// Vitest configuration for patches detail page tests
+// Vitest configuration for UI package tests
 import { defineConfig } from "vitest/config";
 import { resolve } from "path";
 

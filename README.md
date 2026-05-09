@@ -13,7 +13,7 @@ Provides a comprehensive set of reusable Svelte components for building Git-awar
 - **Repository Cards**: Display repository information with metadata and actions
 - **Commit Viewers**: Render commit details with diff visualization
 - **Branch Selectors**: Interactive branch switching and management
-- **Patch Viewers**: Display Git patches with syntax highlighting
+- **Diff Viewers**: Display Git diffs with syntax highlighting
 - **Issue Trackers**: Show and manage Git issues as Nostr events
 
 ### Nostr Components
@@ -249,10 +249,9 @@ This UI package includes a testable core for Git/Nostr repo features, decoupled 
   - `getMaintainerBadge(ctx, pubkey)` — 'owner' | 'maintainer' | null
 
 - Reactive Repo class: `src/lib/components/git/Repo.svelte.ts`
-  - Mirrors `getPatchGraph()` fields for UI
-  - Caches invalidate on repo event/state changes and on patch set changes
+  - Caches invalidate on repo event/state changes
   - Delegates core logic to RepoCore (preserving caches):
-    - `mergeRepoStateByMaintainers()`, `getPatchGraph()`, `resolveStatusFor()`
+    - `mergeRepoStateByMaintainers()`, `resolveStatusFor()`, `trustedMaintainers()`
     - `getIssueThread()`, `getEffectiveLabelsFor()` and label helpers
     - `getMaintainerBadge()`, `getRecommendedFilters()`
   - The class builds a `RepoContext` snapshot and passes it to RepoCore functions

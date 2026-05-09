@@ -23,7 +23,7 @@
   // Parse status data
   let statusType = $state("");
   let targetTitle = $state("");
-  let targetType = $state(""); // issue, patch, etc.
+  let targetType = $state(""); // issue, pull request, etc.
   let targetEventId = $state("");
   let targetAddress = $state("");
   
@@ -153,7 +153,7 @@
               <div class="flex-shrink-0 mt-0.5">
                 {#if targetType === "issue"}
                   <CircleDot class="w-4 h-4 text-green-400" />
-                {:else if targetType === "patch"}
+                {:else if targetType === "pull request"}
                   <GitPullRequest class="w-4 h-4 text-purple-400" />
                 {/if}
               </div>

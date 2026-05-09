@@ -113,7 +113,7 @@
     {#if loading}
       <div class="flex items-center gap-2 text-sm text-muted-foreground">
         <Clock class="h-4 w-4 animate-spin" />
-        Analyzing patch mergeability...
+        Analyzing PR mergeability...
       </div>
     {:else if result}
       {#if result.analysis === "clean"}
@@ -228,7 +228,7 @@
       {/if}
     {:else}
       <div class="text-sm text-muted-foreground">
-        Click "Analyze Merge" to check if this patch can be merged cleanly.
+        Click "Analyze Merge" to check if this PR can be merged cleanly.
       </div>
     {/if}
   </CardContent>

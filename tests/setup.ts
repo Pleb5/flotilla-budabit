@@ -1,6 +1,6 @@
-// Test setup file for patches detail page tests
+// Test setup file for UI package tests
 import { vi, expect } from 'vitest';
-import type { Commit, Patch } from '@nostr-git/core/types';
+import type { Commit } from '@nostr-git/core/types';
 import type { StatusEvent } from '@nostr-git/core/events';
 
 // Mock console methods to reduce noise in tests
@@ -75,7 +75,6 @@ if (typeof (globalThis as any).Worker === 'undefined') {
 declare global {
   namespace Vi {
     interface JestAssertion<T = any> {
-      toBeValidPatch(): T;
       toBeValidCommit(): T;
       toBeValidStatusEvent(): T;
     }
@@ -84,36 +83,6 @@ declare global {
 
 // Custom matchers for test assertions
 expect.extend({
-  toBeValidPatch(received: Patch) {
-    const pass = received && 
-                 typeof received.id === 'string' &&
-                 typeof received.repoId === 'string' &&
-                 typeof received.title === 'string' &&
-                 typeof received.description === 'string' &&
-                 received.author &&
-                 typeof received.author.pubkey === 'string' &&
-                 typeof received.baseBranch === 'string' &&
-                 typeof received.commitCount === 'number' &&
-                 Array.isArray(received.commits) &&
-                 typeof received.commitHash === 'string' &&
-                 typeof received.createdAt === 'string' &&
-                 Array.isArray(received.diff) &&
-                 ['open', 'applied', 'closed', 'draft'].includes(received.status) &&
-                 received.raw;
-
-    if (pass) {
-      return {
-        message: () => `expected ${received} not to be a valid patch`,
-        pass: true,
-      };
-    } else {
-      return {
-        message: () => `expected ${received} to be a valid patch`,
-        pass: false,
-      };
-    }
-  },
-
   toBeValidCommit(received: Commit) {
     const pass = received &&
                  typeof received.oid === 'string' &&
