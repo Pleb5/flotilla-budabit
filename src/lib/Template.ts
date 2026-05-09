@@ -12,11 +12,10 @@ const DEFAULT_TEMPLATES: Record<number, string> = {
   30617: "Git repository {{tags.name}} hosted at {{{tags.clone}}} by {{#npub}}{{pubkey}}{{/npub}}",
   30618:
     "## Git repository state {{tags.d}} hosted at {{tags.clone}} by {{#npub}}{{pubkey}}{{/npub}}",
-  1617: "Patch",
   1621: "Issue: {{tags.subject}}\n{{content}}",
   1623: "{{content}}",
   1630: "Status changed to Open {{#nevent}}{{tags.e}}{{/nevent}}",
-  1631: "Patch applied: {{#nevent}}{{tags.e}}{{/nevent}}",
+  1631: "Status changed to Merged/Resolved {{#nevent}}{{tags.e}}{{/nevent}}",
   1632: "Status changed to Closed {{#nevent}}{{tags.e}}{{/nevent}}",
   1633: "Status changed to Draft {{#nevent}}{{tags.e}}{{/nevent}}",
   31922: "{{tags.title}} happening at {{tags.start}}",

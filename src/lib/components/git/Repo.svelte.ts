@@ -1,6 +1,5 @@
 import type {
   IssueEvent,
-  PatchEvent,
   RepoAnnouncement,
   RepoState,
   RepoAnnouncementEvent,
@@ -9,7 +8,6 @@ import type {
   CommentEvent,
   LabelEvent,
 } from "@nostr-git/core/events";
-import type { MergeAnalysisResult } from "@nostr-git/core/git";
 import type { Readable } from "svelte/store";
 import {
   createPermissionDeniedError,
@@ -34,7 +32,6 @@ import { tokens } from "$lib/stores/tokens";
 import { tryTokensForHost } from "$lib/utils/tokenHelpers";
 import { WorkerManager, type WorkerProgressEvent, type CloneProgress } from "./WorkerManager";
 import { CacheManager, MergeAnalysisCacheManager, CacheType } from "./CacheManager";
-import { PatchManager } from "./PatchManager";
 import { CommitManager } from "./CommitManager";
 import { BranchManager, type RefDiscoverySource } from "./BranchManager";
 import { FileManager } from "./FileManager";
@@ -75,7 +72,6 @@ export class Repo {
   description: string = $state("");
   key: string = $state("");
   issues = $state<IssueEvent[]>([]);
-  patches = $state<PatchEvent[]>([]);
   hashtags = $state<string[]>([]);
   tokens = $state<Token[]>([]);
   refs: Array<{ name: string; type: "heads" | "tags"; fullRef: string; commitId: string }> = $state(
@@ -122,7 +118,6 @@ export class Repo {
   workerManager!: WorkerManager;
   cacheManager!: CacheManager;
   mergeAnalysisCacheManager!: MergeAnalysisCacheManager;
-  patchManager!: PatchManager;
   commitManager!: CommitManager;
   branchManager!: BranchManager;
   fileManager!: FileManager;
@@ -131,18 +126,6 @@ export class Repo {
   // Private caches used across helpers
   #mergedRefsCache:
     | Map<string, { commitId: string; type: "heads" | "tags"; fullRef: string }>
-    | undefined;
-  #patchDagCache:
-    | {
-        key: string;
-        value: {
-          nodes: Map<string, any>;
-          roots: string[];
-          rootRevisions: string[];
-          edgesCount?: number;
-          topParents?: string[];
-        };
-      }
     | undefined;
   #statusCache: Map<
     string,
@@ -276,14 +259,10 @@ export class Repo {
     }
   }
 
-  // Feature flag: controls whether background merge analysis runs automatically
-  #autoMergeAnalysisEnabled: boolean = false;
-
   constructor({
     repoEvent,
     repoStateEvent,
     issues,
-    patches,
     repoStateEvents,
     statusEvents,
     commentEvents,
@@ -297,7 +276,6 @@ export class Repo {
     repoEvent: Readable<RepoAnnouncementEvent>;
     repoStateEvent: Readable<RepoStateEvent>;
     issues: Readable<IssueEvent[]>;
-    patches: Readable<PatchEvent[]>;
     repoStateEvents?: Readable<RepoStateEvent[]>;
     statusEvents?: Readable<StatusEvent[]>;
     commentEvents?: Readable<CommentEvent[]>;
@@ -391,9 +369,6 @@ export class Repo {
 
     this.mergeAnalysisCacheManager = new MergeAnalysisCacheManager(this.cacheManager);
 
-    // Initialize PatchManager with dependencies
-    this.patchManager = new PatchManager(this.workerManager, this.mergeAnalysisCacheManager);
-
     // Initialize VendorReadRouter for API-first reads with git fallback
     // This enables branch/tag discovery from vendor APIs (GitHub, GitLab, etc.) when no Repo State event is available
     this.vendorReadRouter = new VendorReadRouter({
@@ -455,9 +430,6 @@ export class Repo {
 
           // Invalidate branch cache when repo event changes
           this.invalidateBranchCache();
-          // Invalidate DAG cache when repo event changes
-          this.#patchDagCache = undefined;
-
           // Store the initial event for later processing
           if (!initialRepoEvent) {
             initialRepoEvent = event;
@@ -553,8 +525,6 @@ export class Repo {
 
           // Invalidate branch cache when repo state changes
           this.invalidateBranchCache();
-          // Invalidate DAG cache when repo state changes (may affect patch interpretation)
-          this.#patchDagCache = undefined;
         }
       })
     );
@@ -650,18 +620,6 @@ export class Repo {
       labelEvents?.subscribe((events) => {
         this.#labelEventsArr = events;
         this.#labelsCache.clear();
-      })
-    );
-
-    this.#trackStoreSubscription(
-      patches.subscribe((patchEvents) => {
-        this.patches = patchEvents;
-        // Only perform merge analysis if explicitly enabled and WorkerManager is ready
-        if (this.#autoMergeAnalysisEnabled && this.workerManager.isReady) {
-          this.#performMergeAnalysis(patchEvents);
-        }
-        // Invalidate DAG cache when patch set changes
-        this.#patchDagCache = undefined;
       })
     );
 
@@ -768,11 +726,6 @@ export class Repo {
           } finally {
             this.#refsLoading = false;
           }
-        }
-
-        // Ensure background merge analysis runs once worker is ready, if enabled
-        if (this.#autoMergeAnalysisEnabled && this.patches.length > 0) {
-          await this.#performMergeAnalysis(this.patches);
         }
 
         // Mark initialization as complete
@@ -898,7 +851,6 @@ export class Repo {
       repoStateEvent: this.#repoStateEvent,
       repo: this.#repo,
       issues: this.issues,
-      patches: this.patches,
       repoStateEventsArr: this.#repoStateEventsArr,
       statusEventsArr: this.#statusEventsArr,
       commentEventsArr: this.#commentEventsArr,
@@ -934,32 +886,9 @@ export class Repo {
   }
 
   // -------------------------
-  // Patch DAG (1617 + NIP-10)
-  // -------------------------
-  /** Build a patch DAG from NIP-10 relations and identify roots/revision roots. */
-  public getPatchGraph(): {
-    nodes: Map<string, PatchEvent>;
-    roots: string[];
-    rootRevisions: string[];
-    edgesCount: number;
-    topParents: string[];
-    parentOutDegree: Record<string, number>;
-    parentChildren: Record<string, string[]>;
-  } {
-    const ids = (this.patches || [])
-      .map((p) => p.id)
-      .sort()
-      .join(",");
-    if (this.#patchDagCache?.key === ids) return this.#patchDagCache.value as any;
-    const value = RepoCore.getPatchGraph(this.#coreCtx());
-    this.#patchDagCache = { key: ids, value: value as any };
-    return value as any;
-  }
-
-  // -------------------------
   // Status resolution (1630–1633)
   // -------------------------
-  /** Resolve final status for a root id (issue or patch). */
+  /** Resolve final status for a root id (issue or PR). */
   public resolveStatusFor(rootId: string): {
     state: "open" | "draft" | "closed" | "merged" | "resolved";
     by: string;
@@ -975,9 +904,7 @@ export class Repo {
   }
 
   private findRootAuthor(rootId: string): string | undefined {
-    const root =
-      (this.issues || []).find((i) => i.id === rootId) ||
-      (this.patches || []).find((p) => p.id === rootId);
+    const root = (this.issues || []).find((i) => i.id === rootId);
     return root?.pubkey;
   }
 
@@ -1020,10 +947,6 @@ export class Repo {
   public getIssueLabels(rootId: string): EffectiveLabelsV2 {
     return RepoCore.getIssueLabels(this.#coreCtx(), rootId) as unknown as EffectiveLabelsV2;
   }
-  public getPatchLabels(rootId: string): EffectiveLabelsV2 {
-    return RepoCore.getPatchLabels(this.#coreCtx(), rootId) as unknown as EffectiveLabelsV2;
-  }
-
   // -------------------------
   // Subscription hints (no network)
   // -------------------------
@@ -1079,27 +1002,6 @@ export class Repo {
     return RepoCore.getMaintainerBadge(this.#coreCtx(), pubkey);
   }
 
-  // Public API for getting merge analysis result (requires patch object for proper validation)
-  async getMergeAnalysis(
-    patch: PatchEvent,
-    targetBranch?: string
-  ): Promise<MergeAnalysisResult | null> {
-    if (!this.repoEvent) return null;
-
-    const repoId = this.key;
-    const fallbackMain = this.branchManager.getMainBranch();
-    const branch =
-      normalizeGitRefName(targetBranch ?? this.mainBranch ?? fallbackMain) || fallbackMain;
-    // Use workerRepoId (event id) for worker calls when available
-    const workerRepoId = this.repoEvent?.id;
-    return await this.patchManager.getMergeAnalysis(patch, branch, repoId, workerRepoId);
-  }
-
-  // Check if merge analysis is available for a patch ID
-  async hasMergeAnalysis(patchId: string): Promise<boolean> {
-    return await this.patchManager.hasMergeAnalysis(patchId);
-  }
-
   /**
    * Get merge analysis for a PR (fetches from PR clone URLs, no cache).
    */
@@ -1125,41 +1027,6 @@ export class Repo {
       console.error("[Repo] getPRMergeAnalysis failed:", err);
       throw err;
     }
-  }
-
-  // Public API for force refresh merge analysis for a patch
-  async refreshMergeAnalysis(
-    patch: PatchEvent,
-    targetBranch?: string
-  ): Promise<MergeAnalysisResult | null> {
-    if (!this.repoEvent) return null;
-
-    const repoId = this.key;
-    const fallbackMain = this.branchManager.getMainBranch();
-    const branch =
-      normalizeGitRefName(targetBranch ?? this.mainBranch ?? fallbackMain) || fallbackMain;
-    // Use workerRepoId (event id) for worker calls when available
-    const workerRepoId = this.repoEvent?.id;
-    return await this.patchManager.refreshMergeAnalysis(patch, branch, repoId, workerRepoId);
-  }
-
-  // Public API for clearing merge analysis cache
-  async clearMergeAnalysisCache(): Promise<void> {
-    await this.patchManager.clearCache();
-  }
-
-  /**
-   * Expose a readable store of merge analyses keyed by patchId for UI subscription
-   */
-  getPatchAnalysisStore(): Readable<Map<string, MergeAnalysisResult>> {
-    return this.patchManager.getAnalysisStore();
-  }
-
-  /**
-   * Convenience accessor for a single patch's latest analysis in memory
-   */
-  getPatchAnalysisFor(patchId: string): MergeAnalysisResult | undefined {
-    return this.patchManager.getAnalysisFor(patchId);
   }
 
   setCommitsPerPage(count: number) {
@@ -1950,7 +1817,7 @@ export class Repo {
           mainBranch: effectiveMainBranch,
         });
         console.log(
-          `[Repo.loadPage] monkey-patched loadCommits called with branch=${currentBranchToLoad} (storedBranch=${storedBranch}, selectedBranch=${this.selectedBranch})`
+          `[Repo.loadPage] overridden loadCommits called with branch=${currentBranchToLoad} (storedBranch=${storedBranch}, selectedBranch=${this.selectedBranch})`
         );
         return await originalLoadCommits(
           effectiveRepoId!, // Use the effective repository ID
@@ -2168,7 +2035,6 @@ export class Repo {
     // Clear caches for managers that have clearCache methods
     try {
       await this.fileManager?.clearCache();
-      await this.patchManager?.clearCache();
       await this.mergeAnalysisCacheManager?.clear();
 
       // Clear individual cache types in CacheManager
@@ -2209,10 +2075,6 @@ export class Repo {
       // Force reload branches and other data
       await this.#loadBranchesFromRepo(this.repoEvent);
 
-      // Trigger merge analysis refresh if patches exist and auto analysis is enabled
-      if (this.#autoMergeAnalysisEnabled && this.patches.length > 0) {
-        await this.#performMergeAnalysis(this.patches);
-      }
     }
 
     console.log("Repository reset complete");
@@ -2304,7 +2166,6 @@ export class Repo {
     disposeSubscriptions(this.#storeUnsubs.splice(0));
     this.cacheManager?.dispose();
     // MergeAnalysisCacheManager doesn't have a dispose method - it's managed by CacheManager
-    this.patchManager?.dispose();
     this.commitManager?.dispose();
     this.branchManager?.dispose();
     this.fileManager?.dispose();
@@ -2536,20 +2397,4 @@ export class Repo {
     }
   }
 
-  // Enable automatic background merge analysis for this Repo instance
-  enableAutoMergeAnalysis(): void {
-    this.#autoMergeAnalysisEnabled = true;
-  }
-
-  // Perform background merge analysis for patches
-  async #performMergeAnalysis(patches: PatchEvent[]) {
-    if (!patches?.length) return;
-
-    const repoId = this.key;
-    const targetBranch = normalizeGitRefName(this.mainBranch || "");
-    const workerRepoId = this.repoEvent?.id;
-
-    // Delegate to PatchManager for background processing
-    await this.patchManager.processInBackground(patches, targetBranch, repoId, workerRepoId);
-  }
 }

@@ -22,7 +22,7 @@
   interface StatusProps {
     repo: Repo;
     rootId: string;
-    rootKind: 1621 | 1617 | 1618;
+    rootKind: 1621 | 1618;
     rootAuthor: string;
     statusEvents?: StatusEvent[];
     actorPubkey?: string;
@@ -198,8 +198,13 @@
       case GIT_STATUS_APPLIED:
         return rootKind === 1621 ? "resolved" : "applied";
       default:
-        return "open";
+      return "open";
     }
+  };
+
+  const getStateLabel = (state: StatusState) => {
+    if (state === "applied") return "Merged";
+    return state.charAt(0).toUpperCase() + state.slice(1);
   };
 
   /** For mirrored status events (from import): get original_date and whether to show "imported by" */
@@ -356,7 +361,7 @@
       {@const { icon: Icon, color, bg, border } = getStateIcon(currentState)}
       <Badge variant="outline" class={`${bg} ${border} ${color} gap-1 text-[10px]`}>
         <Icon class="h-3 w-3" />
-        {currentState.charAt(0).toUpperCase() + currentState.slice(1)}
+        {getStateLabel(currentState)}
       </Badge>
     {/snippet}
     {@render compactBadge()}
@@ -381,7 +386,7 @@
               class={`${bg} ${border} ${color} gap-1 text-xs sm:text-sm w-fit`}
             >
               <Icon class="h-3 w-3 sm:h-4 sm:w-4" />
-              {currentState.charAt(0).toUpperCase() + currentState.slice(1)}
+              {getStateLabel(currentState)}
             </Badge>
             {#if currentStatusEvent}
               {@const info = getStatusDisplayInfo(currentStatusEvent)}
@@ -439,7 +444,7 @@
                     class="gap-1"
                   >
                     <Icon class="h-3 w-3" />
-                    {state.charAt(0).toUpperCase() + state.slice(1)}
+                    {getStateLabel(state)}
                   </Button>
                 {/snippet}
                 {@render stateButton()}
@@ -473,8 +478,8 @@
                 />
               </div>
               <div>
-                <Label for="applied-commits" class="text-[10px] sm:text-xs"
-                  >Applied Commits (comma-separated)</Label
+                  <Label for="applied-commits" class="text-[10px] sm:text-xs"
+                  >Merged Commits (comma-separated)</Label
                 >
                 <Input
                   id="applied-commits"
@@ -522,7 +527,7 @@
                   <div class="flex-1 min-w-0">
                     <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                       <span class="font-medium"
-                        >{state.charAt(0).toUpperCase() + state.slice(1)}</span
+                        >{getStateLabel(state)}</span
                       >
                       <span class="text-muted-foreground flex items-center gap-1 flex-wrap">
                         <span>by</span>
@@ -564,7 +569,7 @@
                     <div class="flex-1 min-w-0">
                       <div class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                         <span class="font-medium"
-                          >{state.charAt(0).toUpperCase() + state.slice(1)}</span
+                          >{getStateLabel(state)}</span
                         >
                         <span class="text-muted-foreground flex items-center gap-1 flex-wrap">
                           <span>by</span>

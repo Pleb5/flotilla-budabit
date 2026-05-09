@@ -44,7 +44,6 @@ vi.mock('@nostr-git/core', () => ({
       smartInitializeRepo: vi.fn().mockResolvedValue({ success: true }),
       syncWithRemote: vi.fn().mockResolvedValue({ success: true }),
       resetRepoToRemote: vi.fn().mockResolvedValue({ success: true, remoteCommit: 'abc123' }),
-      applyPatchAndPush: vi.fn().mockResolvedValue({ success: true }),
       listBranchesFromEvent: vi.fn().mockResolvedValue(['main', 'develop']),
       listRepoFilesFromEvent: vi.fn().mockResolvedValue([]),
       getRepoFileContentFromEvent: vi.fn().mockResolvedValue(''),

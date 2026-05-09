@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { MessageSquare, Loader2 } from "@lucide/svelte";
+  import { MessageSquare, MessageSquarePlus, Loader2, X } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
   import RichText from "../RichText.svelte";
+  import TimeAgo from "../../TimeAgo.svelte";
   const { Avatar, AvatarFallback, AvatarImage, Button, Textarea, Markdown } = useRegistry();
-  import { formatDistanceToNow } from "date-fns";
   import { tick } from "svelte";
   import parseDiff from "parse-diff";
   import { ChevronDown, ChevronUp } from "@lucide/svelte";
-  import { createGitInlineCommentEvent, getTagValue } from "@nostr-git/core/events";
+  import { createGitCommentEvent, createGitInlineCommentEvent, getTagValue } from "@nostr-git/core/events";
   import type { CommentEvent } from "@nostr-git/core/events";
   import { toast } from "../../stores/toast.js";
   import { toUserMessage } from "../../utils/gitErrorUi.js";
@@ -24,11 +24,16 @@
   interface Comment {
     id: string;
     lineNumber: number;
+    lineStart?: number;
+    lineEnd?: number;
     filePath?: string;
     commitId?: string;
     lineSide?: "del";
     content: string;
     rawEvent?: CommentEvent;
+    parentId?: string;
+    rootInlineId?: string;
+    isResolveEvent?: boolean;
     author: {
       name: string;
       avatar: string;
@@ -107,12 +112,19 @@
   } = $props();
 
   const canComment = $derived(canUseInlineComments({ rootEvent, onComment, currentPubkey }));
+  const canSelectDiffLines = $derived(enablePermalinks || canComment);
   const activeParentEvent = $derived(parentEvent || rootEvent);
 
   let selectedLine = $state<number | null>(null);
   let selectedFileIdx = $state<number | null>(null);
   let selectedChunkIdx = $state<number | null>(null);
+  let selectedCommentLineRange = $state<string | null>(null);
+  let selectedCommentLineSide = $state<"del" | undefined>(undefined);
   let newComment = $state("");
+  let replyThreadRootId = $state<string | null>(null);
+  let replyContent = $state("");
+  let resolvingThreadRootId = $state<string | null>(null);
+  let inlineThreadOpenById = $state<Record<string, boolean>>({});
   let expandedFiles = $state(new Set<string>());
   let isSubmitting = $state(false);
   let selectedFilePath = $state<string | null>(null);
@@ -174,7 +186,7 @@
   };
 
   function getCommentOffsetClass() {
-    return showLineNumbers ? "ml-20 sm:ml-24" : "ml-0";
+    return showLineNumbers ? "ml-0 sm:ml-24" : "ml-0";
   }
 
   function getLineNumberCellClass(
@@ -198,18 +210,22 @@
     return `flex flex-1 items-center px-1 font-mono text-[13px] leading-4 whitespace-nowrap sm:px-2 ${densityClass}`;
   }
 
-  function getCommentButtonClass() {
-    const sizeClass = compact ? "h-6 w-6 rounded-sm p-0" : "h-10 w-10";
-    return `${sizeClass} opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100`;
+  function getCommentButtonClass(forceVisible = false) {
+    const sizeClass = compact
+      ? "h-5 w-5 rounded-sm p-0 sm:h-6 sm:w-6"
+      : "h-6 w-6 rounded-sm p-0 sm:h-7 sm:w-7";
+    const visibilityClass = forceVisible
+      ? "opacity-100"
+      : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
+    return `${sizeClass} ${visibilityClass} bg-background/90 text-muted-foreground shadow-sm transition-opacity hover:text-blue-500`;
   }
 
   function getCommentThreadClass() {
-    const densityClass = compact ? "space-y-2 py-2" : "space-y-3 py-2";
-    return `bg-secondary/30 border-l-4 border-primary ${getCommentOffsetClass()} pl-4 ${densityClass}`;
+    return `w-full max-w-none overflow-hidden rounded-b-md border border-t-0 border-blue-500/30 bg-background shadow-sm`;
   }
 
   function getCommentComposerClass() {
-    return `bg-secondary/20 border-l-4 border-primary ${getCommentOffsetClass()} pl-4 py-2`;
+    return `w-full max-w-none overflow-hidden rounded-b-md border border-t-0 border-blue-500/30 bg-background shadow-sm`;
   }
 
   // Accept both AST and raw string for dev ergonomics
@@ -422,7 +438,13 @@
     if (!hash.startsWith("#comment-")) return;
     await tick();
     const el = document.getElementById(hash.slice(1));
-    if (el) el.scrollIntoView({ block: "center" });
+    if (el) {
+      el.scrollIntoView({ block: "center" });
+      el.classList.remove("diff-comment-blip");
+      void el.offsetWidth;
+      el.classList.add("diff-comment-blip");
+      window.setTimeout(() => el.classList.remove("diff-comment-blip"), 1800);
+    }
   };
 
   $effect(() => {
@@ -485,7 +507,7 @@
     const handleContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!container.contains(target)) return;
-      if (!enablePermalinks) return;
+      if (!canSelectDiffLines) return;
       if (lastInputWasTouch) {
         e.preventDefault();
         return;
@@ -497,21 +519,31 @@
     };
 
     let pointerDragged = false;
+    let pointerSelectionStartedInGutter = false;
+    let touchSelectionStartedInGutter = false;
 
     const handlePointerDown = (e: PointerEvent) => {
       lastInputWasTouch = e.pointerType === "touch";
       if (e.pointerType === "touch") return;
-      if (!enablePermalinks) return;
+      if (!canSelectDiffLines) return;
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
       if (!container.contains(target) || shouldIgnoreSelectionTarget(target)) return;
+      const startedInGutter = !!target.closest(".diff-line-gutter");
+      if (!enablePermalinks && !startedInGutter) return;
       const hit = getLineFromPoint(e.clientX, e.clientY);
       if (!hit) return;
       showPermalinkMenu = false;
       clearDomSelection();
+      selectedLine = null;
+      selectedFileIdx = null;
+      selectedChunkIdx = null;
+      selectedCommentLineRange = null;
+      selectedCommentLineSide = undefined;
       pointerId = e.pointerId;
       pointerStartFilePath = hit.filePath;
       pointerStartIndex = hit.index;
+      pointerSelectionStartedInGutter = startedInGutter;
       isPointerSelecting = true;
       pointerDragged = false;
       setDiffSelection(hit.filePath, hit.index, hit.index);
@@ -521,7 +553,7 @@
 
     const handlePointerMove = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
-      if (!enablePermalinks) return;
+      if (!canSelectDiffLines) return;
       if (!isPointerSelecting || pointerId !== e.pointerId) return;
       if (!pointerStartFilePath || pointerStartIndex === null) return;
 
@@ -549,8 +581,17 @@
       pointerStartFilePath = null;
       pointerStartIndex = null;
 
-      if (!dragged) return;
+      if (!dragged) {
+        pointerSelectionStartedInGutter = false;
+        return;
+      }
       ignoreMenuCloseUntil = Date.now() + 300;
+      if (canComment && pointerSelectionStartedInGutter) {
+        pointerSelectionStartedInGutter = false;
+        openCommentBoxFromSelection();
+        return;
+      }
+      pointerSelectionStartedInGutter = false;
       if (!openPermalinkMenuFromSelection()) {
         openPermalinkMenuAt(clientX, clientY);
       }
@@ -570,6 +611,7 @@
       pointerId = null;
       pointerStartFilePath = null;
       pointerStartIndex = null;
+      pointerSelectionStartedInGutter = false;
       pointerDragged = false;
       stopAutoScroll();
     };
@@ -577,7 +619,9 @@
     const handleTouchStart = (e: TouchEvent) => {
       const target = e.target as HTMLElement;
       if (!container.contains(target) || shouldIgnoreSelectionTarget(target)) return;
-      if (!enablePermalinks) return;
+      if (!canSelectDiffLines) return;
+      const startedInGutter = !!target.closest(".diff-line-gutter");
+      if (!enablePermalinks && !startedInGutter) return;
       if (touchIdentifier !== null) return;
       const touch = e.changedTouches[0];
       if (!touch) return;
@@ -590,6 +634,7 @@
       isTouchSelecting = false;
       touchStartIndex = null;
       touchStartFilePath = null;
+      touchSelectionStartedInGutter = startedInGutter;
       clearTouchTimer();
       touchTimer = window.setTimeout(() => {
         touchLongPress = true;
@@ -597,6 +642,11 @@
         if (!hit) return;
         showPermalinkMenu = false;
         clearDomSelection();
+        selectedLine = null;
+        selectedFileIdx = null;
+        selectedChunkIdx = null;
+        selectedCommentLineRange = null;
+        selectedCommentLineSide = undefined;
         isTouchSelecting = true;
         touchStartFilePath = hit.filePath;
         touchStartIndex = hit.index;
@@ -606,7 +656,7 @@
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (!enablePermalinks) return;
+      if (!canSelectDiffLines) return;
       if (touchIdentifier === null) return;
       const touch = Array.from(e.changedTouches).find((t) => t.identifier === touchIdentifier);
       if (!touch) return;
@@ -632,7 +682,7 @@
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
-      if (!enablePermalinks) return;
+      if (!canSelectDiffLines) return;
       if (touchIdentifier === null) return;
       const touch = Array.from(e.changedTouches).find((t) => t.identifier === touchIdentifier);
       if (!touch) return;
@@ -642,6 +692,15 @@
       if (!isTouchSelecting) return;
 
       ignoreMenuCloseUntil = Date.now() + 300;
+      if (canComment && touchSelectionStartedInGutter) {
+        openCommentBoxFromSelection();
+        touchSelectionStartedInGutter = false;
+        touchLongPress = false;
+        isTouchSelecting = false;
+        touchStartFilePath = null;
+        touchStartIndex = null;
+        return;
+      }
       if (!openPermalinkMenuFromSelection()) {
         openPermalinkMenuAt(touch.clientX, touch.clientY);
       }
@@ -650,6 +709,7 @@
       isTouchSelecting = false;
       touchStartFilePath = null;
       touchStartIndex = null;
+      touchSelectionStartedInGutter = false;
     };
 
     const handleTouchCancel = () => {
@@ -660,6 +720,7 @@
       isTouchSelecting = false;
       touchStartFilePath = null;
       touchStartIndex = null;
+      touchSelectionStartedInGutter = false;
       stopAutoScroll();
     };
 
@@ -696,34 +757,13 @@
 
   // Comments by file/hunk/line
   // Match comments based on actual line numbers from the change object and file path
-  function getCommentsForLine(change: import("parse-diff").Change, filePath: string): Comment[] {
-    // Extract the actual line number from the change based on its type
-    // We use a single line number per change to ensure comments appear exactly once
-    let lineNumberToMatch: number | null = null;
+  function getLineNumberToMatch(change: import("parse-diff").Change): number | null {
+    if (change.type === "add") return change.ln ?? null;
+    if (change.type === "del") return change.ln ?? null;
+    return change.ln2 ?? change.ln1 ?? null;
+  }
 
-    if (change.type === "add") {
-      // For added lines, use the new line number
-      lineNumberToMatch = change.ln ?? null;
-    } else if (change.type === "del") {
-      // For deleted lines, use the old line number
-      lineNumberToMatch = change.ln ?? null;
-    } else if (change.type === "normal") {
-      // For normal changes, use the new line number (ln2) since that's what
-      // the user sees in the final file and what's stored when creating comments
-      // (see submitComment which prefers ln2)
-      lineNumberToMatch = change.ln2 ?? change.ln1 ?? null;
-    }
-
-    // Match comments that have this line number AND file path
-    if (lineNumberToMatch === null) {
-      return [];
-    }
-
-    return comments.filter((c) => {
-      // Match line number
-      if (c.lineNumber !== lineNumberToMatch) {
-        return false;
-      }
+  function commentMatchesFileAndSide(c: Comment, change: import("parse-diff").Change, filePath: string) {
       if (c.lineSide === "del" && change.type !== "del") {
         return false;
       }
@@ -737,7 +777,72 @@
       }
       // Legacy comments without filePath are allowed (backward compatibility)
       return true;
+  }
+
+  function isRootInlineComment(c: Comment) {
+    return !c.isResolveEvent && (!c.rootInlineId || c.rootInlineId === c.id);
+  }
+
+  function getCommentRootsCoveringLine(change: import("parse-diff").Change, filePath: string): Comment[] {
+    const lineNumberToMatch = getLineNumberToMatch(change);
+    if (lineNumberToMatch === null) return [];
+
+    return comments.filter((c) => {
+      if (!isRootInlineComment(c)) return false;
+      const start = c.lineStart || c.lineNumber;
+      const end = c.lineEnd || c.lineNumber;
+      if (lineNumberToMatch < Math.min(start, end) || lineNumberToMatch > Math.max(start, end)) return false;
+      return commentMatchesFileAndSide(c, change, filePath);
     });
+  }
+
+  function getCommentsForLine(change: import("parse-diff").Change, filePath: string): Comment[] {
+    const lineNumberToMatch = getLineNumberToMatch(change);
+    if (lineNumberToMatch === null) return [];
+    const endingRoots = getCommentRootsCoveringLine(change, filePath).filter((c) => {
+      const end = c.lineEnd || c.lineNumber;
+      return end === lineNumberToMatch;
+    });
+    if (endingRoots.length === 0) return [];
+    const rootIds = new Set(endingRoots.map((root) => root.id));
+    return comments
+      .filter((c) => rootIds.has(c.rootInlineId || c.id))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
+  }
+
+  function getVisibleComments(thread: Comment[]) {
+    return thread.filter((comment) => !comment.isResolveEvent);
+  }
+
+  function isThreadResolved(thread: Comment[]) {
+    return thread.some((comment) => comment.isResolveEvent);
+  }
+
+  function getThreadRoot(thread: Comment[]) {
+    return thread.find(isRootInlineComment) || thread[0];
+  }
+
+  function isInlineThreadOpen(thread: Comment[]) {
+    const root = getThreadRoot(thread);
+    if (!root?.id) return true;
+    return inlineThreadOpenById[root.id] ?? !isThreadResolved(thread);
+  }
+
+  function toggleInlineThread(thread: Comment[]) {
+    const root = getThreadRoot(thread);
+    if (!root?.id) return;
+    inlineThreadOpenById = {
+      ...inlineThreadOpenById,
+      [root.id]: !isInlineThreadOpen(thread),
+    };
+  }
+
+  function getThreadLineLabel(thread: Comment[]) {
+    const root = getThreadRoot(thread);
+    if (!root) return "line";
+    const start = root.lineStart || root.lineNumber;
+    const end = root.lineEnd || root.lineNumber;
+    return start !== end ? `lines ${start}-${end}` : `line ${end}`;
   }
 
   type DiffSelection = { filePath: string; start: number; end: number };
@@ -1011,6 +1116,83 @@
     return lines.join("\n");
   }
 
+  function getPreferredCommentLine(change: import("parse-diff").Change): number | null {
+    if (change.type === "add") return change.ln ?? null;
+    if (change.type === "del") return change.ln ?? null;
+    return change.ln2 ?? change.ln1 ?? null;
+  }
+
+  function getCommentLineSide(change: import("parse-diff").Change): "del" | undefined {
+    return change.type === "del" ? "del" : undefined;
+  }
+
+  function getLineInfoForIndex(filePath: string, targetIndex: number) {
+    const fileIdx = parsed.findIndex((f) => (f.to || f.from || "unknown") === filePath);
+    if (fileIdx === -1) return null;
+    const file = parsed[fileIdx];
+    if (!file?.chunks) return null;
+    let index = 0;
+    for (let chunkIdx = 0; chunkIdx < file.chunks.length; chunkIdx += 1) {
+      const chunk = file.chunks[chunkIdx];
+      if (!("changes" in chunk)) continue;
+      for (let changeIdx = 0; changeIdx < chunk.changes.length; changeIdx += 1) {
+        const change = chunk.changes[changeIdx];
+        if (index === targetIndex) {
+          return {
+            fileIdx,
+            chunkIdx,
+            line: changeIdx + 1,
+            change,
+            lineNumber: getPreferredCommentLine(change),
+            lineSide: getCommentLineSide(change),
+          };
+        }
+        index += 1;
+      }
+    }
+    return null;
+  }
+
+  function getCommentLineRangeForSelection(selection: DiffSelection) {
+    const endInfo = getLineInfoForIndex(selection.filePath, selection.end);
+    if (!endInfo) return null;
+    const side: "L" | "R" = endInfo.lineSide === "del" ? "L" : "R";
+    const file = parsed[endInfo.fileIdx];
+    if (!file?.chunks) return null;
+
+    const lineNumbers: number[] = [];
+    let index = 0;
+    for (const chunk of file.chunks) {
+      if (!("changes" in chunk)) continue;
+      for (const change of chunk.changes) {
+        if (index >= selection.start && index <= selection.end) {
+          const lineNumber = getLineNumberForSide(change, side);
+          if (lineNumber !== null) lineNumbers.push(lineNumber);
+        }
+        index += 1;
+      }
+    }
+
+    if (lineNumbers.length === 0) return null;
+    const start = lineNumbers[0];
+    const end = lineNumbers[lineNumbers.length - 1];
+    return start === end ? String(start) : `${start}-${end}`;
+  }
+
+  function openCommentBoxFromSelection(selection: DiffSelection | null = getSelectionRange()) {
+    if (!canComment || !selection) return false;
+    const endInfo = getLineInfoForIndex(selection.filePath, selection.end);
+    if (!endInfo || endInfo.lineNumber === null) return false;
+    selectedLine = endInfo.line;
+    selectedFileIdx = endInfo.fileIdx;
+    selectedChunkIdx = endInfo.chunkIdx;
+    selectedCommentLineRange = getCommentLineRangeForSelection(selection) ?? String(endInfo.lineNumber);
+    selectedCommentLineSide = endInfo.lineSide;
+    showPermalinkMenu = false;
+    newComment = "";
+    return true;
+  }
+
   function getRightAnchorRange(selection: DiffSelection): { start: number; end: number } | null {
     const file = parsed.find((f) => (f.to || f.from || "unknown") === selection.filePath);
     if (!file || !file.chunks) return null;
@@ -1148,10 +1330,17 @@
       selectedLine = null;
       selectedFileIdx = null;
       selectedChunkIdx = null;
+      selectedCommentLineRange = null;
+      selectedCommentLineSide = undefined;
     } else {
       selectedLine = line;
       selectedFileIdx = fileIdx;
       selectedChunkIdx = chunkIdx;
+      const filePath = parsed[fileIdx]?.to || parsed[fileIdx]?.from || "unknown";
+      const lineIndex = (fileChunkOffsets[fileIdx]?.[chunkIdx] ?? 0) + line - 1;
+      const lineInfo = getLineInfoForIndex(filePath, lineIndex);
+      selectedCommentLineRange = lineInfo?.lineNumber != null ? String(lineInfo.lineNumber) : null;
+      selectedCommentLineSide = lineInfo?.lineSide;
     }
     newComment = "";
   }
@@ -1224,8 +1413,8 @@
         relayHint,
         filePath,
         commitId,
-        line: actualLineNumber !== null ? String(actualLineNumber) : undefined,
-        lineSide: change.type === "del" ? "del" : undefined,
+        line: selectedCommentLineRange ?? (actualLineNumber !== null ? String(actualLineNumber) : undefined),
+        lineSide: selectedCommentLineSide ?? (change.type === "del" ? "del" : undefined),
       });
 
       // Publish the comment
@@ -1235,12 +1424,65 @@
       selectedLine = null;
       selectedFileIdx = null;
       selectedChunkIdx = null;
+      selectedCommentLineRange = null;
+      selectedCommentLineSide = undefined;
       newComment = "";
     } catch (error) {
       console.error("[DiffViewer] Failed to submit comment:", error);
       // Optionally show error to user via toast or other UI feedback
     } finally {
       isSubmitting = false;
+    }
+  }
+
+  function makeCommentReplyEvent(parentComment: Comment, content: string, extraTags: any[] = []) {
+    if (!rootEvent || !onComment || !currentPubkey || !parentComment.rawEvent) return null;
+    const defaultRepoRef = repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
+    return createGitCommentEvent({
+      content,
+      root: {
+        id: rootEvent.id,
+        kind: rootEvent.kind?.toString() || "",
+        pubkey: rootEvent.pubkey,
+        relay: relayHint,
+      },
+      parent: {
+        id: parentComment.rawEvent.id,
+        kind: parentComment.rawEvent.kind?.toString() || "1111",
+        pubkey: parentComment.rawEvent.pubkey,
+        relay: relayHint,
+      },
+      authorPubkey: currentPubkey,
+      repoRefs: repoRefs?.length ? repoRefs : defaultRepoRef ? [defaultRepoRef] : [],
+      relayHint,
+      extraTags: extraTags as any,
+    });
+  }
+
+  async function submitReply(parentComment: Comment) {
+    const content = replyContent.trim();
+    if (!content || isSubmitting) return;
+    const replyEvent = makeCommentReplyEvent(parentComment, content);
+    if (!replyEvent || !onComment) return;
+    isSubmitting = true;
+    try {
+      onComment(replyEvent);
+      replyContent = "";
+      replyThreadRootId = null;
+    } finally {
+      isSubmitting = false;
+    }
+  }
+
+  async function resolveThread(rootComment: Comment) {
+    if (resolvingThreadRootId || !rootComment.id) return;
+    const resolveEvent = makeCommentReplyEvent(rootComment, "Resolved", [["l", "resolved"]]);
+    if (!resolveEvent || !onComment) return;
+    resolvingThreadRootId = rootComment.id;
+    try {
+      onComment(resolveEvent);
+    } finally {
+      resolvingThreadRootId = null;
     }
   }
 </script>
@@ -1315,6 +1557,8 @@
                     {@const currentFilePath = filePath}
                     {@const lineComments = getCommentsForLine(change, currentFilePath)}
                     {@const hasComments = lineComments.length > 0}
+                    {@const coveringCommentRoots = getCommentRootsCoveringLine(change, currentFilePath)}
+                    {@const coveringCommentCount = coveringCommentRoots.reduce((count, root) => count + comments.filter((comment) => !comment.isResolveEvent && (comment.rootInlineId || comment.id) === root.id).length, 0)}
                     {@const isAdd = change.type === "add"}
                     {@const isDel = change.type === "del"}
                     {@const isNormal = change.type === "normal"}
@@ -1331,6 +1575,8 @@
                         : null}
                     {@const chunkOffset = fileChunkOffsets[fileIdx]?.[chunkIdx] ?? 0}
                     {@const lineIndex = chunkOffset + i}
+                    {@const isSelectedLine = isLineWithinSelection(currentFilePath, lineIndex)}
+                    {@const isCommentRangeLine = coveringCommentRoots.length > 0}
                     {@const bgClass = isAdd
                       ? compact
                         ? "border-l-2 border-emerald-600 bg-emerald-200/70 dark:bg-emerald-900/50"
@@ -1343,14 +1589,45 @@
 
                     <div class="w-full">
                       <div
-                        class={`flex group ${bgClass} w-full`}
+                        class={`flex group ${bgClass} ${isSelectedLine ? "diff-selected-row" : ""} ${isCommentRangeLine ? "diff-comment-range-row" : ""} w-full`}
                         style="min-width: max-content;"
                         data-diff-index={lineIndex}
                         data-file-path={currentFilePath}
                         data-line-left={leftLine ?? ""}
                         data-line-right={rightLine ?? ""}
                       >
-                        <div class="flex shrink-0 text-foreground select-none">
+                        <div class="diff-line-gutter flex shrink-0 text-foreground select-none">
+                          {#if canComment}
+                            <div class="flex w-5 shrink-0 items-center justify-center sm:w-6">
+                              {#if hasComments && coveringCommentCount > 0}
+                                <span class="flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-blue-500/15 px-1 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+                                  <MessageSquare class="h-2.5 w-2.5" />
+                                  {coveringCommentCount}
+                                </span>
+                              {:else if isCommentRangeLine}
+                                <span class="h-full min-h-5 w-1.5 rounded-full bg-blue-500/55" aria-hidden="true"></span>
+                              {:else}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  class={getCommentButtonClass(isSelectedLine)}
+                                  title="Add inline comment"
+                                  aria-label="Add inline comment"
+                                  onclick={(event) => {
+                                    event.stopPropagation();
+                                    if (isSelectedLine && getSelectionRange()?.filePath === currentFilePath) {
+                                      openCommentBoxFromSelection();
+                                    } else {
+                                      setDiffSelection(currentFilePath, lineIndex, lineIndex);
+                                      toggleCommentBox(ln, fileIdx, chunkIdx);
+                                    }
+                                  }}
+                                >
+                                  <MessageSquarePlus class={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
+                                </Button>
+                              {/if}
+                            </div>
+                          {/if}
                           {#if showLineNumbers}
                             <div
                               class={getLineNumberCellClass(
@@ -1397,83 +1674,136 @@
                                 highlightCode(change.content, language)}</span
                             ></pre>
                         </div>
-                        {#if canComment}
-                          <div class="ml-auto flex shrink-0 items-center px-1 sm:px-1.5">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              class={getCommentButtonClass()}
-                              title="Add inline comment"
-                              aria-label="Add inline comment"
-                              onclick={() => toggleCommentBox(ln, fileIdx, chunkIdx)}
-                            >
-                              <MessageSquare class={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
-                            </Button>
-                          </div>
-                        {/if}
                       </div>
 
                       {#if hasComments}
-                        <div class={getCommentThreadClass()}>
-                          {#each lineComments as c}
-                            <div id={`comment-${c.id}`} data-event={c.id} class="flex gap-2">
-                              <Avatar class="h-8 w-8">
-                                <AvatarImage src={c.author.avatar} alt={c.author.name} />
-                                <AvatarFallback
-                                  >{c.author.name.slice(0, 2).toUpperCase()}</AvatarFallback
-                                >
-                              </Avatar>
-                              <div class="flex-1">
-                                <div class="flex items-center gap-2">
-                                  <span class="font-medium text-sm">{c.author.name}</span>
-                                  <span
-                                    class="text-xs"
-                                    style="color: hsl(var(--ng-muted-foreground));"
-                                  >
-                                    {formatDistanceToNow(new Date(c.createdAt), {
-                                      addSuffix: true,
-                                    })}
-                                  </span>
+                        {@const visibleComments = getVisibleComments(lineComments)}
+                        {@const rootComment = getThreadRoot(lineComments)}
+                        {@const resolved = isThreadResolved(lineComments)}
+                        {@const threadOpen = isInlineThreadOpen(lineComments)}
+                        <div class="{getCommentThreadClass()} {resolved ? 'border-green-500/35' : ''}">
+                          <button type="button" class="flex w-full items-center gap-2 border-b border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground {resolved ? 'border-green-500/20 bg-green-500/5' : ''}" onclick={() => toggleInlineThread(lineComments)} aria-expanded={threadOpen}>
+                            {#if threadOpen}
+                              <ChevronDown class="h-3.5 w-3.5 shrink-0 {resolved ? 'text-green-500/70' : 'text-blue-500/70'}" />
+                            {:else}
+                              <ChevronRight class="h-3.5 w-3.5 shrink-0 {resolved ? 'text-green-500/70' : 'text-blue-500/70'}" />
+                            {/if}
+                            <MessageSquare class="h-3.5 w-3.5 shrink-0 {resolved ? 'text-green-500/70' : 'text-blue-500/70'}" />
+                            <span class="min-w-0 flex-1 truncate">
+                              {visibleComments.length} comment{visibleComments.length === 1 ? "" : "s"} on {getThreadLineLabel(lineComments)}{resolved ? " · resolved" : ""}
+                            </span>
+                          </button>
+                          {#if threadOpen}
+                            <div class="space-y-3 px-2 py-3 sm:px-3">
+                              {#each visibleComments as c}
+                                <div id={`comment-${c.id}`} data-event={c.id} class="flex gap-2 {c.id !== rootComment?.id ? 'border-l border-blue-500/35 pl-2 sm:ml-3' : ''}">
+                                  <Avatar class="h-7 w-7 sm:h-8 sm:w-8">
+                                    <AvatarImage src={c.author.avatar} alt={c.author.name} />
+                                    <AvatarFallback
+                                      >{c.author.name.slice(0, 2).toUpperCase()}</AvatarFallback
+                                    >
+                                  </Avatar>
+                                  <div class="min-w-0 flex-1">
+                                    <div class="flex min-w-0 items-center gap-1.5 text-xs sm:gap-2">
+                                      <span class="truncate font-medium sm:text-sm">{c.author.name}</span>
+                                      <span
+                                        class="shrink-0 whitespace-nowrap"
+                                        style="color: hsl(var(--ng-muted-foreground));"
+                                      >
+                                        <TimeAgo date={c.createdAt} compact />
+                                      </span>
+                                    </div>
+                                    <div class="inline-comment-body mt-1 min-w-0 text-muted-foreground">
+                                      {#if Markdown}
+                                        <Markdown
+                                          content={c.content}
+                                          event={c.rawEvent as any}
+                                          variant="comment"
+                                        />
+                                      {:else}
+                                        <RichText content={c.content} prose={false} />
+                                      {/if}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div class="mt-1 text-muted-foreground text-sm">
-                                  {#if Markdown}
-                                    <Markdown
-                                      content={c.content}
-                                      event={c.rawEvent as any}
-                                      variant="comment"
-                                    />
-                                  {:else}
-                                    <RichText content={c.content} prose={false} />
-                                  {/if}
-                                </div>
-                              </div>
+                              {/each}
                             </div>
-                          {/each}
+                            {#if !resolved && rootComment}
+                              {#if replyThreadRootId === rootComment.id}
+                                <div class="border-t border-border/40 px-2 py-2 sm:px-3">
+                                  <Textarea
+                                    bind:value={replyContent}
+                                    placeholder="Write a reply..."
+                                    class="min-h-[48px] resize-none px-2 py-1.5 text-xs sm:min-h-[60px] sm:text-sm"
+                                    disabled={isSubmitting}
+                                  />
+                                  <div class="mt-2 flex justify-end gap-2">
+                                    <Button type="button" variant="outline" size="sm" class="h-8 px-2 text-xs" onclick={() => { replyThreadRootId = null; replyContent = ""; }} disabled={isSubmitting}>Cancel</Button>
+                                    <Button type="button" size="sm" class="h-8 px-2 text-xs" onclick={() => submitReply(visibleComments[visibleComments.length - 1] || rootComment)} disabled={!replyContent.trim() || isSubmitting}>Reply</Button>
+                                  </div>
+                                </div>
+                              {:else}
+                                <div class="flex items-center gap-3 border-t border-border/40 px-3 py-2 text-xs text-muted-foreground">
+                                  <button type="button" class="flex items-center gap-1.5 hover:text-foreground" onclick={() => { replyThreadRootId = rootComment.id; replyContent = ""; }}>
+                                    ↩ Reply
+                                  </button>
+                                  <button type="button" class="ml-auto flex items-center gap-1.5 hover:text-green-600 dark:hover:text-green-400" onclick={() => resolveThread(rootComment)} disabled={resolvingThreadRootId === rootComment.id}>
+                                    {#if resolvingThreadRootId === rootComment.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}✓{/if}
+                                    Resolve
+                                  </button>
+                                </div>
+                              {/if}
+                            {/if}
+                          {/if}
                         </div>
                       {/if}
                       {#if canComment && selectedLine === ln && selectedFileIdx === fileIdx && selectedChunkIdx === chunkIdx}
                         <div class={getCommentComposerClass()}>
-                          <div class="flex gap-2">
-                            <Avatar class="h-8 w-8">
+                          <div class="flex items-center gap-2 border-b border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-xs text-muted-foreground">
+                            <ChevronDown class="h-3.5 w-3.5 shrink-0 text-blue-500/70" />
+                            <MessageSquare class="h-3.5 w-3.5 shrink-0 text-blue-500/70" />
+                            <span class="min-w-0 flex-1 truncate">
+                              New comment on {selectedCommentLineRange?.includes("-") ? "lines" : "line"} {selectedCommentLineRange ?? ""}
+                            </span>
+                            <button
+                              type="button"
+                              class="text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+                              aria-label="Close comment composer"
+                              onclick={() => {
+                                selectedLine = null;
+                                selectedFileIdx = null;
+                                selectedChunkIdx = null;
+                                selectedCommentLineRange = null;
+                                selectedCommentLineSide = undefined;
+                              }}
+                            >
+                              <X class="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <div class="flex gap-2 px-2 py-2 sm:px-3 sm:py-3">
+                            <Avatar class="hidden h-8 w-8 sm:flex">
                               <AvatarFallback>ME</AvatarFallback>
                             </Avatar>
-                            <div class="flex-1 space-y-2">
+                            <div class="min-w-0 flex-1 space-y-2">
                               <Textarea
                                 bind:value={newComment}
                                 placeholder="Add a comment..."
                                 class={compact
-                                  ? "min-h-[52px] resize-none"
-                                  : "min-h-[60px] resize-none"}
+                                  ? "min-h-[44px] resize-none px-2 py-1.5 text-xs sm:text-sm"
+                                  : "min-h-[48px] resize-none px-2 py-1.5 text-xs sm:min-h-[60px] sm:text-sm"}
                                 disabled={isSubmitting}
                               />
-                              <div class="flex justify-end gap-2">
+                              <div class="flex justify-end gap-1.5 sm:gap-2">
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  class="h-8 px-2 text-xs sm:h-9 sm:px-3 sm:text-sm"
                                   onclick={() => {
                                     selectedLine = null;
                                     selectedFileIdx = null;
                                     selectedChunkIdx = null;
+                                    selectedCommentLineRange = null;
+                                    selectedCommentLineSide = undefined;
                                   }}
                                   disabled={isSubmitting}
                                 >
@@ -1481,7 +1811,7 @@
                                 </Button>
                                 <Button
                                   size="sm"
-                                  class="gap-1 bg-git hover:bg-git-hover"
+                                  class="h-8 gap-1 bg-git px-2 text-xs hover:bg-git-hover sm:h-9 sm:px-3 sm:text-sm"
                                   disabled={!newComment.trim() ||
                                     isSubmitting ||
                                     !rootEvent ||
@@ -1498,9 +1828,9 @@
                                   }}
                                 >
                                   {#if isSubmitting}
-                                    <Loader2 class="h-3.5 w-3.5 animate-spin" />
+                                    <Loader2 class="h-3 w-3 animate-spin sm:h-3.5 sm:w-3.5" />
                                   {:else}
-                                    <MessageSquare class="h-3.5 w-3.5" />
+                                    <MessageSquare class="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                                   {/if}
                                   Comment
                                 </Button>
@@ -1549,36 +1879,80 @@
       ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   }
 
+  .inline-comment-body {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+
+  .inline-comment-body :global(*) {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  @media (min-width: 640px) {
+    .inline-comment-body {
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+  }
+
+  :global(.diff-selected-row) {
+    outline: 1px solid rgb(59 130 246 / 0.38);
+    outline-offset: -1px;
+    box-shadow: inset 0 0 0 9999px rgb(59 130 246 / 0.1);
+  }
+
+  :global(.diff-comment-range-row) {
+    outline: 1px solid rgb(59 130 246 / 0.3);
+    outline-offset: -1px;
+  }
+
   :global(.diff-selected-gutter) {
     background: linear-gradient(
       90deg,
-      rgb(245 158 11 / 0.52) 0%,
-      rgb(251 191 36 / 0.3) 100%
+      rgb(59 130 246 / 0.24) 0%,
+      rgb(59 130 246 / 0.12) 100%
     ) !important;
-    color: rgb(255 251 235) !important;
+    color: rgb(37 99 235) !important;
     font-weight: 700;
-    text-shadow: 0 0 10px rgb(251 191 36 / 0.28);
+    text-shadow: 0 0 10px rgb(59 130 246 / 0.22);
     box-shadow:
-      inset -3px 0 0 rgb(251 191 36 / 0.98),
-      inset 0 1px 0 rgb(253 224 71 / 0.55),
-      inset 0 -1px 0 rgb(245 158 11 / 0.45),
-      inset 0 0 0 1px rgb(245 158 11 / 0.55);
+      inset -2px 0 0 rgb(59 130 246 / 0.7),
+      inset 0 1px 0 rgb(96 165 250 / 0.45),
+      inset 0 -1px 0 rgb(37 99 235 / 0.25);
   }
 
   :global(.diff-selected-gutter-start) {
     box-shadow:
-      inset -3px 0 0 rgb(251 191 36 / 1),
-      inset 0 1px 0 rgb(254 240 138 / 0.95),
-      inset 0 -1px 0 rgb(245 158 11 / 0.45),
-      inset 0 0 0 1px rgb(245 158 11 / 0.6);
+      inset -2px 0 0 rgb(59 130 246 / 0.85),
+      inset 0 1px 0 rgb(147 197 253 / 0.9),
+      inset 0 -1px 0 rgb(37 99 235 / 0.25);
   }
 
   :global(.diff-selected-gutter-end) {
     box-shadow:
-      inset -3px 0 0 rgb(251 191 36 / 1),
-      inset 0 1px 0 rgb(245 158 11 / 0.45),
-      inset 0 -1px 0 rgb(254 240 138 / 0.95),
-      inset 0 0 0 1px rgb(245 158 11 / 0.6);
+      inset -2px 0 0 rgb(59 130 246 / 0.85),
+      inset 0 1px 0 rgb(37 99 235 / 0.25),
+      inset 0 -1px 0 rgb(147 197 253 / 0.9);
+  }
+
+  :global(.diff-comment-blip) {
+    animation: diff-comment-blip 1.55s ease-in-out 2;
+  }
+
+  @keyframes diff-comment-blip {
+    0%,
+    100% {
+      box-shadow: none;
+    }
+    35% {
+      box-shadow:
+        0 0 0 2px rgb(59 130 246 / 0.5),
+        0 0 0 8px rgb(59 130 246 / 0.16);
+    }
   }
 
   @media (pointer: coarse) {

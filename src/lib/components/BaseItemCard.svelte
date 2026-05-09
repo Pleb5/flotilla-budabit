@@ -3,7 +3,7 @@
   import type { Snippet } from "svelte";
   const { Card } = useRegistry();
 
-  export type CardVariant = "issue" | "patch" | "commit";
+  export type CardVariant = "issue" | "pr" | "commit";
 
   interface Props {
     variant?: CardVariant;

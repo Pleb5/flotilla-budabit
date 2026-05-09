@@ -77,7 +77,7 @@
         <Target class="h-12 w-12 mx-auto mb-4 text-green-500" />
         <h3 class="text-lg font-medium text-green-800 mb-2">No Conflicts Detected</h3>
         <p class="text-sm text-green-600">
-          This patch can be merged cleanly without any conflicts. The merge operation is safe to
+          This PR can be merged cleanly without any conflicts. The merge operation is safe to
           proceed.
         </p>
       </div>

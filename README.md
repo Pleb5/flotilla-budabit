@@ -63,15 +63,13 @@ pnpm add svelte@^5.28.2
 
 ```svelte
 <script lang="ts">
-  import { RepoCard, PatchViewer } from "@nostr-git/ui";
+  import { RepoCard, Status } from "@nostr-git/ui";
   import type { NostrEvent } from "@nostr-git/shared-types";
 
   let repoEvent: NostrEvent;
-  let patchEvent: NostrEvent;
 </script>
 
 <RepoCard event={repoEvent} />
-<PatchViewer event={patchEvent} />
 ```
 
 ### TailwindCSS Configuration
@@ -151,7 +149,7 @@ For detailed component documentation, see:
 #### Git Components
 
 - `CommitViewer` - Commit details and diff display
-- `PatchViewer` - Git patch visualization
+- `Status` - Issue and pull request status controls
 - `BranchSelector` - Branch switching interface
 - `MergeConflictResolver` - Conflict resolution UI
 
@@ -245,14 +243,9 @@ This UI package includes a testable core for Git/Nostr repo features, decoupled 
 - Core module: `@nostr-git/core` RepoCore class
   - `trustedMaintainers(ctx)`
   - `mergeRepoStateByMaintainers(ctx, events)` — merges trusted 30618 refs; includes legacy `r` tag pair fallback
-  - `getPatchGraph(ctx)` returns:
-    - `nodes: Map<string, PatchEvent>`
-    - `roots: string[]`, `rootRevisions: string[]`
-    - `edgesCount: number`, `topParents: string[]`
-    - `parentOutDegree: Record<string, number>`, `parentChildren: Record<string, string[]>`
   - `resolveStatusFor(ctx, rootId)` — trust/author precedence; maps NIP-163x kinds to UI states
   - `getIssueThread(ctx, rootId)` — NIP-22 comments
-  - Labels: `getEffectiveLabelsFor`, `getIssueLabels`, `getPatchLabels`, `getRepoLabels`
+  - Labels: `getEffectiveLabelsFor`, `getIssueLabels`, `getRepoLabels`
   - `getMaintainerBadge(ctx, pubkey)` — 'owner' | 'maintainer' | null
 
 - Reactive Repo class: `src/lib/components/git/Repo.svelte.ts`

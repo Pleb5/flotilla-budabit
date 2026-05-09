@@ -1,5 +1,5 @@
 import { type MergeAnalysisResult } from "@nostr-git/core/git";
-import type { PatchEvent } from "@nostr-git/core/events";
+import type { PullRequestEvent } from "@nostr-git/core/events";
 
 export interface CacheEntry<T> {
   data: T;
@@ -11,7 +11,7 @@ export interface CacheEntry<T> {
 export interface MergeAnalysisCacheEntry {
   result: MergeAnalysisResult;
   timestamp: number;
-  patchHash: string;
+  prHash: string;
   targetBranch: string;
   repoId: string;
 }
@@ -473,12 +473,12 @@ export class MergeAnalysisCacheManager {
   }
 
   /**
-   * Generate a hash for patch content to detect changes
+   * Generate a hash for PR content to detect changes
    */
-  private generatePatchHash(patch: PatchEvent): string {
-    // Patch events are immutable (new revisions create new ids). We only need to
-    // capture the intrinsic patch payload to detect meaningful changes.
-    const content = `${patch.id}:${patch.pubkey}:${patch.created_at}:${patch.content}`;
+  private generatePrHash(pr: PullRequestEvent): string {
+    // PR events are immutable; updates create new events. Capture intrinsic
+    // payload fields to detect meaningful changes for cached merge analysis.
+    const content = `${pr.id}:${pr.pubkey}:${pr.created_at}:${pr.content}`;
 
     let hash = 0;
     for (let i = 0; i < content.length; i++) {
@@ -493,26 +493,26 @@ export class MergeAnalysisCacheManager {
    * Get cached merge analysis result
    */
   async get(
-    patch: PatchEvent,
+    pr: PullRequestEvent,
     targetBranch: string,
     repoId: string
   ): Promise<MergeAnalysisResult | null> {
     const cacheEntry = await this.cacheManager.get<MergeAnalysisCacheEntry>(
       this.CACHE_NAME,
-      patch.id
+      pr.id
     );
 
     if (!cacheEntry) return null;
 
     // Validate cache entry
-    const currentPatchHash = this.generatePatchHash(patch);
-    if (cacheEntry.patchHash !== currentPatchHash) {
-      await this.remove(patch.id);
+    const currentPrHash = this.generatePrHash(pr);
+    if (cacheEntry.prHash !== currentPrHash) {
+      await this.remove(pr.id);
       return null;
     }
 
     if (cacheEntry.targetBranch !== targetBranch || cacheEntry.repoId !== repoId) {
-      await this.remove(patch.id);
+      await this.remove(pr.id);
       return null;
     }
 
@@ -523,7 +523,7 @@ export class MergeAnalysisCacheManager {
    * Cache merge analysis result
    */
   async set(
-    patch: PatchEvent,
+    pr: PullRequestEvent,
     targetBranch: string,
     repoId: string,
     result: MergeAnalysisResult
@@ -531,19 +531,19 @@ export class MergeAnalysisCacheManager {
     const cacheEntry: MergeAnalysisCacheEntry = {
       result,
       timestamp: Date.now(),
-      patchHash: this.generatePatchHash(patch),
+      prHash: this.generatePrHash(pr),
       targetBranch,
       repoId,
     };
 
-    await this.cacheManager.set(this.CACHE_NAME, patch.id, cacheEntry);
+    await this.cacheManager.set(this.CACHE_NAME, pr.id, cacheEntry);
   }
 
   /**
    * Remove cached merge analysis
    */
-  async remove(patchId: string): Promise<void> {
-    await this.cacheManager.remove(this.CACHE_NAME, patchId);
+  async remove(prId: string): Promise<void> {
+    await this.cacheManager.remove(this.CACHE_NAME, prId);
   }
 
   /**
@@ -556,8 +556,8 @@ export class MergeAnalysisCacheManager {
   /**
    * Check if merge analysis is cached
    */
-  async has(patchId: string): Promise<boolean> {
-    const result = await this.cacheManager.get(this.CACHE_NAME, patchId);
+  async has(prId: string): Promise<boolean> {
+    const result = await this.cacheManager.get(this.CACHE_NAME, prId);
     return result !== null;
   }
 

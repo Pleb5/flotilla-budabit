@@ -48,8 +48,6 @@ export type RepoCard = {
   effectiveMaintainers: string[];
   taggedMaintainers: string[];
   refs: any;
-  rootsCount: number;
-  revisionsCount: number;
   title: string;
   description: string;
   first: any;
@@ -66,7 +64,6 @@ export type LoadedBookmarkedRepo = {
 export type ComputeCardsOptions = {
   deriveMaintainersForEuc: (euc: string) => { get: () => Set<string> | null };
   deriveRepoRefState?: (euc: string) => { get: () => any };
-  derivePatchGraph?: (address: string) => { get: () => any };
   parseRepoAnnouncementEvent: (event: any) => any;
   Router: any;
   Address: any;
@@ -82,7 +79,6 @@ function createRepositoriesStore() {
 
   // Caches for derived stores (same as in the page component)
   const refStateStoreByEuc = new Map<string, any>();
-  const patchDagStoreByAddr = new Map<string, any>();
 
   function notify() {
     for (const run of subscribers) run(value);
@@ -289,31 +285,6 @@ function createRepositoriesStore() {
         }
       })();
 
-      let rootsCount = 0;
-      let revisionsCount = 0;
-      if (includeDerivedMeta && options.derivePatchGraph) {
-        try {
-          if (first) {
-            const addrA = Address.fromEvent(first).toString();
-            let dStore = patchDagStoreByAddr.get(addrA);
-            if (!dStore) {
-              dStore = options.derivePatchGraph(addrA);
-              patchDagStoreByAddr.set(addrA, dStore);
-            }
-            const dag: any = dStore.get();
-            rootsCount = Array.isArray(dag?.roots)
-              ? dag.roots.length
-              : typeof dag?.nodeCount === "number"
-                ? Math.min(1, dag.nodeCount)
-                : 0;
-            revisionsCount = Array.isArray(dag?.rootRevisions)
-              ? dag.rootRevisions.length
-              : typeof dag?.edgesCount === "number"
-                ? dag.edgesCount
-                : 0;
-          }
-        } catch {}
-      }
       const card: RepoCard = {
         euc,
         web: Array.from(new Set(web)) as string[],
@@ -325,8 +296,6 @@ function createRepositoriesStore() {
         ) as string[],
         taggedMaintainers,
         refs,
-        rootsCount,
-        revisionsCount,
         title,
         description,
         first,

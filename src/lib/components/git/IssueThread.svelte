@@ -13,7 +13,7 @@
 
   interface Props {
     issueId: string;
-    issueKind: "1621" | "1617" | "1618";
+    issueKind: "1621" | "1618";
     currentCommenter: string;
     currentCommenterProfile?: Profile;
     comments?: CommentEvent[] | undefined;
@@ -258,16 +258,16 @@
           data-event={c.id}
           class="relative w-full mt-4 flex-col gap-3 group animate-fade-in"
         >
-          <div class="w-full grid grid-cols-[1fr_auto] items-start gap-2">
-            <ProfileComponent pubkey={c.author.pubkey} hideDetails={false}></ProfileComponent>
-            <div class="flex items-center gap-2 text-sm text-muted-foreground">
-              <TimeAgo date={dateToShow} />
+          <div class="w-full grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+            <ProfileComponent pubkey={c.author.pubkey} hideDetails={false} class="min-w-0 text-sm"></ProfileComponent>
+            <div class="flex items-center gap-1 text-xs text-muted-foreground sm:gap-2">
+              <span class="whitespace-nowrap"><TimeAgo date={dateToShow} compact /></span>
               {#if enableReplies && currentCommenter && onCommentCreated}
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  class="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  class="h-6 w-6 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
                   onclick={() => {
                     replyParent = c.raw;
                   }}
@@ -280,7 +280,7 @@
               <Button
                 variant="ghost"
                 size="icon"
-                class="h-7 w-7 text-muted-foreground hover:text-foreground"
+                class="h-6 w-6 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
                 onclick={() => copyEventLink(c.raw)}
                 aria-label="Share comment"
                 title="Share"
@@ -320,13 +320,13 @@
             {#if inlineLocation}
               <button
                 type="button"
-                class="flex w-fit max-w-full items-center gap-1.5 rounded border border-border bg-muted/40 px-2 py-1 text-left text-xs text-muted-foreground hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+                class="flex w-full max-w-full items-center gap-1.5 rounded border border-border bg-muted/40 px-2 py-1 text-left text-xs text-muted-foreground hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground sm:w-fit"
                 onclick={() => onInlineCommentOpen?.(c.raw)}
                 disabled={!onInlineCommentOpen}
                 title={inlineLocationLabel}
               >
                 <FileCode class="h-3 w-3 shrink-0 text-blue-500/70" />
-                <span class="shrink-0 text-muted-foreground/70">inline code comment on:</span>
+                <span class="hidden shrink-0 text-muted-foreground/70 sm:inline">inline code comment on:</span>
                 <span class="min-w-0 truncate font-mono">{inlineLocationLabel}</span>
               </button>
             {/if}
@@ -368,20 +368,20 @@
               <Button type="button" variant="ghost" size="sm" class="h-6 px-2 text-xs" onclick={() => (replyParent = null)}>Cancel</Button>
             </div>
           {/if}
-          <div class="flex gap-3">
-            <div class="flex-shrink-0">
+          <div class="flex gap-2 sm:gap-3">
+            <div class="hidden flex-shrink-0 sm:block">
               <ProfileComponent pubkey={currentCommenter} hideDetails={true} />
             </div>
             <div class="flex-1">
               <Textarea
                 bind:value={newComment}
                 placeholder={replyParent ? "Write a reply..." : "Write a comment..."}
-                class="min-h-[80px] resize-none w-full"
+                class="min-h-[64px] resize-none w-full text-sm sm:min-h-[80px]"
               />
             </div>
           </div>
           <div class="flex justify-end">
-            <Button type="submit" class="gap-2" disabled={!newComment.trim() || isSubmitting}>
+            <Button type="submit" class="h-9 gap-2 px-3 text-sm" disabled={!newComment.trim() || isSubmitting}>
               <MessageSquare class="h-4 w-4" />
               {isSubmitting ? "Commenting..." : "Comment"}
             </Button>

@@ -7,7 +7,6 @@
   import GitRepoComponent from "./GitRepoComponent.svelte";
   import GitRepoStateComponent from "./GitRepoStateComponent.svelte";
   import GitIssueComponent from "./GitIssueComponent.svelte";
-  import GitPatchComponent from "./GitPatchComponent.svelte";
   import GitCommentComponent from "./GitCommentComponent.svelte";
   import GitPermalinkComponent from "./GitPermalinkComponent.svelte";
   import GitStatusComponent from "./GitStatusComponent.svelte";
@@ -37,8 +36,6 @@
         return "git-repo";
       case 30618:
         return "git-repo-state";
-      case 1617:
-        return "git-patch";
       case 1621:
         return "git-issue";
       case 1623:
@@ -65,7 +62,7 @@
 
   const checkIfKnownEvent = (kind: number): boolean => {
     const knownKinds = [
-      30617, 30618, 1617, 1621, 1623, 1630, 1631, 1632, 1633, 7, 10002, 14, 1111, 31922,
+      30617, 30618, 1621, 1623, 1630, 1631, 1632, 1633, 7, 10002, 14, 1111, 31922,
     ];
     return knownKinds.includes(kind);
   };
@@ -88,8 +85,6 @@
   <!-- New unified feed style components -->
   {#if componentType === "git-issue"}
     <GitIssueComponent event={event} relay={relay} />
-  {:else if componentType === "git-patch"}
-    <GitPatchComponent event={event} relay={relay} />
   {:else if componentType === "git-comment"}
     <GitCommentFeed event={event} />
   {:else if componentType === "git-permalink"}
@@ -117,8 +112,6 @@
     <GitRepoStateComponent event={event} />
   {:else if componentType === "git-issue"}
     <GitIssueComponent event={event} relay={relay} />
-  {:else if componentType === "git-patch"}
-    <GitPatchComponent event={event} relay={relay} />
   {:else if componentType === "git-comment"}
     <GitCommentComponent event={event} />
   {:else if componentType === "git-permalink"}

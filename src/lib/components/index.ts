@@ -1,19 +1,15 @@
 // Git components
 export { default as DiffViewer } from "./git/DiffViewer.svelte";
-export { default as PatchViewer } from "./git/PatchViewer.svelte";
 export { default as FileView } from "./git/FileView.svelte";
 export { default as IssueCard } from "./git/IssueCard.svelte";
 export { default as IssueThread } from "./git/IssueThread.svelte";
 export { default as LiveSessionCard } from "./git/LiveSessionCard.svelte";
-export { default as PatchCard } from "./git/PatchCard.svelte";
 export { default as WikiSidebar } from "./git/WikiSidebar.svelte";
 export { default as RepoTab } from "./git/RepoTab.svelte";
 export { default as NewIssueForm } from "./git/NewIssueForm.svelte";
 export { default as NewPRForm } from "./git/NewPRForm.svelte";
-export { default as MergeAnalyzer } from "./git/MergeAnalyzer.svelte";
 export { default as ConflictVisualizer } from "./git/ConflictVisualizer.svelte";
 export { default as MergeStatus } from "./git/MergeStatus.svelte";
-export { default as PatchSelector } from "./git/PatchSelector.svelte";
 export { default as CommitCard } from "./git/CommitCard.svelte";
 export { default as CommitHeader } from "./git/CommitHeader.svelte";
 export { default as CommitSelector } from "./git/CommitSelector.svelte";
@@ -41,10 +37,8 @@ export {
   type VendorCommit,
   type VendorCommitResult,
 } from "./git/VendorReadRouter";
-export { default as RepoPatchStatus } from "./git/RepoPatchStatus.svelte";
 export { default as BranchSelector } from "./git/BranchSelector.svelte";
 export { default as RepoAlertBadge } from "./git/RepoAlertBadge.svelte";
-export { default as PatchDagSummary } from "./git/PatchDagSummary.svelte";
 export { default as MaintainerBadge } from "./git/MaintainerBadge.svelte";
 export { default as StatusChip } from "./git/StatusChip.svelte";
 export { default as Status } from "./git/Status.svelte";

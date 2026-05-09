@@ -39,7 +39,7 @@
   const filePath = $derived.by(
     () => getTagValue("file") || getTagValue("path") || getTagValue("f")
   );
-  const patchId = $derived.by(() => getTagValue("e"));
+  const prId = $derived.by(() => getTagValue("e"));
   const lineStart = $derived.by(() => {
     const tag = getTag("lines");
     const start = Number.parseInt(tag?.[1] || "", 10);
@@ -185,14 +185,14 @@
     const lineAnchor = lineStart ? `#L${lineStart}${lineEnd ? `-L${lineEnd}` : ""}` : "";
     if (isDiff) {
       if (commit) return `${basePath}/commits/${commit}${diffAnchor}`;
-      if (patchId) return `${basePath}/patches/${patchId}${diffAnchor}`;
+      if (prId) return `${basePath}/prs/${prId}${diffAnchor}`;
       return `${basePath}${diffAnchor}`;
     }
     if (filePath) {
       return `${basePath}/code?path=${encodeURIComponent(filePath)}${lineAnchor}`;
     }
     if (commit) return `${basePath}/commits/${commit}`;
-    if (patchId) return `${basePath}/patches/${patchId}`;
+    if (prId) return `${basePath}/prs/${prId}`;
     return basePath;
   });
 

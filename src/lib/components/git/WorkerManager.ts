@@ -31,7 +31,6 @@ export interface WorkerProgressEvent {
   repoId: string;
   phase: string;
   progress?: number;
-  patchId?: string;
   targetBranch?: string;
   message?: string;
 }
@@ -319,7 +318,7 @@ export class WorkerManager {
 
       // Add timeout to detect hanging worker calls
       // Allow custom timeout to be specified for long-running background operations
-      const timeoutMs = options?.timeoutMs ?? (operation === "analyzePatchMerge" ? 90000 : 30000);
+      const timeoutMs = options?.timeoutMs ?? 30000;
 
       // If timeout is 0 or negative, don't apply timeout (for truly long-running background ops)
       if (timeoutMs > 0) {
@@ -650,18 +649,6 @@ export class WorkerManager {
   }
 
   /**
-   * Analyze patch merge
-   */
-  async analyzePatchMerge(params: {
-    repoId: string;
-    patchData: any;
-    targetBranch: string;
-  }): Promise<any> {
-    await this.initialize();
-    return this.execute("analyzePatchMerge", params);
-  }
-
-  /**
    * Analyze PR merge (fetches from PR clone URLs, tries multiple on failure)
    */
   async analyzePRMerge(params: {
@@ -824,29 +811,6 @@ export class WorkerManager {
   }): Promise<any> {
     await this.initialize();
     return this.execute("getCommitHistoryFromEvent", params);
-  }
-
-  /**
-   * Apply a patch and push to remotes (RPC)
-   */
-  async applyPatchAndPush(params: {
-    repoId: string;
-    patchData: any;
-    targetBranch?: string;
-    mergeCommitMessage?: string;
-    authorName?: string;
-    authorEmail?: string;
-  }): Promise<{
-    success: boolean;
-    error?: string;
-    mergeCommitOid?: string;
-    pushedRemotes?: string[];
-    skippedRemotes?: string[];
-    warning?: string;
-    pushErrors?: Array<{ remote: string; url: string; error: string; code: string; stack: string }>;
-  }> {
-    await this.initialize();
-    return this.execute("applyPatchAndPush", params, { timeoutMs: 120000 });
   }
 
   /**
@@ -1213,7 +1177,6 @@ export class WorkerManager {
       repoId: (payload as any).repoId,
       phase: (payload as any).phase ?? (payload as any).step ?? "unknown",
       progress: typeof payload.progress === "number" ? payload.progress : undefined,
-      patchId: (payload as any).patchId,
       targetBranch: (payload as any).targetBranch,
       message: (payload as any).message,
     });

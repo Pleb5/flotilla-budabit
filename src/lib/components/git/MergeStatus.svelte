@@ -73,12 +73,12 @@
     switch (result.analysis) {
       case "clean":
         return result.fastForward
-          ? "This patch can be fast-forward merged without conflicts."
-          : "This patch can be merged cleanly without conflicts.";
+          ? "This PR can be fast-forward merged without conflicts."
+          : "This PR can be merged cleanly without conflicts.";
       case "conflicts":
-        return `This patch has merge conflicts in ${result.conflictFiles?.length ?? 0} file(s) that need to be resolved.`;
+        return `This PR has merge conflicts in ${result.conflictFiles?.length ?? 0} file(s) that need to be resolved.`;
       case "up-to-date":
-        return "This patch has already been applied to the target branch.";
+        return "This PR has already been merged to the target branch.";
       case "diverged":
         return 'The target branch has diverged from remote. Use "Reset Repo" to sync with remote before merging.';
       case "error":
@@ -212,7 +212,7 @@
 
       {#if (result.patchCommits?.length ?? 0) > 0}
         <div class="text-xs text-muted-foreground">
-          <span class="font-medium">Patch commits:</span>
+          <span class="font-medium">PR commits:</span>
           {result.patchCommits.length}
           {#if result.targetCommit}
             <br />

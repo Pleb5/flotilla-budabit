@@ -31,7 +31,7 @@
         };
       case 1631:
         return {
-          type: "Patch Status",
+          type: "Merged Status",
           color: "text-purple-500",
         };
       case 1632:

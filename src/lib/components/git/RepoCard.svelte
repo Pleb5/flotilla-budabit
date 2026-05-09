@@ -183,7 +183,7 @@
           >
         </div>
         <div class="flex flex-col items-end">
-          <span class="text-xs font-medium">Recent Patches</span>
+          <span class="text-xs font-medium">Recent PRs</span>
           <button
             class="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
             onclick={() => console.log("Join Live Coding Session button clicked")}

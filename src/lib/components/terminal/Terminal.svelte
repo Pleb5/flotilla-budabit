@@ -147,7 +147,6 @@
       lines.push("   - git checkout <name>    switch branch");
       lines.push("   - git switch <name>      switch branch");
       lines.push("   - git add <paths>        stage changes");
-      lines.push('   - git commit --apply-patch <file> -m "msg"  commit and push a patch');
       lines.push("   - git diff               show changes");
       lines.push("   - git show <obj>         show object details");
       lines.push("");
@@ -563,35 +562,9 @@
       return { text: "warning: staging (git add) is not yet supported in this terminal\n" };
     }
     if (op === "git.commit") {
-      // Support "git commit --apply-patch <file> -m \"msg\"" as Phase 2
-      const applyPatchPath = params?.applyPatchPath;
       const message = params?.message || "";
-      const repoId = params?.repoId;
-      const targetBranch = params?.branch ?? defaultBranch;
-      if (applyPatchPath && repoId) {
-        try {
-          const content = (await getFS().readFile(applyPatchPath, "utf8")) as string;
-          const result = await (
-            await ensureWM()
-          ).applyPatchAndPush({
-            repoId,
-            patchData: { rawContent: content },
-            targetBranch,
-            mergeCommitMessage: message || "Apply patch",
-            authorName: "Terminal",
-            authorEmail: "terminal@example.com",
-          });
-          if (result?.success) {
-            const commit = result.mergeCommitOid ? ` (${result.mergeCommitOid})` : "";
-            return { text: `Applied patch and pushed to ${targetBranch}${commit}\n` };
-          }
-          return { text: `error: commit failed: ${result?.error || "unknown"}\n` };
-        } catch (e: any) {
-          return { text: `error: commit exception: ${e?.message || String(e)}\n` };
-        }
-      }
       const msg = message ? ` (${message})` : "";
-      return { text: `warning: git commit${msg} requires --apply-patch <file> in this terminal\n` };
+      return { text: `warning: git commit${msg} is not yet supported in this terminal\n` };
     }
     if (op === "git.diff") {
       // Phase 1: show diff for the latest commit vs parent (HEAD)

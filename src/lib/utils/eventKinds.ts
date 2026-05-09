@@ -7,11 +7,10 @@
 export const KNOWN_GIT_EVENT_KINDS = [
   30617, // Git repository announcement
   30618, // Git repository state
-  1617, // Git patch
   1621, // Git issue
   1623, // Git permalink
   1630, // Issue status change
-  1631, // Patch status change
+  1631, // Merged/resolved status change
   1632, // Repository status change
   1633, // General status change
 ] as const;
@@ -97,8 +96,6 @@ export function getEventKindDescription(kind: number): string {
       return "Channel Hide Message";
     case 44:
       return "Channel Mute User";
-    case 1617:
-      return "Git Patch";
     case 1621:
       return "Git Issue";
     case 1623:
@@ -106,7 +103,7 @@ export function getEventKindDescription(kind: number): string {
     case 1630:
       return "Issue Status Change";
     case 1631:
-      return "Patch Status Change";
+      return "Merged/Resolved Status Change";
     case 1632:
       return "Repository Status Change";
     case 1633:

@@ -4,7 +4,7 @@
 
 import { toast } from "./stores/toast.js";
 
-export type RepoAlertKind = "status-change" | "new-patch" | "review-request" | "grasp-delay";
+export type RepoAlertKind = "status-change" | "new-issue" | "new-pr" | "review-request" | "grasp-delay";
 
 export function pushRepoAlert(a: {
   repoKey: string;

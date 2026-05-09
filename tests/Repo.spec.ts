@@ -8,8 +8,8 @@ import { describe, it, expect } from "vitest";
 import {
   type RepoAnnouncementEvent,
   type RepoStateEvent,
-  type PatchEvent,
   type IssueEvent,
+  type PullRequestEvent,
   type NostrEvent,
   parseRepoAnnouncementEvent,
 } from "@nostr-git/core/events";
@@ -25,7 +25,7 @@ const mkCtx = (over: Partial<RepoContext> = {}): RepoContext => ({
   repoStateEvent: over.repoStateEvent,
   repo: over.repo,
   issues: over.issues || [],
-  patches: over.patches || [],
+  pullRequests: over.pullRequests || [],
   repoStateEventsArr: over.repoStateEventsArr || [],
   statusEventsArr: over.statusEventsArr || [],
   commentEventsArr: over.commentEventsArr || [],
@@ -66,17 +66,17 @@ function mkRepoState(overrides: any = {}): RepoStateEvent {
   return obj as unknown as RepoStateEvent;
 }
 
-function mkPatch(overrides: any = {}): PatchEvent {
+function mkPullRequest(overrides: any = {}): PullRequestEvent {
   const obj: any = {
-    id: overrides.id || "patch-1",
-    kind: 1617,
+    id: overrides.id || "pr-1",
+    kind: 1618,
     pubkey: overrides.pubkey || "author-pubkey",
     created_at: overrides.created_at || Math.floor(Date.now() / 1000),
     tags: (overrides as any).tags || [["t", "root"]],
     content: overrides.content || "",
     sig: overrides.sig || "sig",
   };
-  return obj as unknown as PatchEvent;
+  return obj as unknown as PullRequestEvent;
 }
 
 function mkIssue(overrides: any = {}): IssueEvent {
@@ -129,7 +129,7 @@ describe("Repo core helpers", () => {
   });
 
   it("labels merge across namespaces with legacy t", async () => {
-    const evt = mkPatch({
+    const evt = mkPullRequest({
       id: "p4",
       tags: [
         ["t", "bug"],
@@ -150,8 +150,8 @@ describe("Repo core helpers", () => {
       content: "",
       sig: "sig",
     } as any;
-    const ctx = mkCtx({ patches: [evt] as any, labelEventsArr: [external] as any });
-    const eff = RepoCore.getPatchLabels(ctx, "p4");
+    const ctx = mkCtx({ pullRequests: [evt] as any, labelEventsArr: [external] as any });
+    const eff = RepoCore.getPullRequestLabels(ctx, "p4");
     // Namespaced labels should be in `flat`, legacy `t` values should be in `legacyT`
     const flat = Array.from(eff.flat);
     const legacyT = Array.from(eff.legacyT);
@@ -170,8 +170,8 @@ describe("Repo core helpers", () => {
     );
   });
 
-  it("status precedence: author later overrides earlier maintainer (patch merged)", async () => {
-    const patch = mkPatch({ id: "p5", pubkey: "author-z" });
+  it("status precedence: author later overrides earlier maintainer (PR merged)", async () => {
+    const pr = mkPullRequest({ id: "p5", pubkey: "author-z" });
     const maintClose = mkStatus({ kind: 1632, rootId: "p5", pubkey: "maint-x", created_at: 1200 });
     const authorMerge = mkStatus({
       kind: 1631,
@@ -182,7 +182,7 @@ describe("Repo core helpers", () => {
     const ctx = mkCtx({
       repoEvent: mkRepoAnnouncement({ pubkey: "owner-yy" }),
       repo: { owner: "owner-yy", name: "r", maintainers: ["maint-x"] } as any,
-      patches: [patch] as any,
+      pullRequests: [pr] as any,
       statusEventsArr: [maintClose, authorMerge] as any,
     });
     const status = RepoCore.resolveStatusFor(ctx, "p5");
@@ -217,24 +217,6 @@ describe("Repo core helpers", () => {
     expect(main?.commitId).toBe("2222222222222222222222222222222222222222");
   });
 
-  it("builds patch DAG and identifies roots", async () => {
-    const p1 = mkPatch({ id: "p1", tags: [["t", "root"]] });
-    const p2 = mkPatch({ id: "p2", tags: [["e", "p1"]] });
-    const p3 = mkPatch({ id: "p3", tags: [["e", "p1"]] });
-    const ctx = mkCtx({ repoEvent: mkRepoAnnouncement(), patches: [p1, p2, p3] as any });
-    const dag = RepoCore.getPatchGraph(ctx);
-    expect(dag.roots).toContain("p1");
-    expect(Array.from(dag.nodes.keys())).toContain("p2");
-    // edges: p1 -> p2, p1 -> p3
-    expect(dag.edgesCount).toBe(2);
-    // topParents should include p1 with out-degree 2
-    expect(dag.topParents).toContain("p1");
-    expect(dag.parentOutDegree["p1"]).toBe(2);
-    // children listing should include both p2 and p3
-    expect(dag.parentChildren["p1"]).toContain("p2");
-    expect(dag.parentChildren["p1"]).toContain("p3");
-  });
-
   it("resolves status with precedence and author/trust policy", async () => {
     const issue = mkIssue({ id: "i1", pubkey: "author-x" });
     const s1 = mkStatus({ kind: 1630, rootId: "i1", pubkey: "author-x", created_at: 1000 }); // open by author
@@ -260,7 +242,7 @@ describe("Repo core helpers", () => {
   });
 
   it("merges labels (self + external + legacy t)", async () => {
-    const p = mkPatch({ id: "p3", tags: [["t", "bug"]] });
+    const pr = mkPullRequest({ id: "p3", tags: [["t", "bug"]] });
     const externalLabel: NostrEvent = {
       id: "lbl-1",
       kind: 1985,
@@ -273,24 +255,9 @@ describe("Repo core helpers", () => {
       content: "",
       sig: "sig",
     } as unknown as NostrEvent;
-    const ctx = mkCtx({ patches: [p] as any, labelEventsArr: [externalLabel] as any });
-    const labels = RepoCore.getPatchLabels(ctx, "p3");
+    const ctx = mkCtx({ pullRequests: [pr] as any, labelEventsArr: [externalLabel] as any });
+    const labels = RepoCore.getPullRequestLabels(ctx, "p3");
     expect(Array.from(labels.flat)).toContain("ugc/type:feature");
-  });
-
-  it("handles multiple roots and root-revisions in DAG", async () => {
-    const pRoot = mkPatch({ id: "r1", tags: [["t", "root"]] });
-    const pRevRoot = mkPatch({ id: "rr1", tags: [["t", "root-revision"]] });
-    const c1 = mkPatch({ id: "c1", tags: [["e", "r1"]] });
-    const c2 = mkPatch({ id: "c2", tags: [["e", "rr1"]] });
-    const ctx = mkCtx({ patches: [pRoot, pRevRoot, c1, c2] as any });
-    const dag = RepoCore.getPatchGraph(ctx);
-    expect(dag.roots).toContain("r1");
-    expect(dag.rootRevisions).toContain("rr1");
-    expect(dag.parentOutDegree["r1"]).toBe(1);
-    expect(dag.parentOutDegree["rr1"]).toBe(1);
-    expect(dag.parentChildren["r1"]).toContain("c1");
-    expect(dag.parentChildren["rr1"]).toContain("c2");
   });
 
   it("applies status precedence: ignores non-trusted, latest trusted/author wins (issue resolved)", async () => {

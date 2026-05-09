@@ -27,7 +27,7 @@
       children: [
         { id: "3-1", title: "Git Integration" },
         { id: "3-2", title: "Nostr Protocol" },
-        { id: "3-3", title: "Patch Management" },
+        { id: "3-3", title: "Pull Request Management" },
       ],
     },
     { id: "4", title: "Installation" },

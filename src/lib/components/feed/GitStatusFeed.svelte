@@ -36,22 +36,13 @@
   const statusConfig = $derived.by(() => {
     const kind = event.kind;
     
-    // kind 1630 = applied/merged
-    // kind 1631 = open
+    // kind 1630 = open
+    // kind 1631 = merged/resolved
     // kind 1632 = closed
     // kind 1633 = draft
     
     switch (kind) {
       case 1630:
-        return {
-          action: "merged",
-          icon: GitMerge,
-          color: "text-purple-400",
-          bgColor: "bg-purple-500/10",
-          borderColor: "border-purple-500/30",
-          message: "merged this"
-        };
-      case 1631:
         return {
           action: "opened",
           icon: GitPullRequest,
@@ -59,6 +50,15 @@
           bgColor: "bg-green-500/10",
           borderColor: "border-green-500/30",
           message: "opened this"
+        };
+      case 1631:
+        return {
+          action: "merged",
+          icon: GitMerge,
+          color: "text-purple-400",
+          bgColor: "bg-purple-500/10",
+          borderColor: "border-purple-500/30",
+          message: "merged this"
         };
       case 1632:
         return {
@@ -110,7 +110,7 @@
           if (parts && parts[0]) {
             const kind = parseInt(parts[0]);
             if (kind === 1621) targetType = "issue";
-            else if (kind === 1617) targetType = "patch";
+            else if (kind === 1618) targetType = "pull request";
           }
           break;
       }
