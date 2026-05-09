@@ -502,6 +502,16 @@
     detail?: string
   } | null>(null)
   let prInlineTargetGeneration = $state(0)
+  let dismissedPrInlineTargetHash = $state("")
+  let prInlineScrollTarget = $state<{
+    mode: "files" | "commit"
+    commitId?: string
+    filePath: string
+    id: string | null
+    line?: number | null
+    side?: "del"
+    request: number
+  } | null>(null)
   let suppressNextPrDiffHashOpen = false
 
   const prReviewHasExpandedItem = $derived.by(() =>
@@ -624,7 +634,7 @@
     if (!prExpandedCommits.has(oid)) {
       prExpandedCommits = new Set([...prExpandedCommits, oid])
     }
-    await loadPrCommitDiff(oid)
+    void loadPrCommitDiff(oid)
     for (let attempt = 0; attempt < 80; attempt += 1) {
       const state = prCommitDiffByOid[oid]
       if (state && !state.loading) return !state.error
@@ -1351,6 +1361,32 @@
     return null
   }
 
+  const setPrInlineScrollTarget = ({
+    mode,
+    commitId,
+    filePath,
+    id,
+    line,
+    side,
+  }: {
+    mode: "files" | "commit"
+    commitId?: string
+    filePath: string
+    id: string | null
+    line?: number | null
+    side?: "del"
+  }) => {
+    prInlineScrollTarget = {
+      mode,
+      commitId,
+      filePath,
+      id,
+      line,
+      side,
+      request: prInlineTargetGeneration,
+    }
+  }
+
   const nextFrame = () =>
     new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve())
@@ -1361,96 +1397,6 @@
       window.setTimeout(() => resolve(), ms)
     })
 
-  const getScopedElementById = (anchor: string, scopeId?: string) => {
-    const root = scopeId ? document.getElementById(scopeId) : document
-    const scoped = root?.querySelector(`#${CSS.escape(anchor)}`) as HTMLElement | null
-    return scoped || (document.getElementById(anchor) as HTMLElement | null)
-  }
-
-  const getInlineDiffTargetFallback = (
-    filePath?: string,
-    targetLine?: number | null,
-    lineSide?: "del",
-    scopeId?: string,
-  ) => {
-    if (!filePath || !targetLine) return null
-    const root = scopeId ? document.getElementById(scopeId) : document
-    const escapedPath = CSS.escape(filePath)
-    const attr = lineSide === "del" ? "data-line-left" : "data-line-right"
-    const selector = `[data-file-path="${escapedPath}"][${attr}="${targetLine}"]`
-    return ((root?.querySelector(selector) || document.querySelector(selector)) as HTMLElement | null)
-  }
-
-  const waitForInlineDiffTarget = async (
-    anchor: string,
-    scopeId?: string,
-    fallback?: {filePath?: string; targetLine?: number | null; lineSide?: "del"},
-  ) => {
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      const lineEl = getScopedElementById(anchor, scopeId)
-      const row = lineEl?.closest("[data-diff-index]") as HTMLElement | null
-      if (row || lineEl) return row || lineEl
-      const fallbackTarget = getInlineDiffTargetFallback(
-        fallback?.filePath,
-        fallback?.targetLine,
-        fallback?.lineSide,
-        scopeId,
-      )
-      if (fallbackTarget) return fallbackTarget
-      await tick()
-      await nextFrame()
-    }
-    const lineEl = getScopedElementById(anchor, scopeId)
-    return (lineEl?.closest("[data-diff-index]") as HTMLElement | null) || lineEl || getInlineDiffTargetFallback(
-      fallback?.filePath,
-      fallback?.targetLine,
-      fallback?.lineSide,
-      scopeId,
-    )
-  }
-
-  const blipInlineTarget = (target: HTMLElement) => {
-    target.classList.remove("diff-comment-blip")
-    void target.offsetWidth
-    target.classList.add("diff-comment-blip")
-    window.setTimeout(() => target.classList.remove("diff-comment-blip"), 1800)
-  }
-
-  const scrollInlineDiffTarget = async (
-    anchor: string,
-    scopeId?: string,
-    fallback?: {filePath?: string; targetLine?: number | null; lineSide?: "del"},
-  ) => {
-    if (typeof window === "undefined") return false
-    const target = await waitForInlineDiffTarget(anchor, scopeId, fallback)
-    if (!target) return false
-
-    const scrollParent = target.closest(".scroll-container") as HTMLElement | null
-    const stickyOffset = window.matchMedia("(max-width: 640px)").matches ? 96 : 120
-    const scrollOnce = () => {
-      if (scrollParent) {
-        const parentRect = scrollParent.getBoundingClientRect()
-        const targetRect = target.getBoundingClientRect()
-        const top = targetRect.top - parentRect.top + scrollParent.scrollTop - stickyOffset
-        scrollParent.scrollTo({top: Math.max(0, top), behavior: "smooth"})
-        return
-      }
-
-      const top = target.getBoundingClientRect().top + window.scrollY - stickyOffset
-      window.scrollTo({top: Math.max(0, top), behavior: "smooth"})
-    }
-
-    scrollOnce()
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await nextFrame()
-      scrollOnce()
-    }
-    await waitMs(140)
-    scrollOnce()
-    blipInlineTarget(target)
-    return true
-  }
-
   const openPrDiffHashFromLocation = async () => {
     if (typeof window === "undefined") return false
     if (suppressNextPrDiffHashOpen) {
@@ -1460,6 +1406,7 @@
     const currentHash = window.location.hash || ""
     const match = currentHash.match(/^#diff-([a-f0-9]+)/i)
     if (!match) return false
+    if (dismissedPrInlineTargetHash === currentHash) return false
     const generation = ++prInlineTargetGeneration
     prInlineTargetStatus = {
       state: "loading",
@@ -1492,18 +1439,18 @@
       prExpandedFiles = new Set([...prExpandedFiles, filePath])
     }
     const anchor = currentHash.slice(1)
+    const lineMatch = anchor.match(/^diff-[a-f0-9]+([LR])(\d+)/i)
+    const targetLine = lineMatch ? Number.parseInt(lineMatch[2], 10) : null
+    setPrInlineScrollTarget({
+      mode: "files",
+      filePath,
+      id: anchor,
+      line: Number.isFinite(targetLine) ? targetLine : null,
+      side: lineMatch?.[1]?.toUpperCase() === "L" ? "del" : undefined,
+    })
     await tick()
     await nextFrame()
-    const found = await scrollInlineDiffTarget(anchor, "pr-files-tab-panel", {filePath, targetLine: null})
     if (generation !== prInlineTargetGeneration) return false
-    if (!found) {
-      prInlineTargetStatus = {
-        state: "error",
-        message: "Could not find the inline comment line after loading the diff.",
-        detail: "The target line may no longer exist in this diff.",
-      }
-      return false
-    }
     prInlineTargetStatus = null
     return true
   }
@@ -1517,6 +1464,7 @@
   $effect(() => {
     if (typeof window === "undefined") return
     if (!window.location.hash.match(/^#diff-[a-f0-9]+/i)) return
+    if (dismissedPrInlineTargetHash === window.location.hash) return
     if (prInlineTargetStatus) return
     if (prChanges === null || prChangesLoading || Object.keys(prDiffAnchors).length === 0) {
       prInlineTargetStatus = {
@@ -1537,6 +1485,7 @@
   const openPrInlineCommentLocation = async (comment: CommentEvent) => {
     const location = getInlineCommentLocation(comment)
     if (!location) return
+    dismissedPrInlineTargetHash = ""
     const generation = ++prInlineTargetGeneration
     const commitId = getCommentTagValue(comment, "c")
     const side = location.lineSide === "del" ? "L" : "R"
@@ -1571,12 +1520,17 @@
         await tick()
         await nextFrame()
         setHash()
-        const found = await scrollInlineDiffTarget(anchor, "pr-commits-tab-panel", location)
+        setPrInlineScrollTarget({
+          mode: "commit",
+          commitId,
+          filePath: location.filePath,
+          id: anchor,
+          line: location.targetLine,
+          side: location.lineSide,
+        })
         if (generation !== prInlineTargetGeneration) return
-        if (found) {
-          prInlineTargetStatus = null
-          return
-        }
+        prInlineTargetStatus = null
+        return
       }
     }
 
@@ -1599,15 +1553,14 @@
     await tick()
     await nextFrame()
     setHash()
-    const found = await scrollInlineDiffTarget(anchor, "pr-files-tab-panel", location)
+    setPrInlineScrollTarget({
+      mode: "files",
+      filePath: location.filePath,
+      id: anchor,
+      line: location.targetLine,
+      side: location.lineSide,
+    })
     if (generation !== prInlineTargetGeneration) return
-    if (!found) {
-      fail(
-        "Could not find the inline comment line after loading the diff.",
-        "The target line may no longer exist in this PR diff.",
-      )
-      return
-    }
     prInlineTargetStatus = null
   }
 
@@ -2558,7 +2511,11 @@
         type="button"
         class="rounded p-0.5 text-muted-foreground hover:text-foreground"
         aria-label="Dismiss inline comment navigation status"
-        onclick={() => (prInlineTargetStatus = null)}>
+        onclick={() => {
+          dismissedPrInlineTargetHash = typeof window !== "undefined" ? window.location.hash : ""
+          prInlineTargetGeneration++
+          prInlineTargetStatus = null
+        }}>
         <X class="h-4 w-4" />
       </button>
     </div>
@@ -3352,6 +3309,12 @@
                                       repoRefs={commentRepoRefs}
                                       relayHint={commentRelayHint}
                                       enablePermalinks={false}
+                                      enableHashNavigation={false}
+                                      scrollTarget={prInlineScrollTarget?.mode === "commit" &&
+                                      prInlineScrollTarget.commitId === oid &&
+                                      prInlineScrollTarget.filePath === change.path
+                                        ? prInlineScrollTarget
+                                        : null}
                                       showFileHeaders={false}
                                       compact={true}
                                       framed={false}
@@ -3445,6 +3408,11 @@
                           repoRefs={commentRepoRefs}
                           relayHint={commentRelayHint}
                           enablePermalinks={false}
+                          enableHashNavigation={false}
+                          scrollTarget={prInlineScrollTarget?.mode === "files" &&
+                          prInlineScrollTarget.filePath === change.path
+                            ? prInlineScrollTarget
+                            : null}
                           showFileHeaders={false}
                           showFileAnchors={false}
                           compact={true}
