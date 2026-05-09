@@ -245,6 +245,7 @@
   let diffAnchors = $state<Record<string, string>>({})
   let currentHash = $state("")
   let autoSelectedFilesAnchor = $state<string | null>(null)
+  let autoExpandedChangesKey = $state<string | null>(null)
 
   const getCommitReviewDiff = (change: CommitChange) =>
     prChangeToReviewParseDiffFile(change, {
@@ -448,11 +449,13 @@
     return {totalAdditions, totalDeletions}
   })
 
-  // Expand all files by default if there are few changes
+  // Expand small commits once by default, without fighting manual collapse.
   $effect(() => {
-    if (changes && changes.length <= 5 && !getDiffHashFromLocation()) {
+    const key = commitMeta?.sha || changes?.map(change => change.path).join("\0") || ""
+    if (changes && changes.length <= 5 && key && autoExpandedChangesKey !== key && !getDiffHashFromLocation()) {
       expandedDiffFiles = new Set(changes.map(change => change.path))
       expandedFiles = new Set(changes.map(change => change.path))
+      autoExpandedChangesKey = key
     }
   })
 
