@@ -1681,12 +1681,12 @@
                     {@const isCommentRangeLine = coveringCommentRoots.length > 0}
                     {@const bgClass = isAdd
                       ? compact
-                        ? "border-l-2 border-emerald-700 bg-emerald-200 text-slate-900 dark:border-emerald-500 dark:bg-emerald-900/50 dark:text-slate-100"
-                        : "border-l-4 border-emerald-700 bg-emerald-200 text-slate-900 dark:border-emerald-500 dark:bg-emerald-900/50 dark:text-slate-100"
+                        ? "border-l-2 border-emerald-700 bg-emerald-100/80 text-slate-900 dark:border-emerald-500 dark:bg-emerald-900/50 dark:text-slate-100"
+                        : "border-l-4 border-emerald-700 bg-emerald-100/80 text-slate-900 dark:border-emerald-500 dark:bg-emerald-900/50 dark:text-slate-100"
                       : isDel
                         ? compact
-                          ? "border-l-2 border-rose-700 bg-rose-200 text-slate-900 dark:border-rose-500 dark:bg-rose-900/50 dark:text-slate-100"
-                          : "border-l-4 border-rose-700 bg-rose-200 text-slate-900 dark:border-rose-500 dark:bg-rose-900/50 dark:text-slate-100"
+                          ? "border-l-2 border-rose-700 bg-rose-100/80 text-slate-900 dark:border-rose-500 dark:bg-rose-900/50 dark:text-slate-100"
+                          : "border-l-4 border-rose-700 bg-rose-100/80 text-slate-900 dark:border-rose-500 dark:bg-rose-900/50 dark:text-slate-100"
                         : "hover:bg-secondary/50"}
 
                     <div class="w-full">
@@ -2085,9 +2085,9 @@
   }
 
   :global(.diff-selected-row) {
-    outline: 1px solid rgb(59 130 246 / 0.38);
+    outline: 1px solid rgb(37 99 235 / 0.18);
     outline-offset: -1px;
-    box-shadow: inset 0 0 0 9999px rgb(59 130 246 / 0.1);
+    box-shadow: inset 0 0 0 9999px rgb(59 130 246 / 0.035);
   }
 
   :global(.diff-comment-range-row) {
@@ -2098,30 +2098,33 @@
   :global(.diff-selected-gutter) {
     background: linear-gradient(
       90deg,
-      rgb(59 130 246 / 0.24) 0%,
-      rgb(59 130 246 / 0.12) 100%
+      rgb(37 99 235 / 0.14) 0%,
+      rgb(59 130 246 / 0.07) 100%
     ) !important;
     color: rgb(37 99 235) !important;
     font-weight: 700;
-    text-shadow: 0 0 10px rgb(59 130 246 / 0.22);
     box-shadow:
-      inset -2px 0 0 rgb(59 130 246 / 0.7),
-      inset 0 1px 0 rgb(96 165 250 / 0.45),
-      inset 0 -1px 0 rgb(37 99 235 / 0.25);
+      inset -2px 0 0 rgb(37 99 235 / 0.42),
+      inset 0 1px 0 rgb(96 165 250 / 0.24),
+      inset 0 -1px 0 rgb(37 99 235 / 0.14);
   }
 
   :global(.diff-selected-gutter-start) {
     box-shadow:
       inset -2px 0 0 rgb(59 130 246 / 0.85),
-      inset 0 1px 0 rgb(147 197 253 / 0.9),
-      inset 0 -1px 0 rgb(37 99 235 / 0.25);
+      inset 0 1px 0 rgb(147 197 253 / 0.42),
+      inset 0 -1px 0 rgb(37 99 235 / 0.14);
   }
 
   :global(.diff-selected-gutter-end) {
     box-shadow:
       inset -2px 0 0 rgb(59 130 246 / 0.85),
-      inset 0 1px 0 rgb(37 99 235 / 0.25),
-      inset 0 -1px 0 rgb(147 197 253 / 0.9);
+      inset 0 1px 0 rgb(37 99 235 / 0.14),
+      inset 0 -1px 0 rgb(147 197 253 / 0.42);
+  }
+
+  :global(body:not(.dark):not([data-theme="dark"]) .git-diff-view .hljs span[class]) {
+    filter: brightness(0.7) saturate(1.5) contrast(1.2);
   }
 
   :global(.diff-comment-blip) {

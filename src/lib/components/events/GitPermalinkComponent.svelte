@@ -536,7 +536,7 @@
 
     {#if contentPreview}
       <div
-        class="mt-3 max-w-full overflow-x-auto rounded border border-border/40 bg-muted/30 permalink-snippet"
+        class="permalink-snippet mt-3 max-w-full overflow-x-auto rounded border border-border/60"
       >
         {#if isDiff && highlightedDiffLines.length > 0}
           <div class="snippet-lines">
@@ -595,7 +595,12 @@
   }
 
   .permalink-snippet {
+    background: hsl(var(--ng-background));
     -webkit-overflow-scrolling: touch;
+  }
+
+  :global(body:not(.dark):not([data-theme="dark"]) .permalink-snippet .hljs span[class]) {
+    filter: brightness(0.7) saturate(1.5) contrast(1.2);
   }
 
   /* Snippet line layout */
@@ -620,7 +625,7 @@
     min-width: 2.5ch;
     padding: 0 0.5ch;
     text-align: right;
-    color: hsl(var(--ng-muted-foreground) / 0.45);
+    color: hsl(var(--ng-muted-foreground) / 0.72);
     user-select: none;
   }
 
@@ -629,7 +634,7 @@
     width: 1.5ch;
     text-align: center;
     user-select: none;
-    opacity: 0.5;
+    color: hsl(var(--ng-muted-foreground) / 0.78);
   }
 
   :global(.snippet-code) {
@@ -643,13 +648,13 @@
   }
 
   :global(.permalink-diff-add) {
-    background-color: rgba(34, 197, 94, 0.12);
-    border-left: 2px solid rgb(22, 163, 74);
+    background-color: rgba(16, 185, 129, 0.16);
+    border-left: 2px solid rgb(5, 150, 105);
   }
 
   :global(.permalink-diff-del) {
-    background-color: rgba(239, 68, 68, 0.12);
-    border-left: 2px solid rgb(220, 38, 38);
+    background-color: rgba(244, 63, 94, 0.14);
+    border-left: 2px solid rgb(225, 29, 72);
   }
 
   :global(.dark .permalink-diff-add) {

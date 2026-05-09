@@ -124,9 +124,9 @@
   const getLineClass = (type: "+" | "-" | " ") => {
     switch (type) {
       case "+":
-        return "border-l-2 border-l-emerald-600 bg-emerald-200/70 dark:bg-emerald-900/50";
+        return "border-l-2 border-l-emerald-700 bg-emerald-100/80 text-slate-900 dark:border-l-emerald-500 dark:bg-emerald-900/50 dark:text-slate-100";
       case "-":
-        return "border-l-2 border-l-rose-600 bg-rose-200/70 dark:bg-rose-900/50";
+        return "border-l-2 border-l-rose-700 bg-rose-100/80 text-slate-900 dark:border-l-rose-500 dark:bg-rose-900/50 dark:text-slate-100";
       default:
         return "bg-background hover:bg-muted/30";
     }
@@ -162,7 +162,7 @@
   );
 </script>
 
-<div class="border border-border rounded-md overflow-hidden mb-4">
+<div class="file-diff border border-border rounded-md overflow-hidden mb-4">
   <!-- File Header -->
   <button
     type="button"
@@ -364,5 +364,9 @@
 
   .overflow-x-auto::-webkit-scrollbar-thumb:hover {
     background-color: hsl(var(--ng-muted-foreground) / 0.55);
+  }
+
+  :global(body:not(.dark):not([data-theme="dark"]) .file-diff .hljs span[class]) {
+    filter: brightness(0.7) saturate(1.5) contrast(1.2);
   }
 </style>
