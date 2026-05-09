@@ -1248,6 +1248,7 @@
         {@const trustMetric = repoTrustMetrics.byRootId.get(pr.id)}
         <div
           in:slideAndFade={{duration: 200}}
+          class="cursor-pointer"
           data-index={index}
           data-pr-id={pr.id}
           onclick={event => handlePrClick(event, pr, index)}
