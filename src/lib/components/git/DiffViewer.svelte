@@ -240,7 +240,7 @@
     const visibilityClass = forceVisible
       ? "opacity-100"
       : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
-    return `${sizeClass} ${visibilityClass} bg-background/90 text-muted-foreground shadow-sm transition-opacity hover:text-blue-500`;
+    return `diff-comment-trigger ${sizeClass} ${visibilityClass} bg-background/90 text-muted-foreground shadow-sm transition-opacity hover:text-blue-500`;
   }
 
   function getCommentThreadClass() {
@@ -248,7 +248,7 @@
   }
 
   function getCommentComposerClass() {
-    return `w-full max-w-none overflow-hidden rounded-b-md border border-t-0 border-blue-500/30 bg-background shadow-sm`;
+    return `diff-comment-composer w-full max-w-none overflow-hidden rounded-b-md border border-t-0 border-blue-500/30 bg-background shadow-sm`;
   }
 
   // Accept both AST and raw string for dev ergonomics
@@ -510,6 +510,15 @@
     }
   };
 
+  function closeCommentComposer() {
+    selectedLine = null;
+    selectedFileIdx = null;
+    selectedChunkIdx = null;
+    selectedCommentLineRange = null;
+    selectedCommentLineSide = undefined;
+    newComment = "";
+  }
+
   $effect(() => {
     const handler = (e: MouseEvent) => {
       if (Date.now() < ignoreMenuCloseUntil) return;
@@ -521,6 +530,18 @@
     };
     window.addEventListener("click", handler);
     return () => window.removeEventListener("click", handler);
+  });
+
+  $effect(() => {
+    if (selectedLine === null) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest(".diff-comment-composer, .diff-comment-trigger")) return;
+      closeCommentComposer();
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
   });
 
   $effect(() => {
@@ -656,11 +677,6 @@
         return;
       }
       ignoreMenuCloseUntil = Date.now() + 300;
-      if (canComment && pointerSelectionStartedInGutter) {
-        pointerSelectionStartedInGutter = false;
-        openCommentBoxFromSelection();
-        return;
-      }
       pointerSelectionStartedInGutter = false;
       if (!openPermalinkMenuFromSelection()) {
         openPermalinkMenuAt(clientX, clientY);
@@ -763,15 +779,6 @@
       if (!isTouchSelecting) return;
 
       ignoreMenuCloseUntil = Date.now() + 300;
-      if (canComment && touchSelectionStartedInGutter) {
-        openCommentBoxFromSelection();
-        touchSelectionStartedInGutter = false;
-        touchLongPress = false;
-        isTouchSelecting = false;
-        touchStartFilePath = null;
-        touchStartIndex = null;
-        return;
-      }
       if (!openPermalinkMenuFromSelection()) {
         openPermalinkMenuAt(touch.clientX, touch.clientY);
       }
@@ -978,10 +985,15 @@
   function shouldIgnoreSelectionTarget(target: HTMLElement | null, allowGutterSelection = false) {
     if (!target) return true;
     if (target.closest(".permalink-menu-popup")) return true;
+    if (
+      target.closest(
+        "button, a, input, textarea, select, option, summary, [role='button'], [contenteditable='true']"
+      )
+    ) {
+      return true;
+    }
     if (allowGutterSelection && target.closest(".diff-line-gutter")) return false;
-    return !!target.closest(
-      "button, a, input, textarea, select, option, summary, [role='button'], [contenteditable='true']"
-    );
+    return false;
   }
 
   function clearTouchTimer() {
@@ -1159,6 +1171,11 @@
     if (!selection) return false;
     if (selection.filePath !== filePath) return false;
     return lineIndex >= selection.start && lineIndex <= selection.end;
+  }
+
+  function isSelectionEndLine(filePath: string, lineIndex: number) {
+    const selection = getSelectionRange();
+    return !!selection && selection.filePath === filePath && lineIndex === selection.end;
   }
 
   function getSelectedGutterClass(filePath: string, lineIndex: number, lineNumber: number | null) {
@@ -1678,6 +1695,7 @@
                     {@const chunkOffset = fileChunkOffsets[fileIdx]?.[chunkIdx] ?? 0}
                     {@const lineIndex = chunkOffset + i}
                     {@const isSelectedLine = isLineWithinSelection(currentFilePath, lineIndex)}
+                    {@const isCommentActionLine = isSelectionEndLine(currentFilePath, lineIndex)}
                     {@const isCommentRangeLine = coveringCommentRoots.length > 0}
                     {@const bgClass = isAdd
                       ? compact
@@ -1717,7 +1735,7 @@
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  class={getCommentButtonClass(isSelectedLine)}
+                                  class={getCommentButtonClass(isCommentActionLine)}
                                   title="Add inline comment"
                                   aria-label="Add inline comment"
                                   onclick={(event) => {
