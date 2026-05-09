@@ -60,7 +60,7 @@
   })
   const browseHref = $derived.by(() => makeGitPath(url, repoNaddr))
   const issuesHref = $derived.by(() => `${browseHref}/issues`)
-  const patchesHref = $derived.by(() => `${browseHref}/patches`)
+  const prsHref = $derived.by(() => `${browseHref}/prs`)
   const repoAddress = $derived.by(() => {
     try {
       return Address.fromEvent(event).toString()
@@ -77,7 +77,7 @@
           repoAddresses: getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
         })
       }
-      return $notifications.has(issuesHref) || $notifications.has(patchesHref)
+      return $notifications.has(issuesHref) || $notifications.has(prsHref)
     },
   )
 

@@ -21,7 +21,6 @@
   import {
     GIT_REPO_ANNOUNCEMENT,
     GIT_ISSUE,
-    GIT_PATCH,
     GIT_PULL_REQUEST,
     GIT_PULL_REQUEST_UPDATE,
     GIT_STATUS_OPEN,
@@ -50,7 +49,7 @@
   let selectedRepos = $state<string[]>([])
 
   let notifyIssues = $state(true)
-  let notifyPatches = $state(true)
+  let notifyPrs = $state(true)
   let notifyPrUpdates = $state(true)
   let notifyStatus = $state(true)
   let notifyAssignments = $state(true)
@@ -144,7 +143,7 @@
 
     if (
       !notifyIssues &&
-      !notifyPatches &&
+      !notifyPrs &&
       !notifyPrUpdates &&
       !notifyStatus &&
       !notifyAssignments &&
@@ -164,9 +163,9 @@
       filters.push({kinds: [GIT_ISSUE], "#a": selectedRepos})
     }
 
-    if (notifyPatches) {
-      display.push("patches / PRs")
-      filters.push({kinds: [GIT_PATCH, GIT_PULL_REQUEST], "#a": selectedRepos})
+    if (notifyPrs) {
+      display.push("PRs")
+      filters.push({kinds: [GIT_PULL_REQUEST], "#a": selectedRepos})
     }
 
     if (notifyPrUpdates) {
@@ -270,7 +269,7 @@
       Add a Repo Alert
     {/snippet}
     {#snippet info()}
-      Email digests include issues, patches/PRs, status changes, and assignments.
+      Email digests include issues, PRs, status changes, and assignments.
     {/snippet}
   </ModalHeader>
 
@@ -336,8 +335,8 @@
         Issues
       </label>
       <label class="flex items-center gap-2">
-        <input type="checkbox" class="checkbox" bind:checked={notifyPatches} />
-        Patches / PRs
+        <input type="checkbox" class="checkbox" bind:checked={notifyPrs} />
+        PRs
       </label>
       <label class="flex items-center gap-2">
         <input type="checkbox" class="checkbox" bind:checked={notifyPrUpdates} />

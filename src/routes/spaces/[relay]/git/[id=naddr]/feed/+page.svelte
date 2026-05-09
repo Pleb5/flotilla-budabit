@@ -342,7 +342,7 @@
   })
 
   const getOpenHref = (event: TrustedEvent) =>
-    event.kind === GIT_ISSUE ? `${basePath}/issues/${event.id}` : `${basePath}/patches/${event.id}`
+    event.kind === GIT_ISSUE ? `${basePath}/issues/${event.id}` : `${basePath}/prs/${event.id}`
 
   const statusStateById = $derived.by(() => {
     const byId = new Map<string, "open" | "draft" | "closed" | "applied">()

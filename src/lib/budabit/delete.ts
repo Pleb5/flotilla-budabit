@@ -3,7 +3,6 @@ import {
   GIT_CONFLICT_METADATA,
   GIT_ISSUE,
   GIT_MERGE_METADATA,
-  GIT_PATCH,
   GIT_PULL_REQUEST,
   GIT_PULL_REQUEST_UPDATE,
   GIT_REPO_ANNOUNCEMENT,
@@ -49,7 +48,6 @@ export const buildRepoOwnedDeleteFilters = ({
   if (addresses.length > 0) {
     filters.push({
       kinds: [
-        GIT_PATCH,
         GIT_STACK,
         GIT_MERGE_METADATA,
         GIT_CONFLICT_METADATA,

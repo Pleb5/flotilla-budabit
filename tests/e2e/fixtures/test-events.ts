@@ -22,7 +22,6 @@ import {
   createRepoAnnouncement,
   createIssue,
   createIssueReply,
-  createPatch,
   createStatus,
   NIP34_KINDS,
   TEST_USERS,
@@ -92,7 +91,7 @@ export const REPO_MULTI_MAINTAINER = createRepoAnnouncement({
 // =============================================================================
 
 /**
- * Build the repo reference for linking issues/patches
+ * Build the repo reference for linking issues/PRs
  */
 function repoRef(repo: NostrEvent): string {
   const dTag = repo.tags.find((t) => t[0] === "d")?.[1] || ""
@@ -150,54 +149,6 @@ export const ISSUE_BUG_REPLY = createIssueReply({
 })
 
 // =============================================================================
-// Patch Fixtures
-// =============================================================================
-
-/**
- * A patch fixing the bug
- */
-export const PATCH_BUG_FIX = createPatch({
-  pubkey: PUBKEYS.bob,
-  title: "Fix null pointer exception on startup",
-  diff: `diff --git a/src/app.ts b/src/app.ts
-index abc123..def456 100644
---- a/src/app.ts
-+++ b/src/app.ts
-@@ -10,7 +10,9 @@ export function initialize() {
-   const config = loadConfig();
--  const value = config.foo.bar;
-+  const value = config?.foo?.bar ?? 'default';
-   return value;
- }`,
-  repoRef: repoRef(REPO_SIMPLE),
-  commitId: "abc123def456",
-  parentCommit: "111222333444",
-})
-
-/**
- * A patch adding a feature
- */
-export const PATCH_FEATURE = createPatch({
-  pubkey: PUBKEYS.charlie,
-  title: "Add dark mode toggle to settings",
-  diff: `diff --git a/src/settings.ts b/src/settings.ts
-index 111222..333444 100644
---- a/src/settings.ts
-+++ b/src/settings.ts
-@@ -5,6 +5,7 @@ export interface Settings {
-   language: string;
-+  darkMode: boolean;
- }
-
-@@ -12,6 +13,7 @@ export const defaultSettings: Settings = {
-   language: 'en',
-+  darkMode: false,
- };`,
-  repoRef: repoRef(REPO_SIMPLE),
-  commitId: "555666777888",
-})
-
-// =============================================================================
 // Status Fixtures
 // =============================================================================
 
@@ -212,23 +163,12 @@ export const STATUS_ISSUE_CLOSED = createStatus({
   content: "Fixed in commit abc123",
 })
 
-/**
- * Status marking the patch as applied/merged
- */
-export const STATUS_PATCH_MERGED = createStatus({
-  pubkey: PUBKEYS.alice,
-  statusKind: 1631, // Applied/Merged
-  targetId: PATCH_BUG_FIX.id,
-  repoRef: repoRef(REPO_SIMPLE),
-  content: "Merged! Thanks for the fix!",
-})
-
 // =============================================================================
 // Composite Fixtures (ready-to-use collections)
 // =============================================================================
 
 /**
- * Collection: Just repositories (no issues or patches)
+ * Collection: Just repositories (no issues)
  */
 export const REPOS_ONLY: NostrEvent[] = [
   REPO_SIMPLE,
@@ -247,29 +187,14 @@ export const REPO_WITH_OPEN_ISSUES: NostrEvent[] = [
 ]
 
 /**
- * Collection: Repository with issues and patches
- */
-export const REPO_WITH_ISSUES_AND_PATCHES: NostrEvent[] = [
-  REPO_SIMPLE,
-  ISSUE_BUG,
-  ISSUE_FEATURE,
-  ISSUE_BUG_REPLY,
-  PATCH_BUG_FIX,
-  PATCH_FEATURE,
-]
-
-/**
- * Collection: Complete scenario with closed issues and merged patches
+ * Collection: Complete scenario with issues and statuses
  */
 export const COMPLETE_SCENARIO: NostrEvent[] = [
   REPO_SIMPLE,
   ISSUE_BUG,
   ISSUE_FEATURE,
   ISSUE_BUG_REPLY,
-  PATCH_BUG_FIX,
-  PATCH_FEATURE,
   STATUS_ISSUE_CLOSED,
-  STATUS_PATCH_MERGED,
 ]
 
 /**
@@ -286,18 +211,12 @@ export const FIXTURES = {
   ISSUE_FEATURE,
   ISSUE_BUG_REPLY,
 
-  // Individual patches
-  PATCH_BUG_FIX,
-  PATCH_FEATURE,
-
   // Individual statuses
   STATUS_ISSUE_CLOSED,
-  STATUS_PATCH_MERGED,
 
   // Collections
   REPOS_ONLY,
   REPO_WITH_OPEN_ISSUES,
-  REPO_WITH_ISSUES_AND_PATCHES,
   COMPLETE_SCENARIO,
 
   // Test users

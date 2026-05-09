@@ -2,14 +2,14 @@
  * NIP-34 Git Event Fixtures for E2E Testing
  *
  * This module provides comprehensive fixtures for all NIP-34 git-related
- * Nostr events, including repository announcements, patches, issues,
+ * Nostr events, including repository announcements, pull requests, issues,
  * status events, and NIP-32 labels.
  *
  * Usage:
  * ```typescript
  * import {
  *   createRepoAnnouncement,
- *   createPatch,
+ *   createPullRequest,
  *   createIssue,
  *   createStatusEvent,
  *   createLabel,
@@ -59,25 +59,18 @@ export {
 } from "./repo"
 
 // ============================================================================
-// Patch Events (Kind 1617, 1618, 1619)
+// Pull Request Events (Kind 1618, 1619)
 // ============================================================================
 export {
   // Factory functions
-  createPatch,
   createPullRequest,
   createPullRequestUpdate,
 
   // Types
-  type PatchOptions,
   type PullRequestOptions,
   type PullRequestUpdateOptions,
-  type Committer,
 
   // Pre-built fixtures
-  MINIMAL_PATCH,
-  FULL_PATCH,
-  STACKED_PATCH,
-  SUPERSEDING_PATCH,
   MINIMAL_PULL_REQUEST,
   FULL_PULL_REQUEST,
   PULL_REQUEST_UPDATE,
@@ -137,12 +130,10 @@ export {
   ISSUE_OPEN_STATUS,
   PR_OPEN_STATUS,
   PR_MERGED_STATUS,
-  PATCH_APPLIED_STATUS,
   ISSUE_RESOLVED_STATUS,
   ISSUE_WONTFIX_STATUS,
   PR_REJECTED_STATUS,
   PR_DRAFT_STATUS,
-  PATCH_DRAFT_STATUS,
   ISSUE_REOPENED_STATUS,
   MINIMAL_STATUS,
   STATUS_LIFECYCLE,
@@ -198,8 +189,7 @@ export const GIT_EVENT_KINDS = {
   REPO_ANNOUNCEMENT: 30617,
   REPO_STATE: 30618,
 
-  // Patch events
-  PATCH: 1617,
+  // Pull request events
   PULL_REQUEST: 1618,
   PULL_REQUEST_UPDATE: 1619,
 

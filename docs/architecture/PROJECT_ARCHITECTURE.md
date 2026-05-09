@@ -204,14 +204,14 @@ The project implements **NIP-34** (Git Stuff) for Nostr-native git:
 
 - **Kind 30617**: Repository Announcement
 - **Kind 30618**: Repository State (HEAD + refs)
-- **Kind 1617-1633**: Issues, Patches, Comments, Status events
+- **Kind 1618-1633**: Pull requests, issues, comments, status events
 
 The `RepoCore` class in `repo-core.ts` orchestrates Nostr-based git workflows, including:
 
-- Issue/patch thread assembly
+- Issue/PR thread assembly
 - Status resolution (open/closed/merged)
 - Maintainer trust verification
-- Patch graph generation
+- Pull request trust and status metrics
 
 ---
 

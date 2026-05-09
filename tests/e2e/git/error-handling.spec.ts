@@ -19,7 +19,7 @@ import {TEST_PUBKEYS, getRepoAddress} from "../fixtures/events"
  *
  * These tests cover:
  * 1. Network Errors - Relay unavailable, connection failures, retry mechanisms
- * 2. Empty States - Repos with no commits, issues, or patches
+ * 2. Empty States - Repos with no commits, issues, or pull requests
  * 3. Data Edge Cases - Unicode, long descriptions, special characters
  * 4. Concurrent Operations - Rapid clicks, duplicate event prevention
  * 5. Permission Scenarios - Non-maintainer restrictions
@@ -145,12 +145,12 @@ test.describe("Network Errors", () => {
 
   test.describe("Partial Data Loading", () => {
     test("handles repo without related events", async ({page}) => {
-      // Seed a repo but no issues, patches, or statuses
+      // Seed a repo but no issues, pull requests, or statuses
       const seeder = new TestSeeder({debug: true})
       seeder.seedRepo({
         name: "lonely-repo",
         description: "A repo with no activity",
-        // No withIssues or withPatches
+        // No withIssues or withPullRequests
       })
       await seeder.setup(page)
 
@@ -298,12 +298,12 @@ test.describe("Empty States", () => {
       expect(page.url()).toContain("/issues")
     })
 
-    test("displays empty state for repo with no patches", async ({page}) => {
+    test("displays empty state for repo with no PRs", async ({page}) => {
       const seeder = new TestSeeder({debug: true})
       seeder.seedRepo({
-        name: "no-patches-repo",
-        description: "A repository with no patches",
-        // Explicitly no patches
+        name: "no-prs-repo",
+        description: "A repository with no PRs",
+        // Explicitly no PRs
       })
       await seeder.setup(page)
 
@@ -311,23 +311,23 @@ test.describe("Empty States", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await gitHub.clickRepoByName("no-patches-repo")
+      await gitHub.clickRepoByName("no-prs-repo")
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
       // Wait for repo detail page tabs to appear
-      const patchesTab = page.locator("nav a[href*='/patches']").first()
-      await expect(patchesTab).toBeVisible({timeout: 10000})
+      const prsTab = page.locator("nav a[href*='/prs']").first()
+      await expect(prsTab).toBeVisible({timeout: 10000})
 
-      // Navigate to patches tab
-      await patchesTab.click()
-      await page.waitForURL(/\/patches/, {timeout: 10000})
+      // Navigate to PRs tab
+      await prsTab.click()
+      await page.waitForURL(/\/prs/, {timeout: 10000})
 
-      // Should be on patches page
-      expect(page.url()).toContain("/patches")
+      // Should be on PRs page
+      expect(page.url()).toContain("/prs")
 
       // Page should be functional - tab should still be visible
-      await expect(patchesTab).toBeVisible()
+      await expect(prsTab).toBeVisible()
     })
 
     test("handles completely empty relay", async ({page}) => {
@@ -566,12 +566,12 @@ test.describe("Data Edge Cases", () => {
       expect(page.url()).toContain("/issues")
     })
 
-    test("handles very long patch content", async ({page}) => {
-      // Create a patch with many lines
+    test("handles very long pull request content", async ({page}) => {
+      // Create a pull request with many lines
       const manyLines = Array.from({length: 1000}, (_, i) => `+// Line ${i + 1}: Added code`).join(
         "\n",
       )
-      const longPatch = `diff --git a/large-file.ts b/large-file.ts
+      const longPullRequestBody = `diff --git a/large-file.ts b/large-file.ts
 index abc123..def456 100644
 --- a/large-file.ts
 +++ b/large-file.ts
@@ -581,13 +581,13 @@ ${manyLines}
 
       const seeder = new TestSeeder({debug: true})
       const repo = seeder.seedRepo({
-        name: "large-patch-repo",
+        name: "large-pr-repo",
       })
 
-      seeder.seedPatch({
+      seeder.seedPullRequest({
         repoAddress: repo.address,
-        title: "Large patch with many changes",
-        content: longPatch,
+        title: "Large pull request with many changes",
+        content: longPullRequestBody,
         status: "open",
       })
 
@@ -597,18 +597,18 @@ ${manyLines}
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await gitHub.clickRepoByName("large-patch-repo")
+      await gitHub.clickRepoByName("large-pr-repo")
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 10000})
       await page.waitForLoadState("networkidle")
 
-      // Navigate to patches tab
-      const patchesTab = page.locator("nav a[href*='/patches']").first()
-      await expect(patchesTab).toBeVisible({timeout: 10000})
-      await patchesTab.click()
-      await page.waitForURL(/\/patches/, {timeout: 10000})
+      // Navigate to PRs tab
+      const prsTab = page.locator("nav a[href*='/prs']").first()
+      await expect(prsTab).toBeVisible({timeout: 10000})
+      await prsTab.click()
+      await page.waitForURL(/\/prs/, {timeout: 10000})
 
       // Page should handle without crashing
-      expect(page.url()).toContain("/patches")
+      expect(page.url()).toContain("/prs")
     })
   })
 
@@ -736,7 +736,7 @@ test.describe("Concurrent Operations", () => {
       await page.waitForLoadState("networkidle")
 
       // Rapid clicks on different tabs
-      const tabs = ["issues", "patches", "code", "commits", "feed"]
+      const tabs = ["issues", "prs", "code", "commits", "feed"]
 
       for (const tab of tabs) {
         const tabLink = page.locator(`a[href*='/${tab}']`).first()
@@ -1005,16 +1005,15 @@ test.describe("Permission Scenarios", () => {
       expect(page.url()).toContain("/issues")
     })
 
-    test("can view patches on repo without being maintainer", async ({page}) => {
+    test("can view PRs tab on repo without being maintainer", async ({page}) => {
       const seeder = new TestSeeder({debug: true})
       const otherMaintainer = "d".repeat(64)
 
       const repo = seeder.seedRepo({
-        name: "public-patches-repo",
-        description: "Public repo with patches",
+        name: "public-prs-repo",
+        description: "Public repo with PRs",
         maintainers: [otherMaintainer],
         pubkey: otherMaintainer,
-        withPatches: 2,
       })
 
       await seeder.setup(page)
@@ -1027,22 +1026,22 @@ test.describe("Permission Scenarios", () => {
       await expect(pageTitle).toBeVisible({timeout: 15000})
 
       // Wait for repo to appear
-      await expect(page.getByText("public-patches-repo")).toBeVisible({timeout: 15000})
+      await expect(page.getByText("public-prs-repo")).toBeVisible({timeout: 15000})
 
       // Navigate to repo
-      const repoCard = page.locator("div").filter({hasText: "public-patches-repo"}).first()
+      const repoCard = page.locator("div").filter({hasText: "public-prs-repo"}).first()
       const browseLink = repoCard.locator('a:has-text("Browse")')
       await browseLink.click()
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Should be able to navigate to patches
-      const patchesTab = page.locator("nav a[href*='/patches']").first()
-      await expect(patchesTab).toBeVisible({timeout: 15000})
-      await patchesTab.click()
-      await page.waitForURL(/\/patches/, {timeout: 15000})
+      // Should be able to navigate to PRs
+      const prsTab = page.locator("nav a[href*='/prs']").first()
+      await expect(prsTab).toBeVisible({timeout: 15000})
+      await prsTab.click()
+      await page.waitForURL(/\/prs/, {timeout: 15000})
 
-      expect(page.url()).toContain("/patches")
+      expect(page.url()).toContain("/prs")
     })
   })
 

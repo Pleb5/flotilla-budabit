@@ -3,7 +3,7 @@
   import type {Snippet} from "svelte"
   import type {TrustedEvent} from "@welshman/util"
   import {Address, COMMENT, ManagementMethod, isReplaceable} from "@welshman/util"
-  import {GIT_PATCH, GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
+  import {GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import * as nip19 from "nostr-tools/nip19"
   import {pubkey, repository, manageRelay} from "@welshman/app"
@@ -19,7 +19,7 @@
   import Report from "@app/components/Report.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import IssueDeleteConfirm from "@app/components/IssueDeleteConfirm.svelte"
-  import PatchDeleteConfirm from "@app/components/PatchDeleteConfirm.svelte"
+  import PullRequestDeleteConfirm from "@app/components/PullRequestDeleteConfirm.svelte"
   import {deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip, pushToast} from "@app/util/toast"
@@ -89,9 +89,9 @@
       pushModal(IssueDeleteConfirm, {event, relays: deleteRelays})
       return
     }
-    if (event.kind === GIT_PATCH || event.kind === GIT_PULL_REQUEST) {
+    if (event.kind === GIT_PULL_REQUEST) {
       const deleteRelays = relays.length > 0 ? relays : url ? [url] : []
-      pushModal(PatchDeleteConfirm, {event, relays: deleteRelays})
+      pushModal(PullRequestDeleteConfirm, {event, relays: deleteRelays})
       return
     }
     pushModal(EventDeleteConfirm, {url, event, noun})

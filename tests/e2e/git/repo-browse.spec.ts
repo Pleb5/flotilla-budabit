@@ -368,12 +368,11 @@ test.describe("Repository Browsing", () => {
       })
     })
 
-    test("displays repository with patches count", async ({page}) => {
+    test("displays repository with PRs tab", async ({page}) => {
       const seeder = new TestSeeder()
       seeder.seedRepo({
-        name: "patches-count-repo",
-        description: "Repository with patches",
-        withPatches: 3,
+        name: "prs-tab-repo",
+        description: "Repository with PRs",
       })
 
       await seeder.setup(page)
@@ -382,12 +381,12 @@ test.describe("Repository Browsing", () => {
       await gitHub.goto()
       await gitHub.waitForLoad()
 
-      await gitHub.clickRepoByName("patches-count-repo")
+      await gitHub.clickRepoByName("prs-tab-repo")
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Patches tab should be visible (exclude external links with target="_blank")
-      await expect(page.locator("a[href*='/patches']:not([target='_blank'])").first()).toBeVisible({
+      // PRs tab should be visible (exclude external links with target="_blank")
+      await expect(page.locator("a[href*='/prs']:not([target='_blank'])").first()).toBeVisible({
         timeout: 10000,
       })
     })
@@ -409,7 +408,7 @@ test.describe("Repository Browsing", () => {
       await expect(page.locator("a[href*='/feed']").first()).toBeVisible({timeout: 10000})
       await expect(page.locator("a[href*='/code']").first()).toBeVisible()
       await expect(page.locator("a[href*='/issues']").first()).toBeVisible()
-      await expect(page.locator("a[href*='/patches']").first()).toBeVisible()
+      await expect(page.locator("a[href*='/prs']").first()).toBeVisible()
       await expect(page.locator("a[href*='/commits']").first()).toBeVisible()
     })
   })
@@ -453,7 +452,7 @@ test.describe("Repository Browsing", () => {
       expect(page.url()).toContain("/issues")
     })
 
-    test("clicking Patches tab loads patches view", async ({page}) => {
+    test("clicking PRs tab loads PRs view", async ({page}) => {
       const seeder = await seedTestScenario(page, "full")
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
@@ -464,12 +463,12 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/git\/.*naddr.*/, {timeout: 15000})
       await page.waitForLoadState("networkidle")
 
-      // Click Patches tab and wait for URL to update
-      await page.locator("a[href*='/patches']").first().click()
-      await page.waitForURL(/\/patches/, {timeout: 10000})
+      // Click PRs tab and wait for URL to update
+      await page.locator("a[href*='/prs']").first().click()
+      await page.waitForURL(/\/prs/, {timeout: 10000})
 
-      // URL should update to include /patches
-      expect(page.url()).toContain("/patches")
+      // URL should update to include /prs
+      expect(page.url()).toContain("/prs")
     })
 
     test("clicking Commits tab loads commits view", async ({page}) => {
@@ -495,7 +494,6 @@ test.describe("Repository Browsing", () => {
       const seeder = await seedTestRepo(page, {
         name: "tab-navigation-repo",
         withIssues: 2,
-        withPatches: 2,
       })
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
@@ -514,10 +512,10 @@ test.describe("Repository Browsing", () => {
       await page.waitForURL(/\/issues/, {timeout: 10000})
       expect(page.url()).toContain("/issues")
 
-      // Navigate to patches and wait for URL
-      await page.locator("a[href*='/patches']").first().click()
-      await page.waitForURL(/\/patches/, {timeout: 10000})
-      expect(page.url()).toContain("/patches")
+      // Navigate to PRs and wait for URL
+      await page.locator("a[href*='/prs']").first().click()
+      await page.waitForURL(/\/prs/, {timeout: 10000})
+      expect(page.url()).toContain("/prs")
 
       // Navigate back to feed/home and wait for URL
       await page.locator("a[href*='/feed']").first().click()
@@ -802,11 +800,11 @@ test.describe("Repository Browsing", () => {
       // Check tabs are available
       const hasCode = await repoDetail.hasTab("code")
       const hasIssues = await repoDetail.hasTab("issues")
-      const hasPatches = await repoDetail.hasTab("patches")
+      const hasPrs = await repoDetail.hasTab("prs")
 
       expect(hasCode).toBeTruthy()
       expect(hasIssues).toBeTruthy()
-      expect(hasPatches).toBeTruthy()
+      expect(hasPrs).toBeTruthy()
     })
 
     test("can navigate tabs using page object", async ({page}) => {
@@ -830,12 +828,12 @@ test.describe("Repository Browsing", () => {
       await repoDetail.goToIssues()
       await expect.poll(() => page.url(), {timeout: 10000}).toContain("/issues")
 
-      // Navigate to patches
-      await repoDetail.goToPatches()
-      if (!page.url().includes("/patches")) {
-        await repoDetail.goToPatches()
+      // Navigate to PRs
+      await repoDetail.goToPrs()
+      if (!page.url().includes("/prs")) {
+        await repoDetail.goToPrs()
       }
-      await expect.poll(() => page.url(), {timeout: 10000}).toContain("/patches")
+      await expect.poll(() => page.url(), {timeout: 10000}).toContain("/prs")
 
       // Navigate to code
       await repoDetail.goToCode()
@@ -937,20 +935,18 @@ test.describe("Repository Browsing", () => {
       await expect(page.getByText("many-issues-repo")).toBeVisible({timeout: 10000})
     })
 
-    test("handles repository with both issues and patches", async ({page}) => {
+    test("handles repository with issues and PR tab", async ({page}) => {
       const seeder = new TestSeeder()
       seeder.seedRepo({
         name: "full-featured-repo",
-        description: "Repository with issues and patches",
+        description: "Repository with issues and PRs",
         withIssues: 3,
-        withPatches: 3,
       })
 
       await seeder.setup(page)
 
       // Verify seeding
       expect(seeder.getIssues()).toHaveLength(3)
-      expect(seeder.getPatches()).toHaveLength(3)
 
       const gitHub = new GitHubPage(page, ENCODED_RELAY)
       await gitHub.goto()

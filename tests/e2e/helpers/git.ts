@@ -71,13 +71,13 @@ export async function navigateToRepo(
  * @param page - Playwright page object
  * @param relay - WebSocket relay URL
  * @param naddr - Nostr address of the repository
- * @param tab - Tab name (code, commits, issues, patches, feed, cicd, workbench)
+ * @param tab - Tab name (code, commits, issues, prs, feed, cicd, workbench)
  */
 export async function navigateToRepoTab(
   page: Page,
   relay: string,
   naddr: string,
-  tab: "code" | "commits" | "issues" | "patches" | "feed" | "cicd" | "workbench",
+  tab: "code" | "commits" | "issues" | "prs" | "feed" | "cicd" | "workbench",
 ): Promise<void> {
   const encodedRelay = encodeRelay(relay)
   await page.goto(`/spaces/${encodedRelay}/git/${naddr}/${tab}`)

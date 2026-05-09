@@ -14,7 +14,6 @@ import {Router} from "@welshman/router"
 import {publishDelete} from "@app/core/commands"
 import {
   COMMENT,
-  GIT_PATCH,
   GIT_STATUS_OPEN,
   GIT_STATUS_DRAFT,
   GIT_STATUS_CLOSED,
@@ -224,11 +223,7 @@ const waitForDeletePublish = async (
 
 const getDeleteTargetLabel = (event: TrustedEvent, root: TrustedEvent) => {
   if (event.id === root.id) {
-    return root.kind === GIT_PULL_REQUEST
-      ? "pull request"
-      : root.kind === GIT_PATCH
-        ? "patch"
-        : "issue"
+    return root.kind === GIT_PULL_REQUEST ? "pull request" : "issue"
   }
 
   if (event.kind === GIT_PULL_REQUEST_UPDATE) return "pull request update"
@@ -239,7 +234,6 @@ const getDeleteTargetLabel = (event: TrustedEvent, root: TrustedEvent) => {
   ) {
     return "status"
   }
-  if (event.kind === GIT_PATCH) return "related patch"
   return "event"
 }
 
@@ -348,7 +342,7 @@ export const deleteIssueWithLabels = async ({
   return {labelsDeleted: labelEvents.length}
 }
 
-export const deletePatchOrPullRequestWithRelated = async ({
+export const deletePullRequestWithRelated = async ({
   root,
   relays = [],
   protect = false,
@@ -360,7 +354,7 @@ export const deletePatchOrPullRequestWithRelated = async ({
   protect?: boolean
 } & DeleteCallbacks): Promise<{deletedEvents: number; relatedDeleted: number}> => {
   if (!root?.id) return {deletedEvents: 0, relatedDeleted: 0}
-  if (![GIT_PATCH, GIT_PULL_REQUEST].includes(root.kind)) {
+  if (root.kind !== GIT_PULL_REQUEST) {
     return {deletedEvents: 0, relatedDeleted: 0}
   }
 
@@ -374,7 +368,7 @@ export const deletePatchOrPullRequestWithRelated = async ({
     label: "Loading related events...",
     completed: 0,
     total: 1,
-    current: root.kind === GIT_PULL_REQUEST ? "pull request" : "patch",
+    current: "pull request",
   })
 
   throwIfAborted(signal)
@@ -398,27 +392,14 @@ export const deletePatchOrPullRequestWithRelated = async ({
     },
   ]
 
-  if (root.kind === GIT_PATCH) {
-    filters.push({
-      kinds: [GIT_PATCH],
-      "#e": [root.id],
-    })
-    filters.push({
-      kinds: [GIT_PATCH],
-      "#E": [root.id],
-    })
-  }
-
-  if (root.kind === GIT_PULL_REQUEST) {
-    filters.push({
-      kinds: [GIT_PULL_REQUEST_UPDATE],
-      "#E": [root.id],
-    })
-    filters.push({
-      kinds: [GIT_PULL_REQUEST_UPDATE],
-      "#e": [root.id],
-    })
-  }
+  filters.push({
+    kinds: [GIT_PULL_REQUEST_UPDATE],
+    "#E": [root.id],
+  })
+  filters.push({
+    kinds: [GIT_PULL_REQUEST_UPDATE],
+    "#e": [root.id],
+  })
 
   try {
     await awaitWithAbort(load({relays: merged, filters, signal}), signal)

@@ -85,7 +85,7 @@
             label: "Trusted merged PRs",
             value: analysis.trustedMergedPullRequests,
             description:
-              "Pull requests authored by this profile that were applied by collaborators in your trust graph.",
+              "Pull requests authored by this profile that were merged by collaborators in your trust graph.",
             details: analysis.trustedMergedPullRequestDetails,
           },
           {
@@ -93,7 +93,7 @@
             label: "Trusted maintainer merges",
             value: analysis.trustedMaintainerMerges,
             description:
-              "Pull requests this profile applied where the author is in your trust graph.",
+              "Pull requests this profile merged where the author is in your trust graph.",
             details: analysis.trustedMaintainerMergeDetails,
           },
           {
@@ -136,10 +136,10 @@
     }
   }
 
-  const getPatchHref = (detail: ProfileCodeTrustInteractionDetail) => {
+  const getPrHref = (detail: ProfileCodeTrustInteractionDetail) => {
     const repoHref = getRepoHref(detail.repoAddress)
 
-    return repoHref ? `${repoHref}/patches/${detail.rootId}` : ""
+    return repoHref ? `${repoHref}/prs/${detail.rootId}` : ""
   }
 
   const loadProfiles = (pubkeys: Array<string | undefined>) => {
@@ -357,12 +357,12 @@
                           <div class="flex flex-col gap-2">
                             {#each metric.details as detail (detail.rootId)}
                               {@const context = getDetailContext(metric.key, detail)}
-                              {@const patchHref = getPatchHref(detail)}
+                              {@const prHref = getPrHref(detail)}
                               {@const repoHref = getRepoHref(detail.repoAddress)}
                               <div class="rounded-box bg-base-200/50 p-3">
-                                {#if patchHref}
+                                {#if prHref}
                                   <Link
-                                    href={patchHref}
+                                    href={prHref}
                                     class="text-sm font-medium text-primary underline-offset-2 hover:underline">
                                     {detail.subject}
                                   </Link>
@@ -475,18 +475,18 @@
                               <div>
                                 <div class="font-medium">Merged target PRs</div>
                                 <div class="mt-1 text-xs opacity-70">
-                                  Pull requests authored by this profile and applied by this collaborator.
+                                  Pull requests authored by this profile and merged by this collaborator.
                                 </div>
                               </div>
 
                               {#if collaborator.mergedTargetPullRequestDetails.length > 0}
                                 <div class="flex flex-col gap-2">
                             {#each collaborator.mergedTargetPullRequestDetails as detail (detail.rootId)}
-                              {@const patchHref = getPatchHref(detail)}
+                              {@const prHref = getPrHref(detail)}
                               {@const repoHref = getRepoHref(detail.repoAddress)}
                               <div class="rounded-box bg-base-200/50 p-3">
-                                    {#if patchHref}
-                                      <Link href={patchHref} class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                                    {#if prHref}
+                                      <Link href={prHref} class="text-sm font-medium text-primary underline-offset-2 hover:underline">
                                         {detail.subject}
                                       </Link>
                                     {:else}
@@ -528,18 +528,18 @@
                               <div>
                                 <div class="font-medium">Merged by target</div>
                                 <div class="mt-1 text-xs opacity-70">
-                                  Pull requests authored by this collaborator and applied by the target profile.
+                                  Pull requests authored by this collaborator and merged by the target profile.
                                 </div>
                               </div>
 
                               {#if collaborator.mergedByTargetDetails.length > 0}
                                 <div class="flex flex-col gap-2">
                                 {#each collaborator.mergedByTargetDetails as detail (detail.rootId)}
-                                  {@const patchHref = getPatchHref(detail)}
+                                  {@const prHref = getPrHref(detail)}
                                   {@const repoHref = getRepoHref(detail.repoAddress)}
                                   <div class="rounded-box bg-base-200/50 p-3">
-                                      {#if patchHref}
-                                        <Link href={patchHref} class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                                      {#if prHref}
+                                        <Link href={prHref} class="text-sm font-medium text-primary underline-offset-2 hover:underline">
                                           {detail.subject}
                                         </Link>
                                       {:else}
@@ -558,7 +558,7 @@
                                   {/each}
                                 </div>
                               {:else}
-                                <div class="text-xs opacity-60">No target-applied PR examples in the current analysis window.</div>
+                                <div class="text-xs opacity-60">No target-merged PR examples in the current analysis window.</div>
                               {/if}
                             </div>
                           </InlinePopover>

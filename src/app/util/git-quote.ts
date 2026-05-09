@@ -5,7 +5,6 @@ import type {Parsed} from "@welshman/content"
 import {
   GIT_COMMENT,
   GIT_ISSUE,
-  GIT_PATCH,
   GIT_PULL_REQUEST,
   GIT_REPO_ANNOUNCEMENT,
   GIT_REPO_STATE,
@@ -183,10 +182,6 @@ export const getGitQuoteFallback = (event?: TrustedEvent | null) => {
 
   if (event.kind === GIT_PULL_REQUEST) {
     return getTagValue("subject", event.tags) || "Pull Request"
-  }
-
-  if (event.kind === GIT_PATCH) {
-    return getTagValue("subject", event.tags) || "Patch"
   }
 
   if (event.kind === GIT_PERMALINK) {

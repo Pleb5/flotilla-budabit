@@ -323,9 +323,9 @@ export const clearBadges = async () => {
   }
 }
 
-type RepoNotificationKind = "issues" | "patches"
+type RepoNotificationKind = "issues" | "prs"
 
-const repoNotificationKinds = new Set<RepoNotificationKind>(["issues", "patches"])
+const repoNotificationKinds = new Set<RepoNotificationKind>(["issues", "prs"])
 
 type RepoNotificationOptions = {
   relay: string

@@ -140,12 +140,12 @@ test.describe("git navigation performance", () => {
     expect(elapsed).toBeLessThan(TAB_SWITCH_THRESHOLD_MS)
   })
 
-  test("repo tab switch to Patches completes within threshold", async ({page}) => {
+  test("repo tab switch to PRs completes within threshold", async ({page}) => {
     const repoPage = await getRepoPageFromFirstCard(page)
 
     const start = Date.now()
-    await repoPage.gotoTab("patches")
-    await repoPage.waitForTabContent("patches")
+    await repoPage.gotoTab("prs")
+    await repoPage.waitForTabContent("prs")
     const elapsed = Date.now() - start
 
     expect(elapsed).toBeLessThan(TAB_SWITCH_THRESHOLD_MS)

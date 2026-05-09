@@ -5,7 +5,7 @@
  * and event fixtures to create comprehensive test scenarios.
  *
  * The TestSeeder class wraps MockRelay and provides convenient methods for
- * seeding repositories, issues, and patches with proper event relationships.
+ * seeding repositories, issues, and pull requests with proper event relationships.
  *
  * @example
  * ```typescript
@@ -17,7 +17,7 @@
  *   const seeder = await seedTestRepo(page, {
  *     name: "test-repo",
  *     withIssues: 3,
- *     withPatches: 2,
+ *     withPullRequests: 2,
  *   })
  *
  *   await page.goto("/spaces/ws%3A%2F%2Flocalhost%3A7000/git")
@@ -34,11 +34,11 @@
  * ```
  */
 import type {Page} from "@playwright/test"
-import {MockRelay, type NostrEvent, randomHex, nowSeconds, NIP34_KINDS} from "./mock-relay"
+import {MockRelay, type NostrEvent, randomHex, NIP34_KINDS} from "./mock-relay"
 import {
   createRepoAnnouncement as createRepoAnnouncementFixture,
   createIssue as createIssueFixture,
-  createPatch as createPatchFixture,
+  createPullRequest as createPullRequestFixture,
   createStatusEvent,
   createOpenStatus,
   createClosedStatus,
@@ -80,8 +80,8 @@ export interface SeedRepoOptions {
   pubkey?: string
   /** Number of issues to create for this repo */
   withIssues?: number
-  /** Number of patches to create for this repo */
-  withPatches?: number
+  /** Number of pull requests to create for this repo */
+  withPullRequests?: number
   /** Event timestamp */
   created_at?: number
 }
@@ -113,16 +113,16 @@ export interface SeedIssueOptions {
 /**
  * Options for seeding a patch
  */
-export interface SeedPatchOptions {
+export interface SeedPullRequestOptions {
   /** Repository naddr or address string */
   repoAddress: string
-  /** Patch title/subject */
+  /** Pull request title/subject */
   title?: string
-  /** Patch content (diff) */
+  /** Pull request content/body */
   content?: string
-  /** Patch status */
+  /** Pull request status */
   status?: "open" | "applied" | "closed" | "draft"
-  /** Patch labels */
+  /** Pull request labels */
   labels?: string[]
   /** Author pubkey (defaults to random test user) */
   pubkey?: string
@@ -152,7 +152,7 @@ export interface SeedRepoResult {
   pubkey: string
   /** The repo announcement event */
   announcement: UnsignedEvent
-  /** All events created for this repo (including issues and patches) */
+  /** All events created for this repo (including issues and pull requests) */
   events: UnsignedEvent[]
 }
 
@@ -169,14 +169,14 @@ export interface SeedIssueResult {
 }
 
 /**
- * Result from seeding a patch
+ * Result from seeding a pull request
  */
-export interface SeedPatchResult {
+export interface SeedPullRequestResult {
   /** The generated event ID */
   eventId: string
-  /** The patch event */
-  patch: UnsignedEvent
-  /** All events created (patch + status + reviews) */
+  /** The pull request event */
+  pullRequest: UnsignedEvent
+  /** All events created (pull request + status + reviews) */
   events: UnsignedEvent[]
 }
 
@@ -195,7 +195,7 @@ export interface TestSeederOptions {
 /**
  * Pre-defined test scenarios
  */
-export type TestScenario = "empty" | "single-repo" | "with-issues" | "with-patches" | "full"
+export type TestScenario = "empty" | "single-repo" | "with-issues" | "with-prs" | "full"
 
 // =============================================================================
 // Helper Functions
@@ -260,9 +260,9 @@ The application should work correctly.
 }
 
 /**
- * Generate a random patch title
+ * Generate a random pull request title
  */
-function generatePatchTitle(index: number): string {
+function generatePullRequestTitle(index: number): string {
   const titles = [
     "Fix null pointer exception",
     "Add new utility function",
@@ -279,36 +279,16 @@ function generatePatchTitle(index: number): string {
 }
 
 /**
- * Generate sample diff content
+ * Generate sample pull request content
  */
-function generatePatchContent(title: string): string {
-  return `From abc123 Mon Sep 17 00:00:00 2001
-From: Test User <test@example.com>
-Date: Mon, 15 Jan 2024 12:00:00 +0000
-Subject: [PATCH] ${title}
+function generatePullRequestContent(title: string): string {
+  return `## Summary
+${title}
 
-This patch implements the requested changes.
-
----
- src/app.ts | 5 ++++-
- 1 file changed, 4 insertions(+), 1 deletion(-)
-
-diff --git a/src/app.ts b/src/app.ts
-index abc123..def456 100644
---- a/src/app.ts
-+++ b/src/app.ts
-@@ -10,7 +10,10 @@ export function main() {
-   // Main application code
--  const value = getData();
-+  const value = getData();
-+  if (!value) {
-+    return null;
-+  }
-   return process(value);
- }
---
-2.34.1
-`
+## Changes
+- Updates application behavior
+- Adds test coverage
+- Improves error handling`
 }
 
 /**
@@ -337,7 +317,7 @@ export class TestSeeder {
   private options: TestSeederOptions
   private repoCounter = 0
   private issueCounter = 0
-  private patchCounter = 0
+  private pullRequestCounter = 0
   private timestampCounter = 0
 
   constructor(options?: TestSeederOptions) {
@@ -386,7 +366,7 @@ export class TestSeeder {
   }
 
   /**
-   * Seed a repository with optional issues and patches
+   * Seed a repository with optional issues and pull requests
    */
   seedRepo(options?: SeedRepoOptions): SeedRepoResult {
     const opts = options || {}
@@ -433,16 +413,16 @@ export class TestSeeder {
       }
     }
 
-    // Add patches if requested (seedPatch adds its own events to seededEvents)
-    if (opts.withPatches && opts.withPatches > 0) {
-      for (let i = 0; i < opts.withPatches; i++) {
-        const patchResult = this.seedPatch({
+    // Add pull requests if requested (seedPullRequest adds its own events to seededEvents)
+    if (opts.withPullRequests && opts.withPullRequests > 0) {
+      for (let i = 0; i < opts.withPullRequests; i++) {
+        const pullRequestResult = this.seedPullRequest({
           repoAddress: address,
-          title: generatePatchTitle(i),
-          status: i % 3 === 0 ? "applied" : "open", // Some applied patches
+          title: generatePullRequestTitle(i),
+          status: i % 3 === 0 ? "applied" : "open", // Some merged PRs
           created_at: this.nextTimestamp(),
         })
-        events.push(...patchResult.events)
+        events.push(...pullRequestResult.events)
       }
     }
 
@@ -562,40 +542,39 @@ export class TestSeeder {
   }
 
   /**
-   * Seed a patch for a repository
+   * Seed a pull request for a repository
    */
-  seedPatch(options: SeedPatchOptions): SeedPatchResult {
-    const title = options.title || generatePatchTitle(++this.patchCounter)
-    const content = options.content || generatePatchContent(title)
+  seedPullRequest(options: SeedPullRequestOptions): SeedPullRequestResult {
+    const title = options.title || generatePullRequestTitle(++this.pullRequestCounter)
+    const content = options.content || generatePullRequestContent(title)
     const pubkey = options.pubkey || randomTestPubkey()
     const commit = options.commit || randomHex(40)
-    const parentCommit = options.parentCommit || randomHex(40)
 
-    this.log(`Seeding patch: ${title}`)
+    this.log(`Seeding pull request: ${title}`)
 
     const events: UnsignedEvent[] = []
 
-    // Create the patch event
-    const patch = createPatchFixture({
+    // Create the pull request event
+    const pullRequest = createPullRequestFixture({
       content,
       repoAddress: options.repoAddress,
       subject: title,
       labels: options.labels,
       recipients: options.recipients,
-      commit,
-      parentCommit,
+      tipCommitOid: commit,
+      mergeBase: options.parentCommit,
       pubkey,
       created_at: options.created_at ?? this.nextTimestamp(),
     })
 
-    events.push(patch)
+    events.push(pullRequest)
 
-    // Sign the patch first to get its real event ID
-    const signedPatch = toSignedEvent(patch)
-    this.seededEvents.push(signedPatch)
-    const eventId = signedPatch.id
+    // Sign the pull request first to get its real event ID
+    const signedPullRequest = toSignedEvent(pullRequest)
+    this.seededEvents.push(signedPullRequest)
+    const eventId = signedPullRequest.id
 
-    // Create status event based on requested status (now using real patch ID)
+    // Create status event based on requested status (now using real PR ID)
     if (options.status) {
       const statusTimestamp = this.nextTimestamp()
       let statusEvent: UnsignedEvent
@@ -603,7 +582,7 @@ export class TestSeeder {
       switch (options.status) {
         case "open":
           statusEvent = createOpenStatus(eventId, {
-            content: "Patch submitted for review",
+            content: "Pull request submitted for review",
             repoAddress: options.repoAddress,
             pubkey: TEST_PUBKEYS.alice,
             created_at: statusTimestamp,
@@ -611,7 +590,7 @@ export class TestSeeder {
           break
         case "applied":
           statusEvent = createAppliedStatus(eventId, {
-            content: "Patch applied successfully",
+            content: "Pull request merged successfully",
             repoAddress: options.repoAddress,
             mergeCommit: randomHex(40),
             pubkey: TEST_PUBKEYS.alice,
@@ -620,7 +599,7 @@ export class TestSeeder {
           break
         case "closed":
           statusEvent = createClosedStatus(eventId, {
-            content: "Patch rejected",
+            content: "Pull request rejected",
             repoAddress: options.repoAddress,
             pubkey: TEST_PUBKEYS.alice,
             created_at: statusTimestamp,
@@ -662,7 +641,7 @@ export class TestSeeder {
 
     return {
       eventId,
-      patch,
+      pullRequest,
       events,
     }
   }
@@ -682,7 +661,7 @@ export class TestSeeder {
     this.mockRelay.clear()
     this.repoCounter = 0
     this.issueCounter = 0
-    this.patchCounter = 0
+    this.pullRequestCounter = 0
     this.timestampCounter = 0
     this.log("Cleared all seeded data")
   }
@@ -723,10 +702,10 @@ export class TestSeeder {
   }
 
   /**
-   * Get all seeded patches
+   * Get all seeded pull requests
    */
-  getPatches(): NostrEvent[] {
-    return this.getEventsByKind(NIP34_KINDS.PATCH)
+  getPullRequests(): NostrEvent[] {
+    return this.getEventsByKind(1618)
   }
 }
 
@@ -745,7 +724,7 @@ export class TestSeeder {
  * const seeder = await seedTestRepo(page, {
  *   name: "my-repo",
  *   withIssues: 5,
- *   withPatches: 3,
+ *   withPullRequests: 3,
  * })
  * ```
  */
@@ -761,10 +740,10 @@ export async function seedTestRepo(page: Page, options?: SeedRepoOptions): Promi
  *
  * Available scenarios:
  * - "empty": No data (just sets up mock relay)
- * - "single-repo": One repository with no issues or patches
+ * - "single-repo": One repository with no issues or pull requests
  * - "with-issues": One repository with 5 issues (mix of open/closed)
- * - "with-patches": One repository with 5 patches (mix of open/applied)
- * - "full": One repository with 5 issues, 5 patches, and multiple statuses
+ * - "with-prs": One repository with 5 pull requests (mix of open/merged)
+ * - "full": One repository with 5 issues, 5 pull requests, and multiple statuses
  *
  * @example
  * ```typescript
@@ -801,12 +780,12 @@ export async function seedTestScenario(page: Page, scenario: TestScenario): Prom
       })
       break
 
-    case "with-patches":
+    case "with-prs":
       seeder.seedRepo({
         name: "test-project",
-        description: "A test project with patches",
+        description: "A test project with pull requests",
         maintainers: [TEST_PUBKEYS.devUser],
-        withPatches: 5,
+        withPullRequests: 5,
       })
       break
 
@@ -819,7 +798,7 @@ export async function seedTestScenario(page: Page, scenario: TestScenario): Prom
         cloneUrls: ["https://github.com/example/flotilla-budabit.git"],
         webUrls: ["https://flotilla.dev"],
         withIssues: 5,
-        withPatches: 5,
+        withPullRequests: 5,
       })
       break
   }
@@ -835,8 +814,8 @@ export async function seedTestScenario(page: Page, scenario: TestScenario): Prom
  * ```typescript
  * const seeder = await seedMultipleRepos(page, [
  *   {name: "repo-1", withIssues: 2},
- *   {name: "repo-2", withPatches: 3},
- *   {name: "repo-3", withIssues: 1, withPatches: 1},
+ *   {name: "repo-2", withPullRequests: 3},
+ *   {name: "repo-3", withIssues: 1, withPullRequests: 1},
  * ])
  * ```
  */
@@ -881,11 +860,11 @@ export function getRepoIssuesUrl(naddr: string, relay: string = TEST_RELAY): str
 }
 
 /**
- * Generate a repository patches URL
+ * Generate a repository PRs URL
  */
-export function getRepoPatchesUrl(naddr: string, relay: string = TEST_RELAY): string {
+export function getRepoPrsUrl(naddr: string, relay: string = TEST_RELAY): string {
   const encodedRelay = encodeURIComponent(relay)
-  return `/spaces/${encodedRelay}/git/${naddr}/patches`
+  return `/spaces/${encodedRelay}/git/${naddr}/prs`
 }
 
 /**
@@ -913,11 +892,11 @@ export function getIssueDetailUrl(naddr: string, issueId: string, relay: string 
 }
 
 /**
- * Generate a specific patch detail URL
+ * Generate a specific PR detail URL
  */
-export function getPatchDetailUrl(naddr: string, patchId: string, relay: string = TEST_RELAY): string {
+export function getPrDetailUrl(naddr: string, prId: string, relay: string = TEST_RELAY): string {
   const encodedRelay = encodeURIComponent(relay)
-  return `/spaces/${encodedRelay}/git/${naddr}/patches/${patchId}`
+  return `/spaces/${encodedRelay}/git/${naddr}/prs/${prId}`
 }
 
 /**

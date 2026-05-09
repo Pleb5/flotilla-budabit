@@ -10,14 +10,14 @@ describe("repo-watch normalization", () => {
   it("fills missing option values with defaults", () => {
     const options = normalizeRepoWatchOptions({
       issues: {comments: true},
-      patches: {updates: false},
+      prs: {updates: false},
       status: {closed: false},
       assignments: false,
     })
 
     expect(options).toEqual({
       issues: {new: true, comments: true},
-      patches: {new: true, comments: false, updates: false},
+      prs: {new: true, comments: false, updates: false},
       status: {open: true, draft: true, applied: true, closed: false},
       assignments: false,
       reviews: true,
@@ -34,7 +34,7 @@ describe("repo-watch normalization", () => {
       repos: {
         "30617:alice:repo": {
           issues: {new: false},
-          patches: {comments: true},
+          prs: {comments: true},
           status: {draft: false, applied: false},
           reviews: false,
         },
@@ -43,10 +43,18 @@ describe("repo-watch normalization", () => {
 
     expect(state.repos["30617:alice:repo"]).toEqual({
       issues: {new: false, comments: false},
-      patches: {new: true, comments: true, updates: true},
+      prs: {new: true, comments: true, updates: true},
       status: {open: true, draft: false, applied: false, closed: true},
       assignments: true,
       reviews: false,
     })
+  })
+
+  it("migrates legacy patch watch options to PR options", () => {
+    const options = normalizeRepoWatchOptions({
+      patches: {new: false, comments: true, updates: false},
+    })
+
+    expect(options.prs).toEqual({new: false, comments: true, updates: false})
   })
 })

@@ -1,6 +1,6 @@
 import * as nip19 from "nostr-tools/nip19"
 import {describe, expect, it} from "vitest"
-import {GIT_ISSUE, GIT_PATCH, GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
+import {GIT_ISSUE, GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
 import {
   getCommentRootQuoteValue,
   getGitQuoteFallback,
@@ -68,20 +68,6 @@ describe("getGitQuoteFallback", () => {
         tags: [],
       } as any),
     ).toBe("permalink")
-  })
-
-  it("returns the patch subject for patches", () => {
-    expect(
-      getGitQuoteFallback({
-        id: "patch",
-        kind: GIT_PATCH,
-        pubkey,
-        created_at: 0,
-        content: "",
-        sig,
-        tags: [["subject", "Refine fallback rendering"]],
-      } as any),
-    ).toBe("Refine fallback rendering")
   })
 
   it("returns an empty string for non-git events", () => {

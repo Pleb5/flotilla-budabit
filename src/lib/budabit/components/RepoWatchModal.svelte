@@ -47,9 +47,9 @@
   const hasAnyOption = (opts: RepoWatchOptions) =>
     opts.issues.new ||
     opts.issues.comments ||
-    opts.patches.new ||
-    opts.patches.comments ||
-    opts.patches.updates ||
+    opts.prs.new ||
+    opts.prs.comments ||
+    opts.prs.updates ||
     opts.status.open ||
     opts.status.draft ||
     opts.status.applied ||
@@ -141,21 +141,21 @@
     </div>
 
     <div class="card2 bg-alt p-4 shadow-sm">
-      <strong class="mb-2 block">Patches + PRs</strong>
+      <strong class="mb-2 block">PRs</strong>
       <label class="flex items-center gap-2">
         <input
           type="checkbox"
           class="checkbox"
-          bind:checked={options.patches.new}
+          bind:checked={options.prs.new}
           oninput={markDirty}
           disabled={!watchEnabled} />
-        New patches or PRs
+        New PRs
       </label>
       <label class="mt-2 flex items-center gap-2">
         <input
           type="checkbox"
           class="checkbox"
-          bind:checked={options.patches.updates}
+          bind:checked={options.prs.updates}
           oninput={markDirty}
           disabled={!watchEnabled} />
         PR updates
@@ -164,10 +164,10 @@
         <input
           type="checkbox"
           class="checkbox"
-          bind:checked={options.patches.comments}
+          bind:checked={options.prs.comments}
           oninput={markDirty}
           disabled={!watchEnabled} />
-        Patch/PR comments (root-level only)
+        PR comments (root-level only)
       </label>
     </div>
 
@@ -199,7 +199,7 @@
             bind:checked={options.status.applied}
             oninput={markDirty}
             disabled={!watchEnabled} />
-          Applied / merged
+          Merged
         </label>
         <label class="flex items-center gap-2">
           <input
@@ -237,7 +237,7 @@
   </div>
 
   <p class="text-xs text-muted-foreground">
-    Comments are in-app only. Email digests include issues, patches/PRs, status changes, and assignments.
+    Comments are in-app only. Email digests include issues, PRs, status changes, and assignments.
   </p>
 
   <ModalFooter>

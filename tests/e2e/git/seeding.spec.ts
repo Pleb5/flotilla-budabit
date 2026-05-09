@@ -89,40 +89,13 @@ test.describe("Test Data Seeding", () => {
       await page.waitForLoadState("networkidle")
     })
 
-    test("seeds a repository with patches", async ({page}) => {
+    test("seeds a repository with issues", async ({page}) => {
       const seeder = new TestSeeder()
 
-      // Seed a repository with patches
-      seeder.seedRepo({
-        name: "repo-with-patches",
-        description: "Repository with patches",
-        withPatches: 2,
-      })
-
-      await seeder.setup(page)
-
-      // Verify seeded data
-      const patches = seeder.getPatches()
-      expect(patches).toHaveLength(2)
-
-      // Each patch should have the correct kind
-      for (const patch of patches) {
-        expect(patch.kind).toBe(1617) // NIP-34 patch kind
-      }
-
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
-      await page.waitForLoadState("networkidle")
-    })
-
-    test("seeds a repository with both issues and patches", async ({page}) => {
-      const seeder = new TestSeeder()
-
-      // Seed with full test scenario
       seeder.seedRepo({
         name: "full-test-repo",
-        description: "Repository with issues and patches",
+        description: "Repository with issues",
         withIssues: 3,
-        withPatches: 2,
       })
 
       await seeder.setup(page)
@@ -130,9 +103,8 @@ test.describe("Test Data Seeding", () => {
       // Verify
       expect(seeder.getRepos()).toHaveLength(1)
       expect(seeder.getIssues()).toHaveLength(3)
-      expect(seeder.getPatches()).toHaveLength(2)
 
-      // Total events should include repo + issues + patches + status events
+      // Total events should include repo + issues + status events
       const allEvents = seeder.getSeededEvents()
       expect(allEvents.length).toBeGreaterThan(5)
 
@@ -160,10 +132,9 @@ test.describe("Test Data Seeding", () => {
       // Pre-defined full scenario
       const seeder = await seedTestScenario(page, "full")
 
-      // Full scenario should have repos, issues, and patches
+      // Full scenario should have repos and issues
       expect(seeder.getRepos()).toHaveLength(1)
       expect(seeder.getIssues().length).toBeGreaterThan(0)
-      expect(seeder.getPatches().length).toBeGreaterThan(0)
 
       await page.goto(`/spaces/${ENCODED_RELAY}/git`)
       await page.waitForLoadState("networkidle")
@@ -175,7 +146,7 @@ test.describe("Test Data Seeding", () => {
 
       expect(seeder.getRepos()).toHaveLength(0)
       expect(seeder.getIssues()).toHaveLength(0)
-      expect(seeder.getPatches()).toHaveLength(0)
+      expect(seeder.getPullRequests()).toHaveLength(0)
 
       await page.goto(`/spaces/${ENCODED_RELAY}/git`)
       await page.waitForLoadState("networkidle")
@@ -184,13 +155,12 @@ test.describe("Test Data Seeding", () => {
     test("seedMultipleRepos creates multiple repositories", async ({page}) => {
       const seeder = await seedMultipleRepos(page, [
         {name: "repo-alpha", withIssues: 1},
-        {name: "repo-beta", withPatches: 1},
-        {name: "repo-gamma", withIssues: 1, withPatches: 1},
+        {name: "repo-beta"},
+        {name: "repo-gamma", withIssues: 1},
       ])
 
       expect(seeder.getRepos()).toHaveLength(3)
       expect(seeder.getIssues()).toHaveLength(2) // 1 + 0 + 1
-      expect(seeder.getPatches()).toHaveLength(2) // 0 + 1 + 1
 
       await page.goto(`/spaces/${ENCODED_RELAY}/git`)
       await page.waitForLoadState("networkidle")
@@ -307,7 +277,7 @@ test.describe("Test Data Seeding", () => {
       await page.goto(`/spaces/${ENCODED_RELAY}/git`)
       await page.waitForLoadState("networkidle")
 
-      // COMPLETE_SCENARIO includes repo, issues, patches, and statuses
+      // COMPLETE_SCENARIO includes repo, issues, PRs, and statuses
       const events = seeder.getSeededEvents()
       expect(events.length).toBeGreaterThanOrEqual(5)
     })
@@ -350,34 +320,6 @@ test.describe("Test Data Seeding", () => {
       await page.waitForLoadState("networkidle")
     })
 
-    test("seeds patches with specific statuses", async ({page}) => {
-      const seeder = new TestSeeder()
-
-      const repoResult = seeder.seedRepo({
-        name: "patch-status-repo",
-      })
-
-      // Seed patches with different statuses
-      seeder.seedPatch({
-        repoAddress: repoResult.address,
-        title: "Open Patch",
-        status: "open",
-      })
-
-      seeder.seedPatch({
-        repoAddress: repoResult.address,
-        title: "Applied Patch",
-        status: "applied",
-      })
-
-      await seeder.setup(page)
-
-      const patches = seeder.getPatches()
-      expect(patches).toHaveLength(2)
-
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
-      await page.waitForLoadState("networkidle")
-    })
   })
 })
 

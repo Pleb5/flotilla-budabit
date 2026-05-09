@@ -36,8 +36,8 @@ export class RepoPage {
     return this.tabNav().getByRole("link", {name: "Issues", exact: true})
   }
 
-  get patchesTab(): Locator {
-    return this.tabNav().getByRole("link", {name: "Patches", exact: true})
+  get prsTab(): Locator {
+    return this.tabNav().getByRole("link", {name: "PRs", exact: true})
   }
 
   get codeTab(): Locator {
@@ -52,8 +52,8 @@ export class RepoPage {
     return this.page.getByRole("heading", {name: "Issues", exact: true})
   }
 
-  get patchesContent(): Locator {
-    return this.page.getByRole("heading", {name: "Patches", exact: true})
+  get prsContent(): Locator {
+    return this.page.getByRole("heading", {name: "PRs", exact: true})
   }
 
   get codeContent(): Locator {
@@ -70,24 +70,24 @@ export class RepoPage {
     await this.page.goto(this.baseUrl)
   }
 
-  async gotoTab(tab: "issues" | "patches" | "code" | "commits"): Promise<void> {
+  async gotoTab(tab: "issues" | "prs" | "code" | "commits"): Promise<void> {
     const tabLocator =
       tab === "issues"
         ? this.issuesTab
-        : tab === "patches"
-          ? this.patchesTab
+        : tab === "prs"
+          ? this.prsTab
           : tab === "code"
             ? this.codeTab
             : this.commitsTab
     await tabLocator.click()
   }
 
-  async waitForTabContent(tab: "issues" | "patches" | "code" | "commits"): Promise<void> {
+  async waitForTabContent(tab: "issues" | "prs" | "code" | "commits"): Promise<void> {
     const content =
       tab === "issues"
         ? this.issuesContent
-        : tab === "patches"
-          ? this.patchesContent
+        : tab === "prs"
+          ? this.prsContent
           : tab === "code"
             ? this.codeContent
             : this.commitsContent

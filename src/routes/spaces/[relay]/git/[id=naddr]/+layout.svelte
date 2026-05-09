@@ -52,7 +52,7 @@
     announcementEvent: RepoAnnouncementEvent
     stateEvent: RepoStateEvent
   }
-  import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PatchEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
+  import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
   import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, GIT_LABEL, parseRepoAnnouncementEvent, isCommentEvent, createRepoStateEvent} from "@nostr-git/core/events"
   import {
     parseRepoId,
@@ -74,7 +74,6 @@
     makeEvent,
     Address,
     GIT_ISSUE,
-    GIT_PATCH,
     DELETE,
     GIT_STATUS_OPEN,
     GIT_STATUS_DRAFT,
@@ -256,10 +255,10 @@
   // Memoize base path to avoid recalculating on every render
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
   const issuesPath = $derived.by(() => `${basePath}/issues`)
-  const patchesPath = $derived.by(() => `${basePath}/patches`)
+  const prsPath = $derived.by(() => `${basePath}/prs`)
   const isItemOpen = (item: {id: string}) => {
     // Prefer the latest status event from the shared map (covers both issues
-    // and patches and matches what the issues/patches pages use).
+    // and PRs and matches what the issues/PR pages use).
     const events = $statusEventsByRootStore?.get(item.id)
     if (events && events.length > 0) {
       const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
@@ -268,7 +267,6 @@
     return true
   }
   const issuesCount = $derived((repoClass?.issues ?? []).filter(isItemOpen).length)
-  const patchesCount = $derived((repoClass?.patches ?? []).filter(isItemOpen).length)
   const hasIssuesNotification = $derived.by(() => {
     if (repoAddress) {
       return hasRepoNotification($notifications, {
@@ -280,16 +278,16 @@
     }
     return $notifications.has(issuesPath)
   })
-  const hasPatchesNotification = $derived.by(() => {
+  const hasPrsNotification = $derived.by(() => {
     if (repoAddress) {
       return hasRepoNotification($notifications, {
         relay: url,
         repoAddress,
         repoAddresses: $repoAddressesStore,
-        kind: "patches",
+        kind: "prs",
       })
     }
-    return $notifications.has(patchesPath)
+    return $notifications.has(prsPath)
   })
 
   const repoAddressStore: Readable<string> = derived(activeRepoClass, $repo => {
@@ -1075,17 +1073,6 @@
     ) as Readable<IssueEvent[]>
   }
 
-  function derivePatches(repoAddresses: Readable<string[]>) {
-    const scopedPatchEvents = deriveAddressScopedEvents(repoAddresses, [GIT_PATCH])
-
-    return derived(
-      [scopedPatchEvents, repoAddresses],
-      ([events, addresses]: [TrustedEvent[], string[]]) => {
-        return (events || []) as PatchEvent[]
-      },
-    ) as Readable<PatchEvent[]>
-  }
-
   function derivePullRequests(repoAddresses: Readable<string[]>) {
     const scopedPullRequestEvents = deriveAddressScopedEvents(repoAddresses, [GIT_PULL_REQUEST])
 
@@ -1175,11 +1162,10 @@
     ) as Readable<Map<string, StatusEvent[]>>
   }
 
-  function deriveAllRootIds(issues: Readable<IssueEvent[]>, patches: Readable<PatchEvent[]>, pullRequests: Readable<PullRequestEvent[]>) {
-    return derived([issues, patches, pullRequests], ([issueEvents, patchEvents, prEvents]: [IssueEvent[], PatchEvent[], PullRequestEvent[]]) => {
+  function deriveAllRootIds(issues: Readable<IssueEvent[]>, pullRequests: Readable<PullRequestEvent[]>) {
+    return derived([issues, pullRequests], ([issueEvents, prEvents]: [IssueEvent[], PullRequestEvent[]]) => {
       const ids: string[] = []
       if (issueEvents) ids.push(...issueEvents.map((issue: IssueEvent) => issue.id))
-      if (patchEvents) ids.push(...patchEvents.map((patch: PatchEvent) => patch.id))
       if (prEvents) ids.push(...prEvents.map((pr: PullRequestEvent) => pr.id))
       return ids
     })
@@ -1338,24 +1324,15 @@
       Array.from(new Set([...($rootRelays || []), ...($maintainerSetRelays || [])].filter(Boolean))),
   ) as Readable<string[]>
   const issuesStore = deriveIssues(repoAddressesStore)
-  const patchesStore = derivePatches(repoAddressesStore)
   const pullRequestsStore = derivePullRequests(repoAddressesStore)
+  const prsCount = $derived(($pullRequestsStore ?? []).filter(isItemOpen).length)
   const statusEventsStore = deriveStatusEvents(repoAddressesStore)
-  const patchAndPullRequestRootIdsStore: Readable<string[]> = derived(
-    [patchesStore, pullRequestsStore],
-    ([$patches, $pullRequests]) => {
-      const rootPatchIds = ($patches || [])
-        .filter((patch: PatchEvent) =>
-          (patch.tags || []).some((tag: string[]) => tag[0] === "t" && tag[1] === "root"),
-        )
-        .map((patch: PatchEvent) => patch.id)
-      const pullRequestIds = ($pullRequests || []).map((pullRequest: PullRequestEvent) => pullRequest.id)
-
-      return [...new Set([...rootPatchIds, ...pullRequestIds].filter(Boolean))].sort()
-    },
+  const pullRequestRootIdsStore: Readable<string[]> = derived(
+    pullRequestsStore,
+    $pullRequests => [...new Set(($pullRequests || []).map((pullRequest: PullRequestEvent) => pullRequest.id).filter(Boolean))].sort(),
   )
-  const allRootIdsStore = deriveAllRootIds(issuesStore, patchesStore, pullRequestsStore)
-  const rootStatusEventsStore = deriveRootScopedStatusEvents(patchAndPullRequestRootIdsStore)
+  const allRootIdsStore = deriveAllRootIds(issuesStore, pullRequestsStore)
+  const rootStatusEventsStore = deriveRootScopedStatusEvents(pullRequestRootIdsStore)
   const mergedStatusEventsStore: Readable<StatusEvent[]> = derived(
     [statusEventsStore, rootStatusEventsStore],
     ([$addressScopedEvents, $rootScopedEvents]) => {
@@ -1381,15 +1358,11 @@
   const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
   const commentEventsStore = deriveComments(allRootIdsStore)
   const repoFeedActivityStore: Readable<TrustedEvent[]> = derived(
-    [issuesStore, patchesStore, pullRequestsStore],
-    ([$issues, $patches, $pullRequests]) => {
-      const rootPatches = ($patches || []).filter((patch: PatchEvent) =>
-        (patch.tags || []).some((tag: string[]) => tag[0] === "t" && tag[1] === "root"),
-      )
-
+    [issuesStore, pullRequestsStore],
+    ([$issues, $pullRequests]) => {
       const deduped = new Map<string, TrustedEvent>()
 
-      for (const event of [...($issues || []), ...rootPatches, ...($pullRequests || [])]) {
+      for (const event of [...($issues || []), ...($pullRequests || [])]) {
         deduped.set(event.id, event)
       }
 
@@ -1421,7 +1394,7 @@
       description:
         "For repositories with many branches, limit the fork to the default branch plus branches targeted by accepted merges from the repo maintainer set.",
       tooltip:
-        "Maintainer-set branches are branches targeted by merged pull requests applied by the root maintainer or direct mutual maintainers. When none are found, Budabit includes all branches in the fork.",
+        "Maintainer-set branches are branches targeted by merged pull requests merged by the root maintainer or direct mutual maintainers. When none are found, Budabit includes all branches in the fork.",
       minBranchCount: FORK_BRANCH_FILTER_THRESHOLD,
     }
   })
@@ -1430,7 +1403,6 @@
   const DELETE_SINCE_BUFFER_SECONDS = 60
   const deleteKinds = [
     GIT_ISSUE,
-    GIT_PATCH,
     GIT_PULL_REQUEST,
     GIT_PULL_REQUEST_UPDATE,
     GIT_LABEL,
@@ -1638,7 +1610,6 @@
       repoEvent: repoEventStore as Readable<RepoAnnouncementEvent>,
       repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
       issues: issuesStore,
-      patches: patchesStore,
       repoStateEvents: repoStateEventsStore,
       statusEvents: mergedStatusEventsStore,
       commentEvents: commentEventsStore,
@@ -1661,7 +1632,6 @@
         repoEvent: repoEventStore as Readable<RepoAnnouncementEvent>,
         repoStateEvent: repoStateEventStore as Readable<RepoStateEvent>,
         issues: issuesStore,
-        patches: patchesStore,
         repoStateEvents: repoStateEventsStore,
         statusEvents: mergedStatusEventsStore,
         commentEvents: commentEventsStore,
@@ -1801,15 +1771,11 @@
     let initialLoadsPromise = repoInitialLoads.get(initialLoadKey)
 
     if (!initialLoadsPromise) {
-      const issuePatchPrStatusLoad = load({
+      const issuePrStatusLoad = load({
         relays: relayListFromUrl,
         filters: [
           {
             kinds: [GIT_ISSUE],
-            "#a": addressFilter,
-          },
-          {
-            kinds: [GIT_PATCH],
             "#a": addressFilter,
           },
           {
@@ -1841,7 +1807,7 @@
           relays: announcementRelays,
           filters: [allReposFilter],
         }),
-        issuePatchPrStatusLoad,
+        issuePrStatusLoad,
       ])
         .then(() => {})
         .catch(error => {
@@ -1877,10 +1843,6 @@
             filters: [
               {
                 kinds: [GIT_ISSUE],
-                "#a": addresses,
-              },
-              {
-                kinds: [GIT_PATCH],
                 "#a": addresses,
               },
               {
@@ -2001,7 +1963,7 @@
       }, PR_STATUS_ROOT_LOAD_DEBOUNCE_MS)
     }
 
-    const prStatusLoadTrigger = derived(patchAndPullRequestRootIdsStore, (rootIds: string[]) => {
+    const prStatusLoadTrigger = derived(pullRequestRootIdsStore, (rootIds: string[]) => {
       if (rootIds.length > 0) {
         const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
         if (currentRelays.length === 0) return rootIds
@@ -3230,10 +3192,10 @@
             {/snippet}
           </RepoTab>
           <RepoTab
-            tabValue="patches"
-            label={patchesCount > 0 ? `Patches (${patchesCount})` : "Patches"}
-            href={`${basePath}/patches`}
-            notification={hasPatchesNotification}
+            tabValue="prs"
+            label={prsCount > 0 ? `PRs (${prsCount})` : "PRs"}
+            href={`${basePath}/prs`}
+            notification={hasPrsNotification}
             {activeTab}>
             {#snippet icon()}
               <GitPullRequest class="h-4 w-4" />

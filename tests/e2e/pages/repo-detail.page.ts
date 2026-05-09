@@ -3,14 +3,14 @@ import {expect, type Locator, type Page} from "@playwright/test"
 /**
  * Valid tab values for the repository detail page
  */
-export type RepoTab = "overview" | "feed" | "code" | "issues" | "patches" | "commits" | "settings" | "cicd" | "workbench"
+export type RepoTab = "overview" | "feed" | "code" | "issues" | "prs" | "commits" | "settings" | "cicd" | "workbench"
 
 /**
  * Page object for the Repository Detail page (/spaces/[relay]/git/[naddr]/)
  *
  * This page displays:
  * - Repository header with name, description, and actions
- * - Tab navigation (Feed, Code, Issues, Patches, Commits, etc.)
+ * - Tab navigation (Feed, Code, Issues, PRs, Commits, etc.)
  * - Clone URL and repository metadata
  * - Content area that changes based on active tab
  */
@@ -37,7 +37,7 @@ export class RepoDetailPage {
   readonly feedTab: Locator
   readonly codeTab: Locator
   readonly issuesTab: Locator
-  readonly patchesTab: Locator
+  readonly prsTab: Locator
   readonly commitsTab: Locator
   readonly settingsTab: Locator
 
@@ -74,7 +74,7 @@ export class RepoDetailPage {
     this.feedTab = tabNav.locator("a[href*='/feed']").filter({hasText: "Feed"})
     this.codeTab = tabNav.locator("a[href*='/code']").filter({hasText: "Code"})
     this.issuesTab = tabNav.locator("a[href*='/issues']").filter({hasText: "Issues"})
-    this.patchesTab = tabNav.locator("a[href*='/patches']").filter({hasText: "Patches"})
+    this.prsTab = tabNav.locator("a[href*='/prs']").filter({hasText: "PRs"})
     this.commitsTab = tabNav.locator("a[href*='/commits']").filter({hasText: "Commits"})
     this.settingsTab = tabNav.locator("a[href*='/settings']").filter({hasText: "Settings"})
   }
@@ -103,7 +103,7 @@ export class RepoDetailPage {
     // Target tabs within the nav element to ensure we're on the repo detail page, not the repo list
     try {
       await this.page.waitForSelector(
-        "nav a[href*='/feed'], nav a[href*='/code'], nav a[href*='/issues'], nav a[href*='/patches'], nav a[href*='/commits']",
+        "nav a[href*='/feed'], nav a[href*='/code'], nav a[href*='/issues'], nav a[href*='/prs'], nav a[href*='/commits']",
         {state: "visible", timeout: 15000}
       )
     } catch {
@@ -178,7 +178,7 @@ export class RepoDetailPage {
     // Check URL in order of specificity (longer paths first to avoid false matches)
     if (url.includes("/commits")) return "commits"
     if (url.includes("/settings")) return "settings"
-    if (url.includes("/patches")) return "patches"
+    if (url.includes("/prs")) return "prs"
     if (url.includes("/issues")) return "issues"
     if (url.includes("/workbench")) return "workbench"
     if (url.includes("/cicd")) return "cicd"
@@ -192,7 +192,7 @@ export class RepoDetailPage {
       {locator: this.feedTab, name: "feed"},
       {locator: this.codeTab, name: "code"},
       {locator: this.issuesTab, name: "issues"},
-      {locator: this.patchesTab, name: "patches"},
+      {locator: this.prsTab, name: "prs"},
       {locator: this.commitsTab, name: "commits"},
       {locator: this.settingsTab, name: "settings"},
     ]
@@ -225,7 +225,7 @@ export class RepoDetailPage {
       feed: this.feedTab,
       code: this.codeTab,
       issues: this.issuesTab,
-      patches: this.patchesTab,
+      prs: this.prsTab,
       commits: this.commitsTab,
       settings: this.settingsTab,
       cicd: this.page.locator("a[href*='/cicd']").filter({hasText: /ci/i}),
@@ -260,10 +260,10 @@ export class RepoDetailPage {
   }
 
   /**
-   * Navigate to the Patches tab
+   * Navigate to the PRs tab
    */
-  async goToPatches(): Promise<void> {
-    await this.clickTab("patches")
+  async goToPrs(): Promise<void> {
+    await this.clickTab("prs")
   }
 
   /**
@@ -353,7 +353,7 @@ export class RepoDetailPage {
       feed: this.feedTab,
       code: this.codeTab,
       issues: this.issuesTab,
-      patches: this.patchesTab,
+      prs: this.prsTab,
       commits: this.commitsTab,
       settings: this.settingsTab,
       cicd: this.page.locator("a[href*='/cicd']"),

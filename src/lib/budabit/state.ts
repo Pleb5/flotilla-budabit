@@ -3,7 +3,6 @@ import {load, request} from "@welshman/net"
 import {
   groupByEuc,
   deriveMaintainers,
-  buildPatchGraph,
   assembleIssueThread,
   resolveIssueStatus,
   extractSelfLabels,
@@ -660,17 +659,6 @@ export const deriveAssignmentsFor = (rootIds: string[]) =>
   )
 
 /**
- * Build a patch DAG for patches addressed to a given repo address (a-tag value).
- */
-export const derivePatchGraph = (addressA: string) =>
-  withGetter(
-    derived(
-      deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [1617], "#a": [addressA]}]})),
-      $patches => buildPatchGraph($patches as unknown as any[]),
-    ),
-  )
-
-/**
  * Assemble an issue thread (root + NIP-22 comments + statuses) for a given root id.
  */
 export const deriveIssueThread = (rootId: string) =>
@@ -698,7 +686,7 @@ export const deriveIssueThread = (rootId: string) =>
   )
 
 /**
- * Resolve final status for an issue or patch root using precedence rules.
+ * Resolve final status for an issue or PR root using precedence rules.
  */
 export const deriveStatus = (rootId: string, rootAuthor: string, euc: string) =>
   withGetter(

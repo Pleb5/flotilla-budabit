@@ -25,7 +25,6 @@
   import {
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
-    GIT_PATCH,
     GIT_STACK,
     GIT_MERGE_METADATA,
     GIT_CONFLICT_METADATA,
@@ -129,7 +128,6 @@
   const kindLabels = new Map<number, string>([
     [GIT_REPO_ANNOUNCEMENT, "Repo announcements"],
     [GIT_REPO_STATE, "Repo state"],
-    [GIT_PATCH, "Patches"],
     [GIT_STACK, "Stacks"],
     [GIT_MERGE_METADATA, "Merge metadata"],
     [GIT_CONFLICT_METADATA, "Conflict metadata"],
@@ -137,7 +135,7 @@
     [GIT_PULL_REQUEST, "Pull requests"],
     [GIT_PULL_REQUEST_UPDATE, "Pull request updates"],
     [GIT_STATUS_OPEN, "Status (open)"],
-    [GIT_STATUS_APPLIED, "Status (applied)"],
+    [GIT_STATUS_APPLIED, "Status (merged)"],
     [GIT_STATUS_CLOSED, "Status (closed)"],
     [GIT_STATUS_DRAFT, "Status (draft)"],
   ])
@@ -741,7 +739,6 @@
         repoClass.branchManager?.reset()
         repoClass.invalidateBranchCache()
         await repoClass.fileManager?.clearCache()
-        await repoClass.patchManager?.clearCache()
         await repoClass.mergeAnalysisCacheManager?.clear()
         if (repoClass.cacheManager) {
           await repoClass.cacheManager.clear("file_content")

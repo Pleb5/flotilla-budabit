@@ -22,7 +22,7 @@
     "code",
     "commits",
     "issues",
-    "patches",
+    "prs",
     "feed",
   ])
 
@@ -45,7 +45,7 @@
     if (segments[0] !== "spaces" || segments[2] !== "git") return false
 
     const tab = segments[4] ?? ""
-    // For commits/:commitid and issues/:issueid and patches/:patchid, the tab
+    // For commits/:commitid, issues/:issueid, and prs/:prid, the tab
     // itself must be in the allowed set — the detail segment is fine.
     return GUEST_REPO_TABS.has(tab)
   })

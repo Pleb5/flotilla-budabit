@@ -6,15 +6,12 @@ import {
   KIND_REPO_ANNOUNCEMENT,
   KIND_REPO_STATE,
   KIND_ISSUE,
-  KIND_PATCH,
   KIND_STATUS_OPEN,
   KIND_STATUS_APPLIED,
   KIND_STATUS_CLOSED,
   KIND_STATUS_DRAFT,
   STATUS_KINDS,
   // Tag helpers
-  getTagValue,
-  getTagValues,
   getTag,
   getTags,
   hasTag,
@@ -28,19 +25,16 @@ import {
   // NIP-34 specific assertions
   assertValidRepoAnnouncement,
   assertValidRepoState,
-  assertValidPatch,
   assertValidIssue,
   assertValidStatusEvent,
   // Composite assertions
   assertStatusReferencesIssue,
-  assertStatusReferencesPatch,
   assertReferencesRepo,
 } from "../helpers"
 import {
   createRepoAnnouncement,
   createRepoState,
   createIssue,
-  createPatch,
   createStatusEvent,
   createOpenStatus,
   createAppliedStatus,
@@ -576,69 +570,6 @@ test.describe("Event Publishing Validation", () => {
       expect(STATUS_KINDS).toContain(KIND_STATUS_APPLIED)
       expect(STATUS_KINDS).toContain(KIND_STATUS_CLOSED)
       expect(STATUS_KINDS).toContain(KIND_STATUS_DRAFT)
-    })
-  })
-
-  test.describe("Patch Event (kind 1617)", () => {
-    test("patch event has correct structure with 'a' tag", async ({page}) => {
-      const seeder = new TestSeeder({debug: true})
-
-      const repoResult = seeder.seedRepo({
-        name: "patch-validation-repo",
-      })
-
-      seeder.seedPatch({
-        repoAddress: repoResult.address,
-        title: "Fix critical bug",
-        content: "diff --git a/file.ts b/file.ts\n+fixed line",
-        status: "open",
-      })
-
-      await seeder.setup(page)
-      await page.goto(`/spaces/${ENCODED_RELAY}/git`)
-      await page.waitForLoadState("networkidle")
-
-      const patchEvents = seeder.getEventsByKind(KIND_PATCH)
-      expect(patchEvents).toHaveLength(1)
-
-      const patchEvent = patchEvents[0]
-      assertValidPatch(patchEvent)
-
-      // Verify repo reference
-      assertRepoReference(patchEvent)
-
-      // Verify content is non-empty (contains diff)
-      expect(patchEvent.content.length).toBeGreaterThan(0)
-    })
-
-    test("patch event includes commit and parent-commit tags", async ({page}) => {
-      const patch = createPatch({
-        content: "diff content here",
-        repoAddress: getRepoAddress(TEST_PUBKEYS.alice, "test-repo"),
-        subject: "Add feature",
-        commit: TEST_COMMITS.third,
-        parentCommit: TEST_COMMITS.second,
-        pubkey: TEST_PUBKEYS.bob,
-      })
-
-      const signedPatch = {
-        ...patch,
-        id: randomHex(64),
-        sig: randomHex(128),
-        pubkey: patch.pubkey || TEST_PUBKEYS.bob,
-      }
-
-      assertValidPatch(signedPatch)
-
-      // Verify commit tag
-      const commitTag = getTag(signedPatch, "commit")
-      expect(commitTag, "Patch should have 'commit' tag").toBeDefined()
-      expect(commitTag![1]).toBe(TEST_COMMITS.third)
-
-      // Verify parent-commit tag
-      const parentCommitTag = getTag(signedPatch, "parent-commit")
-      expect(parentCommitTag, "Patch should have 'parent-commit' tag").toBeDefined()
-      expect(parentCommitTag![1]).toBe(TEST_COMMITS.second)
     })
   })
 

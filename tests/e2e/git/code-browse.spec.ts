@@ -665,7 +665,7 @@ test.describe("Code Browser", () => {
       // Tab navigation should still be visible
       await expect(page.locator("a[href*='/code']").first()).toBeVisible()
       await expect(page.locator("a[href*='/issues']").first()).toBeVisible()
-      await expect(page.locator("a[href*='/patches']").first()).toBeVisible()
+      await expect(page.locator("a[href*='/prs']").first()).toBeVisible()
     })
   })
 

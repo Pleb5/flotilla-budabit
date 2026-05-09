@@ -25,7 +25,7 @@
 
   interface Props {
     storageKey?: string
-    mode?: "issues" | "patches"
+    mode?: "issues" | "prs"
     statusValue?: string
     statusBadgeCounts?: Record<string, number>
 
@@ -89,11 +89,10 @@
         {value: "newest", label: "Newest", icon: CalendarDays},
         {value: "oldest", label: "Oldest", icon: CalendarDays},
         {value: "status", label: "Status", icon: Check},
-        ...(mode === "patches" ? [{value: "commits", label: "Commits", icon: GitCommit}] : []),
       ])
   let statusOptions = $state([
         {value: "open", label: "Open", icon: GitCommit},
-        {value: mode === "patches" ? "applied" : "resolved", label: mode === "patches" ? "Applied" : "Resolved", icon: Check},
+        {value: mode === "prs" ? "merged" : "resolved", label: mode === "prs" ? "Merged" : "Resolved", icon: Check},
         {value: "closed", label: "Closed", icon: X},
         {value: "draft", label: "Draft", icon: Clock},
       ])
@@ -103,7 +102,7 @@
     mode
     statusOptions = [
       {value: "open", label: "Open", icon: GitCommit},
-      {value: mode === "patches" ? "applied" : "resolved", label: mode === "patches" ? "Applied" : "Resolved", icon: Check},
+      {value: mode === "prs" ? "merged" : "resolved", label: mode === "prs" ? "Merged" : "Resolved", icon: Check},
       {value: "closed", label: "Closed", icon: X},
       {value: "draft", label: "Draft", icon: Clock},
     ]
@@ -111,7 +110,6 @@
       {value: "newest", label: "Newest", icon: CalendarDays},
       {value: "oldest", label: "Oldest", icon: CalendarDays},
       {value: "status", label: "Status", icon: Check},
-      ...(mode === "patches" ? [{value: "commits", label: "Commits", icon: GitCommit}] : []),
     ]
   })
 

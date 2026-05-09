@@ -14,6 +14,7 @@
     Loader2,
     MessageSquare,
     Shield,
+    X,
   } from "@lucide/svelte"
   import {
     Button,
@@ -77,7 +78,7 @@
   import Profile from "@src/app/components/Profile.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import type {Repo} from "@nostr-git/ui"
-  import {getContext, hasContext, tick} from "svelte"
+  import {getContext, hasContext, tick, untrack} from "svelte"
   import type {Readable} from "svelte/store"
   import {
     REPO_TRUST_METRICS_KEY,
@@ -461,7 +462,7 @@
 
   const prUpdateBlockedReason = $derived.by(() => {
     if (!prEvent || !$pubkey || $pubkey !== prEvent.pubkey) return null
-    if (prStatus?.status === "applied") return "PR is already applied"
+    if (prStatus?.status === "applied") return "PR is already merged"
     if (prStatus?.status === "closed") return "PR is closed"
     return null
   })
@@ -495,6 +496,17 @@
   let prReviewTab = $state("commits")
   let prExpandedCommits = $state<Set<string>>(new Set())
   let prCommitDiffByOid = $state<Record<string, PrCommitDiffState>>({})
+  let prInlineTargetStatus = $state<{
+    state: "loading" | "error"
+    message: string
+    detail?: string
+  } | null>(null)
+  let prInlineTargetGeneration = $state(0)
+  let suppressNextPrDiffHashOpen = false
+
+  const prReviewHasExpandedItem = $derived.by(() =>
+    prReviewTab === "commits" ? prExpandedCommits.size > 0 : prExpandedFiles.size > 0,
+  )
 
   const prCommitOids = $derived.by(() => {
     const fromAnalysis = (prMergeAnalysisResult?.prCommits || []).map((commit) => commit.oid)
@@ -606,6 +618,19 @@
     if (!commits.length) return
     prExpandedCommits = new Set(commits)
     await Promise.all(commits.map((oid: string) => loadPrCommitDiff(oid)))
+  }
+
+  async function ensurePrCommitDiffReady(oid: string) {
+    if (!prExpandedCommits.has(oid)) {
+      prExpandedCommits = new Set([...prExpandedCommits, oid])
+    }
+    await loadPrCommitDiff(oid)
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const state = prCommitDiffByOid[oid]
+      if (state && !state.loading) return !state.error
+      await waitMs(100)
+    }
+    return false
   }
 
   const inferRemoteProvider = (url: string) => {
@@ -1119,7 +1144,7 @@
     if (!repoClass.key || !repoClass.workerManager || !tipOid) return null
 
     if (prStatus?.status === "applied" && prStatus.mergedCommit) {
-      prChangesProgress = "Loading applied merge commit..."
+      prChangesProgress = "Loading merged commit..."
       const mergeDetails = await repoClass.workerManager.getCommitDetails({
         repoId: repoClass.key,
         commitId: prStatus.mergedCommit,
@@ -1139,7 +1164,7 @@
     if (prStatus?.appliedCommits && prStatus.appliedCommits.length > 0) {
       const headOid = prStatus.appliedCommits[0]
       const oldestOid = prStatus.appliedCommits[prStatus.appliedCommits.length - 1]
-      prChangesProgress = "Loading applied commit range..."
+      prChangesProgress = "Loading merged commit range..."
       const oldestDetails = await repoClass.workerManager.getCommitDetails({
         repoId: repoClass.key,
         commitId: oldestOid,
@@ -1173,7 +1198,7 @@
         prChanges = []
         prChangesError =
           prStatus?.status === "applied"
-            ? "Unable to resolve an applied diff range for this PR yet. Re-run Analyze or retry loading files."
+             ? "Unable to resolve a merged diff range for this PR yet. Re-run Analyze or retry loading files."
             : "Merge analysis is incomplete. Re-run Analyze to load file changes."
         return
       }
@@ -1207,6 +1232,25 @@
         prChangesProgress = ""
       }
     }
+  }
+
+  async function ensurePrChangesReady() {
+    if (!prChanges && !prChangesLoading) {
+      await loadPrChanges()
+    }
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      if (!prChangesLoading && prChanges !== null) return !prChangesError
+      await waitMs(100)
+    }
+    return false
+  }
+
+  async function waitForPrDiffAnchors() {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (Object.keys(prDiffAnchors).length > 0) return true
+      await waitMs(50)
+    }
+    return Object.keys(prDiffAnchors).length > 0
   }
 
   $effect(() => {
@@ -1261,14 +1305,25 @@
   const getCommentTagValue = (comment: CommentEvent, name: string) =>
     (comment.tags || []).find((tag: string[]) => tag[0] === name)?.[1] || ""
 
+  const getCommentParentId = (comment: CommentEvent) =>
+    (comment.tags || []).find((tag: string[]) => tag[0] === "e")?.[1] || ""
+
+  const isResolveCommentEvent = (comment: CommentEvent) =>
+    (comment.tags || []).some((tag: string[]) => tag[0] === "l" && tag[1] === "resolved")
+
   const getInlineCommentLine = (comment: CommentEvent) => {
     const lineTag = (comment.tags || []).find((tag: string[]) => tag[0] === "line")
     const raw = lineTag?.[1] || ""
-    if (!raw) return {lineNumber: 0, lineSide: undefined as "del" | undefined}
+    if (!raw) return {lineNumber: 0, lineStart: 0, lineEnd: 0, lineSide: undefined as "del" | undefined}
     const parts = raw.split("-")
-    const lineNumber = parseInt(parts[parts.length - 1] || parts[0], 10)
+    const firstLine = parseInt(parts[0] || "", 10)
+    const lastLine = parseInt(parts[parts.length - 1] || parts[0], 10)
+    const lineStart = Number.isFinite(firstLine) ? firstLine : Number.isFinite(lastLine) ? lastLine : 0
+    const lineEnd = Number.isFinite(lastLine) ? lastLine : lineStart
     return {
-      lineNumber: Number.isFinite(lineNumber) ? lineNumber : 0,
+      lineNumber: lineEnd,
+      lineStart,
+      lineEnd,
       lineSide: lineTag?.[2] === "del" ? "del" as const : undefined,
     }
   }
@@ -1301,44 +1356,137 @@
       requestAnimationFrame(() => resolve())
     })
 
-  const waitForInlineDiffTarget = async (anchor: string) => {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const lineEl = document.getElementById(anchor) as HTMLElement | null
+  const waitMs = (ms: number) =>
+    new Promise<void>((resolve) => {
+      window.setTimeout(() => resolve(), ms)
+    })
+
+  const getScopedElementById = (anchor: string, scopeId?: string) => {
+    const root = scopeId ? document.getElementById(scopeId) : document
+    const scoped = root?.querySelector(`#${CSS.escape(anchor)}`) as HTMLElement | null
+    return scoped || (document.getElementById(anchor) as HTMLElement | null)
+  }
+
+  const getInlineDiffTargetFallback = (
+    filePath?: string,
+    targetLine?: number | null,
+    lineSide?: "del",
+    scopeId?: string,
+  ) => {
+    if (!filePath || !targetLine) return null
+    const root = scopeId ? document.getElementById(scopeId) : document
+    const escapedPath = CSS.escape(filePath)
+    const attr = lineSide === "del" ? "data-line-left" : "data-line-right"
+    const selector = `[data-file-path="${escapedPath}"][${attr}="${targetLine}"]`
+    return ((root?.querySelector(selector) || document.querySelector(selector)) as HTMLElement | null)
+  }
+
+  const waitForInlineDiffTarget = async (
+    anchor: string,
+    scopeId?: string,
+    fallback?: {filePath?: string; targetLine?: number | null; lineSide?: "del"},
+  ) => {
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const lineEl = getScopedElementById(anchor, scopeId)
       const row = lineEl?.closest("[data-diff-index]") as HTMLElement | null
       if (row || lineEl) return row || lineEl
+      const fallbackTarget = getInlineDiffTargetFallback(
+        fallback?.filePath,
+        fallback?.targetLine,
+        fallback?.lineSide,
+        scopeId,
+      )
+      if (fallbackTarget) return fallbackTarget
       await tick()
       await nextFrame()
     }
-    const lineEl = document.getElementById(anchor) as HTMLElement | null
-    return (lineEl?.closest("[data-diff-index]") as HTMLElement | null) || lineEl
+    const lineEl = getScopedElementById(anchor, scopeId)
+    return (lineEl?.closest("[data-diff-index]") as HTMLElement | null) || lineEl || getInlineDiffTargetFallback(
+      fallback?.filePath,
+      fallback?.targetLine,
+      fallback?.lineSide,
+      scopeId,
+    )
   }
 
-  const scrollInlineDiffTarget = async (anchor: string) => {
-    if (typeof window === "undefined") return
-    const target = await waitForInlineDiffTarget(anchor)
-    if (!target) return
+  const blipInlineTarget = (target: HTMLElement) => {
+    target.classList.remove("diff-comment-blip")
+    void target.offsetWidth
+    target.classList.add("diff-comment-blip")
+    window.setTimeout(() => target.classList.remove("diff-comment-blip"), 1800)
+  }
+
+  const scrollInlineDiffTarget = async (
+    anchor: string,
+    scopeId?: string,
+    fallback?: {filePath?: string; targetLine?: number | null; lineSide?: "del"},
+  ) => {
+    if (typeof window === "undefined") return false
+    const target = await waitForInlineDiffTarget(anchor, scopeId, fallback)
+    if (!target) return false
 
     const scrollParent = target.closest(".scroll-container") as HTMLElement | null
-    const stickyOffset = 120
-    if (scrollParent) {
-      const parentRect = scrollParent.getBoundingClientRect()
-      const targetRect = target.getBoundingClientRect()
-      const top = targetRect.top - parentRect.top + scrollParent.scrollTop - stickyOffset
-      scrollParent.scrollTo({top: Math.max(0, top), behavior: "smooth"})
-      return
+    const stickyOffset = window.matchMedia("(max-width: 640px)").matches ? 96 : 120
+    const scrollOnce = () => {
+      if (scrollParent) {
+        const parentRect = scrollParent.getBoundingClientRect()
+        const targetRect = target.getBoundingClientRect()
+        const top = targetRect.top - parentRect.top + scrollParent.scrollTop - stickyOffset
+        scrollParent.scrollTo({top: Math.max(0, top), behavior: "smooth"})
+        return
+      }
+
+      const top = target.getBoundingClientRect().top + window.scrollY - stickyOffset
+      window.scrollTo({top: Math.max(0, top), behavior: "smooth"})
     }
 
-    const top = target.getBoundingClientRect().top + window.scrollY - stickyOffset
-    window.scrollTo({top: Math.max(0, top), behavior: "smooth"})
+    scrollOnce()
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await nextFrame()
+      scrollOnce()
+    }
+    await waitMs(140)
+    scrollOnce()
+    blipInlineTarget(target)
+    return true
   }
 
   const openPrDiffHashFromLocation = async () => {
     if (typeof window === "undefined") return false
+    if (suppressNextPrDiffHashOpen) {
+      suppressNextPrDiffHashOpen = false
+      return false
+    }
     const currentHash = window.location.hash || ""
     const match = currentHash.match(/^#diff-([a-f0-9]+)/i)
     if (!match) return false
+    const generation = ++prInlineTargetGeneration
+    prInlineTargetStatus = {
+      state: "loading",
+      message: "Opening inline comment target...",
+      detail: "Loading changed files and expanding the matching file.",
+    }
+    const ready = await ensurePrChangesReady()
+    if (generation !== prInlineTargetGeneration) return false
+    if (!ready) {
+      prInlineTargetStatus = {
+        state: "error",
+        message: "Could not load file diffs for this inline comment.",
+        detail: prChangesError || "Try retrying the file diff load.",
+      }
+      return false
+    }
+    await waitForPrDiffAnchors()
+    if (generation !== prInlineTargetGeneration) return false
     const filePath = getPrFilePathByDiffHash(match[1])
-    if (!filePath) return false
+    if (!filePath) {
+      prInlineTargetStatus = {
+        state: "error",
+        message: "Could not find the file for this inline comment.",
+        detail: "The comment may point at an older diff that is not in the current PR view.",
+      }
+      return false
+    }
     prReviewTab = "files"
     if (!prExpandedFiles.has(filePath)) {
       prExpandedFiles = new Set([...prExpandedFiles, filePath])
@@ -1346,14 +1494,37 @@
     const anchor = currentHash.slice(1)
     await tick()
     await nextFrame()
-    await scrollInlineDiffTarget(anchor)
+    const found = await scrollInlineDiffTarget(anchor, "pr-files-tab-panel", {filePath, targetLine: null})
+    if (generation !== prInlineTargetGeneration) return false
+    if (!found) {
+      prInlineTargetStatus = {
+        state: "error",
+        message: "Could not find the inline comment line after loading the diff.",
+        detail: "The target line may no longer exist in this diff.",
+      }
+      return false
+    }
+    prInlineTargetStatus = null
     return true
   }
 
   $effect(() => {
     const anchors = prDiffAnchors
     if (Object.keys(anchors).length === 0) return
-    void openPrDiffHashFromLocation()
+    untrack(() => void openPrDiffHashFromLocation())
+  })
+
+  $effect(() => {
+    if (typeof window === "undefined") return
+    if (!window.location.hash.match(/^#diff-[a-f0-9]+/i)) return
+    if (prInlineTargetStatus) return
+    if (prChanges === null || prChangesLoading || Object.keys(prDiffAnchors).length === 0) {
+      prInlineTargetStatus = {
+        state: "loading",
+        message: "Opening inline comment target...",
+        detail: "Loading the PR diff before scrolling to the selected line.",
+      }
+    }
   })
 
   $effect(() => {
@@ -1366,56 +1537,149 @@
   const openPrInlineCommentLocation = async (comment: CommentEvent) => {
     const location = getInlineCommentLocation(comment)
     if (!location) return
+    const generation = ++prInlineTargetGeneration
+    const commitId = getCommentTagValue(comment, "c")
+    const side = location.lineSide === "del" ? "L" : "R"
+    const hash = prDiffAnchors[location.filePath] || await githubPermalinkDiffId(location.filePath)
+    const anchor = location.targetLine ? `diff-${hash}${side}${location.targetLine}` : `diff-${hash}`
+    const setHash = () => {
+      if (typeof window === "undefined") return
+      const nextHash = `#${anchor}`
+      if (window.location.hash !== nextHash) {
+        suppressNextPrDiffHashOpen = true
+        window.location.hash = anchor
+      }
+    }
+    const fail = (message: string, detail?: string) => {
+      if (generation !== prInlineTargetGeneration) return
+      prInlineTargetStatus = {state: "error", message, detail}
+    }
+
+    prInlineTargetStatus = {
+      state: "loading",
+      message: "Opening inline comment...",
+      detail: commitId && prCommitOids.includes(commitId)
+        ? "Loading the commit diff and jumping to the commented line."
+        : "Loading file diffs and jumping to the commented line.",
+    }
+
+    if (commitId && prCommitOids.includes(commitId)) {
+      prReviewTab = "commits"
+      const ready = await ensurePrCommitDiffReady(commitId)
+      if (generation !== prInlineTargetGeneration) return
+      if (ready) {
+        await tick()
+        await nextFrame()
+        setHash()
+        const found = await scrollInlineDiffTarget(anchor, "pr-commits-tab-panel", location)
+        if (generation !== prInlineTargetGeneration) return
+        if (found) {
+          prInlineTargetStatus = null
+          return
+        }
+      }
+    }
+
+    prInlineTargetStatus = {
+      state: "loading",
+      message: "Opening inline comment in Files changed...",
+      detail: "Loading the full PR diff and expanding the matching file.",
+    }
     prReviewTab = "files"
+    const ready = await ensurePrChangesReady()
+    if (generation !== prInlineTargetGeneration) return
+    if (!ready) {
+      fail("Could not load file diffs for this inline comment.", prChangesError || "Try retrying the file diff load.")
+      return
+    }
     if (!prExpandedFiles.has(location.filePath)) {
       prExpandedFiles = new Set([...prExpandedFiles, location.filePath])
     }
-    const hash = prDiffAnchors[location.filePath] || await githubPermalinkDiffId(location.filePath)
-    const side = location.lineSide === "del" ? "L" : "R"
-    const anchor = location.targetLine ? `diff-${hash}${side}${location.targetLine}` : `diff-${hash}`
+    await waitForPrDiffAnchors()
     await tick()
-    if (typeof window === "undefined") return
-    const nextHash = `#${anchor}`
-    if (window.location.hash === nextHash) {
-      window.dispatchEvent(new HashChangeEvent("hashchange"))
-    } else {
-      window.location.hash = anchor
-    }
     await nextFrame()
-    await scrollInlineDiffTarget(anchor)
+    setHash()
+    const found = await scrollInlineDiffTarget(anchor, "pr-files-tab-panel", location)
+    if (generation !== prInlineTargetGeneration) return
+    if (!found) {
+      fail(
+        "Could not find the inline comment line after loading the diff.",
+        "The target line may no longer exist in this PR diff.",
+      )
+      return
+    }
+    prInlineTargetStatus = null
   }
 
   const prDiffComments = $derived.by(() => {
     const comments = prThreadCommentsArray
     if (!comments || comments.length === 0) return []
-    return comments.filter((commentEvent: CommentEvent) => getCommentTagValue(commentEvent, "f") && getCommentTagValue(commentEvent, "line")).map((commentEvent: CommentEvent) => {
-      const filePath = getCommentTagValue(commentEvent, "f")
-      const {lineNumber, lineSide} = getInlineCommentLine(commentEvent)
+
+    const inlineRoots = comments.filter((commentEvent: CommentEvent) => getCommentTagValue(commentEvent, "f") && getCommentTagValue(commentEvent, "line"))
+    const childrenByParent = new Map<string, CommentEvent[]>()
+    for (const commentEvent of comments) {
+      const parentId = getCommentParentId(commentEvent)
+      if (!parentId) continue
+      const children = childrenByParent.get(parentId) || []
+      children.push(commentEvent)
+      childrenByParent.set(parentId, children)
+    }
+    for (const children of childrenByParent.values()) {
+      children.sort((a, b) => (a.created_at || 0) - (b.created_at || 0) || a.id.localeCompare(b.id))
+    }
+
+    const toDiffComment = (commentEvent: CommentEvent, rootInline: CommentEvent) => {
+      const filePath = getCommentTagValue(rootInline, "f")
+      const {lineNumber, lineStart, lineEnd, lineSide} = getInlineCommentLine(rootInline)
       const profile = $profilesByPubkey.get(commentEvent.pubkey)
       const authorName = profile?.name || profile?.display_name || commentEvent.pubkey.slice(0, 8)
       const authorAvatar = profile?.picture || ""
       return {
         id: commentEvent.id || "",
         lineNumber,
+        lineStart,
+        lineEnd,
         filePath,
-        commitId: getCommentTagValue(commentEvent, "c"),
+        commitId: getCommentTagValue(rootInline, "c"),
         lineSide,
         content: commentEvent.content,
         rawEvent: commentEvent,
+        parentId: getCommentParentId(commentEvent),
+        rootInlineId: rootInline.id,
+        isResolveEvent: isResolveCommentEvent(commentEvent),
         author: {name: authorName, avatar: authorAvatar},
         createdAt: new Date(commentEvent.created_at * 1000).toISOString(),
       }
-    })
+    }
+
+    const collectThread = (root: CommentEvent) => {
+      const thread = [toDiffComment(root, root)]
+      const visit = (parentId: string) => {
+        for (const child of childrenByParent.get(parentId) || []) {
+          if (child.id === root.id) continue
+          thread.push(toDiffComment(child, root))
+          visit(child.id)
+        }
+      }
+      visit(root.id)
+      return thread
+    }
+
+    return inlineRoots.flatMap(collectThread)
   })
 
   const prDiffCommentLinesByFile = $derived.by(() => {
     const linesByFile = new Map<string, number[]>()
 
     for (const comment of prDiffComments) {
-      if (!comment.filePath || !comment.lineNumber) continue
+      if (!comment.filePath || !comment.lineNumber || comment.isResolveEvent) continue
 
       const lines = linesByFile.get(comment.filePath) || []
-      if (!lines.includes(comment.lineNumber)) lines.push(comment.lineNumber)
+      const start = comment.lineStart || comment.lineNumber
+      const end = comment.lineEnd || comment.lineNumber
+      for (let line = Math.min(start, end); line <= Math.max(start, end); line += 1) {
+        if (!lines.includes(line)) lines.push(line)
+      }
       linesByFile.set(comment.filePath, lines)
     }
 
@@ -2190,7 +2454,7 @@
         ""
       const statusEvent = createStatusEvent({
         kind: GIT_STATUS_APPLIED,
-        content: mergePrCommitMessage || `PR applied: ${pr?.subject || "Untitled"}`,
+        content: mergePrCommitMessage || `PR merged: ${pr?.subject || "Untitled"}`,
         rootId: prEvent.id,
         recipients,
         repoAddr: repoAddress,
@@ -2223,7 +2487,7 @@
     try {
       await emitPRAppliedStatus(undefined)
       markAsAppliedSuccess = true
-      toast.push({message: "PR marked as applied", timeout: 5000})
+      toast.push({message: "PR marked as merged", timeout: 5000})
     } finally {
       isMarkingApplied = false
     }
@@ -2257,7 +2521,7 @@
 
   const getStatusLabel = (status?: string) => {
     if (status === "open") return "Open"
-    if (status === "applied") return "Applied"
+    if (status === "applied") return "Merged"
     if (status === "closed") return "Closed"
     if (status === "draft") return "Draft"
     return "Status unknown"
@@ -2275,6 +2539,31 @@
     return "border-border bg-secondary text-secondary-foreground"
   }
 </script>
+
+{#if prInlineTargetStatus}
+  <div class="fixed left-1/2 top-20 z-50 w-[min(calc(100vw-1rem),28rem)] -translate-x-1/2 rounded-lg border border-border bg-card/95 px-3 py-2 text-sm shadow-lg backdrop-blur">
+    <div class="flex items-start gap-2">
+      {#if prInlineTargetStatus.state === "loading"}
+        <Loader2 class="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
+      {:else}
+        <AlertCircle class="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+      {/if}
+      <div class="min-w-0 flex-1">
+        <p class="font-medium">{prInlineTargetStatus.message}</p>
+        {#if prInlineTargetStatus.detail}
+          <p class="mt-0.5 text-xs text-muted-foreground">{prInlineTargetStatus.detail}</p>
+        {/if}
+      </div>
+      <button
+        type="button"
+        class="rounded p-0.5 text-muted-foreground hover:text-foreground"
+        aria-label="Dismiss inline comment navigation status"
+        onclick={() => (prInlineTargetStatus = null)}>
+        <X class="h-4 w-4" />
+      </button>
+    </div>
+  </div>
+{/if}
 
 <div
   class="sticky z-10 items-center justify-between py-4 backdrop-blur"
@@ -2320,14 +2609,6 @@
           </div>
 
           <div class="flex flex-wrap gap-2 text-xs">
-            <span class="rounded-full border border-border bg-background px-2.5 py-1">
-              {repoTrustMetrics.graphLabel}
-            </span>
-            {#if repoTrustMetrics.enabledRuleCount > 0}
-              <span class="rounded-full border border-border bg-background px-2.5 py-1">
-                {repoTrustMetrics.enabledRuleCount} rule{repoTrustMetrics.enabledRuleCount === 1 ? "" : "s"}
-              </span>
-            {/if}
             {#if prTrustMetric?.trustedAuthor}
               <span class="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
                 Trusted author
@@ -2698,7 +2979,7 @@
         </div>
       {/if}
 
-      <!-- Mark as applied (maintainers only, when up-to-date and open - no git ops) -->
+      <!-- Mark as merged (maintainers only, when up-to-date and open - no git ops) -->
       {#if canManagePr &&
         prStatus?.status === "open" &&
         prMergeAnalysisResult &&
@@ -2708,9 +2989,9 @@
             <div class="flex items-center gap-3">
               <CheckCircle class="h-5 w-5 text-primary" />
               <div>
-                <h3 class="font-semibold">Mark as applied</h3>
+                <h3 class="font-semibold">Mark as merged</h3>
                 <p class="text-sm text-muted-foreground">
-                  No changes to merge. Publish applied status without git operations.
+                  No changes to merge. Publish merged status without git operations.
                 </p>
               </div>
             </div>
@@ -2735,7 +3016,7 @@
                 Marked
               {:else}
                 <CheckCircle class="mr-2 h-4 w-4" />
-                Mark as applied
+                Mark as merged
               {/if}
             </Button>
           </div>
@@ -2922,9 +3203,13 @@
         </DialogContent>
       </Dialog>
 
-      <div class="mb-6 scroll-mt-4 rounded-lg border bg-muted/20 p-4" id="pr-changes">
+      <div
+        class="mb-6 scroll-mt-4 overflow-hidden rounded-lg border bg-muted/20 {prReviewHasExpandedItem
+          ? 'p-0 sm:p-4'
+          : 'p-4'}"
+        id="pr-changes">
         <Tabs bind:value={prReviewTab} class="w-full">
-          <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between {prReviewHasExpandedItem ? 'p-3 sm:p-0' : ''}">
             <TabsList class="grid w-full grid-cols-2 sm:max-w-sm">
               <TabsTrigger value="commits" class="px-2 text-xs sm:text-sm">
                 <span class="sm:hidden">Commits</span>
@@ -2979,11 +3264,11 @@
             {/if}
           </div>
 
-          <TabsContent value="commits" class="mt-0">
+          <TabsContent value="commits" class="mt-0" id="pr-commits-tab-panel">
             {#if !prCommitOids.length}
               <p class="text-sm text-muted-foreground">No commits found for this PR.</p>
             {:else}
-              <div class="divide-y divide-border rounded border bg-background/50">
+              <div class="divide-y divide-border bg-background/50 {prReviewHasExpandedItem ? 'border-y sm:rounded sm:border' : 'rounded border'}">
                 {#each prCommitOids as oid (oid)}
                   {@const commitState = getPrCommitState(oid)}
                   {@const isExpanded = prExpandedCommits.has(oid)}
@@ -3013,7 +3298,7 @@
                     </button>
 
                     {#if isExpanded}
-                      <div class="border-t border-border px-4 pb-4 pt-2">
+                      <div class="border-t border-border px-0 pb-0 pt-0 sm:px-4 sm:pb-4 sm:pt-2">
                         {#if commitState.loading}
                           <div class="flex items-center gap-2 rounded border bg-background/50 p-3 text-sm text-muted-foreground">
                             <Loader2 class="h-4 w-4 animate-spin" />
@@ -3036,9 +3321,9 @@
                             </div>
                           {/if}
                           {#if commitState.changes && commitState.changes.length > 0}
-                            <div class="space-y-3">
+                            <div class="space-y-0 sm:space-y-3">
                               {#each commitState.changes as change (change.path)}
-                                <div class="rounded border border-border bg-background">
+                                <div class="border-y border-border bg-background sm:rounded sm:border">
                                   <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
                                     <span class="truncate font-mono">{change.path}</span>
                                       <div class="flex items-center gap-2 text-muted-foreground">
@@ -3054,7 +3339,7 @@
                                         {/if}
                                       </div>
                                   </div>
-                                  <div class="border-t border-border px-2 pb-2 pt-1.5 sm:px-3 sm:pb-3">
+                                  <div class="border-t border-border px-0 pb-0 pt-0 sm:px-3 sm:pb-3 sm:pt-1.5">
                                     <DiffViewer
                                       diff={[getPrCommitReviewDiff(change)]}
                                       showLineNumbers={true}
@@ -3091,7 +3376,7 @@
             {/if}
           </TabsContent>
 
-          <TabsContent value="files" class="mt-0">
+          <TabsContent value="files" class="mt-0" id="pr-files-tab-panel">
             {#if prChangesLoading}
               <div class="flex items-center gap-2 rounded border bg-background/50 p-4 text-sm text-muted-foreground">
                 <Loader2 class="h-4 w-4 animate-spin" />
@@ -3105,7 +3390,7 @@
                 </Button>
               </div>
             {:else if prChanges}
-              <div class="divide-y divide-border rounded border bg-background/50">
+              <div class="divide-y divide-border bg-background/50 {prReviewHasExpandedItem ? 'border-y sm:rounded sm:border' : 'rounded border'}">
                 {#each prChanges as change (change.path)}
                   {@const isExpanded = prExpandedFiles.has(change.path)}
                   {@const statusInfo = getPrFileStatusIcon(change.status)}
@@ -3147,7 +3432,7 @@
                       </div>
                     </button>
                     {#if isExpanded}
-                      <div class="border-t border-border px-2 pb-2 pt-1.5 sm:px-3 sm:pb-3">
+                      <div class="border-t border-border px-0 pb-0 pt-0 sm:px-3 sm:pb-3 sm:pt-1.5">
                         <DiffViewer
                           diff={[prChangeToParseDiffFile(change)]}
                           showLineNumbers={true}

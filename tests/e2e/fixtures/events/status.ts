@@ -48,8 +48,6 @@ export interface StatusOptions {
   relay?: string;
   /** Merge commit hash (for applied/merged status) */
   mergeCommit?: string;
-  /** Applied as commits (for applied status on patches) */
-  appliedAsCommits?: string[];
   /** Event pubkey (author) */
   pubkey?: string;
   /** Event timestamp (seconds) */
@@ -59,7 +57,7 @@ export interface StatusOptions {
 /**
  * Creates a Status event (kinds 1630-1633)
  *
- * NIP-34 status events indicate the state of issues, patches, and PRs:
+  * NIP-34 status events indicate the state of issues and PRs:
  * - 1630: Open
  * - 1631: Applied/Merged/Resolved
  * - 1632: Closed (rejected/won't fix)
@@ -92,10 +90,6 @@ export function createStatusEvent(opts: StatusOptions): UnsignedEvent {
 
   if (opts.mergeCommit) {
     tags.push(['merge-commit', opts.mergeCommit]);
-  }
-
-  if (opts.appliedAsCommits && opts.appliedAsCommits.length > 0) {
-    tags.push(['applied-as-commits', ...opts.appliedAsCommits]);
   }
 
   return {
@@ -204,19 +198,6 @@ export const PR_MERGED_STATUS = createAppliedStatus(TEST_EVENT_IDS.pr1, {
 });
 
 /**
- * Applied status for a patch
- */
-export const PATCH_APPLIED_STATUS = createAppliedStatus(TEST_EVENT_IDS.patch1, {
-  content: 'Patch applied successfully',
-  recipients: [TEST_PUBKEYS.bob],
-  repoAddress: FLOTILLA_REPO_ADDRESS,
-  mergeCommit: TEST_COMMITS.feature,
-  appliedAsCommits: [TEST_COMMITS.second, TEST_COMMITS.third],
-  pubkey: TEST_PUBKEYS.alice,
-  created_at: BASE_TIMESTAMP + 86400,
-});
-
-/**
  * Closed status for an issue (resolved)
  */
 export const ISSUE_RESOLVED_STATUS = createAppliedStatus(TEST_ISSUE_IDS.bugReport, {
@@ -258,16 +239,6 @@ export const PR_DRAFT_STATUS = createDraftStatus(TEST_EVENT_IDS.pr1, {
   repoAddress: FLOTILLA_REPO_ADDRESS,
   pubkey: TEST_PUBKEYS.bob,
   created_at: BASE_TIMESTAMP + 43200,
-});
-
-/**
- * Draft status for a patch
- */
-export const PATCH_DRAFT_STATUS = createDraftStatus(TEST_EVENT_IDS.patch1, {
-  content: 'Work in progress',
-  repoAddress: FLOTILLA_REPO_ADDRESS,
-  pubkey: TEST_PUBKEYS.bob,
-  created_at: BASE_TIMESTAMP,
 });
 
 /**

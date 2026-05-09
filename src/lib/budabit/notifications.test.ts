@@ -64,7 +64,6 @@ vi.mock("@nostr-git/core/events", () => ({
   GIT_COMMENT: 1311,
   GIT_ISSUE: 1311,
   GIT_LABEL: 1311,
-  GIT_PATCH: 1311,
   GIT_PULL_REQUEST: 1311,
   GIT_PULL_REQUEST_UPDATE: 1311,
   GIT_STATUS_APPLIED: 1311,
@@ -101,7 +100,7 @@ vi.mock("@lib/budabit/repo-watch", () => ({
   defaultRepoWatchOptions: {
     status: {open: true, draft: true, applied: true, closed: true},
     issues: {new: true, comments: true},
-    patches: {new: true, comments: true, updates: true},
+    prs: {new: true, comments: true, updates: true},
     assignments: true,
     reviews: true,
   },
@@ -165,7 +164,7 @@ describe("notifications", () => {
     expect(mockSetNotificationCandidates).toHaveBeenCalled()
   })
 
-  it("augments repo issue and patch paths to the git root", async () => {
+  it("augments repo issue and PR paths to the git root", async () => {
     mockSetNotificationsConfig.mockClear()
 
     const {setupBudabitNotifications} = await import("./notifications")
@@ -174,7 +173,7 @@ describe("notifications", () => {
     const augmentPaths = mockSetNotificationsConfig.mock.calls.at(-1)?.[0]?.augmentPaths
     const paths = new Set([
       "/spaces/relay/git/naddr1abc/issues",
-      "/spaces/relay/git/naddr1abc/patches",
+      "/spaces/relay/git/naddr1abc/prs",
     ])
 
     const augmented = augmentPaths(paths)
@@ -200,7 +199,7 @@ describe("notifications", () => {
       repos: {
         [repoAddr]: {
           issues: {new: true, comments: true},
-          patches: {new: true, comments: true, updates: true},
+          prs: {new: true, comments: true, updates: true},
           status: {open: true, draft: true, applied: true, closed: true},
           assignments: true,
           reviews: true,

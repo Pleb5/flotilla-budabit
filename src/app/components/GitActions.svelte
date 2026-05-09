@@ -37,11 +37,11 @@
     event: TrustedEvent
     showIssues?: boolean
     showActivity?: boolean
-    showPatches?: boolean
+    showPrs?: boolean
     workerApi?: any
   }
 
-  const {url, event, showIssues = true, showActivity = true, showPatches = true, workerApi}: Props = $props()
+  const {url, event, showIssues = true, showActivity = true, showPrs = true, workerApi}: Props = $props()
 
   const relaysTag = event.tags.find(nthEq(0, "relays")) || []
   const relays = sanitizeRelays(relaysTag.slice(1)) // Skip the "relays" tag name, pass only URLs
@@ -275,12 +275,12 @@
       </Link>
     {/if}
 
-    {#if showPatches}
+    {#if showPrs}
       <Link
         class="cursor-pointer shrink-0"
-        href={`${browseHref}/patches`}>
+        href={`${browseHref}/prs`}>
         <div class="flex-inline btn btn-neutral btn-xs gap-1 rounded-full">
-          <span>Patches</span>
+          <span>PRs</span>
         </div>
       </Link>
     {/if}

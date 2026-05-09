@@ -84,7 +84,6 @@ export {
   createRepoAnnouncement,
   createIssue,
   createIssueReply,
-  createPatch,
   createStatus,
   // Utility functions
   randomHex,
@@ -100,7 +99,6 @@ export {
   type RepoAnnouncementOptions,
   type IssueOptions,
   type IssueReplyOptions,
-  type PatchOptions,
   type StatusOptions,
 } from "./mock-relay"
 
@@ -109,7 +107,6 @@ export {
   // Kind constants
   KIND_REPO_ANNOUNCEMENT,
   KIND_REPO_STATE,
-  KIND_PATCH,
   KIND_ISSUE,
   KIND_PULL_REQUEST,
   KIND_STATUS_OPEN,
@@ -134,13 +131,11 @@ export {
   // NIP-34 specific assertions
   assertValidRepoAnnouncement,
   assertValidRepoState,
-  assertValidPatch,
   assertValidIssue,
   assertValidStatusEvent,
   assertValidLabel,
   // Composite assertions
   assertStatusReferencesIssue,
-  assertStatusReferencesPatch,
   assertReferencesRepo,
   assertLabelTargetsEvent,
 } from "./event-assertions"
@@ -158,11 +153,11 @@ export {
   TEST_RELAY_ENCODED,
   getRepoUrl,
   getRepoIssuesUrl,
-  getRepoPatchesUrl,
+  getRepoPrsUrl,
   getRepoCodeUrl,
   getRepoCommitsUrl,
   getIssueDetailUrl,
-  getPatchDetailUrl,
+  getPrDetailUrl,
   getGitReposUrl,
   // naddr encoding helpers
   encodeRepoNaddr,
@@ -170,10 +165,10 @@ export {
   // Types
   type SeedRepoOptions,
   type SeedIssueOptions,
-  type SeedPatchOptions,
+  type SeedPullRequestOptions,
   type SeedRepoResult,
   type SeedIssueResult,
-  type SeedPatchResult,
+  type SeedPullRequestResult,
   type TestSeederOptions,
   type TestScenario,
 } from "./seed"

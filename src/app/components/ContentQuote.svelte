@@ -24,7 +24,6 @@
   import {
     GIT_COMMENT,
     GIT_ISSUE,
-    GIT_PATCH,
     GIT_PULL_REQUEST,
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
@@ -304,7 +303,6 @@
 
   const getCommentContextLabel = (rootKind: number | null) => {
     if (rootKind === GIT_ISSUE) return "Issue"
-    if (rootKind === GIT_PATCH) return "Patch"
     if (rootKind === GIT_PULL_REQUEST) return "Pull Request"
     return "Thread"
   }
@@ -318,7 +316,7 @@
 
   const getIssuePreview = (evt: TrustedEvent) => truncateText(evt?.content || "")
 
-  const getPatchPreview = (evt: TrustedEvent) => {
+  const getPullRequestPreview = (evt: TrustedEvent) => {
     const commit = getTagValue(evt, "commit")
     if (commit) return `Commit ${commit.slice(0, 8)}`
     const baseBranch = getTagValue(evt, "base-branch")
@@ -353,16 +351,16 @@
       }
     }
 
-    if (evt.kind === GIT_PATCH || evt.kind === GIT_PULL_REQUEST) {
+    if (evt.kind === GIT_PULL_REQUEST) {
       const repoAddress = getTagValue(evt, "a")
       const repoLabel = getDisplayRepo(evt, repoAddress)
       const baseHref = buildRepoHrefFromAddress(repoAddress, relay)
       return {
-        label: evt.kind === GIT_PULL_REQUEST ? "Pull Request" : "Patch",
-        title: getTagValue(evt, "subject") || (evt.kind === GIT_PULL_REQUEST ? "Pull Request" : "Patch"),
+        label: "Pull Request",
+        title: getTagValue(evt, "subject") || "Pull Request",
         meta: repoLabel ? [repoLabel] : [],
-        preview: getPatchPreview(evt),
-        href: baseHref ? `${baseHref}/patches/${evt.id}` : "",
+        preview: getPullRequestPreview(evt),
+        href: baseHref ? `${baseHref}/prs/${evt.id}` : "",
       }
     }
 
@@ -386,8 +384,8 @@
       if (baseHref) {
         if (rootKind === GIT_ISSUE) {
           href = `${baseHref}/issues/${rootId}#comment-${evt.id}`
-        } else if (rootKind === GIT_PATCH || rootKind === GIT_PULL_REQUEST) {
-          href = `${baseHref}/patches/${rootId}${inlineDiffAnchor || `#comment-${evt.id}`}`
+        } else if (rootKind === GIT_PULL_REQUEST) {
+          href = `${baseHref}/prs/${rootId}${inlineDiffAnchor || `#comment-${evt.id}`}`
         } else if (rootId) {
           href = `${baseHref}#comment-${evt.id}`
         } else {
@@ -415,7 +413,7 @@
     const filePath = getFilePath(evt)
     const {start, end} = getLineRange(evt)
     const lineAnchor = start ? `#L${start}${end && end !== start ? `-L${end}` : ""}` : ""
-    const patchId = getTagValue(evt, "e")
+    const prId = getTagValue(evt, "e")
     const diffAnchor = diffHash
       ? `#diff-${diffHash}${start ? `R${start}${end && end !== start ? `-R${end}` : ""}` : ""}`
       : ""
@@ -423,12 +421,12 @@
     if (parentCommit) {
       if (filePath && !diffHash) return ""
       if (commit) return `${base}/commits/${commit}${diffAnchor}`
-      if (patchId) return `${base}/patches/${patchId}${diffAnchor}`
+      if (prId) return `${base}/prs/${prId}${diffAnchor}`
       return `${base}${diffAnchor}`
     }
     if (filePath) return `${base}/code?path=${encodeURIComponent(filePath)}${lineAnchor}`
     if (commit) return `${base}/commits/${commit}`
-    if (patchId) return `${base}/patches/${patchId}`
+    if (prId) return `${base}/prs/${prId}`
     return base
   }
 

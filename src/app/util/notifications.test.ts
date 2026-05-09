@@ -46,7 +46,7 @@ describe("notifications", () => {
 
       const paths = new Set([
         "/spaces/relay-encoded/git/naddr1valid/issues",
-        "/spaces/relay-encoded/git/naddr1valid/patches",
+        "/spaces/relay-encoded/git/naddr1valid/prs",
         "/spaces/relay-encoded/git/naddr1other/repos",
       ])
 
@@ -59,19 +59,19 @@ describe("notifications", () => {
       expect(result).toEqual(["/spaces/relay-encoded/git/naddr1valid/issues"])
     })
 
-    it("returns matching paths for patches section", async () => {
+    it("returns matching paths for PRs section", async () => {
       const {getRepoNotificationPaths} = await import("./notifications")
       const {encodeRelay} = await import("@app/core/state")
       vi.mocked(encodeRelay).mockReturnValue("r")
 
-      const paths = new Set(["/spaces/r/git/naddr1valid/patches"])
+      const paths = new Set(["/spaces/r/git/naddr1valid/prs"])
       const result = getRepoNotificationPaths(paths, {
         relay: "wss://r.com",
         repoAddress: "30617:pubkey123:repo",
-        kind: "patches",
+        kind: "prs",
       })
 
-      expect(result).toContain("/spaces/r/git/naddr1valid/patches")
+      expect(result).toContain("/spaces/r/git/naddr1valid/prs")
     })
 
     it("matches any effective repo address alias", async () => {
@@ -96,7 +96,7 @@ describe("notifications", () => {
 
       const paths = new Set([
         "/spaces/r/git/naddr1valid/issues",
-        "/spaces/r/git/naddr1valid/patches",
+        "/spaces/r/git/naddr1valid/prs",
       ])
       const result = getRepoNotificationPaths(paths, {
         relay: "wss://r.com",
@@ -139,7 +139,7 @@ describe("notifications", () => {
       const {encodeRelay} = await import("@app/core/state")
       vi.mocked(encodeRelay).mockReturnValue("r")
 
-      const result = hasRepoNotification(new Set(["/spaces/r/git/naddr1valid/patches"]), {
+      const result = hasRepoNotification(new Set(["/spaces/r/git/naddr1valid/prs"]), {
         relay: "wss://r.com",
         repoAddresses: ["30617:other:repo", "30617:pubkey123:repo"],
       })

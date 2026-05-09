@@ -29,9 +29,6 @@ export const KIND_REPO_ANNOUNCEMENT = 30617
 /** Repository State (addressable, kind 30618) */
 export const KIND_REPO_STATE = 30618
 
-/** Patch event (kind 1617) */
-export const KIND_PATCH = 1617
-
 /** Issue event (kind 1621) */
 export const KIND_ISSUE = 1621
 
@@ -41,7 +38,7 @@ export const KIND_PULL_REQUEST = 1618
 /** Status: Open (kind 1630) */
 export const KIND_STATUS_OPEN = 1630
 
-/** Status: Applied/Merged (kind 1631) */
+/** Status: Applied/Merged/Resolved (kind 1631) */
 export const KIND_STATUS_APPLIED = 1631
 
 /** Status: Closed (kind 1632) */
@@ -366,38 +363,6 @@ export function assertValidRepoState(event: NostrEvent): void {
 }
 
 /**
- * Assert that an event is a valid Patch (kind 1617).
- *
- * Required tags:
- * - a: repository address reference
- *
- * Common tags:
- * - p: pubkey of patch author or target maintainer
- * - commit: commit SHA
- * - parent-commit: parent commit SHA
- * - t: with value "root" for root patch in a series
- *
- * Content should contain git format-patch output.
- *
- * @param event - The event to validate
- * @throws AssertionError if event is not a valid patch
- */
-export function assertValidPatch(event: NostrEvent): void {
-  assertValidEvent(event)
-  assertEventKind(event, KIND_PATCH)
-  assertRepoReference(event)
-
-  // Patch content should not be empty (contains git format-patch output)
-  expect(event.content.length, "Patch content should not be empty").toBeGreaterThan(0)
-
-  // Should typically have commit tag
-  const commitTag = getTag(event, "commit")
-  if (commitTag) {
-    expect(commitTag[1].length, "commit tag should be a valid SHA").toBeGreaterThanOrEqual(7)
-  }
-}
-
-/**
  * Assert that an event is a valid Issue (kind 1621).
  *
  * Required tags:
@@ -428,20 +393,19 @@ export function assertValidIssue(event: NostrEvent): void {
 /**
  * Assert that an event is a valid Status event (kinds 1630-1633).
  *
- * Status events indicate the state of issues, patches, or PRs:
+ * Status events indicate the state of issues or PRs:
  * - 1630: Open
  * - 1631: Applied/Merged
  * - 1632: Closed
  * - 1633: Draft
  *
  * Required tags:
- * - e: reference to the target event (issue, patch, or PR)
+ * - e: reference to the target event (issue or PR)
  * - p: pubkeys of participants
  *
  * Optional tags:
  * - a: repository address
  * - merge-commit: SHA of merge commit (for applied status)
- * - applied-as-commits: commit SHAs (for applied patches)
  *
  * @param event - The event to validate
  * @throws AssertionError if event is not a valid status event
@@ -467,15 +431,9 @@ export function assertValidStatusEvent(event: NostrEvent): void {
   // For applied status, check for merge-related tags
   if (event.kind === KIND_STATUS_APPLIED) {
     const hasMergeCommit = hasTag(event, "merge-commit")
-    const hasAppliedCommits = hasTag(event, "applied-as-commits")
-    // At least one of these is expected for patches, but not strictly required
     if (hasMergeCommit) {
       const mergeCommit = getTagValue(event, "merge-commit")
       expect(mergeCommit!.length, "merge-commit should be a valid SHA").toBeGreaterThanOrEqual(7)
-    }
-    if (hasAppliedCommits) {
-      const commits = getTagValues(event, "applied-as-commits")
-      expect(commits.length, "applied-as-commits should have at least one commit").toBeGreaterThanOrEqual(1)
     }
   }
 }
@@ -548,21 +506,9 @@ export function assertStatusReferencesIssue(statusEvent: NostrEvent, issueEvent:
 }
 
 /**
- * Assert that a status event correctly references a patch.
- *
- * @param statusEvent - The status event
- * @param patchEvent - The patch it should reference
- */
-export function assertStatusReferencesPatch(statusEvent: NostrEvent, patchEvent: NostrEvent): void {
-  assertValidStatusEvent(statusEvent)
-  expect(patchEvent.id, "Patch must have an ID").toBeDefined()
-  assertEventReference(statusEvent, patchEvent.id)
-}
-
-/**
  * Assert that an event references a specific repository.
  *
- * @param event - The event to check (patch, issue, status, etc.)
+ * @param event - The event to check (issue, status, etc.)
  * @param repoEvent - The repository announcement it should reference
  */
 export function assertReferencesRepo(event: NostrEvent, repoEvent: NostrEvent): void {

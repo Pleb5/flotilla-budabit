@@ -202,9 +202,9 @@ describe("budabit commands", () => {
     })
   })
 
-  describe("deletePatchOrPullRequestWithRelated", () => {
+  describe("deletePullRequestWithRelated", () => {
     it("aborts while waiting for relay acknowledgements", async () => {
-      const {deletePatchOrPullRequestWithRelated} = await import("./commands")
+      const {deletePullRequestWithRelated} = await import("./commands")
       const root = {
         id: "pr1",
         kind: 1618,
@@ -220,7 +220,7 @@ describe("budabit commands", () => {
       }))
 
       const controller = new AbortController()
-      const deletion = deletePatchOrPullRequestWithRelated({
+      const deletion = deletePullRequestWithRelated({
         root,
         relays: ["wss://relay.example.com"],
         signal: controller.signal,

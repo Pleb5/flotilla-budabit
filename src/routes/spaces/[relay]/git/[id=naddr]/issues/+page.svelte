@@ -1101,7 +1101,7 @@
     try {
       pushRepoAlert({
         repoKey: repoClass.key,
-        kind: "new-patch",
+        kind: "new-issue",
         title: "New issue",
         body: getTagValue("subject", issueWithRecipients.tags) || "",
       })

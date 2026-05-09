@@ -2,7 +2,6 @@
   import {displayProfileByPubkey, thunks} from "@welshman/app"
   import {getTag, type EventContent, type TrustedEvent} from "@welshman/util"
   import {parseIssueEvent, parsePullRequestEvent, GIT_PULL_REQUEST, GIT_ISSUE} from "@nostr-git/core/events"
-  import {parseGitPatchFromEvent} from "@nostr-git/core/git"
   import {CircleCheck, CircleDot, FileCode, ArrowUpRight, XCircle} from "@lucide/svelte"
   import {goto} from "$app/navigation"
   import Button from "@lib/components/Button.svelte"
@@ -70,12 +69,10 @@
       }
     }
 
-    const parsed = parseGitPatchFromEvent(event as any)
-
     return {
-      title: parsed.title || "Untitled patch",
-      body: parsed.description || "",
-      kindLabel: "Patch",
+      title: "Untitled item",
+      body: event.content || "",
+      kindLabel: "Item",
     }
   })
 
@@ -90,7 +87,7 @@
           iconClass: "text-sky-300",
           labelClass: "text-sky-300",
           badgeClass: "border-sky-500/30 bg-sky-500/10 text-sky-300",
-          label: event.kind === GIT_ISSUE ? "Resolved" : event.kind === GIT_PULL_REQUEST ? "Merged" : "Applied",
+          label: event.kind === GIT_ISSUE ? "Resolved" : "Merged",
         }
       case "closed":
         return {
@@ -122,7 +119,7 @@
   const openLabel = $derived.by(() => {
     if (event.kind === GIT_ISSUE) return "Open issue"
     if (event.kind === GIT_PULL_REQUEST) return "Open pull request"
-    return "Open patch"
+    return "Open item"
   })
 
   const openActionsMenu = () =>

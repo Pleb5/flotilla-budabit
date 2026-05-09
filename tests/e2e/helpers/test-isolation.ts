@@ -395,7 +395,7 @@ export class IsolatedSeeder extends TestSeeder {
  * test("displays seeded repos", async ({page}) => {
  *   const seeder = await createIsolatedSeeder(page, (s) => {
  *     s.seedRepo({name: "repo-1", withIssues: 2})
- *     s.seedRepo({name: "repo-2", withPatches: 1})
+ *     s.seedRepo({name: "repo-2", withPullRequests: 1})
  *   })
  *
  *   await page.goto(`/spaces/${seeder.getEncodedRelayUrl()}/git`)

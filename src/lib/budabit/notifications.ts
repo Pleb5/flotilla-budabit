@@ -22,7 +22,6 @@ import {
   GIT_COMMENT,
   GIT_ISSUE,
   GIT_LABEL,
-  GIT_PATCH,
   GIT_PULL_REQUEST,
   GIT_PULL_REQUEST_UPDATE,
   GIT_STATUS_APPLIED,
@@ -47,7 +46,7 @@ import {
 } from "@lib/budabit/state"
 import {defaultRepoWatchOptions, userRepoWatchValues} from "@lib/budabit/repo-watch"
 
-type RootType = "issue" | "patch"
+type RootType = "issue" | "pr"
 
 const getRepoAddressParts = (repoAddr: string) => {
   const [kind, author, identifier] = repoAddr.split(":")
@@ -168,8 +167,8 @@ const issueEventsStore = deriveEventsAsc(
   deriveEventsById({repository, filters: [{kinds: [GIT_ISSUE]}]}),
 )
 
-const patchEventsStore = deriveEventsAsc(
-  deriveEventsById({repository, filters: [{kinds: [GIT_PATCH, GIT_PULL_REQUEST]}]}),
+const prEventsStore = deriveEventsAsc(
+  deriveEventsById({repository, filters: [{kinds: [GIT_PULL_REQUEST]}]}),
 )
 
 const prUpdateEventsStore = deriveEventsAsc(
@@ -198,7 +197,7 @@ export const repoNotificationCandidates = derived(
     repoAnnouncementsByAddress,
     maintainerSetRepoAddressesByRepoAddress,
     issueEventsStore,
-    patchEventsStore,
+    prEventsStore,
     prUpdateEventsStore,
     statusEventsStore,
     roleEventsStore,
@@ -210,7 +209,7 @@ export const repoNotificationCandidates = derived(
     $repoAnnouncementsByAddress,
     $maintainerSetRepoAddressesByRepoAddress,
     $issueEvents,
-    $patchEvents,
+    $prEvents,
     $prUpdateEvents,
     $statusEvents,
     $roleEvents,
@@ -268,7 +267,7 @@ export const repoNotificationCandidates = derived(
     const issueEvents = ($issueEvents as TrustedEvent[]).filter(event =>
       Boolean(resolveRootRepoAddr(event)),
     )
-    const patchEvents = ($patchEvents as TrustedEvent[]).filter(event =>
+    const prEvents = ($prEvents as TrustedEvent[]).filter(event =>
       Boolean(resolveRootRepoAddr(event)),
     )
     const prUpdateEvents = ($prUpdateEvents as TrustedEvent[]).filter(event =>
@@ -289,17 +288,17 @@ export const repoNotificationCandidates = derived(
       const rootRepoAddr = resolveRootRepoAddr(event)
       if (rootRepoAddr) rootMeta.set(event.id, {repoAddr: rootRepoAddr, type: "issue"})
     }
-    for (const event of patchEvents) {
+    for (const event of prEvents) {
       const rootRepoAddr = resolveRootRepoAddr(event)
-      if (rootRepoAddr) rootMeta.set(event.id, {repoAddr: rootRepoAddr, type: "patch"})
+      if (rootRepoAddr) rootMeta.set(event.id, {repoAddr: rootRepoAddr, type: "pr"})
     }
 
     const wantsIssueComments = repoAddresses.some(addr => watchedRepos[addr]?.issues?.comments)
-    const wantsPatchComments = repoAddresses.some(addr => watchedRepos[addr]?.patches?.comments)
+    const wantsPrComments = repoAddresses.some(addr => watchedRepos[addr]?.prs?.comments)
     const rootIds = Array.from(rootMeta.keys())
 
     const commentEvents =
-      rootIds.length > 0 && (wantsIssueComments || wantsPatchComments)
+      rootIds.length > 0 && (wantsIssueComments || wantsPrComments)
         ? ($commentEvents as TrustedEvent[]).filter(event => {
             const rootId = getRootId(event)
             return Boolean(rootId && rootMeta.has(rootId))
@@ -307,9 +306,9 @@ export const repoNotificationCandidates = derived(
         : []
 
     const latestIssueEvents = new Map<string, TrustedEvent>()
-    const latestPatchEvents = new Map<string, TrustedEvent>()
+    const latestPrEvents = new Map<string, TrustedEvent>()
     const latestIssueComments = new Map<string, TrustedEvent>()
-    const latestPatchComments = new Map<string, TrustedEvent>()
+    const latestPrComments = new Map<string, TrustedEvent>()
 
     for (const event of issueEvents) {
       if (event.pubkey === $pubkey) continue
@@ -320,13 +319,13 @@ export const repoNotificationCandidates = derived(
       updateLatest(latestIssueEvents, rootRepoAddr, event)
     }
 
-    for (const event of patchEvents) {
+    for (const event of prEvents) {
       if (event.pubkey === $pubkey) continue
       const rootRepoAddr = resolveRootRepoAddr(event)
       if (!rootRepoAddr) continue
       const options = watchedRepos[rootRepoAddr]
-      if (!options?.patches?.new) continue
-      updateLatest(latestPatchEvents, rootRepoAddr, event)
+      if (!options?.prs?.new) continue
+      updateLatest(latestPrEvents, rootRepoAddr, event)
     }
 
     for (const event of prUpdateEvents) {
@@ -334,8 +333,8 @@ export const repoNotificationCandidates = derived(
       const rootRepoAddr = resolveRootRepoAddr(event)
       if (!rootRepoAddr) continue
       const options = watchedRepos[rootRepoAddr]
-      if (!options?.patches?.updates) continue
-      updateLatest(latestPatchEvents, rootRepoAddr, event)
+      if (!options?.prs?.updates) continue
+      updateLatest(latestPrEvents, rootRepoAddr, event)
     }
 
     for (const event of commentEvents) {
@@ -350,8 +349,8 @@ export const repoNotificationCandidates = derived(
       if (root.type === "issue" && options.issues.comments) {
         updateLatest(latestIssueComments, root.repoAddr, event)
       }
-      if (root.type === "patch" && options.patches.comments) {
-        updateLatest(latestPatchComments, root.repoAddr, event)
+      if (root.type === "pr" && options.prs.comments) {
+        updateLatest(latestPrComments, root.repoAddr, event)
       }
     }
 
@@ -369,7 +368,7 @@ export const repoNotificationCandidates = derived(
       if (root.type === "issue") {
         updateLatest(latestIssueEvents, rootRepoAddr, event)
       } else {
-        updateLatest(latestPatchEvents, rootRepoAddr, event)
+        updateLatest(latestPrEvents, rootRepoAddr, event)
       }
     }
 
@@ -393,7 +392,7 @@ export const repoNotificationCandidates = derived(
       if (root.type === "issue") {
         updateLatest(latestIssueEvents, rootRepoAddr, event)
       } else {
-        updateLatest(latestPatchEvents, rootRepoAddr, event)
+        updateLatest(latestPrEvents, rootRepoAddr, event)
       }
     }
 
@@ -437,19 +436,19 @@ export const repoNotificationCandidates = derived(
           const base = makeGitPath(relay, naddr)
           const issueEvent = latestIssueEvents.get(repoAddr)
           const issueCommentEvent = latestIssueComments.get(repoAddr)
-          const patchEvent = latestPatchEvents.get(repoAddr)
-          const patchCommentEvent = latestPatchComments.get(repoAddr)
+          const prEvent = latestPrEvents.get(repoAddr)
+          const prCommentEvent = latestPrComments.get(repoAddr)
           if (issueEvent) {
             candidates.push({path: `${base}/issues`, latestEvent: issueEvent})
           }
           if (issueCommentEvent) {
             candidates.push({path: `${base}/issues`, latestEvent: issueCommentEvent})
           }
-          if (patchEvent) {
-            candidates.push({path: `${base}/patches`, latestEvent: patchEvent})
+          if (prEvent) {
+            candidates.push({path: `${base}/prs`, latestEvent: prEvent})
           }
-          if (patchCommentEvent) {
-            candidates.push({path: `${base}/patches`, latestEvent: patchCommentEvent})
+          if (prCommentEvent) {
+            candidates.push({path: `${base}/prs`, latestEvent: prCommentEvent})
           }
         }
       }
@@ -457,9 +456,9 @@ export const repoNotificationCandidates = derived(
 
     for (const repoAddr of new Set([
       ...latestIssueEvents.keys(),
-      ...latestPatchEvents.keys(),
+      ...latestPrEvents.keys(),
       ...latestIssueComments.keys(),
-      ...latestPatchComments.keys(),
+      ...latestPrComments.keys(),
     ])) {
       addRepoCandidates(repoAddr)
     }
@@ -469,8 +468,8 @@ export const repoNotificationCandidates = derived(
 )
 
 const repoCommentRoots = derived(
-  [userRepoWatchValues, issueEventsStore, patchEventsStore, maintainerSetRepoAddressesByRepoAddress],
-  ([$watchValues, $issueEvents, $patchEvents, $maintainerSetRepoAddressesByRepoAddress]) => {
+  [userRepoWatchValues, issueEventsStore, prEventsStore, maintainerSetRepoAddressesByRepoAddress],
+  ([$watchValues, $issueEvents, $prEvents, $maintainerSetRepoAddressesByRepoAddress]) => {
     const watchedRepos = $watchValues.repos || {}
     const repoAddresses = Object.keys(watchedRepos)
     if (repoAddresses.length === 0) return []
@@ -495,11 +494,11 @@ const repoCommentRoots = derived(
       rootIds.add(event.id)
     }
 
-    for (const event of $patchEvents as TrustedEvent[]) {
+    for (const event of $prEvents as TrustedEvent[]) {
       const repoAddr = getTagValue("a", event.tags)
       const rootRepoAddr = repoAddr ? repoByEffectiveAddress.get(repoAddr) : undefined
       if (!rootRepoAddr) continue
-      if (!watchedRepos[rootRepoAddr]?.patches?.comments) continue
+      if (!watchedRepos[rootRepoAddr]?.prs?.comments) continue
       rootIds.add(event.id)
     }
 
@@ -516,7 +515,7 @@ export const setupBudabitNotifications = () => {
       if (parts.length < 6) continue
       if (parts[1] !== "spaces" || parts[3] !== "git") continue
       const section = parts[5]
-      if (section !== "issues" && section !== "patches") continue
+      if (section !== "issues" && section !== "prs") continue
       const relayPart = parts[2]
       if (!relayPart) continue
       paths.add(`/spaces/${relayPart}/git`)

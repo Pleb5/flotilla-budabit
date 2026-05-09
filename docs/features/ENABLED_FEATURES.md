@@ -76,9 +76,9 @@ From budabit/dev branch:
 - Props: `watchRepo`, `isWatching`
 
 ### Notification Badges
-- Visual indicators on Issues and Patches tabs
+- Visual indicators on Issues and PRs tabs
 - Shows unread item counts
-- Props: `hasIssuesNotification`, `hasPatchesNotification`
+- Props: `hasIssuesNotification`, `hasPrsNotification`
 
 ### Split-Pane File Viewer
 - Files open side-by-side (list on left, viewer on right)

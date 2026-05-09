@@ -678,8 +678,8 @@ export const NIP34_KINDS = {
   ISSUE: 1621,
   ISSUE_REPLY: 1622,
   STATUS: 1630, // 1630-1633 range
-  PATCH: 1617,
-  PATCH_SET: 1616,
+  PULL_REQUEST: 1618,
+  PULL_REQUEST_UPDATE: 1619,
 } as const
 
 /**
@@ -901,57 +901,6 @@ export function createIssueReply(options: IssueReplyOptions): NostrEvent {
 }
 
 /**
- * Options for creating a patch event
- */
-export interface PatchOptions {
-  /** Author pubkey (defaults to random) */
-  pubkey?: string
-  /** Patch title/subject */
-  title: string
-  /** Patch content (diff) */
-  diff: string
-  /** Repository reference */
-  repoRef: string
-  /** Commit ID */
-  commitId?: string
-  /** Parent commit ID */
-  parentCommit?: string
-  /** Event timestamp (defaults to now) */
-  created_at?: number
-}
-
-/**
- * Create a NIP-34 patch event (kind 1617)
- */
-export function createPatch(options: PatchOptions): NostrEvent {
-  const tags: string[][] = []
-
-  // Repository reference
-  tags.push(["a", options.repoRef])
-
-  // Commit reference
-  if (options.commitId) {
-    tags.push(["commit", options.commitId])
-  }
-
-  // Parent commit
-  if (options.parentCommit) {
-    tags.push(["parent-commit", options.parentCommit])
-  }
-
-  // Title
-  tags.push(["subject", options.title])
-
-  return createEvent({
-    kind: NIP34_KINDS.PATCH,
-    pubkey: options.pubkey || randomHex(64),
-    created_at: options.created_at ?? nowSeconds(),
-    tags,
-    content: options.diff,
-  })
-}
-
-/**
  * Options for creating a status event
  */
 export interface StatusOptions {
@@ -959,7 +908,7 @@ export interface StatusOptions {
   pubkey?: string
   /** Status kind (1630-1633, defaults to 1630 for open) */
   statusKind?: number
-  /** Event being statused (issue or patch) */
+  /** Event being statused (issue or PR) */
   targetId: string
   /** Repository reference */
   repoRef: string
@@ -974,7 +923,7 @@ export interface StatusOptions {
  *
  * Status kinds:
  * - 1630: Open
- * - 1631: Applied/Merged (for patches)
+ * - 1631: Applied/Merged/Resolved
  * - 1632: Closed
  * - 1633: Draft
  */
@@ -1112,7 +1061,7 @@ export function createTestRepo(name: string = "test-repo"): NostrEvent {
 }
 
 /**
- * Create a complete test scenario with a repo, issues, and patches
+  * Create a complete test scenario with a repo and issues
  */
 export function createFullTestScenario(): NostrEvent[] {
   const repoOwner = TEST_USERS.alice.pubkey
@@ -1150,18 +1099,5 @@ export function createFullTestScenario(): NostrEvent[] {
     labels: ["enhancement"],
   })
 
-  const patch1 = createPatch({
-    pubkey: contributor,
-    title: "Fix button click handler",
-    diff: `--- a/src/button.ts
-+++ b/src/button.ts
-@@ -10,6 +10,7 @@ export function handleClick() {
-   // Handle button click
-+  console.log("Button clicked")
- }`,
-    repoRef,
-    commitId: "abc123",
-  })
-
-  return [repo, issue1, issue1Reply, issue2, patch1]
+  return [repo, issue1, issue1Reply, issue2]
 }

@@ -32,7 +32,6 @@ import {DM_KIND} from "@lib/budabit/constants"
 import {
   GIT_REPO_ANNOUNCEMENT,
   GIT_REPO_STATE,
-  GIT_PATCH,
   GIT_PULL_REQUEST,
   GIT_PULL_REQUEST_UPDATE,
   GIT_ISSUE,
@@ -50,7 +49,6 @@ const GIT_REPO_KINDS = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]
 
 // Collaboration event kinds (reference repository via 'a' tag)
 const GIT_COLLABORATION_KINDS = [
-  GIT_PATCH,
   GIT_PULL_REQUEST,
   GIT_PULL_REQUEST_UPDATE,
   GIT_ISSUE,
@@ -197,7 +195,7 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
       }
     }
 
-    // For patches, pull requests, issues, comments, and status events
+    // For pull requests, issues, comments, and status events
     // These reference a repository via 'a' tag
     if (GIT_COLLABORATION_KINDS.includes(event.kind)) {
       // Get the repository address from 'a' tag
@@ -227,11 +225,10 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
             if (url) {
               // Route to specific sub-pages based on event kind
               if (
-                event.kind === GIT_PATCH ||
                 event.kind === GIT_PULL_REQUEST ||
                 event.kind === GIT_PULL_REQUEST_UPDATE
               ) {
-                return `/spaces/${encodeRelay(url)}/git/${naddr}/patches/${event.id}`
+                return `/spaces/${encodeRelay(url)}/git/${naddr}/prs/${event.id}`
               }
 
               if (event.kind === GIT_ISSUE) {

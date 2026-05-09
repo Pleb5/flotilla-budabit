@@ -15,7 +15,7 @@
   import {notifications} from "@app/util/notifications"
   import {
     GIT_ISSUE,
-    GIT_PATCH,
+    GIT_PULL_REQUEST,
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
     GRASP_SET_KIND,
@@ -56,8 +56,8 @@
   // We have to watch this one, since on mobile the badge will be visible when active
   $effect(() => {
     const path = $page.url.pathname
-    const isGitIssueOrPatch = /^\/spaces\/[^/]+\/git\/[^/]+\/(issues|patches)(\/|$)/.test(path)
-    if (!isGitIssueOrPatch && $notifications.has(path)) {
+    const isGitIssueOrPr = /^\/spaces\/[^/]+\/git\/[^/]+\/(issues|prs)(\/|$)/.test(path)
+    if (!isGitIssueOrPr && $notifications.has(path)) {
       setChecked(path)
     }
   })
@@ -102,7 +102,7 @@
       ? []
       : [
           {kinds: [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]},
-          {kinds: [GIT_ISSUE, GIT_PATCH]},
+          {kinds: [GIT_ISSUE, GIT_PULL_REQUEST]},
           {kinds: [GRASP_SET_KIND]},
         ]
 

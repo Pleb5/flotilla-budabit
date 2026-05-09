@@ -74,7 +74,6 @@
     maintainerSetRepoAddressesByRepoAddress,
     getMaintainerSetRepoAddresses,
     loadRepoAnnouncements,
-    derivePatchGraph,
     GIT_RELAYS,
     repoAnnouncementRelaysStore,
     repoAnnouncements,
@@ -1446,7 +1445,6 @@
         const cards = repositoriesStore.computeCards(repos, {
           deriveMaintainersForEuc,
           deriveRepoRefState,
-          derivePatchGraph,
           parseRepoAnnouncementEvent,
           Router,
           Address,
@@ -1500,7 +1498,6 @@
             const cards = repositoriesStore.computeCards(reposToShow, {
               deriveMaintainersForEuc,
               deriveRepoRefState,
-              derivePatchGraph,
               parseRepoAnnouncementEvent,
               Router,
               Address,

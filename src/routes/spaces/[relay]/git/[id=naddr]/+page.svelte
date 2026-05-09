@@ -55,11 +55,9 @@
   import {
     parsePullRequestEvent,
     type IssueEvent,
-    type PatchEvent,
     type PullRequestEvent,
     type StatusEvent,
   } from "@nostr-git/core/events"
-  import {parseGitPatchFromEvent} from "@nostr-git/core/git"
   import {isGraspRelayUrl, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
@@ -98,7 +96,7 @@
   const repoTrustMetrics = $derived.by(() =>
     repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
   )
-  const patchesHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/patches`)
+  const prsHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/prs`)
   const repoBasePath = $derived.by(() => $page.url.pathname.replace(/\/+$/, ""))
 
   const isMaintainer = $derived.by(() => {
@@ -124,8 +122,8 @@
     if (heads.size > 0 && !heads.has(head)) return {kind: "missing", head}
     return {kind: "ok"}
   })
-  const activityHref = (item: {kind: "issue" | "patch"; id: string}) =>
-    `${repoBasePath}/${item.kind === "issue" ? "issues" : "patches"}/${item.id}`
+  const activityHref = (item: {kind: "issue" | "pr"; id: string}) =>
+    `${repoBasePath}/${item.kind === "issue" ? "issues" : "prs"}/${item.id}`
   let openTrustMetricPopover = $state<"trusted-merged" | "trusted-maintainer" | "trusted-collaborators" | null>(null)
   const repoTrustStatus = $derived.by(() => {
     if (repoTrustMetrics.status === "loading") {
@@ -147,7 +145,7 @@
     return "Using the basic WoT fallback. Add graph rules in Trust settings to refine these repo metrics."
   })
 
-  const openPatchesTrustView = (trust = "", trustSort = "") => {
+  const openPrsTrustView = (trust = "", trustSort = "") => {
     const search = new URLSearchParams()
 
     if (trust) {
@@ -158,10 +156,10 @@
       search.set("trustSort", trustSort)
     }
 
-    goto(search.size > 0 ? `${patchesHref}?${search.toString()}` : patchesHref)
+    goto(search.size > 0 ? `${prsHref}?${search.toString()}` : prsHref)
   }
 
-  const getRepoTrustPatchHref = (rootId: string) => `${patchesHref}/${rootId}`
+  const getRepoTrustPrHref = (rootId: string) => `${prsHref}/${rootId}`
 
   const getPullRequestSubject = (pullRequest: PullRequestEvent) =>
     getTagValue("subject", pullRequest.tags) || "Pull Request"
@@ -240,12 +238,12 @@
   let repoInfoLoaded = $state(false)
   let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
   let commitLoadInProgress = $state(false)
-  let expandedRecentPatchIds = $state<Set<string>>(new Set())
+  let expandedRecentPrIds = $state<Set<string>>(new Set())
   
   // Expandable sections state
   let showAllRelays = $state(false)
   let showTaggedMaintainers = $state(false)
-  const RECENT_PATCH_PREVIEW_LIMIT = 150
+  const RECENT_PR_PREVIEW_LIMIT = 150
   const normalizePubkey = (value: string | undefined | null): string => {
     if (!value) return ""
     if (/^[0-9a-f]{64}$/i.test(value)) return value
@@ -604,7 +602,7 @@
     activityAt: number
     createdAt: number
     pubkey: string
-    kind: "issue" | "patch"
+    kind: "issue" | "pr"
   }
 
   function getLatestCommentAt(rootId: string) {
@@ -639,18 +637,9 @@
     return getTagValue("subject", issue.tags) || "Untitled Issue"
   }
 
-  function getPatchTitle(event: PatchEvent | PullRequestEvent) {
-    if (event.kind === 1618) {
-      const parsed = parsePullRequestEvent(event as PullRequestEvent)
-      return parsed.subject || "Untitled Patch"
-    }
-
-    try {
-      const parsed = parseGitPatchFromEvent(event as any)
-      return parsed?.title || "Untitled Patch"
-    } catch {
-      return getTagValue("subject", event.tags) || "Untitled Patch"
-    }
+  function getPullRequestTitle(event: PullRequestEvent) {
+    const parsed = parsePullRequestEvent(event)
+    return parsed.subject || getTagValue("subject", event.tags) || "Untitled PR"
   }
 
   const recentActivity = $derived.by(() => {
@@ -667,28 +656,14 @@
       })
     }
 
-    for (const patch of repoClass.patches) {
-      const isRootPatch = patch.tags.some((tag: string[]) => tag[0] === "t" && tag[1] === "root")
-      if (!isRootPatch) continue
-
-      items.push({
-        id: patch.id,
-        title: getPatchTitle(patch),
-        createdAt: patch.created_at,
-        activityAt: getLatestActivityAt(patch.id, patch.created_at),
-        pubkey: patch.pubkey,
-        kind: "patch",
-      })
-    }
-
     for (const pullRequest of pullRequests) {
       items.push({
         id: pullRequest.id,
-        title: getPatchTitle(pullRequest),
+        title: getPullRequestTitle(pullRequest),
         createdAt: pullRequest.created_at,
         activityAt: getLatestActivityAt(pullRequest.id, pullRequest.created_at),
         pubkey: pullRequest.pubkey,
-        kind: "patch",
+        kind: "pr",
       })
     }
 
@@ -698,22 +673,22 @@
   let activityExpanded = $state(false)
   const visibleActivity = $derived(activityExpanded ? recentActivity : recentActivity.slice(0, 4))
 
-  function shouldClampRecentPatchTitle(title: string): boolean {
-    return title.replace(/\s+/g, " ").trim().length > RECENT_PATCH_PREVIEW_LIMIT
+  function shouldClampRecentPrTitle(title: string): boolean {
+    return title.replace(/\s+/g, " ").trim().length > RECENT_PR_PREVIEW_LIMIT
   }
 
-  function getRecentPatchTitlePreview(title: string, expanded: boolean): string {
+  function getRecentPrTitlePreview(title: string, expanded: boolean): string {
     const normalizedTitle = title.replace(/\s+/g, " ").trim()
 
-    if (expanded || normalizedTitle.length <= RECENT_PATCH_PREVIEW_LIMIT) {
+    if (expanded || normalizedTitle.length <= RECENT_PR_PREVIEW_LIMIT) {
       return normalizedTitle
     }
 
-    return `${normalizedTitle.slice(0, RECENT_PATCH_PREVIEW_LIMIT).trimEnd()}...`
+    return `${normalizedTitle.slice(0, RECENT_PR_PREVIEW_LIMIT).trimEnd()}...`
   }
 
-  function toggleRecentPatchExpanded(id: string) {
-    const next = new Set(expandedRecentPatchIds)
+  function toggleRecentPrExpanded(id: string) {
+    const next = new Set(expandedRecentPrIds)
 
     if (next.has(id)) {
       next.delete(id)
@@ -721,7 +696,7 @@
       next.add(id)
     }
 
-    expandedRecentPatchIds = next
+    expandedRecentPrIds = next
   }
 
   async function copyUrl(url: string) {
@@ -1162,7 +1137,7 @@
                       </div>
                     {:else if metric.key === "trusted-maintainer"}
                       <div class="text-xs opacity-60">
-                        {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges === 1 ? "" : "s"} were applied by trusted maintainers.
+                        {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges === 1 ? "" : "s"} were merged by trusted maintainers.
                       </div>
                     {:else}
                       <div class="text-xs opacity-60">
@@ -1174,7 +1149,7 @@
                         {#each metric.details as detail (detail.rootId)}
                           <div class="rounded-box bg-base-200/50 p-3">
                             <AppLink
-                              href={getRepoTrustPatchHref(detail.rootId)}
+                              href={getRepoTrustPrHref(detail.rootId)}
                               class="text-sm font-medium text-primary underline-offset-2 hover:underline">
                               {detail.subject}
                             </AppLink>

@@ -8,7 +8,7 @@ test("debug page structure", async ({ page }) => {
   const seeder = await seedTestRepo(page, {
     name: "debug-repo",
     description: "Debug repository",
-    withPatches: 2,
+    withPullRequests: 2,
   })
 
   const repos = seeder.getRepos()
@@ -34,14 +34,14 @@ test("debug page structure", async ({ page }) => {
   for (const link of allLinks) {
     const href = await link.getAttribute("href")
     const text = await link.textContent()
-    if (href && (href.includes("patches") || href.includes("issues") || href.includes("code"))) {
+    if (href && (href.includes("prs") || href.includes("issues") || href.includes("code"))) {
       console.log(`Link: href="${href}" text="${text?.trim()}"`)
     }
   }
   
-  // Check for any element containing "Patches" text
-  const patchesElements = await page.getByText("Patches").all()
-  console.log(`Found ${patchesElements.length} elements with 'Patches' text`)
+  // Check for any element containing "PRs" text
+  const prsElements = await page.getByText("PRs").all()
+  console.log(`Found ${prsElements.length} elements with 'PRs' text`)
   
   // Check for RepoTab-like elements
   const tabElements = await page.locator("a[href*='/git/']").all()

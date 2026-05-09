@@ -8,7 +8,7 @@
  * ```typescript
  * import {
  *   createRepoAnnouncement,
- *   createPatch,
+ *   createPullRequest,
  *   TEST_PUBKEYS,
  *   FULL_REPO_ANNOUNCEMENT,
  * } from './fixtures'
@@ -41,27 +41,20 @@ export {
   TEST_REPO,
 } from "./events/repo"
 
-// Patch and Pull Request fixtures (kind 1617, 1618, 1619)
+// Pull Request fixtures (kind 1618, 1619)
 export {
   // Test data
   TEST_EVENT_IDS,
   // Types
-  type Committer,
-  type PatchOptions,
   type PullRequestOptions,
   type PullRequestUpdateOptions,
   // Factory functions
-  createPatch,
   createPullRequest,
   createPullRequestUpdate,
   // Sample content
   SAMPLE_PATCH_CONTENT,
   SAMPLE_BUGFIX_PATCH,
   // Pre-built fixtures
-  MINIMAL_PATCH,
-  FULL_PATCH,
-  STACKED_PATCH,
-  SUPERSEDING_PATCH,
   MINIMAL_PULL_REQUEST,
   FULL_PULL_REQUEST,
   PULL_REQUEST_UPDATE,
@@ -98,14 +91,10 @@ export {
   ISSUE_BUG,
   ISSUE_FEATURE,
   ISSUE_BUG_REPLY,
-  PATCH_BUG_FIX,
-  PATCH_FEATURE,
   STATUS_ISSUE_CLOSED,
-  STATUS_PATCH_MERGED,
   // Pre-built collections for MockRelay
   REPOS_ONLY,
   REPO_WITH_OPEN_ISSUES,
-  REPO_WITH_ISSUES_AND_PATCHES,
   COMPLETE_SCENARIO,
   // All fixtures object
   FIXTURES,

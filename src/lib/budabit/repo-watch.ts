@@ -21,7 +21,7 @@ export type RepoWatchOptions = {
     new: boolean
     comments: boolean
   }
-  patches: {
+  prs: {
     new: boolean
     comments: boolean
     updates: boolean
@@ -43,7 +43,8 @@ export type RepoWatchState = {
 
 export type RepoWatchOptionsInput = {
   issues?: Partial<RepoWatchOptions["issues"]>
-  patches?: Partial<RepoWatchOptions["patches"]>
+  patches?: Partial<RepoWatchOptions["prs"]>
+  prs?: Partial<RepoWatchOptions["prs"]>
   status?: Partial<RepoWatchOptions["status"]>
   assignments?: boolean
   reviews?: boolean
@@ -54,7 +55,7 @@ export const defaultRepoWatchOptions: RepoWatchOptions = {
     new: true,
     comments: false,
   },
-  patches: {
+  prs: {
     new: true,
     comments: false,
     updates: true,
@@ -78,15 +79,16 @@ export const normalizeRepoWatchOptions = (
   options?: RepoWatchOptionsInput | null,
 ): RepoWatchOptions => {
   const base = defaultRepoWatchOptions
+  const prOptions = options?.prs ?? options?.patches
   return {
     issues: {
       new: options?.issues?.new ?? base.issues.new,
       comments: options?.issues?.comments ?? base.issues.comments,
     },
-    patches: {
-      new: options?.patches?.new ?? base.patches.new,
-      comments: options?.patches?.comments ?? base.patches.comments,
-      updates: options?.patches?.updates ?? base.patches.updates,
+    prs: {
+      new: prOptions?.new ?? base.prs.new,
+      comments: prOptions?.comments ?? base.prs.comments,
+      updates: prOptions?.updates ?? base.prs.updates,
     },
     status: {
       open: options?.status?.open ?? base.status.open,
