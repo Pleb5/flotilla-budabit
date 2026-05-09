@@ -253,10 +253,11 @@
         {@const parentComment = parentId && parentId !== issueId ? getParsedCommentById(parentId) : undefined}
         {@const inlineLocation = getInlineCommentLocation(c.raw)}
         {@const inlineLocationLabel = getInlineLocationLabel(inlineLocation)}
+        {@const isReply = Boolean(parentId && parentId !== issueId)}
         <div
           id={`comment-${c.id}`}
           data-event={c.id}
-          class="relative w-full mt-4 flex-col gap-3 group animate-fade-in"
+          class="relative w-full flex-col gap-3 group animate-fade-in rounded-lg border border-border/70 bg-card/55 px-3 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)] {isReply ? 'ml-2 border-l-2 border-l-blue-500/35 bg-muted/25 sm:ml-4' : ''}"
         >
           <div class="w-full grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
             <ProfileComponent pubkey={c.author.pubkey} hideDetails={false} class="min-w-0 text-sm"></ProfileComponent>

@@ -6,7 +6,7 @@
   const { Avatar, AvatarFallback, AvatarImage, Button, Textarea, Markdown } = useRegistry();
   import { tick } from "svelte";
   import parseDiff from "parse-diff";
-  import { ChevronDown, ChevronUp } from "@lucide/svelte";
+  import { ChevronDown, ChevronRight, ChevronUp } from "@lucide/svelte";
   import { createGitCommentEvent, createGitInlineCommentEvent, getTagValue } from "@nostr-git/core/events";
   import type { CommentEvent } from "@nostr-git/core/events";
   import { toast } from "../../stores/toast.js";
@@ -52,6 +52,16 @@
     return file.from || file.to || "unknown";
   }
 
+  function getDiffFilePath(file: AnyFileChange): string {
+    return (
+      (file.to && file.to !== "/dev/null" ? file.to : undefined) ??
+      (file.from && file.from !== "/dev/null" ? file.from : undefined) ??
+      file.to ??
+      file.from ??
+      "unknown"
+    );
+  }
+
   function getFileIsBinary(file: AnyFileChange): boolean {
     // parse-diff does not provide isBinary, so always return false for now
     return false;
@@ -91,6 +101,8 @@
     compact = false,
     framed = true,
     showFileAnchors = true,
+    enableHashNavigation = true,
+    scrollTarget = null,
   }: {
     diff: AnyFileChange[] | string | undefined;
     showLineNumbers?: boolean;
@@ -109,6 +121,8 @@
     compact?: boolean;
     framed?: boolean;
     showFileAnchors?: boolean;
+    enableHashNavigation?: boolean;
+    scrollTarget?: { id: string | null; line?: number | null; side?: "del"; request?: number } | null;
   } = $props();
 
   const canComment = $derived(canUseInlineComments({ rootEvent, onComment, currentPubkey }));
@@ -252,9 +266,7 @@
   });
 
   $effect(() => {
-    const paths = Array.from(
-      new Set(parsed.map((file) => file.to || file.from || "").filter(Boolean))
-    );
+    const paths = Array.from(new Set(parsed.map(getDiffFilePath).filter(Boolean)));
     if (paths.length === 0) {
       diffAnchors = {};
       return;
@@ -370,7 +382,7 @@
   };
 
   const ensureFileExpandedByPath = (filePath: string) => {
-    const file = parsed.find((entry) => (entry.to || entry.from || "") === filePath);
+    const file = parsed.find((entry) => getDiffFilePath(entry) === filePath);
     if (!file) return;
     const fileId = getFileLabel(file);
     if (expandedFiles.has(fileId)) return;
@@ -447,6 +459,48 @@
     }
   };
 
+  const getScopedTargetById = (id: string) => {
+    if (!diffContainer) return null;
+    const lineEl = diffContainer.querySelector(`#${CSS.escape(id)}`) as HTMLElement | null;
+    return (lineEl?.closest("[data-diff-index]") as HTMLElement | null) || lineEl;
+  };
+
+  const getScopedTargetByLine = (line?: number | null, side?: "del") => {
+    if (!diffContainer || !line) return null;
+    const attr = side === "del" ? "data-line-left" : "data-line-right";
+    return diffContainer.querySelector(`[${attr}="${line}"]`) as HTMLElement | null;
+  };
+
+  const scrollToExplicitTarget = async (target: NonNullable<typeof scrollTarget>) => {
+    if (!diffContainer) return;
+    let didScroll = false;
+
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const el = target.id ? getScopedTargetById(target.id) : null;
+      const fallback = getScopedTargetByLine(target.line, target.side);
+      const resolved = el || fallback || (!target.id && !target.line ? diffContainer : null);
+      if (resolved) {
+        scrollElementIntoView(resolved, target.id || target.line ? "center" : "start");
+        resolved.classList.remove("diff-comment-blip");
+        void resolved.offsetWidth;
+        resolved.classList.add("diff-comment-blip");
+        window.setTimeout(() => resolved.classList.remove("diff-comment-blip"), 1800);
+        didScroll = true;
+        break;
+      }
+      await tick();
+      await nextFrame();
+    }
+
+    if (didScroll) {
+      await waitMs(120);
+      const el = target.id ? getScopedTargetById(target.id) : null;
+      const fallback = getScopedTargetByLine(target.line, target.side);
+      const resolved = el || fallback;
+      if (resolved) scrollElementIntoView(resolved, "center");
+    }
+  };
+
   $effect(() => {
     const handler = (e: MouseEvent) => {
       if (Date.now() < ignoreMenuCloseUntil) return;
@@ -462,6 +516,7 @@
 
   $effect(() => {
     const anchors = diffAnchors;
+    if (!enableHashNavigation) return;
     if (!diffContainer || Object.keys(anchors).length === 0) return;
     void scrollToDiffHash();
   });
@@ -474,11 +529,16 @@
   $effect(() => {
     if (typeof window === "undefined") return;
     const handler = () => {
-      void scrollToDiffHash();
+      if (enableHashNavigation) void scrollToDiffHash();
       void scrollToCommentHash();
     };
     window.addEventListener("hashchange", handler);
     return () => window.removeEventListener("hashchange", handler);
+  });
+
+  $effect(() => {
+    if (!scrollTarget) return;
+    void scrollToExplicitTarget(scrollTarget);
   });
 
   $effect(() => {
@@ -528,8 +588,9 @@
       if (!canSelectDiffLines) return;
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
-      if (!container.contains(target) || shouldIgnoreSelectionTarget(target)) return;
+      if (!container.contains(target)) return;
       const startedInGutter = !!target.closest(".diff-line-gutter");
+      if (shouldIgnoreSelectionTarget(target, startedInGutter)) return;
       if (!enablePermalinks && !startedInGutter) return;
       const hit = getLineFromPoint(e.clientX, e.clientY);
       if (!hit) return;
@@ -618,9 +679,10 @@
 
     const handleTouchStart = (e: TouchEvent) => {
       const target = e.target as HTMLElement;
-      if (!container.contains(target) || shouldIgnoreSelectionTarget(target)) return;
+      if (!container.contains(target)) return;
       if (!canSelectDiffLines) return;
       const startedInGutter = !!target.closest(".diff-line-gutter");
+      if (shouldIgnoreSelectionTarget(target, startedInGutter)) return;
       if (!enablePermalinks && !startedInGutter) return;
       if (touchIdentifier !== null) return;
       const touch = e.changedTouches[0];
@@ -892,10 +954,12 @@
     }
   }
 
-  function shouldIgnoreSelectionTarget(target: HTMLElement | null) {
+  function shouldIgnoreSelectionTarget(target: HTMLElement | null, allowGutterSelection = false) {
     if (!target) return true;
+    if (target.closest(".permalink-menu-popup")) return true;
+    if (allowGutterSelection && target.closest(".diff-line-gutter")) return false;
     return !!target.closest(
-      ".permalink-menu-popup, button, a, input, textarea, select, option, summary, [role='button'], [contenteditable='true']"
+      "button, a, input, textarea, select, option, summary, [role='button'], [contenteditable='true']"
     );
   }
 
@@ -1500,7 +1564,7 @@
   {/if}
   {#each parsed as file, fileIdx (getFileLabel(file))}
     {@const fileId = getFileLabel(file)}
-    {@const filePath = file.to || file.from || "unknown"}
+    {@const filePath = getDiffFilePath(file)}
     {@const isExpanded = showFileHeaders ? expandedFiles.has(fileId) : true}
     <div
       class={showFileHeaders ? (compact ? "mb-3" : "mb-4") : ""}
