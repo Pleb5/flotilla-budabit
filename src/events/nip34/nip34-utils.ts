@@ -2,7 +2,6 @@ import {
   type Nip34Event,
   type RepoAnnouncementEvent,
   type RepoStateEvent,
-  type PatchEvent,
   type IssueEvent,
   type CoverLetterEvent,
   type StatusEvent,
@@ -12,7 +11,6 @@ import {
   type NostrTag,
   type RepoAnnouncementTag,
   type RepoStateTag,
-  type PatchTag,
   type IssueTag,
   type CoverLetterTag,
   type StatusTag,
@@ -40,7 +38,6 @@ import {sanitizeRelays} from "../../utils/sanitize-relays.js"
 type KnownTags =
   | RepoAnnouncementTag
   | RepoStateTag
-  | PatchTag
   | IssueTag
   | CoverLetterTag
   | StatusTag
@@ -148,13 +145,6 @@ export function isRepoStateEvent(event: Nip34Event): event is RepoStateEvent {
 }
 
 /**
- * Type guard for PatchEvent (kind: 1617)
- */
-export function isPatchEvent(event: Nip34Event): event is PatchEvent {
-  return event.kind === 1617
-}
-
-/**
  * Type guard for IssueEvent (kind: 1621)
  */
 export function isIssueEvent(event: Nip34Event): event is IssueEvent {
@@ -205,8 +195,6 @@ export function getNostrKindLabel(kind: number): string {
       return "Repository Announcement"
     case 30618:
       return "Repository State"
-    case 1617:
-      return "Patch"
     case 1621:
       return "Issue"
     case 1624:
@@ -218,7 +206,7 @@ export function getNostrKindLabel(kind: number): string {
     case 1630:
       return "Status: Open"
     case 1631:
-      return "Status: Applied/Merged/Resolved"
+      return "Status: Merged/Resolved"
     case 1632:
       return "Status: Closed"
     case 1633:
@@ -427,44 +415,6 @@ export function createClonedRepoStateEvent(
 }
 
 /**
- * Create a patch event (kind 1617)
- */
-export function createPatchEvent(opts: {
-  content: string
-  repoAddr: string
-  earliestUniqueCommit?: string
-  commit?: string
-  parentCommit?: string
-  committer?: {name: string; email: string; timestamp: string; tzOffset: string}
-  pgpSig?: string
-  recipients?: string[]
-  tags?: PatchTag[]
-  created_at?: number
-}): PatchEvent {
-  const tags: PatchTag[] = [["a", opts.repoAddr]]
-  if (opts.earliestUniqueCommit) tags.push(["r", opts.earliestUniqueCommit])
-  if (opts.commit) tags.push(["commit", opts.commit])
-  if (opts.parentCommit) tags.push(["parent-commit", opts.parentCommit])
-  if (opts.pgpSig) tags.push(["commit-pgp-sig", opts.pgpSig])
-  if (opts.committer)
-    tags.push([
-      "committer",
-      opts.committer.name,
-      opts.committer.email,
-      opts.committer.timestamp,
-      opts.committer.tzOffset,
-    ])
-  if (opts.recipients) opts.recipients.forEach(p => tags.push(["p", p]))
-  if (opts.tags) tags.push(...opts.tags)
-  return {
-    kind: 1617,
-    content: opts.content,
-    tags,
-    created_at: opts.created_at ?? Math.floor(Date.now() / 1000),
-  } as PatchEvent
-}
-
-/**
  * Create an issue event (kind 1621)
  */
 export function createIssueEvent(opts: {
@@ -668,58 +618,6 @@ export function removeTag<E extends {tags: NostrTag[]}>(event: E, tagType: strin
 // -------------------
 // Parsing Utilities for NIP-34 & NIP-22 Events
 // -------------------
-
-export interface Patch {
-  id: string
-  repoId: string
-  title: string
-  description: string
-  author: {pubkey: string; name?: string; avatar?: string}
-  baseBranch: string
-  commitCount: number
-  commits: any[]
-  commitHash: string
-  createdAt: string
-  diff: any[]
-  status: "open" | "applied" | "closed" | "draft"
-  raw: PatchEvent
-}
-
-export function parsePatchEvent(event: PatchEvent): Patch {
-  const getTag = (name: string) => event.tags.find(t => t[0] === name)?.[1]
-  const getAllTags = (name: string) =>
-    event.tags
-      .filter(t => t[0] === name)
-      .map(t => t[1])
-      .filter((value): value is string => value !== undefined)
-  const authorTag = event.tags.find(t => t[0] === "committer")
-  const author = {
-    pubkey: event.pubkey,
-    name: authorTag?.[1],
-    avatar: authorTag?.[2],
-  }
-  let status: "open" | "applied" | "closed" | "draft" = "open"
-  if (event.tags.some(t => t[0] === "t" && t[1] === "applied")) status = "applied"
-  else if (event.tags.some(t => t[0] === "t" && t[1] === "closed")) status = "closed"
-  else if (event.tags.some(t => t[0] === "t" && t[1] === "draft")) status = "draft"
-  const commits = getAllTags("commit")
-  console.log(commits)
-  return {
-    id: event.id,
-    repoId: getTag("a") || "",
-    title: getTag("subject") || "",
-    description: event.content,
-    author,
-    baseBranch: getTag("base-branch") || "",
-    commitCount: getAllTags("commit").length,
-    commitHash: getTag("commit") || "",
-    createdAt: new Date(event.created_at * 1000).toISOString(),
-    diff: [],
-    status,
-    raw: event,
-    commits: [],
-  }
-}
 
 export interface Issue {
   id: string

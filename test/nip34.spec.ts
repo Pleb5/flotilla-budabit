@@ -457,14 +457,14 @@ describe("NIP-34 Pull Request Events", () => {
 
   describe("Type Guards - Rejection", () => {
     it("should reject non-PR events for isPullRequestEvent", () => {
-      expect(isPullRequestEvent({kind: 1617} as any)).toBe(false)
+      expect(isPullRequestEvent({kind: 1621} as any)).toBe(false)
       expect(isPullRequestEvent({kind: 1619} as any)).toBe(false)
       expect(isPullRequestEvent({kind: 1621} as any)).toBe(false)
     })
 
     it("should reject non-PR-update events for isPullRequestUpdateEvent", () => {
       expect(isPullRequestUpdateEvent({kind: 1618} as any)).toBe(false)
-      expect(isPullRequestUpdateEvent({kind: 1617} as any)).toBe(false)
+      expect(isPullRequestUpdateEvent({kind: 1621} as any)).toBe(false)
     })
   })
 
@@ -679,7 +679,7 @@ describe("NIP-34 Pull Request Events", () => {
 
     it("should reject PR with wrong kind", () => {
       const event = {
-        kind: 1617,
+        kind: 1621,
         tags: [["a", "30617:repo"]],
         content: "",
       }

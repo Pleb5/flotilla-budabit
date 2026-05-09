@@ -48,29 +48,12 @@ describe('API/NostrGitProvider additional paths', () => {
     expect(res.length).toBe(0);
   });
 
-  it('sendProposal partially succeeds and returns only successful ids', async () => {
-    const io = createEventIOStub();
-
-    let call = 0;
-    (io as any).publishEvent = async (_evt: any) => {
-      call += 1;
-      if (call === 1) return { ok: true, relays: ['r'] };
-      return { ok: false, error: 'fail' };
-    };
-
-    const provider = new NostrGitProvider({ eventIO: io });
-    const ids = await provider.sendProposal('30617:addr', ['c1', 'c2']);
-    // Only one successful id should be returned
-    expect(ids.length).toBe(1);
-    expect(ids[0]).toBe('mock-patch-id');
-  });
-
-  it('sendProposal with zero commits returns empty array', async () => {
+  it('sendProposal rejects because legacy patch proposals were removed', async () => {
     const io = createEventIOStub();
     const provider = new NostrGitProvider({ eventIO: io });
-    const ids = await provider.sendProposal('30617:addr', []);
-    expect(Array.isArray(ids)).toBe(true);
-    expect(ids.length).toBe(0);
+    await expect(provider.sendProposal('30617:addr', ['c1'])).rejects.toThrow(
+      /legacy patch events/,
+    );
   });
 
   it('publishRepoState success returns relay string', async () => {

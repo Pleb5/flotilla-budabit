@@ -22,7 +22,6 @@ export { createGitProvider } from "./factory.js"
 export * from "./multi-vendor-git-provider.js"
 
 export * from "./merge-analysis.js"
-export * from "./patches.js"
 export * from "./files.js"
 export * from "./git.js"
 export * from "./repo-core.js"

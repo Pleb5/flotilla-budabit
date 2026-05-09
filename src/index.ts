@@ -1,8 +1,8 @@
 /**
  * Root package barrel for the single-package npm distribution.
  *
- * - Namespaced exports: import * as events from "nostr-git"; events.createPatchEvent(...)
- * - Convenience exports: import { createPatchEvent } from "nostr-git"
+ * - Namespaced exports: import * as events from "nostr-git"; events.createPullRequestEvent(...)
+ * - Convenience exports: import { createRepoAnnouncementEvent } from "nostr-git"
  */
 
 export * as events from "./events/index.js"
@@ -11,7 +11,6 @@ export * as types from "./types/index.js"
 export * as api from "./api/index.js"
 export * as worker from "./worker/index.js"
 export * as blossom from "./blossom/index.js"
-export * as stack from "./stack/index.js"
 export * as errors from "./errors/index.js"
 
 // Convenience top-level exports

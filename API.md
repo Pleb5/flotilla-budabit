@@ -40,26 +40,6 @@ const event = createRepoEvent(repo)
 // Returns unsigned event that needs to be signed before publishing
 ```
 
-#### `createPatchEvent(patch: GitPatch): UnsignedEvent`
-
-Creates a NIP-34 patch event for Git patches.
-
-```typescript
-import {createPatchEvent} from "@nostr-git/core"
-
-const patch = {
-  repoUrl: "https://github.com/user/repo",
-  title: "Fix bug in authentication",
-  description: "This patch fixes the authentication issue",
-  diff: "--- a/auth.js\n+++ b/auth.js\n...",
-  commits: [
-    /* commit objects */
-  ],
-}
-
-const event = createPatchEvent(patch)
-```
-
 #### `createIssueEvent(issue: GitIssue): UnsignedEvent`
 
 Creates a NIP-34 issue event.
@@ -95,25 +75,6 @@ if (result.success) {
   console.log("Repository cloned:", result.data.path)
 } else {
   console.error("Clone failed:", result.error.message)
-}
-```
-
-#### `createPatch(options: PatchOptions): Promise<Result<GitPatch>>`
-
-Creates a Git patch from repository changes.
-
-```typescript
-import {createPatch} from "@nostr-git/core"
-
-const result = await createPatch({
-  repoPath: "/path/to/repo",
-  fromCommit: "abc123",
-  toCommit: "def456",
-})
-
-if (result.success) {
-  const patch = result.data
-  console.log("Patch created:", patch.title)
 }
 ```
 
@@ -303,7 +264,7 @@ interface BackgroundAPI {
 // Available VSCode commands
 interface VSCodeCommands {
   "nostr-git.publishRepo": () => Promise<void>
-  "nostr-git.createPatch": () => Promise<void>
+  "nostr-git.createPullRequest": () => Promise<void>
   "nostr-git.subscribeToRepo": (repoUrl: string) => Promise<void>
   "nostr-git.viewNostrEvents": () => Promise<void>
 }
@@ -518,7 +479,7 @@ await provider.clone({dir: "/tmp/repo", repoId: "my-repo", timeoutMs: 2500})
 // If url omitted: prefers stored preference else SSH if present, then others.
 ```
 
-### Push Partitioning and PR Patch Events
+### Push Partitioning and PR Events
 
 ```ts
 await provider.push({
@@ -536,10 +497,8 @@ await provider.push({
 
 Behavior:
 
-- PR refs publish NIP-34 `GIT_PATCH` with enriched tags:
-  - `['t','base:<branch>']`, `['parent-commit', <oid>]`, `['committer', name, email, ts, tz]`
-  - recipients from announcement (owner/maintainers) + thread participants (`['p']`)
-- Content fallback: `patchContent` → `getPatchContent()` → default cover letter + unified diff
+- PR refs publish NIP-34 pull request events with repository, branch, tip, and recipient tags.
+- Legacy patch-event publishing is disabled.
 
 ### Normal Push with Optional Status Emission
 
@@ -597,7 +556,7 @@ const diff = await generateUnifiedDiff({
 ### Examples
 
 - Normal push with fallback and status: `packages/git-wrapper/examples/push-normal.ts`
-- PR push emitting NIP-34 GIT_PATCH: `packages/git-wrapper/examples/push-pr.ts`
+- PR push emitting NIP-34 pull request events: `packages/git-wrapper/examples/push-pr.ts`
 - Clone-and-PR with real commits and unified diff: `packages/git-wrapper/examples/clone-and-pr.ts`
 - Basic clone + status with factory: `packages/git-wrapper/examples/basic-clone-status.ts`
 

@@ -70,41 +70,10 @@ export const DeletedTag = z.tuple([z.literal("deleted")]).rest(z.string())
 export const RepoStateTagSchema = z.union([DTag, RefsTag, HeadRefTag, DeletedTag])
 export const RepoStateTagsSchema = z.array(RepoStateTagSchema)
 
-// Patch tags (kind 1617)
 export const AddressRepoTag = z.tuple([z.literal("a"), z.string()])
-export const PatchRTag = z.tuple([z.literal("r"), z.string()])
+export const RTag = z.tuple([z.literal("r"), z.string()])
 export const PTag = z.tuple([z.literal("p"), z.string()])
-export const RootTTag = z.tuple([z.literal("t"), z.literal("root")])
-export const RootRevisionTTag = z.tuple([z.literal("t"), z.literal("root-revision")])
-export const CommitTag = z.tuple([z.literal("commit"), z.string()])
 export const CTag = z.tuple([z.literal("c"), z.string()])
-export const ParentCommitTag = z.tuple([z.literal("parent-commit"), z.string()])
-export const CommitPgpSigTag = z.tuple([z.literal("commit-pgp-sig"), z.string()]) // can be empty string
-export const CommitterTag = z.tuple([
-  z.literal("committer"),
-  z.string(), // name
-  z.string(), // email
-  z.string(), // timestamp as string per NIP (producer controlled)
-  z.string(), // timezone offset in minutes, as string
-])
-
-export const PatchTagSchema = z.union([
-  AddressRepoTag,
-  PatchRTag,
-  PTag,
-  RootTTag,
-  RootRevisionTTag,
-  CommitTag,
-  ParentCommitTag,
-  CommitPgpSigTag,
-  CommitterTag,
-  HashtagTag, // allow other t tags as labels if present
-  z.tuple([z.literal("stack"), z.string()]),
-  z.tuple([z.literal("depends"), z.string()]),
-  z.tuple([z.literal("rev"), z.string()]),
-  z.tuple([z.literal("supersedes"), z.string()]),
-])
-export const PatchTagsSchema = z.array(PatchTagSchema)
 
 // Issue tags (kind 1621)
 export const SubjectTag = z.tuple([z.literal("subject"), z.string()])
@@ -147,7 +116,7 @@ export const StatusTagsSchema = z.array(StatusTagSchema)
 // Pull Request tags (kind 1618)
 export const PullRequestTagSchema = z.union([
   AddressRepoTag,
-  PatchRTag,
+  RTag,
   PTag,
   SubjectTag,
   HashtagTag,
@@ -164,7 +133,7 @@ export const PullRequestUpdateETag = z.tuple([z.literal("E"), z.string()])
 export const PullRequestUpdatePTag = z.tuple([z.literal("P"), z.string()])
 export const PullRequestUpdateTagSchema = z.union([
   AddressRepoTag,
-  PatchRTag,
+  RTag,
   PullRequestUpdateETag,
   PullRequestUpdatePTag,
   PTag,
@@ -220,7 +189,6 @@ export const ConflictMetaTagsSchema = z.array(ConflictMetaTagSchema)
 export const validateRepoAnnouncementTags = (tags: unknown) =>
   RepoAnnouncementTagsSchema.safeParse(tags)
 export const validateRepoStateTags = (tags: unknown) => RepoStateTagsSchema.safeParse(tags)
-export const validatePatchTags = (tags: unknown) => PatchTagsSchema.safeParse(tags)
 export const validateIssueTags = (tags: unknown) => IssueTagsSchema.safeParse(tags)
 export const validateStatusTags = (tags: unknown) => StatusTagsSchema.safeParse(tags)
 
@@ -257,18 +225,6 @@ export const RepoStateEventSchema = NostrEventSchema.extend({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Repo state must include a 'd' tag (repo id)",
-    })
-  }
-})
-
-export const PatchEventSchema = NostrEventSchema.extend({
-  kind: z.literal(1617),
-  tags: PatchTagsSchema,
-}).superRefine((evt: NostrEventLike, ctx: RefinementCtx) => {
-  if (!hasTagName(evt.tags as unknown[], "a")) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Patch must include an 'a' tag (address of repo announcement)",
     })
   }
 })
@@ -416,7 +372,6 @@ export const ConflictMetadataEventSchema = NostrEventSchema.extend({
 export const validateRepoAnnouncementEvent = (evt: unknown) =>
   RepoAnnouncementEventSchema.safeParse(evt)
 export const validateRepoStateEvent = (evt: unknown) => RepoStateEventSchema.safeParse(evt)
-export const validatePatchEvent = (evt: unknown) => PatchEventSchema.safeParse(evt)
 export const validateIssueEvent = (evt: unknown) => IssueEventSchema.safeParse(evt)
 export const validateCoverLetterEvent = (evt: unknown) => CoverLetterEventSchema.safeParse(evt)
 export const validateStatusEvent = (evt: unknown) => StatusEventSchema.safeParse(evt)

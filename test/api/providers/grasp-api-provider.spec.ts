@@ -468,26 +468,9 @@ describe('GraspApiProvider basic behavior', () => {
     await expect(api.getUser('alice')).rejects.toThrow(/Invalid user identifier/);
   });
 
-  it('listPullRequests maps from listPatches with base ref derived from repo state', async () => {
+  it('listPullRequests rejects because GRASP REST does not expose Nostr PR events', async () => {
     const api = new GraspApiProvider(relay, ownerHex as any);
-    setPriv(api, 'capabilities', { grasp01: true, grasp05: false, httpOrigins: ['https://relay.example'], nostrRelays: [relay] });
-    setPriv(api, 'httpBase', 'https://relay.example');
-    const patch = {
-      id: 'patch1234',
-      title: 'T',
-      description: 'D',
-      author: { login: 'npub1x', avatarUrl: '' },
-      commits: [{ sha: 'c1' }],
-      createdAt: '2020-01-01T00:00:00.000Z',
-      updatedAt: '2020-01-02T00:00:00.000Z'
-    };
-    (vi.spyOn(api as any, 'listPatches') as any).mockResolvedValueOnce([patch]);
-    (vi.spyOn(api as any, 'fetchLatestState') as any).mockResolvedValueOnce({ head: 'ref: refs/heads/main', refs: {} });
-    const prs = await api.listPullRequests(ownerHex, 'r');
-    expect(prs[0].title).toBe('T');
-    expect(prs[0].base.ref).toBe('main');
-    expect(prs[0].head.ref).toBe('patch-branch');
-    expect(prs[0].url).toMatch(/nostr:patch1234/);
+    await expect(api.listPullRequests(ownerHex, 'r')).rejects.toThrow(/Nostr pull request events/);
   });
 
   it('isValidNostrRelayUrl validates expected hosts and schemes', async () => {

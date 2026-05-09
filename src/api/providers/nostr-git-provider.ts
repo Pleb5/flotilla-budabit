@@ -307,15 +307,13 @@ export class NostrGitProvider {
   }
 
   /**
-   * List proposals (patches/pull requests) for a repository
-   * Based on ngit's proposal listing
+   * List pull requests for a repository.
    */
   async listProposals(repoAddr: string, options?: any): Promise<any[]> {
     try {
-      // Use EventIO to fetch patch events
       const filters = [
         {
-          kinds: [1617], // GIT_PATCH
+          kinds: [1618, 1619],
           '#a': [repoAddr]
         }
       ];
@@ -329,41 +327,10 @@ export class NostrGitProvider {
   }
 
   /**
-   * Send a proposal (patch/pull request) to a repository
-   * Based on ngit's proposal sending
+   * Patch-based proposal sending was removed with legacy patch event support.
    */
   async sendProposal(repoAddr: string, commits: string[], options?: any): Promise<string[]> {
-    try {
-      // Create patch events for each commit
-      const patchEvents = [];
-      
-      for (const commit of commits) {
-        // Create patch event (simplified)
-        const patchEvent = {
-          kind: 1617,
-          tags: [
-            ['a', repoAddr],
-            ['commit', commit]
-          ],
-          content: `Patch for commit ${commit}`,
-          created_at: Math.floor(Date.now() / 1000)
-        };
-
-        // Publish the event using EventIO (handles signing internally - no more signer passing!)
-        const publishResult = await this.nostrConfig.eventIO.publishEvent(patchEvent);
-        
-        if (publishResult.ok) {
-          patchEvents.push('mock-patch-id');
-        } else {
-          console.warn('Failed to publish patch event:', publishResult.error);
-        }
-      }
-
-      return patchEvents;
-    } catch (error) {
-      console.error('Failed to send proposal:', error);
-      throw error;
-    }
+    throw new Error('sendProposal no longer supports legacy patch events; publish a pull request event instead');
   }
 
   /**

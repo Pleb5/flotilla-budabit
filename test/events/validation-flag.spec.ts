@@ -8,7 +8,6 @@ import {
 import {
   validateRepoAnnouncementEvent,
   validateRepoStateEvent,
-  validatePatchEvent,
   validateIssueEvent,
   validateCoverLetterEvent,
   validateStatusEvent,
@@ -22,7 +21,6 @@ import {
 import {
   createRepoAnnouncementEvent,
   createRepoStateEvent,
-  createPatchEvent,
   createIssueEvent,
   createCoverLetterEvent,
   createStatusEvent,
@@ -99,7 +97,6 @@ describe("Zod event validators (src/utils/validation.ts)", () => {
   it("validates correct events for all supported kinds", () => {
     const ann = createRepoAnnouncementEvent({repoId: "owner/repo"})
     const st = createRepoStateEvent({repoId: "owner/repo", head: "main"})
-    const patch = createPatchEvent({content: "patch", repoAddr: "30617:pk:repo"})
     const issue = createIssueEvent({content: "issue", repoAddr: "30617:pk:repo"})
     const cover = createCoverLetterEvent({content: "cover", rootId: "issue-root"})
     const status = createStatusEvent({
@@ -135,7 +132,6 @@ describe("Zod event validators (src/utils/validation.ts)", () => {
 
     expect(validateRepoAnnouncementEvent(ann).success).toBe(true)
     expect(validateRepoStateEvent(st).success).toBe(true)
-    expect(validatePatchEvent(patch).success).toBe(true)
     expect(validateIssueEvent(issue).success).toBe(true)
     expect(validateCoverLetterEvent(cover).success).toBe(true)
     expect(validateStatusEvent(status).success).toBe(true)
@@ -171,21 +167,6 @@ describe("Zod event validators (src/utils/validation.ts)", () => {
     if (!annRes2.success) {
       const errStr = JSON.stringify(annRes2.error)
       expect(errStr).toMatch(/must include a 'd' tag/i)
-    }
-  })
-
-  it("rejects patch events missing required a tag with a clear error message", () => {
-    const badPatch: any = {
-      kind: 1617,
-      content: "patch",
-      tags: [["commit", "c1"]],
-    }
-
-    const res = validatePatchEvent(badPatch)
-    expect(res.success).toBe(false)
-    if (!res.success) {
-      const msgs = res.error.issues.map(i => i.message).join("\n")
-      expect(msgs).toMatch(/Patch must include an 'a' tag/i)
     }
   })
 

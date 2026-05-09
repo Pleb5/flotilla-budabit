@@ -1,5 +1,4 @@
 export enum NostrGitKind {
-  Patch = 1617,
   Issue = 1621,
   PullRequest = 1618,
   PullRequestUpdate = 1619,

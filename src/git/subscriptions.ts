@@ -61,7 +61,7 @@ export function buildRepoSubscriptions(args: {
   const candidates: FilterShape[] = []
   const notes: string[] = []
 
-  const STACKING_KINDS = [1617, 30410, 30411, 30412]
+  const STACKING_KINDS = [1618, 1619, 30410, 30411, 30412]
   const enableStackingFilters =
     (globalThis as {process?: {env?: Record<string, string | undefined>}}).process?.env
       ?.ENABLE_STACKING_FILTERS === "true"

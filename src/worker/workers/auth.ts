@@ -91,7 +91,7 @@ export async function getTokensForHost(hostname: string): Promise<AuthToken[]> {
  * Try a push operation with multiple tokens until one succeeds.
  * This provides fallback retry logic for internal git push operations when multiple tokens exist for the same host.
  *
- * Note: This is only used by internal worker operations (e.g., cloneAndFork, applyPatchAndPush).
+ * Note: This is only used by internal worker operations (e.g., cloneAndFork, mergePRAndPush).
  * Operations called from UI layer (e.g., pushToRemote, updateAndPushFiles) should receive tokens
  * from the UI layer, which handles retry logic using tryTokensForHost().
  */

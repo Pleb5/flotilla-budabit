@@ -2,7 +2,6 @@ import {describe, it, expect} from "vitest"
 import {
   createRepoAnnouncementEvent,
   createRepoStateEvent,
-  createPatchEvent,
   createIssueEvent,
   createCoverLetterEvent,
   createStatusEvent,
@@ -92,38 +91,6 @@ describe("NIP-34 builders", () => {
 
     const head = getTag(evt as any, "HEAD")
     expect(head).toEqual(["HEAD", "ref: refs/heads/main"])
-  })
-
-  it("createPatchEvent encodes committer metadata, commit linkage, recipients, and EUC", () => {
-    const evt = createPatchEvent({
-      content: "patch-content",
-      repoAddr: "30617:pubkey:repo",
-      earliestUniqueCommit: "euc-abc",
-      commit: "commit-1",
-      parentCommit: "commit-0",
-      committer: {
-        name: "Alice",
-        email: "alice@example.com",
-        timestamp: "1700000000",
-        tzOffset: "0",
-      },
-      pgpSig: "sig",
-      recipients: ["pk1", "pk2"],
-      created_at: 1700000002,
-    })
-
-    expect(evt.kind).toBe(1617)
-    expect(getTagValue(evt as any, "a")).toBe("30617:pubkey:repo")
-    expect(getTagValue(evt as any, "r")).toBe("euc-abc")
-    expect(getTagValue(evt as any, "commit")).toBe("commit-1")
-    expect(getTagValue(evt as any, "parent-commit")).toBe("commit-0")
-    expect(getTagValue(evt as any, "commit-pgp-sig")).toBe("sig")
-
-    const committer = getTag(evt as any, "committer")
-    expect(committer).toEqual(["committer", "Alice", "alice@example.com", "1700000000", "0"])
-
-    const pTags = getTags(evt as any, "p")
-    expect(pTags.map((t: any) => t[1]).sort()).toEqual(["pk1", "pk2"].sort())
   })
 
   it("createIssueEvent encodes recipients, subject, labels", () => {

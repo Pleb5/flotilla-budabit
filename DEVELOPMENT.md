@@ -70,14 +70,14 @@ const repoUrl = getTagValue(announcement, "r")
 For optional runtime guarantees, `@nostr-git/shared-types` exposes Zod schemas and helpers in `src/validation.ts`.
 
 - **Tag tuple schemas**: NIP-34 tag shapes (e.g., `DTag`, `CloneTag`, `RefsTag`, `CommitterTag`).
-- **Per-kind tag arrays**: `RepoAnnouncementTagsSchema`, `RepoStateTagsSchema`, `PatchTagsSchema`, `IssueTagsSchema`, `StatusTagsSchema`.
-- **Per-kind strict event schemas**: `RepoAnnouncementEventSchema`, `RepoStateEventSchema`, `PatchEventSchema`, `IssueEventSchema`, `StatusEventSchema`.
+- **Per-kind tag arrays**: `RepoAnnouncementTagsSchema`, `RepoStateTagsSchema`, `IssueTagsSchema`, `StatusTagsSchema`.
+- **Per-kind strict event schemas**: `RepoAnnouncementEventSchema`, `RepoStateEventSchema`, `IssueEventSchema`, `StatusEventSchema`.
 - **Helpers**: `assertValidTags(event)`, `safeParseEventTags(event)`, and `validate*Tags(...)` / `validate*Event(...)` convenience functions.
 
 Example:
 
 ```ts
-import {validateRepoAnnouncementEvent, validatePatchTags} from "@nostr-git/shared-types"
+import {validateRepoAnnouncementEvent, validateIssueTags} from "@nostr-git/shared-types"
 
 const evt = {
   kind: 30617,
@@ -90,10 +90,10 @@ const evt = {
 const ok = validateRepoAnnouncementEvent(evt)
 if (!ok.success) console.error(ok.error.format())
 
-const tagsOk = validatePatchTags([
+const tagsOk = validateIssueTags([
   ["a", "30617:<owner>:<repo>"],
   ["p", "npub1..."],
-  ["committer", "Alice", "alice@example.com", "1734038123", "-420"],
+  ["subject", "Bug report"],
 ])
 ```
 
@@ -168,17 +168,17 @@ Snippet:
 ```ts
 // index.test-d.ts
 import {expectType} from "tsd"
-import type {getTag, getTagValue, PatchEvent} from "./dist/index.d.ts"
+import type {getTag, getTagValue, IssueEvent} from "./dist/index.d.ts"
 
-declare const patch: PatchEvent
+declare const issue: IssueEvent
 const _getTag: typeof getTag = null as any
 const _getTagValue: typeof getTagValue = null as any
 
-const committer = _getTag(patch, "committer")
-expectType<["committer", string, string, string, string] | undefined>(committer)
+const subject = _getTag(issue, "subject")
+expectType<["subject", string] | undefined>(subject)
 
-const committerName = _getTagValue(patch, "committer")
-expectType<string | undefined>(committerName)
+const subjectValue = _getTagValue(issue, "subject")
+expectType<string | undefined>(subjectValue)
 ```
 
 ### 2. Build All Packages

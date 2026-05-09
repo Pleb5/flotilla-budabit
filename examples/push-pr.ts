@@ -57,7 +57,7 @@ async function main() {
   const repoId = "demo-repo"
   const repoAddr = makeRepoAddr(demoOwner, repoId)
 
-  // PR ref triggers NIP-34 GIT_PATCH publication with enriched metadata and content
+  // PR ref triggers NIP-34 pull request publication with enriched metadata and content
   const result = await provider.push({
     dir: workDir,
     fs: fs as unknown as any,

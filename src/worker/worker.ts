@@ -122,7 +122,6 @@ import type {GitProvider} from "../git/provider.js"
 import {createGitProvider} from "../git/factory-browser.js"
 import {rootDir} from "../git/git.js"
 import {
-  analyzePatchMergeability,
   getPRPreviewData,
   getCommitsAheadOfTipData,
   getMergeBaseBetween as getMergeBaseBetweenData,
@@ -194,8 +193,6 @@ import {
 
 import {needsUpdateUtil, syncWithRemoteUtil} from "./workers/sync.js"
 
-import type {AnalyzePatchMergeOptions, ApplyPatchAndPushOptions} from "./workers/patches.js"
-import {analyzePatchMergeUtil, applyPatchAndPushUtil} from "./workers/patches.js"
 import type {AnalyzePRMergeOptions, MergePRAndPushOptions} from "./workers/pr-merge.js"
 import {analyzePRMergeUtil, mergePRAndPushUtil} from "./workers/pr-merge.js"
 
@@ -848,22 +845,6 @@ const api = {
     })
   },
 
-  // Patch analysis & application
-  async analyzePatchMerge(opts: AnalyzePatchMergeOptions) {
-    const {repoId} = opts
-    const sendProgress = makeProgress(repoId, "merge-progress")
-    sendProgress("Analyzing patch mergeability...")
-    const result = await analyzePatchMergeUtil(git, opts, {
-      rootDir,
-      parseRepoId,
-      resolveBranchName: async (dir: string, requested?: string) =>
-        resolveRobustBranchUtil(git, dir, requested),
-      analyzePatchMergeability,
-    })
-    sendProgress("Analysis complete")
-    return toPlain(result)
-  },
-
   async analyzePRMerge(opts: AnalyzePRMergeOptions) {
     const {repoId} = opts
     const sendProgress = makeProgress(repoId, "merge-progress")
@@ -877,44 +858,6 @@ const api = {
       corsProxy: resolveDefaultCorsProxy(),
     })
     sendProgress("Analysis complete")
-    return toPlain(result)
-  },
-
-  async applyPatchAndPush(opts: ApplyPatchAndPushOptions) {
-    const {repoId} = opts
-    const sendProgress = makeProgress(repoId, "merge-progress")
-    sendProgress("Applying patch...")
-    const result = await applyPatchAndPushUtil(git, opts, {
-      rootDir,
-      parseRepoId,
-      resolveBranchName: async (dir: string, requested?: string) =>
-        resolveRobustBranchUtil(git, dir, requested),
-      ensureFullClone: async (args: {
-        repoId: string
-        branch?: string
-        depth?: number
-        cloneUrls?: string[]
-      }) =>
-        ensureFullCloneUtil(
-          git,
-          args,
-          {
-            rootDir,
-            parseRepoId,
-            repoDataLevels,
-            clonedRepos,
-            isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
-            resolveBranchName: async (dir: string, requested?: string) =>
-              resolveRobustBranchUtil(git, dir, requested),
-            cacheManager,
-          },
-          makeProgress(args.repoId, "clone-progress"),
-        ),
-      getAuthCallback,
-      getConfiguredAuthHosts,
-      getProviderFs: (g: GitProvider) => getProviderFs(g),
-    })
-    sendProgress("Apply complete")
     return toPlain(result)
   },
 

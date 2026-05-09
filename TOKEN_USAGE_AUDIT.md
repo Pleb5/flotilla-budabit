@@ -142,12 +142,6 @@ This document identifies all places where authentication tokens are used in the 
 - **Fallback Retry**: ❌ No - UI layer handles token retry via `tryTokensForHost()`
 - **Note**: Worker uses token directly; UI layer selects and retries with different tokens
 
-### 16. Apply Patch and Push (`packages/nostr-git/packages/git-worker/src/lib/workers/patches.ts`)
-
-- **Function**: `applyPatchAndPushUtil()` - Uses `getAuthCallback()` for push operations
-- **Line**: ~280
-- **Usage**: Applies patch, commits, pushes to remotes (with fallback retry via `tryPushWithTokens`)
-
 ## UI Hooks & Components
 
 ### 17. useNewRepo (`packages/nostr-git/packages/ui/src/lib/useNewRepo.svelte.ts`)

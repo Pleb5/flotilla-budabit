@@ -5,7 +5,6 @@ import type {
   LabelEvent,
   StatusEvent,
   IssueEvent,
-  PatchEvent,
   PullRequestEvent,
   PullRequestUpdateEvent,
   UserGraspListEvent,
@@ -23,7 +22,6 @@ export type RepoContext = {
   repoStateEvent?: RepoStateEvent
   repo?: any // generic metadata; flows does not parse RepoAnnouncementEvent
   issues?: IssueEvent[]
-  patches?: PatchEvent[]
   repoStateEventsArr?: RepoStateEvent[]
   statusEventsArr?: StatusEvent[]
   commentEventsArr?: CommentEvent[]
@@ -151,63 +149,7 @@ export class RepoCore {
     return resolveIssueStatus(thread, rootAuthor, maintainers)
   }
 
-  // Patch graph generator
-  static getPatchGraph(ctx: RepoContext): {
-    nodes: Map<string, PatchEvent>
-    edgesCount: number
-    roots: string[]
-    rootRevisions: string[]
-    topParents: string[]
-    parentOutDegree: Record<string, number>
-    parentChildren: Record<string, string[]>
-  } {
-    const nodes = new Map<string, PatchEvent>()
-    const edges = new Map<string, Set<string>>()
-    const roots: string[] = []
-    const rootRevisions: string[] = []
-    const getTags = (evt: any, k: string) => (evt.tags || []).filter((t: string[]) => t[0] === k)
-
-    for (const p of ctx.patches || []) nodes.set(p.id, p)
-    for (const p of ctx.patches || []) {
-      const parents = [
-        ...getTags(p, "e").map((t: string[]) => t[1]),
-        ...getTags(p, "E").map((t: string[]) => t[1]),
-      ]
-      for (const par of parents) {
-        if (!nodes.has(par)) continue
-        const set = edges.get(par) || new Set<string>()
-        set.add(p.id)
-        edges.set(par, set)
-      }
-      const tTags = getTags(p, "t").map((t: string[]) => t[1])
-      if (tTags.includes("root")) roots.push(p.id)
-      if (tTags.includes("root-revision")) rootRevisions.push(p.id)
-    }
-
-    const edgesCount = Array.from(edges.values()).reduce((acc, s) => acc + s.size, 0)
-    const topParents = Array.from(edges.entries())
-      .sort((a, b) => b[1].size - a[1].size)
-      .slice(0, 10)
-      .map(([id]) => id)
-    const parentOutDegree: Record<string, number> = {}
-    const parentChildren: Record<string, string[]> = {}
-    for (const [pid, set] of edges.entries()) {
-      parentOutDegree[pid] = set.size
-      parentChildren[pid] = Array.from(set)
-    }
-
-    return {
-      nodes,
-      edgesCount,
-      roots: Array.from(new Set(roots)),
-      rootRevisions: Array.from(new Set(rootRevisions)),
-      topParents,
-      parentOutDegree,
-      parentChildren,
-    }
-  }
-
-  // Issue / Patch threads & statuses
+  // Issue / PR threads & statuses
   static resolveStatusFor(
     ctx: RepoContext,
     rootId: string,
@@ -249,7 +191,7 @@ export class RepoCore {
   static findRootAuthor(ctx: RepoContext, rootId: string): string | undefined {
     const root =
       (ctx.issues || []).find(i => i.id === rootId) ||
-      (ctx.patches || []).find(p => p.id === rootId)
+      (ctx.pullRequests || []).find(pr => pr.id === rootId)
     return root?.pubkey
   }
 
@@ -283,7 +225,7 @@ export class RepoCore {
 
     const rootEvt = target.id
       ? (ctx.issues || []).find(i => i.id === target.id) ||
-        (ctx.patches || []).find(p => p.id === target.id)
+        (ctx.pullRequests || []).find(pr => pr.id === target.id)
       : undefined
 
     if (!rootEvt) {
@@ -399,7 +341,7 @@ export class RepoCore {
     return RepoCore.getEffectiveLabelsFor(ctx, {id: rootId})
   }
 
-  static getPatchLabels(ctx: RepoContext, rootId: string): EffectiveLabelsV2 {
+  static getPullRequestLabels(ctx: RepoContext, rootId: string): EffectiveLabelsV2 {
     return RepoCore.getEffectiveLabelsFor(ctx, {id: rootId})
   }
 
@@ -416,12 +358,12 @@ export class RepoCore {
     const a = ctx.repoEvent ? `30617:${getOwnerPubkey(ctx)}:${ctx.repo?.name || ""}` : undefined
     if (a) {
       filters.push({
-        kinds: [30617, 1617, 1618, 1619, 1621, 1630, 1631, 1632, 1633, 10317],
+        kinds: [30617, 1618, 1619, 1621, 1630, 1631, 1632, 1633, 10317],
         "#a": [a],
       })
     }
 
-    const roots = [...(ctx.issues || []), ...(ctx.patches || [])].map(e => e.id)
+    const roots = [...(ctx.issues || []), ...(ctx.pullRequests || [])].map(e => e.id)
     if (roots.length > 0) filters.push({"#e": roots})
 
     const euc = (ctx.repoEvent?.tags || []).find(t => t[0] === "r" && t[2] === "euc")?.[1]

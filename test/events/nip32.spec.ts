@@ -10,7 +10,7 @@ import {
 describe("NIP-32: labels (extract + merge)", () => {
   it("extractSelfLabels resolves namespace via L and l mark", () => {
     const evt: any = {
-      kind: 1617,
+      kind: 1618,
       tags: [
         ["L", "priority"],
         ["l", "high", "priority"],
@@ -21,9 +21,9 @@ describe("NIP-32: labels (extract + merge)", () => {
 
     const self = extractSelfLabels(evt)
     expect(self).toEqual([
-      {L: "priority", l: "high", targetKind: 1617},
-      {L: undefined, l: "needs-review", targetKind: 1617},
-      {L: undefined, l: "ignored-ns", targetKind: 1617},
+      {L: "priority", l: "high", targetKind: 1618},
+      {L: undefined, l: "needs-review", targetKind: 1618},
+      {L: undefined, l: "ignored-ns", targetKind: 1618},
     ])
   })
 
@@ -94,8 +94,8 @@ describe("NIP-32: labels (extract + merge)", () => {
   it("mergeEffectiveLabels merges self + external + legacy t into byNamespace + flat + legacyT", () => {
     const input = {
       self: [
-        {L: "priority", l: "high", targetKind: 1617},
-        {L: undefined, l: "needs-review", targetKind: 1617},
+        {L: "priority", l: "high", targetKind: 1618},
+        {L: undefined, l: "needs-review", targetKind: 1618},
       ],
       external: [
         {

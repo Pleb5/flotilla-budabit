@@ -726,49 +726,14 @@ export class GraspApiProvider implements GitServiceApi {
   }
 
   /**
-   * Pull Request Operations (mapped to patches in GRASP)
+   * Pull Request Operations
    */
   async listPullRequests(
     owner: string,
     repo: string,
     options?: ListPullRequestsOptions,
   ): Promise<PullRequest[]> {
-    // Map to patch operations
-    const patches = await this.listPatches(owner, repo)
-    // Derive base ref from state HEAD when available (no hardcoded default)
-    let baseRef = ""
-    try {
-      const st = await this.fetchLatestState(owner, repo)
-      baseRef = getDefaultBranchFromHead(st?.head || "") || ""
-    } catch {}
-
-    return patches.map(patch => ({
-      id: parseInt(patch.id.slice(-8), 16),
-      number: parseInt(patch.id.slice(-8), 16),
-      title: patch.title,
-      body: patch.description,
-      state: "open", // Patches don't have explicit state
-      author: patch.author,
-      head: {
-        ref: "patch-branch",
-        sha: patch.commits[0]?.sha || "",
-        repo: {name: repo, owner: toNpub(owner)},
-      },
-      base: {
-        ref: baseRef,
-        sha: "",
-        repo: {name: repo, owner: toNpub(owner)},
-      },
-      mergeable: undefined,
-      merged: false,
-      mergedAt: undefined,
-      createdAt: patch.createdAt,
-      updatedAt: patch.updatedAt,
-      url: `nostr:${patch.id}`,
-      htmlUrl: `${this.relayUrl}/patches/${patch.id}`,
-      diffUrl: `${this.relayUrl}/patches/${patch.id}.diff`,
-      patchUrl: `${this.relayUrl}/patches/${patch.id}.patch`,
-    }))
+    throw new Error("GRASP listPullRequests() is not supported by REST endpoints. Query Nostr pull request events via the UI layer.")
   }
 
   async getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequest> {
@@ -783,7 +748,7 @@ export class GraspApiProvider implements GitServiceApi {
   }
 
   async createPullRequest(owner: string, repo: string, pr: NewPullRequest): Promise<PullRequest> {
-    throw new Error("GRASP createPullRequest not implemented - use patch workflow instead")
+    throw new Error("GRASP createPullRequest not implemented - publish a Nostr pull request event instead")
   }
 
   async updatePullRequest(
@@ -792,7 +757,7 @@ export class GraspApiProvider implements GitServiceApi {
     prNumber: number,
     updates: Partial<NewPullRequest>,
   ): Promise<PullRequest> {
-    throw new Error("GRASP updatePullRequest not implemented - use patch workflow instead")
+    throw new Error("GRASP updatePullRequest not implemented - publish a Nostr pull request update event instead")
   }
 
   async mergePullRequest(
@@ -805,16 +770,15 @@ export class GraspApiProvider implements GitServiceApi {
       mergeMethod?: "merge" | "squash" | "rebase"
     },
   ): Promise<PullRequest> {
-    throw new Error("GRASP mergePullRequest not implemented - use patch workflow instead")
+    throw new Error("GRASP mergePullRequest not implemented - publish a Nostr merged status event instead")
   }
 
   /**
-   * Patch Operations (native to GRASP/NIP-34)
+   * Patch Operations
    */
   async listPatches(owner: string, repo: string): Promise<Patch[]> {
-    // NOTE: Nostr-based patches require external EventIO for querying.
     throw new Error(
-      "GRASP listPatches() not supported without external EventIO. Query patch events via UI layer.",
+      "GRASP listPatches() is not supported. Legacy Nostr patch events have been removed.",
     )
   }
 

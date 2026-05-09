@@ -58,7 +58,7 @@ The following methods throw errors indicating they're not yet implemented:
 - `listDirectory()` - Requires tree object parsing
 - Repository mutation operations (create, update, delete, fork)
 - Issue operations (delegated to Nostr events)
-- Pull request operations (delegated to Nostr events/patches)
+- Pull request operations (delegated to Nostr pull request events)
 - Comment operations (delegated to Nostr events)
 
 ## Usage Example

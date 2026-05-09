@@ -16,9 +16,6 @@ export type NostrTag = [string, ...string[]]
 export const GIT_REPO_ANNOUNCEMENT = 30617
 export const GIT_REPO_STATE = 30618
 
-// Patch events
-export const GIT_PATCH = 1617
-
 // Stacking & merge metadata events
 export const GIT_STACK = 30410
 export const GIT_MERGE_METADATA = 30411
@@ -78,37 +75,12 @@ export interface RepoStateEvent extends NostrEvent {
 }
 
 // -------------------
-// Patch (kind: 1617)
-// -------------------
-export type PatchTag =
-  | ["a", string]
-  | ["r", string]
-  | ["p", string]
-  | ["t", string]
-  | ["commit", string]
-  | ["parent-commit", string]
-  | ["commit-pgp-sig", string]
-  | ["committer", string, string, string, string]
-  | ["in-reply-to", string]
-  // Stacking/Revision/Dependencies extensions
-  | ["stack", string]
-  | ["depends", string]
-  | ["rev", string]
-  | ["supersedes", string]
-
-export interface PatchEvent extends NostrEvent {
-  kind: typeof GIT_PATCH
-  content: string // git format-patch content
-  tags: PatchTag[]
-}
-
-// -------------------
 // Stack (kind: 30410)
 // -------------------
 export type StackTag =
   | ["a", string] // repo address
   | ["stack", string] // stack id/name
-  | ["member", string] // patch event id or commit id
+  | ["member", string] // event id or commit id
   | ["order", ...string[]] // optional explicit order of members
 
 export interface StackEvent extends NostrEvent {
@@ -263,7 +235,6 @@ export interface StatusEvent extends NostrEvent {
 export type Nip34Event =
   | RepoAnnouncementEvent
   | RepoStateEvent
-  | PatchEvent
   | IssueEvent
   | CoverLetterEvent
   | PullRequestEvent

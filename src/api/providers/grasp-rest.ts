@@ -412,21 +412,21 @@ export class GraspRestApiProvider implements GitServiceApi {
     options?: ListPullRequestsOptions,
   ): Promise<PullRequest[]> {
     throw createInvalidInputError(
-      "GRASP REST API does not support pull requests. Use Nostr events for patches.",
+      "GRASP REST API does not support pull requests. Use Nostr pull request events.",
       this.buildContext({operation: "listPullRequests"}),
     )
   }
 
   async getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequest> {
     throw createInvalidInputError(
-      "GRASP REST API does not support pull requests. Use Nostr events for patches.",
+      "GRASP REST API does not support pull requests. Use Nostr pull request events.",
       this.buildContext({operation: "getPullRequest"}),
     )
   }
 
   async createPullRequest(owner: string, repo: string, pr: NewPullRequest): Promise<PullRequest> {
     throw createInvalidInputError(
-      "GRASP REST API does not support pull requests. Use Nostr events for patches.",
+      "GRASP REST API does not support pull requests. Use Nostr pull request events.",
       this.buildContext({operation: "createPullRequest"}),
     )
   }
@@ -438,7 +438,7 @@ export class GraspRestApiProvider implements GitServiceApi {
     updates: Partial<NewPullRequest>,
   ): Promise<PullRequest> {
     throw createInvalidInputError(
-      "GRASP REST API does not support pull requests. Use Nostr events for patches.",
+      "GRASP REST API does not support pull requests. Use Nostr pull request events.",
       this.buildContext({operation: "updatePullRequest"}),
     )
   }
@@ -454,7 +454,7 @@ export class GraspRestApiProvider implements GitServiceApi {
     },
   ): Promise<PullRequest> {
     throw createInvalidInputError(
-      "GRASP REST API does not support pull requests. Use Nostr events for patches.",
+      "GRASP REST API does not support pull requests. Use Nostr pull request events.",
       this.buildContext({operation: "mergePullRequest"}),
     )
   }
@@ -464,14 +464,14 @@ export class GraspRestApiProvider implements GitServiceApi {
    */
   async listPatches(owner: string, repo: string): Promise<Patch[]> {
     throw createInvalidInputError(
-      "GRASP REST API does not support patches. Use Nostr events for patches.",
+      "GRASP REST API does not support patches. Legacy Nostr patch events have been removed.",
       this.buildContext({operation: "listPatches"}),
     )
   }
 
   async getPatch(owner: string, repo: string, patchId: string): Promise<Patch> {
     throw createInvalidInputError(
-      "GRASP REST API does not support patches. Use Nostr events for patches.",
+      "GRASP REST API does not support patches. Legacy Nostr patch events have been removed.",
       this.buildContext({operation: "getPatch"}),
     )
   }

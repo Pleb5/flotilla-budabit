@@ -54,7 +54,7 @@ export interface CommitDiff {
 }
 
 /**
- * Patch: describes a patch set (from core/src/lib/patches.ts)
+ * Patch: describes a generic diff/patch set returned by Git service APIs.
  * This is a draft and may need refinement based on actual usage.
  */
 export interface Patch {

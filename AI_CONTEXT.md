@@ -15,8 +15,8 @@ This document provides essential context for LLMs working on the Nostr-Git proje
 - **Packages**: kebab-case with `@nostr-git/` scope (e.g., `@nostr-git/core`)
 - **Files**: kebab-case for files (e.g., `git-worker.ts`, `merge-analysis.ts`)
 - **Classes**: PascalCase (e.g., `GitProvider`, `EventHandler`)
-- **Functions**: camelCase (e.g., `createPatchEvent`, `parseRepoState`)
-- **Constants**: SCREAMING_SNAKE_CASE (e.g., `GIT_REPO_ANNOUNCEMENT`, `GIT_PATCH`)
+- **Functions**: camelCase (e.g., `createPullRequestEvent`, `parseRepoState`)
+- **Constants**: SCREAMING_SNAKE_CASE (e.g., `GIT_REPO_ANNOUNCEMENT`, `GIT_PULL_REQUEST`)
 - **Types**: PascalCase with descriptive suffixes (e.g., `NostrEvent`, `GitRepoState`)
 
 ### Import/Export Patterns
@@ -44,7 +44,7 @@ export class GitProvider {} // ✅
 
 ### Git Integration Terms
 
-- **Patch Event**: Nostr event containing Git patch data (kind 1617)
+- **Pull Request Event**: Nostr event proposing Git changes (kind 1618)
 - **Repo Announcement**: Event declaring a Git repository (kind 30617)
 - **Repo State**: Event containing repository metadata (kind 30618)
 - **Issue Event**: Git issue represented as Nostr event (kind 1621)
@@ -110,7 +110,7 @@ packages/
 export type GitResult<T> = {success: true; data: T} | {success: false; error: GitError}
 
 export interface GitError {
-  code: "REPO_NOT_FOUND" | "INVALID_PATCH" | "NETWORK_ERROR"
+  code: "REPO_NOT_FOUND" | "INVALID_PULL_REQUEST" | "NETWORK_ERROR"
   message: string
   details?: unknown
 }
@@ -120,16 +120,16 @@ export interface GitError {
 
 ```typescript
 // Prefer Result types over throwing
-export async function createPatch(repo: string): Promise<GitResult<Patch>> {
+export async function createPullRequest(repo: string): Promise<GitResult<PullRequest>> {
   try {
-    const patch = await generatePatch(repo)
-    return {success: true, data: patch}
+    const pullRequest = await generatePullRequest(repo)
+    return {success: true, data: pullRequest}
   } catch (error) {
     return {
       success: false,
       error: {
-        code: "INVALID_PATCH",
-        message: "Failed to create patch",
+        code: "INVALID_PULL_REQUEST",
+        message: "Failed to create pull request",
         details: error,
       },
     }
@@ -247,7 +247,7 @@ export function createRepoEvent(repo: GitRepository): NostrEvent {
 // Type-safe worker messages
 export interface WorkerMessage {
   id: string
-  type: "GIT_CLONE" | "GIT_PATCH" | "GIT_STATUS"
+  type: "GIT_CLONE" | "GIT_STATUS"
   payload: unknown
 }
 
