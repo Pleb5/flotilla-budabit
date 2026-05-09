@@ -94,7 +94,7 @@ export interface StackEvent extends NostrEvent {
 // -------------------
 export type MergeMetadataTag =
   | ["a", string] // repo address
-  | ["e", string, "", "root"] // target patch/event id
+  | ["e", string, "", "root"] // target PR/event id
   | ["base-branch", string]
   | ["target-branch", string]
   | ["result", "clean" | "ff" | "conflict"]
@@ -111,7 +111,7 @@ export interface MergeMetadataEvent extends NostrEvent {
 // -------------------
 export type ConflictMetadataTag =
   | ["a", string] // repo address
-  | ["e", string, "", "root"] // target patch/event id
+  | ["e", string, "", "root"] // target PR/event id
   | ["file", string] // conflicted file path (repeatable)
 
 export interface ConflictMetadataEvent extends NostrEvent {

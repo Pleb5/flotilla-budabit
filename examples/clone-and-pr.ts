@@ -83,7 +83,7 @@ async function main() {
   const repoAddr = makeRepoAddr(demoOwner, repoId)
 
   // For demonstration, discovery is not required for PR publication
-  // Provide fs/dir + baseBranch so default patch content includes a unified diff
+  // Provide fs/dir + baseBranch so default PR content includes a unified diff
   const result = await provider.push({
     dir: tmp,
     fs: fs as unknown as any,

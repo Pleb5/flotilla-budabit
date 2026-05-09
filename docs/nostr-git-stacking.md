@@ -7,27 +7,27 @@ This document introduces first-class stack, merge, and conflict metadata for Nos
   - 30411 (Merge Metadata)
   - 30412 (Conflict Metadata)
 
-- Patch tag extensions:
+- Pull request tag extensions:
   - ["stack", <stack-id>]
-  - ["depends", <patch-id-or-commit>]
+  - ["depends", <pr-event-id-or-commit>]
   - ["rev", <revision-id>]
   - ["supersedes", <previous-revision-id>]
 
 ## Stack (30410)
-Represents an ordered set of related patches.
+Represents an ordered set of related pull requests or commits.
 
 Required tags:
 - ["a", <repoAddr>]
 - ["stack", <stack-id>]
 
 Optional tags:
-- ["member", <patch-id-or-commit>] (repeatable)
+- ["member", <pr-event-id-or-commit>] (repeatable)
 - ["order", ...members]
 
 Content: optional text or JSON description.
 
 ## Merge Metadata (30411)
-Summarizes merge analysis for a patch or stack member.
+Summarizes merge analysis for a pull request or stack member.
 
 Required tags:
 - ["a", <repoAddr>]
@@ -54,13 +54,13 @@ Optional tags:
 Content: JSON payload with conflict markers/segments per file.
 
 ## Revision Semantics
-Patches may advertise revision lineage using tags:
+Pull requests may advertise revision lineage using tags:
 - ["rev", <revision-id>]
 - ["supersedes", <previous-revision-id>]
-- ["depends", <patch-or-commit-id>]
+- ["depends", <pr-event-id-or-commit>]
 
 ## Subscription Guidance
-Include kinds [1617, 30410, 30411, 30412] with tag filters (#a, #e) alongside repo events.
+Include kinds [1618, 1619, 30410, 30411, 30412] with tag filters (#a, #e) alongside repo events.
 
 ## Builders and Validation
 Use @nostr-git/shared-types builders and validators:
@@ -68,4 +68,4 @@ Use @nostr-git/shared-types builders and validators:
 - validateStackEvent, validateMergeMetadataEvent, validateConflictMetadataEvent
 
 ## Core Stack Graph
-Core exposes a StackGraph helper to fold revisions and resolve dependency order for stacks. See tests for examples.
+Core exposes builders and validators for stack, merge metadata, and conflict metadata events.

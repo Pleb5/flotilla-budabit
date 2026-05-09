@@ -401,7 +401,7 @@ type(scope): description
 **Examples**:
 
 ```
-feat(core): add patch creation functionality
+feat(core): add pull request creation functionality
 
 fix(ui): resolve component rendering issue in Safari
 

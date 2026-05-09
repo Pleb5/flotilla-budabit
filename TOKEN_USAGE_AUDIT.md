@@ -308,7 +308,7 @@ This document identifies all places where authentication tokens are used in the 
 ### Pattern 3: Worker Auth Config (Internal Operations Only)
 
 - **Usage**: Tokens stored in worker via `setAuthConfig()` for internal operations
-- **Examples**: `cloneAndFork`, `applyPatchAndPushUtil` - internal git push operations
+- **Examples**: `cloneAndFork` - internal git push operations
 - **Fallback**: ✅ Yes - `tryPushWithTokens()` provides fallback retry using worker auth config
 - **Note**: Only used for internal operations that don't receive tokens from UI layer
 
@@ -350,7 +350,6 @@ This document identifies all places where authentication tokens are used in the 
 
 - ✅ **Worker Layer Retry** (Internal Operations Only):
   - `cloneAndFork` (internal clone-and-fork) - uses worker auth config
-  - `applyPatchAndPushUtil` (patch merge/push) - uses worker auth config
 
 - ❌ **No Worker Retry** (UI Handles):
   - `createRemoteRepo` (worker operation) - UI handles retry

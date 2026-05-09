@@ -215,18 +215,9 @@ describe('GraspApiProvider basic behavior', () => {
     spy.mockRestore();
   });
 
-  it('listPullRequests returns empty when no patches and state fetch fails', async () => {
+  it('getPullRequest rejects because GRASP REST does not expose Nostr PR events', async () => {
     const api = new GraspApiProvider(relay, ownerHex as any);
-    (vi.spyOn(api as any, 'listPatches') as any).mockResolvedValueOnce([]);
-    (vi.spyOn(api as any, 'fetchLatestState') as any).mockRejectedValueOnce(new Error('fail'));
-    const prs = await api.listPullRequests(ownerHex, 'r');
-    expect(prs).toEqual([]);
-  });
-
-  it('getPullRequest throws when PR number not found', async () => {
-    const api = new GraspApiProvider(relay, ownerHex as any);
-    (vi.spyOn(api as any, 'listPatches') as any).mockResolvedValueOnce([]);
-    await expect(api.getPullRequest(ownerHex, 'r', 123)).rejects.toThrow(/not found/);
+    await expect(api.getPullRequest(ownerHex, 'r', 123)).rejects.toThrow(/Nostr pull request events/);
   });
 
   it('getRepo with announcement error and missing state yields empty or defaulted defaultBranch', async () => {

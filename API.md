@@ -133,7 +133,7 @@ function ingestState(evt: unknown) {
 
 - Repo discovery ignores invalid repo announcements.
 - Repo state subscription rejects invalid state events.
-- Collaboration streams (patch/issue/status) only deliver valid events to callbacks.
+- Collaboration streams (pull request/issue/status) only deliver valid events to callbacks.
 
 Behavior is controlled by the same `NOSTR_GIT_VALIDATE_EVENTS` flag.
 
@@ -484,7 +484,7 @@ await provider.clone({dir: "/tmp/repo", repoId: "my-repo", timeoutMs: 2500})
 ```ts
 await provider.push({
   dir: "/tmp/repo",
-  fs, // enables unified diff in default patch content
+  fs, // enables unified diff in default PR content
   refspecs: ["refs/heads/pr/feature-x"],
   repoId: "my-repo",
   repoAddr,

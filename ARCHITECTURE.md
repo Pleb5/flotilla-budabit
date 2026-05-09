@@ -48,7 +48,7 @@ See also: [Git Stacking and Merge Metadata](docs/nostr-git-stacking.md)
 - `event.js` - Nostr event creation and parsing
 - `git.js` - Git operations and repository management
 - `repo.js` - Repository state management
-- `patches.js` - Patch creation and application
+- `merge-analysis.ts` - Pull request merge analysis and diff summaries
 - `workers/git-worker.js` - Background Git operations
 - `merge.js` - Merge conflict resolution
 
@@ -62,7 +62,7 @@ See also: [Git Stacking and Merge Metadata](docs/nostr-git-stacking.md)
 
 - `nip34.ts` - NIP-34 event type definitions
 - `utils.ts` - Utility types and helpers
-- Event kind constants (30617, 30618, 1617, 1621)
+- Event kind constants (30617, 30618, 1618, 1619, 1621)
 
 ### Git Wrapper Package (@nostr-git/git-wrapper)
 

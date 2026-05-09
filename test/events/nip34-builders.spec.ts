@@ -316,7 +316,7 @@ describe("NIP-34 builders", () => {
   it("createMergeMetadataEvent encodes base/target branch, result, merge commit, and root e tag", () => {
     const evt = createMergeMetadataEvent({
       repoAddr: "30617:pubkey:repo",
-      rootId: "root-patch-id",
+      rootId: "root-pr-id",
       baseBranch: "main",
       targetBranch: "main",
       result: "clean",
@@ -327,7 +327,7 @@ describe("NIP-34 builders", () => {
 
     expect(evt.kind).toBe(30411)
     expect(getTagValue(evt as any, "a")).toBe("30617:pubkey:repo")
-    expect(getTags(evt as any, "e")).toEqual([["e", "root-patch-id", "", "root"]])
+    expect(getTags(evt as any, "e")).toEqual([["e", "root-pr-id", "", "root"]])
     expect(getTagValue(evt as any, "base-branch")).toBe("main")
     expect(getTagValue(evt as any, "target-branch")).toBe("main")
     expect(getTagValue(evt as any, "result")).toBe("clean")
@@ -337,7 +337,7 @@ describe("NIP-34 builders", () => {
   it("createConflictMetadataEvent encodes conflict files and root e tag", () => {
     const evt = createConflictMetadataEvent({
       repoAddr: "30617:pubkey:repo",
-      rootId: "root-patch-id",
+      rootId: "root-pr-id",
       files: ["a.txt", "b.txt"],
       content: '{"conflicts":2}',
       created_at: 1700000010,
@@ -345,7 +345,7 @@ describe("NIP-34 builders", () => {
 
     expect(evt.kind).toBe(30412)
     expect(getTagValue(evt as any, "a")).toBe("30617:pubkey:repo")
-    expect(getTags(evt as any, "e")).toEqual([["e", "root-patch-id", "", "root"]])
+    expect(getTags(evt as any, "e")).toEqual([["e", "root-pr-id", "", "root"]])
     expect(
       getTags(evt as any, "file")
         .map((t: any) => t[1])
