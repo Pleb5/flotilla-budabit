@@ -563,6 +563,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^2.26.0
         version: 2.27.2
+      '@welshman/store':
+        specifier: 0.7.1
+        version: 0.7.1(typescript@5.9.3)(ws@8.19.0)
       '@xterm/addon-fit':
         specifier: ^0.10.0
         version: 0.10.0(@xterm/xterm@5.5.0)
