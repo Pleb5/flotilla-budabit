@@ -1,10 +1,16 @@
-import {beforeEach, describe, expect, it} from "vitest"
+import {beforeEach, describe, expect, it, vi} from "vitest"
+import {get} from "svelte/store"
 import {
   createRepoAnnouncementEvent,
   DEFAULT_GRASP_SET_ID,
   GRASP_SET_KIND,
 } from "@nostr-git/core/events"
 import {repository, pubkey} from "@welshman/app"
+
+vi.mock("@nostr-git/ui", () => ({
+  graspServersStore: {subscribe: () => () => {}},
+}))
+
 import {
   splitChannelId,
   makeChannelId,
@@ -12,12 +18,41 @@ import {
   gitLink,
   getRepoAnnouncementRelays,
   getRepoScopedRelays,
+  repoMaintainerSetProfilesByRepoAddress,
   ROOMS,
   GENERAL,
 } from "./state"
 
+let eventCounter = 0
+
+const makeRepoAnnouncement = ({
+  pubkey,
+  identifier = "demo",
+  maintainers = [],
+  euc = "shared-euc",
+}: {
+  pubkey: string
+  identifier?: string
+  maintainers?: string[]
+  euc?: string | null
+}) => {
+  eventCounter += 1
+  return {
+    ...createRepoAnnouncementEvent({
+      repoId: identifier,
+      maintainers,
+      earliestUniqueCommit: euc || undefined,
+      created_at: eventCounter,
+    }),
+    id: eventCounter.toString(16).padStart(64, "0"),
+    pubkey,
+    sig: "0".repeat(128),
+  } as any
+}
+
 describe("budabit state", () => {
   beforeEach(() => {
+    eventCounter = 0
     repository.load([])
     pubkey.set(undefined)
   })
@@ -104,6 +139,121 @@ describe("budabit state", () => {
       const relays = getRepoScopedRelays(undefined, ["wss://hint.relay.example.com"])
 
       expect(relays).toEqual(["wss://hint.relay.example.com/"])
+    })
+  })
+
+  describe("repo maintainer set profiles", () => {
+    it("treats root-listed maintainers without reciprocal same-repo announcements as pending", () => {
+      const root = "a".repeat(64)
+      const mutual = "b".repeat(64)
+      const missing = "c".repeat(64)
+      const nonReciprocal = "d".repeat(64)
+      const mismatchedEuc = "e".repeat(64)
+      const identifier = "demo"
+      const rootAddress = `30617:${root}:${identifier}`
+
+      repository.load([
+        makeRepoAnnouncement({
+          pubkey: root,
+          identifier,
+          maintainers: [mutual, missing, nonReciprocal, mismatchedEuc],
+          euc: "root-euc",
+        }),
+        makeRepoAnnouncement({
+          pubkey: mutual,
+          identifier,
+          maintainers: [root],
+          euc: "root-euc",
+        }),
+        makeRepoAnnouncement({
+          pubkey: nonReciprocal,
+          identifier,
+          maintainers: [],
+          euc: "root-euc",
+        }),
+        makeRepoAnnouncement({
+          pubkey: mismatchedEuc,
+          identifier,
+          maintainers: [root],
+          euc: "different-euc",
+        }),
+      ])
+
+      const profile = get(repoMaintainerSetProfilesByRepoAddress).get(rootAddress)
+
+      expect(profile?.maintainerSet).toEqual([root, mutual, mismatchedEuc])
+      expect(profile?.pendingMaintainers).toEqual([missing, nonReciprocal])
+    })
+
+    it("adds pending maintainers listed by root-listed maintainers only", () => {
+      const root = "a".repeat(64)
+      const rootListed = "b".repeat(64)
+      const secondHop = "c".repeat(64)
+      const randomListsRoot = "d".repeat(64)
+      const mismatchedEucRootListed = "e".repeat(64)
+      const mismatchedEucSecondHop = "f".repeat(64)
+      const identifier = "demo"
+      const rootAddress = `30617:${root}:${identifier}`
+
+      repository.load([
+        makeRepoAnnouncement({
+          pubkey: root,
+          identifier,
+          maintainers: [rootListed, mismatchedEucRootListed],
+          euc: "root-euc",
+        }),
+        makeRepoAnnouncement({
+          pubkey: rootListed,
+          identifier,
+          maintainers: [root, secondHop],
+          euc: "root-euc",
+        }),
+        makeRepoAnnouncement({
+          pubkey: randomListsRoot,
+          identifier,
+          maintainers: [root],
+          euc: "root-euc",
+        }),
+        makeRepoAnnouncement({
+          pubkey: mismatchedEucRootListed,
+          identifier,
+          maintainers: [root, mismatchedEucSecondHop],
+          euc: "different-euc",
+        }),
+      ])
+
+      const profile = get(repoMaintainerSetProfilesByRepoAddress).get(rootAddress)
+
+      expect(profile?.maintainerSet).toEqual([root, rootListed, mismatchedEucRootListed])
+      expect(profile?.pendingMaintainers).toEqual([secondHop, mismatchedEucSecondHop])
+      expect(profile?.pendingMaintainers).not.toContain(randomListsRoot)
+    })
+
+    it("trusts mutual root-listed maintainers regardless of EUC metadata", () => {
+      const root = "a".repeat(64)
+      const candidate = "b".repeat(64)
+      const identifier = "demo"
+      const rootAddress = `30617:${root}:${identifier}`
+
+      repository.load([
+        makeRepoAnnouncement({
+          pubkey: root,
+          identifier,
+          maintainers: [candidate],
+          euc: "root-euc",
+        }),
+        makeRepoAnnouncement({
+          pubkey: candidate,
+          identifier,
+          maintainers: [root],
+          euc: "different-euc",
+        }),
+      ])
+
+      const profile = get(repoMaintainerSetProfilesByRepoAddress).get(rootAddress)
+
+      expect(profile?.maintainerSet).toEqual([root, candidate])
+      expect(profile?.pendingMaintainers).toEqual([])
     })
   })
 

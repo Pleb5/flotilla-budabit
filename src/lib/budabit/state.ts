@@ -170,13 +170,6 @@ const parseRepoAnnouncementSafe = (event: RepoAnnouncementEvent) => {
 const getRepoMaintainers = (event: RepoAnnouncementEvent) =>
   (parseRepoAnnouncementSafe(event)?.maintainers || []).map(normalizePubkey).filter(Boolean)
 
-const areRepoAnnouncementsCompatible = (rootEvent: RepoAnnouncementEvent, candidateEvent: RepoAnnouncementEvent) => {
-  const rootEuc = getRepoEuc(rootEvent)
-  const candidateEuc = getRepoEuc(candidateEvent)
-  if (!rootEuc && !candidateEuc) return true
-  return Boolean(rootEuc && candidateEuc && rootEuc === candidateEuc)
-}
-
 const addUnique = <T>(values: T[], value: T) => {
   if (!values.includes(value)) values.push(value)
 }
@@ -337,29 +330,35 @@ export const repoMaintainerSetProfilesByRepoAddress = derived(
       const rootAddress = `${GIT_REPO_ANNOUNCEMENT}:${rootMaintainer}:${identifier}`
       const rootListedMaintainers = getRepoMaintainers(rootEvent)
       const rootListedSet = new Set(rootListedMaintainers)
-      const candidatePubkeys = new Set<string>([rootMaintainer, ...rootListedMaintainers])
-
-      for (const event of eventsByRepoId.get(identifier) || []) {
-        const pubkey = normalizePubkey(event.pubkey)
-        if (!pubkey || pubkey === rootMaintainer) continue
-        if (getRepoMaintainers(event).includes(rootMaintainer)) candidatePubkeys.add(pubkey)
-      }
 
       const maintainerSet: string[] = [rootMaintainer]
       const pendingMaintainers: string[] = []
+      const rootListedEvents = new Map<string, RepoAnnouncementEvent>()
 
-      for (const candidate of candidatePubkeys) {
+      for (const candidate of rootListedSet) {
         if (candidate === rootMaintainer) continue
 
         const candidateAddress = `${GIT_REPO_ANNOUNCEMENT}:${candidate}:${identifier}`
         const candidateEvent = $byAddress.get(candidateAddress)
-        const rootListsCandidate = rootListedSet.has(candidate)
-        const candidateListsRoot = candidateEvent ? getRepoMaintainers(candidateEvent).includes(rootMaintainer) : false
-        const compatible = candidateEvent ? areRepoAnnouncementsCompatible(rootEvent, candidateEvent) : false
+        if (!candidateEvent) {
+          addUnique(pendingMaintainers, candidate)
+          continue
+        }
 
-        if (rootListsCandidate && candidateListsRoot && compatible) {
+        rootListedEvents.set(candidate, candidateEvent)
+
+        if (getRepoMaintainers(candidateEvent).includes(rootMaintainer)) {
           addUnique(maintainerSet, candidate)
-        } else if (rootListsCandidate || candidateListsRoot) {
+        } else {
+          addUnique(pendingMaintainers, candidate)
+        }
+      }
+
+      for (const event of rootListedEvents.values()) {
+        for (const candidate of getRepoMaintainers(event)) {
+          if (candidate === rootMaintainer) continue
+          if (rootListedSet.has(candidate)) continue
+          if (maintainerSet.includes(candidate)) continue
           addUnique(pendingMaintainers, candidate)
         }
       }
