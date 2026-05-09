@@ -7,7 +7,11 @@
   import { tick } from "svelte";
   import parseDiff from "parse-diff";
   import { ChevronDown, ChevronRight, ChevronUp } from "@lucide/svelte";
-  import { createGitCommentEvent, createGitInlineCommentEvent, getTagValue } from "@nostr-git/core/events";
+  import {
+    createGitCommentEvent,
+    createGitInlineCommentEvent,
+    getTagValue,
+  } from "@nostr-git/core/events";
   import type { CommentEvent } from "@nostr-git/core/events";
   import { toast } from "../../stores/toast.js";
   import { toUserMessage } from "../../utils/gitErrorUi.js";
@@ -122,7 +126,12 @@
     framed?: boolean;
     showFileAnchors?: boolean;
     enableHashNavigation?: boolean;
-    scrollTarget?: { id: string | null; line?: number | null; side?: "del"; request?: number } | null;
+    scrollTarget?: {
+      id: string | null;
+      line?: number | null;
+      side?: "del";
+      request?: number;
+    } | null;
   } = $props();
 
   const canComment = $derived(canUseInlineComments({ rootEvent, onComment, currentPubkey }));
@@ -825,27 +834,34 @@
     return change.ln2 ?? change.ln1 ?? null;
   }
 
-  function commentMatchesFileAndSide(c: Comment, change: import("parse-diff").Change, filePath: string) {
-      if (c.lineSide === "del" && change.type !== "del") {
-        return false;
-      }
-      if (c.lineSide !== "del" && change.type === "del") {
-        return false;
-      }
-      // If comment has a filePath, it must match; if comment doesn't have filePath (legacy), allow it
-      // This provides backward compatibility with old comments that don't have file paths
-      if (c.filePath !== undefined && c.filePath !== "") {
-        return c.filePath === filePath;
-      }
-      // Legacy comments without filePath are allowed (backward compatibility)
-      return true;
+  function commentMatchesFileAndSide(
+    c: Comment,
+    change: import("parse-diff").Change,
+    filePath: string
+  ) {
+    if (c.lineSide === "del" && change.type !== "del") {
+      return false;
+    }
+    if (c.lineSide !== "del" && change.type === "del") {
+      return false;
+    }
+    // If comment has a filePath, it must match; if comment doesn't have filePath (legacy), allow it
+    // This provides backward compatibility with old comments that don't have file paths
+    if (c.filePath !== undefined && c.filePath !== "") {
+      return c.filePath === filePath;
+    }
+    // Legacy comments without filePath are allowed (backward compatibility)
+    return true;
   }
 
   function isRootInlineComment(c: Comment) {
     return !c.isResolveEvent && (!c.rootInlineId || c.rootInlineId === c.id);
   }
 
-  function getCommentRootsCoveringLine(change: import("parse-diff").Change, filePath: string): Comment[] {
+  function getCommentRootsCoveringLine(
+    change: import("parse-diff").Change,
+    filePath: string
+  ): Comment[] {
     const lineNumberToMatch = getLineNumberToMatch(change);
     if (lineNumberToMatch === null) return [];
 
@@ -853,7 +869,8 @@
       if (!isRootInlineComment(c)) return false;
       const start = c.lineStart || c.lineNumber;
       const end = c.lineEnd || c.lineNumber;
-      if (lineNumberToMatch < Math.min(start, end) || lineNumberToMatch > Math.max(start, end)) return false;
+      if (lineNumberToMatch < Math.min(start, end) || lineNumberToMatch > Math.max(start, end))
+        return false;
       return commentMatchesFileAndSide(c, change, filePath);
     });
   }
@@ -869,7 +886,11 @@
     const rootIds = new Set(endingRoots.map((root) => root.id));
     return comments
       .filter((c) => rootIds.has(c.rootInlineId || c.id))
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id.localeCompare(b.id));
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
+          a.id.localeCompare(b.id)
+      );
   }
 
   function getVisibleComments(thread: Comment[]) {
@@ -1250,7 +1271,8 @@
     selectedLine = endInfo.line;
     selectedFileIdx = endInfo.fileIdx;
     selectedChunkIdx = endInfo.chunkIdx;
-    selectedCommentLineRange = getCommentLineRangeForSelection(selection) ?? String(endInfo.lineNumber);
+    selectedCommentLineRange =
+      getCommentLineRangeForSelection(selection) ?? String(endInfo.lineNumber);
     selectedCommentLineSide = endInfo.lineSide;
     showPermalinkMenu = false;
     newComment = "";
@@ -1455,7 +1477,8 @@
 
       const commentContent = newComment.trim();
       const commitId = (rootEvent as any)?.tags ? getTagValue(rootEvent as any, "commit") : "";
-      const defaultRepoRef = repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
+      const defaultRepoRef =
+        repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
       const commentEvent = createGitInlineCommentEvent({
         content: commentContent,
         root: {
@@ -1477,7 +1500,9 @@
         relayHint,
         filePath,
         commitId,
-        line: selectedCommentLineRange ?? (actualLineNumber !== null ? String(actualLineNumber) : undefined),
+        line:
+          selectedCommentLineRange ??
+          (actualLineNumber !== null ? String(actualLineNumber) : undefined),
         lineSide: selectedCommentLineSide ?? (change.type === "del" ? "del" : undefined),
       });
 
@@ -1501,7 +1526,8 @@
 
   function makeCommentReplyEvent(parentComment: Comment, content: string, extraTags: any[] = []) {
     if (!rootEvent || !onComment || !currentPubkey || !parentComment.rawEvent) return null;
-    const defaultRepoRef = repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
+    const defaultRepoRef =
+      repo?.address || ((rootEvent as any)?.tags ? getTagValue(rootEvent as any, "a") : "");
     return createGitCommentEvent({
       content,
       root: {
@@ -1621,8 +1647,20 @@
                     {@const currentFilePath = filePath}
                     {@const lineComments = getCommentsForLine(change, currentFilePath)}
                     {@const hasComments = lineComments.length > 0}
-                    {@const coveringCommentRoots = getCommentRootsCoveringLine(change, currentFilePath)}
-                    {@const coveringCommentCount = coveringCommentRoots.reduce((count, root) => count + comments.filter((comment) => !comment.isResolveEvent && (comment.rootInlineId || comment.id) === root.id).length, 0)}
+                    {@const coveringCommentRoots = getCommentRootsCoveringLine(
+                      change,
+                      currentFilePath
+                    )}
+                    {@const coveringCommentCount = coveringCommentRoots.reduce(
+                      (count, root) =>
+                        count +
+                        comments.filter(
+                          (comment) =>
+                            !comment.isResolveEvent &&
+                            (comment.rootInlineId || comment.id) === root.id
+                        ).length,
+                      0
+                    )}
                     {@const isAdd = change.type === "add"}
                     {@const isDel = change.type === "del"}
                     {@const isNormal = change.type === "normal"}
@@ -1643,12 +1681,12 @@
                     {@const isCommentRangeLine = coveringCommentRoots.length > 0}
                     {@const bgClass = isAdd
                       ? compact
-                        ? "border-l-2 border-emerald-600 bg-emerald-200/70 dark:bg-emerald-900/50"
-                        : "border-l-4 border-emerald-600 bg-emerald-200/70 dark:bg-emerald-900/50"
+                        ? "border-l-2 border-emerald-700 bg-emerald-200 text-slate-900 dark:border-emerald-500 dark:bg-emerald-900/50 dark:text-slate-100"
+                        : "border-l-4 border-emerald-700 bg-emerald-200 text-slate-900 dark:border-emerald-500 dark:bg-emerald-900/50 dark:text-slate-100"
                       : isDel
                         ? compact
-                          ? "border-l-2 border-rose-600 bg-rose-200/70 dark:bg-rose-900/50"
-                          : "border-l-4 border-rose-600 bg-rose-200/70 dark:bg-rose-900/50"
+                          ? "border-l-2 border-rose-700 bg-rose-200 text-slate-900 dark:border-rose-500 dark:bg-rose-900/50 dark:text-slate-100"
+                          : "border-l-4 border-rose-700 bg-rose-200 text-slate-900 dark:border-rose-500 dark:bg-rose-900/50 dark:text-slate-100"
                         : "hover:bg-secondary/50"}
 
                     <div class="w-full">
@@ -1664,12 +1702,17 @@
                           {#if canComment}
                             <div class="flex w-5 shrink-0 items-center justify-center sm:w-6">
                               {#if hasComments && coveringCommentCount > 0}
-                                <span class="flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-blue-500/15 px-1 text-[10px] font-medium text-blue-700 dark:text-blue-300">
+                                <span
+                                  class="flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-blue-500/15 px-1 text-[10px] font-medium text-blue-700 dark:text-blue-300"
+                                >
                                   <MessageSquare class="h-2.5 w-2.5" />
                                   {coveringCommentCount}
                                 </span>
                               {:else if isCommentRangeLine}
-                                <span class="h-full min-h-5 w-1.5 rounded-full bg-blue-500/55" aria-hidden="true"></span>
+                                <span
+                                  class="h-full min-h-5 w-1.5 rounded-full bg-blue-500/55"
+                                  aria-hidden="true"
+                                ></span>
                               {:else}
                                 <Button
                                   variant="ghost"
@@ -1679,7 +1722,10 @@
                                   aria-label="Add inline comment"
                                   onclick={(event) => {
                                     event.stopPropagation();
-                                    if (isSelectedLine && getSelectionRange()?.filePath === currentFilePath) {
+                                    if (
+                                      isSelectedLine &&
+                                      getSelectionRange()?.filePath === currentFilePath
+                                    ) {
                                       openCommentBoxFromSelection();
                                     } else {
                                       setDiffSelection(currentFilePath, lineIndex, lineIndex);
@@ -1745,22 +1791,53 @@
                         {@const rootComment = getThreadRoot(lineComments)}
                         {@const resolved = isThreadResolved(lineComments)}
                         {@const threadOpen = isInlineThreadOpen(lineComments)}
-                        <div class="{getCommentThreadClass()} {resolved ? 'border-green-500/35' : ''}">
-                          <button type="button" class="flex w-full items-center gap-2 border-b border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground {resolved ? 'border-green-500/20 bg-green-500/5' : ''}" onclick={() => toggleInlineThread(lineComments)} aria-expanded={threadOpen}>
+                        <div
+                          class="{getCommentThreadClass()} {resolved ? 'border-green-500/35' : ''}"
+                        >
+                          <button
+                            type="button"
+                            class="flex w-full items-center gap-2 border-b border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground {resolved
+                              ? 'border-green-500/20 bg-green-500/5'
+                              : ''}"
+                            onclick={() => toggleInlineThread(lineComments)}
+                            aria-expanded={threadOpen}
+                          >
                             {#if threadOpen}
-                              <ChevronDown class="h-3.5 w-3.5 shrink-0 {resolved ? 'text-green-500/70' : 'text-blue-500/70'}" />
+                              <ChevronDown
+                                class="h-3.5 w-3.5 shrink-0 {resolved
+                                  ? 'text-green-500/70'
+                                  : 'text-blue-500/70'}"
+                              />
                             {:else}
-                              <ChevronRight class="h-3.5 w-3.5 shrink-0 {resolved ? 'text-green-500/70' : 'text-blue-500/70'}" />
+                              <ChevronRight
+                                class="h-3.5 w-3.5 shrink-0 {resolved
+                                  ? 'text-green-500/70'
+                                  : 'text-blue-500/70'}"
+                              />
                             {/if}
-                            <MessageSquare class="h-3.5 w-3.5 shrink-0 {resolved ? 'text-green-500/70' : 'text-blue-500/70'}" />
+                            <MessageSquare
+                              class="h-3.5 w-3.5 shrink-0 {resolved
+                                ? 'text-green-500/70'
+                                : 'text-blue-500/70'}"
+                            />
                             <span class="min-w-0 flex-1 truncate">
-                              {visibleComments.length} comment{visibleComments.length === 1 ? "" : "s"} on {getThreadLineLabel(lineComments)}{resolved ? " · resolved" : ""}
+                              {visibleComments.length} comment{visibleComments.length === 1
+                                ? ""
+                                : "s"} on {getThreadLineLabel(lineComments)}{resolved
+                                ? " · resolved"
+                                : ""}
                             </span>
                           </button>
                           {#if threadOpen}
                             <div class="space-y-3 px-2 py-3 sm:px-3">
                               {#each visibleComments as c}
-                                <div id={`comment-${c.id}`} data-event={c.id} class="flex gap-2 {c.id !== rootComment?.id ? 'border-l border-blue-500/35 pl-2 sm:ml-3' : ''}">
+                                <div
+                                  id={`comment-${c.id}`}
+                                  data-event={c.id}
+                                  class="flex gap-2 {c.id !== rootComment?.id
+                                    ? 'border-l border-blue-500/35 pl-2 sm:ml-3'
+                                    : ''}"
+                                >
                                   <Avatar class="h-7 w-7 sm:h-8 sm:w-8">
                                     <AvatarImage src={c.author.avatar} alt={c.author.name} />
                                     <AvatarFallback
@@ -1769,7 +1846,9 @@
                                   </Avatar>
                                   <div class="min-w-0 flex-1">
                                     <div class="flex min-w-0 items-center gap-1.5 text-xs sm:gap-2">
-                                      <span class="truncate font-medium sm:text-sm">{c.author.name}</span>
+                                      <span class="truncate font-medium sm:text-sm"
+                                        >{c.author.name}</span
+                                      >
                                       <span
                                         class="shrink-0 whitespace-nowrap"
                                         style="color: hsl(var(--ng-muted-foreground));"
@@ -1777,7 +1856,9 @@
                                         <TimeAgo date={c.createdAt} compact />
                                       </span>
                                     </div>
-                                    <div class="inline-comment-body mt-1 min-w-0 text-muted-foreground">
+                                    <div
+                                      class="inline-comment-body mt-1 min-w-0 text-muted-foreground"
+                                    >
                                       {#if Markdown}
                                         <Markdown
                                           content={c.content}
@@ -1802,17 +1883,52 @@
                                     disabled={isSubmitting}
                                   />
                                   <div class="mt-2 flex justify-end gap-2">
-                                    <Button type="button" variant="outline" size="sm" class="h-8 px-2 text-xs" onclick={() => { replyThreadRootId = null; replyContent = ""; }} disabled={isSubmitting}>Cancel</Button>
-                                    <Button type="button" size="sm" class="h-8 px-2 text-xs" onclick={() => submitReply(visibleComments[visibleComments.length - 1] || rootComment)} disabled={!replyContent.trim() || isSubmitting}>Reply</Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      class="h-8 px-2 text-xs"
+                                      onclick={() => {
+                                        replyThreadRootId = null;
+                                        replyContent = "";
+                                      }}
+                                      disabled={isSubmitting}>Cancel</Button
+                                    >
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      class="h-8 px-2 text-xs"
+                                      onclick={() =>
+                                        submitReply(
+                                          visibleComments[visibleComments.length - 1] || rootComment
+                                        )}
+                                      disabled={!replyContent.trim() || isSubmitting}>Reply</Button
+                                    >
                                   </div>
                                 </div>
                               {:else}
-                                <div class="flex items-center gap-3 border-t border-border/40 px-3 py-2 text-xs text-muted-foreground">
-                                  <button type="button" class="flex items-center gap-1.5 hover:text-foreground" onclick={() => { replyThreadRootId = rootComment.id; replyContent = ""; }}>
+                                <div
+                                  class="flex items-center gap-3 border-t border-border/40 px-3 py-2 text-xs text-muted-foreground"
+                                >
+                                  <button
+                                    type="button"
+                                    class="flex items-center gap-1.5 hover:text-foreground"
+                                    onclick={() => {
+                                      replyThreadRootId = rootComment.id;
+                                      replyContent = "";
+                                    }}
+                                  >
                                     ↩ Reply
                                   </button>
-                                  <button type="button" class="ml-auto flex items-center gap-1.5 hover:text-green-600 dark:hover:text-green-400" onclick={() => resolveThread(rootComment)} disabled={resolvingThreadRootId === rootComment.id}>
-                                    {#if resolvingThreadRootId === rootComment.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}✓{/if}
+                                  <button
+                                    type="button"
+                                    class="ml-auto flex items-center gap-1.5 hover:text-green-600 dark:hover:text-green-400"
+                                    onclick={() => resolveThread(rootComment)}
+                                    disabled={resolvingThreadRootId === rootComment.id}
+                                  >
+                                    {#if resolvingThreadRootId === rootComment.id}<Loader2
+                                        class="h-3.5 w-3.5 animate-spin"
+                                      />{:else}✓{/if}
                                     Resolve
                                   </button>
                                 </div>
@@ -1823,11 +1939,16 @@
                       {/if}
                       {#if canComment && selectedLine === ln && selectedFileIdx === fileIdx && selectedChunkIdx === chunkIdx}
                         <div class={getCommentComposerClass()}>
-                          <div class="flex items-center gap-2 border-b border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-xs text-muted-foreground">
+                          <div
+                            class="flex items-center gap-2 border-b border-blue-500/20 bg-blue-500/5 px-3 py-1.5 text-xs text-muted-foreground"
+                          >
                             <ChevronDown class="h-3.5 w-3.5 shrink-0 text-blue-500/70" />
                             <MessageSquare class="h-3.5 w-3.5 shrink-0 text-blue-500/70" />
                             <span class="min-w-0 flex-1 truncate">
-                              New comment on {selectedCommentLineRange?.includes("-") ? "lines" : "line"} {selectedCommentLineRange ?? ""}
+                              New comment on {selectedCommentLineRange?.includes("-")
+                                ? "lines"
+                                : "line"}
+                              {selectedCommentLineRange ?? ""}
                             </span>
                             <button
                               type="button"

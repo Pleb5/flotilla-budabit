@@ -8,17 +8,17 @@
 @layer base {
   :root {
     --ng-background: 214 42% 96%;
-    --ng-foreground: 216 33% 22%;
+    --ng-foreground: 216 33% 16%;
     --ng-card: 0 0% 100%;
-    --ng-card-foreground: 216 33% 22%;
+    --ng-card-foreground: 216 33% 16%;
     --ng-popover: 0 0% 100%;
-    --ng-popover-foreground: 216 33% 22%;
+    --ng-popover-foreground: 216 33% 16%;
     --ng-primary: 45 73% 52%;
     --ng-primary-foreground: 222 47% 16%;
     --ng-secondary: 214 38% 91%;
     --ng-secondary-foreground: 216 33% 26%;
     --ng-muted: 214 35% 92%;
-    --ng-muted-foreground: 215 21% 43%;
+    --ng-muted-foreground: 215 20% 34%;
     --ng-accent: 45 73% 52%;
     --ng-accent-foreground: 222 47% 16%;
     --ng-destructive: 0 72% 50%;
@@ -28,22 +28,22 @@
     --ng-ring: 45 73% 52%;
     --radius: 0.5rem;
     --ng-sidebar-background: 214 42% 96%;
-    --ng-sidebar-foreground: 216 33% 22%;
+    --ng-sidebar-foreground: 216 33% 16%;
     --ng-sidebar-primary: 45 73% 52%;
     --ng-sidebar-primary-foreground: 222 47% 16%;
     --ng-sidebar-accent: 214 38% 91%;
     --ng-sidebar-accent-foreground: 216 33% 26%;
     --ng-sidebar-border: 214 30% 84%;
     --ng-sidebar-ring: 45 73% 52%;
-    --ng-code-foreground: #24292f;
+    --ng-code-foreground: #1f2328;
     --ng-syntax-keyword: #cf222e;
     --ng-syntax-title: #8250df;
-    --ng-syntax-type: #953800;
+    --ng-syntax-type: #6f42c1;
     --ng-syntax-string: #0a3069;
     --ng-syntax-number: #0550ae;
     --ng-syntax-variable: #953800;
-    --ng-syntax-regexp: #116329;
-    --ng-syntax-comment: #6e7781;
+    --ng-syntax-regexp: #087990;
+    --ng-syntax-comment: #57606a;
     --ng-syntax-section: #0550ae;
   }
 
@@ -308,7 +308,6 @@ body[data-theme="light"] .ng-themed-modal select.bg-gray-900 {
 }
 
 @layer components {
-
   .git-menu-item {
     @apply flex items-center gap-2 rounded-md px-4 py-3 font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground;
   }

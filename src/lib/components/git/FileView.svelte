@@ -1489,7 +1489,10 @@
         <Folder class="h-4 w-4 flex-shrink-0" style="color: hsl(var(--ng-muted-foreground));" />
       {:else}
         {@const IconComponent = getFileIcon()}
-        <IconComponent class="h-4 w-4 flex-shrink-0" style="color: hsl(var(--ng-muted-foreground));" />
+        <IconComponent
+          class="h-4 w-4 flex-shrink-0"
+          style="color: hsl(var(--ng-muted-foreground));"
+        />
       {/if}
       <span class="truncate" title={name}>{name}</span>
       {#if fileTypeInfo && type === "file"}
@@ -1730,7 +1733,7 @@
       rgb(245 158 11 / 0.52) 0%,
       rgb(251 191 36 / 0.3) 100%
     ) !important;
-    color: rgb(255 251 235) !important;
+    color: rgb(66 32 6) !important;
     font-weight: 700;
     text-shadow: 0 0 10px rgb(251 191 36 / 0.28);
     box-shadow:
@@ -1738,6 +1741,10 @@
       inset 0 1px 0 rgb(253 224 71 / 0.55),
       inset 0 -1px 0 rgb(245 158 11 / 0.45),
       inset 0 0 0 1px rgb(245 158 11 / 0.55);
+  }
+
+  :global(.dark .file-view .cm-selected-gutter) {
+    color: rgb(255 251 235) !important;
   }
 
   :global(.file-view .cm-selected-line-start),
@@ -1778,9 +1785,12 @@
     color: hsl(var(--ng-foreground)) !important;
   }
 
+  :global(body:not(.dark):not([data-theme="dark"]) .file-view .cm-line span[class]) {
+    filter: brightness(0.74) saturate(1.45) contrast(1.18);
+  }
+
   :global(.file-view .cm-content) {
     caret-color: hsl(var(--ng-foreground)) !important;
-    filter: brightness(1.2) saturate(1.08);
     -webkit-user-select: text;
     user-select: text;
     -webkit-user-drag: none;

@@ -54,6 +54,8 @@ const HIGHLIGHT_LANGUAGE_ALIASES: Record<string, string> = {
   text: "plaintext",
   plaintext: "plaintext",
   js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
   jsx: "javascript",
   ts: "typescript",
   tsx: "typescript",
@@ -311,6 +313,8 @@ const getCodeMirrorLanguageKey = (filename: string, info: FileTypeInfo | null) =
 
   switch (detectedLanguage) {
     case "js":
+    case "mjs":
+    case "cjs":
     case "jsx":
       return "javascript";
     case "ts":
