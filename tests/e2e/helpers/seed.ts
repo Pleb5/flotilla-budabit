@@ -111,7 +111,7 @@ export interface SeedIssueOptions {
 }
 
 /**
- * Options for seeding a patch
+ * Options for seeding a pull request
  */
 export interface SeedPullRequestOptions {
   /** Repository naddr or address string */

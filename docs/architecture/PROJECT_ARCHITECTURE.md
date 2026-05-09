@@ -67,7 +67,7 @@ Workers are **the backbone** of git operations. Since git operations are expensi
 | `branches.ts`        | Branch resolution with fallbacks (HEAD → main → master → list) |
 | `cache.ts`           | IndexedDB caching (repo metadata, commits, merge analysis)     |
 | `fs-utils.ts`        | Filesystem utilities (ensureDir, safeRmrf)                     |
-| `patches.ts`         | Patch analysis, unified diff application                       |
+| `pr-merge.ts`        | Pull request merge analysis and conflict detection             |
 | `push.ts`            | Safe push with preflight checks                                |
 | `repo-management.ts` | Create, fork, update repositories                              |
 | `repos.ts`           | Clone operations, smart initialization                         |
@@ -135,7 +135,7 @@ let progress = $state<ForkProgress[]>([])
 ### Components
 
 - **Dialogs**: `ForkRepoDialog.svelte`, `CloneRepoDialog.svelte`, `NewRepoWizard.svelte`
-- **Managers**: `CommitManager.ts`, `BranchManager.ts`, `FileManager.ts`, `PatchManager.ts`
+- **Managers**: `CommitManager.ts`, `BranchManager.ts`, `FileManager.ts`
 - **WorkerManager.ts**: Higher-level abstraction with progress tracking and token management
 
 ---

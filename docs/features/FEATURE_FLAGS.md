@@ -87,7 +87,7 @@ Enables experimental NIP-34 Pull Request format support.
 
 **When enabled**:
 - Updated PR event structures
-- Enhanced patch metadata
+- Enhanced PR metadata
 - PR-specific validation
 
 **Usage**:

@@ -77,12 +77,12 @@ export {
   MINIMAL_PR_UPDATE,
 
   // Sample content
-  SAMPLE_PATCH_CONTENT,
-  SAMPLE_BUGFIX_PATCH,
+  SAMPLE_PR_DIFF_CONTENT,
+  SAMPLE_BUGFIX_PR_DIFF,
 
   // Test constants
   TEST_EVENT_IDS,
-} from "./patch"
+} from "./pull-request"
 
 // ============================================================================
 // Issue Events (Kind 1621)

@@ -25,7 +25,7 @@ All feature flags in `.env` have been enabled:
 - **Bundle Impact**: ~5KB
 - **Features**:
   - Updated PR event structures
-  - Enhanced patch metadata
+  - Enhanced PR metadata
   - PR-specific validation
 
 ### `FEATURE_STRICT_NIP29=1` ✨ **NEW**

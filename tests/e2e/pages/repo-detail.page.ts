@@ -3,7 +3,7 @@ import {expect, type Locator, type Page} from "@playwright/test"
 /**
  * Valid tab values for the repository detail page
  */
-export type RepoTab = "overview" | "feed" | "code" | "issues" | "prs" | "commits" | "settings" | "cicd" | "workbench"
+export type RepoTab = "overview" | "feed" | "code" | "issues" | "prs" | "commits" | "settings" | "cicd"
 
 /**
  * Page object for the Repository Detail page (/spaces/[relay]/git/[naddr]/)
@@ -180,7 +180,6 @@ export class RepoDetailPage {
     if (url.includes("/settings")) return "settings"
     if (url.includes("/prs")) return "prs"
     if (url.includes("/issues")) return "issues"
-    if (url.includes("/workbench")) return "workbench"
     if (url.includes("/cicd")) return "cicd"
     if (url.includes("/code")) return "code"
     if (url.includes("/feed")) return "feed"
@@ -229,7 +228,6 @@ export class RepoDetailPage {
       commits: this.commitsTab,
       settings: this.settingsTab,
       cicd: this.page.locator("a[href*='/cicd']").filter({hasText: /ci/i}),
-      workbench: this.page.locator("a[href*='/workbench']").filter({hasText: /workbench/i}),
     }
 
     const tabLocator = tabLocators[tab]
@@ -357,7 +355,6 @@ export class RepoDetailPage {
       commits: this.commitsTab,
       settings: this.settingsTab,
       cicd: this.page.locator("a[href*='/cicd']"),
-      workbench: this.page.locator("a[href*='/workbench']"),
     }
 
     return await tabLocators[tab].isVisible()

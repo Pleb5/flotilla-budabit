@@ -52,14 +52,14 @@ export {
   createPullRequest,
   createPullRequestUpdate,
   // Sample content
-  SAMPLE_PATCH_CONTENT,
-  SAMPLE_BUGFIX_PATCH,
+  SAMPLE_PR_DIFF_CONTENT,
+  SAMPLE_BUGFIX_PR_DIFF,
   // Pre-built fixtures
   MINIMAL_PULL_REQUEST,
   FULL_PULL_REQUEST,
   PULL_REQUEST_UPDATE,
   MINIMAL_PR_UPDATE,
-} from "./events/patch"
+} from "./events/pull-request"
 
 // Issue fixtures (kind 1621)
 export {

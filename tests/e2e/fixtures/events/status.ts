@@ -13,7 +13,7 @@ import {
   getRepoAddress,
   type UnsignedEvent,
 } from './repo';
-import { TEST_EVENT_IDS } from './patch';
+import { TEST_EVENT_IDS } from './pull-request';
 import { TEST_ISSUE_IDS } from './issue';
 
 /**
@@ -298,5 +298,5 @@ export const STATUS_LIFECYCLE = {
 
 // Re-export for convenience
 export { TEST_PUBKEYS, TEST_COMMITS, BASE_TIMESTAMP, getRepoAddress };
-export { TEST_EVENT_IDS } from './patch';
+export { TEST_EVENT_IDS } from './pull-request';
 export { TEST_ISSUE_IDS } from './issue';

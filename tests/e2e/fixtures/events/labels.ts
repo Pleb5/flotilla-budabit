@@ -9,7 +9,7 @@ import {
   getRepoAddress,
   type UnsignedEvent,
 } from './repo';
-import { TEST_EVENT_IDS } from './patch';
+import { TEST_EVENT_IDS } from './pull-request';
 import { TEST_ISSUE_IDS } from './issue';
 
 /**
@@ -456,5 +456,5 @@ export const BATCH_LABEL = createLabel({
 
 // Re-export for convenience
 export { TEST_PUBKEYS, BASE_TIMESTAMP, getRepoAddress };
-export { TEST_EVENT_IDS } from './patch';
+export { TEST_EVENT_IDS } from './pull-request';
 export { TEST_ISSUE_IDS } from './issue';

@@ -169,12 +169,12 @@ export function createPullRequestUpdate(opts: PullRequestUpdateOptions): Unsigne
 /**
  * Sample git diff content for testing pull request bodies
  */
-export const SAMPLE_PATCH_CONTENT = `From ${TEST_COMMITS.second} Mon Sep 17 00:00:00 2001
+export const SAMPLE_PR_DIFF_CONTENT = `From ${TEST_COMMITS.second} Mon Sep 17 00:00:00 2001
 From: Bob <bob@example.com>
 Date: Mon, 15 Jan 2024 12:00:00 +0000
 Subject: [PATCH] Add new feature
 
-This patch adds a new feature to the project.
+This PR adds a new feature to the project.
 
 ---
  src/feature.ts | 10 ++++++++++
@@ -204,7 +204,7 @@ index 0000000..1234567
 /**
  * Sample bug fix diff content
  */
-export const SAMPLE_BUGFIX_PATCH = `From ${TEST_COMMITS.third} Mon Sep 17 00:00:00 2001
+export const SAMPLE_BUGFIX_PR_DIFF = `From ${TEST_COMMITS.third} Mon Sep 17 00:00:00 2001
 From: Charlie <charlie@example.com>
 Date: Mon, 15 Jan 2024 13:00:00 +0000
 Subject: [PATCH] Fix null pointer exception

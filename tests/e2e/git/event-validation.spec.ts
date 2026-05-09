@@ -453,7 +453,7 @@ test.describe("Event Publishing Validation", () => {
       const repoAddress = getRepoAddress(TEST_PUBKEYS.alice, "merge-test-repo")
 
       const appliedStatus = createAppliedStatus(targetEventId, {
-        content: "Patch merged successfully",
+        content: "PR merged successfully",
         repoAddress,
         mergeCommit,
         recipients: [TEST_PUBKEYS.bob],
@@ -741,7 +741,7 @@ test.describe("Event Publishing Validation", () => {
     })
 
     test.skip("captures status change event from UI", async ({page}) => {
-      // This test would change issue/patch status and capture the event
+      // This test would change issue/PR status and capture the event
       // Skipped until UI flow is confirmed.
 
       const seeder = new TestSeeder({debug: true})
