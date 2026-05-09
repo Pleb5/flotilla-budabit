@@ -55,7 +55,7 @@
     const branchName = target.value;
     const currentSelected = repo.selectedBranch;
     if (branchName && !isSwitching && branchName !== currentSelected) {
-      repo.setSelectedBranch(branchName);
+      repo.setSelectedBranch(branchName, { persist: true });
     }
   }
 </script>

@@ -96,6 +96,7 @@
     "@tiptap/extension-code-block": "^2.26.0",
     "@tiptap/pm": "^2.26.0",
     "@tiptap/starter-kit": "^2.26.0",
+    "@welshman/store": "^0.7.1",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "bits-ui": "^1.5.3",

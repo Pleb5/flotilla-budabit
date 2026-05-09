@@ -44,6 +44,7 @@ import {
 } from "@nostr-git/core/git";
 import { VendorReadRouter } from "./VendorReadRouter";
 import { isDisplayableGitRef, normalizeGitRefName } from "./branch-ref";
+import { resolvePreferredBranchFromRefs } from "./branch-selection";
 import { resolveLoadPageBranch } from "./load-page-branch";
 import {
   disposeSubscriptions,
@@ -51,6 +52,10 @@ import {
   getRepoStateSnapshotSignature,
 } from "./repo-runtime-utils";
 import { isGraspRepoHttpUrl } from "$lib/utils/grasp-url";
+import {
+  getSelectedBranchPreference,
+  setSelectedBranchPreference,
+} from "$lib/stores/branchPreferences";
 
 export type PushFanoutMode = "best-effort" | "all-or-nothing";
 
@@ -198,7 +203,17 @@ export class Repo {
     return Array.from(identities).map((identity) => `nostr-git:selected-ref:${identity}`);
   }
 
-  #readPersistedSelectedBranch(): string {
+  #getBranchPreferenceKeys(): string[] {
+    const keys = new Set<string>();
+    for (const value of [this.address, this.key]) {
+      const normalized = String(value || "").trim();
+      if (normalized) keys.add(normalized);
+    }
+
+    return Array.from(keys);
+  }
+
+  #readLegacyPersistedSelectedBranch(): string {
     if (typeof window === "undefined") return "";
 
     try {
@@ -213,18 +228,29 @@ export class Repo {
     return "";
   }
 
-  #persistSelectedBranch(branchName?: string): void {
-    if (typeof window === "undefined") return;
+  #readPersistedSelectedBranch(): string {
+    const repoKeys = this.#getBranchPreferenceKeys();
+    for (const repoKey of repoKeys) {
+      const branch = getSelectedBranchPreference(repoKey);
+      if (branch) return branch;
+    }
 
+    const legacyBranch = this.#readLegacyPersistedSelectedBranch();
+    if (legacyBranch) {
+      for (const repoKey of repoKeys) {
+        setSelectedBranchPreference(repoKey, legacyBranch);
+      }
+    }
+
+    return legacyBranch;
+  }
+
+  #persistSelectedBranch(branchName?: string): void {
     const branch = normalizeGitRefName(branchName || "");
     if (!branch) return;
 
-    try {
-      for (const key of this.#getBranchSelectionStorageKeys()) {
-        window.localStorage.setItem(key, branch);
-      }
-    } catch {
-      // Ignore storage failures; branch selection still works in memory.
+    for (const repoKey of this.#getBranchPreferenceKeys()) {
+      setSelectedBranchPreference(repoKey, branch);
     }
   }
 
@@ -590,7 +616,10 @@ export class Repo {
                 "Using merged signed repo-state refs until remote discovery confirms the live ref set.",
             };
           }
-          this.#maybeSelectBranchFromRefs(sortedImmediateRefs);
+          this.#maybeSelectBranchFromRefs(
+            sortedImmediateRefs,
+            this.#getHeadHintFromRepoStateEvents(nextRepoStateEvents) || this.#state?.head
+          );
           if (
             repoStateSnapshotChanged &&
             this.workerManager.isReady &&
@@ -1385,6 +1414,26 @@ export class Repo {
     return commonDefaults.find((name) => heads.some((ref) => ref.name === name)) || heads[0]?.name;
   }
 
+  #getHeadHintFromRepoStateEvents(events?: RepoStateEvent[]): string | undefined {
+    const trustedMaintainers = new Set(this.trustedMaintainers);
+    let bestHead: string | undefined;
+    let bestCreatedAt = -1;
+
+    for (const event of events || []) {
+      if (trustedMaintainers.size > 0 && !trustedMaintainers.has(event.pubkey)) continue;
+
+      const parsed = parseRepoStateEvent(event) as any;
+      const head = this.#getHeadBranchName(parsed?.head);
+      const createdAt = event.created_at || 0;
+      if (head && createdAt >= bestCreatedAt) {
+        bestHead = head;
+        bestCreatedAt = createdAt;
+      }
+    }
+
+    return bestHead;
+  }
+
   #seedRefsFromHead(headHint?: string) {
     if (this.refs.length > 0) return;
     const headName = this.#getHeadBranchName(headHint);
@@ -1408,19 +1457,13 @@ export class Repo {
     refs: Array<{ name: string; type: "heads" | "tags"; fullRef: string; commitId: string }>,
     headHint?: string
   ) {
-    if (this.selectedBranch) return;
-    const heads = refs.filter((ref) => ref.type === "heads");
-    if (heads.length === 0) return;
-
-    let chosen: string | undefined;
-    const headName = this.#getHeadBranchName(headHint);
-    if (headName && heads.some((ref) => ref.name === headName)) {
-      chosen = headName;
-    }
-
-    if (!chosen) {
-      chosen = heads[0]?.name;
-    }
+    if (this.#selectedBranchState) return;
+    const chosen = resolvePreferredBranchFromRefs({
+      refs,
+      persistedBranch: this.#readPersistedSelectedBranch(),
+      headHint,
+      mainBranch: this.#getKnownMainBranch(),
+    });
 
     if (!chosen) return;
     this.#selectedBranchState = chosen;
@@ -1569,7 +1612,7 @@ export class Repo {
     return this.#branchChangeTrigger;
   }
 
-  async setSelectedBranch(branchName: string) {
+  async setSelectedBranch(branchName: string, options: { persist?: boolean } = { persist: true }) {
     const previousBranch = this.selectedBranch;
 
     // Set switching flag to prevent premature loads
@@ -1583,6 +1626,9 @@ export class Repo {
 
     // Update reactive state for UI immediately
     this.#selectedBranchState = shortBranch;
+    if (options.persist !== false) {
+      this.#persistSelectedBranch(shortBranch);
+    }
 
     // Detect if the selection is a tag; skip worker branch ops in that case
     let isTag = false;
@@ -1710,13 +1756,17 @@ export class Repo {
         console.log("Worker status after branch switch:", status);
       } catch {}
 
-      this.#persistSelectedBranch(this.#selectedBranchState || shortBranch);
+      if (options.persist !== false) {
+        this.#persistSelectedBranch(this.#selectedBranchState || shortBranch);
+      }
     } catch (e) {
       const restoredBranch = previousBranch || this.mainBranch || this.refs[0]?.name;
       this.#selectedBranchState = restoredBranch;
       if (restoredBranch) {
         this.branchManager.setSelectedBranch(restoredBranch);
-        this.#persistSelectedBranch(restoredBranch);
+        if (options.persist !== false) {
+          this.#persistSelectedBranch(restoredBranch);
+        }
       }
       console.error("Failed to switch branch in worker or refresh commits:", e);
       toast.push({
