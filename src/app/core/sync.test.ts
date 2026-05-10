@@ -24,31 +24,46 @@ const mocks = vi.hoisted(() => {
     }
   }
 
+  const dmLoad = vi.fn().mockResolvedValue([])
+
   return {
-    page: createStore({params: {} as Record<string, string>}),
+    page: createStore({url: {pathname: "/home"}, params: {} as Record<string, string>}),
     pubkey: createStore<string | undefined>(undefined),
     userRelayList: createStore<any>(null),
     userFollowList: createStore<any>(null),
     userMessagingRelayList: createStore<any>(null),
-    userSpaceUrls: createStore<Set<string>>(new Set()),
-    userGroupList: createStore<any>(null),
     bootstrapPubkeys: createStore<string[]>([]),
     request: vi.fn().mockResolvedValue([]),
     load: vi.fn().mockResolvedValue([]),
     pull: vi.fn().mockResolvedValue([]),
+    dmLoad,
+    makeLoader: vi.fn(() => dmLoad),
     loadRelay: vi.fn(),
     loadProfile: vi.fn().mockResolvedValue(undefined),
     loadUserRelayList: vi.fn().mockResolvedValue(undefined),
+    forceLoadUserMessagingRelayList: vi.fn().mockResolvedValue(undefined),
     loadUserBlossomServerList: vi.fn().mockResolvedValue(undefined),
     loadUserFollowList: vi.fn().mockResolvedValue(undefined),
     loadUserMuteList: vi.fn().mockResolvedValue(undefined),
     loadSettings: vi.fn().mockResolvedValue(undefined),
-    loadGroupList: vi.fn().mockResolvedValue(undefined),
     loadAlerts: vi.fn().mockResolvedValue(undefined),
     loadAlertStatuses: vi.fn().mockResolvedValue(undefined),
-    hasNegentropy: vi.fn((url: string) => url.includes("smart")),
+    hasNegentropy: vi.fn(() => false),
     repositoryQuery: vi.fn(() => []),
     trackerGetRelays: vi.fn(() => new Set<string>()),
+    loadGraspServers: vi.fn(),
+    loadRepositories: vi.fn(),
+    loadTokens: vi.fn(),
+    loadExtensionSettings: vi.fn(),
+    setupBookmarksSync: vi.fn(() => () => {}),
+    setupGraspServersSync: vi.fn(() => () => {}),
+    setupTokensSync: vi.fn(() => () => {}),
+    setupExtensionSettingsSync: vi.fn(() => () => {}),
+    applyRemoteExtensionSettings: vi.fn(),
+    startExtensionSettingsAutoSync: vi.fn(() => () => {}),
+    loadNip85ProviderConfig: vi.fn(),
+    loadRepoWatch: vi.fn(),
+    loadTrustGraphConfig: vi.fn(),
   }
 })
 
@@ -86,22 +101,17 @@ vi.mock("@welshman/util", () => ({
   getListTags: (event: any) => event?.tags || [],
   getRelayTagValues: (tags: string[][]) =>
     tags.flatMap(tag => (tag[0] === "r" && typeof tag[1] === "string" ? [tag[1]] : [])),
-  RELAY_ADD_MEMBER: 1001,
-  RELAY_REMOVE_MEMBER: 1002,
-  RELAY_MEMBERS: 1003,
-  ROOM_ADMINS: 1004,
-  ROOM_MEMBERS: 1005,
-  ROOM_CREATE_PERMISSION: 1006,
-  ROOM_ADD_MEMBER: 1007,
-  ROOM_REMOVE_MEMBER: 1008,
   isSignedEvent: (event: any) => Boolean(event),
   unionFilters: (filters: any[]) => filters,
+  isRelayUrl: (url: string) => url.startsWith("ws://") || url.startsWith("wss://"),
+  normalizeRelayUrl: (url: string) => url.replace(/\/+$/, "") + "/",
 }))
 
 vi.mock("@welshman/net", () => ({
   request: mocks.request,
   load: mocks.load,
   pull: mocks.pull,
+  makeLoader: mocks.makeLoader,
 }))
 
 vi.mock("@welshman/app", () => ({
@@ -119,25 +129,30 @@ vi.mock("@welshman/app", () => ({
   userFollowList: mocks.userFollowList,
   userMessagingRelayList: mocks.userMessagingRelayList,
   loadUserRelayList: mocks.loadUserRelayList,
+  forceLoadUserMessagingRelayList: mocks.forceLoadUserMessagingRelayList,
   loadUserBlossomServerList: mocks.loadUserBlossomServerList,
   loadUserFollowList: mocks.loadUserFollowList,
   loadUserMuteList: mocks.loadUserMuteList,
+}))
+
+vi.mock("@welshman/router", () => ({
+  Router: {
+    get: () => ({
+      FromUser: () => ({getUrls: () => []}),
+      ForUser: () => ({getUrls: () => []}),
+    }),
+  },
 }))
 
 vi.mock("@app/core/state", () => ({
   REACTION_KINDS: [7],
   MESSAGE_KINDS: [9],
   CONTENT_KINDS: [1],
-  INDEXER_RELAYS: ["wss://indexer.one", "wss://indexer.two"],
-  isPlatformRelay: (url: string) => url.includes("platform"),
+  INDEXER_RELAYS: [],
+  PLATFORM_RELAYS: [],
+  isPlatformRelay: () => false,
   loadSettings: mocks.loadSettings,
-  loadGroupList: mocks.loadGroupList,
-  userSpaceUrls: mocks.userSpaceUrls,
-  userGroupList: mocks.userGroupList,
   bootstrapPubkeys: mocks.bootstrapPubkeys,
-  decodeRelay: (relay: string) => `decoded:${relay}`,
-  getSpaceUrlsFromGroupList: (groupList: any) => groupList?.spaceUrls || [],
-  getSpaceRoomsFromGroupList: (url: string, groupList: any) => groupList?.roomsByUrl?.[url] || [],
   makeCommentFilter: () => ({kinds: [1111]}),
 }))
 
@@ -147,141 +162,86 @@ vi.mock("@app/core/requests", () => ({
 }))
 
 vi.mock("@lib/budabit/dm", () => ({
-  DM_KIND: 4,
+  DM_KIND: 4444,
+  getMessagingRelayHints: () => ["wss://hint.relay.example.com/"],
+}))
+
+vi.mock("@lib/budabit/state", () => ({
+  GIT_RELAYS: [],
+}))
+
+vi.mock("@lib/budabit/requests", () => ({
+  loadGraspServers: mocks.loadGraspServers,
+  loadRepositories: mocks.loadRepositories,
+  loadTokens: mocks.loadTokens,
+  loadExtensionSettings: mocks.loadExtensionSettings,
+  setupBookmarksSync: mocks.setupBookmarksSync,
+  setupGraspServersSync: mocks.setupGraspServersSync,
+  setupTokensSync: mocks.setupTokensSync,
+  setupExtensionSettingsSync: mocks.setupExtensionSettingsSync,
+}))
+
+vi.mock("@app/extensions/settings", () => ({
+  applyRemoteExtensionSettings: mocks.applyRemoteExtensionSettings,
+  startExtensionSettingsAutoSync: mocks.startExtensionSettingsAutoSync,
+}))
+
+vi.mock("@lib/budabit/nip85", () => ({
+  loadNip85ProviderConfig: mocks.loadNip85ProviderConfig,
+}))
+
+vi.mock("@lib/budabit/repo-watch", () => ({
+  loadRepoWatch: mocks.loadRepoWatch,
+}))
+
+vi.mock("@lib/budabit/trust-graph-config", () => ({
+  loadTrustGraphConfig: mocks.loadTrustGraphConfig,
 }))
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
-beforeEach(() => {
-  vi.clearAllMocks()
-  vi.resetModules()
-  mocks.page.set({params: {}})
-  mocks.pubkey.set(undefined)
-  mocks.userRelayList.set(null)
-  mocks.userFollowList.set(null)
-  mocks.userMessagingRelayList.set(null)
-  mocks.userSpaceUrls.set(new Set())
-  mocks.userGroupList.set(null)
-  mocks.bootstrapPubkeys.set([])
-})
-
 describe("syncApplicationData", () => {
-  it("loads indexer relays and the relay from the current page context", async () => {
-    mocks.page.set({params: {relay: "ws%3A%2F%2Fspace.example.com"}})
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-
-    expect(mocks.loadRelay).toHaveBeenCalledWith("wss://indexer.one")
-    expect(mocks.loadRelay).toHaveBeenCalledWith("wss://indexer.two")
-    expect(mocks.loadRelay).toHaveBeenCalledWith("decoded:ws%3A%2F%2Fspace.example.com")
-
-    mocks.page.set({params: {relay: "next-relay"}})
-    expect(mocks.loadRelay).toHaveBeenCalledWith("decoded:next-relay")
-
-    cleanup()
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.resetModules()
+    mocks.page.set({url: {pathname: "/home"}, params: {}})
+    mocks.pubkey.set(undefined)
+    mocks.userRelayList.set(null)
+    mocks.userFollowList.set(null)
+    mocks.userMessagingRelayList.set(null)
+    mocks.bootstrapPubkeys.set([])
+    mocks.repositoryQuery.mockReturnValue([])
+    mocks.trackerGetRelays.mockReturnValue(new Set<string>())
   })
 
-  it("uses pull for smart DM relays, load fallback for dumb relays, and aborts removed subscriptions", async () => {
+  it("reloads DMs without history limits after entering /chat", async () => {
     mocks.pubkey.set("a".repeat(64))
-    mocks.userMessagingRelayList.set({
-      tags: [
-        ["r", "wss://smart-relay.example.com"],
-        ["r", "wss://dumb-relay.example.com"],
-      ],
-    })
-
-    const requestSignals: Array<{relay: string; signal: AbortSignal}> = []
-    const loadSignals: Array<{relay: string; signal: AbortSignal}> = []
-    const pullSignals: Array<{relay: string; signal: AbortSignal}> = []
-
-    mocks.request.mockImplementation(async ({relays, signal}: any) => {
-      requestSignals.push({relay: relays[0], signal})
-      return []
-    })
-    mocks.load.mockImplementation(async ({relays, signal}: any) => {
-      loadSignals.push({relay: relays[0], signal})
-      return []
-    })
-    mocks.pull.mockImplementation(async ({relays, signal}: any) => {
-      pullSignals.push({relay: relays[0], signal})
-      return []
-    })
+    mocks.userMessagingRelayList.set({tags: [["r", "wss://dm.relay.example.com"]]})
 
     const {syncApplicationData} = await import("./sync")
     const cleanup = syncApplicationData()
     await flush()
 
-    expect(mocks.loadUserRelayList).toHaveBeenCalledWith("a".repeat(64))
-    expect(pullSignals.map(entry => entry.relay)).toContain("wss://smart-relay.example.com")
-    expect(loadSignals.map(entry => entry.relay)).toContain("wss://dumb-relay.example.com")
-    expect(requestSignals.map(entry => entry.relay)).toEqual(
-      expect.arrayContaining(["wss://smart-relay.example.com", "wss://dumb-relay.example.com"]),
+    const recentCall = mocks.dmLoad.mock.calls.at(-1)?.[0]
+
+    expect(recentCall?.filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({limit: 100}),
+        expect.objectContaining({limit: 100}),
+      ]),
     )
+    expect(recentCall?.filters.every((filter: any) => typeof filter.since === "number")).toBe(true)
 
-    const dumbRelayRequest = requestSignals.find(
-      entry => entry.relay === "wss://dumb-relay.example.com",
-    )
-    expect(dumbRelayRequest?.signal.aborted).toBe(false)
+    mocks.dmLoad.mockClear()
 
-    mocks.userMessagingRelayList.set({tags: [["r", "wss://smart-relay.example.com"]]})
+    mocks.page.set({url: {pathname: "/chat"}, params: {}})
     await flush()
 
-    expect(dumbRelayRequest?.signal.aborted).toBe(true)
+    const fullHistoryCall = mocks.dmLoad.mock.calls.at(-1)?.[0]
 
-    cleanup()
-
-    const smartRelayRequest = requestSignals.find(
-      entry => entry.relay === "wss://smart-relay.example.com",
-    )
-    expect(smartRelayRequest?.signal.aborted).toBe(true)
-  })
-
-  it("refreshes alert, profile, and settings resources when a user relay list appears", async () => {
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-
-    mocks.userRelayList.set({event: {pubkey: "b".repeat(64)}})
-    await flush()
-
-    expect(mocks.loadAlerts).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.loadAlertStatuses).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.loadUserBlossomServerList).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.loadUserFollowList).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.loadGroupList).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.loadUserMuteList).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.loadProfile).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.loadSettings).toHaveBeenCalledWith("b".repeat(64))
-
-    cleanup()
-  })
-
-  it("starts and stops group membership subscriptions as room membership changes", async () => {
-    mocks.pubkey.set("c".repeat(64))
-
-    const requestSignals: Array<{relay: string; signal: AbortSignal}> = []
-    mocks.request.mockImplementation(async ({relays, signal}: any) => {
-      requestSignals.push({relay: relays[0], signal})
-      return []
-    })
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-
-    mocks.userGroupList.set({
-      spaceUrls: ["wss://space.one"],
-      roomsByUrl: {"wss://space.one": ["room-1"]},
-    })
-    await flush()
-
-    const spaceRequests = requestSignals.filter(entry => entry.relay === "wss://space.one")
-    expect(spaceRequests).toHaveLength(2)
-    expect(spaceRequests.every(entry => entry.signal.aborted === false)).toBe(true)
-
-    mocks.userGroupList.set({spaceUrls: [], roomsByUrl: {}})
-    await flush()
-
-    expect(spaceRequests.every(entry => entry.signal.aborted)).toBe(true)
+    expect(mocks.forceLoadUserMessagingRelayList).toHaveBeenCalledTimes(2)
+    expect(fullHistoryCall?.filters.every((filter: any) => filter.limit === undefined)).toBe(true)
+    expect(fullHistoryCall?.filters.every((filter: any) => filter.since === undefined)).toBe(true)
 
     cleanup()
   })

@@ -45,7 +45,7 @@
   import * as storage from "@app/util/storage"
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
-  import {syncBudabitApplicationData, syncBudabitData} from "@lib/budabit/sync"
+  import {syncApplicationData, syncGitData} from "@app/core/sync"
   import {setupChiiDevInjection} from "@lib/budabit/chii-dev"
   import {setupBudabitNotifications} from "@app/util/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
@@ -496,8 +496,8 @@
       setupAnalytics(),
       setupTracking(),
       setupGitCorsProxy(),
-      syncBudabitApplicationData(),
-      syncBudabitData(),
+      syncApplicationData(),
+      syncGitData(),
     )
 
     // Initialize Cashu wallet eagerly so balance is available immediately.

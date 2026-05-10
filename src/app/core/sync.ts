@@ -5,19 +5,14 @@ import {partition, call, sortBy, assoc, chunk, sleep, identity, WEEK, ago} from 
 import {
   getListTags,
   getRelayTagValues,
-  RELAY_ADD_MEMBER,
-  RELAY_REMOVE_MEMBER,
-  RELAY_MEMBERS,
-  ROOM_ADMINS,
-  ROOM_MEMBERS,
-  ROOM_CREATE_PERMISSION,
-  ROOM_ADD_MEMBER,
-  ROOM_REMOVE_MEMBER,
   isSignedEvent,
   unionFilters,
+  isRelayUrl,
+  normalizeRelayUrl,
 } from "@welshman/util"
 import type {Filter, TrustedEvent} from "@welshman/util"
-import {request, load, pull} from "@welshman/net"
+import {request, load, pull, makeLoader} from "@welshman/net"
+import {Router} from "@welshman/router"
 import {
   pubkey,
   loadRelay,
@@ -29,6 +24,7 @@ import {
   userFollowList,
   userMessagingRelayList,
   loadUserRelayList,
+  forceLoadUserMessagingRelayList,
   loadUserBlossomServerList,
   loadUserFollowList,
   loadUserMuteList,
@@ -38,19 +34,32 @@ import {
   MESSAGE_KINDS,
   CONTENT_KINDS,
   INDEXER_RELAYS,
+  PLATFORM_RELAYS,
   isPlatformRelay,
   loadSettings,
-  loadGroupList,
-  userSpaceUrls,
-  userGroupList,
   bootstrapPubkeys,
-  decodeRelay,
-  getSpaceUrlsFromGroupList,
-  getSpaceRoomsFromGroupList,
   makeCommentFilter,
 } from "@app/core/state"
-import {DM_KIND} from "@lib/budabit/dm"
+import {GIT_RELAYS} from "@lib/budabit/state"
+import {DM_KIND, getMessagingRelayHints} from "@lib/budabit/dm"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
+import {
+  loadGraspServers,
+  loadRepositories,
+  loadTokens,
+  loadExtensionSettings,
+  setupBookmarksSync,
+  setupGraspServersSync,
+  setupTokensSync,
+  setupExtensionSettingsSync,
+} from "@lib/budabit/requests"
+import {
+  applyRemoteExtensionSettings,
+  startExtensionSettingsAutoSync,
+} from "@app/extensions/settings"
+import {loadNip85ProviderConfig} from "@lib/budabit/nip85"
+import {loadRepoWatch} from "@lib/budabit/repo-watch"
+import {loadTrustGraphConfig} from "@lib/budabit/trust-graph-config"
 
 // Utils
 
@@ -58,6 +67,10 @@ type PullOpts = {
   relays: string[]
   filters: Filter[]
   signal: AbortSignal
+}
+
+type DmPullOpts = PullOpts & {
+  fullHistory?: boolean
 }
 
 const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
@@ -80,6 +93,35 @@ const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
   return Promise.all(promises)
 }
 
+const dmLoad = makeLoader({delay: 200, threshold: 0.5})
+
+const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
+  const [smart, dumb] = partition(hasNegentropy, relays)
+  const events = repository.query(filters, {shouldSort: false}).filter(isSignedEvent)
+  const promises: Promise<TrustedEvent[]>[] = []
+
+  if (smart.length > 0) {
+    promises.push(pull({relays: smart, filters, signal, events}))
+  }
+
+  // For DMs, always run loader-based backfill. Even when relays support negentropy,
+  // this protects us from false capability detection or partial negentropy failures.
+  for (const url of [...smart, ...dumb]) {
+    let relayFilters = filters
+    const urlEvents = events.filter(e => tracker.getRelays(e.id).has(url))
+
+    if (!fullHistory && urlEvents.length >= 100) {
+      relayFilters = relayFilters.map(
+        assoc("since", sortBy(e => -e.created_at, urlEvents)[10]!.created_at),
+      )
+    }
+
+    promises.push(dmLoad({relays: [url], filters: relayFilters, signal}))
+  }
+
+  return Promise.all(promises)
+}
+
 const pullAndListen = ({relays, filters, signal}: PullOpts) => {
   pullWithFallback({
     relays,
@@ -94,123 +136,96 @@ const pullAndListen = ({relays, filters, signal}: PullOpts) => {
   })
 }
 
+const pullAndListenDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
+  const backfillFilters = fullHistory ? filters : filters.map(f => ({limit: 100, ...f}))
+  const liveFilters = unionFilters(filters).map(assoc("limit", 0))
+
+  pullWithFallbackDm({
+    relays,
+    signal,
+    filters: backfillFilters,
+    fullHistory,
+  })
+
+  request({
+    relays,
+    signal,
+    filters: liveFilters,
+  })
+}
+
+const sanitizeRelayList = (relays: unknown) => {
+  const out: string[] = []
+  const seen = new Set<string>()
+
+  // Ensure relays is an array
+  const relayArray = Array.isArray(relays) ? relays : []
+
+  for (const url of relayArray) {
+    // Skip non-string values
+    if (typeof url !== "string") {
+      continue
+    }
+
+    let normalized = ""
+    try {
+      normalized = normalizeRelayUrl(url)
+    } catch {
+      normalized = ""
+    }
+
+    if (!normalized || !isRelayUrl(normalized) || seen.has(normalized)) {
+      continue
+    }
+
+    seen.add(normalized)
+    out.push(normalized)
+  }
+
+  return out
+}
+
 // Relays
 
 const syncRelays = () => {
+  const platformRelays = sanitizeRelayList(PLATFORM_RELAYS)
+
   for (const url of INDEXER_RELAYS) {
     loadRelay(url)
   }
 
-  const unsubscribePage = page.subscribe($page => {
-    if ($page.params.relay) {
-      let url = ""
-      try {
-        url = decodeRelay($page.params.relay)
-      } catch {
-        url = ""
-      }
+  for (const url of platformRelays) {
+    loadRelay(url)
+  }
 
-      if (url) {
-        loadRelay(url)
-      }
-    }
-  })
+  if (platformRelays.length === 0) {
+    return () => {}
+  }
 
-  const unsubscribeSpaceUrls = userSpaceUrls.subscribe(urls => {
-    for (const url of urls) {
+  const retryInterval = setInterval(() => {
+    for (const url of platformRelays) {
       loadRelay(url)
     }
-  })
+  }, 15_000)
 
-  return () => {
-    unsubscribePage()
-    unsubscribeSpaceUrls()
-  }
+  return () => clearInterval(retryInterval)
 }
 
 // User data
 
-const syncUserSpaceMembership = (url: string) => {
-  const $pubkey = pubkey.get()
-  const controller = new AbortController()
-
-  if ($pubkey) {
-    pullAndListen({
-      relays: [url],
-      signal: controller.signal,
-      filters: [
-        {kinds: [RELAY_ADD_MEMBER], "#p": [$pubkey], limit: 1},
-        {kinds: [RELAY_REMOVE_MEMBER], "#p": [$pubkey], limit: 1},
-        {kinds: [ROOM_CREATE_PERMISSION], "#p": [$pubkey], limit: 1},
-      ],
-    })
-  }
-
-  return () => controller.abort()
-}
-
-const syncUserRoomMembership = (url: string, h: string) => {
-  const $pubkey = pubkey.get()
-  const controller = new AbortController()
-
-  if ($pubkey) {
-    pullAndListen({
-      relays: [url],
-      signal: controller.signal,
-      filters: [
-        {kinds: [ROOM_ADD_MEMBER], "#p": [$pubkey], "#h": [h], limit: 1},
-        {kinds: [ROOM_REMOVE_MEMBER], "#p": [$pubkey], "#h": [h], limit: 1},
-      ],
-    })
-  }
-
-  return () => controller.abort()
-}
-
 const syncUserData = () => {
-  const unsubscribersByKey = new Map<string, Unsubscriber>()
-
-  const unsubscribeGroupList = userGroupList.subscribe($userGroupList => {
-    if ($userGroupList) {
-      const keys = new Set<string>()
-
-      for (const url of getSpaceUrlsFromGroupList($userGroupList)) {
-        if (!unsubscribersByKey.has(url)) {
-          unsubscribersByKey.set(url, syncUserSpaceMembership(url))
-        }
-
-        keys.add(url)
-
-        for (const h of getSpaceRoomsFromGroupList(url, $userGroupList)) {
-          const key = `${url}'${h}`
-
-          if (!unsubscribersByKey.has(key)) {
-            unsubscribersByKey.set(key, syncUserRoomMembership(url, h))
-          }
-
-          keys.add(key)
-        }
-      }
-
-      for (const [key, unsubscribe] of unsubscribersByKey.entries()) {
-        if (!keys.has(key)) {
-          unsubscribersByKey.delete(key)
-          unsubscribe()
-        }
-      }
-    }
-  })
-
   const unsubscribeRelayList = userRelayList.subscribe(($userRelayList: any) => {
     if ($userRelayList) {
       loadAlerts($userRelayList.event.pubkey)
       loadAlertStatuses($userRelayList.event.pubkey)
       loadUserBlossomServerList($userRelayList.event.pubkey)
       loadUserFollowList($userRelayList.event.pubkey)
-      loadGroupList($userRelayList.event.pubkey)
       loadUserMuteList($userRelayList.event.pubkey)
       loadProfile($userRelayList.event.pubkey)
       loadSettings($userRelayList.event.pubkey)
+      loadNip85ProviderConfig($userRelayList.event.pubkey)
+      loadTrustGraphConfig($userRelayList.event.pubkey)
+      loadRepoWatch($userRelayList.event.pubkey)
     }
   })
 
@@ -222,7 +237,6 @@ const syncUserData = () => {
       await Promise.all(
         pubkeys.map(async pk => {
           await loadUserRelayList(pk)
-          await loadGroupList(pk)
           await loadProfile(pk)
           await loadUserFollowList(pk)
           await loadUserMuteList(pk)
@@ -232,8 +246,6 @@ const syncUserData = () => {
   })
 
   return () => {
-    unsubscribersByKey.forEach(call)
-    unsubscribeGroupList()
     unsubscribeRelayList()
     unsubscribeFollows()
   }
@@ -247,9 +259,6 @@ const syncSpace = (url: string) => {
   const messageKinds = includeRooms ? MESSAGE_KINDS : CONTENT_KINDS
 
   const filters: Filter[] = [
-    {kinds: [RELAY_MEMBERS]},
-    ...(includeRooms ? [{kinds: [ROOM_ADMINS, ROOM_MEMBERS]}] : []),
-    ...(includeRooms ? [{kinds: [ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER]}] : []),
     ...messageKinds.map(kind => ({kinds: [kind]})),
     makeCommentFilter(CONTENT_KINDS),
     {kinds: REACTION_KINDS, limit: 0},
@@ -258,44 +267,25 @@ const syncSpace = (url: string) => {
   pullAndListen({
     relays: [url],
     signal: controller.signal,
-    filters: [...filters, {kinds: [RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER]}],
+    filters,
   })
 
   return () => controller.abort()
 }
 
 const syncSpaces = () => {
-  const store = derived([userSpaceUrls, page], identity)
   const unsubscribersByUrl = new Map<string, Unsubscriber>()
-  const unsubscribe = store.subscribe(([$userSpaceUrls, $page]) => {
-    const urls = Array.from($userSpaceUrls)
 
-    if ($page.params.relay) {
-      urls.push(decodeRelay($page.params.relay))
+  for (const url of sanitizeRelayList(PLATFORM_RELAYS)) {
+    if (!unsubscribersByUrl.has(url)) {
+      unsubscribersByUrl.set(url, syncSpace(url))
     }
-
-    // stop syncing removed spaces
-    for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
-      if (!urls.includes(url)) {
-        unsubscribersByUrl.delete(url)
-        unsubscribe()
-      }
-    }
-
-    // Start syncing newly added spaces
-    for (const url of urls) {
-      if (!unsubscribersByUrl.has(url)) {
-        unsubscribersByUrl.set(url, syncSpace(url))
-      }
-    }
-  })
+  }
 
   return () => {
     for (const unsubscriber of unsubscribersByUrl.values()) {
       unsubscriber()
     }
-
-    unsubscribe()
   }
 }
 
@@ -306,20 +296,21 @@ const buildDmFilters = (pubkey: string, extra: Filter = {}) => [
   {kinds: [DM_KIND], authors: [pubkey], ...extra},
 ]
 
-const syncDMRelay = (url: string, pubkey: string) => {
+export const shouldLoadFullDmHistory = (pathname = "") =>
+  pathname === "/chat" || pathname.startsWith("/chat/")
+
+export const buildDmSyncFilters = (pubkey: string, fullHistory = false) =>
+  buildDmFilters(pubkey, fullHistory ? {} : {since: ago(WEEK, 2)})
+
+const syncDMRelay = (url: string, pubkey: string, fullHistory = false) => {
   const controller = new AbortController()
-  const filters = buildDmFilters(pubkey, {since: ago(WEEK, 2)})
+  const filters = buildDmSyncFilters(pubkey, fullHistory)
 
-  pullWithFallback({
+  pullAndListenDm({
     relays: [url],
     signal: controller.signal,
     filters,
-  })
-
-  request({
-    relays: [url],
-    signal: controller.signal,
-    filters,
+    fullHistory,
   })
 
   return () => controller.abort()
@@ -329,6 +320,8 @@ const syncDMs = () => {
   const unsubscribersByUrl = new Map<string, Unsubscriber>()
 
   let currentPubkey: string | undefined
+  let currentFullHistory = false
+  let hasRequestedFullHistory = false
 
   const unsubscribeAll = () => {
     for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
@@ -337,17 +330,28 @@ const syncDMs = () => {
     }
   }
 
-  const subscribeAll = (pubkey: string, urls: string[]) => {
+  const subscribeAll = (pubkey: string, urls: string[], fullHistory = false) => {
+    const sanitizedUrls = sanitizeRelayList(urls)
+
+    if (fullHistory !== currentFullHistory) {
+      unsubscribeAll()
+      currentFullHistory = fullHistory
+    }
+
+    if (sanitizedUrls.length === 0) {
+      unsubscribeAll()
+      return
+    }
     // Start syncing newly added relays
-    for (const url of urls) {
+    for (const url of sanitizedUrls) {
       if (!unsubscribersByUrl.has(url)) {
-        unsubscribersByUrl.set(url, syncDMRelay(url, pubkey))
+        unsubscribersByUrl.set(url, syncDMRelay(url, pubkey, fullHistory))
       }
     }
 
     // Stop syncing removed spaces
     for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
-      if (!urls.includes(url)) {
+      if (!sanitizedUrls.includes(url)) {
         unsubscribersByUrl.delete(url)
         unsubscribe()
       }
@@ -358,29 +362,41 @@ const syncDMs = () => {
   const unsubscribePubkey = pubkey.subscribe($pubkey => {
     if ($pubkey !== currentPubkey) {
       unsubscribeAll()
+      currentFullHistory = false
+      hasRequestedFullHistory = false
     }
 
-    // If we have a pubkey, refresh our user's relay list then sync our subscriptions
+    // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.
     if ($pubkey) {
+      const relayHints = getMessagingRelayHints()
       loadUserRelayList($pubkey)
+      forceLoadUserMessagingRelayList(relayHints)
     }
 
     currentPubkey = $pubkey
   })
 
   // When user messaging relays change, update synchronization
-  const unsubscribeList = userMessagingRelayList.subscribe($userMessagingRelayList => {
-    const $pubkey = pubkey.get()
+  const unsubscribeList = derived([pubkey, userMessagingRelayList, page], identity).subscribe(
+    ([$pubkey, $userMessagingRelayList, $page]) => {
+      if ($pubkey) {
+        if (!hasRequestedFullHistory && shouldLoadFullDmHistory($page?.url?.pathname || "")) {
+          hasRequestedFullHistory = true
+          const relayHints = getMessagingRelayHints()
+          loadUserRelayList($pubkey)
+          forceLoadUserMessagingRelayList(relayHints)
+        }
 
-    if ($pubkey) {
-      const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
-      // Filter out any non-string values
-      const stringRelays = Array.isArray(rawRelays)
-        ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
-        : []
-      subscribeAll($pubkey, stringRelays)
-    }
-  })
+        const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
+        // Filter out any non-string values before sanitizing
+        const stringRelays = Array.isArray(rawRelays)
+          ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
+          : []
+        const relayUrls = sanitizeRelayList(stringRelays)
+        subscribeAll($pubkey, relayUrls, hasRequestedFullHistory)
+      }
+    },
+  )
 
   return () => {
     unsubscribeAll()
@@ -393,6 +409,175 @@ const syncDMs = () => {
 
 export const syncApplicationData = () => {
   const unsubscribers = [syncRelays(), syncUserData(), syncSpaces(), syncDMs()]
+
+  return () => unsubscribers.forEach(call)
+}
+
+// Helper to compare relay arrays
+const arraysEqual = (a: string[], b: string[]) => {
+  if (a.length !== b.length) return false
+  const sortedA = [...a].sort()
+  const sortedB = [...b].sort()
+  return sortedA.every((v, i) => v === sortedB[i])
+}
+
+const syncUserGitData = () => {
+  const unsubscribersByKey = new Map<string, Unsubscriber>()
+
+  let currentPubkey: string | undefined
+  let loadController: AbortController | undefined
+  const router = Router.get()
+
+  const unsubscribeAll = () => {
+    for (const [key, unsubscribe] of unsubscribersByKey.entries()) {
+      unsubscribersByKey.delete(key)
+      unsubscribe()
+    }
+  }
+
+  const subscribeAll = (pk: string, relays: string[]) => {
+    const fallbackRelays = sanitizeRelayList(GIT_RELAYS)
+    const mergedRelays = sanitizeRelayList(relays.length > 0 ? relays : fallbackRelays)
+    console.log(
+      "[syncUserGitData] subscribeAll called with pk:",
+      pk,
+      "relays:",
+      relays,
+      "mergedRelays:",
+      mergedRelays,
+    )
+
+    if (!unsubscribersByKey.has("bookmarks")) {
+      console.log("[syncUserGitData] Setting up bookmarks sync...")
+      const unsub = setupBookmarksSync(pk, mergedRelays)
+      if (unsub) unsubscribersByKey.set("bookmarks", unsub)
+      console.log("[syncUserGitData] Bookmarks sync setup complete")
+    }
+
+    if (!unsubscribersByKey.has("grasp")) {
+      const unsub = setupGraspServersSync(pk, mergedRelays)
+      if (unsub) unsubscribersByKey.set("grasp", unsub)
+    }
+
+    if (!unsubscribersByKey.has("tokens")) {
+      console.log("[syncUserGitData] Setting up tokens sync...")
+      const unsub = setupTokensSync(pk, mergedRelays)
+      if (unsub) unsubscribersByKey.set("tokens", unsub)
+      console.log("[syncUserGitData] Tokens sync setup complete")
+    }
+
+    if (!unsubscribersByKey.has("extensions")) {
+      console.log("[syncUserGitData] Setting up extension settings sync...")
+      const unsub = setupExtensionSettingsSync(pk, mergedRelays, applyRemoteExtensionSettings)
+      if (unsub) unsubscribersByKey.set("extensions", unsub)
+      // Also start auto-sync to publish local changes
+      const autoSyncUnsub = startExtensionSettingsAutoSync()
+      unsubscribersByKey.set("extensions-autosync", autoSyncUnsub)
+      console.log("[syncUserGitData] Extension settings sync setup complete")
+    }
+
+    loadRepositories(pk, mergedRelays)
+    loadGraspServers(pk, mergedRelays)
+    loadTokens(pk, mergedRelays)
+    loadExtensionSettings(pk, mergedRelays)
+  }
+
+  const ensureNotAborted = (signal: AbortSignal) => {
+    if (signal.aborted) {
+      throw new DOMException("Aborted", "AbortError")
+    }
+  }
+
+  const resolveUserRelays = async (signal: AbortSignal) => {
+    const baseRelays = () => {
+      const urls = router.FromUser().getUrls()
+      // Ensure urls is an array, not a string or other type
+      const urlsArray = Array.isArray(urls) ? urls : []
+      return sanitizeRelayList(urlsArray)
+    }
+
+    let userRelays = baseRelays()
+
+    if (userRelays.length === 0) {
+      for (let i = 0; i < 20; i++) {
+        await sleep(100)
+        ensureNotAborted(signal)
+        userRelays = baseRelays()
+        if (userRelays.length > 0) {
+          break
+        }
+      }
+    }
+
+    return userRelays
+  }
+
+  // Subscribe to pubkey changes only - bookmarks and git data are public
+  const unsubscribePubkey = pubkey.subscribe($pubkey => {
+    console.log(
+      "[syncUserGitData] Subscription fired - pubkey:",
+      $pubkey,
+      "currentPubkey:",
+      currentPubkey,
+    )
+
+    if ($pubkey !== currentPubkey) {
+      unsubscribeAll()
+    }
+
+    loadController?.abort()
+
+    if ($pubkey) {
+      const controller = new AbortController()
+      loadController = controller
+
+      // Immediately set up subscriptions and load with fallback relays
+      // This ensures data is available as soon as possible
+      console.log("[syncUserGitData] Setting up subscriptions immediately with GIT_RELAYS fallback")
+      subscribeAll($pubkey, sanitizeRelayList(GIT_RELAYS))
+
+      // Then also try to resolve user relays and reload if different
+      void (async () => {
+        try {
+          ensureNotAborted(controller.signal)
+          console.log("[syncUserGitData] Resolving user relays...")
+          const resolvedRelays = await resolveUserRelays(controller.signal)
+          console.log("[syncUserGitData] Resolved relays:", resolvedRelays)
+          ensureNotAborted(controller.signal)
+
+          // Only reload if user relays are different from GIT_RELAYS
+          const fallbackRelays = sanitizeRelayList(GIT_RELAYS)
+          if (resolvedRelays.length > 0 && !arraysEqual(resolvedRelays, fallbackRelays)) {
+            console.log("[syncUserGitData] Reloading with user relays")
+            loadRepositories($pubkey, resolvedRelays)
+            loadGraspServers($pubkey, resolvedRelays)
+            loadTokens($pubkey, resolvedRelays)
+            loadExtensionSettings($pubkey, resolvedRelays)
+          }
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return
+          }
+
+          console.warn("Failed to load user git data:", error)
+        }
+      })()
+    } else {
+      console.log("[syncUserGitData] Skipping sync - no pubkey")
+    }
+
+    currentPubkey = $pubkey
+  })
+
+  return () => {
+    unsubscribeAll()
+    unsubscribePubkey()
+    loadController?.abort()
+  }
+}
+
+export const syncGitData = () => {
+  const unsubscribers = [syncUserGitData()]
 
   return () => unsubscribers.forEach(call)
 }
