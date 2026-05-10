@@ -46,7 +46,7 @@
   import {syncKeyboard} from "@app/util/keyboard"
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {syncApplicationData, syncGitData} from "@app/core/sync"
-  import {setupChiiDevInjection} from "@lib/budabit/chii-dev"
+  import {setupChiiDevInjection} from "@app/util/chii-dev"
   import {setupBudabitNotifications} from "@app/util/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
