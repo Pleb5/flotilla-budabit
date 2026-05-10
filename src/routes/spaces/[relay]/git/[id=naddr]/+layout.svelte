@@ -162,7 +162,7 @@
     diffBranchHeads,
     overlayLatestRepoStates,
     type BranchChange,
-  } from "@src/lib/budabit/branch-update"
+  } from "@app/util/branch-update"
   import {
     getCanonicalRepoKeyFromEvent,
     getRepoBookmarkAddressSet,
