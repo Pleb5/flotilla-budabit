@@ -1,5 +1,5 @@
 import type {PageLoad} from "./$types"
-import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
+import {getInitializedGitWorker} from "@app/core/worker-singleton"
 import type {CommitMeta} from "@nostr-git/core/types"
 import {parseRepoId} from "@nostr-git/core/utils"
 

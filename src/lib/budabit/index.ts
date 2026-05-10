@@ -1,5 +1,4 @@
 export * from "./requests"
 export * from "./state"
 export * from "./commands"
-export * from "./worker-singleton"
 export * from "./repo-watch"

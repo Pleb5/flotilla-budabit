@@ -4,7 +4,7 @@ import {get} from "svelte/store"
 import {synced, localStorageProvider} from "@welshman/store"
 import {WorkerManager} from "@nostr-git/ui"
 import {pushToast, toast} from "@app/util/toast"
-import {setGitWorkerConfig, terminateGitWorker} from "@lib/budabit/worker-singleton"
+import {setGitWorkerConfig, terminateGitWorker} from "@app/core/worker-singleton"
 
 const FALLBACK_GIT_CORS_PROXY = "https://corsproxy.budabit.club"
 export const GIT_CORS_PROXY_STORAGE_KEY = "budabit/git/corsProxy"

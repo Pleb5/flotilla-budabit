@@ -86,7 +86,7 @@
     repoAnnouncementRelaysStore,
     repoAnnouncements,
   } from "@lib/budabit/state"
-  import {getInitializedGitWorker, terminateGitWorker} from "@src/lib/budabit/worker-singleton"
+  import {getInitializedGitWorker, terminateGitWorker} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
   import {createNip98AuthHeader} from "@src/lib/budabit/event-io"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"

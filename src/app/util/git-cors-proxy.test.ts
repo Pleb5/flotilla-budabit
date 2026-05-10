@@ -20,7 +20,7 @@ vi.mock("@app/util/toast", () => ({
   toast: toastStore,
   pushToast: vi.fn(),
 }))
-vi.mock("@lib/budabit/worker-singleton", () => ({
+vi.mock("@app/core/worker-singleton", () => ({
   setGitWorkerConfig: vi.fn(),
   terminateGitWorker: vi.fn(),
 }))

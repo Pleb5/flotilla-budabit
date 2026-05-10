@@ -11,7 +11,7 @@
 import {getGitWorker, configureWorkerEventIO} from "@nostr-git/core/worker"
 // @ts-ignore - Vite ?url import for correct worker URL resolution
 import gitWorkerUrl from "@nostr-git/core/worker/worker.js?url"
-import {createEventIO} from "./event-io"
+import {createEventIO} from "@lib/budabit/event-io"
 
 interface GitWorkerInstance {
   api: any

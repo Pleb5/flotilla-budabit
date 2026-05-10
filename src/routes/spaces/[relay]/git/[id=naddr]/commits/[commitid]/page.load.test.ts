@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from "vitest"
 
-vi.mock("@src/lib/budabit/worker-singleton", () => ({
+vi.mock("@app/core/worker-singleton", () => ({
   getInitializedGitWorker: vi.fn(),
 }))
 
@@ -31,7 +31,7 @@ describe("commits [commitid] page load", () => {
   })
 
   it("returns only commitid when getCommitDetails.success is false", async () => {
-    const {getInitializedGitWorker} = await import("@src/lib/budabit/worker-singleton")
+    const {getInitializedGitWorker} = await import("@app/core/worker-singleton")
     vi.mocked(getInitializedGitWorker).mockResolvedValue({
       api: {getCommitDetails: vi.fn().mockResolvedValue({success: false})},
       worker: {} as Worker,
@@ -60,7 +60,7 @@ describe("commits [commitid] page load", () => {
       },
     ]
 
-    const {getInitializedGitWorker} = await import("@src/lib/budabit/worker-singleton")
+    const {getInitializedGitWorker} = await import("@app/core/worker-singleton")
     vi.mocked(getInitializedGitWorker).mockResolvedValue({
       api: {
         getCommitDetails: vi.fn().mockResolvedValue({
@@ -95,7 +95,7 @@ describe("commits [commitid] page load", () => {
   it("returns only commitid when getCommitDetails throws", async () => {
     const consoleSpy = vi.spyOn(console, "debug").mockImplementation(() => {})
 
-    const {getInitializedGitWorker} = await import("@src/lib/budabit/worker-singleton")
+    const {getInitializedGitWorker} = await import("@app/core/worker-singleton")
     vi.mocked(getInitializedGitWorker).mockResolvedValue({
       api: {
         getCommitDetails: vi.fn().mockRejectedValue(new Error("Worker error")),
@@ -132,7 +132,7 @@ describe("commits [commitid] page load", () => {
       changes: [],
     })
 
-    const {getInitializedGitWorker} = await import("@src/lib/budabit/worker-singleton")
+    const {getInitializedGitWorker} = await import("@app/core/worker-singleton")
     vi.mocked(getInitializedGitWorker).mockResolvedValue({
       api: {getCommitDetails},
       worker: {} as Worker,

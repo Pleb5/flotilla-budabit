@@ -156,7 +156,7 @@
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
   import {makeGitPath} from "@app/util/routes"
-  import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
+  import {getInitializedGitWorker} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
   import {
     diffBranchHeads,
