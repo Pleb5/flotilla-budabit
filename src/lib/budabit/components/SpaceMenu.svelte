@@ -3,7 +3,7 @@
   import {goto} from "$app/navigation"
   import {displayRelayUrl} from "@welshman/util"
   import {deriveRelay, pubkey} from "@welshman/app"
-  import {cashuTotalBalance, cashuBackupConfirmed} from "@lib/budabit/cashu"
+  import {cashuTotalBalance, cashuBackupConfirmed} from "@app/core/cashu"
   import {pushModal} from "@app/util/modal"
   import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"

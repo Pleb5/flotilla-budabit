@@ -7,7 +7,7 @@ import {
   cashuAutoPayWhitelist,
   receiveCashuToken,
   createCashuToken,
-} from "@lib/budabit/cashu"
+} from "@app/core/cashu"
 import type {Component} from "svelte"
 import {get} from "svelte/store"
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {cashuMints, cashuBalancesByMint, addCashuMint, removeCashuMint} from "@lib/budabit/cashu"
+  import {cashuMints, cashuBalancesByMint, addCashuMint, removeCashuMint} from "@app/core/cashu"
   import Button from "@lib/components/Button.svelte"
 
   const SUGGESTED_MINT = "https://mint.minibits.cash/Bitcoin"

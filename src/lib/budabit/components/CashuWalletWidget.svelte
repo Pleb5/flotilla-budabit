@@ -1,7 +1,7 @@
 <script lang="ts">
   // CashuWalletWidget — floating balance chip, always visible when logged in
   import {pubkey} from "@welshman/app"
-  import {cashuTotalBalance, cashuBackupConfirmed} from "@lib/budabit/cashu"
+  import {cashuTotalBalance, cashuBackupConfirmed} from "@app/core/cashu"
   import {pushModal} from "@app/util/modal"
   import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
 

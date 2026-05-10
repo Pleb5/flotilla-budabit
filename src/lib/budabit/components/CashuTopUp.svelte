@@ -1,10 +1,5 @@
 <script lang="ts">
-  import {
-    cashuMints,
-    requestMintQuote,
-    checkMintQuote,
-    mintTokensFromQuote,
-  } from "@lib/budabit/cashu"
+  import {cashuMints, requestMintQuote, checkMintQuote, mintTokensFromQuote} from "@app/core/cashu"
   import Button from "@lib/components/Button.svelte"
   import QRCode from "qrcode"
 

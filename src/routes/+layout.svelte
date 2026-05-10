@@ -50,8 +50,8 @@
   import {setupBudabitNotifications} from "@app/util/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
-  import {initializeCashuWallet} from "@lib/budabit/cashu"
-  import {registerCashuBridgeHandlers} from "@lib/budabit/cashu-bridge"
+  import {initializeCashuWallet} from "@app/core/cashu"
+  import {registerCashuBridgeHandlers} from "@app/core/cashu-bridge"
   import CashuPayConfirm from "@lib/budabit/components/CashuPayConfirm.svelte"
 
   const {children} = $props()

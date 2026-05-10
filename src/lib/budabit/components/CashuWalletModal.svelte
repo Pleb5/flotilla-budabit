@@ -4,7 +4,7 @@
     cashuBalancesByMint,
     cashuMints,
     cashuBackupConfirmed,
-  } from "@lib/budabit/cashu"
+  } from "@app/core/cashu"
   import CashuReceive from "@lib/budabit/components/CashuReceive.svelte"
   import CashuTopUp from "@lib/budabit/components/CashuTopUp.svelte"
   import CashuSend from "@lib/budabit/components/CashuSend.svelte"

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {receiveCashuToken} from "@lib/budabit/cashu"
+  import {receiveCashuToken} from "@app/core/cashu"
   import Button from "@lib/components/Button.svelte"
 
   let token = $state("")

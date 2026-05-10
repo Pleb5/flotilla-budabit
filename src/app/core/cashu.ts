@@ -4,7 +4,7 @@ import {Manager, initializeCoco, ConsoleLogger, getEncodedToken} from "coco-cash
 import {IndexedDbRepositories} from "coco-cashu-indexeddb"
 import * as bip39 from "@scure/bip39"
 import {wordlist} from "@scure/bip39/wordlists/english"
-import {storageGet, storageSet} from "@lib/budabit/cashu-storage"
+import {storageGet, storageSet} from "@app/core/cashu-storage"
 import {randomId} from "@welshman/lib"
 
 // Storage keys

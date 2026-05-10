@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {cashuBalancesByMint, createCashuToken, addAutoPayWhitelist} from "@lib/budabit/cashu"
+  import {cashuBalancesByMint, createCashuToken, addAutoPayWhitelist} from "@app/core/cashu"
   import Button from "@lib/components/Button.svelte"
 
   interface Props {

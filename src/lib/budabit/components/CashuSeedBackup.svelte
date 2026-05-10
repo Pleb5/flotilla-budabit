@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {getCashuMnemonic, confirmCashuBackup} from "@lib/budabit/cashu"
+  import {getCashuMnemonic, confirmCashuBackup} from "@app/core/cashu"
   import Button from "@lib/components/Button.svelte"
 
   interface Props {

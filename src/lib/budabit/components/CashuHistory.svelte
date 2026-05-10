@@ -1,6 +1,6 @@
 <script lang="ts">
-  import {cashuTokenHistory} from "@lib/budabit/cashu"
-  import type {TokenHistoryEntry} from "@lib/budabit/cashu"
+  import {cashuTokenHistory} from "@app/core/cashu"
+  import type {TokenHistoryEntry} from "@app/core/cashu"
   import Button from "@lib/components/Button.svelte"
 
   interface Props {

@@ -22,7 +22,7 @@
     cashuBackupConfirmed,
     cashuAutoPayWhitelist,
     removeAutoPayWhitelist,
-  } from "@lib/budabit/cashu"
+  } from "@app/core/cashu"
   import CashuMintManager from "@lib/budabit/components/CashuMintManager.svelte"
   import CashuSeedBackup from "@lib/budabit/components/CashuSeedBackup.svelte"
   import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
