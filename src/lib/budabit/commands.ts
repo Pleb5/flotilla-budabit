@@ -6,7 +6,7 @@ import type {
   RepoStateEvent,
   GraspSetEvent,
 } from "@nostr-git/core/events"
-import {buildRoleLabelEvent} from "./labels"
+import {buildRoleLabelEvent} from "@app/util/labels"
 import {abortThunk, publishThunk, repository} from "@welshman/app"
 import {load} from "@welshman/net"
 import {GIT_RELAYS} from "./state"

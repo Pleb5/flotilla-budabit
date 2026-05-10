@@ -42,7 +42,7 @@
   import {getInteractiveCardTarget, isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"
-  import {toNaturalArray} from "@lib/budabit/labels"
+  import {toNaturalArray} from "@app/util/labels"
   import {page} from "$app/stores"
   import {decodeRelay} from "@app/core/state"
   import {beforeNavigate, goto} from "$app/navigation"

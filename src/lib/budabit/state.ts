@@ -44,7 +44,7 @@ import {
 } from "@welshman/util"
 import {nip19, type NostrEvent} from "nostr-tools"
 import {fromPairs, pushToMapKey, sortBy, uniq, uniqBy} from "@welshman/lib"
-import {extractRoleAssignments} from "./labels"
+import {extractRoleAssignments} from "@app/util/labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "./issue-edits"
 import {graspServersStore, type Repo} from "@nostr-git/ui"
 

@@ -21,7 +21,7 @@
     type StatusEvent,
   } from "@nostr-git/core/events"
   import {fade, slideAndFade} from "@lib/transition"
-  import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
+  import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@app/util/labels"
   import {
     getInteractiveCardTarget,
     isMobile,

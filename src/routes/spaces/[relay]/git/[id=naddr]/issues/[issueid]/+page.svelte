@@ -35,7 +35,7 @@
   import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
   import EventActions from "@app/components/EventActions.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
-  import {ROLE_NS, buildRoleLabelEvent} from "@lib/budabit/labels"
+  import {ROLE_NS, buildRoleLabelEvent} from "@app/util/labels"
   import {
     repoAnnouncements,
     deriveMaintainersForEuc,
@@ -43,7 +43,7 @@
     getRepoScopedRelays,
     loadRepoContext,
   } from "@lib/budabit/state"
-  import {toNaturalArray} from "@lib/budabit/labels"
+  import {toNaturalArray} from "@app/util/labels"
   import {resolveIssueEdits} from "@lib/budabit/issue-edits"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {
