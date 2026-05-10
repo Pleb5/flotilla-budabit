@@ -134,7 +134,7 @@
         return
       }
 
-      const {getCommitDetailsViaRestApi} = await import("$lib/budabit/commit-api")
+      const {getCommitDetailsViaRestApi} = await import("@app/core/commit-api")
       let commitDetails = await getCommitDetailsViaRestApi(cloneUrls, commitid, repoClass.key)
       const needsWorkerDiff =
         !commitDetails ||
