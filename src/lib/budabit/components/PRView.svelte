@@ -182,7 +182,9 @@
   const effectiveMaintainerSet = $derived.by(() => new Set(effectiveMaintainers))
   const maintainerSetRepoAddresses = $derived.by(() => {
     const address = (repoClass as any)?.address || ""
-    return address ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, address)) : []
+    return address
+      ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, address))
+      : []
   })
   const commentRepoRefs = $derived.by(() => maintainerSetRepoAddresses)
   const commentRelayHint = $derived.by(() => {
@@ -191,7 +193,9 @@
     return relays[0] || undefined
   })
   const repoTrustMetrics = $derived.by<RepoTrustMetrics>(() =>
-    repoTrustMetricsStore ? ($repoTrustMetricsStore ?? defaultRepoTrustMetrics) : defaultRepoTrustMetrics,
+    repoTrustMetricsStore
+      ? ($repoTrustMetricsStore ?? defaultRepoTrustMetrics)
+      : defaultRepoTrustMetrics,
   )
   const prTrustMetric = $derived.by(() => repoTrustMetrics.byRootId.get(prEvent?.id || ""))
   const prTrustSummary = $derived.by(() => {
@@ -257,7 +261,7 @@
   const prAuthorizedStatusEvents = $derived.by(() => {
     if (!prEvent) return []
     return prStatusEventsArray.filter(
-      (event) => event.pubkey === prEvent.pubkey || effectiveMaintainerSet.has(event.pubkey),
+      event => event.pubkey === prEvent.pubkey || effectiveMaintainerSet.has(event.pubkey),
     )
   })
 
@@ -338,7 +342,9 @@
 
   let prCommentParentIdsKey = ""
   $effect(() => {
-    const nextIds = Array.from(new Set(prThreadCommentsArray.map(comment => comment.id).filter(Boolean))).sort()
+    const nextIds = Array.from(
+      new Set(prThreadCommentsArray.map(comment => comment.id).filter(Boolean)),
+    ).sort()
     const nextKey = nextIds.join(",")
     if (nextKey === prCommentParentIdsKey) return
     prCommentParentIdsKey = nextKey
@@ -346,7 +352,7 @@
   })
 
   const prUpdatesFilter = $derived.by(() =>
-    prEvent ? [{kinds: [GIT_PULL_REQUEST_UPDATE], "#E": [prEvent.id]}] as Filter[] : [],
+    prEvent ? ([{kinds: [GIT_PULL_REQUEST_UPDATE], "#E": [prEvent.id]}] as Filter[]) : [],
   )
 
   const prUpdatesDerived = $derived.by(() => {
@@ -432,13 +438,14 @@
       const urls = getCloneUrlsFromEvent(latest.raw)
       if (urls.length > 0) return urls
     }
-    return getCloneUrlsFromEvent(pr?.raw ?? { tags: [] })
+    return getCloneUrlsFromEvent(pr?.raw ?? {tags: []})
   })
 
   /** Target branch from PR event, fallback to repo selection */
   const prTargetBranch = $derived(
-    normalizeBranchName(pr?.branchName ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main") ||
-      "main",
+    normalizeBranchName(
+      pr?.branchName ?? repoClass?.selectedBranch ?? repoClass?.mainBranch ?? "main",
+    ) || "main",
   )
 
   const prTargetCloneUrls = $derived.by(() =>
@@ -519,14 +526,14 @@
   )
 
   const prCommitOids = $derived.by(() => {
-    const fromAnalysis = (prMergeAnalysisResult?.prCommits || []).map((commit) => commit.oid)
+    const fromAnalysis = (prMergeAnalysisResult?.prCommits || []).map(commit => commit.oid)
     if (fromAnalysis.length > 0) return fromAnalysis
     return prStatus?.appliedCommits || []
   })
 
   const prCommitMetaByOid = $derived.by(() => {
     const commits = prMergeAnalysisResult?.prCommits || []
-    return new Map(commits.map((c) => [c.oid, c]))
+    return new Map(commits.map(c => [c.oid, c]))
   })
 
   const getPrCommitState = (oid: string): PrCommitDiffState =>
@@ -550,7 +557,8 @@
   async function loadPrCommitDiff(oid: string, force = false) {
     if (!repoClass?.workerManager || !repoClass?.key) return
     const current = prCommitDiffByOid[oid]
-    if (!force && (current?.loading || current?.changes || current?.error || current?.warning)) return
+    if (!force && (current?.loading || current?.changes || current?.error || current?.warning))
+      return
 
     prCommitDiffByOid = {
       ...prCommitDiffByOid,
@@ -662,7 +670,8 @@
   const formatMergeAnalysisError = (message: string) => {
     const raw = (message || "Unknown merge analysis error").trim()
     const lower = raw.toLowerCase()
-    const withDetails = (friendly: string) => (friendly === raw ? friendly : `${friendly} Details: ${raw}`)
+    const withDetails = (friendly: string) =>
+      friendly === raw ? friendly : `${friendly} Details: ${raw}`
 
     if (!raw || raw === "error" || raw === "unknown" || raw === "unknown error") {
       return "Merge analysis failed without a usable error message. Retry sync + analyze."
@@ -703,9 +712,14 @@
   const formatSyncError = (message: string) => {
     const raw = (message || "Target sync failed").trim()
     const lower = raw.toLowerCase()
-    const withDetails = (friendly: string) => (friendly === raw ? friendly : `${friendly} Details: ${raw}`)
+    const withDetails = (friendly: string) =>
+      friendly === raw ? friendly : `${friendly} Details: ${raw}`
 
-    if (/missing tracking ref|cannot prove remote sync|remote fetch completed but no remote commit/.test(lower)) {
+    if (
+      /missing tracking ref|cannot prove remote sync|remote fetch completed but no remote commit/.test(
+        lower,
+      )
+    ) {
       return withDetails(
         `Target branch ${prTargetBranch} could not be verified against remote refs. Retry sync and check remote credentials/access.`,
       )
@@ -723,7 +737,10 @@
     return withDetails(`Target sync failed for branch ${prTargetBranch}.`)
   }
 
-  const toAnalysisErrorResult = (errorMessage: string, patchCommits: string[]): PRMergeAnalysisResult => ({
+  const toAnalysisErrorResult = (
+    errorMessage: string,
+    patchCommits: string[],
+  ): PRMergeAnalysisResult => ({
     canMerge: false,
     hasConflicts: false,
     conflictFiles: [],
@@ -795,7 +812,8 @@
       if (!initResult?.success) {
         return {
           ok: false,
-          error: initResult?.error || "Repository clone failed while preparing merge analysis/merge",
+          error:
+            initResult?.error || "Repository clone failed while preparing merge analysis/merge",
         }
       }
       return {ok: true}
@@ -803,7 +821,9 @@
       return {
         ok: false,
         error:
-          error instanceof Error ? `Repository clone failed: ${error.message}` : "Repository clone failed",
+          error instanceof Error
+            ? `Repository clone failed: ${error.message}`
+            : "Repository clone failed",
       }
     } finally {
       clearInterval(progressTimer)
@@ -865,7 +885,11 @@
       allowRefresh &&
       (!syncResult?.success || syncResult?.needsUpdate === true || syncResult?.synced !== true)
     ) {
-      const refreshResult = await forceRefreshTargetBranchForPR(phase, repoClass.key, targetCloneUrls)
+      const refreshResult = await forceRefreshTargetBranchForPR(
+        phase,
+        repoClass.key,
+        targetCloneUrls,
+      )
       if (!refreshResult.ok) {
         return {
           ok: false,
@@ -891,7 +915,8 @@
     if (!syncResult?.success) {
       return {
         ok: false,
-        error: syncResult?.error || `Failed to sync target branch ${prTargetBranch} before ${phase}`,
+        error:
+          syncResult?.error || `Failed to sync target branch ${prTargetBranch} before ${phase}`,
       }
     }
 
@@ -1016,7 +1041,7 @@
       const refs =
         typeof (repoClass as any)?.loadRefsForPRAnalysis === "function"
           ? await (repoClass as any).loadRefsForPRAnalysis()
-          : ((repoClass as any)?.refs || [])
+          : (repoClass as any)?.refs || []
       const heads = Array.from(
         new Set<string>(
           (refs || [])
@@ -1058,7 +1083,7 @@
     if (!pr || !prEvent || !prEffectiveTipOid || !repoClass.key || !repoClass.workerManager) return
     const tipOid = prEffectiveTipOid
     const prCloneUrls = prEffectiveCloneUrls
-    const cloneUrls = prCloneUrls.length > 0 ? prCloneUrls : ((repoClass as any).cloneUrls || [])
+    const cloneUrls = prCloneUrls.length > 0 ? prCloneUrls : (repoClass as any).cloneUrls || []
     if (cloneUrls.length === 0) return
 
     const analysisKey = `${prEvent.id}-${tipOid}-${prTargetBranch}`
@@ -1088,7 +1113,9 @@
       const sync = await syncTargetBranchForPR("analysis")
       if (prAnalysisGeneration !== myGen) return
       if (!sync.ok) {
-        const syncError = formatSyncError(sync.error || `Failed to sync target branch ${prTargetBranch}`)
+        const syncError = formatSyncError(
+          sync.error || `Failed to sync target branch ${prTargetBranch}`,
+        )
         prMergeAnalysisResult = toAnalysisErrorResult(
           `Cannot run merge analysis until target branch is synced: ${syncError}`,
           [tipOid],
@@ -1208,7 +1235,7 @@
         prChanges = []
         prChangesError =
           prStatus?.status === "applied"
-             ? "Unable to resolve a merged diff range for this PR yet. Re-run Analyze or retry loading files."
+            ? "Unable to resolve a merged diff range for this PR yet. Re-run Analyze or retry loading files."
             : "Merge analysis is incomplete. Re-run Analyze to load file changes."
         return
       }
@@ -1324,17 +1351,22 @@
   const getInlineCommentLine = (comment: CommentEvent) => {
     const lineTag = (comment.tags || []).find((tag: string[]) => tag[0] === "line")
     const raw = lineTag?.[1] || ""
-    if (!raw) return {lineNumber: 0, lineStart: 0, lineEnd: 0, lineSide: undefined as "del" | undefined}
+    if (!raw)
+      return {lineNumber: 0, lineStart: 0, lineEnd: 0, lineSide: undefined as "del" | undefined}
     const parts = raw.split("-")
     const firstLine = parseInt(parts[0] || "", 10)
     const lastLine = parseInt(parts[parts.length - 1] || parts[0], 10)
-    const lineStart = Number.isFinite(firstLine) ? firstLine : Number.isFinite(lastLine) ? lastLine : 0
+    const lineStart = Number.isFinite(firstLine)
+      ? firstLine
+      : Number.isFinite(lastLine)
+        ? lastLine
+        : 0
     const lineEnd = Number.isFinite(lastLine) ? lastLine : lineStart
     return {
       lineNumber: lineEnd,
       lineStart,
       lineEnd,
-      lineSide: lineTag?.[2] === "del" ? "del" as const : undefined,
+      lineSide: lineTag?.[2] === "del" ? ("del" as const) : undefined,
     }
   }
 
@@ -1350,7 +1382,7 @@
     return {
       filePath,
       targetLine,
-      lineSide: lineTag?.[2] === "del" ? "del" as const : undefined,
+      lineSide: lineTag?.[2] === "del" ? ("del" as const) : undefined,
     }
   }
 
@@ -1388,12 +1420,12 @@
   }
 
   const nextFrame = () =>
-    new Promise<void>((resolve) => {
+    new Promise<void>(resolve => {
       requestAnimationFrame(() => resolve())
     })
 
   const waitMs = (ms: number) =>
-    new Promise<void>((resolve) => {
+    new Promise<void>(resolve => {
       window.setTimeout(() => resolve(), ms)
     })
 
@@ -1489,8 +1521,11 @@
     const generation = ++prInlineTargetGeneration
     const commitId = getCommentTagValue(comment, "c")
     const side = location.lineSide === "del" ? "L" : "R"
-    const hash = prDiffAnchors[location.filePath] || await githubPermalinkDiffId(location.filePath)
-    const anchor = location.targetLine ? `diff-${hash}${side}${location.targetLine}` : `diff-${hash}`
+    const hash =
+      prDiffAnchors[location.filePath] || (await githubPermalinkDiffId(location.filePath))
+    const anchor = location.targetLine
+      ? `diff-${hash}${side}${location.targetLine}`
+      : `diff-${hash}`
     const setHash = () => {
       if (typeof window === "undefined") return
       const nextHash = `#${anchor}`
@@ -1507,9 +1542,10 @@
     prInlineTargetStatus = {
       state: "loading",
       message: "Opening inline comment...",
-      detail: commitId && prCommitOids.includes(commitId)
-        ? "Loading the commit diff and jumping to the commented line."
-        : "Loading file diffs and jumping to the commented line.",
+      detail:
+        commitId && prCommitOids.includes(commitId)
+          ? "Loading the commit diff and jumping to the commented line."
+          : "Loading file diffs and jumping to the commented line.",
     }
 
     if (commitId && prCommitOids.includes(commitId)) {
@@ -1543,7 +1579,10 @@
     const ready = await ensurePrChangesReady()
     if (generation !== prInlineTargetGeneration) return
     if (!ready) {
-      fail("Could not load file diffs for this inline comment.", prChangesError || "Try retrying the file diff load.")
+      fail(
+        "Could not load file diffs for this inline comment.",
+        prChangesError || "Try retrying the file diff load.",
+      )
       return
     }
     if (!prExpandedFiles.has(location.filePath)) {
@@ -1568,7 +1607,10 @@
     const comments = prThreadCommentsArray
     if (!comments || comments.length === 0) return []
 
-    const inlineRoots = comments.filter((commentEvent: CommentEvent) => getCommentTagValue(commentEvent, "f") && getCommentTagValue(commentEvent, "line"))
+    const inlineRoots = comments.filter(
+      (commentEvent: CommentEvent) =>
+        getCommentTagValue(commentEvent, "f") && getCommentTagValue(commentEvent, "line"),
+    )
     const childrenByParent = new Map<string, CommentEvent[]>()
     for (const commentEvent of comments) {
       const parentId = getCommentParentId(commentEvent)
@@ -1654,7 +1696,11 @@
     try {
       postComment(comment, relays)
     } catch (e) {
-      toast.push({message: "Failed to start sending comment", timeout: 3000, variant: "destructive"})
+      toast.push({
+        message: "Failed to start sending comment",
+        timeout: 3000,
+        variant: "destructive",
+      })
     }
   }
 
@@ -1663,11 +1709,13 @@
     if (!prEvent) return undefined
     const tipOid = prDiffHeadOid || prEffectiveTipOid
     const mergeBase = prDiffBaseOid || prMergeAnalysisResult?.mergeBase
-    const tags: string[][] = [...(prEvent.tags || []).map((t) => (Array.isArray(t) ? [...t] : [String(t)]))]
-    if (tipOid && !tags.some((t) => t[0] === "commit")) {
+    const tags: string[][] = [
+      ...(prEvent.tags || []).map(t => (Array.isArray(t) ? [...t] : [String(t)])),
+    ]
+    if (tipOid && !tags.some(t => t[0] === "commit")) {
       tags.push(["commit", tipOid])
     }
-    if (mergeBase && !tags.some((t) => t[0] === "parent-commit")) {
+    if (mergeBase && !tags.some(t => t[0] === "parent-commit")) {
       tags.push(["parent-commit", mergeBase])
     }
     return {id: prEvent.id, pubkey: prEvent.pubkey, kind: prEvent.kind, tags}
@@ -1683,8 +1731,9 @@
   const getPrCommitDiffRootEvent = (oid: string) => {
     if (!prEvent) return undefined
     const parentCommit = getPrCommitState(oid).meta?.parents?.[0]
-    const tags: string[][] = [...(prEvent.tags || []).map((t) => (Array.isArray(t) ? [...t] : [String(t)]))]
-      .filter((t) => t[0] !== "commit" && t[0] !== "parent-commit")
+    const tags: string[][] = [
+      ...(prEvent.tags || []).map(t => (Array.isArray(t) ? [...t] : [String(t)])),
+    ].filter(t => t[0] !== "commit" && t[0] !== "parent-commit")
     tags.push(["commit", oid])
     if (parentCommit) tags.push(["parent-commit", parentCommit])
     return {id: prEvent.id, pubkey: prEvent.pubkey, kind: prEvent.kind, tags}
@@ -1697,9 +1746,9 @@
       return
     }
     let cancelled = false
-    const paths = changes.map((c) => c.path)
-    Promise.all(paths.map(async (path) => [path, await githubPermalinkDiffId(path)] as const))
-      .then((entries) => {
+    const paths = changes.map(c => c.path)
+    Promise.all(paths.map(async path => [path, await githubPermalinkDiffId(path)] as const))
+      .then(entries => {
         if (!cancelled) prDiffAnchors = Object.fromEntries(entries)
       })
       .catch(() => {
@@ -1758,7 +1807,7 @@
         repoId: repoClass.key,
         tipOid,
         cloneUrls: targetCloneUrls,
-        ...(sourceCloneUrls && { sourceCloneUrls }),
+        ...(sourceCloneUrls && {sourceCloneUrls}),
       })
       .then((result: typeof updatePrPreview) => {
         if (cancelled) return
@@ -1806,9 +1855,9 @@
         sourceBranch,
         targetBranch: prTargetBranch,
         cloneUrls: targetCloneUrls,
-        ...(sourceCloneUrls && { sourceCloneUrls }),
+        ...(sourceCloneUrls && {sourceCloneUrls}),
       })
-      .then((result) => {
+      .then(result => {
         if (cancelled) return
         if (result && !result.success && result.error) {
           updatePrPreview = {
@@ -1820,7 +1869,7 @@
         }
         updatePrPreviewLoading = false
       })
-      .catch((err) => {
+      .catch(err => {
         if (cancelled) return
         updatePrPreview = {
           success: false,
@@ -1858,7 +1907,10 @@
     isPublishingPrUpdate = true
     updatePrError = ""
     try {
-      const cloneUrls = prEffectiveCloneUrls.length > 0 ? prEffectiveCloneUrls : ((repoClass as any)?.cloneUrls as string[]) || []
+      const cloneUrls =
+        prEffectiveCloneUrls.length > 0
+          ? prEffectiveCloneUrls
+          : ((repoClass as any)?.cloneUrls as string[]) || []
       if (cloneUrls.length === 0) {
         updatePrError = "No clone URLs available (PR and repo have none)"
         isPublishingPrUpdate = false
@@ -1937,7 +1989,10 @@
 
     const relays = strictPrEditRelays
     if (relays.length === 0) {
-      toast.push({message: "No repo relays available to publish PR description edit", theme: "error"})
+      toast.push({
+        message: "No repo relays available to publish PR description edit",
+        theme: "error",
+      })
       return
     }
 
@@ -1951,10 +2006,7 @@
       const coverLetterEvent = {
         kind: GIT_COVER_LETTER_KIND,
         content: nextDescription,
-        tags: [
-          ["e", prEvent.id],
-          ...(repoAddress ? ([["a", repoAddress]] as string[][]) : []),
-        ],
+        tags: [["e", prEvent.id], ...(repoAddress ? ([["a", repoAddress]] as string[][]) : [])],
         created_at: Math.floor(Date.now() / 1000),
       }
       publishThunk({event: coverLetterEvent as any, relays})
@@ -1976,7 +2028,11 @@
     try {
       postComment(comment, relays)
     } catch (error) {
-      toast.push({message: "Failed to start sending comment", timeout: 3000, variant: "destructive"})
+      toast.push({
+        message: "Failed to start sending comment",
+        timeout: 3000,
+        variant: "destructive",
+      })
       throw error
     }
   }
@@ -2037,7 +2093,9 @@
     }
     return {pushed, skipped, failed}
   })
-  const mergePrTokenIssue = $derived.by(() => Boolean(mergePrError && isAccessTokenManagementIssue(mergePrError)))
+  const mergePrTokenIssue = $derived.by(() =>
+    Boolean(mergePrError && isAccessTokenManagementIssue(mergePrError)),
+  )
   const prPushTokenIssue = $derived.by(() =>
     prPushRemotes.some(
       remote =>
@@ -2048,7 +2106,7 @@
   )
 
   const updatePushRemote = (url: string, next: Partial<PrPushRemote>) => {
-    prPushRemotes = prPushRemotes.map((remote) =>
+    prPushRemotes = prPushRemotes.map(remote =>
       remote.url === url
         ? {
             ...remote,
@@ -2058,7 +2116,9 @@
     )
   }
 
-  const classifyPushFailure = (error: any): {status: "skipped" | "failed"; summary: string; detail: string} => {
+  const classifyPushFailure = (
+    error: any,
+  ): {status: "skipped" | "failed"; summary: string; detail: string} => {
     const reason = String(error?.reason || error?.error?.reason || "")
     const detail = String(error?.error || error?.message || error?.toString?.() || "Push failed")
     const lower = detail.toLowerCase()
@@ -2067,7 +2127,8 @@
       return {
         status: "skipped",
         summary: "Skipped (preflight)",
-        detail: "Push was blocked before contacting the remote because the selected branch appears to be behind.",
+        detail:
+          "Push was blocked before contacting the remote because the selected branch appears to be behind.",
       }
     }
 
@@ -2170,12 +2231,15 @@
         ...fallback,
       ]
         .filter((remote: {remote: string; url: string}) => Boolean(remote?.url))
-        .reduce((acc: Array<{remote: string; url: string}>, remote: {remote: string; url: string}) => {
-          if (!acc.some((x) => x.url === remote.url)) acc.push(remote)
-          return acc
-        }, [])
+        .reduce(
+          (acc: Array<{remote: string; url: string}>, remote: {remote: string; url: string}) => {
+            if (!acc.some(x => x.url === remote.url)) acc.push(remote)
+            return acc
+          },
+          [],
+        )
 
-      prPushRemotes = combined.map((remote) => ({
+      prPushRemotes = combined.map(remote => ({
         remote: remote.remote,
         url: remote.url,
         provider: inferRemoteProvider(remote.url),
@@ -2185,7 +2249,7 @@
 
       const syncResult = await repoClass.workerManager.syncWithRemote({
         repoId: repoClass.key,
-        cloneUrls: combined.map((r) => r.url),
+        cloneUrls: combined.map(r => r.url),
         branch: prTargetBranch,
         preferredUrl: primaryTargetCloneUrl || undefined,
       })
@@ -2205,7 +2269,7 @@
   }
 
   const togglePrPushRemote = (url: string) => {
-    prPushRemotes = prPushRemotes.map((remote) =>
+    prPushRemotes = prPushRemotes.map(remote =>
       remote.url === url ? {...remote, selected: !remote.selected} : remote,
     )
   }
@@ -2229,13 +2293,15 @@
     prPushSyncNotice = null
     prPushSyncSource = null
     // Only set a merge commit message if it's not a fast-forward merge
-    mergePrCommitMessage = prMergeAnalysisResult?.fastForward ? "" : `Merge PR: ${pr.subject || "Untitled"}`
+    mergePrCommitMessage = prMergeAnalysisResult?.fastForward
+      ? ""
+      : `Merge PR: ${pr.subject || "Untitled"}`
     showPrMergeDialog = true
   }
 
   const pushMergedCommitToSelectedRemotes = async () => {
     if (!mergePrResult?.mergeCommitOid || !repoClass.key || !repoClass.workerManager) return
-    const selected = prPushRemotes.filter((remote) => remote.selected)
+    const selected = prPushRemotes.filter(remote => remote.selected)
     if (selected.length === 0) {
       toast.push({message: "Select at least one remote", timeout: 3000, variant: "destructive"})
       return
@@ -2292,7 +2358,7 @@
 
     isPushingPrRemotes = false
 
-    const pushed = prPushRemotes.filter((remote) => remote.status === "pushed").length
+    const pushed = prPushRemotes.filter(remote => remote.status === "pushed").length
     if (pushed > 0) {
       mergePrSuccess = true
       mergePrStep = "Merge pushed to selected remotes"
@@ -2336,7 +2402,7 @@
     mergePrMergedLocal = false
 
     const cloneUrls = prEffectiveCloneUrls
-    const prCloneUrls = cloneUrls.length > 0 ? cloneUrls : ((repoClass as any).cloneUrls || [])
+    const prCloneUrls = cloneUrls.length > 0 ? cloneUrls : (repoClass as any).cloneUrls || []
     if (prCloneUrls.length === 0) {
       mergePrError = "No clone URLs available for this PR"
       mergePrStep = "Setup failed"
@@ -2380,7 +2446,11 @@
       } else {
         mergePrError = result.error || "Unknown merge error"
         mergePrStep = "Merge failed"
-        toast.push({message: `Merge failed: ${mergePrError}`, timeout: 8000, variant: "destructive"})
+        toast.push({
+          message: `Merge failed: ${mergePrError}`,
+          timeout: 8000,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       mergePrError = error instanceof Error ? error.message : "Unknown error"
@@ -2494,7 +2564,8 @@
 </script>
 
 {#if prInlineTargetStatus}
-  <div class="fixed left-1/2 top-20 z-50 w-[min(calc(100vw-1rem),28rem)] -translate-x-1/2 rounded-lg border border-border bg-card/95 px-3 py-2 text-sm shadow-lg backdrop-blur">
+  <div
+    class="z-50 fixed left-1/2 top-20 w-[min(calc(100vw-1rem),28rem)] -translate-x-1/2 rounded-lg border border-border bg-card/95 px-3 py-2 text-sm shadow-lg backdrop-blur">
     <div class="flex items-start gap-2">
       {#if prInlineTargetStatus.state === "loading"}
         <Loader2 class="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
@@ -2523,7 +2594,7 @@
 {/if}
 
 <div
-  class="sticky z-10 items-center justify-between py-4 backdrop-blur"
+  class="z-10 sticky items-center justify-between py-4 backdrop-blur"
   style="top: var(--repo-tabs-height, 0px);">
   <div>
     <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
@@ -2567,12 +2638,14 @@
 
           <div class="flex flex-wrap gap-2 text-xs">
             {#if prTrustMetric?.trustedAuthor}
-              <span class="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+              <span
+                class="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
                 Trusted author
               </span>
             {/if}
             {#if prTrustMetric?.trustedMaintainerMerge}
-              <span class="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300">
+              <span
+                class="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300">
                 Trusted maintainer merge
               </span>
             {/if}
@@ -2582,7 +2655,10 @@
         {#if prTrustMetric?.mergedByPubkey && prTrustMetric.trustedMaintainerMerge}
           <div class="mt-3 text-xs text-muted-foreground">
             Merged by
-            <ProfileLink pubkey={prTrustMetric.mergedByPubkey} unstyled class="font-medium hover:underline" />
+            <ProfileLink
+              pubkey={prTrustMetric.mergedByPubkey}
+              unstyled
+              class="font-medium hover:underline" />
           </div>
         {/if}
       </div>
@@ -2631,7 +2707,7 @@
       </div>
 
       <!-- PR details -->
-      {#if prEffectiveTipOid || pr?.raw?.tags?.some((t) => t[0] === "clone")}
+      {#if prEffectiveTipOid || pr?.raw?.tags?.some(t => t[0] === "clone")}
         <div class="mb-6 rounded-lg border bg-muted/20 p-4 text-sm">
           <h3 class="mb-2 font-medium">PR details</h3>
           {#if prEffectiveTipOid}
@@ -2642,16 +2718,19 @@
               </code>
             </div>
           {:else if prEffectiveTipIssue?.type === "ambiguous-tip"}
-            <div class="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+            <div
+              class="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               <p>
-                Ambiguous tip commit: expected exactly one <code class="rounded bg-background px-1">c</code>
+                Ambiguous tip commit: expected exactly one <code class="rounded bg-background px-1"
+                  >c</code>
                 tag, found {prEffectiveTipIssue.candidates.length}.
               </p>
               {#if prEffectiveTipIssue.candidates.length > 0}
                 <div class="mt-1 flex flex-wrap items-center gap-1">
                   <span class="text-muted-foreground">c tags:</span>
                   {#each prEffectiveTipIssue.candidates as candidate}
-                    <code class="rounded bg-background px-1.5 py-0.5 font-mono">{candidate.substring(0, 8)}</code>
+                    <code class="rounded bg-background px-1.5 py-0.5 font-mono"
+                      >{candidate.substring(0, 8)}</code>
                   {/each}
                 </div>
               {/if}
@@ -2666,7 +2745,7 @@
             </div>
           {/if}
           {#if pr?.raw?.tags}
-            {@const cloneTags = pr.raw.tags.filter((t) => t[0] === "clone")}
+            {@const cloneTags = pr.raw.tags.filter(t => t[0] === "clone")}
             {#if cloneTags.length}
               <div>
                 <span class="text-muted-foreground">Clone:</span>
@@ -2725,16 +2804,19 @@
             loading={false}
             targetBranch={prTargetBranch} />
           {#if prAnalysisWarning}
-            <p class="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+            <p
+              class="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               {prAnalysisWarning}
             </p>
           {/if}
           {#if prAnalysisErrorMessage}
-            <div class="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+            <div
+              class="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
               <p>{prAnalysisErrorMessage}</p>
               {#if prAnalysisTimedOut}
                 <p class="mt-1 text-red-600 dark:text-red-400">
-                  Resolution: click Analyze to retry. If retries keep timing out, reload the page and try again.
+                  Resolution: click Analyze to retry. If retries keep timing out, reload the page
+                  and try again.
                 </p>
               {/if}
               <div class="mt-2">
@@ -2764,12 +2846,16 @@
           {/if}
           {#if prMergeAnalysisResult.prCommits && prMergeAnalysisResult.prCommits.length > 0}
             <div class="mt-3">
-              <h4 class="mb-2 text-sm font-medium">Commits ({prMergeAnalysisResult.prCommits.length})</h4>
+              <h4 class="mb-2 text-sm font-medium">
+                Commits ({prMergeAnalysisResult.prCommits.length})
+              </h4>
               <ul class="space-y-1 text-xs">
                 {#each prMergeAnalysisResult.prCommits.slice(0, 10) as c}
                   <li class="flex items-center gap-2">
-                    <code class="rounded bg-background px-1 font-mono">{c.oid?.substring(0, 8)}</code>
-                    <span class="truncate text-muted-foreground">{c.message?.split("\n")[0] || "-"}</span>
+                    <code class="rounded bg-background px-1 font-mono"
+                      >{c.oid?.substring(0, 8)}</code>
+                    <span class="truncate text-muted-foreground"
+                      >{c.message?.split("\n")[0] || "-"}</span>
                   </li>
                 {/each}
                 {#if prMergeAnalysisResult.prCommits.length > 10}
@@ -2780,37 +2866,35 @@
               </ul>
             </div>
           {/if}
-        {:else}
-          {#if prEffectiveTipOid}
-            <p class="text-sm text-muted-foreground">Click Analyze to check mergeability.</p>
-          {:else if prEffectiveTipIssue?.type === "ambiguous-tip"}
-            <div class="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-              <p>
-                Ambiguous tip commit: expected exactly one <code class="rounded bg-background px-1">c</code>
-                tag, found {prEffectiveTipIssue.candidates.length}. Analyze is disabled.
-              </p>
-              {#if prEffectiveTipIssue.candidates.length > 0}
-                <div class="mt-1 flex flex-wrap items-center gap-1">
-                  <span class="text-muted-foreground">c tags:</span>
-                  {#each prEffectiveTipIssue.candidates as candidate}
-                    <code class="rounded bg-background px-1.5 py-0.5 font-mono">{candidate.substring(0, 8)}</code>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {:else}
-            <p class="text-sm text-muted-foreground">
-              No tip commit available. Add commits to the PR branch first.
+        {:else if prEffectiveTipOid}
+          <p class="text-sm text-muted-foreground">Click Analyze to check mergeability.</p>
+        {:else if prEffectiveTipIssue?.type === "ambiguous-tip"}
+          <div
+            class="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+            <p>
+              Ambiguous tip commit: expected exactly one <code class="rounded bg-background px-1"
+                >c</code>
+              tag, found {prEffectiveTipIssue.candidates.length}. Analyze is disabled.
             </p>
-          {/if}
+            {#if prEffectiveTipIssue.candidates.length > 0}
+              <div class="mt-1 flex flex-wrap items-center gap-1">
+                <span class="text-muted-foreground">c tags:</span>
+                {#each prEffectiveTipIssue.candidates as candidate}
+                  <code class="rounded bg-background px-1.5 py-0.5 font-mono"
+                    >{candidate.substring(0, 8)}</code>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <p class="text-sm text-muted-foreground">
+            No tip commit available. Add commits to the PR branch first.
+          </p>
         {/if}
       </div>
 
       <!-- PR Merge section (maintainers only, when canMerge and open) -->
-      {#if canManagePr &&
-        prMergeAnalysisResult?.canMerge === true &&
-        prStatus?.status === "open" &&
-        !prMergeAnalysisResult?.upToDate}
+      {#if canManagePr && prMergeAnalysisResult?.canMerge === true && prStatus?.status === "open" && !prMergeAnalysisResult?.upToDate}
         <div class="mb-6 rounded-lg border bg-card p-6">
           <div class="mb-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
@@ -2854,9 +2938,11 @@
           {/if}
 
           {#if mergePrError}
-            <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
+            <div
+              class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
               <div class="flex items-start gap-2">
-                <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-700 dark:text-rose-300" />
+                <AlertCircle
+                  class="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-700 dark:text-rose-300" />
                 <div class="flex-1">
                   <p class="text-sm font-medium text-red-800 dark:text-red-200">Merge failed</p>
                   <p class="mt-1 text-sm text-red-700 dark:text-red-300">{mergePrError}</p>
@@ -2878,7 +2964,8 @@
           {/if}
 
           {#if mergePrMergedLocal && mergePrResult}
-            <div class="mb-4 rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+            <div
+              class="mb-4 rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
               <div class="flex items-start gap-2">
                 <CheckCircle class="mt-0.5 h-4 w-4 flex-shrink-0 text-sky-700 dark:text-sky-300" />
                 <div class="flex-1">
@@ -2889,13 +2976,13 @@
                     <p class="mt-1 text-sm text-sky-800 dark:text-sky-300">
                       Merge commit:
                       <code class="rounded bg-sky-100 px-1 dark:bg-sky-900/50"
-                        >{mergePrResult.mergeCommitOid.slice(0, 8)}</code
-                      >
+                        >{mergePrResult.mergeCommitOid.slice(0, 8)}</code>
                     </p>
                   {/if}
                   {#if mergePrSuccess}
                     <p class="mt-1 text-sm text-sky-800 dark:text-sky-300">
-                      Push summary: {prPushCounts.pushed} pushed, {prPushCounts.skipped} skipped, {prPushCounts.failed} failed
+                      Push summary: {prPushCounts.pushed} pushed, {prPushCounts.skipped} skipped, {prPushCounts.failed}
+                      failed
                     </p>
                   {:else}
                     <p class="mt-1 text-sm text-sky-800 dark:text-sky-300">
@@ -2909,9 +2996,7 @@
 
           <div class="flex justify-end gap-2">
             {#if mergePrMergedLocal && !mergePrSuccess}
-              <Button variant="outline" onclick={openPrPushDialog}>
-                Push remotes
-              </Button>
+              <Button variant="outline" onclick={openPrPushDialog}>Push remotes</Button>
             {/if}
             <Button
               onclick={applyPR}
@@ -2937,10 +3022,7 @@
       {/if}
 
       <!-- Mark as merged (maintainers only, when up-to-date and open - no git ops) -->
-      {#if canManagePr &&
-        prStatus?.status === "open" &&
-        prMergeAnalysisResult &&
-        prMergeAnalysisResult.upToDate === true}
+      {#if canManagePr && prStatus?.status === "open" && prMergeAnalysisResult && prMergeAnalysisResult.upToDate === true}
         <div class="mb-6 rounded-lg border bg-card p-6">
           <div class="mb-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
@@ -2989,7 +3071,7 @@
             <div class="flex items-center gap-3">
               <GitMerge class="h-5 w-5 text-primary" />
               <DialogTitle>
-                {prMergeAnalysisResult?.fastForward ? 'Confirm Fast-forward' : 'Confirm Merge'}
+                {prMergeAnalysisResult?.fastForward ? "Confirm Fast-forward" : "Confirm Merge"}
               </DialogTitle>
             </div>
           </DialogHeader>
@@ -3006,9 +3088,11 @@
               {/if}
             </p>
             {#if prMergeAnalysisResult?.fastForward}
-              <div class="rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+              <div
+                class="rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
                 <p class="text-sm text-sky-900 dark:text-sky-200">
-                  <strong>Fast-forward merge:</strong> No merge commit will be created. The branch will be moved to point to the latest commit.
+                  <strong>Fast-forward merge:</strong> No merge commit will be created. The branch will
+                  be moved to point to the latest commit.
                 </p>
               </div>
             {:else}
@@ -3029,7 +3113,7 @@
             <Button variant="outline" onclick={cancelPrMerge}>Cancel</Button>
             <Button variant="default" onclick={executePRMerge}>
               <GitMerge class="mr-2 h-4 w-4" />
-              {prMergeAnalysisResult?.fastForward ? 'Fast-forward' : 'Confirm Merge'}
+              {prMergeAnalysisResult?.fastForward ? "Fast-forward" : "Confirm Merge"}
             </Button>
           </div>
         </DialogContent>
@@ -3050,13 +3134,15 @@
           {#if mergePrResult?.mergeCommitOid}
             <p class="mb-3 text-sm text-muted-foreground">
               Merge commit
-              <code class="ml-1 rounded bg-muted px-1">{mergePrResult.mergeCommitOid.slice(0, 8)}</code>
+              <code class="ml-1 rounded bg-muted px-1"
+                >{mergePrResult.mergeCommitOid.slice(0, 8)}</code>
               is local. Select remotes to push.
             </p>
           {/if}
 
           {#if prPushSyncNotice}
-            <p class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+            <p
+              class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               {prPushSyncNotice}
             </p>
           {/if}
@@ -3071,7 +3157,8 @@
           {/if}
 
           {#if prPushTokenIssue}
-            <p class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+            <p
+              class="mb-3 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               Review your Git access tokens before retrying these pushes.
               <a
                 href={ACCESS_TOKEN_SETTINGS_PATH}
@@ -3104,16 +3191,19 @@
                     <div class="flex items-center justify-between gap-2">
                       <div class="truncate text-sm font-medium">{remote.remote}</div>
                       <div class="flex items-center gap-2 text-xs">
-                        <span class="rounded border px-2 py-0.5 text-muted-foreground">{remote.provider}</span>
+                        <span class="rounded border px-2 py-0.5 text-muted-foreground"
+                          >{remote.provider}</span>
                         {#if remote.status !== "idle"}
                           <span
-                            class={`rounded border px-2 py-0.5 ${remote.status === "pushed"
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
-                              : remote.status === "skipped"
-                                ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
-                                : remote.status === "failed"
-                                  ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
-                                  : "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"}`}>
+                            class={`rounded border px-2 py-0.5 ${
+                              remote.status === "pushed"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                : remote.status === "skipped"
+                                  ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
+                                  : remote.status === "failed"
+                                    ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+                                    : "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300"
+                            }`}>
                             {remote.summary || remote.status}
                           </span>
                         {/if}
@@ -3131,24 +3221,26 @@
             {#if prPushCounts.pushed + prPushCounts.skipped + prPushCounts.failed > 0}
               <div class="mb-4 rounded border border-border bg-muted/30 px-3 py-2 text-xs">
                 <span class="font-medium">Results:</span>
-                <span class="ml-2 text-emerald-800 dark:text-emerald-300">{prPushCounts.pushed} pushed</span>
-                <span class="ml-2 text-amber-800 dark:text-amber-300">{prPushCounts.skipped} skipped</span>
-                <span class="ml-2 text-rose-800 dark:text-rose-300">{prPushCounts.failed} failed</span>
+                <span class="ml-2 text-emerald-800 dark:text-emerald-300"
+                  >{prPushCounts.pushed} pushed</span>
+                <span class="ml-2 text-amber-800 dark:text-amber-300"
+                  >{prPushCounts.skipped} skipped</span>
+                <span class="ml-2 text-rose-800 dark:text-rose-300"
+                  >{prPushCounts.failed} failed</span>
               </div>
             {/if}
           {/if}
 
           <div class="flex justify-end gap-3">
-            <Button variant="outline" onclick={closePrPushDialog} disabled={isPushingPrRemotes}>Close</Button>
+            <Button variant="outline" onclick={closePrPushDialog} disabled={isPushingPrRemotes}
+              >Close</Button>
             <Button
               variant="default"
               onclick={pushMergedCommitToSelectedRemotes}
-              disabled={
-                isLoadingPrPushRemotes ||
+              disabled={isLoadingPrPushRemotes ||
                 isPushingPrRemotes ||
                 !mergePrMergedLocal ||
-                prPushRemotes.filter((r) => r.selected).length === 0
-              }>
+                prPushRemotes.filter(r => r.selected).length === 0}>
               {#if isPushingPrRemotes}
                 <Loader2 class="mr-2 h-4 w-4 animate-spin" />
                 Pushing...
@@ -3166,7 +3258,10 @@
           : 'p-4'}"
         id="pr-changes">
         <Tabs bind:value={prReviewTab} class="w-full">
-          <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between {prReviewHasExpandedItem ? 'p-3 sm:p-0' : ''}">
+          <div
+            class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between {prReviewHasExpandedItem
+              ? 'p-3 sm:p-0'
+              : ''}">
             <TabsList class="grid w-full grid-cols-2 sm:max-w-sm">
               <TabsTrigger value="commits" class="px-2 text-xs sm:text-sm">
                 <span class="sm:hidden">Commits</span>
@@ -3202,7 +3297,7 @@
                 <button
                   type="button"
                   onclick={() => {
-                    prExpandedFiles = new Set(prChanges!.map((c) => c.path))
+                    prExpandedFiles = new Set(prChanges!.map(c => c.path))
                   }}
                   disabled={prExpandedFiles.size === prChanges!.length}
                   class="w-full rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50 sm:w-auto">
@@ -3225,7 +3320,10 @@
             {#if !prCommitOids.length}
               <p class="text-sm text-muted-foreground">No commits found for this PR.</p>
             {:else}
-              <div class="divide-y divide-border bg-background/50 {prReviewHasExpandedItem ? 'border-y sm:rounded sm:border' : 'rounded border'}">
+              <div
+                class="divide-y divide-border bg-background/50 {prReviewHasExpandedItem
+                  ? 'border-y sm:rounded sm:border'
+                  : 'rounded border'}">
                 {#each prCommitOids as oid (oid)}
                   {@const commitState = getPrCommitState(oid)}
                   {@const isExpanded = prExpandedCommits.has(oid)}
@@ -3233,7 +3331,7 @@
                     <button
                       type="button"
                       onclick={() => togglePrCommit(oid)}
-                      class="flex w-full min-h-[44px] items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
+                      class="flex min-h-[44px] w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
                       <div class="flex min-w-0 items-center gap-2">
                         {#if isExpanded}
                           <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -3241,7 +3339,8 @@
                           <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground" />
                         {/if}
                         <GitCommit class="h-4 w-4 shrink-0 text-amber-500" />
-                        <code class="shrink-0 rounded bg-background px-1.5 py-0.5 font-mono text-xs">
+                        <code
+                          class="shrink-0 rounded bg-background px-1.5 py-0.5 font-mono text-xs">
                           {oid.substring(0, 8)}
                         </code>
                         <span class="truncate text-sm">{getPrCommitTitle(oid)}</span>
@@ -3257,22 +3356,31 @@
                     {#if isExpanded}
                       <div class="border-t border-border px-0 pb-0 pt-0 sm:px-4 sm:pb-4 sm:pt-2">
                         {#if commitState.loading}
-                          <div class="flex items-center gap-2 rounded border bg-background/50 p-3 text-sm text-muted-foreground">
+                          <div
+                            class="flex items-center gap-2 rounded border bg-background/50 p-3 text-sm text-muted-foreground">
                             <Loader2 class="h-4 w-4 animate-spin" />
                             Loading commit diff...
                           </div>
                         {:else if commitState.error}
-                          <div class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                          <div
+                            class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
                             <p>{commitState.error}</p>
-                            <Button variant="outline" size="sm" onclick={() => loadPrCommitDiff(oid, true)}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onclick={() => loadPrCommitDiff(oid, true)}>
                               Retry commit diff
                             </Button>
                           </div>
                         {:else}
                           {#if commitState.warning}
-                            <div class="mb-3 space-y-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                            <div
+                              class="mb-3 space-y-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
                               <p>{commitState.warning}</p>
-                              <Button variant="outline" size="sm" onclick={() => loadPrCommitDiff(oid, true)}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onclick={() => loadPrCommitDiff(oid, true)}>
                                 Retry commit diff
                               </Button>
                             </div>
@@ -3280,23 +3388,24 @@
                           {#if commitState.changes && commitState.changes.length > 0}
                             <div class="space-y-0 sm:space-y-3">
                               {#each commitState.changes as change (change.path)}
-                                <div class="border-y border-border bg-background sm:rounded sm:border">
-                                  <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                                <div
+                                  class="border-y border-border bg-background sm:rounded sm:border">
+                                  <div
+                                    class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
                                     <span class="truncate font-mono">{change.path}</span>
-                                      <div class="flex items-center gap-2 text-muted-foreground">
-                                        {#if getPrFileStats(change.diffHunks).additions > 0}
-                                          <span class="text-emerald-700 dark:text-emerald-300"
-                                            >+{getPrFileStats(change.diffHunks).additions}</span
-                                          >
-                                        {/if}
-                                        {#if getPrFileStats(change.diffHunks).deletions > 0}
-                                          <span class="text-rose-700 dark:text-rose-300"
-                                            >-{getPrFileStats(change.diffHunks).deletions}</span
-                                          >
-                                        {/if}
-                                      </div>
+                                    <div class="flex items-center gap-2 text-muted-foreground">
+                                      {#if getPrFileStats(change.diffHunks).additions > 0}
+                                        <span class="text-emerald-700 dark:text-emerald-300"
+                                          >+{getPrFileStats(change.diffHunks).additions}</span>
+                                      {/if}
+                                      {#if getPrFileStats(change.diffHunks).deletions > 0}
+                                        <span class="text-rose-700 dark:text-rose-300"
+                                          >-{getPrFileStats(change.diffHunks).deletions}</span>
+                                      {/if}
+                                    </div>
                                   </div>
-                                  <div class="border-t border-border px-0 pb-0 pt-0 sm:px-3 sm:pb-3 sm:pt-1.5">
+                                  <div
+                                    class="border-t border-border px-0 pb-0 pt-0 sm:px-3 sm:pb-3 sm:pt-1.5">
                                     <DiffViewer
                                       diff={[getPrCommitReviewDiff(change)]}
                                       showLineNumbers={true}
@@ -3317,8 +3426,7 @@
                                         : null}
                                       showFileHeaders={false}
                                       compact={true}
-                                      framed={false}
-                                    />
+                                      framed={false} />
                                   </div>
                                 </div>
                               {/each}
@@ -3341,19 +3449,24 @@
 
           <TabsContent value="files" class="mt-0" id="pr-files-tab-panel">
             {#if prChangesLoading}
-              <div class="flex items-center gap-2 rounded border bg-background/50 p-4 text-sm text-muted-foreground">
+              <div
+                class="flex items-center gap-2 rounded border bg-background/50 p-4 text-sm text-muted-foreground">
                 <Loader2 class="h-4 w-4 animate-spin" />
                 {prChangesProgress || "Loading file diffs..."}
               </div>
             {:else if prChangesError}
-              <div class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+              <div
+                class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
                 <p>{prChangesError}</p>
                 <Button variant="outline" size="sm" onclick={() => loadPrChanges()}>
                   Retry file diff
                 </Button>
               </div>
             {:else if prChanges}
-              <div class="divide-y divide-border bg-background/50 {prReviewHasExpandedItem ? 'border-y sm:rounded sm:border' : 'rounded border'}">
+              <div
+                class="divide-y divide-border bg-background/50 {prReviewHasExpandedItem
+                  ? 'border-y sm:rounded sm:border'
+                  : 'rounded border'}">
                 {#each prChanges as change (change.path)}
                   {@const isExpanded = prExpandedFiles.has(change.path)}
                   {@const statusInfo = getPrFileStatusIcon(change.status)}
@@ -3361,11 +3474,13 @@
                   {@const IconComponent = statusInfo.icon}
                   <div
                     class="overflow-x-auto"
-                    id={prDiffAnchors[change.path] ? `diff-${prDiffAnchors[change.path]}` : undefined}>
+                    id={prDiffAnchors[change.path]
+                      ? `diff-${prDiffAnchors[change.path]}`
+                      : undefined}>
                     <button
                       type="button"
                       onclick={() => togglePrFile(change.path)}
-                      class="flex w-full min-h-[44px] items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
+                      class="flex min-h-[44px] w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50">
                       <div class="flex min-w-0 items-center gap-2">
                         {#if isExpanded}
                           <ChevronDown class="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -3375,19 +3490,21 @@
                         <IconComponent class="h-4 w-4 shrink-0 {statusInfo.class}" />
                         <span class="truncate font-mono text-xs">{change.path}</span>
                         <span
-                          class="shrink-0 rounded-full border px-2 py-0.5 text-xs {change.status === "added"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
-                            : change.status === "deleted"
-                              ? "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"
-                              : change.status === "modified"
-                                ? "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200"
-                                : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"}">
+                          class="shrink-0 rounded-full border px-2 py-0.5 text-xs {change.status ===
+                          'added'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200'
+                            : change.status === 'deleted'
+                              ? 'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200'
+                              : change.status === 'modified'
+                                ? 'border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200'
+                                : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200'}">
                           {change.status}
                         </span>
                       </div>
                       <div class="flex shrink-0 gap-2 text-sm text-muted-foreground">
                         {#if stats.additions > 0}
-                          <span class="text-emerald-700 dark:text-emerald-300">+{stats.additions}</span>
+                          <span class="text-emerald-700 dark:text-emerald-300"
+                            >+{stats.additions}</span>
                         {/if}
                         {#if stats.deletions > 0}
                           <span class="text-rose-700 dark:text-rose-300">-{stats.deletions}</span>
@@ -3416,15 +3533,16 @@
                           showFileHeaders={false}
                           showFileAnchors={false}
                           compact={true}
-                          framed={false}
-                        />
+                          framed={false} />
                       </div>
                     {/if}
                   </div>
                 {/each}
               </div>
             {:else}
-              <p class="text-sm text-muted-foreground">No file changes found for this diff range.</p>
+              <p class="text-sm text-muted-foreground">
+                No file changes found for this diff range.
+              </p>
             {/if}
           </TabsContent>
         </Tabs>
@@ -3476,14 +3594,14 @@
               <h3 class="mb-3 font-medium">Update PR</h3>
               {#if !updatePrPreview?.success && updatePrTriedTipFirst}
                 <div class="mb-3 space-y-2">
-                  <label for="update-pr-source-branch" class="block text-xs text-muted-foreground">Source branch (if auto-detect failed):</label>
+                  <label for="update-pr-source-branch" class="block text-xs text-muted-foreground"
+                    >Source branch (if auto-detect failed):</label>
                   <input
                     id="update-pr-source-branch"
                     type="text"
                     bind:value={updatePrSourceBranch}
                     placeholder="e.g. feature/my-changes"
-                    class="w-full rounded border border-input bg-background px-2 py-1.5 font-mono text-sm"
-                  />
+                    class="w-full rounded border border-input bg-background px-2 py-1.5 font-mono text-sm" />
                   <div class="text-xs text-muted-foreground">
                     <span class="font-mono">{updatePrSourceBranch || "(enter above)"}</span>
                     <span class="mx-1">→</span>
@@ -3496,14 +3614,14 @@
                 </p>
               {:else}
                 <div class="mb-3 space-y-2">
-                  <label for="update-pr-source-branch" class="block text-xs text-muted-foreground">Your source branch:</label>
+                  <label for="update-pr-source-branch" class="block text-xs text-muted-foreground"
+                    >Your source branch:</label>
                   <input
                     id="update-pr-source-branch"
                     type="text"
                     bind:value={updatePrSourceBranch}
                     placeholder="e.g. feature/my-changes"
-                    class="w-full rounded border border-input bg-background px-2 py-1.5 font-mono text-sm"
-                  />
+                    class="w-full rounded border border-input bg-background px-2 py-1.5 font-mono text-sm" />
                   <div class="text-xs text-muted-foreground">
                     <span class="font-mono">{updatePrSourceBranch || "(enter above)"}</span>
                     <span class="mx-1">→</span>
@@ -3519,17 +3637,20 @@
               {:else if updatePrPreview?.error}
                 <p class="mb-3 text-sm text-rose-700 dark:text-rose-300">{updatePrPreview.error}</p>
               {:else if updatePrPreview?.success && updatePrPreview.commits?.length}
-                <div class="mb-3 max-h-24 overflow-y-auto rounded border bg-background/50 p-2 text-xs">
+                <div
+                  class="mb-3 max-h-24 overflow-y-auto rounded border bg-background/50 p-2 text-xs">
                   <span class="font-medium">{updatePrPreview.commits.length} commit(s)</span>
                   <ul class="mt-1 space-y-0.5 font-mono">
                     {#each updatePrPreview.commits.slice(0, 10) as c (c.oid)}
                       <li class="flex gap-2 truncate">
-                        <span class="text-muted-foreground shrink-0">{c.oid?.substring(0, 7)}</span>
+                        <span class="shrink-0 text-muted-foreground">{c.oid?.substring(0, 7)}</span>
                         <span class="truncate">{c.message?.split("\n")[0] ?? "-"}</span>
                       </li>
                     {/each}
                     {#if updatePrPreview.commits.length > 10}
-                      <li class="text-muted-foreground">… and {updatePrPreview.commits.length - 10} more</li>
+                      <li class="text-muted-foreground">
+                        … and {updatePrPreview.commits.length - 10} more
+                      </li>
                     {/if}
                   </ul>
                 </div>
@@ -3546,7 +3667,13 @@
                     !updatePrPreview?.commitOids?.length}>
                   {isPublishingPrUpdate ? "Publishing…" : "Publish update"}
                 </Button>
-                <Button variant="outline" onclick={() => { showUpdatePrForm = false; updatePrSourceBranch = ""; updatePrTriedTipFirst = false }}>
+                <Button
+                  variant="outline"
+                  onclick={() => {
+                    showUpdatePrForm = false
+                    updatePrSourceBranch = ""
+                    updatePrTriedTipFirst = false
+                  }}>
                   Cancel
                 </Button>
               </div>
@@ -3558,7 +3685,8 @@
           {/if}
         </div>
       {:else if prUpdateBlockedReason}
-        <div class="mb-6 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+        <div
+          class="mb-6 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
           {prUpdateBlockedReason}
         </div>
       {/if}

@@ -39,7 +39,12 @@
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
   import {detectVendorFromUrl, getGitServiceApiFromUrl, type GitVendor} from "@nostr-git/core/git"
-  import {tokens as tokensStore, tryTokensForHost, getTokensForHost, type Token} from "@nostr-git/ui"
+  import {
+    tokens as tokensStore,
+    tryTokensForHost,
+    getTokensForHost,
+    type Token,
+  } from "@nostr-git/ui"
   import {getRepoAnnouncementRelays} from "@lib/budabit/state"
   import {buildRepoOwnedDeleteFilters, getRepoDeleteAddresses} from "@lib/budabit/delete"
   import type {Repo} from "@nostr-git/ui"
@@ -85,13 +90,7 @@
     detail?: string
   }
 
-  type AccessStatus =
-    | "checking"
-    | "ready"
-    | "read-only"
-    | "no-token"
-    | "manual"
-    | "unknown"
+  type AccessStatus = "checking" | "ready" | "read-only" | "no-token" | "manual" | "unknown"
 
   type AccessCheck = {
     status: AccessStatus
@@ -200,8 +199,7 @@
     if (parts.length < 2) return null
     const repoRaw = parts.pop() || ""
     const vendor = detectVendorFromUrl(value)
-    const owner =
-      vendor === "gitlab" || vendor === "gitea" ? parts.join("/") : parts.pop() || ""
+    const owner = vendor === "gitlab" || vendor === "gitea" ? parts.join("/") : parts.pop() || ""
     const repo = repoRaw.replace(/\.git$/, "")
     if (!owner || !repo) return null
     return {
@@ -304,7 +302,10 @@
     if (!target.supported) {
       return {
         status: "manual",
-        detail: target.vendor === "grasp" ? "Manual deletion only (GRASP)" : "Remote deletion unsupported",
+        detail:
+          target.vendor === "grasp"
+            ? "Manual deletion only (GRASP)"
+            : "Remote deletion unsupported",
       }
     }
     if (!target.hasToken) return {status: "no-token", detail: "No token for this host"}
@@ -407,7 +408,7 @@
       }
       return {
         status: "read-only",
-        detail: `${role || "Access"} (admin required)`
+        detail: `${role || "Access"} (admin required)`,
       }
     }
 
@@ -491,7 +492,10 @@
       if (!target.supported) {
         initial[target.id] = {
           status: "manual",
-          detail: target.vendor === "grasp" ? "Manual deletion only (GRASP)" : "Remote deletion unsupported",
+          detail:
+            target.vendor === "grasp"
+              ? "Manual deletion only (GRASP)"
+              : "Remote deletion unsupported",
         }
       } else if (!target.hasToken) {
         initial[target.id] = {status: "no-token", detail: "No token for this host"}
@@ -502,16 +506,14 @@
 
     accessChecks = initial
 
-    const toCheck = targets.filter(
-      target => target.supported && target.hasToken
-    )
+    const toCheck = targets.filter(target => target.supported && target.hasToken)
 
     await Promise.all(
       toCheck.map(async target => {
         const result = await checkRemoteAccess(target)
         if (runId !== preflightRunId) return
         accessChecks = {...accessChecks, [target.id]: result}
-      })
+      }),
     )
 
     if (runId !== preflightRunId) return
@@ -637,7 +639,11 @@
 
       progress = {completed, total: totalSteps, label: "Publishing tombstones..."}
 
-      const tombstoneTags = [["d", repoName], ["name", repoName], ["deleted", "true"]]
+      const tombstoneTags = [
+        ["d", repoName],
+        ["name", repoName],
+        ["deleted", "true"],
+      ]
       await publishDeleteEvent(
         makeEvent(GIT_REPO_ANNOUNCEMENT, {tags: tombstoneTags, content: ""}),
         relays,
@@ -646,7 +652,13 @@
       progress = {completed, total: totalSteps, label: "Publishing tombstones..."}
 
       await publishDeleteEvent(
-        makeEvent(GIT_REPO_STATE, {tags: [["d", repoName], ["deleted", "true"]], content: ""}),
+        makeEvent(GIT_REPO_STATE, {
+          tags: [
+            ["d", repoName],
+            ["deleted", "true"],
+          ],
+          content: "",
+        }),
         relays,
       )
       completed += 1
@@ -822,7 +834,8 @@
           <div class="mt-2 grid gap-1">
             {#each summary.remotes as remote}
               <div class="flex min-w-0 items-center justify-between gap-3">
-                <span class="min-w-0 truncate" title={`${remote.label} · ${remote.repoPath}`}>{remote.label} · {remote.repoPath}</span>
+                <span class="min-w-0 truncate" title={`${remote.label} · ${remote.repoPath}`}
+                  >{remote.label} · {remote.repoPath}</span>
                 {#if remote.status === "deleted"}
                   <span class="shrink-0 whitespace-nowrap text-green-400">Deleted</span>
                 {:else if remote.status === "failed"}
@@ -832,7 +845,9 @@
                 {/if}
               </div>
               {#if remote.detail}
-                <div class="truncate text-xs text-gray-400" title={remote.detail}>{remote.detail}</div>
+                <div class="truncate text-xs text-gray-400" title={remote.detail}>
+                  {remote.detail}
+                </div>
               {/if}
             {/each}
           </div>
@@ -859,7 +874,7 @@
 
     <div class="space-y-3">
       <div>
-        <div class="font-medium text-sm">Remote hosts to delete code from</div>
+        <div class="text-sm font-medium">Remote hosts to delete code from</div>
         {#if remoteTargets.length === 0}
           <div class="text-sm text-gray-400">
             No clone URLs found. Only Nostr events will be deleted.
@@ -878,25 +893,29 @@
                   value={target.id}
                   bind:group={selectedRemoteIds}
                   disabled={isDeleting || !canSelectAccess(access)}
-                  class="mt-1"
-                />
+                  class="mt-1" />
                 <div class="min-w-0 flex-1">
                   <div class="flex min-w-0 items-center justify-between gap-3">
                     <span class="min-w-0 truncate" title={target.label}>{target.label}</span>
-                    <span class={`${accessTone(access)} shrink-0 whitespace-nowrap`}>{accessLabel(access)}</span>
+                    <span class={`${accessTone(access)} shrink-0 whitespace-nowrap`}
+                      >{accessLabel(access)}</span>
                   </div>
-                  <div class="truncate text-xs text-gray-400" title={target.repoPath}>{target.repoPath}</div>
+                  <div class="truncate text-xs text-gray-400" title={target.repoPath}>
+                    {target.repoPath}
+                  </div>
                   {#if access.detail}
-                    <div class="truncate text-xs text-gray-400" title={access.detail}>{access.detail}</div>
+                    <div class="truncate text-xs text-gray-400" title={access.detail}>
+                      {access.detail}
+                    </div>
                   {/if}
                 </div>
               </label>
             {/each}
           </div>
           {#if preflightPending}
-            <div class="text-xs text-gray-400 mt-2">Checking remote access…</div>
+            <div class="mt-2 text-xs text-gray-400">Checking remote access…</div>
           {:else}
-            <div class="text-xs text-gray-400 mt-2">
+            <div class="mt-2 text-xs text-gray-400">
               Hosts marked Read-only, No token, or Manual will be skipped. Unknown access can still
               be selected but may fail.
             </div>
@@ -905,16 +924,14 @@
       </div>
 
       <div>
-        <div class="font-medium text-sm">Confirm deletion</div>
+        <div class="text-sm font-medium">Confirm deletion</div>
         <p class="text-xs text-gray-400">
           Type the repository name <strong>{repoName}</strong> to confirm.
         </p>
-        <label class="input input-bordered flex w-full items-center gap-2 mt-2">
+        <label class="input input-bordered mt-2 flex w-full items-center gap-2">
           <input bind:value={confirmText} class="grow" type="text" disabled={isDeleting} />
         </label>
-        <p class="text-xs text-gray-400 mt-2">
-          Note: not all relays honor deletion requests.
-        </p>
+        <p class="mt-2 text-xs text-gray-400">Note: not all relays honor deletion requests.</p>
       </div>
 
       {#if progress}
@@ -923,8 +940,7 @@
           <progress
             class="progress progress-primary w-full"
             value={(progress.completed / Math.max(progress.total, 1)) * 100}
-            max="100"
-          ></progress>
+            max="100"></progress>
         </div>
       {/if}
     </div>

@@ -29,16 +29,15 @@
       onRequestDelete={repoSettings.canDelete ? repoSettings.openDeleteRepoModal : undefined}
       getProfile={repoSettings.getProfile}
       searchProfiles={repoSettings.searchProfiles}
-      searchRelays={repoSettings.searchRelays}
-    />
+      searchRelays={repoSettings.searchRelays} />
   {:else if canUpdateDefaultBranch}
     <RepoSettingsPanel repo={repoClass} />
   {:else}
     <Card class="p-4 sm:p-6">
       <h2 class="mb-2 text-lg font-semibold">Repository settings</h2>
       <p class="text-sm text-muted-foreground">
-        Only the repository owner can edit repository metadata. Maintainers can change the
-        default branch.
+        Only the repository owner can edit repository metadata. Maintainers can change the default
+        branch.
       </p>
     </Card>
   {/if}

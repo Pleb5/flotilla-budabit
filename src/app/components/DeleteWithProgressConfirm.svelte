@@ -133,8 +133,7 @@
         <progress
           class="progress progress-primary w-full"
           value={(progress.completed / Math.max(progress.total, 1)) * 100}
-          max="100"
-        ></progress>
+          max="100"></progress>
         <div class="text-xs opacity-70">{progress.completed} of {progress.total} completed</div>
       </div>
     {/if}

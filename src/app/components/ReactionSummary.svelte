@@ -111,7 +111,9 @@
   const scopedReactions = $derived.by(() => Array.from($reactions.values()).filter(matchesScope))
 
   const scopedZaps = $derived.by(() =>
-    Array.from($zaps.values()).filter(zap => matchesRelayScope(zap.response) && matchesScopeH(zap.request)),
+    Array.from($zaps.values()).filter(
+      zap => matchesRelayScope(zap.response) && matchesScopeH(zap.request),
+    ),
   )
 
   const onReactionClick = (events: TrustedEvent[]) => {

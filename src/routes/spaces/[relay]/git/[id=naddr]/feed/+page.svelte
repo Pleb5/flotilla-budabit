@@ -40,7 +40,8 @@
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoFeedActivityStore = getContext<Readable<TrustedEvent[]>>(REPO_FEED_ACTIVITY_KEY)
-  const statusEventsByRootStore = getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
+  const statusEventsByRootStore =
+    getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
 
   if (!repoClass) {
     throw new Error("Repo context not available")
@@ -61,7 +62,9 @@
     }
   }
 
-  const platformRelays = $derived.by(() => [...new Set(PLATFORM_RELAYS.map(normalizeRelay).filter(Boolean))])
+  const platformRelays = $derived.by(() => [
+    ...new Set(PLATFORM_RELAYS.map(normalizeRelay).filter(Boolean)),
+  ])
   const communityUrl = $derived.by(() => platformRelays[0] || "")
   const fallbackRepoAddress = $derived.by(() => {
     const repoPubkey = String(($page.data as any)?.repoPubkey ?? "")
@@ -97,7 +100,8 @@
       return
     }
 
-    pendingOwnMessageCount = Math.max(pendingOwnMessageCount ?? ownCommunityMessageCount, ownCommunityMessageCount) + 1
+    pendingOwnMessageCount =
+      Math.max(pendingOwnMessageCount ?? ownCommunityMessageCount, ownCommunityMessageCount) + 1
 
     tags.push(["h", communityScope])
 
@@ -274,8 +278,12 @@
   const repoFeedActivity = $derived.by(() => $repoFeedActivityStore || [])
   const statusEventsByRoot = $derived.by(() => $statusEventsByRootStore || new Map())
 
-  const visibleCommunityEvents = $derived.by(() => $communityEvents.filter(event => event.kind === MESSAGE))
-  const ownCommunityMessageCount = $derived.by(() => visibleCommunityEvents.filter(event => event.pubkey === $pubkey).length)
+  const visibleCommunityEvents = $derived.by(() =>
+    $communityEvents.filter(event => event.kind === MESSAGE),
+  )
+  const ownCommunityMessageCount = $derived.by(
+    () => visibleCommunityEvents.filter(event => event.pubkey === $pubkey).length,
+  )
 
   const displayEvents = $derived.by(() => {
     const deduped = new Map<string, TrustedEvent>()
@@ -297,7 +305,9 @@
     let previousPubkey
     let hasSeenNewMessages = false
 
-    const lastUserEvent = displayEvents.find(event => event.pubkey === $pubkey && event.kind === MESSAGE)
+    const lastUserEvent = displayEvents.find(
+      event => event.pubkey === $pubkey && event.kind === MESSAGE,
+    )
     const adjustedLastChecked =
       lastChecked && lastUserEvent ? Math.max(lastUserEvent.created_at, lastChecked) : lastChecked
     const today = formatTimestampAsDate(Date.now() / 1000)
@@ -371,7 +381,9 @@
   })
 
   const feedKey = $derived.by(() =>
-    communityScope && platformRelays.length > 0 ? [communityScope, ...platformRelays].join("|") : "",
+    communityScope && platformRelays.length > 0
+      ? [communityScope, ...platformRelays].join("|")
+      : "",
   )
 
   const startFeed = () => {
@@ -553,14 +565,17 @@
     {/if}
   </p>
 
-  {#each elements as {type, id, value, showPubkey} (id)}
+  {#each elements as { type, id, value, showPubkey } (id)}
     {#if type === "new-messages"}
       <div
         bind:this={newMessages}
         class="flex items-center px-2 py-2 text-xs transition-colors sm:px-4"
         class:opacity-0={showFixedNewMessages}>
         <div class="h-px flex-grow bg-primary"></div>
-        <p class="whitespace-nowrap rounded-full bg-primary px-2 py-1 text-center text-primary-content">New Messages</p>
+        <p
+          class="whitespace-nowrap rounded-full bg-primary px-2 py-1 text-center text-primary-content">
+          New Messages
+        </p>
         <div class="h-px flex-grow bg-primary"></div>
       </div>
     {:else if type === "date"}
@@ -577,7 +592,7 @@
             scopeH={communityScope}
             protectInteractions={false}
             {replyTo}
-            event={event}
+            {event}
             {showPubkey} />
         {:else}
           <RepoFeedGitItem
@@ -585,7 +600,7 @@
             interactionRelays={platformRelays}
             scopeH={communityScope}
             {replyTo}
-            event={event}
+            {event}
             openHref={getOpenHref(event)}
             statusState={statusStateById.get(event.id) || "open"} />
         {/if}
@@ -611,12 +626,16 @@
       <RoomCompose bind:this={compose} {onSubmit} url={communityUrl} h={communityScope} />
     </div>
   {:else}
-    <div class="bg-base-200 px-2 py-3 text-center text-sm text-muted-foreground sm:px-4" bind:this={chatCompose}>
+    <div
+      class="bg-base-200 px-2 py-3 text-center text-sm text-muted-foreground sm:px-4"
+      bind:this={chatCompose}>
       Community chat is unavailable because no platform relays are configured.
     </div>
   {/if}
 {:else}
-  <div class="bg-base-200 px-2 py-3 text-center text-sm text-muted-foreground sm:px-4" bind:this={chatCompose}>
+  <div
+    class="bg-base-200 px-2 py-3 text-center text-sm text-muted-foreground sm:px-4"
+    bind:this={chatCompose}>
     {#if platformRelays.length > 0 && communityScope}
       Sign in to join the conversation
     {:else}

@@ -93,7 +93,16 @@
   <Tippy
     bind:popover
     component={EventMenu}
-    props={{url, noun, event, customActions, onClick: hidePopover, relays, showReport, allowAdminDelete}}
+    props={{
+      url,
+      noun,
+      event,
+      customActions,
+      onClick: hidePopover,
+      relays,
+      showReport,
+      allowAdminDelete,
+    }}
     params={{trigger: "manual", interactive: true}}>
     <Button class="btn join-item btn-neutral btn-xs" onclick={showPopover}>
       <Icon icon={MenuDots} size={4} />

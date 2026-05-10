@@ -66,7 +66,7 @@
     })()
 
     const repoNaddr =
-      (event.kind === GIT_REPO_ANNOUNCEMENT || event.kind === GIT_REPO_STATE)
+      event.kind === GIT_REPO_ANNOUNCEMENT || event.kind === GIT_REPO_STATE
         ? buildRepoNaddrFromEvent({
             event,
             fallbackPubkey: event.pubkey,

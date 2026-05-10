@@ -52,7 +52,6 @@
 
   const showPendingTrust = once(() => pushModal(SpaceTrustRelay, {url}, {noEscape: true}))
 
-
   // We have to watch this one, since on mobile the badge will be visible when active
   $effect(() => {
     const path = $page.url.pathname
@@ -95,7 +94,10 @@
     loadPlatformChannels()
 
     const messageFilters = isPlatform
-      ? [{kinds: [MESSAGE], since}, ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.room], since}))]
+      ? [
+          {kinds: [MESSAGE], since},
+          ...rooms.map(room => ({kinds: [MESSAGE], "#h": [room.room], since})),
+        ]
       : []
 
     const gitFilters = isPlatform

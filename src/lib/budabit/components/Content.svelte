@@ -148,7 +148,7 @@
         role="presentation"
         tabindex="-1"
         onclick={stopTapFromInteractive}
-        onkeydown={(e) => {
+        onkeydown={e => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault()
           }
@@ -159,58 +159,54 @@
       <div class="unknown-kind">
         {@html new Template(event).render()}
       </div>
+    {:else if event.kind === MESSAGE}
+      <Markdown content={event.content} {event} {url} {minimalQuote} {hideMediaAtDepth} {depth} />
     {:else}
-      {#if event.kind === MESSAGE}
-        <Markdown content={event.content} {event} {url} {minimalQuote} {hideMediaAtDepth} {depth} />
-      {:else}
-        <div
-          class="overflow-hidden text-ellipsis break-words"
-          style={expandBlock ? "mask-image: linear-gradient(0deg, transparent 0px, black 100px)" : ""}>
-          {#each shortContent as parsed, i}
-            {#if isNewline(parsed) && !isBlock(i - 1)}
-              <ContentNewline value={parsed.value} />
-            {:else if isTopic(parsed)}
-              <ContentTopic value={parsed.value} />
-            {:else if isEmoji(parsed)}
-              <ContentEmoji value={parsed.value} />
-            {:else if isCode(parsed)}
-              <ContentCode
-                value={parsed.value}
-                isBlock={isStartAndEnd(i) || parsed.value.includes("\n")} />
-            {:else if isCashu(parsed) || isInvoice(parsed)}
-              <ContentToken value={parsed.value} />
-            {:else if isLink(parsed)}
-              {#if isBlock(i)}
-                <ContentLinkBlock value={parsed.value} {event} />
-              {:else}
-                <ContentLinkInline value={parsed.value} />
-              {/if}
-            {:else if isProfile(parsed)}
-              <ContentMention value={parsed.value} {url} />
-            {:else if isEvent(parsed) || isAddress(parsed)}
-              {#if isBlock(i)}
-                <ContentQuote
-                  {url}
-                  value={parsed.value}
-                  {event}
-                />
-              {:else}
-                <Link
-                  external
-                  class="overflow-hidden text-ellipsis whitespace-nowrap underline"
-                  href={entityLink(parsed.raw)}>
-                  {fromNostrURI(parsed.raw).slice(0, 16) + "…"}
-                </Link>
-              {/if}
-            {:else if isEllipsis(parsed) && expandInline}
-              {@html renderAsHtml(parsed)}
-              <button type="button" class="text-sm underline"> Read more </button>
+      <div
+        class="overflow-hidden text-ellipsis break-words"
+        style={expandBlock
+          ? "mask-image: linear-gradient(0deg, transparent 0px, black 100px)"
+          : ""}>
+        {#each shortContent as parsed, i}
+          {#if isNewline(parsed) && !isBlock(i - 1)}
+            <ContentNewline value={parsed.value} />
+          {:else if isTopic(parsed)}
+            <ContentTopic value={parsed.value} />
+          {:else if isEmoji(parsed)}
+            <ContentEmoji value={parsed.value} />
+          {:else if isCode(parsed)}
+            <ContentCode
+              value={parsed.value}
+              isBlock={isStartAndEnd(i) || parsed.value.includes("\n")} />
+          {:else if isCashu(parsed) || isInvoice(parsed)}
+            <ContentToken value={parsed.value} />
+          {:else if isLink(parsed)}
+            {#if isBlock(i)}
+              <ContentLinkBlock value={parsed.value} {event} />
             {:else}
-              {@html renderAsHtml(parsed)}
+              <ContentLinkInline value={parsed.value} />
             {/if}
-          {/each}
-        </div>
-      {/if}
+          {:else if isProfile(parsed)}
+            <ContentMention value={parsed.value} {url} />
+          {:else if isEvent(parsed) || isAddress(parsed)}
+            {#if isBlock(i)}
+              <ContentQuote {url} value={parsed.value} {event} />
+            {:else}
+              <Link
+                external
+                class="overflow-hidden text-ellipsis whitespace-nowrap underline"
+                href={entityLink(parsed.raw)}>
+                {fromNostrURI(parsed.raw).slice(0, 16) + "…"}
+              </Link>
+            {/if}
+          {:else if isEllipsis(parsed) && expandInline}
+            {@html renderAsHtml(parsed)}
+            <button type="button" class="text-sm underline"> Read more </button>
+          {:else}
+            {@html renderAsHtml(parsed)}
+          {/if}
+        {/each}
+      </div>
     {/if}
     {#if expandBlock}
       <div class="relative z-feature -mt-6 flex justify-center py-2">

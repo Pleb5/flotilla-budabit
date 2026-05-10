@@ -42,9 +42,10 @@
           gitRelays: GIT_RELAYS,
         })
       : undefined
-  const nostrURI = $derived(isReplaceable(event) 
-    ? repoNaddr || Address.fromEvent(event).toNaddr()
-    : nip19.neventEncode({...event, relays})
+  const nostrURI = $derived(
+    isReplaceable(event)
+      ? repoNaddr || Address.fromEvent(event).toNaddr()
+      : nip19.neventEncode({...event, relays}),
   )
   const seenOn = tracker.getRelays(event.id)
   const npub1 = nip19.npubEncode(event.pubkey)

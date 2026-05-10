@@ -5,7 +5,14 @@
   import {readable} from "svelte/store"
   import {now, int, formatTimestampAsDate, MINUTE, ago} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
-  import {makeEvent, getTag, DELETE, MESSAGE, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER} from "@welshman/util"
+  import {
+    makeEvent,
+    getTag,
+    DELETE,
+    MESSAGE,
+    RELAY_ADD_MEMBER,
+    RELAY_REMOVE_MEMBER,
+  } from "@welshman/util"
   import {pubkey, publishThunk} from "@welshman/app"
   import {fade, fly} from "@lib/transition"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
@@ -252,7 +259,10 @@
       relays: [url],
       feedFilters: [{kinds: [MESSAGE, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER]}],
       subscriptionFilters: [
-        {kinds: [DELETE, MESSAGE, ...REACTION_KINDS, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER], since: now()},
+        {
+          kinds: [DELETE, MESSAGE, ...REACTION_KINDS, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER],
+          since: now(),
+        },
       ],
       onInitialLoad: () => {
         loadingEvents = false

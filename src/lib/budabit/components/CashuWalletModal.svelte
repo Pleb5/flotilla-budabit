@@ -1,5 +1,10 @@
 <script lang="ts">
-  import {cashuTotalBalance, cashuBalancesByMint, cashuMints, cashuBackupConfirmed} from "@lib/budabit/cashu"
+  import {
+    cashuTotalBalance,
+    cashuBalancesByMint,
+    cashuMints,
+    cashuBackupConfirmed,
+  } from "@lib/budabit/cashu"
   import CashuReceive from "@lib/budabit/components/CashuReceive.svelte"
   import CashuTopUp from "@lib/budabit/components/CashuTopUp.svelte"
   import CashuSend from "@lib/budabit/components/CashuSend.svelte"
@@ -31,7 +36,7 @@
   {:else}
     <div class="flex items-center justify-between">
       <h2 class="text-xl font-bold">Cashu Wallet</h2>
-      <span class="text-lg font-mono font-semibold">{totalBalance.toLocaleString()} sats</span>
+      <span class="font-mono text-lg font-semibold">{totalBalance.toLocaleString()} sats</span>
     </div>
 
     <!-- Tab bar -->
@@ -57,7 +62,8 @@
             {#each mints as mint (mint)}
               <div class="card2 bg-alt flex items-center justify-between px-3 py-2 text-sm">
                 <span class="truncate font-mono text-xs">{mint}</span>
-                <span class="font-semibold">{(balancesByMint.get(mint) ?? 0).toLocaleString()} sats</span>
+                <span class="font-semibold"
+                  >{(balancesByMint.get(mint) ?? 0).toLocaleString()} sats</span>
               </div>
             {/each}
           {/if}

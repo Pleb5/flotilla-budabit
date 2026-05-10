@@ -48,7 +48,7 @@
 
     iframeRef.contentWindow.postMessage(
       {kind: "user-metadata", data: context},
-      new URL(selectedWidget.appUrl).origin
+      new URL(selectedWidget.appUrl).origin,
     )
   }
 
@@ -102,8 +102,7 @@
         title={selectedWidget.content || selectedWidget.identifier}
         class="h-full w-full border-0"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        onload={onIframeLoad}
-      ></iframe>
+        onload={onIframeLoad}></iframe>
     </div>
   {:else}
     <!-- Multiple widgets - tabs -->
@@ -133,8 +132,7 @@
           title={selectedWidget.content || selectedWidget.identifier}
           class="h-full w-full border-0"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          onload={onIframeLoad}
-        ></iframe>
+          onload={onIframeLoad}></iframe>
       </div>
     {:else}
       <div class="flex flex-1 items-center justify-center">

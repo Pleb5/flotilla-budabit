@@ -34,7 +34,7 @@
         loading = false
       },
     })
-    
+
     // Subscribe to events store
     feed.events.subscribe((newEvents: any[]) => {
       for (const event of newEvents) {

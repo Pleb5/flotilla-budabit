@@ -22,7 +22,7 @@
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import SortVertical from "@assets/icons/sort-vertical.svg?dataurl"
-  
+
   const {relay, id} = $page.params
   const url = decodeRelay(relay)
   const event = deriveEvent(id)

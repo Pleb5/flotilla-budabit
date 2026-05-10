@@ -38,7 +38,9 @@
   {#if !hideDetails}
     <div class="flex min-w-0 flex-col">
       <div class="flex items-center gap-2">
-        <Button onclick={openProfile} class="text-bold overflow-hidden text-ellipsis whitespace-nowrap">
+        <Button
+          onclick={openProfile}
+          class="text-bold overflow-hidden text-ellipsis whitespace-nowrap">
           {$profileDisplay}
         </Button>
         <WotScore {pubkey} />

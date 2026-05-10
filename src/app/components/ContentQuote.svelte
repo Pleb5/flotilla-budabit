@@ -1,3 +1,80 @@
+<style>
+  /* Snippet line layout */
+  .permalink-preview {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .cq-snippet-lines {
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.6875rem;
+    min-width: max-content;
+    padding: 3px 0;
+  }
+
+  .cq-snippet-line {
+    display: flex;
+    align-items: baseline;
+    min-width: 100%;
+    width: max-content;
+    line-height: 1.45;
+  }
+
+  .cq-snippet-num {
+    flex-shrink: 0;
+    min-width: 2.5ch;
+    padding: 0 0.5ch;
+    text-align: right;
+    color: hsl(var(--ng-muted-foreground) / 0.45);
+    user-select: none;
+  }
+
+  .cq-snippet-diff-ind {
+    flex-shrink: 0;
+    width: 1.5ch;
+    text-align: center;
+    user-select: none;
+    opacity: 0.5;
+  }
+
+  :global(.cq-snippet-code) {
+    flex: 0 0 auto;
+    margin: 0 !important;
+    padding: 0 0.5ch !important;
+    white-space: pre;
+    word-break: normal;
+    font: inherit;
+    line-height: inherit;
+  }
+
+  :global(.cq-snippet-code code) {
+    padding: 0 !important;
+    margin: 0 !important;
+    font: inherit;
+    line-height: inherit;
+  }
+
+  :global(.cq-diff-add) {
+    background-color: rgba(34, 197, 94, 0.12);
+    border-left: 2px solid rgb(22, 163, 74);
+  }
+
+  :global(.cq-diff-del) {
+    background-color: rgba(239, 68, 68, 0.12);
+    border-left: 2px solid rgb(220, 38, 38);
+  }
+
+  :global(.dark .cq-diff-add) {
+    background-color: rgba(34, 197, 94, 0.15);
+    border-left-color: rgb(34, 197, 94);
+  }
+
+  :global(.dark .cq-diff-del) {
+    background-color: rgba(239, 68, 68, 0.15);
+    border-left-color: rgb(239, 68, 68);
+  }
+</style>
+
 <script lang="ts">
   import * as nip19 from "nostr-tools/nip19"
   import {Router} from "@welshman/router"
@@ -95,7 +172,7 @@
   }
 
   const shareTitle = $derived(
-    shareState === "copied" ? "Copied" : shareState === "error" ? "Copy failed" : "Share"
+    shareState === "copied" ? "Copied" : shareState === "error" ? "Copy failed" : "Share",
   )
 
   const copyPermalinkContent = async (evt: TrustedEvent) => {
@@ -191,7 +268,8 @@
     }
   }
 
-  const getLineSide = (evt: TrustedEvent) => getTag(evt, "line")?.[2] === "del" ? "del" : undefined
+  const getLineSide = (evt: TrustedEvent) =>
+    getTag(evt, "line")?.[2] === "del" ? "del" : undefined
 
   const getLineLabel = (evt: TrustedEvent) => {
     const {start, end} = getLineRange(evt)
@@ -256,8 +334,7 @@
     return `${trimmed}\n…`
   }
 
-  const isContentTruncated = (evt: TrustedEvent) =>
-    (evt?.content?.length || 0) > maxPreviewChars
+  const isContentTruncated = (evt: TrustedEvent) => (evt?.content?.length || 0) > maxPreviewChars
 
   const buildRepoHrefFromAddress = (repoAddress: string, relay?: string) => {
     if (!repoAddress || !relay) return ""
@@ -377,9 +454,10 @@
       const inlineLocationLabel = filePath
         ? `${filePath}${targetLine ? `:${line.start && line.end && line.end !== line.start ? `${line.start}-${line.end}` : targetLine}` : ""}`
         : ""
-      const inlineDiffAnchor = filePath && targetLine && diffHash
-        ? `#diff-${diffHash}${getLineSide(evt) === "del" ? "L" : "R"}${targetLine}`
-        : ""
+      const inlineDiffAnchor =
+        filePath && targetLine && diffHash
+          ? `#diff-${diffHash}${getLineSide(evt) === "del" ? "L" : "R"}${targetLine}`
+          : ""
       let href = ""
       if (baseHref) {
         if (rootKind === GIT_ISSUE) {
@@ -529,18 +607,18 @@
   <div class="my-2 block w-full max-w-full text-left">
     <div class="rounded-lg border bg-card p-3 shadow-sm">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div class="min-w-0 flex items-start gap-2">
-          <KindIcon class={`h-4 w-4 mt-0.5 ${kindIconClass}`} />
+        <div class="flex min-w-0 items-start gap-2">
+          <KindIcon class={`mt-0.5 h-4 w-4 ${kindIconClass}`} />
           <div class="min-w-0">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
               <div class="text-sm font-semibold">{kindTitle}</div>
               <span
-                class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${kindBadgeClass}`}
-              >
+                class={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${kindBadgeClass}`}>
                 {kindLabel}
               </span>
             </div>
-            <div class="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <div
+              class="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
               {#if displayRepo}
                 <span class="max-w-full truncate font-mono" title={displayRepo}>{displayRepo}</span>
               {/if}
@@ -556,7 +634,8 @@
             </div>
           </div>
         </div>
-        <div class="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
+        <div
+          class="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
           {#if permalinkHref}
             <GitButton
               variant="outline"
@@ -564,8 +643,7 @@
               class="min-w-0 shrink-0 justify-center sm:w-auto"
               href={permalinkHref}
               onclick={event => handlePermalinkOpen(event, permalinkHref)}
-              aria-busy={isOpenPending}
-            >
+              aria-busy={isOpenPending}>
               {#if isOpenPending}
                 <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
               {/if}
@@ -578,8 +656,7 @@
             class="min-w-0 shrink-0 justify-center sm:w-auto"
             onclick={() => copyPermalinkContent($quote)}
             disabled={!$quote?.content}
-            aria-live="polite"
-          >
+            aria-live="polite">
             {#if copyState === "copied"}
               Copied
             {:else if copyState === "error"}
@@ -592,39 +669,29 @@
             variant="outline"
             size="sm"
             class="w-9 shrink-0 justify-center p-0"
-            onclick={(event) => copyShareLink(entity, event)}
+            onclick={event => copyShareLink(entity, event)}
             disabled={!entity}
             data-stop-tap
             aria-label="Share"
-            title={shareTitle}
-          >
-            <svg
-              class="h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
+            title={shareTitle}>
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path
                 d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
                 stroke="currentColor"
-                stroke-width="1.5"
-              ></path>
+                stroke-width="1.5"></path>
               <path
                 d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
                 stroke="currentColor"
-                stroke-width="1.5"
-              ></path>
+                stroke-width="1.5"></path>
               <path
                 d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
                 stroke="currentColor"
-                stroke-width="1.5"
-              ></path>
+                stroke-width="1.5"></path>
               <path
                 d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
                 stroke="currentColor"
                 stroke-width="1.5"
-                stroke-linecap="round"
-              ></path>
+                stroke-linecap="round"></path>
             </svg>
           </GitButton>
         </div>
@@ -632,17 +699,40 @@
       {#if contentPreview}
         {@const lineRange = getLineRange($quote)}
         {@const diffLines = isDiff ? parseDiffLines(contentPreview, lineRange.start) : []}
-        {@const codeLines = !isDiff ? contentPreview.split("\n").map((l, i) => ({num: (lineRange.start ?? 1) + i, content: l})) : []}
-        {@const highlightedDiffLines = highlightCodeLines(diffLines.map(line => line.content), highlightLanguage)}
-        {@const highlightedCodeLines = highlightCodeLines(codeLines.map(line => line.content), highlightLanguage)}
-        <div class="mt-3 max-w-full overflow-x-auto rounded border border-border/40 bg-muted/30 permalink-preview">
+        {@const codeLines = !isDiff
+          ? contentPreview
+              .split("\n")
+              .map((l, i) => ({num: (lineRange.start ?? 1) + i, content: l}))
+          : []}
+        {@const highlightedDiffLines = highlightCodeLines(
+          diffLines.map(line => line.content),
+          highlightLanguage,
+        )}
+        {@const highlightedCodeLines = highlightCodeLines(
+          codeLines.map(line => line.content),
+          highlightLanguage,
+        )}
+        <div
+          class="permalink-preview mt-3 max-w-full overflow-x-auto rounded border border-border/40 bg-muted/30">
           {#if isDiff && diffLines.length > 0}
             <div class="cq-snippet-lines">
-              {#each diffLines as line, index}<div class="cq-snippet-line {getDiffLineClass(line.type)}"><span class="cq-snippet-num">{line.lineNum ?? ""}</span><span class="cq-snippet-diff-ind">{line.type === " " ? "\u00a0" : line.type}</span><pre class="cq-snippet-code"><span class="hljs">{@html highlightedDiffLines[index] ?? highlightPreview(line.content, highlightLanguage)}</span></pre></div>{/each}
+              {#each diffLines as line, index}<div
+                  class="cq-snippet-line {getDiffLineClass(line.type)}">
+                  <span class="cq-snippet-num">{line.lineNum ?? ""}</span><span
+                    class="cq-snippet-diff-ind">{line.type === " " ? "\u00a0" : line.type}</span>
+                  <pre class="cq-snippet-code"><span class="hljs"
+                      >{@html highlightedDiffLines[index] ??
+                        highlightPreview(line.content, highlightLanguage)}</span></pre>
+                </div>{/each}
             </div>
           {:else if codeLines.length > 0}
             <div class="cq-snippet-lines">
-              {#each codeLines as line, index}<div class="cq-snippet-line"><span class="cq-snippet-num">{line.num}</span><pre class="cq-snippet-code"><span class="hljs">{@html highlightedCodeLines[index] ?? highlightPreview(line.content, highlightLanguage)}</span></pre></div>{/each}
+              {#each codeLines as line, index}<div class="cq-snippet-line">
+                  <span class="cq-snippet-num">{line.num}</span>
+                  <pre class="cq-snippet-code"><span class="hljs"
+                      >{@html highlightedCodeLines[index] ??
+                        highlightPreview(line.content, highlightLanguage)}</span></pre>
+                </div>{/each}
             </div>
           {/if}
           {#if isTruncated}
@@ -652,93 +742,83 @@
       {/if}
     </div>
   </div>
-  {:else if gitCard}
-    {@const openHref = gitCard.href || entityLink(entity)}
-    <div class="my-2 block w-full max-w-full text-left">
-      <div class="rounded-lg border bg-card p-3 shadow-sm">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div class="min-w-0">
-            <div class="text-sm font-semibold">{gitCard.label}</div>
-            {#if gitCard.meta?.length}
-              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                {#each gitCard.meta as item}
-                  <span class="max-w-full truncate font-mono" title={item}>{item}</span>
-                {/each}
-              </div>
-            {/if}
-          </div>
-          <div class="grid w-full grid-cols-[minmax(0,1fr)_2.25rem] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
-            <GitButton
-              variant="outline"
-              size="sm"
-              class="min-w-0 shrink-0 justify-center sm:w-auto"
-              href={openHref}
-              onclick={onOpen}
-              aria-busy={isOpenPending}
-            >
-              {#if isOpenPending}
-                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
-              {/if}
-              Open
-            </GitButton>
-            <GitButton
-              variant="outline"
-              size="sm"
-              class="w-9 shrink-0 justify-center p-0"
-              onclick={(event) => copyShareLink(entity, event)}
-              disabled={!entity}
-              data-stop-tap
-              aria-label="Share"
-              title={shareTitle}
-            >
-              <svg
-                class="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                ></path>
-              </svg>
-            </GitButton>
-          </div>
+{:else if gitCard}
+  {@const openHref = gitCard.href || entityLink(entity)}
+  <div class="my-2 block w-full max-w-full text-left">
+    <div class="rounded-lg border bg-card p-3 shadow-sm">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="min-w-0">
+          <div class="text-sm font-semibold">{gitCard.label}</div>
+          {#if gitCard.meta?.length}
+            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {#each gitCard.meta as item}
+                <span class="max-w-full truncate font-mono" title={item}>{item}</span>
+              {/each}
+            </div>
+          {/if}
         </div>
-        {#if gitCard.title}
-          <div class="mt-2 text-sm font-medium line-clamp-2">{gitCard.title}</div>
-        {/if}
-        {#if gitCard.preview}
-          <div class="mt-2 text-sm text-muted-foreground line-clamp-3">{gitCard.preview}</div>
-        {/if}
+        <div
+          class="grid w-full grid-cols-[minmax(0,1fr)_2.25rem] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
+          <GitButton
+            variant="outline"
+            size="sm"
+            class="min-w-0 shrink-0 justify-center sm:w-auto"
+            href={openHref}
+            onclick={onOpen}
+            aria-busy={isOpenPending}>
+            {#if isOpenPending}
+              <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+            {/if}
+            Open
+          </GitButton>
+          <GitButton
+            variant="outline"
+            size="sm"
+            class="w-9 shrink-0 justify-center p-0"
+            onclick={event => copyShareLink(entity, event)}
+            disabled={!entity}
+            data-stop-tap
+            aria-label="Share"
+            title={shareTitle}>
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
+                stroke="currentColor"
+                stroke-width="1.5"></path>
+              <path
+                d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
+                stroke="currentColor"
+                stroke-width="1.5"></path>
+              <path
+                d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
+                stroke="currentColor"
+                stroke-width="1.5"></path>
+              <path
+                d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"></path>
+            </svg>
+          </GitButton>
+        </div>
       </div>
+      {#if gitCard.title}
+        <div class="mt-2 line-clamp-2 text-sm font-medium">{gitCard.title}</div>
+      {/if}
+      {#if gitCard.preview}
+        <div class="mt-2 line-clamp-3 text-sm text-muted-foreground">{gitCard.preview}</div>
+      {/if}
     </div>
-  {:else if quoteTimedOut}
-    <Button class="my-2 block w-full max-w-full text-left" {onclick}>
-      <div class="rounded-box p-4 text-sm text-muted-foreground">
-        <div class="font-medium text-foreground">Unable to load quoted event</div>
-        <div class="mt-1">Open the link to retry with the full relay context.</div>
-      </div>
-    </Button>
-  {:else}
-    <Button class="my-2 block w-full max-w-full text-left" {onclick}>
+  </div>
+{:else if quoteTimedOut}
+  <Button class="my-2 block w-full max-w-full text-left" {onclick}>
+    <div class="rounded-box p-4 text-sm text-muted-foreground">
+      <div class="font-medium text-foreground">Unable to load quoted event</div>
+      <div class="mt-1">Open the link to retry with the full relay context.</div>
+    </div>
+  </Button>
+{:else}
+  <Button class="my-2 block w-full max-w-full text-left" {onclick}>
     {#if $quote}
       {#if $quote.kind === MESSAGE}
         <div
@@ -758,79 +838,3 @@
     {/if}
   </Button>
 {/if}
-
-<style>
-  /* Snippet line layout */
-  .permalink-preview {
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .cq-snippet-lines {
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
-    font-size: 0.6875rem;
-    min-width: max-content;
-    padding: 3px 0;
-  }
-
-  .cq-snippet-line {
-    display: flex;
-    align-items: baseline;
-    min-width: 100%;
-    width: max-content;
-    line-height: 1.45;
-  }
-
-  .cq-snippet-num {
-    flex-shrink: 0;
-    min-width: 2.5ch;
-    padding: 0 0.5ch;
-    text-align: right;
-    color: hsl(var(--ng-muted-foreground) / 0.45);
-    user-select: none;
-  }
-
-  .cq-snippet-diff-ind {
-    flex-shrink: 0;
-    width: 1.5ch;
-    text-align: center;
-    user-select: none;
-    opacity: 0.5;
-  }
-
-  :global(.cq-snippet-code) {
-    flex: 0 0 auto;
-    margin: 0 !important;
-    padding: 0 0.5ch !important;
-    white-space: pre;
-    word-break: normal;
-    font: inherit;
-    line-height: inherit;
-  }
-
-  :global(.cq-snippet-code code) {
-    padding: 0 !important;
-    margin: 0 !important;
-    font: inherit;
-    line-height: inherit;
-  }
-
-  :global(.cq-diff-add) {
-    background-color: rgba(34, 197, 94, 0.12);
-    border-left: 2px solid rgb(22, 163, 74);
-  }
-
-  :global(.cq-diff-del) {
-    background-color: rgba(239, 68, 68, 0.12);
-    border-left: 2px solid rgb(220, 38, 38);
-  }
-
-  :global(.dark .cq-diff-add) {
-    background-color: rgba(34, 197, 94, 0.15);
-    border-left-color: rgb(34, 197, 94);
-  }
-
-  :global(.dark .cq-diff-del) {
-    background-color: rgba(239, 68, 68, 0.15);
-    border-left-color: rgb(239, 68, 68);
-  }
-</style>

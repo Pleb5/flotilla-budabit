@@ -1,3 +1,12 @@
+<style>
+  @media (hover: none) {
+    :global(.label-filter-button:not(.label-selected):hover) {
+      background-color: hsl(var(--ng-background));
+      color: inherit;
+    }
+  }
+</style>
+
 <script lang="ts">
   import Icon from "@lib/components/Icon.svelte"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
@@ -86,23 +95,31 @@
   let selectedLabels = $state<string[]>([])
   let matchAllLabels = $state(false)
   let sortOptions = $state([
-        {value: "newest", label: "Newest", icon: CalendarDays},
-        {value: "oldest", label: "Oldest", icon: CalendarDays},
-        {value: "status", label: "Status", icon: Check},
-      ])
+    {value: "newest", label: "Newest", icon: CalendarDays},
+    {value: "oldest", label: "Oldest", icon: CalendarDays},
+    {value: "status", label: "Status", icon: Check},
+  ])
   let statusOptions = $state([
-        {value: "open", label: "Open", icon: GitCommit},
-        {value: mode === "prs" ? "merged" : "resolved", label: mode === "prs" ? "Merged" : "Resolved", icon: Check},
-        {value: "closed", label: "Closed", icon: X},
-        {value: "draft", label: "Draft", icon: Clock},
-      ])
+    {value: "open", label: "Open", icon: GitCommit},
+    {
+      value: mode === "prs" ? "merged" : "resolved",
+      label: mode === "prs" ? "Merged" : "Resolved",
+      icon: Check,
+    },
+    {value: "closed", label: "Closed", icon: X},
+    {value: "draft", label: "Draft", icon: Clock},
+  ])
 
   // Update statusOptions when mode changes
   $effect(() => {
     mode
     statusOptions = [
       {value: "open", label: "Open", icon: GitCommit},
-      {value: mode === "prs" ? "merged" : "resolved", label: mode === "prs" ? "Merged" : "Resolved", icon: Check},
+      {
+        value: mode === "prs" ? "merged" : "resolved",
+        label: mode === "prs" ? "Merged" : "Resolved",
+        icon: Check,
+      },
       {value: "closed", label: "Closed", icon: X},
       {value: "draft", label: "Draft", icon: Clock},
     ]
@@ -217,7 +234,6 @@
     }
   }
 
-
   // Persist on changes (single watcher)
   $effect(() => {
     statusFilter
@@ -229,7 +245,6 @@
     matchAllLabels
     persist()
   })
-
 </script>
 
 <div class="mb-6 rounded-md border border-border bg-card p-4" transition:slide>
@@ -301,7 +316,7 @@
     {#if authors.length > 1}
       <div class="md:col-span-2">
         <h3 class="mb-2 text-sm font-medium">Author</h3>
-        <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
+        <div class="flex max-h-48 flex-wrap gap-2 overflow-y-auto pr-1">
           <Button
             variant={authorFilter === "" ? "default" : "outline"}
             size="sm"
@@ -344,7 +359,7 @@
               placeholder="Search labels..." />
           </div>
         {/if}
-        <div class="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+        <div class="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
           {#each labelSearchEnabled ? allLabels.filter(l => l
                   .toLowerCase()
                   .includes(labelSearch.toLowerCase())) : allLabels as lbl (lbl)}
@@ -382,11 +397,10 @@
               class="label-filter-button"
               onpointerup={blurOnPointerUp}
               onclick={() => {
-              selectedLabels = []
-              onClearLabels?.()
-              dispatch("labelsChange", selectedLabels)
-            }}
-              >Clear labels</Button>
+                selectedLabels = []
+                onClearLabels?.()
+                dispatch("labelsChange", selectedLabels)
+              }}>Clear labels</Button>
           {/if}
         </div>
         {#if selectedLabels.length > 0}
@@ -403,16 +417,13 @@
 
   {#if showReset}
     <div class="mt-4 flex items-center justify-end">
-      <Button variant="ghost" size="sm" onclick={() => { resetFilters(); dispatch("reset") }}>Reset Filters</Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onclick={() => {
+          resetFilters()
+          dispatch("reset")
+        }}>Reset Filters</Button>
     </div>
   {/if}
 </div>
-
-<style>
-  @media (hover: none) {
-    :global(.label-filter-button:not(.label-selected):hover) {
-      background-color: hsl(var(--ng-background));
-      color: inherit;
-    }
-  }
-</style>

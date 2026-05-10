@@ -49,7 +49,7 @@
   // If already PascalCase, return as-is
   const toPascalCase = (str: string): string => {
     // If it contains hyphens or underscores, convert from kebab/snake case
-    if (str.includes('-') || str.includes('_')) {
+    if (str.includes("-") || str.includes("_")) {
       return str
         .split(/[-_]/)
         .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())

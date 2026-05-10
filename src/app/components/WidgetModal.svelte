@@ -41,7 +41,7 @@
         kind: "user-metadata",
         data: context,
       },
-      new URL(widget.appUrl).origin
+      new URL(widget.appUrl).origin,
     )
   }
 
@@ -82,7 +82,8 @@
   })
 </script>
 
-<div class="flex h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-base-100 shadow-xl">
+<div
+  class="flex h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-base-100 shadow-xl">
   <!-- Header -->
   <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
     <div class="flex items-center gap-3">
@@ -116,8 +117,7 @@
         title={widget.content || widget.identifier}
         class="absolute inset-0 h-full w-full border-0"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        onload={onIframeLoad}
-      ></iframe>
+        onload={onIframeLoad}></iframe>
     {:else}
       <div class="flex h-full items-center justify-center">
         <p class="opacity-70">This widget does not have an app URL.</p>

@@ -11,8 +11,13 @@
 
   const {event, relays = []}: Props = $props()
 
-  const startDelete = ({signal, onProgress}: {signal: AbortSignal; onProgress: (progress: any) => void}) =>
-    deleteIssueWithLabels({issue: event, relays, signal, onProgress})
+  const startDelete = ({
+    signal,
+    onProgress,
+  }: {
+    signal: AbortSignal
+    onProgress: (progress: any) => void
+  }) => deleteIssueWithLabels({issue: event, relays, signal, onProgress})
 
   const onSuccess = (result: unknown) => {
     const {labelsDeleted = 0} = (result || {}) as {labelsDeleted?: number}

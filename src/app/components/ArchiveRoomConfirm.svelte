@@ -104,9 +104,11 @@
       </div>
       <p class="mt-2 text-base-content/70">
         {#if archived}
-          The room will appear in the normal room lists again, and posting/interactions will be re-enabled.
+          The room will appear in the normal room lists again, and posting/interactions will be
+          re-enabled.
         {:else}
-          The room will move under Archived Rooms, stay visible for reference, and open in read-only mode.
+          The room will move under Archived Rooms, stay visible for reference, and open in read-only
+          mode.
         {/if}
       </p>
       <p class="mt-2 text-xs text-base-content/60">
@@ -115,7 +117,7 @@
     </div>
 
     <div>
-      <div class="font-medium text-sm">Confirm {actionVerb}</div>
+      <div class="text-sm font-medium">Confirm {actionVerb}</div>
       <p class="text-xs text-base-content/60">
         Type the room name <strong>{roomName}</strong> to confirm.
       </p>

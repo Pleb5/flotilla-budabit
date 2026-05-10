@@ -44,12 +44,12 @@
   let showScrollButton = $state(false)
   let scrollParent: HTMLElement | null = $state(null)
   let pageContainerRef: HTMLElement | undefined = $state()
-  
+
   // Clone progress state - only show when actually cloning
   let isCloning = $state(false)
   let cloneProgress = $state<string>("")
   let cloneProgressPercent = $state<number | undefined>(undefined)
-  
+
   // Guard to prevent multiple concurrent clone checks
   let cloneCheckInProgress = $state(false)
 
@@ -59,7 +59,9 @@
   const selectedBranch = $derived(repoClass.selectedBranch || repoClass.mainBranch || "")
   const repoEventId = $derived.by(() => repoClass.repoEvent?.id || "")
   const supportedCloneUrls = $derived.by(() =>
-    filterValidCloneUrls(($repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls) || []),
+    filterValidCloneUrls(
+      ($repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls) || [],
+    ),
   )
   const supportedCloneUrlKey = $derived.by(() => supportedCloneUrls.join("|"))
 
@@ -80,7 +82,10 @@
 
   const dirFromPath = (value: string) => value.split("/").slice(0, -1).join("/")
 
-  const normalizeSearchValue = (value: unknown) => String(value ?? "").toLocaleLowerCase().trim()
+  const normalizeSearchValue = (value: unknown) =>
+    String(value ?? "")
+      .toLocaleLowerCase()
+      .trim()
 
   const filterFileEntries = (entries: FileEntry[]) => {
     const query = normalizeSearchValue(fileSearchQuery)
@@ -100,13 +105,7 @@
     return search.searchOptions(query)
   }
 
-  const updateQueryParams = ({
-    dir,
-    file,
-  }: {
-    dir?: string
-    file?: string
-  }) => {
+  const updateQueryParams = ({dir, file}: {dir?: string; file?: string}) => {
     const next = new URL($page.url)
     if (file) next.searchParams.set("path", file)
     else next.searchParams.delete("path")
@@ -224,7 +223,7 @@
 
   // Track if we've already attempted clone check to prevent infinite retries
   let cloneCheckAttempted = $state(false)
-  
+
   // Check if repo is cloned and clone if needed (only on code tab)
   // Skip this entirely if vendor API is available - files can be loaded directly from API
   $effect(() => {
@@ -237,7 +236,7 @@
     if (!repoClass.key) return
     // Only attempt clone check once per page load
     if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
-    
+
     const cloneUrls = [...supportedCloneUrls]
     if (cloneUrls.length === 0) return
 
@@ -249,49 +248,50 @@
       cloneCheckAttempted = true
       return
     }
-    
+
     const timeout = setTimeout(() => {
       ;(async () => {
         if (cloneCheckAttempted || cloneCheckInProgress || isCloning) return
-        if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) return
+        if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey)
+          return
         if (!repoClass.key) return // Double-check key is still valid
         const cloneUrls = [...supportedCloneUrls]
         if (cloneUrls.length === 0) return
         cloneCheckInProgress = true
         cloneCheckAttempted = true
-        
+
         try {
           const isCloned = await repoClass.workerManager.isRepoCloned({
-            repoId: repoClass.key
+            repoId: repoClass.key,
           })
-          
+
           if (!isCloned) {
             isCloning = true
             cloneProgress = "Initializing repository..."
-            
-            repoClass.workerManager.setProgressCallback((progressEvent) => {
+
+            repoClass.workerManager.setProgressCallback(progressEvent => {
               if (progressEvent.repoId === repoClass.key) {
                 cloneProgress = progressEvent.phase || "Cloning repository..."
                 cloneProgressPercent = progressEvent.progress
               }
             })
-            
+
             try {
               if (cloneUrls.length === 0) {
                 throw new Error("No clone URLs found for repository")
               }
-              
+
               const result = await repoClass.workerManager.smartInitializeRepo({
                 repoId: repoClass.key,
                 cloneUrls,
-                forceUpdate: false
+                forceUpdate: false,
               })
-              
+
               if (!result.success) {
                 notifyCorsProxyIssue(result)
                 throw new Error(result.error || "Repository initialization failed")
               }
-              
+
               // Skip syncWithRemote - it's slow and not needed for initial display
               // The vendor API or cached data will be used for file display
               console.log("✅ Repository initialized (skipping sync for faster UI)")
@@ -323,7 +323,7 @@
         }
       })()
     }, 200) // Slightly longer delay to ensure worker is ready
-    
+
     return () => clearTimeout(timeout)
   })
 
@@ -345,9 +345,11 @@
             notifyCorsProxyIssue(err)
             // Don't show toast for transient worker initialization errors
             const errorMessage = err.message || String(err)
-            if (!errorMessage.includes("Cannot read properties of undefined") && 
-                !errorMessage.includes("Worker operation") &&
-                !errorMessage.includes("apply")) {
+            if (
+              !errorMessage.includes("Cannot read properties of undefined") &&
+              !errorMessage.includes("Worker operation") &&
+              !errorMessage.includes("apply")
+            ) {
               pushToast({
                 message: "Failed to load branches from git repository: " + errorMessage,
                 theme: "error",
@@ -357,7 +359,7 @@
             loadingRefs = false
           })
       }, 100)
-      
+
       return () => {
         clearTimeout(timeout)
       }
@@ -366,20 +368,20 @@
 
   $effect(() => {
     // Track branchChangeTrigger from Repo class to ensure effect re-runs after branch changes
-    const currentBranch = selectedBranch;
+    const currentBranch = selectedBranch
     const currentRepoEventId = repoEventId
     const currentCloneUrlKey = supportedCloneUrlKey
-    const switchTrigger = repoClass.branchChangeTrigger; // Increments when branch switch completes
-    const refs = repoClass.refs;
-    const cloneUrls = supportedCloneUrls;
+    const switchTrigger = repoClass.branchChangeTrigger // Increments when branch switch completes
+    const refs = repoClass.refs
+    const cloneUrls = supportedCloneUrls
 
     // Don't attempt to load files until we have a valid branch name
     // Branch should come from repo state event or git clone, not hardcoded
-    const branchName = normalizeBranchRef(currentBranch);
-    if (!branchName || !currentBranch || isCloning || path) return;
-    if (!refs || refs.length === 0) return;
-    const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name);
-    if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return;
+    const branchName = normalizeBranchRef(currentBranch)
+    if (!branchName || !currentBranch || isCloning || path) return
+    if (!refs || refs.length === 0) return
+    const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name)
+    if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return
     if (!currentRepoEventId || cloneUrls.length === 0) {
       loading = false
       return
@@ -395,7 +397,7 @@
         return
       }
 
-      console.log("🔄 Loading files for branch:", currentBranch, "trigger:", switchTrigger);
+      console.log("🔄 Loading files for branch:", currentBranch, "trigger:", switchTrigger)
       files = repoClass
         .listRepoFiles({
           branch: branchName,
@@ -407,7 +409,7 @@
           }
 
           loading = false
-          console.log("✅ Files loaded:", result.files.length, "files");
+          console.log("✅ Files loaded:", result.files.length, "files")
           const mapped = result.files.map(
             file =>
               ({
@@ -421,7 +423,7 @@
           error = null
           return mapped
         })
-        .catch((e) => {
+        .catch(e => {
           if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
             return []
           }
@@ -432,32 +434,32 @@
           if (activeBranch && activeBranch !== branchName) return []
           if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
           error = message
-          console.error("❌ Failed to load files:", e);
+          console.error("❌ Failed to load files:", e)
           currentFiles = []
           return []
         })
     }, 100)
-    
+
     return () => {
       clearTimeout(timeout)
     }
   })
 
   $effect(() => {
-    const currentBranch = selectedBranch;
-    const currentPath = path;
+    const currentBranch = selectedBranch
+    const currentPath = path
     const currentRepoEventId = repoEventId
     const currentCloneUrlKey = supportedCloneUrlKey
-    const switchTrigger = repoClass.branchChangeTrigger; // Track branch switches via Repo class
-    const refs = repoClass.refs;
-    const cloneUrls = supportedCloneUrls;
+    const switchTrigger = repoClass.branchChangeTrigger // Track branch switches via Repo class
+    const refs = repoClass.refs
+    const cloneUrls = supportedCloneUrls
 
     // Don't attempt to load files until we have a valid branch name
-    const branchName = normalizeBranchRef(currentBranch);
-    if (!branchName || !currentPath || !currentBranch || isCloning) return;
-    if (!refs || refs.length === 0) return;
-    const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name);
-    if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return;
+    const branchName = normalizeBranchRef(currentBranch)
+    if (!branchName || !currentPath || !currentBranch || isCloning) return
+    if (!refs || refs.length === 0) return
+    const availableBranches = refs.filter(ref => ref.type === "heads").map(ref => ref.name)
+    if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return
     if (!currentRepoEventId || cloneUrls.length === 0) {
       loading = false
       return
@@ -465,52 +467,59 @@
 
     loading = true
     error = null
-    console.log("🔄 Loading files for branch:", currentBranch, "path:", currentPath, "trigger:", switchTrigger);
+    console.log(
+      "🔄 Loading files for branch:",
+      currentBranch,
+      "path:",
+      currentPath,
+      "trigger:",
+      switchTrigger,
+    )
     files = repoClass
       .listRepoFiles({
         branch: branchName,
         path: currentPath,
       })
-        .then(result => {
-          if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
-            return []
-          }
-
-          loading = false
-          console.log("✅ Files loaded:", result.files.length, "files");
-          const mapped = result.files.map(
-            file =>
-              ({
-                name: file.path.split("/").pop() || file.path,
-                path: file.path,
-                type: file.type as "file" | "directory" | "submodule" | "symlink",
-                oid: file.lastCommit,
-              }) as FileEntry,
-          )
-          currentFiles = mapped
-          error = null
-          return mapped
-        })
-        .catch((e) => {
-          if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
-            return []
-          }
-
-          loading = false
-          const message = e instanceof Error ? e.message : "Failed to load files"
-          const activeBranch = normalizeBranchRef(selectedBranch)
-          if (activeBranch && activeBranch !== branchName) return []
-          if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
-          error = message
-          console.error("❌ Failed to load files:", e);
-          currentFiles = []
+      .then(result => {
+        if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
           return []
-        })
+        }
+
+        loading = false
+        console.log("✅ Files loaded:", result.files.length, "files")
+        const mapped = result.files.map(
+          file =>
+            ({
+              name: file.path.split("/").pop() || file.path,
+              path: file.path,
+              type: file.type as "file" | "directory" | "submodule" | "symlink",
+              oid: file.lastCommit,
+            }) as FileEntry,
+        )
+        currentFiles = mapped
+        error = null
+        return mapped
+      })
+      .catch(e => {
+        if (repoEventId !== currentRepoEventId || supportedCloneUrlKey !== currentCloneUrlKey) {
+          return []
+        }
+
+        loading = false
+        const message = e instanceof Error ? e.message : "Failed to load files"
+        const activeBranch = normalizeBranchRef(selectedBranch)
+        if (activeBranch && activeBranch !== branchName) return []
+        if (availableBranches.length > 0 && !availableBranches.includes(branchName)) return []
+        error = message
+        console.error("❌ Failed to load files:", e)
+        currentFiles = []
+        return []
+      })
   })
 
   const getFileContent = async (filePath: string) => {
     // Don't attempt to get file content without a valid branch
-    const branchName = normalizeBranchRef(selectedBranch);
+    const branchName = normalizeBranchRef(selectedBranch)
     if (!branchName) {
       pushToast({
         message: "Cannot load file: branch not yet determined",
@@ -518,7 +527,7 @@
       })
       return ""
     }
-    
+
     try {
       const result = await repoClass.getFileContent({
         branch: branchName,
@@ -559,19 +568,23 @@
   <title>{repoClass.name} - Code</title>
 </svelte:head>
 
-<div class="mt-2 rounded-lg border border-border bg-card" data-component="code-browser" data-testid="code-browser" bind:this={pageContainerRef}>
+<div
+  class="mt-2 rounded-lg border border-border bg-card"
+  data-component="code-browser"
+  data-testid="code-browser"
+  bind:this={pageContainerRef}>
   {#if isCloning}
     <div class="p-4 sm:p-6">
-      <div class="flex flex-col items-center justify-center py-12 space-y-4">
+      <div class="flex flex-col items-center justify-center space-y-4 py-12">
         <Spinner>Cloning repository...</Spinner>
-        <div class="text-center space-y-2">
+        <div class="space-y-2 text-center">
           <p class="text-lg font-medium">{cloneProgress}</p>
           {#if cloneProgressPercent !== undefined}
-            <div class="w-64 bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+            <div class="h-2.5 w-64 rounded-full bg-gray-200 dark:bg-gray-700">
               <div
-                class="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                style="width: {Math.round(cloneProgressPercent * 100)}%"
-              ></div>
+                class="h-2.5 rounded-full bg-blue-600 transition-all duration-300"
+                style="width: {Math.round(cloneProgressPercent * 100)}%">
+              </div>
             </div>
             <p class="text-sm text-muted-foreground">{Math.round(cloneProgressPercent * 100)}%</p>
           {/if}
@@ -588,100 +601,90 @@
           {publish}
           repo={repoClass}
           displayMode="viewer"
-          autoOpenPath={autoOpenPath}
-          onClose={closeFilePreview}
-        />
+          {autoOpenPath}
+          onClose={closeFilePreview} />
       {/key}
     </div>
   {:else}
     <div
-      class={
-        showBrowserList
-          ? "grid md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]"
-          : "grid md:grid-cols-[48px_minmax(0,1fr)]"
-      }
-    >
+      class={showBrowserList
+        ? "grid md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]"
+        : "grid md:grid-cols-[48px_minmax(0,1fr)]"}>
       <div
-        class={
-          showBrowserList
-            ? "border-b border-border md:border-b-0 md:border-r"
-            : "border-b border-border md:border-b-0 md:border-r"
-        }
-      >
+        class={showBrowserList
+          ? "border-b border-border md:border-b-0 md:border-r"
+          : "border-b border-border md:border-b-0 md:border-r"}>
         <div class="p-2 sm:p-3" data-component="code-browser-list">
           {#if !showBrowserList}
-            <div class="hidden md:flex h-full items-start justify-center pt-2">
+            <div class="hidden h-full items-start justify-center pt-2 md:flex">
               <Button
                 class="btn btn-ghost btn-sm"
                 onclick={() => (isBrowserOpen = true)}
-                title="Show files"
-              >
+                title="Show files">
                 <PanelLeftOpen class="h-4 w-4" />
               </Button>
             </div>
           {:else}
-            <div class="hidden md:flex items-center justify-between pb-2">
+            <div class="hidden items-center justify-between pb-2 md:flex">
               <span class="text-xs font-medium text-muted-foreground">Files</span>
               <Button
                 class="btn btn-ghost btn-sm gap-2"
                 onclick={() => (isBrowserOpen = false)}
-                title="Hide files"
-              >
+                title="Hide files">
                 <PanelLeftClose class="h-4 w-4" />
                 <span class="hidden xl:inline">Hide files</span>
               </Button>
             </div>
             <div class="relative pb-2">
               <Search
-                class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              />
+                class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search files..."
                 bind:value={fileSearchQuery}
                 class="h-9 pl-9"
-                data-testid="code-browser-search"
-              />
+                data-testid="code-browser-search" />
             </div>
             {#if error}
               <div class="text-sm text-red-500">{error}</div>
             {:else}
-            {#key files}
-              <div transition:fade>
-                {#await files}
-                  <Spinner {loading}>Loading files...</Spinner>
-                {:then fileEntries}
-                  {@const visibleFileEntries = filterFileEntries(fileEntries)}
-                  {#if fileEntries.length === 0}
-                    <div class="text-sm text-muted-foreground">No files found in this branch.</div>
-                  {:else if visibleFileEntries.length === 0}
-                    <div class="text-sm text-muted-foreground">
-                      No files match "{fileSearchQuery.trim()}".
-                    </div>
-                  {:else}
-                    <div class="flex flex-col">
-                      {#each visibleFileEntries as file (file.path)}
-                        <FileView
-                          {file}
-                          {getFileContent}
-                          {setDirectory}
-                          {publish}
-                          repo={repoClass}
-                          displayMode="list"
-                          showActions={false}
-                          isActive={selectedFile?.path === file.path}
-                          onSelectFile={openFile}
-                        />
-                      {/each}
-                    </div>
-                  {/if}
-                {/await}
-              </div>
-            {/key}
-          {/if}
+              {#key files}
+                <div transition:fade>
+                  {#await files}
+                    <Spinner {loading}>Loading files...</Spinner>
+                  {:then fileEntries}
+                    {@const visibleFileEntries = filterFileEntries(fileEntries)}
+                    {#if fileEntries.length === 0}
+                      <div class="text-sm text-muted-foreground">
+                        No files found in this branch.
+                      </div>
+                    {:else if visibleFileEntries.length === 0}
+                      <div class="text-sm text-muted-foreground">
+                        No files match "{fileSearchQuery.trim()}".
+                      </div>
+                    {:else}
+                      <div class="flex flex-col">
+                        {#each visibleFileEntries as file (file.path)}
+                          <FileView
+                            {file}
+                            {getFileContent}
+                            {setDirectory}
+                            {publish}
+                            repo={repoClass}
+                            displayMode="list"
+                            showActions={false}
+                            isActive={selectedFile?.path === file.path}
+                            onSelectFile={openFile} />
+                        {/each}
+                      </div>
+                    {/if}
+                  {/await}
+                </div>
+              {/key}
+            {/if}
           {/if}
         </div>
       </div>
-      <div class="hidden md:block p-3">
+      <div class="hidden p-3 md:block">
         {#if selectedFile}
           {#key selectedFile.path}
             <FileView
@@ -691,13 +694,11 @@
               {publish}
               repo={repoClass}
               displayMode="viewer"
-              autoOpenPath={autoOpenPath}
-            />
+              {autoOpenPath} />
           {/key}
         {:else}
           <div
-            class="flex h-full min-h-[200px] items-center justify-center rounded-lg border border-dashed border-border bg-background/40 text-sm text-muted-foreground"
-          >
+            class="flex h-full min-h-[200px] items-center justify-center rounded-lg border border-dashed border-border bg-background/40 text-sm text-muted-foreground">
             Select a file to preview
           </div>
         {/if}

@@ -13,9 +13,7 @@
   let showAll = $state(false)
   let copiedId = $state<string | null>(null)
 
-  const displayed = $derived(
-    limit > 0 && !showAll ? history.slice(0, limit) : history,
-  )
+  const displayed = $derived(limit > 0 && !showAll ? history.slice(0, limit) : history)
 
   const directionLabel = (entry: TokenHistoryEntry) => {
     if (entry.direction === "sent") return "Sent"
@@ -76,9 +74,7 @@
     {/each}
 
     {#if limit > 0 && history.length > limit}
-      <Button
-        class="btn btn-ghost btn-xs self-center"
-        onclick={() => (showAll = !showAll)}>
+      <Button class="btn btn-ghost btn-xs self-center" onclick={() => (showAll = !showAll)}>
         {showAll ? "Show less" : `Show all ${history.length} entries`}
       </Button>
     {/if}

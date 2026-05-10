@@ -259,7 +259,8 @@
         {/if}
         {#if $archivedRooms.length > 0}
           <details class="mt-2 rounded-xl bg-base-200/50">
-            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-base-content/70">
+            <summary
+              class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-base-content/70">
               <span class="flex items-center gap-2">
                 <Icon icon={ArchivedMinimalistic} />
                 Archived Rooms

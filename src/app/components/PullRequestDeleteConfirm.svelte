@@ -14,8 +14,13 @@
   const noun = "pull request"
   const title = "Delete Pull Request"
 
-  const startDelete = ({signal, onProgress}: {signal: AbortSignal; onProgress: (progress: any) => void}) =>
-    deletePullRequestWithRelated({root: event, relays, signal, onProgress})
+  const startDelete = ({
+    signal,
+    onProgress,
+  }: {
+    signal: AbortSignal
+    onProgress: (progress: any) => void
+  }) => deletePullRequestWithRelated({root: event, relays, signal, onProgress})
 
   const onSuccess = (result: unknown) => {
     const {deletedEvents = 0} = (result || {}) as {deletedEvents?: number}

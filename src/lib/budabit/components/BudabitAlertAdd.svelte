@@ -62,12 +62,14 @@
   }
 
   const toBookmarkAddresses = (bookmarks: BookmarkAddress[]): BookmarkAddress[] =>
-    bookmarks.map((b: BookmarkAddress): BookmarkAddress => ({
-      address: b.address,
-      author: b.address.split(":")[1] || "",
-      identifier: b.address.split(":")[2] || "",
-      relayHint: b.relayHint,
-    }))
+    bookmarks.map(
+      (b: BookmarkAddress): BookmarkAddress => ({
+        address: b.address,
+        author: b.address.split(":")[1] || "",
+        identifier: b.address.split(":")[2] || "",
+        relayHint: b.relayHint,
+      }),
+    )
 
   const bookmarkedAddresses = $derived.by((): BookmarkAddress[] =>
     toBookmarkAddresses(normalizeBookmarks($bookmarksStore)),
@@ -111,9 +113,7 @@
   const filteredRepos = $derived.by(() => {
     const query = repoQuery.trim().toLowerCase()
     if (!query) return repoOptions
-    return repoOptions.filter(repo =>
-      `${repo.name} ${repo.address}`.toLowerCase().includes(query),
-    )
+    return repoOptions.filter(repo => `${repo.name} ${repo.address}`.toLowerCase().includes(query))
   })
 
   const toggleRepo = (address: string) => {
@@ -255,7 +255,9 @@
     lastBookmarksKey = key
 
     const relayHints = Array.from(
-      new Set(bookmarkedAddresses.map(b => b.relayHint).filter((hint): hint is string => Boolean(hint))),
+      new Set(
+        bookmarkedAddresses.map(b => b.relayHint).filter((hint): hint is string => Boolean(hint)),
+      ),
     )
     const relays = getRepoAnnouncementRelays(relayHints)
     if (relays.length === 0) return
@@ -303,13 +305,9 @@
     </div>
     <label class="input input-bordered mt-3 flex items-center gap-2">
       <Icon icon={Magnifier} />
-      <input
-        bind:value={repoQuery}
-        class="grow"
-        type="text"
-        placeholder="Search repositories" />
+      <input bind:value={repoQuery} class="grow" type="text" placeholder="Search repositories" />
     </label>
-    <div class="mt-3 max-h-56 overflow-auto space-y-2">
+    <div class="mt-3 max-h-56 space-y-2 overflow-auto">
       {#if filteredRepos.length === 0}
         <p class="text-sm text-muted-foreground">No repositories found.</p>
       {:else}

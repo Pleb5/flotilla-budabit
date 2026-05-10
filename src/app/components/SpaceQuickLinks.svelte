@@ -16,11 +16,7 @@
   import RoomCreate from "@app/components/RoomCreate.svelte"
   import ChannelName from "@app/components/ChannelName.svelte"
   import {makeRoomPath, makeSpacePath} from "@app/util/routes"
-  import {
-    hasNip29,
-    deriveOtherRooms,
-    makeChannelId,
-  } from "@app/core/state"
+  import {hasNip29, deriveOtherRooms, makeChannelId} from "@app/core/state"
   import {channelsById} from "@lib/budabit/state"
   import {notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"

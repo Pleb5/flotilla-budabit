@@ -1,5 +1,10 @@
 <script lang="ts">
-  import {extensionSettings, getWidgetDisplayConfig, setWidgetDisplayConfig, type WidgetDisplayConfig} from "@app/extensions/settings"
+  import {
+    extensionSettings,
+    getWidgetDisplayConfig,
+    setWidgetDisplayConfig,
+    type WidgetDisplayConfig,
+  } from "@app/extensions/settings"
   import type {WidgetDisplayLocation} from "@app/extensions/types"
   import ExtensionCard from "@app/components/ExtensionCard.svelte"
   import {
@@ -31,8 +36,12 @@
 
   // Derived from settings store
   const settings = $derived($extensionSettings)
-  const installedNip89 = $derived<ExtensionManifest[]>(Object.values(settings.installed?.nip89 || {}))
-  const installedWidgets = $derived<SmartWidgetEvent[]>(Object.values(settings.installed?.widget || {}))
+  const installedNip89 = $derived<ExtensionManifest[]>(
+    Object.values(settings.installed?.nip89 || {}),
+  )
+  const installedWidgets = $derived<SmartWidgetEvent[]>(
+    Object.values(settings.installed?.widget || {}),
+  )
   // Deduplicate installed extensions - widgets take precedence over NIP-89 with same ID
   const installed = $derived.by<InstalledItem[]>(() => {
     const byId = new Map<string, InstalledItem>()
@@ -59,12 +68,13 @@
   // Widget type filtering tabs
   type WidgetTab = "tool" | "basic" | "repo-tab"
   let widgetTab = $state<WidgetTab>("tool")
-  const toolWidgets = $derived(discoveredWidgets.filter(w => w.widgetType === "tool" || w.widgetType === "action"))
+  const toolWidgets = $derived(
+    discoveredWidgets.filter(w => w.widgetType === "tool" || w.widgetType === "action"),
+  )
   const basicWidgets = $derived(discoveredWidgets.filter(w => w.widgetType === "basic"))
   const repoTabWidgets = $derived(discoveredWidgets.filter(w => w.slot?.type === "repo-tab"))
   const filteredWidgets = $derived(
-    widgetTab === "repo-tab" ? repoTabWidgets :
-    widgetTab === "tool" ? toolWidgets : basicWidgets
+    widgetTab === "repo-tab" ? repoTabWidgets : widgetTab === "tool" ? toolWidgets : basicWidgets,
   )
 
   // Pagination for discovered widgets - deduplicate to prevent each_key_duplicate errors
@@ -80,7 +90,7 @@
   })
   const totalWidgetPages = $derived(Math.ceil(deduplicatedWidgets.length / WIDGETS_PER_PAGE))
   const paginatedWidgets = $derived(
-    deduplicatedWidgets.slice((widgetPage - 1) * WIDGETS_PER_PAGE, widgetPage * WIDGETS_PER_PAGE)
+    deduplicatedWidgets.slice((widgetPage - 1) * WIDGETS_PER_PAGE, widgetPage * WIDGETS_PER_PAGE),
   )
 
   // Reset page when tab changes
@@ -95,8 +105,6 @@
   let widgetNaddr = $state("")
   let installingWidget = $state(false)
 
-
-
   let controller: AbortController | null = null
 
   // Discovery effect - runs on mount, cleans up on destroy
@@ -104,7 +112,6 @@
     // Live discovery (initial load + subscription)
     loadingDiscovery = true
     controller = new AbortController()
-
     ;(async () => {
       try {
         const filters = [{kinds: [31990], limit: 200}]
@@ -133,7 +140,6 @@
         loadingDiscovery = false
       }
     })()
-
     ;(async () => {
       loadingWidgetDiscovery = true
       try {
@@ -233,9 +239,9 @@
             enabled={enabledIds.includes(item.id)}
             ontoggle={({enabled}) => toggle(item.id, enabled)}
             onuninstall={() => onUninstall(item.id)}
-            displayLocation={displayLocation}
-            onDisplayLocationChange={(loc) => setWidgetDisplayConfig(item.id, {location: loc})}
-            manifestUrl={manifestUrl} />
+            {displayLocation}
+            onDisplayLocationChange={loc => setWidgetDisplayConfig(item.id, {location: loc})}
+            {manifestUrl} />
         {/each}
       </div>
     {:else}
@@ -348,7 +354,8 @@
     <div class="flex items-center justify-between">
       <strong class="text-lg">Discovered Smart Widgets</strong>
       {#if discoveredWidgets.length > 0}
-        <span class="text-sm opacity-70">{deduplicatedWidgets.length} of {discoveredWidgets.length} widgets</span>
+        <span class="text-sm opacity-70"
+          >{deduplicatedWidgets.length} of {discoveredWidgets.length} widgets</span>
       {/if}
     </div>
     {#if loadingWidgetDiscovery}
@@ -360,17 +367,17 @@
       <div class="mt-3 flex flex-wrap gap-2">
         <button
           class="btn btn-sm {widgetTab === 'repo-tab' ? 'btn-primary' : 'btn-outline'}"
-          onclick={() => (widgetTab = 'repo-tab')}>
+          onclick={() => (widgetTab = "repo-tab")}>
           Repo Extensions ({repoTabWidgets.length})
         </button>
         <button
           class="btn btn-sm {widgetTab === 'tool' ? 'btn-primary' : 'btn-outline'}"
-          onclick={() => (widgetTab = 'tool')}>
+          onclick={() => (widgetTab = "tool")}>
           Tool Widgets ({toolWidgets.length})
         </button>
         <button
           class="btn btn-sm {widgetTab === 'basic' ? 'btn-primary' : 'btn-outline'}"
-          onclick={() => (widgetTab = 'basic')}>
+          onclick={() => (widgetTab = "basic")}>
           Basic Widgets ({basicWidgets.length})
         </button>
       </div>
@@ -379,9 +386,13 @@
           <div class="card2 flex items-start justify-between gap-2 p-3">
             <div class="flex min-w-0 flex-1 items-start gap-3">
               {#if w.iconUrl || w.imageUrl}
-                <ExtensionIcon icon={w.iconUrl || w.imageUrl} size={40} class="h-10 w-10 shrink-0 rounded object-cover" />
+                <ExtensionIcon
+                  icon={w.iconUrl || w.imageUrl}
+                  size={40}
+                  class="h-10 w-10 shrink-0 rounded object-cover" />
               {:else}
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-base-300 text-lg">
+                <div
+                  class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-base-300 text-lg">
                   📦
                 </div>
               {/if}
@@ -400,13 +411,16 @@
                     <span class="badge badge-primary badge-sm">Repo Tab</span>
                   {/if}
                 </div>
-                <div class="truncate text-xs opacity-50" title={w.appUrl || w.imageUrl}>{w.appUrl || w.imageUrl}</div>
+                <div class="truncate text-xs opacity-50" title={w.appUrl || w.imageUrl}>
+                  {w.appUrl || w.imageUrl}
+                </div>
               </div>
             </div>
             <div class="flex shrink-0 items-center gap-3">
               {#if installedWidgets.some((i: SmartWidgetEvent) => i.identifier === w.identifier)}
-                <Button class="btn btn-outline btn-error btn-sm" onclick={() => onUninstall(w.identifier)}
-                  >Uninstall</Button>
+                <Button
+                  class="btn btn-outline btn-error btn-sm"
+                  onclick={() => onUninstall(w.identifier)}>Uninstall</Button>
               {:else}
                 <Button class="btn btn-primary btn-sm" onclick={() => onInstallWidget(w)}
                   >Install</Button>
@@ -436,5 +450,4 @@
       {/if}
     {/if}
   </div>
-
 </div>

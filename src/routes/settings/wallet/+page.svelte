@@ -170,9 +170,7 @@
               Backed up
             </div>
           {:else}
-            <Button class="btn btn-warning btn-sm" onclick={openBackup}>
-              ⚠ Backup Now
-            </Button>
+            <Button class="btn btn-warning btn-sm" onclick={openBackup}>⚠ Backup Now</Button>
           {/if}
           <Button class="btn btn-neutral btn-xs" onclick={openBackup}>View</Button>
         </div>

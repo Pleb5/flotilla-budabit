@@ -168,22 +168,19 @@
             <img
               alt="Profile"
               src={$userProfile.picture}
-              class="h-7 w-7 min-h-7 min-w-7 rounded-full object-cover" />
+              class="h-7 min-h-7 w-7 min-w-7 rounded-full object-cover" />
           {:else}
             <ImageIcon alt="Profile" src={UserRounded} size={7} class="rounded-full" />
           {/if}
         </PrimaryNavItem>
       </div>
       <div class="hidden lg:block">
-        <PrimaryNavItem
-          title="Profile"
-          onclick={openProfile}
-          class="tooltip-right">
+        <PrimaryNavItem title="Profile" onclick={openProfile} class="tooltip-right">
           {#if $userProfile?.picture}
             <img
               alt="Profile"
               src={$userProfile.picture}
-              class="h-7 w-7 min-h-7 min-w-7 rounded-full object-cover" />
+              class="h-7 min-h-7 w-7 min-w-7 rounded-full object-cover" />
           {:else}
             <ImageIcon alt="Profile" src={UserRounded} size={7} class="rounded-full" />
           {/if}
@@ -252,11 +249,7 @@
       notification={$notifications.has("/chat")}>
       <ImageIcon alt="Messages" src={Letter} size={5} />
     </PrimaryNavItem>
-    <PrimaryNavItem
-      compact
-      title="Git"
-      onclick={openGit}
-      notification={gitNotification}>
+    <PrimaryNavItem compact title="Git" onclick={openGit} notification={gitNotification}>
       <ImageIcon alt="Git" src={Git} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem compact title="Search" href="/people">

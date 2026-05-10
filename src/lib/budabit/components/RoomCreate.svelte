@@ -30,7 +30,10 @@
 
   const tryCreate = async () => {
     if (!canCreateRoom) {
-      return pushToast({theme: "error", message: "You are not allowed to create rooms on this relay."})
+      return pushToast({
+        theme: "error",
+        message: "You are not allowed to create rooms on this relay.",
+      })
     }
 
     room.name = name

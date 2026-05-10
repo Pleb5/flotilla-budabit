@@ -48,10 +48,7 @@
       <p class="text-sm text-error">{error}</p>
     {/if}
 
-    <Button
-      class="btn btn-primary"
-      onclick={redeem}
-      disabled={loading || !token.trim()}>
+    <Button class="btn btn-primary" onclick={redeem} disabled={loading || !token.trim()}>
       {loading ? "Redeeming…" : "Redeem Token"}
     </Button>
   {/if}

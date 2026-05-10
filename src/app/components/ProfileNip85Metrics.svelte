@@ -104,7 +104,10 @@
       .map(result => {
         const metrics = (result.availableTags || [])
           .filter(tag => !selectedTagNames.has(tag))
-          .map(tag => ({tag, value: result.assertion ? getNip85UserAssertionValue(result.assertion, tag) : undefined}))
+          .map(tag => ({
+            tag,
+            value: result.assertion ? getNip85UserAssertionValue(result.assertion, tag) : undefined,
+          }))
           .filter(metric => hasNip85MetricValue(metric.value))
 
         return {serviceKey: result.serviceKey, metrics}
@@ -212,7 +215,7 @@
     <div class="flex flex-col gap-4 border-t border-base-300/50 px-4 py-4">
       {#if loading}
         <div class="flex items-center gap-2 text-sm opacity-75">
-          <Spinner loading={loading} />
+          <Spinner {loading} />
           <span>Loading trusted assertions...</span>
         </div>
       {:else}
@@ -258,29 +261,35 @@
                 {@const providers = providersByCapability.get(kindTag) || []}
                 <div class="flex flex-col gap-2">
                   <div class="flex items-center justify-between gap-2 text-sm">
-                    <span class="font-medium">{getNip85UserMetricLabel(kindTag.split(":")[1])}</span>
+                    <span class="font-medium"
+                      >{getNip85UserMetricLabel(kindTag.split(":")[1])}</span>
                     <span class="text-xs opacity-60">{providers.length} selected</span>
                   </div>
 
                   {#each providers as provider}
                     {@const result = results.get(provider.serviceKey)}
-                    {@const rawValue = result?.assertion ? getNip85UserAssertionValue(result.assertion, provider.tag) : undefined}
+                    {@const rawValue = result?.assertion
+                      ? getNip85UserAssertionValue(result.assertion, provider.tag)
+                      : undefined}
                     {@const hasValue = hasNip85MetricValue(rawValue)}
                     {@const tagMissing = Boolean(
                       result?.assertion &&
-                        !hasValue &&
-                        result.availableTags.length > 0 &&
-                        !result.availableTags.includes(provider.tag),
+                      !hasValue &&
+                      result.availableTags.length > 0 &&
+                      !result.availableTags.includes(provider.tag),
                     )}
                     <div class="rounded-box bg-base-100/40 p-3">
-                      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div
+                        class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div class="flex min-w-0 gap-3">
                           <ProfileCircle pubkey={provider.serviceKey} size={7} />
                           <div class="min-w-0">
                             <div class="truncate text-sm font-medium">
                               <ProfileName pubkey={provider.serviceKey} />
                             </div>
-                            <div class="text-xs opacity-60">{displayPubkey(provider.serviceKey)}</div>
+                            <div class="text-xs opacity-60">
+                              {displayPubkey(provider.serviceKey)}
+                            </div>
                           </div>
                         </div>
 
@@ -294,7 +303,9 @@
                       </div>
 
                       {#if result?.status === "error"}
-                        <p class="mt-2 text-xs opacity-70">{result.error || "Provider unavailable."}</p>
+                        <p class="mt-2 text-xs opacity-70">
+                          {result.error || "Provider unavailable."}
+                        </p>
                       {:else if result && result.status !== "data"}
                         <p class="mt-2 text-xs opacity-70">
                           Provider may be offline or has not published this profile yet.

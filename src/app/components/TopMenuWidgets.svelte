@@ -11,9 +11,7 @@
     return getWidgetsForLocation("top-menu")
   })
 
-  const visibleWidgets = $derived(
-    topMenuWidgets.slice(currentIndex, currentIndex + maxVisible)
-  )
+  const visibleWidgets = $derived(topMenuWidgets.slice(currentIndex, currentIndex + maxVisible))
 
   const canGoBack = $derived(currentIndex > 0)
   const canGoForward = $derived(currentIndex + maxVisible < topMenuWidgets.length)
@@ -55,7 +53,7 @@
     {/if}
     {#each visibleWidgets as widget (widget.identifier)}
       <button
-        class="btn btn-sm btn-outline gap-1"
+        class="btn btn-outline btn-sm gap-1"
         title={widget.content || widget.identifier}
         onclick={() => openWidget(widget)}>
         {#if widget.iconUrl || widget.imageUrl}
@@ -64,7 +62,8 @@
             alt={widget.content || widget.identifier}
             class="h-4 w-4 shrink-0 rounded object-cover" />
         {/if}
-        <span class="hidden max-w-[100px] truncate lg:inline">{widget.content || widget.identifier}</span>
+        <span class="hidden max-w-[100px] truncate lg:inline"
+          >{widget.content || widget.identifier}</span>
       </button>
     {/each}
     {#if needsPagination}
@@ -88,7 +87,7 @@
     aria-label="Widget modal"
     tabindex="-1"
     onclick={closeWidget}
-    onkeydown={(e) => e.key === "Escape" && closeWidget()}>
+    onkeydown={e => e.key === "Escape" && closeWidget()}>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="flex h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-base-100 shadow-2xl"
@@ -114,8 +113,7 @@
           src={showWidgetModal.appUrl}
           title={showWidgetModal.content || showWidgetModal.identifier}
           class="absolute inset-0 h-full w-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        ></iframe>
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
       </div>
     </div>
   </div>

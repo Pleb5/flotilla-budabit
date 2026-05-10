@@ -4,7 +4,6 @@
   import {makeRoomPath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
 
-
   interface Props {
     url: any
     h: any

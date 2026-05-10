@@ -15,7 +15,13 @@
     path?: string
   }
 
-  const {url, event, showActivity = false, noun = "Comment", path = makeThreadPath(url, event.id)}: Props = $props()
+  const {
+    url,
+    event,
+    showActivity = false,
+    noun = "Comment",
+    path = makeThreadPath(url, event.id),
+  }: Props = $props()
 
   const shouldProtect = canEnforceNip70(url)
 

@@ -1,3 +1,9 @@
+<style>
+  .extension-container {
+    display: none;
+  }
+</style>
+
 <script lang="ts">
   import {onDestroy, untrack} from "svelte"
   import {extensionRegistry} from "./registry"
@@ -31,9 +37,10 @@
     for (const ext of extensions) {
       if (!enabledIds.has(ext.id)) continue
       if (currentLoadedIds.has(ext.id)) continue
-      if (currentLoadingIds.has(ext.id)) continue
+      if (currentLoadingIds.has(ext.id))
+        continue
 
-      // Use async IIFE to handle loading
+        // Use async IIFE to handle loading
       ;(async () => {
         loadingIds = new Set([...untrack(() => loadingIds), ext.id])
 
@@ -78,9 +85,3 @@
 
 <!-- Hidden container for extension iframes -->
 <div id="flotilla-extension-container" class="extension-container"></div>
-
-<style>
-  .extension-container {
-    display: none;
-  }
-</style>

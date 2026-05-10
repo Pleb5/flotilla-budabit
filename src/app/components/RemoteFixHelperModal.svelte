@@ -5,7 +5,12 @@
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {filterValidCloneUrls, getGitServiceApiFromUrl, parseRepoUrl, updateUrlPreferenceCache} from "@nostr-git/core"
+  import {
+    filterValidCloneUrls,
+    getGitServiceApiFromUrl,
+    parseRepoUrl,
+    updateUrlPreferenceCache,
+  } from "@nostr-git/core"
   import {isGraspRelayUrl, isGraspRepoHttpUrl, parseGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {
     ACCESS_TOKEN_SETTINGS_PATH,
@@ -17,13 +22,7 @@
   import {nip19} from "nostr-tools"
   import {onMount, tick} from "svelte"
 
-  type RemoteHealth =
-    | "healthy"
-    | "degraded"
-    | "auth"
-    | "unreachable"
-    | "unknown"
-    | "branch-drift"
+  type RemoteHealth = "healthy" | "degraded" | "auth" | "unreachable" | "unknown" | "branch-drift"
 
   type RemoteStatus = {
     url: string
@@ -163,7 +162,10 @@
     onClose?: () => void
     onOpenSettings?: () => void
     onRefresh?: () => Promise<void> | void
-    onSyncBranchStateFromRemote?: (params: {remoteUrl: string; headBranch?: string}) => Promise<void> | void
+    onSyncBranchStateFromRemote?: (params: {
+      remoteUrl: string
+      headBranch?: string
+    }) => Promise<void> | void
     onPublishEvent?: (event: any) => Promise<unknown>
     onFetchRelayEvents?: (params: {
       relays: string[]
@@ -199,7 +201,13 @@
 
   const cloneUrls = $derived.by(() =>
     Array.from(
-      new Set(filterValidCloneUrls((providedCloneUrls.length > 0 ? providedCloneUrls : repoClass.cloneUrls || []).map(url => String(url || "").trim()))),
+      new Set(
+        filterValidCloneUrls(
+          (providedCloneUrls.length > 0 ? providedCloneUrls : repoClass.cloneUrls || []).map(url =>
+            String(url || "").trim(),
+          ),
+        ),
+      ),
     ),
   )
   const primaryUrl = $derived.by(() => String(cloneUrls[0] || ""))
@@ -219,7 +227,12 @@
       const parsed = new URL(raw)
       return `${parsed.hostname.toLowerCase()}${stripGit(parsed.pathname.replace(/\/+$/, "").toLowerCase())}`
     } catch {
-      return stripGit(raw.replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase())
+      return stripGit(
+        raw
+          .replace(/^https?:\/\//i, "")
+          .replace(/\/+$/, "")
+          .toLowerCase(),
+      )
     }
   }
 
@@ -242,7 +255,8 @@
   const summarizeBranches = (branches: string[]) => {
     if (branches.length === 0) return "none"
     const visible = branches.slice(0, 4)
-    const suffix = branches.length > visible.length ? ` +${branches.length - visible.length} more` : ""
+    const suffix =
+      branches.length > visible.length ? ` +${branches.length - visible.length} more` : ""
     return `${visible.join(", ")}${suffix}`
   }
 
@@ -289,12 +303,15 @@
   const summarizeBackfillActions = (actions: BackfillRemoteAction[]) => {
     if (actions.length === 0) return "none"
     const visible = actions.slice(0, 4).map(action => action.name)
-    const suffix = actions.length > visible.length ? ` +${actions.length - visible.length} more` : ""
+    const suffix =
+      actions.length > visible.length ? ` +${actions.length - visible.length} more` : ""
     return `${visible.join(", ")}${suffix}`
   }
 
   const normalizeTokenHost = (value: string) => {
-    const raw = String(value || "").trim().toLowerCase()
+    const raw = String(value || "")
+      .trim()
+      .toLowerCase()
     if (!raw) return ""
 
     if (raw.startsWith("git@")) {
@@ -334,7 +351,10 @@
   const isKnownBackfillVendor = (
     provider: string,
   ): provider is "github" | "gitlab" | "gitea" | "bitbucket" =>
-    provider === "github" || provider === "gitlab" || provider === "gitea" || provider === "bitbucket"
+    provider === "github" ||
+    provider === "gitlab" ||
+    provider === "gitea" ||
+    provider === "bitbucket"
 
   const getKnownBackfillVendorLabel = (provider: "github" | "gitlab" | "gitea" | "bitbucket") => {
     if (provider === "github") return "GitHub"
@@ -467,7 +487,9 @@
   const getBackfillRemoteAuthState = (remoteUrl: string): BackfillRemoteAuthState =>
     backfillRemoteAuthStates[remoteUrl] || getBackfillRemoteDefaultAuthState(remoteUrl)
 
-  const checkBackfillKnownVendorWriteAccess = async (remoteUrl: string): Promise<BackfillRemoteAuthState> => {
+  const checkBackfillKnownVendorWriteAccess = async (
+    remoteUrl: string,
+  ): Promise<BackfillRemoteAuthState> => {
     const parsed = parseRepoUrl(remoteUrl)
     if (!isKnownBackfillVendor(parsed.provider)) {
       return getBackfillRemoteDefaultAuthState(remoteUrl)
@@ -543,9 +565,13 @@
       } catch (error) {
         const classified = classifyBackfillRemoteCheckError(error)
         if (classified.hardBlock) {
-          explicitFailures.add(classified.message || `${providerLabel} rejected the push access check.`)
+          explicitFailures.add(
+            classified.message || `${providerLabel} rejected the push access check.`,
+          )
         } else {
-          unknownFailures.add(classified.message || `Could not verify push access for ${providerLabel}.`)
+          unknownFailures.add(
+            classified.message || `Could not verify push access for ${providerLabel}.`,
+          )
         }
       }
     }
@@ -606,7 +632,8 @@
           hardBlock: true,
           warningOnly: false,
           label: "owner only",
-          message: "Could not verify the GRASP repo owner from this clone URL, so backfill stays disabled.",
+          message:
+            "Could not verify the GRASP repo owner from this clone URL, so backfill stays disabled.",
         }
       }
 
@@ -637,7 +664,9 @@
     }
 
     const states = await Promise.all(
-      actionableRemotes.map(async remote => [remote.remoteUrl, await checkBackfillRemoteAuthState(remote)] as const),
+      actionableRemotes.map(
+        async remote => [remote.remoteUrl, await checkBackfillRemoteAuthState(remote)] as const,
+      ),
     )
 
     return Object.fromEntries(states)
@@ -669,7 +698,9 @@
 
   const getRefSelectableActionCounts = (ref: BackfillRefPlan) => {
     const createCount = getRefActionRemoteUrls(ref, "create", {selectableOnly: true}).length
-    const fastForwardCount = getRefActionRemoteUrls(ref, "fast-forward", {selectableOnly: true}).length
+    const fastForwardCount = getRefActionRemoteUrls(ref, "fast-forward", {
+      selectableOnly: true,
+    }).length
 
     return {
       createCount,
@@ -689,7 +720,8 @@
     }
   }
 
-  const hasRefSelectableTargets = (ref: BackfillRefPlan) => getRefSelectableActionCounts(ref).total > 0
+  const hasRefSelectableTargets = (ref: BackfillRefPlan) =>
+    getRefSelectableActionCounts(ref).total > 0
 
   const describeBlockedRefTargets = (
     actionLabel: "create" | "fast-forward",
@@ -877,7 +909,10 @@
       return (await Promise.race([
         operation(),
         new Promise<T>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
+          timeoutId = setTimeout(
+            () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+            timeoutMs,
+          )
         }),
       ])) as T
     } finally {
@@ -928,7 +963,8 @@
       } else if (currentOid) {
         failedRefs.push({
           ref: ref.ref,
-          error: "Remote gained this ref since analysis. Re-run backfill discovery before retrying.",
+          error:
+            "Remote gained this ref since analysis. Re-run backfill discovery before retrying.",
         })
         continue
       }
@@ -948,9 +984,12 @@
   ): Promise<BackfillExecutionResult> => {
     if (targets.length === 0) return createEmptyBackfillExecutionResult()
     if (!repoClass.key) throw new Error("Repository key is missing")
-    if (!repoClass.viewerPubkey) throw new Error("Sign in with your pubkey before backfilling GRASP remotes")
+    if (!repoClass.viewerPubkey)
+      throw new Error("Sign in with your pubkey before backfilling GRASP remotes")
     if (!onPublishEvent || !onFetchRelayEvents) {
-      throw new Error("GRASP backfill is unavailable because repo event publishing is not configured")
+      throw new Error(
+        "GRASP backfill is unavailable because repo event publishing is not configured",
+      )
     }
 
     await repoClass.workerManager.initialize()
@@ -1002,7 +1041,8 @@
           localRepoId: stageRepoId,
           repoName: parseRepoNameFromRemoteUrl(target.remoteUrl),
           repoDescription: repoClass.description || "",
-          defaultBranch: expectedBranch || repoClass.mainBranch || repoClass.selectedBranch || "main",
+          defaultBranch:
+            expectedBranch || repoClass.mainBranch || repoClass.selectedBranch || "main",
           refs: preflight.readyRefs.map(ref => ({
             type: ref.type,
             name: ref.name,
@@ -1065,7 +1105,10 @@
 
   const initializeBackfillSelections = (discovery: BackfillDiscovery) => {
     selectedBackfillRemotes = Object.fromEntries(
-      discovery.remotes.map(remote => [remote.remoteUrl, remote.selectedByDefault && isBackfillRemoteSelectable(remote)]),
+      discovery.remotes.map(remote => [
+        remote.remoteUrl,
+        remote.selectedByDefault && isBackfillRemoteSelectable(remote),
+      ]),
     )
     selectedBackfillRefs = Object.fromEntries(
       discovery.refs.map(ref => [ref.ref, ref.selectedByDefault && hasRefSelectableTargets(ref)]),
@@ -1101,7 +1144,9 @@
     contentRoot?.scrollIntoView({block: "start", behavior: "smooth"})
   }
 
-  const classifyProbeError = (error: unknown): {health: RemoteHealth; message: string; details: string} => {
+  const classifyProbeError = (
+    error: unknown,
+  ): {health: RemoteHealth; message: string; details: string} => {
     const details = error instanceof Error ? error.message : String(error || "Unknown error")
     const lower = details.toLowerCase()
 
@@ -1276,7 +1321,9 @@
   }
 
   const useForReads = (url: string) => {
-    const failedUrls = statuses.filter(status => status.health !== "healthy").map(status => status.url)
+    const failedUrls = statuses
+      .filter(status => status.health !== "healthy")
+      .map(status => status.url)
     updateUrlPreferenceCache(repoClass.key, url, failedUrls)
     actionMessage = `Using ${url} as preferred read remote for this session`
     pushToast({message: "Preferred read remote updated"})
@@ -1416,7 +1463,9 @@
 
   const selectedBackfillTargets = $derived.by(() =>
     (backfillDiscovery?.remotes || [])
-      .filter(remote => selectedBackfillRemotes[remote.remoteUrl] && isBackfillRemoteSelectable(remote))
+      .filter(
+        remote => selectedBackfillRemotes[remote.remoteUrl] && isBackfillRemoteSelectable(remote),
+      )
       .map(remote => ({
         remoteUrl: remote.remoteUrl,
         refs: remote.actions
@@ -1480,7 +1529,9 @@
           })) as BackfillExecutionResult
           resultBatches.push(standardResult)
         } catch (error) {
-          resultBatches.push(createFailedBackfillExecutionResult(selectedStandardTargetsSnapshot, error))
+          resultBatches.push(
+            createFailedBackfillExecutionResult(selectedStandardTargetsSnapshot, error),
+          )
         }
       }
 
@@ -1489,7 +1540,9 @@
           const graspResult = await executeGraspBackfill(selectedGraspTargetsSnapshot)
           resultBatches.push(graspResult)
         } catch (error) {
-          resultBatches.push(createFailedBackfillExecutionResult(selectedGraspTargetsSnapshot, error))
+          resultBatches.push(
+            createFailedBackfillExecutionResult(selectedGraspTargetsSnapshot, error),
+          )
         }
       }
 
@@ -1507,7 +1560,11 @@
         skippedRefCount: 0,
       }
 
-      if (summary.failureCount === 0 && summary.failedRefCount === 0 && summary.pushedRefCount > 0) {
+      if (
+        summary.failureCount === 0 &&
+        summary.failedRefCount === 0 &&
+        summary.pushedRefCount > 0
+      ) {
         actionMessage = `Backfill complete. Pushed ${summary.pushedRefCount} ref${summary.pushedRefCount === 1 ? "" : "s"} to ${summary.successCount} remote${summary.successCount === 1 ? "" : "s"}.`
         pushToast({message: "Remote backfill completed", theme: "success"})
         repoClass.clearCloneUrlErrors()
@@ -1518,7 +1575,8 @@
         actionMessage = `Backfill finished with warnings. Pushed ${summary.pushedRefCount} ref${summary.pushedRefCount === 1 ? "" : "s"}, failed ${summary.failedRefCount} and skipped ${summary.skippedRefCount}.`
         pushToast({message: "Remote backfill partially completed", theme: "warning"})
       } else {
-        actionMessage = "Backfill did not push any refs. Re-run analysis and review the remote results."
+        actionMessage =
+          "Backfill did not push any refs. Re-run analysis and review the remote results."
         pushToast({message: "Remote backfill failed", theme: "error"})
       }
 
@@ -1563,9 +1621,13 @@
 
   const openAuthSetup = (url: string) => {
     const host = parseHostFromUrl(url)
-    pushModal(GitAuthAdd, {
-      initialHost: host || undefined,
-    }, {replaceState: true})
+    pushModal(
+      GitAuthAdd,
+      {
+        initialHost: host || undefined,
+      },
+      {replaceState: true},
+    )
   }
 
   onMount(() => {
@@ -1599,18 +1661,19 @@
     {/snippet}
     {#snippet info()}
       {#if step === "status"}
-        Probe remotes, review recent read observations, and launch a manual backfill analysis when the remotes drift.
+        Probe remotes, review recent read observations, and launch a manual backfill analysis when
+        the remotes drift.
       {:else}
-        Review safe branch and tag backfill actions, select the remotes you want to repair, and leave conflicting refs untouched.
+        Review safe branch and tag backfill actions, select the remotes you want to repair, and
+        leave conflicting refs untouched.
       {/if}
     {/snippet}
   </ModalHeader>
 
   {#if cloneUrls.length === 0}
     <p class="text-sm text-muted-foreground">This repository has no clone URLs configured.</p>
-  {:else}
-    {#if step === "status"}
-      <div class="min-w-0 flex flex-col gap-3">
+  {:else if step === "status"}
+    <div class="flex min-w-0 flex-col gap-3">
       <div class="min-w-0 rounded-md border border-border bg-muted/20 p-3 text-xs">
         <div class="font-semibold">Primary remote</div>
         <div class="mt-1 break-all font-mono">{primaryUrl || "Not set"}</div>
@@ -1644,28 +1707,32 @@
                 <div class="mt-1 break-all font-mono text-xs">{status.url}</div>
                 <div class="mt-2 text-sm">{status.message}</div>
                 {#if status.details}
-                  <div class="mt-1 text-xs text-muted-foreground break-all">{status.details}</div>
+                  <div class="mt-1 break-all text-xs text-muted-foreground">{status.details}</div>
                 {/if}
                 {#if status.probeDetails}
                   <div class="mt-1 text-xs text-muted-foreground">{status.probeDetails}</div>
                 {/if}
               </div>
               {#if status.health === "branch-drift" && onSyncBranchStateFromRemote}
-              <Button
-                class="btn btn-ghost btn-xs self-start sm:self-auto"
-                onclick={() => syncBranchStateFromRemote(status)}
-                disabled={Boolean(syncingBranchStateUrl)}>
-                {syncingBranchStateUrl === status.url ? "Syncing..." : "Sync Branch State"}
-              </Button>
-            {:else if !status.isPrimary && status.health === "healthy"}
-              <Button class="btn btn-ghost btn-xs self-start sm:self-auto" onclick={() => useForReads(status.url)}>
-                Use For Reads
-              </Button>
-            {:else if status.health === "auth" || status.recordedIssueKind === "auth"}
-              <Button class="btn btn-ghost btn-xs self-start sm:self-auto" onclick={() => openAuthSetup(status.url)}>
-                Add credentials
-              </Button>
-            {/if}
+                <Button
+                  class="btn btn-ghost btn-xs self-start sm:self-auto"
+                  onclick={() => syncBranchStateFromRemote(status)}
+                  disabled={Boolean(syncingBranchStateUrl)}>
+                  {syncingBranchStateUrl === status.url ? "Syncing..." : "Sync Branch State"}
+                </Button>
+              {:else if !status.isPrimary && status.health === "healthy"}
+                <Button
+                  class="btn btn-ghost btn-xs self-start sm:self-auto"
+                  onclick={() => useForReads(status.url)}>
+                  Use For Reads
+                </Button>
+              {:else if status.health === "auth" || status.recordedIssueKind === "auth"}
+                <Button
+                  class="btn btn-ghost btn-xs self-start sm:self-auto"
+                  onclick={() => openAuthSetup(status.url)}>
+                  Add credentials
+                </Button>
+              {/if}
             </div>
           </div>
         {/each}
@@ -1678,13 +1745,17 @@
       {/if}
     </div>
   {:else}
-    <div class="min-w-0 flex flex-col gap-3">
+    <div class="flex min-w-0 flex-col gap-3">
       {#if backfillDiscovery}
         <div class="rounded-md border border-border bg-muted/20 p-3 text-xs">
           <div class="font-semibold">Backfill summary</div>
           <div class="mt-1 text-muted-foreground">
-            Scanned {backfillDiscovery.summary.reachableRemoteCount}/{backfillDiscovery.summary.remoteCount}
-            reachable remotes. {backfillDiscovery.summary.actionableRefCount} ref{backfillDiscovery.summary.actionableRefCount === 1 ? "" : "s"}
+            Scanned {backfillDiscovery.summary.reachableRemoteCount}/{backfillDiscovery.summary
+              .remoteCount}
+            reachable remotes. {backfillDiscovery.summary.actionableRefCount} ref{backfillDiscovery
+              .summary.actionableRefCount === 1
+              ? ""
+              : "s"}
             need attention.
           </div>
           {#if backfillStepHint}
@@ -1692,27 +1763,36 @@
           {/if}
           {#if !canBackfill}
             <div class="mt-2 text-amber-700 dark:text-amber-300">
-              You can inspect the plan, but only repository maintainers can push the selected backfill actions.
+              You can inspect the plan, but only repository maintainers can push the selected
+              backfill actions.
             </div>
           {/if}
           {#if backfillNoTokenBlockedRemotes.length > 0}
             <div class="mt-2 text-amber-700 dark:text-amber-300">
-              Add credentials before backfilling {summarizeRemoteUrls(backfillNoTokenBlockedRemotes.map(remote => remote.remoteUrl))}.
+              Add credentials before backfilling {summarizeRemoteUrls(
+                backfillNoTokenBlockedRemotes.map(remote => remote.remoteUrl),
+              )}.
             </div>
           {/if}
           {#if backfillSignInBlockedRemotes.length > 0}
             <div class="mt-2 text-amber-700 dark:text-amber-300">
-              Sign in with your pubkey before backfilling {summarizeRemoteUrls(backfillSignInBlockedRemotes.map(remote => remote.remoteUrl))}.
+              Sign in with your pubkey before backfilling {summarizeRemoteUrls(
+                backfillSignInBlockedRemotes.map(remote => remote.remoteUrl),
+              )}.
             </div>
           {/if}
           {#if backfillPermissionBlockedRemotes.length > 0}
             <div class="mt-2 text-amber-700 dark:text-amber-300">
-              Some configured clone URLs are readable but not pushable for this account: {summarizeRemoteUrls(backfillPermissionBlockedRemotes.map(remote => remote.remoteUrl))}.
+              Some configured clone URLs are readable but not pushable for this account: {summarizeRemoteUrls(
+                backfillPermissionBlockedRemotes.map(remote => remote.remoteUrl),
+              )}.
             </div>
           {/if}
           {#if backfillAuthWarningRemotes.length > 0}
             <div class="mt-1 text-xs text-muted-foreground">
-              Push access could not be verified for {summarizeRemoteUrls(backfillAuthWarningRemotes.map(remote => remote.remoteUrl))}. Those remotes stay selectable, but pushes may still fail.
+              Push access could not be verified for {summarizeRemoteUrls(
+                backfillAuthWarningRemotes.map(remote => remote.remoteUrl),
+              )}. Those remotes stay selectable, but pushes may still fail.
             </div>
           {/if}
         </div>
@@ -1724,7 +1804,8 @@
         {/if}
 
         {#if backfillChecking}
-          <div class="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+          <div
+            class="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
             Refreshing backfill analysis...
           </div>
         {/if}
@@ -1744,9 +1825,14 @@
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2 text-xs">
                     <span class="rounded border border-border px-1.5 py-0.5">
-                      {normalizeUrl(remote.remoteUrl) === normalizeUrl(primaryUrl) ? "Primary" : "Secondary"}
+                      {normalizeUrl(remote.remoteUrl) === normalizeUrl(primaryUrl)
+                        ? "Primary"
+                        : "Secondary"}
                     </span>
-                    <span class={remote.reachable ? "uppercase tracking-wide text-emerald-700 dark:text-emerald-300" : "uppercase tracking-wide text-rose-700 dark:text-rose-300"}>
+                    <span
+                      class={remote.reachable
+                        ? "uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+                        : "uppercase tracking-wide text-rose-700 dark:text-rose-300"}>
                       {remote.reachable ? "reachable" : "unreachable"}
                     </span>
                     {#if remote.createCount > 0}
@@ -1775,22 +1861,29 @@
                     <div class="mt-1 text-xs text-muted-foreground">HEAD: {remote.headBranch}</div>
                   {/if}
                   {#if remote.error}
-                    <div class="mt-1 text-xs text-muted-foreground break-all">{remote.error}</div>
+                    <div class="mt-1 break-all text-xs text-muted-foreground">{remote.error}</div>
                   {/if}
                   {#if remote.actions.length > 0}
                     <div class="mt-2 text-sm">
                       Needs {summarizeBackfillActions(remote.actions)}
                     </div>
                   {:else if remote.reachable}
-                    <div class="mt-2 text-sm text-muted-foreground">No safe backfill actions for this remote.</div>
+                    <div class="mt-2 text-sm text-muted-foreground">
+                      No safe backfill actions for this remote.
+                    </div>
                   {/if}
                   {#if remote.conflicts.length > 0}
                     <div class="mt-1 text-xs text-muted-foreground">
-                      Conflicts: {summarizeBranches(remote.conflicts.map(conflict => conflict.name))}
+                      Conflicts: {summarizeBranches(
+                        remote.conflicts.map(conflict => conflict.name),
+                      )}
                     </div>
                   {/if}
                   {#if remote.actions.length > 0 && authState.message}
-                    <div class="mt-2 text-xs {authState.hardBlock ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}">
+                    <div
+                      class="mt-2 text-xs {authState.hardBlock
+                        ? 'text-amber-700 dark:text-amber-300'
+                        : 'text-muted-foreground'}">
                       {authState.message}
                     </div>
                   {/if}
@@ -1798,15 +1891,16 @@
               </label>
               {#if remote.actions.length > 0 && !isGraspLikeRemote(remote.remoteUrl) && (authState.status === "no-token" || authState.status === "read-only")}
                 <div class="mt-2 flex flex-wrap gap-2">
-                  <Button class="btn btn-ghost btn-xs" onclick={() => openAuthSetup(remote.remoteUrl)}>
+                  <Button
+                    class="btn btn-ghost btn-xs"
+                    onclick={() => openAuthSetup(remote.remoteUrl)}>
                     Add credentials
                   </Button>
                   <a
                     href={ACCESS_TOKEN_SETTINGS_PATH}
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="btn btn-ghost btn-xs text-blue-600 hover:text-blue-500"
-                  >
+                    class="btn btn-ghost btn-xs text-blue-600 hover:text-blue-500">
                     Token settings
                   </a>
                 </div>
@@ -1819,16 +1913,20 @@
           <div>
             <div class="font-semibold">Refs to backfill</div>
             <div class="mt-1 text-xs text-muted-foreground">
-              Only safe refs with at least one pushable target stay selectable. Conflicts and blocked refs remain visible but disabled.
+              Only safe refs with at least one pushable target stay selectable. Conflicts and
+              blocked refs remain visible but disabled.
             </div>
           </div>
 
           {#if backfillBranchRefs.length > 0}
             <div class="flex flex-col gap-2">
-              <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Branches</div>
+              <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Branches
+              </div>
               {#each backfillBranchRefs as ref (ref.ref)}
                 {@const refSelectable = hasRefSelectableTargets(ref)}
-                <label class="flex min-w-0 items-start gap-3 rounded-md border border-border bg-card p-3">
+                <label
+                  class="flex min-w-0 items-start gap-3 rounded-md border border-border bg-card p-3">
                   <input
                     class="checkbox checkbox-sm mt-1"
                     type="checkbox"
@@ -1837,13 +1935,17 @@
                     onchange={() => toggleBackfillRef(ref.ref)} />
                   <div class="min-w-0 flex-1">
                     <div class="flex flex-wrap items-center gap-2 text-xs">
-                      <span class="rounded border border-border px-1.5 py-0.5">{formatRefKind(ref.type)}</span>
+                      <span class="rounded border border-border px-1.5 py-0.5"
+                        >{formatRefKind(ref.type)}</span>
                       {#if ref.status === "ready" && refSelectable}
-                        <span class="uppercase tracking-wide text-emerald-700 dark:text-emerald-300">safe</span>
+                        <span class="uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+                          >safe</span>
                       {:else if ref.status === "ready"}
-                        <span class="uppercase tracking-wide text-amber-700 dark:text-amber-300">blocked</span>
+                        <span class="uppercase tracking-wide text-amber-700 dark:text-amber-300"
+                          >blocked</span>
                       {:else}
-                        <span class="uppercase tracking-wide text-rose-700 dark:text-rose-300">conflict</span>
+                        <span class="uppercase tracking-wide text-rose-700 dark:text-rose-300"
+                          >conflict</span>
                       {/if}
                     </div>
                     <div class="mt-1 break-all font-mono text-xs">{ref.ref}</div>
@@ -1861,7 +1963,9 @@
                     {/if}
                     {#if ref.effectiveOid}
                       <div class="mt-1 text-xs text-muted-foreground">
-                        Effective tip {formatOid(ref.effectiveOid)} from {summarizeRemoteUrls(ref.sourceUrls)}
+                        Effective tip {formatOid(ref.effectiveOid)} from {summarizeRemoteUrls(
+                          ref.sourceUrls,
+                        )}
                       </div>
                     {/if}
                   </div>
@@ -1872,10 +1976,13 @@
 
           {#if backfillTagRefs.length > 0}
             <div class="flex flex-col gap-2">
-              <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</div>
+              <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Tags
+              </div>
               {#each backfillTagRefs as ref (ref.ref)}
                 {@const refSelectable = hasRefSelectableTargets(ref)}
-                <label class="flex min-w-0 items-start gap-3 rounded-md border border-border bg-card p-3">
+                <label
+                  class="flex min-w-0 items-start gap-3 rounded-md border border-border bg-card p-3">
                   <input
                     class="checkbox checkbox-sm mt-1"
                     type="checkbox"
@@ -1884,13 +1991,17 @@
                     onchange={() => toggleBackfillRef(ref.ref)} />
                   <div class="min-w-0 flex-1">
                     <div class="flex flex-wrap items-center gap-2 text-xs">
-                      <span class="rounded border border-border px-1.5 py-0.5">{formatRefKind(ref.type)}</span>
+                      <span class="rounded border border-border px-1.5 py-0.5"
+                        >{formatRefKind(ref.type)}</span>
                       {#if ref.status === "ready" && refSelectable}
-                        <span class="uppercase tracking-wide text-emerald-700 dark:text-emerald-300">safe</span>
+                        <span class="uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+                          >safe</span>
                       {:else if ref.status === "ready"}
-                        <span class="uppercase tracking-wide text-amber-700 dark:text-amber-300">blocked</span>
+                        <span class="uppercase tracking-wide text-amber-700 dark:text-amber-300"
+                          >blocked</span>
                       {:else}
-                        <span class="uppercase tracking-wide text-rose-700 dark:text-rose-300">conflict</span>
+                        <span class="uppercase tracking-wide text-rose-700 dark:text-rose-300"
+                          >conflict</span>
                       {/if}
                     </div>
                     <div class="mt-1 break-all font-mono text-xs">{ref.ref}</div>
@@ -1908,7 +2019,9 @@
                     {/if}
                     {#if ref.effectiveOid}
                       <div class="mt-1 text-xs text-muted-foreground">
-                        Effective tip {formatOid(ref.effectiveOid)} from {summarizeRemoteUrls(ref.sourceUrls)}
+                        Effective tip {formatOid(ref.effectiveOid)} from {summarizeRemoteUrls(
+                          ref.sourceUrls,
+                        )}
                       </div>
                     {/if}
                   </div>
@@ -1929,26 +2042,35 @@
         </div>
       {/if}
     </div>
-    {/if}
   {/if}
 
   <ModalFooter>
     {#if step === "status"}
       <div class="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
-          <Button class="btn btn-ghost btn-sm w-full sm:w-auto" onclick={probeRemotes} disabled={checking}>
+          <Button
+            class="btn btn-ghost btn-sm w-full sm:w-auto"
+            onclick={probeRemotes}
+            disabled={checking}>
             {checking ? "Checking..." : "Re-check remotes"}
           </Button>
-          <Button class="btn btn-ghost btn-sm w-full sm:w-auto" onclick={clearWarningState}>Clear warning</Button>
+          <Button class="btn btn-ghost btn-sm w-full sm:w-auto" onclick={clearWarningState}
+            >Clear warning</Button>
         </div>
         <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
           <Button class="btn btn-ghost btn-sm w-full sm:w-auto" onclick={openSettings}>
             Edit clone URLs
           </Button>
-          <Button class="btn btn-ghost btn-sm w-full sm:w-auto" onclick={runBackfillDiscovery} disabled={backfillChecking || cloneUrls.length === 0}>
+          <Button
+            class="btn btn-ghost btn-sm w-full sm:w-auto"
+            onclick={runBackfillDiscovery}
+            disabled={backfillChecking || cloneUrls.length === 0}>
             {backfillChecking ? "Analyzing..." : "Analyze backfill"}
           </Button>
-          <Button class="btn btn-outline btn-sm w-full sm:w-auto" onclick={runSyncRetry} disabled={syncing || cloneUrls.length === 0}>
+          <Button
+            class="btn btn-outline btn-sm w-full sm:w-auto"
+            onclick={runSyncRetry}
+            disabled={syncing || cloneUrls.length === 0}>
             {syncing ? "Retrying..." : "Retry sync"}
           </Button>
           <Button class="btn btn-primary btn-sm w-full sm:w-auto" onclick={close}>Done</Button>
@@ -1960,19 +2082,31 @@
           {backfillStepHint || "No backfill actions selected."}
         </div>
         <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
-          <Button class="btn btn-ghost btn-sm w-full sm:w-auto" onclick={() => (step = "status")} disabled={backfillChecking || backfilling}>
+          <Button
+            class="btn btn-ghost btn-sm w-full sm:w-auto"
+            onclick={() => (step = "status")}
+            disabled={backfillChecking || backfilling}>
             Back
           </Button>
-          <Button class="btn btn-ghost btn-sm w-full sm:w-auto" onclick={runBackfillDiscovery} disabled={backfillChecking || backfilling}>
+          <Button
+            class="btn btn-ghost btn-sm w-full sm:w-auto"
+            onclick={runBackfillDiscovery}
+            disabled={backfillChecking || backfilling}>
             {backfillChecking ? "Analyzing..." : "Re-run analysis"}
           </Button>
-          <Button class="btn btn-outline btn-sm w-full sm:w-auto" onclick={close} disabled={backfillChecking || backfilling}>
+          <Button
+            class="btn btn-outline btn-sm w-full sm:w-auto"
+            onclick={close}
+            disabled={backfillChecking || backfilling}>
             Done
           </Button>
           <Button
             class="btn btn-primary btn-sm w-full sm:w-auto"
             onclick={applyBackfill}
-            disabled={backfillChecking || backfilling || !canBackfill || selectedBackfillTargets.length === 0}>
+            disabled={backfillChecking ||
+              backfilling ||
+              !canBackfill ||
+              selectedBackfillTargets.length === 0}>
             {backfilling ? "Backfilling..." : "Backfill selected"}
           </Button>
         </div>

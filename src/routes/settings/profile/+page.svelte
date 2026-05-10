@@ -25,8 +25,8 @@
   import {PLATFORM_NAME} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
-  import GraspServersPanel from "@lib/budabit/components/GraspServersPanel.svelte";
-  import GitAuth from "@app/components/GitAuth.svelte";
+  import GraspServersPanel from "@lib/budabit/components/GraspServersPanel.svelte"
+  import GitAuth from "@app/components/GitAuth.svelte"
 
   const npub = nip19.npubEncode($pubkey!)
   const profile = deriveProfile($pubkey!)
@@ -149,7 +149,6 @@
   <div class="card2 bg-alt shadow-xl">
     <GraspServersPanel></GraspServersPanel>
   </div>
-
 
   <div class="card2 bg-alt shadow-xl">
     <div class="flex items-center justify-between">

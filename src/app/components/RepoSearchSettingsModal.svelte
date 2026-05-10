@@ -1,14 +1,7 @@
 <script lang="ts">
   import Button from "@lib/components/Button.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import {
-    ChevronDown,
-    ChevronUp,
-    GripVertical,
-    ListFilter,
-    RotateCcw,
-    X,
-  } from "@lucide/svelte"
+  import {ChevronDown, ChevronUp, GripVertical, ListFilter, RotateCcw, X} from "@lucide/svelte"
   import {
     getDefaultRepoDiscoveryPrioritySettings,
     type RepoDiscoveryPrioritySetting,
@@ -41,9 +34,7 @@
   }
 
   const toggleEnabled = (index: number, enabled: boolean) => {
-    draft = draft.map((item, itemIndex) =>
-      itemIndex === index ? {...item, enabled} : item,
-    )
+    draft = draft.map((item, itemIndex) => (itemIndex === index ? {...item, enabled} : item))
   }
 
   const handleDragStart = (index: number, event: DragEvent) => {
@@ -89,10 +80,12 @@
   }
 </script>
 
-<div class="flex max-h-[85vh] w-[min(42rem,calc(100vw-1.5rem))] flex-col gap-4 overflow-hidden rounded-box border border-border bg-card p-4 shadow-xl">
+<div
+  class="flex max-h-[85vh] w-[min(42rem,calc(100vw-1.5rem))] flex-col gap-4 overflow-hidden rounded-box border border-border bg-card p-4 shadow-xl">
   <div class="flex items-start justify-between gap-3">
     <div class="flex min-w-0 items-start gap-3">
-      <div class="mt-0.5 rounded-full border border-border bg-background/80 p-2 text-muted-foreground">
+      <div
+        class="mt-0.5 rounded-full border border-border bg-background/80 p-2 text-muted-foreground">
         <ListFilter class="h-4 w-4" />
       </div>
       <div class="min-w-0">
@@ -144,18 +137,21 @@
           class="checkbox checkbox-sm"
           checked={item.enabled}
           aria-label={`Enable ${item.label}`}
-          onchange={event => toggleEnabled(index, (event.currentTarget as HTMLInputElement).checked)} />
+          onchange={event =>
+            toggleEnabled(index, (event.currentTarget as HTMLInputElement).checked)} />
 
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
             <p class="font-medium text-foreground">{item.label}</p>
             {#if index === 0}
-              <span class="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <span
+                class="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
                 Primary
               </span>
             {/if}
             {#if !item.enabled}
-              <span class="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <span
+                class="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
                 Off
               </span>
             {/if}

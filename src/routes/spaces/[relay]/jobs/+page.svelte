@@ -21,7 +21,7 @@
   import {makeFeed} from "@app/core/requests"
   import Jobs from "@assets/icons/jobs.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
-  
+
   const url = decodeRelay($page.params.relay)
   const mutedPubkeys = getPubkeyTagValues(getListTags($userMuteList))
   const jobFilter = {kinds: [FREELANCE_JOB], "#s": ["0"]}

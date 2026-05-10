@@ -53,13 +53,13 @@
     maintainerSetRepoAddressesByRepoAddress,
   } from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
-  
+
   const repoClass = getContext<Repo>(REPO_KEY)
-  
+
   if (!repoClass) {
     throw new Error("Repo context not available")
   }
-  
+
   const naddrRelays = $derived.by(() => (($page.data as any)?.naddrRelays || []) as string[])
   const repoBoundRelays = $derived.by(() => {
     return getRepoScopedRelays(repoClass.repoEvent as any, naddrRelays)
@@ -71,7 +71,7 @@
     Boolean(event && (repository as any).isDeleted?.(event))
   const getIssueRepoAddress = (event?: {tags?: string[][]}) =>
     (event?.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] || ""
-  
+
   const directIssueEventStore = $derived.by(() => {
     if (!issueId) return undefined
     return deriveEventsAsc(
@@ -192,7 +192,12 @@
   const issueEditRepoAddress = $derived.by(() => issueRepoAddress || currentRepoAddress)
   const issueMaintainerSetRepoAddresses = $derived.by(() =>
     issueEditRepoAddress
-      ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, issueEditRepoAddress))
+      ? Array.from(
+          getMaintainerSetRepoAddresses(
+            $maintainerSetRepoAddressesByRepoAddress,
+            issueEditRepoAddress,
+          ),
+        )
       : [],
   )
   const issueCommentRepoRefs = $derived.by(() =>
@@ -242,14 +247,13 @@
   // Mirrored issues (from import) have "imported" and "original_date" tags — show original date
   const isMirrored = $derived.by(
     () =>
-      (issueEvent?.tags as Array<[string, string]> | undefined)?.some(
-        (t) => t[0] === "imported",
-      ) ?? false,
+      (issueEvent?.tags as Array<[string, string]> | undefined)?.some(t => t[0] === "imported") ??
+      false,
   )
   const originalDateTag = $derived.by(
     () =>
       (issueEvent?.tags as Array<[string, string]> | undefined)?.find(
-        (t) => t[0] === "original_date",
+        t => t[0] === "original_date",
       )?.[1],
   )
   const displayDate = $derived.by(() => {
@@ -343,8 +347,7 @@
     descriptionDraft = issue.content || ""
   })
 
-  const getPublishRelays = () =>
-    [...repoBoundRelays]
+  const getPublishRelays = () => [...repoBoundRelays]
 
   const getReactionProtect = async () => {
     const relay = repoBoundRelays[0] || ""
@@ -535,7 +538,6 @@
     return deriveEventsAsc(deriveEventsById({repository, filters: [getStatusFilter()]}))
   })
 
-
   // Centralized NIP-32 labels via store; avoid calling .get() in Svelte 5
   const labelsNormalized = $derived.by(() => {
     if (!issue) return [] as string[]
@@ -609,7 +611,9 @@
     const recipients = Array.from(
       new Set([...(effectiveMaintainers || []), issue?.author.pubkey, $pubkey].filter(Boolean)),
     )
-    const tags = (statusEvent.tags || []).filter((tag: string[]) => tag[0] !== "p" && tag[0] !== "a")
+    const tags = (statusEvent.tags || []).filter(
+      (tag: string[]) => tag[0] !== "p" && tag[0] !== "a",
+    )
     tags.unshift(...issueMaintainerSetRepoAddresses.map(address => ["a", address] as ["a", string]))
     tags.push(...recipients.map(recipient => ["p", recipient] as ["p", string]))
     const statusWithRecipients = {
@@ -674,7 +678,9 @@
   const searchProfiles = async (query: string) => {
     const trimmedQuery = query.trim()
     const selectedAssignees = new Set(assignees)
-    const pubkeys = trimmedQuery ? $profileSearch.searchValues(trimmedQuery) : recommendedAssigneePubkeys
+    const pubkeys = trimmedQuery
+      ? $profileSearch.searchValues(trimmedQuery)
+      : recommendedAssigneePubkeys
 
     return Array.from(new Set(pubkeys))
       .filter((pubkey): pubkey is string => Boolean(pubkey) && !selectedAssignees.has(pubkey))
@@ -687,15 +693,14 @@
 </svelte:head>
 
 {#if issue}
-  <div
-    class="px-2 py-2 sm:px-0 sm:py-4"
-    transition:slide>
+  <div class="px-2 py-2 sm:px-0 sm:py-4" transition:slide>
     <Card class="git-card p-4 transition-colors sm:p-6">
       <div class="flex items-start gap-2 sm:gap-4">
         {#if statusIcon}
           {@const {icon: Icon, color, bg} = statusIcon()}
           <div class="mt-1 flex-shrink-0">
-            <div class={`flex h-8 w-8 items-center justify-center rounded-full ${bg} sm:h-10 sm:w-10`}>
+            <div
+              class={`flex h-8 w-8 items-center justify-center rounded-full ${bg} sm:h-10 sm:w-10`}>
               <Icon class={`h-4 w-4 sm:h-6 sm:w-6 ${color}`} />
             </div>
           </div>
@@ -735,7 +740,9 @@
                   </div>
                 </div>
               {:else}
-                <h1 class="break-words text-lg font-semibold sm:text-xl">{issue.subject || "Issue"}</h1>
+                <h1 class="break-words text-lg font-semibold sm:text-xl">
+                  {issue.subject || "Issue"}
+                </h1>
                 {#if isMaintainerOrAuthor}
                   <button
                     class="mt-1 text-xs text-muted-foreground underline-offset-2 hover:underline"
@@ -831,7 +838,7 @@
         {#if labelsNormalized?.length}
           <div class="flex flex-wrap gap-1">
             {#each labelsNormalized as lbl (lbl)}
-              <span class="git-tag bg-muted inline-flex items-center gap-1 text-xs">
+              <span class="git-tag inline-flex items-center gap-1 bg-muted text-xs">
                 <span>{lbl}</span>
                 {#if isMaintainerOrAuthor}
                   <button

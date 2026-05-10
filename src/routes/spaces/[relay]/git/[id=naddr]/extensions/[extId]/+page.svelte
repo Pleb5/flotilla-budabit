@@ -1,3 +1,61 @@
+<style>
+  .extension-panel {
+    width: 100%;
+    height: calc(100vh - 4rem);
+    min-height: 600px;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--card, #fff);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .extension-error {
+    padding: 12px 14px;
+    font-size: 12px;
+    color: #991b1b;
+    background: rgba(254, 226, 226, 0.8);
+    border-bottom: 1px solid rgba(239, 68, 68, 0.25);
+    word-break: break-word;
+  }
+
+  .extension-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(4px);
+    z-index: 10;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .extension-loading {
+      background: rgba(0, 0, 0, 0.85);
+    }
+  }
+
+  .extension-iframe {
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    border: none;
+    display: block;
+    opacity: 0;
+    transition: opacity 0.3s ease-in;
+  }
+
+  .extension-iframe:not(.loading) {
+    opacity: 1;
+  }
+</style>
+
 <script lang="ts">
   import {Card, Button} from "@nostr-git/ui"
   import {getContext} from "svelte"
@@ -9,7 +67,12 @@
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
-  import type {LoadedWidgetExtension, ExtensionManifest, SmartWidgetEvent, RepoContext} from "@app/extensions/types"
+  import type {
+    LoadedWidgetExtension,
+    ExtensionManifest,
+    SmartWidgetEvent,
+    RepoContext,
+  } from "@app/extensions/types"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
 
@@ -35,28 +98,28 @@
   })
 
   // Helper to determine if extension is a widget
-  const isWidget = $derived(extension && 'widgetType' in extension)
+  const isWidget = $derived(extension && "widgetType" in extension)
 
   // Normalize properties between NIP-89 manifests and Smart Widgets
   const extEntrypoint = $derived.by(() => {
     if (!extension) return undefined
-    if ('entrypoint' in extension) return extension.entrypoint
-    if ('appUrl' in extension) return extension.appUrl
+    if ("entrypoint" in extension) return extension.entrypoint
+    if ("appUrl" in extension) return extension.appUrl
     return undefined
   })
 
   const extName = $derived.by(() => {
     if (!extension) return extId
-    if ('name' in extension) return extension.name
-    if ('content' in extension && extension.content) return extension.content
-    if ('identifier' in extension) return extension.identifier
+    if ("name" in extension) return extension.name
+    if ("content" in extension && extension.content) return extension.content
+    if ("identifier" in extension) return extension.identifier
     return extId
   })
 
   const extIcon = $derived.by(() => {
     if (!extension) return undefined
-    if ('icon' in extension) return extension.icon
-    if ('iconUrl' in extension) return extension.iconUrl
+    if ("icon" in extension) return extension.icon
+    if ("iconUrl" in extension) return extension.iconUrl
     return undefined
   })
 
@@ -115,7 +178,7 @@
 
   function createExtensionInstance(): LoadedWidgetExtension | null {
     if (!extEntrypoint) return null
-    
+
     const origin = new URL(extEntrypoint).origin
     const identifier = `${extId}:${repoClass.repoEvent?.pubkey}:${repoClass.name}`
 
@@ -205,8 +268,8 @@
     // Force iframe reload by updating src with cache buster
     if (extEntrypoint) {
       const url = new URL(extEntrypoint)
-      url.searchParams.set('_retry', retryCount.toString())
-      url.searchParams.set('_t', Date.now().toString())
+      url.searchParams.set("_retry", retryCount.toString())
+      url.searchParams.set("_t", Date.now().toString())
       iframeSrc = url.toString()
     }
   }
@@ -248,9 +311,7 @@
           The extension "{extId}" is not installed.
         </p>
       </div>
-      <Button onclick={() => goto('/settings/extensions')}>
-        Go to Extension Settings
-      </Button>
+      <Button onclick={() => goto("/settings/extensions")}>Go to Extension Settings</Button>
     </div>
   </Card>
 {:else if !isEnabled}
@@ -263,9 +324,7 @@
           Enable the {extName} extension to use this feature.
         </p>
       </div>
-      <Button onclick={() => goto('/settings/extensions')}>
-        Go to Extension Settings
-      </Button>
+      <Button onclick={() => goto("/settings/extensions")}>Go to Extension Settings</Button>
     </div>
   </Card>
 {:else if !extEntrypoint}
@@ -286,9 +345,7 @@
       <div class="extension-error">
         <div class="flex items-center justify-between gap-4">
           <span class="flex-1">{error}</span>
-          <Button size="sm" onclick={retryLoad}>
-            Retry
-          </Button>
+          <Button size="sm" onclick={retryLoad}>Retry</Button>
         </div>
       </div>
     {/if}
@@ -304,68 +361,9 @@
       src={iframeSrc}
       title={extName}
       class="extension-iframe"
-      class:loading={loading}
+      class:loading
       sandbox="allow-scripts allow-same-origin allow-forms"
       onload={handleIframeLoad}
-      onerror={handleIframeError}
-    ></iframe>
+      onerror={handleIframeError}></iframe>
   </div>
 {/if}
-
-<style>
-  .extension-panel {
-    width: 100%;
-    height: calc(100vh - 4rem);
-    min-height: 600px;
-    border: 1px solid var(--border, #e5e7eb);
-    border-radius: 12px;
-    overflow: hidden;
-    background: var(--card, #fff);
-    position: relative;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .extension-error {
-    padding: 12px 14px;
-    font-size: 12px;
-    color: #991b1b;
-    background: rgba(254, 226, 226, 0.8);
-    border-bottom: 1px solid rgba(239, 68, 68, 0.25);
-    word-break: break-word;
-  }
-
-  .extension-loading {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(4px);
-    z-index: 10;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .extension-loading {
-      background: rgba(0, 0, 0, 0.85);
-    }
-  }
-
-  .extension-iframe {
-    width: 100%;
-    flex: 1 1 auto;
-    min-height: 0;
-    border: none;
-    display: block;
-    opacity: 0;
-    transition: opacity 0.3s ease-in;
-  }
-
-  .extension-iframe:not(.loading) {
-    opacity: 1;
-  }
-</style>

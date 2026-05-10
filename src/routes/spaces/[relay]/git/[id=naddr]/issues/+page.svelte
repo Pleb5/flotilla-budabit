@@ -30,7 +30,13 @@
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import {makeFeed} from "@app/core/requests"
   import {pushModal} from "@app/util/modal"
-  import {checked, setChecked, setCheckedAt, notifications, setCheckedForRepoNotifications} from "@app/util/notifications"
+  import {
+    checked,
+    setChecked,
+    setCheckedAt,
+    notifications,
+    setCheckedForRepoNotifications,
+  } from "@app/util/notifications"
   import {postComment} from "@lib/budabit/commands.js"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import {getInteractiveCardTarget, isMobile} from "@lib/html"
@@ -40,7 +46,7 @@
   import {page} from "$app/stores"
   import {decodeRelay} from "@app/core/state"
   import {beforeNavigate, goto} from "$app/navigation"
-  
+
   import {getContext} from "svelte"
   import {
     REPO_KEY,
@@ -139,12 +145,18 @@
   }
   const maintainerSetRepoAddresses = $derived.by((): string[] => {
     if (!repoAddress) return []
-    return Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress))
+    return Array.from(
+      getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
+    )
   })
   const maintainerSet = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
     const fallback = Array.from(
-      new Set([...(repoClass?.maintainers || []), owner].filter((value): value is string => Boolean(value))),
+      new Set(
+        [...(repoClass?.maintainers || []), owner].filter((value): value is string =>
+          Boolean(value),
+        ),
+      ),
     )
     if (!repoAddress) return fallback
     const maintainers = $maintainerSetByRepoAddress.get(repoAddress)
@@ -152,7 +164,11 @@
     return fallback
   })
 
-  const withIssueRepoContext = (event: IssueEvent, recipients: string[], repoAddresses: string[]): IssueEvent => {
+  const withIssueRepoContext = (
+    event: IssueEvent,
+    recipients: string[],
+    repoAddresses: string[],
+  ): IssueEvent => {
     const dedupedRecipients = Array.from(new Set(recipients.filter(Boolean)))
     const dedupedRepoAddresses = Array.from(new Set(repoAddresses.filter(Boolean)))
     const tags = (event.tags || []).filter((tag: string[]) => tag[0] !== "p" && tag[0] !== "a")
@@ -204,12 +220,14 @@
   const getIssueAnchorPayload = (issueId: string) => {
     const issueIndex = searchedIssues.findIndex(issue => issue.id === issueId)
     const issue = issueIndex >= 0 ? searchedIssues[issueIndex] : undefined
-    const title = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
+    const title = issue ? (getTagValue("subject", issue.event.tags) ?? "") : ""
 
     let offset = lastKnownIssueOffset
     if (scrollParent) {
       const containerRect = scrollParent.getBoundingClientRect()
-      const itemEl = scrollParent.querySelector(`[data-issue-id="${issueId}"]`) as HTMLElement | null
+      const itemEl = scrollParent.querySelector(
+        `[data-issue-id="${issueId}"]`,
+      ) as HTMLElement | null
       const itemRect = itemEl?.getBoundingClientRect()
       if (itemRect) {
         offset = itemRect.top - containerRect.top
@@ -221,7 +239,8 @@
       offset,
       id: issueId,
       title,
-      visibleCount: issueIndex >= 0 ? Math.max(visibleIssueCount, issueIndex + 1) : visibleIssueCount,
+      visibleCount:
+        issueIndex >= 0 ? Math.max(visibleIssueCount, issueIndex + 1) : visibleIssueCount,
     }
   }
 
@@ -234,7 +253,8 @@
     if (items.length === 0) return
 
     const containerRect = scrollEl.getBoundingClientRect()
-    let anchor = items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
+    let anchor =
+      items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
 
     if (!anchor) return
 
@@ -251,9 +271,8 @@
     lastKnownIssueIndex = index
     lastKnownIssueOffset = anchorOffset
     lastKnownIssueId = issue?.id ?? ""
-    lastKnownIssueTitle = issue ? getTagValue("subject", issue.event.tags) ?? "" : ""
+    lastKnownIssueTitle = issue ? (getTagValue("subject", issue.event.tags) ?? "") : ""
   }
-
 
   // Handle scroll events for showing scroll-to-top button
   $effect(() => {
@@ -278,8 +297,11 @@
     updateVisibleAnchor()
   })
 
-
-  const setPendingIssueRestore = (issue: IssueListItem, index: number, itemElement?: HTMLElement | null) => {
+  const setPendingIssueRestore = (
+    issue: IssueListItem,
+    index: number,
+    itemElement?: HTMLElement | null,
+  ) => {
     const scrollEl = scrollParent
     if (!scrollEl) return
 
@@ -297,12 +319,9 @@
     }
   }
 
-  const handleIssueClick = (
-    event: MouseEvent,
-    issue: IssueListItem,
-    index: number,
-  ) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  const handleIssueClick = (event: MouseEvent, issue: IssueListItem, index: number) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return
 
     const interactive = getInteractiveCardTarget(event.target, event.currentTarget)
     if (interactive) {
@@ -361,7 +380,11 @@
       savedIssueId = typeof parsed?.id === "string" ? parsed.id : ""
       savedIssueTitle = typeof parsed?.title === "string" ? parsed.title : ""
       const parsedVisibleCount = Number(parsed?.visibleCount ?? ITEMS_PER_PAGE)
-      if (!Number.isNaN(parsedVisibleCount) && parsedVisibleCount > 0 && visibleIssueCount < parsedVisibleCount) {
+      if (
+        !Number.isNaN(parsedVisibleCount) &&
+        parsedVisibleCount > 0 &&
+        visibleIssueCount < parsedVisibleCount
+      ) {
         visibleIssueCount = Math.min(Math.max(parsedVisibleCount, ITEMS_PER_PAGE), count)
         return
       }
@@ -401,7 +424,9 @@
     }
 
     const targetIssue = searchedIssues[targetIndex]
-    const targetIssueTitle = targetIssue ? getTagValue("subject", targetIssue.event.tags) ?? "" : ""
+    const targetIssueTitle = targetIssue
+      ? (getTagValue("subject", targetIssue.event.tags) ?? "")
+      : ""
     const targetIssueId = targetIssue?.id ?? ""
     const anchorIssueId = savedIssueId || targetIssueId
     const finishRestore = () => {
@@ -414,7 +439,9 @@
         finishRestore()
         return
       }
-      const itemEl = scrollEl.querySelector(`[data-issue-id="${anchorIssueId}"]`) as HTMLElement | null
+      const itemEl = scrollEl.querySelector(
+        `[data-issue-id="${anchorIssueId}"]`,
+      ) as HTMLElement | null
       if (!itemEl) {
         if (attempt < maxRestoreAttempts) {
           setTimeout(() => settleToAnchor(attempt + 1), 50)
@@ -435,9 +462,10 @@
 
     restoreInProgress = true
 
-
     const attemptRestore = () => {
-      const targetElement = scrollEl.querySelector(`[data-issue-id="${anchorIssueId}"]`) as HTMLElement | null
+      const targetElement = scrollEl.querySelector(
+        `[data-issue-id="${anchorIssueId}"]`,
+      ) as HTMLElement | null
       if (targetElement) {
         targetElement.scrollIntoView({block: "start"})
       }
@@ -460,36 +488,39 @@
       pendingScrollRestore = null
       return
     }
-    const isIssueDetailNav =
-      to?.route.id === "/spaces/[relay]/git/[id=naddr]/issues/[issueid]"
-    const nextIssueId = isIssueDetailNav ? (to?.params as {issueid?: string} | undefined)?.issueid : ""
+    const isIssueDetailNav = to?.route.id === "/spaces/[relay]/git/[id=naddr]/issues/[issueid]"
+    const nextIssueId = isIssueDetailNav
+      ? (to?.params as {issueid?: string} | undefined)?.issueid
+      : ""
 
-    const payload = isIssueDetailNav && nextIssueId
-      ? getIssueAnchorPayload(nextIssueId)
-      : pendingScrollRestore ?? {
-          index: lastKnownIssueIndex,
-          offset: lastKnownIssueOffset,
-          id: lastKnownIssueId,
-          title: lastKnownIssueTitle,
-          visibleCount: visibleIssueCount,
-        }
+    const payload =
+      isIssueDetailNav && nextIssueId
+        ? getIssueAnchorPayload(nextIssueId)
+        : (pendingScrollRestore ?? {
+            index: lastKnownIssueIndex,
+            offset: lastKnownIssueOffset,
+            id: lastKnownIssueId,
+            title: lastKnownIssueTitle,
+            visibleCount: visibleIssueCount,
+          })
     sessionStorage.setItem(scrollStorageKey, JSON.stringify(payload))
     pendingScrollRestore = null
   })
 
-
-
   const repoClass = getContext<Repo>(REPO_KEY)
-  const statusEventsByRootStore = getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
+  const statusEventsByRootStore =
+    getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
-  
+
   if (!repoClass) {
     throw new Error("Repo context not available")
   }
-  
+
   // Get current values from stores reactively using $ rune
-  const statusEventsByRoot = $derived.by(() => statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>())
-  const repoRelays = $derived.by(() => repoRelaysStore ? $repoRelaysStore : [])
+  const statusEventsByRoot = $derived.by(() =>
+    statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
+  )
+  const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
 
   const issues = $derived.by(() => repoClass.issues || [])
 
@@ -559,16 +590,14 @@
           ? maintainersFromAddress
           : maintainersFromCurrentRepo && maintainersFromCurrentRepo.size > 0
             ? maintainersFromCurrentRepo
-          : fallbackMaintainers
+            : fallbackMaintainers
 
-      const labelEvents = repository.query(
-        [{kinds: [1985], "#e": [issue.id]}],
-        {shouldSort: false},
-      ) as LabelEvent[]
-      const coverLetters = repository.query(
-        [{kinds: [GIT_COVER_LETTER_KIND], "#e": [issue.id]}],
-        {shouldSort: false},
-      ) as TrustedEvent[]
+      const labelEvents = repository.query([{kinds: [1985], "#e": [issue.id]}], {
+        shouldSort: false,
+      }) as LabelEvent[]
+      const coverLetters = repository.query([{kinds: [GIT_COVER_LETTER_KIND], "#e": [issue.id]}], {
+        shouldSort: false,
+      }) as TrustedEvent[]
       const edits = resolveIssueEdits({
         issueEvent: issue as any,
         labelEvents,
@@ -607,8 +636,6 @@
     return Array.from(authors)
   })
 
-
-
   let searchTerm = $state("")
 
   // Prefetch recent issue edit events (1985 labels + 1624 cover letters)
@@ -616,7 +643,9 @@
     const currentIssues = repoClass.issues || []
     const currentRepoRelays = repoRelays.filter(Boolean)
     if (currentRepoRelays.length === 0) return
-    const relayList = (currentRepoRelays.length ? currentRepoRelays : repoClass?.relays || []).filter(Boolean)
+    const relayList = (
+      currentRepoRelays.length ? currentRepoRelays : repoClass?.relays || []
+    ).filter(Boolean)
 
     if (!relayList.length || currentIssues.length === 0) {
       if (labelsPrefetchTimeout) {
@@ -684,7 +713,7 @@
   $effect(() => {
     // Access reactive dependencies synchronously to ensure they're tracked
     if (!repoClass) return
-    
+
     const currentIssues = repoClass.issues
     const currentStatusEventsByRoot = statusEventsByRoot
     const currentStatusMapCacheKey = statusMapCacheKey
@@ -696,8 +725,11 @@
       }
 
       // Create cache key from issue IDs and statusEventsByRoot to detect changes
-      const issueIds = currentIssues.map(i => i.id).sort().join(",")
-      const statusEventIds = currentStatusEventsByRoot 
+      const issueIds = currentIssues
+        .map(i => i.id)
+        .sort()
+        .join(",")
+      const statusEventIds = currentStatusEventsByRoot
         ? Array.from(currentStatusEventsByRoot.keys()).sort().join(",")
         : ""
       const currentKey = `${issueIds}|${statusEventIds}`
@@ -716,27 +748,34 @@
         for (const [rootId, events] of currentStatusEventsByRoot) {
           // Check if this issue is mirrored
           const issue = currentIssues.find(i => i.id === rootId)
-          const isMirrored = issue ? 
-            (issue.tags as Array<[string, string]> | undefined)?.some((t) => t[0] === "imported") ?? false :
-            false
+          const isMirrored = issue
+            ? ((issue.tags as Array<[string, string]> | undefined)?.some(
+                t => t[0] === "imported",
+              ) ?? false)
+            : false
 
           if (isMirrored && events && events.length > 0) {
             // For mirrored issues, use ALL status events (not just authorized ones)
             // Sort by created_at descending and take the most recent
             const sortedEvents = [...events].sort((a, b) => b.created_at - a.created_at)
             const latestEvent = sortedEvents[0]
-            
+
             // Map status event kinds to status strings
             const statusKindToState = (kind: number): string => {
               switch (kind) {
-                case GIT_STATUS_OPEN: return "open"
-                case GIT_STATUS_DRAFT: return "draft"
-                case GIT_STATUS_CLOSED: return "closed"
-                case GIT_STATUS_COMPLETE: return "resolved"
-                default: return "open"
+                case GIT_STATUS_OPEN:
+                  return "open"
+                case GIT_STATUS_DRAFT:
+                  return "draft"
+                case GIT_STATUS_CLOSED:
+                  return "closed"
+                case GIT_STATUS_COMPLETE:
+                  return "resolved"
+                default:
+                  return "open"
               }
             }
-            
+
             map[rootId] = statusKindToState(latestEvent.kind)
           } else {
             // For non-mirrored issues, use the existing authorization logic
@@ -762,7 +801,7 @@
   $effect(() => {
     // Access reactive dependencies synchronously to ensure they're tracked
     if (!repoClass) return
-    
+
     const currentIssues = repoClass.issues
     const currentComments = commentsOrdered
     const currentStatusMap = statusMap
@@ -776,14 +815,19 @@
       }
 
       // Create cache key from issues, comments, and statusMap to detect changes
-      const issueIds = currentIssues.map(i => i.id).sort().join(",")
+      const issueIds = currentIssues
+        .map(i => i.id)
+        .sort()
+        .join(",")
       const commentIds = Object.keys(currentComments)
         .flatMap(id => currentComments[id].map(c => c.id))
         .sort()
         .join(",")
       const statusMapKeys = Object.keys(currentStatusMap).sort().join(",")
       const editsKey = Array.from(currentIssueEdits.entries())
-        .map(([id, edit]) => `${id}:${edit.subject}:${edit.content.length}:${edit.labels.join(",")}`)
+        .map(
+          ([id, edit]) => `${id}:${edit.subject}:${edit.content.length}:${edit.labels.join(",")}`,
+        )
         .sort()
         .join("|")
       const currentKey = `${issueIds}|${commentIds}|${statusMapKeys}|${editsKey}`
@@ -794,11 +838,12 @@
         const edits = currentIssueEdits.get(issue.id)
         const subject = edits?.subject || getTagValue("subject", issue.tags) || ""
         const content = edits?.content ?? issue.content
-        const labels = edits?.labels ||
-          ((issue.tags || [])
+        const labels =
+          edits?.labels ||
+          (issue.tags || [])
             .filter((tag: string[]) => tag[0] === "t")
             .map((tag: string[]) => tag[1])
-            .filter(Boolean))
+            .filter(Boolean)
 
         const tags = ((issue.tags || []) as string[][]).filter(
           (tag: string[]) => tag[0] !== "subject" && tag[0] !== "t",
@@ -826,7 +871,6 @@
     }
   })
 
-
   // Compute searchedIssues asynchronously to avoid blocking UI rendering
   // This is the most critical optimization as it includes search, filtering, and sorting
   let searchedIssues = $state<IssueListItem[]>([])
@@ -852,11 +896,11 @@
       }
 
       // Create cache key from issueList, searchTerm, filters, and sort options
-      const issueIds = currentIssueList.map(i => i.id).sort().join(",")
-      const labelsKey = Array.from(currentLabelsByIssue.values())
-        .flat()
+      const issueIds = currentIssueList
+        .map(i => i.id)
         .sort()
         .join(",")
+      const labelsKey = Array.from(currentLabelsByIssue.values()).flat().sort().join(",")
       const currentKey = [
         issueIds,
         currentSearchTerm,
@@ -922,7 +966,9 @@
           return true
         })
         .sort((a, b) =>
-          currentSortByOrder === "newest" ? b.created_at - a.created_at : a.created_at - b.created_at,
+          currentSortByOrder === "newest"
+            ? b.created_at - a.created_at
+            : a.created_at - b.created_at,
         )
 
       searchedIssues = result
@@ -1004,13 +1050,7 @@
 
   // Create combined filter for issues and status events
   const combinedFilter = $derived.by(() => ({
-    kinds: [
-      GIT_ISSUE,
-      GIT_STATUS_OPEN,
-      GIT_STATUS_DRAFT,
-      GIT_STATUS_CLOSED,
-      GIT_STATUS_COMPLETE,
-    ],
+    kinds: [GIT_ISSUE, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
     "#a": maintainerSetRepoAddresses,
   }))
 
@@ -1046,7 +1086,7 @@
         }
         tryStart()
       }, 100)
-      
+
       return () => {
         clearTimeout(timeout)
       }
@@ -1059,12 +1099,16 @@
     setCheckedAt(issuesSeenKey, seenAt)
     setCheckedAt(issuesPath, seenAt)
     if (repoAddress && relayUrl) {
-      setCheckedForRepoNotifications($notifications, {
-        relay: relayUrl,
-        repoAddress,
-        repoAddresses: maintainerSetRepoAddresses,
-        kind: "issues",
-      }, seenAt)
+      setCheckedForRepoNotifications(
+        $notifications,
+        {
+          relay: relayUrl,
+          repoAddress,
+          repoAddresses: maintainerSetRepoAddresses,
+          kind: "issues",
+        },
+        seenAt,
+      )
     }
     // Cleanup makeFeed (aborts network requests, stops scroll observers, unsubscribes)
     feedCleanup?.()
@@ -1076,7 +1120,6 @@
     labelsPrefetchController?.abort()
     labelsPrefetchController = null
     labelsPrefetchKey = ""
-
   })
 
   const onIssueCreated = async (issue: IssueEvent) => {
@@ -1090,10 +1133,7 @@
       return
     }
     const evt: any = (repoClass as any).repoEvent
-    const maintainers = Array.from(new Set([
-      ...maintainerSet,
-      evt?.pubkey,
-    ].filter(Boolean)))
+    const maintainers = Array.from(new Set([...maintainerSet, evt?.pubkey].filter(Boolean)))
     const issueWithRecipients = withIssueRepoContext(issue, maintainers, maintainerSetRepoAddresses)
 
     const postIssueEvent = publishThunk({event: issueWithRecipients, relays: relaysToUse})
@@ -1136,7 +1176,7 @@
   }
 
   const scrollToTop = () => {
-    scrollParent?.scrollTo({ top: 0, behavior: "smooth" })
+    scrollParent?.scrollTo({top: 0, behavior: "smooth"})
   }
 
   const getLatestIssueActivityAt = (issue: IssueListItem) => {
@@ -1189,11 +1229,10 @@
 
     return nextStatus
   })
-
 </script>
 
 <svelte:head>
-  <title>{repoClass?.name || 'Repository'} - Issues</title>
+  <title>{repoClass?.name || "Repository"} - Issues</title>
 </svelte:head>
 
 <div bind:this={pageContainerRef}>
@@ -1234,16 +1273,15 @@
       statusValue={statusFilter}
       statusBadgeCounts={unreadStatusCounts}
       authors={uniqueAuthors}
-      authorFilter={authorFilter}
+      {authorFilter}
       allLabels={allNormalizedLabels}
       labelSearchEnabled={false}
-      on:statusChange={(e) => (statusFilter = e.detail)}
-      on:sortChange={(e) => (sortByOrder = e.detail)}
-      on:authorChange={(e) => (authorFilter = e.detail)}
-      on:labelsChange={(e) => (selectedLabels = e.detail)}
-      on:matchAllChange={(e) => (matchAllLabels = e.detail)}
-      showReset={true}
-    />
+      on:statusChange={e => (statusFilter = e.detail)}
+      on:sortChange={e => (sortByOrder = e.detail)}
+      on:authorChange={e => (authorFilter = e.detail)}
+      on:labelsChange={e => (selectedLabels = e.detail)}
+      on:matchAllChange={e => (matchAllLabels = e.detail)}
+      showReset={true} />
   {/if}
 
   {#if loading}
@@ -1286,7 +1324,10 @@
           role="link"
           tabindex="0"
           onkeydown={event => handleIssueKeydown(event, issue, index)}>
-          <div class={getLatestIssueActivityAt(issue) > lastIssuesSeen ? "border-l-2 border-primary pl-2" : ""}>
+          <div
+            class={getLatestIssueActivityAt(issue) > lastIssuesSeen
+              ? "border-l-2 border-primary pl-2"
+              : ""}>
             <IssueCard
               event={issue.event}
               comments={commentsOrdered[issue.id]}
@@ -1300,8 +1341,8 @@
               assigneeCount={$roleAssignments.get(issue.id)?.assignees?.size || 0}
               relays={repoRelays}
               onDeleteReaction={deleteReaction}
-              onCreateReaction={template => createReaction(issue.event as TrustedEvent, template)}
-            />
+              onCreateReaction={template =>
+                createReaction(issue.event as TrustedEvent, template)} />
           </div>
         </div>
       {/each}
@@ -1322,8 +1363,8 @@
 
 {#if showScrollButton}
   <div in:fade class="chat__scroll-down">
-  <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
-    <Icon icon={AltArrowUp} />
-  </Button>
+    <Button class="btn btn-circle btn-neutral" onclick={scrollToTop}>
+      <Icon icon={AltArrowUp} />
+    </Button>
   </div>
 {/if}

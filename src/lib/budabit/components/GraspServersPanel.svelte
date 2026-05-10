@@ -128,9 +128,9 @@
         <div class="flex flex-wrap gap-2">
           {#each activeRelayUrls as url (url)}
             <div
-              class="inline-flex items-center gap-2 rounded-full border border-info/30 bg-info/10 px-3 py-1 text-sm"
-            >
-              <span class="max-w-[20rem] truncate" title={url}>{url.replace(/^wss?:\/\//, "")}</span>
+              class="inline-flex items-center gap-2 rounded-full border border-info/30 bg-info/10 px-3 py-1 text-sm">
+              <span class="max-w-[20rem] truncate" title={url}
+                >{url.replace(/^wss?:\/\//, "")}</span>
               <button
                 type="button"
                 class="text-error transition-opacity hover:opacity-80"
@@ -193,7 +193,8 @@
             disabled={isSaving} />
 
           {#if showRelayAutocomplete && relayAutocompleteOptions.length > 0}
-            <div class="absolute z-10 mt-1 w-full overflow-y-auto rounded-box border border-base-300 bg-base-100 shadow-xl">
+            <div
+              class="z-10 absolute mt-1 w-full overflow-y-auto rounded-box border border-base-300 bg-base-100 shadow-xl">
               {#each relayAutocompleteOptions as relayUrl (relayUrl)}
                 <button
                   type="button"
@@ -206,7 +207,10 @@
             </div>
           {/if}
         </div>
-        <Button class="btn btn-primary btn-sm" onclick={addUrl} disabled={isSaving || !newUrl.trim()}>
+        <Button
+          class="btn btn-primary btn-sm"
+          onclick={addUrl}
+          disabled={isSaving || !newUrl.trim()}>
           <CirclePlus />Add
         </Button>
       </div>

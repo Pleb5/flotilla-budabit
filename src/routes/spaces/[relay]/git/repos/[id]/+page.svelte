@@ -23,10 +23,12 @@
   let loading = $state(true)
   let lastLoadedRelays = $state("")
 
-  const filters: Filter[] = [{
-    kinds: [GIT_REPO_ANNOUNCEMENT],
-    authors: [id],
-  }]
+  const filters: Filter[] = [
+    {
+      kinds: [GIT_REPO_ANNOUNCEMENT],
+      authors: [id],
+    },
+  ]
   const repoEvents = deriveEventsAsc(deriveEventsById({repository, filters}))
 
   const repos = $derived.by(() => {
@@ -71,40 +73,44 @@
     load({relays, filters})
   })
 </script>
-  
-  <PageBar>
-    {#snippet icon()}
-      <div class="center">
-        <Icon icon={Git} />
-      </div>
-    {/snippet}
-     {#snippet title()}
-       <strong>Git Repos</strong>
-     {/snippet}
-     {#snippet action()}
-       <SpaceMenuButton {url} />
-     {/snippet}
-   </PageBar>
-  
-  <PageContent>
-    <div class="flex flex-grow flex-col gap-2 overflow-auto p-2">
-      {#if loading}
-        <p class="flex h-10 items-center justify-center py-20" out:fly>
-          <Spinner {loading}>
-            {#if loading}
-              Looking for Git Repos...
-            {:else if !repos || repos.length === 0}
-              No Git Repos found.
-            {/if}
-          </Spinner>
-        </p>
-      {:else}
-        {#each repos! as repo (repo.repo.id)}
-          <div in:fly>
-            <GitItem {url} event={repo.repo} showActivity={false} showIssues={false} showActions={true}/>
-          </div>
-        {/each}
-      {/if}
+
+<PageBar>
+  {#snippet icon()}
+    <div class="center">
+      <Icon icon={Git} />
     </div>
-  </PageContent>
-  
+  {/snippet}
+  {#snippet title()}
+    <strong>Git Repos</strong>
+  {/snippet}
+  {#snippet action()}
+    <SpaceMenuButton {url} />
+  {/snippet}
+</PageBar>
+
+<PageContent>
+  <div class="flex flex-grow flex-col gap-2 overflow-auto p-2">
+    {#if loading}
+      <p class="flex h-10 items-center justify-center py-20" out:fly>
+        <Spinner {loading}>
+          {#if loading}
+            Looking for Git Repos...
+          {:else if !repos || repos.length === 0}
+            No Git Repos found.
+          {/if}
+        </Spinner>
+      </p>
+    {:else}
+      {#each repos! as repo (repo.repo.id)}
+        <div in:fly>
+          <GitItem
+            {url}
+            event={repo.repo}
+            showActivity={false}
+            showIssues={false}
+            showActions={true} />
+        </div>
+      {/each}
+    {/if}
+  </div>
+</PageContent>

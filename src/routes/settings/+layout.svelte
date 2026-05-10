@@ -91,7 +91,7 @@
 
 <Page>
   {#if $page.url.pathname !== "/settings"}
-    <div class="content-padding-x pb-2 pt-4 hidden md:block lg:hidden">
+    <div class="content-padding-x hidden pb-2 pt-4 md:block lg:hidden">
       <Link href="/settings" class="btn btn-ghost btn-sm w-fit">
         <Icon icon={AltArrowLeft} /> Back
       </Link>

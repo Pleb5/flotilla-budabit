@@ -10,7 +10,7 @@
   import SpaceAdd from "@app/components/SpaceAdd.svelte"
   import {pushModal} from "@app/util/modal"
   import {PLATFORM_NAME} from "@app/core/state"
-  import { makeSpacePath } from "@src/app/util/routes"
+  import {makeSpacePath} from "@src/app/util/routes"
   import * as appState from "@app/core/state"
 
   if (appState.PLATFORM_RELAYS.length > 0) {
@@ -20,8 +20,6 @@
   const addSpace = () => pushModal(SpaceAdd)
 
   const openChat = () => goto("/chat")
-
-
 </script>
 
 <div class="hero min-h-screen overflow-auto pb-8">

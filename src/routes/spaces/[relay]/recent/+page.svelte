@@ -19,19 +19,24 @@
   const url = decodeRelay($page.params.relay!)
   const since = ago(MONTH)
   const messages = deriveEventsForUrl(url, [{kinds: [MESSAGE], since}])
-  const visibleMessages = derived([messages, roomsById, channelsById], ([$messages, $roomsById, $channelsById]) =>
-    filterArchivedRoomMessages({
-      url,
-      messages: $messages,
-      roomsById: $roomsById,
-      channelsById: $channelsById,
-    }),
+  const visibleMessages = derived(
+    [messages, roomsById, channelsById],
+    ([$messages, $roomsById, $channelsById]) =>
+      filterArchivedRoomMessages({
+        url,
+        messages: $messages,
+        roomsById: $roomsById,
+        channelsById: $channelsById,
+      }),
   )
 
   const conversations = derived(visibleMessages, $visibleMessages => {
     const convs = []
 
-    for (const [h, messages] of groupBy((e: TrustedEvent) => getTagValue("h", e.tags), $visibleMessages).entries()) {
+    for (const [h, messages] of groupBy(
+      (e: TrustedEvent) => getTagValue("h", e.tags),
+      $visibleMessages,
+    ).entries()) {
       const avgTime = avg(overlappingPairs(messages).map(([a, b]) => a.created_at - b.created_at))
       const groups: TrustedEvent[][] = []
       const group: TrustedEvent[] = []
@@ -101,12 +106,12 @@
 </PageBar>
 
 <div bind:this={element}>
-    <PageContent class="flex flex-col gap-2 p-2 pt-4">
-      {#if $conversations.length === 0}
-        {#if $visibleMessages.length > 0}
-          {@const events = $visibleMessages.slice(0, 1)}
-          {@const event = events[0]}
-          {@const h = getTagValue("h", event.tags)}
+  <PageContent class="flex flex-col gap-2 p-2 pt-4">
+    {#if $conversations.length === 0}
+      {#if $visibleMessages.length > 0}
+        {@const events = $visibleMessages.slice(0, 1)}
+        {@const event = events[0]}
+        {@const h = getTagValue("h", event.tags)}
         <ConversationCard
           {h}
           {url}

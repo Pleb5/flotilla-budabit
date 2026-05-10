@@ -105,7 +105,7 @@
     </div>
     <div class="col-4">
       {#each filteredAlerts as alert (alert.event.id)}
-        <AlertItem alert={alert} />
+        <AlertItem {alert} />
       {:else}
         <p class="text-center opacity-75 py-12">Nothing here yet!</p>
       {/each}

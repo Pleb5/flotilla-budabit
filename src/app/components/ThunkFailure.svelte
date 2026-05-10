@@ -2,7 +2,12 @@
   import {stopPropagation} from "svelte/legacy"
   import {noop} from "@welshman/lib"
   import type {AbstractThunk} from "@welshman/app"
-  import {retryThunk, thunkIsComplete, getFailedThunkUrls, getThunkUrlsWithStatus} from "@welshman/app"
+  import {
+    retryThunk,
+    thunkIsComplete,
+    getFailedThunkUrls,
+    getThunkUrlsWithStatus,
+  } from "@welshman/app"
   import {PublishStatus} from "@welshman/net"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -38,7 +43,9 @@
   const successUrls = $derived(getThunkUrlsWithStatus(PublishStatus.Success, $thunk))
   const relayCount = $derived(Object.keys($thunk.results).length)
   const showFailure = $derived(thunkIsComplete($thunk) && failedUrls.length > 0)
-  const label = $derived(partial ? `Sent to ${successUrls.length}/${relayCount} relays` : "Failed to send!")
+  const label = $derived(
+    partial ? `Sent to ${successUrls.length}/${relayCount} relays` : "Failed to send!",
+  )
 </script>
 
 {#if showFailure}

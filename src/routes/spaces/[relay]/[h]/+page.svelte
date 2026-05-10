@@ -47,10 +47,7 @@
     isPlatformRelay,
   } from "@app/core/state"
   import {setChecked, checked} from "@app/util/notifications"
-  import {
-    prependParent,
-    publishSocialDelete,
-  } from "@app/core/commands"
+  import {prependParent, publishSocialDelete} from "@app/core/commands"
   import {makeFeed} from "@app/core/requests"
   import {popKey} from "@lib/implicit"
   import {pushToast} from "@app/util/toast"
@@ -61,7 +58,9 @@
   import {deriveChannel} from "@lib/budabit/state"
   import {getRoomInteractionState} from "@app/util/room-archive"
 
-  const {h, relay} = $page.params as MakeNonOptional<typeof $page.params> as MakeNonOptional<typeof $page.params>
+  const {h, relay} = $page.params as MakeNonOptional<typeof $page.params> as MakeNonOptional<
+    typeof $page.params
+  >
   const mounted = now()
   const lastChecked = $checked[$page.url.pathname]
   const url = decodeRelay(relay)
@@ -307,7 +306,9 @@
       element: element!,
       relays: [url],
       feedFilters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]}],
-      subscriptionFilters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]}],
+      subscriptionFilters: [
+        {kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]},
+      ],
       onInitialLoad: () => {
         loadingEvents = false
       },
@@ -394,7 +395,7 @@
 
 {#if roomInteraction.showArchivedBanner}
   <div class="px-2 pt-3">
-    <div class="card2 bg-base-200/70 flex flex-col gap-2 border border-base-300">
+    <div class="card2 flex flex-col gap-2 border border-base-300 bg-base-200/70">
       <div class="flex flex-wrap items-center gap-2">
         <span class="badge badge-warning gap-1">
           <Icon icon={ArchivedMinimalistic} size={3} />

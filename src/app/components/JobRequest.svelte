@@ -69,7 +69,7 @@
         cashuToken: cashuToken.trim(),
         relays,
         cmd: "act",
-        args: ["--help"]
+        args: ["--help"],
       })
 
       result = jobResult
@@ -154,13 +154,14 @@
     </Field>
 
     {#if result}
-      <div class="border border-base-200 rounded-lg p-4 space-y-3">
-        <h3 class="font-semibold text-lg">Publish Results</h3>
+      <div class="space-y-3 rounded-lg border border-base-200 p-4">
+        <h3 class="text-lg font-semibold">Publish Results</h3>
 
         <div class="space-y-2">
           <div class="flex items-center justify-between">
             <span>Success:</span>
-            <span class="text-success">{result.successCount}/{result.publishStatus.length} relays</span>
+            <span class="text-success"
+              >{result.successCount}/{result.publishStatus.length} relays</span>
           </div>
           <div class="flex items-center justify-between">
             <span>Failures:</span>
@@ -189,13 +190,12 @@
           <div class="flex items-center justify-between">
             <span class="font-medium">Event ID:</span>
             <Button
-              class="btn btn-sm btn-outline"
-              onclick={() => result && copyToClipboard(result.event.id)}
-            >
+              class="btn btn-outline btn-sm"
+              onclick={() => result && copyToClipboard(result.event.id)}>
               Copy ID
             </Button>
           </div>
-          <code class="block w-full p-2 bg-base-100 rounded text-xs break-all">
+          <code class="block w-full break-all rounded bg-base-100 p-2 text-xs">
             {result.event.id}
           </code>
         </div>
@@ -203,22 +203,19 @@
         <div class="space-y-2">
           <div class="flex items-center justify-between">
             <span class="font-medium">Raw Event:</span>
-            <Button
-              class="btn btn-sm"
-              onclick={() => showRawEvent = !showRawEvent}
-            >
-              {showRawEvent ? 'Hide' : 'Show'}
+            <Button class="btn btn-sm" onclick={() => (showRawEvent = !showRawEvent)}>
+              {showRawEvent ? "Hide" : "Show"}
             </Button>
           </div>
           {#if showRawEvent}
             <div class="relative">
-              <pre class="block w-full p-3 bg-base-100 rounded text-xs overflow-auto max-h-64 whitespace-pre-wrap">
+              <pre
+                class="block max-h-64 w-full overflow-auto whitespace-pre-wrap rounded bg-base-100 p-3 text-xs">
                 {formatEvent(result.event)}
               </pre>
               <Button
-                class="btn btn-sm btn-outline absolute top-2 right-2"
-                onclick={() => result && copyToClipboard(formatEvent(result.event))}
-              >
+                class="btn btn-outline btn-sm absolute right-2 top-2"
+                onclick={() => result && copyToClipboard(formatEvent(result.event))}>
                 Copy Event
               </Button>
             </div>
@@ -229,9 +226,7 @@
   </div>
 
   <ModalFooter>
-    <Button class="btn btn-link" onclick={back} disabled={isSubmitting}>
-      Cancel
-    </Button>
+    <Button class="btn btn-link" onclick={back} disabled={isSubmitting}>Cancel</Button>
     <Button type="submit" class="btn btn-primary" disabled={isSubmitting}>
       {#if isSubmitting}
         <span class="loading loading-spinner loading-sm"></span>

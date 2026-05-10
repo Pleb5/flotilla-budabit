@@ -5,7 +5,6 @@
   import Code from "@assets/icons/code-2.svg?dataurl"
 
   const hash = import.meta.env.VITE_BUILD_HASH
-
 </script>
 
 <div class="mt-8 min-h-screen bg-base-200 sm:hero">
@@ -22,10 +21,9 @@
         <div class="flex justify-center gap-4">
           <div class="tooltip" data-tip="Source Code">
             <Link
-              external 
+              external
               href="https://budabit.club/spaces/budabit.nostr1.com/git/naddr1qvzqqqrhnypzp5zweue6xqa9npf0md5pak95zgsph2za35sentk88jmzdqwk925sqqgxvmr0w35kcmrp94382erpvf5hgqtk2vr"
-              class="btn btn-secondary"
-            >
+              class="btn btn-secondary">
               <div class="flex items-center gap-x-2">
                 Source Code
                 <Icon icon={Code} />

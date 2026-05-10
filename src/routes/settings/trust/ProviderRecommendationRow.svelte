@@ -56,12 +56,18 @@
   }: Props = $props()
 
   let showRecommenders = $state(false)
-  const softBadgeInfo = "badge border border-cyan-500/35 bg-cyan-100/70 font-medium text-cyan-700 dark:border-info/25 dark:bg-info/15 dark:text-info"
-  const softBadgePrimary = "badge border border-amber-500/35 bg-amber-100/70 font-medium text-amber-700 dark:border-primary/25 dark:bg-primary/15 dark:text-primary"
-  const softBadgeSuccess = "badge border border-teal-500/35 bg-teal-100/70 font-medium text-teal-700 dark:border-success/25 dark:bg-success/15 dark:text-success"
-  const softBadgeWarning = "badge border border-orange-500/35 bg-orange-100/70 font-medium text-orange-700 dark:border-warning/30 dark:bg-warning/15 dark:text-warning"
-  const softBadgeError = "badge border border-red-500/35 bg-red-100/70 font-medium text-red-700 dark:border-error/25 dark:bg-error/15 dark:text-error"
-  const softBadgeNeutral = "badge border border-base-content/15 bg-base-200 font-medium text-base-content/80"
+  const softBadgeInfo =
+    "badge border border-cyan-500/35 bg-cyan-100/70 font-medium text-cyan-700 dark:border-info/25 dark:bg-info/15 dark:text-info"
+  const softBadgePrimary =
+    "badge border border-amber-500/35 bg-amber-100/70 font-medium text-amber-700 dark:border-primary/25 dark:bg-primary/15 dark:text-primary"
+  const softBadgeSuccess =
+    "badge border border-teal-500/35 bg-teal-100/70 font-medium text-teal-700 dark:border-success/25 dark:bg-success/15 dark:text-success"
+  const softBadgeWarning =
+    "badge border border-orange-500/35 bg-orange-100/70 font-medium text-orange-700 dark:border-warning/30 dark:bg-warning/15 dark:text-warning"
+  const softBadgeError =
+    "badge border border-red-500/35 bg-red-100/70 font-medium text-red-700 dark:border-error/25 dark:bg-error/15 dark:text-error"
+  const softBadgeNeutral =
+    "badge border border-base-content/15 bg-base-200 font-medium text-base-content/80"
 
   const usageLabel = $derived(usageCount === 1 ? "1 user" : `${usageCount} users`)
   const verificationSummary = $derived.by(() => {
@@ -128,21 +134,21 @@
 
 <div
   class={`rounded-box border bg-base-100/40 p-3 sm:p-4 ${selectedProvider ? "border-primary/50" : "border-base-300/60"}`}>
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div class="flex min-w-0 gap-3">
-        <Button type="button" class="shrink-0 p-0" onclick={() => openProfile(provider.serviceKey)}>
-          <ProfileCircle pubkey={provider.serviceKey} size={8} />
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div class="flex min-w-0 gap-3">
+      <Button type="button" class="shrink-0 p-0" onclick={() => openProfile(provider.serviceKey)}>
+        <ProfileCircle pubkey={provider.serviceKey} size={8} />
+      </Button>
+      <div class="min-w-0">
+        <Button
+          type="button"
+          class="truncate p-0 text-sm font-medium sm:text-base"
+          onclick={() => openProfile(provider.serviceKey)}>
+          <ProfileName pubkey={provider.serviceKey} />
         </Button>
-        <div class="min-w-0">
-          <Button
-            type="button"
-            class="truncate p-0 text-sm font-medium sm:text-base"
-            onclick={() => openProfile(provider.serviceKey)}>
-            <ProfileName pubkey={provider.serviceKey} />
-          </Button>
-          <div class="text-xs opacity-60">{displayPubkey(provider.serviceKey)}</div>
-        </div>
+        <div class="text-xs opacity-60">{displayPubkey(provider.serviceKey)}</div>
       </div>
+    </div>
 
     <div class="flex flex-wrap items-center gap-2 text-xs sm:justify-end">
       {#if usageCount > 0}
@@ -183,7 +189,8 @@
       {#if showRecommenders}
         <div class="mt-3 flex flex-col gap-2">
           {#each recommenders as recommender (recommender.pubkey)}
-            <div class="flex items-center justify-between gap-3 rounded-box bg-base-100/60 px-3 py-2">
+            <div
+              class="flex items-center justify-between gap-3 rounded-box bg-base-100/60 px-3 py-2">
               <div class="flex min-w-0 gap-3">
                 <Button
                   type="button"

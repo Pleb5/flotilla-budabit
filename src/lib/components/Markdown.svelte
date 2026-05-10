@@ -236,7 +236,6 @@
   let containerElement: HTMLDivElement | undefined = $state()
   let mountedComponents: MountedComponent[] = $state([])
 
-
   // ============================================================================
   // Relay Configuration
   // ============================================================================
@@ -268,10 +267,7 @@
     }
 
     return new Marked({
-      extensions: [
-        createNostrTokenizer(options),
-        createEmailTokenizer(),
-      ],
+      extensions: [createNostrTokenizer(options), createEmailTokenizer()],
       async: true,
       breaks: true,
       walkTokens: createTokenWalker({defaultRelays: defaultRelays}),
@@ -297,7 +293,7 @@
     ;(async () => {
       const markedInstance = createMarkedInstance()
       const parsed = await markedInstance.parse(currentContent)
-      
+
       // Guard: Only update if content hasn't changed during async operation
       if (content === currentContent) {
         sanitizedContent = DOMPurify.sanitize(parsed, {
@@ -336,7 +332,11 @@
     const currentSanitizedContent = sanitizedContent
 
     // Only mount if content actually changed (prevents unnecessary re-mounting)
-    if (!currentContainer || !currentSanitizedContent || currentSanitizedContent === lastSanitizedContent) {
+    if (
+      !currentContainer ||
+      !currentSanitizedContent ||
+      currentSanitizedContent === lastSanitizedContent
+    ) {
       return
     }
 
@@ -372,7 +372,6 @@
 <div
   class="markdown max-w-full overflow-hidden"
   class:markdown--comment={variant === "comment"}
-  bind:this={containerElement}
->
+  bind:this={containerElement}>
   {@html sanitizedContent}
 </div>

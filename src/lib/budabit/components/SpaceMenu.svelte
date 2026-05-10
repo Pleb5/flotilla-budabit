@@ -110,7 +110,8 @@
     <div class="flex max-h-[calc(100vh-250px)] min-h-0 flex-col gap-1 overflow-auto">
       {#if $pubkey}
         <SecondaryNavItem {replaceState} onclick={openWallet}>
-          <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning">₿</span>
+          <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning"
+            >₿</span>
           {walletLabel}
         </SecondaryNavItem>
       {/if}
@@ -123,16 +124,25 @@
         <Icon icon={Git} /> Git
       </SecondaryNavItem>
 
-      <SecondaryNavItem {replaceState} href={threadsPath} notification={$notifications.has(threadsPath)}>
+      <SecondaryNavItem
+        {replaceState}
+        href={threadsPath}
+        notification={$notifications.has(threadsPath)}>
         <Icon icon={NotesMinimalistic} /> Threads
       </SecondaryNavItem>
 
-      <SecondaryNavItem {replaceState} href={calendarPath} notification={$notifications.has(calendarPath)}>
+      <SecondaryNavItem
+        {replaceState}
+        href={calendarPath}
+        notification={$notifications.has(calendarPath)}>
         <Icon icon={CalendarMinimalistic} /> Calendar
       </SecondaryNavItem>
 
       {#if ENABLE_ZAPS}
-        <SecondaryNavItem {replaceState} href={goalsPath} notification={$notifications.has(goalsPath)}>
+        <SecondaryNavItem
+          {replaceState}
+          href={goalsPath}
+          notification={$notifications.has(goalsPath)}>
           <Icon icon={StarFallMinimalistic} /> Goals
         </SecondaryNavItem>
       {/if}
@@ -144,7 +154,10 @@
           <Icon icon={History} /> Recent Activity
         </SecondaryNavItem>
       {:else}
-        <SecondaryNavItem {replaceState} href={chatPath} notification={$notifications.has(chatPath)}>
+        <SecondaryNavItem
+          {replaceState}
+          href={chatPath}
+          notification={$notifications.has(chatPath)}>
           <Icon icon={ChatRound} /> Chat
         </SecondaryNavItem>
       {/if}
@@ -176,7 +189,9 @@
               <Icon
                 icon={AltArrowDown}
                 size={4}
-                class={showArchivedRooms ? "rotate-180 transition-transform duration-150" : "transition-transform duration-150"} />
+                class={showArchivedRooms
+                  ? "rotate-180 transition-transform duration-150"
+                  : "transition-transform duration-150"} />
             </span>
           </Button>
           {#if showArchivedRooms}

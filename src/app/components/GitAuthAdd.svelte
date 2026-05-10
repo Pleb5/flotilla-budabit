@@ -58,61 +58,66 @@
     if (!$pubkey) {
       throw new Error("Public key is not available")
     }
-    
+
     try {
       // Get current tokens from store
       const currentTokens: TokenEntry[] = get(tokensStore)
       let allTokens: TokenEntry[]
-      
+
       if (editToken) {
         // Edit mode: replace the existing token with the same host AND token
         const existingTokens = currentTokens.filter(
-          (t: TokenEntry) => !(t.host === editToken.host && t.token === editToken.token)
+          (t: TokenEntry) => !(t.host === editToken.host && t.token === editToken.token),
         )
         allTokens = [...existingTokens, ...toks]
       } else {
         // Add mode: append new tokens
         allTokens = [...currentTokens, ...toks]
       }
-      
+
       // Clean the data to ensure it's properly formatted
       const cleanTokens = allTokens.map(t => ({
         host: String(t.host).trim(),
-        token: String(t.token).trim()
+        token: String(t.token).trim(),
       }))
-      
+
       const dataToEncrypt = JSON.stringify(cleanTokens)
-      
+
       // Create a promise that rejects after timeout (longer for NIP-46 signers)
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(
-          'NIP-44 encryption timeout. Please try logging out and back in with your signer.')),
-          15000)
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "NIP-44 encryption timeout. Please try logging out and back in with your signer.",
+              ),
+            ),
+          15000,
+        )
       })
-      
+
       // Encrypt with NIP-44 (self-encryption)
-      const encrypted = await Promise.race([
+      const encrypted = (await Promise.race([
         $signer.nip44.encrypt($pubkey!, dataToEncrypt),
-        timeoutPromise
-      ]) as string
-      
+        timeoutPromise,
+      ])) as string
+
       // Create and publish the event
       const event = makeEvent(APP_DATA, {
         content: encrypted,
-        tags: [["d", GIT_AUTH_DTAG]]
+        tags: [["d", GIT_AUTH_DTAG]],
       })
-      
+
       // Publish to user's relays
       const relays = Router.get().FromUser().getUrls()
       console.log("[GitAuthAdd] Publishing token event to relays:", relays)
       publishThunk({event, relays})
-      
+
       // Update the reactive store immediately for responsive UI
       tokensStore.clear()
       cleanTokens.forEach(t => tokensStore.push(t))
-      
+
       console.log("[GitAuthAdd] Tokens saved successfully, count:", cleanTokens.length)
-      
     } catch (e) {
       error = "Failed to save tokens: " + e
       throw e // Re-throw to let submit function know it failed
@@ -121,23 +126,23 @@
 
   const submit = async () => {
     // Clean the token to remove any potential console output contamination
-    const cleanToken = token.split('\n')[0].trim(); // Take only the first line
-    const cleanHost = host.trim();
-    
+    const cleanToken = token.split("\n")[0].trim() // Take only the first line
+    const cleanHost = host.trim()
+
     // Basic validation
     if (!cleanHost || !cleanToken) {
       error = "Both host and token are required"
       return
     }
-    
+
     if (cleanToken.length > 200) {
       error = "Token appears to be corrupted (too long). Please refresh the page and try again."
       return
     }
-    
+
     busy = true
     error = "" // Clear any previous errors
-    
+
     try {
       await saveTokens([{host: cleanHost, token: cleanToken}])
       reset()
@@ -174,10 +179,10 @@
 <form class="column gap-4" onsubmit={preventDefault(submit)}>
   <ModalHeader>
     {#snippet title()}
-      {editToken ? 'Edit Git Auth Token' : 'Add a Git Auth Token'}
+      {editToken ? "Edit Git Auth Token" : "Add a Git Auth Token"}
     {/snippet}
     {#snippet info()}
-      <p>Use this form to {editToken ? 'edit your existing' : 'add a'} Git auth token.</p>
+      <p>Use this form to {editToken ? "edit your existing" : "add a"} Git auth token.</p>
       <p>
         Need a token?
         <a href={githubTokenSettings?.url} target="_blank" rel="noopener noreferrer"
@@ -234,7 +239,7 @@
       Go back
     </Button>
     <Button type="submit" class="btn btn-primary" disabled={busy}>
-      <Spinner loading={busy}>{editToken ? 'Save Changes' : 'Add'}</Spinner>
+      <Spinner loading={busy}>{editToken ? "Save Changes" : "Add"}</Spinner>
       <Icon icon={AltArrowRight} />
     </Button>
   </ModalFooter>

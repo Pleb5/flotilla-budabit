@@ -15,10 +15,7 @@
   import {formatTimestampRelative} from "@welshman/lib"
   import {load, request} from "@welshman/net"
   import {now, nthEq, sortBy} from "@welshman/lib"
-  import {
-    GIT_REPO_ANNOUNCEMENT,
-    GitIssueStatus,
-  } from "@nostr-git/core/events"
+  import {GIT_REPO_ANNOUNCEMENT, GitIssueStatus} from "@nostr-git/core/events"
   import NoteCard from "./NoteCard.svelte"
   import Content from "@lib/budabit/components/Content.svelte"
   import {nip19} from "nostr-tools"
@@ -28,14 +25,10 @@
   import {pushModal} from "@app/util/modal"
   import ThreadCreate from "./ThreadCreate.svelte"
   import {decodeRelay} from "@app/core/state"
-  import {
-    loadRepoAnnouncements,
-    deriveMaintainersForEuc,
-    repoAnnouncements,
-  } from "@lib/budabit"
+  import {loadRepoAnnouncements, deriveMaintainersForEuc, repoAnnouncements} from "@lib/budabit"
   import {Router} from "@welshman/router"
   import {resolveIssueStatus} from "@nostr-git/core/events"
-  import { deriveEffectiveLabels } from "@lib/budabit"
+  import {deriveEffectiveLabels} from "@lib/budabit"
 
   const {
     issue,

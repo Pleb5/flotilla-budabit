@@ -35,9 +35,7 @@
   const branches = $derived(
     publishedBranches.length > 0
       ? publishedBranches
-      : (repo.refs || [])
-          .filter(ref => ref?.type === "heads" && ref?.name)
-          .map(ref => ref.name),
+      : (repo.refs || []).filter(ref => ref?.type === "heads" && ref?.name).map(ref => ref.name),
   )
   const isMaintainer = $derived.by(() => {
     const me = $pubkey
@@ -138,15 +136,15 @@
     </label>
     <div class="flex justify-end">
       <Button
-        class="rounded bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50"
+        class="text-primary-foreground rounded bg-primary px-4 py-2 disabled:opacity-50"
         onclick={save}
         disabled={saving || selected === currentHead}>
         {saving ? "Publishing..." : "Save"}
       </Button>
     </div>
     <p class="mt-3 text-xs text-muted-foreground">
-      Publishes a new NIP-34 state event (kind 30618) with HEAD pointing at the selected
-      branch. Other maintainers' state events may still diverge.
+      Publishes a new NIP-34 state event (kind 30618) with HEAD pointing at the selected branch.
+      Other maintainers' state events may still diverge.
     </p>
   {/if}
 </Card>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import {page} from "$app/stores"
   import {User, Search} from "@lucide/svelte"
   import {
     Input,
@@ -15,7 +15,7 @@
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
-  import { fade, slide } from "svelte/transition"
+  import {fade, slide} from "svelte/transition"
   import {getContext} from "svelte"
   import {REPO_KEY} from "@lib/budabit/state"
   import type {Repo} from "@nostr-git/ui"
@@ -23,7 +23,7 @@
   import {postComment} from "@lib/budabit/commands"
 
   const repoClass = getContext<Repo>(REPO_KEY)
-  
+
   if (!repoClass) {
     throw new Error("Repo context not available")
   }
@@ -70,8 +70,8 @@
 
   // Create navigation helper
   const getCommitUrl = (commitId: string) => {
-    return `/spaces/${encodeURIComponent($page.params.relay as string)}/git/${encodeURIComponent($page.params.id as string)}/commits/${commitId}`;
-  };
+    return `/spaces/${encodeURIComponent($page.params.relay as string)}/git/${encodeURIComponent($page.params.id as string)}/commits/${commitId}`
+  }
 
   $effect(() => {
     const container = pageContainerRef
@@ -94,9 +94,9 @@
   })
 
   // Track the previous branch to detect changes
-  let previousBranch = $state<string | undefined>(undefined);
-  let wasJustSwitching = $state(false);
-  let branchSwitchComplete = $state(false);
+  let previousBranch = $state<string | undefined>(undefined)
+  let wasJustSwitching = $state(false)
+  let branchSwitchComplete = $state(false)
 
   // Handle branch switching state changes
   $effect(() => {
@@ -153,23 +153,23 @@
 
   // Load commits when branch changes (but not during active switching or right after)
   $effect(() => {
-    const selectedBranch = repoClass.selectedBranch;
-    const mainBranch = repoClass.mainBranch;
-    const currentBranch = selectedBranch || mainBranch;
+    const selectedBranch = repoClass.selectedBranch
+    const mainBranch = repoClass.mainBranch
+    const currentBranch = selectedBranch || mainBranch
     const isSwitching = repoClass.isBranchSwitching
-    const repoKey = repoClass.key;
-    
+    const repoKey = repoClass.key
+
     // Guard: Don't load commits if we're on a child route (commit detail page)
     // This prevents the commits list from loading when viewing /commits/[commitid]
     if ($page.params.commitid) {
-      return;
+      return
     }
-    
+
     // Guard: wait for repoClass.key to be populated (not empty string)
     if (!repoKey || repoKey.trim() === "") {
-      return;
+      return
     }
-    
+
     if (repoClass && repoClass.repoId && currentBranch) {
       // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
       if (isSwitching || wasJustSwitching || branchSwitchComplete) {
@@ -183,19 +183,19 @@
 
       // Detect branch changes (e.g., from navigation, not from selector)
       if (previousBranch !== undefined && previousBranch !== currentBranch) {
-        currentPage = 1;
-        initialLoadComplete = false;
-        previousBranch = currentBranch;
+        currentPage = 1
+        initialLoadComplete = false
+        previousBranch = currentBranch
         // Debounce to prevent rapid-fire triggers during initialization
         commitLoadDebounce = setTimeout(() => {
-          repoClass.waitForReady().then(() => loadCommits());
+          repoClass.waitForReady().then(() => loadCommits())
         }, 100)
       } else if (previousBranch === undefined) {
         // Initial load - wait for repo to be ready
-        previousBranch = currentBranch;
+        previousBranch = currentBranch
         // Debounce to prevent rapid-fire triggers during initialization
         commitLoadDebounce = setTimeout(() => {
-          repoClass.waitForReady().then(() => loadCommits());
+          repoClass.waitForReady().then(() => loadCommits())
         }, 100)
       }
     }
@@ -224,11 +224,11 @@
     }
 
     try {
-      const result = await repoClass.loadPage(currentPage);
+      const result = await repoClass.loadPage(currentPage)
 
       // Check if the result indicates an error
       if (result && !result.success) {
-        throw new Error(result.error || "Failed to load commits");
+        throw new Error(result.error || "Failed to load commits")
       }
 
       // IMPORTANT: Create a new array reference to ensure Svelte 5 reactivity
@@ -311,7 +311,7 @@
 
   const handleComment = (commitId: string, comment: string) => {
     if (!comment.trim()) return
-    
+
     // Create a NIP-22 comment event referencing the commit by its OID
     // Using "I" (external identifier) tag since commits are git objects, not Nostr events
     const repoAddr = repoClass.address // e.g., "30617:pubkey:repo-name"
@@ -325,7 +325,7 @@
       },
       extraTags: repoAddr ? [["q", repoAddr, relays[0]].filter(Boolean) as any] : undefined,
     })
-    
+
     // Publish the comment to repo relays
     postComment(commentEvent as CommentEvent, relays)
   }
@@ -415,7 +415,6 @@
   {:else}
     <div data-testid="commits-list">
       <div class="space-y-4">
-
         <Separator />
 
         {#if commits}

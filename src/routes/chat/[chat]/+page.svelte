@@ -31,7 +31,7 @@
 {#if $pubkey && pubkeys.length > 0}
   <Chat {pubkeys} />
 {:else}
-  <div class="flex items-center justify-center h-full">
+  <div class="flex h-full items-center justify-center">
     <p class="text-muted-foreground">Please log in to access chat.</p>
   </div>
 {/if}

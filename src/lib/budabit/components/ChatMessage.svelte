@@ -46,9 +46,7 @@
   let decryptFailed = $state(false)
 
   const displayContent = $derived(plaintext ?? "")
-  const displayEvent = $derived(
-    plaintext !== undefined ? {...event, content: plaintext} : event,
-  )
+  const displayEvent = $derived(plaintext !== undefined ? {...event, content: plaintext} : event)
 
   $effect(() => {
     let cancelled = false

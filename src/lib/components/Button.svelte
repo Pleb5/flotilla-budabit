@@ -12,12 +12,7 @@
     [key: string]: any
   }
 
-  const {
-    children,
-    onclick,
-    type = "button",
-    ...restProps
-  }: ButtonProps = $props()
+  const {children, onclick, type = "button", ...restProps}: ButtonProps = $props()
 
   const className = $derived(`text-left ${restProps.class}`)
 

@@ -11,8 +11,13 @@
     children?: Snippet
   }
 
-  const {onClose, align = "left", widthClass = "w-72", viewportMargin = 16, children}: Props =
-    $props()
+  const {
+    onClose,
+    align = "left",
+    widthClass = "w-72",
+    viewportMargin = 16,
+    children,
+  }: Props = $props()
 
   let element: HTMLElement | undefined = $state()
   let left = $state(viewportMargin)

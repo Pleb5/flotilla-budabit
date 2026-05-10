@@ -32,7 +32,7 @@
   import ChannelContent from "@app/components/ChannelMessage.svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import {deriveEventsById, deriveEventsDesc} from "@welshman/store"
-  
+
   const {relay, id} = $page.params as MakeNonOptional<typeof $page.params>
   const url = decodeRelay(relay)
   const event = deriveEvent(id, [url])

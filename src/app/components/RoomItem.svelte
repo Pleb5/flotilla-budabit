@@ -33,7 +33,7 @@
   import {getRoomItemPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
-  import { Thunk } from "@welshman/app"
+  import {Thunk} from "@welshman/app"
 
   interface Props {
     url: string
@@ -84,7 +84,8 @@
   onTap={inert ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left hover:bg-base-100/50">
   {#if isMobile && !inert}
-    <div class="join absolute right-1 top-1 z-10 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
+    <div
+      class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
       {#if !readOnly}
         <RoomItemEmojiButton {url} {event} />
       {/if}
@@ -166,7 +167,7 @@
   </div>
   {#if !isMobile}
     <div
-      class="join absolute right-1 top-1 z-10 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
+      class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
       {#if ENABLE_ZAPS && !readOnly}
         <RoomItemZapButton {url} {event} />
       {/if}

@@ -37,7 +37,6 @@
   {/if}
   <Content {event} expandMode="inline" />
   <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
-    <JobActions {url} {event} {showComment} {showActivity} {showExternal} {showThreadAction}/>
+    <JobActions {url} {event} {showComment} {showActivity} {showExternal} {showThreadAction} />
   </div>
 </NoteCard>
-

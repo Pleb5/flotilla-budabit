@@ -60,29 +60,31 @@
   async function del(tokenToDelete: TokenEntry) {
     const currentSigner = get(signer)
     const currentPubkey = get(pubkey)
-    
+
     if (!currentSigner?.nip44 || !currentPubkey) {
       console.error("[GitAuth] Cannot delete token: signer or pubkey not available")
       return
     }
 
     // Match both host AND token to uniquely identify the token to delete
-    const updatedTokens = $tokensStore.filter((t: TokenEntry) => !(t.host === tokenToDelete.host && t.token === tokenToDelete.token))
-    
+    const updatedTokens = $tokensStore.filter(
+      (t: TokenEntry) => !(t.host === tokenToDelete.host && t.token === tokenToDelete.token),
+    )
+
     try {
       // Encrypt and publish updated token list
       const dataToEncrypt = JSON.stringify(updatedTokens)
       const encrypted = await currentSigner.nip44.encrypt(currentPubkey, dataToEncrypt)
-      
+
       const event = makeEvent(APP_DATA, {
         content: encrypted,
-        tags: [["d", GIT_AUTH_DTAG]]
+        tags: [["d", GIT_AUTH_DTAG]],
       })
-      
+
       const relays = Router.get().FromUser().getUrls()
       console.log("[GitAuth] Publishing updated token list after delete to relays:", relays)
       publishThunk({event, relays})
-      
+
       // Update the reactive store
       tokensStore.clear()
       updatedTokens.forEach(token => tokensStore.push(token))
@@ -149,9 +151,9 @@
       <table class="w-full table-fixed">
         <thead>
           <tr>
-            <th class="p-2 text-left w-1/3">Host</th>
-            <th class="p-2 text-left w-1/3">Token</th>
-            <th class="p-2 text-right w-1/3">Actions</th>
+            <th class="w-1/3 p-2 text-left">Host</th>
+            <th class="w-1/3 p-2 text-left">Token</th>
+            <th class="w-1/3 p-2 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -160,8 +162,9 @@
               <td class="p-2 text-left">{t.host}</td>
               <td class="p-2 text-left">{mask(t.token)}</td>
               <td class="p-2 text-right">
-                <div class="flex gap-2 justify-end">
-                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}><Icon icon={Pen} /></Button>
+                <div class="flex justify-end gap-2">
+                  <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}
+                    ><Icon icon={Pen} /></Button>
                   <Button class="btn btn-error btn-sm" onclick={() => del(t)}
                     ><Icon icon={TrashBin2} /></Button>
                 </div>
@@ -186,8 +189,7 @@
           type="url"
           placeholder={DEFAULT_GIT_CORS_PROXY}
           bind:value={corsProxyDraft}
-          onchange={saveCorsProxy}
-        />
+          onchange={saveCorsProxy} />
         <Button class="btn btn-ghost btn-xs" onclick={resetCorsProxy}>Default</Button>
       </label>
     {/snippet}

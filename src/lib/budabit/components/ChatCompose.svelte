@@ -61,7 +61,8 @@
 </script>
 
 {#if disabled}
-  <div class="mx-2 my-2 rounded-box border border-dashed border-warning/40 bg-warning/10 p-3 text-sm">
+  <div
+    class="mx-2 my-2 rounded-box border border-dashed border-warning/40 bg-warning/10 p-3 text-sm">
     {disabledMessage}
   </div>
 {:else}

@@ -116,13 +116,20 @@
   let verificationState = $state<"idle" | "running" | "done" | "error">("idle")
   let verificationError = $state<string | null>(null)
 
-  const softBadgePrimary = "badge border border-amber-500/35 bg-amber-100/70 font-medium text-amber-700 dark:border-primary/25 dark:bg-primary/15 dark:text-primary"
-  const softBadgeAccent = "badge border border-fuchsia-500/35 bg-fuchsia-100/70 font-medium text-fuchsia-700 dark:border-accent/25 dark:bg-accent/15 dark:text-accent"
-  const softBadgeInfo = "badge border border-cyan-500/35 bg-cyan-100/70 font-medium text-cyan-700 dark:border-info/25 dark:bg-info/15 dark:text-info"
-  const softBadgeSuccess = "badge border border-teal-500/35 bg-teal-100/70 font-medium text-teal-700 dark:border-success/25 dark:bg-success/15 dark:text-success"
-  const softBadgeWarning = "badge border border-orange-500/35 bg-orange-100/70 font-medium text-orange-700 dark:border-warning/30 dark:bg-warning/15 dark:text-warning"
-  const softBadgeError = "badge border border-red-500/35 bg-red-100/70 font-medium text-red-700 dark:border-error/25 dark:bg-error/15 dark:text-error"
-  const softBadgeNeutral = "badge border border-base-content/15 bg-base-200 font-medium text-base-content/80"
+  const softBadgePrimary =
+    "badge border border-amber-500/35 bg-amber-100/70 font-medium text-amber-700 dark:border-primary/25 dark:bg-primary/15 dark:text-primary"
+  const softBadgeAccent =
+    "badge border border-fuchsia-500/35 bg-fuchsia-100/70 font-medium text-fuchsia-700 dark:border-accent/25 dark:bg-accent/15 dark:text-accent"
+  const softBadgeInfo =
+    "badge border border-cyan-500/35 bg-cyan-100/70 font-medium text-cyan-700 dark:border-info/25 dark:bg-info/15 dark:text-info"
+  const softBadgeSuccess =
+    "badge border border-teal-500/35 bg-teal-100/70 font-medium text-teal-700 dark:border-success/25 dark:bg-success/15 dark:text-success"
+  const softBadgeWarning =
+    "badge border border-orange-500/35 bg-orange-100/70 font-medium text-orange-700 dark:border-warning/30 dark:bg-warning/15 dark:text-warning"
+  const softBadgeError =
+    "badge border border-red-500/35 bg-red-100/70 font-medium text-red-700 dark:border-error/25 dark:bg-error/15 dark:text-error"
+  const softBadgeNeutral =
+    "badge border border-base-content/15 bg-base-200 font-medium text-base-content/80"
 
   const managedProviders = $derived.by(() =>
     providers.filter(provider => provider.kind === NIP85_USER_ASSERTION_KIND),
@@ -235,7 +242,9 @@
     return byCapability
   })
 
-  const recommendedEntries = $derived.by(() => Array.from(recommendedProvidersByCapability.values()).flat())
+  const recommendedEntries = $derived.by(() =>
+    Array.from(recommendedProvidersByCapability.values()).flat(),
+  )
 
   const recommendedEntryCount = $derived.by(() => recommendedEntries.length)
 
@@ -243,7 +252,9 @@
     () =>
       new Set(
         recommendedEntries.map(provider =>
-          "serviceIdentity" in provider && provider.serviceIdentity ? provider.serviceIdentity : provider.serviceKey,
+          "serviceIdentity" in provider && provider.serviceIdentity
+            ? provider.serviceIdentity
+            : provider.serviceKey,
         ),
       ).size,
   )
@@ -301,17 +312,17 @@
         ("website" in provider && provider.website) ||
         normalizeNip85ProviderWebsite($profilesByPubkey.get(provider.serviceKey)?.website)
       const serviceIdentity =
-        ("serviceIdentity" in provider && provider.serviceIdentity) || website || provider.serviceKey
-      const existing =
-        entries.get(serviceIdentity) ||
-        {
-          website: website || undefined,
-          representativeServiceKey: provider.serviceKey,
-          providerKeys: new Set<string>(),
-          capabilityLabels: new Set<string>(),
-          endorsementCount: 0,
-          selectedCount: 0,
-        }
+        ("serviceIdentity" in provider && provider.serviceIdentity) ||
+        website ||
+        provider.serviceKey
+      const existing = entries.get(serviceIdentity) || {
+        website: website || undefined,
+        representativeServiceKey: provider.serviceKey,
+        providerKeys: new Set<string>(),
+        capabilityLabels: new Set<string>(),
+        endorsementCount: 0,
+        selectedCount: 0,
+      }
 
       existing.website = existing.website || website || undefined
 
@@ -328,7 +339,9 @@
 
       if (source === "recommended") {
         existing.endorsementCount +=
-          "usageCount" in provider && typeof provider.usageCount === "number" ? provider.usageCount : 0
+          "usageCount" in provider && typeof provider.usageCount === "number"
+            ? provider.usageCount
+            : 0
       } else {
         existing.selectedCount += 1
       }
@@ -361,7 +374,8 @@
       })
       .filter((entry): entry is ServiceProviderWebsiteEntry => Boolean(entry))
       .sort((a, b) => {
-        if (a.endorsementCount !== b.endorsementCount) return b.endorsementCount - a.endorsementCount
+        if (a.endorsementCount !== b.endorsementCount)
+          return b.endorsementCount - a.endorsementCount
         return a.websiteLabel.localeCompare(b.websiteLabel)
       })
   })
@@ -465,7 +479,8 @@
 
         if (aSelected !== bSelected) return aSelected ? -1 : 1
         if (a.selectedCount !== b.selectedCount) return b.selectedCount - a.selectedCount
-        if (a.recommendedCount !== b.recommendedCount) return b.recommendedCount - a.recommendedCount
+        if (a.recommendedCount !== b.recommendedCount)
+          return b.recommendedCount - a.recommendedCount
         if (a.isKnown !== b.isKnown) return a.isKnown ? -1 : 1
 
         return a.label.localeCompare(b.label)
@@ -698,7 +713,9 @@
     }
 
     if (!capabilityOptions.some(option => option.kindTag === selectedCapability)) {
-      selectedCapability = capabilityOptions.find(option => option.selectedCount > 0)?.kindTag || capabilityOptions[0].kindTag
+      selectedCapability =
+        capabilityOptions.find(option => option.selectedCount > 0)?.kindTag ||
+        capabilityOptions[0].kindTag
     }
   })
 
@@ -840,7 +857,10 @@
       kindTag: `${provider.kind}:${tag}`,
     }
 
-    providers = upsertNip85ConfiguredProvider(removeNip85ConfiguredProvider(providers, provider), nextProvider)
+    providers = upsertNip85ConfiguredProvider(
+      removeNip85ConfiguredProvider(providers, provider),
+      nextProvider,
+    )
     selectedCapability = nextProvider.kindTag
     dirty = true
   }
@@ -863,7 +883,9 @@
     dirty = true
   }
 
-  const removeProvider = (provider: Nip85Provider | Nip85ConfiguredProvider | Nip85RecommendedProvider) => {
+  const removeProvider = (
+    provider: Nip85Provider | Nip85ConfiguredProvider | Nip85RecommendedProvider,
+  ) => {
     providers = removeNip85ConfiguredProvider(providers, provider)
     dirty = true
   }
@@ -969,11 +991,11 @@
       if people in your WoT use it for multiple capabilities.
     </p>
 
-  {#if unmanagedProvidersCount > 0}
+    {#if unmanagedProvidersCount > 0}
       <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
         Budabit is preserving {unmanagedProvidersCount}
-        {unmanagedProvidersCount === 1 ? " non-profile entry" : " non-profile entries"} already
-        present in your NIP-85 config.
+        {unmanagedProvidersCount === 1 ? " non-profile entry" : " non-profile entries"} already present
+        in your NIP-85 config.
       </div>
     {/if}
   </div>
@@ -999,7 +1021,10 @@
           </button>
 
           {#if showServiceProviderHelp}
-            <InlinePopover onClose={() => (showServiceProviderHelp = false)} align="right" widthClass="w-80">
+            <InlinePopover
+              onClose={() => (showServiceProviderHelp = false)}
+              align="right"
+              widthClass="w-80">
               <div class="flex flex-col gap-3 text-sm">
                 <div class="font-medium">Service grouping and view hints</div>
                 <div class="text-xs leading-relaxed opacity-75">{serviceProviderHelperText}</div>
@@ -1031,15 +1056,27 @@
 
               <div class="flex flex-wrap gap-2 text-xs">
                 {#if entry.endorsementCount > 0}
-                  <span class={softBadgeInfo}>{entry.endorsementCount} endorsement{entry.endorsementCount === 1 ? "" : "s"}</span>
+                  <span class={softBadgeInfo}
+                    >{entry.endorsementCount} endorsement{entry.endorsementCount === 1
+                      ? ""
+                      : "s"}</span>
                 {/if}
-                <span class={softBadgeNeutral}>{entry.providerKeys.length} key{entry.providerKeys.length === 1 ? "" : "s"}</span>
-                <span class={softBadgeNeutral}>{entry.capabilityCount} capabilit{entry.capabilityCount === 1 ? "y" : "ies"}</span>
+                <span class={softBadgeNeutral}
+                  >{entry.providerKeys.length} key{entry.providerKeys.length === 1
+                    ? ""
+                    : "s"}</span>
+                <span class={softBadgeNeutral}
+                  >{entry.capabilityCount} capabilit{entry.capabilityCount === 1
+                    ? "y"
+                    : "ies"}</span>
               </div>
 
               <div class="text-xs opacity-70">
                 To enforce your own view,
-                <Link href={entry.website} external class="text-primary underline-offset-2 hover:underline">
+                <Link
+                  href={entry.website}
+                  external
+                  class="text-primary underline-offset-2 hover:underline">
                   visit the provider website
                 </Link>
                 and configure there. BudaBit should load your config automatically after setup.
@@ -1049,7 +1086,9 @@
         {/each}
       </div>
     {:else}
-      <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">No provider websites found.</div>
+      <div class="rounded-box bg-base-200/60 p-3 text-sm opacity-80">
+        No provider websites found.
+      </div>
     {/if}
   </div>
 
@@ -1111,7 +1150,8 @@
       <div class="flex flex-col gap-3">
         {#each graphConfig.rules as rule (rule.id)}
           <div class="rounded-box bg-base-100/40 p-3">
-            <div class="grid gap-3 xl:grid-cols-[auto_minmax(0,2.2fr)_minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
+            <div
+              class="grid gap-3 xl:grid-cols-[auto_minmax(0,2.2fr)_minmax(0,0.95fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
               <label class="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -1166,7 +1206,7 @@
                 <span class="text-xs font-medium opacity-70">Threshold</span>
                 <input
                   type="number"
-                  class="input input-bordered input-sm w-full"
+                  class="input input-sm input-bordered w-full"
                   value={rule.threshold}
                   step="1"
                   onchange={event =>
@@ -1199,7 +1239,9 @@
       <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <label class="flex flex-1 flex-col gap-2">
           <span class="text-sm font-medium">Select Capability</span>
-          <select class="select select-bordered select-sm sm:select-md" bind:value={selectedCapability}>
+          <select
+            class="select select-bordered select-sm sm:select-md"
+            bind:value={selectedCapability}>
             {#each capabilityOptions as option (option.kindTag)}
               <option value={option.kindTag}>{option.label}</option>
             {/each}
@@ -1236,7 +1278,8 @@
             type="button"
             class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 text-center sm:w-auto"
             onclick={discoverExtras}
-            disabled={$nip85ExtraCapabilityDiscoveryState.status === "running" || recommendedServiceCount === 0}>
+            disabled={$nip85ExtraCapabilityDiscoveryState.status === "running" ||
+              recommendedServiceCount === 0}>
             {#if $nip85ExtraCapabilityDiscoveryState.status === "running"}
               <span class="loading loading-spinner loading-sm shrink-0"></span>
             {/if}
@@ -1290,8 +1333,8 @@
           </strong>
           <p class="text-sm opacity-75">{activeCapability.description}</p>
           <p class="text-xs opacity-60">
-            Endorsements count how many distinct people in your current WoT sample publicly
-            selected each provider for this capability.
+            Endorsements count how many distinct people in your current WoT sample publicly selected
+            each provider for this capability.
           </p>
         </div>
 
@@ -1302,14 +1345,13 @@
               usageCount={row.usageCount}
               recommenders={row.recommenders}
               selectedProvider={row.selectedProvider}
-              verification={
-                row.selectedProvider
-                  ? verificationByProviderKey.get(getNip85ProviderKey(row.selectedProvider))
-                  : undefined
-              }
+              verification={row.selectedProvider
+                ? verificationByProviderKey.get(getNip85ProviderKey(row.selectedProvider))
+                : undefined}
               onSelect={visibility => selectProvider(row.provider, visibility)}
               onSetVisibility={visibility => setVisibility(row.provider, visibility)}
-              onSwitchTag={tag => row.selectedProvider && switchProviderTag(row.selectedProvider, tag)}
+              onSwitchTag={tag =>
+                row.selectedProvider && switchProviderTag(row.selectedProvider, tag)}
               onRemove={() => removeProvider(row.provider)} />
           {/each}
         </div>
@@ -1345,7 +1387,7 @@
       <label class="flex flex-col gap-2">
         <span class="text-sm font-medium">Provider pubkey or npub</span>
         <input
-          class="input input-bordered input-sm sm:input-md"
+          class="input input-sm input-bordered sm:input-md"
           bind:value={customServiceKey}
           placeholder="npub1... or hex pubkey" />
       </label>
@@ -1353,7 +1395,7 @@
       <label class="flex flex-col gap-2">
         <span class="text-sm font-medium">Relay hint</span>
         <input
-          class="input input-bordered input-sm sm:input-md"
+          class="input input-sm input-bordered sm:input-md"
           bind:value={customRelayHint}
           placeholder="wss://relay.example.com" />
       </label>
@@ -1361,7 +1403,7 @@
       <label class="flex flex-col gap-2">
         <span class="text-sm font-medium">Custom capability override</span>
         <input
-          class="input input-bordered input-sm sm:input-md"
+          class="input input-sm input-bordered sm:input-md"
           bind:value={customKindTagOverride}
           placeholder="30382:personalizedPageRank" />
         <span class="text-xs opacity-60">
@@ -1394,24 +1436,25 @@
     <div class="flex justify-end">
       <Button
         type="button"
-        class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:w-auto sm:btn-md"
+        class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:btn-md sm:w-auto"
         onclick={addCustomProvider}>
         <Icon icon={AddCircle} /> Add Provider
       </Button>
     </div>
   </div>
 
-  <div class="mt-2 flex flex-col-reverse gap-2 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+  <div
+    class="mt-2 flex flex-col-reverse gap-2 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
     <Button
       type="button"
-      class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 sm:w-auto sm:btn-md"
+      class="btn btn-neutral btn-sm inline-flex w-full items-center justify-center gap-2 sm:btn-md sm:w-auto"
       onclick={reset}
       disabled={!dirty || saving}>
       Discard Changes
     </Button>
     <Button
       type="submit"
-      class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:w-auto sm:btn-md"
+      class="btn btn-primary btn-sm inline-flex w-full items-center justify-center gap-2 sm:btn-md sm:w-auto"
       disabled={!dirty || saving}>
       {#if saving}
         <span class="loading loading-spinner loading-sm shrink-0"></span>

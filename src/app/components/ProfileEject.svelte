@@ -68,8 +68,8 @@
       your social identity; keep it safe and secret.
     </li>
     <li>
-      Choose a <Link class="link" href="https://nostrapps.com/#signers">signer app</Link> and import
-      your private key into it. Don't forget your account password; you'll need it to decrypt your key.
+      Choose a <Link class="link" href="https://nostrapps.com/#signers">signer app</Link> and import your
+      private key into it. Don't forget your account password; you'll need it to decrypt your key.
     </li>
   </ul>
   <p>

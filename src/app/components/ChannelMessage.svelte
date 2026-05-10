@@ -51,7 +51,9 @@
   const profile = deriveProfile(event.pubkey, [url])
   const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
   const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
-  const relayTargets = $derived.by(() => (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean))
+  const relayTargets = $derived.by(() =>
+    (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
+  )
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
       return [] as string[][]
@@ -109,7 +111,7 @@
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left">
   {#if isMobile && !inert}
     <div
-      class="join absolute right-1 top-1 z-10 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
+      class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
       <ChannelMessageEmojiButton
         {url}
         {event}
@@ -117,11 +119,19 @@
         {scopeH}
         protect={protectInteractions} />
       {#if reply}
-        <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message" data-stop-tap>
+        <Button
+          class="btn join-item btn-xs"
+          onclick={reply}
+          aria-label="Reply to message"
+          data-stop-tap>
           <Icon icon={Reply} size={4} />
         </Button>
       {/if}
-      <Button class="btn join-item btn-xs" onclick={openMobileMenu} aria-label="Open message actions" data-stop-tap>
+      <Button
+        class="btn join-item btn-xs"
+        onclick={openMobileMenu}
+        aria-label="Open message actions"
+        data-stop-tap>
         <Icon icon={MenuDots} size={4} />
       </Button>
     </div>
@@ -129,7 +139,11 @@
   <div class="flex w-full gap-3 overflow-auto">
     {#if showPubkey}
       <Button onclick={openProfile} class="flex items-start">
-        <ImageIcon alt="" src={$profile?.picture || ""} class="border border-solid border-base-content rounded-full" size={8} />
+        <ImageIcon
+          alt=""
+          src={$profile?.picture || ""}
+          class="rounded-full border border-solid border-base-content"
+          size={8} />
       </Button>
     {:else}
       <div class="w-8 min-w-8 max-w-8"></div>
@@ -150,20 +164,20 @@
           </span>
         </div>
       {/if}
-        <div class="text-sm">
-          {#if isKnownEventKind(event.kind)}
-            <div
-              class="event-renderer"
-              role="presentation"
-              tabindex="-1"
-              onclick={stopTapFromInteractive}
-              onkeydown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault()
-                }
-              }}>
-              <EventRenderer event={event as any} relay={url} />
-            </div>
+      <div class="text-sm">
+        {#if isKnownEventKind(event.kind)}
+          <div
+            class="event-renderer"
+            role="presentation"
+            tabindex="-1"
+            onclick={stopTapFromInteractive}
+            onkeydown={e => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+              }
+            }}>
+            <EventRenderer event={event as any} relay={url} />
+          </div>
         {:else if isKnownUnknown(event.kind)}
           <div class="unknown-kind">
             {@html new Template(event as any).render()}
@@ -189,11 +203,16 @@
   </div>
   {#if !isMobile}
     <div
-      class="join absolute right-1 top-1 z-10 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
+      class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
       {#if ENABLE_ZAPS}
         <ChannelMessageZapButton {url} {event} />
       {/if}
-      <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} protect={protectInteractions} />
+      <ChannelMessageEmojiButton
+        {url}
+        {event}
+        relays={relayTargets}
+        {scopeH}
+        protect={protectInteractions} />
       {#if reply}
         <Button class="btn join-item btn-xs" onclick={reply}>
           <Icon icon={Reply} size={4} />

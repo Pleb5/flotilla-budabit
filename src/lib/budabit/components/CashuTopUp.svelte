@@ -1,5 +1,10 @@
 <script lang="ts">
-  import {cashuMints, requestMintQuote, checkMintQuote, mintTokensFromQuote} from "@lib/budabit/cashu"
+  import {
+    cashuMints,
+    requestMintQuote,
+    checkMintQuote,
+    mintTokensFromQuote,
+  } from "@lib/budabit/cashu"
   import Button from "@lib/components/Button.svelte"
   import QRCode from "qrcode"
 
@@ -110,11 +115,16 @@
         Pay this Lightning invoice to top up <strong>{amount.toLocaleString()} sats</strong>
       </p>
       {#if qrDataUrl}
-        <img src={qrDataUrl} alt="Lightning invoice QR code" class="rounded-lg" width="200" height="200" />
+        <img
+          src={qrDataUrl}
+          alt="Lightning invoice QR code"
+          class="rounded-lg"
+          width="200"
+          height="200" />
       {/if}
       <div class="flex w-full gap-2">
         <input
-          class="input input-bordered input-xs flex-1 font-mono"
+          class="input input-xs input-bordered flex-1 font-mono"
           type="text"
           readonly
           value={invoice} />
@@ -125,40 +135,38 @@
       <p class="text-xs opacity-50">Waiting for payment… ({pollCount} checks)</p>
       <Button class="btn btn-ghost btn-sm" onclick={cancel}>Cancel</Button>
     </div>
+  {:else if mints.length === 0}
+    <p class="text-sm opacity-75">Add a mint first to top up via Lightning.</p>
   {:else}
-    {#if mints.length === 0}
-      <p class="text-sm opacity-75">Add a mint first to top up via Lightning.</p>
-    {:else}
-      <div class="flex flex-col gap-3">
-        <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium" for="topup-mint">Mint</label>
-          <select id="topup-mint" class="select select-bordered select-sm" bind:value={selectedMint}>
-            {#each mints as mint (mint)}
-              <option value={mint}>{mint}</option>
-            {/each}
-          </select>
-        </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium" for="topup-amount">Amount (sats)</label>
-          <input
-            id="topup-amount"
-            class="input input-bordered input-sm"
-            type="number"
-            min="1"
-            bind:value={amount} />
-        </div>
+    <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-1">
+        <label class="text-sm font-medium" for="topup-mint">Mint</label>
+        <select id="topup-mint" class="select select-bordered select-sm" bind:value={selectedMint}>
+          {#each mints as mint (mint)}
+            <option value={mint}>{mint}</option>
+          {/each}
+        </select>
       </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-sm font-medium" for="topup-amount">Amount (sats)</label>
+        <input
+          id="topup-amount"
+          class="input input-sm input-bordered"
+          type="number"
+          min="1"
+          bind:value={amount} />
+      </div>
+    </div>
 
-      {#if error}
-        <p class="text-sm text-error">{error}</p>
-      {/if}
-
-      <Button
-        class="btn btn-primary"
-        onclick={requestInvoice}
-        disabled={loading || !selectedMint || amount <= 0}>
-        {loading ? "Requesting…" : "Get Lightning Invoice"}
-      </Button>
+    {#if error}
+      <p class="text-sm text-error">{error}</p>
     {/if}
+
+    <Button
+      class="btn btn-primary"
+      onclick={requestInvoice}
+      disabled={loading || !selectedMint || amount <= 0}>
+      {loading ? "Requesting…" : "Get Lightning Invoice"}
+    </Button>
   {/if}
 </div>

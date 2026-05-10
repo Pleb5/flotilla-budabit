@@ -79,8 +79,11 @@
     {:else if localPreview}
       <div class="bg-alt flex max-w-xl flex-col leading-normal">
         <div class="flex flex-col gap-2 p-4">
-          <strong class="overflow-hidden text-ellipsis whitespace-nowrap">{localPreview.title}</strong>
-          <p class="font-mono text-sm text-muted-foreground break-all">{localPreview.description}</p>
+          <strong class="overflow-hidden text-ellipsis whitespace-nowrap"
+            >{localPreview.title}</strong>
+          <p class="break-all font-mono text-sm text-muted-foreground">
+            {localPreview.description}
+          </p>
         </div>
       </div>
     {:else}

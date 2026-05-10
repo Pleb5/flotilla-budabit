@@ -1,7 +1,12 @@
 <script lang="ts">
   import {displayProfileByPubkey, thunks} from "@welshman/app"
   import {getTag, type EventContent, type TrustedEvent} from "@welshman/util"
-  import {parseIssueEvent, parsePullRequestEvent, GIT_PULL_REQUEST, GIT_ISSUE} from "@nostr-git/core/events"
+  import {
+    parseIssueEvent,
+    parsePullRequestEvent,
+    GIT_PULL_REQUEST,
+    GIT_ISSUE,
+  } from "@nostr-git/core/events"
   import {CircleCheck, CircleDot, FileCode, ArrowUpRight, XCircle} from "@lucide/svelte"
   import {goto} from "$app/navigation"
   import Button from "@lib/components/Button.svelte"
@@ -39,7 +44,9 @@
 
   const thunk = $derived($thunks.find(t => t.event.id === event.id))
   const reply = replyTo ? () => replyTo(event) : undefined
-  const relayTargets = $derived.by(() => (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean))
+  const relayTargets = $derived.by(() =>
+    (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
+  )
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
       return [] as string[][]
@@ -176,32 +183,42 @@
   class="group block cursor-pointer p-2 text-left"
   onclick={handleCardClick}
   onkeydown={handleCardKeydown}>
-  <div class="rounded-2xl border border-border bg-base-200/60 p-4 shadow-sm transition-colors hover:bg-base-200/80">
+  <div
+    class="rounded-2xl border border-border bg-base-200/60 p-4 shadow-sm transition-colors hover:bg-base-200/80">
     <div class="flex items-start gap-3">
       <statusInfo.icon class={`mt-1 h-5 w-5 shrink-0 ${statusInfo.iconClass}`} />
 
       <div class="min-w-0 flex-1">
         <div class="flex items-start justify-between gap-3">
           <div class="flex min-w-0 flex-wrap items-center gap-2">
-            <span class="rounded-full bg-base-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span
+              class="rounded-full bg-base-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {parsedContent.kindLabel}
             </span>
-            <span class={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusInfo.badgeClass}`}>
+            <span
+              class={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusInfo.badgeClass}`}>
               {statusInfo.label}
             </span>
           </div>
 
-          <div class="flex shrink-0 items-center gap-1 rounded-full border border-neutral bg-base-100/90 p-1">
-      <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} protect={false} />
-      {#if reply}
-        <Button class="btn join-item btn-xs" onclick={reply} data-stop-tap>
-          <Icon icon={Reply} size={4} />
-        </Button>
-      {/if}
+          <div
+            class="flex shrink-0 items-center gap-1 rounded-full border border-neutral bg-base-100/90 p-1">
+            <ChannelMessageEmojiButton
+              {url}
+              {event}
+              relays={relayTargets}
+              {scopeH}
+              protect={false} />
+            {#if reply}
+              <Button class="btn join-item btn-xs" onclick={reply} data-stop-tap>
+                <Icon icon={Reply} size={4} />
+              </Button>
+            {/if}
           </div>
         </div>
 
-        <h3 class="mt-2 line-clamp-4 break-words text-base font-semibold leading-tight text-foreground">
+        <h3
+          class="mt-2 line-clamp-4 break-words text-base font-semibold leading-tight text-foreground">
           {parsedContent.title}
         </h3>
 

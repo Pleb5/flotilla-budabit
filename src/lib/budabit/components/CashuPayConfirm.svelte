@@ -71,10 +71,7 @@
 
   <div class="flex gap-3">
     <Button class="btn btn-ghost flex-1" onclick={reject} disabled={loading}>Reject</Button>
-    <Button
-      class="btn btn-primary flex-1"
-      onclick={approve}
-      disabled={loading || balance < amount}>
+    <Button class="btn btn-primary flex-1" onclick={approve} disabled={loading || balance < amount}>
       {loading ? "Processing…" : "Approve"}
     </Button>
   </div>

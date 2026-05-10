@@ -22,10 +22,20 @@
   } from "@nostr-git/core/events"
   import {fade, slideAndFade} from "@lib/transition"
   import {normalizeEffectiveLabels, toNaturalArray, groupLabels} from "@lib/budabit/labels"
-  import {getInteractiveCardTarget, isMobile, preventDefault, stopPropagation} from "@src/lib/html.js"
+  import {
+    getInteractiveCardTarget,
+    isMobile,
+    preventDefault,
+    stopPropagation,
+  } from "@src/lib/html.js"
   import {postComment, publishEvent} from "@lib/budabit/commands.js"
   import {pushModal} from "@app/util/modal"
-  import {checked, notifications, setCheckedAt, setCheckedForRepoNotifications} from "@app/util/notifications"
+  import {
+    checked,
+    notifications,
+    setCheckedAt,
+    setCheckedForRepoNotifications,
+  } from "@app/util/notifications"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import {pushToast} from "@src/app/util/toast"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
@@ -177,7 +187,9 @@
   const repoAddress = $derived.by(() => repoClass?.address || "")
   const maintainerSetRepoAddresses = $derived.by((): string[] => {
     const addresses = repoAddress
-      ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress))
+      ? Array.from(
+          getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
+        )
       : []
 
     return addresses.length > 0 ? addresses : repoAddress ? [repoAddress] : []
@@ -185,7 +197,11 @@
   const maintainerSet = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
     const fallback = Array.from(
-      new Set([...(repoClass?.maintainers || []), owner].filter((value): value is string => Boolean(value))),
+      new Set(
+        [...(repoClass?.maintainers || []), owner].filter((value): value is string =>
+          Boolean(value),
+        ),
+      ),
     )
     if (!repoAddress) return fallback
     const maintainers = $maintainerSetByRepoAddress.get(repoAddress)
@@ -210,7 +226,9 @@
   }
 
   let comments = $state<CommentEvent[]>([])
-  const mergedStatusEventsByRoot = $derived.by(() => statusEventsByRoot || new Map<string, StatusEvent[]>())
+  const mergedStatusEventsByRoot = $derived.by(
+    () => statusEventsByRoot || new Map<string, StatusEvent[]>(),
+  )
 
   const getPrCommentRootId = (comment: CommentEvent) => {
     const rootTag = (comment.tags || []).find(
@@ -378,8 +396,12 @@
   const currentPrStateFor = (rootId: string): PrStatusKey => {
     try {
       const events = (mergedStatusEventsByRoot?.get(rootId) || []) as StatusEvent[]
-      const rootAuthor = (pullRequests || []).find((pr: PullRequestEvent) => pr.id === rootId)?.pubkey
-      const authorized = events.filter(event => event.pubkey === rootAuthor || maintainerPubkeys.has(event.pubkey))
+      const rootAuthor = (pullRequests || []).find(
+        (pr: PullRequestEvent) => pr.id === rootId,
+      )?.pubkey
+      const authorized = events.filter(
+        event => event.pubkey === rootAuthor || maintainerPubkeys.has(event.pubkey),
+      )
       if (authorized.length === 0) return "open"
       const latest = [...authorized].sort((a, b) => b.created_at - a.created_at)[0]
       switch (latest.kind) {
@@ -434,7 +456,13 @@
         .sort()
         .join(",")
       const commentsKey = [...currentCommentsByPr.entries()]
-        .map(([id, events]) => `${id}:${events.map(event => event.id).sort().join("~")}`)
+        .map(
+          ([id, events]) =>
+            `${id}:${events
+              .map(event => event.id)
+              .sort()
+              .join("~")}`,
+        )
         .sort()
         .join(",")
       const currentKey = [
@@ -578,7 +606,6 @@
     const scrollEl = scrollParent
     if (!scrollEl) return
 
-
     const handleScroll = () => {
       showScrollButton = scrollEl.scrollTop > 1500
       updateVisibleAnchor()
@@ -621,7 +648,8 @@
     if (items.length === 0) return
 
     const containerRect = scrollEl.getBoundingClientRect()
-    const anchor = items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
+    const anchor =
+      items.find(item => item.getBoundingClientRect().bottom > containerRect.top) ?? items[0]
 
     if (!anchor) return
 
@@ -659,7 +687,8 @@
   }
 
   const handlePrClick = (event: MouseEvent, pr: PrListItem, index: number) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return
 
     const interactive = getInteractiveCardTarget(event.target, event.currentTarget)
     if (interactive) {
@@ -795,7 +824,9 @@
     }
 
     const attemptRestore = () => {
-      const targetElement = scrollEl.querySelector(`[data-pr-id="${anchorPrId}"]`) as HTMLElement | null
+      const targetElement = scrollEl.querySelector(
+        `[data-pr-id="${anchorPrId}"]`,
+      ) as HTMLElement | null
       if (targetElement) {
         targetElement.scrollIntoView({block: "start"})
       }
@@ -823,15 +854,16 @@
     const isPrDetailNav = to?.route.id === "/spaces/[relay]/git/[id=naddr]/prs/[prid]"
     const nextPrId = isPrDetailNav ? (to?.params as {prid?: string} | undefined)?.prid : ""
 
-    const payload = isPrDetailNav && nextPrId
-      ? getPrAnchorPayload(nextPrId)
-      : pendingScrollRestore ?? {
-          index: lastKnownPrIndex,
-          offset: lastKnownPrOffset,
-          id: lastKnownPrId,
-          title: lastKnownPrTitle,
-          visibleCount: visiblePrCount,
-        }
+    const payload =
+      isPrDetailNav && nextPrId
+        ? getPrAnchorPayload(nextPrId)
+        : (pendingScrollRestore ?? {
+            index: lastKnownPrIndex,
+            offset: lastKnownPrOffset,
+            id: lastKnownPrId,
+            title: lastKnownPrTitle,
+            visibleCount: visiblePrCount,
+          })
 
     sessionStorage.setItem(scrollStorageKey, JSON.stringify(payload))
     pendingScrollRestore = null
@@ -865,14 +897,20 @@
     }
 
     const maintainers = Array.from(new Set([...maintainerSet, evt.pubkey].filter(Boolean)))
-    const prEventWithRecipients = withPullRequestRepoContext(prEvent, maintainers, maintainerSetRepoAddresses)
+    const prEventWithRecipients = withPullRequestRepoContext(
+      prEvent,
+      maintainers,
+      maintainerSetRepoAddresses,
+    )
     const publishedPR = publishEvent(prEventWithRecipients, relaysToUse)
     const rootId = publishedPR.event.id
     const statusEvent = createStatusEvent({
       kind: GIT_STATUS_OPEN,
       content: "",
       rootId,
-      recipients: Array.from(new Set([...maintainers, $pubkey].filter((value): value is string => Boolean(value)))),
+      recipients: Array.from(
+        new Set([...maintainers, $pubkey].filter((value): value is string => Boolean(value))),
+      ),
       repoAddr: repoClass.address,
       repoAddrs: maintainerSetRepoAddresses,
       relays: relaysToUse,
@@ -900,9 +938,14 @@
     })
   }
 
-  const openProfile = (profilePubkey: string) => pushModal(ProfileDetail, {pubkey: profilePubkey, url: relayUrl})
+  const openProfile = (profilePubkey: string) =>
+    pushModal(ProfileDetail, {pubkey: profilePubkey, url: relayUrl})
 
-  const getLatestPrActivityAt = (pr: {id: string; created_at?: number; comments?: CommentEvent[]}) => {
+  const getLatestPrActivityAt = (pr: {
+    id: string
+    created_at?: number
+    comments?: CommentEvent[]
+  }) => {
     let commentAt = 0
     for (const comment of pr.comments || []) {
       if (comment.created_at > commentAt) commentAt = comment.created_at
@@ -1033,12 +1076,16 @@
     setCheckedAt(prsSeenKey, seenAt)
     setCheckedAt(prsPath, seenAt)
     if (repoAddress && relayUrl) {
-      setCheckedForRepoNotifications($notifications, {
-        relay: relayUrl,
-        repoAddress,
-        repoAddresses: maintainerSetRepoAddresses,
-        kind: "prs",
-      }, seenAt)
+      setCheckedForRepoNotifications(
+        $notifications,
+        {
+          relay: relayUrl,
+          repoAddress,
+          repoAddresses: maintainerSetRepoAddresses,
+          kind: "prs",
+        },
+        seenAt,
+      )
     }
 
     feedCleanup?.()
@@ -1083,7 +1130,16 @@
   })
 
   $effect(() => {
-    void [searchTerm, statusFilter, authorFilter, trustFilter, trustSortFirst, selectedLabels, matchAllLabels, sortBy]
+    void [
+      searchTerm,
+      statusFilter,
+      authorFilter,
+      trustFilter,
+      trustSortFirst,
+      selectedLabels,
+      matchAllLabels,
+      sortBy,
+    ]
     visiblePrCount = ITEMS_PER_PAGE
   })
 
@@ -1159,7 +1215,8 @@
       </div>
 
       <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] opacity-80">
-        <span><strong>{repoTrustMetrics.trustedMergedContributions}</strong> merged contributions</span>
+        <span
+          ><strong>{repoTrustMetrics.trustedMergedContributions}</strong> merged contributions</span>
         <span><strong>{repoTrustMetrics.trustedMaintainerMerges}</strong> maintainer merges</span>
         <span><strong>{repoTrustMetrics.trustedCollaborators}</strong> collaborators</span>
       </div>
@@ -1192,7 +1249,6 @@
           with trust filters applied.
         </div>
       {/if}
-
     </div>
   </div>
 
@@ -1256,15 +1312,22 @@
           tabindex="0"
           onkeydown={event => handlePrKeydown(event, pr, index)}>
           <div class="relative">
-            <div class={getLatestPrActivityAt(pr) > lastPrsSeen ? "border-l-2 border-primary pl-2" : ""}>
-              <div class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm transition hover:bg-base-200/40">
+            <div
+              class={getLatestPrActivityAt(pr) > lastPrsSeen
+                ? "border-l-2 border-primary pl-2"
+                : ""}>
+              <div
+                class="rounded-box border border-base-300 bg-base-100 p-4 shadow-sm transition hover:bg-base-200/40">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div class="min-w-0 flex-1">
                     <div class="flex items-start gap-2">
                       <GitPullRequest class="mt-1 h-4 w-4 shrink-0 text-primary" />
                       <div class="min-w-0">
-                        <h3 class="break-words text-base font-semibold leading-tight">{pr.title}</h3>
-                        <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <h3 class="break-words text-base font-semibold leading-tight">
+                          {pr.title}
+                        </h3>
+                        <div
+                          class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span>Opened {formatPrDate(pr.created_at)}</span>
                           <span>by</span>
                           <Button
@@ -1273,11 +1336,16 @@
                             <ProfileCircle pubkey={pr.pubkey} url={relayUrl} size={7} />
                           </Button>
                           <ProfileLink pubkey={pr.pubkey} url={relayUrl} />
-                          <span>{pr.comments.length} comment{pr.comments.length === 1 ? "" : "s"}</span>
+                          <span
+                            >{pr.comments.length} comment{pr.comments.length === 1
+                              ? ""
+                              : "s"}</span>
                           {#if $roleAssignments?.get(pr.id)?.reviewers?.size}
                             <span>
                               {$roleAssignments.get(pr.id)?.reviewers?.size}
-                              reviewer{$roleAssignments.get(pr.id)?.reviewers?.size === 1 ? "" : "s"}
+                              reviewer{$roleAssignments.get(pr.id)?.reviewers?.size === 1
+                                ? ""
+                                : "s"}
                             </span>
                           {/if}
                         </div>
@@ -1288,7 +1356,8 @@
                       <p class="mt-3 line-clamp-2 text-sm text-muted-foreground">{pr.body}</p>
                     {/if}
 
-                    <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <div
+                      class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>#{pr.id.slice(0, 8)}</span>
                       {#if pr.branchName}
                         <span>Target: {pr.branchName}</span>
@@ -1299,7 +1368,10 @@
                     </div>
                   </div>
 
-                  <div class="flex shrink-0 flex-wrap items-center gap-2" data-stop-link data-stop-tap>
+                  <div
+                    class="flex shrink-0 flex-wrap items-center gap-2"
+                    data-stop-link
+                    data-stop-tap>
                     <Status
                       repo={repoClass}
                       rootId={pr.id}
@@ -1313,8 +1385,9 @@
                       url={relayUrl}
                       relays={repoRelays}
                       reactionClass="tooltip-left"
-                      deleteReaction={deleteReaction}
-                      createReaction={template => createReaction(pr.event as TrustedEvent, template)} />
+                      {deleteReaction}
+                      createReaction={template =>
+                        createReaction(pr.event as TrustedEvent, template)} />
                     <EventActions
                       event={pr.event as TrustedEvent}
                       url={relayUrl}
@@ -1343,23 +1416,33 @@
               <div class="mt-2 flex flex-wrap gap-2 text-xs">
                 {#if pr.groups.Status.length}
                   <span class="opacity-60">Status:</span>
-                  {#each pr.groups.Status as label (label)}<span class="badge badge-ghost badge-sm">{label}</span>{/each}
+                  {#each pr.groups.Status as label (label)}<span class="badge badge-ghost badge-sm"
+                      >{label}</span
+                    >{/each}
                 {/if}
                 {#if pr.groups.Type.length}
                   <span class="opacity-60">Type:</span>
-                  {#each pr.groups.Type as label (label)}<span class="badge badge-ghost badge-sm">{label}</span>{/each}
+                  {#each pr.groups.Type as label (label)}<span class="badge badge-ghost badge-sm"
+                      >{label}</span
+                    >{/each}
                 {/if}
                 {#if pr.groups.Area.length}
                   <span class="opacity-60">Area:</span>
-                  {#each pr.groups.Area as label (label)}<span class="badge badge-ghost badge-sm">{label}</span>{/each}
+                  {#each pr.groups.Area as label (label)}<span class="badge badge-ghost badge-sm"
+                      >{label}</span
+                    >{/each}
                 {/if}
                 {#if pr.groups.Tags.length}
                   <span class="opacity-60">Tags:</span>
-                  {#each pr.groups.Tags as label (label)}<span class="badge badge-ghost badge-sm">{label}</span>{/each}
+                  {#each pr.groups.Tags as label (label)}<span class="badge badge-ghost badge-sm"
+                      >{label}</span
+                    >{/each}
                 {/if}
                 {#if pr.groups.Other.length}
                   <span class="opacity-60">Other:</span>
-                  {#each pr.groups.Other as label (label)}<span class="badge badge-ghost badge-sm">{label}</span>{/each}
+                  {#each pr.groups.Other as label (label)}<span class="badge badge-ghost badge-sm"
+                      >{label}</span
+                    >{/each}
                 {/if}
               </div>
             {/if}

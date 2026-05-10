@@ -71,7 +71,7 @@
 
   <div class="flex gap-2">
     <input
-      class="input input-bordered input-sm flex-1 font-mono text-xs"
+      class="input input-sm input-bordered flex-1 font-mono text-xs"
       type="url"
       placeholder="https://mint.example.com"
       bind:value={newMintUrl}

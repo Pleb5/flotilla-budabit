@@ -87,7 +87,7 @@
         <div class="flex items-center gap-3">
           <span class="w-16 text-right text-sm opacity-75">Word #{idx + 1}</span>
           <input
-            class="input input-bordered input-sm flex-1 font-mono"
+            class="input input-sm input-bordered flex-1 font-mono"
             type="text"
             placeholder="enter word"
             bind:value={quizAnswers[i]} />

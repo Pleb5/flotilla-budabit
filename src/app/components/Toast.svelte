@@ -6,7 +6,7 @@
   import Button from "@lib/components/Button.svelte"
   import {toast, popToast} from "@app/util/toast"
 
-  const onActionClick = (item: typeof $toast[number]) => {
+  const onActionClick = (item: (typeof $toast)[number]) => {
     item.action?.onclick()
     popToast(item.id)
   }

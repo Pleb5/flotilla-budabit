@@ -14,7 +14,7 @@
 
 {#if isLoggedIn}
   <button
-    class="fixed bottom-20 right-4 z-50 flex items-center gap-1.5 rounded-full border border-base-300 bg-base-100 px-3 py-1.5 text-xs font-semibold shadow-md transition-opacity hover:opacity-90 md:bottom-4"
+    class="z-50 fixed bottom-20 right-4 flex items-center gap-1.5 rounded-full border border-base-300 bg-base-100 px-3 py-1.5 text-xs font-semibold shadow-md transition-opacity hover:opacity-90 md:bottom-4"
     onclick={openWallet}
     title="Open Cashu Wallet">
     <span class="text-warning">₿</span>

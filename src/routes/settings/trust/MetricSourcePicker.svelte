@@ -78,15 +78,18 @@
       {/if}
     </div>
 
-    <div class:rotate-180={isOpen} class="shrink-0 transition-transform opacity-70">
+    <div class:rotate-180={isOpen} class="shrink-0 opacity-70 transition-transform">
       <Icon icon={AltArrowDown} />
     </div>
   </button>
 
   {#if isOpen}
-    <InlinePopover onClose={() => (isOpen = false)} align="left" widthClass="w-[min(32rem,calc(100vw-2rem))]">
+    <InlinePopover
+      onClose={() => (isOpen = false)}
+      align="left"
+      widthClass="w-[min(32rem,calc(100vw-2rem))]">
       <div class="flex flex-col gap-3">
-        <label class="input input-bordered input-sm flex w-full items-center gap-2">
+        <label class="input input-sm input-bordered flex w-full items-center gap-2">
           <Icon icon={Magnifier} size={4} class="opacity-60" />
           <input
             class="min-w-0 grow"
@@ -106,7 +109,8 @@
                   {#if option.source.type === "nip85"}
                     <ProfileCircle pubkey={option.source.serviceKey} size={7} />
                   {:else}
-                    <div class="flex h-7 w-7 items-center justify-center rounded-full bg-base-200 text-xs font-semibold">
+                    <div
+                      class="flex h-7 w-7 items-center justify-center rounded-full bg-base-200 text-xs font-semibold">
                       W
                     </div>
                   {/if}
@@ -123,7 +127,9 @@
               {/each}
             </div>
           {:else}
-            <div class="rounded-box bg-base-200/50 p-3 text-sm opacity-70">No metric sources match that search.</div>
+            <div class="rounded-box bg-base-200/50 p-3 text-sm opacity-70">
+              No metric sources match that search.
+            </div>
           {/if}
         </div>
       </div>

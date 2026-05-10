@@ -41,8 +41,7 @@
         bind:value={$bunker}
         class="grow"
         placeholder="bunker://"
-        data-testid="login-bunker-url"
-      />
+        data-testid="login-bunker-url" />
       <Button onclick={toggleScanner}>
         <Icon icon={QrCode} />
       </Button>

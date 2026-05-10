@@ -56,9 +56,7 @@
     recipientPubkey ? $messagingRelayListsByPubkey.get(recipientPubkey) : undefined,
   )
   const selfInboxRelays = $derived(getDmRelayUrls(selfRelayList))
-  const recipientInboxRelays = $derived(
-    recipientPubkey ? getDmRelayUrls(recipientRelayList) : [],
-  )
+  const recipientInboxRelays = $derived(recipientPubkey ? getDmRelayUrls(recipientRelayList) : [])
   const hasSelfInbox = $derived.by(() => selfInboxRelays.length > 0)
   const hasRecipientInbox = $derived.by(() => recipientInboxRelays.length > 0)
   const relayHints = $derived.by(() => getMessagingRelayHints())
@@ -68,7 +66,7 @@
   let relayLoads = $state<Record<string, boolean>>({})
   const relayTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
-  const updateRecord = <T>(record: Record<string, T>, key: string, value: T) => {
+  const updateRecord = <T,>(record: Record<string, T>, key: string, value: T) => {
     if (record[key] === value) return record
     return {...record, [key]: value}
   }
@@ -333,7 +331,9 @@
   {/snippet}
   {#snippet action()}
     {#if !canSend && !relayCheckPending}
-      <div class="row-2 badge badge-error badge-lg tooltip tooltip-left cursor-pointer" data-tip={dmBlockedMessage}>
+      <div
+        class="row-2 badge badge-error badge-lg tooltip tooltip-left cursor-pointer"
+        data-tip={dmBlockedMessage}>
         <Icon icon={Danger} />
         DM blocked
       </div>
@@ -359,28 +359,28 @@
         <p class="row-2 text-lg text-error">
           <Icon icon={Danger} />
           DM inbox relay required.
+        </p>
+        {#if relayCheckPending}
+          <p>Checking DM inbox relays...</p>
+        {:else}
+          <p>
+            {#if !hasSelfInbox && !hasRecipientInbox}
+              You must <Link class="link" href="/settings/relays">configure</Link> a DM inbox relay, and
+              the recipient must do the same.
+            {:else if !hasSelfInbox}
+              You must <Link class="link" href="/settings/relays">configure</Link> a DM inbox relay before
+              you can send messages.
+            {:else if !hasRecipientInbox}
+              Recipient must configure a DM inbox relay before they can receive messages.
+            {:else}
+              {dmBlockedMessage}
+            {/if}
           </p>
-          {#if relayCheckPending}
-            <p>Checking DM inbox relays...</p>
-          {:else}
-            <p>
-              {#if !hasSelfInbox && !hasRecipientInbox}
-                You must <Link class="link" href="/settings/relays">configure</Link> a DM inbox relay,
-                and the recipient must do the same.
-              {:else if !hasSelfInbox}
-                You must <Link class="link" href="/settings/relays">configure</Link> a DM inbox relay
-                before you can send messages.
-              {:else if !hasRecipientInbox}
-                Recipient must configure a DM inbox relay before they can receive messages.
-              {:else}
-                {dmBlockedMessage}
-              {/if}
-            </p>
-          {/if}
-        </div>
+        {/if}
       </div>
-    {/if}
-  {#each elements as {type, id, value, showPubkey} (id)}
+    </div>
+  {/if}
+  {#each elements as { type, id, value, showPubkey } (id)}
     {#if type === "date"}
       <Divider>{value}</Divider>
     {:else}

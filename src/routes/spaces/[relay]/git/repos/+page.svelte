@@ -16,7 +16,7 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
   import Git from "@assets/icons/git.svg?dataurl"
-  
+
   const url = decodeRelay($page.params.relay)
 
   let loading = $state(true)

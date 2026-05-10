@@ -1,5 +1,10 @@
 <script lang="ts">
-  import {cashuMints, cashuBalancesByMint, cashuBackupConfirmed, createCashuToken} from "@lib/budabit/cashu"
+  import {
+    cashuMints,
+    cashuBalancesByMint,
+    cashuBackupConfirmed,
+    createCashuToken,
+  } from "@lib/budabit/cashu"
   import {pushModal} from "@app/util/modal"
   import Button from "@lib/components/Button.svelte"
   import CashuSeedBackup from "@lib/budabit/components/CashuSeedBackup.svelte"
@@ -68,11 +73,8 @@
   {#if token}
     <div class="flex flex-col gap-3">
       <p class="text-sm font-medium text-success">Token created! Copy and share it:</p>
-      <textarea
-        class="textarea textarea-bordered font-mono text-xs"
-        rows={4}
-        readonly
-        value={token}></textarea>
+      <textarea class="textarea textarea-bordered font-mono text-xs" rows={4} readonly value={token}
+      ></textarea>
       <div class="flex gap-2">
         <Button class="btn btn-primary flex-1" onclick={copy}>
           {copied ? "Copied!" : "Copy Token"}
@@ -80,53 +82,51 @@
         <Button class="btn btn-ghost" onclick={reset}>New</Button>
       </div>
     </div>
+  {:else if mints.length === 0}
+    <p class="text-sm opacity-75">Add a mint first to send tokens.</p>
   {:else}
-    {#if mints.length === 0}
-      <p class="text-sm opacity-75">Add a mint first to send tokens.</p>
-    {:else}
-      <div class="flex flex-col gap-3">
-        <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium" for="send-mint">Mint</label>
-          <select id="send-mint" class="select select-bordered select-sm" bind:value={selectedMint}>
-            {#each mints as mint (mint)}
-              <option value={mint}>{mint} ({(balances.get(mint) ?? 0).toLocaleString()} sats)</option>
-            {/each}
-          </select>
-        </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium" for="send-amount">
-            Amount (sats)
-            <span class="ml-2 text-xs opacity-60">Available: {selectedBalance.toLocaleString()}</span>
-          </label>
-          <input
-            id="send-amount"
-            class="input input-bordered input-sm"
-            type="number"
-            min="1"
-            max={selectedBalance}
-            bind:value={amount} />
-        </div>
-        <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium" for="send-label">Label (optional)</label>
-          <input
-            id="send-label"
-            class="input input-bordered input-sm"
-            type="text"
-            placeholder="e.g. payment for..."
-            bind:value={label} />
-        </div>
+    <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-1">
+        <label class="text-sm font-medium" for="send-mint">Mint</label>
+        <select id="send-mint" class="select select-bordered select-sm" bind:value={selectedMint}>
+          {#each mints as mint (mint)}
+            <option value={mint}>{mint} ({(balances.get(mint) ?? 0).toLocaleString()} sats)</option>
+          {/each}
+        </select>
       </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-sm font-medium" for="send-amount">
+          Amount (sats)
+          <span class="ml-2 text-xs opacity-60">Available: {selectedBalance.toLocaleString()}</span>
+        </label>
+        <input
+          id="send-amount"
+          class="input input-sm input-bordered"
+          type="number"
+          min="1"
+          max={selectedBalance}
+          bind:value={amount} />
+      </div>
+      <div class="flex flex-col gap-1">
+        <label class="text-sm font-medium" for="send-label">Label (optional)</label>
+        <input
+          id="send-label"
+          class="input input-sm input-bordered"
+          type="text"
+          placeholder="e.g. payment for..."
+          bind:value={label} />
+      </div>
+    </div>
 
-      {#if error}
-        <p class="text-sm text-error">{error}</p>
-      {/if}
-
-      <Button
-        class="btn btn-primary"
-        onclick={send}
-        disabled={loading || !selectedMint || amount <= 0}>
-        {loading ? "Creating…" : "Create Token"}
-      </Button>
+    {#if error}
+      <p class="text-sm text-error">{error}</p>
     {/if}
+
+    <Button
+      class="btn btn-primary"
+      onclick={send}
+      disabled={loading || !selectedMint || amount <= 0}>
+      {loading ? "Creating…" : "Create Token"}
+    </Button>
   {/if}
 </div>

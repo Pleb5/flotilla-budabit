@@ -3,7 +3,11 @@
   import ExtensionIcon from "./ExtensionIcon.svelte"
   import ProfileCircle from "./ProfileCircle.svelte"
   import ProfileLink from "./ProfileLink.svelte"
-  import type {ExtensionManifest, SmartWidgetEvent, WidgetDisplayLocation} from "@app/extensions/types"
+  import type {
+    ExtensionManifest,
+    SmartWidgetEvent,
+    WidgetDisplayLocation,
+  } from "@app/extensions/types"
   import {checkForExtensionUpdate, refreshExtension} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
   import {RefreshCw} from "@lucide/svelte"
@@ -19,7 +23,16 @@
     manifestUrl?: string // URL to check for updates (NIP-89 extensions only)
   }
 
-  const {manifest, enabled = false, type = "nip89", ontoggle, onuninstall, displayLocation = "modal", onDisplayLocationChange, manifestUrl}: Props = $props()
+  const {
+    manifest,
+    enabled = false,
+    type = "nip89",
+    ontoggle,
+    onuninstall,
+    displayLocation = "modal",
+    onDisplayLocationChange,
+    manifestUrl,
+  }: Props = $props()
 
   const onToggle = (value: boolean) => ontoggle?.({enabled: value})
 
@@ -55,13 +68,13 @@
 
   async function checkUpdate() {
     if (!manifestUrl || !extension?.id || isWidget) return
-    
+
     checkingUpdate = true
     try {
       const newManifest = await checkForExtensionUpdate(extension.id, manifestUrl)
       updateAvailable = newManifest
     } catch (e) {
-      console.error('Failed to check for update:', e)
+      console.error("Failed to check for update:", e)
     } finally {
       checkingUpdate = false
     }
@@ -69,11 +82,14 @@
 
   async function handleRefresh() {
     if (!updateAvailable || !extension?.id) return
-    
+
     refreshing = true
     try {
       await refreshExtension(extension.id, updateAvailable)
-      pushToast({theme: "success", message: `Updated ${extension.name} to v${updateAvailable.version}`})
+      pushToast({
+        theme: "success",
+        message: `Updated ${extension.name} to v${updateAvailable.version}`,
+      })
       updateAvailable = null
     } catch (e: any) {
       pushToast({theme: "error", message: e?.message || "Failed to refresh extension"})
@@ -94,22 +110,20 @@
         <span class="text-xs opacity-70">v{version}</span>
       {/if}
       {#if updateAvailable}
-        <span class="badge badge-warning badge-sm">Update Available: v{updateAvailable.version}</span>
+        <span class="badge badge-warning badge-sm"
+          >Update Available: v{updateAvailable.version}</span>
       {/if}
       <span class="badge badge-sm">{isWidget ? "Smart Widget" : "Extension"}</span>
     </div>
     <div class="ml-auto flex items-center gap-3">
       {#if !isWidget && manifestUrl}
         {#if updateAvailable}
-          <button 
-            class="btn btn-warning btn-xs" 
-            onclick={handleRefresh}
-            disabled={refreshing}>
+          <button class="btn btn-warning btn-xs" onclick={handleRefresh} disabled={refreshing}>
             {refreshing ? "Updating..." : "Update Now"}
           </button>
         {:else}
-          <button 
-            class="btn btn-ghost btn-xs" 
+          <button
+            class="btn btn-ghost btn-xs"
             onclick={checkUpdate}
             disabled={checkingUpdate}
             title="Check for updates">
@@ -126,9 +140,7 @@
         <span class="opacity-70">Enabled</span>
       </label>
       {#if onuninstall}
-        <button class="btn btn-outline btn-error btn-xs" onclick={onuninstall}>
-          Uninstall
-        </button>
+        <button class="btn btn-outline btn-error btn-xs" onclick={onuninstall}> Uninstall </button>
       {/if}
     </div>
   </div>
@@ -155,11 +167,7 @@
     {#if widget.appUrl || widget.buttons?.length || onDisplayLocationChange}
       <div class="mt-2 flex flex-wrap items-center gap-2">
         {#if widget.appUrl}
-          <button
-            class="btn btn-primary btn-sm"
-            onclick={openWidget}>
-            Open App
-          </button>
+          <button class="btn btn-primary btn-sm" onclick={openWidget}> Open App </button>
         {/if}
         {#each widget.buttons || [] as btn}
           {#if btn.type !== "app"}
@@ -176,7 +184,10 @@
           <select
             class="select select-bordered select-sm"
             value={displayLocation}
-            onchange={(e) => onDisplayLocationChange?.((e.currentTarget as HTMLSelectElement).value as WidgetDisplayLocation)}>
+            onchange={e =>
+              onDisplayLocationChange?.(
+                (e.currentTarget as HTMLSelectElement).value as WidgetDisplayLocation,
+              )}>
             <option value="" disabled>Display location...</option>
             <option value="modal">Modal (popup)</option>
             <option value="menu-route">Sidebar (own page)</option>
@@ -195,13 +206,13 @@
 {#if showWidgetModal && widget?.appUrl}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+    class="z-50 fixed inset-0 flex items-center justify-center bg-black/50"
     role="dialog"
     aria-modal="true"
     aria-label="Widget modal"
     tabindex="-1"
     onclick={closeWidget}
-    onkeydown={(e) => e.key === "Escape" && closeWidget()}>
+    onkeydown={e => e.key === "Escape" && closeWidget()}>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="flex h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-base-100 shadow-2xl"
@@ -227,8 +238,7 @@
           src={widget.appUrl}
           title={widget.content || widget.identifier}
           class="absolute inset-0 h-full w-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        ></iframe>
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
       </div>
     </div>
   </div>

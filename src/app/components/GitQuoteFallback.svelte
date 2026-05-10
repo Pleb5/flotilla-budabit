@@ -32,7 +32,9 @@
     ? getQuoteRelayHints(
         value?.relays || [],
         getQuoteTagRelayHints(event, idOrAddress),
-        Router.get().Quote(event, idOrAddress, value?.relays || []).getUrls(),
+        Router.get()
+          .Quote(event, idOrAddress, value?.relays || [])
+          .getUrls(),
         value?.pubkey ? Router.get().FromPubkey(value.pubkey).getUrls() : [],
         url ? [url] : undefined,
       )

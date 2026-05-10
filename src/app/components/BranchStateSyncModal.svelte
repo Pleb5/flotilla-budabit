@@ -52,7 +52,8 @@
 
   $effect(() => {
     const next: Record<string, boolean> = {}
-    const preferredExists = !!preferredRepoId && (repos || []).some(repo => repo.repoId === preferredRepoId)
+    const preferredExists =
+      !!preferredRepoId && (repos || []).some(repo => repo.repoId === preferredRepoId)
 
     for (const repo of repos || []) {
       next[repo.repoId] = preferredExists ? repo.repoId === preferredRepoId : true
@@ -161,13 +162,13 @@
               {repo.updates.length} update{repo.updates.length !== 1 ? "s" : ""}
             </div>
           </div>
-          <div class="text-xs opacity-60 break-all">Authoritative remote: {repo.cloneUrl}</div>
+          <div class="break-all text-xs opacity-60">Authoritative remote: {repo.cloneUrl}</div>
           {#if repo.headBranch}
             <div class="text-xs opacity-60">HEAD: {repo.headBranch}</div>
           {/if}
           <div class="flex flex-col gap-1">
             {#each repo.updates as update, index (repo.repoId + "-" + update.name + "-" + index)}
-              <div class="text-xs font-mono">{formatChange(update)}</div>
+              <div class="font-mono text-xs">{formatChange(update)}</div>
             {/each}
           </div>
         </div>
@@ -181,7 +182,9 @@
 
       {#if otherRepos.length > 0}
         <div class="mt-2 border-t border-border pt-4">
-          <div class="mb-3 text-xs font-semibold uppercase tracking-wide opacity-60">Other repos</div>
+          <div class="mb-3 text-xs font-semibold uppercase tracking-wide opacity-60">
+            Other repos
+          </div>
           <div class="flex flex-col gap-3">
             {#each otherRepos as repo (repo.repoId)}
               {@render repoCard(repo)}
@@ -199,10 +202,10 @@
 
 {#if updateResult}
   <div class="rounded-md border border-border bg-muted/30 p-3 text-xs">
-    <div class="font-semibold text-sm">Update complete</div>
+    <div class="text-sm font-semibold">Update complete</div>
     <div class="opacity-60">{updateSucceeded}/{updateResult.total} updated</div>
     {#if updateResult.failures.length > 0}
-      <div class="mt-2 text-red-400 font-semibold">Failures</div>
+      <div class="mt-2 font-semibold text-red-400">Failures</div>
       <div class="mt-1 flex flex-col gap-1">
         {#each updateResult.failures as failure (failure.repoId)}
           <div class="text-red-400">

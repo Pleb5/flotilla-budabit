@@ -19,7 +19,6 @@
   import {canSendPushNotifications} from "@app/util/push"
   import {pushToast} from "@app/util/toast"
 
-
   type Props = {
     url?: string
     channel?: string
@@ -47,7 +46,8 @@
   let loading = $state(false)
   let cron = $state(WEEKLY)
   let email = $state(
-    map(a => getTagValue("email", a.tags), Array.from($alertsById.values())).filter(identity)[0] || "",
+    map(a => getTagValue("email", a.tags), Array.from($alertsById.values())).filter(identity)[0] ||
+      "",
   )
 
   const back = () => history.back()
