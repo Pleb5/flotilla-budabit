@@ -36,6 +36,10 @@ vi.mock("@app/core/commands", () => ({
   publishDelete: (opts?: unknown) => mockPublishDelete(opts),
 }))
 
+vi.mock("./state", () => ({
+  GIT_RELAYS: [],
+}))
+
 describe("budabit commands", () => {
   beforeEach(() => {
     mockPublishThunk.mockClear()

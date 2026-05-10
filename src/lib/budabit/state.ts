@@ -16,7 +16,6 @@ import {
   parseRepoAnnouncementEvent,
   type RepoGroup,
   type RepoAnnouncementEvent,
-  type RepoStateEvent,
   type IssueEvent,
   type LabelEvent,
   type CoverLetterEvent,
@@ -90,7 +89,12 @@ type RepoProfileSummary = {
 
 export type RepoSettingsActions = {
   publishRepoEvent: (event: NostrEvent) => Promise<void>
-  onSaveComplete: (result: {renamed: boolean; previousName: string; nextName: string; relays: string[]}) => Promise<void>
+  onSaveComplete: (result: {
+    renamed: boolean
+    previousName: string
+    nextName: string
+    relays: string[]
+  }) => Promise<void>
   openDeleteRepoModal: () => void
   getProfile: (pubkey: string) => Promise<RepoProfileSummary | null>
   searchProfiles: (query: string) => Promise<Array<RepoProfileSummary & {pubkey: string}>>
@@ -379,12 +383,26 @@ export const repoMaintainerSetProfilesByRepoAddress = derived(
         const parsed = parseRepoAnnouncementSafe(event)
         if (!parsed) continue
         for (const cloneUrl of parsed.clone || []) {
-          addUniqueSource(cloneUrlSources, seenCloneUrls, cloneUrl, repoAddress, maintainer, maintainer === rootMaintainer)
+          addUniqueSource(
+            cloneUrlSources,
+            seenCloneUrls,
+            cloneUrl,
+            repoAddress,
+            maintainer,
+            maintainer === rootMaintainer,
+          )
         }
         for (const relay of parsed.relays || []) {
           const normalized = safeNormalizeRelayUrl(relay)
           if (isRelayUrl(normalized)) {
-            addUniqueSource(relaySources, seenRelays, normalized, repoAddress, maintainer, maintainer === rootMaintainer)
+            addUniqueSource(
+              relaySources,
+              seenRelays,
+              normalized,
+              repoAddress,
+              maintainer,
+              maintainer === rootMaintainer,
+            )
           }
         }
       }
@@ -407,47 +425,65 @@ export const repoMaintainerSetProfilesByRepoAddress = derived(
   },
 )
 
-export const maintainerSetByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
-  const map = new Map<string, Set<string>>()
-  for (const [repoAddress, profile] of $profiles.entries()) {
-    map.set(repoAddress, new Set(profile.maintainerSet))
-  }
-  return map
-})
+export const maintainerSetByRepoAddress = derived(
+  repoMaintainerSetProfilesByRepoAddress,
+  $profiles => {
+    const map = new Map<string, Set<string>>()
+    for (const [repoAddress, profile] of $profiles.entries()) {
+      map.set(repoAddress, new Set(profile.maintainerSet))
+    }
+    return map
+  },
+)
 
-export const pendingMaintainersByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
-  const map = new Map<string, Set<string>>()
-  for (const [repoAddress, profile] of $profiles.entries()) {
-    map.set(repoAddress, new Set(profile.pendingMaintainers))
-  }
-  return map
-})
+export const pendingMaintainersByRepoAddress = derived(
+  repoMaintainerSetProfilesByRepoAddress,
+  $profiles => {
+    const map = new Map<string, Set<string>>()
+    for (const [repoAddress, profile] of $profiles.entries()) {
+      map.set(repoAddress, new Set(profile.pendingMaintainers))
+    }
+    return map
+  },
+)
 
-export const maintainerSetRepoAddressesByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
-  const map = new Map<string, Set<string>>()
-  for (const [repoAddress, profile] of $profiles.entries()) {
-    map.set(repoAddress, new Set(profile.repoAddresses))
-  }
-  return map
-})
+export const maintainerSetRepoAddressesByRepoAddress = derived(
+  repoMaintainerSetProfilesByRepoAddress,
+  $profiles => {
+    const map = new Map<string, Set<string>>()
+    for (const [repoAddress, profile] of $profiles.entries()) {
+      map.set(repoAddress, new Set(profile.repoAddresses))
+    }
+    return map
+  },
+)
 
-export const maintainerSetCloneUrlsByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
-  const map = new Map<string, string[]>()
-  for (const [repoAddress, profile] of $profiles.entries()) {
-    map.set(repoAddress, profile.cloneUrls)
-  }
-  return map
-})
+export const maintainerSetCloneUrlsByRepoAddress = derived(
+  repoMaintainerSetProfilesByRepoAddress,
+  $profiles => {
+    const map = new Map<string, string[]>()
+    for (const [repoAddress, profile] of $profiles.entries()) {
+      map.set(repoAddress, profile.cloneUrls)
+    }
+    return map
+  },
+)
 
-export const maintainerSetRelaysByRepoAddress = derived(repoMaintainerSetProfilesByRepoAddress, $profiles => {
-  const map = new Map<string, string[]>()
-  for (const [repoAddress, profile] of $profiles.entries()) {
-    map.set(repoAddress, profile.relays)
-  }
-  return map
-})
+export const maintainerSetRelaysByRepoAddress = derived(
+  repoMaintainerSetProfilesByRepoAddress,
+  $profiles => {
+    const map = new Map<string, string[]>()
+    for (const [repoAddress, profile] of $profiles.entries()) {
+      map.set(repoAddress, profile.relays)
+    }
+    return map
+  },
+)
 
-export const getMaintainerSetRepoAddresses = (map: Map<string, Set<string>>, repoAddress: string) => {
+export const getMaintainerSetRepoAddresses = (
+  map: Map<string, Set<string>>,
+  repoAddress: string,
+) => {
   const addresses = new Set<string>()
   if (!repoAddress) return addresses
 

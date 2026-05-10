@@ -67,9 +67,9 @@ let pendingGitConfig: GitWorkerConfig | null = {defaultCorsProxy: resolveStoredC
 export function setGitWorkerConfig(config: GitWorkerConfig): void {
   pendingGitConfig = {...pendingGitConfig, ...config}
   if (workerInstance?.api && typeof workerInstance.api.setGitConfig === "function") {
-    void workerInstance.api.setGitConfig(pendingGitConfig).catch((err: unknown) =>
-      console.warn("[GitWorker] Failed to update git settings:", err),
-    )
+    void workerInstance.api
+      .setGitConfig(pendingGitConfig)
+      .catch((err: unknown) => console.warn("[GitWorker] Failed to update git settings:", err))
   }
 }
 

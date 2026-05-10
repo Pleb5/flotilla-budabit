@@ -171,10 +171,7 @@ describe("notifications", () => {
     setupBudabitNotifications()
 
     const augmentPaths = mockSetNotificationsConfig.mock.calls.at(-1)?.[0]?.augmentPaths
-    const paths = new Set([
-      "/spaces/relay/git/naddr1abc/issues",
-      "/spaces/relay/git/naddr1abc/prs",
-    ])
+    const paths = new Set(["/spaces/relay/git/naddr1abc/issues", "/spaces/relay/git/naddr1abc/prs"])
 
     const augmented = augmentPaths(paths)
 

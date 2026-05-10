@@ -11,11 +11,11 @@ export function compareVersions(v1: string | undefined, v2: string | undefined):
   if (!v2) return 1
 
   // Remove leading 'v' if present
-  const clean1 = v1.replace(/^v/, '')
-  const clean2 = v2.replace(/^v/, '')
+  const clean1 = v1.replace(/^v/, "")
+  const clean2 = v2.replace(/^v/, "")
 
-  const parts1 = clean1.split('.').map(p => parseInt(p, 10) || 0)
-  const parts2 = clean2.split('.').map(p => parseInt(p, 10) || 0)
+  const parts1 = clean1.split(".").map(p => parseInt(p, 10) || 0)
+  const parts2 = clean2.split(".").map(p => parseInt(p, 10) || 0)
 
   const maxLength = Math.max(parts1.length, parts2.length)
 
@@ -35,7 +35,7 @@ export function compareVersions(v1: string | undefined, v2: string | undefined):
  */
 export function hasUpdate(
   installedVersion: string | undefined,
-  availableVersion: string | undefined
+  availableVersion: string | undefined,
 ): boolean {
   return compareVersions(availableVersion, installedVersion) > 0
 }

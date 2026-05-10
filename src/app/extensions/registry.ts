@@ -189,13 +189,18 @@ class ExtensionRegistry {
 
     // Notify the extension of context changes (including clears)
     if (ext.bridge) {
-      ext.bridge.post("context:repoUpdate", repoContext ? {
-        pubkey: repoContext.pubkey,
-        name: repoContext.name,
-        naddr: repoContext.naddr,
-        relays: repoContext.relays,
-        address: getRepoAddress(repoContext),
-      } : null)
+      ext.bridge.post(
+        "context:repoUpdate",
+        repoContext
+          ? {
+              pubkey: repoContext.pubkey,
+              name: repoContext.name,
+              naddr: repoContext.naddr,
+              relays: repoContext.relays,
+              address: getRepoAddress(repoContext),
+            }
+          : null,
+      )
     }
   }
 
@@ -209,7 +214,7 @@ class ExtensionRegistry {
       cache: "no-store",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache",
+        Pragma: "no-cache",
       },
     })
     if (!res.ok) {

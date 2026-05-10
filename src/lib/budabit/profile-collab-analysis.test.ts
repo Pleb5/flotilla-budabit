@@ -1,4 +1,25 @@
-import {describe, expect, it} from "vitest"
+import {readable} from "svelte/store"
+import {describe, expect, it, vi} from "vitest"
+
+vi.mock("./state", () => ({
+  maintainerSetByRepoAddress: readable(new Map()),
+  repoAnnouncementsByAddress: readable(new Map()),
+  getRepoAnnouncementRelays: vi.fn(() => []),
+  loadRepoAnnouncementByAddress: vi.fn(),
+  loadRepoMaintainerAnnouncements: vi.fn(),
+}))
+
+vi.mock("./trust-graph", () => ({
+  loadActiveTrustGraph: vi.fn(),
+}))
+
+vi.mock("@welshman/net", async importOriginal => {
+  const actual = await importOriginal<typeof import("@welshman/net")>()
+  return {
+    ...actual,
+    makeLoader: vi.fn(() => vi.fn()),
+  }
+})
 import {
   buildProfileCodeTrustAnalysis,
   PROFILE_CODE_TRUST_WINDOW_DAYS,

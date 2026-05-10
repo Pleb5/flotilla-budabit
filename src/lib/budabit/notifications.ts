@@ -237,7 +237,10 @@ export const repoNotificationCandidates = derived(
     const repoByEffectiveAddress = new Map<string, string>()
     const allEffectiveAddresses = new Set<string>()
     for (const repoAddr of repoAddresses) {
-      const effective = getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddr)
+      const effective = getMaintainerSetRepoAddresses(
+        $maintainerSetRepoAddressesByRepoAddress,
+        repoAddr,
+      )
       for (const address of effective) {
         allEffectiveAddresses.add(address)
         if (!repoByEffectiveAddress.has(address)) {
@@ -476,7 +479,10 @@ const repoCommentRoots = derived(
 
     const repoByEffectiveAddress = new Map<string, string>()
     for (const repoAddr of repoAddresses) {
-      const effective = getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddr)
+      const effective = getMaintainerSetRepoAddresses(
+        $maintainerSetRepoAddressesByRepoAddress,
+        repoAddr,
+      )
       for (const address of effective) {
         if (!repoByEffectiveAddress.has(address)) {
           repoByEffectiveAddress.set(address, repoAddr)

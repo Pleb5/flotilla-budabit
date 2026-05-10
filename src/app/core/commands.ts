@@ -336,21 +336,21 @@ export const disableExtension = async (id: string) => {
  */
 export const checkForExtensionUpdate = async (
   id: string,
-  manifestUrl: string
+  manifestUrl: string,
 ): Promise<ExtensionManifest | null> => {
   try {
     const latestManifest = await extensionRegistry.load(manifestUrl)
     const installed = getInstalledExtension(id)
 
-    if (!installed || !('version' in installed)) return null
+    if (!installed || !("version" in installed)) return null
 
     const installedVersion = (installed as ExtensionManifest).version
     const latestVersion = latestManifest.version
 
     // Compare versions
     if (latestVersion && installedVersion) {
-      const installedParts = installedVersion.replace(/^v/, '').split('.').map(Number)
-      const latestParts = latestVersion.replace(/^v/, '').split('.').map(Number)
+      const installedParts = installedVersion.replace(/^v/, "").split(".").map(Number)
+      const latestParts = latestVersion.replace(/^v/, "").split(".").map(Number)
 
       for (let i = 0; i < Math.max(installedParts.length, latestParts.length); i++) {
         const installed = installedParts[i] || 0
@@ -362,7 +362,7 @@ export const checkForExtensionUpdate = async (
 
     return null
   } catch (e) {
-    console.error('Failed to check for extension update:', e)
+    console.error("Failed to check for extension update:", e)
     return null
   }
 }

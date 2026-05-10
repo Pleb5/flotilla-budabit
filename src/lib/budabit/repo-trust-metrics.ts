@@ -240,7 +240,9 @@ export const buildRepoTrustMetrics = ({
     trustedCollaborators: trustedCollaborators.size,
     trustedAuthors: trustedAuthors.size,
     trustedMaintainers: trustedMaintainers.size,
-    maintainerSetTargetBranches: Array.from(maintainerSetTargetBranches).sort((a, b) => a.localeCompare(b)),
+    maintainerSetTargetBranches: Array.from(maintainerSetTargetBranches).sort((a, b) =>
+      a.localeCompare(b),
+    ),
     byRootId,
     topActors: Array.from(actorMetrics.values()).sort((a, b) => {
       if (a.totalInteractions !== b.totalInteractions)

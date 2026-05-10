@@ -2,14 +2,33 @@
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
-const mocks = vi.hoisted(() => ({
-  publishThunk: vi.fn(),
-  load: vi.fn(),
-  pushToast: vi.fn(),
-}))
+const mocks = vi.hoisted(() => {
+  const createStore = <T>(initial: T) => ({
+    get: vi.fn(() => initial),
+    subscribe: vi.fn((run: (value: T) => void) => {
+      run(initial)
+      return () => {}
+    }),
+  })
+
+  return {
+    publishThunk: vi.fn(),
+    load: vi.fn(),
+    pushToast: vi.fn(),
+    signer: createStore(null),
+    pubkey: createStore(undefined as string | undefined),
+    activeRepoClass: createStore(null),
+  }
+})
 
 vi.mock("@welshman/app", () => ({
   publishThunk: mocks.publishThunk,
+  signer: mocks.signer,
+  pubkey: mocks.pubkey,
+}))
+
+vi.mock("@lib/budabit/state", () => ({
+  activeRepoClass: mocks.activeRepoClass,
 }))
 
 vi.mock("@welshman/net", () => ({

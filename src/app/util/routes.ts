@@ -224,10 +224,7 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
 
             if (url) {
               // Route to specific sub-pages based on event kind
-              if (
-                event.kind === GIT_PULL_REQUEST ||
-                event.kind === GIT_PULL_REQUEST_UPDATE
-              ) {
+              if (event.kind === GIT_PULL_REQUEST || event.kind === GIT_PULL_REQUEST_UPDATE) {
                 return `/spaces/${encodeRelay(url)}/git/${naddr}/prs/${event.id}`
               }
 

@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => {
     startExtensionSettingsAutoSync: vi.fn(() => () => {}),
     loadNip85ProviderConfig: vi.fn(),
     loadRepoWatch: vi.fn(),
+    loadTrustGraphConfig: vi.fn(),
   }
 })
 
@@ -191,6 +192,10 @@ vi.mock("./nip85", () => ({
 
 vi.mock("./repo-watch", () => ({
   loadRepoWatch: mocks.loadRepoWatch,
+}))
+
+vi.mock("./trust-graph-config", () => ({
+  loadTrustGraphConfig: mocks.loadTrustGraphConfig,
 }))
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))

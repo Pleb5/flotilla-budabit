@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import {readable} from "svelte/store"
 import {describe, expect, it, vi} from "vitest"
 
 vi.mock("@app/core/storage", () => ({
@@ -14,6 +15,10 @@ vi.mock("@app/core/state", async importOriginal => {
     encodeRelay: vi.fn((url: string) => encodeURIComponent(url)),
   }
 })
+
+vi.mock("@lib/budabit/state", () => ({
+  channelsById: readable(new Map()),
+}))
 
 vi.mock("@welshman/util", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/util")>()
@@ -94,10 +99,7 @@ describe("notifications", () => {
       const {encodeRelay} = await import("@app/core/state")
       vi.mocked(encodeRelay).mockReturnValue("r")
 
-      const paths = new Set([
-        "/spaces/r/git/naddr1valid/issues",
-        "/spaces/r/git/naddr1valid/prs",
-      ])
+      const paths = new Set(["/spaces/r/git/naddr1valid/issues", "/spaces/r/git/naddr1valid/prs"])
       const result = getRepoNotificationPaths(paths, {
         relay: "wss://r.com",
         repoAddress: "30617:pubkey123:repo",

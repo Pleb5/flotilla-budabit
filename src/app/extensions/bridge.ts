@@ -1,9 +1,9 @@
-import {publishThunk, signer, pubkey} from "@welshman/app"
+import {publishThunk, signer} from "@welshman/app"
 import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@lib/budabit/state"
 import {get} from "svelte/store"
-import type {LoadedExtension, RepoContext} from "./types"
+import type {LoadedExtension} from "./types"
 import {getRepoAddress} from "./types"
 
 export type ExtensionMessage = {
@@ -30,11 +30,14 @@ let messageCounter = 0
 // Using @welshman/net load() for queries - better relay connection management
 
 const NIP100_ALLOWED_KINDS = new Set<number>([
-  30301, 30302,   // NIP-100 Kanban
-  5100, 5101,     // Loom job / result
-  5401, 5402,     // Hive CI workflow run / result
-  30100,          // Loom status
-  10100,          // Loom worker advertisement
+  30301,
+  30302, // NIP-100 Kanban
+  5100,
+  5101, // Loom job / result
+  5401,
+  5402, // Hive CI workflow run / result
+  30100, // Loom status
+  10100, // Loom worker advertisement
 ])
 const MAX_NOSTR_QUERY_LIMIT = 500
 
@@ -176,7 +179,9 @@ const getRepoBranchesPayload = () => {
 const listRepoWorkflowFiles = async () => {
   const repo = getActiveRepo()
   const branch = repo.selectedBranch || repo.mainBranch || undefined
-  console.log(`[bridge] listRepoWorkflowFiles: listing .github/workflows on branch=${branch || "(default)"}`)
+  console.log(
+    `[bridge] listRepoWorkflowFiles: listing .github/workflows on branch=${branch || "(default)"}`,
+  )
   const filesResult = await repo.listRepoFiles({path: ".github/workflows", branch})
   const files = Array.isArray(filesResult?.files) ? filesResult.files : []
   console.log(
@@ -354,7 +359,16 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
         reason: r?.detail || r?.message,
       }))
       console.log(`[bridge] nostr:publish completed:`, sanitizedResult)
-      return {status: "ok", result: {published: true, relays: [...relays], publishResult: sanitizedResult, successCount, eventId: event.id}}
+      return {
+        status: "ok",
+        result: {
+          published: true,
+          relays: [...relays],
+          publishResult: sanitizedResult,
+          successCount,
+          eventId: event.id,
+        },
+      }
     }
 
     // Event needs signing - use publishThunk
@@ -383,7 +397,10 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
         )
         // Return immediately - client should handle retry logic
         const signedEventId = thunk.event?.id || null
-        return {status: "ok", result: {published: true, relays: [...relays], successCount, eventId: signedEventId}}
+        return {
+          status: "ok",
+          result: {published: true, relays: [...relays], successCount, eventId: signedEventId},
+        }
       } catch (e: any) {
         console.error(`[bridge] nostr:publish publishThunk with relays failed:`, e)
         // Fallback to legacy behavior below.
@@ -732,7 +749,10 @@ registerBridgeHandler("nostr:subscribe", async (payload, ext) => {
     const subId = `sub-${ext.id.slice(0, 8)}-${++subscriptionCounter}`
     const pool = new SimplePool()
 
-    console.log(`[bridge] opening subscription ${subId} on ${relays.length} relays, filter:`, JSON.stringify(filter))
+    console.log(
+      `[bridge] opening subscription ${subId} on ${relays.length} relays, filter:`,
+      JSON.stringify(filter),
+    )
 
     const sub = pool.subscribeMany(relays, [filter] as any, {
       onevent(event: any) {
