@@ -8,7 +8,6 @@ import {
   max,
   spec,
   call,
-  first,
   sortBy,
   sort,
   uniq,
@@ -23,7 +22,6 @@ import {
   always,
   tryCatch,
   fromPairs,
-  find,
   nth,
   nthEq,
 } from "@welshman/lib"
@@ -67,9 +65,6 @@ import {
   REACTION,
   REPORT,
   ROOM_CREATE_PERMISSION,
-  ROOM_JOIN,
-  ROOM_LEAVE,
-  ROOM_ADMINS,
   ROOM_META,
   ROOM_DELETE,
   ROOMS,
@@ -94,23 +89,12 @@ import {
   makeRoomMeta,
   ManagementMethod,
   makeRoomEditEvent,
-  ROOM_REMOVE_MEMBER,
-  ROOM_ADD_MEMBER,
-  ROOM_MEMBERS,
   RELAY_ADD_MEMBER,
   RELAY_REMOVE_MEMBER,
   RELAY_MEMBERS,
   RELAY_JOIN,
-  RELAY_LEAVE,
 } from "@welshman/util"
-import type {
-  TrustedEvent,
-  List,
-  Filter,
-  RoomMeta,
-  PublishedList,
-  RelayProfile,
-} from "@welshman/util"
+import type {TrustedEvent, List, Filter, RoomMeta, PublishedList} from "@welshman/util"
 import {decrypt} from "@welshman/signer"
 import {routerContext, Router} from "@welshman/router"
 import {
@@ -690,7 +674,13 @@ const getDmCounterparty = (event: TrustedEvent, selfPubkey: string) => {
   return undefined
 }
 
-export const makeChannelId = (url: string, room: string) => makeRoomId(url, room)
+export const makeChannelId = (url: string, room: string) => {
+  if (room.startsWith("naddr1")) {
+    return "naddr1"
+  }
+
+  return `${url}'${room}`
+}
 
 export const splitChannelId = (id: string) => splitRoomId(id)
 
@@ -769,9 +759,6 @@ export const deriveChat = (pubkeys: string[]) =>
 export const makeRoomId = (url: string, h: string) => `${url}'${h}`
 
 export const splitRoomId = (id: string) => id.split("'")
-
-export const hasNip29 = (relay?: RelayProfile) =>
-  relay?.supported_nips?.map?.(String)?.includes?.("29")
 
 export const roomMetaEventsByIdByUrl = deriveEventsByIdByUrl({
   tracker,
@@ -990,74 +977,173 @@ export const loadUserGroupList = makeUserLoader(loadGroupList)
 export const userSpaceUrls = derived(userGroupList, getSpaceUrlsFromGroupList)
 
 export const deriveUserRooms = (url: string) =>
-  derived([userGroupList, roomsById], ([$userGroupList, $roomsById]) => {
-    const rooms: string[] = []
-
-    for (const h of getSpaceRoomsFromGroupList(url, $userGroupList)) {
-      const room = $roomsById.get(makeRoomId(url, h))
-
-      if (room && !room.isArchived) {
-        rooms.push(h)
-      }
-    }
-
-    return sortBy(roomComparator(url), rooms)
-  })
+  derived(activeChannelsByUrl, $activeChannelsByUrl =>
+    sortBy(
+      room => displayChannel(url, room).toLowerCase(),
+      ($activeChannelsByUrl.get(url) || []).map(channel => channel.room),
+    ),
+  )
 
 export const deriveOtherRooms = (url: string) =>
-  derived([deriveUserRooms(url), roomsByUrl], ([$userRooms, $roomsByUrl]) => {
-    const rooms: string[] = []
-
-    for (const room of $roomsByUrl.get(url) || []) {
-      if (!room.isArchived && !$userRooms.includes(room.h)) {
-        rooms.push(room.h)
-      }
-    }
-
-    return sortBy(roomComparator(url), rooms)
-  })
+  derived([deriveUserRooms(url), activeChannelsByUrl], ([$userRooms, $activeChannelsByUrl]) =>
+    sortBy(
+      room => displayChannel(url, room).toLowerCase(),
+      ($activeChannelsByUrl.get(url) || [])
+        .map(channel => channel.room)
+        .filter(room => !$userRooms.includes(room)),
+    ),
+  )
 
 export const deriveArchivedRooms = (url: string) =>
-  derived(roomsByUrl, $roomsByUrl => {
-    const rooms: string[] = []
+  derived(archivedChannelsByUrl, $archivedChannelsByUrl =>
+    sortBy(
+      room => displayChannel(url, room).toLowerCase(),
+      ($archivedChannelsByUrl.get(url) || []).map(channel => channel.room),
+    ),
+  )
 
-    for (const room of $roomsByUrl.get(url) || []) {
-      if (room.isArchived) {
-        rooms.push(room.h)
-      }
-    }
-
-    return sortBy(roomComparator(url), rooms)
-  })
-
-export type Channel = Room & {
+export type Channel = {
+  id: string
+  url: string
   room: string
   metaId: string
   event: TrustedEvent
+  name: string
   closed: boolean
   private: boolean
+  restricted: boolean
   archived: boolean
+  creatorPubkey?: string
+  picture?: string
+  about?: string
 }
 
-const roomToChannel = (room: Room): Channel => {
-  const event = (room as Room & {event: TrustedEvent}).event
+type ChannelMeta = Omit<Channel, "id" | "url" | "room" | "creatorPubkey">
+
+const readChannelMeta = (event: TrustedEvent): ChannelMeta | undefined => {
+  let metaId = getRoomMetaIdentifier(event)
+  let name = ""
+  let picture: string | undefined
+  let about: string | undefined
+
+  try {
+    const meta = readRoomMeta(event)
+
+    metaId = meta.h
+    name = meta.name || meta.h
+    picture = meta.picture
+    about = meta.about
+  } catch {
+    const tags = fromPairs(event.tags as any)
+
+    metaId = metaId || (tags as any).d
+    name = (tags as any).name || metaId || ""
+    picture = (tags as any).picture
+    about = (tags as any).about
+  }
+
+  if (!metaId) {
+    return undefined
+  }
 
   return {
-    ...room,
-    room: room.h,
-    metaId: room.h,
+    metaId,
     event,
-    closed: Boolean(room.isClosed),
-    private: Boolean(room.isPrivate),
-    archived: Boolean(room.isArchived),
+    name: name || metaId,
+    closed: Boolean(getTag("closed", event.tags)),
+    private: Boolean(getTag("private", event.tags)),
+    restricted: Boolean(getTag("restricted", event.tags)),
+    archived: hasRoomArchiveTag(event.tags),
+    picture,
+    about,
   }
 }
 
-export const channelsById = derived(roomsById, $roomsById => {
+export const buildChannelsFromEvents = ({
+  events,
+  platformRelays = PLATFORM_RELAYS,
+  getEventRelayUrls,
+}: {
+  events: TrustedEvent[]
+  platformRelays?: string[]
+  getEventRelayUrls: (event: TrustedEvent) => Iterable<string>
+}) => {
+  const channels: Channel[] = []
+  const normalizedPlatformRelays = platformRelays.map(safeNormalizeRelayUrl).filter(isRelayUrl)
+  const metaEventsByRoomId = new Map<string, ChannelMeta[]>()
+
+  for (const event of events) {
+    const eventRelays = new Set(
+      Array.from(getEventRelayUrls(event)).map(safeNormalizeRelayUrl).filter(isRelayUrl),
+    )
+    const isFromPlatformRelay = normalizedPlatformRelays.some(url => eventRelays.has(url))
+
+    if (!isFromPlatformRelay) {
+      continue
+    }
+
+    const meta = readChannelMeta(event)
+
+    if (!meta) {
+      continue
+    }
+
+    const items = metaEventsByRoomId.get(meta.metaId) || []
+    items.push(meta)
+    metaEventsByRoomId.set(meta.metaId, items)
+  }
+
+  for (const [metaId, events] of metaEventsByRoomId.entries()) {
+    const latest = sortBy(item => -item.event.created_at, events)[0]
+    const creatorPubkey = sortBy(item => item.event.created_at, events)[0]?.event.pubkey
+
+    if (!latest) {
+      continue
+    }
+
+    // Budabit messages are tagged with the room name, not necessarily the ROOM_META d tag.
+    const room = latest.name || metaId
+
+    for (const url of normalizedPlatformRelays) {
+      channels.push({
+        ...latest,
+        id: makeChannelId(url, room),
+        url,
+        room,
+        creatorPubkey,
+      })
+    }
+  }
+
+  const result = new Map<string, Channel>()
+  for (const channel of channels) {
+    if (!result.has(channel.id)) {
+      result.set(channel.id, channel)
+    }
+  }
+
+  return Array.from(result.values())
+}
+
+export const channelEvents = deriveEventsAsc(
+  deriveEventsById({
+    repository,
+    filters: PLATFORM_RELAYS.length > 0 ? [{kinds: [ROOM_META]}] : [],
+  }),
+)
+
+export const channels = derived(channelEvents, $channelEvents =>
+  buildChannelsFromEvents({
+    events: $channelEvents,
+    getEventRelayUrls: event => tracker.getRelays(event.id),
+  }),
+)
+
+export const channelsById = derived(channels, $channels => {
   const result = new Map<string, Channel>()
 
-  for (const [id, room] of $roomsById.entries()) {
-    result.set(id, roomToChannel(room))
+  for (const channel of $channels) {
+    result.set(channel.id, channel)
   }
 
   return result
@@ -1105,7 +1191,7 @@ export const archivedChannelsByUrl = derived(channelsByUrl, $channelsByUrl => {
 export const displayChannel = (url: string, room: string) => {
   if (room === GENERAL) return "general"
 
-  return displayRoom(url, room)
+  return get(channelsById).get(makeChannelId(url, room))?.name || room
 }
 
 export const loadPlatformChannels = () =>
@@ -1171,63 +1257,6 @@ export const deriveSpaceBannedPubkeyItems = (url: string) => {
   return store
 }
 
-export const deriveRoomMembers = (url: string, h: string) => {
-  const filters: Filter[] = [
-    {kinds: [ROOM_MEMBERS], "#d": [h]},
-    {kinds: [ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]},
-  ]
-
-  return derived(deriveEventsForUrl(url, filters), $events => {
-    const membersEvent = find(spec({kind: ROOM_MEMBERS}), $events)
-
-    if (membersEvent) {
-      return uniq(getPubkeyTagValues(membersEvent.tags))
-    }
-
-    const members = new Set<string>()
-
-    for (const event of sortBy((e: TrustedEvent) => -e.created_at, $events)) {
-      const pubkeys = getPubkeyTagValues(event.tags)
-
-      if (event.kind === ROOM_ADD_MEMBER) {
-        for (const pubkey of pubkeys) {
-          members.add(pubkey)
-        }
-      }
-
-      if (event.kind === ROOM_REMOVE_MEMBER) {
-        for (const pubkey of pubkeys) {
-          members.delete(pubkey)
-        }
-      }
-    }
-
-    return Array.from(members)
-  })
-}
-
-export const deriveRoomAdmins = (url: string, h: string) => {
-  const filters: Filter[] = [{kinds: [ROOM_ADMINS], "#d": [h]}]
-
-  return derived(deriveEventsForUrl(url, filters), $events => {
-    const adminsEvent = first($events)
-
-    if (adminsEvent) {
-      return getPubkeyTagValues(adminsEvent.tags)
-    }
-
-    return []
-  })
-}
-
-// User membership status
-
-export enum MembershipStatus {
-  Initial,
-  Pending,
-  Granted,
-}
-
 export const deriveUserIsSpaceAdmin = memoize((url?: string) => {
   const store = writable(false)
 
@@ -1239,76 +1268,6 @@ export const deriveUserIsSpaceAdmin = memoize((url?: string) => {
 
   return store
 })
-
-export const deriveUserSpaceMembershipStatus = (url: string) => {
-  const filters: Filter[] = [{kinds: [RELAY_JOIN, RELAY_LEAVE]}]
-
-  return derived(
-    [
-      pubkey,
-      deriveSpaceMembers(url),
-      deriveEventsForUrl(url, filters),
-      deriveUserIsSpaceAdmin(url),
-    ],
-    ([$pubkey, $members, $events, $isAdmin]) => {
-      const isMember = $members.includes($pubkey!) || $isAdmin
-
-      for (const event of $events) {
-        if (event.pubkey !== $pubkey) {
-          continue
-        }
-
-        if (event.kind === RELAY_JOIN) {
-          return isMember ? MembershipStatus.Granted : MembershipStatus.Pending
-        }
-
-        if (event.kind === RELAY_LEAVE) {
-          return MembershipStatus.Initial
-        }
-      }
-
-      return isMember ? MembershipStatus.Granted : MembershipStatus.Initial
-    },
-  )
-}
-
-export const deriveUserIsRoomAdmin = (url: string, h: string) =>
-  derived(
-    [pubkey, deriveRoomAdmins(url, h), deriveUserIsSpaceAdmin(url)],
-    ([$pubkey, $admins, $isSpaceAdmin]) => $isSpaceAdmin || $admins.includes($pubkey!),
-  )
-
-export const deriveUserRoomMembershipStatus = (url: string, h: string) => {
-  const filters: Filter[] = [{kinds: [ROOM_JOIN, ROOM_LEAVE], "#h": [h]}]
-
-  return derived(
-    [
-      pubkey,
-      deriveRoomMembers(url, h),
-      deriveEventsForUrl(url, filters),
-      deriveUserIsRoomAdmin(url, h),
-    ],
-    ([$pubkey, $members, $events, $isAdmin]) => {
-      const isMember = $members.includes($pubkey!) || $isAdmin
-
-      for (const event of $events) {
-        if (event.pubkey !== $pubkey) {
-          continue
-        }
-
-        if (event.kind === ROOM_JOIN) {
-          return isMember ? MembershipStatus.Granted : MembershipStatus.Pending
-        }
-
-        if (event.kind === ROOM_LEAVE) {
-          return MembershipStatus.Initial
-        }
-      }
-
-      return isMember ? MembershipStatus.Granted : MembershipStatus.Initial
-    },
-  )
-}
 
 export const deriveUserCanCreateRoom = (url: string) => {
   const filters: Filter[] = [{kinds: [ROOM_CREATE_PERMISSION]}]

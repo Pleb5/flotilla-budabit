@@ -10,7 +10,7 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import RoomName from "@app/components/RoomName.svelte"
-  import {roomsByUrl} from "@app/core/state"
+  import {channelsByUrl} from "@app/core/state"
   import {makeRoomPath} from "@app/util/routes"
 
   const {url, noun, event}: {url: string; noun: string; event: TrustedEvent} = $props()
@@ -39,14 +39,14 @@
     {/snippet}
   </ModalHeader>
   <div class="grid grid-cols-3 gap-2">
-    {#each ($roomsByUrl.get(url) || []).filter(room => !room.isArchived) as room (room.h)}
+    {#each ($channelsByUrl.get(url) || []).filter(channel => !channel.archived) as channel (channel.id)}
       <button
         type="button"
         class="btn"
-        class:btn-neutral={selection !== room.h}
-        class:btn-primary={selection === room.h}
-        onclick={() => toggleRoom(room.h)}>
-        #<RoomName {...room} />
+        class:btn-neutral={selection !== channel.room}
+        class:btn-primary={selection === channel.room}
+        onclick={() => toggleRoom(channel.room)}>
+        #<RoomName {url} h={channel.room} />
       </button>
     {/each}
   </div>

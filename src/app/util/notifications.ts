@@ -6,8 +6,8 @@ import {
   synced,
   throttled,
 } from "@welshman/store"
-import {pubkey, tracker, repository, relaysByUrl} from "@welshman/app"
-import {prop, find, call, spec, first, identity, now, groupBy} from "@welshman/lib"
+import {pubkey, tracker, repository} from "@welshman/app"
+import {prop, find, call, spec, identity, now, groupBy} from "@welshman/lib"
 import type {List, TrustedEvent} from "@welshman/util"
 import {
   ZAP_GOAL,
@@ -50,12 +50,10 @@ import {
 } from "@app/util/routes"
 import {
   chatsById,
-  hasNip29,
   PLATFORM_RELAYS,
   userSettingsValues,
   userGroupList,
   getSpaceUrlsFromGroupList,
-  getSpaceRoomsFromGroupList,
   encodeRelay,
   roomsById,
   channelsById,
@@ -147,7 +145,6 @@ export const notifications = call(() => {
           checked,
           chatsById,
           userGroupList,
-          relaysByUrl,
           roomsById,
           channelsById,
           deriveEventsByIdByUrl({tracker, repository, filters: goalCommentFilters}),
@@ -165,7 +162,6 @@ export const notifications = call(() => {
       $checked,
       $chatsById,
       $userGroupList,
-      $relaysByUrl,
       $roomsById,
       $channelsById,
       goalCommentsByUrl,
@@ -290,29 +286,34 @@ export const notifications = call(() => {
           }
         }
 
-        if (hasNip29($relaysByUrl.get(url))) {
-          for (const h of getSpaceRoomsFromGroupList(url, $userGroupList)) {
-            if (
-              isArchivedRoomReference({url, h, roomsById: $roomsById, channelsById: $channelsById})
-            ) {
-              continue
-            }
-
-            const roomPath = makeRoomPath(url, h)
-            const latestEvent = find((e: TrustedEvent) => e.tags.some(spec(["h", h])), messages)
-
-            if (hasNotification(roomPath, latestEvent)) {
-              paths.add(spacePathMobile)
-              paths.add(spacePath)
-              paths.add(roomPath)
-            }
+        for (const channel of $channelsById.values()) {
+          const h = channel.url === url ? channel.room : ""
+          if (
+            !h ||
+            isArchivedRoomReference({url, h, roomsById: $roomsById, channelsById: $channelsById})
+          ) {
+            continue
           }
-        } else {
-          if (hasNotification(messagesPath, first(messages))) {
+
+          const roomPath = makeRoomPath(url, h)
+          const latestEvent = find((e: TrustedEvent) => e.tags.some(spec(["h", h])), messages)
+
+          if (hasNotification(roomPath, latestEvent)) {
             paths.add(spacePathMobile)
             paths.add(spacePath)
-            paths.add(messagesPath)
+            paths.add(roomPath)
           }
+        }
+
+        const latestSpaceChatMessage = find(
+          (event: TrustedEvent) => !getTagValue("h", event.tags),
+          messages,
+        )
+
+        if (hasNotification(messagesPath, latestSpaceChatMessage)) {
+          paths.add(spacePathMobile)
+          paths.add(spacePath)
+          paths.add(messagesPath)
         }
       }
 

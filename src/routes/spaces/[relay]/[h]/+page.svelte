@@ -6,17 +6,9 @@
   import type {MakeNonOptional} from "@welshman/lib"
   import {now, int, formatTimestampAsDate, ago, MINUTE} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
-  import {
-    makeEvent,
-    makeRoomMeta,
-    MESSAGE,
-    ROOM_ADD_MEMBER,
-    ROOM_REMOVE_MEMBER,
-  } from "@welshman/util"
-  import {pubkey, publishThunk, waitForThunkError, joinRoom, leaveRoom} from "@welshman/app"
+  import {makeEvent, MESSAGE} from "@welshman/util"
+  import {pubkey, publishThunk} from "@welshman/app"
   import {slide, fade, fly} from "@lib/transition"
-  import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
-  import Login2 from "@assets/icons/login-3.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import ArchiveDown from "@assets/icons/archive-down.svg?dataurl"
   import ArchiveUp from "@assets/icons/archive-up.svg?dataurl"
@@ -32,17 +24,13 @@
   import RoomName from "@app/components/RoomName.svelte"
   import RoomImage from "@app/components/RoomImage.svelte"
   import RoomItem from "@app/components/RoomItem.svelte"
-  import RoomItemAddMember from "@src/app/components/RoomItemAddMember.svelte"
-  import RoomItemRemoveMember from "@src/app/components/RoomItemRemoveMember.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import RoomComposeEdit from "@src/app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
   import {
     userSettingsValues,
     decodeRelay,
-    deriveUserRoomMembershipStatus,
     deriveRoom,
-    MembershipStatus,
     MESSAGE_KINDS,
     isPlatformRelay,
   } from "@app/core/state"
@@ -67,21 +55,17 @@
   const isPlatform = isPlatformRelay(url)
   const room = deriveRoom(url, h)
   const channel = deriveChannel(url, h)
-  const membershipStatus = deriveUserRoomMembershipStatus(url, h)
-  const isArchivedRoom = $derived.by(() => Boolean($room?.isArchived || $channel?.archived))
+  const isArchivedRoom = $derived.by(() => Boolean($channel?.archived || $room?.isArchived))
   const roomInteraction = $derived.by(() =>
     getRoomInteractionState({
       isArchivedRoom,
-      isPrivate: Boolean($room.isPrivate),
-      isRestricted: Boolean($room.isRestricted),
-      isClosed: Boolean($room.isClosed),
-      membershipStatus: $membershipStatus,
+      isClosed: Boolean($channel?.closed || $room.isClosed),
     }),
   )
-  const roomName = $derived.by(() => $room?.name || $channel?.name || h)
-  const roomEvent = $derived.by(() => $room?.event || $channel?.event)
+  const roomName = $derived.by(() => $channel?.name || $room?.name || h)
+  const roomEvent = $derived.by(() => $channel?.event || $room?.event)
   const roomCreatorPubkey = $derived.by(
-    () => $room?.creatorPubkey || $channel?.creatorPubkey || roomEvent?.pubkey || "",
+    () => $channel?.creatorPubkey || $room?.creatorPubkey || roomEvent?.pubkey || "",
   )
   const userIsRoomCreator = $derived.by(() => Boolean($pubkey && roomCreatorPubkey === $pubkey))
 
@@ -97,36 +81,6 @@
       roomName,
       archived: isArchivedRoom,
     })
-  }
-
-  const join = async () => {
-    joining = true
-
-    try {
-      const message = await waitForThunkError(joinRoom(url, makeRoomMeta({h})))
-
-      if (message && !message.startsWith("duplicate:")) {
-        return pushToast({theme: "error", message})
-      }
-
-      // Restart the feed now that we're a member
-      start()
-    } finally {
-      joining = false
-    }
-  }
-
-  const leave = async () => {
-    leaving = true
-    try {
-      const message = await waitForThunkError(leaveRoom(url, makeRoomMeta({h})))
-
-      if (message && !message.startsWith("duplicate:")) {
-        pushToast({theme: "error", message})
-      }
-    } finally {
-      leaving = false
-    }
   }
 
   const replyTo = (event: TrustedEvent) => {
@@ -207,8 +161,6 @@
 
   const scrollToBottom = () => element?.scrollTo({top: 0, behavior: "smooth"})
 
-  let joining = $state(false)
-  let leaving = $state(false)
   let loadingEvents = $state(true)
   let exhaustedEvents = $state(false)
   let share = $state(popKey<TrustedEvent | undefined>("share"))
@@ -231,7 +183,6 @@
     const seen = new Set()
 
     let previousDate
-    let previousKind
     let previousPubkey
     let previousCreatedAt = 0
     let newMessagesSeen = false
@@ -271,12 +222,10 @@
           value: event,
           showPubkey:
             previousPubkey !== event.pubkey ||
-            event.created_at - previousCreatedAt > int(3, MINUTE) ||
-            [ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER].includes(previousKind!),
+            event.created_at - previousCreatedAt > int(3, MINUTE),
         })
 
         previousDate = date
-        previousKind = event.kind
         previousPubkey = event.pubkey
         previousCreatedAt = event.created_at
         seen.add(event.id)
@@ -305,10 +254,8 @@
     const feed = makeFeed({
       element: element!,
       relays: [url],
-      feedFilters: [{kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]}],
-      subscriptionFilters: [
-        {kinds: [...MESSAGE_KINDS, ROOM_ADD_MEMBER, ROOM_REMOVE_MEMBER], "#h": [h]},
-      ],
+      feedFilters: [{kinds: MESSAGE_KINDS, "#h": [h]}],
+      subscriptionFilters: [{kinds: MESSAGE_KINDS, "#h": [h]}],
       onInitialLoad: () => {
         loadingEvents = false
       },
@@ -412,84 +359,47 @@
 
 <PageContent bind:element onscroll={onScroll} class="flex flex-col-reverse pt-4">
   <div bind:this={dynamicPadding}></div>
-  {#if roomInteraction.showPrivateGate}
-    <div class="py-20">
-      <div class="card2 col-8 m-auto max-w-md items-center text-center">
-        <p class="opacity-75">You aren't currently a member of this room.</p>
-        {#if roomInteraction.isReadOnly}
-          <p class="mt-2 text-sm opacity-60">
-            Archived rooms are read-only, so membership requests are disabled.
-          </p>
-        {:else if roomInteraction.allowMembershipRequest}
-          {#if $membershipStatus === MembershipStatus.Pending}
-            <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
-              <Icon icon={ClockCircle} />
-              Access Pending
-            </Button>
-          {:else}
-            <Button class="btn btn-neutral btn-sm" disabled={joining} onclick={join}>
-              {#if joining}
-                <span class="loading loading-spinner loading-sm"></span>
-              {:else}
-                <Icon icon={Login2} />
-              {/if}
-              Join Room
-            </Button>
-          {/if}
-        {/if}
+  {#each elements as { type, id, value, showPubkey } (id)}
+    {#if type === "new-messages"}
+      <div
+        bind:this={newMessages}
+        class="flex items-center py-2 text-xs transition-colors"
+        class:opacity-0={showFixedNewMessages}>
+        <div class="h-px flex-grow bg-primary"></div>
+        <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
+        <div class="h-px flex-grow bg-primary"></div>
       </div>
-    </div>
-  {:else}
-    {#each elements as { type, id, value, showPubkey } (id)}
-      {#if type === "new-messages"}
-        <div
-          bind:this={newMessages}
-          class="flex items-center py-2 text-xs transition-colors"
-          class:opacity-0={showFixedNewMessages}>
-          <div class="h-px flex-grow bg-primary"></div>
-          <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
-          <div class="h-px flex-grow bg-primary"></div>
-        </div>
-      {:else if type === "date"}
-        <Divider>{value}</Divider>
-      {:else}
-        {@const event = $state.snapshot(value as TrustedEvent)}
-        {#if event.kind === ROOM_ADD_MEMBER}
-          <RoomItemAddMember {url} {event} />
-        {:else if event.kind === ROOM_REMOVE_MEMBER}
-          <RoomItemRemoveMember {url} {event} />
-        {:else}
-          <div in:slide class:-mt-1={!showPubkey}>
-            <RoomItem
-              {url}
-              {event}
-              readOnly={roomInteraction.isReadOnly}
-              {replyTo}
-              {showPubkey}
-              canEdit={canEditEvent}
-              onEdit={onEditEvent} />
-          </div>
-        {/if}
-      {/if}
-    {/each}
-    {#if loadingEvents || elements.length === 0 || exhaustedEvents}
-      <p class="flex h-10 items-center justify-center py-20">
-        {#if loadingEvents}
-          <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-        {:else if elements.length === 0}
-          <span>No messages yet.</span>
-        {:else}
-          <Spinner>End of message history</Spinner>
-        {/if}
-      </p>
+    {:else if type === "date"}
+      <Divider>{value}</Divider>
+    {:else}
+      {@const event = $state.snapshot(value as TrustedEvent)}
+      <div in:slide class:-mt-1={!showPubkey}>
+        <RoomItem
+          {url}
+          {event}
+          readOnly={roomInteraction.isReadOnly}
+          {replyTo}
+          {showPubkey}
+          canEdit={canEditEvent}
+          onEdit={onEditEvent} />
+      </div>
     {/if}
+  {/each}
+  {#if loadingEvents || elements.length === 0 || exhaustedEvents}
+    <p class="flex h-10 items-center justify-center py-20">
+      {#if loadingEvents}
+        <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
+      {:else if elements.length === 0}
+        <span>No messages yet.</span>
+      {:else}
+        <Spinner>End of message history</Spinner>
+      {/if}
+    </p>
   {/if}
 </PageContent>
 
 <div class="chat__compose bg-base-200" bind:this={chatCompose}>
-  {#if roomInteraction.showPrivateGate}
-    <!-- pass -->
-  {:else if roomInteraction.isReadOnly}
+  {#if roomInteraction.isReadOnly}
     <div class="bg-alt card m-4 flex flex-col gap-2 px-4 py-3">
       <div class="flex items-center gap-2 font-medium">
         <Icon icon={ArchivedMinimalistic} />
@@ -498,27 +408,6 @@
       <p class="opacity-75">
         This room is read-only. Posting, replies, reactions, and moderation actions are disabled.
       </p>
-    </div>
-  {:else if roomInteraction.showRestrictedGate}
-    <div class="bg-alt card m-4 flex flex-row items-center justify-between px-4 py-3">
-      <p class="opacity-75">Only members are allowed to post to this room.</p>
-      {#if roomInteraction.allowMembershipRequest}
-        {#if $membershipStatus === MembershipStatus.Pending}
-          <Button class="btn btn-neutral btn-sm" disabled={leaving} onclick={leave}>
-            <Icon icon={ClockCircle} />
-            Access Pending
-          </Button>
-        {:else}
-          <Button class="btn btn-neutral btn-sm" disabled={joining} onclick={join}>
-            {#if joining}
-              <span class="loading loading-spinner loading-sm"></span>
-            {:else}
-              <Icon icon={Login2} />
-            {/if}
-            Ask to Join
-          </Button>
-        {/if}
-      {/if}
     </div>
   {:else}
     <div>

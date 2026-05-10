@@ -46,7 +46,7 @@
 
     await loadRoom(url, room.h)
 
-    goto(makeSpacePath(url, room.h))
+    goto(makeSpacePath(url, room.name || room.h))
   }
 
   const create = async () => {

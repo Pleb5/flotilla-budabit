@@ -100,14 +100,128 @@ describe("state", () => {
     expect(chats.size).toBe(0)
   })
 
-  it("makeChannelId delegates to makeRoomId", async () => {
-    const {makeChannelId, makeRoomId} = await import("./state")
-    expect(makeChannelId("wss://r.com", "h1")).toBe(makeRoomId("wss://r.com", "h1"))
+  it("makeChannelId uses Budabit channel route keys", async () => {
+    const {makeChannelId} = await import("./state")
+    expect(makeChannelId("wss://r.com", "h1")).toBe("wss://r.com'h1")
+    expect(makeChannelId("wss://r.com", "naddr1abc")).toBe("naddr1")
   })
 
   it("splitChannelId delegates to splitRoomId", async () => {
     const {splitChannelId, splitRoomId} = await import("./state")
     expect(splitChannelId("a'b")).toEqual(splitRoomId("a'b"))
+  })
+
+  it("buildChannelsFromEvents uses Budabit room names as feed keys", async () => {
+    const {buildChannelsFromEvents} = await import("./state")
+    const platformRelay = "wss://budabit.example.com/"
+    const event = {
+      id: "meta-1",
+      kind: 39000,
+      pubkey: "creator",
+      created_at: 10,
+      tags: [
+        ["d", "meta-id-1"],
+        ["name", "test"],
+      ],
+    } as any
+
+    const channels = buildChannelsFromEvents({
+      events: [event],
+      platformRelays: [platformRelay],
+      getEventRelayUrls: () => [platformRelay],
+    })
+
+    expect(channels).toHaveLength(1)
+    expect(channels[0]).toMatchObject({
+      id: `${platformRelay}'test`,
+      url: platformRelay,
+      room: "test",
+      metaId: "meta-id-1",
+      name: "test",
+    })
+  })
+
+  it("buildChannelsFromEvents dedupes metadata records with the same Budabit room name", async () => {
+    const {buildChannelsFromEvents} = await import("./state")
+    const platformRelay = "wss://budabit.example.com/"
+    const events = [
+      {
+        id: "meta-1",
+        kind: 39000,
+        pubkey: "creator-a",
+        created_at: 10,
+        tags: [
+          ["d", "meta-id-1"],
+          ["name", "test"],
+        ],
+      },
+      {
+        id: "meta-2",
+        kind: 39000,
+        pubkey: "creator-b",
+        created_at: 20,
+        tags: [
+          ["d", "meta-id-2"],
+          ["name", "test"],
+        ],
+      },
+    ] as any[]
+
+    const channels = buildChannelsFromEvents({
+      events,
+      platformRelays: [platformRelay],
+      getEventRelayUrls: () => [platformRelay],
+    })
+
+    expect(channels.map(channel => channel.room)).toEqual(["test"])
+  })
+
+  it("buildChannelsFromEvents ignores metadata that was not seen on platform relays", async () => {
+    const {buildChannelsFromEvents} = await import("./state")
+    const platformRelay = "wss://budabit.example.com/"
+    const otherRelay = "wss://other.example.com"
+    const event = {
+      id: "meta-1",
+      kind: 39000,
+      pubkey: "creator",
+      created_at: 10,
+      tags: [
+        ["d", "meta-id-1"],
+        ["name", "test"],
+      ],
+    } as any
+
+    const channels = buildChannelsFromEvents({
+      events: [event],
+      platformRelays: [platformRelay],
+      getEventRelayUrls: () => [otherRelay],
+    })
+
+    expect(channels).toEqual([])
+  })
+
+  it("buildChannelsFromEvents preserves archived channel state", async () => {
+    const {buildChannelsFromEvents} = await import("./state")
+    const platformRelay = "wss://budabit.example.com/"
+    const event = {
+      id: "meta-1",
+      kind: 39000,
+      pubkey: "creator",
+      created_at: 10,
+      tags: [
+        ["d", "meta-id-1"],
+        ["name", "test"],
+        ["archived", "true"],
+      ],
+    } as any
+
+    const channels = buildChannelsFromEvents({
+      events: [event],
+      platformRelays: [platformRelay],
+      getEventRelayUrls: () => [platformRelay],
+    })
+
+    expect(channels[0]?.archived).toBe(true)
   })
 
   it("displayReaction maps content to emoji", async () => {
@@ -168,18 +282,6 @@ describe("state", () => {
     expect(result).toBeDefined()
     expect(result!.url).toMatch(/relay\.example\.com/)
     expect(result!.claim).toBe("")
-  })
-
-  it("hasNip29 returns true when relay supports NIP-29", async () => {
-    const {hasNip29} = await import("./state")
-    expect(hasNip29({supported_nips: [29]} as any)).toBe(true)
-    expect(hasNip29({supported_nips: ["29"]} as any)).toBe(true)
-  })
-
-  it("hasNip29 returns false when relay lacks NIP-29", async () => {
-    const {hasNip29} = await import("./state")
-    expect(hasNip29({supported_nips: [1, 2]} as any)).toBe(false)
-    expect(hasNip29(undefined)).toBeUndefined()
   })
 
   it("defaultSettings has expected structure and values", async () => {

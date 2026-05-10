@@ -10,12 +10,10 @@ vi.mock("@app/core/storage", () => ({
 
 vi.mock("@app/core/state", () => ({
   chatsById: readable(new Map()),
-  hasNip29: () => false,
   PLATFORM_RELAYS: [],
   userSettingsValues: readable({show_notifications_badge: false}),
   userGroupList: readable({}),
   getSpaceUrlsFromGroupList: () => [],
-  getSpaceRoomsFromGroupList: () => [],
   encodeRelay: vi.fn((url: string) => encodeURIComponent(url)),
   roomsById: readable(new Map()),
   channelsById: readable(new Map()),

@@ -217,7 +217,12 @@
         </PrimaryNavItem>
       {/each}
       <SlotRenderer slotId="space:sidebar:widgets" context={{urls: spaceUrls}} />
-      <div class="hidden md:block">
+      <div class="hidden md:block lg:hidden">
+        <PrimaryNavItem title="Settings" href="/settings" prefix="/settings" class="tooltip-right">
+          <ImageIcon alt="Settings" src={Settings} size={7} />
+        </PrimaryNavItem>
+      </div>
+      <div class="hidden lg:block">
         <PrimaryNavItem
           title="Settings"
           href="/settings/profile"

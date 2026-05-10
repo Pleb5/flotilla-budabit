@@ -2,7 +2,7 @@
 
 import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
-import {MembershipStatus, makeRoomId} from "@app/core/state"
+import {makeRoomId} from "@app/core/state"
 import {
   filterArchivedRoomMessages,
   getRoomInteractionState,
@@ -65,37 +65,31 @@ describe("room archive helpers", () => {
   it("marks archived rooms as read-only and disables membership requests", () => {
     const result = getRoomInteractionState({
       isArchivedRoom: true,
-      isPrivate: true,
-      isRestricted: true,
       isClosed: false,
-      membershipStatus: MembershipStatus.Pending,
     })
 
     expect(result).toMatchObject({
       isReadOnly: true,
       showArchivedBanner: true,
-      showPrivateGate: true,
+      showPrivateGate: false,
       allowMembershipRequest: false,
       allowMessageActions: false,
       showCompose: false,
     })
   })
 
-  it("keeps active restricted rooms interactive apart from composing access rules", () => {
+  it("keeps active rooms interactive without NIP-29 membership gates", () => {
     const result = getRoomInteractionState({
       isArchivedRoom: false,
-      isPrivate: false,
-      isRestricted: true,
       isClosed: false,
-      membershipStatus: MembershipStatus.Initial,
     })
 
     expect(result).toMatchObject({
       isReadOnly: false,
-      showRestrictedGate: true,
+      showRestrictedGate: false,
       allowMembershipRequest: true,
       allowMessageActions: true,
-      showCompose: false,
+      showCompose: true,
     })
   })
 })

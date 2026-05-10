@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {deriveRoom} from "@app/core/state"
+  import {deriveChannel, deriveRoom} from "@app/core/state"
 
   type Props = {
     url: string
@@ -10,8 +10,9 @@
   const {url, h, ...props}: Props = $props()
 
   const room = deriveRoom(url, h)
+  const channel = deriveChannel(url, h)
 </script>
 
 <span class="ellipsize {props.class}">
-  {$room?.name || h}
+  {$channel?.name || $room?.name || h}
 </span>

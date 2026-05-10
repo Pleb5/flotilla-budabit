@@ -61,12 +61,9 @@ vi.mock("@app/util/routes", () => ({
 
 vi.mock("@app/core/state", () => ({
   chatsById: mockChatsById,
-  hasNip29: (relay?: {supported_nips?: Array<number | string>}) =>
-    relay?.supported_nips?.map(String).includes("29"),
   userSettingsValues: mockUserSettingsValues,
   userGroupList: mockUserGroupList,
   getSpaceUrlsFromGroupList: () => ["wss://space.one"],
-  getSpaceRoomsFromGroupList: () => ["active-room", "archived-room"],
   encodeRelay: (url: string) => encodeURIComponent(url),
   makeRoomId: (url: string, h: string) => `${url}'${h}`,
   roomsById: mockRoomsById,
@@ -174,6 +171,15 @@ describe("room notifications", () => {
         ["wss://space.one'archived-room", {isArchived: true}],
       ]),
     )
+    mockChannelsById.set(
+      new Map([
+        ["wss://space.one'active-room", {url: "wss://space.one", room: "active-room"}],
+        [
+          "wss://space.one'archived-room",
+          {url: "wss://space.one", room: "archived-room", archived: true},
+        ],
+      ]),
+    )
     mockMessagesByUrl.set(
       new Map([
         [
@@ -194,7 +200,14 @@ describe("room notifications", () => {
   })
 
   it("uses channel archive state as a fallback when room state is unavailable", async () => {
-    mockChannelsById.set(new Map([["wss://space.one'archived-room", {archived: true}]]))
+    mockChannelsById.set(
+      new Map([
+        [
+          "wss://space.one'archived-room",
+          {url: "wss://space.one", room: "archived-room", archived: true},
+        ],
+      ]),
+    )
     mockMessagesByUrl.set(
       new Map([
         [

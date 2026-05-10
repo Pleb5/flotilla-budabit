@@ -1,6 +1,6 @@
 import type {TrustedEvent} from "@welshman/util"
 import {getTagValue} from "@welshman/util"
-import {makeRoomId, MembershipStatus} from "@app/core/state"
+import {makeRoomId} from "@app/core/state"
 
 type RoomLike = {
   isArchived?: boolean
@@ -82,29 +82,20 @@ export const filterArchivedRoomMessages = ({
 
 export const getRoomInteractionState = ({
   isArchivedRoom,
-  isPrivate,
-  isRestricted,
   isClosed,
-  membershipStatus,
 }: {
   isArchivedRoom: boolean
-  isPrivate: boolean
-  isRestricted: boolean
   isClosed: boolean
-  membershipStatus: MembershipStatus
 }) => {
-  const showPrivateGate = isPrivate && membershipStatus !== MembershipStatus.Granted
-  const showRestrictedGate =
-    !showPrivateGate && isRestricted && membershipStatus !== MembershipStatus.Granted
   const allowMembershipRequest = !isArchivedRoom && !isClosed
 
   return {
     isReadOnly: isArchivedRoom,
     showArchivedBanner: isArchivedRoom,
-    showPrivateGate,
-    showRestrictedGate,
+    showPrivateGate: false,
+    showRestrictedGate: false,
     allowMembershipRequest,
     allowMessageActions: !isArchivedRoom,
-    showCompose: !isArchivedRoom && !showPrivateGate && !showRestrictedGate,
+    showCompose: !isArchivedRoom,
   }
 }

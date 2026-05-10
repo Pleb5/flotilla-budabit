@@ -5,7 +5,7 @@ import {goto} from "$app/navigation"
 import {Router} from "@welshman/router"
 import {nthEq, sleep} from "@welshman/lib"
 import type {TrustedEvent} from "@welshman/util"
-import {pubkey, tracker, loadRelay} from "@welshman/app"
+import {pubkey, tracker} from "@welshman/app"
 import {scrollToEvent} from "@lib/html"
 import {identity} from "@welshman/lib"
 import {
@@ -23,7 +23,6 @@ import {
   decodeRelay,
   encodeRelay,
   userSpaceUrls,
-  hasNip29,
   PLATFORM_RELAYS,
   isPlatformRelay,
   ROOM,
@@ -104,8 +103,6 @@ export const goToSpace = async (url: string) => {
 
   if (prevPath) {
     goto(prevPath)
-  } else if (hasNip29(await loadRelay(url))) {
-    goto(makeSpacePath(url, "recent"))
   } else {
     goto(makeSpacePath(url, "chat"))
   }

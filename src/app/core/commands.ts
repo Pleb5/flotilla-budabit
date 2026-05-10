@@ -11,7 +11,6 @@ import {
   flatten,
   poll,
   uniq,
-  equals,
   TIMEZONE,
   LOCALE,
   parseJson,
@@ -536,27 +535,6 @@ export const addSpaceMembership = async (url: string) => {
 export const removeSpaceMembership = async (url: string) => {
   const list = get(userGroupList) || makeList({kind: ROOMS})
   const pred = (t: string[]) => normalizeRelayUrl(t[t[0] === "r" ? 1 : 2]) === url
-  const event = await removeFromListByPredicate(list, pred).reconcile(nip44EncryptToSelf)
-  const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
-
-  return publishThunk({event, relays})
-}
-
-export const addRoomMembership = async (url: string, h: string) => {
-  const list = get(userGroupList) || makeList({kind: ROOMS})
-  const newTags = [
-    ["r", url],
-    ["group", h, url],
-  ]
-  const event = await addToListPublicly(list, ...newTags).reconcile(nip44EncryptToSelf)
-  const relays = uniq([...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
-
-  return publishThunk({event, relays})
-}
-
-export const removeRoomMembership = async (url: string, h: string) => {
-  const list = get(userGroupList) || makeList({kind: ROOMS})
-  const pred = (t: string[]) => equals(["group", h, url], t.slice(0, 3))
   const event = await removeFromListByPredicate(list, pred).reconcile(nip44EncryptToSelf)
   const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
 

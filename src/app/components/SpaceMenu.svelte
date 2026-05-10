@@ -8,7 +8,6 @@
   import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
-  import History from "@assets/icons/history.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic-2.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
@@ -30,12 +29,7 @@
   import RoomCreate from "@app/components/RoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
   import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
-  import {
-    ENABLE_ZAPS,
-    canCreateRoomByPlatformPolicy,
-    hasNip29,
-    channelsByUrl,
-  } from "@app/core/state"
+  import {ENABLE_ZAPS, canCreateRoomByPlatformPolicy, channelsByUrl} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {makeSpacePath} from "@app/util/routes"
   import {partitionArchivedItems} from "@app/util/room-archive"
@@ -153,18 +147,9 @@
 
       <SecondaryNavHeader>Rooms</SecondaryNavHeader>
 
-      {#if hasNip29($relay)}
-        <SecondaryNavItem {replaceState} href={makeSpacePath(url, "recent")}>
-          <Icon icon={History} /> Recent Activity
-        </SecondaryNavItem>
-      {:else}
-        <SecondaryNavItem
-          {replaceState}
-          href={chatPath}
-          notification={$notifications.has(chatPath)}>
-          <Icon icon={ChatRound} /> Chat
-        </SecondaryNavItem>
-      {/if}
+      <SecondaryNavItem {replaceState} href={chatPath} notification={$notifications.has(chatPath)}>
+        <Icon icon={ChatRound} /> Chat
+      </SecondaryNavItem>
 
       {#if canCreateRoom}
         <SecondaryNavItem {replaceState} onclick={addRoom}>
