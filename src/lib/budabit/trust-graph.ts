@@ -12,7 +12,7 @@ import {
   type Nip85UserAssertion,
   userNip85ConfiguredProviders,
 } from "./nip85"
-import {normalizePubkey} from "./pubkeys"
+import {normalizePubkey} from "@app/util/pubkeys"
 import {
   hasEnabledTrustGraphRules,
   isNip85MetricSource,

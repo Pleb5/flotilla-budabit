@@ -1,5 +1,5 @@
 import {normalizeRelayUrl, type TrustedEvent} from "@welshman/util"
-import {normalizePubkey} from "./pubkeys"
+import {normalizePubkey} from "@app/util/pubkeys"
 
 export const NIP85_PROVIDER_CONFIG_KIND = 10040
 export const NIP85_USER_ASSERTION_KIND = 30382
