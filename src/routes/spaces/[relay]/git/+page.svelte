@@ -1,6 +1,14 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {normalizeRelayUrl, NAMED_BOOKMARKS, makeEvent, Address, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
+  import {
+    normalizeRelayUrl,
+    NAMED_BOOKMARKS,
+    makeEvent,
+    Address,
+    getTagValue,
+    type Filter,
+    type TrustedEvent,
+  } from "@welshman/util"
   import {
     repository,
     publishThunk,
@@ -88,7 +96,7 @@
   import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
   import Download from "@assets/icons/download.svg?dataurl"
   import Code from "@assets/icons/code.svg?dataurl"
-  import {makeGitPath} from "@src/lib/budabit"
+  import {makeGitPath} from "@app/util/routes"
   import {gitSelectedTab, type GitTab} from "@app/util/git-tabs"
   import {
     buildBookmarkRepoFilters,
@@ -120,7 +128,7 @@
 
   // Derive current user's profile for git commit author info
   const userProfile = $derived($pubkey ? deriveProfile($pubkey) : null)
-  
+
   // Helper to generate author email from nip-05 or npub
   const getAuthorEmail = (profile: any, pk: string | null | undefined) => {
     if (profile?.nip05) return profile.nip05
@@ -134,7 +142,7 @@
     }
     return ""
   }
-  
+
   // Helper to get author name from profile
   const getAuthorName = (profile: any) => {
     return profile?.display_name || profile?.name || "Anonymous"
@@ -144,7 +152,7 @@
 
   // Connect the nostr-git toast store to the app toast component
   $effect(() => {
-    const unsubscribe = toast.subscribe((toasts) => {
+    const unsubscribe = toast.subscribe(toasts => {
       if (toasts.length > 0) {
         toasts.forEach(t => {
           pushToast({
@@ -190,11 +198,16 @@
     return hasRepoNotification($notifications, {
       relay: url,
       repoAddress,
-      repoAddresses: getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
+      repoAddresses: getMaintainerSetRepoAddresses(
+        $maintainerSetRepoAddressesByRepoAddress,
+        repoAddress,
+      ),
     })
   }
 
-  const prioritizeFreshRepoCards = <T extends {first?: RepoAnnouncementEvent | null}>(cards: T[]) => {
+  const prioritizeFreshRepoCards = <T extends {first?: RepoAnnouncementEvent | null}>(
+    cards: T[],
+  ) => {
     if (!Array.isArray(cards) || cards.length < 2) return cards || []
 
     const freshCards: T[] = []
@@ -224,8 +237,7 @@
       const d = getTagValue("d", event.tags)
       if (d) return `${event.kind}:${event.pubkey}:${d}:${euc}:${eventId}`
 
-      const eucTag =
-        event.tags.find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
+      const eucTag = event.tags.find((t: string[]) => t[0] === "r" && t[2] === "euc")?.[1] || ""
       if (eucTag) return `${event.kind}:${event.pubkey}:euc:${eucTag}:${euc}:${eventId}`
 
       if (event.id) return `${event.kind}:${event.pubkey}:id:${event.id}:${euc}`
@@ -303,13 +315,14 @@
   let repoDiscoveryPrioritySettings = $state<RepoDiscoveryPrioritySetting[]>(
     getDefaultRepoDiscoveryPrioritySettings(),
   )
-  let discoveredSearchRepoPool = $state<Array<{address: string; event: RepoAnnouncementEvent; relayHint: string}>>([])
+  let discoveredSearchRepoPool = $state<
+    Array<{address: string; event: RepoAnnouncementEvent; relayHint: string}>
+  >([])
   let discoveredOwnerProfiles = $state<Record<string, RepoOwnerProfile>>({})
   let repoDiscoveryStatus = $state<RepoDiscoveryStatus>(createEmptyRepoDiscoveryStatus())
   let repoDiscoveryController: AbortController | null = null
   let repoDiscoveryDebounceTimer: ReturnType<typeof setTimeout> | null = null
   let snippetsLoadedFor = $state<string | null>(null)
-
 
   // Initialize worker for Git operations
   // Note: Not using $state because Comlink proxies don't work well with Svelte reactivity
@@ -374,12 +387,12 @@
   $effect(() => {
     if (!$pubkey) return
     if (!repoAnnouncementRelays.length) return
-    
+
     // Prevent duplicate loads with same relay set
     const relayKey = repoAnnouncementRelays.slice().sort().join(",")
     if (relayKey === lastLoadedRelays) return
     lastLoadedRelays = relayKey
-    
+
     const filter = {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey]}
     load({relays: repoAnnouncementRelays, filters: [filter]})
   })
@@ -397,7 +410,9 @@
   // Include GIT_RELAYS to ensure we fetch repos from git-specific relays
   const bookmarkRelays = Array.from(
     new Set(
-      [url, ...Router.get().FromUser().getUrls(), ...GIT_RELAYS].map(u => normalizeRelayUrl(u)).filter(Boolean),
+      [url, ...Router.get().FromUser().getUrls(), ...GIT_RELAYS]
+        .map(u => normalizeRelayUrl(u))
+        .filter(Boolean),
     ),
   ) as string[]
 
@@ -455,13 +470,15 @@
       const matched = matchBookmarkedRepoEvents({
         bookmarks: addresses,
         events: events as RepoAnnouncementEvent[],
-        getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+        getCachedEvent: address =>
+          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
       })
 
       if (matched.length !== addresses.length) {
         if (!attemptedBookmarkLoads.has(loadKey)) {
           attemptedBookmarkLoads.add(loadKey)
-          const relaysToQuery = repoAnnouncementRelays.length > 0 ? repoAnnouncementRelays : GIT_RELAYS
+          const relaysToQuery =
+            repoAnnouncementRelays.length > 0 ? repoAnnouncementRelays : GIT_RELAYS
           if (relaysToQuery.length > 0) {
             load({relays: relaysToQuery, filters})
           } else {
@@ -562,7 +579,6 @@
     })
   })
 
-
   // Filter repos based on active tab
   const filteredRepos = $derived.by(() => {
     if (activeTab === "snippets") {
@@ -586,43 +602,53 @@
 
   type RepoSearchMode = "naddr" | "npub" | null
 
-  const accountSearch = $derived.by((): {
-    mode: RepoSearchMode
-    pubkey: string | null
-    identifier: string | null
-    relayHints: string[]
-    invalid: boolean
-  } => {
-    if (!searchBech32) {
-      return {mode: null, pubkey: null, identifier: null, relayHints: [], invalid: false}
-    }
-
-    const isNaddrCandidate = searchBech32.startsWith("naddr1")
-    const isNpubCandidate = searchBech32.startsWith("npub1")
-
-    try {
-      const decoded = nip19.decode(searchBech32) as {type: string; data: any}
-
-      if (decoded.type === "naddr") {
-        return {
-          mode: "naddr",
-          pubkey: decoded.data?.pubkey || null,
-          identifier: decoded.data?.identifier || null,
-          relayHints: Array.isArray(decoded.data?.relays) ? decoded.data.relays : [],
-          invalid: false,
-        }
+  const accountSearch = $derived.by(
+    (): {
+      mode: RepoSearchMode
+      pubkey: string | null
+      identifier: string | null
+      relayHints: string[]
+      invalid: boolean
+    } => {
+      if (!searchBech32) {
+        return {mode: null, pubkey: null, identifier: null, relayHints: [], invalid: false}
       }
 
-      if (decoded.type === "npub") {
-        return {
-          mode: "npub",
-          pubkey: typeof decoded.data === "string" ? decoded.data : null,
-          identifier: null,
-          relayHints: [],
-          invalid: false,
+      const isNaddrCandidate = searchBech32.startsWith("naddr1")
+      const isNpubCandidate = searchBech32.startsWith("npub1")
+
+      try {
+        const decoded = nip19.decode(searchBech32) as {type: string; data: any}
+
+        if (decoded.type === "naddr") {
+          return {
+            mode: "naddr",
+            pubkey: decoded.data?.pubkey || null,
+            identifier: decoded.data?.identifier || null,
+            relayHints: Array.isArray(decoded.data?.relays) ? decoded.data.relays : [],
+            invalid: false,
+          }
         }
+
+        if (decoded.type === "npub") {
+          return {
+            mode: "npub",
+            pubkey: typeof decoded.data === "string" ? decoded.data : null,
+            identifier: null,
+            relayHints: [],
+            invalid: false,
+          }
+        }
+      } catch {
+        if (isNaddrCandidate) {
+          return {mode: "naddr", pubkey: null, identifier: null, relayHints: [], invalid: true}
+        }
+        if (isNpubCandidate) {
+          return {mode: "npub", pubkey: null, identifier: null, relayHints: [], invalid: true}
+        }
+        return {mode: null, pubkey: null, identifier: null, relayHints: [], invalid: false}
       }
-    } catch {
+
       if (isNaddrCandidate) {
         return {mode: "naddr", pubkey: null, identifier: null, relayHints: [], invalid: true}
       }
@@ -630,16 +656,8 @@
         return {mode: "npub", pubkey: null, identifier: null, relayHints: [], invalid: true}
       }
       return {mode: null, pubkey: null, identifier: null, relayHints: [], invalid: false}
-    }
-
-    if (isNaddrCandidate) {
-      return {mode: "naddr", pubkey: null, identifier: null, relayHints: [], invalid: true}
-    }
-    if (isNpubCandidate) {
-      return {mode: "npub", pubkey: null, identifier: null, relayHints: [], invalid: true}
-    }
-    return {mode: null, pubkey: null, identifier: null, relayHints: [], invalid: false}
-  })
+    },
+  )
 
   const isAccountSearch = $derived.by(() => Boolean(accountSearch.mode))
 
@@ -692,8 +710,7 @@
       if (!content || typeof content !== "object") return null
 
       return {
-        display_name:
-          typeof content.display_name === "string" ? content.display_name : undefined,
+        display_name: typeof content.display_name === "string" ? content.display_name : undefined,
         name: typeof content.name === "string" ? content.name : undefined,
         nip05: typeof content.nip05 === "string" ? content.nip05 : undefined,
         picture: typeof content.picture === "string" ? content.picture : undefined,
@@ -800,7 +817,9 @@
 
     latestMyRepos.forEach(repo => owners.add(repo.event.pubkey))
     loadedBookmarkedRepos.forEach(repo => owners.add(repo.event.pubkey))
-    ;(($repoAnnouncements as RepoAnnouncementEvent[]) || []).forEach(event => owners.add(event.pubkey))
+    ;(($repoAnnouncements as RepoAnnouncementEvent[]) || []).forEach(event =>
+      owners.add(event.pubkey),
+    )
 
     return Array.from(owners).filter(Boolean)
   })
@@ -926,13 +945,19 @@
     nextRepoEvents = [],
   }: {
     query: string
-    repoItemsByAddress: Map<string, {address: string; event: RepoAnnouncementEvent; relayHint: string}>
+    repoItemsByAddress: Map<
+      string,
+      {address: string; event: RepoAnnouncementEvent; relayHint: string}
+    >
     nextRepoEvents?: RepoAnnouncementEvent[]
   }) => {
     for (const event of nextRepoEvents) {
       if (isDeletedRepoAnnouncement(event)) continue
 
-      const item = toLoadedRepoSearchItem(event, Router.get().getRelaysForPubkey(event.pubkey)?.[0] || "")
+      const item = toLoadedRepoSearchItem(
+        event,
+        Router.get().getRelaysForPubkey(event.pubkey)?.[0] || "",
+      )
       if (!item) continue
 
       const existing = repoItemsByAddress.get(item.address)
@@ -988,7 +1013,10 @@
       )
     }
 
-    if (repoDiscoveryStatus.phase === "fetching_profiles" && repoDiscoveryStatus.currentBucketLabel) {
+    if (
+      repoDiscoveryStatus.phase === "fetching_profiles" &&
+      repoDiscoveryStatus.currentBucketLabel
+    ) {
       lines.push(`Loading owner profiles from ${repoDiscoveryStatus.currentBucketLabel}.`)
     }
 
@@ -1108,7 +1136,10 @@
 
     let snapshot: RepoDiscoverySnapshot
 
-    if (previousSnapshot?.query === query && previousSnapshot.nextBucketIndex < previousSnapshot.buckets.length) {
+    if (
+      previousSnapshot?.query === query &&
+      previousSnapshot.nextBucketIndex < previousSnapshot.buckets.length
+    ) {
       snapshot = {
         ...previousSnapshot,
       }
@@ -1200,14 +1231,19 @@
           matchedRepos,
         }
 
-        outer: for (let bucketIndex = snapshot.nextBucketIndex; bucketIndex < buckets.length; bucketIndex += 1) {
+        outer: for (
+          let bucketIndex = snapshot.nextBucketIndex;
+          bucketIndex < buckets.length;
+          bucketIndex += 1
+        ) {
           const bucket = buckets[bucketIndex]
           finalBucketKey = bucket.key
           finalBucketLabel = bucket.label
           finalBucketIndex = bucketIndex + 1
           finalBucketTotalAuthors = bucket.pubkeys.length
 
-          const initialOffset = bucketIndex === snapshot.nextBucketIndex ? snapshot.nextBucketOffset : 0
+          const initialOffset =
+            bucketIndex === snapshot.nextBucketIndex ? snapshot.nextBucketOffset : 0
 
           for (let offset = initialOffset; offset < bucket.pubkeys.length; offset += 24) {
             if (controller.signal.aborted) return
@@ -1243,26 +1279,28 @@
               matchedRepos,
             }
 
-              if (relays.length > 0) {
-                const profileEvents = await fetchRelayEventsWithTimeout<NostrEvent>({
-                  relays,
-                  filters: [{kinds: [0], authors}],
+            if (relays.length > 0) {
+              const profileEvents = await fetchRelayEventsWithTimeout<NostrEvent>({
+                relays,
+                filters: [{kinds: [0], authors}],
                 timeoutMs: Math.min(4000, remainingMs),
                 signal: controller.signal,
               })
 
-                if (controller.signal.aborted) return
+              if (controller.signal.aborted) return
 
-                fetchedProfileAuthors += authors.length
-                untrack(() => updateDiscoveredOwnerProfiles(profileEvents))
+              fetchedProfileAuthors += authors.length
+              untrack(() => updateDiscoveredOwnerProfiles(profileEvents))
 
-                const profileSync = untrack(() => syncDiscoveredSearchRepos({
+              const profileSync = untrack(() =>
+                syncDiscoveredSearchRepos({
                   query,
                   repoItemsByAddress,
-                }))
-                foundRepos = profileSync.foundRepos
-                matchedRepos = profileSync.matchedRepos
-              }
+                }),
+              )
+              foundRepos = profileSync.foundRepos
+              matchedRepos = profileSync.matchedRepos
+            }
 
             remainingMs =
               discoveryInputs.runMode === "smart"
@@ -1301,16 +1339,18 @@
 
               if (controller.signal.aborted) return
 
-                fetchedRepoAuthors += authors.length
+              fetchedRepoAuthors += authors.length
 
-                const repoSync = untrack(() => syncDiscoveredSearchRepos({
+              const repoSync = untrack(() =>
+                syncDiscoveredSearchRepos({
                   query,
                   repoItemsByAddress,
                   nextRepoEvents: repoEvents,
-                }))
-                foundRepos = repoSync.foundRepos
-                matchedRepos = repoSync.matchedRepos
-              }
+                }),
+              )
+              foundRepos = repoSync.foundRepos
+              matchedRepos = repoSync.matchedRepos
+            }
 
             searchedAuthors += authors.length
             finalBucketProcessedAuthors = Math.min(offset + authors.length, bucket.pubkeys.length)
@@ -1320,7 +1360,9 @@
               nextBucketIndex:
                 finalBucketProcessedAuthors < bucket.pubkeys.length ? bucketIndex : bucketIndex + 1,
               nextBucketOffset:
-                finalBucketProcessedAuthors < bucket.pubkeys.length ? finalBucketProcessedAuthors : 0,
+                finalBucketProcessedAuthors < bucket.pubkeys.length
+                  ? finalBucketProcessedAuthors
+                  : 0,
               searchedAuthors,
               fetchedProfileAuthors,
               fetchedRepoAuthors,
@@ -1385,18 +1427,18 @@
         if (repoDiscoveryController === controller) {
           repoDiscoveryController = null
         }
-        } catch (error) {
-          if (controller.signal.aborted) return
-          console.error("[git/+page] Failed to discover repositories from search", error)
-          const currentStatus = untrack(() => repoDiscoveryStatus)
-          repoDiscoveryStatus = {
-            ...currentStatus,
-            loading: false,
-            phase: "aborted",
-          }
-          if (repoDiscoveryController === controller) {
-            repoDiscoveryController = null
-          }
+      } catch (error) {
+        if (controller.signal.aborted) return
+        console.error("[git/+page] Failed to discover repositories from search", error)
+        const currentStatus = untrack(() => repoDiscoveryStatus)
+        repoDiscoveryStatus = {
+          ...currentStatus,
+          loading: false,
+          phase: "aborted",
+        }
+        if (repoDiscoveryController === controller) {
+          repoDiscoveryController = null
+        }
       }
     })()
 
@@ -1468,7 +1510,7 @@
   let cachedCardsKey = ""
   let cardsComputeTimer: ReturnType<typeof setTimeout> | null = null
   const sortedRepoCards = $derived.by(() => prioritizeFreshRepoCards($repositoriesStore as any[]))
-  
+
   // Update repositoriesStore whenever repos change
   // Uses debouncing to wait for all repos to load before showing cards
   $effect(() => {
@@ -1485,9 +1527,12 @@
       loading = false
       if (reposToShow.length > 0) {
         // Create a stable key based on visible repo IDs only
-        const repoIds = reposToShow.map((r: any) => (r.event ?? r).id).sort().join(",")
+        const repoIds = reposToShow
+          .map((r: any) => (r.event ?? r).id)
+          .sort()
+          .join(",")
         const cardsKey = repoIds
-        
+
         // Only recompute and push cards when the key has actually changed
         if (cardsKey !== cachedCardsKey) {
           if (cardsComputeTimer) {
@@ -1512,7 +1557,6 @@
         } else if (getStore(repositoriesStore).length === 0 && cachedCards.length > 0) {
           repositoriesStore.set(cachedCards)
         }
-
       } else {
         if (cardsComputeTimer) {
           clearTimeout(cardsComputeTimer)
@@ -1549,8 +1593,12 @@
   const shouldShowRepoCardBookmark = (event?: RepoAnnouncementEvent | null) =>
     Boolean(event && event.pubkey !== $pubkey)
 
-  const getRepoCardRelayHint = (event: RepoAnnouncementEvent, address = getRepoAddressFromEvent(event)) => {
-    const fromLoadedBookmarks = loadedBookmarkedRepos.find(repo => repo.address === address)?.relayHint || ""
+  const getRepoCardRelayHint = (
+    event: RepoAnnouncementEvent,
+    address = getRepoAddressFromEvent(event),
+  ) => {
+    const fromLoadedBookmarks =
+      loadedBookmarkedRepos.find(repo => repo.address === address)?.relayHint || ""
     const fromTracker = Array.from(tracker.getRelays(event.id) || [])[0] || ""
     const fromPubkey = Router.get().getRelaysForPubkey(event.pubkey)?.[0] || ""
     const relayTag = (event.tags || []).find((tag: string[]) => tag[0] === "relays")?.[1] || ""
@@ -1569,7 +1617,10 @@
     const address = getRepoAddressFromEvent(event)
     if (!address) return new Set<string>()
 
-    const candidates = getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, address)
+    const candidates = getMaintainerSetRepoAddresses(
+      $maintainerSetRepoAddressesByRepoAddress,
+      address,
+    )
     candidates.add(address)
     return candidates
   }
@@ -1623,7 +1674,8 @@
         candidateAddresses: getRepoCardCandidateAddresses(event),
         candidateRepoKeys: getRepoCardCanonicalKeys(event),
         nextBookmark: bookmarkEntry,
-        getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+        getCachedEvent: address =>
+          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
       })
 
       const tags: string[][] = [["d", GIT_REPO_BOOKMARK_DTAG]]
@@ -1637,7 +1689,9 @@
 
       const bookmarkEvent = makeEvent(NAMED_BOOKMARKS, {tags, content: ""})
       const relays = Array.from(
-        new Set([relayHint, ...bookmarkRelays].map(relay => normalizeRelayUrl(relay)).filter(Boolean)),
+        new Set(
+          [relayHint, ...bookmarkRelays].map(relay => normalizeRelayUrl(relay)).filter(Boolean),
+        ),
       ) as string[]
 
       publishThunk({event: bookmarkEvent, relays})
@@ -1684,7 +1738,10 @@
     }
   }
 
-  const resolveRepoEventPublishRelays = (event: any, fallbackRelays: string[] = defaultRepoRelays) => {
+  const resolveRepoEventPublishRelays = (
+    event: any,
+    fallbackRelays: string[] = defaultRepoRelays,
+  ) => {
     const policy = resolveRepoRelayPolicy({
       event,
       fallbackRepoRelays: fallbackRelays,
@@ -1732,13 +1789,17 @@
     })
 
   const handleRepoCardNeutralClick = (event: MouseEvent, announcement: RepoAnnouncementEvent) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return
     if (getInteractiveCardTarget(event.target, event.currentTarget)) return
 
     navigateToRepoCard(announcement)
   }
 
-  const handleRepoCardNeutralKeydown = (event: KeyboardEvent, announcement: RepoAnnouncementEvent) => {
+  const handleRepoCardNeutralKeydown = (
+    event: KeyboardEvent,
+    announcement: RepoAnnouncementEvent,
+  ) => {
     if (event.key !== "Enter" && event.key !== " ") return
     if (getInteractiveCardTarget(event.target, event.currentTarget)) return
 
@@ -1906,12 +1967,12 @@
     }
 
     console.log("[+page.svelte] About to push NewRepoWizard modal")
-    
+
     // Get user profile for git author info
     const profile = userProfile ? getStore(userProfile) : null
     const authorName = getAuthorName(profile)
     const authorEmail = getAuthorEmail(profile, $pubkey)
-    
+
     try {
       const modalId = pushModal(
         NewRepoWizard,
@@ -2064,13 +2125,13 @@
           workerApi,
           onSignEvent: onSignEvent, // Primary signing method (works with all signers)
           onFetchEvents: async (filters: NostrFilter[]) => {
-            const events: NostrEvent[] = [];
+            const events: NostrEvent[] = []
             await load({
               relays: Router.get().FromUser().getUrls(),
               filters: filters as any,
-              onEvent: (e) => events.push(e as NostrEvent),
-            });
-            return events;
+              onEvent: e => events.push(e as NostrEvent),
+            })
+            return events
           },
           onFetchRelayEvents: fetchRelayEvents,
           onClose: () => {
@@ -2168,7 +2229,7 @@
           <TabsList class="flex w-full overflow-x-auto sm:w-fit sm:max-w-full sm:self-start">
             <TabsTrigger
               value="my-repos"
-              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:ring-1 data-[state=active]:ring-border data-[state=active]:shadow-md sm:flex-none">
+              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={FolderWithFiles} />
                 <span>My Repos</span>
@@ -2179,7 +2240,7 @@
             </TabsTrigger>
             <TabsTrigger
               value="bookmarks"
-              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:ring-1 data-[state=active]:ring-border data-[state=active]:shadow-md sm:flex-none">
+              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={Bookmark} />
                 <span>Bookmarks</span>
@@ -2190,7 +2251,7 @@
             </TabsTrigger>
             <TabsTrigger
               value="snippets"
-              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:ring-1 data-[state=active]:ring-border data-[state=active]:shadow-md sm:flex-none">
+              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none">
               <span class="flex items-center gap-2">
                 <Icon icon={Code} />
                 <span>Snippets</span>
@@ -2203,15 +2264,15 @@
               <Icon icon={Magnifier} />
               <input
                 bind:value={searchQuery}
-                class="grow min-w-0"
+                class="min-w-0 grow"
                 type="text"
-                placeholder={
-                  activeTab === "snippets" ? "Search snippets..." : "Search repo, owner, npub, or naddr"
-                } />
+                placeholder={activeTab === "snippets"
+                  ? "Search snippets..."
+                  : "Search repo, owner, npub, or naddr"} />
               {#if searchQuery}
                 <button
                   type="button"
-                  class="btn btn-ghost btn-circle btn-xs h-7 min-h-7 w-7 shrink-0"
+                  class="btn btn-circle btn-ghost btn-xs h-7 min-h-7 w-7 shrink-0"
                   aria-label="Clear search"
                   title="Clear search"
                   onclick={() => (searchQuery = "")}>
@@ -2223,7 +2284,7 @@
               {#if repoDiscoveryStatus.loading}
                 <button
                   type="button"
-                  class="btn btn-error btn-outline btn-sm shrink-0 gap-1"
+                  class="btn btn-outline btn-error btn-sm shrink-0 gap-1"
                   aria-label="Stop repository discovery"
                   title="Stop repository discovery"
                   onclick={stopRepoDiscovery}>
@@ -2233,7 +2294,7 @@
               {:else if canContinueRepoDiscovery}
                 <button
                   type="button"
-                  class="btn btn-primary btn-outline btn-sm shrink-0"
+                  class="btn btn-outline btn-primary btn-sm shrink-0"
                   aria-label="Continue searching"
                   title="Continue searching"
                   onclick={continueRepoDiscovery}>
@@ -2242,7 +2303,7 @@
               {/if}
               <button
                 type="button"
-                class="btn btn-ghost btn-square btn-sm shrink-0"
+                class="btn btn-square btn-ghost btn-sm shrink-0"
                 aria-label="Search discovery settings"
                 title="Search discovery settings"
                 onclick={openRepoSearchSettingsModal}>
@@ -2277,8 +2338,7 @@
         </div>
       {/if}
     </div>
-  {:else}
-  {#if isAccountSearch}
+  {:else if isAccountSearch}
     <div class="flex min-w-0 flex-col gap-2" in:fade={{duration: 200}}>
       {#if accountSearch.mode === "naddr" && accountSearch.invalid}
         <p class="text-sm text-muted-foreground">Invalid repository naddr.</p>
@@ -2295,9 +2355,7 @@
           </p>
         {/if}
       {:else if accountSearch.mode === "naddr"}
-        <p class="text-sm text-muted-foreground">
-          Found repository. Showing this repository only.
-        </p>
+        <p class="text-sm text-muted-foreground">Found repository. Showing this repository only.</p>
       {:else if accountSearch.mode === "npub"}
         <p class="text-sm text-muted-foreground">Repositories published by this account.</p>
       {/if}
@@ -2305,183 +2363,201 @@
       {#if sortedAccountSearchRepoCards.length > 0}
         <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {#each sortedAccountSearchRepoCards as g, i (getRepoCardStableKey(g))}
-          <div
-            class="min-w-0 rounded-md border border-border bg-card p-3"
-            role="link"
-            tabindex="0"
-            onclick={g.first
-              ? event => handleRepoCardNeutralClick(event, g.first as RepoAnnouncementEvent)
-              : undefined}
-            onkeydown={g.first
-              ? event => handleRepoCardNeutralKeydown(event, g.first as RepoAnnouncementEvent)
-              : undefined}
-            in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
-            {#if g.first}
-              <GitItem
-                {url}
-                event={g.first as any}
-                tabbable={false}
-                bookmarked={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent) : false}
-                bookmarkDisabled={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent) : false}
-                onToggleBookmark={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent) : undefined}
-                showActivity={true}
-                showIssues={true}
-                showActions={true}
-                hideDate={true} />
-            {/if}
-            <div class="mt-3 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div class="flex -space-x-2">
-                  {#each g.maintainers.slice(0, 4) as pk (pk)}
-                    {@const prof = $profilesByPubkey.get(pk)}
-                    <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
-                      <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
-                      <AvatarFallback
-                        >{(prof?.display_name || prof?.name || pk)
-                          .slice(0, 2)
-                          .toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                  {/each}
-                  {#if g.maintainers.length > 4}
-                    <div
-                      class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                      +{g.maintainers.length - 4}
-                    </div>
-                  {/if}
-                </div>
-                <span class="text-xs opacity-60"
-                  >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
-              </div>
+            <div
+              class="min-w-0 rounded-md border border-border bg-card p-3"
+              role="link"
+              tabindex="0"
+              onclick={g.first
+                ? event => handleRepoCardNeutralClick(event, g.first as RepoAnnouncementEvent)
+                : undefined}
+              onkeydown={g.first
+                ? event => handleRepoCardNeutralKeydown(event, g.first as RepoAnnouncementEvent)
+                : undefined}
+              in:staggeredFade={{index: i, staggerDelay: 40, duration: 250}}>
               {#if g.first}
-                {@const date = new Date(g.first.created_at * 1000)}
-                <span class="text-xs opacity-60">
-                  {String(date.getDate()).padStart(2, '0')}/{String(date.getMonth() + 1).padStart(2, '0')}/{String(date.getFullYear()).slice(-2)}
-                </span>
+                <GitItem
+                  {url}
+                  event={g.first as any}
+                  tabbable={false}
+                  bookmarked={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)
+                    ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent)
+                    : false}
+                  bookmarkDisabled={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)
+                    ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent)
+                    : false}
+                  onToggleBookmark={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)
+                    ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent)
+                    : undefined}
+                  showActivity={true}
+                  showIssues={true}
+                  showActions={true}
+                  hideDate={true} />
               {/if}
+              <div class="mt-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="flex -space-x-2">
+                    {#each g.maintainers.slice(0, 4) as pk (pk)}
+                      {@const prof = $profilesByPubkey.get(pk)}
+                      <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
+                        <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                        <AvatarFallback
+                          >{(prof?.display_name || prof?.name || pk)
+                            .slice(0, 2)
+                            .toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                    {/each}
+                    {#if g.maintainers.length > 4}
+                      <div
+                        class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
+                        +{g.maintainers.length - 4}
+                      </div>
+                    {/if}
+                  </div>
+                  <span class="text-xs opacity-60"
+                    >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
+                </div>
+                {#if g.first}
+                  {@const date = new Date(g.first.created_at * 1000)}
+                  <span class="text-xs opacity-60">
+                    {String(date.getDate()).padStart(2, "0")}/{String(date.getMonth() + 1).padStart(
+                      2,
+                      "0",
+                    )}/{String(date.getFullYear()).slice(-2)}
+                  </span>
+                {/if}
+              </div>
             </div>
-          </div>
           {/each}
         </div>
       {/if}
     </div>
   {:else}
-
-  <!-- Tab-filtered Repos Grid -->
-  <div class="min-w-0">
-    {#if repoDiscoveryStatusLines.length > 0}
-      <div class="mb-3 rounded-md border border-border bg-card/70 p-3">
-        <div class="flex items-center gap-2 text-sm font-medium text-foreground">
-          {#if repoDiscoveryStatus.loading}
-            <Spinner loading={repoDiscoveryStatus.loading}>
-              {repoDiscoveryRunMode === "exhaustive"
-                ? "Continuing search..."
-                : "Discovering new Repos..."}
-            </Spinner>
-          {:else if repoDiscoveryStatus.phase === "typing"}
-            <span>Waiting to search</span>
-          {:else if repoDiscoveryStatus.phase === "aborted"}
-            <span>Search stopped</span>
-          {:else if repoDiscoveryStatus.timedOut}
-            <span>Discovery timed out</span>
-          {:else}
-            <span>Discovery complete</span>
-          {/if}
+    <!-- Tab-filtered Repos Grid -->
+    <div class="min-w-0">
+      {#if repoDiscoveryStatusLines.length > 0}
+        <div class="mb-3 rounded-md border border-border bg-card/70 p-3">
+          <div class="flex items-center gap-2 text-sm font-medium text-foreground">
+            {#if repoDiscoveryStatus.loading}
+              <Spinner loading={repoDiscoveryStatus.loading}>
+                {repoDiscoveryRunMode === "exhaustive"
+                  ? "Continuing search..."
+                  : "Discovering new Repos..."}
+              </Spinner>
+            {:else if repoDiscoveryStatus.phase === "typing"}
+              <span>Waiting to search</span>
+            {:else if repoDiscoveryStatus.phase === "aborted"}
+              <span>Search stopped</span>
+            {:else if repoDiscoveryStatus.timedOut}
+              <span>Discovery timed out</span>
+            {:else}
+              <span>Discovery complete</span>
+            {/if}
+          </div>
+          <div class="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
+            {#each repoDiscoveryStatusLines as line}
+              <p>{line}</p>
+            {/each}
+          </div>
         </div>
-        <div class="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
-          {#each repoDiscoveryStatusLines as line}
-            <p>{line}</p>
+      {/if}
+      {#if loading}
+        <p class="flex h-10 items-center justify-center py-20" out:fly>
+          <Spinner {loading}>
+            {#if loading}
+              Looking for Your Git Repos...
+            {:else if $repositoriesStore.length === 0}
+              No Repos found.
+            {/if}
+          </Spinner>
+        </p>
+      {:else if $repositoriesStore.length === 0}
+        <p class="mx-auto max-w-full break-words px-4 py-20 text-center text-muted-foreground">
+          {#if searchQuery.trim()}
+            No repositories found matching
+            <span class="inline max-w-full break-all">"{searchQuery}"</span>.
+          {:else if activeTab === "my-repos"}
+            You haven't created any repositories yet.
+          {:else}
+            No bookmarked repositories found.
+          {/if}
+        </p>
+      {:else if sortedRepoCards.length > 0}
+        <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
+            {@const maintainerSet = g.effectiveMaintainers ?? g.maintainers ?? []}
+            {@const taggedMaintainers = g.taggedMaintainers ?? []}
+            <div
+              class="min-w-0 rounded-md border border-border bg-card p-3"
+              role="link"
+              tabindex="0"
+              onclick={g.first
+                ? event => handleRepoCardNeutralClick(event, g.first as RepoAnnouncementEvent)
+                : undefined}
+              onkeydown={g.first
+                ? event => handleRepoCardNeutralKeydown(event, g.first as RepoAnnouncementEvent)
+                : undefined}>
+              <!-- Use GitItem for consistent repo card rendering -->
+              {#if g.first}
+                <GitItem
+                  {url}
+                  event={g.first as any}
+                  tabbable={false}
+                  bookmarked={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)
+                    ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent)
+                    : false}
+                  bookmarkDisabled={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)
+                    ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent)
+                    : false}
+                  onToggleBookmark={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent)
+                    ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent)
+                    : undefined}
+                  showActivity={true}
+                  showIssues={true}
+                  showActions={true}
+                  hideDate={true} />
+              {/if}
+
+              <!-- Maintainers avatars and date -->
+              <div class="mt-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="flex -space-x-2">
+                    {#each maintainerSet.slice(0, 4) as pk (pk)}
+                      {@const prof = $profilesByPubkey.get(pk)}
+                      <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
+                        <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                        <AvatarFallback
+                          >{(prof?.display_name || prof?.name || pk)
+                            .slice(0, 2)
+                            .toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                    {/each}
+                    {#if maintainerSet.length > 4}
+                      <div
+                        class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
+                        +{maintainerSet.length - 4}
+                      </div>
+                    {/if}
+                  </div>
+                  <span class="text-xs opacity-60"
+                    >{maintainerSet.length} maintainer-set member{maintainerSet.length !== 1
+                      ? "s"
+                      : ""}
+                    / {taggedMaintainers.length} tagged</span>
+                </div>
+                {#if g.first}
+                  {@const date = new Date(g.first.created_at * 1000)}
+                  <span class="text-xs opacity-60">
+                    {String(date.getDate()).padStart(2, "0")}/{String(date.getMonth() + 1).padStart(
+                      2,
+                      "0",
+                    )}/{String(date.getFullYear()).slice(-2)}
+                  </span>
+                {/if}
+              </div>
+            </div>
           {/each}
         </div>
-      </div>
-    {/if}
-    {#if loading}
-      <p class="flex h-10 items-center justify-center py-20" out:fly>
-        <Spinner {loading}>
-          {#if loading}
-            Looking for Your Git Repos...
-          {:else if $repositoriesStore.length === 0}
-            No Repos found.
-          {/if}
-        </Spinner>
-      </p>
-    {:else if $repositoriesStore.length === 0}
-      <p class="mx-auto max-w-full break-words px-4 py-20 text-center text-muted-foreground">
-        {#if searchQuery.trim()}
-          No repositories found matching
-          <span class="inline max-w-full break-all">"{searchQuery}"</span>.
-        {:else if activeTab === "my-repos"}
-          You haven't created any repositories yet.
-        {:else}
-          No bookmarked repositories found.
-        {/if}
-      </p>
-    {:else if sortedRepoCards.length > 0}
-      <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
-          {@const maintainerSet = g.effectiveMaintainers ?? g.maintainers ?? []}
-          {@const taggedMaintainers = g.taggedMaintainers ?? []}
-          <div
-            class="min-w-0 rounded-md border border-border bg-card p-3"
-            role="link"
-            tabindex="0"
-            onclick={g.first
-              ? event => handleRepoCardNeutralClick(event, g.first as RepoAnnouncementEvent)
-              : undefined}
-            onkeydown={g.first
-              ? event => handleRepoCardNeutralKeydown(event, g.first as RepoAnnouncementEvent)
-              : undefined}>
-            <!-- Use GitItem for consistent repo card rendering -->
-            {#if g.first}
-              <GitItem
-                {url}
-                event={g.first as any}
-                tabbable={false}
-                bookmarked={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? isRepoCardBookmarked(g.first as RepoAnnouncementEvent) : false}
-                bookmarkDisabled={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? isRepoCardBookmarkPending(g.first as RepoAnnouncementEvent) : false}
-                onToggleBookmark={shouldShowRepoCardBookmark(g.first as RepoAnnouncementEvent) ? () => toggleRepoCardBookmark(g.first as RepoAnnouncementEvent) : undefined}
-                showActivity={true}
-                showIssues={true}
-                showActions={true}
-                hideDate={true} />
-            {/if}
-
-            <!-- Maintainers avatars and date -->
-            <div class="mt-3 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div class="flex -space-x-2">
-                  {#each maintainerSet.slice(0, 4) as pk (pk)}
-                    {@const prof = $profilesByPubkey.get(pk)}
-                    <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
-                      <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
-                      <AvatarFallback
-                        >{(prof?.display_name || prof?.name || pk)
-                          .slice(0, 2)
-                          .toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                  {/each}
-                  {#if maintainerSet.length > 4}
-                    <div
-                      class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                      +{maintainerSet.length - 4}
-                    </div>
-                  {/if}
-                </div>
-                <span class="text-xs opacity-60"
-                  >{maintainerSet.length} maintainer-set member{maintainerSet.length !== 1 ? "s" : ""}
-                  / {taggedMaintainers.length} tagged</span>
-              </div>
-              {#if g.first}
-                {@const date = new Date(g.first.created_at * 1000)}
-                <span class="text-xs opacity-60">
-                  {String(date.getDate()).padStart(2, '0')}/{String(date.getMonth() + 1).padStart(2, '0')}/{String(date.getFullYear()).slice(-2)}
-                </span>
-              {/if}
-            </div>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-  {/if}
+      {/if}
+    </div>
   {/if}
 </PageContent>

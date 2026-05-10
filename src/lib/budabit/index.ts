@@ -1,7 +1,6 @@
 export * from "./requests"
 export * from "./state"
 export * from "./commands"
-export * from "./routes"
 export * from "./worker-singleton"
 export * from "./sync"
 export * from "./repo-watch"

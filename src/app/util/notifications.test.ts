@@ -8,17 +8,86 @@ vi.mock("@app/core/storage", () => ({
   db: {},
 }))
 
-vi.mock("@app/core/state", async importOriginal => {
-  const actual = await importOriginal<typeof import("@app/core/state")>()
-  return {
-    ...actual,
-    encodeRelay: vi.fn((url: string) => encodeURIComponent(url)),
-  }
-})
+vi.mock("@app/core/state", () => ({
+  chatsById: readable(new Map()),
+  hasNip29: () => false,
+  PLATFORM_RELAYS: [],
+  userSettingsValues: readable({show_notifications_badge: false}),
+  userGroupList: readable({}),
+  getSpaceUrlsFromGroupList: () => [],
+  getSpaceRoomsFromGroupList: () => [],
+  encodeRelay: vi.fn((url: string) => encodeURIComponent(url)),
+  roomsById: readable(new Map()),
+}))
+
+vi.mock("@app/util/routes", () => ({
+  makeSpacePath: (url: string) => `/spaces/${encodeURIComponent(url)}`,
+  makeChatPath: (id: string) => `/chat/${id}`,
+  makeGoalPath: (url: string, id?: string) =>
+    `/spaces/${encodeURIComponent(url)}/goals${id ? `/${id}` : ""}`,
+  makeThreadPath: (url: string, id?: string) =>
+    `/spaces/${encodeURIComponent(url)}/threads${id ? `/${id}` : ""}`,
+  makeCalendarPath: (url: string, id?: string) =>
+    `/spaces/${encodeURIComponent(url)}/calendar${id ? `/${id}` : ""}`,
+  makeSpaceChatPath: (url: string) => `/spaces/${encodeURIComponent(url)}/chat`,
+  makeRoomPath: (url: string, h: string) => `/spaces/${encodeURIComponent(url)}/${h}`,
+  makeGitPath: (url: string, naddr?: string) =>
+    `/spaces/${encodeURIComponent(url)}/git${naddr ? `/${naddr}` : ""}`,
+}))
 
 vi.mock("@lib/budabit/state", () => ({
   channelsById: readable(new Map()),
+  GIT_RELAYS: [],
+  repoAnnouncements: readable([]),
+  repoAnnouncementsByAddress: readable(new Map()),
+  maintainerSetRepoAddressesByRepoAddress: readable(new Map()),
+  loadRepoContext: vi.fn(),
+  loadRepoAnnouncementByAddress: vi.fn(),
+  loadRepoMaintainerAnnouncements: vi.fn(),
+  getMaintainerSetRepoAddresses: (map: Map<string, Set<string>>, repoAddress: string) =>
+    map.get(repoAddress) || new Set([repoAddress]),
 }))
+
+vi.mock("@lib/budabit/repo-watch", () => ({
+  defaultRepoWatchOptions: {
+    status: {open: true, draft: true, applied: true, closed: true},
+    issues: {new: true, comments: true},
+    prs: {new: true, comments: true, updates: true},
+    assignments: true,
+    reviews: true,
+  },
+  userRepoWatchValues: readable({repos: {}}),
+}))
+
+vi.mock("@welshman/net", () => ({
+  load: vi.fn().mockResolvedValue(undefined),
+  request: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("@welshman/router", () => ({
+  Router: {get: () => ({FromUser: () => ({getUrls: () => []})})},
+}))
+
+vi.mock("@nostr-git/core/events", async importOriginal => {
+  const actual = await importOriginal<typeof import("@nostr-git/core/events")>()
+  return {
+    ...actual,
+    parseRepoAnnouncementEvent: vi.fn(() => ({relays: []})),
+    parseRoleLabelEvent: vi.fn(() => ({namespace: "", rootId: "", repoAddr: "", role: ""})),
+  }
+})
+
+vi.mock("@nostr-git/core/git", () => ({
+  RepoCore: {buildRepoSubscriptions: () => ({filters: []})},
+}))
+
+vi.mock("@nostr-git/core/utils", async importOriginal => {
+  const actual = await importOriginal<typeof import("@nostr-git/core/utils")>()
+  return {
+    ...actual,
+    buildRepoNaddrFromEvent: vi.fn(() => "naddr1valid"),
+  }
+})
 
 vi.mock("@welshman/util", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/util")>()

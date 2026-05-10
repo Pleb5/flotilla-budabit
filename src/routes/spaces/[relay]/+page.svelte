@@ -19,8 +19,14 @@
   import RelayName from "@app/components/RelayName.svelte"
   import RelayDescription from "@app/components/RelayDescription.svelte"
   import {decodeRelay, PLATFORM_NAME} from "@app/core/state"
-  import {makeThreadPath, makeCalendarPath, makeChatPath, makeRoomPath, makeSpacePath} from "@app/util/routes"
-  import {makeGitPath} from "@lib/budabit/routes"
+  import {
+    makeThreadPath,
+    makeCalendarPath,
+    makeChatPath,
+    makeRoomPath,
+    makeSpacePath,
+  } from "@app/util/routes"
+  import {makeGitPath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
   import {fade} from "@lib/transition"
   import SpaceMenuButton from "@src/lib/budabit/components/SpaceMenuButton.svelte"
@@ -91,24 +97,23 @@
       <RelayDescription {url} />
     </div>
   </div>
-  <DemoDayPromo {url}/>
-  <div class="grid max-sm:grid-cols-2 sm:grid-cols-3 gap-2">
+  <DemoDayPromo {url} />
+  <div class="grid gap-2 max-sm:grid-cols-2 sm:grid-cols-3">
     {#each activeChannels as channel (channel.id)}
       {@const roomPath = makeRoomPath(url, channel.room)}
       <Link href={roomPath} class="btn btn-neutral relative">
-        <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap  md:text-lg">
+        <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap md:text-lg">
           <Icon icon={Hashtag} />
           <ChannelName {url} room={channel.room} />
         </div>
         {#if $notifications.has(roomPath)}
-          <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" transition:fade>
-          </div>
+          <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" transition:fade></div>
         {/if}
       </Link>
     {/each}
     <Link href={chatPath} class="btn btn-success w-full">
       <div class="relative flex items-center gap-2 md:text-lg">
-        <Icon icon={ChatRound} size={6}/>
+        <Icon icon={ChatRound} size={6} />
         Chat
         {#if $notifications.has(chatPath)}
           <div class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary" transition:fade>
@@ -130,7 +135,7 @@
     </Link>
     <Link href={threadsPath} class="btn btn-primary text-black md:text-lg">
       <div class="relative flex items-center gap-2">
-        <Icon icon={NotesMinimalistic} size={6}/>
+        <Icon icon={NotesMinimalistic} size={6} />
         Threads
         {#if $notifications.has(threadsPath)}
           <div
@@ -142,7 +147,7 @@
     </Link>
     <Link href={calendarPath} class="btn btn-secondary text-black md:text-lg">
       <div class="relative flex items-center gap-2">
-        <Icon icon={CalendarMinimalistic} size={6}/>
+        <Icon icon={CalendarMinimalistic} size={6} />
         Calendar
         {#if $notifications.has(calendarPath)}
           <div

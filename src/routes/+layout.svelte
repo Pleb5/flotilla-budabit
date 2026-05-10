@@ -11,13 +11,7 @@
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
   import {defaultSocketPolicies} from "@welshman/net"
-  import {
-    pubkey,
-    sessions,
-    signerLog,
-    shouldUnwrap,
-    SignerLogEntryStatus,
-  } from "@welshman/app"
+  import {pubkey, sessions, signerLog, shouldUnwrap, SignerLogEntryStatus} from "@welshman/app"
   import * as lib from "@welshman/lib"
   import * as util from "@welshman/util"
   import * as feeds from "@welshman/feeds"
@@ -39,9 +33,7 @@
   import {setupAnalytics} from "@app/util/analytics"
   import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
   import {makeSpacePath} from "@app/util/routes"
-  import {
-    userSettingsValues,
-  } from "@app/core/state"
+  import {userSettingsValues} from "@app/core/state"
   import {db, kv} from "@app/core/storage"
   import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
@@ -55,7 +47,7 @@
   import NewNotificationSound from "@src/app/components/NewNotificationSound.svelte"
   import {syncBudabitApplicationData, syncBudabitData} from "@lib/budabit/sync"
   import {setupChiiDevInjection} from "@lib/budabit/chii-dev"
-  import {setupBudabitNotifications} from "@lib/budabit/notifications"
+  import {setupBudabitNotifications} from "@app/util/notifications"
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
   import {initializeCashuWallet} from "@lib/budabit/cashu"
@@ -113,7 +105,7 @@
   shouldUnwrap.set(true)
 
   setupBudabitNotifications()
-  
+
   // Auto-install and enable built-in extensions
   if (browser) {
     setupChiiDevInjection()
@@ -347,7 +339,10 @@
   }
 
   const getRegistrationScriptUrl = (registration: ServiceWorkerRegistration) =>
-    registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL || ""
+    registration.active?.scriptURL ||
+    registration.waiting?.scriptURL ||
+    registration.installing?.scriptURL ||
+    ""
 
   const isLegacyServiceWorker = (scriptUrl: string) => {
     try {
@@ -441,24 +436,26 @@
     const sanitizeRelayListEvent = (event: any) => {
       // Only process relay list events (kind 10002 for relay lists, 10050 for messaging relays)
       if (event.kind !== 10002 && event.kind !== 10050) return event
-      
+
       if (!event.tags || !Array.isArray(event.tags)) return event
-      
+
       let modified = false
       // Filter and fix relay tags
-      const sanitizedTags = event.tags.map((tag: any) => {
-        if (!Array.isArray(tag) || tag[0] !== 'r') return tag
-        
-        // Ensure the relay URL (tag[1]) is a valid string
-        if (typeof tag[1] !== 'string' || tag[1].length === 0) {
-          console.warn('[+layout] Filtered invalid relay tag:', tag)
-          modified = true
-          return null
-        }
-        
-        return tag
-      }).filter(Boolean)
-      
+      const sanitizedTags = event.tags
+        .map((tag: any) => {
+          if (!Array.isArray(tag) || tag[0] !== "r") return tag
+
+          // Ensure the relay URL (tag[1]) is a valid string
+          if (typeof tag[1] !== "string" || tag[1].length === 0) {
+            console.warn("[+layout] Filtered invalid relay tag:", tag)
+            modified = true
+            return null
+          }
+
+          return tag
+        })
+        .filter(Boolean)
+
       if (modified) {
         return {...event, tags: sanitizedTags}
       }
@@ -470,7 +467,7 @@
     for (const event of existingRelayLists) {
       const sanitized = sanitizeRelayListEvent(event)
       if (sanitized !== event) {
-        console.log('[+layout] Sanitizing relay list event:', event.id)
+        console.log("[+layout] Sanitizing relay list event:", event.id)
         // Remove the old event and add the sanitized version
         app.repository.removeEvent(event.id)
         app.repository.publish(sanitized)

@@ -13,6 +13,9 @@ const mockChannelsById = writable(new Map())
 const mockUserSettingsValues = writable({show_notifications_badge: false})
 const mockCommentsByUrl = writable(new Map())
 const mockMessagesByUrl = writable(new Map())
+const mockRepoAnnouncements = writable<any[]>([])
+const mockRepoAnnouncementsByAddress = writable(new Map())
+const mockEffectiveRepoAddresses = writable(new Map())
 
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
@@ -21,6 +24,8 @@ vi.mock("@app/core/storage", () => ({
 vi.mock("@welshman/store", () => ({
   synced: ({defaultValue}: {defaultValue: unknown}) => writable(defaultValue),
   throttled: (_delay: number, store: unknown) => store,
+  deriveEventsAsc: (store: unknown) => store,
+  deriveEventsById: () => writable([]),
   deriveEventsByIdByUrl: ({filters}: {filters: Array<Record<string, unknown>>}) => {
     const firstFilter = filters[0] || {}
 
@@ -70,6 +75,15 @@ vi.mock("@app/core/state", () => ({
 vi.mock("@lib/budabit/state", () => ({
   channelsById: mockChannelsById,
   makeChannelId: (url: string, h: string) => `${url}'${h}`,
+  GIT_RELAYS: [],
+  repoAnnouncements: mockRepoAnnouncements,
+  repoAnnouncementsByAddress: mockRepoAnnouncementsByAddress,
+  maintainerSetRepoAddressesByRepoAddress: mockEffectiveRepoAddresses,
+  loadRepoContext: vi.fn(),
+  loadRepoAnnouncementByAddress: vi.fn(),
+  loadRepoMaintainerAnnouncements: vi.fn(),
+  getMaintainerSetRepoAddresses: (map: Map<string, Set<string>>, repoAddress: string) =>
+    map.get(repoAddress) || new Set([repoAddress]),
 }))
 
 vi.mock("@welshman/util", () => ({
@@ -80,8 +94,53 @@ vi.mock("@welshman/util", () => ({
   COMMENT: 1111,
   getTagValue: (name: string, tags: string[][]) => tags.find(tag => tag[0] === name)?.[1] || "",
   Address: {
+    fromEvent: () => ({toString: () => "30617:pubkey:repo", toNaddr: () => "naddr1abc"}),
     fromNaddr: () => ({toString: () => "30617:pubkey:repo"}),
   },
+  isRelayUrl: () => true,
+  normalizeRelayUrl: (url: string) => url,
+}))
+
+vi.mock("@welshman/net", () => ({
+  load: vi.fn().mockResolvedValue(undefined),
+  request: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock("@welshman/router", () => ({
+  Router: {get: () => ({FromUser: () => ({getUrls: () => []})})},
+}))
+
+vi.mock("@nostr-git/core/events", () => ({
+  GIT_COMMENT: 1311,
+  GIT_ISSUE: 1312,
+  GIT_LABEL: 1313,
+  GIT_PULL_REQUEST: 1314,
+  GIT_PULL_REQUEST_UPDATE: 1315,
+  GIT_STATUS_APPLIED: 1316,
+  GIT_STATUS_CLOSED: 1317,
+  GIT_STATUS_DRAFT: 1318,
+  GIT_STATUS_OPEN: 1319,
+  parseRepoAnnouncementEvent: () => ({relays: []}),
+  parseRoleLabelEvent: () => ({namespace: "", rootId: "", repoAddr: "", role: ""}),
+}))
+
+vi.mock("@nostr-git/core/git", () => ({
+  RepoCore: {buildRepoSubscriptions: () => ({filters: []})},
+}))
+
+vi.mock("@nostr-git/core/utils", () => ({
+  buildRepoNaddrFromEvent: () => "naddr1abc",
+}))
+
+vi.mock("@lib/budabit/repo-watch", () => ({
+  defaultRepoWatchOptions: {
+    status: {open: true, draft: true, applied: true, closed: true},
+    issues: {new: true, comments: true},
+    prs: {new: true, comments: true, updates: true},
+    assignments: true,
+    reviews: true,
+  },
+  userRepoWatchValues: writable({repos: {}}),
 }))
 
 const makeMessage = (id: string, h: string, pubkey = "other", created_at = 10) =>

@@ -6,7 +6,7 @@
   import EventActivity from "@app/components/EventActivity.svelte"
   import EventActions from "@app/components/EventActions.svelte"
   import {publishDelete, publishReaction} from "@app/core/commands"
-  import {makeJobPath} from "@lib/budabit"
+  import {makeJobPath} from "@app/util/routes"
   import Button from "@src/lib/components/Button.svelte"
   import Link from "@src/lib/components/Link.svelte"
   import {jobLink} from "@lib/budabit"
@@ -14,7 +14,7 @@
   import ThreadCreate from "./ThreadCreate.svelte"
   import JobRequest from "./JobRequest.svelte"
   import {Router} from "@welshman/router"
-  
+
   interface Props {
     url: any
     event: any
@@ -48,17 +48,17 @@
   const startThread = () =>
     pushModal(ThreadCreate, {url: url, jobOrGitIssue: event, relayHint: relayHint})
 
-  const runJob = () =>
-    pushModal(JobRequest, {url: url})
+  const runJob = () => pushModal(JobRequest, {url: url})
 
-  const onPublishDelete = (event: TrustedEvent) => publishDelete({relays: [url], event, protect: false})
+  const onPublishDelete = (event: TrustedEvent) =>
+    publishDelete({relays: [url], event, protect: false})
 
   const onPublishReaction = (eventContent: EventContent) => {
     publishReaction({
-      event: eventContent as TrustedEvent, 
+      event: eventContent as TrustedEvent,
       content: eventContent.content,
-      relays: [url], 
-      protect: false
+      relays: [url],
+      protect: false,
     })
   }
 </script>
@@ -90,7 +90,12 @@
         </Link>
       </Button>
     {/if}
-    <ReactionSummary {url} {event} createReaction={onPublishReaction} deleteReaction={onPublishDelete} reactionClass="tooltip-left" />
+    <ReactionSummary
+      {url}
+      {event}
+      createReaction={onPublishReaction}
+      deleteReaction={onPublishDelete}
+      reactionClass="tooltip-left" />
     <ThunkStatusOrDeleted {event} />
     {#if showActivity}
       <EventActivity {url} {path} {event} />

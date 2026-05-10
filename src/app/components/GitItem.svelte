@@ -6,11 +6,15 @@
   import GitActions from "./GitActions.svelte"
   import Link from "@lib/components/Link.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
-  import {makeGitPath} from "@lib/budabit"
+  import {makeGitPath} from "@app/util/routes"
   import {getInteractiveCardTarget} from "@lib/html"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {Router} from "@welshman/router"
-  import {GIT_RELAYS, maintainerSetRepoAddressesByRepoAddress, getMaintainerSetRepoAddresses} from "@lib/budabit/state"
+  import {
+    GIT_RELAYS,
+    maintainerSetRepoAddressesByRepoAddress,
+    getMaintainerSetRepoAddresses,
+  } from "@lib/budabit/state"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {Bookmark} from "@lucide/svelte"
 
@@ -24,7 +28,7 @@
     showActivity = true,
     showIssues = true,
     showActions = true,
-    hideDate = false
+    hideDate = false,
   }: {
     url: string
     event: TrustedEvent
@@ -68,18 +72,19 @@
       return ""
     }
   })
-  const hasNotifications = $derived.by(
-    () => {
-      if (repoAddress) {
-        return hasRepoNotification($notifications, {
-          relay: url,
+  const hasNotifications = $derived.by(() => {
+    if (repoAddress) {
+      return hasRepoNotification($notifications, {
+        relay: url,
+        repoAddress,
+        repoAddresses: getMaintainerSetRepoAddresses(
+          $maintainerSetRepoAddressesByRepoAddress,
           repoAddress,
-          repoAddresses: getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
-        })
-      }
-      return $notifications.has(issuesHref) || $notifications.has(prsHref)
-    },
-  )
+        ),
+      })
+    }
+    return $notifications.has(issuesHref) || $notifications.has(prsHref)
+  })
 
   const getLinkRanges = (text: string) => {
     const ranges: Array<{start: number; end: number}> = []
@@ -134,7 +139,8 @@
   const navigateToRepo = () => void goto(browseHref)
 
   const handleCardClick = (event: MouseEvent) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+      return
     if (getInteractiveCardTarget(event.target, event.currentTarget)) return
 
     event.stopPropagation()
@@ -149,16 +155,15 @@
     event.stopPropagation()
     navigateToRepo()
   }
-
 </script>
 
 {#snippet cardContent()}
-  <NoteCard event={event} class="card2 sm:card2-sm bg-alt relative" {hideDate}>
+  <NoteCard {event} class="card2 sm:card2-sm bg-alt relative" {hideDate}>
     {#if name}
       <div class="flex w-full items-start justify-between gap-2">
         <Link href={browseHref} class="block min-w-0 flex-1">
           <div class="flex w-full items-center gap-2">
-            <p class="text-xl break-words overflow-wrap-anywhere">{name}</p>
+            <p class="overflow-wrap-anywhere break-words text-xl">{name}</p>
           </div>
         </Link>
         <div class="flex items-center gap-2 {showActions ? 'mr-9' : ''}">
@@ -186,18 +191,14 @@
         </div>
       </div>
     {:else}
-      <p class="mb-3 h-0 text-xs opacity-75">
-        Name missing!
-      </p>
+      <p class="mb-3 h-0 text-xs opacity-75">Name missing!</p>
     {/if}
     {#if description}
       <div class="flex w-full items-start">
         <Markdown content={descriptionPreview} {event} {url} variant="comment" />
       </div>
     {:else}
-      <p class="mb-3 h-0 text-xs opacity-75">
-        Description missing!
-      </p>
+      <p class="mb-3 h-0 text-xs opacity-75">Description missing!</p>
     {/if}
     {#if showActions}
       <div class="flex w-full min-w-0 flex-col items-stretch justify-between gap-2 sm:flex-row">

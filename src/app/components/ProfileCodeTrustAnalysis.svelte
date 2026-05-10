@@ -22,8 +22,11 @@
     type ProfileCodeTrustAnalysis,
   } from "@lib/budabit/profile-collab-analysis"
   import {getTrustGraphSourceLabel} from "@lib/budabit/trust-graph"
-  import {hasEnabledTrustGraphRules, userTrustGraphConfigValues} from "@lib/budabit/trust-graph-config"
-  import {makeGitPath} from "@lib/budabit/routes"
+  import {
+    hasEnabledTrustGraphRules,
+    userTrustGraphConfigValues,
+  } from "@lib/budabit/trust-graph-config"
+  import {makeGitPath} from "@app/util/routes"
   import {decodeRelay} from "@app/core/state"
   import {Address} from "@welshman/util"
 
@@ -73,7 +76,9 @@
   const graphSourceLabel = $derived.by(() =>
     getTrustGraphSourceLabel(analysis?.graphSource || "basic_wot"),
   )
-  const hasGraphAdjustments = $derived.by(() => hasEnabledTrustGraphRules($userTrustGraphConfigValues))
+  const hasGraphAdjustments = $derived.by(() =>
+    hasEnabledTrustGraphRules($userTrustGraphConfigValues),
+  )
   const preferredRelayUrl = $derived.by(() =>
     $page.params.relay ? decodeRelay($page.params.relay) : analysis?.relays.find(Boolean) || "",
   )
@@ -296,8 +301,8 @@
     <div class="flex flex-col gap-4 border-t border-base-300/50 px-4 py-4">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="text-xs opacity-70">
-          Uses {graphSourceLabel} and scans up to {PROFILE_CODE_TRUST_WINDOW_DAYS} days of recent
-          PR and merge activity on git relays.
+          Uses {graphSourceLabel} and scans up to {PROFILE_CODE_TRUST_WINDOW_DAYS} days of recent PR and
+          merge activity on git relays.
         </div>
 
         <div class="flex flex-wrap gap-2">
@@ -342,7 +347,10 @@
                   </button>
 
                   {#if openMetricPopover === metric.key}
-                    <InlinePopover onClose={() => (openMetricPopover = null)} align="left" widthClass="w-80">
+                    <InlinePopover
+                      onClose={() => (openMetricPopover = null)}
+                      align="left"
+                      widthClass="w-80">
                       <div class="flex flex-col gap-3 text-sm">
                         <div>
                           <div class="font-medium">{metric.label}</div>
@@ -350,7 +358,8 @@
                         </div>
 
                         <div class="text-xs opacity-60">
-                          {getMetricPopoverButtonLabel(metric)} in the current {analysis.windowDays}-day analysis window.
+                          {getMetricPopoverButtonLabel(metric)} in the current {analysis.windowDays}-day
+                          analysis window.
                         </div>
 
                         {#if metric.details && metric.details.length > 0}
@@ -371,7 +380,9 @@
                                 {/if}
                                 <div class="mt-1 text-xs opacity-70">
                                   {#if repoHref}
-                                    <Link href={repoHref} class="text-primary underline-offset-2 hover:underline">
+                                    <Link
+                                      href={repoHref}
+                                      class="text-primary underline-offset-2 hover:underline">
                                       {detail.repoName}
                                     </Link>
                                   {:else}
@@ -413,8 +424,14 @@
                                       <ProfileName pubkey={collaborator.pubkey} />
                                     </Button>
                                     <div class="text-xs opacity-70">
-                                      {collaborator.totalInteractions} interaction{collaborator.totalInteractions === 1 ? "" : "s"}
-                                      across {collaborator.repoCount} repo{collaborator.repoCount === 1 ? "" : "s"}
+                                      {collaborator.totalInteractions} interaction{collaborator.totalInteractions ===
+                                      1
+                                        ? ""
+                                        : "s"}
+                                      across {collaborator.repoCount} repo{collaborator.repoCount ===
+                                      1
+                                        ? ""
+                                        : "s"}
                                     </div>
                                   </div>
                                 </div>
@@ -422,7 +439,9 @@
                             {/each}
                           </div>
                         {:else}
-                          <div class="text-xs opacity-60">No evidence captured for this metric in the current window.</div>
+                          <div class="text-xs opacity-60">
+                            No evidence captured for this metric in the current window.
+                          </div>
                         {/if}
                       </div>
                     </InlinePopover>
@@ -445,7 +464,10 @@
               <div class="rounded-box bg-base-100/40 p-3">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div class="flex min-w-0 gap-3">
-                    <Button type="button" class="shrink-0 p-0" onclick={() => openProfile(collaborator.pubkey)}>
+                    <Button
+                      type="button"
+                      class="shrink-0 p-0"
+                      onclick={() => openProfile(collaborator.pubkey)}>
                       <ProfileCircle pubkey={collaborator.pubkey} size={7} />
                     </Button>
                     <div class="min-w-0">
@@ -465,47 +487,57 @@
                         <button
                           type="button"
                           class="badge badge-neutral cursor-pointer px-3 py-3"
-                          onclick={() => toggleCollaboratorPopover(collaborator, "merged-target") }>
+                          onclick={() => toggleCollaboratorPopover(collaborator, "merged-target")}>
                           {collaborator.mergedTargetPullRequests} merged target PRs
                         </button>
 
                         {#if openCollaboratorPopover === `${collaborator.pubkey}:merged-target`}
-                          <InlinePopover onClose={() => (openCollaboratorPopover = null)} align="right" widthClass="w-80">
+                          <InlinePopover
+                            onClose={() => (openCollaboratorPopover = null)}
+                            align="right"
+                            widthClass="w-80">
                             <div class="flex flex-col gap-3 text-sm">
                               <div>
                                 <div class="font-medium">Merged target PRs</div>
                                 <div class="mt-1 text-xs opacity-70">
-                                  Pull requests authored by this profile and merged by this collaborator.
+                                  Pull requests authored by this profile and merged by this
+                                  collaborator.
                                 </div>
                               </div>
 
                               {#if collaborator.mergedTargetPullRequestDetails.length > 0}
                                 <div class="flex flex-col gap-2">
-                            {#each collaborator.mergedTargetPullRequestDetails as detail (detail.rootId)}
-                              {@const prHref = getPrHref(detail)}
-                              {@const repoHref = getRepoHref(detail.repoAddress)}
-                              <div class="rounded-box bg-base-200/50 p-3">
-                                    {#if prHref}
-                                      <Link href={prHref} class="text-sm font-medium text-primary underline-offset-2 hover:underline">
-                                        {detail.subject}
-                                      </Link>
-                                    {:else}
-                                      <div class="text-sm font-medium">{detail.subject}</div>
-                                    {/if}
-                                    <div class="mt-1 text-xs opacity-70">
-                                      {#if repoHref}
-                                        <Link href={repoHref} class="text-primary underline-offset-2 hover:underline">
-                                          {detail.repoName}
+                                  {#each collaborator.mergedTargetPullRequestDetails as detail (detail.rootId)}
+                                    {@const prHref = getPrHref(detail)}
+                                    {@const repoHref = getRepoHref(detail.repoAddress)}
+                                    <div class="rounded-box bg-base-200/50 p-3">
+                                      {#if prHref}
+                                        <Link
+                                          href={prHref}
+                                          class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                                          {detail.subject}
                                         </Link>
                                       {:else}
-                                        {detail.repoName}
+                                        <div class="text-sm font-medium">{detail.subject}</div>
                                       {/if}
+                                      <div class="mt-1 text-xs opacity-70">
+                                        {#if repoHref}
+                                          <Link
+                                            href={repoHref}
+                                            class="text-primary underline-offset-2 hover:underline">
+                                            {detail.repoName}
+                                          </Link>
+                                        {:else}
+                                          {detail.repoName}
+                                        {/if}
+                                      </div>
                                     </div>
-                                  </div>
-                                {/each}
+                                  {/each}
                                 </div>
                               {:else}
-                                <div class="text-xs opacity-60">No merged target PR examples in the current analysis window.</div>
+                                <div class="text-xs opacity-60">
+                                  No merged target PR examples in the current analysis window.
+                                </div>
                               {/if}
                             </div>
                           </InlinePopover>
@@ -518,28 +550,35 @@
                         <button
                           type="button"
                           class="badge badge-neutral cursor-pointer px-3 py-3"
-                          onclick={() => toggleCollaboratorPopover(collaborator, "merged-by-target") }>
+                          onclick={() =>
+                            toggleCollaboratorPopover(collaborator, "merged-by-target")}>
                           {collaborator.mergedByTarget} merged by target
                         </button>
 
                         {#if openCollaboratorPopover === `${collaborator.pubkey}:merged-by-target`}
-                          <InlinePopover onClose={() => (openCollaboratorPopover = null)} align="right" widthClass="w-80">
+                          <InlinePopover
+                            onClose={() => (openCollaboratorPopover = null)}
+                            align="right"
+                            widthClass="w-80">
                             <div class="flex flex-col gap-3 text-sm">
                               <div>
                                 <div class="font-medium">Merged by target</div>
                                 <div class="mt-1 text-xs opacity-70">
-                                  Pull requests authored by this collaborator and merged by the target profile.
+                                  Pull requests authored by this collaborator and merged by the
+                                  target profile.
                                 </div>
                               </div>
 
                               {#if collaborator.mergedByTargetDetails.length > 0}
                                 <div class="flex flex-col gap-2">
-                                {#each collaborator.mergedByTargetDetails as detail (detail.rootId)}
-                                  {@const prHref = getPrHref(detail)}
-                                  {@const repoHref = getRepoHref(detail.repoAddress)}
-                                  <div class="rounded-box bg-base-200/50 p-3">
+                                  {#each collaborator.mergedByTargetDetails as detail (detail.rootId)}
+                                    {@const prHref = getPrHref(detail)}
+                                    {@const repoHref = getRepoHref(detail.repoAddress)}
+                                    <div class="rounded-box bg-base-200/50 p-3">
                                       {#if prHref}
-                                        <Link href={prHref} class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                                        <Link
+                                          href={prHref}
+                                          class="text-sm font-medium text-primary underline-offset-2 hover:underline">
                                           {detail.subject}
                                         </Link>
                                       {:else}
@@ -547,7 +586,9 @@
                                       {/if}
                                       <div class="mt-1 text-xs opacity-70">
                                         {#if repoHref}
-                                          <Link href={repoHref} class="text-primary underline-offset-2 hover:underline">
+                                          <Link
+                                            href={repoHref}
+                                            class="text-primary underline-offset-2 hover:underline">
                                             {detail.repoName}
                                           </Link>
                                         {:else}
@@ -558,7 +599,9 @@
                                   {/each}
                                 </div>
                               {:else}
-                                <div class="text-xs opacity-60">No target-merged PR examples in the current analysis window.</div>
+                                <div class="text-xs opacity-60">
+                                  No target-merged PR examples in the current analysis window.
+                                </div>
                               {/if}
                             </div>
                           </InlinePopover>
@@ -570,17 +613,21 @@
                       <button
                         type="button"
                         class="badge badge-neutral cursor-pointer px-3 py-3"
-                        onclick={() => toggleCollaboratorPopover(collaborator, "repos") }>
+                        onclick={() => toggleCollaboratorPopover(collaborator, "repos")}>
                         {collaborator.repoCount} repos
                       </button>
 
                       {#if openCollaboratorPopover === `${collaborator.pubkey}:repos`}
-                        <InlinePopover onClose={() => (openCollaboratorPopover = null)} align="right" widthClass="w-72">
+                        <InlinePopover
+                          onClose={() => (openCollaboratorPopover = null)}
+                          align="right"
+                          widthClass="w-72">
                           <div class="flex flex-col gap-3 text-sm">
                             <div>
                               <div class="font-medium">Common repos</div>
                               <div class="mt-1 text-xs opacity-70">
-                                Repositories where this collaborator has recent trusted activity with the target profile.
+                                Repositories where this collaborator has recent trusted activity
+                                with the target profile.
                               </div>
                             </div>
 
@@ -590,20 +637,26 @@
                                   {@const repoHref = getRepoHref(repoDetail.repoAddress)}
                                   <div class="rounded-box bg-base-200/50 p-3">
                                     {#if repoHref}
-                                      <Link href={repoHref} class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                                      <Link
+                                        href={repoHref}
+                                        class="text-sm font-medium text-primary underline-offset-2 hover:underline">
                                         {repoDetail.repoName}
                                       </Link>
                                     {:else}
                                       <div class="text-sm font-medium">{repoDetail.repoName}</div>
                                     {/if}
                                     <div class="mt-1 text-xs opacity-70">
-                                      {repoDetail.count} interaction{repoDetail.count === 1 ? "" : "s"}
+                                      {repoDetail.count} interaction{repoDetail.count === 1
+                                        ? ""
+                                        : "s"}
                                     </div>
                                   </div>
                                 {/each}
                               </div>
                             {:else}
-                              <div class="text-xs opacity-60">No repository overlap captured in the current analysis window.</div>
+                              <div class="text-xs opacity-60">
+                                No repository overlap captured in the current analysis window.
+                              </div>
                             {/if}
                           </div>
                         </InlinePopover>

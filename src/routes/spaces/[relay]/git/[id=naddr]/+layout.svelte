@@ -3,7 +3,16 @@
 </script>
 
 <script lang="ts">
-  import {RepoHeader, RepoTab, BranchSelector, toast, bookmarksStore, Repo, WorkerManager, ForkRepoDialog} from "@nostr-git/ui"
+  import {
+    RepoHeader,
+    RepoTab,
+    BranchSelector,
+    toast,
+    bookmarksStore,
+    Repo,
+    WorkerManager,
+    ForkRepoDialog,
+  } from "@nostr-git/ui"
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   // Import worker URL using Vite's ?url suffix for correct asset resolution
@@ -41,7 +50,7 @@
   import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   import type {NostrFilter, NostrEvent} from "@nostr-git/core"
-  
+
   // ForkResult type definition (matches @nostr-git/ui)
   interface ForkResult {
     repoId: string
@@ -52,8 +61,29 @@
     announcementEvent: RepoAnnouncementEvent
     stateEvent: RepoStateEvent
   }
-  import type {RepoAnnouncementEvent, RepoStateEvent, IssueEvent, PullRequestEvent, StatusEvent, CommentEvent, LabelEvent} from "@nostr-git/core/events"
-  import {GIT_REPO_BOOKMARK_DTAG, GRASP_SET_KIND, DEFAULT_GRASP_SET_ID, parseGraspServersEvent, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, GIT_LABEL, parseRepoAnnouncementEvent, isCommentEvent, createRepoStateEvent} from "@nostr-git/core/events"
+  import type {
+    RepoAnnouncementEvent,
+    RepoStateEvent,
+    IssueEvent,
+    PullRequestEvent,
+    StatusEvent,
+    CommentEvent,
+    LabelEvent,
+  } from "@nostr-git/core/events"
+  import {
+    GIT_REPO_BOOKMARK_DTAG,
+    GRASP_SET_KIND,
+    DEFAULT_GRASP_SET_ID,
+    parseGraspServersEvent,
+    GIT_REPO_ANNOUNCEMENT,
+    GIT_REPO_STATE,
+    GIT_PULL_REQUEST,
+    GIT_PULL_REQUEST_UPDATE,
+    GIT_LABEL,
+    parseRepoAnnouncementEvent,
+    isCommentEvent,
+    createRepoStateEvent,
+  } from "@nostr-git/core/events"
   import {
     parseRepoId,
     filterValidCloneUrls,
@@ -63,7 +93,17 @@
     getTaggedRelaysFromRepoEvent,
   } from "@nostr-git/core/utils"
   import {derived, get as getStore, readable, type Readable} from "svelte/store"
-  import {repository, pubkey, profilesByPubkey, profileSearch, loadProfile, relaySearch, publishThunk, deriveProfile, abortThunk} from "@welshman/app"
+  import {
+    repository,
+    pubkey,
+    profilesByPubkey,
+    profileSearch,
+    loadProfile,
+    relaySearch,
+    publishThunk,
+    deriveProfile,
+    abortThunk,
+  } from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById, deriveEventsDesc, throttled} from "@welshman/store"
   import {load, request, PublishStatus} from "@welshman/net"
   import {Router} from "@welshman/router"
@@ -82,7 +122,7 @@
     getTagValue,
     COMMENT,
     type Filter,
-    type TrustedEvent
+    type TrustedEvent,
   } from "@welshman/util"
   import {publishDelete} from "@src/app/core/commands"
   import {setContext, onDestroy, tick} from "svelte"
@@ -106,16 +146,23 @@
     getMaintainerSetRepoAddresses,
     loadRepoMaintainerAnnouncements,
   } from "@lib/budabit/state"
-  import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@lib/budabit/repo-trust-metrics"
+  import {
+    REPO_TRUST_METRICS_KEY,
+    createRepoTrustMetricsStore,
+  } from "@lib/budabit/repo-trust-metrics"
   import {userRepoWatchValues} from "@lib/budabit/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
-  import {makeGitPath} from "@lib/budabit/routes"
+  import {makeGitPath} from "@app/util/routes"
   import {getInitializedGitWorker} from "@src/lib/budabit/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
-  import {diffBranchHeads, overlayLatestRepoStates, type BranchChange} from "@src/lib/budabit/branch-update"
+  import {
+    diffBranchHeads,
+    overlayLatestRepoStates,
+    type BranchChange,
+  } from "@src/lib/budabit/branch-update"
   import {
     getCanonicalRepoKeyFromEvent,
     getRepoBookmarkAddressSet,
@@ -123,14 +170,20 @@
     toggleRepoBookmarks,
   } from "@src/lib/budabit/bookmarks"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
-  
+
   const {id, relay} = $page.params
 
   const {data, children} = $props()
   // Type assertion needed because TypeScript infers old layout return type
-  const layoutData = data as unknown as {repoId: string, repoName: string, repoPubkey: string, fallbackRelays: string[], naddrRelays: string[], url: string}
+  const layoutData = data as unknown as {
+    repoId: string
+    repoName: string
+    repoPubkey: string
+    fallbackRelays: string[]
+    naddrRelays: string[]
+    url: string
+  }
   const {repoId, repoName, repoPubkey, fallbackRelays, naddrRelays, url} = layoutData
-
 
   const COMMENT_LOAD_DEBOUNCE_MS = 300
   const COMMENT_LOAD_CHUNK_SIZE = 100
@@ -197,8 +250,11 @@
   const repoTabExtensions = $derived.by(() => {
     const settings = $extensionSettings
     const enabledIds = settings.enabled
-    const extensionsMap = new Map<string, {id: string; label: string; path: string; icon?: string}>()
-    
+    const extensionsMap = new Map<
+      string,
+      {id: string; label: string; path: string; icon?: string}
+    >()
+
     // Check NIP-89 extensions first
     for (const [extId, manifest] of Object.entries(settings.installed.nip89)) {
       if (enabledIds.includes(extId) && manifest.slot?.type === "repo-tab") {
@@ -216,8 +272,8 @@
       if (enabledIds.includes(widgetId) && widget.slot?.type === "repo-tab") {
         // Use iconUrl, but fall back to LayoutGrid for known broken URLs
         let icon = widget.iconUrl
-        if (icon && icon.includes('budabit.dev')) {
-          icon = 'LayoutGrid' // Fallback for broken budabit.dev URLs
+        if (icon && icon.includes("budabit.dev")) {
+          icon = "LayoutGrid" // Fallback for broken budabit.dev URLs
         }
         extensionsMap.set(widgetId, {
           id: widgetId,
@@ -227,7 +283,7 @@
         })
       }
     }
-    
+
     return Array.from(extensionsMap.values())
   })
 
@@ -239,7 +295,10 @@
     if (pathname === repoPath) return "overview"
     if (!pathname.startsWith(`${repoPath}/`)) return undefined
 
-    const segments = pathname.slice(repoPath.length + 1).split("/").filter(Boolean)
+    const segments = pathname
+      .slice(repoPath.length + 1)
+      .split("/")
+      .filter(Boolean)
     if (segments.length === 0) return "overview"
 
     if (segments[0] === "extensions") {
@@ -248,10 +307,10 @@
 
     return segments[0]
   })
-  
+
   // Memoize encodedRelay - it only changes if relay param changes
   const encodedRelay = $derived(encodeURIComponent(relay ?? ""))
-  
+
   // Memoize base path to avoid recalculating on every render
   const basePath = $derived(`/spaces/${encodedRelay}/git/${id}`)
   const issuesPath = $derived.by(() => `${basePath}/issues`)
@@ -338,7 +397,9 @@
     deleteSeenKey ? normalizeChecked($checked[deleteSeenKey] || 0) : 0,
   )
 
-  const watchOptions = $derived.by(() => (repoAddress ? $userRepoWatchValues.repos[repoAddress] : undefined))
+  const watchOptions = $derived.by(() =>
+    repoAddress ? $userRepoWatchValues.repos[repoAddress] : undefined,
+  )
   const isWatching = $derived(Boolean(watchOptions))
 
   const openWatchModal = () => {
@@ -421,7 +482,12 @@
   }
 
   const isNotFoundError = (error: unknown) => {
-    const anyError = error as {status?: number; code?: number; data?: {status?: number}; message?: string}
+    const anyError = error as {
+      status?: number
+      code?: number
+      data?: {status?: number}
+      message?: string
+    }
     const status = anyError?.status ?? anyError?.code ?? anyError?.data?.status
     const message = String(anyError?.message ?? error ?? "")
     return status === 404 || message.includes("404") || message.includes("Not Found")
@@ -686,7 +752,9 @@
     if (!repoEvent) return false
 
     const update = await buildRepoBranchUpdate(repoEvent)
-    const next = pendingBranchUpdates.filter(item => item.repoId !== repoName && item.repoId !== repoId)
+    const next = pendingBranchUpdates.filter(
+      item => item.repoId !== repoName && item.repoId !== repoId,
+    )
     if (update) {
       next.push(update)
     }
@@ -716,7 +784,8 @@
 
         for (const repo of selected) {
           try {
-            const baseRelays = repo.relays && repo.relays.length > 0 ? repo.relays : getRepoAnnouncementRelays()
+            const baseRelays =
+              repo.relays && repo.relays.length > 0 ? repo.relays : getRepoAnnouncementRelays()
             if (!baseRelays || baseRelays.length === 0) {
               throw new Error(`No relays configured for ${repo.repoName || repo.repoId}`)
             }
@@ -859,11 +928,11 @@
   const codeFileParam = $derived.by(() => normalizePath($page.url.searchParams.get("path")))
   const codeDirParam = $derived.by(() => normalizePath($page.url.searchParams.get("dir")))
   const codeCurrentDir = $derived.by(() =>
-    codeFileParam ? dirFromPath(codeFileParam) : codeDirParam
+    codeFileParam ? dirFromPath(codeFileParam) : codeDirParam,
   )
   const codeBreadcrumbPath = $derived.by(() => codeFileParam || codeDirParam)
   const codeBreadcrumbSegments = $derived.by(() =>
-    codeBreadcrumbPath ? codeBreadcrumbPath.split("/") : []
+    codeBreadcrumbPath ? codeBreadcrumbPath.split("/") : [],
   )
   const codeCanGoUp = $derived.by(() => codeCurrentDir.length > 0)
   const codeParentPath = $derived.by(() => (codeCurrentDir ? dirFromPath(codeCurrentDir) : ""))
@@ -913,7 +982,6 @@
 
     root.scrollTo({top: root.scrollTop + delta, behavior: "auto"})
   }
-
 
   $effect(() => {
     void activeTab
@@ -1085,10 +1153,12 @@
   }
 
   function deriveStatusEvents(repoAddresses: Readable<string[]>) {
-    const scopedStatusEvents = deriveAddressScopedEvents(
-      repoAddresses,
-      [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
-    )
+    const scopedStatusEvents = deriveAddressScopedEvents(repoAddresses, [
+      GIT_STATUS_OPEN,
+      GIT_STATUS_DRAFT,
+      GIT_STATUS_CLOSED,
+      GIT_STATUS_COMPLETE,
+    ])
 
     return derived(
       [scopedStatusEvents, repoAddresses],
@@ -1120,10 +1190,12 @@
           return
         }
 
-        const filters: Filter[] = chunkBySize(normalized, COMMENT_DERIVE_FILTER_CHUNK_SIZE).map(ids => ({
-          kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
-          "#e": ids,
-        }))
+        const filters: Filter[] = chunkBySize(normalized, COMMENT_DERIVE_FILTER_CHUNK_SIZE).map(
+          ids => ({
+            kinds: [GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
+            "#e": ids,
+          }),
+        )
         const scopedEvents = throttled(
           SCOPED_DERIVE_THROTTLE_MS,
           deriveEventsAsc(deriveEventsById({repository, filters})),
@@ -1141,34 +1213,37 @@
   }
 
   function deriveStatusEventsByRoot(statusEvents: Readable<StatusEvent[]>) {
-    return derived(
-      statusEvents,
-      (events: StatusEvent[]) => {
-        const map = new Map<string, StatusEvent[]>()
-        for (const event of events) {
-          const rootTag = (event.tags || []).find(
-            (tag: string[]) => tag[0] === "e" && tag[1] && tag[3] === "root",
-          )
-          const rootId = rootTag?.[1] || getTagValue("e", event.tags)
-          if (rootId) {
-            if (!map.has(rootId)) {
-              map.set(rootId, [])
-            }
-            map.get(rootId)!.push(event)
+    return derived(statusEvents, (events: StatusEvent[]) => {
+      const map = new Map<string, StatusEvent[]>()
+      for (const event of events) {
+        const rootTag = (event.tags || []).find(
+          (tag: string[]) => tag[0] === "e" && tag[1] && tag[3] === "root",
+        )
+        const rootId = rootTag?.[1] || getTagValue("e", event.tags)
+        if (rootId) {
+          if (!map.has(rootId)) {
+            map.set(rootId, [])
           }
+          map.get(rootId)!.push(event)
         }
-        return map
       }
-    ) as Readable<Map<string, StatusEvent[]>>
+      return map
+    }) as Readable<Map<string, StatusEvent[]>>
   }
 
-  function deriveAllRootIds(issues: Readable<IssueEvent[]>, pullRequests: Readable<PullRequestEvent[]>) {
-    return derived([issues, pullRequests], ([issueEvents, prEvents]: [IssueEvent[], PullRequestEvent[]]) => {
-      const ids: string[] = []
-      if (issueEvents) ids.push(...issueEvents.map((issue: IssueEvent) => issue.id))
-      if (prEvents) ids.push(...prEvents.map((pr: PullRequestEvent) => pr.id))
-      return ids
-    })
+  function deriveAllRootIds(
+    issues: Readable<IssueEvent[]>,
+    pullRequests: Readable<PullRequestEvent[]>,
+  ) {
+    return derived(
+      [issues, pullRequests],
+      ([issueEvents, prEvents]: [IssueEvent[], PullRequestEvent[]]) => {
+        const ids: string[] = []
+        if (issueEvents) ids.push(...issueEvents.map((issue: IssueEvent) => issue.id))
+        if (prEvents) ids.push(...prEvents.map((pr: PullRequestEvent) => pr.id))
+        return ids
+      },
+    )
   }
 
   const chunkBySize = (items: string[], size: number) => {
@@ -1183,7 +1258,7 @@
     Boolean(event && (repository as any).isDeleted?.(event))
 
   const getVisibleRepositoryEvents = <T extends TrustedEvent>(events: T[] | undefined | null) =>
-    ((events || []).filter(event => !isDeletedRepositoryEvent(event)) as T[])
+    (events || []).filter(event => !isDeletedRepositoryEvent(event)) as T[]
 
   const normalizeScopeValues = (values: string[]) =>
     [...new Set((values || []).filter(Boolean))].sort()
@@ -1210,10 +1285,12 @@
           return
         }
 
-        const filters: Filter[] = chunkBySize(normalized, ADDRESS_DERIVE_FILTER_CHUNK_SIZE).map(addresses => ({
-          kinds,
-          "#a": addresses,
-        }))
+        const filters: Filter[] = chunkBySize(normalized, ADDRESS_DERIVE_FILTER_CHUNK_SIZE).map(
+          addresses => ({
+            kinds,
+            "#a": addresses,
+          }),
+        )
         const scopedEvents = throttled(
           SCOPED_DERIVE_THROTTLE_MS,
           deriveEventsAsc(deriveEventsById({repository, filters})),
@@ -1321,15 +1398,22 @@
   const repoRelaysStore: Readable<string[]> = derived(
     [rootRepoRelaysStore, maintainerSetRelaysStore],
     ([$rootRelays, $maintainerSetRelays]) =>
-      Array.from(new Set([...($rootRelays || []), ...($maintainerSetRelays || [])].filter(Boolean))),
+      Array.from(
+        new Set([...($rootRelays || []), ...($maintainerSetRelays || [])].filter(Boolean)),
+      ),
   ) as Readable<string[]>
   const issuesStore = deriveIssues(repoAddressesStore)
   const pullRequestsStore = derivePullRequests(repoAddressesStore)
   const prsCount = $derived(($pullRequestsStore ?? []).filter(isItemOpen).length)
   const statusEventsStore = deriveStatusEvents(repoAddressesStore)
-  const pullRequestRootIdsStore: Readable<string[]> = derived(
-    pullRequestsStore,
-    $pullRequests => [...new Set(($pullRequests || []).map((pullRequest: PullRequestEvent) => pullRequest.id).filter(Boolean))].sort(),
+  const pullRequestRootIdsStore: Readable<string[]> = derived(pullRequestsStore, $pullRequests =>
+    [
+      ...new Set(
+        ($pullRequests || [])
+          .map((pullRequest: PullRequestEvent) => pullRequest.id)
+          .filter(Boolean),
+      ),
+    ].sort(),
   )
   const allRootIdsStore = deriveAllRootIds(issuesStore, pullRequestsStore)
   const rootStatusEventsStore = deriveRootScopedStatusEvents(pullRequestRootIdsStore)
@@ -1583,12 +1667,12 @@
     }
     return ""
   }
-  
+
   // Helper to get author name from profile
   const getAuthorName = (profile: any) => {
     return profile?.display_name || profile?.name || "Anonymous"
   }
-  
+
   // Get user profile for git author info
   const userProfileStore = $pubkey ? deriveProfile($pubkey) : null
   const userProfile = userProfileStore ? getStore(userProfileStore) : null
@@ -1597,14 +1681,14 @@
 
   // Get or create Repo instance (reuse existing instance if available)
   // This ensures branch selection and other state persists across navigations
-  // The store-based cache persists across component re-initializations  
+  // The store-based cache persists across component re-initializations
   // Create a shared WorkerManager to avoid duplicate workers
   // This is created once and reused across all Repo instances
   const sharedWorkerManager = new WorkerManager(
     undefined, // progress callback - will be set by Repo instances
-    { workerUrl: gitWorkerUrl }
+    {workerUrl: gitWorkerUrl},
   )
-  
+
   if (!$activeRepoClass) {
     $activeRepoClass = new Repo({
       repoEvent: repoEventStore as Readable<RepoAnnouncementEvent>,
@@ -1644,7 +1728,7 @@
     }
     // Repo instance reused when navigating within same repo
   }
-    
+
   // Set context for child components (only once, not in effect)
   setContext(REPO_KEY, $activeRepoClass)
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
@@ -1659,10 +1743,18 @@
     bookmarkRepo: () => bookmarkRepo(),
     openWatchModal: () => openWatchModal(),
     openRemoteFixModal: () => openRemoteFixModal(),
-    get isRefreshing() { return isRefreshing },
-    get isBookmarked() { return isBookmarked },
-    get isTogglingBookmark() { return isTogglingBookmark },
-    get isWatching() { return isWatching },
+    get isRefreshing() {
+      return isRefreshing
+    },
+    get isBookmarked() {
+      return isBookmarked
+    },
+    get isTogglingBookmark() {
+      return isTogglingBookmark
+    },
+    get isWatching() {
+      return isWatching
+    },
   })
   setContext(REPO_SETTINGS_ACTIONS_KEY, {
     publishRepoEvent: async (event: RepoAnnouncementEvent | RepoStateEvent) => {
@@ -1690,7 +1782,15 @@
         }
       }
     },
-    onSaveComplete: async ({renamed, nextName, relays}: {renamed: boolean; nextName: string; relays: string[]}) => {
+    onSaveComplete: async ({
+      renamed,
+      nextName,
+      relays,
+    }: {
+      renamed: boolean
+      nextName: string
+      relays: string[]
+    }) => {
       if (!renamed) {
         await refreshRepo()
         return
@@ -1701,8 +1801,12 @@
     getProfile: (pubkey: string) => getRepoProfile(pubkey),
     searchProfiles: (query: string) => searchRepoProfiles(query),
     searchRelays: (query: string) => searchRepoRelays(query),
-    get canEditAnnouncement() { return !!$pubkey && repoPubkey === $pubkey },
-    get canDelete() { return !!$pubkey && repoPubkey === $pubkey },
+    get canEditAnnouncement() {
+      return !!$pubkey && repoPubkey === $pubkey
+    },
+    get canDelete() {
+      return !!$pubkey && repoPubkey === $pubkey
+    },
   })
 
   // Initialize tracking for data loading
@@ -1720,13 +1824,13 @@
   let effectiveAddressLoadRelaysKey = ""
   let effectiveAddressLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
   let dataLoadInitialized = $state(false)
-  
+
   // Use effect only for data loading, not for store/context creation
   // Only run once when component mounts, not on every navigation
   $effect(() => {
     // Prevent re-running on navigation - only initialize once
     if (dataLoadInitialized) return
-    
+
     // Mark as initialized immediately to prevent re-runs
     dataLoadInitialized = true
 
@@ -1754,9 +1858,10 @@
     }
 
     const initialAddresses = getStore(repoAddressesStore)
-    const addressFilter = initialAddresses.length > 0
-      ? initialAddresses
-      : [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`]
+    const addressFilter =
+      initialAddresses.length > 0
+        ? initialAddresses
+        : [`${GIT_REPO_ANNOUNCEMENT}:${repoPubkey}:${repoName}`]
 
     const sortedRelayListFromUrl = [...(relayListFromUrl || []).filter(Boolean)].sort()
     const sortedAnnouncementRelays = [...(announcementRelays || []).filter(Boolean)].sort()
@@ -1887,36 +1992,36 @@
 
     initialLoadsPromise
       .then(() => {
-      // Reactively load data when effective addresses change
-      const repoAddressesUnsubscribe = repoAddressesStore.subscribe((addresses: string[]) => {
-        if (addresses.length === 0) return
+        // Reactively load data when effective addresses change
+        const repoAddressesUnsubscribe = repoAddressesStore.subscribe((addresses: string[]) => {
+          if (addresses.length === 0) return
 
-        const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
-        if (currentRelays.length === 0) return
+          const currentRelays = (getStore(repoRelaysStore) || []).filter(Boolean)
+          if (currentRelays.length === 0) return
 
-        const relaysKey = [...currentRelays].sort().join("|")
-        if (effectiveAddressLoadRelaysKey !== relaysKey) {
-          effectiveAddressLoadRelaysKey = relaysKey
-          loadedEffectiveAddresses = new Set<string>()
-          pendingEffectiveAddresses = new Set<string>()
-          if (effectiveAddressLoadFlushTimer) {
-            clearTimeout(effectiveAddressLoadFlushTimer)
-            effectiveAddressLoadFlushTimer = null
+          const relaysKey = [...currentRelays].sort().join("|")
+          if (effectiveAddressLoadRelaysKey !== relaysKey) {
+            effectiveAddressLoadRelaysKey = relaysKey
+            loadedEffectiveAddresses = new Set<string>()
+            pendingEffectiveAddresses = new Set<string>()
+            if (effectiveAddressLoadFlushTimer) {
+              clearTimeout(effectiveAddressLoadFlushTimer)
+              effectiveAddressLoadFlushTimer = null
+            }
           }
-        }
 
-        for (const address of new Set(addresses.filter(Boolean))) {
-          if (!loadedEffectiveAddresses.has(address) && !pendingEffectiveAddresses.has(address)) {
-            pendingEffectiveAddresses.add(address)
+          for (const address of new Set(addresses.filter(Boolean))) {
+            if (!loadedEffectiveAddresses.has(address) && !pendingEffectiveAddresses.has(address)) {
+              pendingEffectiveAddresses.add(address)
+            }
           }
-        }
 
-        if (pendingEffectiveAddresses.size > 0) {
-          scheduleEffectiveAddressLoadFlush(currentRelays, relaysKey)
-        }
+          if (pendingEffectiveAddresses.size > 0) {
+            scheduleEffectiveAddressLoadFlush(currentRelays, relaysKey)
+          }
+        })
+        unsubscribers.push(repoAddressesUnsubscribe)
       })
-      unsubscribers.push(repoAddressesUnsubscribe)
-    })
       .catch(() => {})
 
     const flushPendingPrStatusRootLoads = async (relays: string[], relaysKey: string) => {
@@ -2163,7 +2268,7 @@
 
   // Refresh state
   let isRefreshing = $state(false)
-  
+
   // Bookmark state
   let isTogglingBookmark = $state(false)
   let isBookmarked = $state(false)
@@ -2189,16 +2294,19 @@
 
   const syncBookmarkState = () => {
     try {
-      const repoKey = getCanonicalRepoKeyFromEvent(repoClass?.repoEvent as RepoAnnouncementEvent | null)
+      const repoKey = getCanonicalRepoKeyFromEvent(
+        repoClass?.repoEvent as RepoAnnouncementEvent | null,
+      )
       isBookmarked = isAnyBookmarked(getStore(bookmarksStore), getBookmarkAddressCandidates(), {
         candidateRepoKeys: repoKey ? [repoKey] : [],
-        getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+        getCachedEvent: address =>
+          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
       })
     } catch {
       isBookmarked = false
     }
   }
-  
+
   // Subscribe to bookmarks store to update bookmark status reactively
   $effect(() => {
     void $repoAddressesStore
@@ -2207,18 +2315,17 @@
       isBookmarked = false
       return
     }
-    
+
     const unsubscribe = bookmarksStore.subscribe(() => {
       if (!repoClass || !repoClass.repoEvent) return
       syncBookmarkState()
     })
-   
+
     // Initial check
-      syncBookmarkState()
-    
+    syncBookmarkState()
+
     return unsubscribe
   })
-  
 
   // --- GRASP servers (user profile) ---
   // Only query GRASP servers when a user is logged in to avoid relay auth errors
@@ -2271,13 +2378,15 @@
   $effect(() => {
     if (!graspServersEventStore) return
 
-    const graspServersUnsubscribe = graspServersEventStore.subscribe((ev: TrustedEvent | undefined) => {
-      try {
-        graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
-      } catch {
-        graspServerUrls = []
-      }
-    })
+    const graspServersUnsubscribe = graspServersEventStore.subscribe(
+      (ev: TrustedEvent | undefined) => {
+        try {
+          graspServerUrls = ev ? (parseGraspServersEvent(ev as any) as string[]) : []
+        } catch {
+          graspServerUrls = []
+        }
+      },
+    )
 
     return () => {
       graspServersUnsubscribe()
@@ -2292,9 +2401,10 @@
 
     try {
       // Get clone URLs from the repo event
-      const cloneUrls = getStore(maintainerSetCloneUrlsStore).length > 0
-        ? getStore(maintainerSetCloneUrlsStore)
-        : repoClass.cloneUrls
+      const cloneUrls =
+        getStore(maintainerSetCloneUrlsStore).length > 0
+          ? getStore(maintainerSetCloneUrlsStore)
+          : repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         throw new Error("No clone URLs found for repository")
       }
@@ -2368,7 +2478,7 @@
 
       if (!naddr) {
         console.warn("Cannot navigate: unable to build repo naddr")
-        pushToast({ message: "Fork completed, but repository address was invalid.", theme: "error" })
+        pushToast({message: "Fork completed, but repository address was invalid.", theme: "error"})
         return
       }
 
@@ -2383,33 +2493,38 @@
 
       if (!effectiveRelay) {
         console.warn("Cannot navigate: no platform relay available")
-        pushToast({ message: "Fork completed, but cannot navigate without a platform relay.", theme: "error" })
+        pushToast({
+          message: "Fork completed, but cannot navigate without a platform relay.",
+          theme: "error",
+        })
         return
       }
 
       // Encode relay URL for the route
       const encodedRelay = encodeRelay(effectiveRelay)
-      
+
       // Navigate to the forked repo page
       const targetPath = `/spaces/${encodedRelay}/git/${naddr}`
       clearModals()
       void goto(targetPath).catch(error => {
         console.error("Failed to navigate to forked repo:", error)
-        pushToast({ 
-          message: "Fork completed, but navigation failed. Please manually navigate to the repository.", 
-          theme: "error" 
+        pushToast({
+          message:
+            "Fork completed, but navigation failed. Please manually navigate to the repository.",
+          theme: "error",
         })
       })
     } catch (error) {
       console.error("Failed to navigate to forked repo:", error)
-      pushToast({ 
-        message: "Fork completed, but navigation failed. Please manually navigate to the repository.", 
-        theme: "error" 
+      pushToast({
+        message:
+          "Fork completed, but navigation failed. Please manually navigate to the repository.",
+        theme: "error",
       })
     }
   }
 
-  const getRepoRelaysForModal = () => getStore(repoRelaysStore) || (repoClass?.relays || [])
+  const getRepoRelaysForModal = () => getStore(repoRelaysStore) || repoClass?.relays || []
 
   const getRepoAnnouncementRelaysFromEvent = () => {
     if (!repoClass?.repoEvent) return []
@@ -2629,7 +2744,9 @@
     const repoRelays = getRepoAnnouncementRelaysFromEvent()
     const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
     const sourceCloneUrls = getStore(maintainerSetCloneUrlsStore)
-    const defaultMaintainers = Array.from(new Set([...(getStore(repoMaintainersStore) || []), $pubkey].filter(Boolean)))
+    const defaultMaintainers = Array.from(
+      new Set([...(getStore(repoMaintainersStore) || []), $pubkey].filter(Boolean)),
+    )
 
     const rollbackPublishedRepoEvents = async (params: {
       repoName: string
@@ -2637,7 +2754,9 @@
     }): Promise<void> => {
       if (!$pubkey) return
 
-      const rollbackRelays = Array.from(new Set(params.relays.map(r => normalizeRelayUrl(r)).filter(Boolean)))
+      const rollbackRelays = Array.from(
+        new Set(params.relays.map(r => normalizeRelayUrl(r)).filter(Boolean)),
+      )
       if (rollbackRelays.length === 0) return
 
       const filters = [
@@ -2714,7 +2833,7 @@
       })
       return
     }
-    
+
     const repoRelays = getStore(repoRelaysStore)
     const relaysForPublish = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
     if (relaysForPublish.length === 0) {
@@ -2724,7 +2843,7 @@
       })
       return
     }
-    
+
     pushModal(
       EditRepoPanel,
       {
@@ -2847,7 +2966,10 @@
         ...optimisticRepoStates,
         [repoName]: published,
       }
-      myRepoStateEvents = [published, ...myRepoStateEvents.filter(event => event.id !== published.id)]
+      myRepoStateEvents = [
+        published,
+        ...myRepoStateEvents.filter(event => event.id !== published.id),
+      ]
     }
 
     pendingBranchUpdates = pendingBranchUpdates.filter(
@@ -2869,7 +2991,10 @@
         const relaysForPublish = taggedRelays.length > 0 ? taggedRelays : getRepoRelaysForModal()
         const thunk = await publishRepoEventWithRelayPolicy(event, relaysForPublish, {
           timeoutMs: FORK_PUBLISH_TIMEOUT_MS,
-          label: event.kind === GIT_REPO_STATE ? "Remote backfill state publish" : "Remote backfill publish",
+          label:
+            event.kind === GIT_REPO_STATE
+              ? "Remote backfill state publish"
+              : "Remote backfill publish",
         })
         return extractPublishedRelayAck(thunk)
       },
@@ -2906,7 +3031,7 @@
 
   let relaysWarningDebounce: ReturnType<typeof setTimeout> | null = null
   let relaysWarningToastId: string | null = null
-  
+
   $effect(() => {
     const clearWarningDebounce = () => {
       if (relaysWarningDebounce) {
@@ -2971,27 +3096,29 @@
       if (!repoClass.repoEvent) {
         throw new Error("Repository event not available")
       }
-      
-      const repoRelays = getStore(repoRelaysStore) || (repoClass?.relays || [])
-      
+
+      const repoRelays = getStore(repoRelaysStore) || repoClass?.relays || []
+
       // Get repo address
       const address = getPrimaryBookmarkAddress()
       if (!address) {
         throw new Error("Repository address not available")
       }
       const candidateAddresses = getBookmarkAddressCandidates()
-      
+
       // Get current bookmarks
       const currentBookmarks = getStore(bookmarksStore)
-      
+
       // Determine relay hint
-      const relayHint = repoRelays[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
+      const relayHint =
+        repoRelays[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
       const normalizedRelayHint = relayHint ? normalizeRelayUrl(relayHint) : ""
       const bookmarkEntry = {
         address,
         relayHint: normalizedRelayHint,
         author: repoClass.repoEvent.pubkey,
-        identifier: address.split(":").slice(2).join(":") || getTagValue("d", repoClass.repoEvent.tags) || "",
+        identifier:
+          address.split(":").slice(2).join(":") || getTagValue("d", repoClass.repoEvent.tags) || "",
       }
       const repoKey = getCanonicalRepoKeyFromEvent(repoClass.repoEvent)
 
@@ -3000,7 +3127,8 @@
         candidateAddresses,
         candidateRepoKeys: repoKey ? [repoKey] : [],
         nextBookmark: bookmarkEntry,
-        getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+        getCachedEvent: address =>
+          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
       })
       wasRemoving = toggleResult.isRemoving
 
@@ -3012,20 +3140,21 @@
         }
         tags.push(aTag)
       })
-      
+
       // Create and publish bookmark event
-      const bookmarkEvent = makeEvent(NAMED_BOOKMARKS, { tags, content: "" })
+      const bookmarkEvent = makeEvent(NAMED_BOOKMARKS, {tags, content: ""})
 
       // Update store immediately for responsive UI
       bookmarksStore.set(toggleResult.nextBookmarks)
-      
+
       // Publish to relays
-      const relaysToPublish = repoRelays.length > 0 
-        ? repoRelays.map(normalizeRelayUrl).filter(Boolean)
-        : Router.get().FromUser().getUrls().map(normalizeRelayUrl).filter(Boolean)
-      
-      publishThunk({ event: bookmarkEvent, relays: relaysToPublish })
-      
+      const relaysToPublish =
+        repoRelays.length > 0
+          ? repoRelays.map(normalizeRelayUrl).filter(Boolean)
+          : Router.get().FromUser().getUrls().map(normalizeRelayUrl).filter(Boolean)
+
+      publishThunk({event: bookmarkEvent, relays: relaysToPublish})
+
       pushToast({
         message: wasRemoving ? "Bookmark removed" : "Repository bookmarked",
       })
@@ -3049,7 +3178,7 @@
   // Connect the nostr-git toast store to the toast component
   $effect(() => {
     // Subscribe to toast store explicitly for proper cleanup
-    const unsubscribe = toast.subscribe((toasts) => {
+    const unsubscribe = toast.subscribe(toasts => {
       if (toasts.length > 0) {
         toasts.forEach(t => {
           // The toast store now handles format conversion internally
@@ -3066,7 +3195,7 @@
         toast.clear()
       }
     })
-    
+
     return () => {
       unsubscribe()
     }
@@ -3089,7 +3218,8 @@
     </div>
   {/snippet}
   {#snippet title()}
-    <div class="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2 py-1 text-sm font-semibold leading-none sm:text-base">
+    <div
+      class="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2 py-1 text-sm font-semibold leading-none sm:text-base">
       {#if repoPubkey}
         <button
           type="button"
@@ -3114,11 +3244,11 @@
   {#snippet action()}
     {#if activeTab !== "code"}
       <div>
-        <SpaceMenuButton url={url} />
+        <SpaceMenuButton {url} />
       </div>
     {:else}
       <div class="lg:hidden">
-        <SpaceMenuButton url={url} />
+        <SpaceMenuButton {url} />
       </div>
     {/if}
   {/snippet}
@@ -3151,32 +3281,19 @@
         updateRepoState={isOwnedRepo ? refreshBranchUpdatesAndOpen : undefined}
         hasRepoStateUpdate={hasCurrentRepoBranchUpdate}
         isCheckingRepoStateUpdate={updateStateActionChecking}
-        resolveCloneUrlIssues={undefined}
-        >
+        resolveCloneUrlIssues={undefined}>
         {#snippet children(activeTab: string)}
-          <RepoTab
-            tabValue="overview"
-            label="Overview"
-            href={basePath}
-            {activeTab}>
+          <RepoTab tabValue="overview" label="Overview" href={basePath} {activeTab}>
             {#snippet icon()}
               <Home class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          <RepoTab
-            tabValue="feed"
-            label="Feed"
-            href={`${basePath}/feed`}
-            {activeTab}>
+          <RepoTab tabValue="feed" label="Feed" href={`${basePath}/feed`} {activeTab}>
             {#snippet icon()}
               <FileCode class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          <RepoTab
-            tabValue="code"
-            label="Code"
-            href={`${basePath}/code`}
-            {activeTab}>
+          <RepoTab tabValue="code" label="Code" href={`${basePath}/code`} {activeTab}>
             {#snippet icon()}
               <GitBranch class="h-4 w-4" />
             {/snippet}
@@ -3201,21 +3318,13 @@
               <GitPullRequest class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          <RepoTab
-            tabValue="commits"
-            label="Commits"
-            href={`${basePath}/commits`}
-            {activeTab}>
+          <RepoTab tabValue="commits" label="Commits" href={`${basePath}/commits`} {activeTab}>
             {#snippet icon()}
               <GitCommit class="h-4 w-4" />
             {/snippet}
           </RepoTab>
           {#if isMaintainer}
-            <RepoTab
-              tabValue="settings"
-              label="Settings"
-              href={`${basePath}/settings`}
-              {activeTab}>
+            <RepoTab tabValue="settings" label="Settings" href={`${basePath}/settings`} {activeTab}>
               {#snippet icon()}
                 <SettingsIcon class="h-4 w-4" />
               {/snippet}
@@ -3223,15 +3332,15 @@
           {/if}
           {#if $pubkey}
             {#each repoTabExtensions as ext (ext.id)}
-            <RepoTab
-              tabValue={ext.path}
-              label={ext.label}
-              href={`${basePath}/extensions/${ext.id}`}
-              {activeTab}>
-              {#snippet icon()}
-                <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
-              {/snippet}
-            </RepoTab>
+              <RepoTab
+                tabValue={ext.path}
+                label={ext.label}
+                href={`${basePath}/extensions/${ext.id}`}
+                {activeTab}>
+                {#snippet icon()}
+                  <ExtensionIcon icon={ext.icon} size={16} class="h-4 w-4" />
+                {/snippet}
+              </RepoTab>
             {/each}
           {/if}
         {/snippet}
@@ -3241,31 +3350,27 @@
       <div
         data-mobile-code-breadcrumb
         data-testid="repo-mobile-code-breadcrumb"
-        class="sticky z-10 -mt-1 rounded-md border border-border/60 bg-base-100/95 px-3 py-2 text-xs text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-base-100/80 md:px-4 md:py-2.5 md:text-sm"
-        style="top: var(--repo-tabs-height, 0px);"
-      >
+        class="z-10 sticky -mt-1 rounded-md border border-border/60 bg-base-100/95 px-3 py-2 text-xs text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-base-100/80 md:px-4 md:py-2.5 md:text-sm"
+        style="top: var(--repo-tabs-height, 0px);">
         <div class="flex min-w-0 items-center gap-2">
           {#if codeCanGoUp}
             <button
               type="button"
               class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
               onclick={() => setCodeDirectory(codeParentPath)}
-              title="Up one folder"
-            >
+              title="Up one folder">
               <ChevronLeft class="h-4 w-4" />
             </button>
           {/if}
           <nav
             class="scrollbar-hide flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap"
-            aria-label="Code breadcrumb"
-          >
+            aria-label="Code breadcrumb">
             <button
               type="button"
               class="shrink-0 rounded-sm font-medium transition-colors hover:text-foreground hover:underline"
               onclick={() => setCodeDirectory("")}
               title="Repository root"
-              aria-label="Repository root"
-            >
+              aria-label="Repository root">
               /
             </button>
             {#each codeBreadcrumbSegments as segment, i}
@@ -3280,8 +3385,8 @@
                 <button
                   type="button"
                   class="rounded-sm transition-colors hover:text-foreground hover:underline"
-                  onclick={() => setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}
-                >
+                  onclick={() =>
+                    setCodeDirectory(codeBreadcrumbSegments.slice(0, i + 1).join("/"))}>
                   {segment}
                 </button>
               {/if}
