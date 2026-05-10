@@ -5,7 +5,7 @@
   import {
     getDefaultRepoDiscoveryPrioritySettings,
     type RepoDiscoveryPrioritySetting,
-  } from "@src/lib/budabit/repo-discovery-search"
+  } from "@app/util/repo-discovery-search"
 
   type Props = {
     settings: RepoDiscoveryPrioritySetting[]

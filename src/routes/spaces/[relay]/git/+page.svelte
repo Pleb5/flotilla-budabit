@@ -122,7 +122,7 @@
     type RepoDiscoveryPriorityKey,
     type RepoDiscoveryPrioritySetting,
     type RepoOwnerProfile,
-  } from "@src/lib/budabit/repo-discovery-search"
+  } from "@app/util/repo-discovery-search"
 
   const url = decodeRelay($page.params.relay!)
 
