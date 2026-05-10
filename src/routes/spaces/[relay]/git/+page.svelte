@@ -106,7 +106,7 @@
     isAnyBookmarked,
     matchBookmarkedRepoEvents,
     toggleRepoBookmarks,
-  } from "@src/lib/budabit/bookmarks"
+  } from "@app/util/bookmarks"
   import {getActiveTrustGraph} from "@src/lib/budabit/trust-graph"
   import {
     REPO_DISCOVERY_TIMEOUT_MS,

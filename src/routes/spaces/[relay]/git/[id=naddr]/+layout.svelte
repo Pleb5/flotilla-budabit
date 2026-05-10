@@ -168,7 +168,7 @@
     getRepoBookmarkAddressSet,
     isAnyBookmarked,
     toggleRepoBookmarks,
-  } from "@src/lib/budabit/bookmarks"
+  } from "@app/util/bookmarks"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
 
   const {id, relay} = $page.params
