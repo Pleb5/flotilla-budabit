@@ -8,7 +8,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
-  import ChatStart from "@lib/budabit/components/ChatStart.svelte"
+  import ChatStart from "@app/components/ChatStart.svelte"
   import {setChecked} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"

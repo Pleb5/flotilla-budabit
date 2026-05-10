@@ -5,12 +5,12 @@
     cashuMints,
     cashuBackupConfirmed,
   } from "@app/core/cashu"
-  import CashuReceive from "@lib/budabit/components/CashuReceive.svelte"
-  import CashuTopUp from "@lib/budabit/components/CashuTopUp.svelte"
-  import CashuSend from "@lib/budabit/components/CashuSend.svelte"
-  import CashuHistory from "@lib/budabit/components/CashuHistory.svelte"
-  import CashuMintManager from "@lib/budabit/components/CashuMintManager.svelte"
-  import CashuSeedBackup from "@lib/budabit/components/CashuSeedBackup.svelte"
+  import CashuReceive from "@app/components/CashuReceive.svelte"
+  import CashuTopUp from "@app/components/CashuTopUp.svelte"
+  import CashuSend from "@app/components/CashuSend.svelte"
+  import CashuHistory from "@app/components/CashuHistory.svelte"
+  import CashuMintManager from "@app/components/CashuMintManager.svelte"
+  import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
 
   type Tab = "balance" | "receive" | "send" | "history" | "mints"
 

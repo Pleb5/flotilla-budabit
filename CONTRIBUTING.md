@@ -63,7 +63,7 @@ The main parts of the application are as follows:
 - `static` - static assets like fonts, images, etc.
 - `src/assets` - svgs for use as icons.
 - `src/lib` - general purpose components and utilities.
-- **`src/lib/budabit`** - **budabit-specific features and extensions** (see Contribution Workflow below).
+- **`src/app/core/git-*`** - **Budabit git state, requests, and commands**.
 - `src/app/core/state` - environment variables, constants, custom stores, and some utilities derived from them.
 - `src/app/core/requests` - utilities related to loading data from the nostr network.
 - `src/app/core/commands` - utilities related to publishing nostr events and uploading media to blossom servers.
@@ -80,7 +80,7 @@ Application organization is based on an acyclic dependency graph:
 - `app/components` can depend on anything in `app` or `lib`
 - `app/utils` and `app/core` can only depend on `lib`
 - `lib` (and everything else) can depend only on external libraries
-- **`lib/budabit` follows the same rules as `lib`** - it can only depend on external libraries and other `lib` modules
+- Budabit-specific app code belongs in `src/app`; avoid adding new fork-only directories under `src/lib`.
 
 The main stylistic/organizational rule when working in this project is that imports should be sorted based on the dependency graph. Third-party libraries should come first, then `lib`, then `app`.
 
@@ -115,18 +115,18 @@ Toast, modals, and sidebar dialogs are controlled in `app/util/modal` and `app/u
 
 This project is a **fork** of the upstream [Flotilla](https://github.com/coracle-social/flotilla) repository. Please follow these guidelines:
 
-#### 1. **Budabit-Specific Features → `src/lib/budabit/` Module**
+#### 1. **Budabit-Specific Features → `src/app/` Modules**
 
-For budabit-specific functionality, add or modify code in the `src/lib/budabit/` directory:
+For budabit-specific functionality, add or modify code in the canonical app directories:
 
 - **Git state management**: `src/app/core/git-state.ts`
 - **Git commands**: `src/app/core/git-commands.ts`
 - **Git requests**: `src/app/core/git-requests.ts`
-- **Routes**: `src/lib/budabit/routes.ts`
-- **Components**: `src/lib/budabit/components/`
-- **Labels & utilities**: `src/lib/budabit/labels.ts`, `worker-singleton.ts`, etc.
+- **Components**: `src/app/components/`
+- **Generic UI primitives**: `src/lib/components/`
+- **Utilities**: `src/app/util/`
 
-**Do not modify core Flotilla code** in `src/app/` or `src/lib/` (outside of `budabit/`) for budabit-specific features. This keeps the fork clean and makes upstream syncing easier.
+Avoid reintroducing `src/lib/budabit/`; app-specific code should live under `src/app`, while reusable primitives belong under `src/lib/components`.
 
 #### 2. **Core Flotilla Improvements → Upstream**
 
@@ -158,7 +158,7 @@ All work by contributors should be done against an issue. If there is no issue f
 
 All PRs should be opened against the `dev` branch (unless for hotfixes). **Clearly indicate in your PR** whether the change is:
 
-- Budabit-specific (changes in `src/lib/budabit/`)
+- Budabit-specific (changes in `src/app/core/git-*`, `src/app/components`, or `src/app/util`)
 - A potential upstream contribution (core Flotilla changes)
 - A submodule update (nostr-git)
 

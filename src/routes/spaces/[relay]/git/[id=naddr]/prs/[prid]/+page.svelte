@@ -25,7 +25,7 @@
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
-  import PRView from "@src/lib/budabit/components/PRView.svelte"
+  import PRView from "@app/components/PRView.svelte"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)

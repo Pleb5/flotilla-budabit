@@ -1,6 +1,6 @@
 <script lang="ts">
   import {pushModal} from "@src/app/util/modal"
-  import DemoDayApplyModal from "@lib/budabit/components/DemoDayApplyModal.svelte"
+  import DemoDayApplyModal from "@app/components/DemoDayApplyModal.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import CalendarEventItem from "@src/app/components/CalendarEventItem.svelte"
   import {onMount} from "svelte"

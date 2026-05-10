@@ -18,6 +18,7 @@ vi.mock("@app/core/state", () => ({
   getSpaceRoomsFromGroupList: () => [],
   encodeRelay: vi.fn((url: string) => encodeURIComponent(url)),
   roomsById: readable(new Map()),
+  channelsById: readable(new Map()),
 }))
 
 vi.mock("@app/util/routes", () => ({
@@ -36,7 +37,6 @@ vi.mock("@app/util/routes", () => ({
 }))
 
 vi.mock("@app/core/git-state", () => ({
-  channelsById: readable(new Map()),
   GIT_RELAYS: [],
   repoAnnouncements: readable([]),
   repoAnnouncementsByAddress: readable(new Map()),

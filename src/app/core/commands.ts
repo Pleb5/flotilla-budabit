@@ -123,7 +123,7 @@ import {
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
-import {DEFAULT_WORKER_PUBKEY, activeRepoClass} from "@app/core/git-state"
+import {activeRepoClass} from "@app/core/git-state"
 import {deleteIndexedDB} from "@lib/util"
 import {getQuoteEventTags} from "@app/util/git-quote"
 
@@ -442,84 +442,6 @@ export const prependParent = (
   }
 
   return {content, tags}
-}
-
-// Job Request System
-
-export interface JobRequestParams {
-  cashuToken: string
-  relays: string[]
-  cmd: string
-  args: string[]
-  repoNaddr?: string
-}
-
-export interface JobRequestResult {
-  event: any
-  successCount: number
-  failureCount: number
-  publishStatus: Array<{
-    relay: string
-    success: boolean
-    error?: string
-  }>
-}
-
-export const publishJobRequest = async (params: JobRequestParams): Promise<JobRequestResult> => {
-  const $signer = signer.get()
-  if (!$signer) {
-    throw new Error("No signer available")
-  }
-
-  // Create kind 5100 event for job request
-  const eventTemplate = {
-    kind: 5100,
-    content: "",
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [
-      ["p", "b4b030aea662b2b47c57fca22cd9dc259079a8b5da89ac5aa2b6661af54ef710"], // User pubkey hardcoded
-      ["worker", DEFAULT_WORKER_PUBKEY], // Worker pubkey
-      ["cmd", params.cmd],
-      ["args", ...params.args],
-      ["payment", params.cashuToken],
-      ...(params.repoNaddr ? [["a", params.repoNaddr]] : []),
-    ],
-  }
-
-  const event = await $signer.sign(eventTemplate)
-
-  const publishStatus: Array<{relay: string; success: boolean; error?: string}> = []
-  let successCount = 0
-  let failureCount = 0
-
-  // Publish to all specified relays
-  for (const relay of params.relays) {
-    try {
-      const thunk = publishThunk({event, relays: [relay]})
-      await thunk.complete
-
-      publishStatus.push({
-        relay,
-        success: true,
-      })
-      successCount++
-    } catch (error) {
-      console.error(`Failed to publish to relay ${relay}:`, error)
-      publishStatus.push({
-        relay,
-        success: false,
-        error: String(error),
-      })
-      failureCount++
-    }
-  }
-
-  return {
-    event,
-    successCount,
-    failureCount,
-    publishStatus,
-  }
 }
 
 // Log out

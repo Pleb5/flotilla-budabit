@@ -6,22 +6,20 @@
   import {notifications} from "@app/util/notifications"
   import {makeSpacePath} from "@app/util/routes"
   import {pushDrawer} from "@app/util/modal"
-  import {deriveSocketStatus} from "@app/core/state"
 
   const {url} = $props()
 
-  const path = makeSpacePath(url) + ":mobile"
-
-  const status = deriveSocketStatus(url)
+  const path = makeSpacePath(url)
 
   const openMenu = () => pushDrawer(SpaceMenu, {url})
 </script>
 
-<Button onclick={openMenu} class="btn btn-neutral btn-sm relative md:hidden">
+<Button
+  aria-label="Open space menu"
+  onclick={openMenu}
+  class="btn btn-neutral btn-sm relative lg:hidden">
   <Icon icon={MenuDots} />
-  {#if $status.theme !== "success"}
-    <div class="absolute right-0 top-0 -mr-1 -mt-1 h-2 w-2 rounded-full bg-{$status.theme}"></div>
-  {:else if $notifications.has(path)}
+  {#if $notifications.has(path)}
     <div class="absolute right-0 top-0 -mr-1 -mt-1 h-2 w-2 rounded-full bg-primary"></div>
   {/if}
 </Button>

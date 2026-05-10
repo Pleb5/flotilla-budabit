@@ -1,30 +1,40 @@
 <script lang="ts">
+  import Lock from "@assets/icons/lock-keyhole.svg?dataurl"
+  import Hashtag from "@assets/icons/hashtag.svg?dataurl"
+  import Icon from "@lib/components/Icon.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
-  import RoomNameWithImage from "@app/components/RoomNameWithImage.svelte"
+  import ChannelName from "@app/components/ChannelName.svelte"
   import {makeRoomPath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
+  import {deriveRoom} from "@app/core/state"
 
   interface Props {
     url: any
-    h: any
+    room: any
     notify?: boolean
     replaceState?: boolean
     archived?: boolean
   }
 
-  const {url, h, notify = false, replaceState = false, archived = false}: Props = $props()
+  const {url, room, notify = false, replaceState = false, archived = false}: Props = $props()
 
-  const path = makeRoomPath(url, h)
+  const path = makeRoomPath(url, room)
+  const channel = deriveRoom(url, room)
 </script>
 
 <SecondaryNavItem
   href={path}
   {replaceState}
   notification={archived ? false : notify ? $notifications.has(path) : false}>
-  <div class="flex min-w-0 flex-1 items-center gap-2">
-    <RoomNameWithImage {url} {h} class="min-w-0 flex-1" />
-    {#if archived}
-      <span class="badge badge-outline badge-xs">Archived</span>
-    {/if}
+  {#if $channel?.isClosed || $channel?.isPrivate}
+    <Icon icon={Lock} size={4} />
+  {:else}
+    <Icon icon={Hashtag} />
+  {/if}
+  <div class="min-w-0 flex-1 overflow-hidden text-ellipsis">
+    <ChannelName {url} {room} />
   </div>
+  {#if archived}
+    <span class="badge badge-outline badge-xs">Archived</span>
+  {/if}
 </SecondaryNavItem>

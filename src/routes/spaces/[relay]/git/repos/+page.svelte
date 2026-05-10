@@ -6,7 +6,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
-  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {decodeRelay} from "@app/core/state"
   import {repoAnnouncementRelaysStore} from "@app/core/git-state"

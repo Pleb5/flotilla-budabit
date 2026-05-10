@@ -69,6 +69,7 @@ vi.mock("@app/core/state", () => ({
   getSpaceRoomsFromGroupList: () => [],
   encodeRelay: (url: string) => encodeURIComponent(url),
   roomsById: writable(new Map()),
+  channelsById: writable(new Map()),
 }))
 
 vi.mock("@app/util/room-archive", () => ({isArchivedRoomReference: () => false}))
@@ -158,7 +159,6 @@ vi.mock("@nostr-git/core/utils", () => ({
 }))
 
 vi.mock("@app/core/git-state", () => ({
-  channelsById: writable(new Map()),
   GIT_RELAYS: ["wss://git.relay.example.com"],
   loadRepoContext: mockLoadRepoContext,
   repoAnnouncements: mockRepoAnnouncements,

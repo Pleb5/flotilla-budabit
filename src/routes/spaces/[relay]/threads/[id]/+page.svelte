@@ -21,13 +21,11 @@
   import Button from "@lib/components/Button.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import CommentActions from "@app/components/CommentActions.svelte"
-  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
   import EventReply from "@app/components/EventReply.svelte"
   import {deriveEvent, decodeRelay} from "@app/core/state"
   import {setChecked} from "@app/util/notifications"
-  import {FREELANCE_JOB} from "@app/core/git-state"
-  import JobItem from "@src/app/components/JobItem.svelte"
   import GitIssueItem from "@src/app/components/GitIssueItem.svelte"
   import ChannelContent from "@app/components/ChannelMessage.svelte"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
@@ -58,21 +56,7 @@
   let showAll = $state(false)
   let showReply = $state(false)
 
-  let jobOrGitIssue: TrustedEvent | undefined = $state(undefined)
-  const loadJob = async (jobAddress: string, relayHint: string | undefined) => {
-    const jobPubkey = jobAddress.split(":")[1]
-    const jobDTag = jobAddress.split(":")[2]
-    const jobFilter: Filter = {
-      kinds: [FREELANCE_JOB],
-      authors: [jobPubkey],
-      "#d": [jobDTag],
-    }
-    const request = {filters: [jobFilter], relays: [url]}
-    if (relayHint) request.relays = [relayHint]
-
-    const jobs = await load(request)
-    if (jobs.length > 0) jobOrGitIssue = jobs[0]
-  }
+  let gitIssue: TrustedEvent | undefined = $state(undefined)
 
   const loadGitIssue = async (issueId: string, relayHint: string | undefined) => {
     const issueFilter: Filter = {
@@ -83,17 +67,14 @@
     if (relayHint) request.relays = [relayHint]
 
     const issues = await load(request)
-    if (issues.length > 0) jobOrGitIssue = issues[0]
+    if (issues.length > 0) gitIssue = issues[0]
   }
 
   $effect(() => {
     if ($event) {
       const gitIssueId = getTagValue("gitissue", $event.tags)
-      const jobAddress = getTagValue("job", $event.tags)
       if (gitIssueId) {
         loadGitIssue(gitIssueId, getTag("gitissue", $event.tags)?.[2])
-      } else if (jobAddress) {
-        loadJob(jobAddress, getTag("job", $event.tags)?.[2])
       }
     }
   })
@@ -110,13 +91,9 @@
   })
 </script>
 
-{#snippet jobOrGitIssueElem()}
-  {#if jobOrGitIssue}
-    {#if jobOrGitIssue.kind === FREELANCE_JOB}
-      <JobItem {url} showExternal={true} event={jobOrGitIssue} />
-    {:else if jobOrGitIssue.kind === GIT_ISSUE}
-      <GitIssueItem issue={jobOrGitIssue} fetchRepoAndStatus={true} />
-    {/if}
+{#snippet gitIssueElem()}
+  {#if gitIssue?.kind === GIT_ISSUE}
+    <GitIssueItem issue={gitIssue} fetchRepoAndStatus={true} />
   {/if}
 {/snippet}
 
@@ -167,7 +144,7 @@
           </Button>
         </div>
       {/if}
-      {@render jobOrGitIssueElem()}
+      {@render gitIssueElem()}
       <NoteCard event={$event} class="card2 bg-alt z-feature w-full">
         <div class="col-3 ml-12">
           <ChannelContent {url} event={$event} />

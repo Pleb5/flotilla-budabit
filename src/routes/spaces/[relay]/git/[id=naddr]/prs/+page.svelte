@@ -36,7 +36,7 @@
     setCheckedAt,
     setCheckedForRepoNotifications,
   } from "@app/util/notifications"
-  import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
+  import FilterPanel from "@app/components/FilterPanel.svelte"
   import {pushToast} from "@src/app/util/toast"
   import Magnifer from "@assets/icons/magnifer.svg?dataurl"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"

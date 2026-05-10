@@ -70,11 +70,9 @@ describe("routes", () => {
     )
   })
 
-  it("builds job and git paths from space paths", async () => {
-    const {makeJobPath, makeGitPath} = await import("./routes")
+  it("builds git paths from space paths", async () => {
+    const {makeGitPath} = await import("./routes")
 
-    expect(makeJobPath(relayUrl)).toBe("/spaces/wss%3A%2F%2Frelay.damus.io/jobs")
-    expect(makeJobPath(relayUrl, "evt123")).toBe("/spaces/wss%3A%2F%2Frelay.damus.io/jobs/evt123")
     expect(makeGitPath(relayUrl)).toBe("/spaces/wss%3A%2F%2Frelay.damus.io/git")
     expect(makeGitPath(relayUrl, "naddr1abc")).toBe(
       "/spaces/wss%3A%2F%2Frelay.damus.io/git/naddr1abc",

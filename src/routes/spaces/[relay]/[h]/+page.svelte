@@ -28,7 +28,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Divider from "@lib/components/Divider.svelte"
   import ThunkToast from "@app/components/ThunkToast.svelte"
-  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import RoomName from "@app/components/RoomName.svelte"
   import RoomImage from "@app/components/RoomImage.svelte"
   import RoomItem from "@app/components/RoomItem.svelte"
@@ -55,7 +55,7 @@
   import {makeSpacePath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import ArchiveRoomConfirm from "@app/components/ArchiveRoomConfirm.svelte"
-  import {deriveChannel} from "@app/core/git-state"
+  import {deriveChannel} from "@app/core/state"
   import {getRoomInteractionState} from "@app/util/room-archive"
 
   const {h, relay} = $page.params as MakeNonOptional<typeof $page.params> as MakeNonOptional<

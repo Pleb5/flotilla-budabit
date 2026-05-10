@@ -3,10 +3,11 @@
   import {Router} from "@welshman/router"
   import {LOCALE, secondsToDate} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {displayRelayUrl, isReplaceable, Address} from "@welshman/util"
+  import {displayRelayUrl, isReplaceable, Address, getTagValue} from "@welshman/util"
   import {GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
-  import {tracker} from "@welshman/app"
+  import {tracker, forceLoadMessagingRelayList, messagingRelayListsByPubkey} from "@welshman/app"
+  import {DM_KIND, getDmRelayUrls, getMessagingRelayHints} from "@app/core/dm"
   import {GIT_RELAYS} from "@app/core/git-state"
   import FileText from "@assets/icons/file-text.svg?dataurl"
   import Copy from "@assets/icons/copy.svg?dataurl"
@@ -24,15 +25,31 @@
 
   const {url, event}: Props = $props()
 
-  const relays = url ? [url] : Router.get().Event(event).getUrls()
-  const userOutboxRelays = (() => {
+  const dmRecipient = $derived.by(() => getTagValue("p", event.tags))
+  const dmRelayList = $derived.by(() =>
+    dmRecipient ? $messagingRelayListsByPubkey.get(dmRecipient) : undefined,
+  )
+  const dmRelays = $derived.by(() => (dmRecipient ? getDmRelayUrls(dmRelayList) : []))
+  const relays = $derived.by(() => {
+    if (url) return [url]
+    if (event.kind === DM_KIND) return dmRelays
+    return Router.get().Event(event).getUrls()
+  })
+  const seenOn = $derived.by(() => {
+    if (event.kind === DM_KIND && dmRelays.length > 0) {
+      return new Set(dmRelays)
+    }
+
+    return tracker.getRelays(event.id)
+  })
+  const userOutboxRelays = $derived.by(() => {
     try {
       return Router.get().FromUser().getUrls() || []
     } catch {
       return []
     }
-  })()
-  const repoNaddr =
+  })
+  const repoNaddr = $derived.by(() =>
     event.kind === GIT_REPO_ANNOUNCEMENT || event.kind === GIT_REPO_STATE
       ? buildRepoNaddrFromEvent({
           event,
@@ -41,13 +58,13 @@
           userOutboxRelays,
           gitRelays: GIT_RELAYS,
         })
-      : undefined
+      : undefined,
+  )
   const nostrURI = $derived(
     isReplaceable(event)
       ? repoNaddr || Address.fromEvent(event).toNaddr()
       : nip19.neventEncode({...event, relays}),
   )
-  const seenOn = tracker.getRelays(event.id)
   const npub1 = nip19.npubEncode(event.pubkey)
   const json = JSON.stringify(event, null, 2)
   const copyLink = () => clip(nostrURI)
@@ -57,6 +74,12 @@
   const formatter = new Intl.DateTimeFormat(LOCALE, {
     dateStyle: "long",
     timeStyle: "long",
+  })
+
+  $effect(() => {
+    if (event.kind === DM_KIND && dmRecipient) {
+      forceLoadMessagingRelayList(dmRecipient, getMessagingRelayHints())
+    }
   })
 </script>
 

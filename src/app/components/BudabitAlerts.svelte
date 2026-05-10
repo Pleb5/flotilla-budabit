@@ -21,7 +21,7 @@
   } from "@app/core/state"
   import {deleteAlert, createDmAlert, publishSettings} from "@app/core/commands"
   import {clearBadges} from "@app/util/notifications"
-  import BudabitAlertAdd from "@lib/budabit/components/BudabitAlertAdd.svelte"
+  import BudabitAlertAdd from "@app/components/BudabitAlertAdd.svelte"
 
   const dmStatus = $derived($dmAlert ? deriveAlertStatus(getAddress($dmAlert.event)) : undefined)
 

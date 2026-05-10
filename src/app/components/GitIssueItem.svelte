@@ -17,7 +17,7 @@
   import {now, nthEq, sortBy} from "@welshman/lib"
   import {GIT_REPO_ANNOUNCEMENT, GitIssueStatus} from "@nostr-git/core/events"
   import NoteCard from "./NoteCard.svelte"
-  import Content from "@lib/budabit/components/Content.svelte"
+  import Content from "@app/components/Content.svelte"
   import {nip19} from "nostr-tools"
   import Link from "@src/lib/components/Link.svelte"
   import Button from "@src/lib/components/Button.svelte"
@@ -236,8 +236,7 @@
     }
   }
 
-  const startThread = () =>
-    pushModal(ThreadCreate, {url: url, jobOrGitIssue: issue, relayHint: queryRelays[0]})
+  const startThread = () => pushModal(ThreadCreate, {url})
 
   onMount(() => {
     if (fetchRepoAndStatus) {

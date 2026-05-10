@@ -70,11 +70,10 @@ vi.mock("@app/core/state", () => ({
   encodeRelay: (url: string) => encodeURIComponent(url),
   makeRoomId: (url: string, h: string) => `${url}'${h}`,
   roomsById: mockRoomsById,
+  channelsById: mockChannelsById,
 }))
 
 vi.mock("@app/core/git-state", () => ({
-  channelsById: mockChannelsById,
-  makeChannelId: (url: string, h: string) => `${url}'${h}`,
   GIT_RELAYS: [],
   repoAnnouncements: mockRepoAnnouncements,
   repoAnnouncementsByAddress: mockRepoAnnouncementsByAddress,

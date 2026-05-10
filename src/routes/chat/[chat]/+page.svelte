@@ -4,7 +4,7 @@
   import type {MakeNonOptional} from "@welshman/lib"
   import {uniq} from "@welshman/lib"
   import {pubkey} from "@welshman/app"
-  import Chat from "@lib/budabit/components/Chat.svelte"
+  import Chat from "@app/components/Chat.svelte"
   import {notifications, setChecked} from "@app/util/notifications"
 
   const {chat} = $page.params as MakeNonOptional<typeof $page.params>

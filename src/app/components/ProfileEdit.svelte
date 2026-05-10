@@ -6,7 +6,7 @@
   import ProfileEditForm from "@app/components/ProfileEditForm.svelte"
   import {clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {updateProfile} from "../core/commands"
+  import {updateProfile} from "@app/core/commands"
 
   const profile = $profilesByPubkey.get($pubkey!) || makeProfile()
   const shouldBroadcast = true
@@ -21,7 +21,7 @@
   }
 </script>
 
-<ProfileEditForm {initialValues} {onsubmit}>
+<ProfileEditForm {initialValues} {onsubmit} pubkey={$pubkey!}>
   {#snippet footer()}
     <div class="mt-4 flex flex-row items-center justify-between gap-4">
       <Button class="btn btn-neutral" onclick={back}>Discard Changes</Button>

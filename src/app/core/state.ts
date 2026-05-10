@@ -18,6 +18,7 @@ import {
   parseJson,
   memoize,
   addToMapKey,
+  pushToMapKey,
   identity,
   always,
   tryCatch,
@@ -195,6 +196,8 @@ const canManageRelayFromBrowser = (url: string) => {
 }
 
 export const ROOM = "h"
+
+export const GENERAL = "_"
 
 export const DM_KIND = 4444
 
@@ -1025,6 +1028,91 @@ export const deriveArchivedRooms = (url: string) =>
     }
 
     return sortBy(roomComparator(url), rooms)
+  })
+
+export type Channel = Room & {
+  room: string
+  metaId: string
+  event: TrustedEvent
+  closed: boolean
+  private: boolean
+  archived: boolean
+}
+
+const roomToChannel = (room: Room): Channel => {
+  const event = (room as Room & {event: TrustedEvent}).event
+
+  return {
+    ...room,
+    room: room.h,
+    metaId: room.h,
+    event,
+    closed: Boolean(room.isClosed),
+    private: Boolean(room.isPrivate),
+    archived: Boolean(room.isArchived),
+  }
+}
+
+export const channelsById = derived(roomsById, $roomsById => {
+  const result = new Map<string, Channel>()
+
+  for (const [id, room] of $roomsById.entries()) {
+    result.set(id, roomToChannel(room))
+  }
+
+  return result
+})
+
+export const deriveChannel = (url: string, room: string) =>
+  derived(channelsById, $channelsById => $channelsById.get(makeChannelId(url, room)))
+
+export const channelsByUrl = derived(channelsById, $channelsById => {
+  const result = new Map<string, Channel[]>()
+
+  for (const channel of $channelsById.values()) {
+    pushToMapKey(result, channel.url, channel)
+  }
+
+  return result
+})
+
+export const activeChannelsByUrl = derived(channelsByUrl, $channelsByUrl => {
+  const result = new Map<string, Channel[]>()
+
+  for (const [url, channels] of $channelsByUrl.entries()) {
+    result.set(
+      url,
+      channels.filter(channel => !channel.archived),
+    )
+  }
+
+  return result
+})
+
+export const archivedChannelsByUrl = derived(channelsByUrl, $channelsByUrl => {
+  const result = new Map<string, Channel[]>()
+
+  for (const [url, channels] of $channelsByUrl.entries()) {
+    result.set(
+      url,
+      channels.filter(channel => channel.archived),
+    )
+  }
+
+  return result
+})
+
+export const displayChannel = (url: string, room: string) => {
+  if (room === GENERAL) return "general"
+
+  return displayRoom(url, room)
+}
+
+export const loadPlatformChannels = () =>
+  request({
+    relays: PLATFORM_RELAYS,
+    filters: [{kinds: [ROOM_META]}],
+    autoClose: true,
   })
 
 // Space/room memberships

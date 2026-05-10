@@ -7,7 +7,7 @@
   } from "@app/core/cashu"
   import {pushModal} from "@app/util/modal"
   import Button from "@lib/components/Button.svelte"
-  import CashuSeedBackup from "@lib/budabit/components/CashuSeedBackup.svelte"
+  import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
 
   let selectedMint = $state("")
   let amount = $state(0)

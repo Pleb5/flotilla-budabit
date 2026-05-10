@@ -1,7 +1,10 @@
 <script lang="ts">
-  import {makeChannelId} from "@app/core/state"
-  import {channelsById} from "@app/core/git-state"
+  import {GENERAL, makeChannelId, channelsById} from "@app/core/state"
   const {url, room} = $props()
 </script>
 
-{$channelsById.get(makeChannelId(url, room))?.name || room}
+{#if room === GENERAL}
+  general
+{:else}
+  {$channelsById.get(makeChannelId(url, room))?.name || room}
+{/if}

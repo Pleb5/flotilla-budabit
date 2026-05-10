@@ -58,10 +58,10 @@ import {
   getSpaceRoomsFromGroupList,
   encodeRelay,
   roomsById,
+  channelsById,
 } from "@app/core/state"
 import {kv} from "@app/core/storage"
 import {
-  channelsById,
   GIT_RELAYS,
   getMaintainerSetRepoAddresses,
   loadRepoContext,

@@ -52,7 +52,7 @@
   import {installBuiltinExtensions} from "@app/extensions/builtin"
   import {initializeCashuWallet} from "@app/core/cashu"
   import {registerCashuBridgeHandlers} from "@app/core/cashu-bridge"
-  import CashuPayConfirm from "@lib/budabit/components/CashuPayConfirm.svelte"
+  import CashuPayConfirm from "@app/components/CashuPayConfirm.svelte"
 
   const {children} = $props()
   const nostrGitProviderProps = /** @type {any} */ ({

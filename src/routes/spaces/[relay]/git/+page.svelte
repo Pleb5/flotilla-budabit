@@ -34,7 +34,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import RepoSearchSettingsModal from "@app/components/RepoSearchSettingsModal.svelte"
   import {getInteractiveCardTarget} from "@lib/html"
-  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"

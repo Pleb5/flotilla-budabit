@@ -1,5 +1,5 @@
 import {writable, derived, get} from "svelte/store"
-import {load, request} from "@welshman/net"
+import {load} from "@welshman/net"
 import {
   groupByEuc,
   deriveMaintainers,
@@ -22,28 +22,18 @@ import {
 } from "@nostr-git/core/events"
 import {RepoCore} from "@nostr-git/core/git"
 import {deriveEventsAsc, deriveEventsById, withGetter} from "@welshman/store"
-import {repository, tracker, pubkey, userRelayList} from "@welshman/app"
-import {
-  PLATFORM_RELAYS,
-  deriveEvent,
-  roomComparator,
-  membershipsByPubkey,
-  getMembershipRoomsByUrl,
-  fromCsv,
-} from "@app/core/state"
+import {repository, pubkey, userRelayList} from "@welshman/app"
+import {deriveEvent, fromCsv} from "@app/core/state"
 import {Router} from "@welshman/router"
 import {
   isRelayUrl,
   normalizeRelayUrl,
   type TrustedEvent,
-  ROOM_META,
-  getTag,
-  readRoomMeta,
   getTagValue,
   getAddress,
 } from "@welshman/util"
 import {nip19, type NostrEvent} from "nostr-tools"
-import {fromPairs, pushToMapKey, sortBy, uniq, uniqBy} from "@welshman/lib"
+import {pushToMapKey, sortBy} from "@welshman/lib"
 import {extractRoleAssignments} from "@app/util/labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "@app/util/issue-edits"
 import {graspServersStore, type Repo} from "@nostr-git/ui"
@@ -104,11 +94,6 @@ export type RepoSettingsActions = {
 }
 
 export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
-
-export const FREELANCE_JOB = 32767
-
-export const DEFAULT_WORKER_PUBKEY =
-  "d70d50091504b992d1838822af245d5f6b3a16b82d917acb7924cef61ed4acee"
 
 export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
@@ -253,31 +238,6 @@ export const getRepoScopedRelays = (
     return Array.from(new Set(hints)) as string[]
   }
 }
-
-export const ROOMS = 10009
-
-export const GENERAL = "_"
-
-// Job-related types and stores
-export interface JobRequestEvent {
-  id: string
-  pubkey: string
-  content: string
-  created_at: number
-  tags: string[][]
-}
-
-export interface JobRequestStatus {
-  status: "pending" | "success" | "error"
-  eventId?: string
-  relays: Array<{url: string; status: "success" | "error"; error?: string}>
-  error?: string
-}
-
-export const jobRequestStatus = writable<JobRequestStatus | null>(null)
-
-export const jobLink = (naddr: string) => `https://test.satshoot.com/${naddr}`
-export const gitLink = (naddr: string) => `https://gitworkshop.dev/${naddr}`
 
 // Repositories adapter (NIP-34 repo announcements)
 // - derive announcements (30617)
@@ -813,286 +773,4 @@ export const loadRepoContext = (args: {
     .map((u: string) => normalizeRelayUrl(u))
     .filter(isRelayUrl) as string[]
   return load({relays, filters})
-}
-
-export type Channel = {
-  id: string
-  url: string
-  room: string
-  metaId: string
-  event: TrustedEvent
-  name: string
-  closed: boolean
-  private: boolean
-  archived: boolean
-  creatorPubkey?: string
-  picture?: string
-  about?: string
-}
-
-export const splitChannelId = (id: string) => id.split("'")
-
-const hasRoomArchiveTag = (tags: string[][] = []) =>
-  tags.some(tag => tag[0] === "archived" && (tag[1] || "true") !== "false")
-
-// Only load channel events from platform relays to avoid showing rooms from other relays
-export const channelEvents = deriveEventsAsc(
-  deriveEventsById({
-    repository,
-    filters: PLATFORM_RELAYS.length > 0 ? [{kinds: [ROOM_META]}] : [],
-  }),
-)
-
-export const getUrlsForEvent = withGetter(
-  derived([], () => (id: string) => PLATFORM_RELAYS as string[]),
-)
-
-export const userRoomsByUrl = derived([pubkey, membershipsByPubkey], ([$pubkey, $mb]) => {
-  const result = new Map<string, Set<string>>()
-  const list = $pubkey ? $mb.get($pubkey) : undefined
-
-  for (const url of PLATFORM_RELAYS) {
-    result.set(url, new Set(getMembershipRoomsByUrl(url, list)))
-  }
-
-  return result
-})
-
-export const deriveNaddrEvent = (naddr: string, hints: string[] = []) => {
-  let attempted = false
-  const decoded = nip19.decode(naddr).data as nip19.AddressPointer
-  let outboxRelays: string[] = []
-  if (!decoded.relays || decoded.relays.length === 0) {
-    try {
-      outboxRelays = Router.get().FromPubkeys([decoded.pubkey]).getUrls()
-    } catch {
-      outboxRelays = []
-    }
-  }
-  const fallbackRelays = [...hints, ...outboxRelays, ...GIT_RELAYS]
-  const relays = (decoded.relays && decoded.relays.length > 0 ? decoded.relays : fallbackRelays)
-    .map(u => normalizeRelayUrl(u))
-    .filter(isRelayUrl)
-  const filters = [
-    {
-      authors: [decoded.pubkey],
-      kinds: [decoded.kind],
-      "#d": [decoded.identifier],
-    },
-  ]
-
-  return derived(
-    deriveEventsAsc(deriveEventsById({repository, filters})),
-    (events: TrustedEvent[]) => {
-      if (!attempted && events.length === 0) {
-        load({relays: relays as string[], filters})
-        attempted = true
-      }
-      return events[0]
-    },
-  )
-}
-
-export const makeChannelId = (url: string, room: string): string => {
-  if (room.startsWith("naddr1")) {
-    return "naddr1"
-  }
-  return `${url}'${room}`
-}
-
-export const displayChannel = (url: string, room: string) => {
-  if (room === GENERAL) {
-    return "generalisimo"
-  }
-  return channelsById.get().get(makeChannelId(url, room))?.name || room
-}
-
-export const deriveUserRooms = (url: string) =>
-  derived([userRoomsByUrl, activeChannelsByUrl], ([$userRoomsByUrl, $activeChannelsByUrl]) => {
-    const activeRooms = new Set(($activeChannelsByUrl.get(url) || []).map(channel => channel.room))
-    const rooms = uniq(Array.from($userRoomsByUrl.get(url) || [GENERAL])).filter(
-      room => room === GENERAL || activeRooms.has(room),
-    )
-
-    return sortBy(roomComparator(url), rooms)
-  })
-
-export const deriveOtherRooms = (url: string) =>
-  derived([deriveUserRooms(url), channelsByUrl], ([$userRooms, $channelsByUrl]) =>
-    sortBy(
-      roomComparator(url),
-      ($channelsByUrl.get(url) || [])
-        .filter(c => !c.archived && !$userRooms.includes(c.room))
-        .map(c => c.room),
-    ),
-  )
-
-export const channels = derived(
-  [channelEvents, getUrlsForEvent],
-  ([$channelEvents, $getUrlsForEvent]) => {
-    const $channels: Channel[] = []
-    const normalizedPlatformRelays = PLATFORM_RELAYS.map(normalizeRelayUrl)
-    const metaEventsByRoomId = new Map<
-      string,
-      Array<{
-        metaId: string
-        event: TrustedEvent
-        name: string
-        closed: boolean
-        private: boolean
-        archived: boolean
-        picture?: string
-        about?: string
-      }>
-    >()
-
-    for (const event of $channelEvents) {
-      // Only include events that were received from platform relays
-      const eventRelays = tracker.getRelays(event.id)
-      const isFromPlatformRelay = normalizedPlatformRelays.some(url => eventRelays.has(url))
-
-      if (!isFromPlatformRelay) {
-        continue
-      }
-
-      let metaId = getTagValue("d", event.tags) || getTagValue("h", event.tags)
-      let name = ""
-      let picture: string | undefined
-      let about: string | undefined
-
-      try {
-        const meta = readRoomMeta(event)
-
-        metaId = meta.h
-        name = meta.name || meta.h
-        picture = meta.picture
-        about = meta.about
-      } catch {
-        const meta = fromPairs(event.tags)
-
-        metaId = metaId || meta.d
-        name = meta.name || metaId || ""
-        picture = meta.picture
-        about = meta.about
-      }
-
-      if (!metaId) {
-        continue
-      }
-
-      const items = metaEventsByRoomId.get(metaId) || []
-
-      items.push({
-        metaId,
-        event,
-        name: name || metaId,
-        closed: Boolean(getTag("closed", event.tags)),
-        private: Boolean(getTag("private", event.tags)),
-        archived: hasRoomArchiveTag(event.tags),
-        picture,
-        about,
-      })
-      metaEventsByRoomId.set(metaId, items)
-    }
-
-    for (const [metaId, events] of metaEventsByRoomId.entries()) {
-      const latest = sortBy(item => -item.event.created_at, events)[0]
-      const creatorPubkey = sortBy(item => item.event.created_at, events)[0]?.event.pubkey
-
-      if (!latest) {
-        continue
-      }
-
-      // Use the room name for the room identifier since messages are tagged with the name, not the d tag
-      const room = latest.name || metaId
-
-      for (const url of $getUrlsForEvent(latest.event.id)) {
-        const id = makeChannelId(url, room)
-
-        $channels.push({
-          id,
-          url,
-          room,
-          metaId,
-          event: latest.event,
-          name: latest.name || room,
-          closed: latest.closed,
-          private: latest.private,
-          archived: latest.archived,
-          creatorPubkey,
-          picture: latest.picture,
-          about: latest.about,
-        })
-      }
-    }
-
-    // These variables aren't defined in the current scope, so we'll skip this code block
-    // TODO: Fix the undefined variables ($memberships, getMembershipRooms, $messages, nthEq, ROOM)
-
-    return uniqBy(c => c.id, $channels)
-  },
-)
-
-export const channelsById = withGetter(
-  derived(channels, $channels => {
-    const m = new Map<string, Channel>()
-    for (const c of $channels) m.set(c.id, c)
-    return m
-  }),
-)
-
-export const _loadChannel = async (id: string) => {
-  const [url, room] = splitChannelId(id)
-  await load({
-    relays: [normalizeRelayUrl(url)],
-    filters: [{kinds: [ROOM_META], "#d": [room]}],
-  })
-}
-
-export const _deriveChannel = (id: string) => withGetter(derived(channelsById, $m => $m.get(id)))
-
-export const deriveChannel = (url: string, room: string) => _deriveChannel(makeChannelId(url, room))
-
-export const channelsByUrl = derived(channelsById, $channelsById => {
-  const $channelsByUrl = new Map<string, Channel[]>()
-
-  for (const channel of $channelsById.values()) {
-    pushToMapKey($channelsByUrl, channel.url, channel)
-  }
-
-  return $channelsByUrl
-})
-
-export const activeChannelsByUrl = derived(channelsByUrl, $channelsByUrl => {
-  const result = new Map<string, Channel[]>()
-
-  for (const [url, channels] of $channelsByUrl.entries()) {
-    result.set(
-      url,
-      channels.filter(channel => !channel.archived),
-    )
-  }
-
-  return result
-})
-
-export const archivedChannelsByUrl = derived(channelsByUrl, $channelsByUrl => {
-  const result = new Map<string, Channel[]>()
-
-  for (const [url, channels] of $channelsByUrl.entries()) {
-    result.set(
-      url,
-      channels.filter(channel => channel.archived),
-    )
-  }
-
-  return result
-})
-
-export async function loadPlatformChannels() {
-  await request({
-    relays: PLATFORM_RELAYS,
-    filters: [{kinds: [ROOM_META]}],
-    autoClose: true,
-  })
 }

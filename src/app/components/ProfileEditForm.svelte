@@ -2,60 +2,163 @@
   import type {Snippet} from "svelte"
   import type {Profile} from "@welshman/util"
   import {preventDefault} from "@lib/html"
+  import {nip19} from "nostr-tools"
+  import {tokens as tokensStore} from "@nostr-git/ui"
+  import Icon from "@lib/components/Icon.svelte"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"
   import MapPoint from "@assets/icons/map-point.svg?dataurl"
-  import Icon from "@lib/components/Icon.svelte"
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import Button from "@lib/components/Button.svelte"
   import InputProfilePicture from "@app/components/InputProfilePicture.svelte"
   import InfoHandle from "@app/components/InfoHandle.svelte"
   import {pushModal} from "@app/util/modal"
+  import InfoCircle from "@assets/icons/info-circle.svg?dataurl"
+  import ClockCircle from "@assets/icons/clock-circle.svg?dataurl"
+  import Git from "@assets/icons/git.svg?dataurl"
+  import LinkRound from "@assets/icons/link-round.svg?dataurl"
 
   type Values = {
     profile: Profile
     shouldBroadcast: boolean
+    githubIdentity?: {
+      username: string
+      proof: string // GitHub Gist ID
+    }
   }
 
   type Props = {
     initialValues: Values
     onsubmit: (values: Values) => void
+    hideAddress?: boolean
     isSignup?: boolean
     footer: Snippet
+    pubkey?: string
   }
 
-  const {initialValues, isSignup, onsubmit, footer}: Props = $props()
+  const {initialValues, hideAddress, isSignup = false, onsubmit, footer, pubkey}: Props = $props()
 
-  const values = $state(initialValues)
+  const values = $state({
+    ...initialValues,
+    githubIdentity: (() => {
+      // Extract GitHub identity from existing profile tags if present
+      const existingGithubTag = initialValues.profile.event?.tags?.find(
+        tag => tag[0] === "i" && tag[1]?.startsWith("github:"),
+      )
+
+      if (existingGithubTag) {
+        const [, platformIdentity, proof] = existingGithubTag
+        const username = platformIdentity.split(":")[1]
+        if (username && proof) {
+          return {username, proof}
+        }
+      }
+
+      return {username: "", proof: ""}
+    })(),
+  })
 
   const submit = () => onsubmit($state.snapshot(values))
 
   let file: File | undefined = $state()
+  let isCreatingAttestation = $state(false)
+  let attestationError = $state("")
+
+  const npub = pubkey ? nip19.npubEncode(pubkey) : ""
+
+  // Check if user has GitHub token and no existing GitHub identity
+  const githubToken = $derived(() => {
+    const tokens = $tokensStore
+    return tokens.find(t => t.host === "github.com" || t.host === "api.github.com")
+  })
+
+  const shouldOfferAutoAttestation = $derived(() => {
+    return (
+      !isSignup &&
+      Boolean(pubkey) &&
+      githubToken() &&
+      (!values.githubIdentity?.username || !values.githubIdentity?.proof) &&
+      !isCreatingAttestation
+    )
+  })
+
+  // Auto-create GitHub attestation
+  async function createGitHubAttestation() {
+    const token = githubToken()
+    if (!token) {
+      attestationError = "No GitHub token found"
+      return
+    }
+
+    isCreatingAttestation = true
+    attestationError = ""
+
+    try {
+      // Get GitHub user info
+      const userResponse = await fetch("https://api.github.com/user", {
+        headers: {
+          Authorization: `token ${token.token}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      })
+
+      if (!userResponse.ok) {
+        throw new Error(`GitHub API error: ${userResponse.status}`)
+      }
+
+      const userData = await userResponse.json()
+      const username = userData.login
+
+      // Create attestation text
+      const attestationText = `Verifying that I control the following Nostr public key: ${npub}`
+
+      // Create GitHub Gist
+      const gistResponse = await fetch("https://api.github.com/gists", {
+        method: "POST",
+        headers: {
+          Authorization: `token ${token.token}`,
+          Accept: "application/vnd.github.v3+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          description: "Nostr Identity Verification (NIP-39)",
+          public: true,
+          files: {
+            "nostr-verification.txt": {
+              content: attestationText,
+            },
+          },
+        }),
+      })
+
+      if (!gistResponse.ok) {
+        throw new Error(`Failed to create Gist: ${gistResponse.status}`)
+      }
+
+      const gistData = await gistResponse.json()
+      const gistId = gistData.id
+
+      // Update form values
+      values.githubIdentity = {
+        username,
+        proof: gistId,
+      }
+    } catch (error) {
+      console.error("Failed to create GitHub attestation:", error)
+      attestationError = error instanceof Error ? error.message : "Failed to create attestation"
+    } finally {
+      isCreatingAttestation = false
+    }
+  }
 </script>
 
 <form class="col-4" onsubmit={preventDefault(submit)}>
-  {#if isSignup}
-    <div class="grid grid-cols-2">
-      <div class="flex flex-col gap-2">
-        <p class="text-2xl">Create a Profile</p>
-        <p class="text-sm">
-          Give people something to go on — but remember, privacy matters! Be careful about sharing
-          sensitive information.
-        </p>
-      </div>
-      <div class="flex flex-col items-center justify-center gap-2">
-        <InputProfilePicture bind:file bind:url={values.profile.picture} />
-        <p class="text-xs">Upload an Avatar</p>
-      </div>
-    </div>
-  {:else}
-    <div class="flex items-center justify-center py-4">
-      <InputProfilePicture bind:file bind:url={values.profile.picture} />
-    </div>
-  {/if}
+  <div class="flex justify-center py-2">
+    <InputProfilePicture bind:file bind:url={values.profile.picture} />
+  </div>
   <Field>
     {#snippet label()}
-      <p>Nickname</p>
+      <p>Username</p>
     {/snippet}
     {#snippet input()}
       <label class="input input-bordered flex w-full items-center gap-2">
@@ -81,7 +184,106 @@
       Give a brief introduction to why you're here.
     {/snippet}
   </Field>
-  {#if !isSignup}
+
+  <!-- Auto-Attestation Offer -->
+  {#if shouldOfferAutoAttestation()}
+    <div class="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+      <div class="flex items-start gap-3">
+        <Icon icon={InfoCircle} class="mt-0.5 text-blue-600" />
+        <div class="flex-1">
+          <h4 class="mb-2 font-medium text-blue-900">Automatic GitHub Verification Available</h4>
+          <p class="mb-3 text-sm text-blue-700">
+            We detected you have a GitHub token configured. We can automatically create a
+            verification Gist and set up your GitHub identity for you.
+          </p>
+          <Button
+            class="btn btn-primary btn-sm"
+            onclick={createGitHubAttestation}
+            disabled={isCreatingAttestation}>
+            {#if isCreatingAttestation}
+              <Icon icon={ClockCircle} class="animate-spin" />
+              Creating Attestation...
+            {:else}
+              <Icon icon={Git} />
+              Auto-Verify GitHub Identity
+            {/if}
+          </Button>
+          {#if attestationError}
+            <p class="mt-2 text-sm text-red-600">{attestationError}</p>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- GitHub Identity Section (NIP-39) -->
+  <Field>
+    {#snippet label()}
+      <p>GitHub Identity <span class="text-xs text-gray-500">(NIP-39)</span></p>
+    {/snippet}
+    {#snippet input()}
+      <label class="input input-bordered flex w-full items-center gap-2">
+        <Icon icon={Git} />
+        <input
+          bind:value={values.githubIdentity.username}
+          class="grow"
+          type="text"
+          placeholder="your-github-username" />
+      </label>
+    {/snippet}
+    {#snippet info()}
+      Your GitHub username for identity verification.
+    {/snippet}
+  </Field>
+
+  {#if values.githubIdentity?.username}
+    <Field>
+      {#snippet label()}
+        <p>GitHub Proof <span class="text-xs text-gray-500">(Gist ID)</span></p>
+      {/snippet}
+      {#snippet input()}
+        <label class="input input-bordered flex w-full items-center gap-2">
+          <Icon icon={LinkRound} />
+          <input
+            bind:value={values.githubIdentity.proof}
+            class="grow"
+            type="text"
+            placeholder="abc123def456" />
+        </label>
+      {/snippet}
+      {#snippet info()}
+        {#if !shouldOfferAutoAttestation() && !values.githubIdentity?.proof}
+          <p class="text-sm">
+            Create a GitHub Gist with the text: <br />
+            <code class="break-all rounded bg-gray-100 px-1 text-xs">
+              Verifying that I control the following Nostr public key: {npub}
+            </code><br />
+            Then paste the Gist ID here.
+          </p>
+        {:else if values.githubIdentity?.proof}
+          <p class="text-sm">
+            Your verification Gist is available at:<br />
+            <a
+              href="https://gist.github.com/{values.githubIdentity?.username}/{values.githubIdentity
+                ?.proof}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-800">
+              <Icon icon={LinkRound} size={3} />
+              https://gist.github.com/{values.githubIdentity?.username}/{values.githubIdentity
+                ?.proof}
+            </a>
+          </p>
+        {:else}
+          <p class="text-sm text-gray-500">
+            Gist ID will be automatically filled when you use the auto-verification above.
+          </p>
+        {/if}
+      {/snippet}
+    </Field>
+  {/if}
+
+  {#if !hideAddress}
     <Field>
       {#snippet label()}
         <p>Nostr Address</p>
@@ -100,24 +302,19 @@
       {/snippet}
     </Field>
   {/if}
-  {#if !isSignup}
-    <FieldInline>
-      {#snippet label()}
-        <p>Broadcast Profile</p>
-      {/snippet}
-      {#snippet input()}
-        <input
-          type="checkbox"
-          class="toggle toggle-primary"
-          bind:checked={values.shouldBroadcast} />
-      {/snippet}
-      {#snippet info()}
-        <p>
-          If enabled, changes will be published to the broader nostr network in addition to spaces
-          you are a member of.
-        </p>
-      {/snippet}
-    </FieldInline>
-  {/if}
+  <FieldInline>
+    {#snippet label()}
+      <p>Broadcast Profile</p>
+    {/snippet}
+    {#snippet input()}
+      <input type="checkbox" class="toggle toggle-primary" bind:checked={values.shouldBroadcast} />
+    {/snippet}
+    {#snippet info()}
+      <p>
+        If enabled, changes will be published to the broader nostr network in addition to spaces you
+        are a member of.
+      </p>
+    {/snippet}
+  </FieldInline>
   {@render footer()}
 </form>

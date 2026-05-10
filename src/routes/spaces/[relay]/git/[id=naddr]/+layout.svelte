@@ -36,7 +36,7 @@
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import {page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
-  import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
+  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import {pushToast, popToast} from "@src/app/util/toast"
   import {notifications, hasRepoNotification, checked, setCheckedAt} from "@app/util/notifications"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
@@ -47,7 +47,7 @@
   import RemoteFixHelperModal from "@app/components/RemoteFixHelperModal.svelte"
   import {EditRepoPanel} from "@nostr-git/ui"
   import {postRepoAnnouncement, postRepoStateEvent} from "@app/core/git-commands.js"
-  import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
+  import RepoWatchModal from "@app/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   import type {NostrFilter, NostrEvent} from "@nostr-git/core"
 

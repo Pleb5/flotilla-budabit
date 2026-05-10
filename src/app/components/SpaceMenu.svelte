@@ -1,18 +1,13 @@
 <script lang="ts">
   import {onMount} from "svelte"
-  import {derived} from "svelte/store"
-  import {displayRelayUrl, getTagValue, EVENT_TIME, ZAP_GOAL, THREAD, REPORT} from "@welshman/util"
+  import {goto} from "$app/navigation"
+  import {displayRelayUrl} from "@welshman/util"
   import {deriveRelay, pubkey} from "@welshman/app"
-  import type {TrustedEvent} from "@welshman/util"
-  import {fly} from "@lib/transition"
+  import {cashuTotalBalance, cashuBackupConfirmed} from "@app/core/cashu"
+  import {pushModal} from "@app/util/modal"
+  import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
+  import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
-  import RemoteControllerMinimalistic from "@assets/icons/remote-controller-minimalistic.svg?dataurl"
-  import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
-  import Danger from "@assets/icons/danger.svg?dataurl"
-  import LinkRound from "@assets/icons/link-round.svg?dataurl"
-  import Exit from "@assets/icons/logout-3.svg?dataurl"
-  import Letter from "@assets/icons/letter.svg?dataurl"
-  import Login from "@assets/icons/login-3.svg?dataurl"
   import History from "@assets/icons/history.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic-2.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
@@ -20,101 +15,79 @@
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
+  import Git from "@assets/icons/git.svg?dataurl"
+  import Exit from "@assets/icons/logout-3.svg?dataurl"
   import ArchivedMinimalistic from "@assets/icons/archived-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
-  import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
-  import Popover from "@lib/components/Popover.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
   import SpaceDetail from "@app/components/SpaceDetail.svelte"
-  import SpaceInvite from "@app/components/SpaceInvite.svelte"
-  import SpaceExit from "@app/components/SpaceExit.svelte"
-  import SpaceJoin from "@app/components/SpaceJoin.svelte"
-  import RelayName from "@app/components/RelayName.svelte"
-  import SpaceMembers from "@app/components/SpaceMembers.svelte"
-  import SpaceReports from "@app/components/SpaceReports.svelte"
-  import AlertAdd from "@app/components/AlertAdd.svelte"
-  import Alerts from "@app/components/Alerts.svelte"
   import LogOut from "@app/components/LogOut.svelte"
+  import RelayName from "@app/components/RelayName.svelte"
+  import BudabitAlerts from "@app/components/BudabitAlerts.svelte"
   import RoomCreate from "@app/components/RoomCreate.svelte"
-  import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
+  import MenuSpaceRoomItem from "@app/components/MenuSpaceRoomItem.svelte"
   import {
     ENABLE_ZAPS,
-    CONTENT_KINDS,
-    deriveSpaceMembers,
-    deriveArchivedRooms,
-    deriveUserRooms,
-    deriveOtherRooms,
-    userSpaceUrls,
+    canCreateRoomByPlatformPolicy,
     hasNip29,
-    alertsById,
-    deriveUserCanCreateRoom,
-    deriveUserIsSpaceAdmin,
-    deriveEventsForUrl,
+    channelsByUrl,
   } from "@app/core/state"
   import {notifications} from "@app/util/notifications"
-  import {pushModal} from "@app/util/modal"
-  import {makeSpacePath, makeChatPath} from "@app/util/routes"
+  import {makeSpacePath} from "@app/util/routes"
+  import {partitionArchivedItems} from "@app/util/room-archive"
 
   const {url} = $props()
 
   const relay = deriveRelay(url)
+  const owner = $derived($relay?.pubkey)
+  const canCreateRoom = $derived(
+    canCreateRoomByPlatformPolicy({relayUrl: url, viewerPubkey: $pubkey, relayOwnerPubkey: owner}),
+  )
+
   const chatPath = makeSpacePath(url, "chat")
+  const gitPath = makeSpacePath(url, "git")
   const goalsPath = makeSpacePath(url, "goals")
   const threadsPath = makeSpacePath(url, "threads")
   const calendarPath = makeSpacePath(url, "calendar")
-  const userRooms = deriveUserRooms(url)
-  const otherRooms = deriveOtherRooms(url)
-  const archivedRooms = deriveArchivedRooms(url)
-  const members = deriveSpaceMembers(url)
-  const userIsAdmin = deriveUserIsSpaceAdmin(url)
-  const reports = deriveEventsForUrl(url, [{kinds: [REPORT]}])
-  const hasAlerts = $derived(
-    Array.from($alertsById.values()).some(a => getTagValue("feed", a.tags)?.includes(url)),
-  )
 
-  const spaceKinds = derived(
-    deriveEventsForUrl(url, [{kinds: CONTENT_KINDS}]),
-    $events => new Set($events.map((e: TrustedEvent) => e.kind)),
-  )
-
-  const openMenu = () => {
-    showMenu = true
-  }
-
-  const toggleMenu = () => {
-    showMenu = !showMenu
-  }
+  const roomSections = $derived.by(() => partitionArchivedItems($channelsByUrl.get(url) || []))
+  const activeChannels = $derived.by(() => roomSections.active)
+  const archivedChannels = $derived.by(() => roomSections.archived)
+  const archivedSectionId = "space-menu-archived-rooms"
 
   const showDetail = () => pushModal(SpaceDetail, {url}, {replaceState})
+  const openWallet = () => pushModal(CashuWalletModal)
 
-  const showMembers = () => pushModal(SpaceMembers, {url}, {replaceState})
+  const walletLabel = $derived.by(() => {
+    const bal = $cashuTotalBalance
+    if (!$cashuBackupConfirmed) return "Set up Cashu"
+    if (bal >= 1000) return `${(bal / 1000).toFixed(bal % 1000 === 0 ? 0 : 1)}K sats`
+    return `${bal} sats`
+  })
 
-  const showReports = () => pushModal(SpaceReports, {url}, {replaceState})
+  const goHome = () => goto(makeSpacePath(url))
 
-  const canCreateRoom = deriveUserCanCreateRoom(url)
+  const addRoom = () => {
+    if (!canCreateRoom) return
 
-  const createInvite = () => pushModal(SpaceInvite, {url}, {replaceState})
-
-  const leaveSpace = () => pushModal(SpaceExit, {url}, {replaceState})
-
-  const joinSpace = () => pushModal(SpaceJoin, {url}, {replaceState})
-
-  const addRoom = () => pushModal(RoomCreate, {url}, {replaceState})
+    pushModal(RoomCreate, {url}, {replaceState})
+  }
 
   const manageAlerts = () => {
-    const component = hasAlerts ? Alerts : AlertAdd
-    const params = {url, channel: "push", hideSpaceField: true}
-
-    pushModal(component, params, {replaceState})
+    pushModal(BudabitAlerts, {}, {replaceState})
   }
 
   const logout = () => pushModal(LogOut)
 
-  let showMenu = $state(false)
+  const toggleArchivedRooms = () => {
+    showArchivedRooms = !showArchivedRooms
+  }
+
+  let showArchivedRooms = $state(false)
   let replaceState = $state(false)
   let element: Element | undefined = $state()
 
@@ -128,72 +101,58 @@
     <div>
       <Button
         class="flex w-full flex-col rounded-xl p-3 transition-all hover:bg-base-100"
-        onclick={openMenu}>
-        <div class="flex items-center justify-between">
+        onclick={goHome}>
+        <div class="flex items-center">
           <strong class="ellipsize flex items-center gap-1">
             <RelayName {url} />
           </strong>
-          <Icon icon={AltArrowDown} />
         </div>
         <span class="text-xs text-primary">{displayRelayUrl(url)}</span>
       </Button>
-      {#if showMenu}
-        <Popover hideOnClick onClose={toggleMenu}>
-          <ul
-            transition:fly
-            class="menu absolute z-popover mt-2 w-full gap-1 rounded-box bg-base-100 p-2 shadow-md">
-            <li>
-              <Button onclick={createInvite}>
-                <Icon icon={LinkRound} />
-                Create Invite
-              </Button>
-            </li>
-            <li>
-              <Button onclick={showDetail}>
-                <Icon icon={RemoteControllerMinimalistic} />
-                Space Information
-              </Button>
-            </li>
-            <li>
-              <Button onclick={showMembers}>
-                <Icon icon={UserRounded} />
-                View Members ({$members.length})
-              </Button>
-            </li>
-            {#if $userIsAdmin}
-              <li>
-                <Button onclick={showReports}>
-                  <Icon icon={Danger} />
-                  View Reports ({$reports.length})
-                </Button>
-              </li>
-            {/if}
-            {#if $relay?.pubkey && $relay.pubkey !== $pubkey}
-              <li>
-                <Link href={makeChatPath($relay.pubkey)}>
-                  <Icon icon={Letter} />
-                  Contact Owner
-                </Link>
-              </li>
-            {/if}
-            <li>
-              {#if $userSpaceUrls.includes(url)}
-                <Button onclick={leaveSpace} class="text-error">
-                  <Icon icon={Exit} />
-                  Leave Space
-                </Button>
-              {:else}
-                <Button onclick={joinSpace} class="bg-primary text-primary-content">
-                  <Icon icon={Login} />
-                  Join Space
-                </Button>
-              {/if}
-            </li>
-          </ul>
-        </Popover>
-      {/if}
     </div>
+
     <div class="flex max-h-[calc(100vh-250px)] min-h-0 flex-col gap-1 overflow-auto">
+      {#if $pubkey}
+        <SecondaryNavItem {replaceState} onclick={openWallet}>
+          <span class="flex h-5 w-5 items-center justify-center text-base leading-none text-warning"
+            >₿</span>
+          {walletLabel}
+        </SecondaryNavItem>
+      {/if}
+
+      <SecondaryNavItem {replaceState} href={makeSpacePath(url)}>
+        <Icon icon={HomeSmile} /> Home
+      </SecondaryNavItem>
+
+      <SecondaryNavItem {replaceState} href={gitPath} notification={$notifications.has(gitPath)}>
+        <Icon icon={Git} /> Git
+      </SecondaryNavItem>
+
+      <SecondaryNavItem
+        {replaceState}
+        href={threadsPath}
+        notification={$notifications.has(threadsPath)}>
+        <Icon icon={NotesMinimalistic} /> Threads
+      </SecondaryNavItem>
+
+      <SecondaryNavItem
+        {replaceState}
+        href={calendarPath}
+        notification={$notifications.has(calendarPath)}>
+        <Icon icon={CalendarMinimalistic} /> Calendar
+      </SecondaryNavItem>
+
+      {#if ENABLE_ZAPS}
+        <SecondaryNavItem
+          {replaceState}
+          href={goalsPath}
+          notification={$notifications.has(goalsPath)}>
+          <Icon icon={StarFallMinimalistic} /> Goals
+        </SecondaryNavItem>
+      {/if}
+
+      <SecondaryNavHeader>Rooms</SecondaryNavHeader>
+
       {#if hasNip29($relay)}
         <SecondaryNavItem {replaceState} href={makeSpacePath(url, "recent")}>
           <Icon icon={History} /> Recent Activity
@@ -206,88 +165,64 @@
           <Icon icon={ChatRound} /> Chat
         </SecondaryNavItem>
       {/if}
-      {#if ENABLE_ZAPS && $spaceKinds.has(ZAP_GOAL)}
-        <SecondaryNavItem
-          {replaceState}
-          href={goalsPath}
-          notification={$notifications.has(goalsPath)}>
-          <Icon icon={StarFallMinimalistic} /> Goals
+
+      {#if canCreateRoom}
+        <SecondaryNavItem {replaceState} onclick={addRoom}>
+          <Icon icon={AddCircle} />
+          Create room
         </SecondaryNavItem>
       {/if}
-      {#if $spaceKinds.has(THREAD)}
-        <SecondaryNavItem
-          {replaceState}
-          href={threadsPath}
-          notification={$notifications.has(threadsPath)}>
-          <Icon icon={NotesMinimalistic} /> Threads
-        </SecondaryNavItem>
-      {/if}
-      {#if $spaceKinds.has(EVENT_TIME)}
-        <SecondaryNavItem
-          {replaceState}
-          href={calendarPath}
-          notification={$notifications.has(calendarPath)}>
-          <Icon icon={CalendarMinimalistic} /> Calendar
-        </SecondaryNavItem>
-      {/if}
-      {#if hasNip29($relay)}
-        {#if $userRooms.length > 0}
-          <div class="h-2"></div>
-          <SecondaryNavHeader>Your Rooms</SecondaryNavHeader>
-        {/if}
-        {#each $userRooms as h, i (h)}
-          <MenuSpaceRoomItem {replaceState} notify {url} {h} />
-        {/each}
-        {#if $otherRooms.length > 0}
-          <div class="h-2"></div>
-          <SecondaryNavHeader>
-            {#if $userRooms.length > 0}
-              Other Rooms
-            {:else}
-              Rooms
-            {/if}
-          </SecondaryNavHeader>
-        {/if}
-        {#each $otherRooms as h, i (h)}
-          <MenuSpaceRoomItem {replaceState} {url} {h} />
-        {/each}
-        {#if $canCreateRoom}
-          <SecondaryNavItem {replaceState} onclick={addRoom}>
-            <Icon icon={AddCircle} />
-            Create room
-          </SecondaryNavItem>
-        {/if}
-        {#if $archivedRooms.length > 0}
-          <details class="mt-2 rounded-xl bg-base-200/50">
-            <summary
-              class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-base-content/70">
-              <span class="flex items-center gap-2">
-                <Icon icon={ArchivedMinimalistic} />
-                Archived Rooms
-              </span>
-              <span class="text-xs uppercase tracking-wide">{$archivedRooms.length} read-only</span>
-            </summary>
-            <div class="flex flex-col gap-1 pb-2">
-              {#each $archivedRooms as h, i (h)}
-                <MenuSpaceRoomItem {replaceState} {url} {h} archived />
+
+      {#each activeChannels as channel (channel.id)}
+        <MenuSpaceRoomItem {replaceState} notify {url} room={channel.room} />
+      {/each}
+
+      {#if archivedChannels.length > 0}
+        <div class="mt-2 rounded-xl bg-base-200/50">
+          <Button
+            class="flex w-full items-center justify-between gap-2 rounded-xl px-4 py-3 text-sm font-medium text-base-content/70 transition-all hover:bg-base-100 hover:text-base-content"
+            onclick={toggleArchivedRooms}
+            aria-controls={archivedSectionId}
+            aria-expanded={showArchivedRooms}>
+            <span class="flex items-center gap-2">
+              <Icon icon={ArchivedMinimalistic} />
+              Archived Rooms
+            </span>
+            <span class="flex items-center gap-2 text-xs uppercase tracking-wide">
+              {archivedChannels.length} read-only
+              <Icon
+                icon={AltArrowDown}
+                size={4}
+                class={showArchivedRooms
+                  ? "rotate-180 transition-transform duration-150"
+                  : "transition-transform duration-150"} />
+            </span>
+          </Button>
+          {#if showArchivedRooms}
+            <div id={archivedSectionId} class="flex flex-col gap-1 pb-2">
+              {#each archivedChannels as channel (channel.id)}
+                <MenuSpaceRoomItem {replaceState} {url} room={channel.room} archived />
               {/each}
             </div>
-          </details>
-        {/if}
+          {/if}
+        </div>
       {/if}
     </div>
   </SecondaryNavSection>
+
   <div class="flex flex-col gap-2 p-4">
     <Button class="btn btn-neutral btn-sm" onclick={showDetail}>
       <SocketStatusIndicator {url} />
     </Button>
-    <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
-      <Icon icon={Bell} />
-      Manage Alerts
-    </Button>
-    <Button class="btn btn-neutral btn-sm" onclick={logout}>
-      <Icon icon={Exit} />
-      Log Out
-    </Button>
+    {#if $pubkey}
+      <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
+        <Icon icon={Bell} />
+        Manage Alerts
+      </Button>
+      <Button class="btn btn-neutral btn-sm" onclick={logout}>
+        <Icon icon={Exit} />
+        Log Out
+      </Button>
+    {/if}
   </div>
 </div>

@@ -38,7 +38,7 @@
     setCheckedForRepoNotifications,
   } from "@app/util/notifications"
   import {postComment} from "@app/core/git-commands.js"
-  import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
+  import FilterPanel from "@app/components/FilterPanel.svelte"
   import {getInteractiveCardTarget, isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
   import {pushToast} from "@src/app/util/toast"

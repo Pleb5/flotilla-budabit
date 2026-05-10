@@ -29,10 +29,10 @@
   import {makeGitPath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
   import {fade} from "@lib/transition"
-  import SpaceMenuButton from "@src/lib/budabit/components/SpaceMenuButton.svelte"
-  import {activeChannelsByUrl} from "@app/core/git-state"
-  import ChannelName from "@src/lib/budabit/components/ChannelName.svelte"
-  import DemoDayPromo from "@src/lib/budabit/components/DemoDayPromo.svelte"
+  import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
+  import {activeChannelsByUrl} from "@app/core/state"
+  import ChannelName from "@app/components/ChannelName.svelte"
+  import DemoDayPromo from "@app/components/DemoDayPromo.svelte"
 
   const url = decodeRelay($page.params.relay!)
   const relay = deriveRelay(url)

@@ -3,7 +3,7 @@
   import {pubkey} from "@welshman/app"
   import {cashuTotalBalance, cashuBackupConfirmed} from "@app/core/cashu"
   import {pushModal} from "@app/util/modal"
-  import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
+  import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
 
   const isLoggedIn = $derived(!!$pubkey)
   const balance = $derived($cashuTotalBalance)

@@ -28,7 +28,6 @@ vi.mock("@app/extensions/settings", () => ({
 }))
 
 vi.mock("@app/core/git-state", () => ({
-  DEFAULT_WORKER_PUBKEY: "test-worker",
   activeRepoClass: {
     subscribe: vi.fn(),
   },

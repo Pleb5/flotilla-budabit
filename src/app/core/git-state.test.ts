@@ -12,15 +12,9 @@ vi.mock("@nostr-git/ui", () => ({
 }))
 
 import {
-  splitChannelId,
-  makeChannelId,
-  jobLink,
-  gitLink,
   getRepoAnnouncementRelays,
   getRepoScopedRelays,
   repoMaintainerSetProfilesByRepoAddress,
-  ROOMS,
-  GENERAL,
 } from "./git-state"
 
 let eventCounter = 0
@@ -55,39 +49,6 @@ describe("budabit state", () => {
     eventCounter = 0
     repository.load([])
     pubkey.set(undefined)
-  })
-
-  describe("splitChannelId", () => {
-    it("splits channel id by apostrophe", () => {
-      expect(splitChannelId("wss://relay.com'room1")).toEqual(["wss://relay.com", "room1"])
-      expect(splitChannelId("url'room")).toEqual(["url", "room"])
-    })
-
-    it("handles multiple segments", () => {
-      expect(splitChannelId("a'b'c")).toEqual(["a", "b", "c"])
-    })
-  })
-
-  describe("makeChannelId", () => {
-    it("returns naddr1 when room starts with naddr1", () => {
-      expect(makeChannelId("wss://relay.com", "naddr1abc")).toBe("naddr1")
-    })
-
-    it("concatenates url and room with apostrophe", () => {
-      expect(makeChannelId("wss://relay.com", "general")).toBe("wss://relay.com'general")
-    })
-  })
-
-  describe("jobLink", () => {
-    it("builds test.satshoot.com URL with naddr", () => {
-      expect(jobLink("naddr1abc")).toBe("https://test.satshoot.com/naddr1abc")
-    })
-  })
-
-  describe("gitLink", () => {
-    it("builds gitworkshop.dev URL with naddr", () => {
-      expect(gitLink("naddr1xyz")).toBe("https://gitworkshop.dev/naddr1xyz")
-    })
   })
 
   describe("getRepoAnnouncementRelays", () => {
@@ -254,13 +215,6 @@ describe("budabit state", () => {
 
       expect(profile?.maintainerSet).toEqual([root, candidate])
       expect(profile?.pendingMaintainers).toEqual([])
-    })
-  })
-
-  describe("constants", () => {
-    it("ROOMS and GENERAL are defined", () => {
-      expect(ROOMS).toBe(10009)
-      expect(GENERAL).toBe("_")
     })
   })
 })

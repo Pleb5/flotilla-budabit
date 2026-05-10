@@ -6,7 +6,7 @@
   import {pubkey} from "@welshman/app"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
-  import SpaceMenu from "@lib/budabit/components/SpaceMenu.svelte"
+  import SpaceMenu from "@app/components/SpaceMenu.svelte"
   import SpaceAuthError from "@app/components/SpaceAuthError.svelte"
   import SpaceTrustRelay from "@app/components/SpaceTrustRelay.svelte"
   import {pushModal} from "@app/util/modal"
@@ -20,7 +20,7 @@
     GIT_REPO_STATE,
     GRASP_SET_KIND,
   } from "@nostr-git/core/events"
-  import {activeChannelsByUrl, loadPlatformChannels} from "@app/core/git-state"
+  import {activeChannelsByUrl, loadPlatformChannels} from "@app/core/state"
   import {AuthStatus, SocketStatus} from "@welshman/net"
   import {request} from "@welshman/net"
   import {onMount} from "svelte"

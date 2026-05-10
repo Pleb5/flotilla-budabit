@@ -14,7 +14,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import ProfileSingleSelect from "@lib/budabit/components/ProfileSingleSelect.svelte"
+  import ProfileSingleSelect from "@app/components/ProfileSingleSelect.svelte"
   import {makeChatPath} from "@app/util/routes"
 
   const back = () => history.back()

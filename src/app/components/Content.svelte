@@ -1,6 +1,7 @@
 <script lang="ts">
   import {fromNostrURI} from "@welshman/util"
   import {nthEq} from "@welshman/lib"
+  import {MESSAGE} from "@welshman/util"
   import {
     parse,
     truncate,
@@ -18,7 +19,6 @@
     isAddress,
     isNewline,
   } from "@welshman/content"
-  import type {Parsed} from "@welshman/content"
   import {preventDefault, stopPropagation} from "@lib/html"
   import Link from "@lib/components/Link.svelte"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
@@ -33,15 +33,19 @@
   import ContentQuote from "@app/components/ContentQuote.svelte"
   import ContentTopic from "@app/components/ContentTopic.svelte"
   import ContentMention from "@app/components/ContentMention.svelte"
+  import Markdown from "@lib/components/Markdown.svelte"
   import {entityLink, userSettingsValues} from "@app/core/state"
+  import {Template, isKnownUnknown, EventRenderer, isKnownEventKind} from "@nostr-git/ui"
 
   interface Props {
     event: any
     minLength?: number
     maxLength?: number
     showEntire?: boolean
+    hideMediaAtDepth?: number
     expandMode?: string
-    trimParent?: boolean
+    minimalQuote?: boolean
+    depth?: number
     url?: string
   }
 
@@ -50,8 +54,10 @@
     minLength = 500,
     maxLength = 700,
     showEntire = $bindable(false),
+    hideMediaAtDepth = 1,
     expandMode = "block",
-    trimParent = false,
+    minimalQuote = false,
+    depth = 0,
     url,
   }: Props = $props()
 
@@ -61,16 +67,25 @@
     showEntire = true
   }
 
+  const stopTapFromInteractive = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null
+    if (!target) return
+    const interactive = target.closest("button, a, [role='button'], [data-stop-tap]")
+    if (interactive) {
+      event.stopPropagation()
+    }
+  }
+
   const isBlock = (i: number) => {
     const parsed = fullContent[i]
 
-    if (!parsed) return false
+    if (!parsed || hideMediaAtDepth <= depth) return false
 
-    if (isLink(parsed) && $userSettingsValues.show_media && isStartAndEnd(i)) {
+    if (isLink(parsed) && $userSettingsValues.show_media && isStartOrEnd(i)) {
       return true
     }
 
-    if (isQuote(parsed) && isStartAndEnd(i)) {
+    if ((isEvent(parsed) || isAddress(parsed)) && isStartOrEnd(i)) {
       return true
     }
 
@@ -92,7 +107,7 @@
 
   const isStartAndEnd = (i: number) => isStart(i) && isEnd(i)
 
-  const isQuote = (p: Parsed) => isEvent(p) || isAddress(p)
+  const isStartOrEnd = (i: number) => isStart(i) || isEnd(i)
 
   const ignoreWarning = () => {
     warning = null
@@ -102,37 +117,15 @@
     $userSettingsValues.hide_sensitive && event.tags.find(nthEq(0, "content-warning"))?.[1],
   )
 
-  const dropWhile = <T,>(f: (x: T) => boolean, xs: Iterable<T>) => {
-    const result: T[] = []
-
-    for (const x of xs) {
-      if (result.length === 0 && f(x)) {
-        continue
-      }
-
-      result.push(x)
-    }
-
-    return result
-  }
-
-  const shortContent = $derived.by(() => {
-    let result = fullContent
-
-    if (trimParent && result.length > 0 && isQuote(result[0])) {
-      result = dropWhile(p => isQuote(p) || isNewline(p), result)
-    }
-
-    if (!showEntire) {
-      result = truncate(result, {
-        minLength,
-        maxLength,
-        mediaLength: 200,
-      })
-    }
-
-    return result
-  })
+  const shortContent = $derived(
+    showEntire
+      ? fullContent
+      : truncate(fullContent, {
+          minLength,
+          maxLength,
+          mediaLength: hideMediaAtDepth <= depth ? 20 : 200,
+        }),
+  )
 
   const hasEllipsis = $derived(shortContent.some(isEllipsis))
   const expandInline = $derived(hasEllipsis && expandMode === "inline")
@@ -149,49 +142,72 @@
       </p>
     </div>
   {:else}
-    <div
-      class="overflow-hidden text-ellipsis break-words"
-      style={expandBlock ? "mask-image: linear-gradient(0deg, transparent 0px, black 100px)" : ""}>
-      {#each shortContent as parsed, i}
-        {#if isNewline(parsed) && !isBlock(i - 1)}
-          <ContentNewline value={parsed.value} />
-        {:else if isTopic(parsed)}
-          <ContentTopic value={parsed.value} />
-        {:else if isEmoji(parsed)}
-          <ContentEmoji value={parsed.value} />
-        {:else if isCode(parsed)}
-          <ContentCode
-            value={parsed.value}
-            isBlock={isStartAndEnd(i) || parsed.value.includes("\n")} />
-        {:else if isCashu(parsed) || isInvoice(parsed)}
-          <ContentToken value={parsed.value} />
-        {:else if isLink(parsed)}
-          {#if isBlock(i)}
-            <ContentLinkBlock value={parsed.value} {event} />
+    {#if isKnownEventKind(event.kind)}
+      <div
+        class="event-renderer"
+        role="presentation"
+        tabindex="-1"
+        onclick={stopTapFromInteractive}
+        onkeydown={e => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+          }
+        }}>
+        <EventRenderer {event} relay={url} />
+      </div>
+    {:else if isKnownUnknown(event.kind)}
+      <div class="unknown-kind">
+        {@html new Template(event).render()}
+      </div>
+    {:else if event.kind === MESSAGE}
+      <Markdown content={event.content} {event} {url} {minimalQuote} {hideMediaAtDepth} {depth} />
+    {:else}
+      <div
+        class="overflow-hidden text-ellipsis break-words"
+        style={expandBlock
+          ? "mask-image: linear-gradient(0deg, transparent 0px, black 100px)"
+          : ""}>
+        {#each shortContent as parsed, i}
+          {#if isNewline(parsed) && !isBlock(i - 1)}
+            <ContentNewline value={parsed.value} />
+          {:else if isTopic(parsed)}
+            <ContentTopic value={parsed.value} />
+          {:else if isEmoji(parsed)}
+            <ContentEmoji value={parsed.value} />
+          {:else if isCode(parsed)}
+            <ContentCode
+              value={parsed.value}
+              isBlock={isStartAndEnd(i) || parsed.value.includes("\n")} />
+          {:else if isCashu(parsed) || isInvoice(parsed)}
+            <ContentToken value={parsed.value} />
+          {:else if isLink(parsed)}
+            {#if isBlock(i)}
+              <ContentLinkBlock value={parsed.value} {event} />
+            {:else}
+              <ContentLinkInline value={parsed.value} />
+            {/if}
+          {:else if isProfile(parsed)}
+            <ContentMention value={parsed.value} {url} />
+          {:else if isEvent(parsed) || isAddress(parsed)}
+            {#if isBlock(i)}
+              <ContentQuote {url} value={parsed.value} {event} />
+            {:else}
+              <Link
+                external
+                class="overflow-hidden text-ellipsis whitespace-nowrap underline"
+                href={entityLink(parsed.raw)}>
+                {fromNostrURI(parsed.raw).slice(0, 16) + "…"}
+              </Link>
+            {/if}
+          {:else if isEllipsis(parsed) && expandInline}
+            {@html renderAsHtml(parsed)}
+            <button type="button" class="text-sm underline"> Read more </button>
           {:else}
-            <ContentLinkInline value={parsed.value} />
+            {@html renderAsHtml(parsed)}
           {/if}
-        {:else if isProfile(parsed)}
-          <ContentMention value={parsed.value} {url} />
-        {:else if isQuote(parsed)}
-          {#if isBlock(i)}
-            <ContentQuote {url} value={parsed.value} {event} />
-          {:else}
-            <Link
-              external
-              class="overflow-hidden text-ellipsis whitespace-nowrap underline"
-              href={entityLink(parsed.raw)}>
-              {fromNostrURI(parsed.raw).slice(0, 16) + "…"}
-            </Link>
-          {/if}
-        {:else if isEllipsis(parsed) && expandInline}
-          {@html renderAsHtml(parsed)}
-          <button type="button" class="text-sm underline"> Read more </button>
-        {:else}
-          {@html renderAsHtml(parsed)}
-        {/if}
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {/if}
     {#if expandBlock}
       <div class="relative z-feature -mt-6 flex justify-center py-2">
         <button

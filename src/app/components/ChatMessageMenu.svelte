@@ -2,7 +2,7 @@
   import {pubkey} from "@welshman/app"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
-  import EventInfo from "@lib/budabit/components/EventInfo.svelte"
+  import EventInfo from "@app/components/EventInfo.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import {pushModal} from "@app/util/modal"
   import Code2 from "@assets/icons/code-2.svg?dataurl"

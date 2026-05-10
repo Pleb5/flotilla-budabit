@@ -23,9 +23,9 @@
     cashuAutoPayWhitelist,
     removeAutoPayWhitelist,
   } from "@app/core/cashu"
-  import CashuMintManager from "@lib/budabit/components/CashuMintManager.svelte"
-  import CashuSeedBackup from "@lib/budabit/components/CashuSeedBackup.svelte"
-  import CashuWalletModal from "@lib/budabit/components/CashuWalletModal.svelte"
+  import CashuMintManager from "@app/components/CashuMintManager.svelte"
+  import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
+  import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
 
   const connect = () => pushModal(WalletConnect)
 

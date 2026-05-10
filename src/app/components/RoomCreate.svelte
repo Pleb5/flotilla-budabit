@@ -1,47 +1,98 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import type {RoomMeta} from "@welshman/util"
-  import {displayRelayUrl} from "@welshman/util"
-  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
-  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
+  import {displayRelayUrl, makeRoomMeta} from "@welshman/util"
+  import {deriveRelay, pubkey, waitForThunkError} from "@welshman/app"
+  import {preventDefault} from "@lib/html"
+  import Field from "@lib/components/Field.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import Button from "@lib/components/Button.svelte"
+  import Hashtag from "@assets/icons/hashtag.svg?dataurl"
+  import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import RoomForm from "@app/components/RoomForm.svelte"
+  import {canCreateRoomByPlatformPolicy, createBudaBitRoom, loadRoom} from "@app/core/state"
   import {makeSpacePath} from "@app/util/routes"
+  import {pushToast} from "@app/util/toast"
 
   const {url} = $props()
 
+  const relay = deriveRelay(url)
+  const owner = $derived($relay?.pubkey)
+  const canCreateRoom = $derived(
+    canCreateRoomByPlatformPolicy({relayUrl: url, viewerPubkey: $pubkey, relayOwnerPubkey: owner}),
+  )
+
+  const room = makeRoomMeta()
+
   const back = () => history.back()
 
-  const onsubmit = (room: RoomMeta) => goto(makeSpacePath(url, room.h))
+  const tryCreate = async () => {
+    if (!canCreateRoom) {
+      return pushToast({
+        theme: "error",
+        message: "You are not allowed to create rooms on this relay.",
+      })
+    }
+
+    room.name = name
+
+    const createMessage = await waitForThunkError(createBudaBitRoom(url, room))
+
+    if (createMessage && !createMessage.match(/^duplicate:|already a member/)) {
+      return pushToast({theme: "error", message: createMessage})
+    }
+
+    await loadRoom(url, room.h)
+
+    goto(makeSpacePath(url, room.h))
+  }
+
+  const create = async () => {
+    loading = true
+
+    try {
+      await tryCreate()
+    } finally {
+      loading = false
+    }
+  }
+
+  let name = $state("")
+  let loading = $state(false)
 </script>
 
-<RoomForm {url} {onsubmit}>
-  {#snippet header()}
-    <ModalHeader>
-      {#snippet title()}
-        <div>Create a Room</div>
-      {/snippet}
-      {#snippet info()}
-        <div>
-          On <span class="text-primary">{displayRelayUrl(url)}</span>
-        </div>
-      {/snippet}
-    </ModalHeader>
-  {/snippet}
-  {#snippet footer({loading})}
-    <ModalFooter>
-      <Button class="btn btn-link" onclick={back}>
-        <Icon icon={AltArrowLeft} />
-        Go back
-      </Button>
-      <Button type="submit" class="btn btn-primary" disabled={loading}>
-        <Spinner {loading}>Create Room</Spinner>
-        <Icon icon={AltArrowRight} />
-      </Button>
-    </ModalFooter>
-  {/snippet}
-</RoomForm>
+<form class="column gap-4" onsubmit={preventDefault(create)}>
+  <ModalHeader>
+    {#snippet title()}
+      <div>Create a Room</div>
+    {/snippet}
+    {#snippet info()}
+      <div>
+        On <span class="text-primary">{displayRelayUrl(url)}</span>
+      </div>
+    {/snippet}
+  </ModalHeader>
+  <Field>
+    {#snippet label()}
+      <p>Room Name</p>
+    {/snippet}
+    {#snippet input()}
+      <label class="input input-bordered flex w-full items-center gap-2">
+        <Icon icon={Hashtag} />
+        <input bind:value={name} class="grow" type="text" />
+      </label>
+    {/snippet}
+  </Field>
+  <ModalFooter>
+    <Button class="btn btn-link" onclick={back}>
+      <Icon icon={AltArrowLeft} />
+      Go back
+    </Button>
+    <Button type="submit" class="btn btn-primary" disabled={!name || loading || !canCreateRoom}>
+      <Spinner {loading}>Create Room</Spinner>
+      <Icon icon={AltArrowRight} />
+    </Button>
+  </ModalFooter>
+</form>
