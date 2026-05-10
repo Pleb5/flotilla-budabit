@@ -46,7 +46,7 @@
     type Token,
   } from "@nostr-git/ui"
   import {getRepoAnnouncementRelays} from "@lib/budabit/state"
-  import {buildRepoOwnedDeleteFilters, getRepoDeleteAddresses} from "@lib/budabit/delete"
+  import {buildRepoOwnedDeleteFilters, getRepoDeleteAddresses} from "@app/util/repo-delete"
   import type {Repo} from "@nostr-git/ui"
 
   type Props = {

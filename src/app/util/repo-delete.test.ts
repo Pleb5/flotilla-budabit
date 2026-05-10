@@ -1,7 +1,11 @@
 import {describe, expect, it} from "vitest"
-import {buildRepoOwnedDeleteFilters, getRepoDeleteAddresses, matchesRepoDeleteEvent} from "./delete"
+import {
+  buildRepoOwnedDeleteFilters,
+  getRepoDeleteAddresses,
+  matchesRepoDeleteEvent,
+} from "./repo-delete"
 
-describe("budabit delete helpers", () => {
+describe("repo delete helpers", () => {
   it("deduplicates repo delete addresses and keeps fallback", () => {
     expect(
       getRepoDeleteAddresses(
