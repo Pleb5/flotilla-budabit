@@ -44,7 +44,7 @@
     loadRepoContext,
   } from "@lib/budabit/state"
   import {toNaturalArray} from "@app/util/labels"
-  import {resolveIssueEdits} from "@lib/budabit/issue-edits"
+  import {resolveIssueEdits} from "@app/util/issue-edits"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import {
     REPO_KEY,

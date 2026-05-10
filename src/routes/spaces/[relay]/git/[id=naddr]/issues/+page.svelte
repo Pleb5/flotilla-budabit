@@ -62,7 +62,7 @@
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
   import {fade} from "svelte/transition"
-  import {resolveIssueEdits} from "@lib/budabit/issue-edits"
+  import {resolveIssueEdits} from "@app/util/issue-edits"
   import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
 
   let showScrollButton = $state(false)
