@@ -190,7 +190,7 @@ vi.mock("@lib/budabit/nip85", () => ({
   loadNip85ProviderConfig: mocks.loadNip85ProviderConfig,
 }))
 
-vi.mock("@lib/budabit/repo-watch", () => ({
+vi.mock("@app/core/repo-watch", () => ({
   loadRepoWatch: mocks.loadRepoWatch,
 }))
 

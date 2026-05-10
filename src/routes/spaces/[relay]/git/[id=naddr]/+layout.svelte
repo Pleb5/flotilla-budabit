@@ -150,7 +150,7 @@
     REPO_TRUST_METRICS_KEY,
     createRepoTrustMetricsStore,
   } from "@lib/budabit/repo-trust-metrics"
-  import {userRepoWatchValues} from "@lib/budabit/repo-watch"
+  import {userRepoWatchValues} from "@app/core/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"

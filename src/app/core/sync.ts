@@ -58,7 +58,7 @@ import {
   startExtensionSettingsAutoSync,
 } from "@app/extensions/settings"
 import {loadNip85ProviderConfig} from "@lib/budabit/nip85"
-import {loadRepoWatch} from "@lib/budabit/repo-watch"
+import {loadRepoWatch} from "@app/core/repo-watch"
 import {loadTrustGraphConfig} from "@lib/budabit/trust-graph-config"
 
 // Utils

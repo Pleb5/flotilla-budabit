@@ -71,7 +71,7 @@ import {
   loadRepoAnnouncementByAddress,
   loadRepoMaintainerAnnouncements,
 } from "@lib/budabit/state"
-import {defaultRepoWatchOptions, userRepoWatchValues} from "@lib/budabit/repo-watch"
+import {defaultRepoWatchOptions, userRepoWatchValues} from "@app/core/repo-watch"
 import {isArchivedRoomReference} from "@app/util/room-archive"
 
 // Checked state

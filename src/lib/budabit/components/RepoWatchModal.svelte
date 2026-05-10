@@ -11,7 +11,7 @@
     updateRepoWatch,
     userRepoWatchValues,
     type RepoWatchOptions,
-  } from "@lib/budabit/repo-watch"
+  } from "@app/core/repo-watch"
 
   type Props = {
     repoAddr: string

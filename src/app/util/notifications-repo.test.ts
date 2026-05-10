@@ -170,7 +170,7 @@ vi.mock("@lib/budabit/state", () => ({
     map.get(repoAddress) || new Set([repoAddress]),
 }))
 
-vi.mock("@lib/budabit/repo-watch", () => ({
+vi.mock("@app/core/repo-watch", () => ({
   defaultRepoWatchOptions: {
     status: {open: true, draft: true, applied: true, closed: true},
     issues: {new: true, comments: true},

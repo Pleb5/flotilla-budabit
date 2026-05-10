@@ -132,7 +132,7 @@ vi.mock("@nostr-git/core/utils", () => ({
   buildRepoNaddrFromEvent: () => "naddr1abc",
 }))
 
-vi.mock("@lib/budabit/repo-watch", () => ({
+vi.mock("@app/core/repo-watch", () => ({
   defaultRepoWatchOptions: {
     status: {open: true, draft: true, applied: true, closed: true},
     issues: {new: true, comments: true},
