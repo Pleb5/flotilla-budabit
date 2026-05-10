@@ -9,8 +9,8 @@ import {
   normalizeRelayUrl,
 } from "@welshman/util"
 import type {List, TrustedEvent} from "@welshman/util"
-import {INDEXER_RELAYS, PLATFORM_RELAYS} from "@app/core/state"
-export {DM_KIND} from "@lib/budabit/constants"
+import {DM_KIND, INDEXER_RELAYS, PLATFORM_RELAYS} from "@app/core/state"
+export {DM_KIND}
 
 export const normalizeRelayUrls = (relays: string[]) => {
   const result: string[] = []

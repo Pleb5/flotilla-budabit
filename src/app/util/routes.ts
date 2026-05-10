@@ -27,8 +27,8 @@ import {
   PLATFORM_RELAYS,
   isPlatformRelay,
   ROOM,
+  DM_KIND,
 } from "@app/core/state"
-import {DM_KIND} from "@lib/budabit/constants"
 import {
   GIT_REPO_ANNOUNCEMENT,
   GIT_REPO_STATE,

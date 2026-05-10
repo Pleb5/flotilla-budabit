@@ -7,6 +7,7 @@ vi.mock("@app/core/state", () => ({
   makeChatId: (recipient: string) => recipient,
   entityLink: vi.fn(),
   decodeRelay: decodeURIComponent,
+  DM_KIND: 4,
   encodeRelay: encodeURIComponent,
   userSpaceUrls: writable([]),
   hasNip29: vi.fn(() => false),
@@ -16,7 +17,6 @@ vi.mock("@app/core/state", () => ({
 }))
 
 vi.mock("@app/util/history", () => ({lastPageBySpaceUrl: new Map()}))
-vi.mock("@lib/budabit/constants", () => ({DM_KIND: 4}))
 vi.mock("@lib/budabit/state", () => ({
   GIT_RELAYS: [],
   repoAnnouncementsByAddress: writable(new Map()),

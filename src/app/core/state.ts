@@ -131,7 +131,6 @@ import {
   userFollowList,
 } from "@welshman/app"
 import type {ThunkOptions} from "@welshman/app"
-import {DM_KIND} from "@lib/budabit/constants"
 
 export type Room = RoomMeta & {
   url: string
@@ -196,6 +195,8 @@ const canManageRelayFromBrowser = (url: string) => {
 }
 
 export const ROOM = "h"
+
+export const DM_KIND = 4444
 
 export const ENABLE_ZAPS = true
 

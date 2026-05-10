@@ -1,4 +1,4 @@
-import {on, throttle, fromPairs, batch, indexBy} from "@welshman/lib"
+import {on, fromPairs, batch, indexBy} from "@welshman/lib"
 import {throttled} from "@welshman/store"
 import {
   ALERT_ANDROID,
@@ -32,7 +32,7 @@ import {
 import type {Zapper, TrustedEvent, RelayProfile} from "@welshman/util"
 import type {Handle, RelayStats} from "@welshman/app"
 import type {RepositoryUpdate} from "@welshman/net"
-import {DM_KIND} from "@lib/budabit/constants"
+import {DM_KIND} from "@app/core/state"
 import {
   tracker,
   plaintext,
