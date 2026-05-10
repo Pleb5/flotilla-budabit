@@ -20,12 +20,9 @@
     type ProfileCodeTrustCollaborator,
     type ProfileCodeTrustInteractionDetail,
     type ProfileCodeTrustAnalysis,
-  } from "@lib/budabit/profile-collab-analysis"
-  import {getTrustGraphSourceLabel} from "@lib/budabit/trust-graph"
-  import {
-    hasEnabledTrustGraphRules,
-    userTrustGraphConfigValues,
-  } from "@lib/budabit/trust-graph-config"
+  } from "@app/core/profile-collab-analysis"
+  import {getTrustGraphSourceLabel} from "@app/core/trust-graph"
+  import {hasEnabledTrustGraphRules, userTrustGraphConfigValues} from "@app/core/trust-graph-config"
   import {makeGitPath} from "@app/util/routes"
   import {decodeRelay} from "@app/core/state"
   import {Address} from "@welshman/util"

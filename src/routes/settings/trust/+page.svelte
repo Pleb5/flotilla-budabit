@@ -32,7 +32,7 @@
     type TrustGraphRule,
     upsertTrustGraphRule,
     userTrustGraphConfigValues,
-  } from "@lib/budabit/trust-graph-config"
+  } from "@app/core/trust-graph-config"
   import {
     discoverNip85ExtraCapabilities,
     NIP85_USER_ASSERTION_KIND,
@@ -60,7 +60,7 @@
     upsertNip85ConfiguredProvider,
     userNip85ConfiguredProviders,
     verifyNip85SelectedProviders,
-  } from "@lib/budabit/nip85"
+  } from "@app/core/nip85"
 
   type CapabilityRow = {
     provider: Nip85Provider | Nip85ConfiguredProvider | Nip85RecommendedProvider

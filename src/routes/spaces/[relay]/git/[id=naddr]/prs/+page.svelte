@@ -69,7 +69,7 @@
     REPO_TRUST_METRICS_KEY,
     defaultRepoTrustMetrics,
     type RepoTrustMetrics,
-  } from "@lib/budabit/repo-trust-metrics"
+  } from "@app/core/repo-trust-metrics"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 

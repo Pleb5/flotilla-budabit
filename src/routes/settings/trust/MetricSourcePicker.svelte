@@ -6,7 +6,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import InlinePopover from "@lib/components/InlinePopover.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
-  import type {TrustGraphMetricSource} from "@lib/budabit/trust-graph-config"
+  import type {TrustGraphMetricSource} from "@app/core/trust-graph-config"
 
   export type MetricSourcePickerOption = {
     value: string

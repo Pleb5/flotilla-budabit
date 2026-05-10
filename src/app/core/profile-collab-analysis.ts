@@ -15,7 +15,7 @@ import {
   loadRepoAnnouncementByAddress,
   loadRepoMaintainerAnnouncements,
   repoAnnouncementsByAddress,
-} from "./state"
+} from "@lib/budabit/state"
 import {loadActiveTrustGraph, type ActiveTrustGraph, type TrustGraphSource} from "./trust-graph"
 
 export const PROFILE_CODE_TRUST_WINDOW_DAYS = 180

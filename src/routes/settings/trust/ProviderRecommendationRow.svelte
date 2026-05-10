@@ -16,7 +16,7 @@
     Nip85Provider,
     Nip85ProviderVisibility,
     Nip85RecommendedProvider,
-  } from "@lib/budabit/nip85"
+  } from "@app/core/nip85"
 
   type Recommender = {
     pubkey: string

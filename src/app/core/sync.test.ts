@@ -186,7 +186,7 @@ vi.mock("@app/extensions/settings", () => ({
   startExtensionSettingsAutoSync: mocks.startExtensionSettingsAutoSync,
 }))
 
-vi.mock("@lib/budabit/nip85", () => ({
+vi.mock("@app/core/nip85", () => ({
   loadNip85ProviderConfig: mocks.loadNip85ProviderConfig,
 }))
 
@@ -194,7 +194,7 @@ vi.mock("@app/core/repo-watch", () => ({
   loadRepoWatch: mocks.loadRepoWatch,
 }))
 
-vi.mock("@lib/budabit/trust-graph-config", () => ({
+vi.mock("@app/core/trust-graph-config", () => ({
   loadTrustGraphConfig: mocks.loadTrustGraphConfig,
 }))
 

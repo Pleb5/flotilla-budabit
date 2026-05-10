@@ -57,9 +57,9 @@ import {
   applyRemoteExtensionSettings,
   startExtensionSettingsAutoSync,
 } from "@app/extensions/settings"
-import {loadNip85ProviderConfig} from "@lib/budabit/nip85"
+import {loadNip85ProviderConfig} from "@app/core/nip85"
 import {loadRepoWatch} from "@app/core/repo-watch"
-import {loadTrustGraphConfig} from "@lib/budabit/trust-graph-config"
+import {loadTrustGraphConfig} from "@app/core/trust-graph-config"
 
 // Utils
 

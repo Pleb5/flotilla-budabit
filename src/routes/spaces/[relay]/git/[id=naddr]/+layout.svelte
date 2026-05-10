@@ -146,10 +146,7 @@
     getMaintainerSetRepoAddresses,
     loadRepoMaintainerAnnouncements,
   } from "@lib/budabit/state"
-  import {
-    REPO_TRUST_METRICS_KEY,
-    createRepoTrustMetricsStore,
-  } from "@lib/budabit/repo-trust-metrics"
+  import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
   import PageBar from "@src/lib/components/PageBar.svelte"

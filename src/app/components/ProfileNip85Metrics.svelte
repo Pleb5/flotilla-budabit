@@ -19,7 +19,7 @@
     formatNip85UserMetricValue,
     type Nip85FetchedUserAssertion,
     type Nip85UserAssertionSummary,
-  } from "@lib/budabit/nip85"
+  } from "@app/core/nip85"
 
   type Props = {
     pubkey: string

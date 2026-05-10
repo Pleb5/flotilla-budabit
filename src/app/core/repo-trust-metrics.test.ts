@@ -4,7 +4,7 @@ const {inertReadable} = vi.hoisted(() => ({
   inertReadable: () => ({subscribe: () => () => {}}),
 }))
 
-vi.mock("./state", () => ({
+vi.mock("@lib/budabit/state", () => ({
   maintainerSetByRepoAddress: inertReadable(),
 }))
 

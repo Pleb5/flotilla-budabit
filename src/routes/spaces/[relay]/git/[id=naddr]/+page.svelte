@@ -51,7 +51,7 @@
     REPO_TRUST_METRICS_KEY,
     defaultRepoTrustMetrics,
     type RepoTrustMetrics,
-  } from "@lib/budabit/repo-trust-metrics"
+  } from "@app/core/repo-trust-metrics"
   import {
     parsePullRequestEvent,
     type IssueEvent,
