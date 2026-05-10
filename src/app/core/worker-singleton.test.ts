@@ -21,7 +21,7 @@ vi.mock("@nostr-git/core/worker/worker.js?url", () => ({
   default: "/worker.js",
 }))
 
-vi.mock("@lib/budabit/event-io", () => ({
+vi.mock("@app/core/event-io", () => ({
   createEventIO: vi.fn(() => ({
     fetchEvents: vi.fn(),
     publishEvent: vi.fn(),

@@ -88,7 +88,7 @@
   } from "@lib/budabit/state"
   import {getInitializedGitWorker, terminateGitWorker} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
-  import {createNip98AuthHeader} from "@src/lib/budabit/event-io"
+  import {createNip98AuthHeader} from "@app/core/event-io"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Bookmark from "@assets/icons/bookmark.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
