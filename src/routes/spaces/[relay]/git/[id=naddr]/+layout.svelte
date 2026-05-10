@@ -46,7 +46,7 @@
   import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
   import RemoteFixHelperModal from "@app/components/RemoteFixHelperModal.svelte"
   import {EditRepoPanel} from "@nostr-git/ui"
-  import {postRepoAnnouncement, postRepoStateEvent} from "@lib/budabit/commands.js"
+  import {postRepoAnnouncement, postRepoStateEvent} from "@app/core/git-commands.js"
   import RepoWatchModal from "@lib/budabit/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   import type {NostrFilter, NostrEvent} from "@nostr-git/core"
@@ -145,7 +145,7 @@
     maintainerSetRelaysByRepoAddress,
     getMaintainerSetRepoAddresses,
     loadRepoMaintainerAnnouncements,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"

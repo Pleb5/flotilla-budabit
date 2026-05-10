@@ -29,7 +29,7 @@
   } from "@welshman/util"
   import {tick} from "svelte"
   import {Router} from "@welshman/router"
-  import {GIT_RELAYS} from "@lib/budabit/state"
+  import {GIT_RELAYS} from "@app/core/git-state"
   import {pushToast} from "@src/app/util/toast"
   import {PublishStatus, request} from "@welshman/net"
   import {goto} from "$app/navigation"

@@ -1,7 +1,7 @@
 import {publishThunk, signer} from "@welshman/app"
 import {PublishStatus, load} from "@welshman/net"
 import {pushToast} from "@app/util/toast"
-import {activeRepoClass} from "@lib/budabit/state"
+import {activeRepoClass} from "@app/core/git-state"
 import {get} from "svelte/store"
 import type {LoadedExtension} from "./types"
 import {getRepoAddress} from "./types"

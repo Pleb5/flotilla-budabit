@@ -38,13 +38,13 @@
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import type {PageData} from "./$types"
   import {getContext, hasContext, onMount, tick} from "svelte"
-  import {REPO_CLONE_URLS_KEY, REPO_KEY} from "@lib/budabit/state"
+  import {REPO_CLONE_URLS_KEY, REPO_KEY} from "@app/core/git-state"
   import {readable, type Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
   import {githubPermalinkDiffId} from "@nostr-git/core/git"
   import {nip19} from "nostr-tools"
-  import {postPermalink} from "@lib/budabit"
+  import {postPermalink} from "@app/core/git-commands"
   import type {CommitChange} from "./+page"
 
   const {data}: {data: PageData} = $props()

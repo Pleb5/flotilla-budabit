@@ -5,8 +5,8 @@
   import {createRepoStateEvent, type RepoStateEvent} from "@nostr-git/core/events"
   import {parseRepoAnnouncementEvent} from "@nostr-git/core/events"
   import {normalizeRelayUrl} from "@welshman/util"
-  import {postRepoStateEvent} from "@lib/budabit/commands.js"
-  import {GIT_RELAYS} from "@lib/budabit/state"
+  import {postRepoStateEvent} from "@app/core/git-commands.js"
+  import {GIT_RELAYS} from "@app/core/git-state"
   import {pushToast} from "@src/app/util/toast"
 
   const {repo}: {repo: Repo} = $props()

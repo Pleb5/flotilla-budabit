@@ -29,7 +29,7 @@
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import {slide} from "svelte/transition"
   import {getContext} from "svelte"
-  import {postComment} from "@lib/budabit"
+  import {postComment} from "@app/core/git-commands"
   import {PeoplePicker} from "@nostr-git/ui"
   import {createLabelEvent} from "@nostr-git/core/events"
   import {canEnforceNip70, publishDelete, publishReaction} from "@app/core/commands"
@@ -42,7 +42,7 @@
     deriveRoleAssignments,
     getRepoScopedRelays,
     loadRepoContext,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import {toNaturalArray} from "@app/util/labels"
   import {resolveIssueEdits} from "@app/util/issue-edits"
   import Markdown from "@src/lib/components/Markdown.svelte"
@@ -51,7 +51,7 @@
     getMaintainerSetRepoAddresses,
     maintainerSetByRepoAddress,
     maintainerSetRepoAddressesByRepoAddress,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
 
   const repoClass = getContext<Repo>(REPO_KEY)

@@ -65,7 +65,7 @@
   import {Router} from "@welshman/router"
   import {extensionSettings} from "@app/extensions/settings"
   import {ExtensionBridge} from "@app/extensions/bridge"
-  import {REPO_KEY} from "@lib/budabit/state"
+  import {REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
   import type {
     LoadedWidgetExtension,

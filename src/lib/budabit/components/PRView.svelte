@@ -65,13 +65,13 @@
     GIT_PULL_REQUEST_UPDATE,
     GIT_STATUS_APPLIED,
   } from "@nostr-git/core/events"
-  import {postComment, postStatus, publishEvent} from "@lib/budabit"
+  import {postComment, postStatus, publishEvent} from "@app/core/git-commands"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {
     getMaintainerSetRepoAddresses,
     maintainerSetByRepoAddress,
     maintainerSetRepoAddressesByRepoAddress,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
   import {getCloneUrlsFromEvent, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {normalizeRelayUrl} from "@welshman/util"

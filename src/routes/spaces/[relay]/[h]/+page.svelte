@@ -55,7 +55,7 @@
   import {makeSpacePath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
   import ArchiveRoomConfirm from "@app/components/ArchiveRoomConfirm.svelte"
-  import {deriveChannel} from "@lib/budabit/state"
+  import {deriveChannel} from "@app/core/git-state"
   import {getRoomInteractionState} from "@app/util/room-archive"
 
   const {h, relay} = $page.params as MakeNonOptional<typeof $page.params> as MakeNonOptional<

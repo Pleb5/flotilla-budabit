@@ -72,7 +72,7 @@ vi.mock("@app/core/state", () => ({
   roomsById: mockRoomsById,
 }))
 
-vi.mock("@lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   channelsById: mockChannelsById,
   makeChannelId: (url: string, h: string) => `${url}'${h}`,
   GIT_RELAYS: [],

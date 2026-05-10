@@ -10,7 +10,7 @@
   import {pubkey, relaySearch} from "@welshman/app"
   import {isShareableRelayUrl, normalizeRelayUrl} from "@welshman/util"
   import {createGraspServersEvent} from "@nostr-git/core/events"
-  import {postGraspServersList} from "@src/lib/budabit"
+  import {postGraspServersList} from "@app/core/git-commands"
 
   let newUrl = $state("")
   let isSaving = $state(false)

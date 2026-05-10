@@ -13,7 +13,7 @@
   import {signer, pubkey, publishThunk} from "@welshman/app"
   import {Router} from "@welshman/router"
   import {APP_DATA, makeEvent} from "@welshman/util"
-  import {GIT_AUTH_DTAG} from "@src/lib/budabit/requests"
+  import {GIT_AUTH_DTAG} from "@app/core/git-requests"
   import {get} from "svelte/store"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"

@@ -1,7 +1,7 @@
 <script lang="ts">
   import {getContext} from "svelte"
   import {pubkey} from "@welshman/app"
-  import {REPO_KEY, REPO_SETTINGS_ACTIONS_KEY, type RepoSettingsActions} from "@lib/budabit/state"
+  import {REPO_KEY, REPO_SETTINGS_ACTIONS_KEY, type RepoSettingsActions} from "@app/core/git-state"
   import {Card, EditRepoPanel, type Repo} from "@nostr-git/ui"
   import RepoSettingsPanel from "@lib/budabit/components/RepoSettingsPanel.svelte"
 

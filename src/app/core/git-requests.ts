@@ -8,7 +8,7 @@ import {
 } from "@nostr-git/core/events"
 import {tokens, type Token, bookmarksStore} from "@nostr-git/ui"
 import {DEFAULT_GRASP_SERVER_URL, graspServersStore} from "@nostr-git/ui"
-import {repository, pubkey, signer, ensurePlaintext} from "@welshman/app"
+import {repository, ensurePlaintext} from "@welshman/app"
 import {load} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {
@@ -18,7 +18,6 @@ import {
   normalizeRelayUrl,
   type TrustedEvent,
 } from "@welshman/util"
-import {get} from "svelte/store"
 
 const safeNormalizeRelayUrl = (u: string): string => {
   try {
@@ -75,7 +74,9 @@ let bookmarksUnsub: (() => void) | undefined
 export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
   try {
     bookmarksUnsub?.()
-  } catch {}
+  } catch {
+    // Existing subscriptions are best-effort cleanup before replacing them.
+  }
 
   // Query for both new format (with d-tag) and legacy format (without d-tag)
   const filters: any[] = [
@@ -118,7 +119,9 @@ let graspUnsub: (() => void) | undefined
 export function setupGraspServersSync(pubkey: string, relays: string[] = []) {
   try {
     graspUnsub?.()
-  } catch {}
+  } catch {
+    // Existing subscriptions are best-effort cleanup before replacing them.
+  }
 
   const filter = {kinds: [GRASP_SET_KIND], authors: [pubkey], "#d": [DEFAULT_GRASP_SET_ID]}
   const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
@@ -167,7 +170,9 @@ let tokensUnsub: (() => void) | undefined
 export function setupTokensSync(pk: string, relays: string[] = []) {
   try {
     tokensUnsub?.()
-  } catch {}
+  } catch {
+    // Existing subscriptions are best-effort cleanup before replacing them.
+  }
 
   const filter = {kinds: [APP_DATA], authors: [pk], "#d": [GIT_AUTH_DTAG]}
   const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))
@@ -224,7 +229,9 @@ export function setupExtensionSettingsSync(
 ) {
   try {
     extensionSettingsUnsub?.()
-  } catch {}
+  } catch {
+    // Existing subscriptions are best-effort cleanup before replacing them.
+  }
 
   const filter = {kinds: [APP_DATA], authors: [pk], "#d": [EXTENSION_SETTINGS_DTAG]}
   const store = deriveEventsAsc(deriveEventsById({repository, filters: [filter]}))

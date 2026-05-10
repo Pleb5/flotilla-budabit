@@ -4,7 +4,7 @@
   import DeleteWithProgressConfirm from "@app/components/DeleteWithProgressConfirm.svelte"
   import {publishSocialDelete, canEnforceNip70} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
-  import type {DeleteProgress} from "@lib/budabit/commands"
+  import type {DeleteProgress} from "@app/core/git-commands"
 
   type Props = {
     url?: string

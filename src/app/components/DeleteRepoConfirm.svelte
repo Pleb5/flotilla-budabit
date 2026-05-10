@@ -45,7 +45,7 @@
     getTokensForHost,
     type Token,
   } from "@nostr-git/ui"
-  import {getRepoAnnouncementRelays} from "@lib/budabit/state"
+  import {getRepoAnnouncementRelays} from "@app/core/git-state"
   import {buildRepoOwnedDeleteFilters, getRepoDeleteAddresses} from "@app/util/repo-delete"
   import type {Repo} from "@nostr-git/ui"
 

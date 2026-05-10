@@ -33,7 +33,7 @@
   import {ENABLE_ZAPS, canCreateRoomByPlatformPolicy, hasNip29} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {makeSpacePath} from "@app/util/routes"
-  import {channelsByUrl} from "@lib/budabit/state"
+  import {channelsByUrl} from "@app/core/git-state"
   import {partitionArchivedItems} from "@app/util/room-archive"
 
   const {url} = $props()

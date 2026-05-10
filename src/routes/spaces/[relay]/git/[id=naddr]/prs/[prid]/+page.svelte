@@ -21,7 +21,7 @@
     REPO_RELAYS_KEY,
     PULL_REQUESTS_KEY,
     getRepoScopedRelays,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"

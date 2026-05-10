@@ -123,7 +123,7 @@ import {
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
-import {DEFAULT_WORKER_PUBKEY, activeRepoClass} from "@lib/budabit/state"
+import {DEFAULT_WORKER_PUBKEY, activeRepoClass} from "@app/core/git-state"
 import {deleteIndexedDB} from "@lib/util"
 import {getQuoteEventTags} from "@app/util/git-quote"
 

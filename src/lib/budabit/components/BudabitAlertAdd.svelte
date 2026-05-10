@@ -33,7 +33,7 @@
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
   import {bookmarksStore} from "@nostr-git/ui"
-  import {repoAnnouncements, getRepoAnnouncementRelays, GIT_RELAYS} from "@lib/budabit/state"
+  import {repoAnnouncements, getRepoAnnouncementRelays, GIT_RELAYS} from "@app/core/git-state"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
 
   const timezoneOffset = parseInt(TIMEZONE.split(":")?.[0] || "00")

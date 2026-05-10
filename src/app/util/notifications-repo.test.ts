@@ -157,7 +157,7 @@ vi.mock("@nostr-git/core/utils", () => ({
   buildRepoNaddrFromEvent: () => "naddr1abc",
 }))
 
-vi.mock("@lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   channelsById: writable(new Map()),
   GIT_RELAYS: ["wss://git.relay.example.com"],
   loadRepoContext: mockLoadRepoContext,

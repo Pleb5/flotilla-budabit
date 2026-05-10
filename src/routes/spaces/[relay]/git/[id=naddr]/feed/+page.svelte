@@ -34,7 +34,7 @@
   import {pushToast} from "@app/util/toast"
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
-  import {REPO_FEED_ACTIVITY_KEY, REPO_KEY, STATUS_EVENTS_BY_ROOT_KEY} from "@lib/budabit/state"
+  import {REPO_FEED_ACTIVITY_KEY, REPO_KEY, STATUS_EVENTS_BY_ROOT_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
 

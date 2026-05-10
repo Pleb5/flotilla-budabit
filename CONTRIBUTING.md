@@ -119,9 +119,9 @@ This project is a **fork** of the upstream [Flotilla](https://github.com/coracle
 
 For budabit-specific functionality, add or modify code in the `src/lib/budabit/` directory:
 
-- **State management**: `src/lib/budabit/state.ts`
-- **Commands**: `src/lib/budabit/commands.ts`
-- **Requests**: `src/lib/budabit/requests.ts`
+- **Git state management**: `src/app/core/git-state.ts`
+- **Git commands**: `src/app/core/git-commands.ts`
+- **Git requests**: `src/app/core/git-requests.ts`
 - **Routes**: `src/lib/budabit/routes.ts`
 - **Components**: `src/lib/budabit/components/`
 - **Labels & utilities**: `src/lib/budabit/labels.ts`, `worker-singleton.ts`, etc.

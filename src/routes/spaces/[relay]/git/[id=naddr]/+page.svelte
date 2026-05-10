@@ -46,7 +46,7 @@
     type RepoActions,
     maintainerSetByRepoAddress,
     pendingMaintainersByRepoAddress,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import {
     REPO_TRUST_METRICS_KEY,
     defaultRepoTrustMetrics,

@@ -36,7 +36,7 @@ vi.mock("@app/core/commands", () => ({
   publishDelete: (opts?: unknown) => mockPublishDelete(opts),
 }))
 
-vi.mock("./state", () => ({
+vi.mock("./git-state", () => ({
   GIT_RELAYS: [],
 }))
 
@@ -51,7 +51,7 @@ describe("budabit commands", () => {
 
   describe("publishEvent", () => {
     it("uses only provided relays for repo-bound publish", async () => {
-      const {publishEvent} = await import("./commands")
+      const {publishEvent} = await import("./git-commands")
       const event = {
         id: "evt",
         kind: 1,
@@ -75,7 +75,7 @@ describe("budabit commands", () => {
 
   describe("postComment", () => {
     it("publishes comments only to provided relays", async () => {
-      const {postComment} = await import("./commands")
+      const {postComment} = await import("./git-commands")
       const comment = {
         id: "c1",
         kind: 1311,
@@ -99,7 +99,7 @@ describe("budabit commands", () => {
 
   describe("postGraspServersList", () => {
     it("merges user relays with GIT_RELAYS", async () => {
-      const {postGraspServersList} = await import("./commands")
+      const {postGraspServersList} = await import("./git-commands")
       const graspEvent = {
         id: "g1",
         kind: 0,
@@ -123,7 +123,7 @@ describe("budabit commands", () => {
 
   describe("deleteIssueWithLabels", () => {
     it("returns labelsDeleted 0 when issue is null", async () => {
-      const {deleteIssueWithLabels} = await import("./commands")
+      const {deleteIssueWithLabels} = await import("./git-commands")
 
       const result = await deleteIssueWithLabels({issue: null as any})
 
@@ -131,7 +131,7 @@ describe("budabit commands", () => {
     })
 
     it("returns labelsDeleted 0 when issue kind is not 1621", async () => {
-      const {deleteIssueWithLabels} = await import("./commands")
+      const {deleteIssueWithLabels} = await import("./git-commands")
       const issue = {
         id: "i1",
         kind: 1,
@@ -148,7 +148,7 @@ describe("budabit commands", () => {
     })
 
     it("reports progress and waits for issue and label delete acknowledgements", async () => {
-      const {deleteIssueWithLabels} = await import("./commands")
+      const {deleteIssueWithLabels} = await import("./git-commands")
       const issue = {
         id: "i1",
         kind: 1621,
@@ -208,7 +208,7 @@ describe("budabit commands", () => {
 
   describe("deletePullRequestWithRelated", () => {
     it("aborts while waiting for relay acknowledgements", async () => {
-      const {deletePullRequestWithRelated} = await import("./commands")
+      const {deletePullRequestWithRelated} = await import("./git-commands")
       const root = {
         id: "pr1",
         kind: 1618,

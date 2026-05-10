@@ -1,7 +1,7 @@
 import {readable} from "svelte/store"
 import {describe, expect, it, vi} from "vitest"
 
-vi.mock("@lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   maintainerSetByRepoAddress: readable(new Map()),
   repoAnnouncementsByAddress: readable(new Map()),
   getRepoAnnouncementRelays: vi.fn(() => []),

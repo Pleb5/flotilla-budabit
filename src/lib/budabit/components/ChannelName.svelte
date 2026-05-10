@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {GENERAL, makeChannelId, channelsById} from "@lib/budabit/state"
+  import {GENERAL, makeChannelId, channelsById} from "@app/core/git-state"
   const {url, room} = $props()
 </script>
 

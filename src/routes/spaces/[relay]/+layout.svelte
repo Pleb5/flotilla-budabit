@@ -20,7 +20,7 @@
     GIT_REPO_STATE,
     GRASP_SET_KIND,
   } from "@nostr-git/core/events"
-  import {activeChannelsByUrl, loadPlatformChannels} from "@src/lib/budabit"
+  import {activeChannelsByUrl, loadPlatformChannels} from "@app/core/git-state"
   import {AuthStatus, SocketStatus} from "@welshman/net"
   import {request} from "@welshman/net"
   import {onMount} from "svelte"

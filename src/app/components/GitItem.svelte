@@ -14,7 +14,7 @@
     GIT_RELAYS,
     maintainerSetRepoAddressesByRepoAddress,
     getMaintainerSetRepoAddresses,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {Bookmark} from "@lucide/svelte"
 

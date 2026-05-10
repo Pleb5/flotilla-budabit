@@ -4,7 +4,7 @@
   import {sortBy, min, nthEq} from "@welshman/lib"
   import {readable, type Readable} from "svelte/store"
   import type {TrustedEvent} from "@welshman/util"
-  import {FREELANCE_JOB} from "@lib/budabit"
+  import {FREELANCE_JOB} from "@app/core/git-state"
   import {COMMENT, getListTags, getPubkeyTagValues} from "@welshman/util"
   import {userMuteList} from "@welshman/app"
   import {fly} from "@lib/transition"

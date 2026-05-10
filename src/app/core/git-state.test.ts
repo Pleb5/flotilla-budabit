@@ -21,7 +21,7 @@ import {
   repoMaintainerSetProfilesByRepoAddress,
   ROOMS,
   GENERAL,
-} from "./state"
+} from "./git-state"
 
 let eventCounter = 0
 

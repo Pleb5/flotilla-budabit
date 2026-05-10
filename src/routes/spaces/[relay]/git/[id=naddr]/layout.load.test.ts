@@ -30,7 +30,7 @@ vi.mock("@app/core/state", () => ({
   decodeRelay: vi.fn((url: string) => (url === "encoded-relay" ? "wss://relay.example.com" : url)),
 }))
 
-vi.mock("@src/lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   getRepoAnnouncementRelays: vi.fn(() => ["wss://fallback.relay.example.com"]),
 }))
 

@@ -35,7 +35,7 @@ vi.mock("@app/util/routes", () => ({
     `/spaces/${encodeURIComponent(url)}/git${naddr ? `/${naddr}` : ""}`,
 }))
 
-vi.mock("@lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   channelsById: readable(new Map()),
   GIT_RELAYS: [],
   repoAnnouncements: readable([]),

@@ -85,7 +85,7 @@
     GIT_RELAYS,
     repoAnnouncementRelaysStore,
     repoAnnouncements,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import {getInitializedGitWorker, terminateGitWorker} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {createNip98AuthHeader} from "@app/core/event-io"

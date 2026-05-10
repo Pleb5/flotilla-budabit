@@ -2,7 +2,7 @@
   import type {TrustedEvent} from "@welshman/util"
   import {pushToast} from "@app/util/toast"
   import DeleteWithProgressConfirm from "@app/components/DeleteWithProgressConfirm.svelte"
-  import {deletePullRequestWithRelated} from "../../lib/budabit/commands"
+  import {deletePullRequestWithRelated} from "@app/core/git-commands"
 
   type Props = {
     event: TrustedEvent

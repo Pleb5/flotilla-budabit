@@ -4,7 +4,7 @@
   import {publishJobRequest} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
   import {INDEXER_RELAYS} from "@app/core/state"
-  import {DEFAULT_WORKER_PUBKEY} from "@lib/budabit/state"
+  import {DEFAULT_WORKER_PUBKEY} from "@app/core/git-state"
   import {isMobile, preventDefault} from "@lib/html"
   import CpuBolt from "@assets/icons/cpu-bolt.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"

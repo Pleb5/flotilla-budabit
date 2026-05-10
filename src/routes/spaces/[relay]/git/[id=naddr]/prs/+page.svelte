@@ -28,7 +28,7 @@
     preventDefault,
     stopPropagation,
   } from "@src/lib/html.js"
-  import {postComment, publishEvent} from "@lib/budabit/commands.js"
+  import {postComment, publishEvent} from "@app/core/git-commands.js"
   import {pushModal} from "@app/util/modal"
   import {
     checked,
@@ -64,7 +64,7 @@
     getMaintainerSetRepoAddresses,
     maintainerSetByRepoAddress,
     maintainerSetRepoAddressesByRepoAddress,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import {
     REPO_TRUST_METRICS_KEY,
     defaultRepoTrustMetrics,

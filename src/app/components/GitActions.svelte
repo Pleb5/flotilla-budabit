@@ -25,7 +25,7 @@
   import {tokens as tokensStore} from "@nostr-git/ui"
   import {tryTokensForHost, getTokensForHost} from "@nostr-git/ui"
   import {Router} from "@welshman/router"
-  import {GIT_RELAYS} from "@lib/budabit/state"
+  import {GIT_RELAYS} from "@app/core/git-state"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"

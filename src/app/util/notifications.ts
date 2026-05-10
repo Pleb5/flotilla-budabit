@@ -70,7 +70,7 @@ import {
   maintainerSetRepoAddressesByRepoAddress,
   loadRepoAnnouncementByAddress,
   loadRepoMaintainerAnnouncements,
-} from "@lib/budabit/state"
+} from "@app/core/git-state"
 import {defaultRepoWatchOptions, userRepoWatchValues} from "@app/core/repo-watch"
 import {isArchivedRoomReference} from "@app/util/room-archive"
 

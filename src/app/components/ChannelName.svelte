@@ -1,6 +1,6 @@
 <script lang="ts">
   import {makeChannelId} from "@app/core/state"
-  import {channelsById} from "@lib/budabit/state"
+  import {channelsById} from "@app/core/git-state"
   const {url, room} = $props()
 </script>
 

@@ -7,7 +7,7 @@
   import {GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {tracker} from "@welshman/app"
-  import {GIT_RELAYS} from "@lib/budabit/state"
+  import {GIT_RELAYS} from "@app/core/git-state"
   import FileText from "@assets/icons/file-text.svg?dataurl"
   import Copy from "@assets/icons/copy.svg?dataurl"
   import UserCircle from "@assets/icons/user-circle.svg?dataurl"

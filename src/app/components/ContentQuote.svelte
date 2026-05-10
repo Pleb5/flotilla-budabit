@@ -97,7 +97,7 @@
     highlightCodeSnippet,
   } from "@nostr-git/ui"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
-  import {GIT_RELAYS} from "@lib/budabit/state"
+  import {GIT_RELAYS} from "@app/core/git-state"
   import {
     GIT_COMMENT,
     GIT_ISSUE,

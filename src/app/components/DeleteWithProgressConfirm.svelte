@@ -1,7 +1,7 @@
 <script lang="ts">
   import {onDestroy} from "svelte"
   import {preventDefault} from "@lib/html"
-  import type {DeleteProgress} from "@lib/budabit/commands"
+  import type {DeleteProgress} from "@app/core/git-commands"
   import {clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import ModalHeader from "@lib/components/ModalHeader.svelte"

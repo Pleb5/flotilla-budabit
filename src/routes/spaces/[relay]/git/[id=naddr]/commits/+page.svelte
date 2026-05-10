@@ -17,10 +17,10 @@
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import {fade, slide} from "svelte/transition"
   import {getContext} from "svelte"
-  import {REPO_KEY} from "@lib/budabit/state"
+  import {REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
   import {createCommentEvent, type CommentEvent} from "@nostr-git/core/events"
-  import {postComment} from "@lib/budabit/commands"
+  import {postComment} from "@app/core/git-commands"
 
   const repoClass = getContext<Repo>(REPO_KEY)
 

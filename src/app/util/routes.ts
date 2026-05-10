@@ -42,7 +42,7 @@ import {
 } from "@nostr-git/core/events"
 import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
 import {COMMENT} from "@welshman/util"
-import {GIT_RELAYS, repoAnnouncementsByAddress} from "@lib/budabit/state"
+import {GIT_RELAYS, repoAnnouncementsByAddress} from "@app/core/git-state"
 
 // Repository event kinds (use Address directly)
 const GIT_REPO_KINDS = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]

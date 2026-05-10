@@ -9,7 +9,7 @@
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import GitItem from "@app/components/GitItem.svelte"
   import {decodeRelay} from "@app/core/state"
-  import {repoAnnouncementRelaysStore} from "@lib/budabit/state"
+  import {repoAnnouncementRelaysStore} from "@app/core/git-state"
   import {load} from "@welshman/net"
   import {Router} from "@welshman/router"
   import PageContent from "@src/lib/components/PageContent.svelte"

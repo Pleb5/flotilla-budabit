@@ -9,7 +9,7 @@
   import {makeJobPath} from "@app/util/routes"
   import Button from "@src/lib/components/Button.svelte"
   import Link from "@src/lib/components/Link.svelte"
-  import {jobLink} from "@lib/budabit"
+  import {jobLink} from "@app/core/git-state"
   import {pushModal} from "@app/util/modal"
   import ThreadCreate from "./ThreadCreate.svelte"
   import JobRequest from "./JobRequest.svelte"

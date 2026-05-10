@@ -30,7 +30,7 @@
   import {notifications} from "@app/util/notifications"
   import {fade} from "@lib/transition"
   import SpaceMenuButton from "@src/lib/budabit/components/SpaceMenuButton.svelte"
-  import {activeChannelsByUrl} from "@lib/budabit/state"
+  import {activeChannelsByUrl} from "@app/core/git-state"
   import ChannelName from "@src/lib/budabit/components/ChannelName.svelte"
   import DemoDayPromo from "@src/lib/budabit/components/DemoDayPromo.svelte"
 

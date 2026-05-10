@@ -9,7 +9,7 @@ import type {
 import {buildRoleLabelEvent} from "@app/util/labels"
 import {abortThunk, publishThunk, repository} from "@welshman/app"
 import {load} from "@welshman/net"
-import {GIT_RELAYS} from "./state"
+import {GIT_RELAYS} from "./git-state"
 import {Router} from "@welshman/router"
 import {publishDelete} from "@app/core/commands"
 import {

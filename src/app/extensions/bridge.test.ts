@@ -27,7 +27,7 @@ vi.mock("@welshman/app", () => ({
   pubkey: mocks.pubkey,
 }))
 
-vi.mock("@lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   activeRepoClass: mocks.activeRepoClass,
 }))
 

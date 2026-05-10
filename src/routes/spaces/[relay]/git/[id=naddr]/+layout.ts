@@ -7,7 +7,7 @@ export const load: LayoutLoad = async ({params}) => {
   const {id, relay} = params
   // Dynamic imports to avoid SSR issues
   const {decodeRelay} = await import("@app/core/state")
-  const {getRepoAnnouncementRelays} = await import("@src/lib/budabit/state")
+  const {getRepoAnnouncementRelays} = await import("@app/core/git-state")
   const {normalizeRelayUrl} = await import("@nostr-git/core/utils")
   const {parseRepoId} = await import("@nostr-git/core/utils")
 

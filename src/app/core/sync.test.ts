@@ -166,11 +166,11 @@ vi.mock("@app/core/dm", () => ({
   getMessagingRelayHints: () => ["wss://hint.relay.example.com/"],
 }))
 
-vi.mock("@lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   GIT_RELAYS: [],
 }))
 
-vi.mock("@lib/budabit/requests", () => ({
+vi.mock("@app/core/git-requests", () => ({
   loadGraspServers: mocks.loadGraspServers,
   loadRepositories: mocks.loadRepositories,
   loadTokens: mocks.loadTokens,

@@ -11,7 +11,8 @@ vi.mock("@nostr-git/ui", () => ({
 const {load} = await import("@welshman/net")
 const {GIT_REPO_ANNOUNCEMENT, GIT_REPO_BOOKMARK_SET} = await import("@nostr-git/core/events")
 const {NAMED_BOOKMARKS} = await import("@welshman/util")
-const {loadRepositories, loadGraspServers, loadTokens, GIT_AUTH_DTAG} = await import("./requests")
+const {loadRepositories, loadGraspServers, loadTokens, GIT_AUTH_DTAG} =
+  await import("./git-requests")
 
 describe("requests", () => {
   beforeEach(() => {

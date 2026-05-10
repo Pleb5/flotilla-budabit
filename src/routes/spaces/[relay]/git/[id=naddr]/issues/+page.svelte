@@ -37,7 +37,7 @@
     notifications,
     setCheckedForRepoNotifications,
   } from "@app/util/notifications"
-  import {postComment} from "@lib/budabit/commands.js"
+  import {postComment} from "@app/core/git-commands.js"
   import FilterPanel from "@src/lib/budabit/components/FilterPanel.svelte"
   import {getInteractiveCardTarget, isMobile} from "@lib/html"
   import {onMount, onDestroy, tick} from "svelte"
@@ -57,7 +57,7 @@
     maintainerSetRepoAddressesByRepoAddress,
     getMaintainerSetRepoAddresses,
     getRepoScopedRelays,
-  } from "@lib/budabit/state"
+  } from "@app/core/git-state"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"

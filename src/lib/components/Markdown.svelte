@@ -194,7 +194,7 @@
   import DOMPurify from "dompurify"
   import "highlight.js/styles/github-dark.css"
   import {getContext} from "svelte"
-  import {REPO_RELAYS_KEY} from "@lib/budabit"
+  import {REPO_RELAYS_KEY} from "@app/core/git-state"
   import {normalizeRelayUrl} from "@welshman/util"
   import type {TrustedEvent} from "@welshman/util"
   import {createNostrTokenizer, createEmailTokenizer} from "./markdown/markdownTokenizers.js"

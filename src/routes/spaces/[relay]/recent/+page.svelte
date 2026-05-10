@@ -13,7 +13,7 @@
   import SpaceMenuButton from "@lib/budabit/components/SpaceMenuButton.svelte"
   import ConversationCard from "@app/components/ConversationCard.svelte"
   import {decodeRelay, deriveEventsForUrl, roomsById} from "@app/core/state"
-  import {channelsById} from "@lib/budabit/state"
+  import {channelsById} from "@app/core/git-state"
   import {filterArchivedRoomMessages} from "@app/util/room-archive"
 
   const url = decodeRelay($page.params.relay!)

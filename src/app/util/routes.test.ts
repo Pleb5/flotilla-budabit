@@ -17,7 +17,7 @@ vi.mock("@app/core/state", () => ({
 }))
 
 vi.mock("@app/util/history", () => ({lastPageBySpaceUrl: new Map()}))
-vi.mock("@lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   GIT_RELAYS: [],
   repoAnnouncementsByAddress: writable(new Map()),
 }))

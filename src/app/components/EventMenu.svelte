@@ -23,7 +23,7 @@
   import {deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {clip, pushToast} from "@app/util/toast"
-  import {GIT_RELAYS} from "@lib/budabit/state"
+  import {GIT_RELAYS} from "@app/core/git-state"
 
   type Props = {
     url: string

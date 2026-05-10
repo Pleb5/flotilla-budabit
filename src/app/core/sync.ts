@@ -40,7 +40,7 @@ import {
   bootstrapPubkeys,
   makeCommentFilter,
 } from "@app/core/state"
-import {GIT_RELAYS} from "@lib/budabit/state"
+import {GIT_RELAYS} from "@app/core/git-state"
 import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
 import {
@@ -52,7 +52,7 @@ import {
   setupGraspServersSync,
   setupTokensSync,
   setupExtensionSettingsSync,
-} from "@lib/budabit/requests"
+} from "@app/core/git-requests"
 import {
   applyRemoteExtensionSettings,
   startExtensionSettingsAutoSync,

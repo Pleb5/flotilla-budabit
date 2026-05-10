@@ -27,7 +27,7 @@ vi.mock("@app/extensions/settings", () => ({
   getInstalledExtension: vi.fn(),
 }))
 
-vi.mock("@lib/budabit/state", () => ({
+vi.mock("@app/core/git-state", () => ({
   DEFAULT_WORKER_PUBKEY: "test-worker",
   activeRepoClass: {
     subscribe: vi.fn(),

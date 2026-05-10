@@ -25,10 +25,14 @@
   import {pushModal} from "@app/util/modal"
   import ThreadCreate from "./ThreadCreate.svelte"
   import {decodeRelay} from "@app/core/state"
-  import {loadRepoAnnouncements, deriveMaintainersForEuc, repoAnnouncements} from "@lib/budabit"
+  import {
+    loadRepoAnnouncements,
+    deriveMaintainersForEuc,
+    repoAnnouncements,
+  } from "@app/core/git-state"
   import {Router} from "@welshman/router"
   import {resolveIssueStatus} from "@nostr-git/core/events"
-  import {deriveEffectiveLabels} from "@lib/budabit"
+  import {deriveEffectiveLabels} from "@app/core/git-state"
 
   const {
     issue,
