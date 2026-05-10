@@ -7,7 +7,7 @@
   import {GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {tracker, forceLoadMessagingRelayList, messagingRelayListsByPubkey} from "@welshman/app"
-  import {DM_KIND, getDmRelayUrls, getMessagingRelayHints} from "@lib/budabit/dm"
+  import {DM_KIND, getDmRelayUrls, getMessagingRelayHints} from "@app/core/dm"
   import {GIT_RELAYS} from "@lib/budabit/state"
   import FileText from "@assets/icons/file-text.svg?dataurl"
   import Copy from "@assets/icons/copy.svg?dataurl"

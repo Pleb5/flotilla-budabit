@@ -3,7 +3,7 @@
   import {hash, formatTimestampAsTime} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
   import {pubkey, deriveProfileDisplay, getPlaintext} from "@welshman/app"
-  import {ensureDmPlaintext} from "@lib/budabit/dm"
+  import {ensureDmPlaintext} from "@app/core/dm"
   import {isMobile} from "@lib/html"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"

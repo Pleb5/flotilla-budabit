@@ -41,7 +41,7 @@ import {
   makeCommentFilter,
 } from "@app/core/state"
 import {GIT_RELAYS} from "@lib/budabit/state"
-import {DM_KIND, getMessagingRelayHints} from "@lib/budabit/dm"
+import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
 import {loadAlerts, loadAlertStatuses} from "@app/core/requests"
 import {
   loadGraspServers,

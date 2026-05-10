@@ -11,12 +11,7 @@
     forceLoadMessagingRelayList,
     messagingRelayListsByPubkey,
   } from "@welshman/app"
-  import {
-    DM_KIND,
-    getDmPublishRelays,
-    getDmRelayUrls,
-    getMessagingRelayHints,
-  } from "@lib/budabit/dm"
+  import {DM_KIND, getDmPublishRelays, getDmRelayUrls, getMessagingRelayHints} from "@app/core/dm"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"

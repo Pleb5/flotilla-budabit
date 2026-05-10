@@ -161,7 +161,7 @@ vi.mock("@app/core/requests", () => ({
   loadAlertStatuses: mocks.loadAlertStatuses,
 }))
 
-vi.mock("@lib/budabit/dm", () => ({
+vi.mock("@app/core/dm", () => ({
   DM_KIND: 4444,
   getMessagingRelayHints: () => ["wss://hint.relay.example.com/"],
 }))

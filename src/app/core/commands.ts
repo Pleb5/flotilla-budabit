@@ -113,8 +113,7 @@ import {
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
-import {DM_KIND} from "@lib/budabit/dm"
-import {getMessagingRelayHints} from "@lib/budabit/dm"
+import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
 import {
   extensionSettings,
   getInstalledExtensions,

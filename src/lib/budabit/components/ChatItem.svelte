@@ -4,7 +4,7 @@
   import {remove, formatTimestamp} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
   import {pubkey, forceLoadMessagingRelayList, getPlaintext} from "@welshman/app"
-  import {ensureDmPlaintext, getMessagingRelayHints} from "@lib/budabit/dm"
+  import {ensureDmPlaintext, getMessagingRelayHints} from "@app/core/dm"
   import {fade} from "@lib/transition"
   import Link from "@lib/components/Link.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
