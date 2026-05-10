@@ -157,7 +157,7 @@
   import Icon from "@src/lib/components/Icon.svelte"
   import {makeGitPath} from "@app/util/routes"
   import {getInitializedGitWorker} from "@app/core/worker-singleton"
-  import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
+  import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {
     diffBranchHeads,
     overlayLatestRepoStates,

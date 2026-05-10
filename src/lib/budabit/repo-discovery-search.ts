@@ -4,7 +4,7 @@ import {
   type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
 import {Address} from "@welshman/util"
-import {fetchRelayEventsWithTimeout} from "./fetch-relay-events"
+import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
 
 export type LoadedRepoSearchItem = {
   address: string

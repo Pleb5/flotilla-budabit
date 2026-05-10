@@ -66,7 +66,7 @@
     GIT_STATUS_APPLIED,
   } from "@nostr-git/core/events"
   import {postComment, postStatus, publishEvent} from "@lib/budabit"
-  import {fetchRelayEventsWithTimeout} from "@lib/budabit/fetch-relay-events"
+  import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {
     getMaintainerSetRepoAddresses,
     maintainerSetByRepoAddress,
