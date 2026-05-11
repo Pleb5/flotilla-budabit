@@ -2,7 +2,7 @@
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {repository, publishThunk} from "@welshman/app"
+  import {repository, publishThunk, pubkey} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {makeEvent, THREAD} from "@welshman/util"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
@@ -13,9 +13,14 @@
   import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {makeCommunityForumThreadsFilter} from "@app/core/community-feeds"
   import {makeCommunityForumThread, readCommunityForumThreads} from "@app/core/community-forum"
+  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -23,11 +28,27 @@
   const filters = $derived(communityPubkey ? [makeCommunityForumThreadsFilter(communityPubkey)] : [])
   const events = $derived(deriveEventsAsc(deriveEventsById({repository, filters})))
   const threads = $derived(readCommunityForumThreads($events, communityPubkey))
+  const canCreateThread = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.forumThread,
+        }),
+    ),
+  )
 
   const createThread = () => {
     const trimmedTitle = title.trim()
     const trimmedContent = content.trim()
     if (!communityPubkey || !trimmedTitle || !trimmedContent) return
+    if (!canCreateThread) {
+      pushToast({theme: "error", message: "You do not have permission to create forum threads."})
+      return
+    }
 
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
@@ -94,7 +115,7 @@
       {/snippet}
     </Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!title.trim() || !content.trim()}>
+      <Button type="submit" class="btn btn-primary" disabled={!title.trim() || !content.trim() || !canCreateThread}>
         Create thread
       </Button>
     </div>

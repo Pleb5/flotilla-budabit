@@ -14,7 +14,11 @@
   import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {SMART_WIDGET_KIND, makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
@@ -22,6 +26,7 @@
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
+  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -34,9 +39,25 @@
   )
   const widgetFilters = $derived(makeTargetedPublicationOriginalFilters($targetingEvents))
   const widgets = $derived(deriveEventsAsc(deriveEventsById({repository, filters: widgetFilters})))
+  const canCreateWidget = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.widget,
+        }),
+    ),
+  )
 
   const createWidget = () => {
     if (!$pubkey || !communityPubkey || !name.trim() || !appUrl.trim()) return
+    if (!canCreateWidget) {
+      pushToast({theme: "error", message: "You do not have permission to publish widgets."})
+      return
+    }
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
@@ -132,7 +153,7 @@
     <Field>{#snippet label()}<p>Icon URL</p>{/snippet}{#snippet input()}<input bind:value={iconUrl} class="input input-bordered w-full" />{/snippet}</Field>
     <Field>{#snippet label()}<p>Description</p>{/snippet}{#snippet input()}<textarea bind:value={description} class="textarea textarea-bordered" rows="3"></textarea>{/snippet}</Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !name.trim() || !appUrl.trim()}>
+      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !name.trim() || !appUrl.trim() || !canCreateWidget}>
         Publish widget
       </Button>
     </div>

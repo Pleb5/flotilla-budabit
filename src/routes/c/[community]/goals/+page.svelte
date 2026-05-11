@@ -14,13 +14,18 @@
   import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
+  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -33,9 +38,25 @@
   )
   const goalFilters = $derived(makeTargetedPublicationOriginalFilters($targetingEvents))
   const goals = $derived(deriveEventsAsc(deriveEventsById({repository, filters: goalFilters})))
+  const canCreateGoal = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.fundraiser,
+        }),
+    ),
+  )
 
   const createGoal = () => {
     if (!$pubkey || !communityPubkey || !title.trim() || !summary.trim()) return
+    if (!canCreateGoal) {
+      pushToast({theme: "error", message: "You do not have permission to publish fundraisers."})
+      return
+    }
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
@@ -140,7 +161,7 @@
       {/snippet}
     </Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !title.trim() || !summary.trim()}>
+      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !title.trim() || !summary.trim() || !canCreateGoal}>
         Create fundraiser
       </Button>
     </div>

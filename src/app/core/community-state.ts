@@ -91,6 +91,9 @@ const getInitialSession = () => {
 
 export const activeCommunitySession = writable<CommunitySession | undefined>(getInitialSession())
 export const activeCommunityDefinition = writable<CommunityDefinition | undefined>(undefined)
+export const activeCommunityProfileEvents = writable<TrustedEvent[]>([])
+export const activeCommunityProfileListEvents = writable<TrustedEvent[]>([])
+export const activeCommunityBadgeDefinitionEvents = writable<TrustedEvent[]>([])
 
 if (canUseLocalStorage()) {
   activeCommunitySession.subscribe(writeStoredSession)
@@ -123,6 +126,9 @@ export const setActiveCommunityDefinition = (definition: CommunityDefinition) =>
 export const clearActiveCommunity = () => {
   activeCommunitySession.set(undefined)
   activeCommunityDefinition.set(undefined)
+  activeCommunityProfileEvents.set([])
+  activeCommunityProfileListEvents.set([])
+  activeCommunityBadgeDefinitionEvents.set([])
 }
 export const clearActiveCommunityDefinition = () => activeCommunityDefinition.set(undefined)
 
@@ -213,10 +219,16 @@ export const loadCommunityBootstrap = async (
     setActiveCommunityDefinition(definition)
   }
 
-  return {
+  const bootstrap = {
     definition,
     profileEvents: relatedEvents.filter(event => event.kind === PROFILE),
     profileListEvents: relatedEvents.filter(event => event.kind === PROFILE_LIST_KIND),
     badgeDefinitionEvents: relatedEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
   }
+
+  activeCommunityProfileEvents.set(bootstrap.profileEvents)
+  activeCommunityProfileListEvents.set(bootstrap.profileListEvents)
+  activeCommunityBadgeDefinitionEvents.set(bootstrap.badgeDefinitionEvents)
+
+  return bootstrap
 }

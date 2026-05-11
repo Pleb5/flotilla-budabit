@@ -14,7 +14,11 @@
   import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {
     GIT_PERMALINK_KIND,
@@ -22,6 +26,7 @@
     makeTargetedPublicationOriginalFilters,
   } from "@app/core/community-feeds"
   import {makeTargetedPublicationForCommunity, withPublicationTargetingId} from "@app/core/community-targeting"
+  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -34,9 +39,25 @@
   )
   const permalinkFilters = $derived(makeTargetedPublicationOriginalFilters($targetingEvents))
   const permalinks = $derived(deriveEventsAsc(deriveEventsById({repository, filters: permalinkFilters})))
+  const canCreatePermalink = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.permalink,
+        }),
+    ),
+  )
 
   const createPermalink = () => {
     if (!$pubkey || !communityPubkey || !repo.trim() || !file.trim() || !commit.trim()) return
+    if (!canCreatePermalink) {
+      pushToast({theme: "error", message: "You do not have permission to publish permalinks."})
+      return
+    }
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
@@ -125,7 +146,7 @@
     <Field>{#snippet label()}<p>Line</p>{/snippet}{#snippet input()}<input bind:value={line} class="input input-bordered w-full" />{/snippet}</Field>
     <Field>{#snippet label()}<p>Description</p>{/snippet}{#snippet input()}<textarea bind:value={description} class="textarea textarea-bordered" rows="3"></textarea>{/snippet}</Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !repo.trim() || !file.trim() || !commit.trim()}>
+      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !repo.trim() || !file.trim() || !commit.trim() || !canCreatePermalink}>
         Publish permalink
       </Button>
     </div>

@@ -2,7 +2,7 @@
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {repository, publishThunk} from "@welshman/app"
+  import {repository, publishThunk, pubkey} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {makeEvent, MESSAGE, THREAD} from "@welshman/util"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
@@ -13,10 +13,15 @@
   import Button from "@lib/components/Button.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {makeCommunityRoomMessagesFilter} from "@app/core/community-feeds"
   import {makeCommunityRoomMessage, readCommunityRoomMessages} from "@app/core/community-messages"
   import {readCommunityRoomRoot} from "@app/core/community-rooms"
+  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -32,10 +37,26 @@
   )
   const room = $derived($roomEvents[0] ? readCommunityRoomRoot($roomEvents[0], communityPubkey) : undefined)
   const messages = $derived(readCommunityRoomMessages($messageEvents, communityPubkey, roomId))
+  const canSendMessage = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        }),
+    ),
+  )
 
   const sendMessage = () => {
     const trimmed = message.trim()
     if (!trimmed || !communityPubkey || !roomId) return
+    if (!canSendMessage) {
+      pushToast({theme: "error", message: "You do not have permission to message rooms."})
+      return
+    }
 
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
@@ -100,6 +121,6 @@
       <Icon icon={ChatRound} />
       <input bind:value={message} class="grow" type="text" placeholder="Message this room" />
     </label>
-    <Button type="submit" class="btn btn-primary" disabled={!message.trim()}>Send</Button>
+    <Button type="submit" class="btn btn-primary" disabled={!message.trim() || !canSendMessage}>Send</Button>
   </form>
 </PageContent>

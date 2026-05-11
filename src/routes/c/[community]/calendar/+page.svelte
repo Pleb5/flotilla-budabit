@@ -15,7 +15,11 @@
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
@@ -23,6 +27,7 @@
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
+  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -35,9 +40,25 @@
   )
   const eventFilters = $derived(makeTargetedPublicationOriginalFilters($targetingEvents))
   const calendarEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: eventFilters})))
+  const canCreateEvent = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.calendar,
+        }),
+    ),
+  )
 
   const createEvent = () => {
     if (!$pubkey || !communityPubkey || !title.trim()) return
+    if (!canCreateEvent) {
+      pushToast({theme: "error", message: "You do not have permission to publish calendar events."})
+      return
+    }
     const relays = $activeCommunityRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
@@ -157,7 +178,7 @@
       {/snippet}
     </Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !title.trim()}>
+      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !title.trim() || !canCreateEvent}>
         Create event
       </Button>
     </div>

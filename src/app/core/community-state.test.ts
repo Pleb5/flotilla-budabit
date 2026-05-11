@@ -19,6 +19,9 @@ import {
   makeCommunitySession,
   selectLatestCommunityDefinition,
   activeCommunityDefinition,
+  activeCommunityBadgeDefinitionEvents,
+  activeCommunityProfileEvents,
+  activeCommunityProfileListEvents,
   activeCommunityRelays,
   activeCommunitySession,
   clearActiveCommunity,
@@ -135,5 +138,8 @@ describe("community state helpers", () => {
     clearActiveCommunity()
     expect(get(activeCommunitySession)).toBeUndefined()
     expect(get(activeCommunityDefinition)).toBeUndefined()
+    expect(get(activeCommunityProfileEvents)).toEqual([])
+    expect(get(activeCommunityProfileListEvents)).toEqual([])
+    expect(get(activeCommunityBadgeDefinitionEvents)).toEqual([])
   })
 })

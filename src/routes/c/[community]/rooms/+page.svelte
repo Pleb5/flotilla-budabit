@@ -2,7 +2,7 @@
   import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {repository, publishThunk} from "@welshman/app"
+  import {repository, publishThunk, pubkey} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {makeEvent, THREAD} from "@welshman/util"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
@@ -14,9 +14,14 @@
   import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {makeCommunityRoomRoot, readCommunityRoomRoots} from "@app/core/community-rooms"
+  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {makeCommunityRoomPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -24,9 +29,25 @@
   const filters = $derived(communityPubkey ? [makeCommunityRoomRootsFilter(communityPubkey)] : [])
   const events = $derived(deriveEventsAsc(deriveEventsById({repository, filters})))
   const rooms = $derived(readCommunityRoomRoots($events, communityPubkey))
+  const canCreateRoom = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.roomRoot,
+        }),
+    ),
+  )
 
   const createRoom = () => {
     if (!communityPubkey) return
+    if (!canCreateRoom) {
+      pushToast({theme: "error", message: "You do not have permission to create rooms."})
+      return
+    }
     const trimmed = roomName.trim()
     if (!trimmed) return
 
@@ -95,7 +116,7 @@
       {/snippet}
     </Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!roomName.trim()}>Create room</Button>
+      <Button type="submit" class="btn btn-primary" disabled={!roomName.trim() || !canCreateRoom}>Create room</Button>
     </div>
   </form>
 
