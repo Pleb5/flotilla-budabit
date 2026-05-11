@@ -19,16 +19,70 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
-  import {makeCommunityRoomRoot, readCommunityRoomRoots} from "@app/core/community-rooms"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {makeCommunityExclusiveFilter, makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
+  import {
+    COMMUNITY_ROOM_LABEL_KIND,
+    COMMUNITY_ROOM_LABEL_NAMESPACE,
+    isCommunityRoomArchived,
+    makeCommunityRoomArchiveLabel,
+    makeCommunityRoomRoot,
+    readCommunityRoomRoots,
+  } from "@app/core/community-rooms"
+  import {
+    COMMUNITY_SECTION_GENERAL,
+    findCommunitySection,
+    getProfileListPubkeys,
+  } from "@app/core/community"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    findProfileListEvent,
+    getPrimaryProfileListRef,
+  } from "@app/core/community-permissions"
   import {makeCommunityRoomPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
-  const filters = $derived(communityPubkey ? [makeCommunityRoomRootsFilter(communityPubkey)] : [])
+  const filters = $derived(
+    communityPubkey
+      ? [
+          makeCommunityRoomRootsFilter(communityPubkey),
+          makeCommunityExclusiveFilter(communityPubkey, [COMMUNITY_ROOM_LABEL_KIND], {
+            "#L": [COMMUNITY_ROOM_LABEL_NAMESPACE],
+          }),
+        ]
+      : [],
+  )
   const events = $derived(deriveEventsAsc(deriveEventsById({repository, filters})))
+  const roomLabels = $derived($events.filter(event => event.kind === COMMUNITY_ROOM_LABEL_KIND))
   const rooms = $derived(readCommunityRoomRoots($events, communityPubkey))
+  const authoritativeArchivePubkeys = $derived.by(() => {
+    if (!$activeCommunityDefinition) return []
+
+    const section = findCommunitySection($activeCommunityDefinition, COMMUNITY_SECTION_GENERAL)
+    const listEvent = findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents)
+
+    return getProfileListPubkeys(listEvent)
+  })
+  const activeRooms = $derived(
+    rooms.filter(
+      room =>
+        !isCommunityRoomArchived({
+          roomId: room.id,
+          labels: roomLabels,
+          authoritativePubkeys: authoritativeArchivePubkeys,
+        }),
+    ),
+  )
+  const archivedRooms = $derived(
+    rooms.filter(room =>
+      isCommunityRoomArchived({
+        roomId: room.id,
+        labels: roomLabels,
+        authoritativePubkeys: authoritativeArchivePubkeys,
+      }),
+    ),
+  )
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
@@ -38,6 +92,18 @@
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.roomRoot,
+        }),
+    ),
+  )
+  const canArchiveRoom = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.label,
         }),
     ),
   )
@@ -67,6 +133,34 @@
     roomName = ""
     roomDescription = ""
     pushToast({message: "Room published."})
+  }
+
+  const setRoomArchived = (room: (typeof rooms)[number], archived: boolean) => {
+    if (!communityPubkey) return
+    if (!canArchiveRoom) {
+      pushToast({theme: "error", message: "You do not have permission to archive rooms."})
+      return
+    }
+
+    const relays = $activeCommunityRelays
+    if (relays.length === 0) {
+      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+      return
+    }
+
+    publishThunk({
+      relays,
+      event: makeEvent(
+        COMMUNITY_ROOM_LABEL_KIND,
+        makeCommunityRoomArchiveLabel({
+          communityPubkey,
+          room,
+          archived,
+          relay: relays[0],
+        }),
+      ),
+    })
+    pushToast({message: archived ? "Room archived." : "Room unarchived."})
   }
 
   let roomName = $state("")
@@ -121,15 +215,43 @@
   </form>
 
   <div class="col-2">
-    {#each rooms as room (room.id)}
-      <a href={makeCommunityRoomPath(communityPubkey, room.id)} class="card2 bg-alt p-4 shadow-md">
-        <strong>{room.name}</strong>
-        {#if room.about}
-          <p class="text-sm opacity-70">{room.about}</p>
-        {/if}
-      </a>
+    {#each activeRooms as room (room.id)}
+      <div class="card2 bg-alt p-4 shadow-md">
+        <a href={makeCommunityRoomPath(communityPubkey, room.id)} class="col-1">
+          <strong>{room.name}</strong>
+          {#if room.about}
+            <p class="text-sm opacity-70">{room.about}</p>
+          {/if}
+        </a>
+        <div class="flex justify-end">
+          <Button class="btn btn-ghost btn-xs" disabled={!canArchiveRoom} onclick={() => setRoomArchived(room, true)}>
+            Archive
+          </Button>
+        </div>
+      </div>
     {:else}
       <p class="py-8 text-center opacity-70">No rooms found.</p>
     {/each}
   </div>
+
+  {#if archivedRooms.length > 0}
+    <div class="col-2">
+      <strong>Archived rooms</strong>
+      {#each archivedRooms as room (room.id)}
+        <div class="card2 bg-alt p-4 opacity-70 shadow-md">
+          <a href={makeCommunityRoomPath(communityPubkey, room.id)} class="col-1">
+            <strong>{room.name}</strong>
+            {#if room.about}
+              <p class="text-sm">{room.about}</p>
+            {/if}
+          </a>
+          <div class="flex justify-end">
+            <Button class="btn btn-ghost btn-xs" disabled={!canArchiveRoom} onclick={() => setRoomArchived(room, false)}>
+              Unarchive
+            </Button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
 </PageContent>
