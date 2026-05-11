@@ -33,6 +33,7 @@
           ["Git", makeCommunityGitPath(communityId)],
           ["Permalinks", makeCommunityPermalinkPath(communityId)],
           ["Widgets", makeCommunityWidgetPath(communityId)],
+          ["Admin", makeCommunityPath(communityId, "admin")],
         ]
       : [],
   )
