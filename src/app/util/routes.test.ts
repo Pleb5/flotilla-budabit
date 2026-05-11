@@ -1,5 +1,6 @@
 import {describe, expect, it, vi} from "vitest"
 import {writable} from "svelte/store"
+import * as nip19 from "nostr-tools/nip19"
 
 vi.mock("$app/navigation", () => ({goto: vi.fn()}))
 
@@ -54,6 +55,8 @@ vi.mock("@welshman/util", () => ({
   getPubkeyTagValues: vi.fn(() => []),
   Address: {fromEvent: vi.fn()},
   COMMENT: 1111,
+  normalizeRelayUrl: (url: string) => (url.endsWith("/") ? url : `${url}/`),
+  isRelayUrl: (url: string) => url.startsWith("wss://"),
 }))
 
 describe("routes", () => {
@@ -89,5 +92,41 @@ describe("routes", () => {
     expect(makeGitIssueCommentPath(relayUrl, "comment-id-1")).toBe(
       "/spaces/wss%3A%2F%2Frelay.damus.io/git/comment-id-1/issues/comments",
     )
+  })
+
+  it("builds and parses community paths", async () => {
+    const {
+      makeCommunityPath,
+      makeCommunityRoomPath,
+      makeCommunityThreadPath,
+      parseCommunityRouteParam,
+    } = await import("./routes")
+    const communityPubkey = "a".repeat(64)
+    const communityNpub = nip19.npubEncode(communityPubkey)
+
+    expect(makeCommunityPath(communityPubkey)).toBe(`/c/${communityNpub}`)
+    expect(makeCommunityRoomPath(communityPubkey, "room-id")).toBe(`/c/${communityNpub}/rooms/room-id`)
+    expect(makeCommunityThreadPath(communityPubkey, "thread-id")).toBe(
+      `/c/${communityNpub}/threads/thread-id`,
+    )
+    expect(parseCommunityRouteParam(communityNpub)).toEqual({
+      pubkey: communityPubkey,
+      relays: [],
+      source: "npub",
+    })
+  })
+
+  it("parses encoded ncommunity route params", async () => {
+    const {parseCommunityRouteParam} = await import("./routes")
+    const communityPubkey = "b".repeat(64)
+    const value = `ncommunity://${communityPubkey}?relay=${encodeURIComponent(
+      "wss://relay.example.com",
+    )}`
+
+    expect(parseCommunityRouteParam(encodeURIComponent(value))).toEqual({
+      pubkey: communityPubkey,
+      relays: ["wss://relay.example.com/"],
+      source: "ncommunity",
+    })
   })
 })

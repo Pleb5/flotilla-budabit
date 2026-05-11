@@ -41,6 +41,7 @@ import {
 import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
 import {COMMENT} from "@welshman/util"
 import {GIT_RELAYS, repoAnnouncementsByAddress} from "@app/core/git-state"
+import {parseCommunityInput} from "@app/core/community"
 
 // Repository event kinds (use Address directly)
 const GIT_REPO_KINDS = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]
@@ -75,6 +76,53 @@ export const makeSpacePath = (url: string, ...extra: (string | undefined)[]) => 
 
   return path
 }
+
+export const parseCommunityRouteParam = (community: string | undefined) => {
+  if (!community) return undefined
+
+  try {
+    return parseCommunityInput(decodeURIComponent(community))
+  } catch {
+    return parseCommunityInput(community)
+  }
+}
+
+export const encodeCommunityRouteParam = (community: string) => {
+  const parsed = parseCommunityInput(community)
+  const value = parsed ? nip19.npubEncode(parsed.pubkey) : community
+
+  return encodeURIComponent(value)
+}
+
+export const makeCommunityPath = (community: string, ...extra: (string | undefined)[]) => {
+  let path = `/c/${encodeCommunityRouteParam(community)}`
+
+  if (extra.length > 0) {
+    path +=
+      "/" +
+      extra
+        .filter(identity)
+        .map(s => encodeURIComponent(s as string))
+        .join("/")
+  }
+
+  return path
+}
+
+export const makeCommunityRoomPath = (community: string, roomId: string) =>
+  makeCommunityPath(community, "rooms", roomId)
+
+export const makeCommunityThreadPath = (community: string, eventId?: string) =>
+  makeCommunityPath(community, "threads", eventId)
+
+export const makeCommunityCalendarPath = (community: string, eventId?: string) =>
+  makeCommunityPath(community, "calendar", eventId)
+
+export const makeCommunityGoalPath = (community: string, eventId?: string) =>
+  makeCommunityPath(community, "goals", eventId)
+
+export const makeCommunityGitPath = (community: string, eventId?: string) =>
+  makeCommunityPath(community, "git", eventId)
 
 export const makeGitPath = (url: string, eventId?: string) => makeSpacePath(url, "git", eventId)
 
