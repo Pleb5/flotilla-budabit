@@ -7,15 +7,13 @@
   import Link from "@lib/components/Link.svelte"
   import ContentLinkDetail from "@app/components/ContentLinkDetail.svelte"
   import {pushModal} from "@app/util/modal"
-  import {PLATFORM_URL, isPlatformRelay} from "@app/core/state"
-  import {makeSpacePath} from "@app/util/routes"
+  import {PLATFORM_URL} from "@app/core/state"
 
   const {value} = $props()
 
   const url = value.url.toString()
   const [href, external] = call(() => {
     if (isRelayUrl(url)) {
-      if (isPlatformRelay(url)) return [makeSpacePath(url), false]
       return [url, true]
     }
     if (url.startsWith(PLATFORM_URL)) return [url.replace(PLATFORM_URL, ""), false]

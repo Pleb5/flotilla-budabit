@@ -145,15 +145,9 @@ vi.mock("@welshman/router", () => ({
 }))
 
 vi.mock("@app/core/state", () => ({
-  REACTION_KINDS: [7],
-  MESSAGE_KINDS: [9],
-  CONTENT_KINDS: [1],
   INDEXER_RELAYS: [],
-  PLATFORM_RELAYS: [],
-  isPlatformRelay: () => false,
   loadSettings: mocks.loadSettings,
   bootstrapPubkeys: mocks.bootstrapPubkeys,
-  makeCommentFilter: () => ({kinds: [1111]}),
 }))
 
 vi.mock("@app/core/requests", () => ({

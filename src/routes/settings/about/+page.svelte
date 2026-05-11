@@ -22,7 +22,7 @@
           <div class="tooltip" data-tip="Source Code">
             <Link
               external
-              href="https://budabit.club/spaces/budabit.nostr1.com/git/naddr1qvzqqqrhnypzp5zweue6xqa9npf0md5pak95zgsph2za35sentk88jmzdqwk925sqqgxvmr0w35kcmrp94382erpvf5hgqtk2vr"
+              href="https://github.com/Pleb5/flotilla-budabit"
               class="btn btn-secondary">
               <div class="flex items-center gap-x-2">
                 Source Code

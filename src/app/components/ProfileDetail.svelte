@@ -1,18 +1,15 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {removeUndefined} from "@welshman/lib"
-  import {ManagementMethod} from "@welshman/util"
-  import {manageRelay, deriveProfile, displayProfileByPubkey} from "@welshman/app"
+  import {deriveProfile} from "@welshman/app"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import Letter from "@assets/icons/letter-opened.svg?dataurl"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
-  import MinusCircle from "@assets/icons/minus-circle.svg?dataurl"
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import Link from "@lib/components/Link.svelte"
-  import Confirm from "@lib/components/Confirm.svelte"
   import Button from "@lib/components/Button.svelte"
   import Popover from "@lib/components/Popover.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
@@ -22,9 +19,8 @@
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
   import ProfileCodeTrustAnalysis from "@app/components/ProfileCodeTrustAnalysis.svelte"
   import ProfileNip85Metrics from "@app/components/ProfileNip85Metrics.svelte"
-  import {pubkeyLink, deriveUserIsSpaceAdmin} from "@app/core/state"
+  import {pubkeyLink} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
-  import {pushToast} from "@app/util/toast"
   import {makeChatPath} from "@app/util/routes"
 
   export type Props = {
@@ -35,8 +31,6 @@
   const {pubkey, url}: Props = $props()
 
   const profile = $derived(deriveProfile(pubkey, removeUndefined([url])))
-
-  const userIsAdmin = $derived(deriveUserIsSpaceAdmin(url))
 
   const back = () => history.back()
 
@@ -54,32 +48,13 @@
     showMenu = false
   }
 
-  const banMember = () =>
-    pushModal(Confirm, {
-      title: "Ban User",
-      message: `Are you sure you want to ban @${displayProfileByPubkey(pubkey)} from the space?`,
-      confirm: async () => {
-        const {error} = await manageRelay(url!, {
-          method: ManagementMethod.BanPubkey,
-          params: [pubkey],
-        })
-
-        if (error) {
-          pushToast({theme: "error", message: error})
-        } else {
-          pushToast({message: "User has successfully been banned!"})
-          back()
-        }
-      },
-    })
-
   let showMenu = $state(false)
 </script>
 
 <div class="flex flex-col gap-4">
   <div class="flex justify-between">
     <Profile showPubkey avatarSize={14} {pubkey} {url} />
-    {#if $profile || $userIsAdmin}
+    {#if $profile}
       <div class="relative">
         <Button class="btn btn-circle btn-ghost btn-sm" onclick={() => toggleMenu(pubkey)}>
           <Icon icon={MenuDots} />
@@ -94,14 +69,6 @@
                   <Button onclick={showInfo}>
                     <Icon icon={Code2} />
                     User Details
-                  </Button>
-                </li>
-              {/if}
-              {#if $userIsAdmin}
-                <li>
-                  <Button class="text-error" onclick={banMember}>
-                    <Icon icon={MinusCircle} />
-                    Ban User
                   </Button>
                 </li>
               {/if}

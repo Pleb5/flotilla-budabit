@@ -95,7 +95,6 @@ import {
   SMART_WIDGET_RELAYS,
   userSettingsValues,
   getSetting,
-  PLATFORM_RELAYS,
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
@@ -525,7 +524,7 @@ export const setRelayPolicy = (url: string, read: boolean, write: boolean) => {
 
   return publishThunk({
     event: makeEvent(list.kind, {tags}),
-    relays: [url, ...INDEXER_RELAYS, ...Router.get().FromUser().getUrls(), ...PLATFORM_RELAYS],
+    relays: [url, ...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
   })
 }
 
@@ -542,7 +541,7 @@ export const setMessagingRelayPolicy = (url: string, enabled: boolean) => {
 
     return publishThunk({
       event: makeEvent(list.kind, {tags}),
-      relays: [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls(), ...PLATFORM_RELAYS],
+      relays: [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls()],
     })
   }
 }
@@ -671,10 +670,8 @@ export const getDeleteRelaysForSocialEvent = ({
     return sanitizeDeleteRelays([...seenRelays, ...getMessagingRelayHints()])
   }
 
-  const platformRelays = sanitizeDeleteRelays(PLATFORM_RELAYS)
   const currentRelay = url ? sanitizeDeleteRelays([url]) : []
-  const fallbackRelays =
-    platformRelays.length > 0 ? platformRelays : [...currentRelay, ...seenRelays]
+  const fallbackRelays = [...currentRelay, ...seenRelays]
 
   return sanitizeDeleteRelays([...fallbackRelays, ...currentRelay, ...seenRelays])
 }
@@ -1085,11 +1082,7 @@ export const updateProfile = async ({
   const router = Router.get()
   const template = isPublishedProfile(profile) ? editProfile(profile) : createProfile(profile)
   template.tags = stripProtectedTags(template.tags)
-  const scenarios = [router.FromRelays(PLATFORM_RELAYS)]
-
-  if (shouldBroadcast) {
-    scenarios.push(router.FromUser(), router.Index())
-  }
+  const scenarios = shouldBroadcast ? [router.FromUser(), router.Index()] : [router.FromUser()]
 
   const event = makeEvent(template.kind, template)
   const relays = router.merge(scenarios).getUrls()

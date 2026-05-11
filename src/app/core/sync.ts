@@ -30,15 +30,9 @@ import {
   loadUserMuteList,
 } from "@welshman/app"
 import {
-  REACTION_KINDS,
-  MESSAGE_KINDS,
-  CONTENT_KINDS,
   INDEXER_RELAYS,
-  PLATFORM_RELAYS,
-  isPlatformRelay,
   loadSettings,
   bootstrapPubkeys,
-  makeCommentFilter,
 } from "@app/core/state"
 import {GIT_RELAYS} from "@app/core/git-state"
 import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
@@ -122,20 +116,6 @@ const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPu
   return Promise.all(promises)
 }
 
-const pullAndListen = ({relays, filters, signal}: PullOpts) => {
-  pullWithFallback({
-    relays,
-    signal,
-    filters: filters.map(f => ({limit: 100, ...f})),
-  })
-
-  request({
-    relays,
-    signal,
-    filters: unionFilters(filters).map(assoc("limit", 0)),
-  })
-}
-
 const pullAndListenDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
   const backfillFilters = fullHistory ? filters : filters.map(f => ({limit: 100, ...f}))
   const liveFilters = unionFilters(filters).map(assoc("limit", 0))
@@ -188,27 +168,11 @@ const sanitizeRelayList = (relays: unknown) => {
 // Relays
 
 const syncRelays = () => {
-  const platformRelays = sanitizeRelayList(PLATFORM_RELAYS)
-
   for (const url of INDEXER_RELAYS) {
     loadRelay(url)
   }
 
-  for (const url of platformRelays) {
-    loadRelay(url)
-  }
-
-  if (platformRelays.length === 0) {
-    return () => {}
-  }
-
-  const retryInterval = setInterval(() => {
-    for (const url of platformRelays) {
-      loadRelay(url)
-    }
-  }, 15_000)
-
-  return () => clearInterval(retryInterval)
+  return () => {}
 }
 
 // User data
@@ -248,44 +212,6 @@ const syncUserData = () => {
   return () => {
     unsubscribeRelayList()
     unsubscribeFollows()
-  }
-}
-
-// Spaces
-
-const syncSpace = (url: string) => {
-  const controller = new AbortController()
-  const includeRooms = isPlatformRelay(url)
-  const messageKinds = includeRooms ? MESSAGE_KINDS : CONTENT_KINDS
-
-  const filters: Filter[] = [
-    ...messageKinds.map(kind => ({kinds: [kind]})),
-    makeCommentFilter(CONTENT_KINDS),
-    {kinds: REACTION_KINDS, limit: 0},
-  ]
-
-  pullAndListen({
-    relays: [url],
-    signal: controller.signal,
-    filters,
-  })
-
-  return () => controller.abort()
-}
-
-const syncSpaces = () => {
-  const unsubscribersByUrl = new Map<string, Unsubscriber>()
-
-  for (const url of sanitizeRelayList(PLATFORM_RELAYS)) {
-    if (!unsubscribersByUrl.has(url)) {
-      unsubscribersByUrl.set(url, syncSpace(url))
-    }
-  }
-
-  return () => {
-    for (const unsubscriber of unsubscribersByUrl.values()) {
-      unsubscriber()
-    }
   }
 }
 
@@ -408,7 +334,7 @@ const syncDMs = () => {
 // Merge all synchronization functions
 
 export const syncApplicationData = () => {
-  const unsubscribers = [syncRelays(), syncUserData(), syncSpaces(), syncDMs()]
+  const unsubscribers = [syncRelays(), syncUserData(), syncDMs()]
 
   return () => unsubscribers.forEach(call)
 }

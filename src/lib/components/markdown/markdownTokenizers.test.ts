@@ -91,7 +91,7 @@ describe("markdownTokenizers", () => {
       const tokenizer = getTokenizer()
       expect(
         tokenizer.start(
-          "budabit.club/spaces/budabit.nostr1.com/git/naddr1acdef0ghjkmnpqrstuvwxyz023456789",
+          "budabit.club/c/npub1acdef0ghjkmnpqrstuvwxyz023456789/git/naddr1acdef0ghjkmnpqrstuvwxyz023456789",
         ),
       ).toBe(-1)
       expect(

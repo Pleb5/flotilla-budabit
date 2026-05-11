@@ -2,27 +2,25 @@
   import {onMount} from "svelte"
   import type {Snippet} from "svelte"
   import type {TrustedEvent} from "@welshman/util"
-  import {Address, COMMENT, ManagementMethod, isReplaceable} from "@welshman/util"
+  import {Address, COMMENT, isReplaceable} from "@welshman/util"
   import {GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE} from "@nostr-git/core/events"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import * as nip19 from "nostr-tools/nip19"
-  import {pubkey, repository, manageRelay} from "@welshman/app"
+  import {pubkey} from "@welshman/app"
   import {Router} from "@welshman/router"
   import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Danger from "@assets/icons/danger.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
-  import Confirm from "@lib/components/Confirm.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import Report from "@app/components/Report.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import IssueDeleteConfirm from "@app/components/IssueDeleteConfirm.svelte"
   import PullRequestDeleteConfirm from "@app/components/PullRequestDeleteConfirm.svelte"
-  import {deriveUserIsSpaceAdmin} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
-  import {clip, pushToast} from "@app/util/toast"
+  import {clip} from "@app/util/toast"
   import {GIT_RELAYS} from "@app/core/git-state"
 
   type Props = {
@@ -33,7 +31,6 @@
     customActions?: Snippet
     relays?: string[]
     showReport?: boolean
-    allowAdminDelete?: boolean
   }
 
   const {
@@ -44,13 +41,10 @@
     customActions,
     relays = [],
     showReport = true,
-    allowAdminDelete = true,
   }: Props = $props()
 
   const isRoot = event.kind !== COMMENT
   const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
-  const userIsAdmin = deriveUserIsSpaceAdmin(url)
-
   const report = () => pushModal(Report, {url, event})
 
   const showInfo = () => pushModal(EventInfo, {url, event})
@@ -97,26 +91,6 @@
     pushModal(EventDeleteConfirm, {url, event, noun})
   }
 
-  const showAdminDelete = () =>
-    pushModal(Confirm, {
-      title: `Delete ${noun}`,
-      message: `Are you sure you want to delete this ${noun.toLowerCase()} from the space?`,
-      confirm: async () => {
-        const {error} = await manageRelay(url, {
-          method: ManagementMethod.BanEvent,
-          params: [event.id],
-        })
-
-        if (error) {
-          pushToast({theme: "error", message: error})
-        } else {
-          pushToast({message: "Event has successfully been deleted!"})
-          repository.removeEvent(event.id)
-          history.back()
-        }
-      },
-    })
-
   let ul: Element
 
   onMount(() => {
@@ -155,14 +129,6 @@
         <Button class="text-error" onclick={report}>
           <Icon size={4} icon={Danger} />
           Report Content
-        </Button>
-      </li>
-    {/if}
-    {#if allowAdminDelete && $userIsAdmin && canDeleteEvent}
-      <li>
-        <Button class="text-error" onclick={showAdminDelete}>
-          <Icon size={4} icon={TrashBin2} />
-          Delete {noun}
         </Button>
       </li>
     {/if}

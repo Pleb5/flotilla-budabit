@@ -14,9 +14,6 @@ import {
   MUTES,
   PROFILE,
   RELAYS,
-  ROOM_CREATE_PERMISSION,
-  ROOM_META,
-  ROOM_DELETE,
   THREAD,
   ZAP_GOAL,
   verifiedSymbol,
@@ -46,14 +43,12 @@ import {isPersistedGitDeleteEvent} from "@app/util/storage-events"
 const kinds = {
   meta: [PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, MESSAGING_RELAYS, APP_DATA],
   alert: [ALERT_STATUS, ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID],
-  room: [ROOM_META, ROOM_DELETE, ROOM_CREATE_PERMISSION],
   content: [EVENT_TIME, THREAD, MESSAGE, ZAP_GOAL, DM_KIND],
 }
 
 const rankEvent = (event: TrustedEvent) => {
   if (kinds.meta.includes(event.kind)) return 9
   if (kinds.alert.includes(event.kind)) return 8
-  if (kinds.room.includes(event.kind)) return 6
   if (!isMobile && kinds.content.includes(event.kind)) return 5
   if (isPersistedGitDeleteEvent(event)) return 4
   return 0

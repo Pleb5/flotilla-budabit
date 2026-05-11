@@ -3,7 +3,6 @@
   import Git from "@assets/icons/git.svg?dataurl"
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import Refresh from "@assets/icons/refresh.svg?dataurl"
-  import {page} from "$app/stores"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import InlinePopover from "@lib/components/InlinePopover.svelte"
@@ -23,9 +22,6 @@
   } from "@app/core/profile-collab-analysis"
   import {getTrustGraphSourceLabel} from "@app/core/trust-graph"
   import {hasEnabledTrustGraphRules, userTrustGraphConfigValues} from "@app/core/trust-graph-config"
-  import {makeGitPath} from "@app/util/routes"
-  import {decodeRelay} from "@app/core/state"
-  import {Address} from "@welshman/util"
 
   type Props = {
     pubkey: string
@@ -76,9 +72,6 @@
   const hasGraphAdjustments = $derived.by(() =>
     hasEnabledTrustGraphRules($userTrustGraphConfigValues),
   )
-  const preferredRelayUrl = $derived.by(() =>
-    $page.params.relay ? decodeRelay($page.params.relay) : analysis?.relays.find(Boolean) || "",
-  )
   const metricCards = $derived.by<MetricCard[]>(() =>
     analysis
       ? [
@@ -128,15 +121,7 @@
 
   const openProfile = (pubkey: string) => pushModal(ProfileDetail, {pubkey})
 
-  const getRepoHref = (repoAddress: string) => {
-    if (!preferredRelayUrl || !repoAddress) return ""
-
-    try {
-      return makeGitPath(preferredRelayUrl, Address.from(repoAddress).toNaddr())
-    } catch {
-      return ""
-    }
-  }
+  const getRepoHref = (_repoAddress: string) => ""
 
   const getPrHref = (detail: ProfileCodeTrustInteractionDetail) => {
     const repoHref = getRepoHref(detail.repoAddress)

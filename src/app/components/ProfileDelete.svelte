@@ -20,7 +20,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import {pushToast} from "@app/util/toast"
   import {logout} from "@app/core/commands"
-  import {INDEXER_RELAYS, PLATFORM_NAME, PLATFORM_RELAYS} from "@app/core/state"
+  import {INDEXER_RELAYS, PLATFORM_NAME} from "@app/core/state"
 
   let progress: number | undefined = $state(undefined)
   let confirmText = $state("")
@@ -42,7 +42,7 @@
     const profileEvent = makeEvent(PROFILE, createProfile({name: "[deleted]"}))
     const vanishEvent = makeEvent(62, {tags: [["relay", "ALL_RELAYS"]]})
     const denominator = chunks.length + 2
-    const relays = uniq([...INDEXER_RELAYS, ...$userWriteRelays, ...PLATFORM_RELAYS])
+    const relays = uniq([...INDEXER_RELAYS, ...$userWriteRelays])
 
     let step = 0
 

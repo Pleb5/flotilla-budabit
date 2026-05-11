@@ -96,8 +96,6 @@
     getHighlightLanguageForPath,
     highlightCodeSnippet,
   } from "@nostr-git/ui"
-  import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
-  import {GIT_RELAYS} from "@app/core/git-state"
   import {
     GIT_COMMENT,
     GIT_ISSUE,
@@ -336,39 +334,9 @@
 
   const isContentTruncated = (evt: TrustedEvent) => (evt?.content?.length || 0) > maxPreviewChars
 
-  const buildRepoHrefFromAddress = (repoAddress: string, relay?: string) => {
-    if (!repoAddress || !relay) return ""
-    const parsed = parseRepoAddress(repoAddress)
-    if (!parsed) return ""
-    try {
-      const naddr = nip19.naddrEncode({
-        kind: parsed.kind,
-        pubkey: parsed.pubkey,
-        identifier: parsed.identifier,
-        relays: relay ? [relay] : [],
-      })
-      return `/spaces/${encodeURIComponent(relay)}/git/${naddr}`
-    } catch {
-      return ""
-    }
-  }
+  const buildRepoHrefFromAddress = (_repoAddress: string, _relay?: string) => ""
 
-  const buildRepoHrefFromEvent = (evt: TrustedEvent, relay?: string) => {
-    if (!relay) return ""
-    try {
-      const naddr =
-        buildRepoNaddrFromEvent({
-          event: evt,
-          fallbackPubkey: evt.pubkey,
-          fallbackRepoRelays: relay ? [relay] : [],
-          userOutboxRelays: Router.get().FromUser().getUrls(),
-          gitRelays: GIT_RELAYS,
-        }) || Address.fromEvent(evt).toNaddr()
-      return `/spaces/${encodeURIComponent(relay)}/git/${naddr}`
-    } catch {
-      return ""
-    }
-  }
+  const buildRepoHrefFromEvent = (_evt: TrustedEvent, _relay?: string) => ""
 
   const getCommentRootId = (evt: TrustedEvent) => getTagValueAny(evt, ["E", "e"])
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import {describe, expect, it, vi} from "vitest"
+import {describe, expect, it} from "vitest"
 
 describe("state", () => {
   it("fromCsv splits comma-separated values and filters empty", async () => {
@@ -27,24 +27,10 @@ describe("state", () => {
     expect(entityLink("nevent1abc")).toBe("https://coracle.social/nevent1abc")
   })
 
-  it("makeRoomId and splitRoomId round-trip", async () => {
-    const {makeRoomId, splitRoomId} = await import("./state")
-    const url = "wss://relay.example.com"
-    const h = "room123"
-    const id = makeRoomId(url, h)
-    expect(id).toBe("wss://relay.example.com'room123")
-    expect(splitRoomId(id)).toEqual([url, h])
-  })
-
   it("makeChatId returns recipient pubkey", async () => {
     const {makeChatId} = await import("./state")
     const recipient = "a".repeat(64)
     expect(makeChatId(recipient)).toBe(recipient)
-  })
-
-  it("deriveChat id format is recipient pubkey", async () => {
-    const {makeChatId} = await import("./state")
-    expect(makeChatId("pk1")).toBe("pk1")
   })
 
   it("buildChatsById groups inbound and outbound DMs after pubkey loads", async () => {
@@ -100,130 +86,6 @@ describe("state", () => {
     expect(chats.size).toBe(0)
   })
 
-  it("makeChannelId uses Budabit channel route keys", async () => {
-    const {makeChannelId} = await import("./state")
-    expect(makeChannelId("wss://r.com", "h1")).toBe("wss://r.com'h1")
-    expect(makeChannelId("wss://r.com", "naddr1abc")).toBe("naddr1")
-  })
-
-  it("splitChannelId delegates to splitRoomId", async () => {
-    const {splitChannelId, splitRoomId} = await import("./state")
-    expect(splitChannelId("a'b")).toEqual(splitRoomId("a'b"))
-  })
-
-  it("buildChannelsFromEvents uses Budabit room names as feed keys", async () => {
-    const {buildChannelsFromEvents} = await import("./state")
-    const platformRelay = "wss://budabit.example.com/"
-    const event = {
-      id: "meta-1",
-      kind: 39000,
-      pubkey: "creator",
-      created_at: 10,
-      tags: [
-        ["d", "meta-id-1"],
-        ["name", "test"],
-      ],
-    } as any
-
-    const channels = buildChannelsFromEvents({
-      events: [event],
-      platformRelays: [platformRelay],
-      getEventRelayUrls: () => [platformRelay],
-    })
-
-    expect(channels).toHaveLength(1)
-    expect(channels[0]).toMatchObject({
-      id: `${platformRelay}'test`,
-      url: platformRelay,
-      room: "test",
-      metaId: "meta-id-1",
-      name: "test",
-    })
-  })
-
-  it("buildChannelsFromEvents dedupes metadata records with the same Budabit room name", async () => {
-    const {buildChannelsFromEvents} = await import("./state")
-    const platformRelay = "wss://budabit.example.com/"
-    const events = [
-      {
-        id: "meta-1",
-        kind: 39000,
-        pubkey: "creator-a",
-        created_at: 10,
-        tags: [
-          ["d", "meta-id-1"],
-          ["name", "test"],
-        ],
-      },
-      {
-        id: "meta-2",
-        kind: 39000,
-        pubkey: "creator-b",
-        created_at: 20,
-        tags: [
-          ["d", "meta-id-2"],
-          ["name", "test"],
-        ],
-      },
-    ] as any[]
-
-    const channels = buildChannelsFromEvents({
-      events,
-      platformRelays: [platformRelay],
-      getEventRelayUrls: () => [platformRelay],
-    })
-
-    expect(channels.map(channel => channel.room)).toEqual(["test"])
-  })
-
-  it("buildChannelsFromEvents ignores metadata that was not seen on platform relays", async () => {
-    const {buildChannelsFromEvents} = await import("./state")
-    const platformRelay = "wss://budabit.example.com/"
-    const otherRelay = "wss://other.example.com"
-    const event = {
-      id: "meta-1",
-      kind: 39000,
-      pubkey: "creator",
-      created_at: 10,
-      tags: [
-        ["d", "meta-id-1"],
-        ["name", "test"],
-      ],
-    } as any
-
-    const channels = buildChannelsFromEvents({
-      events: [event],
-      platformRelays: [platformRelay],
-      getEventRelayUrls: () => [otherRelay],
-    })
-
-    expect(channels).toEqual([])
-  })
-
-  it("buildChannelsFromEvents preserves archived channel state", async () => {
-    const {buildChannelsFromEvents} = await import("./state")
-    const platformRelay = "wss://budabit.example.com/"
-    const event = {
-      id: "meta-1",
-      kind: 39000,
-      pubkey: "creator",
-      created_at: 10,
-      tags: [
-        ["d", "meta-id-1"],
-        ["name", "test"],
-        ["archived", "true"],
-      ],
-    } as any
-
-    const channels = buildChannelsFromEvents({
-      events: [event],
-      platformRelays: [platformRelay],
-      getEventRelayUrls: () => [platformRelay],
-    })
-
-    expect(channels[0]?.archived).toBe(true)
-  })
-
   it("displayReaction maps content to emoji", async () => {
     const {displayReaction} = await import("./state")
     expect(displayReaction("")).toBe("❤️")
@@ -246,7 +108,7 @@ describe("state", () => {
     expect(filter["#K"]).toEqual(["1", "3"])
   })
 
-  it("encodeRelay encodes URL for path", async () => {
+  it("encodeRelay encodes URL for path-safe values", async () => {
     const {encodeRelay} = await import("./state")
     const encoded = encodeRelay("wss://relay.example.com")
     expect(encoded).not.toContain("://")
@@ -269,125 +131,8 @@ describe("state", () => {
     expect(defaultSettings.font_size).toBe(1.1)
   })
 
-  it("ROOM constant is defined", async () => {
+  it("ROOM constant is defined for Nostr h-tag compatibility", async () => {
     const {ROOM} = await import("./state")
     expect(ROOM).toBe("h")
-  })
-
-  it("canCreateRoomByPlatformPolicy uses env allowlist on platform relays", async () => {
-    vi.resetModules()
-    vi.stubEnv("VITE_PLATFORM_RELAYS", "wss://relay.example.com")
-    vi.stubEnv(
-      "VITE_PLATFORM_ROOM_CREATOR_PUBKEYS",
-      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    )
-
-    const {canCreateRoomByPlatformPolicy} = await import("./state")
-
-    expect(
-      canCreateRoomByPlatformPolicy({
-        relayUrl: "wss://relay.example.com",
-        viewerPubkey: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        relayOwnerPubkey: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      }),
-    ).toBe(true)
-
-    expect(
-      canCreateRoomByPlatformPolicy({
-        relayUrl: "wss://relay.example.com",
-        viewerPubkey: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        relayOwnerPubkey: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      }),
-    ).toBe(false)
-
-    vi.unstubAllEnvs()
-  })
-
-  it("canCreateRoomByPlatformPolicy falls back to relay owner when allowlist is unset", async () => {
-    vi.resetModules()
-    vi.stubEnv("VITE_PLATFORM_RELAYS", "wss://relay.example.com")
-    vi.stubEnv("VITE_PLATFORM_ROOM_CREATOR_PUBKEYS", "")
-
-    const {canCreateRoomByPlatformPolicy} = await import("./state")
-
-    expect(
-      canCreateRoomByPlatformPolicy({
-        relayUrl: "wss://relay.example.com",
-        viewerPubkey: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        relayOwnerPubkey: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      }),
-    ).toBe(true)
-
-    expect(
-      canCreateRoomByPlatformPolicy({
-        relayUrl: "wss://relay.example.com",
-        viewerPubkey: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        relayOwnerPubkey: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      }),
-    ).toBe(false)
-
-    vi.unstubAllEnvs()
-  })
-
-  it("makeBudaBitRoomMetaEvent publishes room meta with archived tag", async () => {
-    const {makeBudaBitRoomMetaEvent} = await import("./state")
-
-    const event = makeBudaBitRoomMetaEvent({h: "room-1", name: "Demo Room"} as any, {
-      archived: true,
-    })
-
-    expect(event.kind).toBe(39000)
-    expect(event.tags).toEqual(
-      expect.arrayContaining([
-        ["d", "room-1"],
-        ["name", "Demo Room"],
-        ["archived", "true"],
-      ]),
-    )
-    expect(event.tags.some(tag => tag[0] === "h")).toBe(false)
-  })
-
-  it("makeBudaBitRoomMetaEvent removes archived tag when restoring a room", async () => {
-    const {makeBudaBitRoomMetaEvent} = await import("./state")
-
-    const event = makeBudaBitRoomMetaEvent(
-      {
-        h: "room-1",
-        name: "Demo Room",
-        event: {
-          tags: [
-            ["d", "room-1"],
-            ["name", "Demo Room"],
-            ["archived", "true"],
-          ],
-        },
-      } as any,
-      {archived: false},
-    )
-
-    expect(event.tags.some(tag => tag[0] === "archived")).toBe(false)
-    expect(event.tags).toEqual(
-      expect.arrayContaining([
-        ["d", "room-1"],
-        ["name", "Demo Room"],
-      ]),
-    )
-  })
-
-  it("getRoomMetaRelays prefers platform relays and falls back to current relay", async () => {
-    vi.resetModules()
-    vi.stubEnv("VITE_PLATFORM_RELAYS", "wss://relay.one,wss://relay.two")
-
-    let {getRoomMetaRelays} = await import("./state")
-
-    expect(getRoomMetaRelays("wss://relay.other")).toEqual(["wss://relay.one/", "wss://relay.two/"])
-
-    vi.resetModules()
-    vi.stubEnv("VITE_PLATFORM_RELAYS", "")
-    ;({getRoomMetaRelays} = await import("./state"))
-
-    expect(getRoomMetaRelays("wss://relay.other")).toEqual(["wss://relay.other/"])
-
-    vi.unstubAllEnvs()
   })
 })

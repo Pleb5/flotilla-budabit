@@ -1,81 +1,14 @@
 import type {Page} from "@sveltejs/kit"
-import {get} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
 import {goto} from "$app/navigation"
-import {Router} from "@welshman/router"
-import {nthEq, sleep} from "@welshman/lib"
+import {sleep} from "@welshman/lib"
 import type {TrustedEvent} from "@welshman/util"
 import {pubkey, tracker} from "@welshman/app"
 import {scrollToEvent} from "@lib/html"
 import {identity} from "@welshman/lib"
-import {
-  getTagValue,
-  MESSAGE,
-  THREAD,
-  ZAP_GOAL,
-  EVENT_TIME,
-  getPubkeyTagValues,
-  Address,
-} from "@welshman/util"
-import {
-  makeChatId,
-  entityLink,
-  decodeRelay,
-  encodeRelay,
-  PLATFORM_RELAYS,
-  isPlatformRelay,
-  ROOM,
-  DM_KIND,
-} from "@app/core/state"
-import {
-  GIT_REPO_ANNOUNCEMENT,
-  GIT_REPO_STATE,
-  GIT_PULL_REQUEST,
-  GIT_PULL_REQUEST_UPDATE,
-  GIT_ISSUE,
-  GIT_STATUS_OPEN,
-  GIT_STATUS_APPLIED,
-  GIT_STATUS_CLOSED,
-  GIT_STATUS_DRAFT,
-} from "@nostr-git/core/events"
-import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
-import {COMMENT} from "@welshman/util"
-import {GIT_RELAYS, repoAnnouncementsByAddress} from "@app/core/git-state"
+import {getPubkeyTagValues} from "@welshman/util"
+import {makeChatId, entityLink, DM_KIND} from "@app/core/state"
 import {parseCommunityInput} from "@app/core/community"
-
-// Repository event kinds (use Address directly)
-const GIT_REPO_KINDS = [GIT_REPO_ANNOUNCEMENT, GIT_REPO_STATE]
-
-// Collaboration event kinds (reference repository via 'a' tag)
-const GIT_COLLABORATION_KINDS = [
-  GIT_PULL_REQUEST,
-  GIT_PULL_REQUEST_UPDATE,
-  GIT_ISSUE,
-  COMMENT,
-  GIT_STATUS_OPEN,
-  GIT_STATUS_APPLIED,
-  GIT_STATUS_CLOSED,
-  GIT_STATUS_DRAFT,
-]
-
-// All Git event kinds handled by BudaBit
-const GIT_EVENT_KINDS = [...GIT_REPO_KINDS, ...GIT_COLLABORATION_KINDS]
-import {lastPageBySpaceUrl} from "@app/util/history"
-
-export const makeSpacePath = (url: string, ...extra: (string | undefined)[]) => {
-  let path = `/spaces/${encodeRelay(url)}`
-
-  if (extra.length > 0) {
-    path +=
-      "/" +
-      extra
-        .filter(identity)
-        .map(s => encodeURIComponent(s as string))
-        .join("/")
-  }
-
-  return path
-}
 
 export const parseCommunityRouteParam = (community: string | undefined) => {
   if (!community) return undefined
@@ -130,68 +63,18 @@ export const makeCommunityPermalinkPath = (community: string, eventId?: string) 
 export const makeCommunityWidgetPath = (community: string, eventId?: string) =>
   makeCommunityPath(community, "widgets", eventId)
 
-export const makeGitPath = (url: string, eventId?: string) => makeSpacePath(url, "git", eventId)
-
-export const makeGitRepoPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "git", eventId, "repos")
-
-export const makeGitIssuePath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "git", eventId, "issues")
-
-export const makeGitIssueCommentPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "git", eventId, "issues", "comments")
-
-const pickPlatformSpaceRelay = (urls: string[]) => {
-  const platformRelay = urls.find(isPlatformRelay)
-
-  if (platformRelay) {
-    return platformRelay
-  }
-
-  return PLATFORM_RELAYS[0] || ""
-}
-
-export const goToSpace = async (url: string) => {
-  const prevPath = lastPageBySpaceUrl.get(encodeRelay(url))
-
-  if (prevPath) {
-    goto(prevPath)
-  } else {
-    goto(makeSpacePath(url, "chat"))
-  }
-}
-
 export const makeChatPath = (recipient: string) => {
   const id = makeChatId(recipient)
 
   return `/chat/${id}`
 }
 
-export const makeRoomPath = (url: string, h: string) => `/spaces/${encodeRelay(url)}/${h}`
-
-export const makeSpaceChatPath = (url: string) => makeRoomPath(url, "chat")
-
-export const makeGoalPath = (url: string, eventId?: string) => makeSpacePath(url, "goals", eventId)
-
-export const makeThreadPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "threads", eventId)
-
-export const makeCalendarPath = (url: string, eventId?: string) =>
-  makeSpacePath(url, "calendar", eventId)
-
 export const getPrimaryNavItem = ($page: Page) => $page.route?.id?.split("/")[1]
 
 export const getPrimaryNavItemIndex = ($page: Page) => {
-  const urls = PLATFORM_RELAYS
-
   switch (getPrimaryNavItem($page)) {
-    case "spaces": {
-      const routeUrl = decodeRelay($page.params.relay || "")
-
-      return urls.findIndex(url => url === routeUrl) + 1
-    }
     case "settings":
-      return urls.length + 3
+      return 3
     default:
       return 0
   }
@@ -212,14 +95,6 @@ export const goToEvent = async (event: TrustedEvent, options: Record<string, any
 }
 
 export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
-  const getUserOutboxRelays = () => {
-    try {
-      return Router.get().FromUser().getUrls() || []
-    } catch {
-      return []
-    }
-  }
-
   if (event.kind === DM_KIND) {
     const selfPubkey = pubkey.get()
     const participants = Array.from(new Set([event.pubkey, ...getPubkeyTagValues(event.tags)]))
@@ -232,128 +107,5 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
     return makeChatPath(recipients[0])
   }
 
-  const h = getTagValue(ROOM, event.tags)
-  const spaceRelay = pickPlatformSpaceRelay(urls)
-
-  // Handle Git-related events - route them to BudaBit's internal Git pages
-  if (GIT_EVENT_KINDS.includes(event.kind)) {
-    // For repository announcements (30617) and state (30618), use naddr
-    if (GIT_REPO_KINDS.includes(event.kind)) {
-      const naddr =
-        buildRepoNaddrFromEvent({
-          event,
-          fallbackPubkey: event.pubkey,
-          fallbackRepoRelays: urls,
-          userOutboxRelays: getUserOutboxRelays(),
-          gitRelays: GIT_RELAYS,
-        }) || Address.fromEvent(event).toNaddr()
-      const url = spaceRelay
-
-      if (url) {
-        return `/spaces/${encodeRelay(url)}/git/${naddr}`
-      }
-    }
-
-    // For pull requests, issues, comments, and status events
-    // These reference a repository via 'a' tag
-    if (GIT_COLLABORATION_KINDS.includes(event.kind)) {
-      // Get the repository address from 'a' tag
-      const repoAddress =
-        event.kind === COMMENT
-          ? getTagValue("repo", event.tags) || getTagValue("a", event.tags)
-          : getTagValue("a", event.tags)
-
-      if (repoAddress) {
-        try {
-          // Parse the coordinate to get pubkey and identifier
-          const [kind, pubkey, identifier] = repoAddress.split(":")
-
-          if (pubkey && identifier) {
-            const repoEvent = get(repoAnnouncementsByAddress).get(repoAddress)
-            const naddr = repoEvent
-              ? buildRepoNaddrFromEvent({
-                  event: repoEvent,
-                  fallbackPubkey: repoEvent.pubkey,
-                  fallbackRepoRelays: urls,
-                  userOutboxRelays: getUserOutboxRelays(),
-                  gitRelays: GIT_RELAYS,
-                }) || new Address(parseInt(kind), pubkey, identifier, []).toNaddr()
-              : new Address(parseInt(kind), pubkey, identifier, []).toNaddr()
-            const url = spaceRelay
-
-            if (url) {
-              // Route to specific sub-pages based on event kind
-              if (event.kind === GIT_PULL_REQUEST || event.kind === GIT_PULL_REQUEST_UPDATE) {
-                return `/spaces/${encodeRelay(url)}/git/${naddr}/prs/${event.id}`
-              }
-
-              if (event.kind === GIT_ISSUE) {
-                return `/spaces/${encodeRelay(url)}/git/${naddr}/issues/${event.id}`
-              }
-
-              // Comments and status events go to the feed view of the repository
-              return `/spaces/${encodeRelay(url)}/git/${naddr}/feed`
-            }
-          }
-        } catch (e) {
-          // If parsing fails, fall through to default handling
-          console.error("Failed to parse repository address for Git event:", e)
-        }
-      }
-    }
-  }
-
-  if (spaceRelay) {
-    const url = spaceRelay
-
-    if (event.kind === ZAP_GOAL) {
-      return makeGoalPath(url, event.id)
-    }
-
-    if (event.kind === THREAD) {
-      return makeThreadPath(url, event.id)
-    }
-
-    if (event.kind === EVENT_TIME) {
-      return makeCalendarPath(url, event.id)
-    }
-
-    if (event.kind === MESSAGE) {
-      return h ? makeRoomPath(url, h) : makeSpacePath(url, "chat")
-    }
-
-    const kind = event.tags.find(nthEq(0, "K"))?.[1]
-    const id = event.tags.find(nthEq(0, "E"))?.[1]
-
-    if (id && kind) {
-      if (parseInt(kind) === ZAP_GOAL) {
-        return makeGoalPath(url, id)
-      }
-
-      if (parseInt(kind) === THREAD) {
-        return makeThreadPath(url, id)
-      }
-
-      if (parseInt(kind) === EVENT_TIME) {
-        return makeCalendarPath(url, id)
-      }
-
-      if (parseInt(kind) === MESSAGE) {
-        return h ? makeRoomPath(url, h) : makeSpacePath(url, "chat")
-      }
-    }
-  }
-
   return entityLink(nip19.neventEncode({id: event.id, relays: urls}))
-}
-
-export const getRoomItemPath = (url: string, event: TrustedEvent) => {
-  switch (event.kind) {
-    case THREAD:
-      return makeThreadPath(url, event.id)
-    case ZAP_GOAL:
-      return makeGoalPath(url, event.id)
-    case EVENT_TIME:
-      return makeCalendarPath(url, event.id)
-  }
 }

@@ -9,7 +9,7 @@ import {
   normalizeRelayUrl,
 } from "@welshman/util"
 import type {List, TrustedEvent} from "@welshman/util"
-import {DM_KIND, INDEXER_RELAYS, PLATFORM_RELAYS} from "@app/core/state"
+import {DM_KIND, INDEXER_RELAYS} from "@app/core/state"
 export {DM_KIND}
 
 export const normalizeRelayUrls = (relays: string[]) => {
@@ -44,7 +44,7 @@ export const getDmPublishRelays = (selfRelays: string[], recipientRelays: string
 export const hasDmInbox = (list?: List) => getDmRelayUrls(list).length > 0
 
 export const getMessagingRelayHints = () => {
-  const hints: string[] = [...INDEXER_RELAYS, ...PLATFORM_RELAYS]
+  const hints: string[] = [...INDEXER_RELAYS]
 
   try {
     const router = Router.get()
