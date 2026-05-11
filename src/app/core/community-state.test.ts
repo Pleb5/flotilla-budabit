@@ -1,4 +1,5 @@
 import {describe, expect, it} from "vitest"
+import {get} from "svelte/store"
 import type {TrustedEvent} from "@welshman/util"
 import {
   BADGE_DEFINITION_KIND,
@@ -17,6 +18,11 @@ import {
   makeCommunityProfileListFilters,
   makeCommunitySession,
   selectLatestCommunityDefinition,
+  activeCommunityDefinition,
+  activeCommunityRelays,
+  activeCommunitySession,
+  clearActiveCommunity,
+  setActiveCommunityDefinition,
 } from "./community-state"
 
 const communityPubkey = "a".repeat(64)
@@ -111,5 +117,23 @@ describe("community state helpers", () => {
     expect(makeCommunityBadgeDefinitionFilters(definition)).toEqual([
       {kinds: [BADGE_DEFINITION_KIND], authors: [badgePubkey], "#d": ["member"], limit: 1},
     ])
+  })
+
+  it("derives active community relays from the loaded definition", () => {
+    const definition = parseCommunityDefinition(makeCommunityDefinitionEvent(1))!
+
+    activeCommunitySession.set({
+      communityPubkey,
+      communityRelayHints: ["wss://hint.example.com/"],
+    })
+    expect(get(activeCommunityRelays)).toEqual(["wss://hint.example.com/"])
+
+    setActiveCommunityDefinition(definition)
+    expect(get(activeCommunityDefinition)?.event.id).toBe("definition-1")
+    expect(get(activeCommunityRelays)).toEqual(["wss://relay.example.com/"])
+
+    clearActiveCommunity()
+    expect(get(activeCommunitySession)).toBeUndefined()
+    expect(get(activeCommunityDefinition)).toBeUndefined()
   })
 })

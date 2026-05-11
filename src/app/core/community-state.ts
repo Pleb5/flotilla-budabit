@@ -90,6 +90,7 @@ const getInitialSession = () => {
 }
 
 export const activeCommunitySession = writable<CommunitySession | undefined>(getInitialSession())
+export const activeCommunityDefinition = writable<CommunityDefinition | undefined>(undefined)
 
 if (canUseLocalStorage()) {
   activeCommunitySession.subscribe(writeStoredSession)
@@ -106,6 +107,8 @@ export const setActiveCommunityInput = (input: string) => {
 }
 
 export const setActiveCommunityDefinition = (definition: CommunityDefinition) => {
+  activeCommunityDefinition.set(definition)
+
   activeCommunitySession.update(session => {
     const next = {
       communityPubkey: definition.pubkey,
@@ -117,7 +120,11 @@ export const setActiveCommunityDefinition = (definition: CommunityDefinition) =>
   })
 }
 
-export const clearActiveCommunity = () => activeCommunitySession.set(undefined)
+export const clearActiveCommunity = () => {
+  activeCommunitySession.set(undefined)
+  activeCommunityDefinition.set(undefined)
+}
+export const clearActiveCommunityDefinition = () => activeCommunityDefinition.set(undefined)
 
 export const activeCommunityPubkey: Readable<string | undefined> = derived(
   activeCommunitySession,
@@ -127,6 +134,14 @@ export const activeCommunityPubkey: Readable<string | undefined> = derived(
 export const activeCommunityRelayHints: Readable<string[]> = derived(
   activeCommunitySession,
   session => session?.communityRelayHints || [],
+)
+
+export const activeCommunityRelays: Readable<string[]> = derived(
+  [activeCommunityDefinition, activeCommunityRelayHints],
+  ([$activeCommunityDefinition, $activeCommunityRelayHints]) =>
+    $activeCommunityDefinition?.relays.length
+      ? $activeCommunityDefinition.relays
+      : getCommunityBootstrapRelays($activeCommunityRelayHints),
 )
 
 export const getCommunityBootstrapRelays = (relayHints: string[] = []) =>
