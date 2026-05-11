@@ -1,0 +1,203 @@
+import {describe, expect, it} from "vitest"
+import * as nip19 from "nostr-tools/nip19"
+import type {TrustedEvent} from "@welshman/util"
+import {
+  BADGE_DEFINITION_KIND,
+  COMMUNITY_DEFINITION_KIND,
+  COMMUNITY_SECTION_GENERAL,
+  COMMUNITY_SECTION_ROOMS,
+  COMMUNITY_SUBTYPE_ROOM,
+  COMMUNITY_SUBTYPE_ROOM_MESSAGE,
+  MAX_TARGET_COMMUNITIES,
+  PROFILE_LIST_KIND,
+  TARGETED_PUBLICATION_KIND,
+  buildTargetedPublication,
+  canWriteFromProfileList,
+  findCommunitySection,
+  getCommunityMainRelay,
+  getProfileListPubkeys,
+  normalizePubkey,
+  parseAddressRef,
+  parseCommunityDefinition,
+  parseCommunityInput,
+  parseTargetedPublication,
+  sectionSupportsKind,
+  userCanIssueBadge,
+  userCanManageProfileList,
+} from "./community"
+
+const pubkeyA = "a".repeat(64)
+const pubkeyB = "b".repeat(64)
+const pubkeyC = "c".repeat(64)
+
+const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
+  ({
+    id: "event-id",
+    pubkey: pubkeyA,
+    created_at: 1,
+    kind: 1,
+    tags: [],
+    content: "",
+    sig: "sig",
+    ...overrides,
+  }) as TrustedEvent
+
+describe("community protocol helpers", () => {
+  it("parses raw hex community input", () => {
+    expect(parseCommunityInput(pubkeyA)).toEqual({pubkey: pubkeyA, relays: [], source: "hex"})
+  })
+
+  it("parses npub community input", () => {
+    const npub = nip19.npubEncode(pubkeyA)
+
+    expect(parseCommunityInput(npub)).toEqual({pubkey: pubkeyA, relays: [], source: "npub"})
+  })
+
+  it("parses ncommunity community input with relay hints", () => {
+    const ncommunity = `ncommunity://${pubkeyA}?relay=${encodeURIComponent(
+      "wss://relay.example.com",
+    )}&relay=${encodeURIComponent("wss://backup.example.com/")}`
+
+    expect(parseCommunityInput(ncommunity)).toEqual({
+      pubkey: pubkeyA,
+      relays: ["wss://relay.example.com/", "wss://backup.example.com/"],
+      source: "ncommunity",
+    })
+  })
+
+  it("normalizes npub and address refs", () => {
+    const npub = nip19.npubEncode(pubkeyB)
+
+    expect(normalizePubkey(npub)).toBe(pubkeyB)
+    expect(parseAddressRef(`${PROFILE_LIST_KIND}:${npub}:General`)).toEqual({
+      kind: PROFILE_LIST_KIND,
+      pubkey: pubkeyB,
+      identifier: "General",
+      address: `${PROFILE_LIST_KIND}:${pubkeyB}:General`,
+    })
+  })
+
+  it("parses community definitions into sections", () => {
+    const event = makeEvent({
+      kind: COMMUNITY_DEFINITION_KIND,
+      pubkey: pubkeyA,
+      tags: [
+        ["r", "wss://relay.example.com"],
+        ["r", "not-a-relay"],
+        ["blossom", "https://blossom.example.com"],
+        ["mint", "https://mint.example.com", "cashu"],
+        ["content", COMMUNITY_SECTION_GENERAL],
+        ["k", "1111"],
+        ["k", "9", COMMUNITY_SUBTYPE_ROOM_MESSAGE],
+        ["a", `${PROFILE_LIST_KIND}:${pubkeyB}:General`, "wss://relay.example.com"],
+        ["badge", `${BADGE_DEFINITION_KIND}:${pubkeyC}:member`],
+        ["retention", "9", "100", "count"],
+        ["content", COMMUNITY_SECTION_ROOMS],
+        ["k", "11", COMMUNITY_SUBTYPE_ROOM],
+        ["a", `${PROFILE_LIST_KIND}:${pubkeyC}:Rooms`],
+        ["badge", `${BADGE_DEFINITION_KIND}:${pubkeyC}:room-admin`],
+        ["tos", "policy-id", "wss://relay.example.com"],
+        ["location", "Internet"],
+        ["g", "u4pruy"],
+        ["description", "Override description"],
+      ],
+    })
+
+    const definition = parseCommunityDefinition(event)!
+    const general = findCommunitySection(definition, COMMUNITY_SECTION_GENERAL)!
+    const rooms = findCommunitySection(definition, COMMUNITY_SECTION_ROOMS)!
+
+    expect(definition.pubkey).toBe(pubkeyA)
+    expect(definition.relays).toEqual(["wss://relay.example.com/"])
+    expect(getCommunityMainRelay(definition)).toBe("wss://relay.example.com/")
+    expect(definition.blossomServers).toEqual(["https://blossom.example.com"])
+    expect(definition.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
+    expect(definition.tos).toEqual({ref: "policy-id", relay: "wss://relay.example.com/"})
+    expect(definition.location).toBe("Internet")
+    expect(definition.geohash).toBe("u4pruy")
+    expect(definition.description).toBe("Override description")
+    expect(sectionSupportsKind(general, 9, COMMUNITY_SUBTYPE_ROOM_MESSAGE)).toBe(true)
+    expect(sectionSupportsKind(general, 9, COMMUNITY_SUBTYPE_ROOM)).toBe(false)
+    expect(sectionSupportsKind(rooms, 11, COMMUNITY_SUBTYPE_ROOM)).toBe(true)
+    expect(general.profileLists[0]).toMatchObject({
+      kind: PROFILE_LIST_KIND,
+      pubkey: pubkeyB,
+      identifier: "General",
+      relay: "wss://relay.example.com/",
+    })
+    expect(general.badges[0]).toMatchObject({
+      kind: BADGE_DEFINITION_KIND,
+      pubkey: pubkeyC,
+      identifier: "member",
+    })
+    expect(general.retention).toEqual([{kind: 9, value: 100, type: "count"}])
+  })
+
+  it("checks profile-list based write access and delegated admin authority", () => {
+    const profileList = makeEvent({
+      kind: PROFILE_LIST_KIND,
+      pubkey: pubkeyB,
+      tags: [
+        ["d", "General"],
+        ["p", pubkeyA],
+        ["p", nip19.npubEncode(pubkeyC)],
+        ["p", "invalid"],
+      ],
+    })
+
+    expect(getProfileListPubkeys(profileList)).toEqual([pubkeyA, pubkeyC])
+    expect(canWriteFromProfileList(profileList, pubkeyA)).toBe(true)
+    expect(canWriteFromProfileList(profileList, pubkeyB)).toBe(false)
+    expect(userCanManageProfileList({kind: PROFILE_LIST_KIND, pubkey: pubkeyB, identifier: "General", address: `${PROFILE_LIST_KIND}:${pubkeyB}:General`}, pubkeyB)).toBe(true)
+    expect(userCanIssueBadge({kind: BADGE_DEFINITION_KIND, pubkey: pubkeyC, identifier: "member", address: `${BADGE_DEFINITION_KIND}:${pubkeyC}:member`}, pubkeyC)).toBe(true)
+  })
+
+  it("builds and parses targeted publication events", () => {
+    const template = buildTargetedPublication({
+      id: "target-1",
+      kind: 31922,
+      ref: {type: "a", value: `31922:${pubkeyA}:calendar-1`, relay: "wss://author.example.com"},
+      communities: [
+        {pubkey: pubkeyB, relay: "wss://relay.example.com"},
+        {pubkey: nip19.npubEncode(pubkeyC), relay: "wss://relay2.example.com"},
+      ],
+    })
+
+    expect(template).toEqual({
+      content: "",
+      tags: [
+        ["d", "target-1"],
+        ["a", `31922:${pubkeyA}:calendar-1`, "wss://author.example.com/"],
+        ["k", "31922"],
+        ["p", pubkeyB],
+        ["r", "wss://relay.example.com/"],
+        ["p", pubkeyC],
+        ["r", "wss://relay2.example.com/"],
+      ],
+    })
+
+    const parsed = parseTargetedPublication(
+      makeEvent({kind: TARGETED_PUBLICATION_KIND, tags: template.tags}),
+    )
+
+    expect(parsed).toEqual({
+      id: "target-1",
+      kind: 31922,
+      ref: {type: "a", value: `31922:${pubkeyA}:calendar-1`, relay: "wss://author.example.com/"},
+      communities: [
+        {pubkey: pubkeyB, relay: "wss://relay.example.com/"},
+        {pubkey: pubkeyC, relay: "wss://relay2.example.com/"},
+      ],
+    })
+  })
+
+  it("limits targeted publication communities", () => {
+    const communities = Array.from({length: MAX_TARGET_COMMUNITIES + 2}, (_, i) => ({
+      pubkey: `${i}`.repeat(64).slice(0, 64).replace(/[^0-9a-f]/g, "a"),
+    }))
+    const template = buildTargetedPublication({id: "target-many", kind: 9041, communities})
+    const pTags = template.tags.filter(tag => tag[0] === "p")
+
+    expect(pTags.length).toBe(MAX_TARGET_COMMUNITIES)
+  })
+})
