@@ -1,24 +1,15 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import AddCircle from "@assets/icons/add-circle.svg?dataurl"
-  import Compass from "@assets/icons/compass.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
+  import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
-  import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
-  import SpaceAdd from "@app/components/SpaceAdd.svelte"
-  import {pushModal} from "@app/util/modal"
   import {PLATFORM_NAME} from "@app/core/state"
   import {makeSpacePath} from "@src/app/util/routes"
   import * as appState from "@app/core/state"
 
-  if (appState.PLATFORM_RELAYS.length > 0) {
-    goto(makeSpacePath(appState.PLATFORM_RELAYS[0]))
-  }
-
-  const addSpace = () => pushModal(SpaceAdd)
-
+  const openPlatformRelay = () => goto(makeSpacePath(appState.PLATFORM_RELAYS[0]))
   const openChat = () => goto("/chat")
 </script>
 
@@ -28,32 +19,30 @@
       <h1 class="text-center text-5xl">Welcome to</h1>
       <h1 class="mb-4 text-center text-5xl font-bold uppercase">{PLATFORM_NAME}</h1>
       <div class="col-3">
-        <Button onclick={addSpace}>
+        {#if appState.PLATFORM_RELAYS.length === 0}
           <CardButton class="btn-neutral">
-            {#snippet icon()}
-              <Icon icon={AddCircle} size={7} />
-            {/snippet}
             {#snippet title()}
-              <div>Add a space</div>
+              <div>No platform relay configured</div>
             {/snippet}
             {#snippet info()}
-              <div>Use an invite link, or create your own space.</div>
+              <div>Budabit needs a platform relay before workspace features are available.</div>
             {/snippet}
           </CardButton>
-        </Button>
-        <Link href="/discover">
-          <CardButton class="btn-neutral">
-            {#snippet icon()}
-              <Icon icon={Compass} size={7} />
-            {/snippet}
-            {#snippet title()}
-              <div>Browse the network</div>
-            {/snippet}
-            {#snippet info()}
-              <div>Find communities on the nostr network.</div>
-            {/snippet}
-          </CardButton>
-        </Link>
+        {:else}
+          <Button onclick={openPlatformRelay}>
+            <CardButton class="btn-primary">
+              {#snippet icon()}
+                <Icon icon={HomeSmile} size={7} />
+              {/snippet}
+              {#snippet title()}
+                <div>Open platform relay</div>
+              {/snippet}
+              {#snippet info()}
+                <div>Go to your configured Budabit relay.</div>
+              {/snippet}
+            </CardButton>
+          </Button>
+        {/if}
         <Button onclick={openChat}>
           <CardButton class="btn-neutral">
             {#snippet icon()}

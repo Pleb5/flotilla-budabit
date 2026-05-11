@@ -6,7 +6,6 @@
   import {userProfile, pubkey} from "@welshman/app"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import Widget from "@assets/icons/widget.svg?dataurl"
-  import Compass from "@assets/icons/compass.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
@@ -20,7 +19,7 @@
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import PrimaryNavItemSpace from "@app/components/PrimaryNavItemSpace.svelte"
   import RelayIcon from "@app/components/RelayIcon.svelte"
-  import {userSpaceUrls, PLATFORM_RELAYS, PLATFORM_LOGO, decodeRelay} from "@app/core/state"
+  import {PLATFORM_RELAYS, PLATFORM_LOGO, decodeRelay} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {makeSpacePath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
@@ -36,7 +35,7 @@
 
   const {children}: Props = $props()
 
-  const spaceUrls = $derived($userSpaceUrls)
+  const spaceUrls = PLATFORM_RELAYS
 
   const openProfile = () => {
     if ($pubkey) pushModal(ProfileDetail, {pubkey: $pubkey})
@@ -106,8 +105,8 @@
   const itemHeight = 56
   const navPadding = 6 * itemHeight
   const itemLimit = $derived((windowHeight - navPadding) / itemHeight)
-  const [primarySpaceUrls, secondarySpaceUrls] = $derived(splitAt(itemLimit, $userSpaceUrls))
-  const anySpaceNotifications = $derived($userSpaceUrls.some(hasNotification))
+  const [primarySpaceUrls, secondarySpaceUrls] = $derived(splitAt(itemLimit, spaceUrls))
+  const anySpaceNotifications = $derived(spaceUrls.some(hasNotification))
   const otherSpaceNotifications = $derived(secondarySpaceUrls.some(hasNotification))
 
   // Get widgets configured for menu display
@@ -153,9 +152,6 @@
             <ImageIcon alt="Other Spaces" src={Widget} />
           </PrimaryNavItem>
         {/if}
-        <PrimaryNavItem title="Add a Space" href="/discover" class="tooltip-right">
-          <ImageIcon alt="Add a Space" src={Compass} size={7} />
-        </PrimaryNavItem>
       {/each}
     </div>
     {#if PLATFORM_RELAYS.length > 0}

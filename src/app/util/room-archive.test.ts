@@ -62,32 +62,26 @@ describe("room archive helpers", () => {
     expect(result.map(event => event.id)).toEqual(["active-1"])
   })
 
-  it("marks archived rooms as read-only and disables membership requests", () => {
+  it("marks archived rooms as read-only", () => {
     const result = getRoomInteractionState({
       isArchivedRoom: true,
-      isClosed: false,
     })
 
     expect(result).toMatchObject({
       isReadOnly: true,
       showArchivedBanner: true,
-      showPrivateGate: false,
-      allowMembershipRequest: false,
       allowMessageActions: false,
       showCompose: false,
     })
   })
 
-  it("keeps active rooms interactive without NIP-29 membership gates", () => {
+  it("keeps active rooms interactive", () => {
     const result = getRoomInteractionState({
       isArchivedRoom: false,
-      isClosed: false,
     })
 
     expect(result).toMatchObject({
       isReadOnly: false,
-      showRestrictedGate: false,
-      allowMembershipRequest: true,
       allowMessageActions: true,
       showCompose: true,
     })

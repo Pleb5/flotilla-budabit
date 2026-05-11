@@ -28,7 +28,7 @@
     // Log in first, then publish
     loginWithNip01(secret)
 
-    // Don't publish anywhere yet, wait until they join a space
+    // Don't publish anywhere yet; profile broadcast is controlled from settings.
     publishThunk({event, relays: []})
 
     clearModals()
@@ -46,8 +46,8 @@
     without asking permission!
   </p>
   <p>
-    From your dashboard, you can use invite links, discover community spaces, and keep up-to-date on
-    groups you've already joined. Click below to get started!
+    From your dashboard, you can access the platform relay, join conversations, and keep up-to-date
+    on the work happening there. Click below to get started!
   </p>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>

@@ -40,7 +40,7 @@
 
     const createMessage = await waitForThunkError(createBudaBitRoom(url, room))
 
-    if (createMessage && !createMessage.match(/^duplicate:|already a member/)) {
+    if (createMessage && !createMessage.match(/^duplicate:/)) {
       return pushToast({theme: "error", message: createMessage})
     }
 

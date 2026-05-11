@@ -9,21 +9,17 @@ import {
   spec,
   call,
   sortBy,
-  sort,
   uniq,
   indexBy,
   partition,
   shuffle,
   parseJson,
   memoize,
-  addToMapKey,
   pushToMapKey,
   identity,
   always,
   tryCatch,
   fromPairs,
-  nth,
-  nthEq,
 } from "@welshman/lib"
 import {
   Pool,
@@ -67,34 +63,24 @@ import {
   ROOM_CREATE_PERMISSION,
   ROOM_META,
   ROOM_DELETE,
-  ROOMS,
   THREAD,
   ZAP_GOAL,
   ZAP_REQUEST,
   ZAP_RESPONSE,
-  asDecryptedEvent,
-  getGroupTags,
   getListTags,
   getPubkeyTagValues,
-  getRelayTagValues,
   getTag,
   getTagValue,
   getTagValues,
   isRelayUrl,
-  makeEvent,
   normalizeRelayUrl,
-  readList,
   verifyEvent,
   readRoomMeta,
   makeRoomMeta,
   ManagementMethod,
   makeRoomEditEvent,
-  RELAY_ADD_MEMBER,
-  RELAY_REMOVE_MEMBER,
-  RELAY_MEMBERS,
-  RELAY_JOIN,
 } from "@welshman/util"
-import type {TrustedEvent, List, Filter, RoomMeta, PublishedList} from "@welshman/util"
+import type {TrustedEvent, Filter, RoomMeta} from "@welshman/util"
 import {decrypt} from "@welshman/signer"
 import {routerContext, Router} from "@welshman/router"
 import {
@@ -106,7 +92,6 @@ import {
   makeOutboxLoader,
   appContext,
   createSearch,
-  getThunkError,
   publishThunk,
   deriveRelay,
   manageRelay,
@@ -277,7 +262,7 @@ export const EXTENSIONS_KIND = 31990
 
 export const NIP46_PERMS =
   "nip44_encrypt,nip44_decrypt," +
-  [CLIENT_AUTH, RELAY_JOIN, MESSAGE, THREAD, COMMENT, ROOMS, DM_KIND, REACTION, ZAP_REQUEST]
+  [CLIENT_AUTH, MESSAGE, THREAD, COMMENT, DM_KIND, REACTION, ZAP_REQUEST]
     .map(k => `sign_event:${k}`)
     .join(",")
 
@@ -569,72 +554,6 @@ export const publishBudaBitRoomMeta = ({
 export const createBudaBitRoom = (url: string, room: RoomMeta) =>
   publishBudaBitRoomMeta({url, room})
 
-// Membership
-
-export const hasMembershipUrl = (list: List | undefined, url: string) =>
-  getListTags(list).some(t => {
-    if (t[0] === "r") return t[1] === url
-    if (t[0] === "group") return t[2] === url
-
-    return false
-  })
-
-export const getMembershipUrls = (list?: List) => {
-  const tags = getListTags(list)
-
-  return sort(
-    uniq([...getRelayTagValues(tags), ...getGroupTags(tags).map(nth(2))]).map(url =>
-      normalizeRelayUrl(url),
-    ),
-  )
-}
-
-export const getMembershipRooms = (list?: List) =>
-  getGroupTags(getListTags(list)).map(([_, room, url, name = ""]) => ({url, room, name}))
-
-export const getMembershipRoomsByUrl = (url: string, list?: List) =>
-  sort(getGroupTags(getListTags(list)).filter(nthEq(2, url)).map(nth(1)))
-
-export const memberships = derived(
-  deriveEventsAsc(
-    deriveEventsById({
-      repository,
-      filters: [{kinds: [ROOMS]}],
-    }),
-  ),
-  $events => $events.map(e => readList(asDecryptedEvent(e))).filter(identity) as PublishedList[],
-)
-
-export const membershipsByPubkey = deriveItemsByKey({
-  repository,
-  filters: [{kinds: [ROOMS]}],
-  getKey: (list: PublishedList) => list.event.pubkey,
-  eventToItem: (event: TrustedEvent) => readList(asDecryptedEvent(event)) as PublishedList,
-})
-
-export const getMembershipsByPubkey = getter(membershipsByPubkey)
-
-export const getMembership = (pubkey: string) => getMembershipsByPubkey().get(pubkey)
-
-export const loadMembership = makeLoadItem(makeOutboxLoader(ROOMS), getMembership)
-
-export const deriveMembership = makeDeriveItem(membershipsByPubkey, loadMembership)
-
-export const membersByUrl = derived(
-  [defaultPubkeys, membershipsByPubkey],
-  ([$defaultPubkeys, $membershipsByPubkey]) => {
-    const $membersByUrl = new Map<string, Set<string>>()
-
-    for (const pubkey of $defaultPubkeys) {
-      for (const url of getMembershipUrls($membershipsByPubkey.get(pubkey))) {
-        addToMapKey($membersByUrl, url, pubkey)
-      }
-    }
-
-    return $membersByUrl
-  },
-)
-
 // Chats
 
 export const chatMessages = deriveEventsAsc(
@@ -891,109 +810,6 @@ export const displayRoom = (url: string, h: string) => getRoom(makeRoomId(url, h
 
 export const roomComparator = (url: string) => (h: string) => displayRoom(url, h).toLowerCase()
 
-// User space/room lists
-
-export const groupListsByPubkey = deriveItemsByKey({
-  repository,
-  filters: [{kinds: [ROOMS]}],
-  getKey: list => list.event.pubkey,
-  eventToItem: (event: TrustedEvent) => readList(asDecryptedEvent(event)),
-})
-
-export const getGroupListsByPubkey = getter(groupListsByPubkey)
-
-export const getGroupList = (pubkey: string) => getGroupListsByPubkey().get(pubkey)
-
-export const loadGroupList = makeLoadItem(makeOutboxLoader(ROOMS), getGroupList)
-
-export const deriveGroupList = makeDeriveItem(groupListsByPubkey, loadGroupList)
-
-export const groupListPubkeysByUrl = derived(groupListsByPubkey, $groupListsByPubkey => {
-  const result = new Map<string, Set<string>>()
-
-  for (const list of $groupListsByPubkey.values()) {
-    const tags = getListTags(list)
-
-    for (const url of getRelayTagValues(tags)) {
-      const normalized = safeNormalizeRelayUrl(url)
-      if (isRelayUrl(normalized)) {
-        addToMapKey(result, normalized, list.event.pubkey)
-      }
-    }
-
-    for (const tag of getGroupTags(tags)) {
-      const normalized = safeNormalizeRelayUrl(tag[2] || "")
-
-      if (isRelayUrl(normalized)) {
-        addToMapKey(result, normalized, list.event.pubkey)
-      }
-    }
-  }
-
-  return result
-})
-
-export const deriveGroupListPubkeys = (url: string) =>
-  derived(groupListPubkeysByUrl, $groupListPubkeysByUrl => new Set($groupListPubkeysByUrl.get(url)))
-
-export const getSpaceUrlsFromGroupList = (groupList: List | undefined) => {
-  const tags = getListTags(groupList)
-  const urls: string[] = []
-
-  for (const url of getRelayTagValues(tags)) {
-    const normalized = safeNormalizeRelayUrl(url)
-    if (isRelayUrl(normalized)) {
-      urls.push(normalized)
-    }
-  }
-
-  for (const tag of getGroupTags(tags)) {
-    const normalized = safeNormalizeRelayUrl(tag[2] || "")
-
-    if (isRelayUrl(normalized)) {
-      urls.push(normalized)
-    }
-  }
-
-  return uniq(urls)
-}
-
-export const getSpaceRoomsFromGroupList = (url: string, groupList: List | undefined) => {
-  const rooms: string[] = []
-
-  for (const [_, h, relay] of getGroupTags(getListTags(groupList))) {
-    if (url === relay) {
-      rooms.push(h)
-    }
-  }
-
-  return sortBy(roomComparator(url), rooms)
-}
-
-export const userGroupList = makeUserData(groupListsByPubkey, loadGroupList)
-
-export const loadUserGroupList = makeUserLoader(loadGroupList)
-
-export const userSpaceUrls = derived(userGroupList, getSpaceUrlsFromGroupList)
-
-export const deriveUserRooms = (url: string) =>
-  derived(activeChannelsByUrl, $activeChannelsByUrl =>
-    sortBy(
-      room => displayChannel(url, room).toLowerCase(),
-      ($activeChannelsByUrl.get(url) || []).map(channel => channel.room),
-    ),
-  )
-
-export const deriveOtherRooms = (url: string) =>
-  derived([deriveUserRooms(url), activeChannelsByUrl], ([$userRooms, $activeChannelsByUrl]) =>
-    sortBy(
-      room => displayChannel(url, room).toLowerCase(),
-      ($activeChannelsByUrl.get(url) || [])
-        .map(channel => channel.room)
-        .filter(room => !$userRooms.includes(room)),
-    ),
-  )
-
 export const deriveArchivedRooms = (url: string) =>
   derived(archivedChannelsByUrl, $archivedChannelsByUrl =>
     sortBy(
@@ -1201,39 +1017,7 @@ export const loadPlatformChannels = () =>
     autoClose: true,
   })
 
-// Space/room memberships
-
-export const deriveSpaceMembers = (url: string) =>
-  derived(
-    deriveRelaySignedEvents(url, [{kinds: [RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER, RELAY_MEMBERS]}]),
-    $events => {
-      const membersEvent = $events.find(spec({kind: RELAY_MEMBERS}))
-
-      if (membersEvent) {
-        return uniq(getTagValues("member", membersEvent.tags))
-      }
-
-      const members = new Set<string>()
-
-      for (const event of sortBy((e: TrustedEvent) => e.created_at, $events)) {
-        const pubkeys = getPubkeyTagValues(event.tags)
-
-        if (event.kind === RELAY_ADD_MEMBER) {
-          for (const pubkey of pubkeys) {
-            members.add(pubkey)
-          }
-        }
-
-        if (event.kind === RELAY_REMOVE_MEMBER) {
-          for (const pubkey of pubkeys) {
-            members.delete(pubkey)
-          }
-        }
-      }
-
-      return Array.from(members)
-    },
-  )
+// Relay moderation/admin
 
 export type BannedPubkeyItem = {
   pubkey: string
@@ -1376,26 +1160,19 @@ export const deriveTimeout = (timeout: number) => {
 export const shouldIgnoreError = (error: string) => {
   const isIgnored = error.startsWith("mute: ")
   const isAborted = error.includes("Signing was aborted")
-  const isStrictNip29Relay = error.includes("missing group (`h`) tag")
 
-  return isIgnored || isAborted || isStrictNip29Relay
+  return isIgnored || isAborted
 }
 
-export const deriveRelayAuthError = (url: string, claim = "") => {
+export const deriveRelayAuthError = (url: string) => {
   const stripPrefix = (m: string) => m.replace(/^\w+: /, "")
 
   // Kick off the auth process
   Pool.get().get(url).auth.attemptAuth(sign)
 
-  // Attempt to join the relay
-  const thunk = publishThunk({
-    event: makeEvent(RELAY_JOIN, {tags: [["claim", claim]]}),
-    relays: [url],
-  })
-
   return derived(
-    [thunk, relaysMostlyRestricted, deriveSocket(url)],
-    ([$thunk, $relaysMostlyRestricted, $socket]) => {
+    [relaysMostlyRestricted, deriveSocket(url)],
+    ([$relaysMostlyRestricted, $socket]) => {
       if ($socket.auth.status === AuthStatus.Forbidden && $socket.auth.details) {
         return stripPrefix($socket.auth.details)
       }
@@ -1403,35 +1180,6 @@ export const deriveRelayAuthError = (url: string, claim = "") => {
       if ($relaysMostlyRestricted[url]) {
         return stripPrefix($relaysMostlyRestricted[url])
       }
-
-      const error = getThunkError($thunk)
-
-      if (error) {
-        const isEmptyInvite = !claim && error.includes("invite code")
-
-        if (!shouldIgnoreError(error) && !isEmptyInvite) {
-          return stripPrefix(error) || "join request rejected"
-        }
-      }
     },
   )
 }
-
-export type InviteData = {url: string; claim: string}
-
-export const parseInviteLink = (invite: string): InviteData | undefined =>
-  tryCatch(() => {
-    const {r: relay = "", c: claim = ""} = fromPairs(Array.from(new URL(invite).searchParams))
-    const url = normalizeRelayUrl(relay)
-
-    if (isRelayUrl(url)) {
-      return {url, claim}
-    }
-  }) ||
-  tryCatch(() => {
-    const url = normalizeRelayUrl(invite)
-
-    if (isRelayUrl(url)) {
-      return {url, claim: ""}
-    }
-  })

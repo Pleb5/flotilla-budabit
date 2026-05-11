@@ -8,7 +8,7 @@ import {
 } from "@welshman/store"
 import {pubkey, tracker, repository} from "@welshman/app"
 import {prop, find, call, spec, identity, now, groupBy} from "@welshman/lib"
-import type {List, TrustedEvent} from "@welshman/util"
+import type {TrustedEvent} from "@welshman/util"
 import {
   ZAP_GOAL,
   EVENT_TIME,
@@ -52,8 +52,6 @@ import {
   chatsById,
   PLATFORM_RELAYS,
   userSettingsValues,
-  userGroupList,
-  getSpaceUrlsFromGroupList,
   encodeRelay,
   roomsById,
   channelsById,
@@ -93,7 +91,6 @@ export type NotificationCandidate = {
 }
 
 export type NotificationsConfig = {
-  getSpaceUrls?: (groupList: List | undefined) => string[]
   augmentPaths?: (paths: Set<string>) => Set<string> | void
 }
 
@@ -144,7 +141,6 @@ export const notifications = call(() => {
           pubkey,
           checked,
           chatsById,
-          userGroupList,
           roomsById,
           channelsById,
           deriveEventsByIdByUrl({tracker, repository, filters: goalCommentFilters}),
@@ -161,7 +157,6 @@ export const notifications = call(() => {
       $pubkey,
       $checked,
       $chatsById,
-      $userGroupList,
       $roomsById,
       $channelsById,
       goalCommentsByUrl,
@@ -204,10 +199,6 @@ export const notifications = call(() => {
 
       const paths = new Set<string>()
 
-      const getSpaceUrls =
-        $notificationsConfig.getSpaceUrls ||
-        ((groupList: List | undefined) => getSpaceUrlsFromGroupList(groupList))
-
       for (const {id, messages} of $chatsById.values()) {
         const chatPath = makeChatPath(id)
         const latestMessage = getLatestIncomingEvent(messages, $pubkey)
@@ -220,7 +211,7 @@ export const notifications = call(() => {
         }
       }
 
-      for (const url of getSpaceUrls($userGroupList)) {
+      for (const url of PLATFORM_RELAYS) {
         const spacePath = makeSpacePath(url)
         const spacePathMobile = spacePath + ":mobile"
         const goalPath = makeGoalPath(url)
@@ -849,8 +840,6 @@ export const setupBudabitNotifications = () => {
 
   const setConfig = () =>
     setNotificationsConfig({
-      getSpaceUrls: groupList =>
-        PLATFORM_RELAYS.length > 0 ? PLATFORM_RELAYS : getSpaceUrlsFromGroupList(groupList),
       augmentPaths,
     })
 

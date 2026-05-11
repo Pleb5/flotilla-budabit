@@ -41,7 +41,7 @@
 
   const socket = deriveSocket(url)
 
-  // Only attempt relay auth and join when logged in — guests browse read-only
+  // Only attempt relay auth when logged in — guests browse read-only
   const authError = $pubkey ? deriveRelayAuthError(url) : null
 
   const showAuthError = once(() => {
@@ -89,8 +89,8 @@
       })
     }
 
-    // Load group meta, threads, calendar events, comments, and recent messages
-    // for user rooms to help with a quick page transition
+    // Load platform channels, threads, calendar events, comments, and recent messages
+    // to help with a quick page transition
     loadPlatformChannels()
 
     const messageFilters = isPlatform

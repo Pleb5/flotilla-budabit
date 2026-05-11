@@ -6,7 +6,7 @@
   import ChannelName from "@app/components/ChannelName.svelte"
   import {makeRoomPath} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
-  import {deriveRoom} from "@app/core/state"
+  import {deriveChannel} from "@app/core/state"
 
   interface Props {
     url: any
@@ -19,14 +19,14 @@
   const {url, room, notify = false, replaceState = false, archived = false}: Props = $props()
 
   const path = makeRoomPath(url, room)
-  const channel = deriveRoom(url, room)
+  const channel = deriveChannel(url, room)
 </script>
 
 <SecondaryNavItem
   href={path}
   {replaceState}
   notification={archived ? false : notify ? $notifications.has(path) : false}>
-  {#if $channel?.isClosed || $channel?.isPrivate}
+  {#if $channel?.closed || $channel?.private}
     <Icon icon={Lock} size={4} />
   {:else}
     <Icon icon={Hashtag} />

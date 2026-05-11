@@ -6,7 +6,6 @@ import type {TrustedEvent} from "@welshman/util"
 
 const mockPubkey = writable<string | undefined>("viewer")
 const mockChatsById = writable(new Map())
-const mockUserGroupList = writable({} as any)
 const mockRelaysByUrl = writable(new Map())
 const mockRoomsById = writable(new Map())
 const mockChannelsById = writable(new Map())
@@ -61,9 +60,8 @@ vi.mock("@app/util/routes", () => ({
 
 vi.mock("@app/core/state", () => ({
   chatsById: mockChatsById,
+  PLATFORM_RELAYS: ["wss://space.one"],
   userSettingsValues: mockUserSettingsValues,
-  userGroupList: mockUserGroupList,
-  getSpaceUrlsFromGroupList: () => ["wss://space.one"],
   encodeRelay: (url: string) => encodeURIComponent(url),
   makeRoomId: (url: string, h: string) => `${url}'${h}`,
   roomsById: mockRoomsById,
@@ -155,7 +153,6 @@ describe("room notifications", () => {
     vi.resetModules()
     mockPubkey.set("viewer")
     mockChatsById.set(new Map())
-    mockUserGroupList.set({} as any)
     mockRelaysByUrl.set(new Map([["wss://space.one", {supported_nips: [29]}]]))
     mockRoomsById.set(new Map())
     mockChannelsById.set(new Map())

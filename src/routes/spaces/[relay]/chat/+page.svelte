@@ -5,14 +5,7 @@
   import {readable} from "svelte/store"
   import {now, int, formatTimestampAsDate, MINUTE, ago} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
-  import {
-    makeEvent,
-    getTag,
-    DELETE,
-    MESSAGE,
-    RELAY_ADD_MEMBER,
-    RELAY_REMOVE_MEMBER,
-  } from "@welshman/util"
+  import {makeEvent, getTag, DELETE, MESSAGE} from "@welshman/util"
   import {pubkey, publishThunk} from "@welshman/app"
   import {fade, fly} from "@lib/transition"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
@@ -26,8 +19,6 @@
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import SpaceMenuButton from "@app/components/SpaceMenuButton.svelte"
   import RoomItem from "@app/components/RoomItem.svelte"
-  import RoomItemAddMember from "@src/app/components/RoomItemAddMember.svelte"
-  import RoomItemRemoveMember from "@src/app/components/RoomItemRemoveMember.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import RoomComposeEdit from "@src/app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
@@ -139,7 +130,6 @@
     const seen = new Set()
 
     let previousDate
-    let previousKind
     let previousPubkey
     let previousCreatedAt = 0
     let newMessagesSeen = false
@@ -185,12 +175,10 @@
           value: event,
           showPubkey:
             previousPubkey !== event.pubkey ||
-            event.created_at - previousCreatedAt > int(3, MINUTE) ||
-            [RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER].includes(previousKind!),
+            event.created_at - previousCreatedAt > int(3, MINUTE),
         })
 
         previousDate = date
-        previousKind = event.kind
         previousPubkey = event.pubkey
         previousCreatedAt = event.created_at
         seen.add(event.id)
@@ -257,10 +245,10 @@
     const feed = makeFeed({
       element: element!,
       relays: [url],
-      feedFilters: [{kinds: [MESSAGE, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER]}],
+      feedFilters: [{kinds: [MESSAGE]}],
       subscriptionFilters: [
         {
-          kinds: [DELETE, MESSAGE, ...REACTION_KINDS, RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER],
+          kinds: [DELETE, MESSAGE, ...REACTION_KINDS],
           since: now(),
         },
       ],
@@ -320,21 +308,15 @@
       <Divider>{value}</Divider>
     {:else}
       {@const event = $state.snapshot(value as TrustedEvent)}
-      {#if event.kind === RELAY_ADD_MEMBER}
-        <RoomItemAddMember {url} {event} />
-      {:else if event.kind === RELAY_REMOVE_MEMBER}
-        <RoomItemRemoveMember {url} {event} />
-      {:else}
-        <div class:-mt-1={!showPubkey}>
-          <RoomItem
-            {url}
-            {event}
-            {replyTo}
-            {showPubkey}
-            canEdit={canEditEvent}
-            onEdit={onEditEvent} />
-        </div>
-      {/if}
+      <div class:-mt-1={!showPubkey}>
+        <RoomItem
+          {url}
+          {event}
+          {replyTo}
+          {showPubkey}
+          canEdit={canEditEvent}
+          onEdit={onEditEvent} />
+      </div>
     {/if}
   {/each}
   {#if loadingEvents || elements.length === 0 || exhaustedEvents}

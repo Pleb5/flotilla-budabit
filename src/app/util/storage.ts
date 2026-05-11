@@ -17,16 +17,10 @@ import {
   ROOM_CREATE_PERMISSION,
   ROOM_META,
   ROOM_DELETE,
-  ROOMS,
   THREAD,
   ZAP_GOAL,
   verifiedSymbol,
   MESSAGING_RELAYS,
-  RELAY_ADD_MEMBER,
-  RELAY_REMOVE_MEMBER,
-  RELAY_MEMBERS,
-  RELAY_JOIN,
-  RELAY_LEAVE,
 } from "@welshman/util"
 import type {Zapper, TrustedEvent, RelayProfile} from "@welshman/util"
 import type {Handle, RelayStats} from "@welshman/app"
@@ -50,9 +44,8 @@ import type {IDBTable} from "@lib/indexeddb"
 import {isPersistedGitDeleteEvent} from "@app/util/storage-events"
 
 const kinds = {
-  meta: [PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, MESSAGING_RELAYS, APP_DATA, ROOMS],
+  meta: [PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, MESSAGING_RELAYS, APP_DATA],
   alert: [ALERT_STATUS, ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID],
-  space: [RELAY_ADD_MEMBER, RELAY_REMOVE_MEMBER, RELAY_MEMBERS, RELAY_JOIN, RELAY_LEAVE],
   room: [ROOM_META, ROOM_DELETE, ROOM_CREATE_PERMISSION],
   content: [EVENT_TIME, THREAD, MESSAGE, ZAP_GOAL, DM_KIND],
 }
@@ -60,7 +53,6 @@ const kinds = {
 const rankEvent = (event: TrustedEvent) => {
   if (kinds.meta.includes(event.kind)) return 9
   if (kinds.alert.includes(event.kind)) return 8
-  if (kinds.space.includes(event.kind)) return 7
   if (kinds.room.includes(event.kind)) return 6
   if (!isMobile && kinds.content.includes(event.kind)) return 5
   if (isPersistedGitDeleteEvent(event)) return 4

@@ -236,7 +236,6 @@ describe("state", () => {
     const {shouldIgnoreError} = await import("./state")
     expect(shouldIgnoreError("mute: some reason")).toBe(true)
     expect(shouldIgnoreError("Error: Signing was aborted")).toBe(true)
-    expect(shouldIgnoreError("missing group (`h`) tag")).toBe(true)
     expect(shouldIgnoreError("other error")).toBe(false)
   })
 
@@ -261,29 +260,6 @@ describe("state", () => {
     expect(decodeRelay(encoded)).toMatch(/relay\.example\.com/)
   })
 
-  it("parseInviteLink extracts url and claim from query params", async () => {
-    const {parseInviteLink} = await import("./state")
-    const result = parseInviteLink(
-      "https://app.example.com/invite?r=wss://relay.example.com&c=claim123",
-    )
-    expect(result).toBeDefined()
-    expect(result!.url).toMatch(/relay\.example\.com/)
-    expect(result!.claim).toBe("claim123")
-  })
-
-  it("parseInviteLink returns undefined for invalid URLs", async () => {
-    const {parseInviteLink} = await import("./state")
-    expect(parseInviteLink("not-a-url")).toBeUndefined()
-  })
-
-  it("parseInviteLink accepts plain relay URL", async () => {
-    const {parseInviteLink} = await import("./state")
-    const result = parseInviteLink("wss://relay.example.com")
-    expect(result).toBeDefined()
-    expect(result!.url).toMatch(/relay\.example\.com/)
-    expect(result!.claim).toBe("")
-  })
-
   it("defaultSettings has expected structure and values", async () => {
     const {defaultSettings} = await import("./state")
     expect(defaultSettings.show_media).toBe(true)
@@ -296,27 +272,6 @@ describe("state", () => {
   it("ROOM constant is defined", async () => {
     const {ROOM} = await import("./state")
     expect(ROOM).toBe("h")
-  })
-
-  it("getSpaceUrlsFromGroupList returns empty for undefined list", async () => {
-    const {getSpaceUrlsFromGroupList} = await import("./state")
-    expect(getSpaceUrlsFromGroupList(undefined)).toEqual([])
-  })
-
-  it("getSpaceRoomsFromGroupList returns empty for undefined list", async () => {
-    const {getSpaceRoomsFromGroupList} = await import("./state")
-    expect(getSpaceRoomsFromGroupList("wss://relay.example.com", undefined)).toEqual([])
-  })
-
-  it("getSpaceRoomsFromGroupList returns rooms when list has matching group tags", async () => {
-    const {getSpaceRoomsFromGroupList} = await import("./state")
-    const list = {
-      kind: 10004,
-      publicTags: [["h", "room1", "wss://relay.damus.io"]],
-      privateTags: [],
-    } as any
-    const rooms = getSpaceRoomsFromGroupList("wss://relay.damus.io", list)
-    expect(rooms).toContain("room1")
   })
 
   it("canCreateRoomByPlatformPolicy uses env allowlist on platform relays", async () => {

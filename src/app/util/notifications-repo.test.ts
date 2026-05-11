@@ -61,10 +61,8 @@ vi.mock("@app/util/routes", () => ({
 
 vi.mock("@app/core/state", () => ({
   PLATFORM_RELAYS: ["wss://relay.example.com"],
-  getSpaceUrlsFromGroupList: () => ["wss://relay.example.com"],
   chatsById: writable(new Map()),
   userSettingsValues: writable({show_notifications_badge: false}),
-  userGroupList: writable({}),
   encodeRelay: (url: string) => encodeURIComponent(url),
   roomsById: writable(new Map()),
   channelsById: writable(new Map()),
@@ -208,10 +206,8 @@ describe("repo notifications", () => {
 
     const config = get(notificationsConfig)
     expect(config).toMatchObject({
-      getSpaceUrls: expect.any(Function),
       augmentPaths: expect.any(Function),
     })
-    expect(config.getSpaceUrls?.({} as any)).toEqual(["wss://relay.example.com"])
 
     cleanup()
   })

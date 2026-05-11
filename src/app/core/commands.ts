@@ -9,13 +9,11 @@ import {
   append,
   remove,
   flatten,
-  poll,
   uniq,
   TIMEZONE,
   LOCALE,
   parseJson,
   fromPairs,
-  last,
   simpleCache,
   normalizeUrl,
   nthNe,
@@ -32,7 +30,6 @@ import {
   RELAYS,
   FOLLOWS,
   REACTION,
-  ROOMS,
   COMMENT,
   ALERT_EMAIL,
   ALERT_WEB,
@@ -44,12 +41,9 @@ import {
   normalizeRelayUrl,
   isRelayUrl,
   makeList,
-  addToListPublicly,
-  removeFromListByPredicate,
   getTag,
   getListTags,
   getRelayTags,
-  getRelayTagValues,
   toNostrURI,
   getRelaysFromList,
   RelayMode,
@@ -65,10 +59,8 @@ import {
   createProfile,
   uniqTags,
   MESSAGING_RELAYS,
-  RELAY_LEAVE,
-  RELAY_JOIN,
 } from "@welshman/util"
-import {Pool, AuthStatus, SocketStatus} from "@welshman/net"
+import {Pool} from "@welshman/net"
 import {Router} from "@welshman/router"
 import {
   pubkey,
@@ -80,12 +72,10 @@ import {
   publishThunk,
   tagEvent,
   tagEventForReaction,
-  nip44EncryptToSelf,
   dropSession,
   tagEventForComment,
   waitForThunkError,
   getPubkeyRelays,
-  loadRelay,
   userMessagingRelayList,
   userRelayList,
   userBlossomServerList,
@@ -103,11 +93,8 @@ import {
   NOTIFIER_HANDLER_RELAY,
   DEFAULT_BLOSSOM_SERVERS,
   SMART_WIDGET_RELAYS,
-  userSpaceUrls,
   userSettingsValues,
   getSetting,
-  userGroupList,
-  shouldIgnoreError,
   PLATFORM_RELAYS,
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
@@ -524,23 +511,6 @@ export const broadcastUserData = async (relays: string[]) => {
 
 // List updates
 
-export const addSpaceMembership = async (url: string) => {
-  const list = get(userGroupList) || makeList({kind: ROOMS})
-  const event = await addToListPublicly(list, ["r", url]).reconcile(nip44EncryptToSelf)
-  const relays = uniq([...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
-
-  return publishThunk({event, relays})
-}
-
-export const removeSpaceMembership = async (url: string) => {
-  const list = get(userGroupList) || makeList({kind: ROOMS})
-  const pred = (t: string[]) => normalizeRelayUrl(t[t[0] === "r" ? 1 : 2]) === url
-  const event = await removeFromListByPredicate(list, pred).reconcile(nip44EncryptToSelf)
-  const relays = uniq([url, ...Router.get().FromUser().getUrls(), ...getRelayTagValues(event.tags)])
-
-  return publishThunk({event, relays})
-}
-
 export const setRelayPolicy = (url: string, read: boolean, write: boolean) => {
   const list = get(userRelayList) || makeList({kind: RELAYS})
   const tags = getRelayTags(getListTags(list)).filter(t => normalizeRelayUrl(t[1]) !== url)
@@ -555,7 +525,7 @@ export const setRelayPolicy = (url: string, read: boolean, write: boolean) => {
 
   return publishThunk({
     event: makeEvent(list.kind, {tags}),
-    relays: [url, ...INDEXER_RELAYS, ...Router.get().FromUser().getUrls(), ...get(userSpaceUrls)],
+    relays: [url, ...INDEXER_RELAYS, ...Router.get().FromUser().getUrls(), ...PLATFORM_RELAYS],
   })
 }
 
@@ -572,7 +542,7 @@ export const setMessagingRelayPolicy = (url: string, enabled: boolean) => {
 
     return publishThunk({
       event: makeEvent(list.kind, {tags}),
-      relays: [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls(), ...get(userSpaceUrls)],
+      relays: [...INDEXER_RELAYS, ...Router.get().FromUser().getUrls(), ...PLATFORM_RELAYS],
     })
   }
 }
@@ -581,89 +551,6 @@ export const setMessagingRelayPolicy = (url: string, enabled: boolean) => {
 
 export const canEnforceNip70 = async (_url: string) => {
   return false
-}
-
-export const attemptRelayAccess = async (url: string, claim = "") => {
-  return checkRelayAccess(url, claim)
-}
-
-const attemptAuth = async (url: string) => {
-  await Pool.get().get(url).auth.attemptAuth(sign)
-}
-
-export const checkRelayAccess = async (url: string, claim = "") => {
-  const socket = Pool.get().get(url)
-
-  await attemptAuth(url)
-
-  const thunk = publishJoinRequest({url, claim})
-  const error = await waitForThunkError(thunk)
-
-  if (error) {
-    const message =
-      socket.auth.details?.replace(/^\w+: /, "") ||
-      error.replace(/^\w+: /, "") ||
-      "join request rejected"
-
-    // If it's a strict NIP 29 relay don't worry about requesting access
-    // TODO: remove this if relay29 ever gets less strict
-    if (message === "missing group (`h`) tag") return
-
-    // Ignore messages about relay ignoring ours
-    if (error?.startsWith("mute: ")) return
-
-    // Ignore rejected empty claims
-    if (!claim && error?.includes("invite code")) return
-
-    return message
-  }
-}
-
-export const checkRelayProfile = async (url: string) => {
-  const relay = await loadRelay(url)
-
-  if (!relay) {
-    return "Sorry, we weren't able to find that relay."
-  }
-}
-
-export const checkRelayConnection = async (url: string, claim = "") => {
-  const socket = Pool.get().get(url)
-
-  socket.attemptToOpen()
-
-  await poll({
-    signal: AbortSignal.timeout(3000),
-    condition: () => socket.status === SocketStatus.Open,
-  })
-
-  if (socket.status !== SocketStatus.Open) {
-    return `Failed to connect`
-  }
-
-  await socket.auth.attemptAuth(sign)
-
-  // Only raise an error if it's not a timeout.
-  // If it is, odds are the problem is with our signer, not the relay
-  if (![AuthStatus.None, AuthStatus.Ok].includes(socket.auth.status)) {
-    if (socket.auth.details) {
-      return `Failed to authenticate (${socket.auth.details})`
-    } else {
-      return `Failed to authenticate (${last(socket.auth.status.split(":"))})`
-    }
-  }
-
-  const thunk = publishJoinRequest({url, claim})
-  const error = await waitForThunkError(thunk)
-
-  if (shouldIgnoreError(error)) return
-
-  if (claim) {
-    const ignoreClaimError =
-      error.includes("invalid invite code size") || error.includes("failed to validate invite code")
-
-    if (!ignoreClaimError) return error?.replace(/^\w+: /, "")
-  }
 }
 
 // Deletions
@@ -1046,28 +933,6 @@ export const addTrustedRelay = async (url: string) =>
 export const removeTrustedRelay = async (url: string) =>
   publishSettings({trusted_relays: remove(url, getSetting<string[]>("trusted_relays"))})
 
-// Join request
-
-export type JoinRequestParams = {
-  url: string
-  claim: string
-}
-
-export const makeJoinRequest = (params: JoinRequestParams) =>
-  makeEvent(RELAY_JOIN, {tags: [["claim", params.claim]]})
-
-export const publishJoinRequest = (params: JoinRequestParams) =>
-  publishThunk({event: makeJoinRequest(params), relays: [params.url]})
-
-// Leave request
-
-export type LeaveRequestParams = {
-  url: string
-}
-
-export const publishLeaveRequest = (params: LeaveRequestParams) =>
-  publishThunk({event: makeEvent(RELAY_LEAVE), relays: [params.url]})
-
 // Lightning
 
 export const getWebLn = () => (window as any).webln
@@ -1220,7 +1085,7 @@ export const updateProfile = async ({
   const router = Router.get()
   const template = isPublishedProfile(profile) ? editProfile(profile) : createProfile(profile)
   template.tags = stripProtectedTags(template.tags)
-  const scenarios = [router.FromRelays(get(userSpaceUrls))]
+  const scenarios = [router.FromRelays(PLATFORM_RELAYS)]
 
   if (shouldBroadcast) {
     scenarios.push(router.FromUser(), router.Index())

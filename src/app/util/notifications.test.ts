@@ -12,8 +12,6 @@ vi.mock("@app/core/state", () => ({
   chatsById: readable(new Map()),
   PLATFORM_RELAYS: [],
   userSettingsValues: readable({show_notifications_badge: false}),
-  userGroupList: readable({}),
-  getSpaceUrlsFromGroupList: () => [],
   encodeRelay: vi.fn((url: string) => encodeURIComponent(url)),
   roomsById: readable(new Map()),
   channelsById: readable(new Map()),

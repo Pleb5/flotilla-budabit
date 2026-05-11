@@ -59,7 +59,6 @@
   const roomInteraction = $derived.by(() =>
     getRoomInteractionState({
       isArchivedRoom,
-      isClosed: Boolean($channel?.closed || $room.isClosed),
     }),
   )
   const roomName = $derived.by(() => $channel?.name || $room?.name || h)

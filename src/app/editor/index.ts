@@ -19,7 +19,6 @@ import {Editor, MentionSuggestion, WelshmanExtension, editorProps} from "@welshm
 import {makeMentionNodeView} from "@app/editor/MentionNodeView"
 import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
 import {uploadFile} from "@app/core/commands"
-import {deriveSpaceMembers} from "@app/core/state"
 import {pushToast} from "@app/util/toast"
 import {getQuoteEventTags} from "@app/util/git-quote"
 import {PermalinkExtension} from "@nostr-git/ui"
@@ -72,12 +71,8 @@ export const makeEditor = async ({
   wordCount?: Writable<number>
 }) => {
   const profileSearch = derived(
-    [
-      throttled(800, profiles),
-      throttled(800, handlesByNip05),
-      throttled(800, deriveSpaceMembers(url || "")),
-    ],
-    ([$profiles, $handlesByNip05, $spaceMembers]) => {
+    [throttled(800, profiles), throttled(800, handlesByNip05)],
+    ([$profiles, $handlesByNip05]) => {
       // Remove invalid nip05's from profiles
       const options = $profiles.map(p => {
         const isNip05Valid = !p.nip05 || $handlesByNip05.get(p.nip05)?.pubkey === p.event.pubkey
@@ -90,9 +85,8 @@ export const makeEditor = async ({
         getValue: (profile: PublishedProfile) => profile.event.pubkey,
         sortFn: ({score = 1, item}) => {
           const wotScore = getWotGraph().get(item.event.pubkey) || 0
-          const membershipScale = $spaceMembers.includes(item.event.pubkey) ? 2 : 1
 
-          return dec(score) * inc(wotScore / getMaxWot()) * membershipScale
+          return dec(score) * inc(wotScore / getMaxWot())
         },
         fuseOptions: {
           keys: [

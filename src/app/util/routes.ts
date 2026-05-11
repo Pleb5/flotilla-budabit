@@ -22,7 +22,6 @@ import {
   entityLink,
   decodeRelay,
   encodeRelay,
-  userSpaceUrls,
   PLATFORM_RELAYS,
   isPlatformRelay,
   ROOM,
@@ -129,11 +128,9 @@ export const makeCalendarPath = (url: string, eventId?: string) =>
 export const getPrimaryNavItem = ($page: Page) => $page.route?.id?.split("/")[1]
 
 export const getPrimaryNavItemIndex = ($page: Page) => {
-  const urls = get(userSpaceUrls)
+  const urls = PLATFORM_RELAYS
 
   switch (getPrimaryNavItem($page)) {
-    case "discover":
-      return urls.length + 2
     case "spaces": {
       const routeUrl = decodeRelay($page.params.relay || "")
 

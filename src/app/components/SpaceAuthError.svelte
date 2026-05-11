@@ -10,40 +10,23 @@
   import {ucFirst} from "@lib/util"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
-  import SpaceAccessRequest from "@app/components/SpaceAccessRequest.svelte"
-  import {pushModal} from "@app/util/modal"
-  import {removeSpaceMembership, publishLeaveRequest, removeTrustedRelay} from "@app/core/commands"
+  import {clearModals} from "@app/util/modal"
 
   const {url, error} = $props()
 
-  const back = () => goto("/home")
-
-  const requestAccess = () => pushModal(SpaceAccessRequest, {url})
-
-  const leaveSpace = async () => {
-    loading = true
-
-    try {
-      await removeSpaceMembership(url)
-      await publishLeaveRequest({url})
-      await removeTrustedRelay(url)
-    } finally {
-      loading = false
-    }
-
+  const back = () => {
+    clearModals()
     goto("/home")
   }
-
-  let loading = $state(false)
 </script>
 
-<form class="column gap-4" onsubmit={preventDefault(requestAccess)}>
+<form class="column gap-4" onsubmit={preventDefault(back)}>
   <ModalHeader>
     {#snippet title()}
       <div>Access Error</div>
     {/snippet}
     {#snippet info()}
-      <div>We couldn't connect you to this space.</div>
+      <div>We couldn't connect you to this platform relay.</div>
     {/snippet}
   </ModalHeader>
   <p>
@@ -57,14 +40,9 @@
       <Icon icon={AltArrowLeft} />
       Go Home
     </Button>
-    <div class="flex gap-2">
-      <Button class="btn btn-outline btn-error" onclick={leaveSpace} disabled={loading}>
-        Leave Space
-      </Button>
-      <Button type="submit" class="btn btn-primary" disabled={loading}>
-        Request Access
-        <Icon icon={AltArrowRight} />
-      </Button>
-    </div>
+    <Button type="submit" class="btn btn-primary">
+      Go Home
+      <Icon icon={AltArrowRight} />
+    </Button>
   </ModalFooter>
 </form>

@@ -80,22 +80,9 @@ export const filterArchivedRoomMessages = ({
       }),
   )
 
-export const getRoomInteractionState = ({
-  isArchivedRoom,
-  isClosed,
-}: {
-  isArchivedRoom: boolean
-  isClosed: boolean
-}) => {
-  const allowMembershipRequest = !isArchivedRoom && !isClosed
-
-  return {
-    isReadOnly: isArchivedRoom,
-    showArchivedBanner: isArchivedRoom,
-    showPrivateGate: false,
-    showRestrictedGate: false,
-    allowMembershipRequest,
-    allowMessageActions: !isArchivedRoom,
-    showCompose: !isArchivedRoom,
-  }
-}
+export const getRoomInteractionState = ({isArchivedRoom}: {isArchivedRoom: boolean}) => ({
+  isReadOnly: isArchivedRoom,
+  showArchivedBanner: isArchivedRoom,
+  allowMessageActions: !isArchivedRoom,
+  showCompose: !isArchivedRoom,
+})

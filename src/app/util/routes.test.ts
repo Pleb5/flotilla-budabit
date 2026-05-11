@@ -9,7 +9,6 @@ vi.mock("@app/core/state", () => ({
   decodeRelay: decodeURIComponent,
   DM_KIND: 4,
   encodeRelay: encodeURIComponent,
-  userSpaceUrls: writable([]),
   PLATFORM_RELAYS: ["wss://relay.example.com"],
   isPlatformRelay: vi.fn(() => false),
   ROOM: "h",
