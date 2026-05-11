@@ -837,7 +837,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           const trimmed = String(url || "").trim();
           if (!trimmed) return false;
           if (trimmed.includes("gitworkshop.dev")) return true;
-          if (trimmed.includes("/spaces/") && trimmed.includes("/git/")) return true;
+          if (trimmed.includes("/c/") && trimmed.includes("/git/")) return true;
           return !selectedProviders.some((provider) =>
             isProviderUrl(trimmed, provider, config.relayUrls || [])
           );

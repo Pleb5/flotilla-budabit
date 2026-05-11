@@ -16,6 +16,6 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.ts"],
     exclude: ["node_modules/**/*", "dist/**/*", ".svelte-kit/**/*", "tests/**/*"],
     environment: "node",
-    reporters: ["basic"],
+    reporters: [["default", { summary: false }]],
   },
 });

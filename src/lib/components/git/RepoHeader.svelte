@@ -53,7 +53,7 @@
   const getRepoTabsScrollKey = () => {
     if (typeof window === "undefined") return "";
 
-    const match = window.location.pathname.match(/(\/spaces\/[^/]+\/git\/[^/]+)/);
+    const match = window.location.pathname.match(/(\/c\/[^/]+\/git\/[^/]+)/);
     return `repo-tabs-scroll:${match?.[1] || window.location.pathname}`;
   };
 

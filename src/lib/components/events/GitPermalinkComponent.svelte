@@ -50,16 +50,15 @@
     const end = Number.parseInt(tag?.[2] || "", 10);
     return Number.isNaN(end) ? null : end;
   });
-  const relayValue = $derived.by(() => {
-    if (relay) return relay;
+  const communityValue = $derived.by(() => {
     if (typeof window === "undefined") return null;
-    return deriveRelayFromLocation();
+    return deriveCommunityFromLocation();
   });
 
   const relayHints = $derived.by(() =>
     Array.from(
       new Set(
-        [relay, relayValue, ...tags.flatMap((tag) => tag.slice(1))].filter(
+        [relay, ...tags.flatMap((tag) => tag.slice(1))].filter(
           (value): value is string => Boolean(value?.match(/^wss?:\/\//))
         )
       )
@@ -114,24 +113,12 @@
     return { kind, pubkey, identifier };
   };
 
-  const deriveRelayFromLocation = () => {
+  const deriveCommunityFromLocation = () => {
     if (typeof window === "undefined") return null;
-    const match = window.location.pathname.match(/\/spaces\/([^/]+)\//);
+    const match = window.location.pathname.match(/\/c\/([^/]+)/);
     if (!match) return null;
-    try {
-      return decodeURIComponent(match[1]);
-    } catch {
-      return match[1];
-    }
+    return match[1];
   };
-
-  const encodeRelayPath = (value: string) =>
-    encodeURIComponent(
-      value
-        .replace(/^wss:\/\//, "")
-        .replace(/^ws:\/\//, "")
-        .replace(/\/$/, "")
-    );
 
   $effect(() => {
     if (!isDiff || !filePath || !repoAddress || typeof window === "undefined") {
@@ -168,8 +155,8 @@
   });
 
   const basePath = $derived.by(() => {
-    if (!repoNaddr || !relayValue) return "";
-    return `/spaces/${encodeRelayPath(relayValue)}/git/${repoNaddr}`;
+    if (!repoNaddr || !communityValue) return "";
+    return `/c/${communityValue}/git/${repoNaddr}`;
   });
 
   const diffAnchor = $derived.by(() => {

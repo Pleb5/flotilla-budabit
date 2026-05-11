@@ -56,28 +56,16 @@
     return { kind, pubkey, identifier };
   };
 
-  const deriveRelayFromLocation = () => {
+  const deriveCommunityFromLocation = () => {
     if (typeof window === "undefined") return "";
-    const match = window.location.pathname.match(/\/spaces\/([^/]+)\//);
+    const match = window.location.pathname.match(/\/c\/([^/]+)/);
     if (!match) return "";
-    try {
-      return decodeURIComponent(match[1]);
-    } catch {
-      return match[1];
-    }
+    return match[1];
   };
-
-  const encodeRelayPath = (value: string) =>
-    encodeURIComponent(
-      value
-        .replace(/^wss:\/\//, "")
-        .replace(/^ws:\/\//, "")
-        .replace(/\/$/, "")
-    );
 
   const basePathFromLocation = () => {
     if (typeof window === "undefined") return "";
-    const match = window.location.pathname.match(/(\/spaces\/[^/]+\/git\/[^/]+)/);
+    const match = window.location.pathname.match(/(\/c\/[^/]+\/git\/[^/]+)/);
     return match ? match[1] : "";
   };
 
@@ -102,9 +90,9 @@
   });
 
   const basePath = $derived.by(() => {
-    const relayValue = relay || deriveRelayFromLocation();
-    if (repoNaddr && relayValue) {
-      return `/spaces/${encodeRelayPath(relayValue)}/git/${repoNaddr}`;
+    const communityValue = deriveCommunityFromLocation();
+    if (repoNaddr && communityValue) {
+      return `/c/${communityValue}/git/${repoNaddr}`;
     }
     return basePathFromLocation();
   });

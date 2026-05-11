@@ -51,7 +51,7 @@ describe("file view line selection helpers", () => {
   });
 
   it("updates the URL hash without firing hashchange", () => {
-    window.history.replaceState({}, "", "/spaces/test/git/repo/code?path=README.md");
+    window.history.replaceState({}, "", "/c/test/git/repo/code?path=README.md");
 
     let hashChanges = 0;
     const onHashChange = () => {
@@ -62,7 +62,7 @@ describe("file view line selection helpers", () => {
     replaceSelectionHashWithoutScroll("#L7-L17");
     window.removeEventListener("hashchange", onHashChange);
 
-    expect(window.location.pathname).toBe("/spaces/test/git/repo/code");
+    expect(window.location.pathname).toBe("/c/test/git/repo/code");
     expect(window.location.search).toBe("?path=README.md");
     expect(window.location.hash).toBe("#L7-L17");
     expect(hashChanges).toBe(0);
