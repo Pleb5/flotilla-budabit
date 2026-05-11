@@ -148,7 +148,7 @@ Panel within the application settings.
 }
 ```
 
-### `space:sidebar:widgets`
+### `community:sidebar:widgets`
 
 Widget area in the space/workspace sidebar.
 
@@ -166,7 +166,7 @@ Widget area in the space/workspace sidebar.
 
 ```json
 {
-  "slot": "space:sidebar:widgets"
+  "slot": "community:sidebar:widgets"
 }
 ```
 
@@ -311,7 +311,7 @@ export type SimpleSlot =
   | 'room:panel'
   | 'global:menu'
   | 'settings:panel'
-  | 'space:sidebar:widgets';
+  | 'community:sidebar:widgets';
 
 /** Repo tab slot configuration */
 export interface RepoTabSlot {
@@ -352,7 +352,7 @@ Each slot provides different context to the widget via the `widget:init` event:
 | `room:panel` | Room, messages, user |
 | `global:menu` | User |
 | `settings:panel` | User, widget config |
-| `space:sidebar:widgets` | Space, user |
+| `community:sidebar:widgets` | Community, user |
 | `repo-tab` | Repository, user |
 
 ### Accessing Slot Context
@@ -408,7 +408,7 @@ bridge.onEvent('widget:mounted', (payload) => {
 | `*:actions` | 24-48px | 24-48px |
 | `room:panel` | 300-400px | Full viewport |
 | `settings:panel` | 600-800px | Variable |
-| `space:sidebar:widgets` | 250-300px | Variable |
+| `community:sidebar:widgets` | 250-300px | Variable |
 | `repo-tab` | Full viewport | Full viewport |
 
 ## Best Practices
