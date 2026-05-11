@@ -97,8 +97,10 @@ describe("routes", () => {
   it("builds and parses community paths", async () => {
     const {
       makeCommunityPath,
+      makeCommunityPermalinkPath,
       makeCommunityRoomPath,
       makeCommunityThreadPath,
+      makeCommunityWidgetPath,
       parseCommunityRouteParam,
     } = await import("./routes")
     const communityPubkey = "a".repeat(64)
@@ -109,6 +111,8 @@ describe("routes", () => {
     expect(makeCommunityThreadPath(communityPubkey, "thread-id")).toBe(
       `/c/${communityNpub}/threads/thread-id`,
     )
+    expect(makeCommunityPermalinkPath(communityPubkey)).toBe(`/c/${communityNpub}/permalinks`)
+    expect(makeCommunityWidgetPath(communityPubkey)).toBe(`/c/${communityNpub}/widgets`)
     expect(parseCommunityRouteParam(communityNpub)).toEqual({
       pubkey: communityPubkey,
       relays: [],

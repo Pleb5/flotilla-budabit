@@ -124,6 +124,12 @@ export const makeCommunityGoalPath = (community: string, eventId?: string) =>
 export const makeCommunityGitPath = (community: string, eventId?: string) =>
   makeCommunityPath(community, "git", eventId)
 
+export const makeCommunityPermalinkPath = (community: string, eventId?: string) =>
+  makeCommunityPath(community, "permalinks", eventId)
+
+export const makeCommunityWidgetPath = (community: string, eventId?: string) =>
+  makeCommunityPath(community, "widgets", eventId)
+
 export const makeGitPath = (url: string, eventId?: string) => makeSpacePath(url, "git", eventId)
 
 export const makeGitRepoPath = (url: string, eventId?: string) =>

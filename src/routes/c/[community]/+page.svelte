@@ -11,7 +11,9 @@
     makeCommunityGitPath,
     makeCommunityGoalPath,
     makeCommunityPath,
+    makeCommunityPermalinkPath,
     makeCommunityThreadPath,
+    makeCommunityWidgetPath,
     parseCommunityRouteParam,
   } from "@app/util/routes"
 
@@ -29,6 +31,8 @@
           ["Calendar", makeCommunityCalendarPath(communityId)],
           ["Fundraisers", makeCommunityGoalPath(communityId)],
           ["Git", makeCommunityGitPath(communityId)],
+          ["Permalinks", makeCommunityPermalinkPath(communityId)],
+          ["Widgets", makeCommunityWidgetPath(communityId)],
         ]
       : [],
   )
