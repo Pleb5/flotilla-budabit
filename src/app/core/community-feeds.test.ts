@@ -117,10 +117,19 @@ describe("community feed helpers", () => {
         communities: [{pubkey: communityPubkey}],
       }).tags,
     })
+    const fundraiserTarget = makeEvent({
+      kind: TARGETED_PUBLICATION_KIND,
+      tags: buildTargetedPublication({
+        id: "target-fundraiser",
+        kind: 9041,
+        communities: [{pubkey: communityPubkey}],
+      }).tags,
+    })
 
-    expect(makeTargetedPublicationOriginalFilters([calendarTarget, permalinkTarget])).toEqual([
+    expect(makeTargetedPublicationOriginalFilters([calendarTarget, permalinkTarget, fundraiserTarget])).toEqual([
       {kinds: [31922], authors: [authorPubkey], "#d": ["calendar-1"]},
       {kinds: [1623], ids: ["permalink-event-id"]},
+      {kinds: [9041], "#h": ["target-fundraiser"]},
     ])
   })
 })

@@ -95,7 +95,12 @@ export const makeTargetedPublicationOriginalFilters = (targetingEvents: TrustedE
 
   for (const event of targetingEvents) {
     const targeting = parseTargetedPublication(event)
-    if (!targeting?.ref) continue
+    if (!targeting) continue
+
+    if (!targeting.ref) {
+      filters.push({kinds: [targeting.kind], "#h": [targeting.id]})
+      continue
+    }
 
     if (targeting.ref.type === "e") {
       filters.push({kinds: [targeting.kind], ids: [targeting.ref.value]})

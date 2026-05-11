@@ -37,7 +37,7 @@ export const makeTargetedPublicationForCommunity = ({
 }: {
   targetingId: string
   originalKind: number
-  originalRef: TargetedPublicationRef
+  originalRef?: TargetedPublicationRef
   communityPubkey: string
   communityRelay?: string
 }): EventContent =>
