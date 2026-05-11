@@ -6,11 +6,29 @@
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
   import {PLATFORM_NAME} from "@app/core/state"
-  import {makeSpacePath} from "@src/app/util/routes"
-  import * as appState from "@app/core/state"
+  import Field from "@lib/components/Field.svelte"
+  import {preventDefault} from "@lib/html"
+  import {pushToast} from "@app/util/toast"
+  import {activeCommunitySession, setActiveCommunityInput} from "@app/core/community-state"
 
-  const openPlatformRelay = () => goto(makeSpacePath(appState.PLATFORM_RELAYS[0]))
   const openChat = () => goto("/chat")
+
+  const selectCommunity = () => {
+    const session = setActiveCommunityInput(communityInput)
+
+    if (!session) {
+      pushToast({theme: "error", message: "Enter a valid community npub, hex pubkey, or ncommunity."})
+      return
+    }
+
+    communityInput = ""
+    pushToast({message: "Community saved. Community routes are coming next."})
+  }
+
+  const displayCommunity = (pubkey?: string) =>
+    pubkey ? `${pubkey.slice(0, 8)}...${pubkey.slice(-8)}` : "No community selected"
+
+  let communityInput = $state("")
 </script>
 
 <div class="hero min-h-screen overflow-auto pb-8">
@@ -19,30 +37,42 @@
       <h1 class="text-center text-5xl">Welcome to</h1>
       <h1 class="mb-4 text-center text-5xl font-bold uppercase">{PLATFORM_NAME}</h1>
       <div class="col-3">
-        {#if appState.PLATFORM_RELAYS.length === 0}
-          <CardButton class="btn-neutral">
-            {#snippet title()}
-              <div>No platform relay configured</div>
+        <CardButton class="btn-neutral">
+          {#snippet icon()}
+            <Icon icon={HomeSmile} size={7} />
+          {/snippet}
+          {#snippet title()}
+            <div>Selected community</div>
+          {/snippet}
+          {#snippet info()}
+            <div>{displayCommunity($activeCommunitySession?.communityPubkey)}</div>
+          {/snippet}
+        </CardButton>
+        <form class="card2 bg-alt col-4 p-4 shadow-md" onsubmit={preventDefault(selectCommunity)}>
+          <Field>
+            {#snippet label()}
+              <p>Community npub, hex, or ncommunity</p>
+            {/snippet}
+            {#snippet input()}
+              <label class="input input-bordered flex w-full items-center gap-2">
+                <Icon icon={HomeSmile} />
+                <input
+                  bind:value={communityInput}
+                  class="grow"
+                  type="text"
+                  placeholder="npub1... or ncommunity://..." />
+              </label>
             {/snippet}
             {#snippet info()}
-              <div>Budabit needs a platform relay before workspace features are available.</div>
+              This selects the community identity. Community routes are implemented in the next phase.
             {/snippet}
-          </CardButton>
-        {:else}
-          <Button onclick={openPlatformRelay}>
-            <CardButton class="btn-primary">
-              {#snippet icon()}
-                <Icon icon={HomeSmile} size={7} />
-              {/snippet}
-              {#snippet title()}
-                <div>Open platform relay</div>
-              {/snippet}
-              {#snippet info()}
-                <div>Go to your configured Budabit relay.</div>
-              {/snippet}
-            </CardButton>
-          </Button>
-        {/if}
+          </Field>
+          <div class="flex justify-end">
+            <Button type="submit" class="btn btn-primary" disabled={!communityInput.trim()}>
+              Save community
+            </Button>
+          </div>
+        </form>
         <Button onclick={openChat}>
           <CardButton class="btn-neutral">
             {#snippet icon()}
