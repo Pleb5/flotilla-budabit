@@ -2,32 +2,25 @@
   import type {Snippet} from "svelte"
   import {page} from "$app/stores"
   import {goto} from "$app/navigation"
-  import {splitAt} from "@welshman/lib"
   import {userProfile, pubkey} from "@welshman/app"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import Widget from "@assets/icons/widget.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
-  import SettingsMinimalistic from "@assets/icons/settings-minimalistic.svg?dataurl"
   import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
   import Settings from "@assets/icons/settings.svg?dataurl"
   import ImageIcon from "@lib/components/ImageIcon.svelte"
-  import Divider from "@lib/components/Divider.svelte"
   import PrimaryNavItem from "@lib/components/PrimaryNavItem.svelte"
-  import MenuOtherSpaces from "@app/components/MenuOtherSpaces.svelte"
   import MenuSettings from "@app/components/MenuSettings.svelte"
-  import PrimaryNavItemSpace from "@app/components/PrimaryNavItemSpace.svelte"
-  import RelayIcon from "@app/components/RelayIcon.svelte"
-  import {PLATFORM_RELAYS, PLATFORM_LOGO, decodeRelay} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
-  import {makeSpacePath} from "@app/util/routes"
+  import {DEFAULT_COMMUNITY_INPUT} from "@app/core/community-state"
+  import {makeCommunityGitPath, makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import Git from "@assets/icons/git.svg?dataurl"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {extensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
-  import type {SmartWidgetEvent} from "@app/extensions/types"
 
   type Props = {
     children?: Snippet
@@ -35,19 +28,20 @@
 
   const {children}: Props = $props()
 
-  const spaceUrls = PLATFORM_RELAYS
+  const currentCommunity = $derived(parseCommunityRouteParam($page.params.community)?.pubkey || "")
+  const navCommunity = $derived(currentCommunity || DEFAULT_COMMUNITY_INPUT)
+  const communityPath = $derived(navCommunity ? makeCommunityPath(navCommunity) : "/home")
+  const communityGitPath = $derived(navCommunity ? makeCommunityGitPath(navCommunity) : "")
 
   const openProfile = () => {
     if ($pubkey) pushModal(ProfileDetail, {pubkey: $pubkey})
   }
 
-  const showOtherSpacesMenu = () => pushModal(MenuOtherSpaces, {urls: secondarySpaceUrls})
-
   const showSettingsMenu = () => pushModal(MenuSettings)
 
   const openChat = () => goto("/chat")
 
-  const gitNavErrorMessage = "Could not find platform relays cannot navigate to git path"
+  const gitNavErrorMessage = "Choose a community before opening Git."
   let gitNavErrorToastId: string | null = null
   let gitNavErrorToastTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -67,10 +61,8 @@
   }
 
   const openGit = () => {
-    const platformUrl = PLATFORM_RELAYS[0] || PLATFORM_RELAYS.find(Boolean)
-
-    if (platformUrl) {
-      goto(makeSpacePath(platformUrl, "git"))
+    if (communityGitPath) {
+      goto(communityGitPath)
       return
     }
 
@@ -78,36 +70,7 @@
     goto("/home")
   }
 
-  const hasNotification = (url: string) => {
-    const path = makeSpacePath(url)
-
-    return !$page.url.pathname.startsWith(path) && $notifications.has(path)
-  }
-
-  const gitNotification = $derived(
-    (() => {
-      const currentRelay = $page.params.relay
-      if (currentRelay) {
-        const url = decodeRelay(currentRelay)
-        const gitPath = makeSpacePath(url, "git")
-        return $notifications.has(gitPath)
-      }
-      const urls = spaceUrls.length > 0 ? spaceUrls : PLATFORM_RELAYS
-      return urls.some((url: string) => {
-        const gitPath = makeSpacePath(url, "git")
-        return $notifications.has(gitPath)
-      })
-    })(),
-  )
-
-  let windowHeight = $state(0)
-
-  const itemHeight = 56
-  const navPadding = 6 * itemHeight
-  const itemLimit = $derived((windowHeight - navPadding) / itemHeight)
-  const [primarySpaceUrls, secondarySpaceUrls] = $derived(splitAt(itemLimit, spaceUrls))
-  const anySpaceNotifications = $derived(spaceUrls.some(hasNotification))
-  const otherSpaceNotifications = $derived(secondarySpaceUrls.some(hasNotification))
+  const gitNotification = $derived(Boolean(communityGitPath && $notifications.has(communityGitPath)))
 
   // Get widgets configured for menu display
   const menuWidgets = $derived.by(() => {
@@ -117,46 +80,14 @@
   })
 </script>
 
-<svelte:window bind:innerHeight={windowHeight} />
-
 <div
   class="ml-sai mt-sai mb-sai relative z-nav hidden w-14 flex-shrink-0 bg-base-200 pt-4 md:block">
-  <div class="flex h-full flex-col" class:justify-between={PLATFORM_RELAYS.length === 0}>
+  <div class="flex h-full flex-col justify-between">
     <div>
-      {#each PLATFORM_RELAYS as url, i (url)}
-        {#if i === 0}
-          <PrimaryNavItem
-            title="Home"
-            href="/home"
-            class="tooltip-right"
-            notification={$notifications.has(makeSpacePath(url))}>
-            <RelayIcon {url} size={7} class="rounded-full" />
-          </PrimaryNavItem>
-        {:else}
-          <PrimaryNavItemSpace {url} />
-        {/if}
-      {:else}
-        <PrimaryNavItem title="Home" href="/home" class="tooltip-right">
-          <ImageIcon alt="Home" src={PLATFORM_LOGO} class="rounded-full" />
-        </PrimaryNavItem>
-        <Divider />
-        {#each primarySpaceUrls as url (url)}
-          <PrimaryNavItemSpace {url} />
-        {/each}
-        {#if secondarySpaceUrls.length > 0}
-          <PrimaryNavItem
-            title="Other Spaces"
-            class="tooltip-right"
-            onclick={showOtherSpacesMenu}
-            notification={otherSpaceNotifications}>
-            <ImageIcon alt="Other Spaces" src={Widget} />
-          </PrimaryNavItem>
-        {/if}
-      {/each}
+      <PrimaryNavItem title="Community" href={communityPath} prefix="/c" class="tooltip-right">
+        <ImageIcon alt="Community" src={HomeSmile} class="rounded-full" />
+      </PrimaryNavItem>
     </div>
-    {#if PLATFORM_RELAYS.length > 0}
-      <Divider />
-    {/if}
     <div>
       <div class="hidden md:block lg:hidden">
         <PrimaryNavItem title="Profile" onclick={openProfile} class="tooltip-right">
@@ -212,7 +143,7 @@
             class="rounded-full" />
         </PrimaryNavItem>
       {/each}
-      <SlotRenderer slotId="space:sidebar:widgets" context={{urls: spaceUrls}} />
+      <SlotRenderer slotId="space:sidebar:widgets" context={{urls: []}} />
       <div class="hidden md:block lg:hidden">
         <PrimaryNavItem title="Settings" href="/settings" prefix="/settings" class="tooltip-right">
           <ImageIcon alt="Settings" src={Settings} size={7} />
@@ -243,6 +174,9 @@
     <PrimaryNavItem compact title="Home" href="/home">
       <ImageIcon alt="Home" src={HomeSmile} size={5} />
     </PrimaryNavItem>
+    <PrimaryNavItem compact title="Community" href={communityPath} prefix="/c">
+      <ImageIcon alt="Community" src={Widget} size={5} />
+    </PrimaryNavItem>
     <PrimaryNavItem
       compact
       title="Messages"
@@ -256,11 +190,6 @@
     <PrimaryNavItem compact title="Search" href="/people">
       <ImageIcon alt="Search" src={Magnifier} size={5} />
     </PrimaryNavItem>
-    {#if PLATFORM_RELAYS.length !== 1}
-      <PrimaryNavItem compact title="Spaces" href="/spaces" notification={anySpaceNotifications}>
-        <ImageIcon alt="Spaces" src={SettingsMinimalistic} size={5} />
-      </PrimaryNavItem>
-    {/if}
     <PrimaryNavItem compact title="Settings" onclick={showSettingsMenu}>
       <ImageIcon alt="Settings" src={Settings} size={5} />
     </PrimaryNavItem>

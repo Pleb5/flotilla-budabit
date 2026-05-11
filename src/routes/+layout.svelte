@@ -6,7 +6,7 @@
   import type {Unsubscriber} from "svelte/store"
   import {get} from "svelte/store"
   import {browser, dev} from "$app/environment"
-  import {beforeNavigate, goto} from "$app/navigation"
+  import {goto} from "$app/navigation"
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
@@ -32,7 +32,6 @@
   import {setupTracking} from "@app/util/tracking"
   import {setupAnalytics} from "@app/util/analytics"
   import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
-  import {makeSpacePath} from "@app/util/routes"
   import {userSettingsValues} from "@app/core/state"
   import {db, kv} from "@app/core/storage"
   import {theme} from "@app/util/theme"
@@ -395,15 +394,6 @@
   }
 
   navigator.serviceWorker?.addEventListener("message", serviceWorkerMessageHandler)
-
-  beforeNavigate(nav => {
-    if (!nav.to) return
-
-    if (nav.to.url.pathname === "/home" && appState.PLATFORM_RELAYS.length > 0) {
-      nav.cancel()
-      goto(makeSpacePath(appState.PLATFORM_RELAYS[0]))
-    }
-  })
 
   // Cleanup on page close
   window.addEventListener("beforeunload", () => db.close())
