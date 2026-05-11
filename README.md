@@ -97,8 +97,8 @@ You can also optionally create an `.env` file and populate it with the following
 - `VITE_PLATFORM_URL` - The url where the app will be hosted
 - `VITE_PLATFORM_NAME` - The name of the app
 - `VITE_PLATFORM_LOGO` - A logo url for the app
-- `VITE_PLATFORM_RELAYS` - A list of comma-separated relay urls that will make flotilla operate in "platform mode". Disables all space browse/add/select functionality and makes the first platform relay the home page.
-- `VITE_PLATFORM_ROOM_CREATOR_PUBKEYS` - Optional comma-separated pubkeys allowed to create rooms/channels on platform relays. If unset, room creation falls back to relay-owner checks.
+- `VITE_DEFAULT_COMMUNITY` - Optional default community as a hex pubkey, `npub`, or `ncommunity`
+- `VITE_BOOTSTRAP_RELAYS` - Optional comma-separated relay URLs used to resolve community data
 - `VITE_PLATFORM_ACCENT` - A hex color for the app's accent color
 - `VITE_PLATFORM_DESCRIPTION` - A description of the app
 - `VITE_GLITCHTIP_API_KEY` - A Sentry DSN for use with glitchtip (error reporting)

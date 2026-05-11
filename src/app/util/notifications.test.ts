@@ -18,7 +18,7 @@ vi.mock("@app/util/routes", () => ({
 }))
 
 describe("notifications", () => {
-  it("keeps repo notification helpers disabled after spaces removal", async () => {
+  it("keeps repo notification helpers disabled after legacy route removal", async () => {
     const {getRepoNotificationPaths, hasRepoNotification, setCheckedForRepoNotifications} = await import(
       "./notifications"
     )

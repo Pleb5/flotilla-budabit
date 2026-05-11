@@ -5,21 +5,16 @@
  * Import from this file for convenient access to all helpers.
  *
  * These helpers provide standalone utility functions for common test operations.
- * For a more object-oriented approach, use the Page Objects in ../pages/
  *
  * @example
  * ```typescript
- * // Standalone helpers approach
  * import {
  *   login,
  *   loginAndAssertIdentity,
- *   navigateToGitHub,
- *   getRepoCards,
  *   STORAGE_STATE,
  * } from "./helpers"
  *
- * // Page Object approach (recommended for complex tests)
- * import { GitHubPage, RepoDetailPage } from "./pages"
+ * // Shared helpers are grouped here for smoke, identity, and widget tests.
  * ```
  */
 
@@ -33,37 +28,6 @@ export {
   type LoginPhaseHooks,
   type LoginStrategy,
 } from "./auth"
-
-// Git navigation and interaction helpers
-export {
-  // URL encoding
-  encodeRelay,
-  // Navigation
-  navigateToGitHub,
-  navigateToRepoList,
-  navigateToRepo,
-  navigateToRepoTab,
-  // Loading states
-  waitForGitLoad,
-  waitForGitWorker,
-  waitForGitLoadComplete,
-  isGitLoading,
-  // Repository cards
-  getRepoCards,
-  getRepoCardByName,
-  getRepoName,
-  getRepoDescription,
-  clickRepoCard,
-  waitForRepoList,
-  // UI interactions
-  openNewRepoWizard,
-  switchGitTab,
-  searchRepos,
-  clearRepoSearch,
-  // Assertions
-  getGitPageTitle,
-  assertGitPageLoaded,
-} from "./git"
 
 // Storage state path for tests that need authenticated state
 // Must match playwright.config.ts and auth.setup.ts
@@ -140,39 +104,6 @@ export {
   assertLabelTargetsEvent,
 } from "./event-assertions"
 
-// Test data seeding helpers
-export {
-  // Main seeding class
-  TestSeeder,
-  // Convenience functions
-  seedTestRepo,
-  seedTestScenario,
-  seedMultipleRepos,
-  // URL generation helpers
-  TEST_RELAY,
-  TEST_RELAY_ENCODED,
-  getRepoUrl,
-  getRepoIssuesUrl,
-  getRepoPrsUrl,
-  getRepoCodeUrl,
-  getRepoCommitsUrl,
-  getIssueDetailUrl,
-  getPrDetailUrl,
-  getGitReposUrl,
-  // naddr encoding helpers
-  encodeRepoNaddr,
-  addressToNaddr,
-  // Types
-  type SeedRepoOptions,
-  type SeedIssueOptions,
-  type SeedPullRequestOptions,
-  type SeedRepoResult,
-  type SeedIssueResult,
-  type SeedPullRequestResult,
-  type TestSeederOptions,
-  type TestScenario,
-} from "./seed"
-
 // Test isolation utilities
 export {
   // Storage and cookie clearing
@@ -188,11 +119,6 @@ export {
   // Isolated context creation
   createIsolatedContext,
   useIsolatedContext,
-  // Isolated seeder
-  IsolatedSeeder,
-  createIsolatedSeeder,
-  // Playwright fixture
-  testIsolationFixture,
   // Types
   type IsolatedTestContext,
   type TestIsolationConfig,

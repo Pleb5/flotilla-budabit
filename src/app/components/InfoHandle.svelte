@@ -12,7 +12,7 @@
     {/snippet}
   </ModalHeader>
   <p>
-    {PLATFORM_NAME} hosts spaces on the <Link external href="https://nostr.com/" class="underline"
+    {PLATFORM_NAME} hosts communities on the <Link external href="https://nostr.com/" class="underline"
       >Nostr protocol</Link
     >. Nostr uses "nostr addresses" to make it easier for people to find you, without having to
     memorize your public key (your user id).

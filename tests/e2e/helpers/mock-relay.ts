@@ -31,7 +31,7 @@
  *   await mockRelay.setup(page)
  *
  *   // Navigate to the app
- *   await page.goto("/spaces/ws%3A%2F%2Flocalhost%3A7000/git")
+ *   await page.goto("/")
  *
  *   // The app will now "see" the seeded repository
  *   await expect(page.getByText("test-repo")).toBeVisible()

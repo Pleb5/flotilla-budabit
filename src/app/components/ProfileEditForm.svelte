@@ -311,8 +311,8 @@
     {/snippet}
     {#snippet info()}
       <p>
-        If enabled, changes will be published to the broader nostr network in addition to the
-        platform relay.
+        If enabled, changes will be published to the broader nostr network in addition to your
+        configured relays.
       </p>
     {/snippet}
   </FieldInline>

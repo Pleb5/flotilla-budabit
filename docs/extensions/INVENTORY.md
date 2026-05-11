@@ -341,7 +341,7 @@ type ExtensionSlotId =
   | "room:panel"
   | "global:menu"
   | "settings:panel"
-  | "space:sidebar:widgets"
+  | "community:sidebar:widgets"
 ```
 
 ### Slot Configuration (for NIP-89)

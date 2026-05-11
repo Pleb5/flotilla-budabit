@@ -46,8 +46,8 @@
     without asking permission!
   </p>
   <p>
-    From your dashboard, you can access the platform relay, join conversations, and keep up-to-date
-    on the work happening there. Click below to get started!
+    From your dashboard, you can access communities, join conversations, and keep up-to-date on the
+    work happening there. Click below to get started!
   </p>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>

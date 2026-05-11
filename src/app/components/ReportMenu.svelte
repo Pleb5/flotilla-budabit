@@ -52,7 +52,7 @@
 
     pushModal(Confirm, {
       title: `Delete Content`,
-      message: `Are you sure you want to delete this content from the space?`,
+      message: `Are you sure you want to delete this content from the community?`,
       confirm: async () => {
         const {error} = await manageRelay(url, {
           method: ManagementMethod.BanEvent,
@@ -75,7 +75,7 @@
 
     pushModal(Confirm, {
       title: "Ban User",
-      message: `Are you sure you want to ban @${displayProfileByPubkey(pubkey)} from the space?`,
+      message: `Are you sure you want to ban @${displayProfileByPubkey(pubkey)} from the community?`,
       confirm: async () => {
         const {error} = await manageRelay(url, {
           method: ManagementMethod.BanPubkey,

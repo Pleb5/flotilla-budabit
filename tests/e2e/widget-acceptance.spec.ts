@@ -18,9 +18,9 @@ import {useCleanState} from "./helpers/test-isolation"
 // Widget event kind as per NIP-XX
 const KIND_SMART_WIDGET = 30033
 
-// Test relay URL configuration
+// Test relay and community configuration
 const TEST_RELAY = "ws://localhost:7000"
-const ENCODED_RELAY = encodeURIComponent(TEST_RELAY)
+const TEST_COMMUNITY = randomHex()
 
 // Apply clean state to ensure test isolation between tests
 useCleanState(test)
@@ -504,8 +504,8 @@ test.describe("Widget Rendering in Slots", () => {
       await page.waitForTimeout(1000)
     }
 
-    // Navigate to where widgets might be rendered (e.g., a space sidebar)
-    await page.goto(`/spaces/${ENCODED_RELAY}/`)
+    // Navigate to where widgets might be rendered (for example, a community page)
+    await page.goto(`/c/${TEST_COMMUNITY}/widgets`)
     await page.waitForLoadState("networkidle")
     await page.waitForTimeout(2000)
 

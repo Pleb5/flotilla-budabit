@@ -12,7 +12,7 @@
     {/snippet}
   </ModalHeader>
   <p>
-    {PLATFORM_NAME} hosts spaces on the <Link external href="https://nostr.com/" class="underline"
+    {PLATFORM_NAME} hosts communities on the <Link external href="https://nostr.com/" class="underline"
       >Nostr protocol</Link
     >. Nostr uses "relays" to host data, which are special-purpose servers that speak nostr's
     language. This means that anyone can host their own data, making the web more decentralized and

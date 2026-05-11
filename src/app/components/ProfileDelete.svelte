@@ -114,7 +114,7 @@
   </ModalHeader>
   {#if showProgress}
     <p>
-      We are currently sending deletion requests to your relay selections and space hosts. Please
+      We are currently sending deletion requests to your configured relays. Please
       wait while we complete this process. Once we're done, you'll be automatically logged out.
     </p>
     <progress class="progress progress-primary w-full" value={progress! * 100} max="100"></progress>

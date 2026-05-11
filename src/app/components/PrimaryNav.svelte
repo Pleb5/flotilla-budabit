@@ -143,7 +143,7 @@
             class="rounded-full" />
         </PrimaryNavItem>
       {/each}
-      <SlotRenderer slotId="space:sidebar:widgets" context={{urls: []}} />
+      <SlotRenderer slotId="community:sidebar:widgets" context={{urls: []}} />
       <div class="hidden md:block lg:hidden">
         <PrimaryNavItem title="Settings" href="/settings" prefix="/settings" class="tooltip-right">
           <ImageIcon alt="Settings" src={Settings} size={7} />

@@ -102,8 +102,6 @@ Running at: **http://localhost:1849/**
 - `.env` - Enabled all feature flags
 - `src/app/extensions/builtin.ts` - Created auto-install mechanism
 - `src/routes/+layout.svelte` - Added builtin extension initialization
-- `src/routes/spaces/[relay]/git/[id=naddr]/+layout.svelte` - Added watch button and notifications
-- `src/routes/spaces/[relay]/git/[id=naddr]/code/+page.svelte` - Added displayMode for split-pane viewer
 
 ## Bundle Size Impact
 

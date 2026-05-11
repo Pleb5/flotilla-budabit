@@ -114,7 +114,7 @@ export type ExtensionSlotId =
   | "room:panel"
   | "global:menu"
   | "settings:panel"
-  | "space:sidebar:widgets"
+  | "community:sidebar:widgets"
 
 export type ExtensionSlotHandler = (args: {
   root: HTMLElement

@@ -28,8 +28,8 @@ VITE_PLATFORM_NAME=Your Budabit
 VITE_PLATFORM_DESCRIPTION=Your Budabit instance
 VITE_PLATFORM_ACCENT=#0f766e
 VITE_PLATFORM_LOGO=https://your-domain.com/logo.png
-VITE_PLATFORM_RELAYS=wss://relay-1.example.com,wss://relay-2.example.com
-VITE_PLATFORM_ROOM_CREATOR_PUBKEYS=hexpubkey1,hexpubkey2
+VITE_DEFAULT_COMMUNITY=npub1...
+VITE_BOOTSTRAP_RELAYS=wss://relay-1.example.com,wss://relay-2.example.com
 VITE_DEFAULT_PUBKEYS=hexpubkey1,hexpubkey2
 ```
 
@@ -38,7 +38,8 @@ Notes:
 - `VITE_PLATFORM_URL` should be the final public URL of the app.
 - `VITE_PLATFORM_LOGO` can be a remote HTTPS URL. The build pulls it into the static bundle.
 - `VITE_DEFAULT_PUBKEYS` is worth setting even if `.env.example` makes it look optional.
-- `VITE_PLATFORM_ROOM_CREATOR_PUBKEYS` is recommended for production: if set, only listed pubkeys can create new rooms/channels on platform relays.
+- `VITE_DEFAULT_COMMUNITY` should be a community `npub`, hex pubkey, or `ncommunity` identifier.
+- `VITE_BOOTSTRAP_RELAYS` should include relays that can resolve the default community definition.
 
 ## What You Do Not Need
 
@@ -78,7 +79,7 @@ Set the equivalent rule:
 - if request matches a real file, serve it
 - otherwise serve `/index.html`
 
-If your host cannot do SPA fallback, direct links like `/settings` or `/spaces/...` will break.
+If your host cannot do SPA fallback, direct links like `/settings` or `/c/...` will break.
 
 ## Frequent Updates
 

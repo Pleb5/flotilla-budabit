@@ -6,8 +6,6 @@
  * - Tests don't pollute each other
  * - Mock relay state is reset between tests
  *
- * Works in conjunction with TestSeeder from ./seed.ts for data seeding.
- *
  * @example
  * ```typescript
  * import {test} from "@playwright/test"
@@ -23,7 +21,6 @@
  */
 import type {Page, BrowserContext} from "@playwright/test"
 import {MockRelay, type NostrEvent} from "./mock-relay"
-import {TestSeeder} from "./seed"
 
 /**
  * Test context with isolation utilities
@@ -231,8 +228,8 @@ export function useCleanState(testInstance: any, config?: Partial<TestIsolationC
  *     ],
  *   })
  *
- *   await page.goto(`/spaces/${ctx.encodedRelayUrl}/git`)
- *   await expect(page.getByText("test-repo")).toBeVisible()
+ *   await page.goto("/")
+ *   await expect(page.locator("body")).toBeVisible()
  * })
  * ```
  */
@@ -276,7 +273,7 @@ export async function createIsolatedContext(
  * const test = useIsolatedContext(base)
  *
  * test("isolated test", async ({page, isolatedContext}) => {
- *   await page.goto(`/spaces/${isolatedContext.encodedRelayUrl}/git`)
+ *   await page.goto("/")
  * })
  * ```
  */
@@ -301,144 +298,4 @@ export function useIsolatedContext(testInstance: any, config?: Partial<TestIsola
       resetMockRelay(ctx.mockRelay)
     },
   })
-}
-
-/**
- * IsolatedSeeder - Wrapper around TestSeeder that ensures isolation
- *
- * Creates a fresh TestSeeder for each test with automatic cleanup.
- * Provides the same API as TestSeeder but with isolation guarantees.
- *
- * @example
- * ```typescript
- * import {test, expect} from "@playwright/test"
- * import {IsolatedSeeder} from "./helpers/test-isolation"
- *
- * test.describe("isolated tests", () => {
- *   test("test 1", async ({page}) => {
- *     const seeder = new IsolatedSeeder({debug: true})
- *     seeder.seedRepo({name: "test-repo", withIssues: 3})
- *     await seeder.setup(page)
- *
- *     await page.goto("/spaces/ws%3A%2F%2Flocalhost%3A7000/git")
- *     // test-repo is visible
- *   })
- *
- *   test("test 2", async ({page}) => {
- *     // Starts fresh - test 1's data is not present
- *     const seeder = new IsolatedSeeder()
- *     seeder.seedRepo({name: "different-repo"})
- *     await seeder.setup(page)
- *     // Only different-repo is visible
- *   })
- * })
- * ```
- */
-export class IsolatedSeeder extends TestSeeder {
-  private relayUrl: string
-  private isolatedMockRelay?: MockRelay
-
-  constructor(options?: {
-    debug?: boolean
-    latency?: number
-    interceptUrls?: string[]
-    relayUrl?: string
-  }) {
-    super(options)
-    this.relayUrl = options?.relayUrl ?? DEFAULT_CONFIG.relayUrl
-  }
-
-  /**
-   * Get the relay URL for this seeder
-   */
-  getRelayUrl(): string {
-    return this.relayUrl
-  }
-
-  /**
-   * Get the encoded relay URL for use in routes
-   */
-  getEncodedRelayUrl(): string {
-    return encodeURIComponent(this.relayUrl)
-  }
-
-  /**
-   * Override setup to track the mock relay for cleanup
-   */
-  async setup(page: Page): Promise<void> {
-    await super.setup(page)
-    this.isolatedMockRelay = this.getMockRelay()
-  }
-
-  /**
-   * Clean up the seeder - call this in afterEach if needed
-   */
-  cleanup(): void {
-    if (this.isolatedMockRelay) {
-      resetMockRelay(this.isolatedMockRelay)
-    }
-    this.clear()
-  }
-}
-
-/**
- * Create an isolated seeder for a single test
- *
- * Convenience function that creates an IsolatedSeeder, seeds the requested
- * data, and sets it up on the page.
- *
- * @example
- * ```typescript
- * import {test, expect} from "@playwright/test"
- * import {createIsolatedSeeder} from "./helpers/test-isolation"
- *
- * test("displays seeded repos", async ({page}) => {
- *   const seeder = await createIsolatedSeeder(page, (s) => {
- *     s.seedRepo({name: "repo-1", withIssues: 2})
- *     s.seedRepo({name: "repo-2", withPullRequests: 1})
- *   })
- *
- *   await page.goto(`/spaces/${seeder.getEncodedRelayUrl()}/git`)
- *   await expect(page.getByText("repo-1")).toBeVisible()
- * })
- * ```
- */
-export async function createIsolatedSeeder(
-  page: Page,
-  seedFn: (seeder: IsolatedSeeder) => void,
-  options?: {debug?: boolean; relayUrl?: string},
-): Promise<IsolatedSeeder> {
-  const seeder = new IsolatedSeeder(options)
-  seedFn(seeder)
-  await seeder.setup(page)
-  return seeder
-}
-
-/**
- * Test isolation fixture for Playwright's test.extend()
- *
- * Provides automatic isolation with a fresh IsolatedSeeder for each test.
- *
- * @example
- * ```typescript
- * import {test as base, expect} from "@playwright/test"
- * import {testIsolationFixture} from "./helpers/test-isolation"
- *
- * const test = base.extend(testIsolationFixture)
- *
- * test("isolated test with seeder", async ({page, seeder}) => {
- *   seeder.seedRepo({name: "test-repo", withIssues: 5})
- *   await seeder.setup(page)
- *
- *   await page.goto(`/spaces/${seeder.getEncodedRelayUrl()}/git`)
- *   await expect(page.getByText("test-repo")).toBeVisible()
- * })
- * ```
- */
-export const testIsolationFixture = {
-  seeder: async ({}: {}, use: (seeder: IsolatedSeeder) => Promise<void>) => {
-    const seeder = new IsolatedSeeder()
-    await use(seeder)
-    seeder.cleanup()
-  },
 }

@@ -164,7 +164,7 @@ Scope:
 - Remove `loadPlatformChannels` from community flows.
 - Remove platform relay trust UI from community entry.
 - Replace `VITE_PLATFORM_RELAYS` with `VITE_DEFAULT_COMMUNITY` and `VITE_BOOTSTRAP_RELAYS` for the new path.
-- Update tests that assume `/spaces/[relay]`.
+- Remove or rewrite tests that assume legacy relay-space routes.
 
 ## Phase 11: Verification
 

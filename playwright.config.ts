@@ -10,7 +10,6 @@ const STORAGE_STATE = "./test-results/.auth/user.json"
  * - setup: Performs authentication and saves storage state
  * - smoke: Quick smoke tests (no auth required)
  * - identity: Identity bootstrap and persistence tests
- * - git: Git feature tests with extended timeouts
  */
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -62,22 +61,6 @@ export default defineConfig({
       },
     },
 
-    // Git feature tests - extended timeouts for git operations
-    {
-      name: "git",
-      testDir: "./tests/e2e/git",
-      dependencies: ["setup"],
-      use: {
-        ...devices["Desktop Chrome"],
-        // Reuse authenticated state from setup
-        storageState: STORAGE_STATE,
-        // Extended timeout for git operations (60 seconds per action)
-        actionTimeout: 60_000,
-      },
-      // Extended test timeout for git operations (120 seconds per test)
-      timeout: 120_000,
-    },
-
     // Widget tests - require auth to access /settings/extensions
     {
       name: "widget",
@@ -92,7 +75,7 @@ export default defineConfig({
     // Default chromium project for backward compatibility
     {
       name: "chromium",
-      testIgnore: [/.*\.setup\.ts/, /git\//, /widget-(acceptance|interop)\.spec\.ts/],
+      testIgnore: [/.*\.setup\.ts/, /widget-(acceptance|interop)\.spec\.ts/],
       use: {
         ...devices["Desktop Chrome"],
       },

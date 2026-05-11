@@ -29,7 +29,7 @@ This document summarizes how the Flotilla client is structured and how the main 
     - `components/`: App-level UI components (chat, channels, git integrations, modals, alerts, etc.).
     - `analytics.ts`, `notifications.ts`, etc.: side-channel app services.
   - `lib/`: Design system and general-purpose components/utilities.
-  - `routes/`: SvelteKit routes and pages. Git/NIP‑34 pages are under `src/routes/spaces/[relay]/git/...`.
+  - `routes/`: SvelteKit routes and pages. Community pages are under `src/routes/c/[community]/...`.
   - `params/`: SvelteKit route parameter parsers.
 - `packages/nostr-git/`
   - `packages/ui/src/lib/components/git/`: Git feature UI (e.g., `NewRepoWizard.svelte`, `AdvancedSettingsStep.svelte`).
@@ -69,7 +69,7 @@ This document summarizes how the Flotilla client is structured and how the main 
   - `build`: `./build.sh`
   - `check`: `svelte-check`
 - Env vars are read via `import.meta.env.*` in `src/app/state.ts`:
-  - Relays: `VITE_INDEXER_RELAYS`, `VITE_SIGNER_RELAYS`, `VITE_PLATFORM_RELAYS`.
+  - Relays and communities: `VITE_INDEXER_RELAYS`, `VITE_SIGNER_RELAYS`, `VITE_DEFAULT_COMMUNITY`, `VITE_BOOTSTRAP_RELAYS`.
   - Branding: `VITE_PLATFORM_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_TERMS`, `VITE_PLATFORM_PRIVACY`, `VITE_PLATFORM_ACCENT`.
   - Services: `VITE_BURROW_URL`, `VITE_NOTIFIER_PUBKEY`, `VITE_NOTIFIER_RELAY`, `VITE_NOTIFIER_HANDLER_ADDRESS`, `VITE_NOTIFIER_HANDLER_RELAY`, `VITE_VAPID_PUBLIC_KEY`.
   - GitHub OAuth client id: `VITE_GH_CLIENT_ID`.
@@ -104,7 +104,7 @@ This document summarizes how the Flotilla client is structured and how the main 
 
 - App shell/layout: `src/routes/+layout.svelte` and `src/app/components/AppContainer.svelte`.
 - Messaging: `src/app/components/Chat.svelte`, `ChannelMessage*.svelte` components.
-- Git pages: `src/routes/spaces/[relay]/git/` and components in `packages/nostr-git/.../git/`.
+- Community git catalog: `src/routes/c/[community]/git/` and components in `packages/nostr-git/.../git/`.
 - Central state: `src/app/state.ts` (start here for data flow and selectors).
 
 ## Build/Run

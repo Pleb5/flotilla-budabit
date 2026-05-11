@@ -13,7 +13,7 @@
  * test("shows seeded repos", async ({page}) => {
  *   const mockRelay = new MockRelay({seedEvents: FIXTURES.REPOS_WITH_ISSUES})
  *   await mockRelay.setup(page)
- *   await page.goto("/spaces/ws%3A%2F%2Flocalhost%3A7000/git")
+ *   await page.goto("/")
  *   await expect(page.getByText("nostr-tools")).toBeVisible()
  * })
  * ```

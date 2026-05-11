@@ -275,7 +275,7 @@ const syncDMs = () => {
       }
     }
 
-    // Stop syncing removed spaces
+    // Stop syncing removed relays
     for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
       if (!sanitizedUrls.includes(url)) {
         unsubscribersByUrl.delete(url)
