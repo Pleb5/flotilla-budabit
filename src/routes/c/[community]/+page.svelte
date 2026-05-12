@@ -8,7 +8,6 @@
   import {activeCommunitySession} from "@app/core/community-state"
   import {
     makeCommunityCalendarPath,
-    makeCommunityGitPath,
     makeCommunityGoalPath,
     makeCommunityPath,
     makeCommunityPermalinkPath,
@@ -30,7 +29,7 @@
           ["Threads", makeCommunityThreadPath(communityId)],
           ["Calendar", makeCommunityCalendarPath(communityId)],
           ["Fundraisers", makeCommunityGoalPath(communityId)],
-          ["Git", makeCommunityGitPath(communityId)],
+          ["Git", "/git"],
           ["Permalinks", makeCommunityPermalinkPath(communityId)],
           ["Widgets", makeCommunityWidgetPath(communityId)],
           ["Admin", makeCommunityPath(communityId, "admin")],

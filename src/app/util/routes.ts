@@ -57,6 +57,12 @@ export const makeCommunityGoalPath = (community: string, eventId?: string) =>
 export const makeCommunityGitPath = (community: string, eventId?: string) =>
   makeCommunityPath(community, "git", eventId)
 
+export const makeGitPath = (_url?: string, eventId?: string) =>
+  `/git${eventId ? `/${encodeURIComponent(eventId)}` : ""}`
+
+export const makeGitIssuePath = (url?: string, eventId?: string) =>
+  `${makeGitPath(url, eventId)}/issues`
+
 export const makeCommunityPermalinkPath = (community: string, eventId?: string) =>
   makeCommunityPath(community, "permalinks", eventId)
 

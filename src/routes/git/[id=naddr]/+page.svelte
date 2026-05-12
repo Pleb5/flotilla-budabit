@@ -1,0 +1,1475 @@
+<script module lang="ts">
+  declare const __TERMINAL__: boolean
+</script>
+
+<script lang="ts">
+  import markdownit from "markdown-it"
+  import {BranchSelector, Card} from "@nostr-git/ui"
+  import {
+    CircleAlert,
+    GitBranch,
+    GitPullRequest,
+    Users,
+    User,
+    Eye,
+    BookOpen,
+    Copy,
+    Check,
+    Bookmark,
+    Bell,
+    GitFork,
+    RotateCcw,
+    ChevronDown,
+    HeartPulse,
+    Info,
+  } from "@lucide/svelte"
+  import {fade, fly, slide} from "@lib/transition"
+  import Spinner from "@lib/components/Spinner.svelte"
+  import InlinePopover from "@lib/components/InlinePopover.svelte"
+  import AppLink from "@lib/components/Link.svelte"
+  import {formatDistanceToNow} from "date-fns"
+  import {getTagValue} from "@welshman/util"
+  import Button from "@lib/components/Button.svelte"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
+  import ProfileDetail from "@app/components/ProfileDetail.svelte"
+  import ProfileName from "@app/components/ProfileName.svelte"
+  import {pushModal} from "@app/util/modal"
+  import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
+  import {
+    PULL_REQUESTS_KEY,
+    REPO_CLONE_URLS_KEY,
+    REPO_KEY,
+    REPO_RELAYS_KEY,
+    STATUS_EVENTS_BY_ROOT_KEY,
+    REPO_ACTIONS_KEY,
+    type RepoActions,
+    maintainerSetByRepoAddress,
+    pendingMaintainersByRepoAddress,
+  } from "@app/core/git-state"
+  import {
+    REPO_TRUST_METRICS_KEY,
+    defaultRepoTrustMetrics,
+    type RepoTrustMetrics,
+  } from "@app/core/repo-trust-metrics"
+  import {
+    parsePullRequestEvent,
+    type IssueEvent,
+    type PullRequestEvent,
+    type StatusEvent,
+  } from "@nostr-git/core/events"
+  import {isGraspRelayUrl, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
+  import {page} from "$app/stores"
+  import {goto} from "$app/navigation"
+  import {pubkey} from "@welshman/app"
+  import {nip19} from "nostr-tools"
+  import {clip, pushToast} from "@app/util/toast"
+
+  import {getContext} from "svelte"
+  import type {Readable} from "svelte/store"
+  import type {Repo} from "@nostr-git/ui"
+
+  let Terminal = $state<any>(null)
+  if (__TERMINAL__) {
+    import("@nostr-git/ui").then(m => (Terminal = m.Terminal))
+  }
+
+  // Get repoClass and repoRelays from context
+  const repoClass = getContext<Repo>(REPO_KEY)
+  const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
+  const repoCloneUrlsStore = getContext<Readable<string[]>>(REPO_CLONE_URLS_KEY)
+  const statusEventsByRootStore =
+    getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
+  const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
+  const repoTrustMetricsStore = getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
+
+  if (!repoClass) {
+    throw new Error("Repo context not available")
+  }
+
+  // Get relays reactively
+  const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
+  const maintainerSetCloneUrls = $derived.by(() => (repoCloneUrlsStore ? $repoCloneUrlsStore : []))
+  const statusEventsByRoot = $derived.by(() =>
+    statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
+  )
+  const pullRequests = $derived.by(() => (pullRequestsStore ? $pullRequestsStore : []))
+  const repoTrustMetrics = $derived.by(() =>
+    repoTrustMetricsStore ? $repoTrustMetricsStore : defaultRepoTrustMetrics,
+  )
+  const prsHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/prs`)
+  const repoBasePath = $derived.by(() => $page.url.pathname.replace(/\/+$/, ""))
+
+  const isMaintainer = $derived.by(() => {
+    const me = $pubkey
+    if (!me) return false
+    return (repoClass.maintainers || []).includes(me)
+  })
+
+  const HEAD_REF_PREFIX = "ref: refs/heads/"
+  const defaultBranchStatus = $derived.by<
+    {kind: "ok"} | {kind: "unset"} | {kind: "missing"; head: string}
+  >(() => {
+    const event = repoClass.repoStateEvent
+    if (!event?.tags) return {kind: "ok"}
+    let head = ""
+    const heads = new Set<string>()
+    for (const tag of event.tags) {
+      if (tag?.[0] === "HEAD" && typeof tag[1] === "string") {
+        head = tag[1].startsWith(HEAD_REF_PREFIX) ? tag[1].slice(HEAD_REF_PREFIX.length) : tag[1]
+      } else if (typeof tag?.[0] === "string" && tag[0].startsWith("refs/heads/")) {
+        heads.add(tag[0].slice("refs/heads/".length))
+      }
+    }
+    if (!head) return {kind: "unset"}
+    if (heads.size > 0 && !heads.has(head)) return {kind: "missing", head}
+    return {kind: "ok"}
+  })
+  const activityHref = (item: {kind: "issue" | "pr"; id: string}) =>
+    `${repoBasePath}/${item.kind === "issue" ? "issues" : "prs"}/${item.id}`
+  let openTrustMetricPopover = $state<
+    "trusted-merged" | "trusted-maintainer" | "trusted-collaborators" | null
+  >(null)
+  const repoTrustStatus = $derived.by(() => {
+    if (repoTrustMetrics.status === "loading") {
+      return `Refreshing ${repoTrustMetrics.graphLabel.toLowerCase()} activity...`
+    }
+
+    if (repoTrustMetrics.status === "error") {
+      return repoTrustMetrics.error || "Unable to compute trust activity."
+    }
+
+    if (repoTrustMetrics.totalPullRequests === 0) {
+      return "No pull requests loaded yet for trust activity metrics."
+    }
+
+    if (repoTrustMetrics.enabledRuleCount > 0) {
+      return `Using ${repoTrustMetrics.graphLabel} across ${repoTrustMetrics.enabledRuleCount} graph rules.`
+    }
+
+    return "Using the basic WoT fallback. Add graph rules in Trust settings to refine these repo metrics."
+  })
+
+  const openPrsTrustView = (trust = "", trustSort = "") => {
+    const search = new URLSearchParams()
+
+    if (trust) {
+      search.set("trust", trust)
+    }
+
+    if (trustSort) {
+      search.set("trustSort", trustSort)
+    }
+
+    goto(search.size > 0 ? `${prsHref}?${search.toString()}` : prsHref)
+  }
+
+  const getRepoTrustPrHref = (rootId: string) => `${prsHref}/${rootId}`
+
+  const getPullRequestSubject = (pullRequest: PullRequestEvent) =>
+    getTagValue("subject", pullRequest.tags) || "Pull Request"
+
+  const repoTrustMetricCards = $derived.by(() => {
+    const trustedMergedDetails = pullRequests
+      .filter(pullRequest => {
+        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
+
+        return Boolean(metric?.merged && metric.trustedAuthor)
+      })
+      .map(pullRequest => {
+        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
+
+        return {
+          rootId: pullRequest.id,
+          subject: getPullRequestSubject(pullRequest),
+          authorPubkey: pullRequest.pubkey,
+          mergedByPubkey: metric?.mergedByPubkey,
+        }
+      })
+      .slice(0, 5)
+    const trustedMaintainerDetails = pullRequests
+      .filter(pullRequest => {
+        const metric = repoTrustMetrics.byRootId.get(pullRequest.id)
+
+        return Boolean(metric?.merged && metric.trustedMaintainerMerge)
+      })
+      .map(pullRequest => ({
+        rootId: pullRequest.id,
+        subject: getPullRequestSubject(pullRequest),
+        authorPubkey: pullRequest.pubkey,
+        mergedByPubkey: undefined,
+      }))
+      .slice(0, 5)
+
+    return [
+      {
+        key: "trusted-merged" as const,
+        label: "Trusted merged contributions",
+        value: repoTrustMetrics.trustedMergedContributions,
+        description:
+          "Merged pull requests in this repo whose authors are in your active trust graph.",
+        details: trustedMergedDetails,
+      },
+      {
+        key: "trusted-maintainer" as const,
+        label: "Trusted maintainer merges",
+        value: repoTrustMetrics.trustedMaintainerMerges,
+        description:
+          "Merged pull requests in this repo where the maintainer-set member who applied the status is in your active trust graph.",
+        details: trustedMaintainerDetails,
+      },
+      {
+        key: "trusted-collaborators" as const,
+        label: "Trusted collaborators",
+        value: repoTrustMetrics.trustedCollaborators,
+        description:
+          "Distinct trusted authors and maintainers involved in merged pull request activity for this repo.",
+        actors: repoTrustMetrics.topActors.slice(0, 5),
+      },
+    ]
+  })
+
+  // Progressive loading states - show immediate content right away
+  const initialLoading = false
+  let readmeLoading = $state(true)
+  let readmeError = $state(false)
+  let commitLoading = $state(true)
+  let lastCommit = $state<any>(null)
+  let lastCommitReqSeq = $state(0)
+  let _prevRepoKey = $state<string | undefined>(undefined)
+  let _prevMain = $state<string | undefined>(undefined)
+  let _prevBranchSig = $state<string | undefined>(undefined)
+  let copiedUrl = $state<string | null>(null)
+  let repoInfoLoaded = $state(false)
+  let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
+  let commitLoadInProgress = $state(false)
+  let expandedRecentPrIds = $state<Set<string>>(new Set())
+
+  // Expandable sections state
+  let showAllRelays = $state(false)
+  let showTaggedMaintainers = $state(false)
+  const RECENT_PR_PREVIEW_LIMIT = 150
+  const normalizePubkey = (value: string | undefined | null): string => {
+    if (!value) return ""
+    if (/^[0-9a-f]{64}$/i.test(value)) return value
+    if (value.startsWith("npub1")) {
+      try {
+        const decoded = nip19.decode(value)
+        if (decoded.type === "npub") return decoded.data as string
+      } catch {
+        // pass
+      }
+    }
+    return ""
+  }
+
+  const normalizeBranchRef = (value?: string): string => {
+    const raw = String(value || "").trim()
+    if (!raw) return ""
+    return raw
+      .replace(/^ref:\s*refs\/heads\//i, "")
+      .replace(/^refs\/heads\//, "")
+      .replace(/^refs\/remotes\/origin\//, "")
+      .replace(/^origin\//, "")
+  }
+
+  const getTaggedMaintainers = (event: any): string[] => {
+    const raw = (event?.tags || [])
+      .filter((t: string[]) => t[0] === "maintainers")
+      .flatMap((t: string[]) => t.slice(1))
+    const normalized = raw.map((pk: string) => normalizePubkey(pk)).filter(Boolean)
+    return Array.from(new Set(normalized))
+  }
+
+  const taggedMaintainerPubkeys = $derived.by(() => {
+    const event = repoClass?.repoEvent
+    if (!event) return [] as string[]
+    return getTaggedMaintainers(event)
+  })
+
+  const repoAddress = $derived.by(() => {
+    if (repoClass?.address) return repoClass.address
+    const event = repoClass?.repoEvent
+    if (!event) return ""
+    const dTag = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1]
+    if (!event.pubkey || !dTag) return ""
+    return `30617:${event.pubkey}:${dTag}`
+  })
+
+  const maintainerSetPubkeys = $derived.by(() => {
+    if (repoAddress) {
+      const maintainers = $maintainerSetByRepoAddress.get(repoAddress)
+      if (maintainers && maintainers.size > 0) {
+        return Array.from(maintainers)
+      }
+    }
+
+    const owner = normalizePubkey(repoClass?.repoEvent?.pubkey)
+    return owner ? [owner] : []
+  })
+
+  const pendingMaintainerPubkeys = $derived.by(() => {
+    if (repoAddress) {
+      const maintainers = $pendingMaintainersByRepoAddress.get(repoAddress)
+      if (maintainers && maintainers.size > 0) return Array.from(maintainers)
+    }
+
+    const maintainerSet = new Set(maintainerSetPubkeys)
+    return taggedMaintainerPubkeys.filter(pk => !maintainerSet.has(pk))
+  })
+
+  const branchCount = $derived(repoClass.branches?.length || 0)
+
+  function getNostrOwnerAndName(): {ownerNpub: string; name: string} | undefined {
+    const key = (repoClass.key || "").trim()
+    const [keyOwner, keyName] = key.includes("/") ? key.split("/", 2) : [undefined, undefined]
+    const name = (repoClass.name || keyName || "").trim()
+    const owner = repoClass.repoEvent?.pubkey || keyOwner
+    if (!owner || !name) return undefined
+
+    let ownerNpub = owner
+    if (!owner.startsWith("npub1")) {
+      try {
+        ownerNpub = nip19.npubEncode(owner)
+      } catch {
+        ownerNpub = owner
+      }
+    }
+
+    return {ownerNpub, name}
+  }
+
+  function buildDefaultNgitCloneUrl(): string | undefined {
+    const resolved = getNostrOwnerAndName()
+    if (!resolved) return undefined
+    return `nostr://${resolved.ownerNpub}/${resolved.name}`
+  }
+
+  function buildDefaultViewRepoUrl(): string | undefined {
+    const resolved = getNostrOwnerAndName()
+    if (!resolved) return undefined
+    return `https://gitworkshop.dev/${resolved.ownerNpub}/${resolved.name}`
+  }
+
+  const repoMetadata = $derived({
+    name: repoClass.name || "Unknown Repository",
+    description: repoClass.description || "",
+    repoId: repoClass.key || "",
+    relays: repoRelays.length > 0 ? repoRelays : repoClass.relays || [],
+    cloneUrls: (() => {
+      // Get clone URLs from repoClass directly
+      const urls = [
+        ...(maintainerSetCloneUrls.length > 0 ? maintainerSetCloneUrls : repoClass.cloneUrls || []),
+      ]
+      if (!urls.find(u => u.startsWith("nostr://"))) {
+        const def = buildDefaultNgitCloneUrl()
+        if (def && !urls.includes(def)) urls.push(def)
+      }
+      return urls
+    })(),
+    webUrls: (() => {
+      // Get web URLs from repoClass directly
+      const urls = [...(repoClass.web || [])]
+      if (!urls.find(u => u.startsWith("https://gitworkshop.dev"))) {
+        const def = buildDefaultViewRepoUrl()
+        if (def && !urls.includes(def)) urls.push(def)
+      }
+      return urls
+    })(),
+    mainBranch: repoClass.mainBranch,
+    createdAt: repoClass.repoEvent?.created_at
+      ? new Date(repoClass.repoEvent.created_at * 1000)
+      : null,
+    updatedAt: (repoClass as any).repoStateEvent?.created_at
+      ? new Date(((repoClass as any).repoStateEvent.created_at as number) * 1000)
+      : null,
+  })
+
+  // Defaults for Terminal
+  const repoCloneUrls = $derived(repoMetadata.cloneUrls || [])
+  const sortedCloneUrls = $derived(
+    [...repoCloneUrls].sort((a, b) => {
+      const an = a.startsWith("nostr://") ? 0 : 1
+      const bn = b.startsWith("nostr://") ? 0 : 1
+      return an - bn
+    }),
+  )
+  const defaultRemoteUrl = $derived(repoCloneUrls[0])
+  const defaultBranch = $derived(repoMetadata.mainBranch || "")
+  const detectedProvider = $derived(
+    detectProviderFromUrl(defaultRemoteUrl || repoMetadata.relays?.[0]),
+  )
+  const defaultToken = $derived(detectedProvider === "grasp" ? $pubkey : undefined)
+  const relayUrl = $derived((($page.data as any)?.url || "") as string)
+  const naddr = $derived($page.params.id)
+  const repoRefObj = $derived({
+    relay: relayUrl,
+    naddr,
+    npub: $pubkey,
+    repoId: repoClass.key,
+  })
+
+  // Simple provider detection from URL
+  function detectProviderFromUrl(url: string | undefined): string | undefined {
+    if (!url) return undefined
+    if (isGraspRepoHttpUrl(url) || isGraspRelayUrl(url)) return "grasp"
+
+    try {
+      const u = new URL(url)
+      const host = u.hostname
+      if (host.includes("github.com")) return "github"
+      if (host.includes("gitlab.com")) return "gitlab"
+    } catch {
+      // pass
+    }
+    return undefined
+  }
+
+  let readme = $state<string | undefined>(undefined)
+  let renderedReadme = $state<string | undefined>(undefined)
+  const md = markdownit({
+    html: true,
+    linkify: true,
+    typographer: true,
+  })
+
+  $effect(() => {
+    // Track repoClass.key to ensure we only load once per repo
+    const currentKey = repoClass?.key
+
+    if (repoClass && currentKey && !repoInfoLoaded) {
+      // Wait for repo initialization before loading data that requires git operations
+      // Only run once per repo to prevent duplicate API calls
+      repoClass.waitForReady().then(() => {
+        // Double-check the key hasn't changed and we haven't already loaded
+        if (repoClass.key === currentKey && !repoInfoLoaded) {
+          repoInfoLoaded = true
+          loadRepoInfo()
+        }
+      })
+    }
+  })
+
+  // Reactively refresh latest commit when repo updates
+  $effect(() => {
+    // Touch reactive dependencies so this effect re-runs when repo changes
+    const repoKey = repoClass.key
+    const main = repoClass.mainBranch
+    const branchSig = (repoClass.branches || []).map(b => b.name).join("|")
+
+    // Only refetch if identity actually changed
+    const changed = repoKey !== _prevRepoKey || main !== _prevMain || branchSig !== _prevBranchSig
+    if (!changed) return
+
+    _prevRepoKey = repoKey
+    _prevMain = main
+    _prevBranchSig = branchSig
+
+    // Reset repoInfoLoaded when navigating to a different repo
+    repoInfoLoaded = false
+
+    // Clear any pending debounce timer
+    if (commitLoadDebounce) {
+      clearTimeout(commitLoadDebounce)
+    }
+
+    // Debounce to prevent rapid-fire triggers during initialization
+    // Wait 100ms for values to stabilize before loading commits
+    commitLoadDebounce = setTimeout(() => {
+      // Debounce/Dedupe: increment sequence and capture
+      const seq = ++lastCommitReqSeq
+      commitLoading = true
+      lastCommit = null
+      ;(async () => {
+        // Wait for repo to be ready before loading commits
+        await repoClass.waitForReady()
+        await loadLastCommit()
+        // Only apply result if this is the latest request
+        if (seq !== lastCommitReqSeq) return
+      })()
+    }, 100)
+  })
+
+  async function loadRepoInfo() {
+    // Load README only - commit loading is handled by the reactive effect below
+    // This prevents duplicate API calls
+    await loadReadme()
+  }
+
+  async function loadReadme() {
+    readmeError = false
+    try {
+      const branchName = normalizeBranchRef(repoClass.mainBranch)
+      if (!branchName) {
+        console.debug("README: Cannot load - branch not yet determined")
+        readmeError = true
+        return
+      }
+
+      const readmeContent = await repoClass.getFileContent({
+        path: "README.md",
+        branch: branchName,
+        commit: undefined as any,
+      })
+      readme = readmeContent.content
+      renderedReadme = readme ? md.render(readme) : ""
+      if (!readme) readmeError = true
+    } catch (e) {
+      console.debug("README: Failed to load", e)
+      readmeError = true
+    } finally {
+      readmeLoading = false
+    }
+  }
+
+  async function loadLastCommit() {
+    // Guard: prevent duplicate calls if already loading
+    if (commitLoadInProgress) {
+      return
+    }
+
+    commitLoadInProgress = true
+
+    try {
+      // Use main branch directly - no need to try multiple branches
+      // Start with small depth (5) for faster loading, only increase if needed
+      const mainBranch = repoClass.mainBranch
+      if (!mainBranch) {
+        commitLoading = false
+        commitLoadInProgress = false
+        return
+      }
+
+      // Check if WorkerManager is ready before attempting operations
+      if (!repoClass.workerManager?.isReady) {
+        console.debug("LatestCommit: WorkerManager not ready, skipping")
+        commitLoading = false
+        commitLoadInProgress = false
+        return
+      }
+
+      // Try depth 5 first (fast), then 10 if needed, then 25 as fallback
+      const depths = [5, 10, 25]
+
+      for (const depth of depths) {
+        try {
+          const res = await repoClass.getCommitHistory({branch: mainBranch, depth})
+          const list = Array.isArray(res) ? res : res?.commits
+          if (Array.isArray(list) && list.length > 0) {
+            lastCommit = list[0]
+            commitLoading = false
+            commitLoadInProgress = false
+            return
+          }
+        } catch (e) {
+          // If repo not cloned, that's okay - commit history is optional for overview
+          // Don't trigger clone just for commit history
+          if (String(e).includes("not cloned") || String(e).includes("Repository not")) {
+            console.debug(
+              "LatestCommit: Repository not cloned, skipping (overview page doesn't need clone)",
+            )
+            commitLoading = false
+            commitLoadInProgress = false
+            return
+          }
+          // Try next depth on other errors
+          console.debug("LatestCommit attempt failed", {depth, error: String(e)})
+        }
+      }
+    } catch (e) {
+      // Silently fail - commit history is optional
+      console.debug("LatestCommit: Failed to load", e)
+    } finally {
+      commitLoading = false
+      commitLoadInProgress = false
+    }
+  }
+
+  function formatDate(date: Date | null) {
+    if (!date) return "Unknown"
+    return formatDistanceToNow(date, {addSuffix: true})
+  }
+
+  function truncateHash(hash: string, length = 8) {
+    return hash ? hash.substring(0, length) : ""
+  }
+
+  function shortenNip19(value: string, prefixLength = 12, suffixLength = 6) {
+    if (!value) return ""
+    if (value.length <= prefixLength + suffixLength + 3) return value
+    return `${value.slice(0, prefixLength)}...${value.slice(-suffixLength)}`
+  }
+
+  type RecentActivityItem = {
+    id: string
+    title: string
+    activityAt: number
+    createdAt: number
+    pubkey: string
+    kind: "issue" | "pr"
+  }
+
+  function getLatestCommentAt(rootId: string) {
+    let latest = 0
+    for (const comment of repoClass.getIssueThread(rootId).comments || []) {
+      if (comment.created_at > latest) latest = comment.created_at
+    }
+    return latest
+  }
+
+  function getLatestStatusAt(rootId: string) {
+    let latest = 0
+    for (const event of statusEventsByRoot.get(rootId) || []) {
+      if (event.created_at > latest) latest = event.created_at
+    }
+    return latest
+  }
+
+  function getLatestActivityAt(rootId: string, createdAt: number) {
+    return Math.max(createdAt || 0, getLatestCommentAt(rootId), getLatestStatusAt(rootId))
+  }
+
+  function sortRecentActivity(items: RecentActivityItem[]) {
+    return [...items].sort((a, b) => {
+      if (b.activityAt !== a.activityAt) return b.activityAt - a.activityAt
+      if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt
+      return a.id.localeCompare(b.id)
+    })
+  }
+
+  function getIssueTitle(issue: IssueEvent) {
+    return getTagValue("subject", issue.tags) || "Untitled Issue"
+  }
+
+  function getPullRequestTitle(event: PullRequestEvent) {
+    const parsed = parsePullRequestEvent(event)
+    return parsed.subject || getTagValue("subject", event.tags) || "Untitled PR"
+  }
+
+  const recentActivity = $derived.by(() => {
+    const items: RecentActivityItem[] = []
+
+    for (const issue of repoClass.issues) {
+      items.push({
+        id: issue.id,
+        title: getIssueTitle(issue),
+        createdAt: issue.created_at,
+        activityAt: getLatestActivityAt(issue.id, issue.created_at),
+        pubkey: issue.pubkey,
+        kind: "issue",
+      })
+    }
+
+    for (const pullRequest of pullRequests) {
+      items.push({
+        id: pullRequest.id,
+        title: getPullRequestTitle(pullRequest),
+        createdAt: pullRequest.created_at,
+        activityAt: getLatestActivityAt(pullRequest.id, pullRequest.created_at),
+        pubkey: pullRequest.pubkey,
+        kind: "pr",
+      })
+    }
+
+    return sortRecentActivity(items).slice(0, 7)
+  })
+
+  let activityExpanded = $state(false)
+  const visibleActivity = $derived(activityExpanded ? recentActivity : recentActivity.slice(0, 4))
+
+  function shouldClampRecentPrTitle(title: string): boolean {
+    return title.replace(/\s+/g, " ").trim().length > RECENT_PR_PREVIEW_LIMIT
+  }
+
+  function getRecentPrTitlePreview(title: string, expanded: boolean): string {
+    const normalizedTitle = title.replace(/\s+/g, " ").trim()
+
+    if (expanded || normalizedTitle.length <= RECENT_PR_PREVIEW_LIMIT) {
+      return normalizedTitle
+    }
+
+    return `${normalizedTitle.slice(0, RECENT_PR_PREVIEW_LIMIT).trimEnd()}...`
+  }
+
+  function toggleRecentPrExpanded(id: string) {
+    const next = new Set(expandedRecentPrIds)
+
+    if (next.has(id)) {
+      next.delete(id)
+    } else {
+      next.add(id)
+    }
+
+    expandedRecentPrIds = next
+  }
+
+  async function copyUrl(url: string) {
+    try {
+      await clip(url)
+      copiedUrl = url
+      setTimeout(() => {
+        copiedUrl = null
+      }, 2000)
+    } catch (e) {
+      console.error("Failed to copy URL", e)
+    }
+  }
+</script>
+
+<svelte:head>
+  <title>{repoClass.name || "Repository"}</title>
+</svelte:head>
+
+<div class="relative flex min-w-0 flex-col gap-6 py-2">
+  {#if initialLoading}
+    <div class="flex justify-center py-8">
+      <Spinner />
+    </div>
+  {:else}
+    <!-- Repo actions -->
+    {#if repoActions}
+      <div class="flex flex-wrap items-center gap-2">
+        <Button
+          class="btn btn-outline btn-sm gap-1"
+          onclick={repoActions.openRemoteFixModal}
+          title="Repo health">
+          <HeartPulse class="h-4 w-4" />
+          Health
+        </Button>
+        <Button
+          class="btn btn-outline btn-sm gap-1"
+          onclick={repoActions.refreshRepo}
+          disabled={repoActions.isRefreshing}
+          title={repoActions.isRefreshing ? "Syncing..." : "Refresh"}>
+          <RotateCcw class="h-4 w-4 {repoActions.isRefreshing ? 'animate-spin' : ''}" />
+          {repoActions.isRefreshing ? "Syncing..." : "Refresh"}
+        </Button>
+        {#if $pubkey}
+          <Button
+            class="btn btn-ghost btn-sm gap-1 text-muted-foreground hover:text-error"
+            onclick={() => pushModal(ResetRepoConfirm, {repoClass, repoName: repoMetadata.name})}
+            title="Reset local repo state">
+            Reset
+          </Button>
+        {/if}
+        {#if $pubkey}
+          <div class="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              class="btn btn-sm {repoActions.isBookmarked ? 'btn-primary' : 'btn-outline'} gap-1"
+              onclick={repoActions.bookmarkRepo}
+              disabled={repoActions.isTogglingBookmark}
+              title={repoActions.isBookmarked ? "Remove bookmark" : "Bookmark"}>
+              <Bookmark class="h-4 w-4 {repoActions.isBookmarked ? 'fill-current' : ''}" />
+              {repoActions.isBookmarked ? "Bookmarked" : "Bookmark"}
+            </Button>
+            <Button
+              class="btn btn-sm {repoActions.isWatching ? 'btn-primary' : 'btn-outline'} gap-1"
+              onclick={repoActions.openWatchModal}
+              title={repoActions.isWatching ? "Watching" : "Watch"}>
+              <Bell class="h-4 w-4 {repoActions.isWatching ? 'fill-current' : ''}" />
+              {repoActions.isWatching ? "Watching" : "Watch"}
+            </Button>
+            <Button
+              class="btn btn-outline btn-sm gap-1"
+              onclick={repoActions.forkRepo}
+              title="Fork">
+              <GitFork class="h-4 w-4" />
+              Fork
+            </Button>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if defaultBranchStatus.kind !== "ok"}
+      <div
+        class="mb-4 flex items-start gap-3 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
+        <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-yellow-400" />
+        <div class="flex-1">
+          {#if defaultBranchStatus.kind === "unset"}
+            No default branch has been set. Some parts of this page may not load.
+          {:else}
+            The default branch <code class="font-mono">{defaultBranchStatus.head}</code> no longer exists.
+            Some parts of this page may not load.
+          {/if}
+          {#if isMaintainer}
+            <a href={`${repoBasePath}/settings`} class="ml-1 underline">Update in Settings</a>
+          {:else}
+            Ask a maintainer to pick a replacement.
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    <div class="grid min-w-0 gap-4 lg:grid-cols-3" transition:fly>
+      <div class="min-w-0 lg:col-span-1 lg:col-start-3 lg:row-start-1">
+        <Card class="min-w-0 divide-y divide-border p-3 text-sm">
+          <!-- Details header -->
+          <section
+            class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pb-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_auto]">
+            <span
+              class="col-span-2 row-start-1 flex items-center gap-2 text-base font-semibold sm:col-span-1 sm:col-start-1 lg:col-span-2">
+              <GitBranch class="h-5 w-5" />
+              Details
+            </span>
+            <div
+              class="col-start-1 row-start-2 min-w-0 justify-self-end sm:col-start-2 sm:row-start-1 lg:col-start-1 lg:row-start-3 lg:justify-self-start">
+              <BranchSelector repo={repoClass} />
+            </div>
+            {#if sortedCloneUrls.length > 0}
+              <details
+                class="group relative col-start-2 row-start-2 shrink-0 justify-self-end sm:col-start-3 sm:row-start-1 lg:col-start-1 lg:row-start-2 lg:justify-self-start">
+                <summary
+                  class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-600/40 bg-green-100 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-200 dark:border-green-500/40 dark:bg-green-600/20 dark:text-green-300 dark:hover:bg-green-600/30">
+                  <span class="flex items-center gap-2">
+                    <GitBranch class="h-4 w-4" />
+                    Clone
+                  </span>
+                  <ChevronDown class="h-4 w-4 transition-transform group-open:rotate-180" />
+                </summary>
+                <div
+                  class="z-20 absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] space-y-1 rounded-md border border-border bg-base-100 p-2 shadow-lg">
+                  {#each sortedCloneUrls as url}
+                    {@const isNostr = url.startsWith("nostr://")}
+                    <button
+                      type="button"
+                      class="group/row flex w-full min-w-0 items-center gap-2 rounded-md border p-2 transition-all hover:bg-secondary/40 active:scale-[0.995] {isNostr
+                        ? 'border-purple-500/40 bg-purple-500/5'
+                        : 'border-transparent'}"
+                      title="Click to copy"
+                      onclick={() => copyUrl(url)}>
+                      <code
+                        class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs {isNostr
+                          ? 'text-purple-300'
+                          : ''}">{url}</code>
+                      <div
+                        class="flex-shrink-0 rounded p-1 transition-colors group-hover/row:bg-background/50">
+                        {#if copiedUrl === url}
+                          <Check class="h-3.5 w-3.5 text-green-500" />
+                        {:else}
+                          <Copy class="h-3.5 w-3.5 text-muted-foreground" />
+                        {/if}
+                      </div>
+                    </button>
+                  {/each}
+                </div>
+              </details>
+            {/if}
+          </section>
+
+          <!-- Repository Details -->
+          <section class="py-3">
+            <div class="space-y-3">
+              <!-- Compact info rows -->
+              <div class="space-y-1 text-sm">
+                <!-- Address -->
+                <div class="flex items-center gap-2 py-1">
+                  <span class="flex-shrink-0 text-muted-foreground">Address</span>
+                  <code class="min-w-0 flex-1 truncate font-mono text-xs" title={naddr}
+                    >{shortenNip19(naddr)}</code>
+                  <button
+                    type="button"
+                    class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                    title="Copy address"
+                    onclick={() => clip(naddr)}>
+                    <Copy class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                <!-- Website(s) -->
+                {#if repoMetadata.webUrls.length > 0}
+                  {@const hostname = (u: string) => {
+                    try {
+                      return new URL(u).hostname
+                    } catch {
+                      return u
+                    }
+                  }}
+                  <details class="group/urls">
+                    <summary
+                      class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                      <span class="flex-shrink-0 text-muted-foreground"
+                        >Website{repoMetadata.webUrls.length > 1 ? "s" : ""}</span>
+                      <a
+                        href={repoMetadata.webUrls[0]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="min-w-0 flex-1 truncate font-mono text-xs hover:underline"
+                        title={repoMetadata.webUrls[0]}
+                        onclick={e => e.stopPropagation()}>{hostname(repoMetadata.webUrls[0])}</a>
+                      <button
+                        type="button"
+                        class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                        title="Copy URL"
+                        onclick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          clip(repoMetadata.webUrls[0])
+                        }}>
+                        <Copy class="h-3.5 w-3.5" />
+                      </button>
+                      {#if repoMetadata.webUrls.length > 1}
+                        <ChevronDown
+                          class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/urls:rotate-180" />
+                      {/if}
+                    </summary>
+                    {#if repoMetadata.webUrls.length > 1}
+                      <div class="mt-1 space-y-1">
+                        {#each repoMetadata.webUrls.slice(1) as url}
+                          <div class="flex items-center gap-2">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="min-w-0 flex-1 truncate font-mono text-xs hover:underline"
+                              title={url}>{hostname(url)}</a>
+                            <button
+                              type="button"
+                              class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                              title="Copy URL"
+                              onclick={() => clip(url)}>
+                              <Copy class="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+                  </details>
+                {/if}
+
+                <!-- Branches -->
+                {#if repoClass.branches && repoClass.branches.length > 0}
+                  {@const isDefaultBranch = (b: any) =>
+                    ("isHead" in b && b.isHead) || b.name === repoMetadata.mainBranch}
+                  {@const sortedBranches = [...repoClass.branches].sort(
+                    (a, b) => (isDefaultBranch(a) ? 0 : 1) - (isDefaultBranch(b) ? 0 : 1),
+                  )}
+                  <details class="group/branches">
+                    <summary
+                      class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                      <span class="flex-shrink-0 text-muted-foreground">Branches</span>
+                      <span class="min-w-0 flex-1 font-mono text-xs">{branchCount}</span>
+                      <ChevronDown
+                        class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/branches:rotate-180" />
+                    </summary>
+                    <div class="mt-1 space-y-0.5">
+                      {#each sortedBranches as branch}
+                        {@const isDefault = isDefaultBranch(branch)}
+                        <div class="flex items-center gap-2">
+                          <span
+                            class="min-w-0 flex-1 truncate font-mono text-xs"
+                            title={branch.name}>
+                            {branch.name}
+                            {#if isDefault}
+                              <span class="ml-1 text-muted-foreground">(default)</span>
+                            {/if}
+                          </span>
+                          <button
+                            type="button"
+                            class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                            title="Copy branch name"
+                            onclick={() => clip(branch.name)}>
+                            <Copy class="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      {/each}
+                    </div>
+                  </details>
+                {/if}
+
+                <!-- Relays -->
+                {#if repoMetadata.relays.length > 0}
+                  {@const relayHostname = (u: string) => {
+                    try {
+                      return new URL(u).hostname
+                    } catch {
+                      return u
+                    }
+                  }}
+                  <details class="group/relays">
+                    <summary
+                      class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                      <span class="flex-shrink-0 text-muted-foreground">Relays</span>
+                      <span class="min-w-0 flex-1 font-mono text-xs"
+                        >{repoMetadata.relays.length}</span>
+                      <ChevronDown
+                        class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/relays:rotate-180" />
+                    </summary>
+                    <div class="mt-1 space-y-0.5">
+                      {#each repoMetadata.relays as relay}
+                        <div class="flex items-center gap-2">
+                          <span class="min-w-0 flex-1 truncate font-mono text-xs" title={relay}
+                            >{relayHostname(relay)}</span>
+                          <button
+                            type="button"
+                            class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                            title="Copy relay URL"
+                            onclick={() => clip(relay)}>
+                            <Copy class="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      {/each}
+                    </div>
+                  </details>
+                {/if}
+
+                <!-- Latest commit -->
+                {#if lastCommit}
+                  <details class="group/commit" transition:fade>
+                    <summary
+                      class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
+                      <span class="flex-shrink-0 text-muted-foreground">Latest</span>
+                      <span class="flex min-w-0 flex-1 items-center gap-2 font-mono text-xs">
+                        <span>{truncateHash(lastCommit.oid)}</span>
+                        <span class="text-muted-foreground">·</span>
+                        <span class="truncate text-muted-foreground"
+                          >{formatDate(new Date(lastCommit.commit.author.timestamp * 1000))}</span>
+                      </span>
+                      <ChevronDown
+                        class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/commit:rotate-180" />
+                    </summary>
+                    <div class="mt-1 flex items-center gap-1.5 text-xs">
+                      <span
+                        class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-semibold uppercase text-muted-foreground">
+                        {(lastCommit.commit.author.name || "?").charAt(0)}
+                      </span>
+                      <span class="flex-shrink-0 font-medium"
+                        >{lastCommit.commit.author.name}:</span>
+                      <span
+                        class="min-w-0 flex-1 truncate text-muted-foreground"
+                        title={lastCommit.commit.message}>{lastCommit.commit.message}</span>
+                    </div>
+                  </details>
+                {/if}
+              </div>
+
+              <!-- Nostr Information -->
+              <div class="space-y-3">
+                {#if maintainerSetPubkeys.length > 0}
+                  <div>
+                    <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
+                    <div class="grid grid-cols-2 gap-x-3 gap-y-2">
+                      {#each maintainerSetPubkeys as maintainer (maintainer)}
+                        <button
+                          type="button"
+                          class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
+                          onclick={() =>
+                            pushModal(ProfileDetail, {pubkey: maintainer, url: relayUrl})}>
+                          <ProfileCircle
+                            pubkey={maintainer}
+                            url={relayUrl}
+                            size={8}
+                            class="border border-border" />
+                          <span class="min-w-0 truncate text-sm hover:underline">
+                            <ProfileName pubkey={maintainer} url={relayUrl} />
+                          </span>
+                        </button>
+                      {/each}
+                    </div>
+                    {#if pendingMaintainerPubkeys.length > 0}
+                      <button
+                        type="button"
+                        class="mt-2 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        onclick={() => (showTaggedMaintainers = !showTaggedMaintainers)}>
+                        {showTaggedMaintainers
+                          ? "Hide tagged maintainers"
+                          : `Show pending maintainers (${pendingMaintainerPubkeys.length})`}
+                      </button>
+                      {#if showTaggedMaintainers}
+                        <div class="mt-2 space-y-2">
+                          <span class="block text-xs text-muted-foreground"
+                            >Pending maintainers</span>
+                          {#each pendingMaintainerPubkeys as maintainer (maintainer)}
+                            <div
+                              class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                              <ProfileCircle
+                                pubkey={maintainer}
+                                url={relayUrl}
+                                size={5}
+                                class="border border-border opacity-70" />
+                              <ProfileLink
+                                pubkey={maintainer}
+                                url={relayUrl}
+                                unstyled
+                                class="min-w-0 truncate text-xs text-muted-foreground hover:underline" />
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          </section>
+
+          <!-- Recent Activity -->
+          {#if recentActivity.length > 0}
+            <section class="py-3">
+              <h3 class="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <Eye class="h-4 w-4" />
+                Recent Activity
+              </h3>
+              <div class="space-y-1">
+                {#each visibleActivity as item, i}
+                  {@const isPeek = !activityExpanded && i === 3}
+                  <a
+                    href={activityHref(item)}
+                    class="group/act relative flex min-w-0 items-center gap-2 rounded px-1 py-1 hover:bg-secondary/20 {isPeek
+                      ? 'pointer-events-none opacity-40 [mask-image:linear-gradient(to_bottom,black_15%,transparent_70%)]'
+                      : ''}">
+                    <ProfileCircle
+                      pubkey={item.pubkey}
+                      url={relayUrl}
+                      size={6}
+                      class="flex-shrink-0" />
+                    <div class="flex min-w-0 flex-1 flex-col">
+                      <div class="flex min-w-0 items-center gap-1.5 text-xs">
+                        <span class="min-w-0 truncate font-medium">
+                          <ProfileName pubkey={item.pubkey} url={relayUrl} />
+                        </span>
+                        <span class="flex-shrink-0 text-muted-foreground">·</span>
+                        <span class="flex-shrink-0 text-muted-foreground"
+                          >{formatDate(new Date(item.activityAt * 1000))}</span>
+                      </div>
+                      <span
+                        class="truncate text-xs text-muted-foreground group-hover/act:underline"
+                        title={item.title}>{item.title}</span>
+                    </div>
+                    {#if item.kind === "issue"}
+                      <CircleAlert class="h-4 w-4 flex-shrink-0 text-red-400/70" />
+                    {:else}
+                      <GitPullRequest class="h-4 w-4 flex-shrink-0 text-purple-400" />
+                    {/if}
+                  </a>
+                {/each}
+                {#if recentActivity.length > 4 && !activityExpanded}
+                  <button
+                    type="button"
+                    class="mx-auto mt-1 flex items-center gap-1 bg-transparent px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                    onclick={() => (activityExpanded = true)}>
+                    Show more
+                    <ChevronDown class="h-3.5 w-3.5" />
+                  </button>
+                {:else if activityExpanded && recentActivity.length > 4}
+                  <button
+                    type="button"
+                    class="mx-auto mt-1 flex items-center gap-1 bg-transparent px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                    onclick={() => (activityExpanded = false)}>
+                    Show less
+                    <ChevronDown class="h-3.5 w-3.5 rotate-180" />
+                  </button>
+                {/if}
+              </div>
+            </section>
+          {/if}
+
+          <section class="py-3">
+            <div class="mb-2 flex items-center gap-2">
+              <h3 class="flex items-center gap-2 text-sm font-semibold">
+                <Users class="h-4 w-4" />
+                Trust Activity
+              </h3>
+              <span class="ml-auto text-[11px] text-muted-foreground"
+                >{repoTrustMetrics.graphLabel}</span>
+            </div>
+            {#if repoTrustStatus}
+              <p class="mb-2 text-xs text-muted-foreground">{repoTrustStatus}</p>
+            {/if}
+            <div class="space-y-1">
+              {#each repoTrustMetricCards as metric (metric.key)}
+                {@const accent =
+                  metric.key === "trusted-merged"
+                    ? "text-emerald-400"
+                    : metric.key === "trusted-maintainer"
+                      ? "text-sky-400"
+                      : "text-amber-400"}
+                <div class="relative">
+                  <button
+                    type="button"
+                    class="group/trust flex w-full min-w-0 items-center gap-3 rounded px-1 py-1 text-left hover:bg-secondary/20"
+                    onclick={() =>
+                      (openTrustMetricPopover =
+                        openTrustMetricPopover === metric.key ? null : metric.key)}>
+                    <span
+                      class="flex-shrink-0 font-mono text-lg font-semibold tabular-nums {accent}"
+                      >{metric.value}</span>
+                    <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                      >{metric.label}</span>
+                    <span
+                      class="flex-shrink-0 rounded p-1 group-hover/trust:bg-secondary/40 {openTrustMetricPopover ===
+                      metric.key
+                        ? accent
+                        : 'text-muted-foreground group-hover/trust:text-foreground'}">
+                      <Info class="h-3.5 w-3.5" />
+                    </span>
+                  </button>
+                  {#if openTrustMetricPopover === metric.key}
+                    {@const bgTint =
+                      metric.key === "trusted-merged"
+                        ? "bg-emerald-500/10"
+                        : metric.key === "trusted-maintainer"
+                          ? "bg-sky-500/10"
+                          : "bg-amber-500/10"}
+                    <InlinePopover
+                      onClose={() => (openTrustMetricPopover = null)}
+                      align="left"
+                      widthClass="w-80">
+                      <div class="-m-3 flex flex-col gap-3 rounded-box p-3 text-sm {bgTint}">
+                        <div>
+                          <div class="font-medium">{metric.label}</div>
+                          <div class="mt-1 text-xs opacity-70">{metric.description}</div>
+                        </div>
+                        {#if metric.key === "trusted-merged"}
+                          <div class="text-xs opacity-60">
+                            {repoTrustMetrics.trustedMergedContributions} of {repoTrustMetrics.mergedPullRequests}
+                            merged pull request{repoTrustMetrics.mergedPullRequests === 1
+                              ? ""
+                              : "s"} matched a trusted author.
+                          </div>
+                        {:else if metric.key === "trusted-maintainer"}
+                          <div class="text-xs opacity-60">
+                            {repoTrustMetrics.trustedMaintainerMerges} merged pull request{repoTrustMetrics.trustedMaintainerMerges ===
+                            1
+                              ? ""
+                              : "s"} were merged by trusted maintainers.
+                          </div>
+                        {:else}
+                          <div class="text-xs opacity-60">
+                            {repoTrustMetrics.trustedCollaborators} distinct trusted collaborator{repoTrustMetrics.trustedCollaborators ===
+                            1
+                              ? ""
+                              : "s"} participated in merged pull request activity.
+                          </div>
+                        {/if}
+                        {#if metric.details && metric.details.length > 0}
+                          <div class="flex flex-col gap-2">
+                            {#each metric.details as detail (detail.rootId)}
+                              <div class="rounded-box bg-base-200/50 p-3">
+                                <AppLink
+                                  href={getRepoTrustPrHref(detail.rootId)}
+                                  class="text-sm font-medium text-primary underline-offset-2 hover:underline">
+                                  {detail.subject}
+                                </AppLink>
+                                <div
+                                  class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                                  <span>Author</span>
+                                  <ProfileLink
+                                    pubkey={detail.authorPubkey}
+                                    url={relayUrl}
+                                    unstyled
+                                    class="font-medium text-primary underline-offset-2 hover:underline" />
+                                </div>
+                                {#if detail.mergedByPubkey}
+                                  <div
+                                    class="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                                    <span>Merged by</span>
+                                    <ProfileLink
+                                      pubkey={detail.mergedByPubkey}
+                                      url={relayUrl}
+                                      unstyled
+                                      class="font-medium text-primary underline-offset-2 hover:underline" />
+                                  </div>
+                                {/if}
+                              </div>
+                            {/each}
+                          </div>
+                        {:else if metric.actors && metric.actors.length > 0}
+                          <div class="flex flex-col gap-2">
+                            {#each metric.actors as actor (actor.pubkey)}
+                              <div class="rounded-box bg-base-200/50 p-3">
+                                <div class="flex min-w-0 items-center gap-3">
+                                  <ProfileCircle
+                                    pubkey={actor.pubkey}
+                                    url={relayUrl}
+                                    size={6}
+                                    class="border border-border" />
+                                  <div class="min-w-0">
+                                    <ProfileLink
+                                      pubkey={actor.pubkey}
+                                      url={relayUrl}
+                                      unstyled
+                                      class="block truncate text-sm font-medium text-primary underline-offset-2 hover:underline" />
+                                    <div class="text-xs opacity-70">
+                                      {actor.authoredMergedPullRequests} authored merges • {actor.appliedMergedPullRequests}
+                                      maintainer merges
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                        {:else}
+                          <div class="text-xs opacity-60">
+                            No evidence captured for this metric yet.
+                          </div>
+                        {/if}
+                      </div>
+                    </InlinePopover>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          </section>
+        </Card>
+      </div>
+
+      <div class="flex-1" transition:slide>
+        {#if __TERMINAL__ && Terminal}
+          <Terminal
+            fs={undefined}
+            repoRef={repoRefObj}
+            repoEvent={repoClass.repoEvent}
+            relays={repoRelays}
+            theme="retro"
+            height={260}
+            initialCwd="/"
+            urlAllowlist={[]}
+            outputLimit={{bytes: 1_000_000, lines: 10_000, timeMs: 30_000}}
+            onCommand={(cmd: string) => console.log(cmd)}
+            onOutput={(evt: {stream: string; chunk: string}) => console.log(evt)}
+            onExit={(e: {code: number}) => console.log("terminal exit", e.code)}
+            onProgress={(evt: any) => console.log("terminal progress", evt)}
+            onToast={(evt: {level: "error" | undefined; message: string}) =>
+              pushToast({message: evt.message, theme: evt.level})}
+            {repoCloneUrls}
+            {defaultRemoteUrl}
+            {defaultBranch}
+            provider={detectedProvider}
+            token={defaultToken} />
+        {/if}
+      </div>
+
+      <!-- README -->
+      {#if readmeLoading}
+        <div transition:slide class="min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-1">
+          <Card class="min-w-0 p-4 sm:p-6">
+            <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+              <BookOpen class="h-5 w-5" />
+              README
+            </h3>
+            <div class="space-y-3">
+              <div class="h-4 w-3/4 animate-pulse rounded bg-muted"></div>
+              <div class="h-4 w-full animate-pulse rounded bg-muted"></div>
+              <div class="h-4 w-2/3 animate-pulse rounded bg-muted"></div>
+              <div class="h-4 w-5/6 animate-pulse rounded bg-muted"></div>
+              <div class="h-4 w-1/2 animate-pulse rounded bg-muted"></div>
+            </div>
+          </Card>
+        </div>
+      {:else if renderedReadme}
+        <div transition:slide class="min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-1">
+          <Card class="min-w-0 p-4 sm:p-6">
+            <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+              <BookOpen class="h-5 w-5" />
+              README
+            </h3>
+            <div class="git-readme prose max-w-full overflow-x-auto" in:fly>
+              {@html renderedReadme}
+              <style>
+                .git-readme {
+                  color: hsl(var(--ng-foreground));
+                  background: none;
+                }
+                .git-readme h1,
+                .git-readme h2,
+                .git-readme h3 {
+                  font-weight: 600;
+                  line-height: 1.25;
+                  color: hsl(var(--ng-foreground));
+                  margin-top: 2rem;
+                  margin-bottom: 1rem;
+                }
+                .git-readme h1 {
+                  font-size: 2rem;
+                  border-bottom: 1px solid hsl(var(--ng-border));
+                  padding-bottom: 0.3em;
+                }
+                .git-readme h2 {
+                  font-size: 1.5rem;
+                  border-bottom: 1px solid hsl(var(--ng-border));
+                  padding-bottom: 0.2em;
+                }
+                .git-readme h3 {
+                  font-size: 1.25rem;
+                  padding-bottom: 0.1em;
+                }
+                .git-readme ul,
+                .git-readme ol {
+                  margin: 1em 0;
+                  padding-left: 2em;
+                }
+                .git-readme li {
+                  margin: 0.3em 0;
+                }
+                .git-readme a {
+                  color: hsl(var(--ng-primary));
+                  text-decoration: underline;
+                  text-underline-offset: 2px;
+                  transition: color 0.2s;
+                }
+                .git-readme a:hover {
+                  color: hsl(var(--ng-accent));
+                }
+                .git-readme code {
+                  background: hsl(var(--ng-muted));
+                  color: hsl(var(--ng-foreground));
+                  border-radius: 4px;
+                  padding: 0.2em 0.4em;
+                  font-size: 0.95em;
+                }
+                .git-readme pre {
+                  background: hsl(var(--ng-background));
+                  color: hsl(var(--ng-foreground));
+                  border: 1px solid hsl(var(--ng-border));
+                  border-radius: 8px;
+                  padding: 1em;
+                  margin: 1.5em 0;
+                  font-size: 1em;
+                  overflow-x: auto;
+                }
+                .git-readme blockquote {
+                  border-left: 4px solid hsl(var(--ng-primary));
+                  background: hsl(var(--ng-muted));
+                  color: hsl(var(--ng-muted-foreground));
+                  padding: 1em 1.5em;
+                  border-radius: 0.5em;
+                  margin: 1.5em 0;
+                  font-style: italic;
+                }
+                .git-readme table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  margin-bottom: 1.5em;
+                  background: hsl(var(--ng-card));
+                  border-radius: 0.5em;
+                  overflow: hidden;
+                }
+                .git-readme th,
+                .git-readme td {
+                  border: 1px solid hsl(var(--ng-border));
+                  padding: 0.6em 1em;
+                }
+                .git-readme th {
+                  background: hsl(var(--ng-muted));
+                  font-weight: 600;
+                }
+              </style>
+            </div>
+          </Card>
+        </div>
+      {:else if readmeError}
+        <div transition:slide class="min-w-0 lg:col-span-2 lg:col-start-1 lg:row-start-1">
+          <Card class="min-w-0 p-4 sm:p-6">
+            <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold">
+              <BookOpen class="h-5 w-5" />
+              README
+            </h3>
+            <p class="text-sm text-muted-foreground">Unable to load README.md</p>
+          </Card>
+        </div>
+      {/if}
+    </div>
+  {/if}
+</div>

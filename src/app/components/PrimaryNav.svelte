@@ -15,9 +15,8 @@
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import {pushModal} from "@app/util/modal"
   import {DEFAULT_COMMUNITY_INPUT} from "@app/core/community-state"
-  import {makeCommunityGitPath, makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
-  import {pushToast} from "@app/util/toast"
   import Git from "@assets/icons/git.svg?dataurl"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
   import {extensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
@@ -31,7 +30,6 @@
   const currentCommunity = $derived(parseCommunityRouteParam($page.params.community)?.pubkey || "")
   const navCommunity = $derived(currentCommunity || DEFAULT_COMMUNITY_INPUT)
   const communityPath = $derived(navCommunity ? makeCommunityPath(navCommunity) : "/home")
-  const communityGitPath = $derived(navCommunity ? makeCommunityGitPath(navCommunity) : "")
 
   const openProfile = () => {
     if ($pubkey) pushModal(ProfileDetail, {pubkey: $pubkey})
@@ -41,36 +39,7 @@
 
   const openChat = () => goto("/chat")
 
-  const gitNavErrorMessage = "Choose a community before opening Git."
-  let gitNavErrorToastId: string | null = null
-  let gitNavErrorToastTimeout: ReturnType<typeof setTimeout> | null = null
-
-  const showGitNavError = () => {
-    if (gitNavErrorToastId) return
-    const timeout = 5000
-    gitNavErrorToastId = pushToast({
-      message: gitNavErrorMessage,
-      theme: "error",
-      timeout,
-    })
-    if (gitNavErrorToastTimeout) clearTimeout(gitNavErrorToastTimeout)
-    gitNavErrorToastTimeout = setTimeout(() => {
-      gitNavErrorToastId = null
-      gitNavErrorToastTimeout = null
-    }, timeout)
-  }
-
-  const openGit = () => {
-    if (communityGitPath) {
-      goto(communityGitPath)
-      return
-    }
-
-    showGitNavError()
-    goto("/home")
-  }
-
-  const gitNotification = $derived(Boolean(communityGitPath && $notifications.has(communityGitPath)))
+  const gitNotification = $derived($notifications.has("/git"))
 
   // Get widgets configured for menu display
   const menuWidgets = $derived.by(() => {
@@ -115,7 +84,8 @@
       </div>
       <PrimaryNavItem
         title="Git"
-        onclick={openGit}
+        href="/git"
+        prefix="/git"
         class="tooltip-right"
         notification={gitNotification}>
         <ImageIcon alt="Git" src={Git} size={7} />
@@ -184,7 +154,7 @@
       notification={$notifications.has("/chat")}>
       <ImageIcon alt="Messages" src={Letter} size={5} />
     </PrimaryNavItem>
-    <PrimaryNavItem compact title="Git" onclick={openGit} notification={gitNotification}>
+    <PrimaryNavItem compact title="Git" href="/git" prefix="/git" notification={gitNotification}>
       <ImageIcon alt="Git" src={Git} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem compact title="Search" href="/people">

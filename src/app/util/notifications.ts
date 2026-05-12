@@ -2,7 +2,7 @@ import {derived, get, readable, writable, type Readable} from "svelte/store"
 import {synced, throttled} from "@welshman/store"
 import {pubkey} from "@welshman/app"
 import {identity, now, prop} from "@welshman/lib"
-import type {TrustedEvent} from "@welshman/util"
+import {Address, type TrustedEvent} from "@welshman/util"
 import {chatsById, userSettingsValues} from "@app/core/state"
 import {kv} from "@app/core/storage"
 import {makeChatPath} from "@app/util/routes"
@@ -139,8 +139,74 @@ export const setupBudabitNotifications = () => {
   return () => undefined
 }
 
-export const getRepoNotificationPaths = () => []
+type RepoNotificationKind = "issues" | "prs"
 
-export const hasRepoNotification = () => false
+const repoNotificationKinds = new Set<RepoNotificationKind>(["issues", "prs"])
 
-export const setCheckedForRepoNotifications = () => undefined
+type RepoNotificationOptions = {
+  relay?: string
+  repoAddress?: string
+  repoAddresses?: Iterable<string>
+  kind?: RepoNotificationKind
+}
+
+const getRepoAddressSet = (options: RepoNotificationOptions) => {
+  const repoAddresses = new Set<string>()
+
+  if (options.repoAddress) {
+    repoAddresses.add(options.repoAddress)
+  }
+
+  for (const repoAddress of options.repoAddresses || []) {
+    if (repoAddress) repoAddresses.add(repoAddress)
+  }
+
+  return repoAddresses
+}
+
+export const getRepoNotificationPaths = (paths: Set<string>, options: RepoNotificationOptions) => {
+  const {kind} = options
+  const repoAddresses = getRepoAddressSet(options)
+  if (repoAddresses.size === 0) return []
+
+  const prefix = "/git/"
+  const matches: string[] = []
+
+  for (const path of paths) {
+    if (!path.startsWith(prefix)) continue
+    const rest = path.slice(prefix.length)
+    const [naddr, section] = rest.split("/")
+    if (!naddr || !section) continue
+    if (!repoNotificationKinds.has(section as RepoNotificationKind)) continue
+    if (kind && section !== kind) continue
+
+    try {
+      const address = Address.fromNaddr(decodeURIComponent(naddr)).toString()
+      if (repoAddresses.has(address)) {
+        matches.push(path)
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return matches
+}
+
+export const hasRepoNotification = (paths: Set<string>, options: RepoNotificationOptions) =>
+  getRepoNotificationPaths(paths, options).length > 0
+
+export const setCheckedForRepoNotifications = (
+  paths: Set<string>,
+  options: RepoNotificationOptions,
+  timestamp?: number,
+) => {
+  const matches = getRepoNotificationPaths(paths, options)
+  for (const path of matches) {
+    if (timestamp != null) {
+      setCheckedAt(path, timestamp)
+    } else {
+      setChecked(path)
+    }
+  }
+}
