@@ -73,6 +73,7 @@
     SmartWidgetEvent,
     RepoContext,
   } from "@app/extensions/types"
+  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
 
@@ -107,6 +108,9 @@
     if ("appUrl" in extension) return extension.appUrl
     return undefined
   })
+  const secureExtEntrypoint = $derived(
+    extEntrypoint && isSecureEmbeddableUrl(extEntrypoint) ? extEntrypoint : undefined,
+  )
 
   const extName = $derived.by(() => {
     if (!extension) return extId
@@ -161,8 +165,8 @@
 
   // Initialize iframe src when entrypoint is available
   $effect(() => {
-    if (extEntrypoint && !iframeSrc) {
-      iframeSrc = extEntrypoint
+    if (secureExtEntrypoint && !iframeSrc) {
+      iframeSrc = secureExtEntrypoint
     }
   })
 
@@ -177,9 +181,9 @@
   }
 
   function createExtensionInstance(): LoadedWidgetExtension | null {
-    if (!extEntrypoint) return null
+    if (!secureExtEntrypoint) return null
 
-    const origin = new URL(extEntrypoint).origin
+    const origin = new URL(secureExtEntrypoint).origin
     const identifier = `${extId}:${repoClass.repoEvent?.pubkey}:${repoClass.name}`
 
     return {
@@ -266,8 +270,8 @@
     loading = true
     retryCount++
     // Force iframe reload by updating src with cache buster
-    if (extEntrypoint) {
-      const url = new URL(extEntrypoint)
+    if (secureExtEntrypoint) {
+      const url = new URL(secureExtEntrypoint)
       url.searchParams.set("_retry", retryCount.toString())
       url.searchParams.set("_t", Date.now().toString())
       iframeSrc = url.toString()
@@ -336,6 +340,16 @@
         <p class="text-sm text-muted-foreground">
           This extension does not have an external entrypoint configured.
         </p>
+      </div>
+    </div>
+  </Card>
+{:else if !secureExtEntrypoint}
+  <Card class="p-6">
+    <div class="flex flex-col items-center gap-4 text-center">
+      <ExtensionIcon icon="AlertCircle" size={48} class="text-muted-foreground" />
+      <div>
+        <h2 class="text-lg font-semibold">Insecure Extension URL Blocked</h2>
+        <p class="text-sm text-muted-foreground">{SECURE_EMBED_URL_REQUIREMENT}</p>
       </div>
     </div>
   </Card>

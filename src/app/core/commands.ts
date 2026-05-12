@@ -106,6 +106,7 @@ import {
   isExtensionEnabled,
 } from "@app/extensions/settings"
 import {extensionRegistry, parseSmartWidget} from "@app/extensions/registry"
+import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {activeRepoClass} from "@app/core/git-state"
@@ -221,7 +222,7 @@ export const discoverExtensions = async (): Promise<ExtensionManifest[]> => {
   for (const ev of events) {
     try {
       const m = JSON.parse(ev.content)
-      if (m && m.id && m.name && m.entrypoint) {
+      if (m && m.id && m.name && m.entrypoint && isSecureEmbeddableUrl(m.entrypoint)) {
         manifests.push(m as ExtensionManifest)
       }
     } catch (_e) {

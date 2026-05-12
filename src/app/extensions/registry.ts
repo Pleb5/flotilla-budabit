@@ -9,6 +9,7 @@ import type {
   RepoContext,
 } from "./types"
 import {getRepoAddress} from "./types"
+import {assertSecureEmbeddableUrl} from "./url-policy"
 
 const getTag = (tags: string[][], name: string) => tags.find(t => t[0] === name)
 const getTags = (tags: string[][], name: string) => tags.filter(t => t[0] === name)
@@ -67,6 +68,9 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
   const appUrl = buttons.find(b => b.type === "app")?.url
   if (widgetType !== "basic" && !appUrl) {
     throw new Error("Action/Tool widget missing app URL")
+  }
+  if (appUrl) {
+    assertSecureEmbeddableUrl(appUrl, "Smart widget app URL")
   }
 
   const originHint = getTag(tags, "client")?.[2]
@@ -129,6 +133,7 @@ class ExtensionRegistry {
     // Handle empty entrypoint
     let origin = window.location.origin
     if (manifest.entrypoint) {
+      assertSecureEmbeddableUrl(manifest.entrypoint, "Extension entrypoint")
       try {
         origin = new URL(manifest.entrypoint).origin
       } catch {
@@ -208,6 +213,8 @@ class ExtensionRegistry {
    * Fetch and validate an extension manifest before registering.
    */
   async load(manifestUrl: string): Promise<ExtensionManifest> {
+    assertSecureEmbeddableUrl(manifestUrl, "Extension manifest URL")
+
     // Add cache-busting parameter and set no-cache headers to ensure fresh manifest
     const cacheBustedUrl = addCacheBuster(manifestUrl)
     const res = await fetch(cacheBustedUrl, {
@@ -318,6 +325,7 @@ class ExtensionRegistry {
       if (!ext.manifest.entrypoint) {
         return ext
       }
+      assertSecureEmbeddableUrl(ext.manifest.entrypoint, "Extension entrypoint")
 
       const iframe = document.createElement("iframe")
       // Add cache-busting parameter to ensure fresh extension content
@@ -364,6 +372,7 @@ class ExtensionRegistry {
     if (!ext.widget.appUrl) {
       throw new Error("Action/Tool widget missing app URL")
     }
+    assertSecureEmbeddableUrl(ext.widget.appUrl, "Smart widget app URL")
     const existing = this.get(ext.id) as LoadedWidgetExtension | undefined
     if (existing?.iframe) return existing
 

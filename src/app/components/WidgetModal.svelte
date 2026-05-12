@@ -3,6 +3,7 @@
   import {pubkey, profilesByPubkey} from "@welshman/app"
   import {get} from "svelte/store"
   import type {SmartWidgetEvent} from "@app/extensions/types"
+  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import {clearModals} from "@app/util/modal"
   import Icon from "@lib/components/Icon.svelte"
   import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
@@ -15,9 +16,12 @@
 
   let iframeRef: HTMLIFrameElement | undefined = $state()
   let loaded = $state(false)
+  const appUrl = $derived(
+    widget.appUrl && isSecureEmbeddableUrl(widget.appUrl) ? widget.appUrl : undefined,
+  )
 
   const sendContext = () => {
-    if (!iframeRef?.contentWindow || !widget.appUrl) return
+    if (!iframeRef?.contentWindow || !appUrl) return
 
     const userPubkey = get(pubkey)
     const profiles = get(profilesByPubkey)
@@ -41,7 +45,7 @@
         kind: "user-metadata",
         data: context,
       },
-      new URL(widget.appUrl).origin,
+      new URL(appUrl).origin,
     )
   }
 
@@ -53,10 +57,10 @@
 
   // Listen for messages from the widget
   const handleMessage = (event: MessageEvent) => {
-    if (!widget.appUrl) return
+    if (!appUrl) return
 
     try {
-      const widgetOrigin = new URL(widget.appUrl).origin
+      const widgetOrigin = new URL(appUrl).origin
       if (event.origin !== widgetOrigin) return
 
       const {kind, data} = event.data || {}
@@ -110,14 +114,18 @@
         <span class="loading loading-spinner loading-lg"></span>
       </div>
     {/if}
-    {#if widget.appUrl}
+    {#if appUrl}
       <iframe
         bind:this={iframeRef}
-        src={widget.appUrl}
+        src={appUrl}
         title={widget.content || widget.identifier}
         class="absolute inset-0 h-full w-full border-0"
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         onload={onIframeLoad}></iframe>
+    {:else if widget.appUrl}
+      <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
+        This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}
+      </div>
     {:else}
       <div class="flex h-full items-center justify-center">
         <p class="opacity-70">This widget does not have an app URL.</p>

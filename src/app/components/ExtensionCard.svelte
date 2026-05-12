@@ -8,6 +8,7 @@
     SmartWidgetEvent,
     WidgetDisplayLocation,
   } from "@app/extensions/types"
+  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import {checkForExtensionUpdate, refreshExtension} from "@app/core/commands"
   import {pushToast} from "@app/util/toast"
   import {RefreshCw} from "@lucide/svelte"
@@ -39,6 +40,9 @@
   const isWidget = type === "widget"
   const widget = isWidget ? (manifest as SmartWidgetEvent) : null
   const extension = !isWidget ? (manifest as ExtensionManifest) : null
+  const widgetAppUrl = $derived(
+    widget?.appUrl && isSecureEmbeddableUrl(widget.appUrl) ? widget.appUrl : undefined,
+  )
 
   let showWidgetModal = $state(false)
 
@@ -166,8 +170,10 @@
     </div>
     {#if widget.appUrl || widget.buttons?.length || onDisplayLocationChange}
       <div class="mt-2 flex flex-wrap items-center gap-2">
-        {#if widget.appUrl}
+        {#if widgetAppUrl}
           <button class="btn btn-primary btn-sm" onclick={openWidget}> Open App </button>
+        {:else if widget.appUrl}
+          <span class="text-xs opacity-70">Insecure app URL blocked</span>
         {/if}
         {#each widget.buttons || [] as btn}
           {#if btn.type !== "app"}
@@ -234,11 +240,17 @@
         <button class="btn btn-ghost btn-sm" onclick={closeWidget}>✕</button>
       </div>
       <div class="relative flex-1">
-        <iframe
-          src={widget.appUrl}
-          title={widget.content || widget.identifier}
-          class="absolute inset-0 h-full w-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        {#if widgetAppUrl}
+          <iframe
+            src={widgetAppUrl}
+            title={widget.content || widget.identifier}
+            class="absolute inset-0 h-full w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        {:else}
+          <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
+            This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}
+          </div>
+        {/if}
       </div>
     </div>
   </div>

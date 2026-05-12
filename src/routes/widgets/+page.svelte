@@ -6,6 +6,7 @@
   import {get} from "svelte/store"
   import {extensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
   import type {SmartWidgetEvent} from "@app/extensions/types"
+  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import Page from "@lib/components/Page.svelte"
 
   let iframeRef: HTMLIFrameElement | undefined = $state()
@@ -27,9 +28,14 @@
     }
     return widgets[0] || null
   })
+  const selectedWidgetAppUrl = $derived(
+    selectedWidget?.appUrl && isSecureEmbeddableUrl(selectedWidget.appUrl)
+      ? selectedWidget.appUrl
+      : undefined,
+  )
 
   const sendContext = () => {
-    if (!iframeRef?.contentWindow || !selectedWidget?.appUrl) return
+    if (!iframeRef?.contentWindow || !selectedWidgetAppUrl) return
 
     const userPubkey = get(pubkey)
     const profiles = get(profilesByPubkey)
@@ -48,14 +54,14 @@
 
     iframeRef.contentWindow.postMessage(
       {kind: "user-metadata", data: context},
-      new URL(selectedWidget.appUrl).origin,
+      new URL(selectedWidgetAppUrl).origin,
     )
   }
 
   const handleMessage = (event: MessageEvent) => {
-    if (!selectedWidget?.appUrl) return
+    if (!selectedWidgetAppUrl) return
     try {
-      const widgetOrigin = new URL(selectedWidget.appUrl).origin
+      const widgetOrigin = new URL(selectedWidgetAppUrl).origin
       if (event.origin !== widgetOrigin) return
       const {kind} = event.data || {}
       if (kind === "app-loaded") {
@@ -96,13 +102,19 @@
   {:else if widgets.length === 1 && selectedWidget}
     <!-- Single widget - full screen -->
     <div class="flex-1">
-      <iframe
-        bind:this={iframeRef}
-        src={selectedWidget.appUrl}
-        title={selectedWidget.content || selectedWidget.identifier}
-        class="h-full w-full border-0"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        onload={onIframeLoad}></iframe>
+      {#if selectedWidgetAppUrl}
+        <iframe
+          bind:this={iframeRef}
+          src={selectedWidgetAppUrl}
+          title={selectedWidget.content || selectedWidget.identifier}
+          class="h-full w-full border-0"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          onload={onIframeLoad}></iframe>
+      {:else if selectedWidget.appUrl}
+        <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
+          This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}
+        </div>
+      {/if}
     </div>
   {:else}
     <!-- Multiple widgets - tabs -->
@@ -126,13 +138,19 @@
     </div>
     {#if selectedWidget?.appUrl}
       <div class="flex-1">
-        <iframe
-          bind:this={iframeRef}
-          src={selectedWidget.appUrl}
-          title={selectedWidget.content || selectedWidget.identifier}
-          class="h-full w-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          onload={onIframeLoad}></iframe>
+        {#if selectedWidgetAppUrl}
+          <iframe
+            bind:this={iframeRef}
+            src={selectedWidgetAppUrl}
+            title={selectedWidget.content || selectedWidget.identifier}
+            class="h-full w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            onload={onIframeLoad}></iframe>
+        {:else}
+          <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
+            This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}
+          </div>
+        {/if}
       </div>
     {:else}
       <div class="flex flex-1 items-center justify-center">

@@ -1,10 +1,16 @@
 <script lang="ts">
   import {extensionSettings, getWidgetsForLocation} from "@app/extensions/settings"
   import type {SmartWidgetEvent} from "@app/extensions/types"
+  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
 
   let showWidgetModal = $state<SmartWidgetEvent | null>(null)
   let currentIndex = $state(0)
   const maxVisible = 3
+  const showWidgetModalAppUrl = $derived(
+    showWidgetModal?.appUrl && isSecureEmbeddableUrl(showWidgetModal.appUrl)
+      ? showWidgetModal.appUrl
+      : undefined,
+  )
 
   const topMenuWidgets = $derived.by(() => {
     const _ = $extensionSettings
@@ -109,11 +115,17 @@
         <button class="btn btn-ghost btn-sm" onclick={closeWidget}>✕</button>
       </div>
       <div class="relative flex-1">
-        <iframe
-          src={showWidgetModal.appUrl}
-          title={showWidgetModal.content || showWidgetModal.identifier}
-          class="absolute inset-0 h-full w-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        {#if showWidgetModalAppUrl}
+          <iframe
+            src={showWidgetModalAppUrl}
+            title={showWidgetModal.content || showWidgetModal.identifier}
+            class="absolute inset-0 h-full w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        {:else}
+          <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
+            This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}
+          </div>
+        {/if}
       </div>
     </div>
   </div>

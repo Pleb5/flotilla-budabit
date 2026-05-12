@@ -20,7 +20,11 @@
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
-  import {SMART_WIDGET_KIND, makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
+  import {
+    SMART_WIDGET_KIND,
+    makeCommunityTargetingFilter,
+    makeTargetedPublicationOriginalFilters,
+  } from "@app/core/community-feeds"
   import {
     makeAddressablePublicationRef,
     makeTargetedPublicationForCommunity,
@@ -28,6 +32,7 @@
   } from "@app/core/community-targeting"
   import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
+  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
@@ -42,13 +47,13 @@
   const canCreateWidget = $derived(
     Boolean(
       $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.widget,
-        }),
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.widget,
+      }),
     ),
   )
 
@@ -56,6 +61,13 @@
     if (!$pubkey || !communityPubkey || !name.trim() || !appUrl.trim()) return
     if (!canCreateWidget) {
       pushToast({theme: "error", message: "You do not have permission to publish widgets."})
+      return
+    }
+    if (!isSecureEmbeddableUrl(appUrl.trim())) {
+      pushToast({
+        theme: "error",
+        message: `Widget app URL is insecure. ${SECURE_EMBED_URL_REQUIREMENT}`,
+      })
       return
     }
     const relays = $activeCommunityRelays
@@ -147,13 +159,33 @@
 <PageContent class="content col-4 p-4">
   <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createWidget)}>
     <strong>Create targeted widget</strong>
-    <Field>{#snippet label()}<p>Name</p>{/snippet}{#snippet input()}<input bind:value={name} class="input input-bordered w-full" />{/snippet}</Field>
-    <Field>{#snippet label()}<p>Identifier</p>{/snippet}{#snippet input()}<input bind:value={slug} class="input input-bordered w-full" />{/snippet}</Field>
-    <Field>{#snippet label()}<p>App URL</p>{/snippet}{#snippet input()}<input bind:value={appUrl} class="input input-bordered w-full" />{/snippet}</Field>
-    <Field>{#snippet label()}<p>Icon URL</p>{/snippet}{#snippet input()}<input bind:value={iconUrl} class="input input-bordered w-full" />{/snippet}</Field>
-    <Field>{#snippet label()}<p>Description</p>{/snippet}{#snippet input()}<textarea bind:value={description} class="textarea textarea-bordered" rows="3"></textarea>{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Name</p>{/snippet}{#snippet input()}<input
+          bind:value={name}
+          class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Identifier</p>{/snippet}{#snippet input()}<input
+          bind:value={slug}
+          class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>App URL</p>{/snippet}{#snippet input()}<input
+          bind:value={appUrl}
+          class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Icon URL</p>{/snippet}{#snippet input()}<input
+          bind:value={iconUrl}
+          class="input input-bordered w-full" />{/snippet}</Field>
+    <Field
+      >{#snippet label()}<p>Description</p>{/snippet}{#snippet input()}<textarea
+          bind:value={description}
+          class="textarea textarea-bordered"
+          rows="3"></textarea
+        >{/snippet}</Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !name.trim() || !appUrl.trim() || !canCreateWidget}>
+      <Button
+        type="submit"
+        class="btn btn-primary"
+        disabled={!$pubkey || !name.trim() || !appUrl.trim() || !canCreateWidget}>
         Publish widget
       </Button>
     </div>
@@ -162,7 +194,8 @@
   <div class="col-2">
     {#each $widgets as widget (widget.id)}
       <div class="card2 bg-alt p-4 shadow-md">
-        <strong>{getTagValue("title", widget.tags) || getTagValue("d", widget.tags) || "Widget"}</strong>
+        <strong
+          >{getTagValue("title", widget.tags) || getTagValue("d", widget.tags) || "Widget"}</strong>
         <p class="break-all text-xs opacity-60">{getTagValue("button", widget.tags) || ""}</p>
         {#if widget.content}<p class="whitespace-pre-wrap">{widget.content}</p>{/if}
       </div>

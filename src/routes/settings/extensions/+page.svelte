@@ -17,6 +17,7 @@
     installWidgetByNaddr,
     discoverSmartWidgets,
   } from "@app/core/commands"
+  import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
   import {pushToast} from "@app/util/toast"
   import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
   import {load, request} from "@welshman/net"
@@ -125,7 +126,7 @@
           onEvent: e => {
             try {
               const m = JSON.parse(e.content)
-              if (m && m.id && m.name && m.entrypoint) {
+              if (m && m.id && m.name && m.entrypoint && isSecureEmbeddableUrl(m.entrypoint)) {
                 discoveredMap.set(m.id, m as ExtensionManifest)
                 discovered = Array.from(discoveredMap.values())
               }
