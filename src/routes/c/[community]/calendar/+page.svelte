@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
@@ -112,7 +111,7 @@
   let start = $state(initialStart)
   let end = $state(initialStart + HOUR)
 
-  onMount(() => {
+  $effect(() => {
     if (!communityPubkey || $activeCommunityRelays.length === 0) return
 
     const controller = new AbortController()

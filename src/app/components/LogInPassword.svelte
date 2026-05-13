@@ -20,11 +20,11 @@
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {
+    APP_LOGO,
+    APP_NAME,
+    APP_URL,
     NIP46_PERMS,
     BURROW_URL,
-    PLATFORM_URL,
-    PLATFORM_NAME,
-    PLATFORM_LOGO,
   } from "@app/core/state"
 
   interface Props {
@@ -70,9 +70,9 @@
   onMount(async () => {
     url = await broker.makeNostrconnectUrl({
       perms: NIP46_PERMS,
-      url: PLATFORM_URL,
-      name: PLATFORM_NAME,
-      image: PLATFORM_LOGO,
+      url: $APP_URL,
+      name: $APP_NAME,
+      image: $APP_LOGO,
     })
 
     let response
@@ -139,7 +139,7 @@
     {/snippet}
   </FieldInline>
   <p class="text-sm">
-    Your email and password only work to log in to {PLATFORM_NAME}. To use your key on other nostr
+    Your email and password only work to log in to {$APP_NAME}. To use your key on other nostr
     applications, visit your settings page. <Button class="link" onclick={startReset}
       >Forgot your password?</Button>
   </p>

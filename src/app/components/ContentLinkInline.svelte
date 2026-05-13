@@ -7,7 +7,7 @@
   import Link from "@lib/components/Link.svelte"
   import ContentLinkDetail from "@app/components/ContentLinkDetail.svelte"
   import {pushModal} from "@app/util/modal"
-  import {PLATFORM_URL} from "@app/core/state"
+  import {APP_URL} from "@app/core/state"
 
   const {value} = $props()
 
@@ -16,7 +16,7 @@
     if (isRelayUrl(url)) {
       return [url, true]
     }
-    if (url.startsWith(PLATFORM_URL)) return [url.replace(PLATFORM_URL, ""), false]
+    if ($APP_URL && url.startsWith($APP_URL)) return [url.replace($APP_URL, ""), false]
 
     return [url, true]
   })

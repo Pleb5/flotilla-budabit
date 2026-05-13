@@ -1,11 +1,19 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
-  import {onMount} from "svelte"
   import {page} from "$app/stores"
+  import {pubkey} from "@welshman/app"
+  import {displayRelayUrl} from "@welshman/util"
+  import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
+  import CommunityMenu from "@app/components/CommunityMenu.svelte"
+  import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
-  import Spinner from "@lib/components/Spinner.svelte"
+  import SecondaryNav from "@lib/components/SecondaryNav.svelte"
+  import {pushToast} from "@app/util/toast"
+  import {pushDrawer} from "@app/util/modal"
+  import {deriveRelayAuthError} from "@app/core/state"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {
+    activeCommunityRelays,
     loadCommunityBootstrap,
     makeCommunitySession,
     setActiveCommunityDefinition,
@@ -20,36 +28,40 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
 
-  let loading = $state(true)
-  let loadError = $state("")
+  let loadedCommunityKey = $state("")
+  let authRelayUrl = $state("")
+  let relayAuthError = $state("")
+  let shownAuthErrorKey = $state("")
 
-  onMount(() => {
+  const openCommunityMenu = () => {
+    if (parsedCommunity) pushDrawer(CommunityMenu, {community: parsedCommunity.pubkey}, {replaceState: true})
+  }
+
+  $effect(() => {
     let cancelled = false
+    const routeCommunity = $page.params.community || ""
+    const communityKey = parsedCommunity
+      ? `${parsedCommunity.pubkey}:${parsedCommunity.relays.join(",")}:${routeCommunity}`
+      : ""
 
     const load = async () => {
-      loading = true
-      loadError = ""
-
       if (!parsedCommunity) {
-        loading = false
         return
       }
 
-      setActiveCommunityInput(decodeURIComponent($page.params.community || ""))
+      if (loadedCommunityKey === communityKey) return
+
+      loadedCommunityKey = communityKey
 
       try {
-        const bootstrap = await loadCommunityBootstrap(makeCommunitySession(parsedCommunity))
+        const session = setActiveCommunityInput(decodeURIComponent(routeCommunity)) || makeCommunitySession(parsedCommunity)
+        const bootstrap = await loadCommunityBootstrap(session)
+
         if (!cancelled && bootstrap.definition) {
           setActiveCommunityDefinition(bootstrap.definition)
         }
       } catch (error) {
-        if (!cancelled) {
-          loadError = String(error)
-        }
-      } finally {
-        if (!cancelled) {
-          loading = false
-        }
+        if (!cancelled) console.warn("[community] Failed to load community metadata", error)
       }
     }
 
@@ -59,22 +71,61 @@
       cancelled = true
     }
   })
+
+  $effect(() => {
+    const url = $activeCommunityRelays[0] || parsedCommunity?.relays[0] || ""
+
+    authRelayUrl = url
+    relayAuthError = ""
+
+    if (!$pubkey || !url) return
+
+    const authError = deriveRelayAuthError(url)
+    const unsubscribe = authError.subscribe(error => {
+      if (authRelayUrl !== url) return
+
+      relayAuthError = error || ""
+
+      if (!error) return
+
+
+      const key = `${url}:${error}`
+
+      if (shownAuthErrorKey === key) return
+      shownAuthErrorKey = key
+      pushToast({theme: "error", message: `Access issue on ${displayRelayUrl(url)}: ${error}`})
+    })
+
+    return unsubscribe
+  })
 </script>
 
-<Page>
+{#if parsedCommunity && $pubkey}
+  <SecondaryNav>
+    <CommunityMenu community={parsedCommunity.pubkey} />
+  </SecondaryNav>
+  <button
+    type="button"
+    class="btn btn-neutral btn-sm fixed right-[calc(var(--sair)+0.75rem)] top-[calc(var(--sait)+0.75rem)] z-nav lg:hidden"
+    aria-label="Open community menu"
+    onclick={openCommunityMenu}>
+    <Icon icon={MenuDots} />
+  </button>
+{/if}
+
+<Page class={$pubkey ? "" : "cw-full"}>
   {#if !parsedCommunity}
     <div class="content p-4">
       <h1 class="text-2xl font-bold">Invalid community</h1>
       <p>Use a valid community npub, hex pubkey, or encoded ncommunity value.</p>
     </div>
-  {:else if loading}
-    <div class="flex min-h-80 items-center justify-center">
-      <Spinner loading>Loading community...</Spinner>
-    </div>
   {:else}
-    {#if loadError}
-      <div class="content p-4 text-warning">
-        Community metadata could not be fully loaded: {loadError}
+    {#if relayAuthError && authRelayUrl}
+      <div class="card2 m-2 border border-error/30 bg-error/10 p-4 text-sm">
+        <strong>Community relay access issue</strong>
+        <p class="mt-1 opacity-80">
+          {displayRelayUrl(authRelayUrl)} reported: {relayAuthError}
+        </p>
       </div>
     {/if}
     {@render children?.()}

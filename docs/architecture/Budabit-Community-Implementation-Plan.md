@@ -33,7 +33,7 @@ Scope:
 - Load community `kind:0` metadata.
 - Load referenced `kind:30000` profile lists and `kind:30009` badge definitions.
 - Add community input labelled `Community npub, hex, or ncommunity`.
-- Remove home entry dependency on `VITE_PLATFORM_RELAYS`.
+- Remove home entry dependency on legacy platform relay config.
 
 Deferred notes:
 
@@ -163,7 +163,7 @@ Scope:
 - Remove or isolate `ROOM_META`, `ROOM_DELETE`, and `ROOM_CREATE_PERMISSION` from community flows.
 - Remove `loadPlatformChannels` from community flows.
 - Remove platform relay trust UI from community entry.
-- Replace `VITE_PLATFORM_RELAYS` with `VITE_DEFAULT_COMMUNITY` and `VITE_BOOTSTRAP_RELAYS` for the new path.
+- Use `VITE_DEFAULT_COMMUNITY` and `VITE_INDEXER_RELAYS` for the new community entry path.
 - Remove or rewrite tests that assume legacy relay-space routes.
 
 ## Phase 11: Verification

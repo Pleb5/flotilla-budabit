@@ -41,6 +41,11 @@ export type CommunityGrantCapability = {
   badge?: CommunityBadgeRef
 }
 
+export type CommunityPublishCapability = CommunityWriteTarget & {
+  key: string
+  canWrite: boolean
+}
+
 export const COMMUNITY_WRITE_TARGETS = {
   roomRoot: {sectionName: COMMUNITY_SECTION_ROOMS, kind: 11, subtype: COMMUNITY_SUBTYPE_ROOM},
   roomMessage: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 9, subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE},
@@ -59,6 +64,9 @@ export const getCommunityWriteTarget = (kind: number, subtype?: string): Communi
   (Object.values(COMMUNITY_WRITE_TARGETS) as CommunityWriteTarget[]).find(
     target => target.kind === kind && (!subtype || target.subtype === subtype),
   )
+
+export const getCommunityCapabilityKey = (kind: number, subtype?: string) =>
+  subtype ? `${kind}:${subtype}` : String(kind)
 
 export const getPrimaryProfileListRef = (section: CommunitySection | undefined) =>
   section?.profileLists[0]
@@ -110,7 +118,10 @@ export const canWriteCommunitySection = ({
   const section = findCommunitySection(definition, sectionName)
   if (!sectionSupportsKind(section, kind, subtype)) return false
 
-  const profileList = findProfileListEvent(getPrimaryProfileListRef(section), profileListEvents)
+  const profileListRef = getPrimaryProfileListRef(section)
+  if (userCanManageProfileList(profileListRef, userPubkey)) return true
+
+  const profileList = findProfileListEvent(profileListRef, profileListEvents)
 
   return canWriteFromProfileList(profileList, userPubkey)
 }
@@ -134,6 +145,49 @@ export const canWriteCommunityTarget = ({
     kind: target.kind,
     subtype: target.subtype,
   })
+
+export const getCommunityPublishCapabilityMap = ({
+  definition,
+  profileListEvents,
+  userPubkey,
+}: {
+  definition: CommunityDefinition
+  profileListEvents: TrustedEvent[]
+  userPubkey: string
+}) =>
+  Object.fromEntries(
+    (Object.values(COMMUNITY_WRITE_TARGETS) as CommunityWriteTarget[]).map(target => [
+      getCommunityCapabilityKey(target.kind, target.subtype),
+      {
+        ...target,
+        key: getCommunityCapabilityKey(target.kind, target.subtype),
+        canWrite: canWriteCommunityTarget({definition, profileListEvents, userPubkey, target}),
+      } satisfies CommunityPublishCapability,
+    ]),
+  ) as Record<string, CommunityPublishCapability>
+
+export const getGrantCapableSectionModeratorPubkeys = ({
+  definition,
+  sectionName,
+}: {
+  definition: CommunityDefinition
+  sectionName: string
+}) => {
+  const section = findCommunitySection(definition, sectionName)
+  if (!section) return []
+
+  const badgeIssuers = new Set(section.badges.map(ref => ref.pubkey))
+
+  return Array.from(
+    new Set(
+      section.profileLists
+        .map(ref => ref.pubkey)
+        .filter(pubkey => badgeIssuers.has(pubkey))
+        .map(normalizePubkey)
+        .filter(Boolean),
+    ),
+  )
+}
 
 export const getGrantCapability = ({
   definition,

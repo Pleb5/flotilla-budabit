@@ -6,6 +6,7 @@ import {PROFILE, type Filter, type TrustedEvent} from "@welshman/util"
 import {
   BADGE_DEFINITION_KIND,
   COMMUNITY_DEFINITION_KIND,
+  FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
   type CommunityDefinition,
   type ParsedCommunityInput,
@@ -13,6 +14,12 @@ import {
   parseCommunityDefinition,
   parseCommunityInput,
 } from "@app/core/community"
+import {getGrantCapableSectionModeratorPubkeys} from "@app/core/community-permissions"
+import {
+  type CommunityAdmissionForm,
+  makeCommunityDefinitionAddress,
+  selectActiveAdmissionForm,
+} from "@app/core/community-forms"
 
 export const COMMUNITY_SESSION_STORAGE_KEY = "budabit/community-session"
 
@@ -23,7 +30,7 @@ const fromCsv = (value?: string) =>
     .filter(Boolean)
 
 export const DEFAULT_COMMUNITY_INPUT = import.meta.env.VITE_DEFAULT_COMMUNITY || ""
-export const BOOTSTRAP_RELAYS = normalizeRelays(fromCsv(import.meta.env.VITE_BOOTSTRAP_RELAYS))
+export const COMMUNITY_DISCOVERY_RELAYS = normalizeRelays(fromCsv(import.meta.env.VITE_INDEXER_RELAYS))
 
 export type CommunitySession = {
   communityPubkey: string
@@ -36,6 +43,16 @@ export type CommunityBootstrap = {
   profileEvents: TrustedEvent[]
   profileListEvents: TrustedEvent[]
   badgeDefinitionEvents: TrustedEvent[]
+  admissionFormEvents: TrustedEvent[]
+}
+
+export type CommunityProfile = {
+  name?: string
+  display_name?: string
+  about?: string
+  picture?: string
+  website?: string
+  nip05?: string
 }
 
 const canUseLocalStorage = () => browser && typeof localStorage !== "undefined"
@@ -94,6 +111,7 @@ export const activeCommunityDefinition = writable<CommunityDefinition | undefine
 export const activeCommunityProfileEvents = writable<TrustedEvent[]>([])
 export const activeCommunityProfileListEvents = writable<TrustedEvent[]>([])
 export const activeCommunityBadgeDefinitionEvents = writable<TrustedEvent[]>([])
+export const activeCommunityAdmissionFormEvents = writable<TrustedEvent[]>([])
 
 if (canUseLocalStorage()) {
   activeCommunitySession.subscribe(writeStoredSession)
@@ -103,8 +121,19 @@ export const setActiveCommunityInput = (input: string) => {
   const parsed = parseCommunityInput(input)
   if (!parsed) return undefined
 
-  const session = makeCommunitySession(parsed)
-  activeCommunitySession.set(session)
+  let session: CommunitySession | undefined
+
+  activeCommunitySession.update(current => {
+    const sameCommunity = current?.communityPubkey === parsed.pubkey
+
+    session = {
+      communityPubkey: parsed.pubkey,
+      communityRelayHints: parsed.relays.length || !sameCommunity ? parsed.relays : current.communityRelayHints,
+      communityDefinitionId: sameCommunity ? current.communityDefinitionId : undefined,
+    }
+
+    return session
+  })
 
   return session
 }
@@ -129,12 +158,37 @@ export const clearActiveCommunity = () => {
   activeCommunityProfileEvents.set([])
   activeCommunityProfileListEvents.set([])
   activeCommunityBadgeDefinitionEvents.set([])
+  activeCommunityAdmissionFormEvents.set([])
 }
 export const clearActiveCommunityDefinition = () => activeCommunityDefinition.set(undefined)
 
 export const activeCommunityPubkey: Readable<string | undefined> = derived(
   activeCommunitySession,
   session => session?.communityPubkey,
+)
+
+export const parseCommunityProfile = (event: TrustedEvent): CommunityProfile | undefined => {
+  try {
+    const parsed = JSON.parse(event.content || "{}")
+    return parsed && typeof parsed === "object" ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export const activeCommunityProfile: Readable<CommunityProfile | undefined> = derived(
+  [activeCommunitySession, activeCommunityProfileEvents],
+  ([$activeCommunitySession, $activeCommunityProfileEvents]) => {
+    const communityPubkey = $activeCommunitySession?.communityPubkey
+    if (!communityPubkey) return undefined
+
+    const latest = sortBy(
+      event => -event.created_at,
+      $activeCommunityProfileEvents.filter(event => event.pubkey === communityPubkey),
+    )[0]
+
+    return latest ? parseCommunityProfile(latest) : undefined
+  },
 )
 
 export const activeCommunityRelayHints: Readable<string[]> = derived(
@@ -151,7 +205,7 @@ export const activeCommunityRelays: Readable<string[]> = derived(
 )
 
 export const getCommunityBootstrapRelays = (relayHints: string[] = []) =>
-  normalizeRelays([...relayHints, ...BOOTSTRAP_RELAYS])
+  normalizeRelays([...relayHints, ...COMMUNITY_DISCOVERY_RELAYS])
 
 export const makeCommunityDefinitionFilter = (pubkey: string): Filter => ({
   kinds: [COMMUNITY_DEFINITION_KIND],
@@ -196,6 +250,51 @@ export const makeCommunityProfileListFilters = (definition: CommunityDefinition)
 export const makeCommunityBadgeDefinitionFilters = (definition: CommunityDefinition): Filter[] =>
   getBadgeDefinitionRefs(definition).map(ref => makeAddressRefFilter(ref))
 
+export const getAdmissionFormModeratorPubkeys = (definition: CommunityDefinition) =>
+  Array.from(
+    new Set(
+      definition.sections.flatMap(section =>
+        getGrantCapableSectionModeratorPubkeys({definition, sectionName: section.name}),
+      ),
+    ),
+  )
+
+export const makeCommunityAdmissionFormFilters = (definition: CommunityDefinition): Filter[] => {
+  const authors = getAdmissionFormModeratorPubkeys(definition)
+  const communityAddress = makeCommunityDefinitionAddress(definition.pubkey)
+
+  return authors.length && communityAddress
+    ? [{kinds: [FORM_TEMPLATE_KIND], authors, "#a": [communityAddress]}]
+    : []
+}
+
+export const selectCommunityAdmissionForms = (
+  definition: CommunityDefinition,
+  events: TrustedEvent[],
+): Record<string, CommunityAdmissionForm> =>
+  Object.fromEntries(
+    definition.sections
+      .map(section => {
+        const form = selectActiveAdmissionForm({
+          events,
+          communityPubkey: definition.pubkey,
+          sectionName: section.name,
+          moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({definition, sectionName: section.name}),
+        })
+
+        return form ? [section.name, form] : undefined
+      })
+      .filter(Boolean) as Array<[string, CommunityAdmissionForm]>,
+  )
+
+export const activeCommunityAdmissionForms: Readable<Record<string, CommunityAdmissionForm>> = derived(
+  [activeCommunityDefinition, activeCommunityAdmissionFormEvents],
+  ([$activeCommunityDefinition, $activeCommunityAdmissionFormEvents]) =>
+    $activeCommunityDefinition
+      ? selectCommunityAdmissionForms($activeCommunityDefinition, $activeCommunityAdmissionFormEvents)
+      : {},
+)
+
 export const loadCommunityBootstrap = async (
   session: CommunitySession,
 ): Promise<CommunityBootstrap> => {
@@ -206,29 +305,36 @@ export const loadCommunityBootstrap = async (
   })
   const definition = selectLatestCommunityDefinition(definitionEvents, session.communityPubkey)
   const communityRelays = definition?.relays.length ? definition.relays : relays
-  const filters: Filter[] = [makeCommunityProfileFilter(session.communityPubkey)]
-
-  if (definition) {
-    filters.push(...makeCommunityProfileListFilters(definition))
-    filters.push(...makeCommunityBadgeDefinitionFilters(definition))
-  }
-
-  const relatedEvents = await load({relays: communityRelays, filters})
+  const profileRelays = normalizeRelays([...communityRelays, ...relays])
+  const profileFilter = makeCommunityProfileFilter(session.communityPubkey)
+  const authorityFilters: Filter[] = []
+  const admissionFormFilters: Filter[] = []
 
   if (definition) {
     setActiveCommunityDefinition(definition)
+    authorityFilters.push(...makeCommunityProfileListFilters(definition))
+    authorityFilters.push(...makeCommunityBadgeDefinitionFilters(definition))
+    admissionFormFilters.push(...makeCommunityAdmissionFormFilters(definition))
   }
+
+  const [profileEvents, authorityEvents, admissionFormEvents] = await Promise.all([
+    load({relays: profileRelays, filters: [profileFilter]}),
+    authorityFilters.length > 0 ? load({relays: communityRelays, filters: authorityFilters}) : [],
+    admissionFormFilters.length > 0 ? load({relays: communityRelays, filters: admissionFormFilters}) : [],
+  ])
 
   const bootstrap = {
     definition,
-    profileEvents: relatedEvents.filter(event => event.kind === PROFILE),
-    profileListEvents: relatedEvents.filter(event => event.kind === PROFILE_LIST_KIND),
-    badgeDefinitionEvents: relatedEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
+    profileEvents: profileEvents.filter(event => event.kind === PROFILE),
+    profileListEvents: authorityEvents.filter(event => event.kind === PROFILE_LIST_KIND),
+    badgeDefinitionEvents: authorityEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
+    admissionFormEvents: admissionFormEvents.filter(event => event.kind === FORM_TEMPLATE_KIND),
   }
 
   activeCommunityProfileEvents.set(bootstrap.profileEvents)
   activeCommunityProfileListEvents.set(bootstrap.profileListEvents)
   activeCommunityBadgeDefinitionEvents.set(bootstrap.badgeDefinitionEvents)
+  activeCommunityAdmissionFormEvents.set(bootstrap.admissionFormEvents)
 
   return bootstrap
 }

@@ -20,7 +20,7 @@ That is enough for a basic deployment.
 
 ## Minimum `.env`
 
-For a branded deployment, create `.env` in the repo root with at least:
+For a community-first deployment, create `.env` in the repo root with at least:
 
 ```env
 VITE_PLATFORM_URL=https://your-domain.com
@@ -29,24 +29,24 @@ VITE_PLATFORM_DESCRIPTION=Your Budabit instance
 VITE_PLATFORM_ACCENT=#0f766e
 VITE_PLATFORM_LOGO=https://your-domain.com/logo.png
 VITE_DEFAULT_COMMUNITY=npub1...
-VITE_BOOTSTRAP_RELAYS=wss://relay-1.example.com,wss://relay-2.example.com
+VITE_INDEXER_RELAYS=wss://relay-1.example.com,wss://relay-2.example.com
 VITE_DEFAULT_PUBKEYS=hexpubkey1,hexpubkey2
 ```
 
 Notes:
 
 - `VITE_PLATFORM_URL` should be the final public URL of the app.
-- `VITE_PLATFORM_LOGO` can be a remote HTTPS URL. The build pulls it into the static bundle.
+- `VITE_PLATFORM_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_URL`, and `VITE_PLATFORM_LOGO` are fallbacks. At runtime, the selected/default community profile name, about, website, and picture are used when available.
+- `VITE_PLATFORM_LOGO` can be a remote HTTPS URL. The build pulls it into the static bundle for PWA assets.
 - `VITE_DEFAULT_PUBKEYS` is worth setting even if `.env.example` makes it look optional.
 - `VITE_DEFAULT_COMMUNITY` should be a community `npub`, hex pubkey, or `ncommunity` identifier.
-- `VITE_BOOTSTRAP_RELAYS` should include relays that can resolve the default community definition.
+- `VITE_INDEXER_RELAYS` should include relays that can resolve the default community definition.
 
 ## What You Do Not Need
 
 You can skip these unless you specifically want the related features:
 
 - `VITE_NOTIFIER_*` and `VITE_VAPID_PUBLIC_KEY` - only for email/push alerts
-- `VITE_GH_CLIENT_ID` - only for GitHub OAuth flows
 - `VITE_GLITCHTIP_API_KEY` and `GLITCHTIP_AUTH_TOKEN` - only for error reporting
 
 If you do not set notifier values, the app still builds and runs fine. You just will not have alert delivery features.

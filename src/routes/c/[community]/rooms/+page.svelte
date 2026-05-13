@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {repository, publishThunk, pubkey} from "@welshman/app"
@@ -105,8 +104,9 @@
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.label,
         }),
-    ),
+      ),
   )
+  const createRequested = $derived($page.url.searchParams.get("create") === "1")
 
   const createRoom = () => {
     if (!communityPubkey) return
@@ -165,14 +165,34 @@
 
   let roomName = $state("")
   let roomDescription = $state("")
+  let createRoomForm = $state<HTMLFormElement | undefined>()
+  let roomNameInput = $state<HTMLInputElement | undefined>()
+  let lastCreateRequestHref = $state("")
 
-  onMount(() => {
+  $effect(() => {
     if (!communityPubkey || $activeCommunityRelays.length === 0) return
 
     const controller = new AbortController()
     request({relays: $activeCommunityRelays, filters, signal: controller.signal})
 
     return () => controller.abort()
+  })
+
+  $effect(() => {
+    if (!createRequested) {
+      lastCreateRequestHref = ""
+      return
+    }
+
+    const href = $page.url.href
+
+    if (lastCreateRequestHref === href) return
+    lastCreateRequestHref = href
+
+    requestAnimationFrame(() => {
+      createRoomForm?.scrollIntoView({block: "start", behavior: "smooth"})
+      roomNameInput?.focus()
+    })
   })
 </script>
 
@@ -188,7 +208,10 @@
 </PageBar>
 
 <PageContent class="content col-4 p-4">
-  <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createRoom)}>
+  <form
+    bind:this={createRoomForm}
+    class="card2 bg-alt col-3 p-4 shadow-md"
+    onsubmit={preventDefault(createRoom)}>
     <strong>Create room</strong>
     <Field>
       {#snippet label()}
@@ -197,7 +220,7 @@
       {#snippet input()}
         <label class="input input-bordered flex w-full items-center gap-2">
           <Icon icon={Hashtag} />
-          <input bind:value={roomName} class="grow" type="text" />
+          <input bind:this={roomNameInput} bind:value={roomName} class="grow" type="text" />
         </label>
       {/snippet}
     </Field>

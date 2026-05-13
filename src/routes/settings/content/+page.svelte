@@ -17,7 +17,7 @@
   import Button from "@lib/components/Button.svelte"
   import ProfileMultiSelect from "@app/components/ProfileMultiSelect.svelte"
   import {pushToast} from "@app/util/toast"
-  import {PLATFORM_NAME, userSettingsValues} from "@app/core/state"
+  import {APP_NAME, userSettingsValues} from "@app/core/state"
   import {publishSettings} from "@app/core/commands"
 
   const reset = () => {
@@ -62,7 +62,7 @@
       {/snippet}
       {#snippet info()}
         <p>
-          If content is marked by the author as sensitive, {PLATFORM_NAME} will hide it by default.
+          If content is marked by the author as sensitive, {$APP_NAME} will hide it by default.
         </p>
       {/snippet}
     </FieldInline>
@@ -100,7 +100,7 @@
       {/snippet}
       {#snippet info()}
         <p>
-          Allow {PLATFORM_NAME} to send error reports to help improve the app.
+          Allow {$APP_NAME} to send error reports to help improve the app.
         </p>
       {/snippet}
     </FieldInline>
@@ -113,7 +113,7 @@
       {/snippet}
       {#snippet info()}
         <p>
-          Allow {PLATFORM_NAME} to collect anonymous usage data.
+          Allow {$APP_NAME} to collect anonymous usage data.
         </p>
       {/snippet}
     </FieldInline>
@@ -150,7 +150,7 @@
         </InputList>
       {/snippet}
       {#snippet info()}
-        <p>Choose a media server type and url for files you upload to {PLATFORM_NAME}.</p>
+        <p>Choose a media server type and url for files you upload to {$APP_NAME}.</p>
       {/snippet}
     </Field>
     <strong class="text-lg">Accessibility</strong>

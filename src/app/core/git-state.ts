@@ -93,8 +93,6 @@ export type RepoSettingsActions = {
   readonly canDelete: boolean
 }
 
-export const GIT_CLIENT_ID = import.meta.env.VITE_GH_CLIENT_ID
-
 export const GIT_RELAYS = fromCsv(import.meta.env.VITE_GIT_RELAYS)
 
 const safeNormalizeRelayUrl = (url: string) => {

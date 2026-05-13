@@ -20,7 +20,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import {pushToast} from "@app/util/toast"
   import {logout} from "@app/core/commands"
-  import {INDEXER_RELAYS, PLATFORM_NAME} from "@app/core/state"
+  import {APP_NAME, INDEXER_RELAYS} from "@app/core/state"
 
   let progress: number | undefined = $state(undefined)
   let confirmText = $state("")
@@ -120,7 +120,7 @@
     <progress class="progress progress-primary w-full" value={progress! * 100} max="100"></progress>
   {:else}
     <p>
-      This will delete your nostr account everywhere, not just on {PLATFORM_NAME}.
+      This will delete your nostr account everywhere, not just on {$APP_NAME}.
     </p>
     <p>
       To confirm, please type "{CONFIRM_TEXT}" into the text box below. This action can't be undone.

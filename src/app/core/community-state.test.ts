@@ -1,9 +1,11 @@
 import {describe, expect, it} from "vitest"
 import {get} from "svelte/store"
+import * as nip19 from "nostr-tools/nip19"
 import type {TrustedEvent} from "@welshman/util"
 import {
   BADGE_DEFINITION_KIND,
   COMMUNITY_DEFINITION_KIND,
+  FORM_TEMPLATE_KIND,
   PROFILE_LIST_KIND,
   parseCommunityInput,
   parseCommunityDefinition,
@@ -11,7 +13,11 @@ import {
 import {
   getBadgeDefinitionRefs,
   getCommunityBootstrapRelays,
+  COMMUNITY_DISCOVERY_RELAYS,
+  activeCommunityAdmissionFormEvents,
+  activeCommunityAdmissionForms,
   getProfileListRefs,
+  makeCommunityAdmissionFormFilters,
   makeCommunityBadgeDefinitionFilters,
   makeCommunityDefinitionFilter,
   makeCommunityProfileFilter,
@@ -20,13 +26,16 @@ import {
   selectLatestCommunityDefinition,
   activeCommunityDefinition,
   activeCommunityBadgeDefinitionEvents,
+  activeCommunityProfile,
   activeCommunityProfileEvents,
   activeCommunityProfileListEvents,
   activeCommunityRelays,
   activeCommunitySession,
   clearActiveCommunity,
   setActiveCommunityDefinition,
+  setActiveCommunityInput,
 } from "./community-state"
+import {makeCommunityDefinitionAddress} from "./community-forms"
 
 const communityPubkey = "a".repeat(64)
 const listPubkey = "b".repeat(64)
@@ -73,9 +82,28 @@ describe("community state helpers", () => {
     })
   })
 
+  it("preserves relay hints when the same community input omits them", () => {
+    clearActiveCommunity()
+
+    setActiveCommunityInput(
+      `ncommunity://${communityPubkey}?relay=${encodeURIComponent("wss://relay.example.com")}`,
+    )
+    expect(get(activeCommunitySession)?.communityRelayHints).toEqual(["wss://relay.example.com/"])
+
+    setActiveCommunityInput(nip19.npubEncode(communityPubkey))
+    expect(get(activeCommunitySession)).toEqual({
+      communityPubkey,
+      communityRelayHints: ["wss://relay.example.com/"],
+      communityDefinitionId: undefined,
+    })
+
+    clearActiveCommunity()
+  })
+
   it("builds bootstrap relay lists from hints", () => {
     expect(getCommunityBootstrapRelays(["wss://relay.example.com", "bad-relay"])).toEqual([
       "wss://relay.example.com/",
+      ...COMMUNITY_DISCOVERY_RELAYS,
     ])
   })
 
@@ -122,6 +150,60 @@ describe("community state helpers", () => {
     ])
   })
 
+  it("builds and selects moderator admission form filters", () => {
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["r", "wss://relay.example.com"],
+          ["content", "Repositories"],
+          ["k", "30617"],
+          ["a", `${PROFILE_LIST_KIND}:${badgePubkey}:Repositories`, "wss://relay.example.com"],
+          ["badge", `${BADGE_DEFINITION_KIND}:${badgePubkey}:repo-curator`],
+        ],
+      }),
+    )!
+    const form = makeEvent({
+      id: "repo-form",
+      kind: FORM_TEMPLATE_KIND,
+      pubkey: badgePubkey,
+      created_at: 2,
+      tags: [
+        ["d", "repo-form"],
+        ["a", makeCommunityDefinitionAddress(communityPubkey)],
+        ["content", "Repositories"],
+        ["name", "Repository application"],
+      ],
+    })
+    const wrongSectionForm = makeEvent({
+      id: "forum-form",
+      kind: FORM_TEMPLATE_KIND,
+      pubkey: badgePubkey,
+      created_at: 3,
+      tags: [
+        ["d", "forum-form"],
+        ["a", makeCommunityDefinitionAddress(communityPubkey)],
+        ["content", "Forum"],
+      ],
+    })
+
+    expect(makeCommunityAdmissionFormFilters(definition)).toEqual([
+      {
+        kinds: [FORM_TEMPLATE_KIND],
+        authors: [badgePubkey],
+        "#a": [makeCommunityDefinitionAddress(communityPubkey)],
+      },
+    ])
+
+    activeCommunityDefinition.set(definition)
+    activeCommunityAdmissionFormEvents.set([form, wrongSectionForm])
+
+    expect(get(activeCommunityAdmissionForms).Repositories?.event.id).toBe("repo-form")
+
+    clearActiveCommunity()
+  })
+
   it("derives active community relays from the loaded definition", () => {
     const definition = parseCommunityDefinition(makeCommunityDefinitionEvent(1))!
 
@@ -129,7 +211,7 @@ describe("community state helpers", () => {
       communityPubkey,
       communityRelayHints: ["wss://hint.example.com/"],
     })
-    expect(get(activeCommunityRelays)).toEqual(["wss://hint.example.com/"])
+    expect(get(activeCommunityRelays)).toEqual(["wss://hint.example.com/", ...COMMUNITY_DISCOVERY_RELAYS])
 
     setActiveCommunityDefinition(definition)
     expect(get(activeCommunityDefinition)?.event.id).toBe("definition-1")
@@ -141,5 +223,34 @@ describe("community state helpers", () => {
     expect(get(activeCommunityProfileEvents)).toEqual([])
     expect(get(activeCommunityProfileListEvents)).toEqual([])
     expect(get(activeCommunityBadgeDefinitionEvents)).toEqual([])
+    expect(get(activeCommunityAdmissionFormEvents)).toEqual([])
+  })
+
+  it("derives active community profile metadata", () => {
+    activeCommunitySession.set({
+      communityPubkey,
+      communityRelayHints: [],
+    })
+    activeCommunityProfileEvents.set([
+      makeEvent({
+        id: "profile-older",
+        kind: 0,
+        created_at: 1,
+        content: JSON.stringify({name: "Older"}),
+      }),
+      makeEvent({
+        id: "profile-newer",
+        kind: 0,
+        created_at: 2,
+        content: JSON.stringify({name: "Community", picture: "https://example.com/logo.png"}),
+      }),
+    ])
+
+    expect(get(activeCommunityProfile)).toMatchObject({
+      name: "Community",
+      picture: "https://example.com/logo.png",
+    })
+
+    clearActiveCommunity()
   })
 })

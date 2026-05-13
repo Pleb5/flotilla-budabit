@@ -75,6 +75,7 @@ import {
   makeUserData,
   userFollowList,
 } from "@welshman/app"
+import {activeCommunityProfile} from "@app/core/community-state"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
@@ -100,19 +101,36 @@ export const INDEXER_RELAYS = fromCsv(import.meta.env.VITE_INDEXER_RELAYS)
 
 export const SIGNER_RELAYS = fromCsv(import.meta.env.VITE_SIGNER_RELAYS)
 
-export const PLATFORM_URL = import.meta.env.VITE_PLATFORM_URL
+export const PLATFORM_URL = import.meta.env.VITE_PLATFORM_URL || ""
 
 export const PLATFORM_TERMS = import.meta.env.VITE_PLATFORM_TERMS
 
 export const PLATFORM_PRIVACY = import.meta.env.VITE_PLATFORM_PRIVACY
 
-export const PLATFORM_LOGO = PLATFORM_URL + "/logo.png"
+export const PLATFORM_LOGO = import.meta.env.VITE_PLATFORM_LOGO || (PLATFORM_URL ? `${PLATFORM_URL}/logo.png` : "")
 
-export const PLATFORM_NAME = import.meta.env.VITE_PLATFORM_NAME
+export const PLATFORM_NAME = import.meta.env.VITE_PLATFORM_NAME || "Budabit"
 
 export const PLATFORM_ACCENT = import.meta.env.VITE_PLATFORM_ACCENT
 
 export const PLATFORM_DESCRIPTION = import.meta.env.VITE_PLATFORM_DESCRIPTION
+
+export const APP_METADATA = derived(activeCommunityProfile, profile => ({
+  name: profile?.display_name || profile?.name || PLATFORM_NAME,
+  description: profile?.about || PLATFORM_DESCRIPTION || "",
+  url: profile?.website || PLATFORM_URL || "",
+  logo: profile?.picture || PLATFORM_LOGO || "",
+}))
+
+export const APP_NAME = derived(APP_METADATA, $APP_METADATA => $APP_METADATA.name)
+
+export const APP_DESCRIPTION = derived(APP_METADATA, $APP_METADATA => $APP_METADATA.description)
+
+export const APP_URL = derived(APP_METADATA, $APP_METADATA => $APP_METADATA.url)
+
+export const APP_LOGO = derived(APP_METADATA, $APP_METADATA => $APP_METADATA.logo)
+
+export const getAppMetadata = () => get(APP_METADATA)
 
 export const DEFAULT_BLOSSOM_SERVERS = fromCsv(import.meta.env.VITE_DEFAULT_BLOSSOM_SERVERS)
 

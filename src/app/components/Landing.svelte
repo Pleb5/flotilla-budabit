@@ -1,57 +1,20 @@
 <script lang="ts">
-  import Login from "@assets/icons/login-3.svg?dataurl"
-  import AddCircle from "@assets/icons/add-circle.svg?dataurl"
-  import Icon from "@lib/components/Icon.svelte"
-  import Button from "@lib/components/Button.svelte"
-  import Link from "@lib/components/Link.svelte"
   import Dialog from "@lib/components/Dialog.svelte"
-  import CardButton from "@lib/components/CardButton.svelte"
   import LogIn from "@app/components/LogIn.svelte"
-  import SignUp from "@app/components/SignUp.svelte"
-  import {PLATFORM_TERMS, PLATFORM_PRIVACY, PLATFORM_NAME} from "@app/core/state"
-  import {pushModal} from "@app/util/modal"
-
-  const logIn = () => pushModal(LogIn)
-
-  const signUp = () => pushModal(SignUp)
+  import Logo from "@assets/icons/icon-192.webp"
 </script>
 
 <Dialog>
-  <div class="column gap-4" data-testid="login-screen">
-    <div class="py-2">
-      <h1 class="heading">Welcome to {PLATFORM_NAME}!</h1>
-      <p class="text-center">The Community for Builders in Freedom-Tech</p>
+  <div class="grid max-w-md gap-6 p-2 text-center md:p-4" data-testid="login-screen">
+    <div class="column items-center gap-3">
+      <img alt="BudaBit" src={Logo} class="h-20 w-20 rounded-2xl" />
+      <div>
+        <h1 class="text-5xl font-bold leading-tight">BudaBit</h1>
+        <p class="mt-2 text-lg opacity-70">Developer Community Network</p>
+      </div>
     </div>
-    <Button onclick={logIn} data-testid="identity-cta-login">
-      <CardButton class="btn-primary">
-        {#snippet icon()}
-          <div><Icon icon={Login} size={7} /></div>
-        {/snippet}
-        {#snippet title()}
-          <div>Log in</div>
-        {/snippet}
-        {#snippet info()}
-          <div>If you've been here before, you know the drill.</div>
-        {/snippet}
-      </CardButton>
-    </Button>
-    <Button onclick={signUp} class="btn-neutral">
-      <CardButton>
-        {#snippet icon()}
-          <div><Icon icon={AddCircle} size={7} /></div>
-        {/snippet}
-        {#snippet title()}
-          <div>Create an account</div>
-        {/snippet}
-        {#snippet info()}
-          <div>Just a few questions and you'll be on your way.</div>
-        {/snippet}
-      </CardButton>
-    </Button>
-    <!-- <p class="text-center text-xs opacity-75"> -->
-    <!--   By using {PLATFORM_NAME}, you consent to our -->
-    <!--   <Link external class="link" href={PLATFORM_TERMS}>Terms of Service</Link> and -->
-    <!--   <Link external class="link" href={PLATFORM_PRIVACY}>Privacy Policy</Link>. -->
-    <!-- </p> -->
+    <div class="rounded-box bg-base-100 p-4 shadow-lg">
+      <LogIn />
+    </div>
   </div>
 </Dialog>

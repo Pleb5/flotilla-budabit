@@ -68,11 +68,11 @@ This document summarizes how the Flotilla client is structured and how the main 
   - `dev`: `vite dev`
   - `build`: `./build.sh`
   - `check`: `svelte-check`
-- Env vars are read via `import.meta.env.*` in `src/app/state.ts`:
-  - Relays and communities: `VITE_INDEXER_RELAYS`, `VITE_SIGNER_RELAYS`, `VITE_DEFAULT_COMMUNITY`, `VITE_BOOTSTRAP_RELAYS`.
-  - Branding: `VITE_PLATFORM_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_TERMS`, `VITE_PLATFORM_PRIVACY`, `VITE_PLATFORM_ACCENT`.
+- Env vars are read via `import.meta.env.*` in `src/app/core/state.ts` and related core modules:
+  - Relays and communities: `VITE_INDEXER_RELAYS`, `VITE_SIGNER_RELAYS`, `VITE_DEFAULT_COMMUNITY`, `VITE_GIT_RELAYS`.
+  - Branding: community profile metadata first, with fallback env values `VITE_PLATFORM_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_URL`, `VITE_PLATFORM_LOGO`, `VITE_PLATFORM_ACCENT`.
   - Services: `VITE_BURROW_URL`, `VITE_NOTIFIER_PUBKEY`, `VITE_NOTIFIER_RELAY`, `VITE_NOTIFIER_HANDLER_ADDRESS`, `VITE_NOTIFIER_HANDLER_RELAY`, `VITE_VAPID_PUBLIC_KEY`.
-  - GitHub OAuth client id: `VITE_GH_CLIENT_ID`.
+  - Git HTTP fallback: `VITE_GIT_DEFAULT_CORS_PROXY`.
 
 ## How Pages Use State
 

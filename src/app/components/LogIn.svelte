@@ -13,7 +13,7 @@
   import LogInBunker from "@app/components/LogInBunker.svelte"
   import LogInPassword from "@app/components/LogInPassword.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
-  import {PLATFORM_NAME, BURROW_URL} from "@app/core/state"
+  import {APP_NAME, BURROW_URL} from "@app/core/state"
   import {pushToast} from "@app/util/toast"
   import {setChecked} from "@app/util/notifications"
 
@@ -59,7 +59,7 @@
 <div class="column gap-4" data-testid="login-modal">
   <h1 class="heading">Log in with Nostr</h1>
   <p class="m-auto max-w-sm text-center">
-    {PLATFORM_NAME} is built using the
+    {$APP_NAME} is built using the
     <Button class="link" onclick={() => pushModal(InfoNostr)}>nostr protocol</Button>, which allows
     you to own your social identity.
   </p>

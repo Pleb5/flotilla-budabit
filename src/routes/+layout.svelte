@@ -52,6 +52,7 @@
   import {initializeCashuWallet} from "@app/core/cashu"
   import {registerCashuBridgeHandlers} from "@app/core/cashu-bridge"
   import CashuPayConfirm from "@app/components/CashuPayConfirm.svelte"
+  import {activeCommunitySession, loadCommunityBootstrap} from "@app/core/community-state"
 
   const {children} = $props()
   const nostrGitProviderProps = /** @type {any} */ ({
@@ -67,6 +68,29 @@
   })
 
   const policies = [authPolicy, trustPolicy, mostlyRestrictedPolicy]
+  let socketPoliciesInstalled = false
+
+  const installSocketPolicies = () => {
+    if (socketPoliciesInstalled) return
+
+    defaultSocketPolicies.push(...policies)
+    socketPoliciesInstalled = true
+  }
+
+  const uninstallSocketPolicies = () => {
+    if (!socketPoliciesInstalled) return
+
+    for (const policy of policies) {
+      const index = defaultSocketPolicies.lastIndexOf(policy)
+
+      if (index >= 0) defaultSocketPolicies.splice(index, 1)
+    }
+
+    socketPoliciesInstalled = false
+  }
+
+  installSocketPolicies()
+
   const APP_UPDATE_INTERVAL = 2 * 60 * 1000
   const APP_RELOAD_QUERY_KEY = "v"
   const APP_VERSION_STORAGE_KEY = "appVersion"
@@ -78,6 +102,7 @@
   let serviceWorkerMessageHandler: ((event: MessageEvent) => void) | null = null
   let serviceWorkerReloadInFlight = false
   let updateToastShown = false
+  let loadedCommunityKey = ""
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -104,6 +129,18 @@
   shouldUnwrap.set(true)
 
   setupBudabitNotifications()
+
+  $effect(() => {
+    const session = $activeCommunitySession
+    const key = session ? `${session.communityPubkey}:${session.communityRelayHints.join(",")}` : ""
+
+    if (!browser || !session || !key || loadedCommunityKey === key) return
+
+    loadedCommunityKey = key
+    loadCommunityBootstrap(session).catch(error => {
+      console.warn("[community] Failed to load active community metadata", error)
+    })
+  })
 
   // Auto-install and enable built-in extensions
   if (browser) {
@@ -474,11 +511,8 @@
     // Close the database connection on reload
     unsubscribers.push(() => db.close())
 
-    // Add our extra policies now that we're set up
-    defaultSocketPolicies.push(...policies)
-
     // Remove policies when we're done
-    unsubscribers.push(() => defaultSocketPolicies.splice(-policies.length))
+    unsubscribers.push(uninstallSocketPolicies)
 
     // History, navigation, bug tracking, application data
     unsubscribers.push(
@@ -541,6 +575,7 @@
   // Cleanup on hot reload
   import.meta.hot?.dispose(() => {
     unsubscribe.then(call)
+    uninstallSocketPolicies()
 
     if (updateCheckInterval) {
       clearInterval(updateCheckInterval)

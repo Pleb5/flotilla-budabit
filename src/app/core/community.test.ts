@@ -11,11 +11,15 @@ import {
   MAX_TARGET_COMMUNITIES,
   PROFILE_LIST_KIND,
   TARGETED_PUBLICATION_KIND,
+  buildCommunityDefinition,
   buildTargetedPublication,
   canWriteFromProfileList,
   findCommunitySection,
   getCommunityMainRelay,
+  makeCommunityBadgeDefinition,
+  makeCommunitySetupRefs,
   getProfileListPubkeys,
+  normalizeGeohash,
   normalizePubkey,
   parseAddressRef,
   parseCommunityDefinition,
@@ -77,6 +81,12 @@ describe("community protocol helpers", () => {
     })
   })
 
+  it("normalizes geohashes with optional geo prefix", () => {
+    expect(normalizeGeohash("geo:EZs42E44yx96")).toBe("ezs42e44yx96")
+    expect(normalizeGeohash("EZs42E44yx96")).toBe("ezs42e44yx96")
+    expect(normalizeGeohash("geo:not-valid")).toBe("")
+  })
+
   it("parses community definitions into sections", () => {
     const event = makeEvent({
       kind: COMMUNITY_DEFINITION_KIND,
@@ -98,7 +108,7 @@ describe("community protocol helpers", () => {
         ["badge", `${BADGE_DEFINITION_KIND}:${pubkeyC}:room-admin`],
         ["tos", "policy-id", "wss://relay.example.com"],
         ["location", "Internet"],
-        ["g", "u4pruy"],
+        ["g", "geo:U4PRUY"],
         ["description", "Override description"],
       ],
     })
@@ -148,8 +158,83 @@ describe("community protocol helpers", () => {
     expect(getProfileListPubkeys(profileList)).toEqual([pubkeyA, pubkeyC])
     expect(canWriteFromProfileList(profileList, pubkeyA)).toBe(true)
     expect(canWriteFromProfileList(profileList, pubkeyB)).toBe(false)
-    expect(userCanManageProfileList({kind: PROFILE_LIST_KIND, pubkey: pubkeyB, identifier: "General", address: `${PROFILE_LIST_KIND}:${pubkeyB}:General`}, pubkeyB)).toBe(true)
-    expect(userCanIssueBadge({kind: BADGE_DEFINITION_KIND, pubkey: pubkeyC, identifier: "member", address: `${BADGE_DEFINITION_KIND}:${pubkeyC}:member`}, pubkeyC)).toBe(true)
+    expect(
+      userCanManageProfileList(
+        {
+          kind: PROFILE_LIST_KIND,
+          pubkey: pubkeyB,
+          identifier: "General",
+          address: `${PROFILE_LIST_KIND}:${pubkeyB}:General`,
+        },
+        pubkeyB,
+      ),
+    ).toBe(true)
+    expect(
+      userCanIssueBadge(
+        {
+          kind: BADGE_DEFINITION_KIND,
+          pubkey: pubkeyC,
+          identifier: "member",
+          address: `${BADGE_DEFINITION_KIND}:${pubkeyC}:member`,
+        },
+        pubkeyC,
+      ),
+    ).toBe(true)
+  })
+
+  it("builds default community setup refs and definition events", () => {
+    const setup = makeCommunitySetupRefs({
+      communityPubkey: pubkeyA,
+      profileListPubkey: pubkeyB,
+      badgeIssuerPubkey: pubkeyC,
+      relays: ["wss://relay.example.com"],
+    })
+
+    const template = buildCommunityDefinition({
+      relays: setup.relays,
+      sections: setup.sections,
+      description: "A builder community",
+      blossomServers: ["https://blossom.example.com"],
+      mints: [{url: "https://mint.example.com", type: "cashu"}],
+      geohash: "geo:U4PRUY",
+    })
+    const definition = parseCommunityDefinition(
+      makeEvent({kind: COMMUNITY_DEFINITION_KIND, pubkey: pubkeyA, tags: template.tags}),
+    )!
+    const general = findCommunitySection(definition, COMMUNITY_SECTION_GENERAL)!
+
+    expect(template.kind).toBe(COMMUNITY_DEFINITION_KIND)
+    expect(definition.description).toBe("A builder community")
+    expect(definition.relays).toEqual(["wss://relay.example.com/"])
+    expect(definition.blossomServers).toEqual(["https://blossom.example.com"])
+    expect(definition.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
+    expect(definition.geohash).toBe("u4pruy")
+    expect(template.tags).toContainEqual(["g", "u4pruy"])
+    expect(general.profileLists[0]).toMatchObject({
+      pubkey: pubkeyB,
+      relay: "wss://relay.example.com/",
+    })
+    expect(general.badges[0]).toMatchObject({pubkey: pubkeyC})
+    expect(sectionSupportsKind(general, 9, COMMUNITY_SUBTYPE_ROOM_MESSAGE)).toBe(true)
+  })
+
+  it("builds community badge definition events", () => {
+    const setup = makeCommunitySetupRefs({
+      communityPubkey: pubkeyA,
+      profileListPubkey: pubkeyB,
+      badgeIssuerPubkey: pubkeyC,
+      relays: ["wss://relay.example.com"],
+    })
+    const badge = setup.sections[0].badge
+
+    expect(makeCommunityBadgeDefinition({badge, name: "General writer"})).toEqual({
+      kind: BADGE_DEFINITION_KIND,
+      content: "",
+      tags: [
+        ["d", badge.identifier],
+        ["name", "General writer"],
+      ],
+    })
   })
 
   it("builds and parses targeted publication events", () => {
@@ -193,7 +278,10 @@ describe("community protocol helpers", () => {
 
   it("limits targeted publication communities", () => {
     const communities = Array.from({length: MAX_TARGET_COMMUNITIES + 2}, (_, i) => ({
-      pubkey: `${i}`.repeat(64).slice(0, 64).replace(/[^0-9a-f]/g, "a"),
+      pubkey: `${i}`
+        .repeat(64)
+        .slice(0, 64)
+        .replace(/[^0-9a-f]/g, "a"),
     }))
     const template = buildTargetedPublication({id: "target-many", kind: 9041, communities})
     const pTags = template.tags.filter(tag => tag[0] === "p")

@@ -106,7 +106,32 @@ export type TargetedPublication = {
   communities: CommunityTarget[]
 }
 
+export type CommunitySetupSection = {
+  name: string
+  kinds: CommunitySectionKind[]
+  profileList: CommunityProfileListRef
+  badge: CommunityBadgeRef
+}
+
+export type CommunitySetupRefs = {
+  communityPubkey: string
+  relays: string[]
+  sections: CommunitySetupSection[]
+}
+
+export type BuildCommunityDefinitionParams = {
+  relays: string[]
+  sections: CommunitySetupSection[]
+  description?: string
+  blossomServers?: string[]
+  mints?: CommunityMint[]
+  tos?: CommunityTos
+  location?: string
+  geohash?: string
+}
+
 const HEX_PUBKEY_RE = /^[0-9a-f]{64}$/i
+const GEOHASH_RE = /^[0123456789bcdefghjkmnpqrstuvwxyz]+$/i
 
 export const isHexPubkey = (value: string) => HEX_PUBKEY_RE.test(value)
 
@@ -141,6 +166,178 @@ export const normalizeRelay = (url?: string) => {
 
 export const normalizeRelays = (relays: string[]) =>
   Array.from(new Set(relays.map(normalizeRelay).filter(Boolean)))
+
+export const normalizeGeohash = (value?: string) => {
+  const normalized = value?.trim().replace(/^geo:/i, "").toLowerCase() || ""
+
+  return normalized && GEOHASH_RE.test(normalized) ? normalized : ""
+}
+
+const slugifyCommunityValue = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "section"
+
+export const makeCommunityScopedIdentifier = (communityPubkey: string, value: string) =>
+  `budabit-${normalizePubkey(communityPubkey).slice(0, 16)}-${slugifyCommunityValue(value)}`
+
+export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionKind[] => {
+  switch (name) {
+    case COMMUNITY_SECTION_GENERAL:
+      return [
+        {kind: 9, subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE},
+        {kind: 1111},
+        {kind: 7},
+        {kind: 1985},
+      ]
+    case COMMUNITY_SECTION_ROOMS:
+      return [{kind: 11, subtype: COMMUNITY_SUBTYPE_ROOM}]
+    case COMMUNITY_SECTION_FORUM:
+      return [{kind: 11, subtype: COMMUNITY_SUBTYPE_FORUM}]
+    case COMMUNITY_SECTION_CALENDAR:
+      return [{kind: 31922}]
+    case COMMUNITY_SECTION_FUNDRAISERS:
+      return [{kind: 9041}]
+    case COMMUNITY_SECTION_REPOSITORIES:
+      return [{kind: 30617}]
+    case COMMUNITY_SECTION_PERMALINKS:
+      return [{kind: 1623}]
+    case COMMUNITY_SECTION_WIDGETS:
+      return [{kind: 30033}]
+    default:
+      return []
+  }
+}
+
+export const DEFAULT_COMMUNITY_SECTION_NAMES = [
+  COMMUNITY_SECTION_GENERAL,
+  COMMUNITY_SECTION_ROOMS,
+  COMMUNITY_SECTION_FORUM,
+  COMMUNITY_SECTION_CALENDAR,
+  COMMUNITY_SECTION_FUNDRAISERS,
+  COMMUNITY_SECTION_REPOSITORIES,
+  COMMUNITY_SECTION_PERMALINKS,
+  COMMUNITY_SECTION_WIDGETS,
+] as const
+
+export const makeAddress = (kind: number, pubkey: string, identifier: string) =>
+  `${kind}:${normalizePubkey(pubkey)}:${identifier}`
+
+export const makeCommunitySetupRefs = ({
+  communityPubkey,
+  profileListPubkey,
+  badgeIssuerPubkey,
+  relays,
+  sectionNames = DEFAULT_COMMUNITY_SECTION_NAMES,
+}: {
+  communityPubkey: string
+  profileListPubkey: string
+  badgeIssuerPubkey: string
+  relays: string[]
+  sectionNames?: readonly string[]
+}): CommunitySetupRefs => {
+  const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
+  const normalizedProfileListPubkey = normalizePubkey(profileListPubkey)
+  const normalizedBadgeIssuerPubkey = normalizePubkey(badgeIssuerPubkey)
+  const normalizedRelays = normalizeRelays(relays)
+
+  return {
+    communityPubkey: normalizedCommunityPubkey,
+    relays: normalizedRelays,
+    sections: sectionNames.map(name => {
+      const identifier = makeCommunityScopedIdentifier(normalizedCommunityPubkey, name)
+      const profileListAddress = makeAddress(
+        PROFILE_LIST_KIND,
+        normalizedProfileListPubkey,
+        identifier,
+      )
+      const badgeAddress = makeAddress(
+        BADGE_DEFINITION_KIND,
+        normalizedBadgeIssuerPubkey,
+        identifier,
+      )
+
+      return {
+        name,
+        kinds: getDefaultCommunitySectionKinds(name),
+        profileList: {
+          kind: PROFILE_LIST_KIND,
+          pubkey: normalizedProfileListPubkey,
+          identifier,
+          address: profileListAddress,
+          relay: normalizedRelays[0],
+        },
+        badge: {
+          kind: BADGE_DEFINITION_KIND,
+          pubkey: normalizedBadgeIssuerPubkey,
+          identifier,
+          address: badgeAddress,
+        },
+      }
+    }),
+  }
+}
+
+export const buildCommunityDefinition = ({
+  relays,
+  sections,
+  description,
+  blossomServers = [],
+  mints = [],
+  tos,
+  location,
+  geohash,
+}: BuildCommunityDefinitionParams): EventContent & {kind: typeof COMMUNITY_DEFINITION_KIND} => {
+  const tags: string[][] = [["alt", "BudaBit community definition"]]
+
+  if (description?.trim()) tags.push(["description", description.trim()])
+  for (const relay of normalizeRelays(relays)) tags.push(["r", relay])
+  for (const server of blossomServers.map(server => server.trim()).filter(Boolean)) {
+    tags.push(["blossom", server])
+  }
+  for (const mint of mints.filter(mint => mint.url.trim())) {
+    tags.push(appendDefined(["mint", mint.url.trim()], mint.type?.trim()))
+  }
+  if (tos?.ref.trim())
+    tags.push(appendDefined(["tos", tos.ref.trim()], normalizeRelay(tos.relay) || undefined))
+  if (location?.trim()) tags.push(["location", location.trim()])
+  const normalizedGeohash = normalizeGeohash(geohash)
+  if (normalizedGeohash) tags.push(["g", normalizedGeohash])
+
+  for (const section of sections) {
+    tags.push(["content", section.name])
+    for (const sectionKind of section.kinds) {
+      tags.push(appendDefined(["k", String(sectionKind.kind)], sectionKind.subtype))
+    }
+    tags.push(appendDefined(["a", section.profileList.address], section.profileList.relay))
+    tags.push(["badge", section.badge.address])
+  }
+
+  return {kind: COMMUNITY_DEFINITION_KIND, content: "", tags}
+}
+
+export const makeCommunityBadgeDefinition = ({
+  badge,
+  name,
+  description,
+  image,
+}: {
+  badge: CommunityBadgeRef
+  name?: string
+  description?: string
+  image?: string
+}): EventContent & {kind: typeof BADGE_DEFINITION_KIND} => ({
+  kind: BADGE_DEFINITION_KIND,
+  content: "",
+  tags: [
+    ["d", badge.identifier],
+    ["name", name?.trim() || badge.identifier],
+    ...(description?.trim() ? [["description", description.trim()]] : []),
+    ...(image?.trim() ? [["image", image.trim()]] : []),
+  ],
+})
 
 const parseNcommunity = (value: string): ParsedCommunityInput | undefined => {
   if (!value.startsWith("ncommunity://")) return undefined
@@ -299,7 +496,7 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
     }
 
     if (tag[0] === "g") {
-      geohash = tag[1] || undefined
+      geohash = normalizeGeohash(tag[1]) || undefined
       continue
     }
 
@@ -324,10 +521,8 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
 
 export const getCommunityMainRelay = (definition: CommunityDefinition) => definition.relays[0] || ""
 
-export const findCommunitySection = (
-  definition: CommunityDefinition,
-  name: string,
-) => definition.sections.find(section => section.name === name)
+export const findCommunitySection = (definition: CommunityDefinition, name: string) =>
+  definition.sections.find(section => section.name === name)
 
 export const sectionSupportsKind = (
   section: CommunitySection | undefined,

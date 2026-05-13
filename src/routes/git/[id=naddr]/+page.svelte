@@ -64,6 +64,7 @@
   import {pubkey} from "@welshman/app"
   import {nip19} from "nostr-tools"
   import {clip, pushToast} from "@app/util/toast"
+  import {getDisplayedRepoWebUrls} from "@app/util/repo-web-urls"
 
   import {getContext} from "svelte"
   import type {Readable} from "svelte/store"
@@ -346,12 +347,6 @@
     return `nostr://${resolved.ownerNpub}/${resolved.name}`
   }
 
-  function buildDefaultViewRepoUrl(): string | undefined {
-    const resolved = getNostrOwnerAndName()
-    if (!resolved) return undefined
-    return `https://gitworkshop.dev/${resolved.ownerNpub}/${resolved.name}`
-  }
-
   const repoMetadata = $derived({
     name: repoClass.name || "Unknown Repository",
     description: repoClass.description || "",
@@ -368,15 +363,7 @@
       }
       return urls
     })(),
-    webUrls: (() => {
-      // Get web URLs from repoClass directly
-      const urls = [...(repoClass.web || [])]
-      if (!urls.find(u => u.startsWith("https://gitworkshop.dev"))) {
-        const def = buildDefaultViewRepoUrl()
-        if (def && !urls.includes(def)) urls.push(def)
-      }
-      return urls
-    })(),
+    webUrls: getDisplayedRepoWebUrls(repoClass),
     mainBranch: repoClass.mainBranch,
     createdAt: repoClass.repoEvent?.created_at
       ? new Date(repoClass.repoEvent.created_at * 1000)

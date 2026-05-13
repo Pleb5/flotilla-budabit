@@ -94,13 +94,15 @@ Flotilla Budabit extends the original Flotilla with decentralized Git functional
 You can also optionally create an `.env` file and populate it with the following environment variables (see `.env` for examples):
 
 - `VITE_DEFAULT_PUBKEYS` - A comma-separated list of hex pubkeys for bootstrapping web of trust
-- `VITE_PLATFORM_URL` - The url where the app will be hosted
-- `VITE_PLATFORM_NAME` - The name of the app
-- `VITE_PLATFORM_LOGO` - A logo url for the app
+- `VITE_PLATFORM_URL` - Fallback app URL when community profile website is unavailable
+- `VITE_PLATFORM_NAME` - Fallback app name when community profile name is unavailable
+- `VITE_PLATFORM_LOGO` - Fallback/PWA logo URL when community profile picture is unavailable at runtime
 - `VITE_DEFAULT_COMMUNITY` - Optional default community as a hex pubkey, `npub`, or `ncommunity`
-- `VITE_BOOTSTRAP_RELAYS` - Optional comma-separated relay URLs used to resolve community data
+- `VITE_INDEXER_RELAYS` - Optional comma-separated relay URLs used for discovery and community bootstrap
 - `VITE_PLATFORM_ACCENT` - A hex color for the app's accent color
-- `VITE_PLATFORM_DESCRIPTION` - A description of the app
+- `VITE_PLATFORM_DESCRIPTION` - Fallback app description when community profile about is unavailable
+- `VITE_GIT_RELAYS` - Comma-separated Nostr relays used for Git repository discovery
+- `VITE_GIT_DEFAULT_CORS_PROXY` - Default CORS proxy for Git HTTP operations
 - `VITE_GLITCHTIP_API_KEY` - A Sentry DSN for use with glitchtip (error reporting)
 - `GLITCHTIP_AUTH_TOKEN` - A glitchtip auth token for error reporting
 

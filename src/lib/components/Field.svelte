@@ -6,10 +6,11 @@
     secondary?: Snippet
     input?: Snippet
     info?: Snippet
+    error?: string
     [key: string]: any
   }
 
-  const {label, secondary, input, info, ...props}: Props = $props()
+  const {label, secondary, input, info, error, ...props}: Props = $props()
 </script>
 
 <div class="flex flex-col gap-2 {props.class}">
@@ -30,5 +31,8 @@
     <p class="text-sm opacity-50">
       {@render info()}
     </p>
+  {/if}
+  {#if error}
+    <p class="text-sm font-medium text-error">{error}</p>
   {/if}
 </div>

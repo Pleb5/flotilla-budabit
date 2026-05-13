@@ -14,7 +14,7 @@
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
   import LogOut from "@app/components/LogOut.svelte"
-  import {PLATFORM_NAME} from "@app/core/state"
+  import {APP_NAME} from "@app/core/state"
   import {pushModal} from "@app/util/modal"
   import {theme} from "@app/util/theme"
 
@@ -72,7 +72,7 @@
         <div>Relays</div>
       {/snippet}
       {#snippet info()}
-        <div>Control how {PLATFORM_NAME} talks to the network</div>
+        <div>Control how {$APP_NAME} talks to the network</div>
       {/snippet}
     </CardButton>
   </Link>
@@ -98,7 +98,7 @@
         <div>Content Settings</div>
       {/snippet}
       {#snippet info()}
-        <div>Get into the details about how you view and publish content on {PLATFORM_NAME}</div>
+        <div>Get into the details about how you view and publish content on {$APP_NAME}</div>
       {/snippet}
     </CardButton>
   </Link>
@@ -137,7 +137,7 @@
         <div>About</div>
       {/snippet}
       {#snippet info()}
-        <div>Learn about {PLATFORM_NAME} and support the developer</div>
+        <div>Learn about {$APP_NAME} and support the developer</div>
       {/snippet}
     </CardButton>
   </Link>

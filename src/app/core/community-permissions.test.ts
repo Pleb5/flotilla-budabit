@@ -6,7 +6,10 @@ import {
   canWriteCommunityTarget,
   findBadgeDefinitionEvent,
   findProfileListEvent,
+  getCommunityCapabilityKey,
+  getCommunityPublishCapabilityMap,
   getCommunityWriteTarget,
+  getGrantCapableSectionModeratorPubkeys,
   getGrantCapability,
 } from "./community-permissions"
 
@@ -36,6 +39,7 @@ const definition = parseCommunityDefinition(
       ["content", "General"],
       ["k", "9", "room-message"],
       ["k", "1111"],
+      ["k", "7"],
       ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:General`],
       ["badge", `${BADGE_DEFINITION_KIND}:${managerPubkey}:member`],
       ["content", "Repositories"],
@@ -112,6 +116,17 @@ describe("community permissions", () => {
     ).toBe(true)
   })
 
+  it("allows profile-list managers to bootstrap section content before list events load", () => {
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [],
+        userPubkey: managerPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+      }),
+    ).toBe(true)
+  })
+
   it("requires both list-manager and badge-issuer authority for grants", () => {
     expect(
       getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "General"}),
@@ -119,5 +134,23 @@ describe("community permissions", () => {
     expect(
       getGrantCapability({definition, userPubkey: repoManagerPubkey, sectionName: "Repositories"}),
     ).toMatchObject({canManageList: true, canIssueBadge: false, canGrant: false})
+    expect(getGrantCapableSectionModeratorPubkeys({definition, sectionName: "General"})).toEqual([
+      managerPubkey,
+    ])
+    expect(getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Repositories"})).toEqual([])
+  })
+
+  it("derives publish capabilities by kind and subtype", () => {
+    const capabilities = getCommunityPublishCapabilityMap({
+      definition,
+      profileListEvents: [generalProfileList, repoProfileList],
+      userPubkey: memberPubkey,
+    })
+
+    expect(getCommunityCapabilityKey(9, "room-message")).toBe("9:room-message")
+    expect(capabilities["9:room-message"]).toMatchObject({sectionName: "General", canWrite: true})
+    expect(capabilities["1111"]).toMatchObject({sectionName: "General", canWrite: true})
+    expect(capabilities["7"]).toMatchObject({sectionName: "General", canWrite: true})
+    expect(capabilities["30617"]).toMatchObject({sectionName: "Repositories", canWrite: false})
   })
 })

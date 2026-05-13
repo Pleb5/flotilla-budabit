@@ -6,7 +6,7 @@
   import ContentLinkDetail from "@app/components/ContentLinkDetail.svelte"
   import ContentLinkBlockImage from "@app/components/ContentLinkBlockImage.svelte"
   import {pushModal} from "@app/util/modal"
-  import {dufflepud, PLATFORM_URL} from "@app/core/state"
+  import {APP_URL, dufflepud} from "@app/core/state"
 
   const {value, event} = $props()
 
@@ -17,7 +17,7 @@
     if (isRelayUrl(url)) {
       return [url, true]
     }
-    if (url.startsWith(PLATFORM_URL)) return [url.replace(PLATFORM_URL, ""), false]
+    if ($APP_URL && url.startsWith($APP_URL)) return [url.replace($APP_URL, ""), false]
 
     return [url, true]
   })
@@ -26,7 +26,7 @@
     if (external) return null
 
     try {
-      const parsed = url.startsWith("http") ? new URL(url) : new URL(href, PLATFORM_URL)
+      const parsed = url.startsWith("http") ? new URL(url) : new URL(href, $APP_URL || window.location.origin)
       const path = `${parsed.pathname}${parsed.search}${parsed.hash}` || href || "/"
 
       if (path.includes("/git/")) {
