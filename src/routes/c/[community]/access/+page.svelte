@@ -13,7 +13,7 @@
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {FORM_RESPONSE_KIND, getProfileListPubkeys} from "@app/core/community"
+  import {BADGE_AWARD_KIND, FORM_RESPONSE_KIND, getProfileListPubkeys} from "@app/core/community"
   import {
     activeCommunityAdmissionForms,
     activeCommunityDefinition,
@@ -38,6 +38,8 @@
   let answers = $state<Record<string, Record<string, string>>>({})
   let previousStatuses = $state<Record<string, string>>({})
   let statusesInitialized = $state(false)
+  let seenBadgeAwardIds = $state<Set<string>>(new Set())
+  let badgeAwardsInitialized = $state(false)
 
   const forms = $derived($activeCommunityAdmissionForms)
   const formAddresses = $derived(Object.values(forms).map(form => form.address))
@@ -56,8 +58,17 @@
   const reviewFilters = $derived(
     responseIds.length ? [{kinds: [COMMUNITY_FORM_REVIEW_KIND], "#e": responseIds}] : [],
   )
+  const badgeAwardAddresses = $derived(
+    $activeCommunityDefinition?.sections.flatMap(section => section.badges.map(badge => badge.address)) || [],
+  )
+  const badgeAwardFilters = $derived(
+    $pubkey && badgeAwardAddresses.length
+      ? [{kinds: [BADGE_AWARD_KIND], "#p": [$pubkey], "#a": badgeAwardAddresses}]
+      : [],
+  )
   const deleteEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: deleteFilters})))
   const reviewEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})))
+  const badgeAwardEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: badgeAwardFilters})))
   const sectionItems = $derived(
     ($activeCommunityDefinition?.sections || []).map(section => {
       const form = forms[section.name]
@@ -144,7 +155,7 @@
   $effect(() => {
     if ($activeCommunityRelays.length === 0) return
 
-    const filters = [...responseFilters, ...deleteFilters, ...reviewFilters]
+    const filters = [...responseFilters, ...deleteFilters, ...reviewFilters, ...badgeAwardFilters]
     if (filters.length === 0) return
 
     const controller = new AbortController()
@@ -181,6 +192,25 @@
 
     previousStatuses = nextStatuses
     statusesInitialized = true
+  })
+
+  $effect(() => {
+    const nextIds = new Set($badgeAwardEvents.map(event => event.id))
+
+    if (badgeAwardsInitialized) {
+      for (const event of $badgeAwardEvents) {
+        if (seenBadgeAwardIds.has(event.id)) continue
+
+        if ($activeCommunitySession) {
+          void loadCommunityBootstrap($activeCommunitySession).catch(error => {
+            console.warn("[community] Failed to refresh permission state after badge award", error)
+          })
+        }
+      }
+    }
+
+    seenBadgeAwardIds = nextIds
+    badgeAwardsInitialized = true
   })
 </script>
 
