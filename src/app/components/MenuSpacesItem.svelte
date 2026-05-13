@@ -1,0 +1,32 @@
+<script lang="ts">
+  import Link from "@lib/components/Link.svelte"
+  import CardButton from "@lib/components/CardButton.svelte"
+  import RelayIcon from "@app/components/RelayIcon.svelte"
+  import RelayName from "@app/components/RelayName.svelte"
+  import RelayDescription from "@app/components/RelayDescription.svelte"
+  import {makeSpacePath} from "@app/util/routes"
+  import {notifications} from "@app/util/notifications"
+
+  const {url} = $props()
+
+  const path = makeSpacePath(url)
+</script>
+
+<Link replaceState href={path}>
+  <CardButton class="btn-neutral shadow-md">
+    {#snippet icon()}
+      <RelayIcon {url} size={12} />
+    {/snippet}
+    {#snippet title()}
+      <div class="flex gap-1">
+        <RelayName {url} />
+        {#if $notifications.has(path)}
+          <div class="relative top-1 h-2 w-2 rounded-full bg-primary"></div>
+        {/if}
+      </div>
+    {/snippet}
+    {#snippet info()}
+      <div><RelayDescription {url} /></div>
+    {/snippet}
+  </CardButton>
+</Link>

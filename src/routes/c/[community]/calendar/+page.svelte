@@ -12,6 +12,7 @@
   import Field from "@lib/components/Field.svelte"
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import CalendarEventItem from "@app/components/CalendarEventItem.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -65,6 +66,18 @@
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.calendar,
+        }),
+    ),
+  )
+  const canReact = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.reaction,
         }),
     ),
   )
@@ -202,13 +215,12 @@
 
   <div class="col-2">
     {#each $calendarEvents as event (event.id)}
-      <div class="card2 bg-alt p-4 shadow-md">
-        <strong>{getTagValue("title", event.tags) || "Untitled event"}</strong>
-        <p class="text-sm opacity-70">{new Date(Number(getTagValue("start", event.tags) || 0) * 1000).toLocaleString()}</p>
-        {#if event.content}
-          <p class="whitespace-pre-wrap">{event.content}</p>
-        {/if}
-      </div>
+      <CalendarEventItem
+        url={communityPubkey}
+        relays={$activeCommunityRelays}
+        scopeH={communityPubkey}
+        readOnly={!canReact}
+        {event} />
     {:else}
       <p class="py-8 text-center opacity-70">No targeted calendar events found.</p>
     {/each}

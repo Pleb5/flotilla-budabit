@@ -24,22 +24,14 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {makeCommunityExclusiveFilter, makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
-  import {
-    COMMUNITY_ROOM_LABEL_KIND,
-    COMMUNITY_ROOM_LABEL_NAMESPACE,
-    isCommunityRoomArchived,
-    readCommunityRoomRoots,
-  } from "@app/core/community-rooms"
-  import {COMMUNITY_SECTION_GENERAL, findCommunitySection, getProfileListPubkeys} from "@app/core/community"
+  import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
+  import {readCommunityRoomRoots} from "@app/core/community-rooms"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    findProfileListEvent,
-    getPrimaryProfileListRef,
   } from "@app/core/community-permissions"
-  import {APP_NAME} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
+  import {formatShortNpub} from "@app/util/pubkeys"
   import {
     makeCommunityCalendarPath,
     makeCommunityGoalPath,
@@ -51,19 +43,15 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityId = $derived(parsedCommunity?.pubkey || $activeCommunityDefinition?.pubkey || "")
+  const shortCommunity = $derived(formatShortNpub(communityId) || "Unknown community")
   const communityName = $derived(
-    $activeCommunityProfile?.display_name || $activeCommunityProfile?.name || $APP_NAME || "Community",
+    $activeCommunityProfile?.display_name || $activeCommunityProfile?.name || shortCommunity,
   )
   const communityDescription = $derived(
-    $activeCommunityProfile?.about ||
-      $activeCommunityDefinition?.description ||
-      "A BudaBit community workspace.",
+    $activeCommunityProfile?.about || $activeCommunityDefinition?.description || "",
   )
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
   const mainRelay = $derived($activeCommunityDefinition?.relays[0] || parsedCommunity?.relays[0] || "")
-  const shortCommunity = $derived(
-    communityId ? `${communityId.slice(0, 8)}...${communityId.slice(-8)}` : "Unknown community",
-  )
   const roomsPath = $derived(communityId ? makeCommunityPath(communityId, "rooms") : "")
   const roomCreatePath = $derived(roomsPath ? `${roomsPath}?create=1` : "")
   const threadsPath = $derived(communityId ? makeCommunityThreadPath(communityId) : "")
@@ -73,37 +61,9 @@
   const accessPath = $derived(communityId ? makeCommunityPath(communityId, "access") : "")
   const moderationPath = $derived(communityId ? makeCommunityPath(communityId, "moderation") : "")
   const adminPath = $derived(communityId ? makeCommunityPath(communityId, "admin") : "")
-  const roomFilters = $derived(
-    communityId
-      ? [
-          makeCommunityRoomRootsFilter(communityId),
-          makeCommunityExclusiveFilter(communityId, [COMMUNITY_ROOM_LABEL_KIND], {
-            "#L": [COMMUNITY_ROOM_LABEL_NAMESPACE],
-          }),
-        ]
-      : [],
-  )
+  const roomFilters = $derived(communityId ? [makeCommunityRoomRootsFilter(communityId)] : [])
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
-  const roomLabels = $derived($roomEvents.filter(event => event.kind === COMMUNITY_ROOM_LABEL_KIND))
   const rooms = $derived(readCommunityRoomRoots($roomEvents, communityId))
-  const authoritativeArchivePubkeys = $derived.by(() => {
-    if (!$activeCommunityDefinition) return []
-
-    const section = findCommunitySection($activeCommunityDefinition, COMMUNITY_SECTION_GENERAL)
-    const listEvent = findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents)
-
-    return getProfileListPubkeys(listEvent)
-  })
-  const activeRooms = $derived(
-    rooms.filter(
-      room =>
-        !isCommunityRoomArchived({
-          roomId: room.id,
-          labels: roomLabels,
-          authoritativePubkeys: authoritativeArchivePubkeys,
-        }),
-    ),
-  )
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
@@ -158,9 +118,11 @@
         <p class="ellipsize text-sm opacity-75">{mainRelay || shortCommunity}</p>
       </div>
     </div>
-    <div class="max-w-3xl text-center md:text-xl">
-      {communityDescription}
-    </div>
+    {#if communityDescription}
+      <div class="max-w-3xl text-center md:text-xl">
+        {communityDescription}
+      </div>
+    {/if}
     {#if $activeCommunityDefinition?.tos}
       <div class="flex flex-wrap justify-center gap-3">
         {#if $activeCommunityDefinition?.tos}
@@ -174,7 +136,7 @@
   </div>
 
   <div class="grid gap-2 max-sm:grid-cols-2 sm:grid-cols-3">
-    {#each activeRooms as room (room.id)}
+    {#each rooms as room (room.id)}
       {@const roomPath = makeCommunityRoomPath(communityId, room.id)}
       <Link href={roomPath} class="btn btn-neutral relative">
         <div class="flex min-w-0 items-center gap-2 overflow-hidden text-nowrap md:text-lg">
@@ -186,7 +148,7 @@
         {/if}
       </Link>
     {/each}
-    {#if roomsPath && activeRooms.length === 0}
+    {#if roomsPath && rooms.length === 0}
       <div class="card2 bg-alt col-span-full flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
           <h3 class="flex items-center gap-2 text-lg font-semibold">

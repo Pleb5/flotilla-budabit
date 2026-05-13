@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
-import {normalizePubkey} from "./pubkeys"
+import {formatShortNpub, normalizePubkey} from "./pubkeys"
 
 describe("pubkey normalization", () => {
   it("normalizes hex pubkeys", () => {
@@ -23,5 +23,12 @@ describe("pubkey normalization", () => {
 
   it("rejects invalid pubkeys", () => {
     expect(normalizePubkey("not-a-pubkey")).toBe("")
+  })
+
+  it("formats user-facing npub fallbacks", () => {
+    const pubkey = "d".repeat(64)
+    const npub = nip19.npubEncode(pubkey)
+
+    expect(formatShortNpub(pubkey)).toBe(`${npub.slice(0, 12)}...${npub.slice(-8)}`)
   })
 })

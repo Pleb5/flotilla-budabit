@@ -24,3 +24,15 @@ export const normalizePubkey = (value: string) => {
 
   return ""
 }
+
+export const formatShortNpub = (pubkey?: string) => {
+  if (!pubkey) return ""
+
+  try {
+    const npub = nip19.npubEncode(pubkey)
+
+    return `${npub.slice(0, 12)}...${npub.slice(-8)}`
+  } catch {
+    return ""
+  }
+}

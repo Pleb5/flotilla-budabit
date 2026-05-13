@@ -8,17 +8,15 @@
   import {activeCommunityAdmissionForms, activeCommunityDefinition, activeCommunityProfileListEvents, activeCommunityRelays} from "@app/core/community-state"
   import {FORM_RESPONSE_KIND, getProfileListPubkeys} from "@app/core/community"
   import {
-    canWriteCommunityTarget,
     findProfileListEvent,
-    getGrantCapableSectionModeratorPubkeys,
+    getCommunityPublishGateState,
     getPrimaryProfileListRef,
+    type CommunityPublishGateState,
     type CommunityWriteTarget,
   } from "@app/core/community-permissions"
   import {
     COMMUNITY_FORM_DELETE_KIND,
     COMMUNITY_FORM_REVIEW_KIND,
-    getAdmissionSubmissionState,
-    type CommunitySubmissionState,
   } from "@app/core/community-forms"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
@@ -53,47 +51,36 @@
   )
   const deleteEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: deleteFilters})))
   const reviewEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})))
-  const canWrite = $derived(
-    Boolean(
-      $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
+  const gateState = $derived.by<CommunityPublishGateState>(() =>
+    $activeCommunityDefinition
+      ? getCommunityPublishGateState({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target,
-        }),
-    ),
+          form,
+          responseEvents: $responseEvents,
+          deleteEvents: $deleteEvents,
+          reviewEvents: $reviewEvents,
+        })
+      : {...target, status: $pubkey ? "missing" : "login-required", form},
   )
+  const canWrite = $derived(gateState.status === "allowed")
   const hasForm = $derived(Boolean(form))
   const profileListEvent = $derived(findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents))
   const writerCount = $derived(getProfileListPubkeys(profileListEvent).length)
-  const admissionState = $derived.by<CommunitySubmissionState>(() => {
-    if (canWrite) return {status: "granted"}
-    if (!$pubkey || !form || !$activeCommunityDefinition) return {status: "none"}
-
-    return getAdmissionSubmissionState({
-      responseEvents: $responseEvents,
-      deleteEvents: $deleteEvents,
-      reviewEvents: $reviewEvents,
-      formAddress: form.address,
-      applicantPubkey: $pubkey,
-      moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
-        definition: $activeCommunityDefinition,
-        sectionName: target.sectionName,
-      }),
-    })
-  })
   const reason = $derived(
     !$pubkey
       ? "Log in to request publishing access."
-      : admissionState.status === "pending"
+      : gateState.status === "pending"
         ? `Your ${target.sectionName} access request is pending.`
-        : admissionState.status === "rejected"
+        : gateState.status === "rejected"
           ? `Your ${target.sectionName} access request was rejected. Delete it before resubmitting.`
-          : !hasForm
-            ? `You need ${target.sectionName} permission to ${action}, but no application form is available yet.`
-            : `You need ${target.sectionName} permission to ${action}.`,
+          : gateState.status === "granted"
+            ? `Your ${target.sectionName} request was granted. Waiting for community permission state to sync.`
+            : !hasForm
+              ? `You need ${target.sectionName} permission to ${action}, but no application form is available yet.`
+              : `You need ${target.sectionName} permission to ${action}.`,
   )
 
   $effect(() => {
@@ -116,10 +103,12 @@
 {:else if accessPath && $pubkey && hasForm}
   <span title={reason}>
     <Link href={accessPath} class={`${className} btn-disabled pointer-events-auto opacity-75`}>
-      {#if admissionState.status === "pending"}
+      {#if gateState.status === "pending"}
         {target.sectionName} request pending
-      {:else if admissionState.status === "rejected"}
+      {:else if gateState.status === "rejected"}
         Revise {target.sectionName} request
+      {:else if gateState.status === "granted"}
+        Syncing {target.sectionName} access
       {:else}
         Request {target.sectionName} access
       {/if}

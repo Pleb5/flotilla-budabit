@@ -1,6 +1,5 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {load} from "@welshman/net"
   import {PROFILE} from "@welshman/util"
   import * as nip19 from "nostr-tools/nip19"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -19,6 +18,7 @@
     activeCommunityProfile,
     activeCommunitySession,
     getCommunityBootstrapRelays,
+    loadCommunityEvents,
     makeCommunityDefinitionFilter,
     makeCommunityProfileFilter,
     parseCommunityProfile,
@@ -27,6 +27,7 @@
     type CommunityProfile,
   } from "@app/core/community-state"
   import {makeCommunityPath} from "@app/util/routes"
+  import {formatShortNpub} from "@app/util/pubkeys"
 
   let communityInput = $state("")
   let loadedPreviewPubkey = $state("")
@@ -68,9 +69,9 @@
     try {
       const npub = nip19.npubEncode(pubkey)
 
-      return shorten ? `${npub.slice(0, 12)}...${npub.slice(-8)}` : npub
+      return shorten ? formatShortNpub(pubkey) || "Unknown community" : npub
     } catch {
-      return `${pubkey.slice(0, 8)}...${pubkey.slice(-8)}`
+      return "Unknown community"
     }
   }
 
@@ -99,7 +100,7 @@
   )
   const previewPicture = $derived(previewProfile?.picture || "")
 
-  const setLoadedPreviewProfile = (requestId: number, pubkey: string, events: Awaited<ReturnType<typeof load>>) => {
+  const setLoadedPreviewProfile = (requestId: number, pubkey: string, events: Awaited<ReturnType<typeof loadCommunityEvents>>) => {
     if (requestId !== previewRequestId || loadedPreviewPubkey !== pubkey) return false
 
     const profileEvent = events
@@ -142,11 +143,11 @@
     loadedPreviewProfile = undefined
     previewLoading = true
 
-    load({relays: discoveryRelays, filters: [makeCommunityProfileFilter(pubkey)]})
+    loadCommunityEvents(discoveryRelays, [makeCommunityProfileFilter(pubkey)])
       .then(events => setLoadedPreviewProfile(requestId, pubkey, events))
       .catch(() => {})
 
-    load({relays: discoveryRelays, filters: [makeCommunityDefinitionFilter(pubkey)]})
+    loadCommunityEvents(discoveryRelays, [makeCommunityDefinitionFilter(pubkey)])
       .then(definitionEvents => {
         const definition = selectLatestCommunityDefinition(definitionEvents, pubkey)
         const profileRelays = normalizeRelays([
@@ -155,7 +156,7 @@
           ...discoveryRelays,
         ])
 
-        return load({relays: profileRelays, filters: [makeCommunityProfileFilter(pubkey)]})
+        return loadCommunityEvents(profileRelays, [makeCommunityProfileFilter(pubkey)])
       })
       .then(events => {
         if (requestId !== previewRequestId || loadedPreviewPubkey !== pubkey) return
@@ -193,7 +194,7 @@
           <div class="min-w-0 flex-1">
             <p class="text-xs font-semibold uppercase tracking-wide opacity-60">{previewLabel}</p>
             <h2 class="ellipsize text-xl font-bold">{previewName}</h2>
-            <p class="ellipsize text-sm opacity-70">{previewLoading ? "Loading metadata..." : previewInfo}</p>
+            <p class="ellipsize text-sm opacity-70">{previewInfo}</p>
           </div>
           <div class="hidden text-3xl opacity-50 transition-transform group-hover:translate-x-1 sm:block">&gt;</div>
         </button>

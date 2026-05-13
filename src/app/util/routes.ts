@@ -6,7 +6,7 @@ import type {TrustedEvent} from "@welshman/util"
 import {pubkey, tracker} from "@welshman/app"
 import {scrollToEvent} from "@lib/html"
 import {identity} from "@welshman/lib"
-import {getPubkeyTagValues} from "@welshman/util"
+import {getPubkeyTagValues, getTagValue} from "@welshman/util"
 import {makeChatId, entityLink, DM_KIND} from "@app/core/state"
 import {parseCommunityInput} from "@app/core/community"
 
@@ -68,6 +68,30 @@ export const makeCommunityPermalinkPath = (community: string, eventId?: string) 
 
 export const makeCommunityWidgetPath = (community: string, eventId?: string) =>
   makeCommunityPath(community, "widgets", eventId)
+
+export const makeSpacePath = (community: string, ...extra: (string | undefined)[]) =>
+  makeCommunityPath(community, ...extra)
+
+export const makeRoomPath = (community: string, roomId?: string) =>
+  makeCommunityPath(community, "rooms", roomId)
+
+export const makeThreadPath = (community: string, eventId?: string) =>
+  makeCommunityThreadPath(community, eventId)
+
+export const makeCalendarPath = (community: string, eventId?: string) =>
+  makeCommunityCalendarPath(community, eventId)
+
+export const makeGoalPath = (community: string, eventId?: string) =>
+  makeCommunityGoalPath(community, eventId)
+
+export const getRoomItemPath = (community: string, event: TrustedEvent) => {
+  const roomId = getTagValue("E", event.tags) || getTagValue("e", event.tags) || event.id
+
+  return makeCommunityPath(community, "rooms", roomId)
+}
+
+export const goToSpace = (community: string, options: Record<string, any> = {}) =>
+  goto(makeSpacePath(community), options)
 
 export const makeChatPath = (recipient: string) => {
   const id = makeChatId(recipient)

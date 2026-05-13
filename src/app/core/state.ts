@@ -99,6 +99,8 @@ export const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY
 
 export const INDEXER_RELAYS = fromCsv(import.meta.env.VITE_INDEXER_RELAYS)
 
+export const PLATFORM_RELAYS = INDEXER_RELAYS
+
 export const SIGNER_RELAYS = fromCsv(import.meta.env.VITE_SIGNER_RELAYS)
 
 export const PLATFORM_URL = import.meta.env.VITE_PLATFORM_URL || ""
@@ -342,6 +344,35 @@ export const dmAlert = derived(alertsById, $alertsById => {
     }
   }
 })
+
+export type LegacyChannel = {
+  id: string
+  room: string
+  name?: string
+  archived?: boolean
+  closed?: boolean
+  private?: boolean
+}
+
+export const channelsByUrl = writable<Map<string, LegacyChannel[]>>(new Map())
+
+export const displayChannel = (...args: any[]) => {
+  const channel = args.length > 1 ? args[1] : args[0]
+
+  return typeof channel === "string" ? channel : channel?.name || channel?.room || "Room"
+}
+
+export const canCreateRoomByPlatformPolicy = (..._args: any[]) => false
+
+export const createBudaBitRoom = (..._args: any[]): any => undefined
+
+export const loadRoom = async (..._args: any[]) => undefined
+
+export const publishBudaBitRoomMeta = (..._args: any[]): any => undefined
+
+export const getRoomMetaRelays = (url: string) => [url].filter(Boolean)
+
+export const deriveUserIsSpaceAdmin = (_url: string) => derived(pubkey, () => false)
 
 // Alert Statuses
 

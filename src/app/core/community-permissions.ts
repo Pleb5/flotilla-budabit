@@ -1,5 +1,11 @@
 import type {TrustedEvent} from "@welshman/util"
 import {
+  getAdmissionSubmissionState,
+  type CommunityAdmissionForm,
+  type CommunityFormReview,
+  type CommunityFormResponse,
+} from "@app/core/community-forms"
+import {
   BADGE_DEFINITION_KIND,
   COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_FORUM,
@@ -45,6 +51,21 @@ export type CommunityGrantCapability = {
 export type CommunityPublishCapability = CommunityWriteTarget & {
   key: string
   canWrite: boolean
+}
+
+export type CommunityPublishGateStatus =
+  | "allowed"
+  | "login-required"
+  | "missing"
+  | "pending"
+  | "rejected"
+  | "granted"
+
+export type CommunityPublishGateState = CommunityWriteTarget & {
+  status: CommunityPublishGateStatus
+  form?: CommunityAdmissionForm
+  response?: CommunityFormResponse
+  review?: CommunityFormReview
 }
 
 export const COMMUNITY_WRITE_TARGETS = {
@@ -166,6 +187,56 @@ export const getCommunityPublishCapabilityMap = ({
       } satisfies CommunityPublishCapability,
     ]),
   ) as Record<string, CommunityPublishCapability>
+
+export const getCommunityPublishGateState = ({
+  definition,
+  profileListEvents,
+  userPubkey,
+  target,
+  form,
+  responseEvents = [],
+  deleteEvents = [],
+  reviewEvents = [],
+}: {
+  definition: CommunityDefinition
+  profileListEvents: TrustedEvent[]
+  userPubkey?: string
+  target: CommunityWriteTarget
+  form?: CommunityAdmissionForm
+  responseEvents?: TrustedEvent[]
+  deleteEvents?: TrustedEvent[]
+  reviewEvents?: TrustedEvent[]
+}): CommunityPublishGateState => {
+  const normalizedUser = normalizePubkey(userPubkey || "")
+  const base = {...target, form}
+
+  if (!normalizedUser) return {...base, status: "login-required"}
+
+  if (canWriteCommunityTarget({definition, profileListEvents, userPubkey: normalizedUser, target})) {
+    return {...base, status: "allowed"}
+  }
+
+  if (!form) return {...base, status: "missing"}
+
+  const submission = getAdmissionSubmissionState({
+    responseEvents,
+    deleteEvents,
+    reviewEvents,
+    formAddress: form.address,
+    applicantPubkey: normalizedUser,
+    moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({definition, sectionName: target.sectionName}),
+  })
+
+  if (submission.status === "pending") return {...base, status: "pending", response: submission.response}
+  if (submission.status === "rejected") {
+    return {...base, status: "rejected", response: submission.response, review: submission.review}
+  }
+  if (submission.status === "granted") {
+    return {...base, status: "granted", response: submission.response, review: submission.review}
+  }
+
+  return {...base, status: "missing"}
+}
 
 export const getGrantCapableSectionModeratorPubkeys = ({
   definition,

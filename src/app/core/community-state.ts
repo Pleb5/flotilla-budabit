@@ -122,9 +122,11 @@ export const setActiveCommunityInput = (input: string) => {
   if (!parsed) return undefined
 
   let session: CommunitySession | undefined
+  let changedCommunity = false
 
   activeCommunitySession.update(current => {
     const sameCommunity = current?.communityPubkey === parsed.pubkey
+    changedCommunity = !sameCommunity
 
     session = {
       communityPubkey: parsed.pubkey,
@@ -134,6 +136,14 @@ export const setActiveCommunityInput = (input: string) => {
 
     return session
   })
+
+  if (changedCommunity) {
+    activeCommunityDefinition.set(undefined)
+    activeCommunityProfileEvents.set([])
+    activeCommunityProfileListEvents.set([])
+    activeCommunityBadgeDefinitionEvents.set([])
+    activeCommunityAdmissionFormEvents.set([])
+  }
 
   return session
 }
@@ -206,6 +216,23 @@ export const activeCommunityRelays: Readable<string[]> = derived(
 
 export const getCommunityBootstrapRelays = (relayHints: string[] = []) =>
   normalizeRelays([...relayHints, ...COMMUNITY_DISCOVERY_RELAYS])
+
+const COMMUNITY_RELAY_LOAD_TIMEOUT = 2500
+
+export const loadCommunityEvents = async (relays: string[], filters: Filter[]): Promise<TrustedEvent[]> => {
+  const results = await Promise.all(
+    normalizeRelays(relays).map(relay => {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), COMMUNITY_RELAY_LOAD_TIMEOUT)
+
+      return load({relays: [relay], filters, signal: controller.signal})
+        .catch(() => [])
+        .finally(() => clearTimeout(timeout))
+    }),
+  )
+
+  return Array.from(new Map(results.flat().map(event => [event.id, event])).values())
+}
 
 export const makeCommunityDefinitionFilter = (pubkey: string): Filter => ({
   kinds: [COMMUNITY_DEFINITION_KIND],
@@ -299,14 +326,14 @@ export const loadCommunityBootstrap = async (
   session: CommunitySession,
 ): Promise<CommunityBootstrap> => {
   const relays = getCommunityBootstrapRelays(session.communityRelayHints)
-  const definitionEvents = await load({
-    relays,
-    filters: [makeCommunityDefinitionFilter(session.communityPubkey)],
-  })
+  const profileFilter = makeCommunityProfileFilter(session.communityPubkey)
+  const [definitionEvents, initialProfileEvents] = await Promise.all([
+    loadCommunityEvents(relays, [makeCommunityDefinitionFilter(session.communityPubkey)]),
+    loadCommunityEvents(relays, [profileFilter]),
+  ])
   const definition = selectLatestCommunityDefinition(definitionEvents, session.communityPubkey)
   const communityRelays = definition?.relays.length ? definition.relays : relays
   const profileRelays = normalizeRelays([...communityRelays, ...relays])
-  const profileFilter = makeCommunityProfileFilter(session.communityPubkey)
   const authorityFilters: Filter[] = []
   const admissionFormFilters: Filter[] = []
 
@@ -317,15 +344,22 @@ export const loadCommunityBootstrap = async (
     admissionFormFilters.push(...makeCommunityAdmissionFormFilters(definition))
   }
 
-  const [profileEvents, authorityEvents, admissionFormEvents] = await Promise.all([
-    load({relays: profileRelays, filters: [profileFilter]}),
-    authorityFilters.length > 0 ? load({relays: communityRelays, filters: authorityFilters}) : [],
-    admissionFormFilters.length > 0 ? load({relays: communityRelays, filters: admissionFormFilters}) : [],
+  const [definitionProfileEvents, authorityEvents, admissionFormEvents] = await Promise.all([
+    definition ? loadCommunityEvents(profileRelays, [profileFilter]) : [],
+    authorityFilters.length > 0 ? loadCommunityEvents(communityRelays, authorityFilters) : [],
+    admissionFormFilters.length > 0
+      ? loadCommunityEvents(communityRelays, admissionFormFilters)
+      : [],
   ])
+  const profileEventsById = new Map(
+    [...initialProfileEvents, ...definitionProfileEvents]
+      .filter(event => event.kind === PROFILE)
+      .map(event => [event.id, event]),
+  )
 
   const bootstrap = {
     definition,
-    profileEvents: profileEvents.filter(event => event.kind === PROFILE),
+    profileEvents: Array.from(profileEventsById.values()),
     profileListEvents: authorityEvents.filter(event => event.kind === PROFILE_LIST_KIND),
     badgeDefinitionEvents: authorityEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
     admissionFormEvents: admissionFormEvents.filter(event => event.kind === FORM_TEMPLATE_KIND),

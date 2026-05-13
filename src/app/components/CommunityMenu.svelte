@@ -25,26 +25,15 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {makeCommunityExclusiveFilter, makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
-  import {
-    COMMUNITY_ROOM_LABEL_KIND,
-    COMMUNITY_ROOM_LABEL_NAMESPACE,
-    isCommunityRoomArchived,
-    readCommunityRoomRoots,
-  } from "@app/core/community-rooms"
-  import {
-    COMMUNITY_SECTION_GENERAL,
-    findCommunitySection,
-    getProfileListPubkeys,
-  } from "@app/core/community"
+  import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
+  import {readCommunityRoomRoots} from "@app/core/community-rooms"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
-    findProfileListEvent,
-    getPrimaryProfileListRef,
   } from "@app/core/community-permissions"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
+  import {formatShortNpub} from "@app/util/pubkeys"
   import {
     makeCommunityCalendarPath,
     makeCommunityGoalPath,
@@ -59,11 +48,12 @@
 
   const {community}: Props = $props()
 
+  const shortCommunity = $derived(formatShortNpub(community) || "Community")
   const communityName = $derived(
-    $activeCommunityProfile?.display_name || $activeCommunityProfile?.name || "Community",
+    $activeCommunityProfile?.display_name || $activeCommunityProfile?.name || shortCommunity,
   )
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
-  const mainRelay = $derived($activeCommunityDefinition?.relays[0] || $activeCommunityRelays[0] || "")
+  const mainRelay = $derived($activeCommunityDefinition?.relays[0] || "")
   const homePath = $derived(makeCommunityPath(community))
   const roomsPath = $derived(makeCommunityPath(community, "rooms"))
   const roomCreatePath = $derived(`${roomsPath}?create=1`)
@@ -71,38 +61,12 @@
   const calendarPath = $derived(makeCommunityCalendarPath(community))
   const goalsPath = $derived(makeCommunityGoalPath(community))
   const adminPath = $derived(makeCommunityPath(community, "admin"))
+  const accessPath = $derived(makeCommunityPath(community, "access"))
+  const moderationPath = $derived(makeCommunityPath(community, "moderation"))
   const gitPath = "/git"
-  const roomFilters = $derived(
-    community
-      ? [
-          makeCommunityRoomRootsFilter(community),
-          makeCommunityExclusiveFilter(community, [COMMUNITY_ROOM_LABEL_KIND], {
-            "#L": [COMMUNITY_ROOM_LABEL_NAMESPACE],
-          }),
-        ]
-      : [],
-  )
+  const roomFilters = $derived(community ? [makeCommunityRoomRootsFilter(community)] : [])
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
-  const roomLabels = $derived($roomEvents.filter(event => event.kind === COMMUNITY_ROOM_LABEL_KIND))
   const rooms = $derived(readCommunityRoomRoots($roomEvents, community))
-  const authoritativeArchivePubkeys = $derived.by(() => {
-    if (!$activeCommunityDefinition) return []
-
-    const section = findCommunitySection($activeCommunityDefinition, COMMUNITY_SECTION_GENERAL)
-    const listEvent = findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents)
-
-    return getProfileListPubkeys(listEvent)
-  })
-  const activeRooms = $derived(
-    rooms.filter(
-      room =>
-        !isCommunityRoomArchived({
-          roomId: room.id,
-          labels: roomLabels,
-          authoritativePubkeys: authoritativeArchivePubkeys,
-        }),
-    ),
-  )
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
@@ -151,9 +115,7 @@
         </div>
         <div class="min-w-0">
           <strong class="ellipsize block">{communityName}</strong>
-          {#if mainRelay}
-            <span class="ellipsize block text-xs text-primary">{mainRelay}</span>
-          {/if}
+          <span class="ellipsize block text-xs text-primary">{mainRelay || shortCommunity}</span>
         </div>
       </div>
     </Button>
@@ -185,6 +147,14 @@
         <Icon icon={ShieldUser} /> Admin
       </SecondaryNavItem>
 
+      <SecondaryNavItem {replaceState} href={accessPath}>
+        <Icon icon={ShieldUser} /> Access Requests
+      </SecondaryNavItem>
+
+      <SecondaryNavItem {replaceState} href={moderationPath}>
+        <Icon icon={ShieldUser} /> Moderation
+      </SecondaryNavItem>
+
       <SecondaryNavHeader>Rooms</SecondaryNavHeader>
 
       <SecondaryNavItem {replaceState} href={roomsPath} notification={$notifications.has(roomsPath)}>
@@ -197,7 +167,7 @@
         </SecondaryNavItem>
       {/if}
 
-      {#each activeRooms as room (room.id)}
+      {#each rooms as room (room.id)}
         {@const roomPath = makeCommunityRoomPath(community, room.id)}
         <SecondaryNavItem {replaceState} href={roomPath} notification={$notifications.has(roomPath)}>
           <Icon icon={Hashtag} />

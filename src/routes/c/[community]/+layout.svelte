@@ -13,7 +13,7 @@
   import {deriveRelayAuthError} from "@app/core/state"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {
-    activeCommunityRelays,
+    activeCommunityDefinition,
     loadCommunityBootstrap,
     makeCommunitySession,
     setActiveCommunityDefinition,
@@ -73,7 +73,7 @@
   })
 
   $effect(() => {
-    const url = $activeCommunityRelays[0] || parsedCommunity?.relays[0] || ""
+    const url = $activeCommunityDefinition?.relays[0] || parsedCommunity?.relays[0] || ""
 
     authRelayUrl = url
     relayAuthError = ""

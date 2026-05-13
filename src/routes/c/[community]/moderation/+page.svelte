@@ -8,6 +8,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Button from "@lib/components/Button.svelte"
+  import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {pushToast} from "@app/util/toast"
@@ -315,25 +316,33 @@
           <strong>{activeForm ? "Replace application form" : "Create application form"}</strong>
           <p class="text-sm opacity-70">This publishes a moderator-authored NIP-101 form for {selected.section.name}.</p>
         </div>
-        <label class="flex flex-col gap-1">
-          <span class="font-medium">Identifier</span>
-          <input class="input input-bordered" value={editor.identifier} oninput={event => updateEditor(selected.section.name, {identifier: event.currentTarget.value})} />
-        </label>
-        <label class="flex flex-col gap-1">
-          <span class="font-medium">Name</span>
-          <input class="input input-bordered" value={editor.name} oninput={event => updateEditor(selected.section.name, {name: event.currentTarget.value})} />
-        </label>
-        <label class="flex flex-col gap-1">
-          <span class="font-medium">Description</span>
-          <textarea class="textarea textarea-bordered" value={editor.description} oninput={event => updateEditor(selected.section.name, {description: event.currentTarget.value})}></textarea>
-        </label>
-        <label class="flex flex-col gap-1">
-          <span class="font-medium">Fields</span>
-          <textarea class="textarea textarea-bordered min-h-36" value={editor.questions} oninput={event => updateEditor(selected.section.name, {questions: event.currentTarget.value})}></textarea>
-          <span class="text-xs opacity-60">
-            One field per line. Use "text: Question", "label: Instructions", or "option: Question | yes=Yes, no=No".
-          </span>
-        </label>
+        <Field>
+          {#snippet label()}<p>Identifier</p>{/snippet}
+          {#snippet input()}
+            <input class="input input-bordered w-full" value={editor.identifier} oninput={event => updateEditor(selected.section.name, {identifier: event.currentTarget.value})} />
+          {/snippet}
+        </Field>
+        <Field>
+          {#snippet label()}<p>Name</p>{/snippet}
+          {#snippet input()}
+            <input class="input input-bordered w-full" value={editor.name} oninput={event => updateEditor(selected.section.name, {name: event.currentTarget.value})} />
+          {/snippet}
+        </Field>
+        <Field>
+          {#snippet label()}<p>Description</p>{/snippet}
+          {#snippet input()}
+            <textarea class="textarea textarea-bordered w-full" value={editor.description} oninput={event => updateEditor(selected.section.name, {description: event.currentTarget.value})}></textarea>
+          {/snippet}
+        </Field>
+        <Field>
+          {#snippet label()}<p>Fields</p>{/snippet}
+          {#snippet input()}
+            <textarea class="textarea textarea-bordered min-h-36 w-full" value={editor.questions} oninput={event => updateEditor(selected.section.name, {questions: event.currentTarget.value})}></textarea>
+            <span class="text-xs opacity-60">
+              One field per line. Use "text: Question", "label: Instructions", or "option: Question | yes=Yes, no=No".
+            </span>
+          {/snippet}
+        </Field>
         <div class="flex justify-end">
           <Button type="submit" class="btn btn-primary">Publish form</Button>
         </div>

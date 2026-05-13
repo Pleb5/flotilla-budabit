@@ -23,6 +23,8 @@
     hideZap?: boolean
     customActions?: Snippet
     relays?: string[]
+    scopeH?: string
+    readOnly?: boolean
     showReport?: boolean
     allowAdminDelete?: boolean
   }
@@ -34,6 +36,8 @@
     hideZap,
     customActions,
     relays = [],
+    scopeH = "",
+    readOnly = false,
     showReport = true,
     allowAdminDelete = true,
   }: Props = $props()
@@ -68,6 +72,7 @@
       event,
       content: emoji.unicode,
       relays: reactionRelays,
+      tags: scopeH ? [["h", scopeH]] : [],
       protect: await getShouldProtect(),
     })
 
@@ -82,14 +87,16 @@
   data-stop-link
   data-stop-tap
   oncontextmenu={onContextMenu}>
-  {#if ENABLE_ZAPS && !hideZap}
+  {#if ENABLE_ZAPS && !hideZap && !readOnly}
     <ZapButton {url} {event} class="btn join-item btn-neutral btn-xs">
       <Icon icon={Bolt} size={4} />
     </ZapButton>
   {/if}
-  <EmojiButton {onEmoji} class="btn join-item btn-neutral btn-xs">
-    <Icon icon={SmileCircle} size={4} />
-  </EmojiButton>
+  {#if !readOnly}
+    <EmojiButton {onEmoji} class="btn join-item btn-neutral btn-xs">
+      <Icon icon={SmileCircle} size={4} />
+    </EmojiButton>
+  {/if}
   <Tippy
     bind:popover
     component={EventMenu}
@@ -100,6 +107,7 @@
       customActions,
       onClick: hidePopover,
       relays,
+      scopeH,
       showReport,
       allowAdminDelete,
     }}

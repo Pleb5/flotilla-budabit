@@ -10,6 +10,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Field from "@lib/components/Field.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import ThreadItem from "@app/components/ThreadItem.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -54,6 +55,18 @@
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.forumThread,
+        }),
+    ),
+  )
+  const canReact = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.reaction,
         }),
     ),
   )
@@ -140,10 +153,12 @@
 
   <div class="col-2">
     {#each threads as thread (thread.id)}
-      <a href={makeCommunityThreadPath(communityPubkey, thread.id)} class="card2 bg-alt p-4 shadow-md">
-        <strong>{thread.title}</strong>
-        <p class="line-clamp-2 text-sm opacity-70">{thread.content}</p>
-      </a>
+      <ThreadItem
+        url={communityPubkey}
+        relays={$activeCommunityRelays}
+        scopeH={communityPubkey}
+        readOnly={!canReact}
+        event={thread.event} />
     {:else}
       <p class="py-8 text-center opacity-70">No threads found.</p>
     {/each}

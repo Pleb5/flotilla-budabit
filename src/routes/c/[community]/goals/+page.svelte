@@ -12,6 +12,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Field from "@lib/components/Field.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import GoalItem from "@app/components/GoalItem.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -64,6 +65,18 @@
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.fundraiser,
+        }),
+    ),
+  )
+  const canReact = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.reaction,
         }),
     ),
   )
@@ -186,11 +199,12 @@
 
   <div class="col-2">
     {#each $goals as goal (goal.id)}
-      <div class="card2 bg-alt p-4 shadow-md">
-        <strong>{goal.content || "Untitled fundraiser"}</strong>
-        <p class="text-sm opacity-70">Amount: {getTagValue("amount", goal.tags) || "unknown"} sats</p>
-        <p class="whitespace-pre-wrap">{getTagValue("summary", goal.tags) || ""}</p>
-      </div>
+      <GoalItem
+        url={communityPubkey}
+        relays={$activeCommunityRelays}
+        scopeH={communityPubkey}
+        readOnly={!canReact}
+        event={goal} />
     {:else}
       <p class="py-8 text-center opacity-70">No targeted fundraisers found.</p>
     {/each}

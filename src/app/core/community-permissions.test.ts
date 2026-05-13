@@ -1,12 +1,20 @@
 import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
-import {BADGE_DEFINITION_KIND, COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
+import {BADGE_DEFINITION_KIND, COMMUNITY_DEFINITION_KIND, FORM_RESPONSE_KIND, FORM_TEMPLATE_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
+import {
+  makeAdmissionFormAddress,
+  makeAdmissionFormTemplate,
+  makeAdmissionResponse,
+  makeAdmissionReview,
+  parseAdmissionForm,
+} from "./community-forms"
 import {
   COMMUNITY_WRITE_TARGETS,
   canWriteCommunityTarget,
   findBadgeDefinitionEvent,
   findProfileListEvent,
   getCommunityCapabilityKey,
+  getCommunityPublishGateState,
   getCommunityPublishCapabilityMap,
   getCommunitySectionWriterPubkeys,
   getCommunityWriteTarget,
@@ -153,6 +161,92 @@ describe("community permissions", () => {
     expect(capabilities["1111"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["7"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["30617"]).toMatchObject({sectionName: "Repositories", canWrite: false})
+  })
+
+  it("classifies publish gate state by login, write access, and admission status", () => {
+    const formTemplate = makeAdmissionFormTemplate({
+      identifier: "general-application",
+      communityPubkey,
+      sectionName: "General",
+      name: "General application",
+      fields: [{id: "q1", label: "Why should we grant access?"}],
+    })
+    const form = parseAdmissionForm(
+      makeEvent({
+        id: "general-form",
+        kind: FORM_TEMPLATE_KIND,
+        pubkey: managerPubkey,
+        tags: formTemplate.tags,
+      }),
+    )!
+    const response = makeEvent({
+      id: "response",
+      kind: FORM_RESPONSE_KIND,
+      pubkey: outsiderPubkey,
+      tags: makeAdmissionResponse({
+        formAddress: makeAdmissionFormAddress(managerPubkey, "general-application"),
+        values: {q1: "I build community tooling."},
+      }).tags,
+    })
+    const rejection = makeEvent({
+      id: "rejection",
+      kind: 7,
+      pubkey: managerPubkey,
+      created_at: 2,
+      content: "-",
+      tags: makeAdmissionReview({
+        responseId: "response",
+        applicantPubkey: outsiderPubkey,
+        status: "rejected",
+      }).tags,
+    })
+
+    expect(
+      getCommunityPublishGateState({
+        definition,
+        profileListEvents: [generalProfileList],
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        form,
+      }).status,
+    ).toBe("login-required")
+    expect(
+      getCommunityPublishGateState({
+        definition,
+        profileListEvents: [generalProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        form,
+      }).status,
+    ).toBe("allowed")
+    expect(
+      getCommunityPublishGateState({
+        definition,
+        profileListEvents: [generalProfileList],
+        userPubkey: outsiderPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        form,
+        responseEvents: [response],
+      }).status,
+    ).toBe("pending")
+    expect(
+      getCommunityPublishGateState({
+        definition,
+        profileListEvents: [generalProfileList],
+        userPubkey: outsiderPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        form,
+        responseEvents: [response],
+        reviewEvents: [rejection],
+      }).status,
+    ).toBe("rejected")
+    expect(
+      getCommunityPublishGateState({
+        definition,
+        profileListEvents: [generalProfileList],
+        userPubkey: outsiderPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+      }).status,
+    ).toBe("missing")
   })
 
   it("derives section writer pubkeys from authoritative profile lists", () => {
