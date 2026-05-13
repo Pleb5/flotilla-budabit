@@ -11,6 +11,9 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import ChannelMessage from "@app/components/ChannelMessage.svelte"
+  import Content from "@app/components/Content.svelte"
+  import NoteCard from "@app/components/NoteCard.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -80,6 +83,18 @@
         }),
     ),
   )
+  const canReact = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.reaction,
+        }),
+    ),
+  )
 
   const sendReply = () => {
     const trimmed = reply.trim()
@@ -138,8 +153,10 @@
 <PageContent class="content col-4 p-4">
   {#if thread}
     <article class="card2 bg-alt p-4 shadow-md">
-      <h1 class="text-xl font-bold">{thread.title}</h1>
-      <p class="whitespace-pre-wrap">{thread.content}</p>
+      <NoteCard event={thread.event} url={communityPubkey}>
+        <h1 class="text-xl font-bold">{thread.title}</h1>
+        <Content event={thread.event} url={communityPubkey} expandMode="inline" />
+      </NoteCard>
     </article>
   {/if}
 
@@ -157,9 +174,15 @@
   <div class="col-2">
     {#each replies as item (item?.id)}
       {#if item}
-        <div class="card2 bg-alt p-4 shadow-sm">
-          <p class="text-xs opacity-50">{item.event.pubkey.slice(0, 8)}</p>
-          <p class="whitespace-pre-wrap">{item.event.content}</p>
+        <div class="card2 bg-alt shadow-sm">
+          <ChannelMessage
+            url={communityPubkey}
+            event={item.event}
+            showPubkey
+            readOnly={!canReact}
+            interactionRelays={$activeCommunityRelays}
+            scopeH={communityPubkey}
+            protectInteractions={false} />
         </div>
       {/if}
     {:else}

@@ -29,6 +29,7 @@
     replyTo?: (event: TrustedEvent) => void
     showPubkey?: boolean
     inert?: boolean
+    readOnly?: boolean
     interactionRelays?: string[]
     scopeH?: string
     protectInteractions?: boolean
@@ -40,6 +41,7 @@
     replyTo = undefined,
     showPubkey = false,
     inert = false,
+    readOnly = false,
     interactionRelays = [],
     scopeH = "",
     protectInteractions = true,
@@ -62,7 +64,7 @@
     return [["h", scopeH]]
   })
 
-  const reply = replyTo ? () => replyTo(event) : undefined
+  const reply = !readOnly && replyTo ? () => replyTo(event) : undefined
 
   const openMobileMenu = () =>
     pushModal(ChannelMessageMenuMobile, {
@@ -112,12 +114,14 @@
   {#if isMobile && !inert}
     <div
       class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
-      <ChannelMessageEmojiButton
-        {url}
-        {event}
-        relays={relayTargets}
-        {scopeH}
-        protect={protectInteractions} />
+      {#if !readOnly}
+        <ChannelMessageEmojiButton
+          {url}
+          {event}
+          relays={relayTargets}
+          {scopeH}
+          protect={protectInteractions} />
+      {/if}
       {#if reply}
         <Button
           class="btn join-item btn-xs"
@@ -192,27 +196,30 @@
     </div>
   </div>
   <div class="row-2 ml-10 mt-1 flex items-center gap-2 pl-1">
-    <ReactionSummary
-      {url}
-      relays={relayTargets}
-      {scopeH}
-      {event}
-      {deleteReaction}
-      {createReaction}
-      reactionClass="tooltip-right" />
+      <ReactionSummary
+        {url}
+        relays={relayTargets}
+        {scopeH}
+        {event}
+        {readOnly}
+        {deleteReaction}
+        {createReaction}
+        reactionClass="tooltip-right" />
   </div>
   {#if !isMobile}
     <div
       class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
-      {#if ENABLE_ZAPS}
+      {#if ENABLE_ZAPS && !readOnly}
         <ChannelMessageZapButton {url} {event} />
       {/if}
-      <ChannelMessageEmojiButton
-        {url}
-        {event}
-        relays={relayTargets}
-        {scopeH}
-        protect={protectInteractions} />
+      {#if !readOnly}
+        <ChannelMessageEmojiButton
+          {url}
+          {event}
+          relays={relayTargets}
+          {scopeH}
+          protect={protectInteractions} />
+      {/if}
       {#if reply}
         <Button class="btn join-item btn-xs" onclick={reply}>
           <Icon icon={Reply} size={4} />
@@ -223,8 +230,10 @@
         {event}
         relays={relayTargets}
         protect={protectInteractions ? undefined : false}
-        readOnly={inert} />
-      <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
+        readOnly={inert || readOnly} />
+      {#if !readOnly}
+        <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
+      {/if}
     </div>
   {/if}
 </TapTarget>

@@ -11,6 +11,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -76,6 +77,18 @@
         }),
     ),
   )
+  const canReact = $derived(
+    Boolean(
+      $pubkey &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.reaction,
+        }),
+    ),
+  )
 
   const sendMessage = () => {
     const trimmed = message.trim()
@@ -134,9 +147,15 @@
 <PageContent class="flex flex-col gap-4 p-4">
   <div class="flex min-h-80 flex-col-reverse gap-2">
     {#each messages as item (item.id)}
-      <div class="card2 bg-alt p-3 shadow-sm">
-        <p class="text-xs opacity-50">{item.event.pubkey.slice(0, 8)}</p>
-        <p class="whitespace-pre-wrap">{item.event.content}</p>
+      <div class="card2 bg-alt shadow-sm">
+        <ChannelMessage
+          url={communityPubkey}
+          event={item.event}
+          showPubkey
+          readOnly={!canReact}
+          interactionRelays={$activeCommunityRelays}
+          scopeH={communityPubkey}
+          protectInteractions={false} />
       </div>
     {:else}
       <p class="py-8 text-center opacity-70">No messages yet.</p>

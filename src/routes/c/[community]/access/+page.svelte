@@ -9,6 +9,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
+  import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
@@ -18,6 +19,8 @@
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
+    activeCommunitySession,
+    loadCommunityBootstrap,
   } from "@app/core/community-state"
   import {findProfileListEvent, getGrantCapableSectionModeratorPubkeys, getPrimaryProfileListRef} from "@app/core/community-permissions"
   import {
@@ -166,6 +169,12 @@
                 ? `${item.section.name} access granted.`
                 : `${item.section.name} application rejected.`,
           })
+
+          if ($activeCommunitySession) {
+            void loadCommunityBootstrap($activeCommunitySession).catch(error => {
+              console.warn("[community] Failed to refresh permission state", error)
+            })
+          }
         }
       }
     }
@@ -231,29 +240,35 @@
                 {#if field?.type === "label"}
                   <p class="rounded-box bg-base-200 p-3 text-sm">{field.label}</p>
                 {:else if field?.type === "option"}
-                  <fieldset class="flex flex-col gap-2" disabled={item.state.status !== "none"}>
-                    <legend class="font-medium">{field.label}</legend>
-                    {#each field.options as option}
-                      <label class="flex items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          name={`${item.section.name}-${field.id}`}
-                          class="radio radio-sm"
-                          checked={getAnswer(item.section.name, field, item.state.response) === option.id}
-                          onchange={() => setAnswer(item.section.name, field.id, option.id)} />
-                        <span>{option.label}</span>
-                      </label>
-                    {/each}
-                  </fieldset>
+                  <Field>
+                    {#snippet label()}<p>{field.label}</p>{/snippet}
+                    {#snippet input()}
+                      <fieldset class="flex flex-col gap-2" disabled={item.state.status !== "none"}>
+                        {#each field.options as option}
+                          <label class="flex items-center gap-2 text-sm">
+                            <input
+                              type="radio"
+                              name={`${item.section.name}-${field.id}`}
+                              class="radio radio-sm"
+                              checked={getAnswer(item.section.name, field, item.state.response) === option.id}
+                              onchange={() => setAnswer(item.section.name, field.id, option.id)} />
+                            <span>{option.label}</span>
+                          </label>
+                        {/each}
+                      </fieldset>
+                    {/snippet}
+                  </Field>
                 {:else if field}
-                  <label class="flex flex-col gap-1">
-                    <span class="font-medium">{field.label}</span>
-                    <textarea
-                      class="textarea textarea-bordered min-h-24"
-                      disabled={item.state.status !== "none"}
-                      value={getAnswer(item.section.name, field, item.state.response)}
-                      oninput={event => setAnswer(item.section.name, field.id, event.currentTarget.value)}></textarea>
-                  </label>
+                  <Field>
+                    {#snippet label()}<p>{field.label}</p>{/snippet}
+                    {#snippet input()}
+                      <textarea
+                        class="textarea textarea-bordered min-h-24 w-full"
+                        disabled={item.state.status !== "none"}
+                        value={getAnswer(item.section.name, field, item.state.response)}
+                        oninput={event => setAnswer(item.section.name, field.id, event.currentTarget.value)}></textarea>
+                    {/snippet}
+                  </Field>
                 {/if}
               {/each}
 
