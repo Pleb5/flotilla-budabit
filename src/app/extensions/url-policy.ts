@@ -1,4 +1,4 @@
-const LOCAL_HTTP_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"])
+const LOCAL_HTTP_HOSTS = new Set(["localhost", "127.0.0.1"])
 
 export const SECURE_EMBED_URL_REQUIREMENT = "Use HTTPS, or localhost HTTP for development."
 

@@ -22,7 +22,6 @@ export default {
           "self",
           "http://localhost:*",
           "http://127.0.0.1:*",
-          "http://[::1]:*",
           "https://localhost:*",
           "https:",
         ],
