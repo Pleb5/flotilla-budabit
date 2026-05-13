@@ -8,8 +8,8 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -114,9 +114,9 @@
       {/snippet}
     </Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!title.trim() || !content.trim() || !canCreateThread}>
+      <PublishGate target={COMMUNITY_WRITE_TARGETS.forumThread} action="create forum threads" submit disabled={!title.trim() || !content.trim()}>
         Create thread
-      </Button>
+      </PublishGate>
     </div>
   </form>
 

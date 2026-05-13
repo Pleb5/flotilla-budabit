@@ -11,6 +11,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -233,7 +234,9 @@
       {/snippet}
     </Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!roomName.trim() || !canCreateRoom}>Create room</Button>
+      <PublishGate target={COMMUNITY_WRITE_TARGETS.roomRoot} action="create rooms" submit disabled={!roomName.trim()}>
+        Create room
+      </PublishGate>
     </div>
   </form>
 
