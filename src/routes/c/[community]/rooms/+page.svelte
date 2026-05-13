@@ -30,6 +30,7 @@
   } from "@app/core/community-rooms"
   import {
     COMMUNITY_SECTION_GENERAL,
+    COMMUNITY_SECTION_ROOMS,
     findCommunitySection,
     getProfileListPubkeys,
   } from "@app/core/community"
@@ -37,16 +38,26 @@
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
     findProfileListEvent,
+    getCommunitySectionWriterPubkeys,
     getPrimaryProfileListRef,
   } from "@app/core/community-permissions"
   import {makeCommunityRoomPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const roomAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_ROOMS,
+        })
+      : [],
+  )
   const filters = $derived(
-    communityPubkey
+    communityPubkey && roomAuthorPubkeys.length
       ? [
-          makeCommunityRoomRootsFilter(communityPubkey),
+          makeCommunityRoomRootsFilter(communityPubkey, {authors: roomAuthorPubkeys}),
           makeCommunityExclusiveFilter(communityPubkey, [COMMUNITY_ROOM_LABEL_KIND], {
             "#L": [COMMUNITY_ROOM_LABEL_NAMESPACE],
           }),

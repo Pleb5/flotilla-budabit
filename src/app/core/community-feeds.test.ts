@@ -131,5 +131,12 @@ describe("community feed helpers", () => {
       {kinds: [1623], ids: ["permalink-event-id"]},
       {kinds: [9041], "#h": ["target-fundraiser"]},
     ])
+    expect(
+      makeTargetedPublicationOriginalFilters([calendarTarget, permalinkTarget, fundraiserTarget], [authorPubkey]),
+    ).toEqual([
+      {kinds: [31922], authors: [authorPubkey], "#d": ["calendar-1"]},
+      {kinds: [1623], ids: ["permalink-event-id"], authors: [authorPubkey]},
+      {kinds: [9041], "#h": ["target-fundraiser"], authors: [authorPubkey]},
+    ])
   })
 })

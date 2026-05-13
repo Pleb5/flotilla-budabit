@@ -90,20 +90,24 @@ export const isRoomMessage = (event: TrustedEvent, communityPubkey?: string, roo
   return Boolean(getRoomRootIdForMessage(event))
 }
 
-export const makeTargetedPublicationOriginalFilters = (targetingEvents: TrustedEvent[]): Filter[] => {
+export const makeTargetedPublicationOriginalFilters = (
+  targetingEvents: TrustedEvent[],
+  allowedAuthors?: string[],
+): Filter[] => {
   const filters: Filter[] = []
+  const allowedAuthorSet = allowedAuthors?.length ? new Set(allowedAuthors.map(normalizePubkey).filter(Boolean)) : undefined
 
   for (const event of targetingEvents) {
     const targeting = parseTargetedPublication(event)
     if (!targeting) continue
 
     if (!targeting.ref) {
-      filters.push({kinds: [targeting.kind], "#h": [targeting.id]})
+      filters.push({kinds: [targeting.kind], "#h": [targeting.id], ...(allowedAuthors?.length ? {authors: allowedAuthors} : {})})
       continue
     }
 
     if (targeting.ref.type === "e") {
-      filters.push({kinds: [targeting.kind], ids: [targeting.ref.value]})
+      filters.push({kinds: [targeting.kind], ids: [targeting.ref.value], ...(allowedAuthors?.length ? {authors: allowedAuthors} : {})})
       continue
     }
 
@@ -112,6 +116,7 @@ export const makeTargetedPublicationOriginalFilters = (targetingEvents: TrustedE
     const identifier = identifierParts.join(":")
 
     if (!Number.isInteger(kind) || !author || !identifier) continue
+    if (allowedAuthorSet && !allowedAuthorSet.has(normalizePubkey(author))) continue
 
     filters.push({kinds: [kind], authors: [author], "#d": [identifier]})
   }

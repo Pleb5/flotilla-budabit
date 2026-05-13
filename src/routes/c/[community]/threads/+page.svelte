@@ -19,12 +19,30 @@
   } from "@app/core/community-state"
   import {makeCommunityForumThreadsFilter} from "@app/core/community-feeds"
   import {makeCommunityForumThread, readCommunityForumThreads} from "@app/core/community-forum"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {COMMUNITY_SECTION_FORUM} from "@app/core/community"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunitySectionWriterPubkeys,
+  } from "@app/core/community-permissions"
   import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
-  const filters = $derived(communityPubkey ? [makeCommunityForumThreadsFilter(communityPubkey)] : [])
+  const forumAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_FORUM,
+        })
+      : [],
+  )
+  const filters = $derived(
+    communityPubkey && forumAuthorPubkeys.length
+      ? [makeCommunityForumThreadsFilter(communityPubkey, {authors: forumAuthorPubkeys})]
+      : [],
+  )
   const events = $derived(deriveEventsAsc(deriveEventsById({repository, filters})))
   const threads = $derived(readCommunityForumThreads($events, communityPubkey))
   const canCreateThread = $derived(

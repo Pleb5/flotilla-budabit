@@ -8,6 +8,7 @@ import {
   findProfileListEvent,
   getCommunityCapabilityKey,
   getCommunityPublishCapabilityMap,
+  getCommunitySectionWriterPubkeys,
   getCommunityWriteTarget,
   getGrantCapableSectionModeratorPubkeys,
   getGrantCapability,
@@ -152,5 +153,18 @@ describe("community permissions", () => {
     expect(capabilities["1111"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["7"]).toMatchObject({sectionName: "General", canWrite: true})
     expect(capabilities["30617"]).toMatchObject({sectionName: "Repositories", canWrite: false})
+  })
+
+  it("derives section writer pubkeys from authoritative profile lists", () => {
+    expect(
+      getCommunitySectionWriterPubkeys({
+        definition,
+        profileListEvents: [generalProfileList, repoProfileList],
+        sectionName: "General",
+      }),
+    ).toEqual([memberPubkey])
+    expect(
+      getCommunitySectionWriterPubkeys({definition, profileListEvents: [], sectionName: "General"}),
+    ).toEqual([])
   })
 })

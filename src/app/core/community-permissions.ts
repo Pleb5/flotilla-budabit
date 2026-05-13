@@ -19,6 +19,7 @@ import {
   type CommunitySection,
   canWriteFromProfileList,
   findCommunitySection,
+  getProfileListPubkeys,
   normalizePubkey,
   sectionSupportsKind,
   userCanIssueBadge,
@@ -187,6 +188,21 @@ export const getGrantCapableSectionModeratorPubkeys = ({
         .filter(Boolean),
     ),
   )
+}
+
+export const getCommunitySectionWriterPubkeys = ({
+  definition,
+  profileListEvents,
+  sectionName,
+}: {
+  definition: CommunityDefinition
+  profileListEvents: TrustedEvent[]
+  sectionName: string
+}) => {
+  const section = findCommunitySection(definition, sectionName)
+  const profileList = findProfileListEvent(getPrimaryProfileListRef(section), profileListEvents)
+
+  return getProfileListPubkeys(profileList)
 }
 
 export const getGrantCapability = ({
