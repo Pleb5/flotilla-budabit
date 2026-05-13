@@ -9,6 +9,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Button from "@lib/components/Button.svelte"
   import {preventDefault} from "@lib/html"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
   import {pushToast} from "@app/util/toast"
   import {FORM_RESPONSE_KIND, normalizePubkey} from "@app/core/community"
   import {makeCommunityGrantEvents} from "@app/core/community-admin"
@@ -23,6 +24,7 @@
     COMMUNITY_FORM_DELETE_KIND,
     COMMUNITY_FORM_REVIEW_KIND,
     type CommunityAdmissionForm,
+    type CommunityFormFieldInput,
     getAdmissionSubmissionState,
     makeAdmissionFormTemplate,
     makeAdmissionReview,
@@ -118,12 +120,75 @@
   const defaultIdentifier = (sectionName: string) =>
     `${sectionName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "section"}-application`
 
+  const normalizeOptionId = (value: string, index: number) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || `option-${index + 1}`
+
+  const formatFormFields = (form?: CommunityAdmissionForm) => {
+    if (!form) return "text: Why should this community grant you access?"
+
+    return form.fieldOrder
+      .map(fieldId => form.fields[fieldId])
+      .filter(Boolean)
+      .map(field => {
+        if (field.type === "label") return `label: ${field.label}`
+        if (field.type === "option") {
+          const options = field.options.map(option => `${option.id}=${option.label}`).join(", ")
+
+          return `option: ${field.label}${options ? ` | ${options}` : ""}`
+        }
+
+        return `text: ${field.label}`
+      })
+      .join("\n")
+  }
+
+  const parseEditorFields = (source: string): CommunityFormFieldInput[] =>
+    source
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map((line, index) => {
+        const separatorIndex = line.indexOf(":")
+        const prefix = separatorIndex > -1 ? line.slice(0, separatorIndex).trim().toLowerCase() : ""
+        const body = separatorIndex > -1 ? line.slice(separatorIndex + 1).trim() : line
+        const id = `q${index + 1}`
+
+        if (prefix === "label") return {id, type: "label", label: body}
+
+        if (prefix === "option") {
+          const [label = "", optionSource = ""] = body.split("|").map(value => value.trim())
+          const options = optionSource
+            .split(",")
+            .map(value => value.trim())
+            .filter(Boolean)
+            .map((value, optionIndex) => {
+              const [rawId, rawLabel] = value.includes("=")
+                ? value.split(/=(.*)/s).filter(Boolean)
+                : [normalizeOptionId(value, optionIndex), value]
+
+              return {
+                id: normalizeOptionId(rawId || rawLabel || "", optionIndex),
+                label: (rawLabel || rawId || "").trim(),
+              }
+            })
+            .filter(option => option.id && option.label)
+
+          return {id, type: "option", label, options, settings: {required: true}}
+        }
+
+        return {id, type: "text", label: prefix === "text" ? body : line, settings: {required: true}}
+      })
+      .filter(field => field.label.trim() && (field.type !== "option" || Boolean(field.options?.length)))
+
   const getEditor = (sectionName: string, form?: CommunityAdmissionForm): EditableForm =>
     editors[sectionName] || {
       identifier: form?.identifier || defaultIdentifier(sectionName),
       name: form?.name || `${sectionName} application`,
       description: form?.description || "",
-      questions: form?.fieldOrder.map(fieldId => form.fields[fieldId]?.label).filter(Boolean).join("\n") || "Why should this community grant you access?",
+      questions: formatFormFields(form),
     }
 
   const updateEditor = (sectionName: string, updates: Partial<EditableForm>) => {
@@ -137,13 +202,10 @@
     }
 
     const editor = getEditor(selected.section.name, activeForm)
-    const questions = editor.questions
-      .split("\n")
-      .map(question => question.trim())
-      .filter(Boolean)
+    const fields = parseEditorFields(editor.questions)
 
-    if (!editor.identifier.trim() || !editor.name.trim() || questions.length === 0) {
-      pushToast({theme: "error", message: "Add an identifier, name, and at least one question."})
+    if (!editor.identifier.trim() || !editor.name.trim() || fields.length === 0) {
+      pushToast({theme: "error", message: "Add an identifier, name, and at least one valid field."})
       return
     }
 
@@ -154,12 +216,7 @@
       name: editor.name,
       description: editor.description,
       relays: $activeCommunityRelays,
-      fields: questions.map((question, index) => ({
-        id: `q${index + 1}`,
-        type: "text",
-        label: question,
-        settings: {required: true},
-      })),
+      fields,
     })
 
     publishThunk({relays: $activeCommunityRelays, event: makeEvent(template.kind, template)})
@@ -271,9 +328,11 @@
           <textarea class="textarea textarea-bordered" value={editor.description} oninput={event => updateEditor(selected.section.name, {description: event.currentTarget.value})}></textarea>
         </label>
         <label class="flex flex-col gap-1">
-          <span class="font-medium">Questions</span>
+          <span class="font-medium">Fields</span>
           <textarea class="textarea textarea-bordered min-h-36" value={editor.questions} oninput={event => updateEditor(selected.section.name, {questions: event.currentTarget.value})}></textarea>
-          <span class="text-xs opacity-60">One text question per line. More field types can be added after the review flow stabilizes.</span>
+          <span class="text-xs opacity-60">
+            One field per line. Use "text: Question", "label: Instructions", or "option: Question | yes=Yes, no=No".
+          </span>
         </label>
         <div class="flex justify-end">
           <Button type="submit" class="btn btn-primary">Publish form</Button>
@@ -303,7 +362,9 @@
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
                   <strong>{application.sectionName}</strong>
-                  <p class="truncate text-xs opacity-70">Applicant: {application.response.event.pubkey}</p>
+                  <p class="truncate text-xs opacity-70">
+                    Applicant: <ProfileLink pubkey={application.response.event.pubkey} />
+                  </p>
                   <p class="text-xs opacity-70">Submitted {new Date(application.response.event.created_at * 1000).toLocaleString()}</p>
                 </div>
                 <span class="badge">{application.state.status}</span>
