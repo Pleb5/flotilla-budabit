@@ -10,7 +10,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Button from "@lib/components/Button.svelte"
+  import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -21,15 +21,42 @@
   import {makeCommunityRoomMessagesFilter} from "@app/core/community-feeds"
   import {makeCommunityRoomMessage, readCommunityRoomMessages} from "@app/core/community-messages"
   import {readCommunityRoomRoot} from "@app/core/community-rooms"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {COMMUNITY_SECTION_GENERAL, COMMUNITY_SECTION_ROOMS} from "@app/core/community"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunitySectionWriterPubkeys,
+  } from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const roomId = $derived($page.params.room || "")
-  const roomFilters = $derived(roomId ? [{kinds: [THREAD], ids: [roomId]}] : [])
+  const roomAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_ROOMS,
+        })
+      : [],
+  )
+  const messageAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_GENERAL,
+        })
+      : [],
+  )
+  const roomFilters = $derived(
+    roomId && roomAuthorPubkeys.length ? [{kinds: [THREAD], ids: [roomId], authors: roomAuthorPubkeys}] : [],
+  )
   const messageFilters = $derived(
-    communityPubkey && roomId ? [makeCommunityRoomMessagesFilter(communityPubkey, roomId)] : [],
+    communityPubkey && roomId && messageAuthorPubkeys.length
+      ? [makeCommunityRoomMessagesFilter(communityPubkey, roomId, {authors: messageAuthorPubkeys})]
+      : [],
   )
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
   const messageEvents = $derived(
@@ -121,6 +148,8 @@
       <Icon icon={ChatRound} />
       <input bind:value={message} class="grow" type="text" placeholder="Message this room" />
     </label>
-    <Button type="submit" class="btn btn-primary" disabled={!message.trim() || !canSendMessage}>Send</Button>
+    <PublishGate target={COMMUNITY_WRITE_TARGETS.roomMessage} action="message rooms" submit disabled={!message.trim()}>
+      Send
+    </PublishGate>
   </form>
 </PageContent>

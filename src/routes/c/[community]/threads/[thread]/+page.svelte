@@ -10,7 +10,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Button from "@lib/components/Button.svelte"
+  import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -23,14 +23,41 @@
     readCommunityForumReply,
     readCommunityForumThread,
   } from "@app/core/community-forum"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {COMMUNITY_SECTION_FORUM, COMMUNITY_SECTION_GENERAL} from "@app/core/community"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunitySectionWriterPubkeys,
+  } from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const threadId = $derived($page.params.thread || "")
-  const threadFilters = $derived(threadId ? [{kinds: [THREAD], ids: [threadId]}] : [])
-  const replyFilters = $derived(threadId ? [{kinds: [COMMENT], "#E": [threadId]}] : [])
+  const threadAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_FORUM,
+        })
+      : [],
+  )
+  const replyAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_GENERAL,
+        })
+      : [],
+  )
+  const threadFilters = $derived(
+    threadId && threadAuthorPubkeys.length ? [{kinds: [THREAD], ids: [threadId], authors: threadAuthorPubkeys}] : [],
+  )
+  const replyFilters = $derived(
+    threadId && replyAuthorPubkeys.length ? [{kinds: [COMMENT], "#E": [threadId], authors: replyAuthorPubkeys}] : [],
+  )
   const threadEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: threadFilters})))
   const replyEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})))
   const thread = $derived(
@@ -120,10 +147,10 @@
     <strong>Reply</strong>
     <textarea bind:value={reply} class="textarea textarea-bordered" rows="4"></textarea>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!reply.trim() || !canReply}>
+      <PublishGate target={COMMUNITY_WRITE_TARGETS.comment} action="reply" submit disabled={!reply.trim()}>
         <Icon icon={Reply} />
         Reply
-      </Button>
+      </PublishGate>
     </div>
   </form>
 
