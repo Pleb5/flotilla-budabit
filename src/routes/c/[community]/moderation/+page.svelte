@@ -283,7 +283,12 @@
 
     <section class="card2 bg-alt col-4 flex flex-col gap-4 p-4 shadow-md">
       <div>
-        <h2 class="text-xl font-semibold">Review queue</h2>
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="text-xl font-semibold">Review queue</h2>
+          {#if newApplications.length > 0}
+            <span class="badge badge-warning">{newApplications.length} new</span>
+          {/if}
+        </div>
         <p class="text-sm opacity-70">New applications are shown first, followed by granted and rejected submissions.</p>
       </div>
 
@@ -291,7 +296,10 @@
         <div class="flex flex-col gap-2">
           <h3 class="font-semibold">{group.label}</h3>
           {#each group.items as application (application.response.event.id)}
-            <article class="rounded-box border border-base-300 bg-base-100 p-3">
+            <article
+              class={`rounded-box border border-base-300 bg-base-100 p-3 ${
+                application.state.status === "pending" ? "border-warning bg-warning/10" : ""
+              }`}>
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
                   <strong>{application.sectionName}</strong>
@@ -300,14 +308,26 @@
                 </div>
                 <span class="badge">{application.state.status}</span>
               </div>
-              <div class="mt-3 grid gap-2">
-                {#each application.response.responses.slice(0, 3) as response}
+
+              {#if application.response.responses[0]}
+                <div class="mt-3 rounded-box bg-base-200 p-2 text-sm">
+                  <strong>{application.form.fields[application.response.responses[0].fieldId]?.label || application.response.responses[0].fieldId}</strong>
+                  <p class="line-clamp-3 whitespace-pre-wrap opacity-80">{application.response.responses[0].value}</p>
+                </div>
+              {/if}
+
+              <details class="mt-3">
+                <summary class="cursor-pointer text-sm font-medium">Review full response</summary>
+                <div class="mt-2 grid gap-2">
+                  {#each application.response.responses as response}
                   <div class="rounded-box bg-base-200 p-2 text-sm">
                     <strong>{application.form.fields[response.fieldId]?.label || response.fieldId}</strong>
                     <p class="whitespace-pre-wrap opacity-80">{response.value}</p>
                   </div>
-                {/each}
-              </div>
+                  {/each}
+                </div>
+              </details>
+
               <div class="mt-3 flex justify-end gap-2">
                 <Button class="btn btn-error btn-sm" disabled={application.state.status === "rejected"} onclick={() => reviewApplication(application, "rejected")}>Reject</Button>
                 <Button class="btn btn-success btn-sm" disabled={application.state.status === "granted"} onclick={() => reviewApplication(application, "granted")}>Grant</Button>

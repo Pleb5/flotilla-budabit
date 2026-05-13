@@ -1,20 +1,25 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {pubkey} from "@welshman/app"
+  import {request} from "@welshman/net"
+  import {pubkey, repository} from "@welshman/app"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import Button from "@lib/components/Button.svelte"
   import Link from "@lib/components/Link.svelte"
-  import {
-    activeCommunityAdmissionForms,
-    activeCommunityDefinition,
-    activeCommunityProfileListEvents,
-  } from "@app/core/community-state"
-  import {getProfileListPubkeys} from "@app/core/community"
+  import {activeCommunityAdmissionForms, activeCommunityDefinition, activeCommunityProfileListEvents, activeCommunityRelays} from "@app/core/community-state"
+  import {FORM_RESPONSE_KIND, getProfileListPubkeys} from "@app/core/community"
   import {
     canWriteCommunityTarget,
     findProfileListEvent,
+    getGrantCapableSectionModeratorPubkeys,
     getPrimaryProfileListRef,
     type CommunityWriteTarget,
   } from "@app/core/community-permissions"
+  import {
+    COMMUNITY_FORM_DELETE_KIND,
+    COMMUNITY_FORM_REVIEW_KIND,
+    getAdmissionSubmissionState,
+    type CommunitySubmissionState,
+  } from "@app/core/community-forms"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type Props = {
@@ -32,6 +37,22 @@
   const communityPubkey = $derived(parsedCommunity?.pubkey || $activeCommunityDefinition?.pubkey || "")
   const accessPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "access") : "")
   const section = $derived($activeCommunityDefinition?.sections.find(section => section.name === target.sectionName))
+  const form = $derived($activeCommunityAdmissionForms[target.sectionName])
+  const responseFilters = $derived(
+    $pubkey && form ? [{kinds: [FORM_RESPONSE_KIND], authors: [$pubkey], "#a": [form.address]}] : [],
+  )
+  const responseEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: responseFilters})))
+  const responseIds = $derived($responseEvents.map(event => event.id))
+  const deleteFilters = $derived(
+    $pubkey && responseIds.length
+      ? [{kinds: [COMMUNITY_FORM_DELETE_KIND], authors: [$pubkey], "#e": responseIds}]
+      : [],
+  )
+  const reviewFilters = $derived(
+    responseIds.length ? [{kinds: [COMMUNITY_FORM_REVIEW_KIND], "#e": responseIds}] : [],
+  )
+  const deleteEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: deleteFilters})))
+  const reviewEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})))
   const canWrite = $derived(
     Boolean(
       $pubkey &&
@@ -44,16 +65,48 @@
         }),
     ),
   )
-  const hasForm = $derived(Boolean($activeCommunityAdmissionForms[target.sectionName]))
+  const hasForm = $derived(Boolean(form))
   const profileListEvent = $derived(findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents))
   const writerCount = $derived(getProfileListPubkeys(profileListEvent).length)
+  const admissionState = $derived.by<CommunitySubmissionState>(() => {
+    if (canWrite) return {status: "granted"}
+    if (!$pubkey || !form || !$activeCommunityDefinition) return {status: "none"}
+
+    return getAdmissionSubmissionState({
+      responseEvents: $responseEvents,
+      deleteEvents: $deleteEvents,
+      reviewEvents: $reviewEvents,
+      formAddress: form.address,
+      applicantPubkey: $pubkey,
+      moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
+        definition: $activeCommunityDefinition,
+        sectionName: target.sectionName,
+      }),
+    })
+  })
   const reason = $derived(
     !$pubkey
       ? "Log in to request publishing access."
-      : !hasForm
-        ? `You need ${target.sectionName} permission to ${action}, but no application form is available yet.`
-        : `You need ${target.sectionName} permission to ${action}.`,
+      : admissionState.status === "pending"
+        ? `Your ${target.sectionName} access request is pending.`
+        : admissionState.status === "rejected"
+          ? `Your ${target.sectionName} access request was rejected. Delete it before resubmitting.`
+          : !hasForm
+            ? `You need ${target.sectionName} permission to ${action}, but no application form is available yet.`
+            : `You need ${target.sectionName} permission to ${action}.`,
   )
+
+  $effect(() => {
+    if ($activeCommunityRelays.length === 0) return
+
+    const filters = [...responseFilters, ...deleteFilters, ...reviewFilters]
+    if (filters.length === 0) return
+
+    const controller = new AbortController()
+    request({relays: $activeCommunityRelays, filters, signal: controller.signal})
+
+    return () => controller.abort()
+  })
 </script>
 
 {#if canWrite}
@@ -63,7 +116,13 @@
 {:else if accessPath && $pubkey && hasForm}
   <span title={reason}>
     <Link href={accessPath} class={`${className} btn-disabled pointer-events-auto opacity-75`}>
-      Request {target.sectionName} access
+      {#if admissionState.status === "pending"}
+        {target.sectionName} request pending
+      {:else if admissionState.status === "rejected"}
+        Revise {target.sectionName} request
+      {:else}
+        Request {target.sectionName} access
+      {/if}
     </Link>
   </span>
 {:else}

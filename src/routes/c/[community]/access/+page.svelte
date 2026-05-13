@@ -33,6 +33,8 @@
   } from "@app/core/community-forms"
 
   let answers = $state<Record<string, Record<string, string>>>({})
+  let previousStatuses = $state<Record<string, string>>({})
+  let statusesInitialized = $state(false)
 
   const forms = $derived($activeCommunityAdmissionForms)
   const formAddresses = $derived(Object.values(forms).map(form => form.address))
@@ -147,6 +149,30 @@
 
     return () => controller.abort()
   })
+
+  $effect(() => {
+    const nextStatuses = Object.fromEntries(sectionItems.map(item => [item.section.name, item.state.status]))
+
+    if (statusesInitialized) {
+      for (const item of sectionItems) {
+        const previous = previousStatuses[item.section.name]
+        const current = item.state.status
+
+        if (previous && previous !== current && (current === "granted" || current === "rejected")) {
+          pushToast({
+            theme: current === "granted" ? "success" : "warning",
+            message:
+              current === "granted"
+                ? `${item.section.name} access granted.`
+                : `${item.section.name} application rejected.`,
+          })
+        }
+      }
+    }
+
+    previousStatuses = nextStatuses
+    statusesInitialized = true
+  })
 </script>
 
 <PageBar>
@@ -174,7 +200,11 @@
 
     <div class="grid gap-3 lg:grid-cols-2">
       {#each sectionItems as item (item.section.name)}
-        <section class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
+        <section
+          class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md"
+          class:border-success={item.state.status === "granted"}
+          class:border-error={item.state.status === "rejected"}
+          class:border-warning={item.state.status === "pending"}>
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 class="text-lg font-semibold">{item.section.name}</h3>
