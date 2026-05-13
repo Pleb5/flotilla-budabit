@@ -10,8 +10,8 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -19,14 +19,18 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {COMMUNITY_SECTION_PERMALINKS, TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {
     GIT_PERMALINK_KIND,
     makeCommunityTargetingFilter,
     makeTargetedPublicationOriginalFilters,
   } from "@app/core/community-feeds"
   import {makeTargetedPublicationForCommunity, withPublicationTargetingId} from "@app/core/community-targeting"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunitySectionWriterPubkeys,
+  } from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -37,7 +41,20 @@
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
   )
-  const permalinkFilters = $derived(makeTargetedPublicationOriginalFilters($targetingEvents))
+  const permalinkAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_PERMALINKS,
+        })
+      : [],
+  )
+  const permalinkFilters = $derived(
+    permalinkAuthorPubkeys.length
+      ? makeTargetedPublicationOriginalFilters($targetingEvents, permalinkAuthorPubkeys)
+      : [],
+  )
   const permalinks = $derived(deriveEventsAsc(deriveEventsById({repository, filters: permalinkFilters})))
   const canCreatePermalink = $derived(
     Boolean(
@@ -146,9 +163,9 @@
     <Field>{#snippet label()}<p>Line</p>{/snippet}{#snippet input()}<input bind:value={line} class="input input-bordered w-full" />{/snippet}</Field>
     <Field>{#snippet label()}<p>Description</p>{/snippet}{#snippet input()}<textarea bind:value={description} class="textarea textarea-bordered" rows="3"></textarea>{/snippet}</Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !repo.trim() || !file.trim() || !commit.trim() || !canCreatePermalink}>
+      <PublishGate target={COMMUNITY_WRITE_TARGETS.permalink} action="publish permalinks" submit disabled={!repo.trim() || !file.trim() || !commit.trim()}>
         Publish permalink
-      </Button>
+      </PublishGate>
     </div>
   </form>
 

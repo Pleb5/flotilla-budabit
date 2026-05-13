@@ -10,8 +10,8 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -19,7 +19,7 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {COMMUNITY_SECTION_WIDGETS, TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {
     SMART_WIDGET_KIND,
     makeCommunityTargetingFilter,
@@ -30,7 +30,11 @@
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunitySectionWriterPubkeys,
+  } from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
 
@@ -42,7 +46,20 @@
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
   )
-  const widgetFilters = $derived(makeTargetedPublicationOriginalFilters($targetingEvents))
+  const widgetAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_WIDGETS,
+        })
+      : [],
+  )
+  const widgetFilters = $derived(
+    widgetAuthorPubkeys.length
+      ? makeTargetedPublicationOriginalFilters($targetingEvents, widgetAuthorPubkeys)
+      : [],
+  )
   const widgets = $derived(deriveEventsAsc(deriveEventsById({repository, filters: widgetFilters})))
   const canCreateWidget = $derived(
     Boolean(
@@ -182,12 +199,9 @@
           rows="3"></textarea
         >{/snippet}</Field>
     <div class="flex justify-end">
-      <Button
-        type="submit"
-        class="btn btn-primary"
-        disabled={!$pubkey || !name.trim() || !appUrl.trim() || !canCreateWidget}>
+      <PublishGate target={COMMUNITY_WRITE_TARGETS.widget} action="publish widgets" submit disabled={!name.trim() || !appUrl.trim()}>
         Publish widget
-      </Button>
+      </PublishGate>
     </div>
   </form>
 

@@ -11,8 +11,8 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -20,14 +20,18 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {TARGETED_PUBLICATION_KIND} from "@app/core/community"
+  import {COMMUNITY_SECTION_REPOSITORIES, TARGETED_PUBLICATION_KIND} from "@app/core/community"
   import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
     makeAddressablePublicationRef,
     makeTargetedPublicationForCommunity,
     withPublicationTargetingId,
   } from "@app/core/community-targeting"
-  import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {
+    COMMUNITY_WRITE_TARGETS,
+    canWriteCommunityTarget,
+    getCommunitySectionWriterPubkeys,
+  } from "@app/core/community-permissions"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -38,7 +42,20 @@
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
   )
-  const repoFilters = $derived(makeTargetedPublicationOriginalFilters($targetingEvents))
+  const repoAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_REPOSITORIES,
+        })
+      : [],
+  )
+  const repoFilters = $derived(
+    repoAuthorPubkeys.length
+      ? makeTargetedPublicationOriginalFilters($targetingEvents, repoAuthorPubkeys)
+      : [],
+  )
   const repos = $derived(deriveEventsAsc(deriveEventsById({repository, filters: repoFilters})))
   const canCreateRepo = $derived(
     Boolean(
@@ -163,9 +180,9 @@
       {#snippet input()}<textarea bind:value={description} class="textarea textarea-bordered" rows="3"></textarea>{/snippet}
     </Field>
     <div class="flex justify-end">
-      <Button type="submit" class="btn btn-primary" disabled={!$pubkey || !name.trim() || !canCreateRepo}>
+      <PublishGate target={COMMUNITY_WRITE_TARGETS.repository} action="publish repositories" submit disabled={!name.trim()}>
         Publish repo
-      </Button>
+      </PublishGate>
     </div>
   </form>
 
