@@ -86,6 +86,7 @@ GoogleService-Info.plist
 # IDEs and editors
 .idea/
 .vscode/
+**/*.sw[op]
 
 # OS generated
 .DS_Store
