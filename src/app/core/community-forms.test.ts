@@ -6,6 +6,7 @@ import {
   COMMUNITY_FORM_REVIEW_KIND,
   getAdmissionSubmissionState,
   makeAdmissionFormAddress,
+  makeAdmissionFormTemplate,
   makeAdmissionResponse,
   makeAdmissionResponseDelete,
   makeAdmissionReview,
@@ -66,6 +67,41 @@ const makeFormEvent = (overrides: Partial<TrustedEvent> = {}) =>
   })
 
 describe("community admission forms", () => {
+  it("builds section-scoped form templates", () => {
+    expect(
+      makeAdmissionFormTemplate({
+        identifier: "repo-application",
+        communityPubkey,
+        sectionName: "Repositories",
+        name: "Repository application",
+        description: "Apply to publish repositories.",
+        relays: ["wss://relay.example.com"],
+        fields: [
+          {id: "experience", label: "What experience do you have?", settings: {required: true}},
+          {
+            id: "focus",
+            type: "option",
+            label: "What will you curate?",
+            options: [{id: "tools", label: "Developer tools"}],
+          },
+        ],
+      }),
+    ).toEqual({
+      kind: FORM_TEMPLATE_KIND,
+      content: "",
+      tags: [
+        ["d", "repo-application"],
+        ["a", makeCommunityDefinitionAddress(communityPubkey)],
+        ["content", "Repositories"],
+        ["name", "Repository application"],
+        ["settings", JSON.stringify({description: "Apply to publish repositories."})],
+        ["relay", "wss://relay.example.com/"],
+        ["field", "experience", "text", "What experience do you have?", "", JSON.stringify({required: true})],
+        ["field", "focus", "option", "What will you curate?", JSON.stringify([["tools", "Developer tools", "{}"]]), "{}"],
+      ],
+    })
+  })
+
   it("parses moderator-authored section forms", () => {
     const form = parseAdmissionForm(makeFormEvent())!
 

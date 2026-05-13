@@ -25,6 +25,14 @@ export type CommunityFormField = {
   settings: Record<string, unknown>
 }
 
+export type CommunityFormFieldInput = {
+  id: string
+  type?: string
+  label: string
+  options?: Array<Pick<CommunityFormOption, "id" | "label"> & {settings?: Record<string, unknown>}>
+  settings?: Record<string, unknown>
+}
+
 export type CommunityAdmissionForm = {
   event: TrustedEvent
   address: string
@@ -130,6 +138,49 @@ export const makeAdmissionFormAddress = (pubkey: string, identifier: string) => 
     ? `${FORM_TEMPLATE_KIND}:${normalizedPubkey}:${normalizedIdentifier}`
     : ""
 }
+
+const stringifySettings = (settings?: Record<string, unknown>) => JSON.stringify(settings || {})
+
+const makeFieldTag = (field: CommunityFormFieldInput) => [
+  "field",
+  field.id.trim(),
+  field.type || "text",
+  field.label.trim(),
+  field.options?.length
+    ? JSON.stringify(field.options.map(option => [option.id.trim(), option.label.trim(), stringifySettings(option.settings)]))
+    : "",
+  stringifySettings(field.settings),
+]
+
+export const makeAdmissionFormTemplate = ({
+  identifier,
+  communityPubkey,
+  sectionName,
+  name,
+  description,
+  relays,
+  fields,
+}: {
+  identifier: string
+  communityPubkey: string
+  sectionName: string
+  name: string
+  description?: string
+  relays?: string[]
+  fields: CommunityFormFieldInput[]
+}): EventContent & {kind: typeof FORM_TEMPLATE_KIND} => ({
+  kind: FORM_TEMPLATE_KIND,
+  content: "",
+  tags: [
+    ["d", identifier.trim()],
+    ["a", makeCommunityDefinitionAddress(communityPubkey)],
+    ["content", sectionName],
+    ["name", name.trim() || `${sectionName} application`],
+    ["settings", stringifySettings(description?.trim() ? {description: description.trim()} : {})],
+    ...normalizeRelays(relays || []).map(relay => ["relay", relay]),
+    ...fields.filter(field => field.id.trim() && field.label.trim()).map(makeFieldTag),
+  ],
+})
 
 const parseOption = (value: unknown): CommunityFormOption | undefined => {
   if (!Array.isArray(value)) return undefined
