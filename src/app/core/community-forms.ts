@@ -33,6 +33,30 @@ export type CommunityFormFieldInput = {
   settings?: Record<string, unknown>
 }
 
+export type CommunityAdmissionQuestionType = "shortAnswer" | "paragraph" | "singleChoice" | "multipleChoice"
+
+export type CommunityAdmissionFormDraftOption = {
+  id: string
+  label: string
+  isOther?: boolean
+}
+
+export type CommunityAdmissionFormDraftQuestion = {
+  id: string
+  type: CommunityAdmissionQuestionType
+  label: string
+  required: boolean
+  options: CommunityAdmissionFormDraftOption[]
+}
+
+export type CommunityAdmissionFormDraft = {
+  sectionName: string
+  identifier: string
+  name: string
+  description: string
+  questions: CommunityAdmissionFormDraftQuestion[]
+}
+
 export type CommunityAdmissionForm = {
   event: TrustedEvent
   address: string
@@ -140,6 +164,150 @@ export const makeAdmissionFormAddress = (pubkey: string, identifier: string) => 
 }
 
 const stringifySettings = (settings?: Record<string, unknown>) => JSON.stringify(settings || {})
+
+const slugify = (value: string, fallback: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || fallback
+
+export const makeAdmissionFormIdentifier = ({
+  communityPubkey,
+  sectionName,
+}: {
+  communityPubkey: string
+  sectionName: string
+}) => {
+  const communityPrefix = normalizePubkey(communityPubkey)?.slice(0, 12) || "community"
+
+  return `community-${communityPrefix}-${slugify(sectionName, "section")}-application`
+}
+
+export const makeDefaultAdmissionFormDraft = ({
+  communityPubkey,
+  sectionName,
+}: {
+  communityPubkey: string
+  sectionName: string
+}): CommunityAdmissionFormDraft => ({
+  sectionName,
+  identifier: makeAdmissionFormIdentifier({communityPubkey, sectionName}),
+  name: `${sectionName} application`,
+  description: `Request access to publish in the ${sectionName} section.`,
+  questions: [
+    {
+      id: "q1",
+      type: "paragraph",
+      label: `Describe your application to publish in ${sectionName}`,
+      required: true,
+      options: [],
+    },
+  ],
+})
+
+const getDraftQuestionType = (field: CommunityFormField): CommunityAdmissionQuestionType => {
+  const renderElement = typeof field.settings.renderElement === "string" ? field.settings.renderElement : undefined
+
+  if (field.type === "option") return renderElement === "multipleChoice" ? "multipleChoice" : "singleChoice"
+  if (renderElement === "paragraph") return "paragraph"
+
+  return "shortAnswer"
+}
+
+export const makeAdmissionFormDraftFromForm = ({
+  form,
+  communityPubkey,
+  sectionName,
+  currentModeratorPubkey,
+}: {
+  form?: CommunityAdmissionForm
+  communityPubkey: string
+  sectionName: string
+  currentModeratorPubkey?: string
+}): CommunityAdmissionFormDraft => {
+  if (!form) return makeDefaultAdmissionFormDraft({communityPubkey, sectionName})
+
+  const currentModerator = normalizePubkey(currentModeratorPubkey || "")
+  const identifier =
+    currentModerator && form.pubkey === currentModerator
+      ? form.identifier
+      : makeAdmissionFormIdentifier({communityPubkey, sectionName})
+
+  return {
+    sectionName,
+    identifier,
+    name: form.name || `${sectionName} application`,
+    description: form.description || `Request access to publish in the ${sectionName} section.`,
+    questions: form.fieldOrder
+      .map((fieldId, index) => {
+        const field = form.fields[fieldId]
+        if (!field || field.type === "label") return undefined
+
+        return {
+          id: field.id || `q${index + 1}`,
+          type: getDraftQuestionType(field),
+          label: field.label,
+          required: field.settings.required !== false,
+          options: field.options.map(option => ({
+            id: option.id,
+            label: option.label,
+            isOther: option.settings.isOther === true,
+          })),
+        } satisfies CommunityAdmissionFormDraftQuestion
+      })
+      .filter(Boolean) as CommunityAdmissionFormDraftQuestion[],
+  }
+}
+
+export const makeAdmissionFormFieldsFromDraft = (draft: CommunityAdmissionFormDraft): CommunityFormFieldInput[] =>
+  draft.questions.map((question, index) => {
+    const id = question.id.trim() || `q${index + 1}`
+    const required = question.required
+
+    if (question.type === "singleChoice" || question.type === "multipleChoice") {
+      return {
+        id,
+        type: "option",
+        label: question.label,
+        options: question.options.map((option, optionIndex) => ({
+          id: option.id.trim() || `option-${optionIndex + 1}`,
+          label: option.label,
+          settings: option.isOther ? {isOther: true} : {},
+        })),
+        settings: {required, renderElement: question.type},
+      }
+    }
+
+    return {
+      id,
+      type: "text",
+      label: question.label,
+      settings: {required, renderElement: question.type},
+    }
+  })
+
+export const validateAdmissionFormDraft = (draft: CommunityAdmissionFormDraft) => {
+  const errors: string[] = []
+
+  if (!draft.identifier.trim()) errors.push("Form identifier is missing.")
+  if (!draft.name.trim()) errors.push("Form name is missing.")
+  if (!draft.description.trim()) errors.push("Form description is missing.")
+  if (draft.questions.length === 0) errors.push("Add at least one question.")
+
+  for (const [index, question] of draft.questions.entries()) {
+    const questionLabel = `Question ${index + 1}`
+
+    if (!question.label.trim()) errors.push(`${questionLabel} needs text.`)
+
+    if (question.type === "singleChoice" || question.type === "multipleChoice") {
+      const validOptions = question.options.filter(option => option.label.trim())
+
+      if (validOptions.length < 2) errors.push(`${questionLabel} needs at least two options.`)
+    }
+  }
+
+  return errors
+}
 
 const makeFieldTag = (field: CommunityFormFieldInput) => [
   "field",

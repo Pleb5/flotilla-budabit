@@ -5,11 +5,15 @@ import {
   COMMUNITY_FORM_DELETE_KIND,
   COMMUNITY_FORM_REVIEW_KIND,
   getAdmissionSubmissionState,
+  makeAdmissionFormDraftFromForm,
+  makeAdmissionFormFieldsFromDraft,
   makeAdmissionFormAddress,
+  makeAdmissionFormIdentifier,
   makeAdmissionFormTemplate,
   makeAdmissionResponse,
   makeAdmissionResponseDelete,
   makeAdmissionReview,
+  makeDefaultAdmissionFormDraft,
   makeCommunityDefinitionAddress,
   parseAdmissionForm,
   parseAdmissionResponse,
@@ -17,6 +21,7 @@ import {
   selectActiveAdmissionForm,
   selectActiveAdmissionResponse,
   selectLatestFormByAddress,
+  validateAdmissionFormDraft,
 } from "./community-forms"
 
 const communityPubkey = "a".repeat(64)
@@ -161,6 +166,104 @@ describe("community admission forms", () => {
         moderatorPubkeys: [moderatorPubkey],
       })?.event.id,
     ).toBe("repo-form")
+  })
+
+  it("builds structured drafts with generated identifiers", () => {
+    const draft = makeDefaultAdmissionFormDraft({communityPubkey, sectionName: "General Chat"})
+
+    expect(draft).toMatchObject({
+      identifier: `community-${communityPubkey.slice(0, 12)}-general-chat-application`,
+      name: "General Chat application",
+      description: "Request access to publish in the General Chat section.",
+    })
+    expect(draft.questions[0].label).toBe("Describe your application to publish in General Chat")
+    expect(makeAdmissionFormIdentifier({communityPubkey, sectionName: "!!!"})).toBe(
+      `community-${communityPubkey.slice(0, 12)}-section-application`,
+    )
+  })
+
+  it("copies the latest active form into a current moderator draft", () => {
+    const otherModeratorForm = parseAdmissionForm(makeFormEvent({pubkey: otherModeratorPubkey}))!
+    const draft = makeAdmissionFormDraftFromForm({
+      form: otherModeratorForm,
+      communityPubkey,
+      sectionName: "Repositories",
+      currentModeratorPubkey: moderatorPubkey,
+    })
+
+    expect(draft.identifier).toBe(`community-${communityPubkey.slice(0, 12)}-repositories-application`)
+    expect(draft.name).toBe("Repository curator application")
+    expect(draft.description).toBe("Tell us what you will curate.")
+    expect(draft.questions).toEqual([
+      {
+        id: "experience",
+        type: "shortAnswer",
+        label: "What experience do you have?",
+        required: true,
+        options: [],
+      },
+      {
+        id: "focus",
+        type: "singleChoice",
+        label: "What will you curate?",
+        required: true,
+        options: [
+          {id: "tools", label: "Developer tools", isOther: false},
+          {id: "protocols", label: "Protocols", isOther: false},
+        ],
+      },
+    ])
+  })
+
+  it("preserves the current moderator form identifier while converting draft fields", () => {
+    const currentModeratorForm = parseAdmissionForm(makeFormEvent())!
+    const draft = makeAdmissionFormDraftFromForm({
+      form: currentModeratorForm,
+      communityPubkey,
+      sectionName: "Repositories",
+      currentModeratorPubkey: moderatorPubkey,
+    })
+
+    draft.questions = [
+      {id: "q1", type: "paragraph", label: "Tell us why", required: true, options: []},
+      {
+        id: "q2",
+        type: "multipleChoice",
+        label: "What can you help with?",
+        required: false,
+        options: [
+          {id: "docs", label: "Docs"},
+          {id: "other", label: "Other", isOther: true},
+        ],
+      },
+    ]
+
+    expect(draft.identifier).toBe("repo-application")
+    expect(makeAdmissionFormFieldsFromDraft(draft)).toEqual([
+      {id: "q1", type: "text", label: "Tell us why", settings: {required: true, renderElement: "paragraph"}},
+      {
+        id: "q2",
+        type: "option",
+        label: "What can you help with?",
+        options: [
+          {id: "docs", label: "Docs", settings: {}},
+          {id: "other", label: "Other", settings: {isOther: true}},
+        ],
+        settings: {required: false, renderElement: "multipleChoice"},
+      },
+    ])
+  })
+
+  it("validates structured drafts before publishing", () => {
+    expect(
+      validateAdmissionFormDraft({
+        sectionName: "General",
+        identifier: "general",
+        name: "General application",
+        description: "Apply for General.",
+        questions: [{id: "q1", type: "singleChoice", label: "Pick one", required: true, options: [{id: "one", label: "One"}]}],
+      }),
+    ).toEqual(["Question 1 needs at least two options."])
   })
 })
 
