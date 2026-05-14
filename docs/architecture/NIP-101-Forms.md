@@ -1,10 +1,3 @@
-
-🌼   daisyUI 4.12.24
-├─ ✔︎ 2 themes added  <https://daisyui.com/docs/themes>
-╰─ ❤︎ Support daisyUI project: <https://opencollective.com/daisyui>
-
-╰─ ★ Star daisyUI on GitHub <https://github.com/saadeghi/daisyui>
-
 # NIP-101 - Forms On Nostr
 
 The nip provides a way to implement a feedback mechanism(forms) on nostr.
