@@ -29,6 +29,7 @@
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
 
   let loadedCommunityKey = $state("")
+  let loadingCommunityKey = $state("")
   let authRelayUrl = $state("")
   let relayAuthError = $state("")
   let shownAuthErrorKey = $state("")
@@ -49,19 +50,21 @@
         return
       }
 
-      if (loadedCommunityKey === communityKey) return
-
-      loadedCommunityKey = communityKey
+      if (loadedCommunityKey === communityKey || loadingCommunityKey === communityKey) return
 
       try {
+        loadingCommunityKey = communityKey
         const session = setActiveCommunityInput(decodeURIComponent(routeCommunity)) || makeCommunitySession(parsedCommunity)
         const bootstrap = await loadCommunityBootstrap(session)
 
         if (!cancelled && bootstrap.definition) {
           setActiveCommunityDefinition(bootstrap.definition)
         }
+        if (!cancelled) loadedCommunityKey = communityKey
       } catch (error) {
         if (!cancelled) console.warn("[community] Failed to load community metadata", error)
+      } finally {
+        if (loadingCommunityKey === communityKey) loadingCommunityKey = ""
       }
     }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import {PROFILE} from "@welshman/util"
+  import {deriveProfile} from "@welshman/app"
   import * as nip19 from "nostr-tools/nip19"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Ghost from "@assets/icons/ghost-smile.svg?dataurl"
@@ -12,17 +12,11 @@
   import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {normalizeRelays, parseCommunityInput} from "@app/core/community"
+  import {parseCommunityInput} from "@app/core/community"
   import {
     activeCommunityDefinition,
     activeCommunityProfile,
     activeCommunitySession,
-    getCommunityBootstrapRelays,
-    loadCommunityEvents,
-    makeCommunityDefinitionFilter,
-    makeCommunityProfileFilter,
-    parseCommunityProfile,
-    selectLatestCommunityDefinition,
     setActiveCommunityInput,
     type CommunityProfile,
   } from "@app/core/community-state"
@@ -32,9 +26,6 @@
   let communityInput = $state("")
   let loadedPreviewPubkey = $state("")
   let loadedPreviewProfile = $state<CommunityProfile | undefined>()
-  let previewLoading = $state(false)
-  let previewRequestId = 0
-  let previewRequestKey = ""
 
   const createCommunity = () => goto("/home/create-community")
 
@@ -100,21 +91,6 @@
   )
   const previewPicture = $derived(previewProfile?.picture || "")
 
-  const setLoadedPreviewProfile = (requestId: number, pubkey: string, events: Awaited<ReturnType<typeof loadCommunityEvents>>) => {
-    if (requestId !== previewRequestId || loadedPreviewPubkey !== pubkey) return false
-
-    const profileEvent = events
-      .filter(event => event.kind === PROFILE && event.pubkey === pubkey)
-      .sort((a, b) => b.created_at - a.created_at)[0]
-
-    if (!profileEvent) return false
-
-    loadedPreviewProfile = parseCommunityProfile(profileEvent)
-    previewLoading = false
-
-    return true
-  }
-
   $effect(() => {
     const parsed = previewInput
     const pubkey = previewPubkey
@@ -122,7 +98,6 @@
     if (!pubkey) {
       loadedPreviewPubkey = ""
       loadedPreviewProfile = undefined
-      previewLoading = false
       return
     }
 
@@ -131,44 +106,16 @@
       !parsed || parsed.pubkey === $activeCommunitySession?.communityPubkey
         ? $activeCommunityDefinition?.relays || []
         : []
-    const requestKey = [pubkey, ...relayHints, ...activeDefinitionRelays].join("|")
-
-    if (previewRequestKey === requestKey) return
-    previewRequestKey = requestKey
-
-    const requestId = ++previewRequestId
-    const discoveryRelays = getCommunityBootstrapRelays([...relayHints, ...activeDefinitionRelays])
+    const relays = [...relayHints, ...activeDefinitionRelays]
 
     loadedPreviewPubkey = pubkey
     loadedPreviewProfile = undefined
-    previewLoading = true
 
-    loadCommunityEvents(discoveryRelays, [makeCommunityProfileFilter(pubkey)])
-      .then(events => setLoadedPreviewProfile(requestId, pubkey, events))
-      .catch(() => {})
+    return deriveProfile(pubkey, relays).subscribe(profile => {
+      if (loadedPreviewPubkey !== pubkey) return
 
-    loadCommunityEvents(discoveryRelays, [makeCommunityDefinitionFilter(pubkey)])
-      .then(definitionEvents => {
-        const definition = selectLatestCommunityDefinition(definitionEvents, pubkey)
-        const profileRelays = normalizeRelays([
-          ...(definition?.relays || []),
-          ...activeDefinitionRelays,
-          ...discoveryRelays,
-        ])
-
-        return loadCommunityEvents(profileRelays, [makeCommunityProfileFilter(pubkey)])
-      })
-      .then(events => {
-        if (requestId !== previewRequestId || loadedPreviewPubkey !== pubkey) return
-        setLoadedPreviewProfile(requestId, pubkey, events)
-        previewLoading = false
-      })
-      .catch(() => {
-        if (requestId === previewRequestId && loadedPreviewPubkey === pubkey) {
-          loadedPreviewProfile = undefined
-          previewLoading = false
-        }
-      })
+      loadedPreviewProfile = profile
+    })
   })
 </script>
 

@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest"
 import {get} from "svelte/store"
+import {repository} from "@welshman/app"
 import * as nip19 from "nostr-tools/nip19"
 import type {TrustedEvent} from "@welshman/util"
 import {
@@ -20,22 +21,21 @@ import {
   makeCommunityAdmissionFormFilters,
   makeCommunityBadgeDefinitionFilters,
   makeCommunityDefinitionFilter,
-  makeCommunityProfileFilter,
   makeCommunityProfileListFilters,
   makeCommunitySession,
   selectLatestCommunityDefinition,
   activeCommunityDefinition,
   activeCommunityBadgeDefinitionEvents,
   activeCommunityProfile,
-  activeCommunityProfileEvents,
   activeCommunityProfileListEvents,
   activeCommunityRelays,
   activeCommunitySession,
   clearActiveCommunity,
   setActiveCommunityDefinition,
   setActiveCommunityInput,
+  type CommunityProfile,
 } from "./community-state"
-import {makeCommunityDefinitionAddress} from "./community-forms"
+import {makeCommunityDefinitionAddress, type CommunityAdmissionForm} from "./community-forms"
 
 const communityPubkey = "a".repeat(64)
 const listPubkey = "b".repeat(64)
@@ -66,6 +66,30 @@ const makeCommunityDefinitionEvent = (created_at: number, id = `definition-${cre
       ["a", `${PROFILE_LIST_KIND}:${listPubkey}:General`, "wss://relay.example.com"],
       ["badge", `${BADGE_DEFINITION_KIND}:${badgePubkey}:member`],
     ],
+  })
+
+const waitForActiveCommunityProfile = (name: string) =>
+  new Promise<CommunityProfile>(resolve => {
+    let unsubscribe = () => {}
+
+    unsubscribe = activeCommunityProfile.subscribe(profile => {
+      if (profile?.name === name) {
+        queueMicrotask(unsubscribe)
+        resolve(profile)
+      }
+    })
+  })
+
+const waitForAdmissionForm = (sectionName: string) =>
+  new Promise<Record<string, CommunityAdmissionForm>>(resolve => {
+    let unsubscribe = () => {}
+
+    unsubscribe = activeCommunityAdmissionForms.subscribe(forms => {
+      if (forms[sectionName]) {
+        queueMicrotask(unsubscribe)
+        resolve(forms)
+      }
+    })
   })
 
 describe("community state helpers", () => {
@@ -107,14 +131,9 @@ describe("community state helpers", () => {
     ])
   })
 
-  it("builds community definition and profile filters", () => {
+  it("builds community definition filters", () => {
     expect(makeCommunityDefinitionFilter(communityPubkey)).toEqual({
       kinds: [COMMUNITY_DEFINITION_KIND],
-      authors: [communityPubkey],
-      limit: 1,
-    })
-    expect(makeCommunityProfileFilter(communityPubkey)).toEqual({
-      kinds: [0],
       authors: [communityPubkey],
       limit: 1,
     })
@@ -150,7 +169,7 @@ describe("community state helpers", () => {
     ])
   })
 
-  it("builds and selects moderator admission form filters", () => {
+  it("builds and selects moderator admission form filters", async () => {
     const definition = parseCommunityDefinition(
       makeEvent({
         kind: COMMUNITY_DEFINITION_KIND,
@@ -196,11 +215,15 @@ describe("community state helpers", () => {
       },
     ])
 
-    activeCommunityDefinition.set(definition)
-    activeCommunityAdmissionFormEvents.set([form, wrongSectionForm])
+    setActiveCommunityDefinition(definition)
+    repository.publish(form)
+    repository.publish(wrongSectionForm)
 
-    expect(get(activeCommunityAdmissionForms).Repositories?.event.id).toBe("repo-form")
+    expect((await waitForAdmissionForm("Repositories")).Repositories?.event.id).toBe("repo-form")
 
+    repository.removeEvent(form.id)
+    repository.removeEvent(wrongSectionForm.id)
+    repository.removeEvent(definition.event.id)
     clearActiveCommunity()
   })
 
@@ -220,37 +243,41 @@ describe("community state helpers", () => {
     clearActiveCommunity()
     expect(get(activeCommunitySession)).toBeUndefined()
     expect(get(activeCommunityDefinition)).toBeUndefined()
-    expect(get(activeCommunityProfileEvents)).toEqual([])
     expect(get(activeCommunityProfileListEvents)).toEqual([])
     expect(get(activeCommunityBadgeDefinitionEvents)).toEqual([])
     expect(get(activeCommunityAdmissionFormEvents)).toEqual([])
   })
 
-  it("derives active community profile metadata", () => {
-    activeCommunitySession.set({
-      communityPubkey,
-      communityRelayHints: [],
-    })
-    activeCommunityProfileEvents.set([
+  it("derives active community profile metadata from Welshman cache", async () => {
+    repository.publish(
       makeEvent({
         id: "profile-older",
         kind: 0,
         created_at: 1,
         content: JSON.stringify({name: "Older"}),
       }),
+    )
+    repository.publish(
       makeEvent({
         id: "profile-newer",
         kind: 0,
         created_at: 2,
         content: JSON.stringify({name: "Community", picture: "https://example.com/logo.png"}),
       }),
-    ])
+    )
 
-    expect(get(activeCommunityProfile)).toMatchObject({
+    activeCommunitySession.set({
+      communityPubkey,
+      communityRelayHints: [],
+    })
+
+    expect(await waitForActiveCommunityProfile("Community")).toMatchObject({
       name: "Community",
       picture: "https://example.com/logo.png",
     })
 
+    repository.removeEvent("profile-older")
+    repository.removeEvent("profile-newer")
     clearActiveCommunity()
   })
 })

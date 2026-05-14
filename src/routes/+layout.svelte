@@ -103,6 +103,7 @@
   let serviceWorkerReloadInFlight = false
   let updateToastShown = false
   let loadedCommunityKey = ""
+  let loadingCommunityKey = ""
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -134,12 +135,19 @@
     const session = $activeCommunitySession
     const key = session ? `${session.communityPubkey}:${session.communityRelayHints.join(",")}` : ""
 
-    if (!browser || !session || !key || loadedCommunityKey === key) return
+    if (!browser || !session || !key || loadedCommunityKey === key || loadingCommunityKey === key) return
 
-    loadedCommunityKey = key
-    loadCommunityBootstrap(session).catch(error => {
-      console.warn("[community] Failed to load active community metadata", error)
-    })
+    loadingCommunityKey = key
+    loadCommunityBootstrap(session)
+      .then(() => {
+        loadedCommunityKey = key
+      })
+      .catch(error => {
+        console.warn("[community] Failed to load active community metadata", error)
+      })
+      .finally(() => {
+        if (loadingCommunityKey === key) loadingCommunityKey = ""
+      })
   })
 
   // Auto-install and enable built-in extensions
