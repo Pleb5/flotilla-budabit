@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {goto} from "$app/navigation"
   import {deriveProfile, deriveProfileDisplay, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
@@ -83,6 +84,17 @@
   const preserveRelayHints = () => {
     if (shareValue) setActiveCommunityInput(shareValue)
   }
+
+  const openCommunity = (event: MouseEvent) => {
+    preserveRelayHints()
+
+    if (event.defaultPrevented || event.button !== 0) return
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    goto(href)
+  }
 </script>
 
 <div class="my-2 block w-full max-w-xl text-left">
@@ -92,7 +104,7 @@
       <a
         href={href}
         class="flex min-w-0 flex-1 items-center gap-3 no-underline"
-        onclick={preserveRelayHints}
+        onclick={openCommunity}
         data-stop-tap>
         <div
           class="center !flex h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-base-300 bg-base-200 sm:h-16 sm:w-16">
@@ -119,7 +131,7 @@
         <a
           href={href}
           class="btn btn-primary btn-sm !border-primary !bg-primary !text-primary-content !no-underline hover:!border-primary/80 hover:!bg-primary/80 hover:!text-primary-content hover:!no-underline"
-          onclick={preserveRelayHints}
+          onclick={openCommunity}
           data-stop-tap>
           Open
         </a>
