@@ -77,6 +77,7 @@
 
 <script lang="ts">
   import * as nip19 from "nostr-tools/nip19"
+  import {goto} from "$app/navigation"
   import {Router} from "@welshman/router"
   import type {TrustedEvent} from "@welshman/util"
   import {Address, MESSAGE} from "@welshman/util"
@@ -87,7 +88,7 @@
   import NoteCard from "@app/components/NoteCard.svelte"
   import NoteContentMinimal from "@app/components/NoteContentMinimal.svelte"
   import {deriveEvent, entityLink} from "@app/core/state"
-  import {goToEvent} from "@app/util/routes"
+  import {goToEvent, makeGitPath} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
   import {getQuoteRelayHints, getQuoteTagRelayHints} from "@app/util/git-quote"
   import {
@@ -145,8 +146,30 @@
   let shareTimeout: ReturnType<typeof setTimeout> | null = null
   let quoteTimedOut = $state(false)
 
-  const onOpen = () => {
-    isOpenPending = true
+  const isPlainLeftClick = (event: MouseEvent) =>
+    event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+
+  const openInternalHref = (event: MouseEvent, href: string) => {
+    if (!href || typeof window === "undefined") return
+
+    event.stopPropagation()
+    if (!isPlainLeftClick(event)) return
+
+    try {
+      const target = new URL(href, window.location.origin)
+      if (target.origin !== window.location.origin) return
+
+      event.preventDefault()
+      isOpenPending = true
+
+      void goto(`${target.pathname}${target.search}${target.hash}`).catch(error => {
+        console.error("Failed to open quoted git item", error)
+        isOpenPending = false
+        pushToast({message: "Failed to open quoted git item.", theme: "error"})
+      })
+    } catch {
+      isOpenPending = false
+    }
   }
 
   const setCopyState = (state: "idle" | "copied" | "error") => {
@@ -334,9 +357,47 @@
 
   const isContentTruncated = (evt: TrustedEvent) => (evt?.content?.length || 0) > maxPreviewChars
 
-  const buildRepoHrefFromAddress = (_repoAddress: string, _relay?: string) => ""
+  const getTagRelayHints = (evt: TrustedEvent, names: string[], value = "") =>
+    getQuoteRelayHints(
+      ...(evt.tags || [])
+        .filter(tag => names.includes(tag[0]) && (!value || tag[1] === value))
+        .map(tag => tag.slice(2)),
+    )
 
-  const buildRepoHrefFromEvent = (_evt: TrustedEvent, _relay?: string) => ""
+  const getRepoEventRelayHints = (evt: TrustedEvent, relays: string[] = []) =>
+    getQuoteRelayHints(
+      relays,
+      ...(evt.tags || []).filter(tag => tag[0] === "relays").map(tag => tag.slice(1)),
+    )
+
+  const buildRepoHrefFromAddress = (repoAddress: string, relays: string[] = []) => {
+    const parsed = parseRepoAddress(repoAddress)
+    if (!parsed) return ""
+
+    try {
+      const relayHints = getQuoteRelayHints(relays)
+      const naddr = nip19.naddrEncode({
+        kind: parsed.kind,
+        pubkey: parsed.pubkey,
+        identifier: parsed.identifier,
+        relays: relayHints.length > 0 ? relayHints : undefined,
+      })
+
+      return makeGitPath(undefined, naddr)
+    } catch {
+      return ""
+    }
+  }
+
+  const buildRepoHrefFromEvent = (evt: TrustedEvent, relays: string[] = []) => {
+    const identifier = getTagValue(evt, "d") || getTagValue(evt, "name")
+    if (!identifier || !evt.pubkey) return ""
+
+    return buildRepoHrefFromAddress(
+      `${GIT_REPO_ANNOUNCEMENT}:${evt.pubkey}:${identifier}`,
+      getRepoEventRelayHints(evt, relays),
+    )
+  }
 
   const getCommentRootId = (evt: TrustedEvent) => getTagValueAny(evt, ["E", "e"])
 
@@ -371,7 +432,7 @@
 
   const getRepoPreview = (evt: TrustedEvent) => truncateText(getTagValue(evt, "description"))
 
-  const getGitShareCard = (evt: TrustedEvent, relay?: string) => {
+  const getGitShareCard = (evt: TrustedEvent, relays: string[] = []) => {
     if (!evt) return null
     if (evt.kind === GIT_REPO_ANNOUNCEMENT || evt.kind === GIT_REPO_STATE) {
       return {
@@ -379,14 +440,17 @@
         title: getTagValue(evt, "name") || getTagValue(evt, "d") || "Repository",
         meta: [] as string[],
         preview: getRepoPreview(evt),
-        href: buildRepoHrefFromEvent(evt, relay),
+        href: buildRepoHrefFromEvent(evt, relays),
       }
     }
 
     if (evt.kind === GIT_ISSUE) {
       const repoAddress = getTagValue(evt, "a")
       const repoLabel = getDisplayRepo(evt, repoAddress)
-      const baseHref = buildRepoHrefFromAddress(repoAddress, relay)
+      const baseHref = buildRepoHrefFromAddress(
+        repoAddress,
+        getQuoteRelayHints(relays, getTagRelayHints(evt, ["a"], repoAddress)),
+      )
       return {
         label: "Issue",
         title: getTagValue(evt, "subject") || "Issue",
@@ -399,7 +463,10 @@
     if (evt.kind === GIT_PULL_REQUEST) {
       const repoAddress = getTagValue(evt, "a")
       const repoLabel = getDisplayRepo(evt, repoAddress)
-      const baseHref = buildRepoHrefFromAddress(repoAddress, relay)
+      const baseHref = buildRepoHrefFromAddress(
+        repoAddress,
+        getQuoteRelayHints(relays, getTagRelayHints(evt, ["a"], repoAddress)),
+      )
       return {
         label: "Pull Request",
         title: getTagValue(evt, "subject") || "Pull Request",
@@ -410,12 +477,19 @@
     }
 
     if (evt.kind === GIT_COMMENT) {
-      const repoAddress = getTagValue(evt, "q") || getTagValue(evt, "repo")
+      const repoAddress =
+        getTagValue(evt, "A") ||
+        getTagValue(evt, "a") ||
+        getTagValue(evt, "q") ||
+        getTagValue(evt, "repo")
       const repoLabel = getDisplayRepo(evt, repoAddress)
       const rootId = getCommentRootId(evt)
       const rootKind = getCommentRootKind(evt)
       const contextLabel = getCommentContextLabel(rootKind)
-      const baseHref = buildRepoHrefFromAddress(repoAddress, relay)
+      const baseHref = buildRepoHrefFromAddress(
+        repoAddress,
+        getQuoteRelayHints(relays, getTagRelayHints(evt, ["A", "a", "q", "repo"], repoAddress)),
+      )
       const filePath = getFilePath(evt)
       const line = getLineRange(evt)
       const targetLine = line.end || line.start
@@ -450,9 +524,12 @@
     return null
   }
 
-  const buildPermalinkHref = (evt: TrustedEvent, relay?: string, diffHash = "") => {
+  const buildPermalinkHref = (evt: TrustedEvent, relays: string[] = [], diffHash = "") => {
     const repoAddress = getTagValue(evt, "a")
-    const base = buildRepoHrefFromAddress(repoAddress, relay)
+    const base = buildRepoHrefFromAddress(
+      repoAddress,
+      getQuoteRelayHints(relays, getTagRelayHints(evt, ["a"], repoAddress)),
+    )
     if (!base) return ""
     const commit = getTagValue(evt, "commit")
     const parentCommit = getTagValue(evt, "parent-commit")
@@ -540,13 +617,17 @@
     return () => window.clearTimeout(timeout)
   })
 
-  const gitCard = $derived.by(() => ($quote ? getGitShareCard($quote, url) : null))
+  const gitCard = $derived.by(() => ($quote ? getGitShareCard($quote, mergedRelays) : null))
 
   const handlePermalinkOpen = (event: MouseEvent, href: string) => {
-    isOpenPending = true
-    if (!openCurrentTarget(href)) return
+    if (!openCurrentTarget(href)) {
+      openInternalHref(event, href)
+      return
+    }
 
     event.preventDefault()
+    event.stopPropagation()
+    isOpenPending = true
     requestAnimationFrame(() => {
       isOpenPending = false
     })
@@ -554,7 +635,7 @@
 </script>
 
 {#if $quote && $quote.kind === 1623}
-  {@const permalinkHref = buildPermalinkHref($quote, url, diffHash)}
+  {@const permalinkHref = buildPermalinkHref($quote, mergedRelays, diffHash)}
   {@const displayRepo = getDisplayRepo($quote)}
   {@const filePath = getFilePath($quote)}
   {@const lineLabel = getLineLabel($quote)}
@@ -732,7 +813,7 @@
             size="sm"
             class="min-w-0 shrink-0 justify-center sm:w-auto"
             href={openHref}
-            onclick={onOpen}
+            onclick={event => openInternalHref(event, openHref)}
             aria-busy={isOpenPending}>
             {#if isOpenPending}
               <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
