@@ -29,6 +29,7 @@ export default {
   plugins: [daisyui],
   presets: [uiPreset],
   daisyui: {
+    logs: false,
     themes: [
       {
         dark: {
