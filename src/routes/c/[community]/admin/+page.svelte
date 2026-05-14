@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {tick} from "svelte"
   import {pubkey, publishThunk} from "@welshman/app"
   import {makeEvent} from "@welshman/util"
   import Settings from "@assets/icons/settings.svg?dataurl"
@@ -89,6 +90,17 @@
 
   let selectedSection = $state("")
   let targetPubkey = $state("")
+  let grantForm: HTMLFormElement | undefined = $state()
+  let targetPubkeyInput: HTMLInputElement | undefined = $state()
+
+  const selectSection = async (sectionName: string) => {
+    selectedSection = sectionName
+
+    await tick()
+
+    grantForm?.scrollIntoView({behavior: "smooth", block: "start"})
+    targetPubkeyInput?.focus({preventScroll: true})
+  }
 
   $effect(() => {
     if (!selectedSection && sections[0]) selectedSection = sections[0].name
@@ -108,12 +120,20 @@
   {:else}
     <div class="grid gap-2 sm:grid-cols-2">
       {#each capabilities as item}
+        {@const isSelected = selectedSection === item.section.name}
         <button
           type="button"
-          class="card2 bg-alt p-4 text-left shadow-md"
-          class:border-primary={selectedSection === item.section.name}
-          onclick={() => (selectedSection = item.section.name)}>
-          <strong>{item.section.name}</strong>
+          class="card2 border p-4 text-left shadow-md transition-colors {isSelected
+            ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
+            : 'border-base-300 bg-alt hover:bg-base-200'}"
+          aria-pressed={isSelected}
+          onclick={() => selectSection(item.section.name)}>
+          <div class="flex items-center justify-between gap-2">
+            <strong>{item.section.name}</strong>
+            {#if isSelected}
+              <span class="badge badge-primary badge-sm">Selected</span>
+            {/if}
+          </div>
           <p class="text-sm opacity-70">
             {item.capability?.canGrant ? "Grant/revoke enabled" : "Read-only for this signer"}
           </p>
@@ -122,11 +142,17 @@
     </div>
 
     {#if selected}
-      <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(grant)}>
+      <form
+        class="card2 bg-alt col-3 scroll-mt-24 p-4 shadow-md"
+        bind:this={grantForm}
+        onsubmit={preventDefault(grant)}>
         <strong>Grant access to {selected.section.name}</strong>
         <Field>
           {#snippet label()}<p>Pubkey or npub</p>{/snippet}
-          {#snippet input()}<input bind:value={targetPubkey} class="input input-bordered w-full" />{/snippet}
+          {#snippet input()}<input
+              bind:this={targetPubkeyInput}
+              bind:value={targetPubkey}
+              class="input input-bordered w-full" />{/snippet}
         </Field>
         <div class="flex justify-end">
           <Button type="submit" class="btn btn-primary" disabled={!selected.capability?.canGrant || !targetPubkey.trim()}>

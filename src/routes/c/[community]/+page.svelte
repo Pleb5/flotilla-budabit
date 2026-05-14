@@ -179,7 +179,7 @@
         {/if}
       </div>
     {/if}
-    <Link href={gitPath} class="btn btn-info md:text-lg">
+    <Link href={gitPath} class="btn border-none bg-[#0284c7] text-white hover:bg-[#0369a1] md:text-lg">
       <div class="relative flex items-center gap-2">
         <Icon icon={Git} />
         Git
@@ -192,13 +192,13 @@
       </div>
     </Link>
     {#if threadsPath}
-      <Link href={threadsPath} class="btn btn-primary text-black md:text-lg">
+      <Link href={threadsPath} class="btn border-none bg-[#4f46e5] text-white hover:bg-[#4338ca] md:text-lg">
         <div class="relative flex items-center gap-2">
           <Icon icon={NotesMinimalistic} size={6} />
           Threads
           {#if $notifications.has(threadsPath)}
             <div
-              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary-content"
+              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white"
               transition:fade>
             </div>
           {/if}
@@ -206,13 +206,13 @@
       </Link>
     {/if}
     {#if calendarPath}
-      <Link href={calendarPath} class="btn btn-secondary text-black md:text-lg">
+      <Link href={calendarPath} class="btn border-none bg-[#c2410c] text-white hover:bg-[#9a3412] md:text-lg">
         <div class="relative flex items-center gap-2">
           <Icon icon={CalendarMinimalistic} size={6} />
           Calendar
           {#if $notifications.has(calendarPath)}
             <div
-              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary-content"
+              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white"
               transition:fade>
             </div>
           {/if}
@@ -220,13 +220,13 @@
       </Link>
     {/if}
     {#if goalsPath}
-      <Link href={goalsPath} class="btn btn-neutral md:text-lg">
+      <Link href={goalsPath} class="btn border-none bg-[#a16207] text-white hover:bg-[#854d0e] md:text-lg">
         <div class="relative flex items-center gap-2">
           <Icon icon={StarFallMinimalistic} />
           Fundraisers
           {#if $notifications.has(goalsPath)}
             <div
-              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-neutral-content"
+              class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white"
               transition:fade>
             </div>
           {/if}
