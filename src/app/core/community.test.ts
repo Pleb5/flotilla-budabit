@@ -17,6 +17,7 @@ import {
   findCommunitySection,
   getCommunityMainRelay,
   makeCommunityBadgeDefinition,
+  makeCommunityNcommunity,
   makeCommunitySetupRefs,
   getProfileListPubkeys,
   normalizeGeohash,
@@ -67,6 +68,15 @@ describe("community protocol helpers", () => {
       relays: ["wss://relay.example.com/", "wss://backup.example.com/"],
       source: "ncommunity",
     })
+  })
+
+  it("builds ncommunity values with normalized relay hints", () => {
+    expect(
+      makeCommunityNcommunity({
+        pubkey: pubkeyA,
+        relayHints: ["wss://relay.example.com", "not-a-relay"],
+      }),
+    ).toBe(`ncommunity://${pubkeyA}?relay=wss%3A%2F%2Frelay.example.com%2F`)
   })
 
   it("normalizes npub and address refs", () => {

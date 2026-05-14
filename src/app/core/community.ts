@@ -167,6 +167,26 @@ export const normalizeRelay = (url?: string) => {
 export const normalizeRelays = (relays: string[]) =>
   Array.from(new Set(relays.map(normalizeRelay).filter(Boolean)))
 
+export const makeCommunityNcommunity = ({
+  pubkey,
+  relayHints = [],
+}: {
+  pubkey: string
+  relayHints?: string[]
+}) => {
+  const normalizedPubkey = normalizePubkey(pubkey)
+  if (!normalizedPubkey) return ""
+
+  const relays = normalizeRelays(relayHints)
+  const params = new URLSearchParams()
+
+  for (const relay of relays) params.append("relay", relay)
+
+  const query = params.toString()
+
+  return `ncommunity://${normalizedPubkey}${query ? `?${query}` : ""}`
+}
+
 export const normalizeGeohash = (value?: string) => {
   const normalized = value?.trim().replace(/^geo:/i, "").toLowerCase() || ""
 

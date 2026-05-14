@@ -1,6 +1,6 @@
 import {browser} from "$app/environment"
 import {derived, get, writable, type Readable} from "svelte/store"
-import {deriveProfile, pubkey, repository} from "@welshman/app"
+import {deriveProfile, pubkey, repository, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {sortBy} from "@welshman/lib"
 import {load} from "@welshman/net"
@@ -236,8 +236,25 @@ export const activeCommunityRelays: Readable<string[]> = derived(
       : getCommunityBootstrapRelays($activeCommunityRelayHints),
 )
 
+export const getUserOutboxRelays = () => {
+  try {
+    return Router.get().FromUser().getUrls() || []
+  } catch {
+    return []
+  }
+}
+
 export const getCommunityBootstrapRelays = (relayHints: string[] = []) =>
-  normalizeRelays([...relayHints, ...COMMUNITY_DISCOVERY_RELAYS])
+  normalizeRelays([...relayHints, ...getUserOutboxRelays(), ...COMMUNITY_DISCOVERY_RELAYS])
+
+export const getCommunityDefinitionRelayHints = (
+  definition?: CommunityDefinition,
+  fallbackRelays: string[] = [],
+) => {
+  const sourceRelays = definition ? Array.from(tracker.getRelays(definition.event.id)) : []
+
+  return normalizeRelays(sourceRelays.length > 0 ? sourceRelays : fallbackRelays)
+}
 
 const COMMUNITY_RELAY_LOAD_TIMEOUT = 5000
 const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
@@ -255,7 +272,12 @@ export const loadCommunityEvents = async (
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
-      return load({relays: [relay], filters, signal: controller.signal})
+      return load({
+        relays: [relay],
+        filters,
+        signal: controller.signal,
+        onEvent: (event, url) => tracker.addRelay(event.id, url),
+      })
         .catch(() => [])
         .finally(() => clearTimeout(timeout))
     }),
@@ -284,15 +306,7 @@ const withTimeout = async <T>(promise: Promise<T>, timeout: number, fallback: T)
 }
 
 export const getCommunityStarRelays = (relayHints: string[] = []) => {
-  let userRelays: string[] = []
-
-  try {
-    userRelays = Router.get().FromUser().getUrls()
-  } catch {
-    userRelays = []
-  }
-
-  return normalizeRelays([...relayHints, ...userRelays, ...COMMUNITY_DISCOVERY_RELAYS])
+  return normalizeRelays([...relayHints, ...getUserOutboxRelays(), ...COMMUNITY_DISCOVERY_RELAYS])
 }
 
 export const communityStarsLoading = writable(false)

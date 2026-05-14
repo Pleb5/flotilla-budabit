@@ -1,5 +1,10 @@
 import {DELETE, REACTION, makeEvent, type Filter, type TrustedEvent} from "@welshman/util"
-import {COMMUNITY_DEFINITION_KIND, normalizePubkey, normalizeRelays} from "@app/core/community"
+import {
+  COMMUNITY_DEFINITION_KIND,
+  makeCommunityNcommunity,
+  normalizePubkey,
+  normalizeRelays,
+} from "@app/core/community"
 import {
   makeCommunityDefinitionAddress,
   parseCommunityDefinitionAddress,
@@ -27,10 +32,7 @@ export const makeCommunityInputValue = ({
   if (!normalizedPubkey) return ""
   if (relays.length === 0) return normalizedPubkey
 
-  const params = new URLSearchParams()
-  for (const relay of relays) params.append("relay", relay)
-
-  return `ncommunity://${normalizedPubkey}?${params.toString()}`
+  return makeCommunityNcommunity({pubkey: normalizedPubkey, relayHints: relays})
 }
 
 export const makeCommunityStarReaction = ({

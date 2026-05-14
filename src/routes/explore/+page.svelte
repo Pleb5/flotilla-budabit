@@ -5,7 +5,6 @@
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
-  import {APP_NAME} from "@app/core/state"
   import {pushToast} from "@app/util/toast"
   import {normalizeRelays, parseCommunityInput} from "@app/core/community"
   import {
@@ -14,10 +13,12 @@
     activeCommunitySession,
     communityStarsLoading,
     getCommunityBootstrapRelays,
+    getCommunityDefinitionRelayHints,
     hydrateCommunityStars,
     loadCommunityEvents,
     makeCommunityDefinitionFilter,
     selectLatestCommunityDefinition,
+    setActiveCommunityDefinition,
     setActiveCommunityInput,
   } from "@app/core/community-state"
   import CommunityPreviewCard from "@app/components/community/CommunityPreviewCard.svelte"
@@ -34,16 +35,27 @@
   let communityInput = $state("")
   let previewRequestId = 0
   let previewRequestKey = ""
+  let previewLookupState = $state<"idle" | "loading" | "found" | "not-found">("idle")
+  let enteringCommunityKey = $state("")
   let selectorRelayHints = $state<Record<string, string[]>>({})
   const selectorRelayLoadAttempts = new Map<string, number>()
   const SELECTOR_RELAY_RETRY_MS = 30_000
 
   const createCommunity = () => goto("/explore/create-community")
 
-  const enterCommunity = (input: string) => {
-    const session = setActiveCommunityInput(input)
+  const loadCommunityDefinition = async (communityPubkey: string, relayHints: string[]) => {
+    const discoveryRelays = getCommunityBootstrapRelays(relayHints)
+    const definitionEvents = await loadCommunityEvents(discoveryRelays, [
+      makeCommunityDefinitionFilter(communityPubkey),
+    ])
 
-    if (!session) {
+    return selectLatestCommunityDefinition(definitionEvents, communityPubkey)
+  }
+
+  const enterCommunity = async (input: string) => {
+    const parsed = parseCommunityInput(input)
+
+    if (!parsed) {
       pushToast({
         theme: "error",
         message: "Enter a valid community npub, hex pubkey, or ncommunity.",
@@ -51,8 +63,41 @@
       return
     }
 
-    communityInput = ""
-    goto(makeCommunityPath(session.communityPubkey))
+    const requestKey = `${parsed.pubkey}:${parsed.relays.join(",")}`
+    if (enteringCommunityKey) return
+    enteringCommunityKey = requestKey
+
+    try {
+      const definition = await loadCommunityDefinition(parsed.pubkey, parsed.relays)
+
+      if (!definition) {
+        if (parsed.pubkey === previewPubkey) previewLookupState = "not-found"
+        pushToast({theme: "error", message: "No community found"})
+        return
+      }
+
+      const relayHints = getCommunityDefinitionRelayHints(definition, parsed.relays)
+      const communityValue = makeCommunityInputValue({pubkey: parsed.pubkey, relayHints}) || input
+      const session = setActiveCommunityInput(communityValue)
+
+      if (!session) {
+        pushToast({
+          theme: "error",
+          message: "Enter a valid community npub, hex pubkey, or ncommunity.",
+        })
+        return
+      }
+
+      setActiveCommunityDefinition(definition)
+      selectorRelayHints = {...selectorRelayHints, [parsed.pubkey]: relayHints}
+      communityInput = ""
+      goto(makeCommunityPath(communityValue))
+    } catch (error) {
+      if (parsed.pubkey === previewPubkey) previewLookupState = "not-found"
+      pushToast({theme: "error", message: "No community found"})
+    } finally {
+      if (enteringCommunityKey === requestKey) enteringCommunityKey = ""
+    }
   }
 
   const submitCommunityInput = () => {
@@ -76,13 +121,11 @@
   }
 
   const loadCommunityDefinitionRelays = async (communityPubkey: string, relayHints: string[]) => {
-    const discoveryRelays = getCommunityBootstrapRelays(relayHints)
-    const definitionEvents = await loadCommunityEvents(discoveryRelays, [
-      makeCommunityDefinitionFilter(communityPubkey),
-    ])
-    const definition = selectLatestCommunityDefinition(definitionEvents, communityPubkey)
+    const definition = await loadCommunityDefinition(communityPubkey, relayHints)
 
-    return definition?.relays || []
+    if (!definition) return []
+
+    return getCommunityDefinitionRelayHints(definition, relayHints)
   }
 
   const loadSelectorRelayHints = async (item: SelectorCommunity) => {
@@ -146,6 +189,19 @@
       ...(selectorRelayHints[previewPubkey] || []),
     ])
   })
+  const previewHasCommunityDefinition = $derived(
+    Boolean(
+      previewPubkey &&
+        ($activeCommunityDefinition?.pubkey === previewPubkey ||
+          selectorRelayHints[previewPubkey]?.length),
+    ),
+  )
+  const previewLoading = $derived(
+    Boolean(previewPubkey && !previewHasCommunityDefinition && previewLookupState === "loading"),
+  )
+  const previewCommunityNotFound = $derived(
+    Boolean(previewPubkey && !previewHasCommunityDefinition && previewLookupState === "not-found"),
+  )
   const previewLabel = $derived(hasCommunityInput ? "Preview community" : "Find community")
   const previewEmptyInfo = $derived(
     hasCommunityInput
@@ -183,7 +239,11 @@
     const parsed = previewInput
     const pubkey = previewPubkey
 
-    if (!pubkey) return
+    if (!pubkey) {
+      previewRequestKey = ""
+      previewLookupState = "idle"
+      return
+    }
 
     const relayHints = parsed?.relays || $activeCommunitySession?.communityRelayHints || []
     const activeDefinitionRelays =
@@ -194,32 +254,44 @@
 
     if (previewRequestKey === requestKey) return
     previewRequestKey = requestKey
+    previewLookupState = "loading"
 
     const requestId = ++previewRequestId
 
     loadCommunityDefinitionRelays(pubkey, [...relayHints, ...activeDefinitionRelays])
       .then(relays => {
-        if (requestId !== previewRequestId || relays.length === 0) return
+        if (requestId !== previewRequestId) return
+        if (relays.length === 0) {
+          previewLookupState = "not-found"
+          return
+        }
+
         selectorRelayHints = {...selectorRelayHints, [pubkey]: relays}
+        previewLookupState = "found"
       })
-      .catch(() => {})
+      .catch(() => {
+        if (requestId === previewRequestId) previewLookupState = "not-found"
+      })
   })
 </script>
 
 <div class="hero min-h-screen overflow-auto pb-8">
   <div class="hero-content">
     <div class="column content gap-4">
-      <h1 class="text-center text-5xl">Explore</h1>
-      <h1 class="mb-4 text-center text-5xl font-bold uppercase">{$APP_NAME}</h1>
+      <h1 class="mb-4 text-center text-5xl font-bold">Explore BudaBit Communities</h1>
       <div class="col-3">
         <CommunityPreviewCard
           pubkey={previewPubkey}
           relayHints={previewRelayHints}
+          shareRelayHints={selectorRelayHints[previewPubkey] || previewRelayHints}
           label={previewLabel}
           emptyInfo={previewEmptyInfo}
           onOpen={openPreviewCommunity}
           bind:inputValue={communityInput}
           showInput
+          showActions={previewHasCommunityDefinition}
+          loading={previewLoading}
+          notFound={previewCommunityNotFound}
           onSubmit={submitCommunityInput} />
 
         {#if selectorCommunities.length > 0 || $communityStarsLoading}
@@ -235,6 +307,7 @@
                 <CommunitySelectorCard
                   pubkey={item.pubkey}
                   relayHints={item.relayHints}
+                  shareRelayHints={selectorRelayHints[item.pubkey] || item.relayHints}
                   isCurrent={item.isCurrent}
                   onOpen={() => openSelectorCommunity(item)} />
               {/each}

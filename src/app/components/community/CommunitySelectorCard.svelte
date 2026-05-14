@@ -2,19 +2,28 @@
   import {deriveProfile, deriveProfileDisplay} from "@welshman/app"
   import {normalizeRelays} from "@app/core/community"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
   import {formatShortNpub} from "@app/util/pubkeys"
 
   type Props = {
     pubkey: string
     relayHints?: string[]
+    shareRelayHints?: string[]
     isCurrent?: boolean
     onOpen: () => void
   }
 
-  const {pubkey, relayHints = [], isCurrent = false, onOpen}: Props = $props()
+  const {
+    pubkey,
+    relayHints = [],
+    shareRelayHints = relayHints,
+    isCurrent = false,
+    onOpen,
+  }: Props = $props()
 
   const profileRelays = $derived(normalizeRelays(relayHints))
+  const shareRelays = $derived(normalizeRelays(shareRelayHints))
   const profile = $derived(deriveProfile(pubkey, profileRelays))
   const profileDisplay = $derived(deriveProfileDisplay(pubkey, profileRelays))
   const fallbackName = $derived(formatShortNpub(pubkey) || "Unknown community")
@@ -40,5 +49,6 @@
       <p class="ellipsize text-xs opacity-70">{info}</p>
     </div>
   </button>
+  <CommunityShareButton communityPubkey={pubkey} relayHints={shareRelays} />
   <CommunityStarButton communityPubkey={pubkey} relayHints={profileRelays} />
 </div>

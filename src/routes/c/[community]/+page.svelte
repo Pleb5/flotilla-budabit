@@ -17,6 +17,7 @@
   import Link from "@lib/components/Link.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
   import {fade} from "@lib/transition"
   import {
@@ -24,6 +25,7 @@
     activeCommunityProfile,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
+    getCommunityDefinitionRelayHints,
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
@@ -53,6 +55,14 @@
   )
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
   const mainRelay = $derived($activeCommunityDefinition?.relays[0] || parsedCommunity?.relays[0] || "")
+  const communityShareRelays = $derived(
+    $activeCommunityDefinition?.pubkey === communityId
+      ? getCommunityDefinitionRelayHints($activeCommunityDefinition, parsedCommunity?.relays || [])
+      : parsedCommunity?.relays || [],
+  )
+  const communityActionRelays = $derived(
+    communityShareRelays.length > 0 ? communityShareRelays : $activeCommunityRelays,
+  )
   const roomsPath = $derived(communityId ? makeCommunityPath(communityId, "rooms") : "")
   const roomCreatePath = $derived(roomsPath ? `${roomsPath}?create=1` : "")
   const threadsPath = $derived(communityId ? makeCommunityThreadPath(communityId) : "")
@@ -102,8 +112,11 @@
 <PageContent class="flex flex-col gap-2 p-2 pt-4">
   <div class="card2 bg-alt relative flex flex-col items-center gap-4 text-left">
     {#if communityId}
-      <div class="absolute right-3 top-3">
-        <CommunityStarButton communityPubkey={communityId} relayHints={$activeCommunityRelays} />
+      <div class="absolute right-3 top-3 flex gap-2">
+        {#if $activeCommunityDefinition?.pubkey === communityId}
+          <CommunityShareButton communityPubkey={communityId} relayHints={communityShareRelays} />
+        {/if}
+        <CommunityStarButton communityPubkey={communityId} relayHints={communityActionRelays} />
       </div>
     {/if}
     <div class="relative flex gap-4">
