@@ -1,20 +1,38 @@
 <script lang="ts">
   import type {NativeEmoji} from "emoji-picker-element/shared"
+  import {getTag, type TrustedEvent} from "@welshman/util"
   import EmojiButton from "@lib/components/EmojiButton.svelte"
   import SmileCircle from "@assets/icons/smile-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import {publishReaction, canEnforceNip70} from "@app/core/commands"
 
-  const {url, event} = $props()
+  interface Props {
+    url: string
+    event: TrustedEvent
+    relays?: string[]
+    scopeH?: string
+    protect?: boolean
+  }
 
-  const shouldProtect = canEnforceNip70(url)
+  const {url, event, relays = [], scopeH = "", protect = true}: Props = $props()
+
+  const reactionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
+  const shouldProtect = protect ? canEnforceNip70(url) : undefined
+  const scopedTags = $derived.by(() => {
+    if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
+      return [] as string[][]
+    }
+
+    return [["h", scopeH]]
+  })
 
   const onEmoji = async (emoji: NativeEmoji) =>
     publishReaction({
       event,
-      relays: [url],
+      relays: reactionRelays,
       content: emoji.unicode,
-      protect: await shouldProtect,
+      tags: scopedTags,
+      protect: protect ? await shouldProtect! : false,
     })
 </script>
 

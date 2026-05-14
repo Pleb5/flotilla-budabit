@@ -2,7 +2,9 @@
   import type {NativeEmoji} from "emoji-picker-element/shared"
   import type {TrustedEvent} from "@welshman/util"
   import {pubkey} from "@welshman/app"
+  import {getTag} from "@welshman/util"
   import Bolt from "@assets/icons/bolt.svg?dataurl"
+  import Pen from "@assets/icons/pen.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
@@ -24,24 +26,45 @@
     url: string
     event: TrustedEvent
     reply?: () => void
+    edit?: () => void
     readOnly?: boolean
+    relays?: string[]
+    scopeH?: string
+    protectActions?: boolean
   }
 
-  const {url, event, reply, readOnly = false}: Props = $props()
+  const {
+    url,
+    event,
+    reply,
+    edit,
+    readOnly = false,
+    relays = [],
+    scopeH = "",
+    protectActions = true,
+  }: Props = $props()
 
   const path = getRoomItemPath(url, event)
+  const actionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
+  const shouldProtect = protectActions ? canEnforceNip70(url) : undefined
+  const scopedTags = $derived.by(() => {
+    if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
+      return [] as string[][]
+    }
 
-  const shouldProtect = canEnforceNip70(url)
+    return [["h", scopeH]]
+  })
 
-  const onEmoji = (async (event: TrustedEvent, url: string, emoji: NativeEmoji) => {
+  const onEmoji = (async (event: TrustedEvent, emoji: NativeEmoji) => {
     history.back()
     publishReaction({
       event,
-      relays: [url],
+      relays: actionRelays,
       content: emoji.unicode,
-      protect: await shouldProtect,
+      tags: scopedTags,
+      protect: protectActions ? await shouldProtect! : false,
     })
-  }).bind(undefined, event, url)
+  }).bind(undefined, event)
 
   const showEmojiPicker = () => pushModal(EmojiPicker, {onClick: onEmoji}, {replaceState: true})
 
@@ -54,9 +77,25 @@
     reply()
   }
 
+  const editMessage = () => {
+    if (!edit) {
+      return
+    }
+
+    history.back()
+    edit()
+  }
+
   const showInfo = () => pushModal(EventInfo, {url, event}, {replaceState: true})
 
-  const showDelete = () => pushModal(EventDeleteConfirm, {url, event, noun: "Message"})
+  const showDelete = () =>
+    pushModal(EventDeleteConfirm, {
+      url,
+      relays: actionRelays,
+      event,
+      noun: "Message",
+      ...(protectActions ? {} : {protect: false}),
+    })
 </script>
 
 <div class="flex flex-col gap-2">
@@ -86,6 +125,12 @@
     <Button class="btn btn-neutral w-full" onclick={sendReply}>
       <Icon size={4} icon={Reply} />
       Send Reply
+    </Button>
+  {/if}
+  {#if edit && !readOnly}
+    <Button class="btn btn-neutral w-full" onclick={editMessage}>
+      <Icon size={4} icon={Pen} />
+      Edit Message
     </Button>
   {/if}
   {#if !readOnly}

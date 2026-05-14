@@ -1,40 +1,46 @@
 <script lang="ts">
   import {type Instance} from "tippy.js"
-  import {between} from "@welshman/lib"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
   import RoomItemMenu from "@app/components/RoomItemMenu.svelte"
 
-  const {url, event, readOnly = false} = $props()
+  const {
+    url,
+    event,
+    readOnly = false,
+    relays = [],
+    protect = undefined,
+    class: buttonClass = "btn join-item btn-xs",
+  } = $props()
 
   const open = () => popover?.show()
 
   const onClick = () => popover?.hide()
 
-  const onMouseMove = ({clientX, clientY}: any) => {
-    if (popover) {
-      const {x, y, width, height} = popover.popper.getBoundingClientRect()
+  const onDocumentClick = (event: MouseEvent) => {
+    const target = event.target as Node | null
 
-      if (!between([x, x + width], clientX) || !between([y, y + height + 30], clientY)) {
-        popover.hide()
-      }
-    }
+    if (!target || !popover?.state.isVisible) return
+    if (element?.contains(target) || popover.popper.contains(target)) return
+
+    popover.hide()
   }
 
   let popover: Instance | undefined = $state()
+  let element: HTMLElement | undefined = $state()
 </script>
 
-<svelte:document onmousemove={onMouseMove} />
+<svelte:document onclick={onDocumentClick} />
 
-<div class="flex">
-  <Button class="btn join-item btn-xs" onclick={open}>
+<div bind:this={element} class="flex">
+  <Button class={buttonClass} onclick={open}>
     <Icon icon={MenuDots} size={4} />
   </Button>
   <Tippy
     bind:popover
     component={RoomItemMenu}
-    props={{url, event, onClick, readOnly}}
+    props={{url, event, onClick, readOnly, relays, protect}}
     params={{trigger: "manual", interactive: true}} />
 </div>

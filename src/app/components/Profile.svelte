@@ -15,25 +15,26 @@
   type Props = {
     pubkey: string
     url?: string
+    relays?: string[]
     showPubkey?: boolean
     avatarSize?: number
     hideDetails?: boolean
   }
 
-  const {pubkey, url, showPubkey, avatarSize = 10, hideDetails = false}: Props = $props()
+  const {pubkey, url, relays = [], showPubkey, avatarSize = 10, hideDetails = false}: Props = $props()
 
-  const relays = $derived(removeUndefined([url]))
-  const profileDisplay = $derived(deriveProfileDisplay(pubkey, relays))
+  const relayHints = $derived(removeUndefined([url, ...relays]))
+  const profileDisplay = $derived(deriveProfileDisplay(pubkey, relayHints))
   const handle = $derived(deriveHandleForPubkey(pubkey))
 
-  const openProfile = () => pushModal(ProfileDetail, {pubkey, url})
+  const openProfile = () => pushModal(ProfileDetail, {pubkey, url: relayHints[0], relays: relayHints})
 
   const copyPubkey = () => clip(nip19.npubEncode(pubkey))
 </script>
 
 <div class="flex max-w-full items-start gap-3">
   <Button onclick={openProfile} class="py-1">
-    <ProfileCircle {pubkey} size={avatarSize} />
+    <ProfileCircle {pubkey} relays={relayHints} size={avatarSize} />
   </Button>
   {#if !hideDetails}
     <div class="flex min-w-0 flex-col">

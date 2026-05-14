@@ -70,7 +70,11 @@ export type CommunityPublishGateState = CommunityWriteTarget & {
 
 export const COMMUNITY_WRITE_TARGETS = {
   roomRoot: {sectionName: COMMUNITY_SECTION_ROOMS, kind: 11, subtype: COMMUNITY_SUBTYPE_ROOM},
-  roomMessage: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 9, subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE},
+  roomMessage: {
+    sectionName: COMMUNITY_SECTION_GENERAL,
+    kind: 9,
+    subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE,
+  },
   forumThread: {sectionName: COMMUNITY_SECTION_FORUM, kind: 11, subtype: COMMUNITY_SUBTYPE_FORUM},
   comment: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1111},
   reaction: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 7},
@@ -82,7 +86,10 @@ export const COMMUNITY_WRITE_TARGETS = {
   widget: {sectionName: COMMUNITY_SECTION_WIDGETS, kind: SMART_WIDGET_KIND},
 } satisfies Record<string, CommunityWriteTarget>
 
-export const getCommunityWriteTarget = (kind: number, subtype?: string): CommunityWriteTarget | undefined =>
+export const getCommunityWriteTarget = (
+  kind: number,
+  subtype?: string,
+): CommunityWriteTarget | undefined =>
   (Object.values(COMMUNITY_WRITE_TARGETS) as CommunityWriteTarget[]).find(
     target => target.kind === kind && (!subtype || target.subtype === subtype),
   )
@@ -139,13 +146,17 @@ export const canWriteCommunitySection = ({
 }) => {
   const section = findCommunitySection(definition, sectionName)
   if (!sectionSupportsKind(section, kind, subtype)) return false
+  const normalizedUser = normalizePubkey(userPubkey)
 
-  const profileListRef = getPrimaryProfileListRef(section)
-  if (userCanManageProfileList(profileListRef, userPubkey)) return true
+  if (definition.pubkey === normalizedUser) return true
+  if (section?.profileLists.some(ref => userCanManageProfileList(ref, normalizedUser))) return true
+  if (section?.badges.some(ref => userCanIssueBadge(ref, normalizedUser))) return true
 
-  const profileList = findProfileListEvent(profileListRef, profileListEvents)
+  const profileLists = section?.profileLists
+    .map(ref => findProfileListEvent(ref, profileListEvents))
+    .filter(Boolean) as TrustedEvent[]
 
-  return canWriteFromProfileList(profileList, userPubkey)
+  return profileLists.some(profileList => canWriteFromProfileList(profileList, normalizedUser))
 }
 
 export const canWriteCommunityTarget = ({
@@ -212,7 +223,9 @@ export const getCommunityPublishGateState = ({
 
   if (!normalizedUser) return {...base, status: "login-required"}
 
-  if (canWriteCommunityTarget({definition, profileListEvents, userPubkey: normalizedUser, target})) {
+  if (
+    canWriteCommunityTarget({definition, profileListEvents, userPubkey: normalizedUser, target})
+  ) {
     return {...base, status: "allowed"}
   }
 
@@ -224,10 +237,14 @@ export const getCommunityPublishGateState = ({
     reviewEvents,
     formAddress: form.address,
     applicantPubkey: normalizedUser,
-    moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({definition, sectionName: target.sectionName}),
+    moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
+      definition,
+      sectionName: target.sectionName,
+    }),
   })
 
-  if (submission.status === "pending") return {...base, status: "pending", response: submission.response}
+  if (submission.status === "pending")
+    return {...base, status: "pending", response: submission.response}
   if (submission.status === "rejected") {
     return {...base, status: "rejected", response: submission.response, review: submission.review}
   }
@@ -261,6 +278,29 @@ export const getGrantCapableSectionModeratorPubkeys = ({
   )
 }
 
+export const getCommunitySectionAuthorityPubkeys = ({
+  definition,
+  sectionName,
+}: {
+  definition: CommunityDefinition
+  sectionName: string
+}) => {
+  const section = findCommunitySection(definition, sectionName)
+  if (!section) return [definition.pubkey]
+
+  return Array.from(
+    new Set(
+      [
+        definition.pubkey,
+        ...section.profileLists.map(ref => ref.pubkey),
+        ...section.badges.map(ref => ref.pubkey),
+      ]
+        .map(normalizePubkey)
+        .filter(Boolean),
+    ),
+  )
+}
+
 export const getCommunitySectionWriterPubkeys = ({
   definition,
   profileListEvents,
@@ -271,9 +311,17 @@ export const getCommunitySectionWriterPubkeys = ({
   sectionName: string
 }) => {
   const section = findCommunitySection(definition, sectionName)
-  const profileList = findProfileListEvent(getPrimaryProfileListRef(section), profileListEvents)
+  const pubkeys = new Set(getCommunitySectionAuthorityPubkeys({definition, sectionName}))
 
-  return getProfileListPubkeys(profileList)
+  for (const ref of section?.profileLists || []) {
+    const profileList = findProfileListEvent(ref, profileListEvents)
+
+    for (const pubkey of getProfileListPubkeys(profileList)) {
+      pubkeys.add(pubkey)
+    }
+  }
+
+  return Array.from(pubkeys)
 }
 
 export const getGrantCapability = ({
@@ -287,7 +335,9 @@ export const getGrantCapability = ({
 }): CommunityGrantCapability => {
   const section = findCommunitySection(definition, sectionName)
   const normalizedUser = normalizePubkey(userPubkey)
-  const profileList = section?.profileLists.find(ref => userCanManageProfileList(ref, normalizedUser))
+  const profileList = section?.profileLists.find(ref =>
+    userCanManageProfileList(ref, normalizedUser),
+  )
   const badge = section?.badges.find(ref => userCanIssueBadge(ref, normalizedUser))
   const canManageList = Boolean(profileList)
   const canIssueBadge = Boolean(badge)

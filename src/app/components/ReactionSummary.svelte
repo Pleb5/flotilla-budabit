@@ -37,6 +37,7 @@
     reactionClass?: string
     noTooltip?: boolean
     readOnly?: boolean
+    allowedAuthors?: string[]
     children?: Snippet
   }
 
@@ -50,6 +51,7 @@
     reactionClass = "",
     noTooltip = false,
     readOnly = false,
+    allowedAuthors = undefined,
     children,
   }: Props = $props()
 
@@ -69,9 +71,22 @@
   const relaySet = $derived.by(() => new Set(relays.map(normalizeRelay).filter(Boolean)))
 
   const hasScopeH = $derived.by(() => Boolean(scopeH))
+  const allowedAuthorSet = $derived.by(() =>
+    allowedAuthors
+      ? new Set(allowedAuthors.map(author => author.toLowerCase()).filter(Boolean))
+      : undefined,
+  )
+  const permissionedReactionKinds = REACTION_KINDS.filter(kind => kind !== ZAP_RESPONSE)
 
   const withScopeH = (filters: Filter[]) =>
     hasScopeH ? filters.map(filter => ({...filter, "#h": [scopeH]})) : filters
+
+  const withAllowedAuthors = (filters: Filter[]) =>
+    allowedAuthors === undefined
+      ? filters
+      : allowedAuthors.length > 0
+        ? filters.map(filter => ({...filter, authors: allowedAuthors}))
+        : []
 
   const matchesRelayScope = (event: TrustedEvent) => {
     if (relaySet.size === 0) return true
@@ -88,6 +103,9 @@
   const matchesScopeH = (event: TrustedEvent) => !scopeH || getTag("h", event.tags)?.[1] === scopeH
 
   const matchesScope = (event: TrustedEvent) => matchesRelayScope(event) && matchesScopeH(event)
+
+  const matchesAllowedAuthor = (event: TrustedEvent) =>
+    !allowedAuthorSet || allowedAuthorSet.has(event.pubkey.toLowerCase())
 
   const reports = deriveArray(
     deriveEventsById({repository, filters: [{kinds: [REPORT], "#e": [event.id]}]}),
@@ -106,9 +124,17 @@
     }),
   )
 
-  const scopedReports = $derived.by(() => Array.from($reports.values()).filter(matchesScope))
+  const scopedReports = $derived.by(() =>
+    Array.from($reports.values()).filter(
+      event => matchesScope(event) && matchesAllowedAuthor(event),
+    ),
+  )
 
-  const scopedReactions = $derived.by(() => Array.from($reactions.values()).filter(matchesScope))
+  const scopedReactions = $derived.by(() =>
+    Array.from($reactions.values()).filter(
+      event => matchesScope(event) && matchesAllowedAuthor(event),
+    ),
+  )
 
   const scopedZaps = $derived.by(() =>
     Array.from($zaps.values()).filter(
@@ -145,19 +171,40 @@
   )
 
   const groupedZaps = $derived(groupBy(e => getReactionKey(e.request), scopedZaps))
+  const reactionLoadFilters = $derived.by(() => {
+    if (allowedAuthors === undefined) {
+      return withScopeH(getReplyFilters([event], {kinds: REACTION_KINDS}) as Filter[])
+    }
+
+    const filters: Filter[] = withAllowedAuthors(
+      getReplyFilters([event], {kinds: permissionedReactionKinds}) as Filter[],
+    )
+
+    if (REACTION_KINDS.includes(ZAP_RESPONSE)) {
+      filters.push(...withScopeH(getReplyFilters([event], {kinds: [ZAP_RESPONSE]}) as Filter[]))
+    }
+
+    return withScopeH(filters)
+  })
+
+  const makeDeleteLoadFilters = (events: TrustedEvent[]) =>
+    withScopeH(withAllowedAuthors(getReplyFilters(events, {kinds: [DELETE]}) as Filter[]))
 
   onMount(() => {
     const controller = new AbortController()
 
-    if (loadRelays.length > 0) {
+    if (loadRelays.length > 0 && reactionLoadFilters.length > 0) {
       load({
         relays: loadRelays,
         signal: controller.signal,
-        filters: withScopeH(getReplyFilters([event], {kinds: REACTION_KINDS}) as Filter[]),
+        filters: reactionLoadFilters,
         onEvent: batch(300, (events: TrustedEvent[]) => {
+          const deleteLoadFilters = makeDeleteLoadFilters(events)
+          if (deleteLoadFilters.length === 0) return
+
           load({
             relays: loadRelays,
-            filters: withScopeH(getReplyFilters(events, {kinds: [DELETE]}) as Filter[]),
+            filters: deleteLoadFilters,
           })
         }),
       })

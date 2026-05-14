@@ -51,13 +51,13 @@
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.roomRoot,
-        }),
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomRoot,
+      }),
     ),
   )
   const createRequested = $derived($page.url.searchParams.get("create") === "1")
@@ -97,6 +97,7 @@
 
   $effect(() => {
     if (!communityPubkey || $activeCommunityRelays.length === 0) return
+    if (filters.length === 0) return
 
     const controller = new AbortController()
     request({relays: $activeCommunityRelays, filters, signal: controller.signal})
@@ -155,11 +156,16 @@
         <p>Description</p>
       {/snippet}
       {#snippet input()}
-        <textarea bind:value={roomDescription} class="textarea textarea-bordered" rows="3"></textarea>
+        <textarea bind:value={roomDescription} class="textarea textarea-bordered" rows="3"
+        ></textarea>
       {/snippet}
     </Field>
     <div class="flex justify-end">
-      <PublishGate target={COMMUNITY_WRITE_TARGETS.roomRoot} action="create rooms" submit disabled={!roomName.trim()}>
+      <PublishGate
+        target={COMMUNITY_WRITE_TARGETS.roomRoot}
+        action="create rooms"
+        submit
+        disabled={!roomName.trim()}>
         Create room
       </PublishGate>
     </div>
@@ -173,7 +179,7 @@
             <RoomImage {room} size={6} />
           </div>
           <div class="min-w-0 flex-1">
-            <strong class="block ellipsize"><RoomName {room} /></strong>
+            <strong class="ellipsize block"><RoomName {room} /></strong>
             {#if room.about}
               <p class="line-clamp-2 text-sm opacity-70">{room.about}</p>
             {/if}
@@ -184,5 +190,4 @@
       <p class="py-8 text-center opacity-70">No rooms found.</p>
     {/each}
   </div>
-
 </PageContent>

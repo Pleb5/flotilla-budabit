@@ -6,11 +6,13 @@
   export type Props = {
     pubkey: string
     url?: string
+    relays?: string[]
   }
 
-  const {pubkey, url}: Props = $props()
+  const {pubkey, url, relays = []}: Props = $props()
 
-  const profile = $derived(deriveProfile(pubkey, removeUndefined([url])))
+  const relayHints = $derived(removeUndefined([url, ...relays]))
+  const profile = $derived(deriveProfile(pubkey, relayHints))
 </script>
 
 {#if $profile}

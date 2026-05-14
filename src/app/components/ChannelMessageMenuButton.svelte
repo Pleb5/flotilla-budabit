@@ -1,6 +1,5 @@
 <script lang="ts">
   import {type Instance} from "tippy.js"
-  import {between} from "@welshman/lib"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -13,22 +12,22 @@
 
   const onClick = () => popover?.hide()
 
-  const onMouseMove = ({clientX, clientY}: any) => {
-    if (popover) {
-      const {x, y, width, height} = popover.popper.getBoundingClientRect()
+  const onDocumentClick = (event: MouseEvent) => {
+    const target = event.target as Node | null
 
-      if (!between([x, x + width], clientX) || !between([y, y + height + 30], clientY)) {
-        popover.hide()
-      }
-    }
+    if (!target || !popover?.state.isVisible) return
+    if (element?.contains(target) || popover.popper.contains(target)) return
+
+    popover.hide()
   }
 
   let popover: Instance | undefined = $state()
+  let element: HTMLElement | undefined = $state()
 </script>
 
-<svelte:document onmousemove={onMouseMove} />
+<svelte:document onclick={onDocumentClick} />
 
-<div class="flex">
+<div bind:this={element} class="flex">
   <Button class="btn join-item btn-xs" onclick={open}>
     <Icon icon={MenuDots} size={4} />
   </Button>

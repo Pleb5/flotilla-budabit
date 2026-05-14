@@ -5,7 +5,12 @@
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import Button from "@lib/components/Button.svelte"
   import Link from "@lib/components/Link.svelte"
-  import {activeCommunityAdmissionForms, activeCommunityDefinition, activeCommunityProfileListEvents, activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityAdmissionForms,
+    activeCommunityDefinition,
+    activeCommunityProfileListEvents,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {FORM_RESPONSE_KIND, getProfileListPubkeys} from "@app/core/community"
   import {
     findProfileListEvent,
@@ -14,10 +19,7 @@
     type CommunityPublishGateState,
     type CommunityWriteTarget,
   } from "@app/core/community-permissions"
-  import {
-    COMMUNITY_FORM_DELETE_KIND,
-    COMMUNITY_FORM_REVIEW_KIND,
-  } from "@app/core/community-forms"
+  import {COMMUNITY_FORM_DELETE_KIND, COMMUNITY_FORM_REVIEW_KIND} from "@app/core/community-forms"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type Props = {
@@ -25,21 +27,40 @@
     action: string
     disabled?: boolean
     submit?: boolean
+    compact?: boolean
+    showReason?: boolean
     class?: string
     children?: import("svelte").Snippet
   }
 
-  const {target, action, disabled = false, submit = false, class: className = "btn btn-primary", children}: Props = $props()
+  const {
+    target,
+    action,
+    disabled = false,
+    submit = false,
+    compact = false,
+    showReason = !compact,
+    class: className = "btn btn-primary",
+    children,
+  }: Props = $props()
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
-  const communityPubkey = $derived(parsedCommunity?.pubkey || $activeCommunityDefinition?.pubkey || "")
+  const communityPubkey = $derived(
+    parsedCommunity?.pubkey || $activeCommunityDefinition?.pubkey || "",
+  )
   const accessPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "access") : "")
-  const section = $derived($activeCommunityDefinition?.sections.find(section => section.name === target.sectionName))
+  const section = $derived(
+    $activeCommunityDefinition?.sections.find(section => section.name === target.sectionName),
+  )
   const form = $derived($activeCommunityAdmissionForms[target.sectionName])
   const responseFilters = $derived(
-    $pubkey && form ? [{kinds: [FORM_RESPONSE_KIND], authors: [$pubkey], "#a": [form.address]}] : [],
+    $pubkey && form
+      ? [{kinds: [FORM_RESPONSE_KIND], authors: [$pubkey], "#a": [form.address]}]
+      : [],
   )
-  const responseEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: responseFilters})))
+  const responseEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: responseFilters})),
+  )
   const responseIds = $derived($responseEvents.map(event => event.id))
   const deleteFilters = $derived(
     $pubkey && responseIds.length
@@ -49,8 +70,12 @@
   const reviewFilters = $derived(
     responseIds.length ? [{kinds: [COMMUNITY_FORM_REVIEW_KIND], "#e": responseIds}] : [],
   )
-  const deleteEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: deleteFilters})))
-  const reviewEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})))
+  const deleteEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: deleteFilters})),
+  )
+  const reviewEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})),
+  )
   const gateState = $derived.by<CommunityPublishGateState>(() =>
     $activeCommunityDefinition
       ? getCommunityPublishGateState({
@@ -67,7 +92,9 @@
   )
   const canWrite = $derived(gateState.status === "allowed")
   const hasForm = $derived(Boolean(form))
-  const profileListEvent = $derived(findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents))
+  const profileListEvent = $derived(
+    findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents),
+  )
   const writerCount = $derived(getProfileListPubkeys(profileListEvent).length)
   const reason = $derived(
     !$pubkey
@@ -81,6 +108,27 @@
             : !hasForm
               ? `You need ${target.sectionName} permission to ${action}, but no application form is available yet.`
               : `You need ${target.sectionName} permission to ${action}.`,
+  )
+  const accessLabel = $derived(
+    gateState.status === "pending"
+      ? compact
+        ? "Access pending"
+        : `${target.sectionName} request pending`
+      : gateState.status === "rejected"
+        ? compact
+          ? "Revise access"
+          : `Revise ${target.sectionName} request`
+        : gateState.status === "granted"
+          ? compact
+            ? "Syncing access"
+            : `Syncing ${target.sectionName} access`
+          : hasForm
+            ? compact
+              ? "Request access"
+              : `Request ${target.sectionName} access`
+            : compact
+              ? "Access options"
+              : `${target.sectionName} access options`,
   )
 
   $effect(() => {
@@ -97,33 +145,35 @@
 </script>
 
 {#if canWrite}
-  <Button type={submit ? "submit" : "button"} class={className} disabled={disabled}>
+  <Button type={submit ? "submit" : "button"} class={className} {disabled}>
     {@render children?.()}
   </Button>
 {:else if accessPath && $pubkey && hasForm}
   <span title={reason}>
-    <Link href={accessPath} class={`${className} btn-disabled pointer-events-auto opacity-75`}>
-      {#if gateState.status === "pending"}
-        {target.sectionName} request pending
-      {:else if gateState.status === "rejected"}
-        Revise {target.sectionName} request
-      {:else if gateState.status === "granted"}
-        Syncing {target.sectionName} access
-      {:else}
-        Request {target.sectionName} access
-      {/if}
+    <Link href={accessPath} class={`${className} ${compact ? "btn-sm" : ""}`}>
+      {accessLabel}
+    </Link>
+  </span>
+{:else if accessPath && $pubkey}
+  <span title={reason}>
+    <Link href={accessPath} class={`${className} ${compact ? "btn-sm" : ""}`}>
+      {accessLabel}
     </Link>
   </span>
 {:else}
   <Button type="button" class={className} disabled title={reason}>
     {#if $pubkey}
-      {hasForm ? `Request ${target.sectionName} access` : `${target.sectionName} access unavailable`}
+      {compact
+        ? "Access unavailable"
+        : hasForm
+          ? `Request ${target.sectionName} access`
+          : `${target.sectionName} access unavailable`}
     {:else}
-      Log in to {action}
+      {compact ? "Log in" : `Log in to ${action}`}
     {/if}
   </Button>
 {/if}
 
-{#if !canWrite && (hasForm || writerCount > 0)}
+{#if showReason && !canWrite && (hasForm || writerCount > 0)}
   <p class="mt-2 text-right text-xs opacity-60">{reason}</p>
 {/if}

@@ -26,17 +26,20 @@
   export type Props = {
     pubkey: string
     url?: string
+    relays?: string[]
   }
 
-  const {pubkey, url}: Props = $props()
+  const {pubkey, url, relays = []}: Props = $props()
 
-  const profile = $derived(deriveProfile(pubkey, removeUndefined([url])))
+  const relayHints = $derived(removeUndefined([url, ...relays]))
+  const profileUrl = $derived(relayHints[0])
+  const profile = $derived(deriveProfile(pubkey, relayHints))
 
   const back = () => history.back()
 
   const chatPath = $derived(makeChatPath(pubkey))
 
-  const showInfo = () => pushModal(EventInfo, {url, event: $profile!.event})
+  const showInfo = () => pushModal(EventInfo, {url: profileUrl, event: $profile!.event})
 
   const openChat = () => goto(chatPath)
 
@@ -53,7 +56,7 @@
 
 <div class="flex flex-col gap-4">
   <div class="flex justify-between">
-    <Profile showPubkey avatarSize={14} {pubkey} {url} />
+    <Profile showPubkey avatarSize={14} {pubkey} url={profileUrl} relays={relayHints} />
     {#if $profile}
       <div class="relative">
         <Button class="btn btn-circle btn-ghost btn-sm" onclick={() => toggleMenu(pubkey)}>
@@ -78,8 +81,8 @@
       </div>
     {/if}
   </div>
-  <ProfileInfo {pubkey} {url} />
-  <ProfileBadges {pubkey} {url} />
+  <ProfileInfo {pubkey} url={profileUrl} relays={relayHints} />
+  <ProfileBadges {pubkey} url={profileUrl} />
   <ProfileNip85Metrics {pubkey} />
   <ProfileCodeTrustAnalysis {pubkey} />
   <ModalFooter>

@@ -1,6 +1,13 @@
 import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
-import {BADGE_DEFINITION_KIND, COMMUNITY_DEFINITION_KIND, FORM_RESPONSE_KIND, FORM_TEMPLATE_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
+import {
+  BADGE_DEFINITION_KIND,
+  COMMUNITY_DEFINITION_KIND,
+  FORM_RESPONSE_KIND,
+  FORM_TEMPLATE_KIND,
+  PROFILE_LIST_KIND,
+  parseCommunityDefinition,
+} from "./community"
 import {
   makeAdmissionFormAddress,
   makeAdmissionFormTemplate,
@@ -93,9 +100,9 @@ describe("community permissions", () => {
     expect(findProfileListEvent(definition.sections[0].profileLists[0], [generalProfileList])).toBe(
       generalProfileList,
     )
-    expect(findBadgeDefinitionEvent(definition.sections[0].badges[0], [memberBadgeDefinition])).toBe(
-      memberBadgeDefinition,
-    )
+    expect(
+      findBadgeDefinitionEvent(definition.sections[0].badges[0], [memberBadgeDefinition]),
+    ).toBe(memberBadgeDefinition)
   })
 
   it("checks write access from profile lists", () => {
@@ -125,13 +132,29 @@ describe("community permissions", () => {
     ).toBe(true)
   })
 
-  it("allows profile-list managers to bootstrap section content before list events load", () => {
+  it("allows section authorities to bootstrap content before list events load", () => {
     expect(
       canWriteCommunityTarget({
         definition,
         profileListEvents: [],
         userPubkey: managerPubkey,
         target: COMMUNITY_WRITE_TARGETS.roomMessage,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [],
+        userPubkey: communityPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [],
+        userPubkey: managerPubkey,
+        target: COMMUNITY_WRITE_TARGETS.repository,
       }),
     ).toBe(true)
   })
@@ -146,7 +169,9 @@ describe("community permissions", () => {
     expect(getGrantCapableSectionModeratorPubkeys({definition, sectionName: "General"})).toEqual([
       managerPubkey,
     ])
-    expect(getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Repositories"})).toEqual([])
+    expect(
+      getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Repositories"}),
+    ).toEqual([])
   })
 
   it("derives publish capabilities by kind and subtype", () => {
@@ -249,16 +274,16 @@ describe("community permissions", () => {
     ).toBe("missing")
   })
 
-  it("derives section writer pubkeys from authoritative profile lists", () => {
+  it("derives section writer pubkeys from authorities and profile lists", () => {
     expect(
       getCommunitySectionWriterPubkeys({
         definition,
         profileListEvents: [generalProfileList, repoProfileList],
         sectionName: "General",
       }),
-    ).toEqual([memberPubkey])
+    ).toEqual([communityPubkey, managerPubkey, memberPubkey])
     expect(
       getCommunitySectionWriterPubkeys({definition, profileListEvents: [], sectionName: "General"}),
-    ).toEqual([])
+    ).toEqual([communityPubkey, managerPubkey])
   })
 })

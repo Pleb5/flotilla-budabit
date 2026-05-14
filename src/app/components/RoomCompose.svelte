@@ -18,12 +18,13 @@
     url?: string
     h?: string
     content?: string
+    showMenu?: boolean
     onEscape?: () => void
     onEditPrevious?: () => void
     onSubmit: (event: EventContent) => void
   }
 
-  const {url, h, content, onEscape, onEditPrevious, onSubmit}: Props = $props()
+  const {url, h, content, showMenu = true, onEscape, onEditPrevious, onSubmit}: Props = $props()
 
   const autofocus = !isMobile
   const sendShortcut = `${navigator.platform.includes("Mac") ? "cmd" : "ctrl"}+enter to send`
@@ -97,19 +98,21 @@
         <Icon icon={GallerySend} />
       {/if}
     </Button>
-    <Tippy
-      bind:popover
-      component={ComposeMenu}
-      props={{url, h, onClick: hidePopover}}
-      params={{trigger: "manual", interactive: true}}>
-      <Button
-        data-tip="More options"
-        class="center join-item tooltip tooltip-right h-10 w-10 min-w-10 rounded-full border border-solid border-base-200 bg-base-300"
-        disabled={$uploading}
-        onclick={showPopover}>
-        <Icon icon={WidgetAdd} />
-      </Button>
-    </Tippy>
+    {#if showMenu}
+      <Tippy
+        bind:popover
+        component={ComposeMenu}
+        props={{url, h, onClick: hidePopover}}
+        params={{trigger: "manual", interactive: true}}>
+        <Button
+          data-tip="More options"
+          class="center join-item tooltip tooltip-right h-10 w-10 min-w-10 rounded-full border border-solid border-base-200 bg-base-300"
+          disabled={$uploading}
+          onclick={showPopover}>
+          <Icon icon={WidgetAdd} />
+        </Button>
+      </Tippy>
+    {/if}
   </div>
   <div class="chat-editor flex-grow overflow-hidden">
     <EditorContent {editor} />

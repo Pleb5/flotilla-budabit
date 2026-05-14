@@ -2,7 +2,7 @@
   import cx from "classnames"
   import {hash, now, displayList, formatTimestampAsTime, formatTimestampAsDate} from "@welshman/lib"
   import type {TrustedEvent, EventContent} from "@welshman/util"
-  import {MESSAGE, COMMENT} from "@welshman/util"
+  import {MESSAGE, COMMENT, getTag} from "@welshman/util"
   import {
     thunks,
     pubkey,
@@ -42,6 +42,11 @@
     showPubkey?: boolean
     inert?: boolean
     readOnly?: boolean
+    profileRelays?: string[]
+    interactionRelays?: string[]
+    interactionAuthorPubkeys?: string[]
+    scopeH?: string
+    protectInteractions?: boolean
     canEdit: (event: TrustedEvent) => boolean
     onEdit: (event: TrustedEvent) => void
   }
@@ -53,30 +58,88 @@
     showPubkey = false,
     inert = false,
     readOnly = false,
+    profileRelays = [],
+    interactionRelays = [],
+    interactionAuthorPubkeys = undefined,
+    scopeH = "",
+    protectInteractions = true,
     canEdit,
     onEdit,
   }: Props = $props()
 
   const path = getRoomItemPath(url, event)
-  const shouldProtect = canEnforceNip70(url)
+  const shouldProtect = protectInteractions ? canEnforceNip70(url) : undefined
   const today = formatTimestampAsDate(now())
-  const profileDisplay = deriveProfileDisplay(event.pubkey, [url])
+  const profileRelayHints = $derived.by(() =>
+    (profileRelays.length > 0 ? profileRelays : interactionRelays.length > 0 ? interactionRelays : [url])
+      .filter(Boolean),
+  )
+  const profileDisplay = $derived(deriveProfileDisplay(event.pubkey, profileRelayHints))
   const thunk = mergeThunks($thunks.filter((t: Thunk) => t.event.id === event.id))
   const [_, colorValue] = colors[Math.abs(hash(event.pubkey)) % colors.length]
   const comments = deriveEventsForUrl(url, [{kinds: [COMMENT], "#e": [event.id]}])
+  const relayTargets = $derived.by(() =>
+    (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
+  )
+  const scopedTags = $derived.by(() => {
+    if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
+      return [] as string[][]
+    }
+
+    return [["h", scopeH]]
+  })
 
   const reply = !readOnly && replyTo ? () => replyTo(event) : undefined
   const edit = !readOnly && canEdit(event) ? () => onEdit(event) : undefined
+  const hasJoinedActions = $derived(!readOnly)
+  const actionGroupClass = $derived(
+    cx("z-10 absolute right-1 top-1 shadow-sm backdrop-blur", {
+      "join rounded-full border border-solid border-neutral bg-base-100/90": hasJoinedActions,
+      "rounded-full": !hasJoinedActions,
+    }),
+  )
+  const menuButtonClass = $derived(
+    cx("btn btn-xs", {
+      "join-item": hasJoinedActions,
+      "btn-circle border border-solid border-neutral bg-base-100/90": !hasJoinedActions,
+    }),
+  )
 
-  const onTap = () => pushModal(RoomItemMenuMobile, {url, event, reply, edit, readOnly})
+  const onTap = () =>
+    pushModal(RoomItemMenuMobile, {
+      url,
+      event,
+      reply,
+      edit,
+      readOnly,
+      relays: relayTargets,
+      scopeH,
+      protectActions: protectInteractions,
+    })
 
-  const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, url})
+  const openProfile = () =>
+    pushModal(ProfileDetail, {
+      pubkey: event.pubkey,
+      url: profileRelayHints[0],
+      relays: profileRelayHints,
+    })
 
   const deleteReaction = async (event: TrustedEvent) =>
-    publishSocialDelete({url, event, protect: await shouldProtect})
+    publishSocialDelete({
+      url,
+      relays: relayTargets,
+      event,
+      protect: protectInteractions ? await shouldProtect! : false,
+    })
 
   const createReaction = async (template: EventContent) =>
-    publishReaction({...template, event, relays: [url], protect: await shouldProtect})
+    publishReaction({
+      ...template,
+      event,
+      relays: relayTargets,
+      tags: [...(template.tags || []), ...scopedTags],
+      protect: protectInteractions ? await shouldProtect! : false,
+    })
 </script>
 
 <TapTarget
@@ -84,10 +147,14 @@
   onTap={inert ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left hover:bg-base-100/50">
   {#if isMobile && !inert}
-    <div
-      class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
+    <div class={actionGroupClass}>
       {#if !readOnly}
-        <RoomItemEmojiButton {url} {event} />
+        <RoomItemEmojiButton
+          {url}
+          {event}
+          relays={relayTargets}
+          {scopeH}
+          protect={protectInteractions} />
       {/if}
       {#if reply}
         <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
@@ -99,7 +166,7 @@
           <Icon icon={Pen} size={4} />
         </Button>
       {/if}
-      <Button class="btn join-item btn-xs" onclick={onTap} aria-label="Open message actions">
+      <Button class={menuButtonClass} onclick={onTap} aria-label="Open message actions">
         <Icon icon={MenuDots} size={4} />
       </Button>
     </div>
@@ -110,6 +177,7 @@
         <ProfileCircle
           pubkey={event.pubkey}
           class="border border-solid border-base-content"
+          relays={profileRelayHints}
           size={8} />
       </Button>
     {:else}
@@ -142,6 +210,9 @@
   <div class="row-2 ml-10 mt-1 pl-1">
     <ReactionSummary
       {url}
+      relays={relayTargets}
+      allowedAuthors={interactionAuthorPubkeys}
+      {scopeH}
       {event}
       {readOnly}
       {deleteReaction}
@@ -166,13 +237,17 @@
     {/if}
   </div>
   {#if !isMobile}
-    <div
-      class="z-10 join absolute right-1 top-1 rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur">
+    <div class={cx(actionGroupClass, "text-xs")}>
       {#if ENABLE_ZAPS && !readOnly}
         <RoomItemZapButton {url} {event} />
       {/if}
       {#if !readOnly}
-        <RoomItemEmojiButton {url} {event} />
+        <RoomItemEmojiButton
+          {url}
+          {event}
+          relays={relayTargets}
+          {scopeH}
+          protect={protectInteractions} />
       {/if}
       {#if reply}
         <Button class="btn join-item btn-xs" onclick={reply}>
@@ -184,7 +259,13 @@
           <Icon icon={Pen} size={4} />
         </Button>
       {/if}
-      <RoomItemMenuButton {url} {event} {readOnly} />
+      <RoomItemMenuButton
+        {url}
+        {event}
+        {readOnly}
+        class={menuButtonClass}
+        relays={relayTargets}
+        protect={protectInteractions ? undefined : false} />
       {#if !readOnly}
         <SlotRenderer slotId="chat:message:actions" context={{url, event}} />
       {/if}
