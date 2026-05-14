@@ -10,11 +10,12 @@
     class?: string
     size?: number
     url?: string
+    relays?: string[]
   }
 
-  const {pubkey, url, size = 7, ...props}: Props = $props()
+  const {pubkey, url, relays = [], size = 7, ...props}: Props = $props()
 
-  const profile = $derived(deriveProfile(pubkey, removeUndefined([url])))
+  const profile = $derived(deriveProfile(pubkey, removeUndefined([url, ...relays])))
 </script>
 
 <ImageIcon

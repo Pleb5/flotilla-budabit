@@ -17,6 +17,7 @@
   import Link from "@lib/components/Link.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
   import {fade} from "@lib/transition"
   import {
     activeCommunityDefinition,
@@ -99,7 +100,12 @@
 </PageBar>
 
 <PageContent class="flex flex-col gap-2 p-2 pt-4">
-  <div class="card2 bg-alt flex flex-col items-center gap-4 text-left">
+  <div class="card2 bg-alt relative flex flex-col items-center gap-4 text-left">
+    {#if communityId}
+      <div class="absolute right-3 top-3">
+        <CommunityStarButton communityPubkey={communityId} relayHints={$activeCommunityRelays} />
+      </div>
+    {/if}
     <div class="relative flex gap-4">
       <div class="relative">
         <div class="avatar relative">

@@ -1,8 +1,10 @@
 <script lang="ts">
-  import Page from "@lib/components/Page.svelte"
-  import CommunityCreate from "@app/components/CommunityCreate.svelte"
+  import {browser} from "$app/environment"
+  import {goto} from "$app/navigation"
+
+  $effect(() => {
+    if (browser) goto("/explore/create-community", {replaceState: true})
+  })
 </script>
 
-<Page class="bg-base-200">
-  <CommunityCreate />
-</Page>
+<div class="center h-full w-full p-4 text-sm opacity-70">Opening community setup...</div>

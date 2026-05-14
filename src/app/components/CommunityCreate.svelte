@@ -397,7 +397,7 @@
   const getRootPublishRelays = (communityRelays: string[]) =>
     normalizeRelays([...communityRelays, ...INDEXER_RELAYS, ...getUserOutboxRelays()])
 
-  const cancel = () => goto("/home")
+  const cancel = () => goto("/explore")
 
   const createCommunity = async () => {
     if (!$pubkey) {

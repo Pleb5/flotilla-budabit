@@ -1,12 +1,12 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
-  import {page} from "$app/stores"
   import {goto} from "$app/navigation"
   import {userProfile, pubkey} from "@welshman/app"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import Widget from "@assets/icons/widget.svg?dataurl"
   import Letter from "@assets/icons/letter.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
+  import Compass from "@assets/icons/compass.svg?dataurl"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import UserRounded from "@assets/icons/user-rounded.svg?dataurl"
   import Settings from "@assets/icons/settings.svg?dataurl"
@@ -14,8 +14,6 @@
   import PrimaryNavItem from "@lib/components/PrimaryNavItem.svelte"
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import {pushModal} from "@app/util/modal"
-  import {DEFAULT_COMMUNITY_INPUT} from "@app/core/community-state"
-  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
   import {notifications} from "@app/util/notifications"
   import Git from "@assets/icons/git.svg?dataurl"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
@@ -26,10 +24,6 @@
   }
 
   const {children}: Props = $props()
-
-  const currentCommunity = $derived(parseCommunityRouteParam($page.params.community)?.pubkey || "")
-  const navCommunity = $derived(currentCommunity || DEFAULT_COMMUNITY_INPUT)
-  const communityPath = $derived(navCommunity ? makeCommunityPath(navCommunity) : "/home")
 
   const openProfile = () => {
     if ($pubkey) pushModal(ProfileDetail, {pubkey: $pubkey})
@@ -53,8 +47,11 @@
   class="ml-sai mt-sai mb-sai relative z-nav hidden w-14 flex-shrink-0 bg-base-200 pt-4 md:block">
   <div class="flex h-full flex-col justify-between">
     <div>
-      <PrimaryNavItem title="Community" href={communityPath} prefix="/c" class="tooltip-right">
-        <ImageIcon alt="Community" src={HomeSmile} class="rounded-full" />
+      <PrimaryNavItem title="Home" href="/home" prefix="/c" class="tooltip-right">
+        <ImageIcon alt="Home" src={HomeSmile} class="rounded-full" />
+      </PrimaryNavItem>
+      <PrimaryNavItem title="Explore" href="/explore" prefix="/explore" class="tooltip-right">
+        <ImageIcon alt="Explore" src={Compass} class="rounded-full" />
       </PrimaryNavItem>
     </div>
     <div>
@@ -141,11 +138,11 @@
 <div
   class="bottom-nav hide-on-keyboard border-top bottom-sai fixed left-0 right-0 z-nav h-14 border border-base-200 bg-base-100 md:hidden">
   <div class="content-padding-x content-sizing flex items-center gap-1 px-1">
-    <PrimaryNavItem compact title="Home" href="/home">
+    <PrimaryNavItem compact title="Home" href="/home" prefix="/c">
       <ImageIcon alt="Home" src={HomeSmile} size={5} />
     </PrimaryNavItem>
-    <PrimaryNavItem compact title="Community" href={communityPath} prefix="/c">
-      <ImageIcon alt="Community" src={Widget} size={5} />
+    <PrimaryNavItem compact title="Explore" href="/explore" prefix="/explore">
+      <ImageIcon alt="Explore" src={Compass} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem
       compact
