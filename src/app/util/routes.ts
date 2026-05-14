@@ -8,7 +8,7 @@ import {scrollToEvent} from "@lib/html"
 import {identity} from "@welshman/lib"
 import {getPubkeyTagValues, getTagValue} from "@welshman/util"
 import {makeChatId, entityLink, DM_KIND} from "@app/core/state"
-import {makeCommunityNcommunity, parseCommunityInput} from "@app/core/community"
+import {parseCommunityInput} from "@app/core/community"
 
 export const parseCommunityRouteParam = (community: string | undefined) => {
   if (!community) return undefined
@@ -22,11 +22,7 @@ export const parseCommunityRouteParam = (community: string | undefined) => {
 
 export const encodeCommunityRouteParam = (community: string) => {
   const parsed = parseCommunityInput(community)
-  const value = parsed
-    ? parsed.relays.length > 0
-      ? makeCommunityNcommunity({pubkey: parsed.pubkey, relayHints: parsed.relays})
-      : nip19.npubEncode(parsed.pubkey)
-    : community
+  const value = parsed ? nip19.npubEncode(parsed.pubkey) : community
 
   return encodeURIComponent(value)
 }

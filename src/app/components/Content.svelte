@@ -33,8 +33,10 @@
   import ContentQuote from "@app/components/ContentQuote.svelte"
   import ContentTopic from "@app/components/ContentTopic.svelte"
   import ContentMention from "@app/components/ContentMention.svelte"
+  import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
   import {entityLink, userSettingsValues} from "@app/core/state"
+  import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
   import {Template, isKnownUnknown, EventRenderer, isKnownEventKind} from "@nostr-git/ui"
 
   interface Props {
@@ -117,7 +119,7 @@
     $userSettingsValues.hide_sensitive && event.tags.find(nthEq(0, "content-warning"))?.[1],
   )
 
-  const shortContent = $derived(
+  const shortRawContent = $derived(
     showEntire
       ? fullContent
       : truncate(fullContent, {
@@ -126,8 +128,9 @@
           mediaLength: hideMediaAtDepth <= depth ? 20 : 200,
         }),
   )
+  const shortContent = $derived(replaceCommunityLinks(shortRawContent))
 
-  const hasEllipsis = $derived(shortContent.some(isEllipsis))
+  const hasEllipsis = $derived(shortRawContent.some(isEllipsis))
   const expandInline = $derived(hasEllipsis && expandMode === "inline")
   const expandBlock = $derived(hasEllipsis && expandMode === "block")
 </script>
@@ -168,7 +171,9 @@
           ? "mask-image: linear-gradient(0deg, transparent 0px, black 100px)"
           : ""}>
         {#each shortContent as parsed, i}
-          {#if isNewline(parsed) && !isBlock(i - 1)}
+          {#if isCommunityLinkToken(parsed)}
+            <CommunityLinkCard value={parsed.value} />
+          {:else if isNewline(parsed) && !isBlock(i - 1)}
             <ContentNewline value={parsed.value} />
           {:else if isTopic(parsed)}
             <ContentTopic value={parsed.value} />

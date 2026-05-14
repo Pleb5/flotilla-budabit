@@ -8,6 +8,7 @@ import Profile from "@app/components/Profile.svelte"
 import ProfileLink from "@app/components/ProfileLink.svelte"
 import ContentLinkBlock from "@app/components/ContentLinkBlock.svelte"
 import ContentQuote from "@app/components/ContentQuote.svelte"
+import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
 
 export interface MountedComponent {
   target: Element
@@ -32,10 +33,53 @@ export function mountPlaceholderComponents(
   const mountedComponents: MountedComponent[] = []
 
   mountProfilePlaceholders(container, mountedComponents)
+  mountCommunityPlaceholders(container, mountedComponents)
   mountLinkBlockPlaceholders(container, options, mountedComponents)
   mountQuotePlaceholders(container, options, mountedComponents)
 
   return mountedComponents
+}
+
+function parseRelaysAttribute(value: string | null, label: string): string[] {
+  if (!value) return []
+
+  try {
+    return JSON.parse(value.replace(/&quot;/g, '"'))
+  } catch (e) {
+    console.error(`Failed to parse relays for ${label}:`, e)
+    return []
+  }
+}
+
+/**
+ * Mounts shared community preview components
+ */
+function mountCommunityPlaceholders(
+  container: HTMLElement,
+  mountedComponents: MountedComponent[],
+): void {
+  const communityPlaceholders = container.querySelectorAll(".markdown-community-placeholder")
+  communityPlaceholders.forEach(placeholder => {
+    const pubkey = placeholder.getAttribute("data-pubkey")
+    if (!pubkey) return
+
+    try {
+      const relays = parseRelaysAttribute(placeholder.getAttribute("data-relays"), "community")
+      const containerElement = document.createElement("div")
+      placeholder.replaceWith(containerElement)
+
+      const communityComponent = mount(CommunityLinkCard, {
+        target: containerElement,
+        props: {
+          value: {pubkey, relays, source: "ncommunity"},
+        },
+      })
+
+      mountedComponents.push({target: containerElement, component: communityComponent})
+    } catch (e) {
+      console.error("Failed to mount CommunityLinkCard:", e)
+    }
+  })
 }
 
 /**
@@ -167,14 +211,7 @@ function mountQuotePlaceholders(
             console.error(`Missing id for ${quoteType} quote`)
             return
           }
-          const relaysAttr = placeholder.getAttribute("data-relays") || "[]"
-          let relays: string[] = []
-          try {
-            relays = JSON.parse(relaysAttr.replace(/&quot;/g, '"'))
-          } catch (e) {
-            console.error(`Failed to parse relays for ${quoteType}:`, e)
-            relays = []
-          }
+          const relays = parseRelaysAttribute(placeholder.getAttribute("data-relays"), quoteType)
           quoteValue = {id, relays}
         } else if (quoteType === "naddr") {
           const kindAttr = placeholder.getAttribute("data-kind")
@@ -196,14 +233,7 @@ function mountQuotePlaceholders(
             return
           }
 
-          const relaysAttr = placeholder.getAttribute("data-relays") || "[]"
-          let relays: string[] = []
-          try {
-            relays = JSON.parse(relaysAttr.replace(/&quot;/g, '"'))
-          } catch (e) {
-            console.error("Failed to parse relays for naddr:", e)
-            relays = []
-          }
+          const relays = parseRelaysAttribute(placeholder.getAttribute("data-relays"), "naddr")
           quoteValue = {kind, pubkey: pubkeyAttr, identifier: identifierAttr, relays}
         }
 

@@ -6,6 +6,11 @@ import type {TokenizerAndRendererExtension, Tokens} from "marked"
 import {nip19} from "nostr-tools"
 import type {TrustedEvent} from "@welshman/util"
 import {shortenNostrUri} from "./markdownUtils.js"
+import {
+  findNcommunityLinkStart,
+  getNcommunityLinkAtStart,
+} from "@app/util/community-links"
+import type {ParsedCommunityInput} from "@app/core/community"
 
 export interface NostrTokenizerOptions {
   event?: TrustedEvent
@@ -87,6 +92,16 @@ const findStandaloneNostrStart = (src: string) => {
   return -1
 }
 
+const findNostrStart = (src: string) => {
+  const nostrStart = findStandaloneNostrStart(src)
+  const communityStart = findNcommunityLinkStart(src)
+
+  if (nostrStart === -1) return communityStart
+  if (communityStart === -1) return nostrStart
+
+  return Math.min(nostrStart, communityStart)
+}
+
 /**
  * Creates a Nostr tokenizer extension
  */
@@ -99,9 +114,23 @@ export function createNostrTokenizer(
     name: "nostr",
     level: "inline",
     start(src: string) {
-      return findStandaloneNostrStart(src)
+      return findNostrStart(src)
     },
     tokenizer(src: string) {
+      const community = getNcommunityLinkAtStart(src)
+      if (community) {
+        return {
+          type: "nostr",
+          raw: community.raw,
+          text: community.raw,
+          fullId: community.raw,
+          community: community.value,
+          prefix: "",
+          userName: null,
+          tokens: [],
+        }
+      }
+
       const match = NOSTR_START_REGEX.exec(src)
       if (match) {
         const [fullMatch, fullId] = match
@@ -120,9 +149,13 @@ export function createNostrTokenizer(
       }
     },
     renderer(token: Tokens.Generic) {
-      const {fullId, userName, pubkey} = token
+      const {fullId, userName, pubkey, community} = token
       let linkUrl = `/${fullId}`
       let external = false
+
+      if (community) {
+        return createCommunityPlaceholder(community as ParsedCommunityInput)
+      }
 
       try {
         const decoded = nip19.decode(fullId)
@@ -219,6 +252,12 @@ export function createNostrTokenizer(
       return `<a href="${linkUrl}" ${externalAttributes} class="link" title="${fullId}">${linkText}</a>`
     },
   }
+}
+
+function createCommunityPlaceholder(community: ParsedCommunityInput): string {
+  const relaysAttr = JSON.stringify(community.relays || []).replace(/"/g, "&quot;")
+
+  return `<span class="markdown-community-placeholder" data-pubkey="${community.pubkey}" data-relays="${relaysAttr}"></span>`
 }
 
 /**

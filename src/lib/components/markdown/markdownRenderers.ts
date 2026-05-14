@@ -7,6 +7,8 @@ import {nip19} from "nostr-tools"
 import hljs from "highlight.js"
 import type {TrustedEvent} from "@welshman/util"
 import {shortenUrl, isMediaUrl, isStandaloneUrl} from "./markdownUtils.js"
+import {parseNcommunityLink} from "@app/util/community-links"
+import type {ParsedCommunityInput} from "@app/core/community"
 
 export interface RendererOptions {
   event?: TrustedEvent
@@ -31,6 +33,11 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
 
     link(token: Tokens.Link): string {
       const {href, text} = token
+
+      const community = parseNcommunityLink(href)
+      if (community) {
+        return createCommunityPlaceholder(community)
+      }
 
       // Check if href is a nostr URI
       const nostrMatch = href.match(
@@ -187,6 +194,12 @@ function renderNostrLink(
     console.error("Failed to decode nostr link:", err, fullId)
     return `<a href="/${fullId}" class="link">${fullId}</a>`
   }
+}
+
+function createCommunityPlaceholder(community: ParsedCommunityInput): string {
+  const relaysAttr = JSON.stringify(community.relays || []).replace(/"/g, "&quot;")
+
+  return `<span class="markdown-community-placeholder" data-pubkey="${community.pubkey}" data-relays="${relaysAttr}"></span>`
 }
 
 /**

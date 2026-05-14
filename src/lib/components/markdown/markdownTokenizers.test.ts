@@ -70,6 +70,10 @@ describe("markdownTokenizers", () => {
 
   describe("createNostrTokenizer", () => {
     const getTokenizer = () => createNostrTokenizer() as InlineTokenizerExtension
+    const communityPubkey = "a".repeat(64)
+    const ncommunity = `ncommunity://${communityPubkey}?relay=${encodeURIComponent(
+      "wss://relay.example.com",
+    )}`
 
     beforeEach(() => {
       vi.mocked(nip19.decode).mockReset()
@@ -85,6 +89,11 @@ describe("markdownTokenizers", () => {
       const tokenizer = getTokenizer()
       expect(tokenizer.start("check out nostr:note1acdef023456")).toBeGreaterThanOrEqual(0)
       expect(tokenizer.start("plain text")).toBe(-1)
+    })
+
+    it("finds ncommunity URI start index", () => {
+      const tokenizer = getTokenizer()
+      expect(tokenizer.start(`share ${ncommunity}`)).toBe(6)
     })
 
     it("does not find nostr identifiers embedded in URL paths", () => {
@@ -125,6 +134,20 @@ describe("markdownTokenizers", () => {
       expect((token as any).fullId).toContain("npub1")
     })
 
+    it("tokenizes ncommunity URIs", () => {
+      const tokenizer = getTokenizer()
+      const token = tokenizer.tokenizer(`${ncommunity}.`)
+      expect(token).toMatchObject({
+        type: "nostr",
+        raw: ncommunity,
+        community: {
+          pubkey: communityPubkey,
+          relays: ["wss://relay.example.com/"],
+          source: "ncommunity",
+        },
+      })
+    })
+
     it("does not tokenize nostr identifiers when they continue as URL paths", () => {
       const tokenizer = getTokenizer()
       expect(
@@ -149,6 +172,23 @@ describe("markdownTokenizers", () => {
       const html = tokenizer.renderer(token as any)
       expect(html).toContain("nostr-profile-placeholder")
       expect(html).toContain('data-pubkey="' + "b".repeat(64) + '"')
+    })
+
+    it("renders ncommunity as community placeholder", () => {
+      const tokenizer = getTokenizer()
+      const html = tokenizer.renderer({
+        type: "nostr",
+        fullId: ncommunity,
+        community: {
+          pubkey: communityPubkey,
+          relays: ["wss://relay.example.com/"],
+          source: "ncommunity",
+        },
+      } as any)
+
+      expect(html).toContain("markdown-community-placeholder")
+      expect(html).toContain(`data-pubkey="${communityPubkey}"`)
+      expect(html).toContain("wss://relay.example.com/")
     })
 
     it("renders note as quote placeholder when event provided", () => {

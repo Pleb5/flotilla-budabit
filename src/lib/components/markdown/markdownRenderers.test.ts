@@ -21,6 +21,11 @@ describe("markdownRenderers", () => {
     vi.mocked(nip19.decode).mockReset()
   })
   describe("createRenderers", () => {
+    const communityPubkey = "a".repeat(64)
+    const ncommunity = `ncommunity://${communityPubkey}?relay=${encodeURIComponent(
+      "wss://relay.example.com",
+    )}`
+
     it("returns image renderer that produces img tag", () => {
       const renderers = createRenderers()
       const token = {
@@ -97,6 +102,15 @@ describe("markdownRenderers", () => {
       const html = renderers.link!(token as any)
       expect(html).toContain("nostr-profile-placeholder")
       expect(html).toContain(`data-pubkey="${pubkey}"`)
+    })
+
+    it("renders ncommunity link as community placeholder", () => {
+      const renderers = createRenderers()
+      const html = renderers.link!({href: ncommunity, text: "Community"} as any)
+
+      expect(html).toContain("markdown-community-placeholder")
+      expect(html).toContain(`data-pubkey="${communityPubkey}"`)
+      expect(html).toContain("wss://relay.example.com/")
     })
 
     it("renders nprofile link as profile placeholder", () => {

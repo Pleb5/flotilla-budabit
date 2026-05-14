@@ -52,14 +52,12 @@ describe("routes", () => {
   it("parses encoded ncommunity route params", async () => {
     const {makeCommunityPath, parseCommunityRouteParam} = await import("./routes")
     const communityPubkey = "b".repeat(64)
+    const communityNpub = nip19.npubEncode(communityPubkey)
     const value = `ncommunity://${communityPubkey}?relay=${encodeURIComponent(
       "wss://relay.example.com",
     )}`
-    const normalizedValue = `ncommunity://${communityPubkey}?relay=${encodeURIComponent(
-      "wss://relay.example.com/",
-    )}`
 
-    expect(makeCommunityPath(value)).toBe(`/c/${encodeURIComponent(normalizedValue)}`)
+    expect(makeCommunityPath(value)).toBe(`/c/${communityNpub}`)
     expect(parseCommunityRouteParam(encodeURIComponent(value))).toEqual({
       pubkey: communityPubkey,
       relays: ["wss://relay.example.com/"],

@@ -30,7 +30,9 @@
   import ContentTopic from "@app/components/ContentTopic.svelte"
   import ContentMention from "@app/components/ContentMention.svelte"
   import GitQuoteFallback from "@app/components/GitQuoteFallback.svelte"
+  import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
   import {entityLink, userSettingsValues} from "@app/core/state"
+  import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
 
   interface Props {
     event: any
@@ -100,9 +102,10 @@
     return fullContent
   })
 
-  const shortContent = $derived.by(() => {
+  const shortRawContent = $derived.by(() => {
     return truncate(trimmedContent, {minLength: 200, maxLength: 300, mediaLength: 20})
   })
+  const shortContent = $derived(replaceCommunityLinks(shortRawContent))
 
   const showQuoteFallback = $derived.by(
     () => Boolean(leadingQuote) && !trimmedContent.some(hasVisibleContent),
@@ -124,7 +127,9 @@
         <GitQuoteFallback {event} value={leadingQuote.value} {url} />
       {:else}
         {#each shortContent as parsed, i}
-          {#if isNewline(parsed)}
+          {#if isCommunityLinkToken(parsed)}
+            <CommunityLinkCard value={parsed.value} compact />
+          {:else if isNewline(parsed)}
             <ContentNewline value={parsed.value} />
           {:else if isTopic(parsed)}
             <ContentTopic value={parsed.value} />
