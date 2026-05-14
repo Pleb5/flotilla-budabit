@@ -39,11 +39,31 @@
       : undefined,
   )
   const selectedPubkeys = $derived(getProfileListPubkeys(selectedProfileListEvent))
+  const canViewAdmin = $derived(
+    Boolean(
+      $pubkey &&
+      $activeCommunityDefinition &&
+      normalizePubkey($pubkey) === normalizePubkey($activeCommunityDefinition.pubkey),
+    ),
+  )
 
   const grant = () => {
     const normalized = normalizePubkey(targetPubkey)
-    if (!selected?.capability?.canGrant || !selected.capability.profileList || !selected.capability.badge || !normalized) {
-      pushToast({theme: "error", message: "You need list-manager and badge-issuer authority for this section."})
+    if (!canViewAdmin) {
+      pushToast({theme: "error", message: "Only the community owner can administer access."})
+      return
+    }
+
+    if (
+      !selected?.capability?.canGrant ||
+      !selected.capability.profileList ||
+      !selected.capability.badge ||
+      !normalized
+    ) {
+      pushToast({
+        theme: "error",
+        message: "You need list-manager and badge-issuer authority for this section.",
+      })
       return
     }
 
@@ -67,8 +87,16 @@
   }
 
   const revoke = (revokedPubkey: string) => {
+    if (!canViewAdmin) {
+      pushToast({theme: "error", message: "Only the community owner can administer access."})
+      return
+    }
+
     if (!selected?.capability?.canGrant || !selected.capability.profileList) {
-      pushToast({theme: "error", message: "You need list-manager and badge-issuer authority for this section."})
+      pushToast({
+        theme: "error",
+        message: "You need list-manager and badge-issuer authority for this section.",
+      })
       return
     }
 
@@ -103,6 +131,11 @@
   }
 
   $effect(() => {
+    if (!canViewAdmin) {
+      selectedSection = ""
+      return
+    }
+
     if (!selectedSection && sections[0]) selectedSection = sections[0].name
   })
 </script>
@@ -117,6 +150,8 @@
 <PageContent class="content col-4 p-4">
   {#if !$activeCommunityDefinition}
     <p class="py-8 text-center opacity-70">Community definition is not loaded.</p>
+  {:else if !canViewAdmin}
+    <p class="py-8 text-center opacity-70">Only the community owner can access admin tools.</p>
   {:else}
     <div class="grid gap-2 sm:grid-cols-2">
       {#each capabilities as item}
@@ -125,7 +160,7 @@
           type="button"
           class="card2 border p-4 text-left shadow-md transition-colors {isSelected
             ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
-            : 'border-base-300 bg-alt hover:bg-base-200'}"
+            : 'bg-alt border-base-300 hover:bg-base-200'}"
           aria-pressed={isSelected}
           onclick={() => selectSection(item.section.name)}>
           <div class="flex items-center justify-between gap-2">
@@ -155,7 +190,10 @@
               class="input input-bordered w-full" />{/snippet}
         </Field>
         <div class="flex justify-end">
-          <Button type="submit" class="btn btn-primary" disabled={!selected.capability?.canGrant || !targetPubkey.trim()}>
+          <Button
+            type="submit"
+            class="btn btn-primary"
+            disabled={!selected.capability?.canGrant || !targetPubkey.trim()}>
             Grant access
           </Button>
         </div>
@@ -166,7 +204,10 @@
         {#each selectedPubkeys as listedPubkey}
           <div class="flex items-center justify-between gap-2">
             <code class="truncate text-xs">{listedPubkey}</code>
-            <Button class="btn btn-error btn-xs" disabled={!selected.capability?.canGrant} onclick={() => revoke(listedPubkey)}>
+            <Button
+              class="btn btn-error btn-xs"
+              disabled={!selected.capability?.canGrant}
+              onclick={() => revoke(listedPubkey)}>
               Revoke
             </Button>
           </div>

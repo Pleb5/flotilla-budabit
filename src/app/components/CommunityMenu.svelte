@@ -27,9 +27,11 @@
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
+  import {normalizePubkey} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getGrantCapability,
   } from "@app/core/community-permissions"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
@@ -67,16 +69,29 @@
   const roomFilters = $derived(community ? [makeCommunityRoomRootsFilter(community)] : [])
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
   const rooms = $derived(readCommunityRoomRoots($roomEvents, community))
+  const canModerate = $derived.by(() => {
+    const definition = $activeCommunityDefinition
+    const userPubkey = $pubkey
+
+    if (!definition || !userPubkey) return false
+
+    return definition.sections.some(
+      section => getGrantCapability({definition, userPubkey, sectionName: section.name}).canGrant,
+    )
+  })
+  const canViewAdmin = $derived(
+    Boolean($pubkey && normalizePubkey($pubkey) === normalizePubkey(community)),
+  )
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.roomRoot,
-        }),
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomRoot,
+      }),
     ),
   )
 
@@ -104,7 +119,9 @@
 
 <div bind:this={element} class="flex h-full flex-col justify-between">
   <SecondaryNavSection>
-    <Button class="flex w-full flex-col rounded-xl p-3 transition-all hover:bg-base-100" onclick={goHome}>
+    <Button
+      class="flex w-full flex-col rounded-xl p-3 transition-all hover:bg-base-100"
+      onclick={goHome}>
       <div class="flex items-center gap-3">
         <div class="center h-9 w-9 shrink-0 overflow-hidden rounded-full bg-base-300">
           {#if communityPicture}
@@ -129,25 +146,43 @@
         <Icon icon={Git} /> Git
       </SecondaryNavItem>
 
-      <SecondaryNavItem {replaceState} href={threadsPath} notification={$notifications.has(threadsPath)}>
+      <SecondaryNavItem
+        {replaceState}
+        href={threadsPath}
+        notification={$notifications.has(threadsPath)}>
         <Icon icon={NotesMinimalistic} /> Threads
       </SecondaryNavItem>
 
-      <SecondaryNavItem {replaceState} href={calendarPath} notification={$notifications.has(calendarPath)}>
+      <SecondaryNavItem
+        {replaceState}
+        href={calendarPath}
+        notification={$notifications.has(calendarPath)}>
         <Icon icon={CalendarMinimalistic} /> Calendar
       </SecondaryNavItem>
 
       {#if ENABLE_ZAPS}
-        <SecondaryNavItem {replaceState} href={goalsPath} notification={$notifications.has(goalsPath)}>
+        <SecondaryNavItem
+          {replaceState}
+          href={goalsPath}
+          notification={$notifications.has(goalsPath)}>
           <Icon icon={StarFallMinimalistic} /> Fundraisers
         </SecondaryNavItem>
       {/if}
 
-      <SecondaryNavHeader>Rooms</SecondaryNavHeader>
+      {#if rooms.length > 0 || canCreateRoom}
+        <SecondaryNavHeader>Rooms</SecondaryNavHeader>
+      {/if}
 
-      <SecondaryNavItem {replaceState} href={roomsPath} notification={$notifications.has(roomsPath)}>
-        <Icon icon={Hashtag} /> Rooms
-      </SecondaryNavItem>
+      {#each rooms as room (room.id)}
+        {@const roomPath = makeCommunityRoomPath(community, room.id)}
+        <SecondaryNavItem
+          {replaceState}
+          href={roomPath}
+          notification={$notifications.has(roomPath)}>
+          <Icon icon={Hashtag} />
+          <span class="ellipsize">{room.name}</span>
+        </SecondaryNavItem>
+      {/each}
 
       {#if canCreateRoom}
         <SecondaryNavItem {replaceState} onclick={createRoom}>
@@ -155,29 +190,25 @@
         </SecondaryNavItem>
       {/if}
 
-      {#each rooms as room (room.id)}
-        {@const roomPath = makeCommunityRoomPath(community, room.id)}
-        <SecondaryNavItem {replaceState} href={roomPath} notification={$notifications.has(roomPath)}>
-          <Icon icon={Hashtag} />
-          <span class="ellipsize">{room.name}</span>
-        </SecondaryNavItem>
-      {/each}
-
       <div aria-hidden="true" class="mx-4 my-1 border-t border-base-300/50"></div>
 
       <SecondaryNavHeader>Manage</SecondaryNavHeader>
-
-      <SecondaryNavItem {replaceState} href={adminPath}>
-        <Icon icon={ShieldUser} /> Admin
-      </SecondaryNavItem>
 
       <SecondaryNavItem {replaceState} href={accessPath}>
         <Icon icon={ShieldUser} /> Access Requests
       </SecondaryNavItem>
 
-      <SecondaryNavItem {replaceState} href={moderationPath}>
-        <Icon icon={ShieldUser} /> Moderation
-      </SecondaryNavItem>
+      {#if canModerate}
+        <SecondaryNavItem {replaceState} href={moderationPath}>
+          <Icon icon={ShieldUser} /> Moderation
+        </SecondaryNavItem>
+      {/if}
+
+      {#if canViewAdmin}
+        <SecondaryNavItem {replaceState} href={adminPath}>
+          <Icon icon={ShieldUser} /> Admin
+        </SecondaryNavItem>
+      {/if}
     </div>
   </SecondaryNavSection>
 
