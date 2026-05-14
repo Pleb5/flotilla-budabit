@@ -7,7 +7,6 @@
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Ghost from "@assets/icons/ghost-smile.svg?dataurl"
   import BillList from "@assets/icons/bill-list.svg?dataurl"
-  import ShieldUser from "@assets/icons/shield-user.svg?dataurl"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
@@ -69,9 +68,6 @@
   const calendarPath = $derived(communityId ? makeCommunityCalendarPath(communityId) : "")
   const goalsPath = $derived(communityId ? makeCommunityGoalPath(communityId) : "")
   const gitPath = "/git"
-  const accessPath = $derived(communityId ? makeCommunityPath(communityId, "access") : "")
-  const moderationPath = $derived(communityId ? makeCommunityPath(communityId, "moderation") : "")
-  const adminPath = $derived(communityId ? makeCommunityPath(communityId, "admin") : "")
   const roomFilters = $derived(communityId ? [makeCommunityRoomRootsFilter(communityId)] : [])
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
   const rooms = $derived(readCommunityRoomRoots($roomEvents, communityId))
@@ -238,43 +234,4 @@
       </Link>
     {/if}
   </div>
-
-  {#if adminPath}
-    <div class="card2 bg-alt flex flex-wrap items-center justify-between gap-3 p-4">
-      <div>
-        <h3 class="flex items-center gap-2 text-lg font-semibold">
-          <Icon icon={ShieldUser} />
-          Community Admin
-        </h3>
-        <p class="text-sm opacity-70">Manage publishing lists and role badges for this community.</p>
-      </div>
-      <Link href={adminPath} class="btn btn-neutral">Open Admin</Link>
-    </div>
-  {/if}
-
-  {#if accessPath}
-    <div class="card2 bg-alt flex flex-wrap items-center justify-between gap-3 p-4">
-      <div>
-        <h3 class="flex items-center gap-2 text-lg font-semibold">
-          <Icon icon={ShieldUser} />
-          Access Requests
-        </h3>
-        <p class="text-sm opacity-70">Request publishing permissions and review your current applications.</p>
-      </div>
-      <Link href={accessPath} class="btn btn-primary">Open Access</Link>
-    </div>
-  {/if}
-
-  {#if moderationPath}
-    <div class="card2 bg-alt flex flex-wrap items-center justify-between gap-3 p-4">
-      <div>
-        <h3 class="flex items-center gap-2 text-lg font-semibold">
-          <Icon icon={ShieldUser} />
-          Community Moderation
-        </h3>
-        <p class="text-sm opacity-70">Create application forms and review permission requests.</p>
-      </div>
-      <Link href={moderationPath} class="btn btn-neutral">Open Moderation</Link>
-    </div>
-  {/if}
 </PageContent>

@@ -24,6 +24,7 @@
     inputPlaceholder?: string
     showActions?: boolean
     loading?: boolean
+    opening?: boolean
     notFound?: boolean
     onSubmit?: () => void
   }
@@ -44,6 +45,7 @@
     inputPlaceholder = "npub1... or ncommunity://...",
     showActions = true,
     loading = false,
+    opening = false,
     notFound = false,
     onSubmit = onOpen,
   }: Props = $props()
@@ -62,11 +64,13 @@
   const info = $derived(
     notFound
       ? "No kind 10222 community definition was found for this npub."
-      : loading
-        ? "Looking for a community definition..."
-        : pubkey
-          ? $profile?.about || profileRelays[0] || fallbackName
-          : emptyInfo,
+      : opening
+        ? "Opening community..."
+        : loading
+          ? "Looking for a community definition..."
+          : pubkey
+            ? $profile?.about || profileRelays[0] || fallbackName
+            : emptyInfo,
   )
 
   const submit = () => onSubmit?.()
@@ -77,7 +81,9 @@
     <button
       type="button"
       class="group flex min-w-0 flex-1 items-center gap-4 rounded-xl p-2 text-left transition-colors hover:bg-base-300 disabled:cursor-not-allowed disabled:opacity-60"
-      disabled={!pubkey || loading || notFound}
+      class:bg-base-300={opening}
+      aria-busy={loading || opening}
+      disabled={!pubkey || loading || opening || notFound}
       onclick={onOpen}>
       <div
         class="center !flex h-16 w-16 shrink-0 overflow-hidden rounded-full border border-solid border-base-300 bg-base-300">
@@ -92,7 +98,7 @@
         <h2 class="ellipsize text-xl font-bold">{name}</h2>
         <p class="ellipsize text-sm opacity-70">{info}</p>
       </div>
-      {#if loading}
+      {#if loading || opening}
         <span class="loading loading-spinner loading-sm hidden opacity-60 sm:block"></span>
       {:else if !notFound}
         <div

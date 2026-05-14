@@ -80,19 +80,19 @@
         </PrimaryNavItem>
       </div>
       <PrimaryNavItem
+        title="Messages"
+        onclick={openChat}
+        class="tooltip-right"
+        notification={$notifications.has("/chat")}>
+        <ImageIcon alt="Messages" src={Letter} size={7} />
+      </PrimaryNavItem>
+      <PrimaryNavItem
         title="Git"
         href="/git"
         prefix="/git"
         class="tooltip-right"
         notification={gitNotification}>
         <ImageIcon alt="Git" src={Git} size={7} />
-      </PrimaryNavItem>
-      <PrimaryNavItem
-        title="Messages"
-        onclick={openChat}
-        class="tooltip-right"
-        notification={$notifications.has("/chat")}>
-        <ImageIcon alt="Messages" src={Letter} size={7} />
       </PrimaryNavItem>
       <PrimaryNavItem title="Search" href="/people" class="tooltip-right">
         <ImageIcon alt="Search" src={Magnifier} size={7} />
@@ -144,15 +144,15 @@
     <PrimaryNavItem compact title="Explore" href="/explore" prefix="/explore">
       <ImageIcon alt="Explore" src={Compass} size={5} />
     </PrimaryNavItem>
+    <PrimaryNavItem compact title="Git" href="/git" prefix="/git" notification={gitNotification}>
+      <ImageIcon alt="Git" src={Git} size={5} />
+    </PrimaryNavItem>
     <PrimaryNavItem
       compact
       title="Messages"
       onclick={openChat}
       notification={$notifications.has("/chat")}>
       <ImageIcon alt="Messages" src={Letter} size={5} />
-    </PrimaryNavItem>
-    <PrimaryNavItem compact title="Git" href="/git" prefix="/git" notification={gitNotification}>
-      <ImageIcon alt="Git" src={Git} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem compact title="Search" href="/people">
       <ImageIcon alt="Search" src={Magnifier} size={5} />

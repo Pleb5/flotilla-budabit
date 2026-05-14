@@ -52,6 +52,15 @@
     return selectLatestCommunityDefinition(definitionEvents, communityPubkey)
   }
 
+  const makeEnteringCommunityKey = (parsed: NonNullable<ReturnType<typeof parseCommunityInput>>) =>
+    `${parsed.pubkey}:${parsed.relays.join(",")}`
+
+  const getEnteringCommunityKey = (input: string) => {
+    const parsed = parseCommunityInput(input)
+
+    return parsed ? makeEnteringCommunityKey(parsed) : ""
+  }
+
   const enterCommunity = async (input: string) => {
     const parsed = parseCommunityInput(input)
 
@@ -63,8 +72,8 @@
       return
     }
 
-    const requestKey = `${parsed.pubkey}:${parsed.relays.join(",")}`
     if (enteringCommunityKey) return
+    const requestKey = makeEnteringCommunityKey(parsed)
     enteringCommunityKey = requestKey
 
     try {
@@ -90,8 +99,8 @@
 
       setActiveCommunityDefinition(definition)
       selectorRelayHints = {...selectorRelayHints, [parsed.pubkey]: relayHints}
+      await goto(makeCommunityPath(communityValue))
       communityInput = ""
-      goto(makeCommunityPath(communityValue))
     } catch (error) {
       if (parsed.pubkey === previewPubkey) previewLookupState = "not-found"
       pushToast({theme: "error", message: "No community found"})
@@ -103,11 +112,6 @@
   const submitCommunityInput = () => {
     if (!communityInput.trim()) return
     enterCommunity(communityInput)
-  }
-
-  const openSelectorCommunity = (item: SelectorCommunity) => {
-    const input = makeCommunityInputValue({pubkey: item.pubkey, relayHints: item.relayHints})
-    enterCommunity(input || item.pubkey)
   }
 
   const openPreviewCommunity = () => {
@@ -189,6 +193,14 @@
       ...(selectorRelayHints[previewPubkey] || []),
     ])
   })
+  const previewOpenInput = $derived(
+    previewPubkey
+      ? makeCommunityInputValue({pubkey: previewPubkey, relayHints: previewRelayHints}) || previewPubkey
+      : "",
+  )
+  const previewOpening = $derived(
+    Boolean(previewOpenInput && enteringCommunityKey === getEnteringCommunityKey(previewOpenInput)),
+  )
   const previewHasCommunityDefinition = $derived(
     Boolean(
       previewPubkey &&
@@ -291,6 +303,7 @@
           showInput
           showActions={previewHasCommunityDefinition}
           loading={previewLoading}
+          opening={previewOpening}
           notFound={previewCommunityNotFound}
           onSubmit={submitCommunityInput} />
 
@@ -304,12 +317,15 @@
                 {/if}
               </div>
               {#each selectorCommunities as item (item.pubkey)}
+                {@const selectorInput = makeCommunityInputValue({pubkey: item.pubkey, relayHints: item.relayHints}) || item.pubkey}
                 <CommunitySelectorCard
                   pubkey={item.pubkey}
                   relayHints={item.relayHints}
                   shareRelayHints={selectorRelayHints[item.pubkey] || item.relayHints}
                   isCurrent={item.isCurrent}
-                  onOpen={() => openSelectorCommunity(item)} />
+                  loading={enteringCommunityKey === getEnteringCommunityKey(selectorInput)}
+                  disabled={Boolean(enteringCommunityKey)}
+                  onOpen={() => enterCommunity(selectorInput)} />
               {/each}
             </div>
           </div>

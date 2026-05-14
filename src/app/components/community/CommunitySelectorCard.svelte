@@ -11,6 +11,8 @@
     relayHints?: string[]
     shareRelayHints?: string[]
     isCurrent?: boolean
+    loading?: boolean
+    disabled?: boolean
     onOpen: () => void
   }
 
@@ -19,6 +21,8 @@
     relayHints = [],
     shareRelayHints = relayHints,
     isCurrent = false,
+    loading = false,
+    disabled = false,
     onOpen,
   }: Props = $props()
 
@@ -34,7 +38,10 @@
 <div class="flex items-center gap-2 rounded-xl border border-base-300 bg-base-100 p-2">
   <button
     type="button"
-    class="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 text-left transition-colors hover:bg-base-200"
+    class="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 text-left transition-colors hover:bg-base-200 disabled:cursor-not-allowed disabled:opacity-70"
+    class:bg-base-200={loading}
+    aria-busy={loading}
+    disabled={disabled || loading}
     onclick={onOpen}>
     <div class="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-base-300">
       <ProfileCircle {pubkey} relays={profileRelays} size={10} />
@@ -48,6 +55,9 @@
       </div>
       <p class="ellipsize text-xs opacity-70">{info}</p>
     </div>
+    {#if loading}
+      <span class="loading loading-spinner loading-xs shrink-0 opacity-60"></span>
+    {/if}
   </button>
   <CommunityShareButton communityPubkey={pubkey} relayHints={shareRelays} />
   <CommunityStarButton communityPubkey={pubkey} relayHints={profileRelays} />

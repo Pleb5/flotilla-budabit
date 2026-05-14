@@ -143,18 +143,6 @@
         </SecondaryNavItem>
       {/if}
 
-      <SecondaryNavItem {replaceState} href={adminPath}>
-        <Icon icon={ShieldUser} /> Admin
-      </SecondaryNavItem>
-
-      <SecondaryNavItem {replaceState} href={accessPath}>
-        <Icon icon={ShieldUser} /> Access Requests
-      </SecondaryNavItem>
-
-      <SecondaryNavItem {replaceState} href={moderationPath}>
-        <Icon icon={ShieldUser} /> Moderation
-      </SecondaryNavItem>
-
       <SecondaryNavHeader>Rooms</SecondaryNavHeader>
 
       <SecondaryNavItem {replaceState} href={roomsPath} notification={$notifications.has(roomsPath)}>
@@ -174,6 +162,22 @@
           <span class="ellipsize">{room.name}</span>
         </SecondaryNavItem>
       {/each}
+
+      <div aria-hidden="true" class="mx-4 my-1 border-t border-base-300/50"></div>
+
+      <SecondaryNavHeader>Manage</SecondaryNavHeader>
+
+      <SecondaryNavItem {replaceState} href={adminPath}>
+        <Icon icon={ShieldUser} /> Admin
+      </SecondaryNavItem>
+
+      <SecondaryNavItem {replaceState} href={accessPath}>
+        <Icon icon={ShieldUser} /> Access Requests
+      </SecondaryNavItem>
+
+      <SecondaryNavItem {replaceState} href={moderationPath}>
+        <Icon icon={ShieldUser} /> Moderation
+      </SecondaryNavItem>
     </div>
   </SecondaryNavSection>
 
