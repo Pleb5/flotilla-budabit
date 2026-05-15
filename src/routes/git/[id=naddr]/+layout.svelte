@@ -43,6 +43,7 @@
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
   import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
   import RemoteFixHelperModal from "@app/components/RemoteFixHelperModal.svelte"
+  import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
   import {EditRepoPanel} from "@nostr-git/ui"
   import {postRepoAnnouncement, postRepoStateEvent} from "@app/core/git-commands.js"
   import RepoWatchModal from "@app/components/RepoWatchModal.svelte"
@@ -3229,6 +3230,9 @@
         {displayRepoName}
       </button>
     </div>
+  {/snippet}
+  {#snippet action()}
+    <GitCommunityMenuButton />
   {/snippet}
 </PageBar>
 

@@ -13,6 +13,7 @@
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
+  import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
   import Git from "@assets/icons/git.svg?dataurl"
 
   const url = $repoAnnouncementRelaysStore[0] || ""
@@ -80,6 +81,9 @@
   {/snippet}
   {#snippet title()}
     <strong>Git Repos</strong>
+  {/snippet}
+  {#snippet action()}
+    <GitCommunityMenuButton />
   {/snippet}
 </PageBar>
 

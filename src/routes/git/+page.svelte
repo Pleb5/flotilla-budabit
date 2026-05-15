@@ -35,12 +35,11 @@
   import RepoSearchSettingsModal from "@app/components/RepoSearchSettingsModal.svelte"
   import {getInteractiveCardTarget} from "@lib/html"
   import GitItem from "@app/components/GitItem.svelte"
-  import CommunityMenu from "@app/components/CommunityMenu.svelte"
-  import {pushModal, pushDrawer, clearModals} from "@app/util/modal"
+  import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
+  import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {APP_URL} from "@app/core/state"
-  import {activeCommunitySession} from "@app/core/community-state"
   import {publishDelete} from "@app/core/commands"
   import {goto} from "$app/navigation"
   import {onMount, onDestroy, untrack} from "svelte"
@@ -97,7 +96,6 @@
   import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
   import Download from "@assets/icons/download.svg?dataurl"
   import Code from "@assets/icons/code.svg?dataurl"
-  import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import {makeGitPath} from "@app/util/routes"
   import {gitSelectedTab, type GitTab} from "@app/util/git-tabs"
   import {
@@ -127,13 +125,6 @@
   } from "@app/util/repo-discovery-search"
 
   const url = GIT_RELAYS[0] || ""
-  const activeCommunityPubkey = $derived($activeCommunitySession?.communityPubkey || "")
-
-  const openCommunityMenu = () => {
-    if (activeCommunityPubkey) {
-      pushDrawer(CommunityMenu, {community: activeCommunityPubkey}, {replaceState: true})
-    }
-  }
 
   // Derive current user's profile for git commit author info
   const userProfile = $derived($pubkey ? deriveProfile($pubkey) : null)
@@ -2213,14 +2204,7 @@
         Import Repo
       </Button>
     </div>
-    {#if activeCommunityPubkey}
-      <Button
-        aria-label="Open community menu"
-        onclick={openCommunityMenu}
-        class="btn btn-neutral btn-sm">
-        <Icon icon={MenuDots} />
-      </Button>
-    {/if}
+    <GitCommunityMenuButton />
   {/snippet}
 </PageBar>
 
