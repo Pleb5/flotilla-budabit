@@ -1,5 +1,6 @@
 <script lang="ts">
   import {onDestroy, tick} from "svelte"
+  import {goto} from "$app/navigation"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
@@ -39,7 +40,13 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {setChecked} from "@app/util/notifications"
+  import {
+    getCommunityDeleteSeenKey,
+    getCommunityDeleteSince,
+    hydrateCommunityDeleteEvents,
+    normalizeDeleteCheckpoint,
+  } from "@app/core/community-deletes"
+  import {checked, setChecked, setCheckedAt} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
@@ -88,7 +95,7 @@
   const eventAddress = $derived.by(() => {
     const identifier = event ? getTagValue("d", event.tags) : ""
 
-    return event && identifier ? `${EVENT_TIME}:${event.pubkey}:${identifier}` : ""
+    return event && identifier ? `${event.kind}:${event.pubkey}:${identifier}` : ""
   })
   const eventTargetingId = $derived(event ? getTagValue("h", event.tags) || "" : "")
   const targetingFilters = $derived<Filter[]>(
@@ -132,6 +139,24 @@
             "#h": [communityPubkey],
             authors: interactionAuthorPubkeys,
           },
+          ...(eventAddress
+            ? [
+                {
+                  kinds: [COMMENT],
+                  "#A": [eventAddress],
+                  "#K": [String(EVENT_TIME)],
+                  "#h": [communityPubkey],
+                  authors: interactionAuthorPubkeys,
+                },
+                {
+                  kinds: [COMMENT],
+                  "#a": [eventAddress],
+                  "#K": [String(EVENT_TIME)],
+                  "#h": [communityPubkey],
+                  authors: interactionAuthorPubkeys,
+                },
+              ]
+            : []),
         ]
       : [],
   )
@@ -204,6 +229,43 @@
   let targetRequestDone = $state(false)
   let showReply = $state(false)
   let composeElement: HTMLElement | undefined = $state()
+  let deleteLoadKey = ""
+  let latestDeleteSeen = 0
+  const deleteSeenKey = $derived(getCommunityDeleteSeenKey(communityPubkey))
+  const lastDeleteSeen = $derived(
+    deleteSeenKey ? normalizeDeleteCheckpoint($checked[deleteSeenKey] || 0) : 0,
+  )
+
+  $effect(() => {
+    if (!communityPubkey || !event || !isEventIdParam) return
+
+    const identifier = getTagValue("d", event.tags)
+    if (!identifier || identifier === eventParam) return
+
+    goto(makeCommunityPath(communityPubkey, "calendar", identifier), {replaceState: true})
+  })
+
+  $effect(() => {
+    const relays = $activeCommunityRelays
+    if (!communityPubkey || relays.length === 0) return
+
+    const since = getCommunityDeleteSince(lastDeleteSeen)
+    const key = `${communityPubkey}::${relays.slice().sort().join("|")}::${since}`
+    if (deleteLoadKey === key) return
+    deleteLoadKey = key
+
+    const controller = new AbortController()
+    void hydrateCommunityDeleteEvents({
+      relays,
+      kinds: [EVENT_TIME, COMMENT],
+      since,
+      signal: controller.signal,
+    }).then(latest => {
+      if (latest > latestDeleteSeen) latestDeleteSeen = latest
+    })
+
+    return () => controller.abort()
+  })
 
   $effect(() => {
     if ($activeCommunityRelays.length === 0 || eventFilters.length === 0) return
@@ -269,6 +331,9 @@
   })
 
   onDestroy(() => {
+    if (deleteSeenKey) {
+      setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
+    }
     setChecked($page.url.pathname)
   })
 </script>

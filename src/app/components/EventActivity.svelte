@@ -1,9 +1,9 @@
 <script lang="ts">
   import {max, formatTimestampRelative} from "@welshman/lib"
-  import {COMMENT} from "@welshman/util"
+  import {COMMENT, getAddress, isReplaceable} from "@welshman/util"
   import {request} from "@welshman/net"
   import {deriveArray, deriveEventsById} from "@welshman/store"
-  import type {TrustedEvent} from "@welshman/util"
+  import type {Filter, TrustedEvent} from "@welshman/util"
   import {repository} from "@welshman/app"
   import {notifications} from "@app/util/notifications"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
@@ -31,15 +31,21 @@
   const filters = $derived.by(() => {
     if (allowedAuthors?.length === 0) return []
 
-    return [
-      {
-        kinds: [COMMENT],
-        "#E": [event.id],
-        "#K": [String(event.kind)],
-        ...(scopeH ? {"#h": [scopeH]} : {}),
-        ...(allowedAuthors ? {authors: allowedAuthors} : {}),
-      },
-    ]
+    const baseFilter = {
+      kinds: [COMMENT],
+      "#K": [String(event.kind)],
+      ...(scopeH ? {"#h": [scopeH]} : {}),
+      ...(allowedAuthors ? {authors: allowedAuthors} : {}),
+    } satisfies Filter
+    const filters: Filter[] = [{...baseFilter, "#E": [event.id]}]
+
+    if (isReplaceable(event)) {
+      const address = getAddress(event)
+
+      filters.push({...baseFilter, "#A": [address]}, {...baseFilter, "#a": [address]})
+    }
+
+    return filters
   })
   const replies = $derived(deriveArray(deriveEventsById({repository, filters})))
   const lastActive = $derived(max([...$replies, event].map(e => e.created_at)))

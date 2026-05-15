@@ -2,7 +2,7 @@
   import type {Snippet} from "svelte"
   import {writable} from "svelte/store"
   import {goto} from "$app/navigation"
-  import {randomId, HOUR} from "@welshman/lib"
+  import {HOUR, now, randomId} from "@welshman/lib"
   import {makeEvent, EVENT_TIME} from "@welshman/util"
   import {publishThunk} from "@welshman/app"
   import {preventDefault} from "@lib/html"
@@ -28,6 +28,8 @@
     redirectPath?: string
     header: Snippet
     initialValues?: {
+      kind?: number
+      created_at?: number
       d?: string
       title?: string
       content?: string
@@ -71,6 +73,13 @@
       })
     }
 
+    if (end <= now()) {
+      return pushToast({
+        theme: "error",
+        message: "End time must be in the future.",
+      })
+    }
+
     const ed = await editor
     const content = ed.getText({blockSeparator: "\n"}).trim()
     const preservedTags = (initialValues?.tags || []).filter(tag => !managedTagNames.has(tag[0]))
@@ -90,7 +99,11 @@
       tags.push(["h", h])
     }
 
-    const event = makeEvent(EVENT_TIME, {content, tags})
+    const kind = initialValues?.kind || EVENT_TIME
+    const created_at = initialValues?.created_at
+      ? Math.max(now(), initialValues.created_at + 1)
+      : undefined
+    const event = makeEvent(kind, {content, tags, created_at})
     const publishRelays = normalizeRelays(relays.length ? relays : [url])
 
     if (publishRelays.length === 0) {

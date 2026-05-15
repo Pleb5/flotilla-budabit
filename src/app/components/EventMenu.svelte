@@ -107,13 +107,13 @@
       </Button>
     </li>
   {/if}
+  {@render customActions?.()}
   <li>
     <Button onclick={showInfo}>
       <Icon size={4} icon={Code2} />
       {noun} Details
     </Button>
   </li>
-  {@render customActions?.()}
   {#if event.pubkey === $pubkey}
     {#if canDeleteEvent}
       <li>

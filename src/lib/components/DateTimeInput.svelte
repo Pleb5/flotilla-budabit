@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {DateInput} from "date-picker-svelte"
   import {secondsToDate, dateToSeconds} from "@welshman/lib"
   import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
@@ -14,70 +13,96 @@
 
   const pad = (n: number) => ("00" + String(n)).slice(-2)
 
-  const getTime = (d: Date, m: string) => `${pad(d.getHours())}:${m}`
+  const getDateValue = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
-  const setTime = (d: Date, time: string) => {
-    const [hours, minutes] = time.split(":").map(x => parseInt(x))
-    const newDate = new Date(d)
+  const getTimeValue = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
 
-    newDate.setHours(hours, minutes, 0, 0)
+  const getDateFromValues = () => {
+    const [year, month, day] = dateValue.split("-").map(Number)
+    if (!year || !month || !day) return undefined
 
-    return newDate
-  }
+    const nextDate = new Date(year, month - 1, day)
 
-  const onTimeChange = () => {
     if (time) {
-      minutes = time.slice(-2)
-      date = setTime(date || new Date(), time)
+      const [hours, minutes] = time.split(":").map(Number)
+
+      if (Number.isInteger(hours) && Number.isInteger(minutes)) {
+        nextDate.setHours(hours, minutes, 0, 0)
+      }
     }
+
+    return nextDate
   }
 
-  const focusDate = () => element.querySelector("input")?.focus()
+  const syncFromValue = (nextValue: number | undefined) => {
+    const nextDate = nextValue ? secondsToDate(nextValue) : undefined
+
+    dateValue = nextDate ? getDateValue(nextDate) : ""
+    time = nextDate ? getTimeValue(nextDate) : ""
+  }
+
+  const focusDate = () => dateInput?.focus()
 
   const clear = () => {
-    date = undefined
-    time = undefined
+    dateValue = ""
+    time = ""
   }
 
   const initialDate = value ? secondsToDate(value) : undefined
-  const initialTime = initialDate ? getTime(initialDate, pad(initialDate.getMinutes())) : undefined
-  const initialMinutes = initialTime ? initialTime.slice(-2) : "00"
-
-  let date: Date | undefined = $state(initialDate)
+  const initialDateValue = initialDate ? getDateValue(initialDate) : ""
+  const initialTime = initialDate ? getTimeValue(initialDate) : ""
   // Let the user select a date max 2 years in the future
   const today = new Date()
   const max = new Date(today)
   max.setFullYear(max.getFullYear() + 2)
+  const maxDateValue = getDateValue(max)
 
-  let time: string | undefined = $state(initialTime)
-  let minutes: string = $state(initialMinutes)
-  let element: HTMLElement
+  let dateValue = $state(initialDateValue)
+  let time = $state(initialTime)
+  let dateInput: HTMLInputElement | undefined = $state()
+  let lastValue: number | undefined = value
 
-  // Sync date to time and value
+  // Sync external value changes into the picker fields.
   $effect(() => {
-    if (date) {
-      time = getTime(date, minutes)
-      value = dateToSeconds(date)
-    } else {
-      value = undefined
-    }
+    if (value === lastValue) return
+
+    lastValue = value
+    syncFromValue(value)
   })
 
-  // Sync updates to value to date/time
+  // Sync user edits back into the bound timestamp without clearing initial values.
   $effect(() => {
-    const derivedDate = value ? secondsToDate(value) : undefined
-    const derivedTime = derivedDate ? getTime(derivedDate, minutes) : undefined
+    const currentDate = getDateFromValues()
 
-    date = derivedDate
-    time = derivedTime
+    if (!currentDate) {
+      if (lastValue !== undefined) {
+        lastValue = undefined
+        value = undefined
+      }
+
+      return
+    }
+
+    const nextValue = dateToSeconds(currentDate)
+
+    if (nextValue !== lastValue) {
+      lastValue = nextValue
+      value = nextValue
+    }
   })
 </script>
 
-<div class="relative grid grid-cols-2 gap-2" bind:this={element}>
+<div class="relative grid grid-cols-2 gap-2">
   <div class="relative">
-    <DateInput format="yyyy-MM-dd" placeholder="" bind:value={date} {max} />
+    <input
+      bind:this={dateInput}
+      bind:value={dateValue}
+      class="input input-bordered w-full rounded-lg pr-10"
+      type="date"
+      max={maxDateValue} />
     <div class="absolute right-2 top-0 flex h-12 cursor-pointer items-center gap-2">
-      {#if date}
+      {#if dateValue}
         <Button onclick={clear} class="h-5">
           <Icon icon={CloseCircle} />
         </Button>
@@ -93,8 +118,7 @@
       list="time-options"
       class="grow"
       type="time"
-      step="300"
-      bind:value={time}
-      onchange={onTimeChange} />
+      step="60"
+      bind:value={time} />
   </label>
 </div>

@@ -63,7 +63,7 @@
     url,
   }: Props = $props()
 
-  const fullContent = parse(event)
+  const fullContent = $derived(parse(event))
 
   const expand = () => {
     showEntire = true

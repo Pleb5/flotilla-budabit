@@ -26,7 +26,11 @@
   const parseCalendarTime = (value: string) => {
     const trimmed = value.trim()
     if (!trimmed) return undefined
-    if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10)
+
+    const numeric = Number(trimmed)
+    if (Number.isFinite(numeric)) {
+      return Math.floor(numeric > 1_000_000_000_000 ? numeric / 1000 : numeric)
+    }
 
     const timestamp = Date.parse(trimmed.length === 10 ? `${trimmed}T00:00:00` : trimmed)
 
@@ -34,6 +38,8 @@
   }
 
   const initialValues = {
+    kind: event.kind,
+    created_at: event.created_at,
     d: getFirstTagValue("d"),
     title: getFirstTagValue("title", "name"),
     location: getFirstTagValue("location"),

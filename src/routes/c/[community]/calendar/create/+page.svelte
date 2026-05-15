@@ -2,7 +2,7 @@
   import {goto} from "$app/navigation"
   import {page} from "$app/stores"
   import {pubkey, publishThunk} from "@welshman/app"
-  import {HOUR, randomId} from "@welshman/lib"
+  import {HOUR, now, randomId} from "@welshman/lib"
   import {EVENT_TIME, makeEvent} from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import CalendarAdd from "@assets/icons/calendar-add.svg?dataurl"
@@ -60,6 +60,10 @@
     }
     if (start >= end) {
       pushToast({theme: "error", message: "End time must be later than start time."})
+      return
+    }
+    if (end <= now()) {
+      pushToast({theme: "error", message: "End time must be in the future."})
       return
     }
 
