@@ -59,8 +59,8 @@
         : "",
   )
 
-  let loadedCommunityKey = $state("")
-  let loadingCommunityKey = $state("")
+  let loadedCommunityKey = ""
+  let loadingCommunityKey = ""
   let authRelayUrl = $state("")
   let relayAuthError = $state("")
   let shownAuthErrorKey = $state("")
