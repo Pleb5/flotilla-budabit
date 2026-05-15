@@ -23,6 +23,7 @@ import {getGrantCapableSectionModeratorPubkeys} from "@app/core/community-permis
 import {
   type CommunityAdmissionForm,
   makeCommunityDefinitionAddress,
+  parseAdmissionForm,
   selectActiveAdmissionForm,
 } from "@app/core/community-forms"
 import {
@@ -32,6 +33,14 @@ import {
   selectActiveCommunityStars,
   type CommunityStarRef,
 } from "@app/util/community-stars"
+import {
+  makeCommunityAdminDefinitionFilter,
+  makeCommunityDefinitionProfileListRefFilters,
+  makeCommunityModeratorFormFilter,
+  makeCommunityModeratorProfileListFilter,
+  selectPreferredCommunities,
+  type PreferredCommunityRef,
+} from "@app/util/community-preferences"
 
 export const COMMUNITY_SESSION_STORAGE_KEY = "budabit/community-session"
 
@@ -261,6 +270,8 @@ export const getCommunityDefinitionRelayHints = (
 const COMMUNITY_RELAY_LOAD_TIMEOUT = 5000
 const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
 const COMMUNITY_STAR_HYDRATION_TTL = 30_000
+const COMMUNITY_PREFERENCE_LOAD_TIMEOUT = 1500
+const COMMUNITY_PREFERENCE_HYDRATION_TTL = 30_000
 
 export const loadCommunityEvents = async (
   relays: string[],
@@ -361,6 +372,104 @@ export const activeCommunityStarByCommunity: Readable<Map<string, CommunityStarR
   $activeCommunityStars => new Map($activeCommunityStars.map(star => [star.communityPubkey, star])),
 )
 
+export const communityAdminDefinitionEvents: Readable<TrustedEvent[]> = derived(
+  pubkey,
+  ($pubkey, set) => {
+    const filter = $pubkey ? makeCommunityAdminDefinitionFilter($pubkey) : undefined
+
+    if (!filter) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters: [filter]})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const communityModeratorFormEvents: Readable<TrustedEvent[]> = derived(
+  pubkey,
+  ($pubkey, set) => {
+    const filter = $pubkey ? makeCommunityModeratorFormFilter($pubkey) : undefined
+
+    if (!filter) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters: [filter]})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const communityModeratorProfileListEvents: Readable<TrustedEvent[]> = derived(
+  pubkey,
+  ($pubkey, set) => {
+    const filter = $pubkey ? makeCommunityModeratorProfileListFilter($pubkey) : undefined
+
+    if (!filter) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters: [filter]})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const communityModeratorDefinitionEvents: Readable<TrustedEvent[]> = derived(
+  [communityModeratorProfileListEvents, communityModeratorFormEvents],
+  ([$communityModeratorProfileListEvents, $communityModeratorFormEvents], set) => {
+    const formCommunityPubkeys = Array.from(
+      new Set(
+        $communityModeratorFormEvents
+          .map(event => parseAdmissionForm(event)?.communityPubkey || "")
+          .filter(Boolean),
+      ),
+    )
+    const filters = [
+      ...makeCommunityDefinitionProfileListRefFilters($communityModeratorProfileListEvents),
+      ...formCommunityPubkeys.map(makeCommunityDefinitionFilter),
+    ]
+
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activePreferredCommunities: Readable<PreferredCommunityRef[]> = derived(
+  [
+    pubkey,
+    activeCommunityStars,
+    communityAdminDefinitionEvents,
+    communityModeratorFormEvents,
+    communityModeratorProfileListEvents,
+    communityModeratorDefinitionEvents,
+  ],
+  ([
+    $pubkey,
+    $activeCommunityStars,
+    $communityAdminDefinitionEvents,
+    $communityModeratorFormEvents,
+    $communityModeratorProfileListEvents,
+    $communityModeratorDefinitionEvents,
+  ]) =>
+    selectPreferredCommunities({
+      stars: $activeCommunityStars,
+      adminDefinitionEvents: $communityAdminDefinitionEvents,
+      moderatorFormEvents: $communityModeratorFormEvents,
+      moderatorProfileListEvents: $communityModeratorProfileListEvents,
+      moderatorDefinitionEvents: $communityModeratorDefinitionEvents,
+      author: $pubkey || undefined,
+    }),
+  [] as PreferredCommunityRef[],
+)
+
 let communityStarHydrationKey = ""
 let communityStarHydrationRequestId = 0
 let communityStarHydratedAt = 0
@@ -426,6 +535,99 @@ export const hydrateCommunityStars = async ({
   } finally {
     if (requestId === communityStarHydrationRequestId) communityStarsLoading.set(false)
   }
+}
+
+export const communityPreferencesLoading = writable(false)
+
+let communityPreferenceHydrationKey = ""
+let communityPreferenceHydrationRequestId = 0
+let communityPreferenceHydratedAt = 0
+
+export const hydrateCommunityPreferences = async ({
+  relayHints = [],
+  force = false,
+}: {
+  relayHints?: string[]
+  force?: boolean
+} = {}) => {
+  const user = pubkey.get()
+  const relays = getCommunityStarRelays(relayHints)
+  const key = `${user || ""}:${relays.slice().sort().join(",")}`
+
+  if (!user || relays.length === 0) {
+    communityPreferencesLoading.set(false)
+    communityPreferenceHydrationKey = ""
+    communityPreferenceHydratedAt = 0
+    return
+  }
+  if (
+    !force &&
+    communityPreferenceHydrationKey === key &&
+    Date.now() - communityPreferenceHydratedAt < COMMUNITY_PREFERENCE_HYDRATION_TTL
+  )
+    return
+
+  const filters = [
+    makeCommunityAdminDefinitionFilter(user),
+    makeCommunityModeratorFormFilter(user),
+    makeCommunityModeratorProfileListFilter(user),
+  ].filter(Boolean) as Filter[]
+
+  if (filters.length === 0) return
+
+  const requestId = ++communityPreferenceHydrationRequestId
+  communityPreferenceHydrationKey = key
+  communityPreferenceHydratedAt = Date.now()
+  communityPreferencesLoading.set(true)
+
+  try {
+    const loadedEvents = await withTimeout(
+      loadCommunityEvents(relays, filters, {timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT}),
+      COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+      [] as TrustedEvent[],
+    )
+
+    if (requestId !== communityPreferenceHydrationRequestId) return
+
+    const profileListEvents = [
+      ...loadedEvents,
+      ...get(communityModeratorProfileListEvents),
+    ].filter(event => event.kind === PROFILE_LIST_KIND)
+    const formCommunityPubkeys = Array.from(
+      new Set(
+        [...loadedEvents, ...get(communityModeratorFormEvents)]
+          .map(event => parseAdmissionForm(event)?.communityPubkey || "")
+          .filter(Boolean),
+      ),
+    )
+    const definitionFilters = [
+      ...makeCommunityDefinitionProfileListRefFilters(profileListEvents),
+      ...formCommunityPubkeys.map(makeCommunityDefinitionFilter),
+    ]
+
+    if (definitionFilters.length === 0) return
+
+    await withTimeout(
+      loadCommunityEvents(relays, definitionFilters, {timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT}),
+      COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+      [] as TrustedEvent[],
+    )
+  } finally {
+    if (requestId === communityPreferenceHydrationRequestId) communityPreferencesLoading.set(false)
+  }
+}
+
+export const hydratePreferredCommunities = async ({
+  relayHints = [],
+  force = false,
+}: {
+  relayHints?: string[]
+  force?: boolean
+} = {}) => {
+  await Promise.all([
+    hydrateCommunityStars({relayHints, force}),
+    hydrateCommunityPreferences({relayHints, force}),
+  ])
 }
 
 export const getProfileListRefs = (definition: CommunityDefinition) =>

@@ -11,6 +11,8 @@
     relayHints?: string[]
     shareRelayHints?: string[]
     isCurrent?: boolean
+    isAdmin?: boolean
+    isModerator?: boolean
     loading?: boolean
     disabled?: boolean
     onOpen: () => void
@@ -21,6 +23,8 @@
     relayHints = [],
     shareRelayHints = relayHints,
     isCurrent = false,
+    isAdmin = false,
+    isModerator = false,
     loading = false,
     disabled = false,
     onOpen,
@@ -51,6 +55,12 @@
         <strong class="ellipsize">{name}</strong>
         {#if isCurrent}
           <span class="badge badge-primary badge-sm shrink-0">Last visited</span>
+        {/if}
+        {#if isAdmin}
+          <span class="badge badge-secondary badge-sm shrink-0">Admin</span>
+        {/if}
+        {#if isModerator}
+          <span class="badge badge-accent badge-sm shrink-0">Moderator</span>
         {/if}
       </div>
       <p class="ellipsize text-xs opacity-70">{info}</p>

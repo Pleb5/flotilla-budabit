@@ -8,13 +8,14 @@
   import {pushToast} from "@app/util/toast"
   import {normalizeRelays, parseCommunityInput} from "@app/core/community"
   import {
-    activeCommunityStars,
     activeCommunityDefinition,
     activeCommunitySession,
+    activePreferredCommunities,
+    communityPreferencesLoading,
     communityStarsLoading,
     getCommunityBootstrapRelays,
     getCommunityDefinitionRelayHints,
-    hydrateCommunityStars,
+    hydratePreferredCommunities,
     loadCommunityEvents,
     makeCommunityDefinitionFilter,
     selectLatestCommunityDefinition,
@@ -30,6 +31,8 @@
     pubkey: string
     relayHints: string[]
     isCurrent: boolean
+    isAdmin: boolean
+    isModerator: boolean
   }
 
   let communityInput = $state("")
@@ -144,7 +147,10 @@
   const hasCommunityInput = $derived(Boolean(communityInput.trim()))
   const previewInput = $derived(parseCommunityInput(communityInput))
   const previewPubkey = $derived(hasCommunityInput ? previewInput?.pubkey || "" : "")
-  const activeStars = $derived($activeCommunityStars)
+  const preferredCommunities = $derived($activePreferredCommunities)
+  const preferredCommunityByPubkey = $derived.by(
+    () => new Map(preferredCommunities.map(community => [community.communityPubkey, community])),
+  )
   const currentRelayHints = $derived.by(() => {
     const session = $activeCommunitySession
     if (!session) return []
@@ -162,27 +168,34 @@
   })
   const selectorCommunities = $derived.by((): SelectorCommunity[] => {
     const session = $activeCommunitySession
+    const currentPreference = session
+      ? preferredCommunityByPubkey.get(session.communityPubkey)
+      : undefined
     const current = session
       ? [
           {
             pubkey: session.communityPubkey,
             relayHints: currentRelayHints,
             isCurrent: true,
+            isAdmin: Boolean(currentPreference?.isAdmin),
+            isModerator: Boolean(currentPreference?.isModerator),
           },
         ]
       : []
-    const starred = activeStars
-      .filter(star => star.communityPubkey !== session?.communityPubkey)
-      .map(star => ({
-        pubkey: star.communityPubkey,
+    const preferred = preferredCommunities
+      .filter(community => community.communityPubkey !== session?.communityPubkey)
+      .map(community => ({
+        pubkey: community.communityPubkey,
         relayHints: normalizeRelays([
-          ...star.relayHints,
-          ...(selectorRelayHints[star.communityPubkey] || []),
+          ...community.relayHints,
+          ...(selectorRelayHints[community.communityPubkey] || []),
         ]),
         isCurrent: false,
+        isAdmin: community.isAdmin,
+        isModerator: community.isModerator,
       }))
 
-    return [...current, ...starred]
+    return [...current, ...preferred]
   })
   const previewRelayHints = $derived.by(() => {
     if (!previewPubkey) return []
@@ -224,7 +237,7 @@
   $effect(() => {
     if (!$pubkey) return
 
-    hydrateCommunityStars({relayHints: currentRelayHints}).catch(() => {})
+    hydratePreferredCommunities({relayHints: currentRelayHints}).catch(() => {})
   })
 
   $effect(() => {
@@ -307,12 +320,14 @@
           notFound={previewCommunityNotFound}
           onSubmit={submitCommunityInput} />
 
-        {#if selectorCommunities.length > 0 || $communityStarsLoading}
+        {#if selectorCommunities.length > 0 || $communityStarsLoading || $communityPreferencesLoading}
           <div class="card2 bg-alt col-4 p-4 shadow-md">
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
-                <p class="text-xs font-semibold uppercase tracking-wide opacity-60">Communities</p>
-                {#if $communityStarsLoading}
+                <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
+                  Preferred Communities
+                </p>
+                {#if $communityStarsLoading || $communityPreferencesLoading}
                   <span class="loading loading-spinner loading-xs opacity-60"></span>
                 {/if}
               </div>
@@ -323,6 +338,8 @@
                   relayHints={item.relayHints}
                   shareRelayHints={selectorRelayHints[item.pubkey] || item.relayHints}
                   isCurrent={item.isCurrent}
+                  isAdmin={item.isAdmin}
+                  isModerator={item.isModerator}
                   loading={enteringCommunityKey === getEnteringCommunityKey(selectorInput)}
                   disabled={Boolean(enteringCommunityKey)}
                   onOpen={() => enterCommunity(selectorInput)} />
