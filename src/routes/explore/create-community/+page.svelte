@@ -3,6 +3,6 @@
   import CommunityCreate from "@app/components/CommunityCreate.svelte"
 </script>
 
-<Page class="bg-base-200">
+<Page class="cw-full bg-base-200">
   <CommunityCreate />
 </Page>

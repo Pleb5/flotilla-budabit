@@ -17,6 +17,7 @@ import {
 } from "./community-forms"
 import {
   COMMUNITY_WRITE_TARGETS,
+  canWriteCommunitySection,
   canWriteCommunityTarget,
   findBadgeDefinitionEvent,
   findProfileListEvent,
@@ -285,5 +286,87 @@ describe("community permissions", () => {
     expect(
       getCommunitySectionWriterPubkeys({definition, profileListEvents: [], sectionName: "General"}),
     ).toEqual([communityPubkey, managerPubkey])
+  })
+
+  it("merges multiple section profile lists for write access", () => {
+    const secondMemberPubkey = "f".repeat(64)
+    const multiAuthorityDefinition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", "Apps"],
+          ["k", "32267"],
+          ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:Apps`],
+          ["badge", `${BADGE_DEFINITION_KIND}:${managerPubkey}:member`],
+          ["a", `${PROFILE_LIST_KIND}:${repoManagerPubkey}:AppsPro`],
+          ["badge", `${BADGE_DEFINITION_KIND}:${repoManagerPubkey}:pro`],
+        ],
+      }),
+    )!
+    const appsProfileList = makeEvent({
+      kind: PROFILE_LIST_KIND,
+      pubkey: managerPubkey,
+      tags: [
+        ["d", "Apps"],
+        ["p", memberPubkey],
+      ],
+    })
+    const appsProProfileList = makeEvent({
+      kind: PROFILE_LIST_KIND,
+      pubkey: repoManagerPubkey,
+      tags: [
+        ["d", "AppsPro"],
+        ["p", secondMemberPubkey],
+      ],
+    })
+
+    expect(
+      canWriteCommunitySection({
+        definition: multiAuthorityDefinition,
+        profileListEvents: [appsProfileList, appsProProfileList],
+        userPubkey: secondMemberPubkey,
+        sectionName: "Apps",
+        kind: 32267,
+      }),
+    ).toBe(true)
+    expect(
+      getGrantCapableSectionModeratorPubkeys({
+        definition: multiAuthorityDefinition,
+        sectionName: "Apps",
+      }),
+    ).toEqual([managerPubkey, repoManagerPubkey])
+  })
+
+  it("matches known write targets by kind when a section has a custom name", () => {
+    const customDefinition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", "Code"],
+          ["k", "30617"],
+          ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:Code`],
+          ["badge", `${BADGE_DEFINITION_KIND}:${managerPubkey}:code`],
+        ],
+      }),
+    )!
+    const codeProfileList = makeEvent({
+      kind: PROFILE_LIST_KIND,
+      pubkey: managerPubkey,
+      tags: [
+        ["d", "Code"],
+        ["p", memberPubkey],
+      ],
+    })
+
+    expect(
+      canWriteCommunityTarget({
+        definition: customDefinition,
+        profileListEvents: [codeProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.repository,
+      }),
+    ).toBe(true)
   })
 })

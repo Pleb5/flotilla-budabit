@@ -169,15 +169,22 @@ export const canWriteCommunityTarget = ({
   profileListEvents: TrustedEvent[]
   userPubkey: string
   target: CommunityWriteTarget
-}) =>
-  canWriteCommunitySection({
+}) => {
+  const section =
+    findCommunitySection(definition, target.sectionName) ||
+    definition.sections.find(section => sectionSupportsKind(section, target.kind, target.subtype))
+
+  if (!section) return false
+
+  return canWriteCommunitySection({
     definition,
     profileListEvents,
     userPubkey,
-    sectionName: target.sectionName,
+    sectionName: section.name,
     kind: target.kind,
     subtype: target.subtype,
   })
+}
 
 export const getCommunityPublishCapabilityMap = ({
   definition,
@@ -219,7 +226,11 @@ export const getCommunityPublishGateState = ({
   reviewEvents?: TrustedEvent[]
 }): CommunityPublishGateState => {
   const normalizedUser = normalizePubkey(userPubkey || "")
-  const base = {...target, form}
+  const section =
+    findCommunitySection(definition, target.sectionName) ||
+    definition.sections.find(section => sectionSupportsKind(section, target.kind, target.subtype))
+  const resolvedTarget = {...target, sectionName: section?.name || target.sectionName}
+  const base = {...resolvedTarget, form}
 
   if (!normalizedUser) return {...base, status: "login-required"}
 
@@ -239,7 +250,7 @@ export const getCommunityPublishGateState = ({
     applicantPubkey: normalizedUser,
     moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
       definition,
-      sectionName: target.sectionName,
+      sectionName: resolvedTarget.sectionName,
     }),
   })
 

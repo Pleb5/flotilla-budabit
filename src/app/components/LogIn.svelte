@@ -5,12 +5,14 @@
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import Cpu from "@assets/icons/cpu-bolt.svg?dataurl"
   import Compass from "@assets/icons/compass-big.svg?dataurl"
+  import ShieldWarning from "@assets/icons/shield-warning.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
   import Button from "@lib/components/Button.svelte"
   import SignUp from "@app/components/SignUp.svelte"
   import InfoNostr from "@app/components/InfoNostr.svelte"
   import LogInBunker from "@app/components/LogInBunker.svelte"
+  import LogInLocalKey from "@app/components/LogInLocalKey.svelte"
   import LogInPassword from "@app/components/LogInPassword.svelte"
   import {pushModal, clearModals} from "@app/util/modal"
   import {APP_NAME, BURROW_URL} from "@app/core/state"
@@ -52,6 +54,8 @@
   const loginWithPassword = () => pushModal(LogInPassword)
 
   const loginWithBunker = () => pushModal(LogInBunker)
+
+  const loginWithLocalKey = () => pushModal(LogInLocalKey)
 
   const hasSigner = $derived(Boolean(getNip07()))
 </script>
@@ -101,6 +105,16 @@
       Log in with Password
     </Button>
   {/if}
+  <Button
+    onclick={loginWithLocalKey}
+    {disabled}
+    data-tip="least secure"
+    data-testid="login-option-local-key"
+    class="btn btn-outline tooltip border-warning/50 bg-warning/10 text-base-content hover:border-warning hover:bg-warning/20">
+    <Icon icon={ShieldWarning} />
+    <span class="grow">Local key</span>
+    <span class="badge badge-warning badge-outline text-xs font-semibold">least secure</span>
+  </Button>
   {#if !hasSigner || !BURROW_URL}
     <Link
       external

@@ -145,6 +145,10 @@
 
   const getSectionDisplayName = (sectionName: string) =>
     grantableSections.find(item => item.section.name === sectionName)?.displayName || sectionName
+  const formatSectionKinds = (kinds: Array<{kind: number; subtype?: string}>) =>
+    kinds.length
+      ? kinds.map(kind => kind.subtype ? `${kind.kind}:${kind.subtype}` : String(kind.kind)).join(", ")
+      : "No kinds configured"
 
   function getDraft(sectionName: string, form?: CommunityAdmissionForm) {
     const sectionDisplayName = getSectionDisplayName(sectionName)
@@ -458,7 +462,10 @@
             class={`card2 bg-alt p-4 text-left shadow-md transition ${isSelected ? "border-primary bg-primary/10" : ""} ${!itemForm ? "border-warning bg-warning/10" : ""}`}
             onclick={() => selectSection(item.section.name)}>
             <div class="flex items-start justify-between gap-3">
-              <strong>{item.displayName}</strong>
+              <div>
+                <strong>{item.displayName}</strong>
+                <p class="mt-1 text-xs opacity-60">Kinds: {formatSectionKinds(item.section.kinds)}</p>
+              </div>
               <span class={`badge ${hasDraft ? "badge-info" : itemForm ? "badge-success" : "badge-warning"}`}>
                 {hasDraft ? "Draft changes" : itemForm ? "Ready" : "Missing form"}
               </span>

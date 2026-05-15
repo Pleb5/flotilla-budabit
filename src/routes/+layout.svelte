@@ -34,6 +34,7 @@
   import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
   import {userSettingsValues} from "@app/core/state"
   import {db, kv} from "@app/core/storage"
+  import {pubkeyStorage, sessionsStorage} from "@app/core/session-storage"
   import {theme} from "@app/util/theme"
   import {initializePushNotifications} from "@app/push"
   import {toast, pushToast} from "@app/util/toast"
@@ -135,7 +136,8 @@
     const session = $activeCommunitySession
     const key = session ? `${session.communityPubkey}:${session.communityRelayHints.join(",")}` : ""
 
-    if (!browser || !session || !key || loadedCommunityKey === key || loadingCommunityKey === key) return
+    if (!browser || !session || !key || loadedCommunityKey === key || loadingCommunityKey === key)
+      return
 
     loadingCommunityKey = key
     loadCommunityBootstrap(session)
@@ -451,12 +453,12 @@
       sync({
         key: "pubkey",
         store: pubkey,
-        storage: kv,
+        storage: pubkeyStorage,
       }),
       sync({
         key: "sessions",
         store: sessions,
-        storage: kv,
+        storage: sessionsStorage,
       }),
     ])
 

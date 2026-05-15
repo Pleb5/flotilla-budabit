@@ -111,6 +111,9 @@ export type CommunitySetupSection = {
   kinds: CommunitySectionKind[]
   profileList: CommunityProfileListRef
   badge: CommunityBadgeRef
+  profileLists?: CommunityProfileListRef[]
+  badges?: CommunityBadgeRef[]
+  retention?: CommunityRetentionPolicy[]
 }
 
 export type CommunitySetupRefs = {
@@ -119,9 +122,19 @@ export type CommunitySetupRefs = {
   sections: CommunitySetupSection[]
 }
 
+export type CommunityDefinitionSectionInput = {
+  name: string
+  kinds: CommunitySectionKind[]
+  profileList?: CommunityProfileListRef
+  badge?: CommunityBadgeRef
+  profileLists?: CommunityProfileListRef[]
+  badges?: CommunityBadgeRef[]
+  retention?: CommunityRetentionPolicy[]
+}
+
 export type BuildCommunityDefinitionParams = {
   relays: string[]
-  sections: CommunitySetupSection[]
+  sections: CommunityDefinitionSectionInput[]
   description?: string
   blossomServers?: string[]
   mints?: CommunityMint[]
@@ -245,6 +258,52 @@ export const DEFAULT_COMMUNITY_SECTION_NAMES = [
 export const makeAddress = (kind: number, pubkey: string, identifier: string) =>
   `${kind}:${normalizePubkey(pubkey)}:${identifier}`
 
+export const makeCommunitySetupSection = ({
+  communityPubkey,
+  profileListPubkey,
+  badgeIssuerPubkey,
+  relays,
+  name,
+  kinds = getDefaultCommunitySectionKinds(name),
+}: {
+  communityPubkey: string
+  profileListPubkey: string
+  badgeIssuerPubkey: string
+  relays: string[]
+  name: string
+  kinds?: CommunitySectionKind[]
+}): CommunitySetupSection => {
+  const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
+  const normalizedProfileListPubkey = normalizePubkey(profileListPubkey)
+  const normalizedBadgeIssuerPubkey = normalizePubkey(badgeIssuerPubkey)
+  const normalizedRelays = normalizeRelays(relays)
+  const identifier = makeCommunityScopedIdentifier(normalizedCommunityPubkey, name)
+  const profileListAddress = makeAddress(PROFILE_LIST_KIND, normalizedProfileListPubkey, identifier)
+  const badgeAddress = makeAddress(BADGE_DEFINITION_KIND, normalizedBadgeIssuerPubkey, identifier)
+  const profileList = {
+    kind: PROFILE_LIST_KIND,
+    pubkey: normalizedProfileListPubkey,
+    identifier,
+    address: profileListAddress,
+    relay: normalizedRelays[0],
+  }
+  const badge = {
+    kind: BADGE_DEFINITION_KIND,
+    pubkey: normalizedBadgeIssuerPubkey,
+    identifier,
+    address: badgeAddress,
+  }
+
+  return {
+    name,
+    kinds,
+    profileList,
+    badge,
+    profileLists: [profileList],
+    badges: [badge],
+  }
+}
+
 export const makeCommunitySetupRefs = ({
   communityPubkey,
   profileListPubkey,
@@ -266,37 +325,15 @@ export const makeCommunitySetupRefs = ({
   return {
     communityPubkey: normalizedCommunityPubkey,
     relays: normalizedRelays,
-    sections: sectionNames.map(name => {
-      const identifier = makeCommunityScopedIdentifier(normalizedCommunityPubkey, name)
-      const profileListAddress = makeAddress(
-        PROFILE_LIST_KIND,
-        normalizedProfileListPubkey,
-        identifier,
-      )
-      const badgeAddress = makeAddress(
-        BADGE_DEFINITION_KIND,
-        normalizedBadgeIssuerPubkey,
-        identifier,
-      )
-
-      return {
+    sections: sectionNames.map(name =>
+      makeCommunitySetupSection({
+        communityPubkey: normalizedCommunityPubkey,
+        profileListPubkey: normalizedProfileListPubkey,
+        badgeIssuerPubkey: normalizedBadgeIssuerPubkey,
+        relays: normalizedRelays,
         name,
-        kinds: getDefaultCommunitySectionKinds(name),
-        profileList: {
-          kind: PROFILE_LIST_KIND,
-          pubkey: normalizedProfileListPubkey,
-          identifier,
-          address: profileListAddress,
-          relay: normalizedRelays[0],
-        },
-        badge: {
-          kind: BADGE_DEFINITION_KIND,
-          pubkey: normalizedBadgeIssuerPubkey,
-          identifier,
-          address: badgeAddress,
-        },
-      }
-    }),
+      }),
+    ),
   }
 }
 
@@ -331,8 +368,16 @@ export const buildCommunityDefinition = ({
     for (const sectionKind of section.kinds) {
       tags.push(appendDefined(["k", String(sectionKind.kind)], sectionKind.subtype))
     }
-    tags.push(appendDefined(["a", section.profileList.address], section.profileList.relay))
-    tags.push(["badge", section.badge.address])
+    for (const profileList of section.profileLists ||
+      (section.profileList ? [section.profileList] : [])) {
+      tags.push(appendDefined(["a", profileList.address], profileList.relay))
+    }
+    for (const badge of section.badges || (section.badge ? [section.badge] : [])) {
+      tags.push(["badge", badge.address])
+    }
+    for (const retention of section.retention || []) {
+      tags.push(["retention", String(retention.kind), String(retention.value), retention.type])
+    }
   }
 
   return {kind: COMMUNITY_DEFINITION_KIND, content: "", tags}

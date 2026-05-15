@@ -18,6 +18,7 @@ import {
   getCommunityMainRelay,
   makeCommunityBadgeDefinition,
   makeCommunityNcommunity,
+  makeCommunitySetupSection,
   makeCommunitySetupRefs,
   getProfileListPubkeys,
   normalizeGeohash,
@@ -226,6 +227,46 @@ describe("community protocol helpers", () => {
     })
     expect(general.badges[0]).toMatchObject({pubkey: pubkeyC})
     expect(sectionSupportsKind(general, 9, COMMUNITY_SUBTYPE_ROOM_MESSAGE)).toBe(true)
+  })
+
+  it("builds custom content sections with multiple authority refs", () => {
+    const communitySection = makeCommunitySetupSection({
+      communityPubkey: pubkeyA,
+      profileListPubkey: pubkeyA,
+      badgeIssuerPubkey: pubkeyA,
+      relays: ["wss://relay.example.com"],
+      name: "Apps",
+      kinds: [{kind: 32267}, {kind: 11, subtype: "forum"}],
+    })
+    const moderatorSection = makeCommunitySetupSection({
+      communityPubkey: pubkeyA,
+      profileListPubkey: pubkeyB,
+      badgeIssuerPubkey: pubkeyB,
+      relays: ["wss://relay.example.com"],
+      name: "Apps",
+      kinds: communitySection.kinds,
+    })
+    const template = buildCommunityDefinition({
+      relays: ["wss://relay.example.com"],
+      sections: [
+        {
+          name: "Apps",
+          kinds: communitySection.kinds,
+          profileLists: [communitySection.profileList, moderatorSection.profileList],
+          badges: [communitySection.badge, moderatorSection.badge],
+        },
+      ],
+    })
+    const definition = parseCommunityDefinition(
+      makeEvent({kind: COMMUNITY_DEFINITION_KIND, pubkey: pubkeyA, tags: template.tags}),
+    )!
+    const apps = findCommunitySection(definition, "Apps")!
+
+    expect(template.tags).toContainEqual(["k", "11", "forum"])
+    expect(apps.profileLists.map(ref => ref.pubkey)).toEqual([pubkeyA, pubkeyB])
+    expect(apps.badges.map(ref => ref.pubkey)).toEqual([pubkeyA, pubkeyB])
+    expect(sectionSupportsKind(apps, 32267)).toBe(true)
+    expect(sectionSupportsKind(apps, 11, "forum")).toBe(true)
   })
 
   it("builds community badge definition events", () => {
