@@ -113,12 +113,12 @@
   <div class="card2 bg-alt relative flex flex-col items-center gap-4 text-left">
     {#if communityId}
       <div class="absolute left-3 top-3">
-        <CommunityStarButton communityPubkey={communityId} relayHints={communityActionRelays} />
-      </div>
-      <div class="absolute right-3 top-3">
         {#if $activeCommunityDefinition?.pubkey === communityId}
           <CommunityShareButton communityPubkey={communityId} relayHints={communityShareRelays} />
         {/if}
+      </div>
+      <div class="absolute right-3 top-3">
+        <CommunityStarButton communityPubkey={communityId} relayHints={communityActionRelays} />
       </div>
     {/if}
     <div class="relative flex gap-4">
@@ -176,7 +176,11 @@
             <Icon icon={Hashtag} />
             No rooms found
           </h3>
-          <p class="text-sm opacity-70">Create the first room for this community.</p>
+          <p class="text-sm opacity-70">
+            {canCreateRoom
+              ? "Create the first room for this community."
+              : "No rooms have been published yet."}
+          </p>
         </div>
         {#if canCreateRoom}
           <button class="btn btn-primary" type="button" onclick={() => goto(roomCreatePath)}>
