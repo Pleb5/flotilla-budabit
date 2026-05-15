@@ -2,8 +2,6 @@
   import {page} from "$app/stores"
   import {
     normalizeRelayUrl,
-    NAMED_BOOKMARKS,
-    makeEvent,
     Address,
     getTagValue,
     type Filter,
@@ -48,7 +46,6 @@
   import {ListFilter, X} from "@lucide/svelte"
   import {
     GIT_REPO_ANNOUNCEMENT,
-    GIT_REPO_BOOKMARK_DTAG,
     GIT_REPO_STATE,
     parseRepoAnnouncementEvent,
     type BookmarkAddress,
@@ -90,7 +87,7 @@
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {createNip98AuthHeader} from "@app/core/event-io"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
-  import Bookmark from "@assets/icons/bookmark.svg?dataurl"
+  import Star from "@assets/icons/star.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import FolderWithFiles from "@assets/icons/folder-with-files.svg?dataurl"
@@ -101,12 +98,18 @@
   import {
     buildBookmarkRepoFilters,
     buildBookmarkRepoLoadKey,
+    getCanonicalRepoKeyFromBookmark,
     getCanonicalRepoKeyFromEvent,
     getRepoAddressFromEvent,
     isAnyBookmarked,
     matchBookmarkedRepoEvents,
-    toggleRepoBookmarks,
   } from "@app/util/bookmarks"
+  import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {
+    makeRepoStarReaction,
+    repoStarToBookmarkAddress,
+    type RepoStarRef,
+  } from "@app/util/repo-stars"
   import {getActiveTrustGraph} from "@app/core/trust-graph"
   import {
     REPO_DISCOVERY_TIMEOUT_MS,
@@ -437,6 +440,15 @@
     return []
   }
 
+  const safeNormalizeRelay = (relay?: string) => {
+    if (!relay) return ""
+    try {
+      return normalizeRelayUrl(relay)
+    } catch {
+      return ""
+    }
+  }
+
   const toBookmarkAddresses = (bookmarks: BookmarkAddress[]): BookmarkAddress[] =>
     bookmarks.map(
       (b: BookmarkAddress): BookmarkAddress => ({
@@ -447,12 +459,55 @@
       }),
     )
 
-  const bookmarkedAddresses = $derived.by((): BookmarkAddress[] => {
+  const getBookmarkRepoLoadRelays = (bookmarks: BookmarkAddress[]) =>
+    Array.from(
+      new Set(
+        [
+          ...bookmarks.map(bookmark => safeNormalizeRelay(bookmark.relayHint)),
+          ...repoAnnouncementRelays,
+          ...GIT_RELAYS,
+        ].filter(Boolean),
+      ),
+    ) as string[]
+
+  const legacyBookmarkedAddresses = $derived.by((): BookmarkAddress[] => {
     const bookmarks = normalizeBookmarks($bookmarksStore)
     return toBookmarkAddresses(bookmarks)
   })
 
+  const repoStarAddresses = $derived.by((): BookmarkAddress[] =>
+    $activeRepoStars.map(repoStarToBookmarkAddress),
+  )
+
+  const legacyUnstarredAddresses = $derived.by((): BookmarkAddress[] =>
+    legacyBookmarkedAddresses.filter(bookmark => {
+      const repoKey = getCanonicalRepoKeyFromBookmark({
+        bookmark,
+        getCachedEvent: address =>
+          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+      })
+
+      return !isAnyBookmarked(repoStarAddresses, [bookmark.address], {
+        candidateRepoKeys: repoKey ? [repoKey] : [],
+        getCachedEvent: address =>
+          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+      })
+    }),
+  )
+
+  const bookmarkedAddresses = $derived.by((): BookmarkAddress[] => [
+    ...repoStarAddresses,
+    ...legacyUnstarredAddresses,
+  ])
+
   const hasBookmarkedAddresses = $derived(bookmarkedAddresses.length > 0)
+
+  $effect(() => {
+    if (!$pubkey) return
+    hydrateRepoStars({relayHints: bookmarkRelays}).catch(error => {
+      console.warn("[git/+page] Failed to hydrate repo stars", error)
+    })
+  })
 
   // Fetch actual repo events for bookmarked addresses
   const attemptedBookmarkLoads = new Set<string>()
@@ -460,7 +515,7 @@
   const repos = $derived.by(() => {
     if (!hasBookmarkedAddresses) return undefined
 
-    const addresses = toBookmarkAddresses(normalizeBookmarks($bookmarksStore))
+    const addresses = bookmarkedAddresses
     const filters = buildBookmarkRepoFilters(addresses)
     if (filters.length === 0) return undefined
 
@@ -477,8 +532,7 @@
       if (matched.length !== addresses.length) {
         if (!attemptedBookmarkLoads.has(loadKey)) {
           attemptedBookmarkLoads.add(loadKey)
-          const relaysToQuery =
-            repoAnnouncementRelays.length > 0 ? repoAnnouncementRelays : GIT_RELAYS
+          const relaysToQuery = getBookmarkRepoLoadRelays(addresses)
           if (relaysToQuery.length > 0) {
             load({relays: relaysToQuery, filters})
           } else {
@@ -494,7 +548,7 @@
   const loadedBookmarkedRepos = $derived.by(() => {
     if (!$repos || !hasBookmarkedAddresses) return []
 
-    const addresses = toBookmarkAddresses(normalizeBookmarks($bookmarksStore))
+    const addresses = bookmarkedAddresses
     if (addresses.length === 0) return []
 
     return matchBookmarkedRepoEvents({
@@ -1625,12 +1679,22 @@
     return candidates
   }
 
+  const findRepoCardStar = (event?: RepoAnnouncementEvent | null): RepoStarRef | undefined => {
+    if (!event) return undefined
+    const candidateAddresses = getRepoCardCandidateAddresses(event)
+    const candidateRepoKeys = getRepoCardCanonicalKeys(event)
+
+    return $activeRepoStars.find(star =>
+      isAnyBookmarked([repoStarToBookmarkAddress(star)], candidateAddresses, {
+        candidateRepoKeys,
+        getCachedEvent: address =>
+          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+      }),
+    )
+  }
+
   const isRepoCardBookmarked = (event?: RepoAnnouncementEvent | null) =>
-    Boolean(event) &&
-    isAnyBookmarked(bookmarkedAddresses, getRepoCardCandidateAddresses(event), {
-      candidateRepoKeys: getRepoCardCanonicalKeys(event),
-      getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
-    })
+    Boolean(findRepoCardStar(event))
 
   let pendingBookmarkAddresses = $state<Record<string, boolean>>({})
 
@@ -1650,7 +1714,7 @@
   const toggleRepoCardBookmark = async (event?: RepoAnnouncementEvent | null) => {
     if (!event || !$pubkey) {
       if (!$pubkey) {
-        pushToast({message: "Sign in to bookmark repositories", theme: "warning"})
+        pushToast({message: "Sign in to star repositories", theme: "warning"})
       }
       return
     }
@@ -1662,45 +1726,72 @@
 
     try {
       const relayHint = getRepoCardRelayHint(event, address)
-      const bookmarkEntry: BookmarkAddress = {
-        address,
+      const activeStar = findRepoCardStar(event)
+      const relays = getRepoStarRelays([
         relayHint,
-        author: event.pubkey,
-        identifier: address.split(":").slice(2).join(":") || getTagValue("d", event.tags) || "",
+        ...(activeStar?.relayHints || []),
+        ...bookmarkRelays,
+      ])
+
+      if (activeStar) {
+        const thunk = publishDelete({event: activeStar.reaction, relays, protect: false})
+        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+        pushToast({message: "Repository unstarred"})
+      } else {
+        const starEvent = makeRepoStarReaction({event, address, relayHints: [relayHint]})
+        const thunk = publishThunk({event: starEvent, relays})
+        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+        pushToast({message: "Repository starred"})
       }
-
-      const toggleResult = toggleRepoBookmarks({
-        bookmarks: bookmarkedAddresses,
-        candidateAddresses: getRepoCardCandidateAddresses(event),
-        candidateRepoKeys: getRepoCardCanonicalKeys(event),
-        nextBookmark: bookmarkEntry,
-        getCachedEvent: address =>
-          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
-      })
-
-      const tags: string[][] = [["d", GIT_REPO_BOOKMARK_DTAG]]
-      toggleResult.nextBookmarks.forEach(bookmark => {
-        const aTag = ["a", bookmark.address]
-        if (bookmark.relayHint) aTag.push(bookmark.relayHint)
-        tags.push(aTag)
-      })
-
-      bookmarksStore.set(toggleResult.nextBookmarks)
-
-      const bookmarkEvent = makeEvent(NAMED_BOOKMARKS, {tags, content: ""})
-      const relays = Array.from(
-        new Set(
-          [relayHint, ...bookmarkRelays].map(relay => normalizeRelayUrl(relay)).filter(Boolean),
-        ),
-      ) as string[]
-
-      publishThunk({event: bookmarkEvent, relays})
-      pushToast({message: toggleResult.isRemoving ? "Bookmark removed" : "Repository bookmarked"})
     } catch (error) {
-      console.error("[git/+page] Failed to toggle bookmark from repo card", error)
-      pushToast({message: "Failed to update bookmark", theme: "error"})
+      console.error("[git/+page] Failed to toggle star from repo card", error)
+      pushToast({message: "Failed to update star", theme: "error"})
     } finally {
       setRepoCardBookmarkPending(address, false)
+    }
+  }
+
+  let migratingLegacyStars = $state(false)
+
+  const starLegacyBookmarks = async () => {
+    if (!$pubkey || migratingLegacyStars) return
+
+    const targets = legacyUnstarredAddresses
+    if (targets.length === 0) return
+
+    migratingLegacyStars = true
+    let starredCount = 0
+
+    try {
+      for (const bookmark of targets) {
+        const event =
+          (repository.getEvent(bookmark.address) as RepoAnnouncementEvent | undefined) ||
+          loadedBookmarkedRepos.find(repo => repo.address === bookmark.address)?.event
+        if (!event) continue
+
+        const relayHint = bookmark.relayHint || getRepoCardRelayHint(event, bookmark.address)
+        const relays = getRepoStarRelays([relayHint, ...bookmarkRelays])
+        const starEvent = makeRepoStarReaction({
+          event,
+          address: bookmark.address,
+          relayHints: [relayHint],
+        })
+        const thunk = publishThunk({event: starEvent, relays})
+        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+        starredCount += 1
+      }
+
+      pushToast({
+        message:
+          starredCount === 1
+            ? "Starred 1 saved repository"
+            : `Starred ${starredCount} saved repositories`,
+      })
+    } catch (error) {
+      console.error("[git/+page] Failed to star legacy bookmarks", error)
+      pushToast({message: "Failed to star saved repositories", theme: "error"})
+    } finally {
+      migratingLegacyStars = false
     }
   }
 
@@ -2224,7 +2315,8 @@
     <Tabs bind:value={activeTab} class="w-full">
       <div class="flex flex-col gap-3">
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <TabsList class="grid w-full grid-cols-3 overflow-hidden sm:flex sm:w-fit sm:max-w-full sm:self-start">
+          <TabsList
+            class="grid w-full grid-cols-3 overflow-hidden sm:flex sm:w-fit sm:max-w-full sm:self-start">
             <TabsTrigger
               value="my-repos"
               class="min-w-0 justify-center whitespace-nowrap !px-1.5 text-xs leading-tight data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none sm:!px-3 sm:text-base">
@@ -2233,7 +2325,9 @@
                 <Icon icon={FolderWithFiles} class="hidden sm:inline-block" />
                 <span class="min-w-0 truncate">My Repos</span>
                 {#if hasMyRepoNotifications}
-                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2" aria-label="Unread updates"></span>
+                  <span
+                    class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2"
+                    aria-label="Unread updates"></span>
                 {/if}
               </span>
             </TabsTrigger>
@@ -2241,11 +2335,13 @@
               value="bookmarks"
               class="min-w-0 justify-center whitespace-nowrap !px-1.5 text-xs leading-tight data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none sm:!px-3 sm:text-base">
               <span class="flex min-w-0 items-center gap-1 sm:gap-2">
-                <Icon icon={Bookmark} size={4} class="sm:hidden" />
-                <Icon icon={Bookmark} class="hidden sm:inline-block" />
-                <span class="min-w-0 truncate">Bookmarks</span>
+                <Icon icon={Star} size={4} class="sm:hidden" />
+                <Icon icon={Star} class="hidden sm:inline-block" />
+                <span class="min-w-0 truncate">Starred</span>
                 {#if hasBookmarkNotifications}
-                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2" aria-label="Unread updates"></span>
+                  <span
+                    class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2"
+                    aria-label="Unread updates"></span>
                 {/if}
               </span>
             </TabsTrigger>
@@ -2435,6 +2531,23 @@
   {:else}
     <!-- Tab-filtered Repos Grid -->
     <div class="min-w-0">
+      {#if activeTab === "bookmarks" && legacyUnstarredAddresses.length > 0}
+        <div
+          class="mb-3 flex flex-col gap-3 rounded-md border border-amber-400/30 bg-amber-400/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-amber-700 dark:text-amber-300">
+            {legacyUnstarredAddresses.length} saved repositor{legacyUnstarredAddresses.length === 1
+              ? "y is"
+              : "ies are"} still using the old bookmark format. Star them now before legacy bookmarks
+            are removed.
+          </p>
+          <Button
+            class="btn btn-outline btn-sm shrink-0 border-amber-400/50 text-amber-700 hover:bg-amber-400/20 dark:text-amber-300"
+            onclick={starLegacyBookmarks}
+            disabled={migratingLegacyStars}>
+            {migratingLegacyStars ? "Starring..." : "Star saved repos"}
+          </Button>
+        </div>
+      {/if}
       {#if repoDiscoveryStatusLines.length > 0}
         <div class="mb-3 rounded-md border border-border bg-card/70 p-3">
           <div class="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -2479,7 +2592,7 @@
           {:else if activeTab === "my-repos"}
             You haven't created any repositories yet.
           {:else}
-            No bookmarked repositories found.
+            No starred repositories found.
           {/if}
         </p>
       {:else if sortedRepoCards.length > 0}

@@ -9,10 +9,30 @@ vi.mock("@nostr-git/ui", () => ({
 }))
 
 const {load} = await import("@welshman/net")
-const {GIT_REPO_ANNOUNCEMENT, GIT_REPO_BOOKMARK_SET} = await import("@nostr-git/core/events")
+const {GIT_REPO_ANNOUNCEMENT, GIT_REPO_BOOKMARK_DTAG, GIT_REPO_BOOKMARK_SET} =
+  await import("@nostr-git/core/events")
 const {NAMED_BOOKMARKS} = await import("@welshman/util")
-const {loadRepositories, loadGraspServers, loadTokens, GIT_AUTH_DTAG} =
-  await import("./git-requests")
+const {
+  loadRepositories,
+  loadGraspServers,
+  loadTokens,
+  GIT_AUTH_DTAG,
+  getGitRepoBookmarkAddressesFromEvents,
+} = await import("./git-requests")
+
+const viewerPubkey = "f".repeat(64)
+const ownerA = "a".repeat(64)
+const ownerB = "b".repeat(64)
+
+const makeBookmarkEvent = (created_at: number, tags: string[][]) => ({
+  kind: NAMED_BOOKMARKS,
+  pubkey: viewerPubkey,
+  created_at,
+  tags,
+  id: String(created_at),
+  content: "",
+  sig: "sig",
+})
 
 describe("requests", () => {
   beforeEach(() => {
@@ -41,6 +61,40 @@ describe("requests", () => {
           relays: [],
         }),
       )
+    })
+  })
+
+  describe("getGitRepoBookmarkAddressesFromEvents", () => {
+    it("falls back to the newest legacy bookmark event with git repo addresses", () => {
+      const mapped = getGitRepoBookmarkAddressesFromEvents([
+        makeBookmarkEvent(10, [["d", "unrelated-bookmarks"]]),
+        makeBookmarkEvent(5, [
+          ["a", `${GIT_REPO_ANNOUNCEMENT}:${ownerA}:nostr-git`, "wss://relay.example.com"],
+        ]),
+      ])
+
+      expect(mapped).toEqual([
+        {
+          address: `${GIT_REPO_ANNOUNCEMENT}:${ownerA}:nostr-git`,
+          author: ownerA,
+          identifier: "nostr-git",
+          relayHint: "wss://relay.example.com/",
+        },
+      ])
+    })
+
+    it("prefers the explicit git bookmark set over legacy bookmark events", () => {
+      const mapped = getGitRepoBookmarkAddressesFromEvents([
+        makeBookmarkEvent(5, [["a", `${GIT_REPO_ANNOUNCEMENT}:${ownerA}:old-repo`]]),
+        makeBookmarkEvent(10, [
+          ["d", GIT_REPO_BOOKMARK_DTAG],
+          ["a", `${GIT_REPO_ANNOUNCEMENT}:${ownerB}:new-repo`],
+        ]),
+      ])
+
+      expect(mapped.map(bookmark => bookmark.address)).toEqual([
+        `${GIT_REPO_ANNOUNCEMENT}:${ownerB}:new-repo`,
+      ])
     })
   })
 

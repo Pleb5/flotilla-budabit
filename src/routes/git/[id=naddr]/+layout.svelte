@@ -8,7 +8,6 @@
     RepoTab,
     BranchSelector,
     toast,
-    bookmarksStore,
     Repo,
     WorkerManager,
     ForkRepoDialog,
@@ -27,7 +26,7 @@
     Settings as SettingsIcon,
     ChevronLeft,
     Home,
-    Bookmark,
+    Star,
     Bell,
     GitFork,
     RotateCcw,
@@ -70,7 +69,6 @@
     LabelEvent,
   } from "@nostr-git/core/events"
   import {
-    GIT_REPO_BOOKMARK_DTAG,
     GRASP_SET_KIND,
     DEFAULT_GRASP_SET_ID,
     parseGraspServersEvent,
@@ -109,8 +107,6 @@
   import {goto, beforeNavigate} from "$app/navigation"
   import {
     normalizeRelayUrl,
-    NAMED_BOOKMARKS,
-    makeEvent,
     Address,
     GIT_ISSUE,
     DELETE,
@@ -163,8 +159,13 @@
     getCanonicalRepoKeyFromEvent,
     getRepoBookmarkAddressSet,
     isAnyBookmarked,
-    toggleRepoBookmarks,
   } from "@app/util/bookmarks"
+  import {activeRepoStars, getRepoStarRelays, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {
+    makeRepoStarReaction,
+    repoStarToBookmarkAddress,
+    type RepoStarRef,
+  } from "@app/util/repo-stars"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
 
   const {id} = $page.params
@@ -2276,7 +2277,8 @@
   // Refresh state
   let isRefreshing = $state(false)
 
-  // Bookmark state
+  // Star state. Legacy bookmarks still populate the listing page, but this
+  // button only reflects kind:7 repo stars.
   let isTogglingBookmark = $state(false)
   let isBookmarked = $state(false)
   let relaysWarningKey = $state("")
@@ -2299,39 +2301,45 @@
       relatedAddresses: getStore(repoAddressesStore),
     })
 
-  const syncBookmarkState = () => {
-    try {
-      const repoKey = getCanonicalRepoKeyFromEvent(
-        repoClass?.repoEvent as RepoAnnouncementEvent | null,
-      )
-      isBookmarked = isAnyBookmarked(getStore(bookmarksStore), getBookmarkAddressCandidates(), {
+  const findActiveRepoStar = (): RepoStarRef | undefined => {
+    if (!repoClass || !repoClass.repoEvent) return undefined
+
+    const repoKey = getCanonicalRepoKeyFromEvent(repoClass.repoEvent as RepoAnnouncementEvent)
+    const candidateAddresses = getBookmarkAddressCandidates()
+
+    return $activeRepoStars.find(star =>
+      isAnyBookmarked([repoStarToBookmarkAddress(star)], candidateAddresses, {
         candidateRepoKeys: repoKey ? [repoKey] : [],
         getCachedEvent: address =>
           repository.getEvent(address) as RepoAnnouncementEvent | undefined,
-      })
+      }),
+    )
+  }
+
+  const syncBookmarkState = () => {
+    try {
+      isBookmarked = Boolean(findActiveRepoStar())
     } catch {
       isBookmarked = false
     }
   }
 
-  // Subscribe to bookmarks store to update bookmark status reactively
+  // Keep star status in sync with kind:7 reactions and their delete events.
   $effect(() => {
     void $repoAddressesStore
+    void $activeRepoStars
 
     if (!repoClass || !repoClass.repoEvent) {
       isBookmarked = false
       return
     }
 
-    const unsubscribe = bookmarksStore.subscribe(() => {
-      if (!repoClass || !repoClass.repoEvent) return
-      syncBookmarkState()
-    })
-
-    // Initial check
     syncBookmarkState()
 
-    return unsubscribe
+    const address = getPrimaryBookmarkAddress()
+    hydrateRepoStars({relayHints: getStore(repoRelaysStore), repoAddress: address}).catch(error => {
+      console.warn("[repo layout] Failed to hydrate repo stars", error)
+    })
   })
 
   // --- GRASP servers (user profile) ---
@@ -2578,8 +2586,8 @@
 
     const fallbackRelay = url
 
-      const targetRelays = relays.length > 0 ? relays : getRepoRelaysForModal()
-      const effectiveRelay =
+    const targetRelays = relays.length > 0 ? relays : getRepoRelaysForModal()
+    const effectiveRelay =
       (fallbackRelay && isGitRelay(fallbackRelay) ? fallbackRelay : "") ||
       targetRelays.find(isGitRelay) ||
       GIT_RELAYS[0] ||
@@ -3094,65 +3102,44 @@
       if (!address) {
         throw new Error("Repository address not available")
       }
-      const candidateAddresses = getBookmarkAddressCandidates()
-
-      // Get current bookmarks
-      const currentBookmarks = getStore(bookmarksStore)
-
       // Determine relay hint
       const relayHint =
         repoRelays[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
       const normalizedRelayHint = relayHint ? normalizeRelayUrl(relayHint) : ""
-      const bookmarkEntry = {
-        address,
-        relayHint: normalizedRelayHint,
-        author: repoClass.repoEvent.pubkey,
-        identifier:
-          address.split(":").slice(2).join(":") || getTagValue("d", repoClass.repoEvent.tags) || "",
+      const activeStar = findActiveRepoStar()
+      wasRemoving = Boolean(activeStar)
+
+      const relaysToPublish = getRepoStarRelays([
+        normalizedRelayHint,
+        ...(activeStar?.relayHints || []),
+        ...repoRelays,
+      ])
+
+      if (activeStar) {
+        const thunk = publishDelete({
+          event: activeStar.reaction,
+          relays: relaysToPublish,
+          protect: false,
+        })
+        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+      } else {
+        const starEvent = makeRepoStarReaction({
+          event: repoClass.repoEvent as RepoAnnouncementEvent,
+          address,
+          relayHints: [normalizedRelayHint],
+        })
+        const thunk = publishThunk({event: starEvent, relays: relaysToPublish})
+        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
       }
-      const repoKey = getCanonicalRepoKeyFromEvent(repoClass.repoEvent)
-
-      const toggleResult = toggleRepoBookmarks({
-        bookmarks: currentBookmarks,
-        candidateAddresses,
-        candidateRepoKeys: repoKey ? [repoKey] : [],
-        nextBookmark: bookmarkEntry,
-        getCachedEvent: address =>
-          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
-      })
-      wasRemoving = toggleResult.isRemoving
-
-      const tags: string[][] = [["d", GIT_REPO_BOOKMARK_DTAG]]
-      toggleResult.nextBookmarks.forEach(bookmark => {
-        const aTag: string[] = ["a", bookmark.address]
-        if (bookmark.relayHint) {
-          aTag.push(bookmark.relayHint)
-        }
-        tags.push(aTag)
-      })
-
-      // Create and publish bookmark event
-      const bookmarkEvent = makeEvent(NAMED_BOOKMARKS, {tags, content: ""})
-
-      // Update store immediately for responsive UI
-      bookmarksStore.set(toggleResult.nextBookmarks)
-
-      // Publish to relays
-      const relaysToPublish =
-        repoRelays.length > 0
-          ? repoRelays.map(normalizeRelayUrl).filter(Boolean)
-          : Router.get().FromUser().getUrls().map(normalizeRelayUrl).filter(Boolean)
-
-      publishThunk({event: bookmarkEvent, relays: relaysToPublish})
 
       pushToast({
-        message: wasRemoving ? "Bookmark removed" : "Repository bookmarked",
+        message: wasRemoving ? "Repository unstarred" : "Repository starred",
       })
     } catch (error) {
-      console.error("Failed to toggle bookmark:", error)
+      console.error("Failed to toggle repository star:", error)
       const action = wasRemoving ? "remove" : "add"
       pushToast({
-        message: `Failed to ${action} bookmark: ${error instanceof Error ? error.message : "Unknown error"}`,
+        message: `Failed to ${action} star: ${error instanceof Error ? error.message : "Unknown error"}`,
         theme: "error",
       })
     } finally {

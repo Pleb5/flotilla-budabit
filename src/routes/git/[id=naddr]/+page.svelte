@@ -15,7 +15,7 @@
     BookOpen,
     Copy,
     Check,
-    Bookmark,
+    Star,
     Bell,
     GitFork,
     RotateCcw,
@@ -743,12 +743,14 @@
         {#if $pubkey}
           <div class="ml-auto flex flex-wrap items-center gap-2">
             <Button
-              class="btn btn-sm {repoActions.isBookmarked ? 'btn-primary' : 'btn-outline'} gap-1"
+              class="btn btn-sm {repoActions.isBookmarked
+                ? 'border-amber-400/60 bg-amber-400/10 text-amber-600 hover:bg-amber-400/20 dark:text-amber-400'
+                : 'btn-outline'} gap-1"
               onclick={repoActions.bookmarkRepo}
               disabled={repoActions.isTogglingBookmark}
-              title={repoActions.isBookmarked ? "Remove bookmark" : "Bookmark"}>
-              <Bookmark class="h-4 w-4 {repoActions.isBookmarked ? 'fill-current' : ''}" />
-              {repoActions.isBookmarked ? "Bookmarked" : "Bookmark"}
+              title={repoActions.isBookmarked ? "Unstar repository" : "Star repository"}>
+              <Star class="h-4 w-4 {repoActions.isBookmarked ? 'fill-current' : ''}" />
+              {repoActions.isBookmarked ? "Starred" : "Star"}
             </Button>
             <Button
               class="btn btn-sm {repoActions.isWatching ? 'btn-primary' : 'btn-outline'} gap-1"

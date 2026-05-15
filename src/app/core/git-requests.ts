@@ -5,6 +5,7 @@ import {
   GIT_REPO_BOOKMARK_DTAG,
   DEFAULT_GRASP_SET_ID,
   validateGraspServerUrl,
+  type BookmarkAddress,
 } from "@nostr-git/core/events"
 import {tokens, type Token, bookmarksStore} from "@nostr-git/ui"
 import {DEFAULT_GRASP_SERVER_URL, graspServersStore} from "@nostr-git/ui"
@@ -43,6 +44,52 @@ export const loadRepositories = async (pubkey: string, relays: string[] = []) =>
       {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [pubkey]},
     ],
   })
+}
+
+const getDTag = (tags: string[][] = []) => tags.find(tag => tag[0] === "d")?.[1] || ""
+
+const getRepoAddressParts = (address: string) => {
+  const parts = String(address || "").split(":")
+  const [kind, author, ...identifierParts] = parts
+  const identifier = identifierParts.join(":")
+
+  if (kind !== String(GIT_REPO_ANNOUNCEMENT) || !author || !identifier) return null
+
+  return {author, identifier}
+}
+
+const isDefined = <T>(value: T | null | undefined): value is T => Boolean(value)
+
+const mapRepoBookmarkAddresses = (event: {tags?: string[][]}): BookmarkAddress[] =>
+  getAddressTags(event.tags || [])
+    .map(([_, address, relayHint]: string[]) => {
+      const parts = getRepoAddressParts(address)
+      if (!parts) return null
+
+      return {
+        address,
+        relayHint: relayHint ? safeNormalizeRelayUrl(relayHint) : "",
+        author: parts.author,
+        identifier: parts.identifier,
+      }
+    })
+    .filter(isDefined)
+
+export const getGitRepoBookmarkAddressesFromEvents = (events: any[]) => {
+  const candidates = events
+    .filter(Boolean)
+    .map(event => ({
+      event,
+      bookmarks: mapRepoBookmarkAddresses(event),
+    }))
+    .sort((a, b) => (b.event.created_at || 0) - (a.event.created_at || 0))
+
+  const canonical = candidates.find(
+    ({event}) => getDTag(event.tags || []) === GIT_REPO_BOOKMARK_DTAG,
+  )
+  if (canonical) return canonical.bookmarks
+
+  return candidates.find(({bookmarks}) => bookmarks.length > 0)?.bookmarks || []
 }
 
 export const loadGraspServers = async (pubkey: string, relays: string[] = []) => {
@@ -92,19 +139,7 @@ export function setupBookmarksSync(pubkey: string, relays: string[] = []) {
       return
     }
 
-    // Take most recent event (could be either format)
-    const latest = events.reduce((acc, cur) => (cur.created_at > acc.created_at ? cur : acc))
-
-    const aTags = getAddressTags(latest.tags)
-
-    const mapped = aTags.map(([_, address, relayHint]: string[]) => ({
-      address,
-      event: null,
-      relayHint: relayHint ? safeNormalizeRelayUrl(relayHint) : "",
-      author: latest.pubkey,
-      identifier: GIT_REPO_BOOKMARK_DTAG,
-    }))
-    bookmarksStore.set(mapped)
+    bookmarksStore.set(getGitRepoBookmarkAddressesFromEvents(events))
   })
 
   // Ensure we fetch initial data for both formats

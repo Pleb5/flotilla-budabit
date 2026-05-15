@@ -16,7 +16,7 @@
     getMaintainerSetRepoAddresses,
   } from "@app/core/git-state"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
-  import {Bookmark} from "@lucide/svelte"
+  import {Star} from "@lucide/svelte"
 
   const {
     url,
@@ -172,14 +172,14 @@
               type="button"
               class={`rounded-full border p-1.5 transition-colors ${
                 bookmarked
-                  ? "border-primary/40 bg-primary/10 text-primary"
+                  ? "border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-400"
                   : "border-border bg-background/80 text-muted-foreground hover:text-foreground"
               }`}
               onclick={onToggleBookmark}
               disabled={bookmarkDisabled}
-              aria-label={bookmarked ? "Remove bookmark" : "Bookmark repository"}
-              title={bookmarked ? "Remove bookmark" : "Bookmark repository"}>
-              <Bookmark class={`h-4 w-4 ${bookmarked ? "fill-current" : ""}`} />
+              aria-label={bookmarked ? "Unstar repository" : "Star repository"}
+              title={bookmarked ? "Unstar repository" : "Star repository"}>
+              <Star class={`h-4 w-4 ${bookmarked ? "fill-current" : ""}`} />
             </button>
           {/if}
           {#if hasNotifications}
