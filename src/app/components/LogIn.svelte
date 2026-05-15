@@ -108,12 +108,15 @@
   <Button
     onclick={loginWithLocalKey}
     {disabled}
-    data-tip="least secure"
     data-testid="login-option-local-key"
-    class="btn btn-outline tooltip border-warning/50 bg-warning/10 text-base-content hover:border-warning hover:bg-warning/20">
-    <Icon icon={ShieldWarning} />
-    <span class="grow">Local key</span>
-    <span class="badge badge-warning badge-outline text-xs font-semibold">least secure</span>
+    class="btn btn-outline grid grid-cols-[1fr_auto_1fr] border-warning/50 bg-warning/10 text-base-content hover:border-warning hover:bg-warning/20">
+    <span></span>
+    <span class="flex items-center gap-2 justify-self-center">
+      <Icon icon={ShieldWarning} />
+      Local key
+    </span>
+    <span class="badge badge-warning badge-outline justify-self-end text-xs font-semibold"
+      >least secure</span>
   </Button>
   {#if !hasSigner || !BURROW_URL}
     <Link

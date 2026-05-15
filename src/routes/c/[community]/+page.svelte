@@ -112,11 +112,13 @@
 <PageContent class="flex flex-col gap-2 p-2 pt-4">
   <div class="card2 bg-alt relative flex flex-col items-center gap-4 text-left">
     {#if communityId}
-      <div class="absolute right-3 top-3 flex gap-2">
+      <div class="absolute left-3 top-3">
+        <CommunityStarButton communityPubkey={communityId} relayHints={communityActionRelays} />
+      </div>
+      <div class="absolute right-3 top-3">
         {#if $activeCommunityDefinition?.pubkey === communityId}
           <CommunityShareButton communityPubkey={communityId} relayHints={communityShareRelays} />
         {/if}
-        <CommunityStarButton communityPubkey={communityId} relayHints={communityActionRelays} />
       </div>
     {/if}
     <div class="relative flex gap-4">

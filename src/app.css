@@ -237,6 +237,15 @@
   display: none;
 }
 
+.scroll-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scroll-container::-webkit-scrollbar {
+  display: none;
+}
+
 [data-tip]::before {
   @apply ellipsize;
 }
