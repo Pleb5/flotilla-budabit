@@ -6,7 +6,7 @@ import type {Tokens, Renderer} from "marked"
 import {nip19} from "nostr-tools"
 import hljs from "highlight.js"
 import type {TrustedEvent} from "@welshman/util"
-import {shortenUrl, isMediaUrl, isStandaloneUrl} from "./markdownUtils.js"
+import {shortenUrl, isMediaUrl} from "./markdownUtils.js"
 import {parseNcommunityLink} from "@app/util/community-links"
 import type {ParsedCommunityInput} from "@app/core/community"
 
@@ -23,8 +23,64 @@ export interface RendererOptions {
  */
 export function createRenderers(options: RendererOptions = {}): Partial<Renderer> {
   const {event, url, minimalQuote = false, depth = 0, hideMediaAtDepth = 1} = options
+  const renderInlineTokens = (renderer: Renderer, tokens: Tokens.Generic[]) => {
+    const parser = (renderer as any).parser
+
+    if (parser?.parseInline) return parser.parseInline(tokens)
+    if (parser?.parse) return parser.parse(tokens)
+
+    return ""
+  }
+
+  const createStandaloneLinkPreview = (link: Tokens.Link) => {
+    if (!event || !isPreviewableUrl(link.href)) return ""
+
+    return createLinkBlockPlaceholder(link.href, event.id)
+  }
+
+  const getOnlyLink = (tokens: Tokens.Generic[] = []) => {
+    const contentTokens = tokens.filter(
+      token => !(token.type === "text" && `${token.text || ""}`.trim() === ""),
+    )
+
+    return contentTokens.length === 1 && contentTokens[0].type === "link"
+      ? (contentTokens[0] as Tokens.Link)
+      : null
+  }
+
+  const getTrailingLineLink = (tokens: Tokens.Generic[] = []) => {
+    const link = tokens[tokens.length - 1]
+    const lineBreak = tokens[tokens.length - 2]
+    const prefixTokens = tokens.slice(0, -2)
+
+    if (!link || link.type !== "link" || lineBreak?.type !== "br" || prefixTokens.length === 0) {
+      return null
+    }
+
+    return {link: link as Tokens.Link, prefixTokens}
+  }
 
   return {
+    paragraph(this: Renderer, token: Tokens.Paragraph): string {
+      const onlyLink = getOnlyLink(token.tokens as Tokens.Generic[])
+      if (onlyLink) {
+        const preview = createStandaloneLinkPreview(onlyLink)
+        if (preview) return preview
+      }
+
+      const trailingLineLink = getTrailingLineLink(token.tokens as Tokens.Generic[])
+      if (trailingLineLink) {
+        const preview = createStandaloneLinkPreview(trailingLineLink.link)
+        if (preview) {
+          const prefix = renderInlineTokens(this, trailingLineLink.prefixTokens)
+
+          return `<p>${prefix}</p>${preview}`
+        }
+      }
+
+      return `<p>${renderInlineTokens(this, token.tokens as Tokens.Generic[])}</p>`
+    },
+
     image(token: Tokens.Image): string {
       const {href, title, text} = token
       const alt = text || title || ""
@@ -56,15 +112,8 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
       }
 
       // Regular URL handling
-      const isMedia = isMediaUrl(href)
-      const isStandalone = isStandaloneUrl(text, href)
-
-      // Use ContentLinkBlock for media URLs or standalone URLs (when event is provided)
-      if (event && (isMedia || isStandalone)) {
-        return `<span class="markdown-link-block-placeholder" data-url="${href}" data-event-id="${event.id}"></span>`
-      }
-
-      // For inline links, render as regular link
+      // Inline links should stay inline. Paragraph rendering promotes links that are on their
+      // own line to previews so normal prose does not get split by a block card.
       const displayText = shortenUrl(href, text)
       return `<a href="${href}" class="link" title="${href}" target="_blank" rel="noopener noreferrer">${displayText}</a>`
     },
@@ -89,6 +138,14 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
       return `<pre class="hljs"><code class="language-${validLang}">${highlightedCode}</code></pre>`
     },
   }
+}
+
+function isPreviewableUrl(url: string): boolean {
+  return /^(https?:)?\/\//i.test(url) || isMediaUrl(url)
+}
+
+function createLinkBlockPlaceholder(href: string, eventId: string): string {
+  return `<span class="markdown-link-block-placeholder" data-url="${href}" data-event-id="${eventId}"></span>`
 }
 
 /**

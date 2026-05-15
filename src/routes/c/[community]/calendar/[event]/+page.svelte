@@ -19,6 +19,7 @@
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
+  import CalendarEventDescription from "@app/components/CalendarEventDescription.svelte"
   import CalendarEventHeader from "@app/components/CalendarEventHeader.svelte"
   import CalendarEventMeta from "@app/components/CalendarEventMeta.svelte"
   import CalendarEventDate from "@app/components/CalendarEventDate.svelte"
@@ -53,7 +54,9 @@
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const eventParam = $derived($page.params.event || "")
-  const calendarPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "calendar") : "")
+  const calendarPath = $derived(
+    communityPubkey ? makeCommunityPath(communityPubkey, "calendar") : "",
+  )
   const calendarAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunitySectionWriterPubkeys({
@@ -83,7 +86,9 @@
         ]
       : [],
   )
-  const eventEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: eventFilters})))
+  const eventEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: eventFilters})),
+  )
   const event = $derived.by(() => {
     const events = sortBy(candidate => -candidate.created_at, $eventEvents)
 
@@ -160,7 +165,9 @@
         ]
       : [],
   )
-  const replyEventsStore = $derived(deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})))
+  const replyEventsStore = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})),
+  )
   const replyEvents = $derived(sortBy(replyEvent => replyEvent.created_at, $replyEventsStore))
 
   let showAllReplies = $state(false)
@@ -172,27 +179,27 @@
   const canReply = $derived(
     Boolean(
       approvedEvent &&
-        $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.comment,
-        }),
+      $pubkey &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.comment,
+      }),
     ),
   )
   const canReact = $derived(
     Boolean(
       approvedEvent &&
-        $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.reaction,
-        }),
+      $pubkey &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.reaction,
+      }),
     ),
   )
 
@@ -349,7 +356,9 @@
   {#snippet title()}
     <strong
       >{approvedEvent
-        ? getTagValue("title", approvedEvent.tags) || getTagValue("name", approvedEvent.tags) || "Calendar event"
+        ? getTagValue("title", approvedEvent.tags) ||
+          getTagValue("name", approvedEvent.tags) ||
+          "Calendar event"
         : "Calendar event"}</strong>
   {/snippet}
   {#snippet action()}
@@ -365,12 +374,10 @@
         <div class="flex min-w-0 flex-grow flex-col gap-1">
           <CalendarEventHeader event={approvedEvent} />
           <CalendarEventMeta event={approvedEvent} url={communityPubkey} />
-          {#if approvedEvent.content}
-            <div class="flex py-2 opacity-50">
-              <div class="h-px flex-grow bg-base-content opacity-25"></div>
-            </div>
-            <Content event={approvedEvent} url={communityPubkey} showEntire />
-          {/if}
+          <CalendarEventDescription
+            event={approvedEvent}
+            url={communityPubkey}
+            relays={$activeCommunityRelays} />
         </div>
       </div>
       <div class="flex w-full flex-col justify-end sm:flex-row">

@@ -1,6 +1,7 @@
 import {describe, expect, it, vi, beforeEach} from "vitest"
 import {createRenderers} from "./markdownRenderers"
 import {nip19} from "nostr-tools"
+import {Marked} from "marked"
 
 vi.mock("nostr-tools", () => ({
   nip19: {
@@ -74,7 +75,7 @@ describe("markdownRenderers", () => {
       expect(displayText.length).toBeLessThan(url.length)
     })
 
-    it("renders media URL as link block placeholder when event provided", () => {
+    it("keeps media URL inline in normal link rendering", () => {
       const mockEvent = {id: "evt123"} as any
       const renderers = createRenderers({event: mockEvent})
       const token = {
@@ -82,9 +83,89 @@ describe("markdownRenderers", () => {
         text: "https://example.com/photo.jpg",
       }
       const html = renderers.link!(token as any)
+      expect(html).not.toContain("markdown-link-block-placeholder")
+      expect(html).toContain('href="https://example.com/photo.jpg"')
+    })
+
+    it("renders standalone URL paragraphs as link block placeholders", () => {
+      const mockEvent = {id: "evt123"} as any
+      const renderers = createRenderers({event: mockEvent})
+      const token = {
+        tokens: [
+          {
+            type: "link",
+            href: "https://example.com/photo.jpg",
+            text: "https://example.com/photo.jpg",
+          },
+        ],
+      }
+
+      const html = renderers.paragraph!.call({parser: {parseInline: vi.fn()}} as any, token as any)
+
       expect(html).toContain("markdown-link-block-placeholder")
       expect(html).toContain('data-url="https://example.com/photo.jpg"')
       expect(html).toContain('data-event-id="evt123"')
+      expect(html).not.toContain("<p>")
+    })
+
+    it("renders final line URL as text plus compact link preview", () => {
+      const mockEvent = {id: "evt123"} as any
+      const renderers = createRenderers({event: mockEvent})
+      const parser = {parseInline: vi.fn(() => "Hivetalk event:")}
+      const token = {
+        tokens: [
+          {type: "text", text: "Hivetalk event:", raw: "Hivetalk event:"},
+          {type: "br", raw: "\n"},
+          {
+            type: "link",
+            href: "https://honey.hivetalk.org/dashboard/abc",
+            text: "https://honey.hivetalk.org/dashboard/abc",
+          },
+        ],
+      }
+
+      const html = renderers.paragraph!.call({parser} as any, token as any)
+
+      expect(parser.parseInline).toHaveBeenCalledWith([token.tokens[0]])
+      expect(html).toContain("<p>Hivetalk event:</p>")
+      expect(html).toContain("markdown-link-block-placeholder")
+      expect(html).toContain('data-url="https://honey.hivetalk.org/dashboard/abc"')
+    })
+
+    it("keeps inline URL paragraphs as prose", () => {
+      const mockEvent = {id: "evt123"} as any
+      const renderers = createRenderers({event: mockEvent})
+      const parser = {
+        parseInline: vi.fn(() => 'Go to <a href="https://budabit.club">budabit.club</a> and apply'),
+      }
+      const token = {
+        tokens: [
+          {type: "text", text: "Go to ", raw: "Go to "},
+          {type: "link", href: "https://budabit.club", text: "https://budabit.club"},
+          {type: "text", text: " and apply", raw: " and apply"},
+        ],
+      }
+
+      const html = renderers.paragraph!.call({parser} as any, token as any)
+
+      expect(html).toBe('<p>Go to <a href="https://budabit.club">budabit.club</a> and apply</p>')
+      expect(html).not.toContain("markdown-link-block-placeholder")
+    })
+
+    it("integrates with marked for prose links and final-line previews", async () => {
+      const mockEvent = {id: "evt123"} as any
+      const marked = new Marked({breaks: true, renderer: createRenderers({event: mockEvent})})
+
+      const prose = await marked.parse("Go to https://budabit.club and apply")
+      const preview = await marked.parse(
+        "Hivetalk event:\nhttps://honey.hivetalk.org/dashboard/abc",
+      )
+
+      expect(prose).toContain("budabit.club")
+      expect(prose).not.toContain("markdown-link-block-placeholder")
+      expect(preview).toContain("<p>Hivetalk event:</p>")
+      expect(preview).toContain("markdown-link-block-placeholder")
+      expect(preview).toContain('data-url="https://honey.hivetalk.org/dashboard/abc"')
     })
 
     it("renders npub link as profile placeholder", () => {
