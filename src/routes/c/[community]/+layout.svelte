@@ -27,6 +27,25 @@
   const {children}: Props = $props()
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
+  const hasInlineCommunityMenu = $derived(
+    [
+      "/c/[community]/calendar",
+      "/c/[community]/calendar/create",
+      "/c/[community]/goals",
+      "/c/[community]/goals/create",
+      "/c/[community]/threads",
+      "/c/[community]/threads/create",
+    ].includes($page.route.id || ""),
+  )
+  const pageClass = $derived(
+    !$pubkey
+      ? "cw-full"
+      : parsedCommunity
+        ? hasInlineCommunityMenu
+          ? "community-with-menu"
+          : "community-with-menu community-with-floating-menu"
+        : "",
+  )
 
   let loadedCommunityKey = $state("")
   let loadingCommunityKey = $state("")
@@ -107,16 +126,18 @@
   <SecondaryNav>
     <CommunityMenu community={parsedCommunity.pubkey} />
   </SecondaryNav>
-  <button
-    type="button"
-    class="btn btn-neutral btn-sm fixed right-[calc(var(--sair)+0.75rem)] top-[calc(var(--sait)+0.75rem)] z-nav lg:hidden"
-    aria-label="Open community menu"
-    onclick={openCommunityMenu}>
-    <Icon icon={MenuDots} />
-  </button>
+  {#if !hasInlineCommunityMenu}
+    <button
+      type="button"
+      class="btn btn-neutral btn-sm fixed right-[calc(var(--sair)+0.75rem)] top-[calc(var(--sait)+0.75rem)] z-nav lg:hidden"
+      aria-label="Open community menu"
+      onclick={openCommunityMenu}>
+      <Icon icon={MenuDots} />
+    </button>
+  {/if}
 {/if}
 
-<Page class={!$pubkey ? "cw-full" : parsedCommunity ? "community-with-menu" : ""}>
+<Page class={pageClass}>
   {#if !parsedCommunity}
     <div class="content p-4">
       <h1 class="text-2xl font-bold">Invalid community</h1>
@@ -137,7 +158,7 @@
 
 <style>
   @media (max-width: 1023.98px) {
-    :global(.community-with-menu [data-component="PageBar"]) {
+    :global(.community-with-floating-menu [data-component="PageBar"]) {
       padding-right: calc(var(--sair) + 4rem);
     }
   }
