@@ -12,6 +12,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Field from "@lib/components/Field.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
@@ -157,6 +158,9 @@
   {/snippet}
   {#snippet title()}
     <strong>Repositories</strong>
+  {/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityPubkey} />
   {/snippet}
 </PageBar>
 

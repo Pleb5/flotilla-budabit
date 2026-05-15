@@ -17,6 +17,7 @@
   import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import GoalSummary from "@app/components/GoalSummary.svelte"
   import GoalActions from "@app/components/GoalActions.svelte"
   import {preventDefault} from "@lib/html"
@@ -253,6 +254,9 @@
   {/snippet}
   {#snippet title()}
     <strong>{approvedGoal?.content || "Goal"}</strong>
+  {/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityPubkey} />
   {/snippet}
 </PageBar>
 

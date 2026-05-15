@@ -16,6 +16,7 @@
   import Link from "@lib/components/Link.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
   import {fade} from "@lib/transition"
@@ -102,6 +103,9 @@
   {/snippet}
   {#snippet title()}
     <strong>Home</strong>
+  {/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityId} />
   {/snippet}
 </PageBar>
 

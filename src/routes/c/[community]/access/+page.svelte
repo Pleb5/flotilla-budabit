@@ -1,5 +1,6 @@
 <script lang="ts">
   import {request} from "@welshman/net"
+  import {page} from "$app/stores"
   import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {makeEvent} from "@welshman/util"
@@ -10,6 +11,7 @@
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import Field from "@lib/components/Field.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
@@ -39,7 +41,10 @@
     makeAdmissionResponse,
     makeAdmissionResponseDelete,
   } from "@app/core/community-forms"
+  import {parseCommunityRouteParam} from "@app/util/routes"
 
+  const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
+  const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   let answers = $state<Record<string, Record<string, string>>>({})
   let previousStatuses = $state<Record<string, string>>({})
   let statusesInitialized = $state(false)
@@ -225,6 +230,9 @@
     <div class="center"><Icon icon={ShieldUser} /></div>
   {/snippet}
   {#snippet title()}<strong>Access Requests</strong>{/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityPubkey} />
+  {/snippet}
 </PageBar>
 
 <PageContent class="content col-4 p-4">

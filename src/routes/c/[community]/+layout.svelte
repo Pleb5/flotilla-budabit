@@ -29,15 +29,24 @@
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const hasInlineCommunityMenu = $derived(
     [
+      "/c/[community]",
+      "/c/[community]/access",
+      "/c/[community]/admin",
       "/c/[community]/calendar",
       "/c/[community]/calendar/create",
       "/c/[community]/calendar/[event]",
+      "/c/[community]/git",
       "/c/[community]/goals",
       "/c/[community]/goals/create",
+      "/c/[community]/goals/[goal]",
+      "/c/[community]/moderation",
+      "/c/[community]/permalinks",
+      "/c/[community]/rooms",
       "/c/[community]/rooms/[room]",
       "/c/[community]/threads",
       "/c/[community]/threads/create",
       "/c/[community]/threads/[thread]",
+      "/c/[community]/widgets",
     ].includes($page.route.id || ""),
   )
   const pageClass = $derived(

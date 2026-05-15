@@ -10,6 +10,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Field from "@lib/components/Field.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import RoomImage from "@app/components/RoomImage.svelte"
   import RoomName from "@app/components/RoomName.svelte"
@@ -131,6 +132,9 @@
   {/snippet}
   {#snippet title()}
     <strong>Rooms</strong>
+  {/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityPubkey} />
   {/snippet}
 </PageBar>
 

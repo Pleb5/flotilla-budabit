@@ -1,5 +1,6 @@
 <script lang="ts">
   import {tick} from "svelte"
+  import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -11,6 +12,7 @@
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import Field from "@lib/components/Field.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import {preventDefault} from "@lib/html"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {pushModal} from "@app/util/modal"
@@ -40,6 +42,7 @@
     parseAdmissionResponse,
     validateAdmissionFormDraft,
   } from "@app/core/community-forms"
+  import {parseCommunityRouteParam} from "@app/util/routes"
 
   type ReviewApplication = {
     sectionName: string
@@ -51,6 +54,8 @@
 
   type PageMode = "queue" | "forms"
 
+  const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
+  const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   let pageMode = $state<PageMode>("queue")
   let selectedSectionName = $state("")
   let drafts = $state<Record<string, CommunityAdmissionFormDraft>>({})
@@ -414,6 +419,9 @@
     <div class="center"><Icon icon={Settings} /></div>
   {/snippet}
   {#snippet title()}<strong>Community Moderation</strong>{/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityPubkey} />
+  {/snippet}
 </PageBar>
 
 <PageContent class="content col-4 p-4">

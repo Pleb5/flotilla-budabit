@@ -1,5 +1,6 @@
 <script lang="ts">
   import {tick} from "svelte"
+  import {page} from "$app/stores"
   import {pubkey, publishThunk} from "@welshman/app"
   import {makeEvent} from "@welshman/util"
   import Settings from "@assets/icons/settings.svg?dataurl"
@@ -8,6 +9,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
@@ -18,7 +20,10 @@
   import {getCommunitySectionDisplayName, getProfileListPubkeys, normalizePubkey} from "@app/core/community"
   import {makeCommunityGrantEvents, makeCommunityRevokeEvent} from "@app/core/community-admin"
   import {findProfileListEvent, getGrantCapability} from "@app/core/community-permissions"
+  import {parseCommunityRouteParam} from "@app/util/routes"
 
+  const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
+  const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const sections = $derived($activeCommunityDefinition?.sections || [])
   const capabilities = $derived(
     sections.map(section => ({
@@ -146,6 +151,9 @@
     <div class="center"><Icon icon={Settings} /></div>
   {/snippet}
   {#snippet title()}<strong>Community Admin</strong>{/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityPubkey} />
+  {/snippet}
 </PageBar>
 
 <PageContent class="content col-4 p-4">
