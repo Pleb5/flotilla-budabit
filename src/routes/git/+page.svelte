@@ -120,6 +120,7 @@
     getDefaultRepoDiscoveryPrioritySettings,
     mergeLoadedRepoSearchItems,
     repoMatchesSearchQuery,
+    sortRepoSearchResults,
     toLoadedRepoSearchItem,
     type RepoDiscoveryBucket,
     type RepoDiscoveryPriorityKey,
@@ -852,8 +853,8 @@
     repoDiscoveryRunNonce += 1
   }
 
-  const bookmarkedRepoOwners = $derived.by(() =>
-    Array.from(new Set(bookmarkedAddresses.map(bookmark => bookmark.author).filter(Boolean))),
+  const starredRepoOwners = $derived.by(() =>
+    Array.from(new Set(repoStarAddresses.map(star => star.author).filter(Boolean))),
   )
 
   const followedPubkeys = $derived.by(() => {
@@ -868,12 +869,24 @@
 
   const knownRepoOwners = $derived.by(() => {
     const owners = new Set<string>()
+    const legacyUnstarredRepoKeys = new Set(
+      legacyUnstarredAddresses
+        .map(bookmark =>
+          getCanonicalRepoKeyFromBookmark({
+            bookmark,
+            getCachedEvent: address =>
+              repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+          }),
+        )
+        .filter(Boolean),
+    )
 
     latestMyRepos.forEach(repo => owners.add(repo.event.pubkey))
-    loadedBookmarkedRepos.forEach(repo => owners.add(repo.event.pubkey))
-    ;(($repoAnnouncements as RepoAnnouncementEvent[]) || []).forEach(event =>
-      owners.add(event.pubkey),
-    )
+    repoStarAddresses.forEach(star => owners.add(star.author))
+    ;(($repoAnnouncements as RepoAnnouncementEvent[]) || []).forEach(event => {
+      if (legacyUnstarredRepoKeys.has(getCanonicalRepoKeyFromEvent(event))) return
+      owners.add(event.pubkey)
+    })
 
     return Array.from(owners).filter(Boolean)
   })
@@ -1177,7 +1190,7 @@
     const discoveryInputs = untrack(() => ({
       settings: repoDiscoveryPrioritySettings.map(setting => ({...setting})),
       viewerPubkey: $pubkey,
-      bookmarkedOwners: [...bookmarkedRepoOwners],
+      starredOwners: [...starredRepoOwners],
       followPubkeys: [...followedPubkeys],
       knownOwners: [...knownRepoOwners],
       trustScores: new Map(getActiveTrustGraph().scores),
@@ -1202,7 +1215,7 @@
         buildRepoDiscoveryBuckets({
           settings: discoveryInputs.settings,
           viewerPubkey: discoveryInputs.viewerPubkey,
-          bookmarkedOwners: discoveryInputs.bookmarkedOwners,
+          starredOwners: discoveryInputs.starredOwners,
           followPubkeys: discoveryInputs.followPubkeys,
           knownOwners: discoveryInputs.knownOwners,
           profileMatches: discoveryInputs.profileMatches,
@@ -1511,7 +1524,14 @@
 
     if (!trimmedSearchQuery) return repos
 
-    return mergeLoadedRepoSearchItems(localSearchFilteredRepos, matchedDiscoveredSearchRepos)
+    return sortRepoSearchResults({
+      items: mergeLoadedRepoSearchItems(localSearchFilteredRepos, matchedDiscoveredSearchRepos),
+      query: trimmedSearchQuery,
+      viewerPubkey: $pubkey,
+      starredOwners: [...starredRepoOwners],
+      starredAddresses: repoStarAddresses.map(star => star.address),
+      getProfile: getSearchProfile,
+    })
   })
 
   // Store for account search (naddr/npub) repo cards
@@ -1563,7 +1583,10 @@
   let cachedCards: any[] = []
   let cachedCardsKey = ""
   let cardsComputeTimer: ReturnType<typeof setTimeout> | null = null
-  const sortedRepoCards = $derived.by(() => prioritizeFreshRepoCards($repositoriesStore as any[]))
+  const sortedRepoCards = $derived.by(() => {
+    const cards = $repositoriesStore as any[]
+    return trimmedSearchQuery ? cards : prioritizeFreshRepoCards(cards)
+  })
 
   // Update repositoriesStore whenever repos change
   // Uses debouncing to wait for all repos to load before showing cards
@@ -1580,10 +1603,9 @@
     if (reposToShow.length > 0 || !loading) {
       loading = false
       if (reposToShow.length > 0) {
-        // Create a stable key based on visible repo IDs only
+        // Preserve visible order so search relevance changes invalidate the card cache.
         const repoIds = reposToShow
           .map((r: any) => (r.event ?? r).id)
-          .sort()
           .join(",")
         const cardsKey = repoIds
 

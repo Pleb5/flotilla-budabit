@@ -39,7 +39,7 @@ export type RepoOwnerProfile = {
 export type RepoDiscoveryPriorityKey =
   | "profile_matches"
   | "viewer"
-  | "bookmarked_owners"
+  | "starred_owners"
   | "direct_follows"
   | "trust_network"
   | "known_repo_owners"
@@ -77,10 +77,10 @@ const REPO_DISCOVERY_PRIORITY_METADATA: Record<
     label: "My account",
     description: "Your own published repositories.",
   },
-  bookmarked_owners: {
-    key: "bookmarked_owners",
-    label: "Bookmarked owners",
-    description: "People who own repositories you already bookmarked.",
+  starred_owners: {
+    key: "starred_owners",
+    label: "Starred owners",
+    description: "People who own repositories you starred.",
   },
   direct_follows: {
     key: "direct_follows",
@@ -115,6 +115,32 @@ const getOwnerSearchValues = (
   [profile?.display_name, profile?.name, profile?.nip05, pubkey]
     .map(normalizeSearchValue)
     .filter(Boolean)
+
+const getRepoSearchEvent = (
+  repo: LoadedRepoSearchItem | {event: RepoAnnouncementEvent} | RepoAnnouncementEvent,
+) =>
+  (repo as LoadedRepoSearchItem)?.event ||
+  (repo as {event: RepoAnnouncementEvent})?.event ||
+  (repo as RepoAnnouncementEvent)
+
+const scoreSearchField = (
+  value: unknown,
+  query: string,
+  {
+    exact,
+    prefix,
+    wordPrefix,
+    contains,
+  }: {exact: number; prefix: number; wordPrefix: number; contains: number},
+) => {
+  const normalizedValue = normalizeSearchValue(value)
+  if (!normalizedValue) return 0
+  if (normalizedValue === query) return exact
+  if (normalizedValue.startsWith(query)) return prefix
+  if (normalizedValue.split(/[^a-z0-9]+/i).some(token => token.startsWith(query))) return wordPrefix
+  if (normalizedValue.includes(query)) return contains
+  return 0
+}
 
 const chunkArray = <T>(items: T[], size: number): T[][] => {
   const chunks: T[][] = []
@@ -161,12 +187,120 @@ export const mergeLoadedRepoSearchItems = (
   return items
 }
 
+export const getRepoSearchRelevanceScore = ({
+  repo,
+  query,
+  viewerPubkey,
+  starredOwners = [],
+  starredAddresses = [],
+  profile,
+}: {
+  repo: LoadedRepoSearchItem | {event: RepoAnnouncementEvent} | RepoAnnouncementEvent
+  query: string
+  viewerPubkey?: string | null
+  starredOwners?: string[]
+  starredAddresses?: string[]
+  profile?: {display_name?: string; name?: string; nip05?: string} | null
+}) => {
+  const normalizedQuery = normalizeSearchValue(query)
+  if (!normalizedQuery) return 0
+
+  const event = getRepoSearchEvent(repo)
+  if (!event) return 0
+
+  try {
+    const parsed = parseRepoAnnouncementEvent(event)
+    const address =
+      (repo as LoadedRepoSearchItem)?.address ||
+      (repo as {address?: string})?.address ||
+      getRepoAddressFromEvent(event)
+    let score = 0
+
+    score += scoreSearchField(parsed?.name, normalizedQuery, {
+      exact: 1200,
+      prefix: 1100,
+      wordPrefix: 1000,
+      contains: 900,
+    })
+    score += scoreSearchField(parsed?.repoId, normalizedQuery, {
+      exact: 1100,
+      prefix: 1000,
+      wordPrefix: 925,
+      contains: 825,
+    })
+    score += scoreSearchField(parsed?.description, normalizedQuery, {
+      exact: 450,
+      prefix: 375,
+      wordPrefix: 325,
+      contains: 250,
+    })
+
+    for (const ownerValue of getOwnerSearchValues(event.pubkey, profile)) {
+      score += scoreSearchField(ownerValue, normalizedQuery, {
+        exact: 220,
+        prefix: 180,
+        wordPrefix: 140,
+        contains: 100,
+      })
+    }
+
+    if (viewerPubkey && event.pubkey === viewerPubkey) score += 500
+    if (starredOwners.includes(event.pubkey)) score += 150
+    if (address && starredAddresses.includes(address)) score += 175
+
+    return score
+  } catch {
+    return 0
+  }
+}
+
+export const sortRepoSearchResults = <
+  T extends LoadedRepoSearchItem | {event: RepoAnnouncementEvent},
+>({
+  items,
+  query,
+  viewerPubkey,
+  starredOwners = [],
+  starredAddresses = [],
+  getProfile,
+}: {
+  items: T[]
+  query: string
+  viewerPubkey?: string | null
+  starredOwners?: string[]
+  starredAddresses?: string[]
+  getProfile?: (pubkey: string) => {display_name?: string; name?: string; nip05?: string} | null
+}): T[] => {
+  const normalizedQuery = normalizeSearchValue(query)
+  if (!normalizedQuery) return items
+
+  return items
+    .map((item, index) => {
+      const event = getRepoSearchEvent(item)
+      return {
+        item,
+        index,
+        createdAt: event?.created_at || 0,
+        score: getRepoSearchRelevanceScore({
+          repo: item,
+          query: normalizedQuery,
+          viewerPubkey,
+          starredOwners,
+          starredAddresses,
+          profile: event ? getProfile?.(event.pubkey) : null,
+        }),
+      }
+    })
+    .sort((a, b) => b.score - a.score || b.createdAt - a.createdAt || a.index - b.index)
+    .map(({item}) => item)
+}
+
 export const getDefaultRepoDiscoveryPrioritySettings = (): RepoDiscoveryPrioritySetting[] =>
   (
     [
       "profile_matches",
       "viewer",
-      "bookmarked_owners",
+      "starred_owners",
       "direct_follows",
       "trust_network",
       "known_repo_owners",
@@ -184,10 +318,18 @@ export const coerceRepoDiscoveryPrioritySettings = (
   const normalized: RepoDiscoveryPrioritySetting[] = []
   const seen = new Set<RepoDiscoveryPriorityKey>()
 
+  const normalizeKey = (key: unknown): RepoDiscoveryPriorityKey | null => {
+    if (key === "bookmarked_owners") return "starred_owners"
+    if (typeof key === "string" && byKey.has(key as RepoDiscoveryPriorityKey)) {
+      return key as RepoDiscoveryPriorityKey
+    }
+    return null
+  }
+
   if (Array.isArray(value)) {
     for (const item of value) {
-      const key = (item as {key?: RepoDiscoveryPriorityKey})?.key
-      if (!key || !byKey.has(key) || seen.has(key)) continue
+      const key = normalizeKey((item as {key?: unknown})?.key)
+      if (!key || seen.has(key)) continue
       seen.add(key)
       normalized.push({
         ...byKey.get(key)!,
@@ -211,7 +353,7 @@ const uniquePubkeys = (pubkeys: Array<string | null | undefined>) =>
 export const buildRepoDiscoveryBuckets = ({
   settings = getDefaultRepoDiscoveryPrioritySettings(),
   viewerPubkey,
-  bookmarkedOwners = [],
+  starredOwners = [],
   followPubkeys = [],
   knownOwners = [],
   profileMatches = [],
@@ -219,7 +361,7 @@ export const buildRepoDiscoveryBuckets = ({
 }: {
   settings?: RepoDiscoveryPrioritySetting[]
   viewerPubkey?: string | null
-  bookmarkedOwners?: string[]
+  starredOwners?: string[]
   followPubkeys?: string[]
   knownOwners?: string[]
   profileMatches?: string[]
@@ -234,7 +376,7 @@ export const buildRepoDiscoveryBuckets = ({
   const sources: Record<RepoDiscoveryPriorityKey, string[]> = {
     profile_matches: uniquePubkeys(profileMatches),
     viewer: uniquePubkeys(viewerPubkey ? [viewerPubkey] : []),
-    bookmarked_owners: uniquePubkeys(bookmarkedOwners),
+    starred_owners: uniquePubkeys(starredOwners),
     direct_follows: uniquePubkeys(followPubkeys),
     trust_network: uniquePubkeys(trustPubkeys),
     known_repo_owners: uniquePubkeys(knownOwners),
@@ -279,10 +421,7 @@ export const repoMatchesSearchQuery = ({
   const normalizedQuery = normalizeSearchValue(query)
   if (!normalizedQuery) return true
 
-  const event =
-    (repo as LoadedRepoSearchItem)?.event ||
-    (repo as {event: RepoAnnouncementEvent})?.event ||
-    (repo as RepoAnnouncementEvent)
+  const event = getRepoSearchEvent(repo)
   if (!event) return false
 
   try {
@@ -306,7 +445,7 @@ export const repoMatchesSearchQuery = ({
 export const buildRepoDiscoveryCandidatePubkeys = ({
   settings = getDefaultRepoDiscoveryPrioritySettings(),
   viewerPubkey,
-  bookmarkedOwners = [],
+  starredOwners = [],
   followPubkeys = [],
   knownOwners = [],
   profileMatches = [],
@@ -314,7 +453,7 @@ export const buildRepoDiscoveryCandidatePubkeys = ({
 }: {
   settings?: RepoDiscoveryPrioritySetting[]
   viewerPubkey?: string | null
-  bookmarkedOwners?: string[]
+  starredOwners?: string[]
   followPubkeys?: string[]
   knownOwners?: string[]
   profileMatches?: string[]
@@ -324,7 +463,7 @@ export const buildRepoDiscoveryCandidatePubkeys = ({
     buildRepoDiscoveryBuckets({
       settings,
       viewerPubkey,
-      bookmarkedOwners,
+      starredOwners,
       followPubkeys,
       knownOwners,
       profileMatches,
