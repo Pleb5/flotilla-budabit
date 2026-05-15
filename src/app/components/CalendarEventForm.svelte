@@ -1,6 +1,7 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
   import {writable} from "svelte/store"
+  import {goto} from "$app/navigation"
   import {randomId, HOUR} from "@welshman/lib"
   import {makeEvent, EVENT_TIME} from "@welshman/util"
   import {publishThunk} from "@welshman/app"
@@ -17,23 +18,28 @@
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {makeEditor, plainTextToTiptapHTML} from "@app/editor"
+  import {normalizeRelays} from "@app/core/community"
   import {pushToast} from "@app/util/toast"
 
   type Props = {
     url: string
     h?: string
+    relays?: string[]
+    redirectPath?: string
     header: Snippet
     initialValues?: {
-      d: string
-      title: string
-      content: string
-      location: string
-      start: number
-      end: number
+      d?: string
+      title?: string
+      content?: string
+      location?: string
+      start?: number
+      end?: number
+      tags?: string[][]
     }
   }
 
-  const {url, h, header, initialValues}: Props = $props()
+  const {url, h, relays = [], redirectPath, header, initialValues}: Props = $props()
+  const managedTagNames = new Set(["d", "title", "name", "location", "start", "end", "D", "h"])
 
   const uploading = writable(false)
 
@@ -67,14 +73,16 @@
 
     const ed = await editor
     const content = ed.getText({blockSeparator: "\n"}).trim()
-    console.log("editor content to submit: ", content)
+    const preservedTags = (initialValues?.tags || []).filter(tag => !managedTagNames.has(tag[0]))
     const tags = [
       ["d", initialValues?.d || randomId()],
       ["title", title],
+      ["name", title],
       ["location", location || ""],
       ["start", start.toString()],
       ["end", end.toString()],
       ...daysBetween(start, end).map(D => ["D", D.toString()]),
+      ...preservedTags,
       ...ed.storage.nostr.getEditorTags(),
     ]
 
@@ -83,10 +91,20 @@
     }
 
     const event = makeEvent(EVENT_TIME, {content, tags})
+    const publishRelays = normalizeRelays(relays.length ? relays : [url])
+
+    if (publishRelays.length === 0) {
+      return pushToast({theme: "error", message: "No relay is available to publish this event."})
+    }
 
     pushToast({message: "Your event has been saved!"})
-    publishThunk({event, relays: [url]})
-    history.back()
+    publishThunk({event, relays: publishRelays})
+
+    if (redirectPath) {
+      goto(redirectPath, {replaceState: true})
+    } else {
+      history.back()
+    }
   }
 
   const content = initialValues?.content || ""

@@ -16,7 +16,7 @@
 </script>
 
 {#if activeCommunityPubkey}
-  <Button aria-label="Open community menu" onclick={openCommunityMenu} class="btn btn-neutral btn-sm">
+  <Button aria-label="Open community menu" onclick={openCommunityMenu} class="btn btn-neutral btn-sm lg:hidden">
     <Icon icon={MenuDots} />
   </Button>
 {/if}

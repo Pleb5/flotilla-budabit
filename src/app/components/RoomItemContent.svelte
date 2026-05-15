@@ -12,9 +12,9 @@
   const path = getRoomItemPath(props.url!, props.event)
 </script>
 
-<div class={cx("text-sm", {"card2 card2-sm bg-alt": props.event.kind !== MESSAGE})}>
+<div class={cx("w-full min-w-0 text-sm", {"card2 card2-sm bg-alt": props.event.kind !== MESSAGE})}>
   {#if path && !isMobile}
-    <Link href={path}>
+    <Link href={path} class="block w-full min-w-0">
       <NoteContent {...props} />
     </Link>
   {:else}

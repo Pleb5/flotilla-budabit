@@ -1,6 +1,6 @@
 <script lang="ts">
   import {hash, now, formatTimestampAsTime, formatTimestampAsDate} from "@welshman/lib"
-  import {getTag, type TrustedEvent, type EventContent} from "@welshman/util"
+  import {COMMENT, getTag, type TrustedEvent, type EventContent} from "@welshman/util"
   import {thunks, deriveProfile, deriveProfileDisplay} from "@welshman/app"
   import {isMobile} from "@lib/html"
   import TapTarget from "@lib/components/TapTarget.svelte"
@@ -31,6 +31,7 @@
     inert?: boolean
     readOnly?: boolean
     interactionRelays?: string[]
+    interactionAuthorPubkeys?: string[]
     scopeH?: string
     protectInteractions?: boolean
   }
@@ -43,6 +44,7 @@
     inert = false,
     readOnly = false,
     interactionRelays = [],
+    interactionAuthorPubkeys = undefined,
     scopeH = "",
     protectInteractions = true,
   }: Props = $props()
@@ -140,7 +142,7 @@
       </Button>
     </div>
   {/if}
-  <div class="flex w-full gap-3 overflow-auto">
+  <div class="flex w-full gap-3 overflow-hidden">
     {#if showPubkey}
       <Button onclick={openProfile} class="flex items-start">
         <ImageIcon
@@ -152,9 +154,9 @@
     {:else}
       <div class="w-8 min-w-8 max-w-8"></div>
     {/if}
-    <div class="min-w-0 flex-grow pr-24 sm:pr-32">
+    <div class="min-w-0 flex-grow">
       {#if showPubkey}
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 pr-24 sm:pr-32">
           <Button onclick={openProfile} class="text-sm font-bold" style="color: {colorValue}">
             {$profileDisplay}
           </Button>
@@ -168,8 +170,10 @@
           </span>
         </div>
       {/if}
-      <div class="text-sm">
-        {#if isKnownEventKind(event.kind)}
+      <div class="w-full min-w-0 pt-2 text-sm">
+        {#if event.kind === COMMENT}
+          <Markdown content={event.content} {event} {url} variant="comment" />
+        {:else if isKnownEventKind(event.kind)}
           <div
             class="event-renderer"
             role="presentation"
@@ -196,15 +200,16 @@
     </div>
   </div>
   <div class="row-2 ml-10 mt-1 flex items-center gap-2 pl-1">
-      <ReactionSummary
-        {url}
-        relays={relayTargets}
-        {scopeH}
-        {event}
-        {readOnly}
-        {deleteReaction}
-        {createReaction}
-        reactionClass="tooltip-right" />
+    <ReactionSummary
+      {url}
+      relays={relayTargets}
+      allowedAuthors={interactionAuthorPubkeys}
+      {scopeH}
+      {event}
+      {readOnly}
+      {deleteReaction}
+      {createReaction}
+      reactionClass="tooltip-right" />
   </div>
   {#if !isMobile}
     <div

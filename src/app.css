@@ -354,6 +354,17 @@
   color: var(--base-content);
 }
 
+.event-renderer,
+.event-renderer > * {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.event-renderer .git-card {
+  width: 100%;
+}
+
 /* content rendered by welshman/content */
 
 .welshman-content a {

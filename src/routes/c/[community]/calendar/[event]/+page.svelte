@@ -5,7 +5,7 @@
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {sortBy} from "@welshman/lib"
-  import {COMMENT, EVENT_TIME, getTagValue, type Filter} from "@welshman/util"
+  import {COMMENT, EVENT_TIME, getTagValue, type EventContent, type Filter} from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -15,11 +15,12 @@
   import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
+  import RoomCompose from "@app/components/RoomCompose.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
   import CalendarEventHeader from "@app/components/CalendarEventHeader.svelte"
   import CalendarEventMeta from "@app/components/CalendarEventMeta.svelte"
   import CalendarEventDate from "@app/components/CalendarEventDate.svelte"
-  import {preventDefault} from "@lib/html"
   import {publishComment} from "@app/core/commands"
   import {
     activeCommunityDefinition,
@@ -44,7 +45,7 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
-  const eventId = $derived($page.params.event || "")
+  const eventParam = $derived($page.params.event || "")
   const calendarPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "calendar") : "")
   const calendarAuthorPubkeys = $derived(
     $activeCommunityDefinition
@@ -64,13 +65,26 @@
         })
       : [],
   )
+  const isEventIdParam = $derived(/^[0-9a-f]{64}$/i.test(eventParam))
   const eventFilters = $derived<Filter[]>(
-    eventId && calendarAuthorPubkeys.length
-      ? [{kinds: [EVENT_TIME], ids: [eventId], authors: calendarAuthorPubkeys}]
+    eventParam && calendarAuthorPubkeys.length
+      ? [
+          ...(isEventIdParam
+            ? [{kinds: [EVENT_TIME], ids: [eventParam], authors: calendarAuthorPubkeys}]
+            : []),
+          {kinds: [EVENT_TIME], "#d": [eventParam], authors: calendarAuthorPubkeys},
+        ]
       : [],
   )
   const eventEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: eventFilters})))
-  const event = $derived($eventEvents[0])
+  const event = $derived.by(() => {
+    const events = sortBy(candidate => -candidate.created_at, $eventEvents)
+
+    return (
+      events.find(candidate => candidate.id === eventParam) ||
+      events.find(candidate => getTagValue("d", candidate.tags) === eventParam)
+    )
+  })
   const eventAddress = $derived.by(() => {
     const identifier = event ? getTagValue("d", event.tags) : ""
 
@@ -151,8 +165,8 @@
     ),
   )
 
-  const sendReply = () => {
-    const trimmed = reply.trim()
+  const sendReply = ({content, tags}: EventContent) => {
+    const trimmed = content.trim()
     if (!approvedEvent || !trimmed) return
     if (!canReply) {
       pushToast({theme: "error", message: "You do not have permission to comment."})
@@ -167,9 +181,8 @@
       relays: $activeCommunityRelays,
       event: approvedEvent,
       content: trimmed,
-      tags: [["h", communityPubkey]],
+      tags: [["h", communityPubkey], ...(tags || [])],
     })
-    reply = ""
     showReply = false
   }
 
@@ -177,7 +190,6 @@
   let eventRequestDone = $state(false)
   let loadingTargeting = $state(false)
   let targetRequestDone = $state(false)
-  let reply = $state("")
   let showReply = $state(false)
 
   $effect(() => {
@@ -257,7 +269,13 @@
     </div>
   {/snippet}
   {#snippet title()}
-    <strong>{approvedEvent ? getTagValue("title", approvedEvent.tags) || "Calendar event" : "Calendar event"}</strong>
+    <strong
+      >{approvedEvent
+        ? getTagValue("title", approvedEvent.tags) || getTagValue("name", approvedEvent.tags) || "Calendar event"
+        : "Calendar event"}</strong>
+  {/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityPubkey} />
   {/snippet}
 </PageBar>
 
@@ -284,6 +302,7 @@
           scopeH={communityPubkey}
           allowedAuthors={interactionAuthorPubkeys}
           readOnly={!canReact}
+          redirectOnEdit
           event={approvedEvent} />
       </div>
     </article>
@@ -301,21 +320,19 @@
     </div>
 
     {#if showReply}
-      <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(sendReply)}>
-        <strong>Comment</strong>
-        <textarea bind:value={reply} class="textarea textarea-bordered" rows="4"></textarea>
-        <div class="flex justify-end gap-2">
-          <button class="btn btn-link" type="button" onclick={() => (showReply = false)}>Cancel</button>
-          <PublishGate
-            target={COMMUNITY_WRITE_TARGETS.comment}
-            action="comment on events"
-            submit
-            disabled={!reply.trim()}>
-            <Icon icon={Reply} />
-            Comment
-          </PublishGate>
+      <div class="card2 bg-alt col-3 p-4 shadow-md">
+        <div class="flex items-center justify-between gap-2">
+          <strong>Comment</strong>
+          <button class="btn btn-link btn-sm" type="button" onclick={() => (showReply = false)}>
+            Cancel
+          </button>
         </div>
-      </form>
+        <RoomCompose
+          url={$activeCommunityRelays[0] || communityPubkey}
+          h={communityPubkey}
+          showMenu={false}
+          onSubmit={sendReply} />
+      </div>
     {:else}
       <div class="flex justify-end px-2 pb-2">
         {#if canReply}

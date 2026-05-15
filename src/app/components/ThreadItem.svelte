@@ -30,10 +30,10 @@
 </script>
 
 <Link
-  class="col-2 card2 bg-alt w-full cursor-pointer shadow-xl"
+  class="col-2 card2 bg-alt relative w-full cursor-pointer shadow-xl"
   href={makeThreadPath(url, event.id)}>
   {#if title}
-    <div class="flex w-full items-center justify-between gap-2">
+    <div class="flex w-full items-center justify-between gap-2 pr-12 sm:pr-0">
       <p class="text-xl">{title}</p>
       <p class="text-sm opacity-75">
         {formatTimestamp(event.created_at)}
@@ -50,6 +50,14 @@
       Posted by
       <ProfileLink pubkey={event.pubkey} {url} />
     </span>
-    <ThreadActions showActivity {url} {relays} {scopeH} {readOnly} {allowedAuthors} {event} />
+    <ThreadActions
+      showActivity
+      floatMobileMenu
+      {url}
+      {relays}
+      {scopeH}
+      {readOnly}
+      {allowedAuthors}
+      {event} />
   </div>
 </Link>

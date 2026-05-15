@@ -44,7 +44,7 @@
   let muted = $state(getPubkeyTagValues(getListTags($userMuteList)).includes(event.pubkey))
 </script>
 
-<div class="flex flex-col gap-2 {restProps.class}">
+<div class="flex w-full min-w-0 flex-col gap-2 {restProps.class}">
   {#if muted}
     <div class="flex items-center justify-between">
       <div class="row-2 relative">

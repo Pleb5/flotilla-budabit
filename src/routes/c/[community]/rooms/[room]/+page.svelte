@@ -21,6 +21,7 @@
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import RoomComposeEdit from "@app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import RoomImage from "@app/components/RoomImage.svelte"
   import RoomItem from "@app/components/RoomItem.svelte"
   import RoomName from "@app/components/RoomName.svelte"
@@ -437,6 +438,7 @@
   {#snippet action()}
     <div class="row-2">
       <SlotRenderer slotId="room:header:actions" context={{url: communityPubkey, room}} />
+      <CommunityMenuButton community={communityPubkey} />
     </div>
   {/snippet}
 </PageBar>

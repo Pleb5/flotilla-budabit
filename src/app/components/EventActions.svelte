@@ -27,6 +27,9 @@
     readOnly?: boolean
     showReport?: boolean
     allowAdminDelete?: boolean
+    hideMenu?: boolean
+    menuOnly?: boolean
+    class?: string
   }
 
   const {
@@ -40,6 +43,9 @@
     readOnly = false,
     showReport = true,
     allowAdminDelete = true,
+    hideMenu = false,
+    menuOnly = false,
+    class: className = "",
   }: Props = $props()
 
   const reactionRelays = $derived.by(() => {
@@ -82,38 +88,40 @@
 </script>
 
 <div
-  class="join rounded-full"
+  class="join rounded-full {className}"
   role="group"
   data-stop-link
   data-stop-tap
   oncontextmenu={onContextMenu}>
-  {#if ENABLE_ZAPS && !hideZap && !readOnly}
+  {#if !menuOnly && ENABLE_ZAPS && !hideZap && !readOnly}
     <ZapButton {url} {event} class="btn join-item btn-neutral btn-xs">
       <Icon icon={Bolt} size={4} />
     </ZapButton>
   {/if}
-  {#if !readOnly}
+  {#if !menuOnly && !readOnly}
     <EmojiButton {onEmoji} class="btn join-item btn-neutral btn-xs">
       <Icon icon={SmileCircle} size={4} />
     </EmojiButton>
   {/if}
-  <Tippy
-    bind:popover
-    component={EventMenu}
-    props={{
-      url,
-      noun,
-      event,
-      customActions,
-      onClick: hidePopover,
-      relays,
-      scopeH,
-      showReport,
-      allowAdminDelete,
-    }}
-    params={{trigger: "manual", interactive: true}}>
-    <Button class="btn join-item btn-neutral btn-xs" onclick={showPopover}>
-      <Icon icon={MenuDots} size={4} />
-    </Button>
-  </Tippy>
+  {#if !hideMenu}
+    <Tippy
+      bind:popover
+      component={EventMenu}
+      props={{
+        url,
+        noun,
+        event,
+        customActions,
+        onClick: hidePopover,
+        relays,
+        scopeH,
+        showReport,
+        allowAdminDelete,
+      }}
+      params={{trigger: "manual", interactive: true}}>
+      <Button class="btn join-item btn-neutral btn-xs" onclick={showPopover}>
+        <Icon icon={MenuDots} size={4} />
+      </Button>
+    </Tippy>
+  {/if}
 </div>

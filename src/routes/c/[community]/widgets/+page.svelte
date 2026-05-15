@@ -207,7 +207,7 @@
 
   <div class="col-2">
     {#each $widgets as widget (widget.id)}
-      <div class="card2 bg-alt p-4 shadow-md">
+      <div class="card2 bg-alt p-4 shadow-md" data-event={widget.id}>
         <strong
           >{getTagValue("title", widget.tags) || getTagValue("d", widget.tags) || "Widget"}</strong>
         <p class="break-all text-xs opacity-60">{getTagValue("button", widget.tags) || ""}</p>

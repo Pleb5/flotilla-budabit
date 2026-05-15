@@ -1,7 +1,7 @@
 <script lang="ts">
   import {fromNostrURI} from "@welshman/util"
   import {nthEq} from "@welshman/lib"
-  import {MESSAGE} from "@welshman/util"
+  import {COMMENT, MESSAGE} from "@welshman/util"
   import {
     parse,
     truncate,
@@ -145,7 +145,16 @@
       </p>
     </div>
   {:else}
-    {#if isKnownEventKind(event.kind)}
+    {#if event.kind === MESSAGE || event.kind === COMMENT}
+      <Markdown
+        content={event.content}
+        {event}
+        {url}
+        {minimalQuote}
+        {hideMediaAtDepth}
+        {depth}
+        variant={event.kind === COMMENT ? "comment" : "default"} />
+    {:else if isKnownEventKind(event.kind)}
       <div
         class="event-renderer"
         role="presentation"
@@ -162,8 +171,6 @@
       <div class="unknown-kind">
         {@html new Template(event).render()}
       </div>
-    {:else if event.kind === MESSAGE}
-      <Markdown content={event.content} {event} {url} {minimalQuote} {hideMediaAtDepth} {depth} />
     {:else}
       <div
         class="overflow-hidden text-ellipsis break-words"

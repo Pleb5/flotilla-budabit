@@ -25,6 +25,7 @@
     scopeH?: string
     readOnly?: boolean
     allowedAuthors?: string[]
+    redirectOnEdit?: boolean
   }
 
   const {
@@ -36,13 +37,16 @@
     scopeH = "",
     readOnly = false,
     allowedAuthors = undefined,
+    redirectOnEdit = false,
   }: Props = $props()
 
   const h = getTagValue("h", event.tags)
-  const path = makeCalendarPath(url, event.id)
+  const eventRouteParam = getTagValue("d", event.tags) || event.id
+  const path = makeCalendarPath(url, eventRouteParam)
   const shouldProtect = canEnforceNip70(url)
 
-  const editEvent = () => pushModal(CalendarEventEdit, {url, event})
+  const editEvent = () =>
+    pushModal(CalendarEventEdit, {url, event, relays, redirectPath: redirectOnEdit ? path : undefined})
 
   const deleteReaction = async (event: TrustedEvent) =>
     publishSocialDelete({url, event, protect: await shouldProtect})

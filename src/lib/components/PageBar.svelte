@@ -15,7 +15,8 @@
 <div data-component="PageBar" class="cw top-sai fixed z-nav p-2 {props.class}">
   <div
     class="flex min-h-12 items-center justify-between gap-4 rounded-xl bg-base-100 px-4 shadow-md">
-    <div class="flex min-w-0 flex-1 items-center gap-4 overflow-hidden whitespace-nowrap">
+    <div
+      class="scrollbar-hide flex min-w-0 flex-1 items-center gap-4 overflow-x-auto whitespace-nowrap overscroll-x-contain">
       {@render props.icon?.()}
       {@render props.title?.()}
     </div>

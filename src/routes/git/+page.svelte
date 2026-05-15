@@ -2224,35 +2224,38 @@
     <Tabs bind:value={activeTab} class="w-full">
       <div class="flex flex-col gap-3">
         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <TabsList class="flex w-full overflow-x-auto sm:w-fit sm:max-w-full sm:self-start">
+          <TabsList class="grid w-full grid-cols-3 overflow-hidden sm:flex sm:w-fit sm:max-w-full sm:self-start">
             <TabsTrigger
               value="my-repos"
-              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none">
-              <span class="flex items-center gap-2">
-                <Icon icon={FolderWithFiles} />
-                <span>My Repos</span>
+              class="min-w-0 justify-center whitespace-nowrap !px-1.5 text-xs leading-tight data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none sm:!px-3 sm:text-base">
+              <span class="flex min-w-0 items-center gap-1 sm:gap-2">
+                <Icon icon={FolderWithFiles} size={4} class="sm:hidden" />
+                <Icon icon={FolderWithFiles} class="hidden sm:inline-block" />
+                <span class="min-w-0 truncate">My Repos</span>
                 {#if hasMyRepoNotifications}
-                  <span class="h-2 w-2 rounded-full bg-primary" aria-label="Unread updates"></span>
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2" aria-label="Unread updates"></span>
                 {/if}
               </span>
             </TabsTrigger>
             <TabsTrigger
               value="bookmarks"
-              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none">
-              <span class="flex items-center gap-2">
-                <Icon icon={Bookmark} />
-                <span>Bookmarks</span>
+              class="min-w-0 justify-center whitespace-nowrap !px-1.5 text-xs leading-tight data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none sm:!px-3 sm:text-base">
+              <span class="flex min-w-0 items-center gap-1 sm:gap-2">
+                <Icon icon={Bookmark} size={4} class="sm:hidden" />
+                <Icon icon={Bookmark} class="hidden sm:inline-block" />
+                <span class="min-w-0 truncate">Bookmarks</span>
                 {#if hasBookmarkNotifications}
-                  <span class="h-2 w-2 rounded-full bg-primary" aria-label="Unread updates"></span>
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2" aria-label="Unread updates"></span>
                 {/if}
               </span>
             </TabsTrigger>
             <TabsTrigger
               value="snippets"
-              class="flex-1 whitespace-nowrap data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none">
-              <span class="flex items-center gap-2">
-                <Icon icon={Code} />
-                <span>Snippets</span>
+              class="min-w-0 justify-center whitespace-nowrap !px-1.5 text-xs leading-tight data-[state=active]:!bg-base-100 data-[state=active]:!text-base-content data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-border sm:flex-none sm:!px-3 sm:text-base">
+              <span class="flex min-w-0 items-center gap-1 sm:gap-2">
+                <Icon icon={Code} size={4} class="sm:hidden" />
+                <Icon icon={Code} class="hidden sm:inline-block" />
+                <span class="min-w-0 truncate">Snippets</span>
               </span>
             </TabsTrigger>
           </TabsList>

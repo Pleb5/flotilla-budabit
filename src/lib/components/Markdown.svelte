@@ -370,7 +370,7 @@
 </script>
 
 <div
-  class="markdown max-w-full overflow-hidden"
+  class="markdown w-full max-w-full overflow-hidden"
   class:markdown--comment={variant === "comment"}
   bind:this={containerElement}>
   {@html sanitizedContent}

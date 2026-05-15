@@ -31,10 +31,13 @@
     [
       "/c/[community]/calendar",
       "/c/[community]/calendar/create",
+      "/c/[community]/calendar/[event]",
       "/c/[community]/goals",
       "/c/[community]/goals/create",
+      "/c/[community]/rooms/[room]",
       "/c/[community]/threads",
       "/c/[community]/threads/create",
+      "/c/[community]/threads/[thread]",
     ].includes($page.route.id || ""),
   )
   const pageClass = $derived(

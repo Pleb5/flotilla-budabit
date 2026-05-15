@@ -10,7 +10,6 @@
     deriveProfileDisplay,
     displayProfileByPubkey,
   } from "@welshman/app"
-  import {isMobile} from "@lib/html"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Pen from "@assets/icons/pen.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
@@ -146,32 +145,17 @@
   data-event={event.id}
   onTap={inert ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left hover:bg-base-100/50">
-  {#if isMobile && !inert}
-    <div class={actionGroupClass}>
-      {#if !readOnly}
-        <RoomItemEmojiButton
-          {url}
-          {event}
-          relays={relayTargets}
-          {scopeH}
-          protect={protectInteractions} />
-      {/if}
-      {#if reply}
-        <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
-          <Icon icon={Reply} size={4} />
-        </Button>
-      {/if}
-      {#if edit}
-        <Button class="btn join-item btn-xs" onclick={edit} aria-label="Edit message">
-          <Icon icon={Pen} size={4} />
-        </Button>
-      {/if}
-      <Button class={menuButtonClass} onclick={onTap} aria-label="Open message actions">
+  {#if !inert}
+    <div class="absolute right-1 top-1 z-10 sm:hidden">
+      <Button
+        class="btn btn-neutral btn-xs rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur"
+        onclick={onTap}
+        aria-label="Open message actions">
         <Icon icon={MenuDots} size={4} />
       </Button>
     </div>
   {/if}
-  <div class="flex w-full gap-3 overflow-auto">
+  <div class="flex w-full gap-3 overflow-hidden">
     {#if showPubkey}
       <Button onclick={openProfile} class="flex items-start">
         <ProfileCircle
@@ -183,9 +167,9 @@
     {:else}
       <div class="w-8 min-w-8 max-w-8"></div>
     {/if}
-    <div class="min-w-0 flex-grow pr-24 sm:pr-32">
+    <div class="min-w-0 flex-grow" class:pt-8={!showPubkey && !inert}>
       {#if showPubkey}
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 pr-12 sm:pr-32">
           <Button onclick={openProfile} class="text-sm font-bold" style="color: {colorValue}">
             {$profileDisplay}
           </Button>
@@ -199,7 +183,7 @@
           </span>
         </div>
       {/if}
-      <div class:mt-2={showPubkey && event.kind !== MESSAGE}>
+      <div class="w-full min-w-0" class:mt-2={showPubkey && event.kind !== MESSAGE}>
         <RoomItemContent {url} {event} />
         {#if thunk}
           <ThunkFailure showToastOnRetry {thunk} class="mt-2 text-sm" />
@@ -207,7 +191,35 @@
       </div>
     </div>
   </div>
-  <div class="row-2 ml-10 mt-1 pl-1">
+  {#if !inert && !readOnly}
+    <div class="ml-10 mt-3 flex items-center gap-2 pl-1 sm:hidden">
+      <div
+        class="join rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur"
+        data-stop-link
+        data-stop-tap>
+        {#if ENABLE_ZAPS}
+          <RoomItemZapButton {url} {event} />
+        {/if}
+        <RoomItemEmojiButton
+          {url}
+          {event}
+          relays={relayTargets}
+          {scopeH}
+          protect={protectInteractions} />
+        {#if reply}
+          <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
+            <Icon icon={Reply} size={4} />
+          </Button>
+        {/if}
+        {#if edit}
+          <Button class="btn join-item btn-xs" onclick={edit} aria-label="Edit message">
+            <Icon icon={Pen} size={4} />
+          </Button>
+        {/if}
+      </div>
+    </div>
+  {/if}
+  <div class="ml-10 mt-2 flex flex-wrap items-center gap-2 pl-1">
     <ReactionSummary
       {url}
       relays={relayTargets}
@@ -236,8 +248,8 @@
       </div>
     {/if}
   </div>
-  {#if !isMobile}
-    <div class={cx(actionGroupClass, "text-xs")}>
+  {#if !inert}
+    <div class={cx(actionGroupClass, "hidden text-xs sm:flex")}>
       {#if ENABLE_ZAPS && !readOnly}
         <RoomItemZapButton {url} {event} />
       {/if}

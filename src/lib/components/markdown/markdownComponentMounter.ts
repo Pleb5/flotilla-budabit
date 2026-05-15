@@ -156,6 +156,8 @@ function mountLinkBlockPlaceholders(
     if (linkUrl && eventId && event.id === eventId) {
       try {
         const containerElement = document.createElement("div")
+        containerElement.style.width = "100%"
+        containerElement.style.minWidth = "0"
         placeholder.replaceWith(containerElement)
 
         const linkBlockComponent = mount(ContentLinkBlock, {
@@ -239,6 +241,8 @@ function mountQuotePlaceholders(
 
         if (quoteValue) {
           const containerElement = document.createElement("div")
+          containerElement.style.width = "100%"
+          containerElement.style.minWidth = "0"
           placeholder.replaceWith(containerElement)
 
           const quoteComponent = mount(ContentQuote, {

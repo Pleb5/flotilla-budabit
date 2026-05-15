@@ -1,26 +1,33 @@
 <script lang="ts">
-  import {onMount} from "svelte"
+  import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {repository, publishThunk, pubkey} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {COMMENT, THREAD, makeEvent} from "@welshman/util"
+  import {COMMENT, makeEvent, type EventContent} from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
-  import {preventDefault} from "@lib/html"
+  import RoomCompose from "@app/components/RoomCompose.svelte"
+  import ThreadActions from "@app/components/ThreadActions.svelte"
   import {pushToast} from "@app/util/toast"
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
+  import {
+    makeCommunityForumRepliesFilter,
+    makeCommunityForumThreadsFilter,
+  } from "@app/core/community-feeds"
   import {
     makeCommunityForumReply,
     readCommunityForumReply,
@@ -32,6 +39,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {setChecked} from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -56,49 +64,80 @@
       : [],
   )
   const threadFilters = $derived(
-    threadId && threadAuthorPubkeys.length ? [{kinds: [THREAD], ids: [threadId], authors: threadAuthorPubkeys}] : [],
+    communityPubkey && threadId && threadAuthorPubkeys.length
+      ? [
+          makeCommunityForumThreadsFilter(communityPubkey, {
+            ids: [threadId],
+            authors: threadAuthorPubkeys,
+          }),
+        ]
+      : [],
   )
   const replyFilters = $derived(
-    threadId && replyAuthorPubkeys.length ? [{kinds: [COMMENT], "#E": [threadId], authors: replyAuthorPubkeys}] : [],
+    communityPubkey && threadId && replyAuthorPubkeys.length
+      ? [
+          makeCommunityForumRepliesFilter(communityPubkey, {
+            "#E": [threadId],
+            authors: replyAuthorPubkeys,
+          }),
+        ]
+      : [],
   )
-  const threadEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: threadFilters})))
-  const replyEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})))
+  const threadEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: threadFilters})),
+  )
+  const replyEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})),
+  )
   const thread = $derived(
     $threadEvents[0] ? readCommunityForumThread($threadEvents[0], communityPubkey) : undefined,
   )
   const replies = $derived(
     $replyEvents
       .map(event => readCommunityForumReply(event, communityPubkey, threadId))
-      .filter(Boolean),
+      .filter(Boolean)
+      .sort((a, b) => (a?.event.created_at || 0) - (b?.event.created_at || 0)),
   )
+
+  let showAllReplies = $state(false)
+
+  const visibleReplies = $derived(
+    showAllReplies ? replies : replies.slice(Math.max(replies.length - 4, 0)),
+  )
+  const latestReplyId = $derived(replies.at(-1)?.id || "")
   const canReply = $derived(
     Boolean(
+      thread &&
       $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.comment,
-        }),
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.comment,
+      }),
     ),
   )
   const canReact = $derived(
     Boolean(
       $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.reaction,
-        }),
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.reaction,
+      }),
     ),
   )
 
-  const sendReply = () => {
-    const trimmed = reply.trim()
+  const sendReply = ({content, tags}: EventContent) => {
+    const trimmed = content.trim()
     if (!trimmed || !communityPubkey || !threadId) return
+    if (!thread) {
+      pushToast({theme: "error", message: "Thread metadata is not loaded yet."})
+      return
+    }
     if (!canReply) {
       pushToast({theme: "error", message: "You do not have permission to reply."})
       return
@@ -116,24 +155,81 @@
         COMMENT,
         makeCommunityForumReply({
           communityPubkey,
-          thread: {id: threadId, creatorPubkey: thread?.creatorPubkey || ""},
+          thread: {id: thread.id, creatorPubkey: thread.creatorPubkey},
           relay: relays[0],
           content: trimmed,
+          tags,
         }),
       ),
     })
-    reply = ""
+    showReply = false
   }
 
-  let reply = $state("")
+  const scrollToLatestReply = async () => {
+    await tick()
+    const latestReply = element?.querySelector("[data-latest-reply]")
 
-  onMount(() => {
+    if (latestReply) {
+      latestReply.scrollIntoView({block: "end"})
+    }
+  }
+
+  let loadingThread = $state(false)
+  let loadingReplies = $state(false)
+  let threadRequestStarted = $state(false)
+  let showReply = $state(false)
+  let element: HTMLElement | undefined = $state()
+  let initialScrollDone = $state(false)
+  let initialScrollThreadId = ""
+
+  $effect(() => {
     if (!communityPubkey || !threadId || $activeCommunityRelays.length === 0) return
 
-    const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: [...threadFilters, ...replyFilters], signal: controller.signal})
+    const filters = [...threadFilters, ...replyFilters]
+    if (filters.length === 0) return
 
-    return () => controller.abort()
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      loadingThread = false
+      loadingReplies = false
+    }, 3000)
+
+    threadRequestStarted = true
+    loadingThread = true
+    loadingReplies = true
+    request({relays: $activeCommunityRelays, filters, signal: controller.signal})
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
+  $effect(() => {
+    if (thread) loadingThread = false
+    if (replies.length > 0) loadingReplies = false
+  })
+
+  $effect(() => {
+    if (threadId !== initialScrollThreadId) {
+      initialScrollDone = false
+      initialScrollThreadId = threadId
+    }
+  })
+
+  $effect(() => {
+    if (!element || !latestReplyId || initialScrollDone) return
+
+    const timeout = setTimeout(() => {
+      initialScrollDone = true
+      scrollToLatestReply()
+    }, 100)
+
+    return () => clearTimeout(timeout)
+  })
+
+  onDestroy(() => {
+    setChecked($page.url.pathname)
   })
 </script>
 
@@ -148,45 +244,102 @@
   {#snippet title()}
     <strong>{thread?.title || "Thread"}</strong>
   {/snippet}
+  {#snippet action()}
+    <CommunityMenuButton community={communityPubkey} />
+  {/snippet}
 </PageBar>
 
-<PageContent class="content col-4 p-4">
+<PageContent bind:element class="flex flex-col gap-2 p-2 pt-4">
   {#if thread}
-    <article class="card2 bg-alt p-4 shadow-md">
+    <article class="card2 bg-alt relative p-4 shadow-md">
       <NoteCard event={thread.event} url={communityPubkey}>
         <h1 class="text-xl font-bold">{thread.title}</h1>
         <Content event={thread.event} url={communityPubkey} expandMode="inline" />
+        <div class="mt-3 flex justify-end">
+          <ThreadActions
+            url={communityPubkey}
+            relays={$activeCommunityRelays}
+            scopeH={communityPubkey}
+            allowedAuthors={replyAuthorPubkeys}
+            readOnly={!canReact}
+            floatMobileMenu
+            event={thread.event} />
+        </div>
       </NoteCard>
     </article>
-  {/if}
 
-  <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(sendReply)}>
-    <strong>Reply</strong>
-    <textarea bind:value={reply} class="textarea textarea-bordered" rows="4"></textarea>
-    <div class="flex justify-end">
-      <PublishGate target={COMMUNITY_WRITE_TARGETS.comment} action="reply" submit disabled={!reply.trim()}>
-        <Icon icon={Reply} />
-        Reply
-      </PublishGate>
-    </div>
-  </form>
+    {#if !showAllReplies && replies.length > visibleReplies.length}
+      <div class="flex justify-center py-2">
+        <button class="btn btn-link" type="button" onclick={() => (showAllReplies = true)}>
+          Show all {replies.length} replies
+        </button>
+      </div>
+    {/if}
 
-  <div class="col-2">
-    {#each replies as item (item?.id)}
-      {#if item}
-        <div class="card2 bg-alt shadow-sm">
-          <ChannelMessage
-            url={communityPubkey}
-            event={item.event}
-            showPubkey
-            readOnly={!canReact}
-            interactionRelays={$activeCommunityRelays}
-            scopeH={communityPubkey}
-            protectInteractions={false} />
-        </div>
+    <div class="col-2">
+      {#each visibleReplies as item (item?.id)}
+        {#if item}
+          <div
+            class="card2 bg-alt shadow-sm"
+            data-latest-reply={item.id === latestReplyId ? "true" : undefined}>
+            <ChannelMessage
+              url={communityPubkey}
+              event={item.event}
+              showPubkey
+              readOnly={!canReact}
+              interactionRelays={$activeCommunityRelays}
+              interactionAuthorPubkeys={replyAuthorPubkeys}
+              scopeH={communityPubkey}
+              protectInteractions={false} />
+          </div>
+        {/if}
+      {/each}
+      {#if loadingReplies && replies.length === 0}
+        <p class="flex h-10 items-center justify-center py-20 text-center">
+          <Spinner loading={loadingReplies}>Looking for replies...</Spinner>
+        </p>
+      {:else if replies.length === 0}
+        <p class="py-8 text-center opacity-70">No replies yet.</p>
       {/if}
+    </div>
+
+    {#if showReply}
+      <div class="card2 bg-alt col-3 p-4 shadow-md">
+        <div class="flex items-center justify-between gap-2">
+          <strong>Reply</strong>
+          <button class="btn btn-link btn-sm" type="button" onclick={() => (showReply = false)}>
+            Cancel
+          </button>
+        </div>
+        <RoomCompose
+          url={$activeCommunityRelays[0] || communityPubkey}
+          h={communityPubkey}
+          showMenu={false}
+          onSubmit={sendReply} />
+      </div>
     {:else}
-      <p class="py-8 text-center opacity-70">No replies yet.</p>
-    {/each}
-  </div>
+      <div class="flex justify-end">
+        {#if canReply}
+          <button class="btn btn-primary" type="button" onclick={() => (showReply = true)}>
+            <Icon icon={Reply} />
+            Reply to thread
+          </button>
+        {:else}
+          <PublishGate
+            target={COMMUNITY_WRITE_TARGETS.comment}
+            action="reply to threads"
+            class="btn btn-primary">
+            <Icon icon={Reply} />
+            Reply to thread
+          </PublishGate>
+        {/if}
+      </div>
+    {/if}
+  {:else if !$activeCommunityDefinition || loadingThread || (threadFilters.length > 0 && !threadRequestStarted)}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Loading thread...</Spinner>
+    </p>
+  {:else}
+    <p class="py-8 text-center opacity-70">Thread not found or not approved for this community.</p>
+  {/if}
 </PageContent>

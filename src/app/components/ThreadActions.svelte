@@ -19,6 +19,7 @@
     scopeH?: string
     readOnly?: boolean
     allowedAuthors?: string[]
+    floatMobileMenu?: boolean
   }
 
   const {
@@ -30,6 +31,7 @@
     scopeH = "",
     readOnly = false,
     allowedAuthors = undefined,
+    floatMobileMenu = false,
   }: Props = $props()
 
   const h = getTagValue("h", event.tags)
@@ -48,6 +50,22 @@
       protect: await shouldProtect,
     })
 </script>
+
+{#if floatMobileMenu}
+  <div class="absolute right-2 top-2 z-10 sm:hidden">
+    <EventActions
+      {url}
+      {relays}
+      {scopeH}
+      {readOnly}
+      {event}
+      noun="Thread"
+      showReport={false}
+      allowAdminDelete={false}
+      menuOnly
+      class="border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur" />
+  </div>
+{/if}
 
 <div class="flex flex-grow flex-wrap justify-end gap-2">
   {#if h && showRoom}
@@ -77,5 +95,22 @@
     {event}
     noun="Thread"
     showReport={false}
-    allowAdminDelete={false} />
+    allowAdminDelete={false}
+    class={floatMobileMenu ? "hidden sm:flex" : ""} />
 </div>
+
+{#if floatMobileMenu && !readOnly}
+  <div class="mt-2 flex justify-end sm:hidden">
+    <EventActions
+      {url}
+      {relays}
+      {scopeH}
+      {readOnly}
+      {event}
+      noun="Thread"
+      showReport={false}
+      allowAdminDelete={false}
+      hideMenu
+      class="border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur" />
+  </div>
+{/if}

@@ -9,9 +9,7 @@
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import SmileCircle from "@assets/icons/smile-circle.svg?dataurl"
-  import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
-  import Link from "@lib/components/Link.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import EmojiPicker from "@lib/components/EmojiPicker.svelte"
   import ZapButton from "@app/components/ZapButton.svelte"
@@ -19,7 +17,6 @@
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {publishReaction, canEnforceNip70} from "@app/core/commands"
-  import {getRoomItemPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
 
   type Props = {
@@ -44,7 +41,6 @@
     protectActions = true,
   }: Props = $props()
 
-  const path = getRoomItemPath(url, event)
   const actionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
   const shouldProtect = protectActions ? canEnforceNip70(url) : undefined
   const scopedTags = $derived.by(() => {
@@ -109,12 +105,6 @@
     <Icon size={4} icon={Code2} />
     Message Info
   </Button>
-  {#if path}
-    <Link class="btn btn-neutral" href={path}>
-      <Icon size={4} icon={MenuDots} />
-      View Details
-    </Link>
-  {/if}
   {#if ENABLE_ZAPS && !readOnly}
     <ZapButton replaceState {url} {event} class="btn btn-neutral w-full">
       <Icon size={4} icon={Bolt} />

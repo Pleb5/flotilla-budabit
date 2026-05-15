@@ -172,6 +172,44 @@
     }
   }
 
+  const openHrefValue = (href: string) => {
+    if (!href || typeof window === "undefined") return
+
+    try {
+      const target = new URL(href, window.location.origin)
+
+      if (target.origin !== window.location.origin) {
+        window.open(href)
+        return
+      }
+
+      isOpenPending = true
+      void goto(`${target.pathname}${target.search}${target.hash}`).catch(error => {
+        console.error("Failed to open quoted git item", error)
+        isOpenPending = false
+        pushToast({message: "Failed to open quoted git item.", theme: "error"})
+      })
+    } catch {
+      isOpenPending = false
+    }
+  }
+
+  const openCardHref = (event: MouseEvent, href: string) => {
+    event.stopPropagation()
+    if (!isPlainLeftClick(event)) return
+
+    event.preventDefault()
+    openHrefValue(href)
+  }
+
+  const openCardHrefFromKeyboard = (event: KeyboardEvent, href: string) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+
+    event.stopPropagation()
+    event.preventDefault()
+    openHrefValue(href)
+  }
+
   const setCopyState = (state: "idle" | "copied" | "error") => {
     copyState = state
     if (copyTimeout) clearTimeout(copyTimeout)
@@ -793,8 +831,13 @@
   </div>
 {:else if gitCard}
   {@const openHref = gitCard.href || entityLink(entity)}
-  <div class="my-2 block w-full max-w-full text-left">
-    <div class="rounded-lg border bg-card p-3 shadow-sm">
+  <div class="my-2 block w-full min-w-0 max-w-full text-left">
+    <div
+      class="w-full min-w-0 cursor-pointer rounded-lg border bg-card p-3 shadow-sm"
+      role="link"
+      tabindex="0"
+      onclick={event => openCardHref(event, openHref)}
+      onkeydown={event => openCardHrefFromKeyboard(event, openHref)}>
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div class="min-w-0">
           <div class="text-sm font-semibold">{gitCard.label}</div>
