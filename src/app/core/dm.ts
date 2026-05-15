@@ -12,6 +12,33 @@ import type {List, TrustedEvent} from "@welshman/util"
 import {DM_KIND, INDEXER_RELAYS} from "@app/core/state"
 export {DM_KIND}
 
+export type DmRelayRecommendationSource = {
+  communityPubkey: string
+  relays: string[]
+  starredAt?: number
+  isStarred?: boolean
+  isModerator?: boolean
+  isAdmin?: boolean
+}
+
+export type DmRelayRecommendationCommunity = {
+  communityPubkey: string
+  score: number
+  isStarred: boolean
+  isModerator: boolean
+  isAdmin: boolean
+}
+
+export type DmRelayRecommendation = {
+  url: string
+  communityPubkeys: string[]
+  communities: DmRelayRecommendationCommunity[]
+  count: number
+  score: number
+  latestStarredAt: number
+  isConfigured: boolean
+}
+
 export const normalizeRelayUrls = (relays: string[]) => {
   const result: string[] = []
   const seen = new Set<string>()
@@ -40,6 +67,70 @@ export const getDmRelayUrls = (list?: List) =>
 
 export const getDmPublishRelays = (selfRelays: string[], recipientRelays: string[]) =>
   normalizeRelayUrls([...recipientRelays, ...selfRelays])
+
+export const getDmRelayRecommendationSourceScore = (source: DmRelayRecommendationSource) =>
+  (source.isStarred === false ? 0 : 1) + (source.isModerator ? 2 : 0) + (source.isAdmin ? 4 : 0)
+
+export const getDmRelayRecommendations = (
+  sources: DmRelayRecommendationSource[],
+  currentRelays: string[] = [],
+): DmRelayRecommendation[] => {
+  const currentRelaySet = new Set(normalizeRelayUrls(currentRelays))
+  const recommendationsByUrl = new Map<string, DmRelayRecommendation>()
+
+  for (const source of sources) {
+    if (!source.communityPubkey) continue
+    const sourceScore = getDmRelayRecommendationSourceScore(source)
+    if (sourceScore <= 0) continue
+
+    for (const url of normalizeRelayUrls(source.relays)) {
+      const recommendation = recommendationsByUrl.get(url) || {
+        url,
+        communityPubkeys: [],
+        communities: [],
+        count: 0,
+        score: 0,
+        latestStarredAt: 0,
+        isConfigured: currentRelaySet.has(url),
+      }
+
+      if (!recommendation.communityPubkeys.includes(source.communityPubkey)) {
+        recommendation.communityPubkeys.push(source.communityPubkey)
+        recommendation.communities.push({
+          communityPubkey: source.communityPubkey,
+          score: sourceScore,
+          isStarred: source.isStarred !== false,
+          isModerator: Boolean(source.isModerator),
+          isAdmin: Boolean(source.isAdmin),
+        })
+        recommendation.count = recommendation.communityPubkeys.length
+        recommendation.score += sourceScore
+      }
+
+      recommendation.latestStarredAt = Math.max(
+        recommendation.latestStarredAt,
+        source.starredAt || 0,
+      )
+      recommendationsByUrl.set(url, recommendation)
+    }
+  }
+
+  const recommendations = Array.from(recommendationsByUrl.values())
+
+  for (const recommendation of recommendations) {
+    recommendation.communities.sort(
+      (a, b) => b.score - a.score || a.communityPubkey.localeCompare(b.communityPubkey),
+    )
+  }
+
+  return recommendations.sort(
+    (a, b) =>
+      b.score - a.score ||
+      b.count - a.count ||
+      b.latestStarredAt - a.latestStarredAt ||
+      a.url.localeCompare(b.url),
+  )
+}
 
 export const hasDmInbox = (list?: List) => getDmRelayUrls(list).length > 0
 

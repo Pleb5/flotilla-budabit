@@ -2,6 +2,8 @@ import {describe, expect, it} from "vitest"
 import {
   normalizeRelayUrls,
   getDmRelayUrls,
+  getDmRelayRecommendations,
+  getDmRelayRecommendationSourceScore,
   getDmPublishRelays,
   hasDmInbox,
   getDmCounterparty,
@@ -71,6 +73,124 @@ describe("dm", () => {
         "wss://shared.relay.example.com/",
         "wss://recipient.relay.example.com/",
         "wss://self.relay.example.com/",
+      ])
+    })
+  })
+
+  describe("getDmRelayRecommendations", () => {
+    it("scores starred, moderator, and admin relay recommendations additively", () => {
+      expect(getDmRelayRecommendationSourceScore({communityPubkey: "a", relays: []})).toBe(1)
+      expect(
+        getDmRelayRecommendationSourceScore({
+          communityPubkey: "a",
+          relays: [],
+          isModerator: true,
+        }),
+      ).toBe(3)
+      expect(
+        getDmRelayRecommendationSourceScore({
+          communityPubkey: "a",
+          relays: [],
+          isModerator: true,
+          isAdmin: true,
+        }),
+      ).toBe(7)
+    })
+
+    it("ranks relays by summed star, moderator, and admin score", () => {
+      const result = getDmRelayRecommendations([
+        {
+          communityPubkey: "a".repeat(64),
+          relays: ["wss://shared.relay.example.com", "wss://star.relay.example.com"],
+          starredAt: 10,
+        },
+        {
+          communityPubkey: "b".repeat(64),
+          relays: ["wss://shared.relay.example.com", "wss://mod.relay.example.com"],
+          starredAt: 20,
+          isModerator: true,
+        },
+        {
+          communityPubkey: "c".repeat(64),
+          relays: ["wss://admin.relay.example.com"],
+          starredAt: 5,
+          isModerator: true,
+          isAdmin: true,
+        },
+      ])
+
+      expect(result.map(recommendation => recommendation.url)).toEqual([
+        "wss://admin.relay.example.com/",
+        "wss://shared.relay.example.com/",
+        "wss://mod.relay.example.com/",
+        "wss://star.relay.example.com/",
+      ])
+      expect(result[0]).toMatchObject({
+        score: 7,
+        count: 1,
+        communityPubkeys: ["c".repeat(64)],
+        communities: [
+          expect.objectContaining({
+            communityPubkey: "c".repeat(64),
+            score: 7,
+            isStarred: true,
+            isModerator: true,
+            isAdmin: true,
+          }),
+        ],
+      })
+      expect(result[1]).toMatchObject({
+        score: 4,
+        count: 2,
+        communityPubkeys: ["a".repeat(64), "b".repeat(64)],
+      })
+    })
+
+    it("keeps already configured messaging relays visible", () => {
+      const result = getDmRelayRecommendations(
+        [
+          {
+            communityPubkey: "a".repeat(64),
+            relays: ["wss://already.relay.example.com", "wss://new.relay.example.com"],
+          },
+        ],
+        ["wss://already.relay.example.com/"],
+      )
+
+      expect(result.map(recommendation => recommendation.url)).toEqual([
+        "wss://already.relay.example.com/",
+        "wss://new.relay.example.com/",
+      ])
+      expect(result[0]).toMatchObject({isConfigured: true})
+      expect(result[1]).toMatchObject({isConfigured: false})
+    })
+
+    it("deduplicates repeated relays within a single community source", () => {
+      const result = getDmRelayRecommendations([
+        {
+          communityPubkey: "a".repeat(64),
+          relays: ["wss://relay.example.com", "wss://relay.example.com/"],
+        },
+      ])
+
+      expect(result).toEqual([
+        {
+          url: "wss://relay.example.com/",
+          communityPubkeys: ["a".repeat(64)],
+          communities: [
+            {
+              communityPubkey: "a".repeat(64),
+              score: 1,
+              isStarred: true,
+              isModerator: false,
+              isAdmin: false,
+            },
+          ],
+          count: 1,
+          score: 1,
+          latestStarredAt: 0,
+          isConfigured: false,
+        },
       ])
     })
   })
