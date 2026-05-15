@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {onDestroy} from "svelte"
+  import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
@@ -138,6 +138,12 @@
   const replyEventsStore = $derived(deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})))
   const replyEvents = $derived(sortBy(replyEvent => replyEvent.created_at, $replyEventsStore))
 
+  let showAllReplies = $state(false)
+
+  const visibleReplyEvents = $derived(
+    showAllReplies ? replyEvents : replyEvents.slice(Math.max(replyEvents.length - 4, 0)),
+  )
+
   const canReply = $derived(
     Boolean(
       approvedEvent &&
@@ -186,11 +192,18 @@
     showReply = false
   }
 
+  const openReply = async () => {
+    showReply = true
+    await tick()
+    composeElement?.scrollIntoView({behavior: "smooth", block: "end"})
+  }
+
   let loadingEvent = $state(false)
   let eventRequestDone = $state(false)
   let loadingTargeting = $state(false)
   let targetRequestDone = $state(false)
   let showReply = $state(false)
+  let composeElement: HTMLElement | undefined = $state()
 
   $effect(() => {
     if ($activeCommunityRelays.length === 0 || eventFilters.length === 0) return
@@ -307,8 +320,16 @@
       </div>
     </article>
 
+    {#if !showAllReplies && replyEvents.length > visibleReplyEvents.length}
+      <div class="flex justify-center py-2">
+        <button class="btn btn-link" type="button" onclick={() => (showAllReplies = true)}>
+          Show all {replyEvents.length} comments
+        </button>
+      </div>
+    {/if}
+
     <div class="col-2">
-      {#each replyEvents as replyEvent (replyEvent.id)}
+      {#each visibleReplyEvents as replyEvent (replyEvent.id)}
         <NoteCard event={replyEvent} url={communityPubkey} class="card2 bg-alt z-feature w-full">
           <div class="col-3 ml-12">
             <Content showEntire event={replyEvent} url={communityPubkey} />
@@ -320,7 +341,7 @@
     </div>
 
     {#if showReply}
-      <div class="card2 bg-alt col-3 p-4 shadow-md">
+      <div bind:this={composeElement} class="card2 bg-alt col-3 p-4 shadow-md">
         <div class="flex items-center justify-between gap-2">
           <strong>Comment</strong>
           <button class="btn btn-link btn-sm" type="button" onclick={() => (showReply = false)}>
@@ -336,7 +357,7 @@
     {:else}
       <div class="flex justify-end px-2 pb-2">
         {#if canReply}
-          <button class="btn btn-primary" type="button" onclick={() => (showReply = true)}>
+          <button class="btn btn-primary" type="button" onclick={openReply}>
             <Icon icon={Reply} />
             Leave comment
           </button>
