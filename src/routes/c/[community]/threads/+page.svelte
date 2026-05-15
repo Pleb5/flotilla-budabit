@@ -1,35 +1,42 @@
 <script lang="ts">
+  import {onDestroy} from "svelte"
+  import {readable, type Readable} from "svelte/store"
   import {page} from "$app/stores"
-  import {request} from "@welshman/net"
-  import {repository, publishThunk, pubkey} from "@welshman/app"
-  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {makeEvent, THREAD} from "@welshman/util"
+  import {pubkey} from "@welshman/app"
+  import {type Filter, type TrustedEvent} from "@welshman/util"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Field from "@lib/components/Field.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import ThreadItem from "@app/components/ThreadItem.svelte"
-  import {preventDefault} from "@lib/html"
-  import {pushToast} from "@app/util/toast"
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {makeCommunityForumThreadsFilter} from "@app/core/community-feeds"
-  import {makeCommunityForumThread, readCommunityForumThreads} from "@app/core/community-forum"
-  import {COMMUNITY_SECTION_FORUM} from "@app/core/community"
+  import {
+    makeCommunityForumRepliesFilter,
+    makeCommunityForumThreadsFilter,
+  } from "@app/core/community-feeds"
+  import {readCommunityForumReply, readCommunityForumThreads} from "@app/core/community-forum"
+  import {COMMUNITY_SECTION_FORUM, COMMUNITY_SECTION_GENERAL} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {makeCommunityThreadPath, parseCommunityRouteParam} from "@app/util/routes"
+  import {makeFeed} from "@app/core/requests"
+  import {setChecked} from "@app/util/notifications"
+  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const createPath = $derived(
+    communityPubkey ? makeCommunityPath(communityPubkey, "threads", "create") : "",
+  )
   const forumAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunitySectionWriterPubkeys({
@@ -39,75 +46,131 @@
         })
       : [],
   )
-  const filters = $derived(
-    communityPubkey && forumAuthorPubkeys.length
-      ? [makeCommunityForumThreadsFilter(communityPubkey, {authors: forumAuthorPubkeys})]
-      : [],
-  )
-  const events = $derived(deriveEventsAsc(deriveEventsById({repository, filters})))
-  const threads = $derived(readCommunityForumThreads($events, communityPubkey))
-  const canCreateThread = $derived(
-    Boolean(
-      $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
+  const replyAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.forumThread,
-        }),
-    ),
+          sectionName: COMMUNITY_SECTION_GENERAL,
+        })
+      : [],
   )
+  const threadFilter = $derived(
+    communityPubkey && forumAuthorPubkeys.length
+      ? makeCommunityForumThreadsFilter(communityPubkey, {authors: forumAuthorPubkeys})
+      : undefined,
+  )
+  const replyFilter = $derived(
+    communityPubkey && replyAuthorPubkeys.length
+      ? makeCommunityForumRepliesFilter(communityPubkey, {authors: replyAuthorPubkeys})
+      : undefined,
+  )
+  const feedFilters = $derived([threadFilter, replyFilter].filter(Boolean) as Filter[])
+  const feedKey = $derived.by(() =>
+    communityPubkey && feedFilters.length && $activeCommunityRelays.length
+      ? [
+          communityPubkey,
+          ...$activeCommunityRelays,
+          ...forumAuthorPubkeys,
+          ...replyAuthorPubkeys,
+        ].join("|")
+      : "",
+  )
+  let loadingEvents = $state(false)
+  let exhaustedEvents = $state(false)
+  let element: HTMLElement | undefined = $state()
+  let events: Readable<TrustedEvent[]> = $state(readable([]))
+  let feedCleanup: (() => void) | undefined = $state()
+  let feedInitialized = $state(false)
+  let lastFeedKey = ""
+  const waitingForFeed = $derived(Boolean(feedKey && !feedInitialized))
+
+  const threads = $derived.by(() => {
+    const repliesByThread = new Map<string, number>()
+    const roots = readCommunityForumThreads($events, communityPubkey)
+
+    for (const event of $events) {
+      const reply = readCommunityForumReply(event, communityPubkey)
+      if (!reply) continue
+
+      repliesByThread.set(
+        reply.threadId,
+        Math.max(repliesByThread.get(reply.threadId) || 0, event.created_at),
+      )
+    }
+
+    return [...roots].sort(
+      (a, b) =>
+        Math.max(repliesByThread.get(b.id) || 0, b.event.created_at) -
+        Math.max(repliesByThread.get(a.id) || 0, a.event.created_at),
+    )
+  })
   const canReact = $derived(
     Boolean(
       $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.reaction,
-        }),
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.reaction,
+      }),
     ),
   )
 
-  const createThread = () => {
-    const trimmedTitle = title.trim()
-    const trimmedContent = content.trim()
-    if (!communityPubkey || !trimmedTitle || !trimmedContent) return
-    if (!canCreateThread) {
-      pushToast({theme: "error", message: "You do not have permission to create forum threads."})
-      return
-    }
-
-    const relays = $activeCommunityRelays
-    if (relays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
-      return
-    }
-
-    publishThunk({
-      relays,
-      event: makeEvent(
-        THREAD,
-        makeCommunityForumThread({communityPubkey, title: trimmedTitle, content: trimmedContent}),
-      ),
-    })
-    title = ""
-    content = ""
-    pushToast({message: "Thread published."})
+  const resetFeed = () => {
+    feedCleanup?.()
+    feedCleanup = undefined
+    events = readable([])
+    loadingEvents = false
+    exhaustedEvents = false
+    feedInitialized = false
+    lastFeedKey = ""
   }
 
-  let title = $state("")
-  let content = $state("")
+  const startFeed = (key: string) => {
+    if (!element || !key || feedFilters.length === 0 || $activeCommunityRelays.length === 0) return
+
+    loadingEvents = true
+    exhaustedEvents = false
+    lastFeedKey = key
+    feedInitialized = true
+
+    const feed = makeFeed({
+      element,
+      relays: $activeCommunityRelays,
+      feedFilters,
+      subscriptionFilters: feedFilters,
+      onInitialLoad: () => {
+        loadingEvents = false
+      },
+      onExhausted: () => {
+        loadingEvents = false
+        exhaustedEvents = true
+      },
+    })
+
+    events = feed.events
+    feedCleanup = feed.cleanup
+  }
 
   $effect(() => {
-    if (!communityPubkey || $activeCommunityRelays.length === 0) return
+    const key = feedKey
 
-    const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters, signal: controller.signal})
+    if (!key || !element) {
+      resetFeed()
+      return
+    }
 
-    return () => controller.abort()
+    if (!feedInitialized || key !== lastFeedKey) {
+      resetFeed()
+      startFeed(key)
+    }
+  })
+
+  onDestroy(() => {
+    resetFeed()
+    setChecked($page.url.pathname)
   })
 </script>
 
@@ -120,47 +183,45 @@
   {#snippet title()}
     <strong>Threads</strong>
   {/snippet}
+  {#snippet action()}
+    <div class="row-2">
+      <PublishGate
+        target={COMMUNITY_WRITE_TARGETS.forumThread}
+        action="create forum threads"
+        href={createPath}
+        class="btn btn-primary btn-sm"
+        showReason={false}>
+        <Icon icon={NotesMinimalistic} />
+        Create
+      </PublishGate>
+      <CommunityMenuButton community={communityPubkey} />
+    </div>
+  {/snippet}
 </PageBar>
 
-<PageContent class="content col-4 p-4">
-  <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createThread)}>
-    <strong>Create thread</strong>
-    <Field>
-      {#snippet label()}
-        <p>Title</p>
-      {/snippet}
-      {#snippet input()}
-        <label class="input input-bordered flex w-full items-center gap-2">
-          <Icon icon={NotesMinimalistic} />
-          <input bind:value={title} class="grow" type="text" />
-        </label>
-      {/snippet}
-    </Field>
-    <Field>
-      {#snippet label()}
-        <p>Message</p>
-      {/snippet}
-      {#snippet input()}
-        <textarea bind:value={content} class="textarea textarea-bordered" rows="4"></textarea>
-      {/snippet}
-    </Field>
-    <div class="flex justify-end">
-      <PublishGate target={COMMUNITY_WRITE_TARGETS.forumThread} action="create forum threads" submit disabled={!title.trim() || !content.trim()}>
-        Create thread
-      </PublishGate>
-    </div>
-  </form>
-
+<PageContent bind:element class="flex flex-col gap-2 p-2 pt-4">
   <div class="col-2">
     {#each threads as thread (thread.id)}
       <ThreadItem
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
+        allowedAuthors={replyAuthorPubkeys}
         readOnly={!canReact}
         event={thread.event} />
-    {:else}
-      <p class="py-8 text-center opacity-70">No threads found.</p>
     {/each}
+    {#if !$activeCommunityDefinition}
+      <p class="flex h-10 items-center justify-center py-20 text-center">
+        <Spinner loading>Loading community permissions...</Spinner>
+      </p>
+    {:else if waitingForFeed || loadingEvents}
+      <p class="flex h-10 items-center justify-center py-20 text-center">
+        <Spinner loading>Looking for threads...</Spinner>
+      </p>
+    {:else if threads.length === 0}
+      <p class="py-8 text-center opacity-70">No threads found.</p>
+    {:else if exhaustedEvents}
+      <p class="py-8 text-center opacity-70">That's all!</p>
+    {/if}
   </div>
 </PageContent>

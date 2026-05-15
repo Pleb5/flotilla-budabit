@@ -11,7 +11,7 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {FORM_RESPONSE_KIND, getProfileListPubkeys} from "@app/core/community"
+  import {FORM_RESPONSE_KIND, findCommunitySection, getProfileListPubkeys} from "@app/core/community"
   import {
     findProfileListEvent,
     getCommunityPublishGateState,
@@ -30,6 +30,7 @@
     compact?: boolean
     showReason?: boolean
     class?: string
+    href?: string
     children?: import("svelte").Snippet
   }
 
@@ -41,6 +42,7 @@
     compact = false,
     showReason = !compact,
     class: className = "btn btn-primary",
+    href = "",
     children,
   }: Props = $props()
 
@@ -50,7 +52,9 @@
   )
   const accessPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "access") : "")
   const section = $derived(
-    $activeCommunityDefinition?.sections.find(section => section.name === target.sectionName),
+    $activeCommunityDefinition
+      ? findCommunitySection($activeCommunityDefinition, target.sectionName)
+      : undefined,
   )
   const form = $derived($activeCommunityAdmissionForms[target.sectionName])
   const responseFilters = $derived(
@@ -144,7 +148,11 @@
   })
 </script>
 
-{#if canWrite}
+{#if canWrite && href && !submit && !disabled}
+  <Link {href} class={className}>
+    {@render children?.()}
+  </Link>
+{:else if canWrite}
   <Button type={submit ? "submit" : "button"} class={className} {disabled}>
     {@render children?.()}
   </Button>

@@ -13,7 +13,12 @@
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {BADGE_AWARD_KIND, FORM_RESPONSE_KIND, getProfileListPubkeys} from "@app/core/community"
+  import {
+    BADGE_AWARD_KIND,
+    FORM_RESPONSE_KIND,
+    getCommunitySectionDisplayName,
+    getProfileListPubkeys,
+  } from "@app/core/community"
   import {
     activeCommunityAdmissionForms,
     activeCommunityDefinition,
@@ -71,7 +76,8 @@
   const badgeAwardEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: badgeAwardFilters})))
   const sectionItems = $derived(
     ($activeCommunityDefinition?.sections || []).map(section => {
-      const form = forms[section.name]
+      const displayName = getCommunitySectionDisplayName(section)
+      const form = forms[section.name] || forms[displayName]
       const profileListEvent = findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents)
       const granted = Boolean($pubkey && getProfileListPubkeys(profileListEvent).includes($pubkey))
       const state =
@@ -90,7 +96,7 @@
             })
           : ({status: granted ? "granted" : "none"} satisfies CommunitySubmissionState)
 
-      return {section, form, granted, state}
+      return {section, displayName, form, granted, state}
     }),
   )
 
@@ -107,7 +113,7 @@
     }
   }
 
-  const submitApplication = (sectionName: string, form: CommunityAdmissionForm) => {
+  const submitApplication = (sectionName: string, sectionDisplayName: string, form: CommunityAdmissionForm) => {
     if (!$pubkey) {
       pushToast({theme: "error", message: "Log in before requesting access."})
       return
@@ -126,13 +132,13 @@
     const template = makeAdmissionResponse({formAddress: form.address, values})
 
     publishThunk({relays: $activeCommunityRelays, event: makeEvent(template.kind, template)})
-    pushToast({message: `Application submitted for ${sectionName}.`})
+    pushToast({message: `Application submitted for ${sectionDisplayName}.`})
   }
 
-  const deleteSubmission = (sectionName: string, response: CommunityFormResponse) => {
+  const deleteSubmission = (sectionName: string, sectionDisplayName: string, response: CommunityFormResponse) => {
     pushModal(Confirm, {
       title: "Delete submission",
-      message: `Delete your ${sectionName} access request so you can submit a revised application?`,
+      message: `Delete your ${sectionDisplayName} access request so you can submit a revised application?`,
       confirm: async () => {
         answers = {...answers, [sectionName]: {...response.values}}
         const template = makeAdmissionResponseDelete({responseId: response.event.id})
@@ -177,8 +183,8 @@
             theme: current === "granted" ? "success" : "warning",
             message:
               current === "granted"
-                ? `${item.section.name} access granted.`
-                : `${item.section.name} application rejected.`,
+                ? `${item.displayName} access granted.`
+                : `${item.displayName} application rejected.`,
           })
 
           if ($activeCommunitySession) {
@@ -246,7 +252,7 @@
           class:border-warning={item.state.status === "pending"}>
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 class="text-lg font-semibold">{item.section.name}</h3>
+              <h3 class="text-lg font-semibold">{item.displayName}</h3>
               <p class="text-sm opacity-70">
                 Grants {item.section.kinds.map(kind => kind.subtype ? `${kind.kind}:${kind.subtype}` : kind.kind).join(", ")}
               </p>
@@ -257,7 +263,7 @@
           {#if item.state.status === "granted"}
             <p class="rounded-box bg-success/10 p-3 text-sm text-success">Access is granted for this section.</p>
           {:else if item.form}
-            <form class="flex flex-col gap-3" onsubmit={preventDefault(() => submitApplication(item.section.name, item.form!))}>
+            <form class="flex flex-col gap-3" onsubmit={preventDefault(() => submitApplication(item.section.name, item.displayName, item.form!))}>
               <div>
                 <strong>{item.form.name}</strong>
                 {#if item.form.description}
@@ -315,7 +321,7 @@
                   {/if}
                 </div>
                 <div class="flex justify-end">
-                  <Button class="btn btn-error" onclick={() => deleteSubmission(item.section.name, item.state.response!)}>
+                  <Button class="btn btn-error" onclick={() => deleteSubmission(item.section.name, item.displayName, item.state.response!)}>
                     Delete submission
                   </Button>
                 </div>

@@ -28,7 +28,7 @@ The selected community is the root of the application session. A user may enter 
 | Room messages | Room messages are `kind:9` chat events scoped to the community and room root. |
 | Forum threads | Forum threads remain `kind:11`, distinguished from rooms by absence of a `room` marker. |
 | Global chat | There is no global community chat. Every chat message belongs to a room. |
-| Targeted publications | Calendar events, fundraisers, repo announcements, permalinks, and smart widgets use `kind:30222`. |
+| Targeted publications | Calendar events, goals, repo announcements, permalinks, and smart widgets use `kind:30222`. |
 | Exclusive content | Rooms, room messages, forum threads, comments, reactions, labels, deletes, reports, profile data, badges, forms, and lists are not targeted publications. |
 | Migration | This is a clean break. Legacy relay-space architecture is not preserved as a compatibility layer. |
 
@@ -113,9 +113,9 @@ Example target shape:
     ["a", "30000:<list-pubkey>:Calendar", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:member"],
 
-    ["content", "Fundraisers"],
+    ["content", "Goals"],
     ["k", "9041"],
-    ["a", "30000:<list-pubkey>:Fundraisers", "wss://main.community.relay"],
+    ["a", "30000:<list-pubkey>:Goals", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:member"],
 
     ["content", "Repositories"],
@@ -205,8 +205,8 @@ If a future standard defines explicit badge revocation, Budabit can support it a
 | Forum reply | `1111` | No | NIP-22 comment against forum thread. |
 | Calendar event | `31922` | Yes | Public publication targeted to the community. |
 | Calendar comments | `1111` | No | Comments against calendar event. |
-| Fundraiser | `9041` | Yes | Public publication targeted to the community. |
-| Fundraiser comments | `1111` | No | Comments against fundraiser. |
+| Goal | `9041` | Yes | Public publication targeted to the community. |
+| Goal comments | `1111` | No | Comments against a goal. |
 | Repo announcement | `30617` | Yes | Public repo publication targeted to the community catalog. |
 | Repo state | `30618` | No | Repo infrastructure state. Inherits repo context. |
 | Git issue | `1621` | No | Repo-scoped collaboration. Inherits repo context. |
@@ -249,7 +249,7 @@ Targeted kinds:
 | Kind | Feature |
 |---:|---|
 | `31922` | Calendar events. |
-| `9041` | Fundraisers. |
+| `9041` | Goals. |
 | `30617` | Repo announcements. |
 | `1623` | Git permalinks. |
 | `30033` | Smart widgets. |

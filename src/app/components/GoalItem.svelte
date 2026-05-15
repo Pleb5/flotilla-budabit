@@ -15,30 +15,42 @@
     relays?: string[]
     scopeH?: string
     readOnly?: boolean
+    allowedAuthors?: string[]
+    showRoom?: boolean
   }
 
-  const {url, event, relays = [], scopeH = "", readOnly = false}: Props = $props()
+  const {
+    url,
+    event,
+    relays = [],
+    scopeH = "",
+    readOnly = false,
+    allowedAuthors = undefined,
+    showRoom = false,
+  }: Props = $props()
 
   const summary = getTagValue("summary", event.tags)
   const h = getTagValue("h", event.tags)
 </script>
 
-<Link class="col-2 card2 bg-alt w-full cursor-pointer shadow-md" href={makeGoalPath(url, event.id)}>
-  <p class="text-2xl">{event.content}</p>
-  <Content
-    event={{content: summary, tags: event.tags}}
-    {url}
-    expandMode="inline"
-    minLength={50}
-    maxLength={300} />
-  <GoalSummary {url} {event} />
-  <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
-    <span class="whitespace-nowrap py-1 text-sm opacity-75">
-      Posted by <ProfileLink pubkey={event.pubkey} {url} />
-      {#if h}
-        in <RoomLink {url} {h} />
-      {/if}
-    </span>
-    <GoalActions showActivity {url} {relays} {scopeH} {readOnly} {event} />
-  </div>
-</Link>
+<div data-event={event.id}>
+  <Link class="col-2 card2 bg-alt w-full cursor-pointer shadow-md" href={makeGoalPath(url, event.id)}>
+    <p class="text-2xl">{event.content}</p>
+    <Content
+      event={{content: summary, tags: event.tags}}
+      {url}
+      expandMode="inline"
+      minLength={50}
+      maxLength={300} />
+    <GoalSummary {url} {event} />
+    <div class="flex w-full flex-col items-end justify-between gap-2 sm:flex-row">
+      <span class="whitespace-nowrap py-1 text-sm opacity-75">
+        Posted by <ProfileLink pubkey={event.pubkey} {url} />
+        {#if h && showRoom}
+          in <RoomLink {url} {h} />
+        {/if}
+      </span>
+      <GoalActions showActivity {url} {relays} {scopeH} {readOnly} {allowedAuthors} {event} />
+    </div>
+  </Link>
+</div>

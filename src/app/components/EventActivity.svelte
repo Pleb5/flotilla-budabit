@@ -1,8 +1,7 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {max, formatTimestampRelative} from "@welshman/lib"
   import {COMMENT} from "@welshman/util"
-  import {load} from "@welshman/net"
+  import {request} from "@welshman/net"
   import {deriveArray, deriveEventsById} from "@welshman/store"
   import type {TrustedEvent} from "@welshman/util"
   import {repository} from "@welshman/app"
@@ -10,14 +9,48 @@
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
 
-  const {url, path, event}: {url: string; path: string; event: TrustedEvent} = $props()
+  const {
+    url,
+    path,
+    event,
+    relays = [],
+    scopeH = "",
+    allowedAuthors = undefined,
+  }: {
+    url: string
+    path: string
+    event: TrustedEvent
+    relays?: string[]
+    scopeH?: string
+    allowedAuthors?: string[]
+  } = $props()
 
-  const filters = [{kinds: [COMMENT], "#E": [event.id]}]
-  const replies = deriveArray(deriveEventsById({repository, filters}))
+  const loadRelays = $derived.by(() =>
+    (relays.length > 0 ? relays : url ? [url] : []).filter(Boolean),
+  )
+  const filters = $derived.by(() => {
+    if (allowedAuthors?.length === 0) return []
+
+    return [
+      {
+        kinds: [COMMENT],
+        "#E": [event.id],
+        "#K": [String(event.kind)],
+        ...(scopeH ? {"#h": [scopeH]} : {}),
+        ...(allowedAuthors ? {authors: allowedAuthors} : {}),
+      },
+    ]
+  })
+  const replies = $derived(deriveArray(deriveEventsById({repository, filters})))
   const lastActive = $derived(max([...$replies, event].map(e => e.created_at)))
 
-  onMount(() => {
-    load({relays: [url], filters})
+  $effect(() => {
+    if (loadRelays.length === 0 || filters.length === 0) return
+
+    const controller = new AbortController()
+    request({relays: loadRelays, filters, signal: controller.signal})
+
+    return () => controller.abort()
   })
 </script>
 

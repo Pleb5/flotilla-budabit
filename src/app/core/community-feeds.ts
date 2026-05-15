@@ -1,5 +1,14 @@
 import type {Filter, TrustedEvent} from "@welshman/util"
-import {COMMENT, EVENT_TIME, MESSAGE, REACTION, THREAD, ZAP_GOAL, getTag, getTagValue} from "@welshman/util"
+import {
+  COMMENT,
+  EVENT_TIME,
+  MESSAGE,
+  REACTION,
+  THREAD,
+  ZAP_GOAL,
+  getTag,
+  getTagValue,
+} from "@welshman/util"
 import {
   TARGETED_PUBLICATION_KIND,
   TARGETED_PUBLICATION_KINDS,
@@ -33,14 +42,23 @@ export const makeCommunityExclusiveFilter = (
 export const makeCommunityRoomRootsFilter = (communityPubkey: string, extra: Filter = {}): Filter =>
   makeCommunityExclusiveFilter(communityPubkey, [THREAD], extra)
 
-export const makeCommunityForumThreadsFilter = (communityPubkey: string, extra: Filter = {}): Filter =>
-  makeCommunityExclusiveFilter(communityPubkey, [THREAD], extra)
+export const makeCommunityForumThreadsFilter = (
+  communityPubkey: string,
+  extra: Filter = {},
+): Filter => makeCommunityExclusiveFilter(communityPubkey, [THREAD], extra)
+
+export const makeCommunityForumRepliesFilter = (
+  communityPubkey: string,
+  extra: Filter = {},
+): Filter =>
+  makeCommunityExclusiveFilter(communityPubkey, [COMMENT], {"#K": [String(THREAD)], ...extra})
 
 export const makeCommunityRoomMessagesFilter = (
   communityPubkey: string,
   roomRootId: string,
   extra: Filter = {},
-): Filter => makeCommunityExclusiveFilter(communityPubkey, [MESSAGE], {"#E": [roomRootId], ...extra})
+): Filter =>
+  makeCommunityExclusiveFilter(communityPubkey, [MESSAGE], {"#E": [roomRootId], ...extra})
 
 export const makeCommunityTargetingFilter = (
   communityPubkey: string,
@@ -82,7 +100,11 @@ export const getRoomRootIdForMessage = (event: TrustedEvent) => {
   return getTagValue("E", event.tags) || ""
 }
 
-export const isRoomMessage = (event: TrustedEvent, communityPubkey?: string, roomRootId?: string) => {
+export const isRoomMessage = (
+  event: TrustedEvent,
+  communityPubkey?: string,
+  roomRootId?: string,
+) => {
   if (event.kind !== MESSAGE) return false
   if (communityPubkey && !eventTargetsCommunity(event, communityPubkey)) return false
   if (roomRootId && getRoomRootIdForMessage(event) !== roomRootId) return false
@@ -95,19 +117,29 @@ export const makeTargetedPublicationOriginalFilters = (
   allowedAuthors?: string[],
 ): Filter[] => {
   const filters: Filter[] = []
-  const allowedAuthorSet = allowedAuthors?.length ? new Set(allowedAuthors.map(normalizePubkey).filter(Boolean)) : undefined
+  const allowedAuthorSet = allowedAuthors?.length
+    ? new Set(allowedAuthors.map(normalizePubkey).filter(Boolean))
+    : undefined
 
   for (const event of targetingEvents) {
     const targeting = parseTargetedPublication(event)
     if (!targeting) continue
 
     if (!targeting.ref) {
-      filters.push({kinds: [targeting.kind], "#h": [targeting.id], ...(allowedAuthors?.length ? {authors: allowedAuthors} : {})})
+      filters.push({
+        kinds: [targeting.kind],
+        "#h": [targeting.id],
+        ...(allowedAuthors?.length ? {authors: allowedAuthors} : {}),
+      })
       continue
     }
 
     if (targeting.ref.type === "e") {
-      filters.push({kinds: [targeting.kind], ids: [targeting.ref.value], ...(allowedAuthors?.length ? {authors: allowedAuthors} : {})})
+      filters.push({
+        kinds: [targeting.kind],
+        ids: [targeting.ref.value],
+        ...(allowedAuthors?.length ? {authors: allowedAuthors} : {}),
+      })
       continue
     }
 

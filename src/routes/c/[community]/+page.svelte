@@ -223,7 +223,7 @@
       <Link href={goalsPath} class="btn border-none bg-[#a16207] text-white hover:bg-[#854d0e] md:text-lg">
         <div class="relative flex items-center gap-2">
           <Icon icon={StarFallMinimalistic} />
-          Fundraisers
+          Goals
           {#if $notifications.has(goalsPath)}
             <div
               class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white"

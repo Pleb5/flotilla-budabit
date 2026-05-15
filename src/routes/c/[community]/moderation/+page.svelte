@@ -15,7 +15,7 @@
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
-  import {FORM_RESPONSE_KIND, normalizePubkey} from "@app/core/community"
+  import {FORM_RESPONSE_KIND, getCommunitySectionDisplayName, normalizePubkey} from "@app/core/community"
   import {makeCommunityGrantEvents} from "@app/core/community-admin"
   import {
     activeCommunityAdmissionForms,
@@ -43,6 +43,7 @@
 
   type ReviewApplication = {
     sectionName: string
+    sectionDisplayName: string
     form: CommunityAdmissionForm
     response: NonNullable<ReturnType<typeof parseAdmissionResponse>>
     state: ReturnType<typeof getAdmissionSubmissionState>
@@ -59,6 +60,7 @@
     ($activeCommunityDefinition?.sections || [])
       .map(section => ({
         section,
+        displayName: getCommunitySectionDisplayName(section),
         capability:
           $pubkey && $activeCommunityDefinition
             ? getGrantCapability({
@@ -85,10 +87,18 @@
   const applications = $derived.by(() => {
     if (!$activeCommunityDefinition) return []
 
-    const sectionByForm = new Map<string, {sectionName: string; form: CommunityAdmissionForm}>()
+    const sectionByForm = new Map<
+      string,
+      {sectionName: string; sectionDisplayName: string; form: CommunityAdmissionForm}
+    >()
     for (const item of grantableSections) {
       const form = $activeCommunityAdmissionForms[item.section.name]
-      if (form) sectionByForm.set(form.address, {sectionName: item.section.name, form})
+      if (form)
+        sectionByForm.set(form.address, {
+          sectionName: item.section.name,
+          sectionDisplayName: item.displayName,
+          form,
+        })
     }
 
     return $responseEvents
@@ -128,13 +138,30 @@
 
   const cloneDraft = (draft: CommunityAdmissionFormDraft): CommunityAdmissionFormDraft => JSON.parse(JSON.stringify(draft))
 
+  const getSectionDisplayName = (sectionName: string) =>
+    grantableSections.find(item => item.section.name === sectionName)?.displayName || sectionName
+
   function getDraft(sectionName: string, form?: CommunityAdmissionForm) {
-    return drafts[sectionName] || makeAdmissionFormDraftFromForm({
+    const sectionDisplayName = getSectionDisplayName(sectionName)
+    const draft = drafts[sectionName] || makeAdmissionFormDraftFromForm({
       form,
       communityPubkey: $activeCommunityDefinition?.pubkey || "",
       sectionName,
       currentModeratorPubkey: $pubkey || "",
     })
+
+    if (form || sectionDisplayName === sectionName) return draft
+
+    return {
+      ...draft,
+      name: `${sectionDisplayName} application`,
+      description: `Request access to publish in the ${sectionDisplayName} section.`,
+      questions: draft.questions.map(question =>
+        question.id === "q1"
+          ? {...question, label: `Describe your application to publish in ${sectionDisplayName}`}
+          : question,
+      ),
+    }
   }
 
   const selectedDraft = $derived(
@@ -306,7 +333,7 @@
 
     pushModal(Confirm, {
       title: "Publish application form",
-      message: `Publish the application form for ${selected.section.name}? This becomes the latest active form for this section.`,
+      message: `Publish the application form for ${selected.displayName}? This becomes the latest active form for this section.`,
       confirm: () => {
         const template = makeAdmissionFormTemplate({
           identifier: selectedDraft.identifier,
@@ -319,7 +346,7 @@
         })
 
         publishThunk({relays: $activeCommunityRelays, event: makeEvent(template.kind, template)})
-        pushToast({message: `${selected.section.name} application form published.`})
+        pushToast({message: `${selected.displayName} application form published.`})
         history.back()
       },
     })
@@ -407,7 +434,7 @@
       </div>
       {#if missingFormSections.length > 0}
         <p class="rounded-box border border-warning bg-warning/10 p-3 text-sm text-warning">
-          Users cannot apply to {missingFormSections.map(item => item.section.name).join(", ")} until these forms are published.
+          Users cannot apply to {missingFormSections.map(item => item.displayName).join(", ")} until these forms are published.
         </p>
       {/if}
     </section>
@@ -423,7 +450,7 @@
             class={`card2 bg-alt p-4 text-left shadow-md transition ${isSelected ? "border-primary bg-primary/10" : ""} ${!itemForm ? "border-warning bg-warning/10" : ""}`}
             onclick={() => selectSection(item.section.name)}>
             <div class="flex items-start justify-between gap-3">
-              <strong>{item.section.name}</strong>
+              <strong>{item.displayName}</strong>
               <span class={`badge ${hasDraft ? "badge-info" : itemForm ? "badge-success" : "badge-warning"}`}>
                 {hasDraft ? "Draft changes" : itemForm ? "Ready" : "Missing form"}
               </span>
@@ -442,7 +469,7 @@
               <div>
                 <div class="flex flex-wrap items-center gap-2">
                   <h2 class="text-xl font-semibold">{activeForm ? "Edit application form" : "Create application form"}</h2>
-                  <span class="badge badge-primary">{selected.section.name}</span>
+                  <span class="badge badge-primary">{selected.displayName}</span>
                 </div>
                 <p class="text-sm opacity-70">Build the questions applicants answer before moderators review access.</p>
               </div>
@@ -574,7 +601,7 @@
             </div>
             <div class="rounded-box bg-base-100 p-4">
               <div class="rounded-box bg-base-200 p-4">
-                <span class="badge badge-primary mb-3">{selected.section.name}</span>
+                <span class="badge badge-primary mb-3">{selected.displayName}</span>
                 <h3 class="text-2xl font-bold">{selectedDraft.name}</h3>
                 <p class="mt-2 whitespace-pre-wrap text-sm opacity-75">{selectedDraft.description}</p>
               </div>
@@ -623,7 +650,7 @@
             <p class="text-sm opacity-70">All grantable sections are accepting applications.</p>
           {:else}
             <p class="text-sm text-warning">
-              Users cannot apply to: {missingFormSections.map(item => item.section.name).join(", ")}.
+              Users cannot apply to: {missingFormSections.map(item => item.displayName).join(", ")}.
             </p>
             <p class="text-sm opacity-70">Create one application form for each section you moderate.</p>
           {/if}
@@ -653,7 +680,7 @@
               }`}>
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <strong>{application.sectionName}</strong>
+                  <strong>{application.sectionDisplayName}</strong>
                   <p class="truncate text-xs opacity-70">
                     Applicant: <ProfileLink pubkey={application.response.event.pubkey} />
                   </p>

@@ -18,9 +18,19 @@
     relays?: string[]
     scopeH?: string
     readOnly?: boolean
+    allowedAuthors?: string[]
   }
 
-  const {url, event, showRoom, showActivity, relays = [], scopeH = "", readOnly = false}: Props = $props()
+  const {
+    url,
+    event,
+    showRoom,
+    showActivity,
+    relays = [],
+    scopeH = "",
+    readOnly = false,
+    allowedAuthors = undefined,
+  }: Props = $props()
 
   const h = getTagValue("h", event.tags)
   const path = makeThreadPath(url, event.id)
@@ -45,10 +55,27 @@
       Posted in #<RoomName {h} {url} />
     </Link>
   {/if}
-  <ReactionSummary {url} {relays} {scopeH} {event} {readOnly} {deleteReaction} {createReaction} reactionClass="tooltip-left" />
+  <ReactionSummary
+    {url}
+    {relays}
+    {scopeH}
+    {event}
+    {readOnly}
+    {allowedAuthors}
+    {deleteReaction}
+    {createReaction}
+    reactionClass="tooltip-left" />
   <ThunkStatusOrDeleted {event} />
   {#if showActivity}
-    <EventActivity {url} {path} {event} />
+    <EventActivity {url} {path} {event} {relays} {scopeH} {allowedAuthors} />
   {/if}
-  <EventActions {url} {relays} {scopeH} {readOnly} {event} noun="Thread" showReport={false} allowAdminDelete={false} />
+  <EventActions
+    {url}
+    {relays}
+    {scopeH}
+    {readOnly}
+    {event}
+    noun="Thread"
+    showReport={false}
+    allowAdminDelete={false} />
 </div>

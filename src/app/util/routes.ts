@@ -1,14 +1,24 @@
 import type {Page} from "@sveltejs/kit"
 import * as nip19 from "nostr-tools/nip19"
 import {goto} from "$app/navigation"
+import {request} from "@welshman/net"
 import {sleep} from "@welshman/lib"
-import type {TrustedEvent} from "@welshman/util"
-import {pubkey, tracker} from "@welshman/app"
+import type {Filter, TrustedEvent} from "@welshman/util"
+import {pubkey, repository, tracker} from "@welshman/app"
 import {scrollToEvent} from "@lib/html"
 import {identity} from "@welshman/lib"
-import {getPubkeyTagValues, getTagValue} from "@welshman/util"
+import {
+  COMMENT,
+  EVENT_TIME,
+  MESSAGE,
+  THREAD,
+  ZAP_GOAL,
+  getPubkeyTagValues,
+  getTagValue,
+} from "@welshman/util"
 import {makeChatId, entityLink, DM_KIND} from "@app/core/state"
-import {parseCommunityInput} from "@app/core/community"
+import {TARGETED_PUBLICATION_KIND, parseCommunityInput, parseTargetedPublication} from "@app/core/community"
+import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
 
 export const parseCommunityRouteParam = (community: string | undefined) => {
   if (!community) return undefined
@@ -90,6 +100,143 @@ export const getRoomItemPath = (community: string, event: TrustedEvent) => {
   return makeCommunityPath(community, "rooms", roomId)
 }
 
+const isRoomRootEvent = (event: TrustedEvent) => event.tags.some(tag => tag[0] === "room")
+
+const getCommunityPubkeyForEvent = (event: TrustedEvent) => {
+  const scopedCommunity = getTagValue("h", event.tags)
+
+  return scopedCommunity ? parseCommunityInput(scopedCommunity)?.pubkey : undefined
+}
+
+const getEventRootId = (event: TrustedEvent) =>
+  getTagValue("E", event.tags) || getTagValue("e", event.tags)
+
+const TARGETED_PUBLICATION_ROUTE_KINDS = [EVENT_TIME, ZAP_GOAL, SMART_WIDGET_KIND]
+
+const hasTargetedPublicationPath = (kind: number) => TARGETED_PUBLICATION_ROUTE_KINDS.includes(kind)
+
+const makeTargetedPublicationPath = (communityPubkey: string, kind: number) => {
+  switch (kind) {
+    case EVENT_TIME:
+      return makeCommunityCalendarPath(communityPubkey)
+    case ZAP_GOAL:
+      return makeCommunityGoalPath(communityPubkey)
+    case SMART_WIDGET_KIND:
+      return makeCommunityWidgetPath(communityPubkey)
+    default:
+      return undefined
+  }
+}
+
+const getFirstTargetedPublicationCommunity = (events: TrustedEvent[]) => {
+  for (const event of events) {
+    const targeting = parseTargetedPublication(event)
+    const communityPubkey = targeting?.communities[0]?.pubkey
+
+    if (communityPubkey) return communityPubkey
+  }
+
+  return undefined
+}
+
+const getTargetedPublicationFiltersForOriginal = (event: TrustedEvent): Filter[] => {
+  if (!hasTargetedPublicationPath(event.kind)) return []
+
+  const filters: Filter[] = []
+  const targetingId = getTagValue("h", event.tags)
+  const identifier = getTagValue("d", event.tags)
+
+  if (targetingId) {
+    filters.push({
+      kinds: [TARGETED_PUBLICATION_KIND],
+      "#d": [targetingId],
+      "#k": [String(event.kind)],
+    })
+  }
+
+  if (identifier) {
+    filters.push({
+      kinds: [TARGETED_PUBLICATION_KIND],
+      "#a": [`${event.kind}:${event.pubkey}:${identifier}`],
+      "#k": [String(event.kind)],
+    })
+  }
+
+  filters.push({
+    kinds: [TARGETED_PUBLICATION_KIND],
+    "#e": [event.id],
+    "#k": [String(event.kind)],
+  })
+
+  return filters
+}
+
+const getTargetedPublicationCommunityForOriginal = (event: TrustedEvent) => {
+  const filters = getTargetedPublicationFiltersForOriginal(event)
+
+  return filters.length
+    ? getFirstTargetedPublicationCommunity(repository.query(filters, {shouldSort: false}) as TrustedEvent[])
+    : undefined
+}
+
+const getTargetedPublicationEventPath = (event: TrustedEvent) => {
+  if (event.kind === TARGETED_PUBLICATION_KIND) {
+    const targeting = parseTargetedPublication(event)
+    const communityPubkey = targeting?.communities[0]?.pubkey
+
+    return communityPubkey && targeting
+      ? makeTargetedPublicationPath(communityPubkey, targeting.kind)
+      : undefined
+  }
+
+  if (!hasTargetedPublicationPath(event.kind)) return undefined
+
+  const directCommunityPubkey = getCommunityPubkeyForEvent(event)
+  const communityPubkey = directCommunityPubkey || getTargetedPublicationCommunityForOriginal(event)
+
+  return communityPubkey ? makeTargetedPublicationPath(communityPubkey, event.kind) : undefined
+}
+
+const loadTargetedPublicationEventPath = async (event: TrustedEvent, urls: string[]) => {
+  const filters = getTargetedPublicationFiltersForOriginal(event)
+
+  if (filters.length === 0 || urls.length === 0) return undefined
+
+  await request({relays: urls, filters, autoClose: true}).catch(() => undefined)
+
+  return getTargetedPublicationEventPath(event)
+}
+
+export const getCommunityEventPath = (event: TrustedEvent) => {
+  const communityPubkey = getCommunityPubkeyForEvent(event)
+
+  const targetedPublicationPath = getTargetedPublicationEventPath(event)
+
+  if (targetedPublicationPath) return targetedPublicationPath
+
+  if (!communityPubkey) return undefined
+
+  if (event.kind === THREAD) {
+    return isRoomRootEvent(event)
+      ? makeCommunityRoomPath(communityPubkey, event.id)
+      : makeCommunityThreadPath(communityPubkey, event.id)
+  }
+
+  if (event.kind === MESSAGE) {
+    const roomId = getEventRootId(event)
+
+    return roomId ? makeCommunityRoomPath(communityPubkey, roomId) : undefined
+  }
+
+  if (event.kind === COMMENT && getTagValue("K", event.tags) === String(THREAD)) {
+    const threadId = getEventRootId(event)
+
+    return threadId ? makeCommunityThreadPath(communityPubkey, threadId) : undefined
+  }
+
+  return undefined
+}
+
 export const goToSpace = (community: string, options: Record<string, any> = {}) =>
   goto(makeSpacePath(community), options)
 
@@ -136,6 +283,14 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
 
     return makeChatPath(recipients[0])
   }
+
+  const communityPath = getCommunityEventPath(event)
+
+  if (communityPath) return communityPath
+
+  const loadedCommunityPath = await loadTargetedPublicationEventPath(event, urls)
+
+  if (loadedCommunityPath) return loadedCommunityPath
 
   return entityLink(nip19.neventEncode({id: event.id, relays: urls}))
 }

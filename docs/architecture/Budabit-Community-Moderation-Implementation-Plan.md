@@ -162,7 +162,7 @@ Initial integration targets:
 - Create forum thread action.
 - Reaction action.
 - Comment action.
-- Calendar/fundraiser/repository/permalink/widget publication actions.
+- Calendar/goal/repository/permalink/widget publication actions.
 
 Exit criteria:
 
@@ -188,7 +188,7 @@ Initial integration targets:
 - Room messages.
 - Forum threads.
 - Community comments/reactions where they are section-governed.
-- Targeted publication catalogs for calendar, fundraisers, repositories, permalinks, and widgets.
+- Targeted publication catalogs for calendar, goals, repositories, permalinks, and widgets.
 
 Exit criteria:
 

@@ -1,41 +1,67 @@
 <script lang="ts">
+  import {onDestroy} from "svelte"
+  import {readable, type Readable} from "svelte/store"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {pubkey, publishThunk, repository} from "@welshman/app"
+  import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {EVENT_TIME, makeEvent, getTagValue} from "@welshman/util"
-  import {HOUR, randomId} from "@welshman/lib"
+  import {formatTimestampAsDate, last, now} from "@welshman/lib"
+  import {EVENT_TIME, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
+  import CalendarAdd from "@assets/icons/calendar-add.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Field from "@lib/components/Field.svelte"
-  import DateTimeInput from "@lib/components/DateTimeInput.svelte"
+  import Divider from "@lib/components/Divider.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import CalendarEventItem from "@app/components/CalendarEventItem.svelte"
-  import {preventDefault} from "@lib/html"
-  import {pushToast} from "@app/util/toast"
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {COMMUNITY_SECTION_CALENDAR, TARGETED_PUBLICATION_KIND} from "@app/core/community"
-  import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
-    makeAddressablePublicationRef,
-    makeTargetedPublicationForCommunity,
-    withPublicationTargetingId,
-  } from "@app/core/community-targeting"
+    COMMUNITY_SECTION_CALENDAR,
+    COMMUNITY_SECTION_GENERAL,
+    normalizePubkey,
+    parseTargetedPublication,
+  } from "@app/core/community"
+  import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {parseCommunityRouteParam} from "@app/util/routes"
+  import {makeCalendarFeed} from "@app/core/requests"
+  import {setChecked} from "@app/util/notifications"
+  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+
+  type CalendarItem = {
+    event: TrustedEvent
+    dateDisplay?: string
+    isFirstFutureEvent?: boolean
+  }
+
+  let element: HTMLElement | undefined = $state()
+  let loadingTargets = $state(false)
+  let targetRequestDone = $state(false)
+  let loadingEvents = $state(false)
+  let exhaustedEvents = $state(false)
+  let events: Readable<TrustedEvent[]> = $state(readable([]))
+  let feedCleanup: (() => void) | undefined = $state()
+  let feedInitialized = $state(false)
+  let lastFeedKey = ""
+  let previousScrollHeight = 0
+  let previousFirstEventId = ""
+  let initialScrollDone = false
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const createPath = $derived(
+    communityPubkey ? makeCommunityPath(communityPubkey, "calendar", "create") : "",
+  )
   const targetingFilters = $derived(
     communityPubkey ? [makeCommunityTargetingFilter(communityPubkey, [EVENT_TIME])] : [],
   )
@@ -51,24 +77,55 @@
         })
       : [],
   )
-  const eventFilters = $derived(
+  const interactionAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_GENERAL,
+        })
+      : [],
+  )
+  const targetingIds = $derived.by(() => {
+    const allowedAuthors = new Set(calendarAuthorPubkeys.map(normalizePubkey).filter(Boolean))
+
+    return $targetingEvents
+      .map(event => parseTargetedPublication(event))
+      .filter(targeting => targeting?.kind === EVENT_TIME)
+      .filter(targeting => {
+        if (!targeting?.ref || targeting.ref.type !== "a") return true
+
+        const [, author] = targeting.ref.value.split(":")
+        return allowedAuthors.has(normalizePubkey(author || ""))
+      })
+      .map(targeting => targeting?.id || "")
+      .filter(Boolean)
+  })
+  const targetedOriginalFilters = $derived(
     calendarAuthorPubkeys.length
       ? makeTargetedPublicationOriginalFilters($targetingEvents, calendarAuthorPubkeys)
       : [],
   )
-  const calendarEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: eventFilters})))
-  const canCreateEvent = $derived(
-    Boolean(
-      $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.calendar,
-        }),
-    ),
+  const calendarFeedFilters = $derived.by<Filter[]>(() => {
+    const filters: Filter[] = [...targetedOriginalFilters]
+
+    if (targetingIds.length > 0 && calendarAuthorPubkeys.length > 0) {
+      filters.unshift({kinds: [EVENT_TIME], authors: calendarAuthorPubkeys, "#h": targetingIds})
+    }
+
+    return filters
+  })
+  const feedKey = $derived.by(() =>
+    communityPubkey && calendarFeedFilters.length && $activeCommunityRelays.length
+      ? [
+          communityPubkey,
+          ...$activeCommunityRelays,
+          ...calendarAuthorPubkeys,
+          ...$targetingEvents.map(event => event.id),
+        ].join("|")
+      : "",
   )
+  const waitingForFeed = $derived(Boolean(feedKey && !feedInitialized))
   const canReact = $derived(
     Boolean(
       $pubkey &&
@@ -82,81 +139,155 @@
     ),
   )
 
-  const createEvent = () => {
-    if (!$pubkey || !communityPubkey || !title.trim()) return
-    if (!canCreateEvent) {
-      pushToast({theme: "error", message: "You do not have permission to publish calendar events."})
-      return
-    }
-    const relays = $activeCommunityRelays
-    if (relays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
-      return
-    }
+  const getStart = (event: TrustedEvent) => parseInt(getTagValue("start", event.tags) || "")
 
-    const eventId = randomId()
-    const targetingId = randomId()
-    const eventTemplate = withPublicationTargetingId(
-      {
-        content: description.trim(),
-        tags: [
-          ["d", eventId],
-          ["title", title.trim()],
-          ["start", String(start)],
-          ["end", String(end)],
-        ],
-      },
-      targetingId,
-    )
-    const originalRef = makeAddressablePublicationRef({
-      kind: EVENT_TIME,
-      pubkey: $pubkey,
-      identifier: eventId,
-      relay: relays[0],
-    })
+  const items = $derived.by(() => {
+    let haveSeenFutureEvent = false
+    let previousDateDisplay: string | undefined
 
-    publishThunk({relays, event: makeEvent(EVENT_TIME, eventTemplate)})
-    publishThunk({
-      relays,
-      event: makeEvent(
-        TARGETED_PUBLICATION_KIND,
-        makeTargetedPublicationForCommunity({
-          targetingId,
-          originalKind: EVENT_TIME,
-          originalRef,
-          communityPubkey,
-          communityRelay: relays[0],
-        }),
-      ),
-    })
+    return $events
+      .filter(event => !isNaN(getStart(event)))
+      .map<CalendarItem>(event => {
+        const start = getStart(event)
+        const dateDisplayValue = formatTimestampAsDate(start)
+        const dateDisplay = previousDateDisplay === dateDisplayValue ? undefined : dateDisplayValue
+        const isFutureEvent = start >= now()
+        const isFirstFutureEvent = !haveSeenFutureEvent && isFutureEvent
 
-    title = ""
-    description = ""
-    pushToast({message: "Calendar event published."})
+        previousDateDisplay = dateDisplayValue
+        if (isFutureEvent) haveSeenFutureEvent = true
+
+        return {event, dateDisplay, isFirstFutureEvent}
+      })
+  })
+
+  const resetFeed = () => {
+    feedCleanup?.()
+    feedCleanup = undefined
+    events = readable([])
+    loadingEvents = false
+    exhaustedEvents = false
+    feedInitialized = false
+    lastFeedKey = ""
+    previousScrollHeight = 0
+    previousFirstEventId = ""
+    initialScrollDone = false
   }
 
-  let title = $state("")
-  let description = $state("")
-  const initialStart = Math.floor(Date.now() / 1000) + HOUR
-  let start = $state(initialStart)
-  let end = $state(initialStart + HOUR)
+  const startFeed = (key: string) => {
+    if (!element || !key || calendarFeedFilters.length === 0 || $activeCommunityRelays.length === 0)
+      return
+
+    loadingEvents = true
+    exhaustedEvents = false
+    lastFeedKey = key
+    feedInitialized = true
+
+    const feed = makeCalendarFeed({
+      element,
+      relays: $activeCommunityRelays,
+      filters: calendarFeedFilters,
+      onInitialLoad: () => {
+        loadingEvents = false
+      },
+      onExhausted: () => {
+        loadingEvents = false
+        exhaustedEvents = true
+      },
+    })
+
+    events = feed.events
+    feedCleanup = feed.cleanup
+  }
 
   $effect(() => {
-    if (!communityPubkey || $activeCommunityRelays.length === 0) return
+    if (!communityPubkey || $activeCommunityRelays.length === 0 || targetingFilters.length === 0) {
+      loadingTargets = false
+      targetRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      loadingTargets = false
+      targetRequestDone = true
+    }, 3000)
+
+    loadingTargets = true
+    targetRequestDone = false
     request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        clearTimeout(timeout)
+        if (controller.signal.aborted) return
+
+        loadingTargets = false
+        targetRequestDone = true
+      })
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  })
+
+  $effect(() => {
+    if ($activeCommunityRelays.length === 0 || targetedOriginalFilters.length === 0) return
+
+    const controller = new AbortController()
+    request({relays: $activeCommunityRelays, filters: targetedOriginalFilters, signal: controller.signal})
 
     return () => controller.abort()
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || eventFilters.length === 0) return
+    const key = feedKey
 
-    const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: eventFilters, signal: controller.signal})
+    if (!key || !element) {
+      resetFeed()
+      return
+    }
 
-    return () => controller.abort()
+    if (!feedInitialized || key !== lastFeedKey) {
+      resetFeed()
+      startFeed(key)
+    }
+  })
+
+  $effect(() => {
+    if (!element || items.length === 0) return
+
+    requestAnimationFrame(() => {
+      if (!element || items.length === 0) return
+
+      if (initialScrollDone) {
+        if (previousFirstEventId && items[0].event.id !== previousFirstEventId) {
+          const delta = element.scrollHeight - previousScrollHeight
+
+          if (delta > 0) element.scrollTop += delta
+        }
+      } else {
+        const firstFutureItem = items.find(({event}) => getStart(event) >= now()) || last(items)
+        const eventElement = firstFutureItem
+          ? (document.querySelector(`.calendar-event-${firstFutureItem.event.id}`) as HTMLElement)
+          : undefined
+
+        if (eventElement) {
+          element.scrollTop =
+            eventElement.offsetTop - element.clientHeight / 2 + eventElement.clientHeight / 2
+        }
+
+        initialScrollDone = true
+      }
+
+      previousScrollHeight = element.scrollHeight
+      previousFirstEventId = items[0].event.id
+    })
+  })
+
+  onDestroy(() => {
+    resetFeed()
+    setChecked($page.url.pathname)
   })
 </script>
 
@@ -169,60 +300,55 @@
   {#snippet title()}
     <strong>Calendar</strong>
   {/snippet}
+  {#snippet action()}
+    <div class="row-2">
+      <PublishGate
+        target={COMMUNITY_WRITE_TARGETS.calendar}
+        action="publish calendar events"
+        href={createPath}
+        class="btn btn-primary btn-sm"
+        showReason={false}>
+        <Icon icon={CalendarAdd} />
+        Create
+      </PublishGate>
+      <CommunityMenuButton community={communityPubkey} />
+    </div>
+  {/snippet}
 </PageBar>
 
-<PageContent class="content col-4 p-4">
-  <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createEvent)}>
-    <strong>Create targeted calendar event</strong>
-    <Field>
-      {#snippet label()}
-        <p>Title</p>
-      {/snippet}
-      {#snippet input()}
-        <input bind:value={title} class="input input-bordered w-full" type="text" />
-      {/snippet}
-    </Field>
-    <Field>
-      {#snippet label()}
-        <p>Start</p>
-      {/snippet}
-      {#snippet input()}
-        <DateTimeInput bind:value={start} />
-      {/snippet}
-    </Field>
-    <Field>
-      {#snippet label()}
-        <p>End</p>
-      {/snippet}
-      {#snippet input()}
-        <DateTimeInput bind:value={end} />
-      {/snippet}
-    </Field>
-    <Field>
-      {#snippet label()}
-        <p>Description</p>
-      {/snippet}
-      {#snippet input()}
-        <textarea bind:value={description} class="textarea textarea-bordered" rows="4"></textarea>
-      {/snippet}
-    </Field>
-    <div class="flex justify-end">
-      <PublishGate target={COMMUNITY_WRITE_TARGETS.calendar} action="publish calendar events" submit disabled={!title.trim()}>
-        Create event
-      </PublishGate>
-    </div>
-  </form>
-
-  <div class="col-2">
-    {#each $calendarEvents as event (event.id)}
+<PageContent bind:element class="flex flex-col gap-2 p-2 pt-4">
+  {#each items as {event, dateDisplay, isFirstFutureEvent} (event.id)}
+    <div class={"calendar-event-" + event.id}>
+      {#if isFirstFutureEvent}
+        <div class="flex items-center gap-2 p-2">
+          <div class="h-px flex-grow bg-primary"></div>
+          <p class="text-xs uppercase text-primary">Today</p>
+          <div class="h-px flex-grow bg-primary"></div>
+        </div>
+      {/if}
+      {#if dateDisplay}
+        <Divider>{dateDisplay}</Divider>
+      {/if}
       <CalendarEventItem
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
+        allowedAuthors={interactionAuthorPubkeys}
         readOnly={!canReact}
         {event} />
-    {:else}
-      <p class="py-8 text-center opacity-70">No targeted calendar events found.</p>
-    {/each}
-  </div>
+    </div>
+  {/each}
+  {#if !$activeCommunityDefinition}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Loading community permissions...</Spinner>
+    </p>
+  {:else if loadingTargets || waitingForFeed || loadingEvents || (!targetRequestDone && items.length === 0)}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Looking for events...</Spinner>
+    </p>
+  {:else if items.length === 0}
+    <p class="flex h-10 items-center justify-center py-20 text-center">No events found.</p>
+  {:else if exhaustedEvents}
+    <p class="flex h-10 items-center justify-center py-20 text-center">That's all!</p>
+  {/if}
 </PageContent>

@@ -165,7 +165,7 @@
           {replaceState}
           href={goalsPath}
           notification={$notifications.has(goalsPath)}>
-          <Icon icon={StarFallMinimalistic} /> Fundraisers
+          <Icon icon={StarFallMinimalistic} /> Goals
         </SecondaryNavItem>
       {/if}
 

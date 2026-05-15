@@ -116,7 +116,7 @@
   </button>
 {/if}
 
-<Page class={$pubkey ? "" : "cw-full"}>
+<Page class={!$pubkey ? "cw-full" : parsedCommunity ? "community-with-menu" : ""}>
   {#if !parsedCommunity}
     <div class="content p-4">
       <h1 class="text-2xl font-bold">Invalid community</h1>
@@ -134,3 +134,11 @@
     {@render children?.()}
   {/if}
 </Page>
+
+<style>
+  @media (max-width: 1023.98px) {
+    :global(.community-with-menu [data-component="PageBar"]) {
+      padding-right: calc(var(--sair) + 4rem);
+    }
+  }
+</style>

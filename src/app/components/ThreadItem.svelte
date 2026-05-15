@@ -6,7 +6,6 @@
   import Content from "@app/components/Content.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
-  import RoomLink from "@app/components/RoomLink.svelte"
   import {makeThreadPath} from "@app/util/routes"
 
   type Props = {
@@ -15,12 +14,19 @@
     relays?: string[]
     scopeH?: string
     readOnly?: boolean
+    allowedAuthors?: string[]
   }
 
-  const {url, event, relays = [], scopeH = "", readOnly = false}: Props = $props()
+  const {
+    url,
+    event,
+    relays = [],
+    scopeH = "",
+    readOnly = false,
+    allowedAuthors = undefined,
+  }: Props = $props()
 
   const title = getTagValue("title", event.tags)
-  const h = getTagValue("h", event.tags)
 </script>
 
 <Link
@@ -43,10 +49,7 @@
     <span class="whitespace-nowrap py-1 text-sm opacity-75">
       Posted by
       <ProfileLink pubkey={event.pubkey} {url} />
-      {#if h}
-        in <RoomLink {url} {h} />
-      {/if}
     </span>
-    <ThreadActions showActivity {url} {relays} {scopeH} {readOnly} {event} />
+    <ThreadActions showActivity {url} {relays} {scopeH} {readOnly} {allowedAuthors} {event} />
   </div>
 </Link>

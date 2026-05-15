@@ -7,6 +7,7 @@ import {
   getRoomRootIdForMessage,
   isRoomMessage,
   makeCommunityExclusiveFilter,
+  makeCommunityForumRepliesFilter,
   makeCommunityRoomMessagesFilter,
   makeCommunityTargetingFilter,
   makeTargetedPublicationOriginalFilters,
@@ -46,6 +47,18 @@ describe("community feed helpers", () => {
     })
   })
 
+  it("builds forum reply filters", () => {
+    expect(
+      makeCommunityForumRepliesFilter(communityPubkey, {"#E": ["thread-root"], limit: 50}),
+    ).toEqual({
+      kinds: [1111],
+      "#h": [communityPubkey],
+      "#K": ["11"],
+      "#E": ["thread-root"],
+      limit: 50,
+    })
+  })
+
   it("builds targeted publication filters", () => {
     expect(makeCommunityTargetingFilter(communityPubkey, [31922, 9041], {limit: 100})).toEqual({
       kinds: [TARGETED_PUBLICATION_KIND],
@@ -59,11 +72,7 @@ describe("community feed helpers", () => {
     const room = makeEvent({
       id: "room",
       kind: 11,
-      tags: [
-        ["h", communityPubkey],
-        ["room"],
-        ["title", "General"],
-      ],
+      tags: [["h", communityPubkey], ["room"], ["title", "General"]],
     })
     const forum = makeEvent({
       id: "forum",
@@ -78,9 +87,9 @@ describe("community feed helpers", () => {
     expect(filterRoomRoots([room, forum, other], communityPubkey).map(event => event.id)).toEqual([
       "room",
     ])
-    expect(filterForumThreadRoots([room, forum, other], communityPubkey).map(event => event.id)).toEqual([
-      "forum",
-    ])
+    expect(
+      filterForumThreadRoots([room, forum, other], communityPubkey).map(event => event.id),
+    ).toEqual(["forum"])
   })
 
   it("identifies room messages by community and room root", () => {
@@ -117,26 +126,31 @@ describe("community feed helpers", () => {
         communities: [{pubkey: communityPubkey}],
       }).tags,
     })
-    const fundraiserTarget = makeEvent({
+    const goalTarget = makeEvent({
       kind: TARGETED_PUBLICATION_KIND,
       tags: buildTargetedPublication({
-        id: "target-fundraiser",
+        id: "target-goal",
         kind: 9041,
         communities: [{pubkey: communityPubkey}],
       }).tags,
     })
 
-    expect(makeTargetedPublicationOriginalFilters([calendarTarget, permalinkTarget, fundraiserTarget])).toEqual([
+    expect(
+      makeTargetedPublicationOriginalFilters([calendarTarget, permalinkTarget, goalTarget]),
+    ).toEqual([
       {kinds: [31922], authors: [authorPubkey], "#d": ["calendar-1"]},
       {kinds: [1623], ids: ["permalink-event-id"]},
-      {kinds: [9041], "#h": ["target-fundraiser"]},
+      {kinds: [9041], "#h": ["target-goal"]},
     ])
     expect(
-      makeTargetedPublicationOriginalFilters([calendarTarget, permalinkTarget, fundraiserTarget], [authorPubkey]),
+      makeTargetedPublicationOriginalFilters(
+        [calendarTarget, permalinkTarget, goalTarget],
+        [authorPubkey],
+      ),
     ).toEqual([
       {kinds: [31922], authors: [authorPubkey], "#d": ["calendar-1"]},
       {kinds: [1623], ids: ["permalink-event-id"], authors: [authorPubkey]},
-      {kinds: [9041], "#h": ["target-fundraiser"], authors: [authorPubkey]},
+      {kinds: [9041], "#h": ["target-goal"], authors: [authorPubkey]},
     ])
   })
 })

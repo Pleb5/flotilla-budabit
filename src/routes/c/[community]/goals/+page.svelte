@@ -1,73 +1,130 @@
 <script lang="ts">
-  import {onMount} from "svelte"
+  import {onDestroy} from "svelte"
+  import {readable, type Readable} from "svelte/store"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
-  import {pubkey, publishThunk, repository} from "@welshman/app"
+  import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {ZAP_GOAL, makeEvent, getTagValue} from "@welshman/util"
-  import {randomId} from "@welshman/lib"
-  import Bolt from "@assets/icons/bolt.svg?dataurl"
+  import {max, partition, pushToMapKey, sortBy, spec} from "@welshman/lib"
+  import {COMMENT, ZAP_GOAL, getTagValue, type Filter, type TrustedEvent} from "@welshman/util"
+  import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
-  import Field from "@lib/components/Field.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import GoalItem from "@app/components/GoalItem.svelte"
-  import {preventDefault} from "@lib/html"
-  import {pushToast} from "@app/util/toast"
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {COMMUNITY_SECTION_FUNDRAISERS, TARGETED_PUBLICATION_KIND} from "@app/core/community"
-  import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
-    makeTargetedPublicationForCommunity,
-    withPublicationTargetingId,
-  } from "@app/core/community-targeting"
+    COMMUNITY_SECTION_GENERAL,
+    COMMUNITY_SECTION_GOALS,
+    normalizePubkey,
+    parseTargetedPublication,
+  } from "@app/core/community"
+  import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {parseCommunityRouteParam} from "@app/util/routes"
+  import {makeFeed} from "@app/core/requests"
+  import {setChecked} from "@app/util/notifications"
+  import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
+
+  let loadingTargets = $state(false)
+  let targetRequestDone = $state(false)
+  let loadingEvents = $state(false)
+  let exhaustedEvents = $state(false)
+  let element: HTMLElement | undefined = $state()
+  let events: Readable<TrustedEvent[]> = $state(readable([]))
+  let feedCleanup: (() => void) | undefined = $state()
+  let feedInitialized = $state(false)
+  let lastFeedKey = ""
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const createPath = $derived(
+    communityPubkey ? makeCommunityPath(communityPubkey, "goals", "create") : "",
+  )
   const targetingFilters = $derived(
     communityPubkey ? [makeCommunityTargetingFilter(communityPubkey, [ZAP_GOAL])] : [],
   )
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
   )
-  const fundraiserAuthorPubkeys = $derived(
+  const goalAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunitySectionWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_FUNDRAISERS,
+          sectionName: COMMUNITY_SECTION_GOALS,
         })
       : [],
   )
-  const goalFilters = $derived(
-    fundraiserAuthorPubkeys.length
-      ? makeTargetedPublicationOriginalFilters($targetingEvents, fundraiserAuthorPubkeys)
-      : [],
-  )
-  const goals = $derived(deriveEventsAsc(deriveEventsById({repository, filters: goalFilters})))
-  const canCreateGoal = $derived(
-    Boolean(
-      $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
+  const interactionAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.fundraiser,
-        }),
-    ),
+          sectionName: COMMUNITY_SECTION_GENERAL,
+        })
+      : [],
   )
+  const targetingIds = $derived.by(() => {
+    const allowedAuthors = new Set(goalAuthorPubkeys.map(normalizePubkey).filter(Boolean))
+
+    return $targetingEvents
+      .map(event => parseTargetedPublication(event))
+      .filter(targeting => targeting?.kind === ZAP_GOAL)
+      .filter(targeting => {
+        if (!targeting?.ref || targeting.ref.type !== "a") return true
+
+        const [, author] = targeting.ref.value.split(":")
+        return allowedAuthors.has(normalizePubkey(author || ""))
+      })
+      .map(targeting => targeting?.id || "")
+      .filter(Boolean)
+  })
+  const goalFilters = $derived(
+    goalAuthorPubkeys.length
+      ? makeTargetedPublicationOriginalFilters($targetingEvents, goalAuthorPubkeys)
+      : [],
+  )
+  const goalFeedFilters = $derived.by<Filter[]>(() => {
+    const filters: Filter[] = [...goalFilters]
+
+    if (targetingIds.length > 0 && goalAuthorPubkeys.length > 0) {
+      filters.unshift({kinds: [ZAP_GOAL], authors: goalAuthorPubkeys, "#h": targetingIds})
+    }
+
+    if (filters.length > 0 && interactionAuthorPubkeys.length > 0) {
+      filters.push({
+        kinds: [COMMENT],
+        "#K": [String(ZAP_GOAL)],
+        "#h": [communityPubkey],
+        authors: interactionAuthorPubkeys,
+      })
+    }
+
+    return filters
+  })
+  const feedKey = $derived.by(() =>
+    communityPubkey && goalFeedFilters.length && $activeCommunityRelays.length
+      ? [
+          communityPubkey,
+          ...$activeCommunityRelays,
+          ...goalAuthorPubkeys,
+          ...interactionAuthorPubkeys,
+          ...$targetingEvents.map(event => event.id),
+        ].join("|")
+      : "",
+  )
+  const waitingForFeed = $derived(Boolean(feedKey && !feedInitialized))
   const canReact = $derived(
     Boolean(
       $pubkey &&
@@ -81,132 +138,152 @@
     ),
   )
 
-  const createGoal = () => {
-    if (!$pubkey || !communityPubkey || !title.trim() || !summary.trim()) return
-    if (!canCreateGoal) {
-      pushToast({theme: "error", message: "You do not have permission to publish fundraisers."})
-      return
-    }
-    const relays = $activeCommunityRelays
-    if (relays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
-      return
+  const items = $derived.by(() => {
+    const scores = new Map<string, number[]>()
+    const [goals, comments] = partition(spec({kind: ZAP_GOAL}), $events)
+
+    for (const comment of comments) {
+      const id = getTagValue("E", comment.tags)
+
+      if (id) pushToMapKey(scores, id, comment.created_at)
     }
 
-    const targetingId = randomId()
-    const goalEvent = makeEvent(
-      ZAP_GOAL,
-      withPublicationTargetingId(
-        {
-          content: title.trim(),
-          tags: [
-            ["summary", summary.trim()],
-            ["amount", String(amount)],
-            ["relays", relays[0]],
-          ],
-        },
-        targetingId,
-      ),
-    )
+    return sortBy(event => -max([...(scores.get(event.id) || []), event.created_at]), goals)
+  })
 
-    publishThunk({relays, event: goalEvent})
-    publishThunk({
-      relays,
-      event: makeEvent(
-        TARGETED_PUBLICATION_KIND,
-        makeTargetedPublicationForCommunity({
-          targetingId,
-          originalKind: ZAP_GOAL,
-          originalRef: undefined,
-          communityPubkey,
-          communityRelay: relays[0],
-        }),
-      ),
-    })
-
-    title = ""
-    summary = ""
-    pushToast({message: "Fundraiser published."})
+  const resetFeed = () => {
+    feedCleanup?.()
+    feedCleanup = undefined
+    events = readable([])
+    loadingEvents = false
+    exhaustedEvents = false
+    feedInitialized = false
+    lastFeedKey = ""
   }
 
-  let title = $state("")
-  let summary = $state("")
-  let amount = $state(1000)
+  const startFeed = (key: string) => {
+    if (!element || !key || goalFeedFilters.length === 0 || $activeCommunityRelays.length === 0) return
 
-  onMount(() => {
-    if (!communityPubkey || $activeCommunityRelays.length === 0) return
+    loadingEvents = true
+    exhaustedEvents = false
+    lastFeedKey = key
+    feedInitialized = true
+
+    const feed = makeFeed({
+      element,
+      relays: $activeCommunityRelays,
+      feedFilters: goalFeedFilters,
+      subscriptionFilters: goalFeedFilters,
+      onInitialLoad: () => {
+        loadingEvents = false
+      },
+      onExhausted: () => {
+        loadingEvents = false
+        exhaustedEvents = true
+      },
+    })
+
+    events = feed.events
+    feedCleanup = feed.cleanup
+  }
+
+  $effect(() => {
+    if (!communityPubkey || $activeCommunityRelays.length === 0 || targetingFilters.length === 0) {
+      loadingTargets = false
+      targetRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+    const timeout = setTimeout(() => {
+      loadingTargets = false
+      targetRequestDone = true
+    }, 3000)
 
-    return () => controller.abort()
+    loadingTargets = true
+    targetRequestDone = false
+    request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        clearTimeout(timeout)
+        if (controller.signal.aborted) return
+
+        loadingTargets = false
+        targetRequestDone = true
+      })
+
+    return () => {
+      clearTimeout(timeout)
+      controller.abort()
+    }
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || goalFilters.length === 0) return
+    const key = feedKey
 
-    const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: goalFilters, signal: controller.signal})
+    if (!key || !element) {
+      resetFeed()
+      return
+    }
 
-    return () => controller.abort()
+    if (!feedInitialized || key !== lastFeedKey) {
+      resetFeed()
+      startFeed(key)
+    }
+  })
+
+  onDestroy(() => {
+    resetFeed()
+    setChecked($page.url.pathname)
   })
 </script>
 
 <PageBar>
   {#snippet icon()}
     <div class="center">
-      <Icon icon={Bolt} />
+      <Icon icon={NotesMinimalistic} />
     </div>
   {/snippet}
   {#snippet title()}
-    <strong>Fundraisers</strong>
+    <strong>Goals</strong>
+  {/snippet}
+  {#snippet action()}
+    <div class="row-2">
+      <PublishGate
+        target={COMMUNITY_WRITE_TARGETS.goal}
+        action="publish goals"
+        href={createPath}
+        class="btn btn-primary btn-sm"
+        showReason={false}>
+        <Icon icon={NotesMinimalistic} />
+        Create
+      </PublishGate>
+      <CommunityMenuButton community={communityPubkey} />
+    </div>
   {/snippet}
 </PageBar>
 
-<PageContent class="content col-4 p-4">
-  <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(createGoal)}>
-    <strong>Create targeted fundraiser</strong>
-    <Field>
-      {#snippet label()}
-        <p>Title</p>
-      {/snippet}
-      {#snippet input()}
-        <input bind:value={title} class="input input-bordered w-full" type="text" />
-      {/snippet}
-    </Field>
-    <Field>
-      {#snippet label()}
-        <p>Amount</p>
-      {/snippet}
-      {#snippet input()}
-        <input bind:value={amount} class="input input-bordered w-full" min="1" type="number" />
-      {/snippet}
-    </Field>
-    <Field>
-      {#snippet label()}
-        <p>Summary</p>
-      {/snippet}
-      {#snippet input()}
-        <textarea bind:value={summary} class="textarea textarea-bordered" rows="4"></textarea>
-      {/snippet}
-    </Field>
-    <div class="flex justify-end">
-      <PublishGate target={COMMUNITY_WRITE_TARGETS.fundraiser} action="publish fundraisers" submit disabled={!title.trim() || !summary.trim()}>
-        Create fundraiser
-      </PublishGate>
-    </div>
-  </form>
-
-  <div class="col-2">
-    {#each $goals as goal (goal.id)}
-      <GoalItem
-        url={communityPubkey}
-        relays={$activeCommunityRelays}
-        scopeH={communityPubkey}
-        readOnly={!canReact}
-        event={goal} />
-    {:else}
-      <p class="py-8 text-center opacity-70">No targeted fundraisers found.</p>
-    {/each}
-  </div>
+<PageContent bind:element class="flex flex-col gap-2 p-2 pt-4">
+  {#each items as event (event.id)}
+    <GoalItem
+      url={communityPubkey}
+      relays={$activeCommunityRelays}
+      scopeH={communityPubkey}
+      allowedAuthors={interactionAuthorPubkeys}
+      readOnly={!canReact}
+      event={$state.snapshot(event)} />
+  {/each}
+  {#if !$activeCommunityDefinition}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Loading community permissions...</Spinner>
+    </p>
+  {:else if loadingTargets || waitingForFeed || loadingEvents || (!targetRequestDone && items.length === 0)}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Looking for goals...</Spinner>
+    </p>
+  {:else if items.length === 0}
+    <p class="flex h-10 items-center justify-center py-20 text-center">No goals found.</p>
+  {:else if exhaustedEvents}
+    <p class="flex h-10 items-center justify-center py-20 text-center">That's all!</p>
+  {/if}
 </PageContent>

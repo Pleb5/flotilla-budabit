@@ -80,7 +80,7 @@
       <div>Create a Funding Goal</div>
     {/snippet}
     {#snippet info()}
-      <div>Request contributions for your fundraiser.</div>
+      <div>Request contributions for your funding goal.</div>
     {/snippet}
   </ModalHeader>
   <div class="col-8 relative">

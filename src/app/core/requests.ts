@@ -243,12 +243,14 @@ export const makeFeed = ({
 
 export const makeCalendarFeed = ({
   url,
+  relays,
   filters,
   element,
   onInitialLoad,
   onExhausted,
 }: {
-  url: string
+  url?: string
+  relays?: string[]
   filters: Filter[]
   element: HTMLElement
   onInitialLoad?: () => void
@@ -256,6 +258,9 @@ export const makeCalendarFeed = ({
 }) => {
   const interval = int(5, DAY)
   const controller = new AbortController()
+  const loadRelays = uniq(
+    [...(relays || []), ...(url ? [url] : [])].filter((relay): relay is string => Boolean(relay)),
+  )
 
   let exhaustedScrollers = 0
   const initialBackwardWindow = [now() - interval, now()] as const
@@ -267,7 +272,24 @@ export const makeCalendarFeed = ({
 
   const getEnd = (event: TrustedEvent) => parseInt(getTagValue("end", event.tags) || "")
 
-  const initialEvents = sortBy(getStart, getEventsForUrl(url, filters))
+  const getEventsForRelays = () =>
+    Array.from(
+      new Map(
+        loadRelays.flatMap(relay => getEventsForUrl(relay, filters)).map(event => [event.id, event]),
+      ).values(),
+    )
+
+  const makeTimeframeFilters = (since: number, until: number): Filter[] => {
+    const hashes = daysBetween(since, until).map(String)
+
+    return filters.flatMap(filter => {
+      if (filter.kinds && !filter.kinds.includes(EVENT_TIME)) return []
+
+      return [{...filter, kinds: filter.kinds || [EVENT_TIME], "#D": hashes}]
+    })
+  }
+
+  const initialEvents = sortBy(getStart, getEventsForRelays())
   const events = writable(initialEvents)
 
   const insertEvent = (event: TrustedEvent) => {
@@ -277,12 +299,13 @@ export const makeCalendarFeed = ({
     if (isNaN(start) || isNaN(getEnd(event))) return
 
     events.update($events => {
-      for (let i = 0; i < $events.length; i++) {
-        if ($events[i].id === event.id) return $events
-        if (getStart($events[i]) > start) return insertAt(i, event, $events)
+      const nextEvents = $events.filter(e => e.id !== event.id && (!address || getAddress(e) !== address))
+
+      for (let i = 0; i < nextEvents.length; i++) {
+        if (getStart(nextEvents[i]) > start) return insertAt(i, event, nextEvents)
       }
 
-      return [...$events.filter(e => getAddress(e) !== address), event]
+      return [...nextEvents, event]
     })
   }
 
@@ -318,13 +341,14 @@ export const makeCalendarFeed = ({
   }
 
   const loadTimeframe = async (since: number, until: number) => {
-    const hashes = daysBetween(since, until).map(String)
+    const timeframeFilters = makeTimeframeFilters(since, until)
+    if (timeframeFilters.length === 0 || loadRelays.length === 0) return
 
     await request({
-      relays: [url],
+      relays: loadRelays,
       autoClose: true,
       signal: withTimeoutSignal(controller.signal, CALENDAR_REQUEST_TIMEOUT),
-      filters: [{kinds: [EVENT_TIME], "#D": hashes}],
+      filters: timeframeFilters,
     })
   }
 
@@ -367,10 +391,16 @@ export const makeCalendarFeed = ({
     },
   })
 
-  const initialLoad = Promise.allSettled([
-    loadTimeframe(...initialBackwardWindow),
-    loadTimeframe(...initialForwardWindow),
-  ]).finally(markInitialLoadComplete)
+  const initialLoad =
+    filters.length > 0 && loadRelays.length > 0
+      ? Promise.allSettled([
+          loadTimeframe(...initialBackwardWindow),
+          loadTimeframe(...initialForwardWindow),
+        ]).finally(markInitialLoadComplete)
+      : Promise.resolve().then(() => {
+          markInitialLoadComplete()
+          markExhausted()
+        })
 
   if (initialEvents.length > 0) {
     markInitialLoadComplete()

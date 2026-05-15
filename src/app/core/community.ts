@@ -16,7 +16,7 @@ export const COMMUNITY_SECTION_GENERAL = "General"
 export const COMMUNITY_SECTION_ROOMS = "Rooms"
 export const COMMUNITY_SECTION_FORUM = "Forum"
 export const COMMUNITY_SECTION_CALENDAR = "Calendar"
-export const COMMUNITY_SECTION_FUNDRAISERS = "Fundraisers"
+export const COMMUNITY_SECTION_GOALS = "Goals"
 export const COMMUNITY_SECTION_REPOSITORIES = "Repositories"
 export const COMMUNITY_SECTION_PERMALINKS = "Permalinks"
 export const COMMUNITY_SECTION_WIDGETS = "Widgets"
@@ -218,7 +218,7 @@ export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionK
       return [{kind: 11, subtype: COMMUNITY_SUBTYPE_FORUM}]
     case COMMUNITY_SECTION_CALENDAR:
       return [{kind: 31922}]
-    case COMMUNITY_SECTION_FUNDRAISERS:
+    case COMMUNITY_SECTION_GOALS:
       return [{kind: 9041}]
     case COMMUNITY_SECTION_REPOSITORIES:
       return [{kind: 30617}]
@@ -236,7 +236,7 @@ export const DEFAULT_COMMUNITY_SECTION_NAMES = [
   COMMUNITY_SECTION_ROOMS,
   COMMUNITY_SECTION_FORUM,
   COMMUNITY_SECTION_CALENDAR,
-  COMMUNITY_SECTION_FUNDRAISERS,
+  COMMUNITY_SECTION_GOALS,
   COMMUNITY_SECTION_REPOSITORIES,
   COMMUNITY_SECTION_PERMALINKS,
   COMMUNITY_SECTION_WIDGETS,
@@ -541,8 +541,16 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
 
 export const getCommunityMainRelay = (definition: CommunityDefinition) => definition.relays[0] || ""
 
-export const findCommunitySection = (definition: CommunityDefinition, name: string) =>
-  definition.sections.find(section => section.name === name)
+export const findCommunitySection = (definition: CommunityDefinition, name: string) => {
+  const exactSection = definition.sections.find(section => section.name === name)
+  if (exactSection) return exactSection
+
+  if (name === COMMUNITY_SECTION_GOALS) {
+    return definition.sections.find(section =>
+      section.kinds.some(sectionKind => sectionKind.kind === 9041),
+    )
+  }
+}
 
 export const sectionSupportsKind = (
   section: CommunitySection | undefined,
@@ -554,6 +562,9 @@ export const sectionSupportsKind = (
       sectionKind => sectionKind.kind === kind && (!subtype || sectionKind.subtype === subtype),
     ),
   )
+
+export const getCommunitySectionDisplayName = (section: CommunitySection) =>
+  sectionSupportsKind(section, 9041) ? COMMUNITY_SECTION_GOALS : section.name
 
 export const getProfileListPubkeys = (event: TrustedEvent | undefined) => {
   if (!event || event.kind !== PROFILE_LIST_KIND) return []

@@ -15,7 +15,7 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {getProfileListPubkeys, normalizePubkey} from "@app/core/community"
+  import {getCommunitySectionDisplayName, getProfileListPubkeys, normalizePubkey} from "@app/core/community"
   import {makeCommunityGrantEvents, makeCommunityRevokeEvent} from "@app/core/community-admin"
   import {findProfileListEvent, getGrantCapability} from "@app/core/community-permissions"
 
@@ -23,6 +23,7 @@
   const capabilities = $derived(
     sections.map(section => ({
       section,
+      displayName: getCommunitySectionDisplayName(section),
       capability: $pubkey
         ? getGrantCapability({
             definition: $activeCommunityDefinition!,
@@ -164,7 +165,7 @@
           aria-pressed={isSelected}
           onclick={() => selectSection(item.section.name)}>
           <div class="flex items-center justify-between gap-2">
-            <strong>{item.section.name}</strong>
+            <strong>{item.displayName}</strong>
             {#if isSelected}
               <span class="badge badge-primary badge-sm">Selected</span>
             {/if}
@@ -181,7 +182,7 @@
         class="card2 bg-alt col-3 scroll-mt-24 p-4 shadow-md"
         bind:this={grantForm}
         onsubmit={preventDefault(grant)}>
-        <strong>Grant access to {selected.section.name}</strong>
+        <strong>Grant access to {selected.displayName}</strong>
         <Field>
           {#snippet label()}<p>Pubkey or npub</p>{/snippet}
           {#snippet input()}<input

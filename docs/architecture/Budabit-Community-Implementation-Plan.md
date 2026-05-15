@@ -112,7 +112,7 @@ Implement `kind:30222` for selected public publication types.
 Targeted kinds:
 
 - `31922` calendar events.
-- `9041` fundraisers.
+- `9041` goals.
 - `30617` repo announcements.
 - `1623` git permalinks.
 - `30033` smart widgets.
