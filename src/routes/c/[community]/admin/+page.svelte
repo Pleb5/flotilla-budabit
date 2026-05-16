@@ -1,18 +1,81 @@
 <script lang="ts">
+  import {onMount} from "svelte"
+  import {get as getStore} from "svelte/store"
   import {page} from "$app/stores"
-  import {pubkey} from "@welshman/app"
+  import {pubkey, publishThunk} from "@welshman/app"
+  import {makeEvent} from "@welshman/util"
   import Settings from "@assets/icons/settings.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import Button from "@lib/components/Button.svelte"
+  import Confirm from "@lib/components/Confirm.svelte"
   import CommunityCreate from "@app/components/CommunityCreate.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
-  import {activeCommunityDefinition, activeCommunityProfile} from "@app/core/community-state"
-  import {normalizePubkey} from "@app/core/community"
+  import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
+  import {pushModal} from "@app/util/modal"
+  import {pushToast} from "@app/util/toast"
+  import {
+    activeCommunityDefinition,
+    activeCommunityModeratorRequestReactionEvents,
+    activeCommunityModeratorRequestStates,
+    activeCommunityModeratorRequests,
+    activeCommunityProfile,
+    activeCommunityRelays,
+    loadCommunityEvents,
+    makeCommunityModeratorRequestDeleteFilters,
+    makeCommunityModeratorRequestFilters,
+    makeCommunityModeratorRequestReactionFilters,
+  } from "@app/core/community-state"
+  import {
+    findCommunitySection,
+    getCommunitySectionDisplayName,
+    normalizePubkey,
+    type CommunityBadgeRef,
+    type CommunityProfileListRef,
+  } from "@app/core/community"
+  import {
+    type ModeratorPromotionRequestState,
+    makeModeratorGrantRevokeDefinitionUpdate,
+    makeModeratorPromotionDefinitionUpdate,
+    makeModeratorRequestReaction,
+    makeModeratorRequestReactionDelete,
+  } from "@app/core/community-moderator-requests"
+  import {
+    communityAdminSelectedTab,
+    type CommunityAdminTab,
+  } from "@app/util/community-admin-tabs"
   import {parseCommunityRouteParam} from "@app/util/routes"
+
+  type RequestStatusFilter = "pending" | "accepted" | "rejected"
+
+  type ModeratorSectionGrant = {
+    sectionName: string
+    displayName: string
+    pubkey: string
+    profileLists: CommunityProfileListRef[]
+    badges: CommunityBadgeRef[]
+  }
+
+  type ModeratorGrantPerson = {
+    pubkey: string
+    grants: ModeratorSectionGrant[]
+    grantCount: number
+  }
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  let adminTab = $state<CommunityAdminTab>("settings")
+  let adminTabHydrated = $state(false)
+  let requestStatusFilter = $state<RequestStatusFilter>("pending")
+  let moderatorRequestHydrationKey = $state("")
+  let moderatorReactionHydrationKey = $state("")
+  let moderatorDeleteHydrationKey = $state("")
+
+  const makeHydrationKey = (relays: string[], filters: unknown[]) =>
+    JSON.stringify({relays: relays.slice().sort(), filters})
+
   const canEditCommunity = $derived(
     Boolean(
       $pubkey &&
@@ -20,6 +83,266 @@
       normalizePubkey($pubkey) === normalizePubkey($activeCommunityDefinition.pubkey),
     ),
   )
+  const moderatorRequestFilters = $derived(
+    $activeCommunityDefinition ? makeCommunityModeratorRequestFilters($activeCommunityDefinition) : [],
+  )
+  const moderatorRequestReactionFilters = $derived(
+    $activeCommunityDefinition
+      ? makeCommunityModeratorRequestReactionFilters(
+          $activeCommunityDefinition,
+          $activeCommunityModeratorRequests,
+        )
+      : [],
+  )
+  const moderatorRequestDeleteFilters = $derived(
+    $activeCommunityDefinition
+      ? makeCommunityModeratorRequestDeleteFilters(
+          $activeCommunityDefinition,
+          $activeCommunityModeratorRequestReactionEvents,
+        )
+      : [],
+  )
+  const pendingModeratorRequests = $derived(
+    $activeCommunityModeratorRequestStates.filter(request => request.status === "pending"),
+  )
+  const acceptedModeratorRequests = $derived(
+    $activeCommunityModeratorRequestStates.filter(request => request.status === "accepted"),
+  )
+  const rejectedModeratorRequests = $derived(
+    $activeCommunityModeratorRequestStates.filter(request => request.status === "rejected"),
+  )
+  const visibleModeratorRequests = $derived(
+    $activeCommunityModeratorRequestStates.filter(request => request.status === requestStatusFilter),
+  )
+  const requestStatusTabs = $derived([
+    {status: "pending" as const, label: "Pending", count: pendingModeratorRequests.length},
+    {status: "accepted" as const, label: "Accepted", count: acceptedModeratorRequests.length},
+    {status: "rejected" as const, label: "Rejected", count: rejectedModeratorRequests.length},
+  ])
+  const moderatorSectionGrants = $derived.by((): ModeratorSectionGrant[] => {
+    const definition = $activeCommunityDefinition
+    if (!definition) return []
+
+    const communityOwner = normalizePubkey(definition.pubkey)
+
+    return definition.sections.flatMap(section => {
+      const pubkeys = Array.from(
+        new Set(
+          [...section.profileLists.map(ref => ref.pubkey), ...section.badges.map(ref => ref.pubkey)]
+            .map(normalizePubkey)
+            .filter(Boolean),
+        ),
+      )
+
+      return pubkeys.flatMap(userPubkey => {
+        if (userPubkey === communityOwner) return []
+
+        const profileLists = section.profileLists.filter(
+          ref => normalizePubkey(ref.pubkey) === userPubkey,
+        )
+        const badges = section.badges.filter(ref => normalizePubkey(ref.pubkey) === userPubkey)
+        if (profileLists.length === 0 || badges.length === 0) return []
+
+        return [{
+          sectionName: section.name,
+          displayName: getCommunitySectionDisplayName(section),
+          pubkey: userPubkey,
+          profileLists,
+          badges,
+        }]
+      })
+    })
+  })
+  const moderatorGrantPeople = $derived.by((): ModeratorGrantPerson[] => {
+    const people = new Map<string, ModeratorSectionGrant[]>()
+
+    for (const grant of moderatorSectionGrants) {
+      people.set(grant.pubkey, [...(people.get(grant.pubkey) || []), grant])
+    }
+
+    return Array.from(people.entries())
+      .map(([userPubkey, grants]) => ({
+        pubkey: userPubkey,
+        grants: grants.toSorted((a, b) => a.displayName.localeCompare(b.displayName)),
+        grantCount: grants.length,
+      }))
+      .toSorted((a, b) => b.grantCount - a.grantCount || a.pubkey.localeCompare(b.pubkey))
+  })
+  const activeModeratorGrantCount = $derived(moderatorSectionGrants.length)
+
+  const statusClass = (status: RequestStatusFilter) => {
+    if (status === "accepted") return "badge-success"
+    if (status === "rejected") return "badge-error"
+
+    return "badge-warning"
+  }
+
+  const getSubmittedAt = (request: ModeratorPromotionRequestState) =>
+    Math.max(request.profileList.event.created_at, request.badge.event.created_at)
+
+  const getActiveReviewReactions = (request: ModeratorPromotionRequestState) => [
+    ...request.acceptanceReactions,
+    ...request.rejectionReactions,
+  ]
+
+  const assertCanPublish = () => {
+    if (!$activeCommunityDefinition || !canEditCommunity) {
+      pushToast({theme: "error", message: "Log in as this community pubkey first."})
+      return false
+    }
+
+    if ($activeCommunityRelays.length === 0) {
+      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+      return false
+    }
+
+    return true
+  }
+
+  const publishModeratorReview = (requestState: ModeratorPromotionRequestState, content: "+" | "-") => {
+    const profileListReaction = makeModeratorRequestReaction({
+      request: requestState,
+      target: requestState.profileList,
+      content,
+    })
+    const badgeReaction = makeModeratorRequestReaction({
+      request: requestState,
+      target: requestState.badge,
+      content,
+    })
+
+    publishThunk({relays: $activeCommunityRelays, event: makeEvent(profileListReaction.kind, profileListReaction)})
+    publishThunk({relays: $activeCommunityRelays, event: makeEvent(badgeReaction.kind, badgeReaction)})
+  }
+
+  const acceptModeratorRequest = (requestState: ModeratorPromotionRequestState) => {
+    if (!assertCanPublish() || !$activeCommunityDefinition) return
+
+    if (!findCommunitySection($activeCommunityDefinition, requestState.sectionName)) {
+      pushToast({theme: "error", message: "This request targets a section that no longer exists."})
+      return
+    }
+
+    pushModal(Confirm, {
+      title: "Accept moderator request",
+      message: `Add this pubkey as a moderator for ${requestState.sectionName}? This deletes active review reactions, publishes acceptance reactions, and appends the requester's refs to a new community definition.`,
+      confirm: () => {
+        for (const reaction of getActiveReviewReactions(requestState)) {
+          const deleteEvent = makeModeratorRequestReactionDelete({reactionId: reaction.id})
+
+          publishThunk({relays: $activeCommunityRelays, event: makeEvent(deleteEvent.kind, deleteEvent)})
+        }
+
+        publishModeratorReview(requestState, "+")
+        const definitionUpdate = makeModeratorPromotionDefinitionUpdate({
+          definition: $activeCommunityDefinition!,
+          request: requestState,
+        })
+
+        publishThunk({relays: $activeCommunityRelays, event: makeEvent(definitionUpdate.kind, definitionUpdate)})
+        pushToast({theme: "success", message: "Moderator request accepted."})
+        history.back()
+      },
+    })
+  }
+
+  const rejectModeratorRequest = (requestState: ModeratorPromotionRequestState) => {
+    if (!assertCanPublish()) return
+
+    publishModeratorReview(requestState, "-")
+    pushToast({theme: "warning", message: "Moderator request rejected."})
+  }
+
+  const revokeModeratorGrant = (grant: ModeratorSectionGrant) => {
+    if (!assertCanPublish() || !$activeCommunityDefinition) return
+
+    const section = findCommunitySection($activeCommunityDefinition, grant.sectionName)
+    const hasProfileListRefs = grant.profileLists.some(ref =>
+      section?.profileLists.some(sectionRef => sectionRef.address === ref.address),
+    )
+    const hasBadgeRefs = grant.badges.some(ref =>
+      section?.badges.some(sectionRef => sectionRef.address === ref.address),
+    )
+
+    if (!section || !hasProfileListRefs || !hasBadgeRefs) {
+      pushToast({theme: "error", message: "This moderator grant is no longer active."})
+      return
+    }
+
+    pushModal(Confirm, {
+      title: "Revoke moderator refs",
+      message: `Remove this pubkey's profile-list and badge refs from ${grant.displayName}? This publishes a new community definition for the section.`,
+      confirm: () => {
+        const definitionUpdate = makeModeratorGrantRevokeDefinitionUpdate({
+          definition: $activeCommunityDefinition!,
+          sectionName: grant.sectionName,
+          moderatorPubkey: grant.pubkey,
+        })
+
+        publishThunk({relays: $activeCommunityRelays, event: makeEvent(definitionUpdate.kind, definitionUpdate)})
+        pushToast({theme: "warning", message: "Moderator refs revoked."})
+        history.back()
+      },
+    })
+  }
+
+  const refreshModeratorRequests = () => {
+    moderatorRequestHydrationKey = ""
+    moderatorReactionHydrationKey = ""
+    moderatorDeleteHydrationKey = ""
+  }
+
+  const selectAdminTab = (tab: CommunityAdminTab) => {
+    adminTab = tab
+    if (tab === "requests") refreshModeratorRequests()
+  }
+
+  onMount(() => {
+    const savedTab = getStore(communityAdminSelectedTab)
+    if (savedTab && savedTab !== adminTab) adminTab = savedTab
+    adminTabHydrated = true
+  })
+
+  $effect(() => {
+    if (!adminTabHydrated) return
+    if ($communityAdminSelectedTab !== adminTab) communityAdminSelectedTab.set(adminTab)
+  })
+
+  $effect(() => {
+    if ($activeCommunityRelays.length === 0) return
+    if (moderatorRequestFilters.length === 0) return
+    const key = makeHydrationKey($activeCommunityRelays, moderatorRequestFilters)
+    if (key === moderatorRequestHydrationKey) return
+
+    moderatorRequestHydrationKey = key
+    void loadCommunityEvents($activeCommunityRelays, moderatorRequestFilters).catch(error => {
+      console.warn("[community] Failed to hydrate admin moderator requests", error)
+    })
+  })
+
+  $effect(() => {
+    if ($activeCommunityRelays.length === 0) return
+    if (moderatorRequestReactionFilters.length === 0) return
+    const key = makeHydrationKey($activeCommunityRelays, moderatorRequestReactionFilters)
+    if (key === moderatorReactionHydrationKey) return
+
+    moderatorReactionHydrationKey = key
+    void loadCommunityEvents($activeCommunityRelays, moderatorRequestReactionFilters).catch(error => {
+      console.warn("[community] Failed to hydrate admin moderator request reviews", error)
+    })
+  })
+
+  $effect(() => {
+    if ($activeCommunityRelays.length === 0) return
+    if (moderatorRequestDeleteFilters.length === 0) return
+    const key = makeHydrationKey($activeCommunityRelays, moderatorRequestDeleteFilters)
+    if (key === moderatorDeleteHydrationKey) return
+
+    moderatorDeleteHydrationKey = key
+    void loadCommunityEvents($activeCommunityRelays, moderatorRequestDeleteFilters).catch(error => {
+      console.warn("[community] Failed to hydrate admin moderator review deletes", error)
+    })
+  })
 </script>
 
 <PageBar>
@@ -40,10 +363,189 @@
       Log in as this community pubkey to publish community definition updates.
     </p>
   {:else}
-    <CommunityCreate
-      mode="edit"
-      definition={$activeCommunityDefinition}
-      profile={$activeCommunityProfile}
-      embedded />
+    <div class="flex flex-wrap gap-2">
+      <Button
+        class={`btn ${adminTab === "settings" ? "btn-primary" : "btn-ghost"}`}
+        onclick={() => selectAdminTab("settings")}>
+        Community settings
+      </Button>
+      <Button
+        class={`btn ${adminTab === "requests" ? "btn-primary" : pendingModeratorRequests.length > 0 ? "btn-warning" : "btn-ghost"}`}
+        onclick={() => selectAdminTab("requests")}>
+        Moderator requests
+        {#if pendingModeratorRequests.length > 0}
+          <span class="badge badge-warning ml-2">{pendingModeratorRequests.length}</span>
+        {/if}
+      </Button>
+      <Button
+        class={`btn ${adminTab === "moderators" ? "btn-primary" : "btn-ghost"}`}
+        onclick={() => selectAdminTab("moderators")}>
+        Moderators
+        <span class="badge ml-2">{activeModeratorGrantCount}</span>
+      </Button>
+    </div>
+
+    {#if adminTab === "settings"}
+      <CommunityCreate
+        mode="edit"
+        definition={$activeCommunityDefinition}
+        profile={$activeCommunityProfile}
+        embedded />
+    {:else if adminTab === "requests"}
+      <section class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="text-xl font-semibold">Moderator requests</h2>
+            <p class="text-sm opacity-70">
+              Review requester-owned list and badge pairs, then accept by appending their refs to the community definition.
+            </p>
+          </div>
+          {#if pendingModeratorRequests.length > 0}
+            <span class="badge badge-warning">{pendingModeratorRequests.length} pending</span>
+          {/if}
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          {#each requestStatusTabs as tab}
+            <Button
+              class={`btn btn-sm ${requestStatusFilter === tab.status ? "btn-primary" : tab.status === "pending" && tab.count > 0 ? "btn-warning" : "btn-ghost"}`}
+              onclick={() => (requestStatusFilter = tab.status)}>
+              {tab.label}
+              <span class="badge ml-2">{tab.count}</span>
+            </Button>
+          {/each}
+        </div>
+
+        <div class="flex flex-col gap-3">
+          {#each visibleModeratorRequests as moderatorRequest (`${moderatorRequest.requesterPubkey}:${moderatorRequest.sectionName}`)}
+            <article
+              class={`rounded-box border border-base-300 bg-base-100 p-4 ${moderatorRequest.status === "pending" ? "border-warning bg-warning/10" : ""}`}>
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <strong>{moderatorRequest.sectionName}</strong>
+                    <span class={`badge ${statusClass(moderatorRequest.status)}`}>{moderatorRequest.status}</span>
+                  </div>
+                  <p class="mt-1 text-sm opacity-70">
+                    Requester: <ProfileLink pubkey={moderatorRequest.requesterPubkey} />
+                  </p>
+                  <p class="text-xs opacity-60">
+                    Submitted {new Date(getSubmittedAt(moderatorRequest) * 1000).toLocaleString()}
+                  </p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <Button
+                    class="btn btn-error btn-sm"
+                    disabled={moderatorRequest.status === "rejected"}
+                    onclick={() => rejectModeratorRequest(moderatorRequest)}>
+                    Reject
+                  </Button>
+                  <Button
+                    class="btn btn-success btn-sm"
+                    disabled={moderatorRequest.status === "accepted"}
+                    onclick={() => acceptModeratorRequest(moderatorRequest)}>
+                    Accept
+                  </Button>
+                </div>
+              </div>
+
+              <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                <div class="rounded-box bg-base-200 p-3">
+                  <strong>Profile list ref</strong>
+                  <p class="break-all opacity-75">{moderatorRequest.profileListRef.address}</p>
+                </div>
+                <div class="rounded-box bg-base-200 p-3">
+                  <strong>Badge ref</strong>
+                  <p class="break-all opacity-75">{moderatorRequest.badgeRef.address}</p>
+                </div>
+              </div>
+
+            </article>
+          {:else}
+            <p class="rounded-box bg-base-200 p-4 text-center text-sm opacity-70">
+              No {requestStatusFilter} moderator requests.
+            </p>
+          {/each}
+        </div>
+      </section>
+    {:else}
+      <section class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="text-xl font-semibold">Moderators</h2>
+            <p class="text-sm opacity-70">
+              Review section moderator grants grouped by pubkey. The community key is always allowed and is not listed here.
+            </p>
+          </div>
+          <span class="badge badge-neutral">{activeModeratorGrantCount} grants</span>
+        </div>
+
+        <div class="flex flex-col gap-3">
+          {#each moderatorGrantPeople as person (person.pubkey)}
+            <details class="rounded-box border border-base-300 bg-base-100">
+              <summary class="cursor-pointer p-4 marker:text-primary">
+                <div class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-center justify-between gap-3 align-top">
+                  <div class="flex min-w-0 items-center gap-3">
+                    <ProfileCircle pubkey={person.pubkey} size={9} />
+                    <div class="min-w-0">
+                      <strong><ProfileLink pubkey={person.pubkey} /></strong>
+                    </div>
+                  </div>
+                  <span class="badge badge-success">
+                    {person.grantCount} {person.grantCount === 1 ? "grant" : "grants"}
+                  </span>
+                </div>
+              </summary>
+
+              <div class="border-t border-base-300 p-4">
+                <div class="flex flex-col gap-3">
+                  {#each person.grants as grant (`${grant.sectionName}:${grant.pubkey}`)}
+                    <article class="rounded-box bg-base-200 p-3">
+                      <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div class="flex flex-wrap items-center gap-2">
+                            <strong>{grant.displayName}</strong>
+                            <span class="badge badge-success">profile list + badge</span>
+                          </div>
+                          <p class="mt-1 text-xs opacity-60">
+                            Revoking removes both profile-list manager and badge issuer refs for this section.
+                          </p>
+                        </div>
+                        <Button class="btn btn-error btn-sm" onclick={() => revokeModeratorGrant(grant)}>
+                          Revoke grant
+                        </Button>
+                      </div>
+
+                      <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                        <div class="rounded-box bg-base-100 p-3">
+                          <strong>Profile-list refs</strong>
+                          <div class="mt-2 flex flex-col gap-1">
+                            {#each grant.profileLists as ref (ref.address)}
+                              <p class="break-all opacity-75">{ref.address}</p>
+                            {/each}
+                          </div>
+                        </div>
+                        <div class="rounded-box bg-base-100 p-3">
+                          <strong>Badge refs</strong>
+                          <div class="mt-2 flex flex-col gap-1">
+                            {#each grant.badges as ref (ref.address)}
+                              <p class="break-all opacity-75">{ref.address}</p>
+                            {/each}
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  {/each}
+                </div>
+              </div>
+            </details>
+          {:else}
+            <p class="rounded-box bg-base-200 p-4 text-center text-sm opacity-70">
+              No non-owner moderator grants are configured for this community.
+            </p>
+          {/each}
+        </div>
+      </section>
+    {/if}
   {/if}
 </PageContent>

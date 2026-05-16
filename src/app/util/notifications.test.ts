@@ -14,15 +14,20 @@ vi.mock("@app/core/state", () => ({
   userSettingsValues: readable({show_notifications_badge: false}),
 }))
 
+vi.mock("@app/core/community-state", () => ({
+  activeCommunityUserModeratorRequestStates: readable([]),
+}))
+
 vi.mock("@app/util/routes", () => ({
   makeChatPath: (id: string) => `/chat/${id}`,
+  makeCommunityPath: (community: string, ...extra: string[]) =>
+    `/c/${community}${extra.length ? `/${extra.join("/")}` : ""}`,
 }))
 
 describe("notifications", () => {
   it("matches repo notification helpers against canonical git routes", async () => {
-    const {getRepoNotificationPaths, hasRepoNotification, setCheckedForRepoNotifications} = await import(
-      "./notifications"
-    )
+    const {getRepoNotificationPaths, hasRepoNotification, setCheckedForRepoNotifications} =
+      await import("./notifications")
     const pubkey = "a".repeat(64)
     const identifier = "flotilla-budabit"
     const naddr = nip19.naddrEncode({kind: 30617, pubkey, identifier})

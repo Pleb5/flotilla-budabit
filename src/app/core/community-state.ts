@@ -14,6 +14,7 @@ import {
   PROFILE_LIST_KIND,
   type CommunityDefinition,
   type ParsedCommunityInput,
+  normalizePubkey,
   normalizeRelays,
   parseCommunityDefinition,
   parseCommunityInput,
@@ -41,6 +42,14 @@ import {
   selectPreferredCommunities,
   type PreferredCommunityRef,
 } from "@app/util/community-preferences"
+import {
+  MODERATOR_REQUEST_REACTION_DELETE_KIND,
+  MODERATOR_REQUEST_REACTION_KIND,
+  getModeratorPromotionRequestStates,
+  getModeratorPromotionRequests,
+  type ModeratorPromotionRequest,
+  type ModeratorPromotionRequestState,
+} from "@app/core/community-moderator-requests"
 
 export const COMMUNITY_SESSION_STORAGE_KEY = "budabit/community-session"
 
@@ -272,6 +281,8 @@ const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
 const COMMUNITY_STAR_HYDRATION_TTL = 30_000
 const COMMUNITY_PREFERENCE_LOAD_TIMEOUT = 1500
 const COMMUNITY_PREFERENCE_HYDRATION_TTL = 30_000
+const COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT = 1500
+const COMMUNITY_MODERATOR_REQUEST_HYDRATION_TTL = 30_000
 
 export const loadCommunityEvents = async (
   relays: string[],
@@ -589,10 +600,9 @@ export const hydrateCommunityPreferences = async ({
 
     if (requestId !== communityPreferenceHydrationRequestId) return
 
-    const profileListEvents = [
-      ...loadedEvents,
-      ...get(communityModeratorProfileListEvents),
-    ].filter(event => event.kind === PROFILE_LIST_KIND)
+    const profileListEvents = [...loadedEvents, ...get(communityModeratorProfileListEvents)].filter(
+      event => event.kind === PROFILE_LIST_KIND,
+    )
     const formCommunityPubkeys = Array.from(
       new Set(
         [...loadedEvents, ...get(communityModeratorFormEvents)]
@@ -675,6 +685,59 @@ export const makeCommunityAdmissionFormFilters = (definition: CommunityDefinitio
     : []
 }
 
+export const makeCommunityModeratorRequestFilters = (
+  definition: CommunityDefinition,
+  options: {authors?: string[]; limit?: number} = {},
+): Filter[] => {
+  const communityAddress = makeCommunityDefinitionAddress(definition.pubkey)
+  const authors = options.authors?.map(normalizePubkey).filter(Boolean)
+
+  return communityAddress
+    ? [
+        {
+          kinds: [PROFILE_LIST_KIND, BADGE_DEFINITION_KIND],
+          "#a": [communityAddress],
+          ...(authors?.length ? {authors} : {}),
+          limit: options.limit ?? 200,
+        },
+      ]
+    : []
+}
+
+export const makeCommunityModeratorRequestReactionFilters = (
+  definition: CommunityDefinition,
+  requests: ModeratorPromotionRequest[],
+): Filter[] => {
+  const eventIds = Array.from(
+    new Set(
+      requests
+        .flatMap(request => [request.profileList.event.id, request.badge.event.id])
+        .filter(Boolean),
+    ),
+  )
+
+  return eventIds.length
+    ? [{kinds: [MODERATOR_REQUEST_REACTION_KIND], authors: [definition.pubkey], "#e": eventIds}]
+    : []
+}
+
+export const makeCommunityModeratorRequestDeleteFilters = (
+  definition: CommunityDefinition,
+  reactionEvents: TrustedEvent[],
+): Filter[] => {
+  const reactionIds = Array.from(new Set(reactionEvents.map(event => event.id).filter(Boolean)))
+
+  return reactionIds.length
+    ? [
+        {
+          kinds: [MODERATOR_REQUEST_REACTION_DELETE_KIND],
+          authors: [definition.pubkey],
+          "#e": reactionIds,
+        },
+      ]
+    : []
+}
+
 const deriveActiveCommunityEvents = (
   makeFilters: (definition: CommunityDefinition) => Filter[],
 ): Readable<TrustedEvent[]> =>
@@ -706,32 +769,344 @@ export const activeCommunityBadgeDefinitionEvents: Readable<TrustedEvent[]> =
 export const activeCommunityAdmissionFormEvents: Readable<TrustedEvent[]> =
   deriveActiveCommunityEvents(makeCommunityAdmissionFormFilters)
 
+export const activeCommunityModeratorRequestEvents: Readable<TrustedEvent[]> =
+  deriveActiveCommunityEvents(makeCommunityModeratorRequestFilters)
+
+export const activeCommunityModeratorRequests: Readable<ModeratorPromotionRequest[]> = derived(
+  [activeCommunityDefinition, activeCommunityModeratorRequestEvents],
+  ([$activeCommunityDefinition, $activeCommunityModeratorRequestEvents]) =>
+    $activeCommunityDefinition
+      ? getModeratorPromotionRequests({
+          profileListEvents: $activeCommunityModeratorRequestEvents.filter(
+            event => event.kind === PROFILE_LIST_KIND,
+          ),
+          badgeEvents: $activeCommunityModeratorRequestEvents.filter(
+            event => event.kind === BADGE_DEFINITION_KIND,
+          ),
+          communityPubkey: $activeCommunityDefinition.pubkey,
+        })
+      : [],
+  [] as ModeratorPromotionRequest[],
+)
+
+export const activeCommunityModeratorRequestReactionEvents: Readable<TrustedEvent[]> = derived(
+  [activeCommunityDefinition, activeCommunityModeratorRequests],
+  ([$activeCommunityDefinition, $activeCommunityModeratorRequests], set) => {
+    if (!$activeCommunityDefinition) {
+      set([])
+      return
+    }
+
+    const filters = makeCommunityModeratorRequestReactionFilters(
+      $activeCommunityDefinition,
+      $activeCommunityModeratorRequests,
+    )
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activeCommunityModeratorRequestDeleteEvents: Readable<TrustedEvent[]> = derived(
+  [activeCommunityDefinition, activeCommunityModeratorRequestReactionEvents],
+  ([$activeCommunityDefinition, $activeCommunityModeratorRequestReactionEvents], set) => {
+    if (!$activeCommunityDefinition) {
+      set([])
+      return
+    }
+
+    const filters = makeCommunityModeratorRequestDeleteFilters(
+      $activeCommunityDefinition,
+      $activeCommunityModeratorRequestReactionEvents,
+    )
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activeCommunityModeratorRequestStates: Readable<ModeratorPromotionRequestState[]> =
+  derived(
+    [
+      activeCommunityDefinition,
+      activeCommunityModeratorRequests,
+      activeCommunityModeratorRequestReactionEvents,
+      activeCommunityModeratorRequestDeleteEvents,
+    ],
+    ([
+      $activeCommunityDefinition,
+      $activeCommunityModeratorRequests,
+      $activeCommunityModeratorRequestReactionEvents,
+      $activeCommunityModeratorRequestDeleteEvents,
+    ]) =>
+      $activeCommunityDefinition
+        ? getModeratorPromotionRequestStates({
+            definition: $activeCommunityDefinition,
+            requests: $activeCommunityModeratorRequests,
+            reactionEvents: $activeCommunityModeratorRequestReactionEvents,
+            deleteEvents: $activeCommunityModeratorRequestDeleteEvents,
+          })
+        : [],
+    [] as ModeratorPromotionRequestState[],
+  )
+
+export const activeCommunityPendingModeratorRequestCount: Readable<number> = derived(
+  activeCommunityModeratorRequestStates,
+  $activeCommunityModeratorRequestStates =>
+    $activeCommunityModeratorRequestStates.filter(request => request.status === "pending").length,
+  0,
+)
+
+export const activeCommunityUserModeratorRequestEvents: Readable<TrustedEvent[]> = derived(
+  [activeCommunityDefinition, pubkey],
+  ([$activeCommunityDefinition, $pubkey], set) => {
+    if (!$activeCommunityDefinition || !$pubkey) {
+      set([])
+      return
+    }
+
+    const filters = makeCommunityModeratorRequestFilters($activeCommunityDefinition, {
+      authors: [$pubkey],
+      limit: 50,
+    })
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activeCommunityUserModeratorRequests: Readable<ModeratorPromotionRequest[]> = derived(
+  [activeCommunityDefinition, activeCommunityUserModeratorRequestEvents],
+  ([$activeCommunityDefinition, $activeCommunityUserModeratorRequestEvents]) =>
+    $activeCommunityDefinition
+      ? getModeratorPromotionRequests({
+          profileListEvents: $activeCommunityUserModeratorRequestEvents.filter(
+            event => event.kind === PROFILE_LIST_KIND,
+          ),
+          badgeEvents: $activeCommunityUserModeratorRequestEvents.filter(
+            event => event.kind === BADGE_DEFINITION_KIND,
+          ),
+          communityPubkey: $activeCommunityDefinition.pubkey,
+        })
+      : [],
+  [] as ModeratorPromotionRequest[],
+)
+
+export const activeCommunityUserModeratorRequestReactionEvents: Readable<TrustedEvent[]> = derived(
+  [activeCommunityDefinition, activeCommunityUserModeratorRequests],
+  ([$activeCommunityDefinition, $activeCommunityUserModeratorRequests], set) => {
+    if (!$activeCommunityDefinition) {
+      set([])
+      return
+    }
+
+    const filters = makeCommunityModeratorRequestReactionFilters(
+      $activeCommunityDefinition,
+      $activeCommunityUserModeratorRequests,
+    )
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activeCommunityUserModeratorRequestDeleteEvents: Readable<TrustedEvent[]> = derived(
+  [activeCommunityDefinition, activeCommunityUserModeratorRequestReactionEvents],
+  ([$activeCommunityDefinition, $activeCommunityUserModeratorRequestReactionEvents], set) => {
+    if (!$activeCommunityDefinition) {
+      set([])
+      return
+    }
+
+    const filters = makeCommunityModeratorRequestDeleteFilters(
+      $activeCommunityDefinition,
+      $activeCommunityUserModeratorRequestReactionEvents,
+    )
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activeCommunityUserModeratorRequestStates: Readable<ModeratorPromotionRequestState[]> =
+  derived(
+    [
+      activeCommunityDefinition,
+      activeCommunityUserModeratorRequests,
+      activeCommunityUserModeratorRequestReactionEvents,
+      activeCommunityUserModeratorRequestDeleteEvents,
+    ],
+    ([
+      $activeCommunityDefinition,
+      $activeCommunityUserModeratorRequests,
+      $activeCommunityUserModeratorRequestReactionEvents,
+      $activeCommunityUserModeratorRequestDeleteEvents,
+    ]) =>
+      $activeCommunityDefinition
+        ? getModeratorPromotionRequestStates({
+            definition: $activeCommunityDefinition,
+            requests: $activeCommunityUserModeratorRequests,
+            reactionEvents: $activeCommunityUserModeratorRequestReactionEvents,
+            deleteEvents: $activeCommunityUserModeratorRequestDeleteEvents,
+          })
+        : [],
+    [] as ModeratorPromotionRequestState[],
+  )
+
+export const activeCommunityUserModeratorRequestsLoading = writable(false)
+
+let userModeratorRequestHydrationKey = ""
+let userModeratorRequestHydrationRequestId = 0
+let userModeratorRequestHydratedAt = 0
+
+export const hydrateActiveCommunityUserModeratorRequests = async ({
+  definition = get(activeCommunityDefinition),
+  relays = get(activeCommunityRelays),
+  force = false,
+}: {
+  definition?: CommunityDefinition
+  relays?: string[]
+  force?: boolean
+} = {}) => {
+  const user = pubkey.get()
+  const normalizedRelays = normalizeRelays(relays || [])
+  const key = definition
+    ? `${definition.event.id}:${user || ""}:${normalizedRelays.slice().sort().join(",")}`
+    : ""
+
+  if (!definition || !user || normalizedRelays.length === 0) {
+    activeCommunityUserModeratorRequestsLoading.set(false)
+    userModeratorRequestHydrationKey = ""
+    userModeratorRequestHydratedAt = 0
+    return
+  }
+  if (
+    !force &&
+    userModeratorRequestHydrationKey === key &&
+    Date.now() - userModeratorRequestHydratedAt < COMMUNITY_MODERATOR_REQUEST_HYDRATION_TTL
+  )
+    return
+
+  const requestFilters = makeCommunityModeratorRequestFilters(definition, {
+    authors: [user],
+    limit: 50,
+  })
+  if (requestFilters.length === 0) return
+
+  const requestId = ++userModeratorRequestHydrationRequestId
+  userModeratorRequestHydrationKey = key
+  userModeratorRequestHydratedAt = Date.now()
+  activeCommunityUserModeratorRequestsLoading.set(true)
+
+  try {
+    const [loadedRequestEvents] = await Promise.all([
+      withTimeout(
+        loadCommunityEvents(normalizedRelays, requestFilters, {
+          timeout: COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT,
+        }),
+        COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT + 500,
+        [] as TrustedEvent[],
+      ),
+      withTimeout(
+        loadCommunityEvents(normalizedRelays, [makeCommunityDefinitionFilter(definition.pubkey)], {
+          timeout: COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT,
+        }),
+        COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT + 500,
+        [] as TrustedEvent[],
+      ),
+    ])
+
+    if (requestId !== userModeratorRequestHydrationRequestId) return
+
+    const requestEvents = [
+      ...loadedRequestEvents,
+      ...get(activeCommunityUserModeratorRequestEvents),
+    ]
+    const requests = getModeratorPromotionRequests({
+      profileListEvents: requestEvents.filter(event => event.kind === PROFILE_LIST_KIND),
+      badgeEvents: requestEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
+      communityPubkey: definition.pubkey,
+    })
+    const reactionFilters = makeCommunityModeratorRequestReactionFilters(definition, requests)
+    const loadedReactionEvents = reactionFilters.length
+      ? await withTimeout(
+          loadCommunityEvents(normalizedRelays, reactionFilters, {
+            timeout: COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT,
+          }),
+          COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT + 500,
+          [] as TrustedEvent[],
+        )
+      : []
+
+    if (requestId !== userModeratorRequestHydrationRequestId) return
+
+    const reactionEvents = [
+      ...loadedReactionEvents,
+      ...get(activeCommunityUserModeratorRequestReactionEvents),
+    ]
+    const deleteFilters = makeCommunityModeratorRequestDeleteFilters(definition, reactionEvents)
+
+    if (deleteFilters.length > 0) {
+      await withTimeout(
+        loadCommunityEvents(normalizedRelays, deleteFilters, {
+          timeout: COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT,
+        }),
+        COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT + 500,
+        [] as TrustedEvent[],
+      )
+    }
+  } finally {
+    if (requestId === userModeratorRequestHydrationRequestId) {
+      activeCommunityUserModeratorRequestsLoading.set(false)
+    }
+  }
+}
+
 export const selectCommunityAdmissionForms = (
   definition: CommunityDefinition,
   events: TrustedEvent[],
 ): Record<string, CommunityAdmissionForm> =>
   Object.fromEntries(
-    definition.sections
-      .flatMap(section => {
-        const form = selectActiveAdmissionForm({
-          events,
-          communityPubkey: definition.pubkey,
+    definition.sections.flatMap(section => {
+      const form = selectActiveAdmissionForm({
+        events,
+        communityPubkey: definition.pubkey,
+        sectionName: section.name,
+        moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
+          definition,
           sectionName: section.name,
-          moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
-            definition,
-            sectionName: section.name,
-          }),
-        })
-
-        if (!form) return []
-
-        return sectionSupportsKind(section, 9041)
-          ? [
-              [section.name, form],
-              [COMMUNITY_SECTION_GOALS, form],
-            ]
-          : [[section.name, form]]
+        }),
       })
+
+      if (!form) return []
+
+      return sectionSupportsKind(section, 9041)
+        ? [
+            [section.name, form],
+            [COMMUNITY_SECTION_GOALS, form],
+          ]
+        : [[section.name, form]]
+    }),
   )
 
 export const activeCommunityAdmissionForms: Readable<Record<string, CommunityAdmissionForm>> =

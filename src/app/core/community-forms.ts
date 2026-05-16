@@ -452,12 +452,13 @@ export const selectActiveAdmissionForm = ({
 }) => {
   const communityAddress = makeCommunityDefinitionAddress(communityPubkey)
   const moderators = new Set((moderatorPubkeys || []).map(normalizePubkey).filter(Boolean))
+  const filterModerators = Boolean(moderatorPubkeys)
   let selected: CommunityAdmissionForm | undefined
 
   for (const form of selectLatestFormByAddress(events)) {
     if (form.communityAddress !== communityAddress) continue
     if (form.sectionName !== sectionName) continue
-    if (moderators.size && !moderators.has(form.pubkey)) continue
+    if (filterModerators && !moderators.has(form.pubkey)) continue
     if (isPreferredEvent(form.event, selected?.event)) selected = form
   }
 
@@ -605,13 +606,14 @@ export const selectLatestAdmissionReview = ({
   moderatorPubkeys?: string[]
 }) => {
   const moderators = new Set((moderatorPubkeys || []).map(normalizePubkey).filter(Boolean))
+  const filterModerators = Boolean(moderatorPubkeys)
   let selected: CommunityFormReview | undefined
 
   for (const event of events) {
     const review = parseAdmissionReview(event)
     if (!review) continue
     if (review.responseId !== responseId) continue
-    if (moderators.size && !moderators.has(normalizePubkey(review.event.pubkey || ""))) continue
+    if (filterModerators && !moderators.has(normalizePubkey(review.event.pubkey || ""))) continue
     if (isPreferredEvent(review.event, selected?.event)) selected = review
   }
 

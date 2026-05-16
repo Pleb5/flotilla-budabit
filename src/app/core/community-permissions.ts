@@ -6,7 +6,6 @@ import {
   type CommunityFormResponse,
 } from "@app/core/community-forms"
 import {
-  BADGE_DEFINITION_KIND,
   COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_FORUM,
   COMMUNITY_SECTION_GENERAL,
@@ -18,12 +17,11 @@ import {
   COMMUNITY_SUBTYPE_FORUM,
   COMMUNITY_SUBTYPE_ROOM,
   COMMUNITY_SUBTYPE_ROOM_MESSAGE,
-  PROFILE_LIST_KIND,
+  type AddressRef,
   type CommunityBadgeRef,
   type CommunityDefinition,
   type CommunityProfileListRef,
   type CommunitySection,
-  canWriteFromProfileList,
   findCommunitySection,
   getProfileListPubkeys,
   normalizePubkey,
@@ -107,27 +105,61 @@ const getAddress = (event: TrustedEvent) => {
   return d ? `${event.kind}:${event.pubkey}:${d}` : ""
 }
 
+const isPreferredEvent = (candidate: TrustedEvent, current: TrustedEvent | undefined) => {
+  if (!current) return true
+  if (candidate.created_at !== current.created_at) return candidate.created_at > current.created_at
+
+  return candidate.id < current.id
+}
+
+export const findAddressableEvent = (ref: AddressRef | undefined, events: TrustedEvent[]) => {
+  if (!ref) return undefined
+
+  let selected: TrustedEvent | undefined
+
+  for (const event of events) {
+    if (event.kind !== ref.kind) continue
+    if (getAddress(event) !== ref.address) continue
+    if (isPreferredEvent(event, selected)) selected = event
+  }
+
+  return selected
+}
+
 export const findProfileListEvent = (
   profileListRef: CommunityProfileListRef | undefined,
   profileListEvents: TrustedEvent[],
-) => {
-  if (!profileListRef) return undefined
-
-  return profileListEvents.find(
-    event => event.kind === PROFILE_LIST_KIND && getAddress(event) === profileListRef.address,
-  )
-}
+) => findAddressableEvent(profileListRef, profileListEvents)
 
 export const findBadgeDefinitionEvent = (
   badgeRef: CommunityBadgeRef | undefined,
   badgeDefinitionEvents: TrustedEvent[],
-) => {
-  if (!badgeRef) return undefined
+) => findAddressableEvent(badgeRef, badgeDefinitionEvents)
 
-  return badgeDefinitionEvents.find(
-    event => event.kind === BADGE_DEFINITION_KIND && getAddress(event) === badgeRef.address,
+export const getSectionProfileListPubkeys = ({
+  section,
+  profileListEvents,
+}: {
+  section: CommunitySection | undefined
+  profileListEvents: TrustedEvent[]
+}) =>
+  Array.from(
+    new Set(
+      (section?.profileLists || [])
+        .flatMap(ref => getProfileListPubkeys(findProfileListEvent(ref, profileListEvents)))
+        .filter(Boolean),
+    ),
   )
-}
+
+export const userHasSectionProfileListAccess = ({
+  section,
+  profileListEvents,
+  userPubkey,
+}: {
+  section: CommunitySection | undefined
+  profileListEvents: TrustedEvent[]
+  userPubkey: string
+}) => getSectionProfileListPubkeys({section, profileListEvents}).includes(normalizePubkey(userPubkey))
 
 export const canWriteCommunitySection = ({
   definition,
@@ -152,11 +184,7 @@ export const canWriteCommunitySection = ({
   if (section?.profileLists.some(ref => userCanManageProfileList(ref, normalizedUser))) return true
   if (section?.badges.some(ref => userCanIssueBadge(ref, normalizedUser))) return true
 
-  const profileLists = section?.profileLists
-    .map(ref => findProfileListEvent(ref, profileListEvents))
-    .filter(Boolean) as TrustedEvent[]
-
-  return profileLists.some(profileList => canWriteFromProfileList(profileList, normalizedUser))
+  return userHasSectionProfileListAccess({section, profileListEvents, userPubkey: normalizedUser})
 }
 
 export const canWriteCommunityTarget = ({
@@ -324,13 +352,7 @@ export const getCommunitySectionWriterPubkeys = ({
   const section = findCommunitySection(definition, sectionName)
   const pubkeys = new Set(getCommunitySectionAuthorityPubkeys({definition, sectionName}))
 
-  for (const ref of section?.profileLists || []) {
-    const profileList = findProfileListEvent(ref, profileListEvents)
-
-    for (const pubkey of getProfileListPubkeys(profileList)) {
-      pubkeys.add(pubkey)
-    }
-  }
+  for (const pubkey of getSectionProfileListPubkeys({section, profileListEvents})) pubkeys.add(pubkey)
 
   return Array.from(pubkeys)
 }

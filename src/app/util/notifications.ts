@@ -4,8 +4,9 @@ import {pubkey} from "@welshman/app"
 import {identity, now, prop} from "@welshman/lib"
 import {Address, type TrustedEvent} from "@welshman/util"
 import {chatsById, userSettingsValues} from "@app/core/state"
+import {activeCommunityUserModeratorRequestStates} from "@app/core/community-state"
 import {kv} from "@app/core/storage"
-import {makeChatPath} from "@app/util/routes"
+import {makeChatPath, makeCommunityPath} from "@app/util/routes"
 
 export const checked = synced<Record<string, number>>({
   key: "checked",
@@ -58,11 +59,30 @@ const getLatestIncomingEvent = (events: TrustedEvent[], selfPubkey: string | und
   return latest
 }
 
-const normalizeChecked = (value: number) =>
+export const normalizeChecked = (value: number) =>
   value > 10_000_000_000 ? Math.round(value / 1000) : value
 
+const moderatorRequestStatusCandidates: Readable<NotificationCandidate[]> = derived(
+  [pubkey, activeCommunityUserModeratorRequestStates],
+  ([$pubkey, $activeCommunityUserModeratorRequestStates]) => {
+    if (!$pubkey) return []
+
+    return $activeCommunityUserModeratorRequestStates
+      .filter(request => request.requesterPubkey === $pubkey)
+      .filter(request => request.status !== "pending")
+      .filter(request => Boolean(request.statusEvent))
+      .map(request => ({
+        path: makeCommunityPath(request.communityPubkey, "access"),
+        latestEvent: request.statusEvent,
+      }))
+  },
+)
+
 export const notifications = derived(
-  throttled(1000, derived([pubkey, checked, chatsById, notificationsConfig, extraCandidates], identity)),
+  throttled(
+    1000,
+    derived([pubkey, checked, chatsById, notificationsConfig, extraCandidates], identity),
+  ),
   ([$pubkey, $checked, $chatsById, $notificationsConfig, $extraCandidates]) => {
     const hasNotification = (path: string, latestEvent: TrustedEvent | undefined) => {
       if (!latestEvent || latestEvent.pubkey === $pubkey) return false
@@ -110,9 +130,9 @@ export const handleBadgeCountChanges = async (count: number) => {
   if (get(userSettingsValues).show_notifications_badge) {
     try {
       if ("setAppBadge" in navigator) {
-        await (navigator as Navigator & {setAppBadge: (count?: number) => Promise<void>}).setAppBadge(
-          count,
-        )
+        await (
+          navigator as Navigator & {setAppBadge: (count?: number) => Promise<void>}
+        ).setAppBadge(count)
       }
     } catch {
       // failed to set badge
@@ -134,7 +154,7 @@ export const clearBadges = async () => {
 
 export const setupBudabitNotifications = () => {
   setNotificationsConfig({})
-  setNotificationCandidates(readable<NotificationCandidate[]>([]))
+  setNotificationCandidates(moderatorRequestStatusCandidates)
 
   return () => undefined
 }

@@ -53,7 +53,13 @@
   import {initializeCashuWallet} from "@app/core/cashu"
   import {registerCashuBridgeHandlers} from "@app/core/cashu-bridge"
   import CashuPayConfirm from "@app/components/CashuPayConfirm.svelte"
-  import {activeCommunitySession, loadCommunityBootstrap} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityRelays,
+    activeCommunitySession,
+    hydrateActiveCommunityUserModeratorRequests,
+    loadCommunityBootstrap,
+  } from "@app/core/community-state"
 
   const {children} = $props()
   const nostrGitProviderProps = /** @type {any} */ ({
@@ -105,6 +111,8 @@
   let updateToastShown = false
   let loadedCommunityKey = ""
   let loadingCommunityKey = ""
+  let loadedUserModeratorRequestsKey = ""
+  let loadingUserModeratorRequestsKey = ""
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -149,6 +157,36 @@
       })
       .finally(() => {
         if (loadingCommunityKey === key) loadingCommunityKey = ""
+      })
+  })
+
+  $effect(() => {
+    const definition = $activeCommunityDefinition
+    const relays = $activeCommunityRelays
+    const key =
+      definition && $pubkey && relays.length
+        ? `${definition.event.id}:${$pubkey}:${relays.join(",")}`
+        : ""
+
+    if (
+      !browser ||
+      !definition ||
+      !key ||
+      loadedUserModeratorRequestsKey === key ||
+      loadingUserModeratorRequestsKey === key
+    )
+      return
+
+    loadingUserModeratorRequestsKey = key
+    hydrateActiveCommunityUserModeratorRequests({definition, relays})
+      .then(() => {
+        loadedUserModeratorRequestsKey = key
+      })
+      .catch(error => {
+        console.warn("[community] Failed to load active moderator request status", error)
+      })
+      .finally(() => {
+        if (loadingUserModeratorRequestsKey === key) loadingUserModeratorRequestsKey = ""
       })
   })
 

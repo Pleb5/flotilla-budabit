@@ -11,11 +11,10 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {FORM_RESPONSE_KIND, findCommunitySection, getProfileListPubkeys} from "@app/core/community"
+  import {FORM_RESPONSE_KIND, findCommunitySection} from "@app/core/community"
   import {
-    findProfileListEvent,
     getCommunityPublishGateState,
-    getPrimaryProfileListRef,
+    getSectionProfileListPubkeys,
     type CommunityPublishGateState,
     type CommunityWriteTarget,
   } from "@app/core/community-permissions"
@@ -96,10 +95,12 @@
   )
   const canWrite = $derived(gateState.status === "allowed")
   const hasForm = $derived(Boolean(form))
-  const profileListEvent = $derived(
-    findProfileListEvent(getPrimaryProfileListRef(section), $activeCommunityProfileListEvents),
+  const writerCount = $derived(
+    getSectionProfileListPubkeys({
+      section,
+      profileListEvents: $activeCommunityProfileListEvents,
+    }).length,
   )
-  const writerCount = $derived(getProfileListPubkeys(profileListEvent).length)
   const reason = $derived(
     !$pubkey
       ? "Log in to request publishing access."

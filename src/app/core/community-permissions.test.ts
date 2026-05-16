@@ -106,6 +106,49 @@ describe("community permissions", () => {
     ).toBe(memberBadgeDefinition)
   })
 
+  it("uses the latest replaceable profile list event by address", () => {
+    const olderList = makeEvent({
+      id: "older-list",
+      kind: PROFILE_LIST_KIND,
+      pubkey: managerPubkey,
+      created_at: 1,
+      tags: [
+        ["d", "General"],
+        ["p", outsiderPubkey],
+      ],
+    })
+    const newerList = makeEvent({
+      id: "newer-list",
+      kind: PROFILE_LIST_KIND,
+      pubkey: managerPubkey,
+      created_at: 2,
+      tags: [
+        ["d", "General"],
+        ["p", memberPubkey],
+      ],
+    })
+
+    expect(findProfileListEvent(definition.sections[0].profileLists[0], [olderList, newerList])).toBe(
+      newerList,
+    )
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [olderList, newerList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [olderList, newerList],
+        userPubkey: outsiderPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+      }),
+    ).toBe(false)
+  })
+
   it("checks write access from profile lists", () => {
     expect(
       canWriteCommunityTarget({

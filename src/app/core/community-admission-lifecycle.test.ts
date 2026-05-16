@@ -10,6 +10,7 @@ import {
   parseCommunityDefinition,
 } from "./community"
 import {makeCommunityGrantEvents} from "./community-admin"
+import {makeModeratorGrantRevokeDefinitionUpdate} from "./community-moderator-requests"
 import {makeTargetedPublicationForCommunity, makeAddressablePublicationRef} from "./community-targeting"
 import {makeTargetedPublicationOriginalFilters} from "./community-feeds"
 import {
@@ -17,6 +18,7 @@ import {
   canWriteCommunityTarget,
   getCommunityPublishGateState,
   getCommunitySectionWriterPubkeys,
+  getGrantCapableSectionModeratorPubkeys,
 } from "./community-permissions"
 import {
   makeAdmissionFormAddress,
@@ -330,5 +332,93 @@ describe("community admission lifecycle integration", () => {
         calendarAuthors,
       ),
     ).toEqual([{kinds: [31922], authors: [approvedCalendarPubkey], "#d": ["approved-event"]}])
+  })
+
+  it("ignores grants, forms, and reviews from a removed moderator", () => {
+    const grantEvents = makeCommunityGrantEvents({
+      profileList: generalListRef,
+      badge: generalBadgeRef,
+      pubkey: applicantPubkey,
+    })
+    const grantedProfileList = makeEvent({
+      id: "general-list-granted",
+      kind: PROFILE_LIST_KIND,
+      pubkey: moderatorPubkey,
+      tags: grantEvents.profileList.tags,
+    })
+    const revokeTemplate = makeModeratorGrantRevokeDefinitionUpdate({
+      definition,
+      sectionName: "General",
+      moderatorPubkey,
+    })
+    const revokedDefinition = parseCommunityDefinition(
+      makeEvent({
+        id: "community-definition-revoked",
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: revokeTemplate.tags,
+      }),
+    )!
+    const response = makeEvent({
+      id: "response-revoked-moderator",
+      kind: FORM_RESPONSE_KIND,
+      pubkey: applicantPubkey,
+      tags: makeAdmissionResponse({
+        formAddress,
+        values: {intro: "I was approved by a removed moderator."},
+      }).tags,
+    })
+    const grantReview = makeEvent({
+      id: "grant-response-revoked-moderator",
+      kind: 7,
+      pubkey: moderatorPubkey,
+      created_at: 2,
+      content: "+",
+      tags: makeAdmissionReview({
+        responseId: response.id,
+        applicantPubkey,
+        status: "granted",
+      }).tags,
+    })
+    const currentModerators = getGrantCapableSectionModeratorPubkeys({
+      definition: revokedDefinition,
+      sectionName: "General",
+    })
+
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [grantedProfileList],
+        userPubkey: applicantPubkey,
+        target: COMMUNITY_WRITE_TARGETS.comment,
+      }),
+    ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition: revokedDefinition,
+        profileListEvents: [grantedProfileList],
+        userPubkey: applicantPubkey,
+        target: COMMUNITY_WRITE_TARGETS.comment,
+      }),
+    ).toBe(false)
+    expect(currentModerators).toEqual([])
+    expect(
+      selectActiveAdmissionForm({
+        events: [form.event],
+        communityPubkey,
+        sectionName: "General",
+        moderatorPubkeys: currentModerators,
+      }),
+    ).toBeUndefined()
+    expect(
+      getAdmissionSubmissionState({
+        responseEvents: [response],
+        deleteEvents: [],
+        reviewEvents: [grantReview],
+        formAddress,
+        applicantPubkey,
+        moderatorPubkeys: currentModerators,
+      }).status,
+    ).toBe("pending")
   })
 })

@@ -168,6 +168,49 @@ describe("community admission forms", () => {
     ).toBe("repo-form")
   })
 
+  it("treats an empty moderator filter as no authorized forms or reviews", () => {
+    const formEvent = makeFormEvent({id: "stale-form"})
+    const response = makeEvent({
+      id: "response",
+      kind: FORM_RESPONSE_KIND,
+      pubkey: applicantPubkey,
+      tags: makeAdmissionResponse({
+        formAddress: makeAdmissionFormAddress(moderatorPubkey, "repo-application"),
+        values: {experience: "I can help."},
+      }).tags,
+    })
+    const review = makeEvent({
+      id: "review",
+      kind: COMMUNITY_FORM_REVIEW_KIND,
+      pubkey: moderatorPubkey,
+      content: "+",
+      tags: makeAdmissionReview({
+        responseId: "response",
+        applicantPubkey,
+        status: "granted",
+      }).tags,
+    })
+
+    expect(
+      selectActiveAdmissionForm({
+        events: [formEvent],
+        communityPubkey,
+        sectionName: "Repositories",
+        moderatorPubkeys: [],
+      }),
+    ).toBeUndefined()
+    expect(
+      getAdmissionSubmissionState({
+        responseEvents: [response],
+        deleteEvents: [],
+        reviewEvents: [review],
+        formAddress: makeAdmissionFormAddress(moderatorPubkey, "repo-application"),
+        applicantPubkey,
+        moderatorPubkeys: [],
+      }).status,
+    ).toBe("pending")
+  })
+
   it("builds structured drafts with generated identifiers", () => {
     const draft = makeDefaultAdmissionFormDraft({communityPubkey, sectionName: "General Chat"})
 
