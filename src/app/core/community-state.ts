@@ -50,6 +50,12 @@ import {
   type ModeratorPromotionRequest,
   type ModeratorPromotionRequestState,
 } from "@app/core/community-moderator-requests"
+import {
+  COMMUNITY_REPORT_DELETE_KIND,
+  COMMUNITY_REPORT_KIND,
+  getEffectiveCommunityReportState,
+  type EffectiveCommunityReportState,
+} from "@app/core/community-reports"
 
 export const COMMUNITY_SESSION_STORAGE_KEY = "budabit/community-session"
 
@@ -75,6 +81,8 @@ export type CommunityBootstrap = {
   profileListEvents: TrustedEvent[]
   badgeDefinitionEvents: TrustedEvent[]
   admissionFormEvents: TrustedEvent[]
+  reportEvents: TrustedEvent[]
+  reportDeleteEvents: TrustedEvent[]
 }
 
 export type CommunityProfile = {
@@ -738,6 +746,22 @@ export const makeCommunityModeratorRequestDeleteFilters = (
     : []
 }
 
+export const makeCommunityReportFilters = (definition: CommunityDefinition): Filter[] => {
+  const communityAddress = makeCommunityDefinitionAddress(definition.pubkey)
+
+  return communityAddress
+    ? [{kinds: [COMMUNITY_REPORT_KIND], "#a": [communityAddress], limit: 500}]
+    : []
+}
+
+export const makeCommunityReportDeleteFilters = (reportEvents: TrustedEvent[]): Filter[] => {
+  const reportIds = Array.from(new Set(reportEvents.map(event => event.id).filter(Boolean)))
+
+  return reportIds.length
+    ? [{kinds: [COMMUNITY_REPORT_DELETE_KIND], "#e": reportIds}]
+    : []
+}
+
 const deriveActiveCommunityEvents = (
   makeFilters: (definition: CommunityDefinition) => Filter[],
 ): Readable<TrustedEvent[]> =>
@@ -768,6 +792,36 @@ export const activeCommunityBadgeDefinitionEvents: Readable<TrustedEvent[]> =
 
 export const activeCommunityAdmissionFormEvents: Readable<TrustedEvent[]> =
   deriveActiveCommunityEvents(makeCommunityAdmissionFormFilters)
+
+export const activeCommunityReportEvents: Readable<TrustedEvent[]> =
+  deriveActiveCommunityEvents(makeCommunityReportFilters)
+
+export const activeCommunityReportDeleteEvents: Readable<TrustedEvent[]> = derived(
+  activeCommunityReportEvents,
+  ($activeCommunityReportEvents, set) => {
+    const filters = makeCommunityReportDeleteFilters($activeCommunityReportEvents)
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activeCommunityReportState: Readable<EffectiveCommunityReportState> = derived(
+  [activeCommunityDefinition, activeCommunityReportEvents, activeCommunityReportDeleteEvents],
+  ([$activeCommunityDefinition, $activeCommunityReportEvents, $activeCommunityReportDeleteEvents]) =>
+    $activeCommunityDefinition
+      ? getEffectiveCommunityReportState({
+          definition: $activeCommunityDefinition,
+          reportEvents: $activeCommunityReportEvents,
+          deleteEvents: $activeCommunityReportDeleteEvents,
+        })
+      : {eventReports: [], personReports: []},
+  {eventReports: [], personReports: []} as EffectiveCommunityReportState,
+)
 
 export const activeCommunityModeratorRequestEvents: Readable<TrustedEvent[]> =
   deriveActiveCommunityEvents(makeCommunityModeratorRequestFilters)
@@ -1132,26 +1186,35 @@ export const loadCommunityBootstrap = async (
   const communityRelays = definition?.relays.length ? definition.relays : relays
   const authorityFilters: Filter[] = []
   const admissionFormFilters: Filter[] = []
+  const reportFilters: Filter[] = []
 
   if (definition) {
     setActiveCommunityDefinition(definition)
     authorityFilters.push(...makeCommunityProfileListFilters(definition))
     authorityFilters.push(...makeCommunityBadgeDefinitionFilters(definition))
     admissionFormFilters.push(...makeCommunityAdmissionFormFilters(definition))
+    reportFilters.push(...makeCommunityReportFilters(definition))
   }
 
-  const [authorityEvents, admissionFormEvents] = await Promise.all([
+  const [authorityEvents, admissionFormEvents, reportEvents] = await Promise.all([
     authorityFilters.length > 0 ? loadCommunityEvents(communityRelays, authorityFilters) : [],
     admissionFormFilters.length > 0
       ? loadCommunityEvents(communityRelays, admissionFormFilters)
       : [],
+    reportFilters.length > 0 ? loadCommunityEvents(communityRelays, reportFilters) : [],
   ])
+  const reportDeleteFilters = makeCommunityReportDeleteFilters(reportEvents)
+  const reportDeleteEvents = reportDeleteFilters.length
+    ? await loadCommunityEvents(communityRelays, reportDeleteFilters)
+    : []
 
   const bootstrap = {
     definition,
     profileListEvents: authorityEvents.filter(event => event.kind === PROFILE_LIST_KIND),
     badgeDefinitionEvents: authorityEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
     admissionFormEvents: admissionFormEvents.filter(event => event.kind === FORM_TEMPLATE_KIND),
+    reportEvents: reportEvents.filter(event => event.kind === COMMUNITY_REPORT_KIND),
+    reportDeleteEvents: reportDeleteEvents.filter(event => event.kind === COMMUNITY_REPORT_DELETE_KIND),
   }
 
   return bootstrap
