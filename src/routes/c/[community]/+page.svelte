@@ -29,9 +29,11 @@
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
+  import {COMMUNITY_SECTION_ROOMS} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
+    getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
   import {notifications} from "@app/util/notifications"
   import {formatShortNpub} from "@app/util/pubkeys"
@@ -69,7 +71,20 @@
   const calendarPath = $derived(communityId ? makeCommunityCalendarPath(communityId) : "")
   const goalsPath = $derived(communityId ? makeCommunityGoalPath(communityId) : "")
   const gitPath = "/git"
-  const roomFilters = $derived(communityId ? [makeCommunityRoomRootsFilter(communityId)] : [])
+  const roomAuthorPubkeys = $derived(
+    $activeCommunityDefinition
+      ? getCommunitySectionWriterPubkeys({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          sectionName: COMMUNITY_SECTION_ROOMS,
+        })
+      : [],
+  )
+  const roomFilters = $derived(
+    communityId && roomAuthorPubkeys.length
+      ? [makeCommunityRoomRootsFilter(communityId, {authors: roomAuthorPubkeys})]
+      : [],
+  )
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
   const rooms = $derived(readCommunityRoomRoots($roomEvents, communityId))
   const canCreateRoom = $derived(
