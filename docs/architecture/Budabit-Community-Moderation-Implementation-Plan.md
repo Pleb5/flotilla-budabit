@@ -301,6 +301,128 @@ npm run build
 
 Focused tests should be added near the pure helper phases first so the UI work has stable primitives to build on.
 
+## Phase 11: Root Visibility Consistency
+
+Normalize read paths so root-level content never appears just because another permitted event references it.
+
+Scope:
+
+- Ensure root views and previews use current section writer allow-lists.
+- Fix community home room previews to use the same room-root author filtering as `/rooms`.
+- Keep reply-like events attached only to permitted roots.
+- Do not add fallback root rendering for disallowed roots.
+
+Suggested files:
+
+- `src/routes/c/[community]/+page.svelte`
+- `src/routes/c/[community]/rooms/+page.svelte`
+- `src/routes/c/[community]/rooms/[room]/+page.svelte`
+- `src/routes/c/[community]/threads/+page.svelte`
+- `src/routes/c/[community]/threads/[thread]/+page.svelte`
+- Targeted publication routes for calendar, goals, repositories, permalinks, and widgets.
+
+Exit criteria:
+
+- Root-level events only render when their author/targeting passes the current section policy.
+- Replies/messages do not resurrect hidden roots.
+- Tests cover the community home room-preview filtering gap.
+
+## Phase 12: NIP-56 Censor Helpers
+
+Add pure helpers for Budabit community censor reports using NIP-56 `kind:1984` reports with report type `spam`.
+
+Scope:
+
+- Parse event and person censor reports.
+- Require community `a = 10222:<community-pubkey>:`.
+- Require `content = <section-name>` for event-scoped moderation.
+- Build event censor report templates with `e`, `p`, `a`, and `content` tags.
+- Build person censor report templates with `p` and community `a` tags.
+- Parse and apply `kind:5` deletes for reports.
+- Derive effective event/person censor state from reports, deletes, latest community definition, and active moderator authority.
+- Enforce render-time authority: admin always counts; section moderators only count for event reports in their section; all-section moderators count for person reports.
+- Enforce moderator protection: moderators cannot moderate another current moderator; admin reports can.
+
+Suggested files:
+
+- `src/app/core/community-reports.ts`
+- `src/app/core/community-reports.test.ts`
+
+Exit criteria:
+
+- Tests cover admin event/person reports, section moderator event reports, all-section moderator person reports, report deletes, removed moderator reports being ignored, and moderator protection.
+
+## Phase 13: Report Hydration And State
+
+Load effective community censor reports into active community state.
+
+Scope:
+
+- Query community relays for `kind:1984` reports tagged to the active community definition address.
+- Query `kind:5` deletes for loaded report ids.
+- Expose derived effective report state for current community.
+- Keep report hydration safe and bounded; avoid broad network loops.
+- Include admin and current eligible moderator reports only at render time.
+
+Suggested files:
+
+- `src/app/core/community-state.ts`
+- `src/app/core/community-reports.ts`
+
+Exit criteria:
+
+- Active community state can answer whether an event id or pubkey is censored for a section context.
+- Report state updates when the latest `kind:10222` changes, so removed moderator reports stop counting.
+
+## Phase 14: Render Overlay Integration
+
+Apply the censor overlay to section feeds, detail pages, room messages, comments, and quote/reference rendering.
+
+Scope:
+
+- Add a small reusable moderated placeholder component.
+- For root feeds and root detail views, replace censored root cards with `Moderated event` where preserving layout is useful, or omit in dense feeds if UX is cleaner.
+- For room messages and comments, render `Moderated event` or `Moderated person` placeholders instead of message/comment content.
+- Make quote/reference rendering community-aware through the negative path: only replace quoted content when the quoted event or author is effectively censored in the current context.
+- Do not add extra labels for normal uncensored quotes, mentions, or references.
+
+Suggested files:
+
+- `src/app/components/community/ModeratedContent.svelte`
+- `src/app/components/ContentQuote.svelte`
+- `src/app/components/Content.svelte`
+- Community route components that render roots, messages, comments, and targeted event discussions.
+
+Exit criteria:
+
+- Censored events/persons show placeholders consistently.
+- Uncensored references render as they do today.
+- Root visibility remains positive-policy gated.
+
+## Phase 15: Moderation Actions UI
+
+Expose censor actions to authorized moderators and admins.
+
+Scope:
+
+- Add event moderation action for admins and grant-capable section moderators.
+- Add person moderation action for admins and all-section moderators.
+- Block moderators from moderating current moderators in the UI, while still enforcing the same rule at render time.
+- Publish NIP-56 report events to community relays.
+- Optionally support report delete/undo for the reporting moderator/admin.
+
+Suggested files:
+
+- Event menus/cards for rooms, forum, calendar/goals, and generic notes.
+- `src/app/core/community-reports.ts`
+- `src/app/components/community/ModerationAction.svelte`
+
+Exit criteria:
+
+- Authorized users can censor event/person content from the UI.
+- Unauthorized users do not see active moderation actions.
+- Published reports immediately affect render state after relay/repository confirmation.
+
 ## Implementation Notes
 
 Keep the first version deliberately simple:
@@ -313,5 +435,7 @@ Keep the first version deliberately simple:
 - No form references in `kind:10222`.
 - No separate reviewer-only role yet.
 - No DM notification yet.
+- Root visibility is positive-policy gated; references do not grant root visibility.
+- NIP-56 censoring is a negative overlay and must be enforced at render time.
 
 The most important architectural boundary is that admission forms are moderation workflow state, while profile lists remain the source of effective write permission.

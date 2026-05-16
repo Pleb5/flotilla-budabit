@@ -23,6 +23,8 @@ Moderators create application forms as `kind:30168` events. A form references th
 | Duplicate applications | Budabit allows one active submission per user/form. Resubmission requires a `kind:5` delete of the old response. |
 | Grant | Publish a badge award, update the section profile list, and publish a `+` reaction on the response. |
 | Reject | Publish a `-` reaction on the response. No badge award and no profile-list edit. |
+| Root visibility | Root-level section content only appears when explicitly allowed by current section permissions and targeting rules. Replies do not make roots visible. |
+| Censoring | Explicit moderation uses NIP-56 `kind:1984` reports with report type `spam`; it is a negative overlay on top of normal visibility and write permissions. |
 | Relays | Forms, responses, reactions, badge awards, and profile-list edits are confined to the community relays plus any explicit authority relay hints. |
 | Anonymous submissions | Not supported. Admission requests must be tied to the requesting pubkey. |
 
@@ -253,6 +255,126 @@ Examples:
 | Create room button | Keep visible in muted state and explain that Rooms permission is required. |
 
 The user should always understand what permission is missing and where to request it.
+
+## Read Visibility Policy
+
+Budabit separates positive visibility from negative moderation.
+
+Positive visibility answers whether content is community-approved by default. Negative moderation answers whether otherwise visible content should be hidden because an authorized moderator or admin explicitly censored it.
+
+### Root-Level Events
+
+Root-level events MUST only appear when they are explicitly allowed by the current community state.
+
+Examples of root-level events include:
+
+| Feature | Root event |
+|---|---|
+| Rooms | Room root `kind:11`/thread event with the Budabit room marker. |
+| Forum | Thread root `kind:11` without the room marker. |
+| Calendar | `kind:31922` event explicitly targeted to the community. |
+| Goals | `kind:9041` event explicitly targeted to the community. |
+| Repositories | `kind:30617` event explicitly targeted to the community. |
+| Permalinks | `kind:1623` event explicitly targeted to the community. |
+| Widgets | `kind:30033` event explicitly targeted to the community. |
+
+Rules:
+
+- A root event is visible only if it passes the section's current author allow-list and targeting rules.
+- A valid reply, chat message, quote, mention, or other reference MUST NOT make an otherwise disallowed root event appear as a community root.
+- If a root author's section access is revoked, their root events disappear from default section views and direct community detail pages unless separately allowed again later.
+- Budabit does not currently implement historical “was allowed when posted” visibility. Current community state is the source of truth.
+
+### Reply-Like Events
+
+Reply-like events are visible when their conversation root is visible and the reply-like event itself passes the relevant section permission rules.
+
+Examples:
+
+| Feature | Reply-like event |
+|---|---|
+| Rooms | Room message `kind:9`. |
+| Forum and targetable event discussions | Comment `kind:1111`. |
+| Reactions and labels | `kind:7` and `kind:1985` where the current feature renders them. |
+
+Rules:
+
+- A permitted reply-like event may quote, mention, or reference any other event without additional warning labels.
+- References do not grant root visibility to the referenced event.
+- Explicit censoring still applies. If the referenced event or referenced event author is censored for the current context, render a moderation placeholder instead of the content.
+
+This keeps normal conversations readable while avoiding root-level content smuggling.
+
+## NIP-56 Censor Overlay
+
+Budabit uses NIP-56 `kind:1984` reports as explicit moderation events. For community censoring, Budabit uses report type `spam` because it maps to unwanted content in a community context without inventing a new report type.
+
+The censor overlay has precedence over default read visibility and write permission. It only hides content that would otherwise be considered for rendering.
+
+### Report Shapes
+
+Event censoring:
+
+```json
+{
+  "kind": 1984,
+  "pubkey": "<moderator-or-admin-pubkey>",
+  "tags": [
+    ["e", "<event-id>", "spam"],
+    ["p", "<event-author-pubkey>"],
+    ["a", "10222:<community-pubkey>:"],
+    ["content", "<section-name>"]
+  ],
+  "content": "Optional moderation note"
+}
+```
+
+Person censoring:
+
+```json
+{
+  "kind": 1984,
+  "pubkey": "<admin-or-all-section-moderator-pubkey>",
+  "tags": [
+    ["p", "<reported-pubkey>", "spam"],
+    ["a", "10222:<community-pubkey>:"]
+  ],
+  "content": "Optional moderation note"
+}
+```
+
+Rules:
+
+- Event moderation is section-scoped and may be performed by an admin or a current moderator with grant capability for that section.
+- Person moderation is community-scoped and may be performed by an admin or a current moderator who has grant capability for every section in the latest community definition.
+- Admin means the current community root pubkey.
+- Moderators cannot moderate another current moderator.
+- Admin reports supersede moderator protection.
+- Reports by removed moderators stop counting at render time.
+- A report can be deleted with `kind:5`; deleted reports MUST be ignored.
+- Censoring displays a placeholder such as `Moderated event` or `Moderated person` instead of silently dropping the item in contexts where a placeholder preserves conversation shape.
+
+The render-time authority check is mandatory. Budabit must not trust that reports were only published through the web app.
+
+### Censoring And Quotes
+
+Quote and reference rendering is community-aware through the negative path:
+
+- If a quoted event is not censored and can be fetched, it may render normally inside a permitted reply-like event.
+- If a quoted event is censored by event id in the current section context, render `Moderated event`.
+- If a quoted event author is censored community-wide, render `Moderated person`.
+- If the quoted event cannot be fetched, render the existing unloaded quote state.
+
+This avoids overcomplicating positive reference permissions while still preventing explicitly unwanted content from being smuggled through quotes.
+
+### Censoring Scope
+
+| Censor type | Scope | Who can publish an effective report |
+|---|---|---|
+| Event | Section | Admin or grant-capable moderator for that section. |
+| Person | Community | Admin or moderator with grant capability for all sections. |
+
+Section-scoped person moderation is intentionally not supported. Person moderation is stronger than hiding one event and should require community-wide authority.
 
 ## Access Requests Page
 

@@ -66,6 +66,8 @@ Both events MUST tag the community and requested section.
 - `accepted`: latest `kind:10222` references both requester-owned refs for the section.
 - `already-moderator`: requester perspective label for `accepted`.
 
+Accepted moderators become section authorities for admission and event-level moderation in their granted section. Person-level moderation is stronger and only counts when performed by the community admin or by a current moderator with grant capability for every section in the latest community definition.
+
 ## Reaction Rules
 
 The community pubkey reviews request pairs using reactions against both request events.
