@@ -17,6 +17,7 @@
     showActivity?: boolean
     relays?: string[]
     scopeH?: string
+    communitySectionName?: string
     readOnly?: boolean
     allowedAuthors?: string[]
     floatMobileMenu?: boolean
@@ -29,6 +30,7 @@
     showActivity,
     relays = [],
     scopeH = "",
+    communitySectionName = "",
     readOnly = false,
     allowedAuthors = undefined,
     floatMobileMenu = false,
@@ -52,11 +54,12 @@
 </script>
 
 {#if floatMobileMenu}
-  <div class="absolute right-2 top-2 z-10 sm:hidden">
+  <div class="z-10 absolute right-2 top-2 sm:hidden">
     <EventActions
       {url}
       {relays}
       {scopeH}
+      {communitySectionName}
       {readOnly}
       {event}
       noun="Thread"
@@ -91,6 +94,7 @@
     {url}
     {relays}
     {scopeH}
+    {communitySectionName}
     {readOnly}
     {event}
     noun="Thread"
@@ -105,6 +109,7 @@
       {url}
       {relays}
       {scopeH}
+      {communitySectionName}
       {readOnly}
       {event}
       noun="Thread"

@@ -71,7 +71,15 @@
             in <RoomLink {url} {h} />
           {/if}
         </span>
-        <GoalActions showActivity {url} {relays} {scopeH} {readOnly} {allowedAuthors} {event} />
+        <GoalActions
+          showActivity
+          {url}
+          {relays}
+          {scopeH}
+          {communitySectionName}
+          {readOnly}
+          {allowedAuthors}
+          {event} />
       </div>
     {/if}
   </Link>

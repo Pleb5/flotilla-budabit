@@ -23,6 +23,7 @@
     showActivity?: boolean
     relays?: string[]
     scopeH?: string
+    communitySectionName?: string
     readOnly?: boolean
     allowedAuthors?: string[]
     redirectOnEdit?: boolean
@@ -35,6 +36,7 @@
     showActivity,
     relays = [],
     scopeH = "",
+    communitySectionName = "",
     readOnly = false,
     allowedAuthors = undefined,
     redirectOnEdit = false,
@@ -46,7 +48,12 @@
   const shouldProtect = canEnforceNip70(url)
 
   const editEvent = () =>
-    pushModal(CalendarEventEdit, {url, event, relays, redirectPath: redirectOnEdit ? path : undefined})
+    pushModal(CalendarEventEdit, {
+      url,
+      event,
+      relays,
+      redirectPath: redirectOnEdit ? path : undefined,
+    })
 
   const deleteReaction = async (event: TrustedEvent) =>
     publishSocialDelete({url, event, protect: await shouldProtect})
@@ -81,7 +88,16 @@
   {#if showActivity}
     <EventActivity {url} {path} {event} {relays} {scopeH} {allowedAuthors} />
   {/if}
-  <EventActions {url} {relays} {scopeH} {readOnly} {event} noun="Event" showReport={false} allowAdminDelete={false}>
+  <EventActions
+    {url}
+    {relays}
+    {scopeH}
+    {communitySectionName}
+    {readOnly}
+    {event}
+    noun="Event"
+    showReport={false}
+    allowAdminDelete={false}>
     {#snippet customActions()}
       {#if event.pubkey === $pubkey}
         <li>

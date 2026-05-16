@@ -132,6 +132,7 @@
       readOnly,
       relays: relayTargets,
       scopeH,
+      communitySectionName,
       protectActions: protectInteractions,
     })
 
@@ -302,6 +303,7 @@
         {readOnly}
         class={menuButtonClass}
         relays={relayTargets}
+        {communitySectionName}
         protect={protectInteractions ? undefined : false} />
       {#if !readOnly}
         <SlotRenderer slotId="chat:message:actions" context={{url, event}} />

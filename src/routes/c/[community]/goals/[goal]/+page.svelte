@@ -301,6 +301,7 @@
                 url={communityPubkey}
                 relays={$activeCommunityRelays}
                 scopeH={communityPubkey}
+                communitySectionName={COMMUNITY_SECTION_GOALS}
                 allowedAuthors={interactionAuthorPubkeys}
                 readOnly={!canReact} />
             </div>

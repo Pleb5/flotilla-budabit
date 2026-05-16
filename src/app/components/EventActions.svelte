@@ -24,6 +24,7 @@
     customActions?: Snippet
     relays?: string[]
     scopeH?: string
+    communitySectionName?: string
     readOnly?: boolean
     showReport?: boolean
     allowAdminDelete?: boolean
@@ -40,6 +41,7 @@
     customActions,
     relays = [],
     scopeH = "",
+    communitySectionName = "",
     readOnly = false,
     showReport = true,
     allowAdminDelete = true,
@@ -115,6 +117,7 @@
         onClick: hidePopover,
         relays,
         scopeH,
+        communitySectionName,
         showReport,
         allowAdminDelete,
       }}

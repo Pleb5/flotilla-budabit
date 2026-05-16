@@ -12,6 +12,7 @@
     readOnly = false,
     relays = [],
     protect = undefined,
+    communitySectionName = "",
     class: buttonClass = "btn join-item btn-xs",
   } = $props()
 
@@ -41,6 +42,6 @@
   <Tippy
     bind:popover
     component={RoomItemMenu}
-    props={{url, event, onClick, readOnly, relays, protect}}
+    props={{url, event, onClick, readOnly, relays, protect, communitySectionName}}
     params={{trigger: "manual", interactive: true}} />
 </div>

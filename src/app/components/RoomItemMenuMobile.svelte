@@ -14,6 +14,7 @@
   import EmojiPicker from "@lib/components/EmojiPicker.svelte"
   import ZapButton from "@app/components/ZapButton.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
+  import ModerationAction from "@app/components/community/ModerationAction.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {publishReaction, canEnforceNip70} from "@app/core/commands"
@@ -27,6 +28,7 @@
     readOnly?: boolean
     relays?: string[]
     scopeH?: string
+    communitySectionName?: string
     protectActions?: boolean
   }
 
@@ -38,6 +40,7 @@
     readOnly = false,
     relays = [],
     scopeH = "",
+    communitySectionName = "",
     protectActions = true,
   }: Props = $props()
 
@@ -105,6 +108,12 @@
     <Icon size={4} icon={Code2} />
     Message Info
   </Button>
+  <ModerationAction
+    {event}
+    sectionName={communitySectionName}
+    relays={actionRelays}
+    mode="buttons"
+    replaceState />
   {#if ENABLE_ZAPS && !readOnly}
     <ZapButton replaceState {url} {event} class="btn btn-neutral w-full">
       <Icon size={4} icon={Bolt} />

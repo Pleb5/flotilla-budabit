@@ -6,6 +6,7 @@
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
+  import ModerationAction from "@app/components/community/ModerationAction.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import {pushModal} from "@app/util/modal"
 
@@ -16,9 +17,18 @@
     readOnly?: boolean
     relays?: string[]
     protect?: boolean
+    communitySectionName?: string
   }
 
-  const {url, event, onClick, readOnly = false, relays = [], protect}: Props = $props()
+  const {
+    url,
+    event,
+    onClick,
+    readOnly = false,
+    relays = [],
+    protect,
+    communitySectionName = "",
+  }: Props = $props()
 
   const showInfo = () => {
     onClick()
@@ -44,6 +54,7 @@
       Show JSON
     </Button>
   </li>
+  <ModerationAction {event} sectionName={communitySectionName} {relays} {onClick} />
   {#if event.pubkey === $pubkey && !readOnly}
     <li>
       <Button onclick={showDelete} class="text-error">

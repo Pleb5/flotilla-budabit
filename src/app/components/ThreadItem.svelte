@@ -74,6 +74,7 @@
         {url}
         {relays}
         {scopeH}
+        {communitySectionName}
         {readOnly}
         {allowedAuthors}
         {event} />

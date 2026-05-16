@@ -90,6 +90,7 @@
       reply,
       relays: relayTargets,
       scopeH,
+      communitySectionName,
       protectActions: protectInteractions,
     })
 
@@ -258,6 +259,7 @@
         {url}
         {event}
         relays={relayTargets}
+        {communitySectionName}
         protect={protectInteractions ? undefined : false}
         readOnly={inert || readOnly} />
       {#if !readOnly}

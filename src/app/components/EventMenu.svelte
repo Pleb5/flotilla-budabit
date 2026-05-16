@@ -16,6 +16,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import Report from "@app/components/Report.svelte"
+  import ModerationAction from "@app/components/community/ModerationAction.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import IssueDeleteConfirm from "@app/components/IssueDeleteConfirm.svelte"
   import PullRequestDeleteConfirm from "@app/components/PullRequestDeleteConfirm.svelte"
@@ -30,6 +31,8 @@
     onClick: () => void
     customActions?: Snippet
     relays?: string[]
+    scopeH?: string
+    communitySectionName?: string
     showReport?: boolean
   }
 
@@ -40,6 +43,7 @@
     onClick,
     customActions,
     relays = [],
+    communitySectionName = "",
     showReport = true,
   }: Props = $props()
 
@@ -108,6 +112,7 @@
     </li>
   {/if}
   {@render customActions?.()}
+  <ModerationAction {event} sectionName={communitySectionName} {relays} {onClick} />
   <li>
     <Button onclick={showInfo}>
       <Icon size={4} icon={Code2} />
@@ -123,14 +128,12 @@
         </Button>
       </li>
     {/if}
-  {:else}
-    {#if showReport}
-      <li>
-        <Button class="text-error" onclick={report}>
-          <Icon size={4} icon={Danger} />
-          Report Content
-        </Button>
-      </li>
-    {/if}
+  {:else if showReport}
+    <li>
+      <Button class="text-error" onclick={report}>
+        <Icon size={4} icon={Danger} />
+        Report Content
+      </Button>
+    </li>
   {/if}
 </ul>

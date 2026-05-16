@@ -406,6 +406,7 @@
             url={communityPubkey}
             relays={$activeCommunityRelays}
             scopeH={communityPubkey}
+            communitySectionName={COMMUNITY_SECTION_CALENDAR}
             allowedAuthors={interactionAuthorPubkeys}
             readOnly={!canReact}
             redirectOnEdit

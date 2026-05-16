@@ -174,9 +174,7 @@ export const getAllSectionModeratorPubkeys = (definition: CommunityDefinition) =
 
   const moderatorSets = definition.sections.map(
     section =>
-      new Set(
-        getGrantCapableSectionModeratorPubkeys({definition, sectionName: section.name}),
-      ),
+      new Set(getGrantCapableSectionModeratorPubkeys({definition, sectionName: section.name})),
   )
   const [firstSet, ...restSets] = moderatorSets
 
@@ -192,8 +190,76 @@ export const getCurrentModeratorPubkeys = (definition: CommunityDefinition) =>
     ),
   )
 
-const isAdmin = (definition: CommunityDefinition, pubkey: string) =>
+export const isCommunityAdmin = (definition: CommunityDefinition, pubkey: string) =>
   normalizePubkey(definition.pubkey) === normalizePubkey(pubkey)
+
+export const isProtectedCommunityModeratorTarget = ({
+  definition,
+  reporterPubkey,
+  targetPubkey,
+}: {
+  definition: CommunityDefinition
+  reporterPubkey: string
+  targetPubkey: string
+}) =>
+  !isCommunityAdmin(definition, reporterPubkey) &&
+  getCurrentModeratorPubkeys(definition).includes(normalizePubkey(targetPubkey))
+
+export const canPublishCommunityEventReport = ({
+  definition,
+  reporterPubkey,
+  targetPubkey,
+  sectionName,
+}: {
+  definition: CommunityDefinition
+  reporterPubkey: string
+  targetPubkey: string
+  sectionName: string
+}) => {
+  const reporter = normalizePubkey(reporterPubkey)
+  const target = normalizePubkey(targetPubkey)
+
+  if (!reporter || !target || !findCommunitySection(definition, sectionName)) return false
+  if (
+    isProtectedCommunityModeratorTarget({
+      definition,
+      reporterPubkey: reporter,
+      targetPubkey: target,
+    })
+  ) {
+    return false
+  }
+  if (isCommunityAdmin(definition, reporter)) return true
+
+  return getGrantCapableSectionModeratorPubkeys({definition, sectionName}).includes(reporter)
+}
+
+export const canPublishCommunityPersonReport = ({
+  definition,
+  reporterPubkey,
+  targetPubkey,
+}: {
+  definition: CommunityDefinition
+  reporterPubkey: string
+  targetPubkey: string
+}) => {
+  const reporter = normalizePubkey(reporterPubkey)
+  const target = normalizePubkey(targetPubkey)
+
+  if (!reporter || !target) return false
+  if (
+    isProtectedCommunityModeratorTarget({
+      definition,
+      reporterPubkey: reporter,
+      targetPubkey: target,
+    })
+  ) {
+    return false
+  }
+  if (isCommunityAdmin(definition, reporter)) return true
+
+  return getAllSectionModeratorPubkeys(definition).includes(reporter)
+}
 
 const isProtectedModeratorTarget = ({
   definition,
@@ -203,29 +269,34 @@ const isProtectedModeratorTarget = ({
   definition: CommunityDefinition
   report: ParsedCommunityReport
   reporterIsAdmin: boolean
-}) =>
-  !reporterIsAdmin && getCurrentModeratorPubkeys(definition).includes(report.targetPubkey)
+}) => !reporterIsAdmin && getCurrentModeratorPubkeys(definition).includes(report.targetPubkey)
 
-const isAuthorizedEventReport = (definition: CommunityDefinition, report: ParsedCommunityReport) => {
+const isAuthorizedEventReport = (
+  definition: CommunityDefinition,
+  report: ParsedCommunityReport,
+) => {
   if (report.target !== "event" || !report.sectionName) return false
   if (!findCommunitySection(definition, report.sectionName)) return false
 
-  const reporter = normalizePubkey(report.event.pubkey || "")
-  if (isAdmin(definition, reporter)) return true
-
-  return getGrantCapableSectionModeratorPubkeys({
+  return canPublishCommunityEventReport({
     definition,
+    reporterPubkey: report.event.pubkey || "",
+    targetPubkey: report.targetPubkey,
     sectionName: report.sectionName,
-  }).includes(reporter)
+  })
 }
 
-const isAuthorizedPersonReport = (definition: CommunityDefinition, report: ParsedCommunityReport) => {
+const isAuthorizedPersonReport = (
+  definition: CommunityDefinition,
+  report: ParsedCommunityReport,
+) => {
   if (report.target !== "person") return false
 
-  const reporter = normalizePubkey(report.event.pubkey || "")
-  if (isAdmin(definition, reporter)) return true
-
-  return getAllSectionModeratorPubkeys(definition).includes(reporter)
+  return canPublishCommunityPersonReport({
+    definition,
+    reporterPubkey: report.event.pubkey || "",
+    targetPubkey: report.targetPubkey,
+  })
 }
 
 export const getEffectiveCommunityReportState = ({
@@ -246,7 +317,7 @@ export const getEffectiveCommunityReportState = ({
     if (!report) continue
 
     const reporterPubkey = normalizePubkey(event.pubkey || "")
-    const adminAuthored = isAdmin(definition, reporterPubkey)
+    const adminAuthored = isCommunityAdmin(definition, reporterPubkey)
     if (isProtectedModeratorTarget({definition, report, reporterIsAdmin: adminAuthored})) continue
 
     const effectiveReport = {...report, reporterPubkey, adminAuthored}

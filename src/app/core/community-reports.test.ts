@@ -8,6 +8,8 @@ import {
 } from "./community"
 import {
   COMMUNITY_REPORT_KIND,
+  canPublishCommunityEventReport,
+  canPublishCommunityPersonReport,
   getAllSectionModeratorPubkeys,
   getCommunityCensorReason,
   getEffectiveCommunityReportState,
@@ -131,8 +133,16 @@ describe("community reports", () => {
     })
 
     expect(getAllSectionModeratorPubkeys(definition)).toEqual([allSectionModeratorPubkey])
-    expect(getCommunityCensorReason({reportState: state, eventId: "forum-event", sectionName: "Forum"})).toBe("event")
-    expect(getCommunityCensorReason({reportState: state, eventId: "general-event", sectionName: "General"})).toBe("event")
+    expect(
+      getCommunityCensorReason({reportState: state, eventId: "forum-event", sectionName: "Forum"}),
+    ).toBe("event")
+    expect(
+      getCommunityCensorReason({
+        reportState: state,
+        eventId: "general-event",
+        sectionName: "General",
+      }),
+    ).toBe("event")
     expect(getCommunityCensorReason({reportState: state, pubkey: targetPubkey})).toBe("person")
   })
 
@@ -185,8 +195,20 @@ describe("community reports", () => {
     })
 
     expect(getCommunityCensorReason({reportState: state, pubkey: targetPubkey})).toBeUndefined()
-    expect(getCommunityCensorReason({reportState: state, eventId: "deleted-event", sectionName: "General"})).toBeUndefined()
-    expect(getCommunityCensorReason({reportState: removedState, eventId: "removed-moderator-event", sectionName: "General"})).toBeUndefined()
+    expect(
+      getCommunityCensorReason({
+        reportState: state,
+        eventId: "deleted-event",
+        sectionName: "General",
+      }),
+    ).toBeUndefined()
+    expect(
+      getCommunityCensorReason({
+        reportState: removedState,
+        eventId: "removed-moderator-event",
+        sectionName: "General",
+      }),
+    ).toBeUndefined()
   })
 
   it("protects current moderators from moderator reports but not admin reports", () => {
@@ -213,7 +235,65 @@ describe("community reports", () => {
       reportEvents: [moderatorReport, adminReport],
     })
 
-    expect(getCommunityCensorReason({reportState: state, eventId: "moderator-authored-event", sectionName: "General"})).toBeUndefined()
-    expect(getCommunityCensorReason({reportState: state, pubkey: sectionModeratorPubkey})).toBe("person")
+    expect(
+      getCommunityCensorReason({
+        reportState: state,
+        eventId: "moderator-authored-event",
+        sectionName: "General",
+      }),
+    ).toBeUndefined()
+    expect(getCommunityCensorReason({reportState: state, pubkey: sectionModeratorPubkey})).toBe(
+      "person",
+    )
+  })
+
+  it("authorizes UI moderation actions with render-time report rules", () => {
+    const definition = makeDefinition()
+
+    expect(
+      canPublishCommunityEventReport({
+        definition,
+        reporterPubkey: sectionModeratorPubkey,
+        targetPubkey,
+        sectionName: "General",
+      }),
+    ).toBe(true)
+    expect(
+      canPublishCommunityEventReport({
+        definition,
+        reporterPubkey: sectionModeratorPubkey,
+        targetPubkey,
+        sectionName: "Forum",
+      }),
+    ).toBe(false)
+    expect(
+      canPublishCommunityPersonReport({
+        definition,
+        reporterPubkey: allSectionModeratorPubkey,
+        targetPubkey,
+      }),
+    ).toBe(true)
+    expect(
+      canPublishCommunityPersonReport({
+        definition,
+        reporterPubkey: sectionModeratorPubkey,
+        targetPubkey,
+      }),
+    ).toBe(false)
+    expect(
+      canPublishCommunityEventReport({
+        definition,
+        reporterPubkey: allSectionModeratorPubkey,
+        targetPubkey: sectionModeratorPubkey,
+        sectionName: "General",
+      }),
+    ).toBe(false)
+    expect(
+      canPublishCommunityPersonReport({
+        definition,
+        reporterPubkey: communityPubkey,
+        targetPubkey: sectionModeratorPubkey,
+      }),
+    ).toBe(true)
   })
 })

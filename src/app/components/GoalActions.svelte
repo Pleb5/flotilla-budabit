@@ -17,6 +17,7 @@
     showActivity?: boolean
     relays?: string[]
     scopeH?: string
+    communitySectionName?: string
     readOnly?: boolean
     allowedAuthors?: string[]
   }
@@ -28,6 +29,7 @@
     showActivity,
     relays = [],
     scopeH = "",
+    communitySectionName = "",
     readOnly = false,
     allowedAuthors = undefined,
   }: Props = $props()
@@ -69,5 +71,13 @@
   {#if showActivity}
     <EventActivity {url} {path} {event} {relays} {scopeH} {allowedAuthors} />
   {/if}
-  <EventActions {url} {relays} {scopeH} {readOnly} {event} hideZap noun="Goal" />
+  <EventActions
+    {url}
+    {relays}
+    {scopeH}
+    {communitySectionName}
+    {readOnly}
+    {event}
+    hideZap
+    noun="Goal" />
 </div>
