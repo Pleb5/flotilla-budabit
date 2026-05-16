@@ -1,7 +1,6 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
 import {
-  BADGE_DEFINITION_KIND,
   COMMUNITY_DEFINITION_KIND,
   FORM_RESPONSE_KIND,
   FORM_TEMPLATE_KIND,
@@ -58,11 +57,11 @@ const definition = parseCommunityDefinition(
       ["k", "1111"],
       ["k", "7"],
       ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:General`],
-      ["badge", `${BADGE_DEFINITION_KIND}:${managerPubkey}:member`],
+      ["badge", `${BADGE_DEFINITION}:${managerPubkey}:member`],
       ["content", "Repositories"],
       ["k", "30617"],
       ["a", `${PROFILE_LIST_KIND}:${repoManagerPubkey}:Repositories`],
-      ["badge", `${BADGE_DEFINITION_KIND}:${managerPubkey}:repo-curator`],
+      ["badge", `${BADGE_DEFINITION}:${managerPubkey}:repo-curator`],
     ],
   }),
 )!
@@ -86,7 +85,7 @@ const repoProfileList = makeEvent({
 })
 
 const memberBadgeDefinition = makeEvent({
-  kind: BADGE_DEFINITION_KIND,
+  kind: BADGE_DEFINITION,
   pubkey: managerPubkey,
   tags: [["d", "member"]],
 })
@@ -128,9 +127,9 @@ describe("community permissions", () => {
       ],
     })
 
-    expect(findProfileListEvent(definition.sections[0].profileLists[0], [olderList, newerList])).toBe(
-      newerList,
-    )
+    expect(
+      findProfileListEvent(definition.sections[0].profileLists[0], [olderList, newerList]),
+    ).toBe(newerList)
     expect(
       canWriteCommunityTarget({
         definition,
@@ -341,9 +340,9 @@ describe("community permissions", () => {
           ["content", "Apps"],
           ["k", "32267"],
           ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:Apps`],
-          ["badge", `${BADGE_DEFINITION_KIND}:${managerPubkey}:member`],
+          ["badge", `${BADGE_DEFINITION}:${managerPubkey}:member`],
           ["a", `${PROFILE_LIST_KIND}:${repoManagerPubkey}:AppsPro`],
-          ["badge", `${BADGE_DEFINITION_KIND}:${repoManagerPubkey}:pro`],
+          ["badge", `${BADGE_DEFINITION}:${repoManagerPubkey}:pro`],
         ],
       }),
     )!
@@ -390,7 +389,7 @@ describe("community permissions", () => {
           ["content", "Code"],
           ["k", "30617"],
           ["a", `${PROFILE_LIST_KIND}:${managerPubkey}:Code`],
-          ["badge", `${BADGE_DEFINITION_KIND}:${managerPubkey}:code`],
+          ["badge", `${BADGE_DEFINITION}:${managerPubkey}:code`],
         ],
       }),
     )!

@@ -4,6 +4,7 @@
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {BADGE_DEFINITION} from "@welshman/util"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
@@ -28,7 +29,7 @@
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
-  import {BADGE_DEFINITION_KIND, PROFILE_LIST_KIND, normalizePubkey} from "@app/core/community"
+  import {PROFILE_LIST_KIND, normalizePubkey} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
@@ -91,7 +92,7 @@
 
     const requests = getModeratorPromotionRequests({
       profileListEvents: $moderatorRequestEvents.filter(event => event.kind === PROFILE_LIST_KIND),
-      badgeEvents: $moderatorRequestEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
+      badgeEvents: $moderatorRequestEvents.filter(event => event.kind === BADGE_DEFINITION),
       communityPubkey: definition.pubkey,
     })
 

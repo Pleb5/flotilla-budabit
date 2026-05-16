@@ -423,6 +423,35 @@ Exit criteria:
 - Unauthorized users do not see active moderation actions.
 - Published reports immediately affect render state after relay/repository confirmation.
 
+## Phase 16: Moderation Activity And Unmoderation
+
+Expose active moderation history and report-delete revocation flows.
+
+Scope:
+
+- Tabulate the community moderation page into review queue, application forms, and moderation activity.
+- List the current moderator's active event and person moderation actions newest first.
+- Revoke event moderation by publishing a `kind:5` delete for the reporting moderator's `kind:1984` report, labeled `Uncensor`.
+- Revoke person moderation by publishing a `kind:5` delete for the reporting moderator's `kind:1984` report, labeled `Unban`.
+- Hydrate report deletes anywhere moderation activity is shown so revoked reports disappear from effective state.
+- In the admin `Moderators` tab, tabulate each moderator list item into section grants and recent moderator actions.
+- Let admins view all current moderators' active moderation actions without allowing admins to revoke other moderators' reports.
+
+Suggested files:
+
+- `src/app/components/community/ModerationReportCard.svelte`
+- `src/app/components/community/ModerationReportList.svelte`
+- `src/routes/c/[community]/moderation/+page.svelte`
+- `src/routes/c/[community]/admin/+page.svelte`
+- `src/app/core/community-reports.ts`
+
+Exit criteria:
+
+- Active event and person reports are listed separately on the moderation page.
+- Only the reporting moderator sees active revoke controls for a report.
+- Report delete publication removes the report from effective render-time censor state.
+- Admins can review each current moderator's grants and recent active moderation actions from the same moderator list item.
+
 ## Implementation Notes
 
 Keep the first version deliberately simple:

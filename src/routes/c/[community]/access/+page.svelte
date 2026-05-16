@@ -3,7 +3,7 @@
   import {page} from "$app/stores"
   import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {makeEvent, type TrustedEvent} from "@welshman/util"
+  import {DELETE, makeEvent, type TrustedEvent} from "@welshman/util"
   import ShieldUser from "@assets/icons/shield-user.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
@@ -31,7 +31,6 @@
     userHasSectionProfileListAccess,
   } from "@app/core/community-permissions"
   import {
-    COMMUNITY_FORM_DELETE_KIND,
     COMMUNITY_FORM_REVIEW_KIND,
     type CommunityAdmissionForm,
     type CommunityFormField,
@@ -73,9 +72,7 @@
   )
   const responseIds = $derived($responseEvents.map(event => event.id))
   const deleteFilters = $derived(
-    $pubkey && responseIds.length
-      ? [{kinds: [COMMUNITY_FORM_DELETE_KIND], authors: [$pubkey], "#e": responseIds}]
-      : [],
+    $pubkey && responseIds.length ? [{kinds: [DELETE], authors: [$pubkey], "#e": responseIds}] : [],
   )
   const reviewFilters = $derived(
     responseIds.length ? [{kinds: [COMMUNITY_FORM_REVIEW_KIND], "#e": responseIds}] : [],

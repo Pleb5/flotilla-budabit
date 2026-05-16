@@ -1,4 +1,4 @@
-import type {EventContent, TrustedEvent} from "@welshman/util"
+import {DELETE, type EventContent, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   findCommunitySection,
@@ -8,7 +8,6 @@ import {
 import {getGrantCapableSectionModeratorPubkeys} from "@app/core/community-permissions"
 
 export const COMMUNITY_REPORT_KIND = 1984
-export const COMMUNITY_REPORT_DELETE_KIND = 5
 export const COMMUNITY_REPORT_REASON = "spam"
 
 export type CommunityReportTarget = "event" | "person"
@@ -31,6 +30,31 @@ export type EffectiveCommunityReport = ParsedCommunityReport & {
 export type EffectiveCommunityReportState = {
   eventReports: EffectiveCommunityReport[]
   personReports: EffectiveCommunityReport[]
+}
+
+export type CommunityModerationAction = EffectiveCommunityReport
+
+const sortReportsByRecent = <T extends {event: TrustedEvent}>(reports: T[]) =>
+  reports.toSorted(
+    (a, b) => b.event.created_at - a.event.created_at || a.event.id.localeCompare(b.event.id),
+  )
+
+export const getEffectiveCommunityModerationActions = (
+  state: EffectiveCommunityReportState,
+): CommunityModerationAction[] =>
+  sortReportsByRecent([...state.eventReports, ...state.personReports])
+
+export const getEffectiveCommunityModerationActionsByReporter = (
+  state: EffectiveCommunityReportState,
+  reporterPubkey: string,
+): CommunityModerationAction[] => {
+  const reporter = normalizePubkey(reporterPubkey)
+
+  return reporter
+    ? getEffectiveCommunityModerationActions(state).filter(
+        report => report.reporterPubkey === reporter,
+      )
+    : []
 }
 
 const getReasonTag = (event: TrustedEvent, tagName: "e" | "p") =>
@@ -106,8 +130,8 @@ export const makeCommunityReportDelete = ({
   reportId,
 }: {
   reportId: string
-}): EventContent & {kind: typeof COMMUNITY_REPORT_DELETE_KIND} => ({
-  kind: COMMUNITY_REPORT_DELETE_KIND,
+}): EventContent & {kind: typeof DELETE} => ({
+  kind: DELETE,
   content: "Deleted community report",
   tags: [
     ["e", reportId],
@@ -161,7 +185,7 @@ export const parseCommunityReport = (
 
 export const isCommunityReportDeleted = (report: TrustedEvent, deleteEvents: TrustedEvent[]) =>
   deleteEvents.some(event => {
-    if (event.kind !== COMMUNITY_REPORT_DELETE_KIND) return false
+    if (event.kind !== DELETE) return false
     if (normalizePubkey(event.pubkey || "") !== normalizePubkey(report.pubkey || "")) return false
     if (!event.tags.some(tag => tag[0] === "e" && tag[1] === report.id)) return false
 

@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
+import {DELETE, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   buildCommunityDefinition,
@@ -159,7 +159,7 @@ describe("community moderator promotion requests", () => {
     })
     const deleteListReaction = makeEvent({
       id: "delete-reject-list",
-      kind: 5,
+      kind: DELETE,
       pubkey: communityPubkey,
       tags: makeModeratorRequestReactionDelete({reactionId: listReaction.id}).tags,
     })

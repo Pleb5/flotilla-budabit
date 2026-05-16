@@ -1,7 +1,6 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, DELETE, type TrustedEvent} from "@welshman/util"
 import {
-  BADGE_DEFINITION_KIND,
   COMMUNITY_DEFINITION_KIND,
   FORM_RESPONSE_KIND,
   FORM_TEMPLATE_KIND,
@@ -11,7 +10,10 @@ import {
 } from "./community"
 import {makeCommunityGrantEvents} from "./community-admin"
 import {makeModeratorGrantRevokeDefinitionUpdate} from "./community-moderator-requests"
-import {makeTargetedPublicationForCommunity, makeAddressablePublicationRef} from "./community-targeting"
+import {
+  makeTargetedPublicationForCommunity,
+  makeAddressablePublicationRef,
+} from "./community-targeting"
 import {makeTargetedPublicationOriginalFilters} from "./community-feeds"
 import {
   COMMUNITY_WRITE_TARGETS,
@@ -68,22 +70,22 @@ const calendarListRef = {
   address: `${PROFILE_LIST_KIND}:${moderatorPubkey}:Calendar`,
 }
 const generalBadgeRef = {
-  kind: BADGE_DEFINITION_KIND,
+  kind: BADGE_DEFINITION,
   pubkey: moderatorPubkey,
   identifier: "General",
-  address: `${BADGE_DEFINITION_KIND}:${moderatorPubkey}:General`,
+  address: `${BADGE_DEFINITION}:${moderatorPubkey}:General`,
 }
 const repoBadgeRef = {
-  kind: BADGE_DEFINITION_KIND,
+  kind: BADGE_DEFINITION,
   pubkey: moderatorPubkey,
   identifier: "Repositories",
-  address: `${BADGE_DEFINITION_KIND}:${moderatorPubkey}:Repositories`,
+  address: `${BADGE_DEFINITION}:${moderatorPubkey}:Repositories`,
 }
 const calendarBadgeRef = {
-  kind: BADGE_DEFINITION_KIND,
+  kind: BADGE_DEFINITION,
   pubkey: moderatorPubkey,
   identifier: "Calendar",
-  address: `${BADGE_DEFINITION_KIND}:${moderatorPubkey}:Calendar`,
+  address: `${BADGE_DEFINITION}:${moderatorPubkey}:Calendar`,
 }
 
 const definition = parseCommunityDefinition(
@@ -132,8 +134,18 @@ const formTemplate = makeAdmissionFormTemplate({
 })
 const form = selectActiveAdmissionForm({
   events: [
-    makeEvent({id: "outsider-form", pubkey: outsiderPubkey, kind: FORM_TEMPLATE_KIND, tags: formTemplate.tags}),
-    makeEvent({id: "active-form", pubkey: moderatorPubkey, kind: FORM_TEMPLATE_KIND, tags: formTemplate.tags}),
+    makeEvent({
+      id: "outsider-form",
+      pubkey: outsiderPubkey,
+      kind: FORM_TEMPLATE_KIND,
+      tags: formTemplate.tags,
+    }),
+    makeEvent({
+      id: "active-form",
+      pubkey: moderatorPubkey,
+      kind: FORM_TEMPLATE_KIND,
+      tags: formTemplate.tags,
+    }),
   ],
   communityPubkey,
   sectionName: "General",
@@ -180,7 +192,7 @@ describe("community admission lifecycle integration", () => {
 
     const deleteDuplicate = makeEvent({
       id: "delete-response-2",
-      kind: 5,
+      kind: DELETE,
       pubkey: applicantPubkey,
       created_at: 12,
       tags: makeAdmissionResponseDelete({responseId: "response-2"}).tags,

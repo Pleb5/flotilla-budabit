@@ -3,6 +3,7 @@
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {DELETE} from "@welshman/util"
   import Button from "@lib/components/Button.svelte"
   import Link from "@lib/components/Link.svelte"
   import {
@@ -18,7 +19,7 @@
     type CommunityPublishGateState,
     type CommunityWriteTarget,
   } from "@app/core/community-permissions"
-  import {COMMUNITY_FORM_DELETE_KIND, COMMUNITY_FORM_REVIEW_KIND} from "@app/core/community-forms"
+  import {COMMUNITY_FORM_REVIEW_KIND} from "@app/core/community-forms"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type Props = {
@@ -66,9 +67,7 @@
   )
   const responseIds = $derived($responseEvents.map(event => event.id))
   const deleteFilters = $derived(
-    $pubkey && responseIds.length
-      ? [{kinds: [COMMUNITY_FORM_DELETE_KIND], authors: [$pubkey], "#e": responseIds}]
-      : [],
+    $pubkey && responseIds.length ? [{kinds: [DELETE], authors: [$pubkey], "#e": responseIds}] : [],
   )
   const reviewFilters = $derived(
     responseIds.length ? [{kinds: [COMMUNITY_FORM_REVIEW_KIND], "#e": responseIds}] : [],

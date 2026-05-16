@@ -1,4 +1,4 @@
-import type {EventContent, TrustedEvent} from "@welshman/util"
+import {DELETE, type EventContent, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   FORM_RESPONSE_KIND,
@@ -9,7 +9,6 @@ import {
 } from "@app/core/community"
 
 export const COMMUNITY_FORM_REVIEW_KIND = 7
-export const COMMUNITY_FORM_DELETE_KIND = 5
 
 export type CommunityFormOption = {
   id: string
@@ -33,7 +32,11 @@ export type CommunityFormFieldInput = {
   settings?: Record<string, unknown>
 }
 
-export type CommunityAdmissionQuestionType = "shortAnswer" | "paragraph" | "singleChoice" | "multipleChoice"
+export type CommunityAdmissionQuestionType =
+  | "shortAnswer"
+  | "paragraph"
+  | "singleChoice"
+  | "multipleChoice"
 
 export type CommunityAdmissionFormDraftOption = {
   id: string
@@ -206,9 +209,11 @@ export const makeDefaultAdmissionFormDraft = ({
 })
 
 const getDraftQuestionType = (field: CommunityFormField): CommunityAdmissionQuestionType => {
-  const renderElement = typeof field.settings.renderElement === "string" ? field.settings.renderElement : undefined
+  const renderElement =
+    typeof field.settings.renderElement === "string" ? field.settings.renderElement : undefined
 
-  if (field.type === "option") return renderElement === "multipleChoice" ? "multipleChoice" : "singleChoice"
+  if (field.type === "option")
+    return renderElement === "multipleChoice" ? "multipleChoice" : "singleChoice"
   if (renderElement === "paragraph") return "paragraph"
 
   return "shortAnswer"
@@ -259,7 +264,9 @@ export const makeAdmissionFormDraftFromForm = ({
   }
 }
 
-export const makeAdmissionFormFieldsFromDraft = (draft: CommunityAdmissionFormDraft): CommunityFormFieldInput[] =>
+export const makeAdmissionFormFieldsFromDraft = (
+  draft: CommunityAdmissionFormDraft,
+): CommunityFormFieldInput[] =>
   draft.questions.map((question, index) => {
     const id = question.id.trim() || `q${index + 1}`
     const required = question.required
@@ -315,7 +322,13 @@ const makeFieldTag = (field: CommunityFormFieldInput) => [
   field.type || "text",
   field.label.trim(),
   field.options?.length
-    ? JSON.stringify(field.options.map(option => [option.id.trim(), option.label.trim(), stringifySettings(option.settings)]))
+    ? JSON.stringify(
+        field.options.map(option => [
+          option.id.trim(),
+          option.label.trim(),
+          stringifySettings(option.settings),
+        ]),
+      )
     : "",
   stringifySettings(field.settings),
 ]
@@ -431,7 +444,6 @@ export const selectLatestFormByAddress = (events: TrustedEvent[]) => {
     const form = parseAdmissionForm(event)
     if (!form) continue
 
-
     const current = latest.get(form.address)
     if (isPreferredEvent(form.event, current?.event)) latest.set(form.address, form)
   }
@@ -480,7 +492,6 @@ export const parseAdmissionResponse = (event: TrustedEvent): CommunityFormRespon
     const fieldId = (tag[1] || "").trim()
     if (!fieldId) continue
 
-
     const value = tag[2] || ""
     values[fieldId] = value
     responses.push({fieldId, value, metadata: safeJsonObject(tag[3])})
@@ -515,8 +526,8 @@ export const makeAdmissionResponseDelete = ({
 }: {
   responseId: string
   reason?: string
-}): EventContent & {kind: typeof COMMUNITY_FORM_DELETE_KIND} => ({
-  kind: COMMUNITY_FORM_DELETE_KIND,
+}): EventContent & {kind: typeof DELETE} => ({
+  kind: DELETE,
   content: reason,
   tags: [
     ["e", responseId],
@@ -524,10 +535,14 @@ export const makeAdmissionResponseDelete = ({
   ],
 })
 
-export const isAdmissionResponseDeleted = (response: CommunityFormResponse, deleteEvents: TrustedEvent[]) =>
+export const isAdmissionResponseDeleted = (
+  response: CommunityFormResponse,
+  deleteEvents: TrustedEvent[],
+) =>
   deleteEvents.some(event => {
-    if (event.kind !== COMMUNITY_FORM_DELETE_KIND) return false
-    if (normalizePubkey(event.pubkey || "") !== normalizePubkey(response.event.pubkey || "")) return false
+    if (event.kind !== DELETE) return false
+    if (normalizePubkey(event.pubkey || "") !== normalizePubkey(response.event.pubkey || ""))
+      return false
     if (!event.tags.some(tag => tag[0] === "e" && tag[1] === response.event.id)) return false
 
     const kindTags = event.tags.filter(tag => tag[0] === "k")
@@ -568,7 +583,8 @@ export const parseAdmissionReview = (event: TrustedEvent): CommunityFormReview |
   if (!responseId) return undefined
 
   const kindTags = event.tags.filter(tag => tag[0] === "k")
-  if (kindTags.length && !kindTags.some(tag => tag[1] === String(FORM_RESPONSE_KIND))) return undefined
+  if (kindTags.length && !kindTags.some(tag => tag[1] === String(FORM_RESPONSE_KIND)))
+    return undefined
 
   return {
     event,
@@ -659,5 +675,10 @@ export const getAdmissionSubmissionState = ({
   return {status: "pending", response}
 }
 
-export const getAdmissionFormRelayHints = (form: CommunityAdmissionForm, communityRelays: string[]) =>
-  form.relays.length ? form.relays : normalizeRelays(communityRelays.map(relay => normalizeRelay(relay)))
+export const getAdmissionFormRelayHints = (
+  form: CommunityAdmissionForm,
+  communityRelays: string[],
+) =>
+  form.relays.length
+    ? form.relays
+    : normalizeRelays(communityRelays.map(relay => normalizeRelay(relay)))

@@ -1,6 +1,5 @@
-import type {EventContent, TrustedEvent} from "@welshman/util"
+import {BADGE_AWARD, type EventContent, type TrustedEvent} from "@welshman/util"
 import {
-  BADGE_AWARD_KIND,
   PROFILE_LIST_KIND,
   type CommunityBadgeRef,
   type CommunityProfileListRef,
@@ -19,7 +18,10 @@ export const makeCommunityProfileList = ({
   content: "",
   tags: [
     ["d", profileList.identifier],
-    ...Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean))).map(pubkey => ["p", pubkey]),
+    ...Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean))).map(pubkey => [
+      "p",
+      pubkey,
+    ]),
   ],
 })
 
@@ -58,8 +60,8 @@ export const makeCommunityBadgeAward = ({
   badge: CommunityBadgeRef
   pubkeys: string[]
   relayHints?: Record<string, string>
-}): EventContent & {kind: typeof BADGE_AWARD_KIND} => ({
-  kind: BADGE_AWARD_KIND,
+}): EventContent & {kind: typeof BADGE_AWARD} => ({
+  kind: BADGE_AWARD,
   content: "",
   tags: [
     ["a", badge.address],

@@ -1,6 +1,5 @@
-import type {EventContent, TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, DELETE, type EventContent, type TrustedEvent} from "@welshman/util"
 import {
-  BADGE_DEFINITION_KIND,
   COMMUNITY_DEFINITION_KIND,
   PROFILE_LIST_KIND,
   buildCommunityDefinition,
@@ -17,7 +16,6 @@ import {
 } from "@app/core/community"
 
 export const MODERATOR_REQUEST_REACTION_KIND = 7
-export const MODERATOR_REQUEST_REACTION_DELETE_KIND = 5
 
 export type ModeratorRequestTarget = "profile-list" | "badge"
 
@@ -137,10 +135,10 @@ export const makeModeratorRequestRefs = ({
     relay: normalizedRelays[0],
   }
   const badge: CommunityBadgeRef = {
-    kind: BADGE_DEFINITION_KIND,
+    kind: BADGE_DEFINITION,
     pubkey,
     identifier,
-    address: makeAddress(BADGE_DEFINITION_KIND, pubkey, identifier),
+    address: makeAddress(BADGE_DEFINITION, pubkey, identifier),
   }
 
   return {identifier, profileList, badge}
@@ -187,7 +185,7 @@ export const makeModeratorBadgeRequest = ({
   requesterPubkey: string
   sectionName: string
   relays?: string[]
-}): EventContent & {kind: typeof BADGE_DEFINITION_KIND} => {
+}): EventContent & {kind: typeof BADGE_DEFINITION} => {
   const {identifier} = makeModeratorRequestRefs({
     communityPubkey,
     requesterPubkey,
@@ -198,7 +196,7 @@ export const makeModeratorBadgeRequest = ({
   const relay = normalizeRelay(relays[0])
 
   return {
-    kind: BADGE_DEFINITION_KIND,
+    kind: BADGE_DEFINITION,
     content: "",
     tags: [
       ["d", identifier],
@@ -214,7 +212,7 @@ export const parseModeratorRequestEvent = (
   event: TrustedEvent,
   communityPubkey?: string,
 ): ParsedModeratorRequestEvent | undefined => {
-  if (event.kind !== PROFILE_LIST_KIND && event.kind !== BADGE_DEFINITION_KIND) return undefined
+  if (event.kind !== PROFILE_LIST_KIND && event.kind !== BADGE_DEFINITION) return undefined
 
   const pubkey = normalizePubkey(event.pubkey || "")
   const identifier = getDTag(event)
@@ -285,7 +283,7 @@ export const getModeratorPromotionRequests = ({
         relay: normalizeRelay(profileList.event.tags.find(tag => tag[0] === "a")?.[2]),
       },
       badgeRef: {
-        kind: BADGE_DEFINITION_KIND,
+        kind: BADGE_DEFINITION,
         pubkey: badge.pubkey,
         identifier: badge.identifier,
         address: badge.address,
@@ -307,7 +305,7 @@ const hasSectionRef = (definition: CommunityDefinition, request: ModeratorPromot
 
 const isReactionDeleted = (reaction: TrustedEvent, deleteEvents: TrustedEvent[]) =>
   deleteEvents.some(event => {
-    if (event.kind !== MODERATOR_REQUEST_REACTION_DELETE_KIND) return false
+    if (event.kind !== DELETE) return false
     if (normalizePubkey(event.pubkey || "") !== normalizePubkey(reaction.pubkey || "")) return false
     if (!event.tags.some(tag => tag[0] === "e" && tag[1] === reaction.id)) return false
 
@@ -431,8 +429,8 @@ export const makeModeratorRequestReactionDelete = ({
   reactionId,
 }: {
   reactionId: string
-}): EventContent & {kind: typeof MODERATOR_REQUEST_REACTION_DELETE_KIND} => ({
-  kind: MODERATOR_REQUEST_REACTION_DELETE_KIND,
+}): EventContent & {kind: typeof DELETE} => ({
+  kind: DELETE,
   content: "Deleted moderator request review",
   tags: [
     ["e", reactionId],

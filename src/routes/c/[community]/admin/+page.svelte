@@ -12,6 +12,7 @@
   import Confirm from "@lib/components/Confirm.svelte"
   import CommunityCreate from "@app/components/CommunityCreate.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
+  import ModerationReportList from "@app/components/community/ModerationReportList.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {pushModal} from "@app/util/modal"
@@ -22,11 +23,15 @@
     activeCommunityModeratorRequestStates,
     activeCommunityModeratorRequests,
     activeCommunityProfile,
+    activeCommunityReportEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
     loadCommunityEvents,
     makeCommunityModeratorRequestDeleteFilters,
     makeCommunityModeratorRequestFilters,
     makeCommunityModeratorRequestReactionFilters,
+    makeCommunityReportDeleteFilters,
+    makeCommunityReportFilters,
   } from "@app/core/community-state"
   import {
     findCommunitySection,
@@ -35,6 +40,10 @@
     type CommunityBadgeRef,
     type CommunityProfileListRef,
   } from "@app/core/community"
+  import {
+    getEffectiveCommunityModerationActionsByReporter,
+    type CommunityModerationAction,
+  } from "@app/core/community-reports"
   import {
     type ModeratorPromotionRequestState,
     makeModeratorGrantRevokeDefinitionUpdate,
@@ -46,6 +55,7 @@
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   type RequestStatusFilter = "pending" | "accepted" | "rejected"
+  type ModeratorPersonTab = "grants" | "actions"
 
   type ModeratorSectionGrant = {
     sectionName: string
@@ -66,9 +76,12 @@
   let adminTab = $state<CommunityAdminTab>("settings")
   let adminTabHydrated = $state(false)
   let requestStatusFilter = $state<RequestStatusFilter>("pending")
+  let moderatorPersonTabs = $state<Record<string, ModeratorPersonTab>>({})
   let moderatorRequestHydrationKey = $state("")
   let moderatorReactionHydrationKey = $state("")
   let moderatorDeleteHydrationKey = $state("")
+  let reportHydrationKey = $state("")
+  let reportDeleteHydrationKey = $state("")
 
   const makeHydrationKey = (relays: string[], filters: unknown[]) =>
     JSON.stringify({relays: relays.slice().sort(), filters})
@@ -100,6 +113,12 @@
           $activeCommunityModeratorRequestReactionEvents,
         )
       : [],
+  )
+  const reportFilters = $derived(
+    $activeCommunityDefinition ? makeCommunityReportFilters($activeCommunityDefinition) : [],
+  )
+  const reportDeleteFilters = $derived(
+    makeCommunityReportDeleteFilters($activeCommunityReportEvents),
   )
   const pendingModeratorRequests = $derived(
     $activeCommunityModeratorRequestStates.filter(request => request.status === "pending"),
@@ -172,6 +191,21 @@
       .toSorted((a, b) => b.grantCount - a.grantCount || a.pubkey.localeCompare(b.pubkey))
   })
   const activeModeratorCount = $derived(moderatorGrantPeople.length)
+  const moderationActionsByReporter = $derived.by((): Map<string, CommunityModerationAction[]> => {
+    const reports = new Map<string, CommunityModerationAction[]>()
+
+    for (const person of moderatorGrantPeople) {
+      reports.set(
+        person.pubkey,
+        getEffectiveCommunityModerationActionsByReporter(
+          $activeCommunityReportState,
+          person.pubkey,
+        ),
+      )
+    }
+
+    return reports
+  })
 
   const statusClass = (status: RequestStatusFilter) => {
     if (status === "accepted") return "badge-success"
@@ -187,6 +221,13 @@
     ...request.acceptanceReactions,
     ...request.rejectionReactions,
   ]
+
+  const getModeratorPersonTab = (userPubkey: string): ModeratorPersonTab =>
+    moderatorPersonTabs[userPubkey] || "grants"
+
+  const selectModeratorPersonTab = (userPubkey: string, tab: ModeratorPersonTab) => {
+    moderatorPersonTabs = {...moderatorPersonTabs, [userPubkey]: tab}
+  }
 
   const assertCanPublish = () => {
     if (!$activeCommunityDefinition || !canEditCommunity) {
@@ -366,6 +407,30 @@
       console.warn("[community] Failed to hydrate admin moderator review deletes", error)
     })
   })
+
+  $effect(() => {
+    if ($activeCommunityRelays.length === 0) return
+    if (reportFilters.length === 0) return
+    const key = makeHydrationKey($activeCommunityRelays, reportFilters)
+    if (key === reportHydrationKey) return
+
+    reportHydrationKey = key
+    void loadCommunityEvents($activeCommunityRelays, reportFilters).catch(error => {
+      console.warn("[community] Failed to hydrate admin moderation reports", error)
+    })
+  })
+
+  $effect(() => {
+    if ($activeCommunityRelays.length === 0) return
+    if (reportDeleteFilters.length === 0) return
+    const key = makeHydrationKey($activeCommunityRelays, reportDeleteFilters)
+    if (key === reportDeleteHydrationKey) return
+
+    reportDeleteHydrationKey = key
+    void loadCommunityEvents($activeCommunityRelays, reportDeleteFilters).catch(error => {
+      console.warn("[community] Failed to hydrate admin moderation report deletes", error)
+    })
+  })
 </script>
 
 <PageBar>
@@ -510,6 +575,7 @@
 
         <div class="flex flex-col gap-3">
           {#each moderatorGrantPeople as person (person.pubkey)}
+            {@const personActions = moderationActionsByReporter.get(person.pubkey) || []}
             <details class="rounded-box border border-base-300 bg-base-100">
               <summary class="cursor-pointer p-4 marker:text-primary">
                 <div
@@ -520,56 +586,84 @@
                       <strong><ProfileLink pubkey={person.pubkey} /></strong>
                     </div>
                   </div>
-                  <span class="badge badge-success">
-                    {person.grantCount}
-                    {person.grantCount === 1 ? "grant" : "grants"}
-                  </span>
+                  <div class="flex flex-wrap gap-2">
+                    <span class="badge badge-success">
+                      {person.grantCount}
+                      {person.grantCount === 1 ? "grant" : "grants"}
+                    </span>
+                    <span class="badge badge-warning">
+                      {personActions.length}
+                      {personActions.length === 1 ? "action" : "actions"}
+                    </span>
+                  </div>
                 </div>
               </summary>
 
               <div class="border-t border-base-300 p-4">
-                <div class="flex flex-col gap-3">
-                  {#each person.grants as grant (`${grant.sectionName}:${grant.pubkey}`)}
-                    <article class="rounded-box bg-base-200 p-3">
-                      <div class="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div class="flex flex-wrap items-center gap-2">
-                            <strong>{grant.displayName}</strong>
-                            <span class="badge badge-success">profile list + badge</span>
-                          </div>
-                          <p class="mt-1 text-xs opacity-60">
-                            Revoking removes both profile-list manager and badge issuer refs for
-                            this section.
-                          </p>
-                        </div>
-                        <Button
-                          class="btn btn-error btn-sm"
-                          onclick={() => revokeModeratorGrant(grant)}>
-                          Revoke grant
-                        </Button>
-                      </div>
-
-                      <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
-                        <div class="rounded-box bg-base-100 p-3">
-                          <strong>Profile-list refs</strong>
-                          <div class="mt-2 flex flex-col gap-1">
-                            {#each grant.profileLists as ref (ref.address)}
-                              <p class="break-all opacity-75">{ref.address}</p>
-                            {/each}
-                          </div>
-                        </div>
-                        <div class="rounded-box bg-base-100 p-3">
-                          <strong>Badge refs</strong>
-                          <div class="mt-2 flex flex-col gap-1">
-                            {#each grant.badges as ref (ref.address)}
-                              <p class="break-all opacity-75">{ref.address}</p>
-                            {/each}
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  {/each}
+                <div class="mb-4 flex flex-wrap gap-2">
+                  <Button
+                    class={`btn btn-sm ${getModeratorPersonTab(person.pubkey) === "grants" ? "btn-primary" : "btn-ghost"}`}
+                    onclick={() => selectModeratorPersonTab(person.pubkey, "grants")}>
+                    Section grants
+                    <span class="badge ml-2">{person.grantCount}</span>
+                  </Button>
+                  <Button
+                    class={`btn btn-sm ${getModeratorPersonTab(person.pubkey) === "actions" ? "btn-primary" : "btn-ghost"}`}
+                    onclick={() => selectModeratorPersonTab(person.pubkey, "actions")}>
+                    Recent actions
+                    <span class="badge ml-2">{personActions.length}</span>
+                  </Button>
                 </div>
+
+                {#if getModeratorPersonTab(person.pubkey) === "actions"}
+                  <ModerationReportList
+                    reports={personActions}
+                    relays={$activeCommunityRelays}
+                    emptyMessage="No active moderation actions from this moderator." />
+                {:else}
+                  <div class="flex flex-col gap-3">
+                    {#each person.grants as grant (`${grant.sectionName}:${grant.pubkey}`)}
+                      <article class="rounded-box bg-base-200 p-3">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div class="flex flex-wrap items-center gap-2">
+                              <strong>{grant.displayName}</strong>
+                              <span class="badge badge-success">profile list + badge</span>
+                            </div>
+                            <p class="mt-1 text-xs opacity-60">
+                              Revoking removes both profile-list manager and badge issuer refs for
+                              this section.
+                            </p>
+                          </div>
+                          <Button
+                            class="btn btn-error btn-sm"
+                            onclick={() => revokeModeratorGrant(grant)}>
+                            Revoke grant
+                          </Button>
+                        </div>
+
+                        <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                          <div class="rounded-box bg-base-100 p-3">
+                            <strong>Profile-list refs</strong>
+                            <div class="mt-2 flex flex-col gap-1">
+                              {#each grant.profileLists as ref (ref.address)}
+                                <p class="break-all opacity-75">{ref.address}</p>
+                              {/each}
+                            </div>
+                          </div>
+                          <div class="rounded-box bg-base-100 p-3">
+                            <strong>Badge refs</strong>
+                            <div class="mt-2 flex flex-col gap-1">
+                              {#each grant.badges as ref (ref.address)}
+                                <p class="break-all opacity-75">{ref.address}</p>
+                              {/each}
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    {/each}
+                  </div>
+                {/if}
               </div>
             </details>
           {:else}

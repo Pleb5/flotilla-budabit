@@ -5,9 +5,8 @@ import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {sortBy} from "@welshman/lib"
 import {load} from "@welshman/net"
 import {Router} from "@welshman/router"
-import type {Filter, TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, DELETE, type Filter, type TrustedEvent} from "@welshman/util"
 import {
-  BADGE_DEFINITION_KIND,
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_GOALS,
   FORM_TEMPLATE_KIND,
@@ -43,7 +42,6 @@ import {
   type PreferredCommunityRef,
 } from "@app/util/community-preferences"
 import {
-  MODERATOR_REQUEST_REACTION_DELETE_KIND,
   MODERATOR_REQUEST_REACTION_KIND,
   getModeratorPromotionRequestStates,
   getModeratorPromotionRequests,
@@ -51,7 +49,6 @@ import {
   type ModeratorPromotionRequestState,
 } from "@app/core/community-moderator-requests"
 import {
-  COMMUNITY_REPORT_DELETE_KIND,
   COMMUNITY_REPORT_KIND,
   getEffectiveCommunityReportState,
   type EffectiveCommunityReportState,
@@ -703,7 +700,7 @@ export const makeCommunityModeratorRequestFilters = (
   return communityAddress
     ? [
         {
-          kinds: [PROFILE_LIST_KIND, BADGE_DEFINITION_KIND],
+          kinds: [PROFILE_LIST_KIND, BADGE_DEFINITION],
           "#a": [communityAddress],
           ...(authors?.length ? {authors} : {}),
           limit: options.limit ?? 200,
@@ -738,7 +735,7 @@ export const makeCommunityModeratorRequestDeleteFilters = (
   return reactionIds.length
     ? [
         {
-          kinds: [MODERATOR_REQUEST_REACTION_DELETE_KIND],
+          kinds: [DELETE],
           authors: [definition.pubkey],
           "#e": reactionIds,
         },
@@ -757,9 +754,7 @@ export const makeCommunityReportFilters = (definition: CommunityDefinition): Fil
 export const makeCommunityReportDeleteFilters = (reportEvents: TrustedEvent[]): Filter[] => {
   const reportIds = Array.from(new Set(reportEvents.map(event => event.id).filter(Boolean)))
 
-  return reportIds.length
-    ? [{kinds: [COMMUNITY_REPORT_DELETE_KIND], "#e": reportIds}]
-    : []
+  return reportIds.length ? [{kinds: [DELETE], "#e": reportIds}] : []
 }
 
 const deriveActiveCommunityEvents = (
@@ -793,8 +788,9 @@ export const activeCommunityBadgeDefinitionEvents: Readable<TrustedEvent[]> =
 export const activeCommunityAdmissionFormEvents: Readable<TrustedEvent[]> =
   deriveActiveCommunityEvents(makeCommunityAdmissionFormFilters)
 
-export const activeCommunityReportEvents: Readable<TrustedEvent[]> =
-  deriveActiveCommunityEvents(makeCommunityReportFilters)
+export const activeCommunityReportEvents: Readable<TrustedEvent[]> = deriveActiveCommunityEvents(
+  makeCommunityReportFilters,
+)
 
 export const activeCommunityReportDeleteEvents: Readable<TrustedEvent[]> = derived(
   activeCommunityReportEvents,
@@ -812,7 +808,11 @@ export const activeCommunityReportDeleteEvents: Readable<TrustedEvent[]> = deriv
 
 export const activeCommunityReportState: Readable<EffectiveCommunityReportState> = derived(
   [activeCommunityDefinition, activeCommunityReportEvents, activeCommunityReportDeleteEvents],
-  ([$activeCommunityDefinition, $activeCommunityReportEvents, $activeCommunityReportDeleteEvents]) =>
+  ([
+    $activeCommunityDefinition,
+    $activeCommunityReportEvents,
+    $activeCommunityReportDeleteEvents,
+  ]) =>
     $activeCommunityDefinition
       ? getEffectiveCommunityReportState({
           definition: $activeCommunityDefinition,
@@ -835,7 +835,7 @@ export const activeCommunityModeratorRequests: Readable<ModeratorPromotionReques
             event => event.kind === PROFILE_LIST_KIND,
           ),
           badgeEvents: $activeCommunityModeratorRequestEvents.filter(
-            event => event.kind === BADGE_DEFINITION_KIND,
+            event => event.kind === BADGE_DEFINITION,
           ),
           communityPubkey: $activeCommunityDefinition.pubkey,
         })
@@ -950,7 +950,7 @@ export const activeCommunityUserModeratorRequests: Readable<ModeratorPromotionRe
             event => event.kind === PROFILE_LIST_KIND,
           ),
           badgeEvents: $activeCommunityUserModeratorRequestEvents.filter(
-            event => event.kind === BADGE_DEFINITION_KIND,
+            event => event.kind === BADGE_DEFINITION,
           ),
           communityPubkey: $activeCommunityDefinition.pubkey,
         })
@@ -1098,7 +1098,7 @@ export const hydrateActiveCommunityUserModeratorRequests = async ({
     ]
     const requests = getModeratorPromotionRequests({
       profileListEvents: requestEvents.filter(event => event.kind === PROFILE_LIST_KIND),
-      badgeEvents: requestEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
+      badgeEvents: requestEvents.filter(event => event.kind === BADGE_DEFINITION),
       communityPubkey: definition.pubkey,
     })
     const reactionFilters = makeCommunityModeratorRequestReactionFilters(definition, requests)
@@ -1211,10 +1211,10 @@ export const loadCommunityBootstrap = async (
   const bootstrap = {
     definition,
     profileListEvents: authorityEvents.filter(event => event.kind === PROFILE_LIST_KIND),
-    badgeDefinitionEvents: authorityEvents.filter(event => event.kind === BADGE_DEFINITION_KIND),
+    badgeDefinitionEvents: authorityEvents.filter(event => event.kind === BADGE_DEFINITION),
     admissionFormEvents: admissionFormEvents.filter(event => event.kind === FORM_TEMPLATE_KIND),
     reportEvents: reportEvents.filter(event => event.kind === COMMUNITY_REPORT_KIND),
-    reportDeleteEvents: reportDeleteEvents.filter(event => event.kind === COMMUNITY_REPORT_DELETE_KIND),
+    reportDeleteEvents: reportDeleteEvents.filter(event => event.kind === DELETE),
   }
 
   return bootstrap

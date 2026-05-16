@@ -1,17 +1,13 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
-import {
-  BADGE_DEFINITION_KIND,
-  COMMUNITY_DEFINITION_KIND,
-  PROFILE_LIST_KIND,
-  parseCommunityDefinition,
-} from "./community"
+import {BADGE_DEFINITION, DELETE, type TrustedEvent} from "@welshman/util"
+import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
 import {
   COMMUNITY_REPORT_KIND,
   canPublishCommunityEventReport,
   canPublishCommunityPersonReport,
   getAllSectionModeratorPubkeys,
   getCommunityCensorReason,
+  getEffectiveCommunityModerationActionsByReporter,
   getEffectiveCommunityReportState,
   makeCommunityEventReport,
   makeCommunityPersonReport,
@@ -50,17 +46,17 @@ const makeDefinition = ({includeSectionModerator = true} = {}) =>
         ...(includeSectionModerator
           ? [
               ["a", `${PROFILE_LIST_KIND}:${sectionModeratorPubkey}:General`],
-              ["badge", `${BADGE_DEFINITION_KIND}:${sectionModeratorPubkey}:General`],
+              ["badge", `${BADGE_DEFINITION}:${sectionModeratorPubkey}:General`],
             ]
           : []),
         ["a", `${PROFILE_LIST_KIND}:${allSectionModeratorPubkey}:General`],
-        ["badge", `${BADGE_DEFINITION_KIND}:${allSectionModeratorPubkey}:General`],
+        ["badge", `${BADGE_DEFINITION}:${allSectionModeratorPubkey}:General`],
         ["content", "Forum"],
         ["k", "11", "forum"],
         ["a", `${PROFILE_LIST_KIND}:${allSectionModeratorPubkey}:Forum`],
-        ["badge", `${BADGE_DEFINITION_KIND}:${allSectionModeratorPubkey}:Forum`],
+        ["badge", `${BADGE_DEFINITION}:${allSectionModeratorPubkey}:Forum`],
         ["a", `${PROFILE_LIST_KIND}:${otherSectionModeratorPubkey}:Forum`],
-        ["badge", `${BADGE_DEFINITION_KIND}:${otherSectionModeratorPubkey}:Forum`],
+        ["badge", `${BADGE_DEFINITION}:${otherSectionModeratorPubkey}:Forum`],
       ],
     }),
   )!
@@ -168,7 +164,7 @@ describe("community reports", () => {
     })
     const deleteEvent = makeEvent({
       id: "delete-event-report",
-      kind: 5,
+      kind: DELETE,
       pubkey: sectionModeratorPubkey,
       tags: makeCommunityReportDelete({reportId: deletedEventReport.id}).tags,
     })
@@ -345,5 +341,50 @@ describe("community reports", () => {
         targetPubkey: allSectionModeratorPubkey,
       }),
     ).toBe(false)
+  })
+
+  it("sorts active moderation actions by reporter", () => {
+    const definition = makeDefinition()
+    const olderReport = makeEvent({
+      id: "older-report",
+      created_at: 10,
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: sectionModeratorPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "General",
+        eventId: "older-event",
+        eventPubkey: targetPubkey,
+      }).tags,
+    })
+    const newerReport = makeEvent({
+      id: "newer-report",
+      created_at: 20,
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: sectionModeratorPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "General",
+        eventId: "newer-event",
+        eventPubkey: targetPubkey,
+      }).tags,
+    })
+    const otherReporterReport = makeEvent({
+      id: "other-reporter-report",
+      created_at: 30,
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: communityPubkey,
+      tags: makeCommunityPersonReport({communityPubkey, pubkey: targetPubkey}).tags,
+    })
+    const state = getEffectiveCommunityReportState({
+      definition,
+      reportEvents: [olderReport, newerReport, otherReporterReport],
+    })
+
+    expect(
+      getEffectiveCommunityModerationActionsByReporter(state, sectionModeratorPubkey).map(
+        report => report.event.id,
+      ),
+    ).toEqual(["newer-report", "older-report"])
   })
 })

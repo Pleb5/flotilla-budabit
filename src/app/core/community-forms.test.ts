@@ -1,8 +1,7 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
+import {DELETE, type TrustedEvent} from "@welshman/util"
 import {FORM_RESPONSE_KIND, FORM_TEMPLATE_KIND} from "./community"
 import {
-  COMMUNITY_FORM_DELETE_KIND,
   COMMUNITY_FORM_REVIEW_KIND,
   getAdmissionSubmissionState,
   makeAdmissionFormDraftFromForm,
@@ -55,7 +54,14 @@ const makeFormEvent = (overrides: Partial<TrustedEvent> = {}) =>
       ["name", "Repository curator application"],
       ["settings", JSON.stringify({description: "Tell us what you will curate."})],
       ["relay", "wss://relay.example.com"],
-      ["field", "experience", "text", "What experience do you have?", "", JSON.stringify({required: true})],
+      [
+        "field",
+        "experience",
+        "text",
+        "What experience do you have?",
+        "",
+        JSON.stringify({required: true}),
+      ],
       [
         "field",
         "focus",
@@ -101,8 +107,22 @@ describe("community admission forms", () => {
         ["name", "Repository application"],
         ["settings", JSON.stringify({description: "Apply to publish repositories."})],
         ["relay", "wss://relay.example.com/"],
-        ["field", "experience", "text", "What experience do you have?", "", JSON.stringify({required: true})],
-        ["field", "focus", "option", "What will you curate?", JSON.stringify([["tools", "Developer tools", "{}"]]), "{}"],
+        [
+          "field",
+          "experience",
+          "text",
+          "What experience do you have?",
+          "",
+          JSON.stringify({required: true}),
+        ],
+        [
+          "field",
+          "focus",
+          "option",
+          "What will you curate?",
+          JSON.stringify([["tools", "Developer tools", "{}"]]),
+          "{}",
+        ],
       ],
     })
   })
@@ -135,7 +155,11 @@ describe("community admission forms", () => {
   })
 
   it("selects the latest form update per address", () => {
-    const older = makeFormEvent({id: "z-old", created_at: 10, tags: [...makeFormEvent().tags, ["name", "old"]]})
+    const older = makeFormEvent({
+      id: "z-old",
+      created_at: 10,
+      tags: [...makeFormEvent().tags, ["name", "old"]],
+    })
     const newer = makeFormEvent({id: "z-new", created_at: 11})
     const tieWinner = makeFormEvent({id: "a-winner", created_at: 11})
     const latest = selectLatestFormByAddress([older, newer, tieWinner])
@@ -156,7 +180,11 @@ describe("community admission forms", () => {
         return tag
       }),
     })
-    const outsiderForm = makeFormEvent({id: "outsider-form", pubkey: outsiderPubkey, created_at: 30})
+    const outsiderForm = makeFormEvent({
+      id: "outsider-form",
+      pubkey: outsiderPubkey,
+      created_at: 30,
+    })
 
     expect(
       selectActiveAdmissionForm({
@@ -234,7 +262,9 @@ describe("community admission forms", () => {
       currentModeratorPubkey: moderatorPubkey,
     })
 
-    expect(draft.identifier).toBe(`community-${communityPubkey.slice(0, 12)}-repositories-application`)
+    expect(draft.identifier).toBe(
+      `community-${communityPubkey.slice(0, 12)}-repositories-application`,
+    )
     expect(draft.name).toBe("Repository curator application")
     expect(draft.description).toBe("Tell us what you will curate.")
     expect(draft.questions).toEqual([
@@ -283,7 +313,12 @@ describe("community admission forms", () => {
 
     expect(draft.identifier).toBe("repo-application")
     expect(makeAdmissionFormFieldsFromDraft(draft)).toEqual([
-      {id: "q1", type: "text", label: "Tell us why", settings: {required: true, renderElement: "paragraph"}},
+      {
+        id: "q1",
+        type: "text",
+        label: "Tell us why",
+        settings: {required: true, renderElement: "paragraph"},
+      },
       {
         id: "q2",
         type: "option",
@@ -304,7 +339,15 @@ describe("community admission forms", () => {
         identifier: "general",
         name: "General application",
         description: "Apply for General.",
-        questions: [{id: "q1", type: "singleChoice", label: "Pick one", required: true, options: [{id: "one", label: "One"}]}],
+        questions: [
+          {
+            id: "q1",
+            type: "singleChoice",
+            label: "Pick one",
+            required: true,
+            options: [{id: "one", label: "One"}],
+          },
+        ],
       }),
     ).toEqual(["Question 1 needs at least two options."])
   })
@@ -328,7 +371,12 @@ describe("community admission responses", () => {
     })
 
   it("builds and parses identified form responses", () => {
-    expect(makeAdmissionResponse({formAddress, values: {experience: "I build things", focus: ["tools", "protocols"]}})).toEqual({
+    expect(
+      makeAdmissionResponse({
+        formAddress,
+        values: {experience: "I build things", focus: ["tools", "protocols"]},
+      }),
+    ).toEqual({
       kind: FORM_RESPONSE_KIND,
       content: "",
       tags: [
@@ -341,7 +389,10 @@ describe("community admission responses", () => {
     const response = parseAdmissionResponse(makeResponseEvent())!
 
     expect(response.formAddress).toBe(formAddress)
-    expect(response.values).toEqual({experience: "I maintain protocol tools.", focus: "tools;protocols"})
+    expect(response.values).toEqual({
+      experience: "I maintain protocol tools.",
+      focus: "tools;protocols",
+    })
     expect(response.responses[1]).toEqual({
       fieldId: "focus",
       value: "tools;protocols",
@@ -354,14 +405,14 @@ describe("community admission responses", () => {
     const newer = makeResponseEvent({id: "newer-response", created_at: 20})
     const deleteNewer = makeEvent({
       id: "delete-newer",
-      kind: COMMUNITY_FORM_DELETE_KIND,
+      kind: DELETE,
       pubkey: applicantPubkey,
       created_at: 21,
       tags: makeAdmissionResponseDelete({responseId: "newer-response"}).tags,
     })
     const outsiderDelete = makeEvent({
       id: "outsider-delete",
-      kind: COMMUNITY_FORM_DELETE_KIND,
+      kind: DELETE,
       pubkey: outsiderPubkey,
       created_at: 22,
       tags: makeAdmissionResponseDelete({responseId: "older-response"}).tags,
@@ -412,7 +463,10 @@ describe("community admission responses", () => {
       content: "+",
     })
 
-    expect(parseAdmissionReview(grant)).toMatchObject({responseId: "response-event", status: "granted"})
+    expect(parseAdmissionReview(grant)).toMatchObject({
+      responseId: "response-event",
+      status: "granted",
+    })
     expect(
       getAdmissionSubmissionState({
         responseEvents: [response],
@@ -448,14 +502,16 @@ describe("community admission responses", () => {
 
   it("builds delete and review event templates", () => {
     expect(makeAdmissionResponseDelete({responseId: "response-event"})).toEqual({
-      kind: COMMUNITY_FORM_DELETE_KIND,
+      kind: DELETE,
       content: "Deleted application submission",
       tags: [
         ["e", "response-event"],
         ["k", "1069"],
       ],
     })
-    expect(makeAdmissionReview({responseId: "response-event", applicantPubkey, status: "rejected"})).toEqual({
+    expect(
+      makeAdmissionReview({responseId: "response-event", applicantPubkey, status: "rejected"}),
+    ).toEqual({
       kind: COMMUNITY_FORM_REVIEW_KIND,
       content: "-",
       tags: [

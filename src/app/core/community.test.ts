@@ -1,8 +1,7 @@
 import {describe, expect, it} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
-import type {TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
 import {
-  BADGE_DEFINITION_KIND,
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_GENERAL,
   COMMUNITY_SECTION_ROOMS,
@@ -111,12 +110,12 @@ describe("community protocol helpers", () => {
         ["k", "1111"],
         ["k", "9", COMMUNITY_SUBTYPE_ROOM_MESSAGE],
         ["a", `${PROFILE_LIST_KIND}:${pubkeyB}:General`, "wss://relay.example.com"],
-        ["badge", `${BADGE_DEFINITION_KIND}:${pubkeyC}:member`],
+        ["badge", `${BADGE_DEFINITION}:${pubkeyC}:member`],
         ["retention", "9", "100", "count"],
         ["content", COMMUNITY_SECTION_ROOMS],
         ["k", "11", COMMUNITY_SUBTYPE_ROOM],
         ["a", `${PROFILE_LIST_KIND}:${pubkeyC}:Rooms`],
-        ["badge", `${BADGE_DEFINITION_KIND}:${pubkeyC}:room-admin`],
+        ["badge", `${BADGE_DEFINITION}:${pubkeyC}:room-admin`],
         ["tos", "policy-id", "wss://relay.example.com"],
         ["location", "Internet"],
         ["g", "geo:U4PRUY"],
@@ -147,7 +146,7 @@ describe("community protocol helpers", () => {
       relay: "wss://relay.example.com/",
     })
     expect(general.badges[0]).toMatchObject({
-      kind: BADGE_DEFINITION_KIND,
+      kind: BADGE_DEFINITION,
       pubkey: pubkeyC,
       identifier: "member",
     })
@@ -183,10 +182,10 @@ describe("community protocol helpers", () => {
     expect(
       userCanIssueBadge(
         {
-          kind: BADGE_DEFINITION_KIND,
+          kind: BADGE_DEFINITION,
           pubkey: pubkeyC,
           identifier: "member",
-          address: `${BADGE_DEFINITION_KIND}:${pubkeyC}:member`,
+          address: `${BADGE_DEFINITION}:${pubkeyC}:member`,
         },
         pubkeyC,
       ),
@@ -279,7 +278,7 @@ describe("community protocol helpers", () => {
     const badge = setup.sections[0].badge
 
     expect(makeCommunityBadgeDefinition({badge, name: "General writer"})).toEqual({
-      kind: BADGE_DEFINITION_KIND,
+      kind: BADGE_DEFINITION,
       content: "",
       tags: [
         ["d", badge.identifier],

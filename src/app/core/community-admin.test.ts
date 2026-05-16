@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
-import {BADGE_AWARD_KIND, BADGE_DEFINITION_KIND, PROFILE_LIST_KIND} from "./community"
+import {BADGE_AWARD, BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
+import {PROFILE_LIST_KIND} from "./community"
 import {
   addPubkeyToCommunityProfileList,
   makeCommunityBadgeAward,
@@ -23,10 +23,10 @@ const profileList = {
 }
 
 const badge = {
-  kind: BADGE_DEFINITION_KIND,
+  kind: BADGE_DEFINITION,
   pubkey: badgePubkey,
   identifier: "member",
-  address: `${BADGE_DEFINITION_KIND}:${badgePubkey}:member`,
+  address: `${BADGE_DEFINITION}:${badgePubkey}:member`,
 }
 
 const profileListEvent = {
@@ -44,7 +44,9 @@ const profileListEvent = {
 
 describe("community admin helpers", () => {
   it("builds profile lists with normalized unique pubkeys", () => {
-    expect(makeCommunityProfileList({profileList, pubkeys: [memberPubkey, memberPubkey, "bad"]})).toEqual({
+    expect(
+      makeCommunityProfileList({profileList, pubkeys: [memberPubkey, memberPubkey, "bad"]}),
+    ).toEqual({
       kind: PROFILE_LIST_KIND,
       content: "",
       tags: [
@@ -55,7 +57,9 @@ describe("community admin helpers", () => {
   })
 
   it("adds and removes pubkeys from profile lists", () => {
-    expect(addPubkeyToCommunityProfileList({profileList, event: profileListEvent, pubkey: memberPubkey})).toEqual({
+    expect(
+      addPubkeyToCommunityProfileList({profileList, event: profileListEvent, pubkey: memberPubkey}),
+    ).toEqual({
       kind: PROFILE_LIST_KIND,
       content: "",
       tags: [
@@ -64,7 +68,13 @@ describe("community admin helpers", () => {
         ["p", memberPubkey],
       ],
     })
-    expect(removePubkeyFromCommunityProfileList({profileList, event: profileListEvent, pubkey: otherPubkey})).toEqual({
+    expect(
+      removePubkeyFromCommunityProfileList({
+        profileList,
+        event: profileListEvent,
+        pubkey: otherPubkey,
+      }),
+    ).toEqual({
       kind: PROFILE_LIST_KIND,
       content: "",
       tags: [["d", "General"]],
@@ -79,7 +89,7 @@ describe("community admin helpers", () => {
         relayHints: {[memberPubkey]: "wss://relay.example.com/"},
       }),
     ).toEqual({
-      kind: BADGE_AWARD_KIND,
+      kind: BADGE_AWARD,
       content: "",
       tags: [
         ["a", badge.address],
@@ -94,9 +104,19 @@ describe("community admin helpers", () => {
     ).toMatchObject({
       profileList: {
         kind: PROFILE_LIST_KIND,
-        tags: [["d", "General"], ["p", otherPubkey], ["p", memberPubkey]],
+        tags: [
+          ["d", "General"],
+          ["p", otherPubkey],
+          ["p", memberPubkey],
+        ],
       },
-      badgeAward: {kind: BADGE_AWARD_KIND, tags: [["a", badge.address], ["p", memberPubkey]]},
+      badgeAward: {
+        kind: BADGE_AWARD,
+        tags: [
+          ["a", badge.address],
+          ["p", memberPubkey],
+        ],
+      },
     })
     expect(makeCommunityRevokeEvent({profileList, profileListEvent, pubkey: otherPubkey})).toEqual({
       kind: PROFILE_LIST_KIND,

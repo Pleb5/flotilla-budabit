@@ -1,13 +1,11 @@
 import * as nip19 from "nostr-tools/nip19"
 import type {EventContent, TrustedEvent} from "@welshman/util"
-import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
+import {BADGE_DEFINITION, isRelayUrl, normalizeRelayUrl} from "@welshman/util"
 import {randomId} from "@welshman/lib"
 
 export const COMMUNITY_DEFINITION_KIND = 10222
 export const TARGETED_PUBLICATION_KIND = 30222
 export const PROFILE_LIST_KIND = 30000
-export const BADGE_DEFINITION_KIND = 30009
-export const BADGE_AWARD_KIND = 8
 export const FORM_TEMPLATE_KIND = 30168
 export const FORM_RESPONSE_KIND = 1069
 export const MAX_TARGET_COMMUNITIES = 12
@@ -279,7 +277,7 @@ export const makeCommunitySetupSection = ({
   const normalizedRelays = normalizeRelays(relays)
   const identifier = makeCommunityScopedIdentifier(normalizedCommunityPubkey, name)
   const profileListAddress = makeAddress(PROFILE_LIST_KIND, normalizedProfileListPubkey, identifier)
-  const badgeAddress = makeAddress(BADGE_DEFINITION_KIND, normalizedBadgeIssuerPubkey, identifier)
+  const badgeAddress = makeAddress(BADGE_DEFINITION, normalizedBadgeIssuerPubkey, identifier)
   const profileList = {
     kind: PROFILE_LIST_KIND,
     pubkey: normalizedProfileListPubkey,
@@ -288,7 +286,7 @@ export const makeCommunitySetupSection = ({
     relay: normalizedRelays[0],
   }
   const badge = {
-    kind: BADGE_DEFINITION_KIND,
+    kind: BADGE_DEFINITION,
     pubkey: normalizedBadgeIssuerPubkey,
     identifier,
     address: badgeAddress,
@@ -393,8 +391,8 @@ export const makeCommunityBadgeDefinition = ({
   name?: string
   description?: string
   image?: string
-}): EventContent & {kind: typeof BADGE_DEFINITION_KIND} => ({
-  kind: BADGE_DEFINITION_KIND,
+}): EventContent & {kind: typeof BADGE_DEFINITION} => ({
+  kind: BADGE_DEFINITION,
   content: "",
   tags: [
     ["d", badge.identifier],
@@ -463,7 +461,7 @@ const parseProfileListRef = (tag: string[]): CommunityProfileListRef | undefined
 
 const parseBadgeRef = (tag: string[]): CommunityBadgeRef | undefined => {
   const ref = parseAddressRef(tag[1] || "")
-  if (!ref || ref.kind !== BADGE_DEFINITION_KIND) return undefined
+  if (!ref || ref.kind !== BADGE_DEFINITION) return undefined
 
   return ref
 }

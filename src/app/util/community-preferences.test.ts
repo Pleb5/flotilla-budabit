@@ -1,11 +1,6 @@
 import {describe, expect, it} from "vitest"
-import type {TrustedEvent} from "@welshman/util"
-import {
-  BADGE_DEFINITION_KIND,
-  COMMUNITY_DEFINITION_KIND,
-  FORM_TEMPLATE_KIND,
-  PROFILE_LIST_KIND,
-} from "@app/core/community"
+import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
+import {COMMUNITY_DEFINITION_KIND, FORM_TEMPLATE_KIND, PROFILE_LIST_KIND} from "@app/core/community"
 import {makeCommunityDefinitionAddress} from "@app/core/community-forms"
 import {COMMUNITY_STAR_CONTENT} from "@app/util/community-stars"
 import {selectPreferredCommunities} from "@app/util/community-preferences"
@@ -54,7 +49,7 @@ const makeDefinition = ({
       ["content", "General"],
       ["k", "7"],
       ["a", `${PROFILE_LIST_KIND}:${profileListPubkey}:${listIdentifier}`],
-      ["badge", `${BADGE_DEFINITION_KIND}:${badgePubkey}:${badgeIdentifier}`],
+      ["badge", `${BADGE_DEFINITION}:${badgePubkey}:${badgeIdentifier}`],
     ],
   })
 
