@@ -42,10 +42,7 @@
     makeModeratorRequestReaction,
     makeModeratorRequestReactionDelete,
   } from "@app/core/community-moderator-requests"
-  import {
-    communityAdminSelectedTab,
-    type CommunityAdminTab,
-  } from "@app/util/community-admin-tabs"
+  import {communityAdminSelectedTab, type CommunityAdminTab} from "@app/util/community-admin-tabs"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   type RequestStatusFilter = "pending" | "accepted" | "rejected"
@@ -84,7 +81,9 @@
     ),
   )
   const moderatorRequestFilters = $derived(
-    $activeCommunityDefinition ? makeCommunityModeratorRequestFilters($activeCommunityDefinition) : [],
+    $activeCommunityDefinition
+      ? makeCommunityModeratorRequestFilters($activeCommunityDefinition)
+      : [],
   )
   const moderatorRequestReactionFilters = $derived(
     $activeCommunityDefinition
@@ -112,7 +111,9 @@
     $activeCommunityModeratorRequestStates.filter(request => request.status === "rejected"),
   )
   const visibleModeratorRequests = $derived(
-    $activeCommunityModeratorRequestStates.filter(request => request.status === requestStatusFilter),
+    $activeCommunityModeratorRequestStates.filter(
+      request => request.status === requestStatusFilter,
+    ),
   )
   const requestStatusTabs = $derived([
     {status: "pending" as const, label: "Pending", count: pendingModeratorRequests.length},
@@ -143,13 +144,15 @@
         const badges = section.badges.filter(ref => normalizePubkey(ref.pubkey) === userPubkey)
         if (profileLists.length === 0 || badges.length === 0) return []
 
-        return [{
-          sectionName: section.name,
-          displayName: getCommunitySectionDisplayName(section),
-          pubkey: userPubkey,
-          profileLists,
-          badges,
-        }]
+        return [
+          {
+            sectionName: section.name,
+            displayName: getCommunitySectionDisplayName(section),
+            pubkey: userPubkey,
+            profileLists,
+            badges,
+          },
+        ]
       })
     })
   })
@@ -168,7 +171,7 @@
       }))
       .toSorted((a, b) => b.grantCount - a.grantCount || a.pubkey.localeCompare(b.pubkey))
   })
-  const activeModeratorGrantCount = $derived(moderatorSectionGrants.length)
+  const activeModeratorCount = $derived(moderatorGrantPeople.length)
 
   const statusClass = (status: RequestStatusFilter) => {
     if (status === "accepted") return "badge-success"
@@ -199,7 +202,10 @@
     return true
   }
 
-  const publishModeratorReview = (requestState: ModeratorPromotionRequestState, content: "+" | "-") => {
+  const publishModeratorReview = (
+    requestState: ModeratorPromotionRequestState,
+    content: "+" | "-",
+  ) => {
     const profileListReaction = makeModeratorRequestReaction({
       request: requestState,
       target: requestState.profileList,
@@ -211,8 +217,14 @@
       content,
     })
 
-    publishThunk({relays: $activeCommunityRelays, event: makeEvent(profileListReaction.kind, profileListReaction)})
-    publishThunk({relays: $activeCommunityRelays, event: makeEvent(badgeReaction.kind, badgeReaction)})
+    publishThunk({
+      relays: $activeCommunityRelays,
+      event: makeEvent(profileListReaction.kind, profileListReaction),
+    })
+    publishThunk({
+      relays: $activeCommunityRelays,
+      event: makeEvent(badgeReaction.kind, badgeReaction),
+    })
   }
 
   const acceptModeratorRequest = (requestState: ModeratorPromotionRequestState) => {
@@ -230,7 +242,10 @@
         for (const reaction of getActiveReviewReactions(requestState)) {
           const deleteEvent = makeModeratorRequestReactionDelete({reactionId: reaction.id})
 
-          publishThunk({relays: $activeCommunityRelays, event: makeEvent(deleteEvent.kind, deleteEvent)})
+          publishThunk({
+            relays: $activeCommunityRelays,
+            event: makeEvent(deleteEvent.kind, deleteEvent),
+          })
         }
 
         publishModeratorReview(requestState, "+")
@@ -239,7 +254,10 @@
           request: requestState,
         })
 
-        publishThunk({relays: $activeCommunityRelays, event: makeEvent(definitionUpdate.kind, definitionUpdate)})
+        publishThunk({
+          relays: $activeCommunityRelays,
+          event: makeEvent(definitionUpdate.kind, definitionUpdate),
+        })
         pushToast({theme: "success", message: "Moderator request accepted."})
         history.back()
       },
@@ -279,7 +297,10 @@
           moderatorPubkey: grant.pubkey,
         })
 
-        publishThunk({relays: $activeCommunityRelays, event: makeEvent(definitionUpdate.kind, definitionUpdate)})
+        publishThunk({
+          relays: $activeCommunityRelays,
+          event: makeEvent(definitionUpdate.kind, definitionUpdate),
+        })
         pushToast({theme: "warning", message: "Moderator refs revoked."})
         history.back()
       },
@@ -327,9 +348,11 @@
     if (key === moderatorReactionHydrationKey) return
 
     moderatorReactionHydrationKey = key
-    void loadCommunityEvents($activeCommunityRelays, moderatorRequestReactionFilters).catch(error => {
-      console.warn("[community] Failed to hydrate admin moderator request reviews", error)
-    })
+    void loadCommunityEvents($activeCommunityRelays, moderatorRequestReactionFilters).catch(
+      error => {
+        console.warn("[community] Failed to hydrate admin moderator request reviews", error)
+      },
+    )
   })
 
   $effect(() => {
@@ -381,7 +404,7 @@
         class={`btn ${adminTab === "moderators" ? "btn-primary" : "btn-ghost"}`}
         onclick={() => selectAdminTab("moderators")}>
         Moderators
-        <span class="badge ml-2">{activeModeratorGrantCount}</span>
+        <span class="badge ml-2">{activeModeratorCount}</span>
       </Button>
     </div>
 
@@ -397,7 +420,8 @@
           <div>
             <h2 class="text-xl font-semibold">Moderator requests</h2>
             <p class="text-sm opacity-70">
-              Review requester-owned list and badge pairs, then accept by appending their refs to the community definition.
+              Review requester-owned list and badge pairs, then accept by appending their refs to
+              the community definition.
             </p>
           </div>
           {#if pendingModeratorRequests.length > 0}
@@ -424,7 +448,8 @@
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
                     <strong>{moderatorRequest.sectionName}</strong>
-                    <span class={`badge ${statusClass(moderatorRequest.status)}`}>{moderatorRequest.status}</span>
+                    <span class={`badge ${statusClass(moderatorRequest.status)}`}
+                      >{moderatorRequest.status}</span>
                   </div>
                   <p class="mt-1 text-sm opacity-70">
                     Requester: <ProfileLink pubkey={moderatorRequest.requesterPubkey} />
@@ -459,7 +484,6 @@
                   <p class="break-all opacity-75">{moderatorRequest.badgeRef.address}</p>
                 </div>
               </div>
-
             </article>
           {:else}
             <p class="rounded-box bg-base-200 p-4 text-center text-sm opacity-70">
@@ -474,17 +498,22 @@
           <div>
             <h2 class="text-xl font-semibold">Moderators</h2>
             <p class="text-sm opacity-70">
-              Review section moderator grants grouped by pubkey. The community key is always allowed and is not listed here.
+              Review section moderator grants grouped by pubkey. The community key is always allowed
+              and is not listed here.
             </p>
           </div>
-          <span class="badge badge-neutral">{activeModeratorGrantCount} grants</span>
+          <span class="badge badge-neutral">
+            {activeModeratorCount}
+            {activeModeratorCount === 1 ? "moderator" : "moderators"}
+          </span>
         </div>
 
         <div class="flex flex-col gap-3">
           {#each moderatorGrantPeople as person (person.pubkey)}
             <details class="rounded-box border border-base-300 bg-base-100">
               <summary class="cursor-pointer p-4 marker:text-primary">
-                <div class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-center justify-between gap-3 align-top">
+                <div
+                  class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-center justify-between gap-3 align-top">
                   <div class="flex min-w-0 items-center gap-3">
                     <ProfileCircle pubkey={person.pubkey} size={9} />
                     <div class="min-w-0">
@@ -492,7 +521,8 @@
                     </div>
                   </div>
                   <span class="badge badge-success">
-                    {person.grantCount} {person.grantCount === 1 ? "grant" : "grants"}
+                    {person.grantCount}
+                    {person.grantCount === 1 ? "grant" : "grants"}
                   </span>
                 </div>
               </summary>
@@ -508,10 +538,13 @@
                             <span class="badge badge-success">profile list + badge</span>
                           </div>
                           <p class="mt-1 text-xs opacity-60">
-                            Revoking removes both profile-list manager and badge issuer refs for this section.
+                            Revoking removes both profile-list manager and badge issuer refs for
+                            this section.
                           </p>
                         </div>
-                        <Button class="btn btn-error btn-sm" onclick={() => revokeModeratorGrant(grant)}>
+                        <Button
+                          class="btn btn-error btn-sm"
+                          onclick={() => revokeModeratorGrant(grant)}>
                           Revoke grant
                         </Button>
                       </div>

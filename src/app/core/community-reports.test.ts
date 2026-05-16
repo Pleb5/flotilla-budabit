@@ -247,6 +247,41 @@ describe("community reports", () => {
     )
   })
 
+  it("ignores self moderation reports", () => {
+    const definition = makeDefinition()
+    const ownEventReport = makeEvent({
+      id: "own-event-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: communityPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "General",
+        eventId: "own-event",
+        eventPubkey: communityPubkey,
+      }).tags,
+    })
+    const ownPersonReport = makeEvent({
+      id: "own-person-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: allSectionModeratorPubkey,
+      tags: makeCommunityPersonReport({
+        communityPubkey,
+        pubkey: allSectionModeratorPubkey,
+      }).tags,
+    })
+    const state = getEffectiveCommunityReportState({
+      definition,
+      reportEvents: [ownEventReport, ownPersonReport],
+    })
+
+    expect(
+      getCommunityCensorReason({reportState: state, eventId: "own-event", sectionName: "General"}),
+    ).toBeUndefined()
+    expect(
+      getCommunityCensorReason({reportState: state, pubkey: allSectionModeratorPubkey}),
+    ).toBeUndefined()
+  })
+
   it("authorizes UI moderation actions with render-time report rules", () => {
     const definition = makeDefinition()
 
@@ -295,5 +330,20 @@ describe("community reports", () => {
         targetPubkey: sectionModeratorPubkey,
       }),
     ).toBe(true)
+    expect(
+      canPublishCommunityEventReport({
+        definition,
+        reporterPubkey: communityPubkey,
+        targetPubkey: communityPubkey,
+        sectionName: "General",
+      }),
+    ).toBe(false)
+    expect(
+      canPublishCommunityPersonReport({
+        definition,
+        reporterPubkey: allSectionModeratorPubkey,
+        targetPubkey: allSectionModeratorPubkey,
+      }),
+    ).toBe(false)
   })
 })

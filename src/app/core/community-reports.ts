@@ -219,7 +219,14 @@ export const canPublishCommunityEventReport = ({
   const reporter = normalizePubkey(reporterPubkey)
   const target = normalizePubkey(targetPubkey)
 
-  if (!reporter || !target || !findCommunitySection(definition, sectionName)) return false
+  if (
+    !reporter ||
+    !target ||
+    reporter === target ||
+    !findCommunitySection(definition, sectionName)
+  ) {
+    return false
+  }
   if (
     isProtectedCommunityModeratorTarget({
       definition,
@@ -246,7 +253,7 @@ export const canPublishCommunityPersonReport = ({
   const reporter = normalizePubkey(reporterPubkey)
   const target = normalizePubkey(targetPubkey)
 
-  if (!reporter || !target) return false
+  if (!reporter || !target || reporter === target) return false
   if (
     isProtectedCommunityModeratorTarget({
       definition,
