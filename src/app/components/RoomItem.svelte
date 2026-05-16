@@ -21,6 +21,7 @@
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
+  import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import RoomItemZapButton from "@app/components/RoomItemZapButton.svelte"
   import RoomItemEmojiButton from "@app/components/RoomItemEmojiButton.svelte"
@@ -28,6 +29,8 @@
   import RoomItemMenuMobile from "@app/components/RoomItemMenuMobile.svelte"
   import RoomItemContent from "@app/components/RoomItemContent.svelte"
   import {colors, ENABLE_ZAPS, deriveEventsForUrl} from "@app/core/state"
+  import {activeCommunityReportState} from "@app/core/community-state"
+  import {getCommunityCensorReason} from "@app/core/community-reports"
   import {publishSocialDelete, publishReaction, canEnforceNip70} from "@app/core/commands"
   import {getRoomItemPath} from "@app/util/routes"
   import {pushModal} from "@app/util/modal"
@@ -45,6 +48,7 @@
     interactionRelays?: string[]
     interactionAuthorPubkeys?: string[]
     scopeH?: string
+    communitySectionName?: string
     protectInteractions?: boolean
     canEdit: (event: TrustedEvent) => boolean
     onEdit: (event: TrustedEvent) => void
@@ -61,6 +65,7 @@
     interactionRelays = [],
     interactionAuthorPubkeys = undefined,
     scopeH = "",
+    communitySectionName = "",
     protectInteractions = true,
     canEdit,
     onEdit,
@@ -70,8 +75,12 @@
   const shouldProtect = protectInteractions ? canEnforceNip70(url) : undefined
   const today = formatTimestampAsDate(now())
   const profileRelayHints = $derived.by(() =>
-    (profileRelays.length > 0 ? profileRelays : interactionRelays.length > 0 ? interactionRelays : [url])
-      .filter(Boolean),
+    (profileRelays.length > 0
+      ? profileRelays
+      : interactionRelays.length > 0
+        ? interactionRelays
+        : [url]
+    ).filter(Boolean),
   )
   const profileDisplay = $derived(deriveProfileDisplay(event.pubkey, profileRelayHints))
   const thunk = mergeThunks($thunks.filter((t: Thunk) => t.event.id === event.id))
@@ -79,6 +88,16 @@
   const comments = deriveEventsForUrl(url, [{kinds: [COMMENT], "#e": [event.id]}])
   const relayTargets = $derived.by(() =>
     (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
+  )
+  const censorReason = $derived.by(() =>
+    communitySectionName
+      ? getCommunityCensorReason({
+          reportState: $activeCommunityReportState,
+          eventId: event.id,
+          pubkey: event.pubkey,
+          sectionName: communitySectionName,
+        })
+      : undefined,
   )
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
@@ -143,10 +162,10 @@
 
 <TapTarget
   data-event={event.id}
-  onTap={inert ? null : onTap}
+  onTap={inert || censorReason ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left hover:bg-base-100/50">
-  {#if !inert}
-    <div class="absolute right-1 top-1 z-10 sm:hidden">
+  {#if !inert && !censorReason}
+    <div class="z-10 absolute right-1 top-1 sm:hidden">
       <Button
         class="btn btn-neutral btn-xs rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur"
         onclick={onTap}
@@ -156,7 +175,7 @@
     </div>
   {/if}
   <div class="flex w-full gap-3 overflow-hidden">
-    {#if showPubkey}
+    {#if showPubkey && !censorReason}
       <Button onclick={openProfile} class="flex items-start">
         <ProfileCircle
           pubkey={event.pubkey}
@@ -167,8 +186,8 @@
     {:else}
       <div class="w-8 min-w-8 max-w-8"></div>
     {/if}
-    <div class="min-w-0 flex-grow" class:pt-8={!showPubkey && !inert}>
-      {#if showPubkey}
+    <div class="min-w-0 flex-grow" class:pt-8={!showPubkey && !inert && !censorReason}>
+      {#if showPubkey && !censorReason}
         <div class="flex items-center gap-2 pr-12 sm:pr-32">
           <Button onclick={openProfile} class="text-sm font-bold" style="color: {colorValue}">
             {$profileDisplay}
@@ -184,14 +203,18 @@
         </div>
       {/if}
       <div class="w-full min-w-0" class:mt-2={showPubkey && event.kind !== MESSAGE}>
-        <RoomItemContent {url} {event} />
+        {#if censorReason}
+          <ModeratedContent reason={censorReason} />
+        {:else}
+          <RoomItemContent {url} {event} {communitySectionName} />
+        {/if}
         {#if thunk}
           <ThunkFailure showToastOnRetry {thunk} class="mt-2 text-sm" />
         {/if}
       </div>
     </div>
   </div>
-  {#if !inert && !readOnly}
+  {#if !inert && !readOnly && !censorReason}
     <div class="ml-10 mt-3 flex items-center gap-2 pl-1 sm:hidden">
       <div
         class="join rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur"
@@ -219,36 +242,38 @@
       </div>
     </div>
   {/if}
-  <div class="ml-10 mt-2 flex flex-wrap items-center gap-2 pl-1">
-    <ReactionSummary
-      {url}
-      relays={relayTargets}
-      allowedAuthors={interactionAuthorPubkeys}
-      {scopeH}
-      {event}
-      {readOnly}
-      {deleteReaction}
-      {createReaction}
-      reactionClass="tooltip-right" />
-    {#if path && $comments.length > 0}
-      {@const pubkeys = $comments.map((e: TrustedEvent) => e.pubkey)}
-      {@const isOwn = $pubkey && pubkeys.includes($pubkey)}
-      {@const info = displayList(pubkeys.map((pubkey: string) => displayProfileByPubkey(pubkey)))}
-      {@const tooltip = `${info} commented`}
-      <div data-tip={tooltip} class="tooltip tooltip-right flex">
-        <Link
-          href={path}
-          class={cx("btn btn-xs gap-1 rounded-full", {
-            "btn-neutral": !isOwn,
-            "btn-primary": isOwn,
-          })}>
-          <Icon icon={ReplyAlt} />
-          <span>{$comments.length} comment{$comments.length === 1 ? "" : "s"}</span>
-        </Link>
-      </div>
-    {/if}
-  </div>
-  {#if !inert}
+  {#if !censorReason}
+    <div class="ml-10 mt-2 flex flex-wrap items-center gap-2 pl-1">
+      <ReactionSummary
+        {url}
+        relays={relayTargets}
+        allowedAuthors={interactionAuthorPubkeys}
+        {scopeH}
+        {event}
+        {readOnly}
+        {deleteReaction}
+        {createReaction}
+        reactionClass="tooltip-right" />
+      {#if path && $comments.length > 0}
+        {@const pubkeys = $comments.map((e: TrustedEvent) => e.pubkey)}
+        {@const isOwn = $pubkey && pubkeys.includes($pubkey)}
+        {@const info = displayList(pubkeys.map((pubkey: string) => displayProfileByPubkey(pubkey)))}
+        {@const tooltip = `${info} commented`}
+        <div data-tip={tooltip} class="tooltip tooltip-right flex">
+          <Link
+            href={path}
+            class={cx("btn btn-xs gap-1 rounded-full", {
+              "btn-neutral": !isOwn,
+              "btn-primary": isOwn,
+            })}>
+            <Icon icon={ReplyAlt} />
+            <span>{$comments.length} comment{$comments.length === 1 ? "" : "s"}</span>
+          </Link>
+        </div>
+      {/if}
+    </div>
+  {/if}
+  {#if !inert && !censorReason}
     <div class={cx(actionGroupClass, "hidden text-xs sm:flex")}>
       {#if ENABLE_ZAPS && !readOnly}
         <RoomItemZapButton {url} {event} />

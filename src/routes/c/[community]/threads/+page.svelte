@@ -206,6 +206,7 @@
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
+        communitySectionName={COMMUNITY_SECTION_FORUM}
         allowedAuthors={replyAuthorPubkeys}
         readOnly={!canReact}
         event={thread.event} />

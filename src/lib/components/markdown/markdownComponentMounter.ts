@@ -21,6 +21,7 @@ export interface ComponentMounterOptions {
   minimalQuote?: boolean
   depth?: number
   hideMediaAtDepth?: number
+  communitySectionName?: string
 }
 
 /**
@@ -191,7 +192,14 @@ function mountQuotePlaceholders(
   options: ComponentMounterOptions,
   mountedComponents: MountedComponent[],
 ): void {
-  const {event, url, minimalQuote = false, depth = 0, hideMediaAtDepth = 1} = options
+  const {
+    event,
+    url,
+    minimalQuote = false,
+    depth = 0,
+    hideMediaAtDepth = 1,
+    communitySectionName = "",
+  } = options
   if (!event) return
 
   const quotePlaceholders = container.querySelectorAll(".markdown-quote-placeholder")
@@ -254,6 +262,7 @@ function mountQuotePlaceholders(
               minimal: minimal || minimalQuote,
               depth: quoteDepth || depth,
               hideMediaAtDepth: hideMedia || hideMediaAtDepth,
+              communitySectionName,
             },
           })
           mountedComponents.push({target: containerElement, component: quoteComponent})

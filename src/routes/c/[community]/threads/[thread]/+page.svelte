@@ -12,6 +12,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import Content from "@app/components/Content.svelte"
@@ -22,6 +23,7 @@
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {
@@ -39,6 +41,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {getCommunityCensorReason} from "@app/core/community-reports"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
@@ -92,6 +95,16 @@
   const thread = $derived(
     $threadEvents[0] ? readCommunityForumThread($threadEvents[0], communityPubkey) : undefined,
   )
+  const threadCensorReason = $derived.by(() =>
+    communityPubkey && threadId
+      ? getCommunityCensorReason({
+          reportState: $activeCommunityReportState,
+          eventId: thread?.event.id || threadId,
+          pubkey: thread?.event.pubkey,
+          sectionName: COMMUNITY_SECTION_FORUM,
+        })
+      : undefined,
+  )
   const replies = $derived(
     $replyEvents
       .map(event => readCommunityForumReply(event, communityPubkey, threadId))
@@ -108,6 +121,7 @@
   const canReply = $derived(
     Boolean(
       thread &&
+      !threadCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
@@ -121,6 +135,7 @@
   const canReact = $derived(
     Boolean(
       $pubkey &&
+      !threadCensorReason &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
         definition: $activeCommunityDefinition,
@@ -242,7 +257,7 @@
     </div>
   {/snippet}
   {#snippet title()}
-    <strong>{thread?.title || "Thread"}</strong>
+    <strong>{threadCensorReason ? "Moderated thread" : thread?.title || "Thread"}</strong>
   {/snippet}
   {#snippet action()}
     <CommunityMenuButton community={communityPubkey} />
@@ -252,23 +267,31 @@
 <PageContent bind:element class="flex flex-col gap-2 p-2 pt-4">
   {#if thread}
     <article class="card2 bg-alt relative p-4 shadow-md">
-      <NoteCard event={thread.event} url={communityPubkey}>
-        <h1 class="text-xl font-bold">{thread.title}</h1>
-        <Content event={thread.event} url={communityPubkey} expandMode="inline" />
-        <div class="mt-3 flex justify-end">
-          <ThreadActions
+      {#if threadCensorReason}
+        <ModeratedContent reason={threadCensorReason} />
+      {:else}
+        <NoteCard event={thread.event} url={communityPubkey}>
+          <h1 class="text-xl font-bold">{thread.title}</h1>
+          <Content
+            event={thread.event}
             url={communityPubkey}
-            relays={$activeCommunityRelays}
-            scopeH={communityPubkey}
-            allowedAuthors={replyAuthorPubkeys}
-            readOnly={!canReact}
-            floatMobileMenu
-            event={thread.event} />
-        </div>
-      </NoteCard>
+            communitySectionName={COMMUNITY_SECTION_FORUM}
+            expandMode="inline" />
+          <div class="mt-3 flex justify-end">
+            <ThreadActions
+              url={communityPubkey}
+              relays={$activeCommunityRelays}
+              scopeH={communityPubkey}
+              allowedAuthors={replyAuthorPubkeys}
+              readOnly={!canReact}
+              floatMobileMenu
+              event={thread.event} />
+          </div>
+        </NoteCard>
+      {/if}
     </article>
 
-    {#if !showAllReplies && replies.length > visibleReplies.length}
+    {#if !threadCensorReason && !showAllReplies && replies.length > visibleReplies.length}
       <div class="flex justify-center py-2">
         <button class="btn btn-link" type="button" onclick={() => (showAllReplies = true)}>
           Show all {replies.length} replies
@@ -276,34 +299,37 @@
       </div>
     {/if}
 
-    <div class="col-2">
-      {#each visibleReplies as item (item?.id)}
-        {#if item}
-          <div
-            class="card2 bg-alt shadow-sm"
-            data-latest-reply={item.id === latestReplyId ? "true" : undefined}>
-            <ChannelMessage
-              url={communityPubkey}
-              event={item.event}
-              showPubkey
-              readOnly={!canReact}
-              interactionRelays={$activeCommunityRelays}
-              interactionAuthorPubkeys={replyAuthorPubkeys}
-              scopeH={communityPubkey}
-              protectInteractions={false} />
-          </div>
+    {#if !threadCensorReason}
+      <div class="col-2">
+        {#each visibleReplies as item (item?.id)}
+          {#if item}
+            <div
+              class="card2 bg-alt shadow-sm"
+              data-latest-reply={item.id === latestReplyId ? "true" : undefined}>
+              <ChannelMessage
+                url={communityPubkey}
+                event={item.event}
+                showPubkey
+                readOnly={!canReact}
+                interactionRelays={$activeCommunityRelays}
+                interactionAuthorPubkeys={replyAuthorPubkeys}
+                scopeH={communityPubkey}
+                communitySectionName={COMMUNITY_SECTION_GENERAL}
+                protectInteractions={false} />
+            </div>
+          {/if}
+        {/each}
+        {#if loadingReplies && replies.length === 0}
+          <p class="flex h-10 items-center justify-center py-20 text-center">
+            <Spinner loading={loadingReplies}>Looking for replies...</Spinner>
+          </p>
+        {:else if replies.length === 0}
+          <p class="py-8 text-center opacity-70">No replies yet.</p>
         {/if}
-      {/each}
-      {#if loadingReplies && replies.length === 0}
-        <p class="flex h-10 items-center justify-center py-20 text-center">
-          <Spinner loading={loadingReplies}>Looking for replies...</Spinner>
-        </p>
-      {:else if replies.length === 0}
-        <p class="py-8 text-center opacity-70">No replies yet.</p>
-      {/if}
-    </div>
+      </div>
+    {/if}
 
-    {#if showReply}
+    {#if !threadCensorReason && showReply}
       <div class="card2 bg-alt col-3 p-4 shadow-md">
         <div class="flex items-center justify-between gap-2">
           <strong>Reply</strong>
@@ -317,7 +343,7 @@
           showMenu={false}
           onSubmit={sendReply} />
       </div>
-    {:else}
+    {:else if !threadCensorReason}
       <div class="flex justify-end">
         {#if canReply}
           <button class="btn btn-primary" type="button" onclick={() => (showReply = true)}>

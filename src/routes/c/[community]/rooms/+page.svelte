@@ -12,6 +12,7 @@
   import Field from "@lib/components/Field.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import RoomImage from "@app/components/RoomImage.svelte"
   import RoomName from "@app/components/RoomName.svelte"
   import {preventDefault} from "@lib/html"
@@ -19,6 +20,7 @@
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
@@ -29,6 +31,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {getCommunityCensorReason} from "@app/core/community-reports"
   import {makeCommunityRoomPath, parseCommunityRouteParam} from "@app/util/routes"
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -177,18 +180,28 @@
 
   <div class="col-2">
     {#each rooms as room (room.id)}
+      {@const censorReason = getCommunityCensorReason({
+        reportState: $activeCommunityReportState,
+        eventId: room.event.id,
+        pubkey: room.event.pubkey,
+        sectionName: COMMUNITY_SECTION_ROOMS,
+      })}
       <div class="card2 bg-alt p-4 shadow-md">
-        <a href={makeCommunityRoomPath(communityPubkey, room.id)} class="flex gap-3">
-          <div class="center h-10 w-10 shrink-0 rounded-xl bg-base-300">
-            <RoomImage {room} size={6} />
-          </div>
-          <div class="min-w-0 flex-1">
-            <strong class="ellipsize block"><RoomName {room} /></strong>
-            {#if room.about}
-              <p class="line-clamp-2 text-sm opacity-70">{room.about}</p>
-            {/if}
-          </div>
-        </a>
+        {#if censorReason}
+          <ModeratedContent reason={censorReason} />
+        {:else}
+          <a href={makeCommunityRoomPath(communityPubkey, room.id)} class="flex gap-3">
+            <div class="center h-10 w-10 shrink-0 rounded-xl bg-base-300">
+              <RoomImage {room} size={6} />
+            </div>
+            <div class="min-w-0 flex-1">
+              <strong class="ellipsize block"><RoomName {room} /></strong>
+              {#if room.about}
+                <p class="line-clamp-2 text-sm opacity-70">{room.about}</p>
+              {/if}
+            </div>
+          </a>
+        {/if}
       </div>
     {:else}
       <p class="py-8 text-center opacity-70">No rooms found.</p>

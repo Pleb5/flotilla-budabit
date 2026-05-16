@@ -28,7 +28,10 @@
     normalizePubkey,
     parseTargetedPublication,
   } from "@app/core/community"
-  import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
+  import {
+    makeCommunityTargetingFilter,
+    makeTargetedPublicationOriginalFilters,
+  } from "@app/core/community-feeds"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
@@ -141,13 +144,13 @@
   const canReact = $derived(
     Boolean(
       $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.reaction,
-        }),
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.reaction,
+      }),
     ),
   )
 
@@ -269,7 +272,11 @@
     if ($activeCommunityRelays.length === 0 || targetedOriginalFilters.length === 0) return
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: targetedOriginalFilters, signal: controller.signal})
+    request({
+      relays: $activeCommunityRelays,
+      filters: targetedOriginalFilters,
+      signal: controller.signal,
+    })
 
     return () => controller.abort()
   })
@@ -354,7 +361,7 @@
 </PageBar>
 
 <PageContent bind:element class="flex flex-col gap-2 p-2 pt-4">
-  {#each items as {event, dateDisplay, isFirstFutureEvent} (event.id)}
+  {#each items as { event, dateDisplay, isFirstFutureEvent } (event.id)}
     <div class={"calendar-event-" + event.id}>
       {#if isFirstFutureEvent}
         <div class="flex items-center gap-2 p-2">
@@ -370,6 +377,7 @@
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
+        communitySectionName={COMMUNITY_SECTION_CALENDAR}
         allowedAuthors={interactionAuthorPubkeys}
         readOnly={!canReact}
         {event} />

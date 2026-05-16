@@ -49,6 +49,7 @@
     minimalQuote?: boolean
     depth?: number
     url?: string
+    communitySectionName?: string
   }
 
   let {
@@ -61,6 +62,7 @@
     minimalQuote = false,
     depth = 0,
     url,
+    communitySectionName = "",
   }: Props = $props()
 
   const fullContent = $derived(parse(event))
@@ -150,6 +152,7 @@
         content={event.content}
         {event}
         {url}
+        {communitySectionName}
         {minimalQuote}
         {hideMediaAtDepth}
         {depth}
@@ -202,7 +205,7 @@
             <ContentMention value={parsed.value} {url} />
           {:else if isEvent(parsed) || isAddress(parsed)}
             {#if isBlock(i)}
-              <ContentQuote {url} value={parsed.value} {event} />
+              <ContentQuote {url} value={parsed.value} {event} {communitySectionName} />
             {:else}
               <Link
                 external

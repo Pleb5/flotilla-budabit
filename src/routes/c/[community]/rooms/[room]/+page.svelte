@@ -18,6 +18,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import RoomComposeEdit from "@app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
@@ -29,6 +30,7 @@
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {
@@ -43,6 +45,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {getCommunityCensorReason} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
   import {userSettingsValues} from "@app/core/state"
   import {prependParent, publishSocialDelete} from "@app/core/commands"
@@ -95,14 +98,25 @@
   const room = $derived(
     $roomEvents[0] ? readCommunityRoomRoot($roomEvents[0], communityPubkey) : undefined,
   )
+  const roomCensorReason = $derived.by(() =>
+    communityPubkey && roomId
+      ? getCommunityCensorReason({
+          reportState: $activeCommunityReportState,
+          eventId: room?.event.id || roomId,
+          pubkey: room?.event.pubkey,
+          sectionName: COMMUNITY_SECTION_ROOMS,
+        })
+      : undefined,
+  )
   const messageFilters = $derived(
-    communityPubkey && room && messageAuthorPubkeys.length
+    communityPubkey && room && !roomCensorReason && messageAuthorPubkeys.length
       ? [makeCommunityRoomMessagesFilter(communityPubkey, room.id, {authors: messageAuthorPubkeys})]
       : [],
   )
   const canSendMessage = $derived(
     Boolean(
       room &&
+      !roomCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
@@ -116,6 +130,7 @@
   const canReact = $derived(
     Boolean(
       room &&
+      !roomCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
@@ -127,7 +142,11 @@
     ),
   )
   const feedKey = $derived.by(() =>
-    communityPubkey && room && messageAuthorPubkeys.length && $activeCommunityRelays.length
+    communityPubkey &&
+    room &&
+    !roomCensorReason &&
+    messageAuthorPubkeys.length &&
+    $activeCommunityRelays.length
       ? [communityPubkey, room.id, ...$activeCommunityRelays, ...messageAuthorPubkeys].join("|")
       : "",
   )
@@ -428,108 +447,127 @@
         <Icon icon={AltArrowLeft} />
       </a>
       <div class="center hidden h-8 w-8 rounded-xl bg-base-200 sm:flex">
-        <RoomImage {room} h={roomId} />
+        {#if !roomCensorReason}
+          <RoomImage {room} h={roomId} />
+        {/if}
       </div>
     </div>
   {/snippet}
   {#snippet title()}
-    <strong><RoomName {room} h={roomId} /></strong>
+    <strong>
+      {#if roomCensorReason}
+        Moderated room
+      {:else}
+        <RoomName {room} h={roomId} />
+      {/if}
+    </strong>
   {/snippet}
   {#snippet action()}
     <div class="row-2">
-      <SlotRenderer slotId="room:header:actions" context={{url: communityPubkey, room}} />
+      {#if !roomCensorReason}
+        <SlotRenderer slotId="room:header:actions" context={{url: communityPubkey, room}} />
+      {/if}
       <CommunityMenuButton community={communityPubkey} />
     </div>
   {/snippet}
 </PageBar>
 
-<PageContent bind:element onscroll={onScroll} class="flex flex-col-reverse pt-4">
-  <div bind:this={dynamicPadding}></div>
-  {#each elements as item (item.id)}
-    {#if item.type === "new-messages"}
-      <div
-        bind:this={newMessages}
-        class="flex items-center py-2 text-xs transition-colors"
-        class:opacity-0={showFixedNewMessages}>
-        <div class="h-px flex-grow bg-primary"></div>
-        <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
-        <div class="h-px flex-grow bg-primary"></div>
+{#if roomCensorReason}
+  <PageContent class="p-4">
+    <ModeratedContent reason={roomCensorReason} />
+  </PageContent>
+{:else}
+  <PageContent bind:element onscroll={onScroll} class="flex flex-col-reverse pt-4">
+    <div bind:this={dynamicPadding}></div>
+    {#each elements as item (item.id)}
+      {#if item.type === "new-messages"}
+        <div
+          bind:this={newMessages}
+          class="flex items-center py-2 text-xs transition-colors"
+          class:opacity-0={showFixedNewMessages}>
+          <div class="h-px flex-grow bg-primary"></div>
+          <p class="rounded-full bg-primary px-2 py-1 text-primary-content">New Messages</p>
+          <div class="h-px flex-grow bg-primary"></div>
+        </div>
+      {:else if item.type === "date"}
+        <Divider>{item.value}</Divider>
+      {:else}
+        {@const event = $state.snapshot(item.value as TrustedEvent)}
+        <div in:slide class:-mt-1={!item.showPubkey}>
+          <RoomItem
+            url={communityPubkey}
+            profileRelays={$activeCommunityRelays}
+            interactionRelays={$activeCommunityRelays}
+            interactionAuthorPubkeys={messageAuthorPubkeys}
+            scopeH={communityPubkey}
+            communitySectionName={COMMUNITY_SECTION_GENERAL}
+            protectInteractions={false}
+            {event}
+            readOnly={!canReact}
+            {replyTo}
+            showPubkey={item.showPubkey}
+            canEdit={canEditEvent}
+            onEdit={onEditEvent} />
+        </div>
+      {/if}
+    {/each}
+    {#if loadingEvents || elements.length === 0 || exhaustedEvents}
+      <p class="flex h-10 items-center justify-center py-20 text-center">
+        {#if loadingEvents}
+          <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
+        {:else if elements.length === 0}
+          <span>No messages yet.</span>
+        {:else}
+          <Spinner>End of message history</Spinner>
+        {/if}
+      </p>
+    {/if}
+  </PageContent>
+{/if}
+
+{#if !roomCensorReason}
+  <div class="chat__compose bg-base-200" bind:this={chatCompose}>
+    {#if canSendMessage}
+      <div>
+        {#if parent}
+          <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
+        {/if}
+        {#if share}
+          <RoomComposeParent event={share} clear={clearShare} verb="Sharing" />
+        {/if}
+        {#if eventToEdit}
+          <RoomComposeEdit clear={clearEventToEdit} />
+        {/if}
       </div>
-    {:else if item.type === "date"}
-      <Divider>{item.value}</Divider>
+      {#key eventToEdit}
+        <RoomCompose
+          url={composeUrl}
+          h={communityPubkey}
+          showMenu={false}
+          {onSubmit}
+          {onEscape}
+          {onEditPrevious}
+          content={eventToEdit?.content}
+          bind:this={compose} />
+      {/key}
     {:else}
-      {@const event = $state.snapshot(item.value as TrustedEvent)}
-      <div in:slide class:-mt-1={!item.showPubkey}>
-        <RoomItem
-          url={communityPubkey}
-          profileRelays={$activeCommunityRelays}
-          interactionRelays={$activeCommunityRelays}
-          interactionAuthorPubkeys={messageAuthorPubkeys}
-          scopeH={communityPubkey}
-          protectInteractions={false}
-          {event}
-          readOnly={!canReact}
-          {replyTo}
-          showPubkey={item.showPubkey}
-          canEdit={canEditEvent}
-          onEdit={onEditEvent} />
+      <div
+        class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
+        <div class="min-w-0">
+          <strong class="block text-sm">Room access required</strong>
+          <p class="text-xs opacity-70">Request General access to message this room.</p>
+        </div>
+        <PublishGate
+          target={COMMUNITY_WRITE_TARGETS.roomMessage}
+          action="message rooms"
+          compact
+          class="btn btn-primary" />
       </div>
     {/if}
-  {/each}
-  {#if loadingEvents || elements.length === 0 || exhaustedEvents}
-    <p class="flex h-10 items-center justify-center py-20 text-center">
-      {#if loadingEvents}
-        <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-      {:else if elements.length === 0}
-        <span>No messages yet.</span>
-      {:else}
-        <Spinner>End of message history</Spinner>
-      {/if}
-    </p>
-  {/if}
-</PageContent>
+  </div>
+{/if}
 
-<div class="chat__compose bg-base-200" bind:this={chatCompose}>
-  {#if canSendMessage}
-    <div>
-      {#if parent}
-        <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
-      {/if}
-      {#if share}
-        <RoomComposeParent event={share} clear={clearShare} verb="Sharing" />
-      {/if}
-      {#if eventToEdit}
-        <RoomComposeEdit clear={clearEventToEdit} />
-      {/if}
-    </div>
-    {#key eventToEdit}
-      <RoomCompose
-        url={composeUrl}
-        h={communityPubkey}
-        showMenu={false}
-        {onSubmit}
-        {onEscape}
-        {onEditPrevious}
-        content={eventToEdit?.content}
-        bind:this={compose} />
-    {/key}
-  {:else}
-    <div
-      class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
-      <div class="min-w-0">
-        <strong class="block text-sm">Room access required</strong>
-        <p class="text-xs opacity-70">Request General access to message this room.</p>
-      </div>
-      <PublishGate
-        target={COMMUNITY_WRITE_TARGETS.roomMessage}
-        action="message rooms"
-        compact
-        class="btn btn-primary" />
-    </div>
-  {/if}
-</div>
-
-{#if showScrollButton}
+{#if showScrollButton && !roomCensorReason}
   <div in:fade class="chat__scroll-down">
     <Button class="btn btn-circle btn-neutral" onclick={scrollToBottom}>
       <Icon icon={AltArrowDown} />
@@ -537,7 +575,7 @@
   </div>
 {/if}
 
-{#if showFixedNewMessages}
+{#if showFixedNewMessages && !roomCensorReason}
   <div class="relative z-popover flex justify-center">
     <div transition:fly={{duration: 200}} class="fixed top-12">
       <Button class="btn btn-primary btn-xs rounded-full" onclick={scrollToNewMessages}>

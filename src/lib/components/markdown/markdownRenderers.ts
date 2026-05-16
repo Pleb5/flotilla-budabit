@@ -16,6 +16,7 @@ export interface RendererOptions {
   minimalQuote?: boolean
   depth?: number
   hideMediaAtDepth?: number
+  communitySectionName?: string
 }
 
 /**

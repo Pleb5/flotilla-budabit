@@ -26,7 +26,10 @@
     normalizePubkey,
     parseTargetedPublication,
   } from "@app/core/community"
-  import {makeCommunityTargetingFilter, makeTargetedPublicationOriginalFilters} from "@app/core/community-feeds"
+  import {
+    makeCommunityTargetingFilter,
+    makeTargetedPublicationOriginalFilters,
+  } from "@app/core/community-feeds"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
@@ -128,13 +131,13 @@
   const canReact = $derived(
     Boolean(
       $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.reaction,
-        }),
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.reaction,
+      }),
     ),
   )
 
@@ -162,7 +165,8 @@
   }
 
   const startFeed = (key: string) => {
-    if (!element || !key || goalFeedFilters.length === 0 || $activeCommunityRelays.length === 0) return
+    if (!element || !key || goalFeedFilters.length === 0 || $activeCommunityRelays.length === 0)
+      return
 
     loadingEvents = true
     exhaustedEvents = false
@@ -269,6 +273,7 @@
       url={communityPubkey}
       relays={$activeCommunityRelays}
       scopeH={communityPubkey}
+      communitySectionName={COMMUNITY_SECTION_GOALS}
       allowedAuthors={interactionAuthorPubkeys}
       readOnly={!canReact}
       event={$state.snapshot(event)} />

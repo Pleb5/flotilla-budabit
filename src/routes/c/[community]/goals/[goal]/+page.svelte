@@ -17,6 +17,7 @@
   import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import GoalSummary from "@app/components/GoalSummary.svelte"
   import GoalActions from "@app/components/GoalActions.svelte"
@@ -25,6 +26,7 @@
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {
@@ -39,6 +41,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {getCommunityCensorReason} from "@app/core/community-reports"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
@@ -111,8 +114,18 @@
     })
   })
   const approvedGoal = $derived(goal && isTargetedToCommunity ? goal : undefined)
+  const approvedGoalCensorReason = $derived.by(() =>
+    approvedGoal
+      ? getCommunityCensorReason({
+          reportState: $activeCommunityReportState,
+          eventId: approvedGoal.id,
+          pubkey: approvedGoal.pubkey,
+          sectionName: COMMUNITY_SECTION_GOALS,
+        })
+      : undefined,
+  )
   const replyFilters = $derived<Filter[]>(
-    approvedGoal && interactionAuthorPubkeys.length
+    approvedGoal && !approvedGoalCensorReason && interactionAuthorPubkeys.length
       ? [
           {
             kinds: [COMMENT],
@@ -124,33 +137,37 @@
         ]
       : [],
   )
-  const replyEventsStore = $derived(deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})))
+  const replyEventsStore = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})),
+  )
   const replies = $derived(sortBy(replyEvent => -replyEvent.created_at, $replyEventsStore))
   const visibleReplies = $derived(showAllReplies ? replies : replies.slice(0, 4))
   const canReply = $derived(
     Boolean(
       approvedGoal &&
-        $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.comment,
-        }),
+      !approvedGoalCensorReason &&
+      $pubkey &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.comment,
+      }),
     ),
   )
   const canReact = $derived(
     Boolean(
       approvedGoal &&
-        $pubkey &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.reaction,
-        }),
+      !approvedGoalCensorReason &&
+      $pubkey &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.reaction,
+      }),
     ),
   )
 
@@ -253,7 +270,7 @@
     </div>
   {/snippet}
   {#snippet title()}
-    <strong>{approvedGoal?.content || "Goal"}</strong>
+    <strong>{approvedGoalCensorReason ? "Moderated goal" : approvedGoal?.content || "Goal"}</strong>
   {/snippet}
   {#snippet action()}
     <CommunityMenuButton community={communityPubkey} />
@@ -263,28 +280,36 @@
 <PageContent class="flex flex-col gap-3 p-2 pt-4">
   {#if approvedGoal}
     <article class="card2 bg-alt z-feature w-full shadow-md">
-      <NoteCard event={approvedGoal} url={communityPubkey}>
-        <div class="col-3 ml-12">
-          <Content
-            event={{content: getTagValue("summary", approvedGoal.tags) || "", tags: approvedGoal.tags}}
-            url={communityPubkey}
-            showEntire />
-          <GoalSummary event={approvedGoal} url={communityPubkey} />
-          <div class="flex w-full justify-end">
-            <GoalActions
-              showRoom={false}
-              event={approvedGoal}
+      {#if approvedGoalCensorReason}
+        <ModeratedContent reason={approvedGoalCensorReason} />
+      {:else}
+        <NoteCard event={approvedGoal} url={communityPubkey}>
+          <div class="col-3 ml-12">
+            <Content
+              event={{
+                content: getTagValue("summary", approvedGoal.tags) || "",
+                tags: approvedGoal.tags,
+              }}
               url={communityPubkey}
-              relays={$activeCommunityRelays}
-              scopeH={communityPubkey}
-              allowedAuthors={interactionAuthorPubkeys}
-              readOnly={!canReact} />
+              communitySectionName={COMMUNITY_SECTION_GOALS}
+              showEntire />
+            <GoalSummary event={approvedGoal} url={communityPubkey} />
+            <div class="flex w-full justify-end">
+              <GoalActions
+                showRoom={false}
+                event={approvedGoal}
+                url={communityPubkey}
+                relays={$activeCommunityRelays}
+                scopeH={communityPubkey}
+                allowedAuthors={interactionAuthorPubkeys}
+                readOnly={!canReact} />
+            </div>
           </div>
-        </div>
-      </NoteCard>
+        </NoteCard>
+      {/if}
     </article>
 
-    {#if !showAllReplies && replies.length > visibleReplies.length}
+    {#if !approvedGoalCensorReason && !showAllReplies && replies.length > visibleReplies.length}
       <div class="flex justify-center">
         <Button class="btn btn-link" onclick={() => (showAllReplies = true)}>
           <Icon icon={SortVertical} />
@@ -293,24 +318,46 @@
       </div>
     {/if}
 
-    <div class="col-2">
-      {#each visibleReplies as replyEvent (replyEvent.id)}
-        <NoteCard event={replyEvent} url={communityPubkey} class="card2 bg-alt z-feature w-full">
-          <div class="col-3 ml-12">
-            <Content showEntire event={replyEvent} url={communityPubkey} />
-          </div>
-        </NoteCard>
-      {:else}
-        <p class="py-8 text-center opacity-70">No comments yet.</p>
-      {/each}
-    </div>
+    {#if !approvedGoalCensorReason}
+      <div class="col-2">
+        {#each visibleReplies as replyEvent (replyEvent.id)}
+          {@const censorReason = getCommunityCensorReason({
+            reportState: $activeCommunityReportState,
+            eventId: replyEvent.id,
+            pubkey: replyEvent.pubkey,
+            sectionName: COMMUNITY_SECTION_GENERAL,
+          })}
+          {#if censorReason}
+            <div class="card2 bg-alt z-feature w-full">
+              <ModeratedContent reason={censorReason} />
+            </div>
+          {:else}
+            <NoteCard
+              event={replyEvent}
+              url={communityPubkey}
+              class="card2 bg-alt z-feature w-full">
+              <div class="col-3 ml-12">
+                <Content
+                  showEntire
+                  event={replyEvent}
+                  url={communityPubkey}
+                  communitySectionName={COMMUNITY_SECTION_GENERAL} />
+              </div>
+            </NoteCard>
+          {/if}
+        {:else}
+          <p class="py-8 text-center opacity-70">No comments yet.</p>
+        {/each}
+      </div>
+    {/if}
 
-    {#if showReply}
+    {#if !approvedGoalCensorReason && showReply}
       <form class="card2 bg-alt col-3 p-4 shadow-md" onsubmit={preventDefault(sendReply)}>
         <strong>Comment</strong>
         <textarea bind:value={reply} class="textarea textarea-bordered" rows="4"></textarea>
         <div class="flex justify-end gap-2">
-          <button class="btn btn-link" type="button" onclick={() => (showReply = false)}>Cancel</button>
+          <button class="btn btn-link" type="button" onclick={() => (showReply = false)}
+            >Cancel</button>
           <PublishGate
             target={COMMUNITY_WRITE_TARGETS.comment}
             action="comment on goals"
@@ -321,7 +368,7 @@
           </PublishGate>
         </div>
       </form>
-    {:else}
+    {:else if !approvedGoalCensorReason}
       <div class="flex justify-end px-2 pb-2">
         {#if canReply}
           <button class="btn btn-primary" type="button" onclick={() => (showReply = true)}>

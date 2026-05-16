@@ -214,6 +214,7 @@
     minimalQuote?: boolean
     hideMediaAtDepth?: number
     depth?: number
+    communitySectionName?: string
     variant?: "default" | "comment"
   }
 
@@ -225,6 +226,7 @@
     minimalQuote = false,
     hideMediaAtDepth = 1,
     depth = 0,
+    communitySectionName = "",
     variant = "default",
   }: Props = $props()
 
@@ -264,6 +266,7 @@
       minimalQuote,
       depth,
       hideMediaAtDepth,
+      communitySectionName,
     }
 
     return new Marked({
@@ -325,22 +328,20 @@
   // the sanitized HTML is rendered. Only re-mounts when sanitizedContent changes
   // to avoid unnecessary work.
 
-  let lastSanitizedContent = ""
+  let lastMountKey = ""
 
   $effect(() => {
     const currentContainer = containerElement
     const currentSanitizedContent = sanitizedContent
 
     // Only mount if content actually changed (prevents unnecessary re-mounting)
-    if (
-      !currentContainer ||
-      !currentSanitizedContent ||
-      currentSanitizedContent === lastSanitizedContent
-    ) {
+    const mountKey = `${currentSanitizedContent}\n${communitySectionName}`
+
+    if (!currentContainer || !currentSanitizedContent || mountKey === lastMountKey) {
       return
     }
 
-    lastSanitizedContent = currentSanitizedContent
+    lastMountKey = mountKey
 
     // Clean up previously mounted components
     cleanupMountedComponents(mountedComponents)
@@ -359,6 +360,7 @@
         minimalQuote,
         depth,
         hideMediaAtDepth,
+        communitySectionName,
       })
     }, 0)
 

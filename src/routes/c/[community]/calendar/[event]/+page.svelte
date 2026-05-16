@@ -16,6 +16,7 @@
   import Content from "@app/components/Content.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
+  import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import CalendarEventActions from "@app/components/CalendarEventActions.svelte"
@@ -27,6 +28,7 @@
   import {
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {
@@ -41,6 +43,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {getCommunityCensorReason} from "@app/core/community-reports"
   import {
     getCommunityDeleteSeenKey,
     getCommunityDeleteSince,
@@ -134,8 +137,18 @@
     })
   })
   const approvedEvent = $derived(event && isTargetedToCommunity ? event : undefined)
+  const approvedEventCensorReason = $derived.by(() =>
+    approvedEvent
+      ? getCommunityCensorReason({
+          reportState: $activeCommunityReportState,
+          eventId: approvedEvent.id,
+          pubkey: approvedEvent.pubkey,
+          sectionName: COMMUNITY_SECTION_CALENDAR,
+        })
+      : undefined,
+  )
   const replyFilters = $derived<Filter[]>(
-    approvedEvent && interactionAuthorPubkeys.length
+    approvedEvent && !approvedEventCensorReason && interactionAuthorPubkeys.length
       ? [
           {
             kinds: [COMMENT],
@@ -179,6 +192,7 @@
   const canReply = $derived(
     Boolean(
       approvedEvent &&
+      !approvedEventCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
@@ -192,6 +206,7 @@
   const canReact = $derived(
     Boolean(
       approvedEvent &&
+      !approvedEventCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
@@ -355,11 +370,13 @@
   {/snippet}
   {#snippet title()}
     <strong
-      >{approvedEvent
-        ? getTagValue("title", approvedEvent.tags) ||
-          getTagValue("name", approvedEvent.tags) ||
-          "Calendar event"
-        : "Calendar event"}</strong>
+      >{approvedEventCensorReason
+        ? "Moderated event"
+        : approvedEvent
+          ? getTagValue("title", approvedEvent.tags) ||
+            getTagValue("name", approvedEvent.tags) ||
+            "Calendar event"
+          : "Calendar event"}</strong>
   {/snippet}
   {#snippet action()}
     <CommunityMenuButton community={communityPubkey} />
@@ -369,30 +386,35 @@
 <PageContent class="flex flex-col gap-3 p-2 pt-4">
   {#if approvedEvent}
     <article class="card2 bg-alt col-3 z-feature">
-      <div class="flex items-start gap-4">
-        <CalendarEventDate event={approvedEvent} />
-        <div class="flex min-w-0 flex-grow flex-col gap-1">
-          <CalendarEventHeader event={approvedEvent} />
-          <CalendarEventMeta event={approvedEvent} url={communityPubkey} />
-          <CalendarEventDescription
-            event={approvedEvent}
-            url={communityPubkey}
-            relays={$activeCommunityRelays} />
+      {#if approvedEventCensorReason}
+        <ModeratedContent reason={approvedEventCensorReason} />
+      {:else}
+        <div class="flex items-start gap-4">
+          <CalendarEventDate event={approvedEvent} />
+          <div class="flex min-w-0 flex-grow flex-col gap-1">
+            <CalendarEventHeader event={approvedEvent} />
+            <CalendarEventMeta event={approvedEvent} url={communityPubkey} />
+            <CalendarEventDescription
+              event={approvedEvent}
+              url={communityPubkey}
+              relays={$activeCommunityRelays}
+              communitySectionName={COMMUNITY_SECTION_CALENDAR} />
+          </div>
         </div>
-      </div>
-      <div class="flex w-full flex-col justify-end sm:flex-row">
-        <CalendarEventActions
-          url={communityPubkey}
-          relays={$activeCommunityRelays}
-          scopeH={communityPubkey}
-          allowedAuthors={interactionAuthorPubkeys}
-          readOnly={!canReact}
-          redirectOnEdit
-          event={approvedEvent} />
-      </div>
+        <div class="flex w-full flex-col justify-end sm:flex-row">
+          <CalendarEventActions
+            url={communityPubkey}
+            relays={$activeCommunityRelays}
+            scopeH={communityPubkey}
+            allowedAuthors={interactionAuthorPubkeys}
+            readOnly={!canReact}
+            redirectOnEdit
+            event={approvedEvent} />
+        </div>
+      {/if}
     </article>
 
-    {#if !showAllReplies && replyEvents.length > visibleReplyEvents.length}
+    {#if !approvedEventCensorReason && !showAllReplies && replyEvents.length > visibleReplyEvents.length}
       <div class="flex justify-center py-2">
         <button class="btn btn-link" type="button" onclick={() => (showAllReplies = true)}>
           Show all {replyEvents.length} comments
@@ -400,19 +422,40 @@
       </div>
     {/if}
 
-    <div class="col-2">
-      {#each visibleReplyEvents as replyEvent (replyEvent.id)}
-        <NoteCard event={replyEvent} url={communityPubkey} class="card2 bg-alt z-feature w-full">
-          <div class="col-3 ml-12">
-            <Content showEntire event={replyEvent} url={communityPubkey} />
-          </div>
-        </NoteCard>
-      {:else}
-        <p class="py-8 text-center opacity-70">No comments yet.</p>
-      {/each}
-    </div>
+    {#if !approvedEventCensorReason}
+      <div class="col-2">
+        {#each visibleReplyEvents as replyEvent (replyEvent.id)}
+          {@const censorReason = getCommunityCensorReason({
+            reportState: $activeCommunityReportState,
+            eventId: replyEvent.id,
+            pubkey: replyEvent.pubkey,
+            sectionName: COMMUNITY_SECTION_GENERAL,
+          })}
+          {#if censorReason}
+            <div class="card2 bg-alt z-feature w-full">
+              <ModeratedContent reason={censorReason} />
+            </div>
+          {:else}
+            <NoteCard
+              event={replyEvent}
+              url={communityPubkey}
+              class="card2 bg-alt z-feature w-full">
+              <div class="col-3 ml-12">
+                <Content
+                  showEntire
+                  event={replyEvent}
+                  url={communityPubkey}
+                  communitySectionName={COMMUNITY_SECTION_GENERAL} />
+              </div>
+            </NoteCard>
+          {/if}
+        {:else}
+          <p class="py-8 text-center opacity-70">No comments yet.</p>
+        {/each}
+      </div>
+    {/if}
 
-    {#if showReply}
+    {#if !approvedEventCensorReason && showReply}
       <div bind:this={composeElement} class="card2 bg-alt col-3 p-4 shadow-md">
         <div class="flex items-center justify-between gap-2">
           <strong>Comment</strong>
@@ -426,7 +469,7 @@
           showMenu={false}
           onSubmit={sendReply} />
       </div>
-    {:else}
+    {:else if !approvedEventCensorReason}
       <div class="flex justify-end px-2 pb-2">
         {#if canReply}
           <button class="btn btn-primary" type="button" onclick={openReply}>

@@ -87,7 +87,10 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import NoteContentMinimal from "@app/components/NoteContentMinimal.svelte"
+  import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import {deriveEvent, entityLink} from "@app/core/state"
+  import {activeCommunityReportState} from "@app/core/community-state"
+  import {getCommunityCensorReason} from "@app/core/community-reports"
   import {goToEvent, makeGitPath} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
   import {getQuoteRelayHints, getQuoteTagRelayHints} from "@app/util/git-quote"
@@ -109,9 +112,10 @@
     value: any
     event: TrustedEvent
     url?: string
+    communitySectionName?: string
   }
 
-  const {value, event, url}: Props = $props()
+  const {value, event, url, communitySectionName = ""}: Props = $props()
 
   const {id, identifier, kind, pubkey, relays = []} = value
   const idOrAddress = id || new Address(kind, pubkey, identifier).toString()
@@ -125,6 +129,16 @@
   )
 
   const quote = deriveEvent(idOrAddress, mergedRelays)
+  const censorReason = $derived.by(() => {
+    if (!communitySectionName) return undefined
+
+    return getCommunityCensorReason({
+      reportState: $activeCommunityReportState,
+      eventId: $quote?.id || id,
+      pubkey: $quote?.pubkey || pubkey,
+      sectionName: communitySectionName,
+    })
+  })
   const entity = id
     ? nip19.neventEncode({id, relays: mergedRelays})
     : new Address(kind, pubkey, identifier, mergedRelays).toNaddr()
@@ -672,7 +686,11 @@
   }
 </script>
 
-{#if $quote && $quote.kind === 1623}
+{#if censorReason}
+  <div class="my-2 block w-full max-w-full text-left">
+    <ModeratedContent reason={censorReason} compact />
+  </div>
+{:else if $quote && $quote.kind === 1623}
   {@const permalinkHref = buildPermalinkHref($quote, mergedRelays, diffHash)}
   {@const displayRepo = getDisplayRepo($quote)}
   {@const filePath = getFilePath($quote)}
