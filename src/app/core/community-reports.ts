@@ -9,6 +9,7 @@ import {getGrantCapableSectionModeratorPubkeys} from "@app/core/community-permis
 
 export const COMMUNITY_REPORT_KIND = 1984
 export const COMMUNITY_REPORT_REASON = "spam"
+export const COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH = 4096
 
 export type CommunityReportTarget = "event" | "person"
 
@@ -19,6 +20,10 @@ export type ParsedCommunityReport = {
   communityPubkey: string
   targetPubkey: string
   targetEventId?: string
+  targetEventKind?: number
+  targetEventSubtype?: string
+  targetEventTitle?: string
+  targetEventContent?: string
   sectionName?: string
 }
 
@@ -89,17 +94,49 @@ const getCommunityAddress = (event: TrustedEvent) =>
 const getSectionName = (event: TrustedEvent) =>
   event.tags.find(tag => tag[0] === "content")?.[1]?.trim() || ""
 
+const getStringTagValue = (event: TrustedEvent, tagName: string) =>
+  event.tags.find(tag => tag[0] === tagName)?.[1]?.trim() || ""
+
+const getTargetEventKind = (event: TrustedEvent) => {
+  const value = getStringTagValue(event, "target-kind")
+  const kind = Number.parseInt(value, 10)
+
+  return Number.isFinite(kind) ? kind : undefined
+}
+
+const makeOptionalTag = (name: string, value: unknown) => {
+  const text = value === undefined || value === null ? "" : String(value).trim()
+
+  return text ? [[name, text]] : []
+}
+
+const truncateTargetContent = (content: string) => {
+  const trimmed = content.trim()
+
+  return trimmed.length > COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH
+    ? trimmed.slice(0, COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH)
+    : trimmed
+}
+
 export const makeCommunityEventReport = ({
   communityPubkey,
   sectionName,
   eventId,
   eventPubkey,
+  eventKind,
+  eventSubtype = "",
+  eventTitle = "",
+  eventContent = "",
   content = "",
 }: {
   communityPubkey: string
   sectionName: string
   eventId: string
   eventPubkey: string
+  eventKind?: number
+  eventSubtype?: string
+  eventTitle?: string
+  eventContent?: string
   content?: string
 }): EventContent & {kind: typeof COMMUNITY_REPORT_KIND} => ({
   kind: COMMUNITY_REPORT_KIND,
@@ -110,6 +147,10 @@ export const makeCommunityEventReport = ({
     ["a", makeCommunityDefinitionAddress(communityPubkey)],
     ["h", normalizePubkey(communityPubkey)],
     ["content", sectionName],
+    ...makeOptionalTag("target-kind", eventKind),
+    ...makeOptionalTag("target-subtype", eventSubtype),
+    ...makeOptionalTag("target-title", eventTitle),
+    ...makeOptionalTag("target-content", truncateTargetContent(eventContent)),
   ],
 })
 
@@ -173,6 +214,10 @@ export const parseCommunityReport = (
       communityPubkey: community.pubkey,
       targetPubkey,
       targetEventId: eventTag[1],
+      targetEventKind: getTargetEventKind(event),
+      targetEventSubtype: getStringTagValue(event, "target-subtype"),
+      targetEventTitle: getStringTagValue(event, "target-title"),
+      targetEventContent: getStringTagValue(event, "target-content"),
       sectionName,
     }
   }

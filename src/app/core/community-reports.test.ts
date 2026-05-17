@@ -3,6 +3,7 @@ import {BADGE_DEFINITION, DELETE, type TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
 import {
   COMMUNITY_REPORT_KIND,
+  COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH,
   canPublishCommunityEventReport,
   canPublishCommunityPersonReport,
   getAllSectionModeratorPubkeys,
@@ -72,6 +73,10 @@ describe("community reports", () => {
         sectionName: "General",
         eventId: "reported-event",
         eventPubkey: targetPubkey,
+        eventKind: 9,
+        eventSubtype: "room-message",
+        eventTitle: "Reported title",
+        eventContent: "Reported content",
       }).tags,
     })
     const personReport = makeEvent({
@@ -86,13 +91,35 @@ describe("community reports", () => {
       sectionName: "General",
       targetEventId: "reported-event",
       targetPubkey,
+      targetEventKind: 9,
+      targetEventSubtype: "room-message",
+      targetEventTitle: "Reported title",
+      targetEventContent: "Reported content",
     })
+    expect(eventReport.tags).toContainEqual(["target-kind", "9"])
+    expect(eventReport.tags).toContainEqual(["target-subtype", "room-message"])
+    expect(eventReport.tags).toContainEqual(["target-title", "Reported title"])
+    expect(eventReport.tags).toContainEqual(["target-content", "Reported content"])
     expect(eventReport.tags).toContainEqual(["h", communityPubkey])
     expect(parseCommunityReport(personReport, communityPubkey)).toMatchObject({
       target: "person",
       targetPubkey,
     })
     expect(personReport.tags).toContainEqual(["h", communityPubkey])
+  })
+
+  it("caps moderated event content snapshots", () => {
+    const longContent = "x".repeat(COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH + 100)
+    const report = makeCommunityEventReport({
+      communityPubkey,
+      sectionName: "General",
+      eventId: "reported-event",
+      eventPubkey: targetPubkey,
+      eventContent: longContent,
+    })
+    const contentTag = report.tags.find(tag => tag[0] === "target-content")
+
+    expect(contentTag?.[1]).toHaveLength(COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH)
   })
 
   it("parses NIP-56 report reason tags with relay hints", () => {

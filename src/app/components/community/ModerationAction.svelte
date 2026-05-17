@@ -1,6 +1,6 @@
 <script lang="ts">
   import type {TrustedEvent} from "@welshman/util"
-  import {makeEvent} from "@welshman/util"
+  import {THREAD, getTagValue, makeEvent} from "@welshman/util"
   import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
   import Danger from "@assets/icons/danger.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
@@ -88,6 +88,10 @@
             sectionName,
             eventId: event.id,
             eventPubkey: event.pubkey,
+            eventKind: event.kind,
+            eventSubtype: event.kind === THREAD && event.tags.some(tag => tag[0] === "room") ? "room" : "",
+            eventTitle: getTagValue("title", event.tags) || "",
+            eventContent: event.content || "",
           })
         : makeCommunityPersonReport({
             communityPubkey: $activeCommunityDefinition.pubkey,
