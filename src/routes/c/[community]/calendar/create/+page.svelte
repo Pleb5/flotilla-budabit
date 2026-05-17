@@ -17,6 +17,7 @@
   import {daysBetween} from "@lib/util"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -34,9 +35,18 @@
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const calendarPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "calendar") : "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
   const canCreateEvent = $derived(
     Boolean(
       $pubkey &&
+        communityBootstrapReady &&
         $activeCommunityDefinition &&
         canWriteCommunityTarget({
           definition: $activeCommunityDefinition,
@@ -50,6 +60,10 @@
   const createEvent = () => {
     const trimmedTitle = title.trim()
     if (!$pubkey || !communityPubkey || !trimmedTitle) return
+    if (!communityBootstrapReady) {
+      pushToast({theme: "error", message: "Community permissions are still loading."})
+      return
+    }
     if (!canCreateEvent) {
       pushToast({theme: "error", message: "You do not have permission to publish calendar events."})
       return

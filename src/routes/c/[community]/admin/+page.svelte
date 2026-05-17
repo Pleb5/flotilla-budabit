@@ -9,6 +9,7 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import Button from "@lib/components/Button.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import CommunityCreate from "@app/components/CommunityCreate.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
@@ -18,6 +19,7 @@
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityModeratorRequestReactionEvents,
     activeCommunityModeratorRequestStates,
@@ -73,6 +75,17 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   let adminTab = $state<CommunityAdminTab>("settings")
   let adminTabHydrated = $state(false)
   let requestStatusFilter = $state<RequestStatusFilter>("pending")
@@ -89,17 +102,18 @@
   const canEditCommunity = $derived(
     Boolean(
       $pubkey &&
-      $activeCommunityDefinition &&
-      normalizePubkey($pubkey) === normalizePubkey($activeCommunityDefinition.pubkey),
+        communityBootstrapReady &&
+        $activeCommunityDefinition &&
+        normalizePubkey($pubkey) === normalizePubkey($activeCommunityDefinition.pubkey),
     ),
   )
   const moderatorRequestFilters = $derived(
-    $activeCommunityDefinition
+    communityBootstrapReady && $activeCommunityDefinition
       ? makeCommunityModeratorRequestFilters($activeCommunityDefinition)
       : [],
   )
   const moderatorRequestReactionFilters = $derived(
-    $activeCommunityDefinition
+    communityBootstrapReady && $activeCommunityDefinition
       ? makeCommunityModeratorRequestReactionFilters(
           $activeCommunityDefinition,
           $activeCommunityModeratorRequests,
@@ -107,7 +121,7 @@
       : [],
   )
   const moderatorRequestDeleteFilters = $derived(
-    $activeCommunityDefinition
+    communityBootstrapReady && $activeCommunityDefinition
       ? makeCommunityModeratorRequestDeleteFilters(
           $activeCommunityDefinition,
           $activeCommunityModeratorRequestReactionEvents,
@@ -115,7 +129,9 @@
       : [],
   )
   const reportFilters = $derived(
-    $activeCommunityDefinition ? makeCommunityReportFilters($activeCommunityDefinition) : [],
+    communityBootstrapReady && $activeCommunityDefinition
+      ? makeCommunityReportFilters($activeCommunityDefinition)
+      : [],
   )
   const reportDeleteFilters = $derived(
     makeCommunityReportDeleteFilters($activeCommunityReportEvents),
@@ -140,6 +156,8 @@
     {status: "rejected" as const, label: "Rejected", count: rejectedModeratorRequests.length},
   ])
   const moderatorSectionGrants = $derived.by((): ModeratorSectionGrant[] => {
+    if (!communityBootstrapReady) return []
+
     const definition = $activeCommunityDefinition
     if (!definition) return []
 
@@ -230,7 +248,7 @@
   }
 
   const assertCanPublish = () => {
-    if (!$activeCommunityDefinition || !canEditCommunity) {
+    if (!communityBootstrapReady || !$activeCommunityDefinition || !canEditCommunity) {
       pushToast({theme: "error", message: "Log in as this community pubkey first."})
       return false
     }
@@ -371,7 +389,7 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
     if (moderatorRequestFilters.length === 0) return
     const key = makeHydrationKey($activeCommunityRelays, moderatorRequestFilters)
     if (key === moderatorRequestHydrationKey) return
@@ -383,7 +401,7 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
     if (moderatorRequestReactionFilters.length === 0) return
     const key = makeHydrationKey($activeCommunityRelays, moderatorRequestReactionFilters)
     if (key === moderatorReactionHydrationKey) return
@@ -397,7 +415,7 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
     if (moderatorRequestDeleteFilters.length === 0) return
     const key = makeHydrationKey($activeCommunityRelays, moderatorRequestDeleteFilters)
     if (key === moderatorDeleteHydrationKey) return
@@ -409,7 +427,7 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
     if (reportFilters.length === 0) return
     const key = makeHydrationKey($activeCommunityRelays, reportFilters)
     if (key === reportHydrationKey) return
@@ -421,7 +439,7 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
     if (reportDeleteFilters.length === 0) return
     const key = makeHydrationKey($activeCommunityRelays, reportDeleteFilters)
     if (key === reportDeleteHydrationKey) return
@@ -444,7 +462,11 @@
 </PageBar>
 
 <PageContent class="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-8">
-  {#if !$activeCommunityDefinition}
+  {#if communityBootstrapLoading}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Loading community permissions...</Spinner>
+    </p>
+  {:else if !communityBootstrapReady || !$activeCommunityDefinition}
     <p class="py-8 text-center opacity-70">Community definition is not loaded.</p>
   {:else if !canEditCommunity}
     <p class="py-8 text-center opacity-70">

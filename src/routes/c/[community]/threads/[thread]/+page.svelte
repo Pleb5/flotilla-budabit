@@ -21,6 +21,7 @@
   import ThreadActions from "@app/components/ThreadActions.svelte"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
@@ -48,6 +49,17 @@
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const threadId = $derived($page.params.thread || "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const threadAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunitySectionWriterPubkeys({
@@ -67,7 +79,7 @@
       : [],
   )
   const threadFilters = $derived(
-    communityPubkey && threadId && threadAuthorPubkeys.length
+    communityBootstrapReady && communityPubkey && threadId && threadAuthorPubkeys.length
       ? [
           makeCommunityForumThreadsFilter(communityPubkey, {
             ids: [threadId],
@@ -77,7 +89,7 @@
       : [],
   )
   const replyFilters = $derived(
-    communityPubkey && threadId && replyAuthorPubkeys.length
+    communityBootstrapReady && communityPubkey && threadId && replyAuthorPubkeys.length
       ? [
           makeCommunityForumRepliesFilter(communityPubkey, {
             "#E": [threadId],
@@ -121,6 +133,7 @@
   const canReply = $derived(
     Boolean(
       thread &&
+      communityBootstrapReady &&
       !threadCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
@@ -135,6 +148,7 @@
   const canReact = $derived(
     Boolean(
       $pubkey &&
+      communityBootstrapReady &&
       !threadCensorReason &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
@@ -198,10 +212,25 @@
   let initialScrollThreadId = ""
 
   $effect(() => {
-    if (!communityPubkey || !threadId || $activeCommunityRelays.length === 0) return
+    if (
+      !communityBootstrapReady ||
+      !communityPubkey ||
+      !threadId ||
+      $activeCommunityRelays.length === 0
+    ) {
+      loadingThread = false
+      loadingReplies = false
+      threadRequestStarted = false
+      return
+    }
 
     const filters = [...threadFilters, ...replyFilters]
-    if (filters.length === 0) return
+    if (filters.length === 0) {
+      loadingThread = false
+      loadingReplies = false
+      threadRequestStarted = false
+      return
+    }
 
     const controller = new AbortController()
     const timeout = setTimeout(() => {
@@ -212,7 +241,7 @@
     threadRequestStarted = true
     loadingThread = true
     loadingReplies = true
-    request({relays: $activeCommunityRelays, filters, signal: controller.signal})
+    request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
 
     return () => {
       clearTimeout(timeout)
@@ -351,6 +380,10 @@
             <Icon icon={Reply} />
             Reply to thread
           </button>
+        {:else if communityBootstrapLoading}
+          <div class="flex items-center gap-2 text-sm opacity-70">
+            <Spinner loading>Checking reply access...</Spinner>
+          </div>
         {:else}
           <PublishGate
             target={COMMUNITY_WRITE_TARGETS.comment}
@@ -362,7 +395,7 @@
         {/if}
       </div>
     {/if}
-  {:else if !$activeCommunityDefinition || loadingThread || (threadFilters.length > 0 && !threadRequestStarted)}
+  {:else if communityBootstrapLoading || loadingThread || (threadFilters.length > 0 && !threadRequestStarted)}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading>Loading thread...</Spinner>
     </p>

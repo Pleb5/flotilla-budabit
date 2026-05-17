@@ -1,6 +1,7 @@
 <script lang="ts">
   import {deriveProfile, deriveProfileDisplay} from "@welshman/app"
   import {normalizeRelays} from "@app/core/community"
+  import {hydratePubkeyProfiles} from "@app/core/community-state"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
@@ -37,6 +38,16 @@
   const fallbackName = $derived(formatShortNpub(pubkey) || "Unknown community")
   const name = $derived($profileDisplay || fallbackName)
   const info = $derived($profile?.about || profileRelays[0] || fallbackName)
+
+  let profileHydrationKey = ""
+
+  $effect(() => {
+    const key = pubkey ? `${pubkey}:${profileRelays.join(",")}` : ""
+    if (!key || profileHydrationKey === key) return
+
+    profileHydrationKey = key
+    hydratePubkeyProfiles({pubkeys: [pubkey], relayHints: profileRelays}).catch(() => {})
+  })
 </script>
 
 <div class="flex items-center gap-2 rounded-xl border border-base-300 bg-base-100 p-2">

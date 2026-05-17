@@ -16,9 +16,12 @@
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import GoalItem from "@app/components/GoalItem.svelte"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
+    hasCommunityHydrationCompleted,
+    markCommunityHydrationCompleted,
   } from "@app/core/community-state"
   import {
     COMMUNITY_SECTION_GENERAL,
@@ -54,8 +57,21 @@
   const createPath = $derived(
     communityPubkey ? makeCommunityPath(communityPubkey, "goals", "create") : "",
   )
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const targetingFilters = $derived(
-    communityPubkey ? [makeCommunityTargetingFilter(communityPubkey, [ZAP_GOAL])] : [],
+    communityBootstrapReady && communityPubkey
+      ? [makeCommunityTargetingFilter(communityPubkey, [ZAP_GOAL])]
+      : [],
   )
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
@@ -94,7 +110,7 @@
       .filter(Boolean)
   })
   const goalFilters = $derived(
-    goalAuthorPubkeys.length
+    communityBootstrapReady && goalAuthorPubkeys.length
       ? makeTargetedPublicationOriginalFilters($targetingEvents, goalAuthorPubkeys)
       : [],
   )
@@ -117,7 +133,7 @@
     return filters
   })
   const feedKey = $derived.by(() =>
-    communityPubkey && goalFeedFilters.length && $activeCommunityRelays.length
+    communityBootstrapReady && communityPubkey && goalFeedFilters.length && $activeCommunityRelays.length
       ? [
           communityPubkey,
           ...$activeCommunityRelays,
@@ -131,6 +147,7 @@
   const canReact = $derived(
     Boolean(
       $pubkey &&
+      communityBootstrapReady &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
         definition: $activeCommunityDefinition,
@@ -168,7 +185,9 @@
     if (!element || !key || goalFeedFilters.length === 0 || $activeCommunityRelays.length === 0)
       return
 
-    loadingEvents = true
+    const hydrationKey = `goals:feed:${key}`
+
+    loadingEvents = !hasCommunityHydrationCompleted(hydrationKey)
     exhaustedEvents = false
     lastFeedKey = key
     feedInitialized = true
@@ -179,9 +198,11 @@
       feedFilters: goalFeedFilters,
       subscriptionFilters: goalFeedFilters,
       onInitialLoad: () => {
+        markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
       },
       onExhausted: () => {
+        markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
         exhaustedEvents = true
       },
@@ -192,26 +213,41 @@
   }
 
   $effect(() => {
-    if (!communityPubkey || $activeCommunityRelays.length === 0 || targetingFilters.length === 0) {
+    if (
+      !communityBootstrapReady ||
+      !communityPubkey ||
+      $activeCommunityRelays.length === 0 ||
+      targetingFilters.length === 0
+    ) {
       loadingTargets = false
       targetRequestDone = false
       return
     }
 
     const controller = new AbortController()
+    const key = JSON.stringify({scope: "goals-targets", relays: $activeCommunityRelays, filters: targetingFilters})
+
+    if (hasCommunityHydrationCompleted(key)) {
+      loadingTargets = false
+      targetRequestDone = true
+      return
+    }
+
     const timeout = setTimeout(() => {
+      markCommunityHydrationCompleted(key)
       loadingTargets = false
       targetRequestDone = true
     }, 3000)
 
     loadingTargets = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
         if (controller.signal.aborted) return
 
+        markCommunityHydrationCompleted(key)
         loadingTargets = false
         targetRequestDone = true
       })
@@ -278,7 +314,7 @@
       readOnly={!canReact}
       event={$state.snapshot(event)} />
   {/each}
-  {#if !$activeCommunityDefinition}
+  {#if communityBootstrapLoading}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading>Loading community permissions...</Spinner>
     </p>

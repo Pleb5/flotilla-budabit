@@ -1,8 +1,11 @@
 <script lang="ts">
-  import type {Snippet} from "svelte"
+  import {onDestroy, type Snippet} from "svelte"
   import {page} from "$app/stores"
-  import {pubkey} from "@welshman/app"
-  import {displayRelayUrl} from "@welshman/util"
+  import {ago, MONTH} from "@welshman/lib"
+  import {pubkey, repository} from "@welshman/app"
+  import {request} from "@welshman/net"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {displayRelayUrl, MESSAGE} from "@welshman/util"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import CommunityMenu from "@app/components/CommunityMenu.svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -13,12 +16,25 @@
   import {deriveRelayAuthError} from "@app/core/state"
   import {parseCommunityRouteParam} from "@app/util/routes"
   import {
+    activeCommunityAdmissionForms,
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
-    loadCommunityBootstrap,
+    activeCommunityModeratorRequestReactionEvents,
+    activeCommunityModeratorRequests,
+    activeCommunityRelays,
+    activeCommunityReportEvents,
+    ensureCommunityBootstrap,
+    getCommunityBootstrapKey,
     makeCommunitySession,
-    setActiveCommunityDefinition,
     setActiveCommunityInput,
   } from "@app/core/community-state"
+  import {FORM_RESPONSE_KIND} from "@app/core/community"
+  import {makeCommunityTargetingFilter} from "@app/core/community-feeds"
+  import {
+    buildCommunityLiveFilters,
+    getCommunityLiveSubscriptionKey,
+    normalizeCommunityLiveValues,
+  } from "@app/core/community-live"
 
   type Props = {
     children?: Snippet
@@ -59,51 +75,75 @@
         : "",
   )
 
-  let loadedCommunityKey = ""
-  let loadingCommunityKey = ""
   let authRelayUrl = $state("")
   let relayAuthError = $state("")
   let shownAuthErrorKey = $state("")
+  let communityLiveKey = ""
+  let communityLiveController: AbortController | null = null
+  let communityHistoryLoadKey = ""
+  let communityHistoryLoadController: AbortController | null = null
+  const COMMUNITY_HISTORY_LOAD_TIMEOUT_MS = 5_000
+
+  const communityTargetingFilters = $derived(
+    $activeCommunityDefinition
+      ? [makeCommunityTargetingFilter($activeCommunityDefinition.pubkey)]
+      : [],
+  )
+  const communityTargetingEventsStore = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: communityTargetingFilters})),
+  )
+  const admissionFormAddresses = $derived(
+    normalizeCommunityLiveValues(Object.values($activeCommunityAdmissionForms).map(form => form.address)),
+  )
+  const admissionResponseFilters = $derived(
+    admissionFormAddresses.length
+      ? [{kinds: [FORM_RESPONSE_KIND], "#a": admissionFormAddresses}]
+      : [],
+  )
+  const admissionResponseEventsStore = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: admissionResponseFilters})),
+  )
+  const admissionResponseIds = $derived(
+    normalizeCommunityLiveValues($admissionResponseEventsStore.map(event => event.id)),
+  )
+
+  const stopCommunityLiveSubscription = () => {
+    communityLiveController?.abort()
+    communityLiveController = null
+    communityLiveKey = ""
+  }
+
+  const stopCommunityHistoryLoad = () => {
+    communityHistoryLoadController?.abort()
+    communityHistoryLoadController = null
+    communityHistoryLoadKey = ""
+  }
 
   const openCommunityMenu = () => {
     if (parsedCommunity) pushDrawer(CommunityMenu, {community: parsedCommunity.pubkey}, {replaceState: true})
   }
 
   $effect(() => {
-    let cancelled = false
     const routeCommunity = $page.params.community || ""
-    const communityKey = parsedCommunity
-      ? `${parsedCommunity.pubkey}:${parsedCommunity.relays.join(",")}:${routeCommunity}`
-      : ""
+    const currentPubkey = $pubkey || ""
 
     const load = async () => {
       if (!parsedCommunity) {
+        activeCommunityBootstrapStatus.set({key: "", loading: false, loaded: false})
         return
       }
 
-      if (loadedCommunityKey === communityKey || loadingCommunityKey === communityKey) return
+      const session = setActiveCommunityInput(decodeURIComponent(routeCommunity)) || makeCommunitySession(parsedCommunity)
+      const communityKey = getCommunityBootstrapKey(session, currentPubkey)
 
       try {
-        loadingCommunityKey = communityKey
-        const session = setActiveCommunityInput(decodeURIComponent(routeCommunity)) || makeCommunitySession(parsedCommunity)
-        const bootstrap = await loadCommunityBootstrap(session)
-
-        if (!cancelled && bootstrap.definition) {
-          setActiveCommunityDefinition(bootstrap.definition)
-        }
-        if (!cancelled) loadedCommunityKey = communityKey
+        await ensureCommunityBootstrap(session, {key: communityKey})
       } catch (error) {
-        if (!cancelled) console.warn("[community] Failed to load community metadata", error)
-      } finally {
-        if (loadingCommunityKey === communityKey) loadingCommunityKey = ""
+        console.warn("[community] Failed to load community metadata", error)
       }
     }
 
     load()
-
-    return () => {
-      cancelled = true
-    }
   })
 
   $effect(() => {
@@ -131,6 +171,92 @@
     })
 
     return unsubscribe
+  })
+
+  $effect(() => {
+    const definition = $activeCommunityDefinition
+    const relays = normalizeCommunityLiveValues($activeCommunityRelays)
+
+    if (!definition || relays.length === 0) {
+      stopCommunityHistoryLoad()
+      return
+    }
+
+    const key = `${definition.pubkey}::${relays.join("|")}`
+    if (communityHistoryLoadKey === key) return
+
+    communityHistoryLoadController?.abort()
+    communityHistoryLoadKey = key
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), COMMUNITY_HISTORY_LOAD_TIMEOUT_MS)
+    communityHistoryLoadController = controller
+
+    request({
+      relays,
+      threshold: 0.5,
+      autoClose: true,
+      signal: controller.signal,
+      filters: [{kinds: [MESSAGE], "#h": [definition.pubkey], since: ago(MONTH)}],
+    })
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          console.warn("[community-history] Failed to preload community message history", error)
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeout)
+        if (communityHistoryLoadController === controller) {
+          communityHistoryLoadController = null
+        }
+      })
+  })
+
+  $effect(() => {
+    const definition = $activeCommunityDefinition
+    const relays = normalizeCommunityLiveValues($activeCommunityRelays)
+
+    if (!definition || relays.length === 0) {
+      stopCommunityLiveSubscription()
+      return
+    }
+
+    const filters = buildCommunityLiveFilters({
+      definition,
+      targetingEvents: $communityTargetingEventsStore,
+      admissionFormAddresses,
+      admissionResponseIds,
+      reportEvents: $activeCommunityReportEvents,
+      moderatorRequests: $activeCommunityModeratorRequests,
+      moderatorRequestReactionEvents: $activeCommunityModeratorRequestReactionEvents,
+    })
+
+    if (filters.length === 0) {
+      stopCommunityLiveSubscription()
+      return
+    }
+
+    const key = getCommunityLiveSubscriptionKey({
+      communityPubkey: definition.pubkey,
+      relays,
+      filters,
+    })
+    if (communityLiveKey === key) return
+
+    communityLiveController?.abort()
+    communityLiveKey = key
+    const controller = new AbortController()
+    communityLiveController = controller
+
+    request({relays, filters, signal: controller.signal}).catch(error => {
+      if (!controller.signal.aborted) {
+        console.warn("[community-live] Failed to subscribe to community activity", error)
+      }
+    })
+  })
+
+  onDestroy(() => {
+    stopCommunityHistoryLoad()
+    stopCommunityLiveSubscription()
   })
 </script>
 

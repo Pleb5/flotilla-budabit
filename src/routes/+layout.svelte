@@ -7,6 +7,7 @@
   import {get} from "svelte/store"
   import {browser, dev} from "$app/environment"
   import {goto} from "$app/navigation"
+  import {page} from "$app/stores"
   import {sync} from "@welshman/store"
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
@@ -57,8 +58,10 @@
     activeCommunityDefinition,
     activeCommunityRelays,
     activeCommunitySession,
+    ensureCommunityBootstrap,
+    getCommunityBootstrapKey,
+    hydratePubkeyProfiles,
     hydrateActiveCommunityUserModeratorRequests,
-    loadCommunityBootstrap,
   } from "@app/core/community-state"
 
   const {children} = $props()
@@ -109,10 +112,10 @@
   let serviceWorkerMessageHandler: ((event: MessageEvent) => void) | null = null
   let serviceWorkerReloadInFlight = false
   let updateToastShown = false
-  let loadedCommunityKey = ""
-  let loadingCommunityKey = ""
   let loadedUserModeratorRequestsKey = ""
   let loadingUserModeratorRequestsKey = ""
+  let loadedUserProfileKey = ""
+  let loadingUserProfileKey = ""
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -142,21 +145,15 @@
 
   $effect(() => {
     const session = $activeCommunitySession
-    const key = session ? `${session.communityPubkey}:${session.communityRelayHints.join(",")}` : ""
+    const inCommunityRoute = $page.route.id?.startsWith("/c/[community]")
+    const key = session ? getCommunityBootstrapKey(session, $pubkey || "") : ""
 
-    if (!browser || !session || !key || loadedCommunityKey === key || loadingCommunityKey === key)
+    if (!browser || inCommunityRoute || !session || !key)
       return
 
-    loadingCommunityKey = key
-    loadCommunityBootstrap(session)
-      .then(() => {
-        loadedCommunityKey = key
-      })
+    ensureCommunityBootstrap(session, {key, updateStatus: false})
       .catch(error => {
         console.warn("[community] Failed to load active community metadata", error)
-      })
-      .finally(() => {
-        if (loadingCommunityKey === key) loadingCommunityKey = ""
       })
   })
 
@@ -187,6 +184,28 @@
       })
       .finally(() => {
         if (loadingUserModeratorRequestsKey === key) loadingUserModeratorRequestsKey = ""
+      })
+  })
+
+  $effect(() => {
+    const user = $pubkey || ""
+    const relayHints = $activeCommunityRelays
+    const key = user ? `${user}:${relayHints.join(",")}` : ""
+
+    if (!browser || !user || !key || loadedUserProfileKey === key || loadingUserProfileKey === key) {
+      return
+    }
+
+    loadingUserProfileKey = key
+    hydratePubkeyProfiles({pubkeys: [user], relayHints})
+      .then(events => {
+        if (events.length > 0) loadedUserProfileKey = key
+      })
+      .catch(error => {
+        console.warn("[profile] Failed to load active user profile", error)
+      })
+      .finally(() => {
+        if (loadingUserProfileKey === key) loadingUserProfileKey = ""
       })
   })
 

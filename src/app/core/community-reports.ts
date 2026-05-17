@@ -58,7 +58,10 @@ export const getEffectiveCommunityModerationActionsByReporter = (
 }
 
 const getReasonTag = (event: TrustedEvent, tagName: "e" | "p") =>
-  event.tags.find(tag => tag[0] === tagName && tag[2] === COMMUNITY_REPORT_REASON)
+  event.tags.find(
+    tag =>
+      tag[0] === tagName && (tag[2] === COMMUNITY_REPORT_REASON || tag[3] === COMMUNITY_REPORT_REASON),
+  )
 
 const makeCommunityDefinitionAddress = (communityPubkey: string) => {
   const pubkey = normalizePubkey(communityPubkey)
@@ -105,6 +108,7 @@ export const makeCommunityEventReport = ({
     ["e", eventId, COMMUNITY_REPORT_REASON],
     ["p", normalizePubkey(eventPubkey)],
     ["a", makeCommunityDefinitionAddress(communityPubkey)],
+    ["h", normalizePubkey(communityPubkey)],
     ["content", sectionName],
   ],
 })
@@ -123,6 +127,7 @@ export const makeCommunityPersonReport = ({
   tags: [
     ["p", normalizePubkey(pubkey), COMMUNITY_REPORT_REASON],
     ["a", makeCommunityDefinitionAddress(communityPubkey)],
+    ["h", normalizePubkey(communityPubkey)],
   ],
 })
 

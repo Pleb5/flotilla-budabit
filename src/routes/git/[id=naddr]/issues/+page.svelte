@@ -10,7 +10,6 @@
   import {Eye, Plus, SearchX} from "@lucide/svelte"
   import {
     Address,
-    COMMENT,
     getTagValue,
     GIT_STATUS_COMPLETE,
     GIT_STATUS_DRAFT,
@@ -1000,35 +999,6 @@
 
   const visibleIssues = $derived.by(() => searchedIssues.slice(0, visibleIssueCount))
   const canLoadMoreIssues = $derived.by(() => visibleIssueCount < searchedIssues.length)
-
-  $effect(() => {
-    const rootIds = visibleIssues.map(issue => issue.id).filter(Boolean)
-    const relays = repoBoundRelays
-
-    if (rootIds.length === 0 || relays.length === 0) return
-
-    const controller = new AbortController()
-    const timeout = setTimeout(() => {
-      request({
-        relays,
-        signal: controller.signal,
-        filters: [
-          {kinds: [COMMENT], "#E": rootIds},
-          {kinds: [COMMENT], "#e": rootIds},
-        ],
-        onEvent: event => {
-          if (!repository.getEvent(event.id)) {
-            repository.publish(event as CommentEvent)
-          }
-        },
-      })
-    }, 100)
-
-    return () => {
-      clearTimeout(timeout)
-      controller.abort()
-    }
-  })
 
   const loadMoreIssues = () => {
     visibleIssueCount = Math.min(visibleIssueCount + ITEMS_PER_PAGE, searchedIssues.length)

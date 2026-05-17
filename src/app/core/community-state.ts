@@ -1,11 +1,11 @@
 import {browser} from "$app/environment"
 import {derived, get, writable, type Readable} from "svelte/store"
-import {deriveProfile, pubkey, repository, tracker} from "@welshman/app"
+import {deriveProfile, pubkey, repository, sign, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {sortBy} from "@welshman/lib"
-import {load} from "@welshman/net"
+import {AuthStatus, load, Pool} from "@welshman/net"
 import {Router} from "@welshman/router"
-import {BADGE_DEFINITION, DELETE, type Filter, type TrustedEvent} from "@welshman/util"
+import {BADGE_DEFINITION, DELETE, PROFILE, type Filter, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_GOALS,
@@ -82,6 +82,13 @@ export type CommunityBootstrap = {
   reportDeleteEvents: TrustedEvent[]
 }
 
+export type CommunityBootstrapStatus = {
+  key: string
+  loading: boolean
+  loaded: boolean
+  error?: string
+}
+
 export type CommunityProfile = {
   name?: string
   display_name?: string
@@ -143,6 +150,25 @@ const getInitialSession = () => {
 }
 
 export const activeCommunitySession = writable<CommunitySession | undefined>(getInitialSession())
+export const activeCommunityBootstrapStatus = writable<CommunityBootstrapStatus>({
+  key: "",
+  loading: false,
+  loaded: false,
+})
+
+const communityBootstrapPromises = new Map<string, Promise<CommunityBootstrap>>()
+const completedCommunityBootstrap = new Map<string, CommunityBootstrap>()
+const completedCommunityHydrationKeys = new Set<string>()
+
+export const getCommunityBootstrapKey = (session: CommunitySession, userPubkey = "") =>
+  `${normalizePubkey(userPubkey)}:${session.communityPubkey}:${normalizeRelays(session.communityRelayHints).join(",")}`
+
+export const hasCommunityHydrationCompleted = (key: string) =>
+  Boolean(key && completedCommunityHydrationKeys.has(key))
+
+export const markCommunityHydrationCompleted = (key: string) => {
+  if (key) completedCommunityHydrationKeys.add(key)
+}
 
 if (canUseLocalStorage()) {
   activeCommunitySession.subscribe(writeStoredSession)
@@ -282,22 +308,58 @@ export const getCommunityDefinitionRelayHints = (
 }
 
 const COMMUNITY_RELAY_LOAD_TIMEOUT = 5000
+const COMMUNITY_RELAY_AUTH_TIMEOUT = 2000
 const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
 const COMMUNITY_STAR_HYDRATION_TTL = 30_000
 const COMMUNITY_PREFERENCE_LOAD_TIMEOUT = 1500
 const COMMUNITY_PREFERENCE_HYDRATION_TTL = 30_000
 const COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT = 1500
 const COMMUNITY_MODERATOR_REQUEST_HYDRATION_TTL = 30_000
+const COMMUNITY_PROFILE_LOAD_TIMEOUT = 3000
+const COMMUNITY_PROFILE_HYDRATION_TTL = 30_000
+
+const withTimeout = async <T>(promise: Promise<T>, timeout: number, fallback: T): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+  return Promise.race([
+    promise,
+    new Promise<T>(resolve => {
+      timeoutId = setTimeout(() => resolve(fallback), timeout)
+    }),
+  ]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId)
+  })
+}
+
+export const authenticateCommunityRelays = async (relays: string[]) => {
+  await Promise.all(
+    normalizeRelays(relays).map(async relay => {
+      const auth = Pool.get().get(relay).auth
+      if ([AuthStatus.Ok, AuthStatus.Forbidden].includes(auth.status)) return
+
+      try {
+        await withTimeout(auth.attemptAuth(sign), COMMUNITY_RELAY_AUTH_TIMEOUT, undefined)
+      } catch {
+        // Public relays often never request auth; authenticated relays are retried by the request.
+      }
+    }),
+  )
+}
 
 export const loadCommunityEvents = async (
   relays: string[],
   filters: Filter[],
-  options: {timeout?: number} = {},
+  options: {timeout?: number; authenticate?: boolean} = {},
 ): Promise<TrustedEvent[]> => {
   const timeoutMs = options.timeout ?? COMMUNITY_RELAY_LOAD_TIMEOUT
+  const normalizedRelays = normalizeRelays(relays)
+
+  if (options.authenticate) {
+    await authenticateCommunityRelays(normalizedRelays)
+  }
 
   const results = await Promise.all(
-    normalizeRelays(relays).map(relay => {
+    normalizedRelays.map(relay => {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
@@ -321,17 +383,49 @@ export const loadCommunityEvents = async (
   return events
 }
 
-const withTimeout = async <T>(promise: Promise<T>, timeout: number, fallback: T): Promise<T> => {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
+const profileHydratedAt = new Map<string, number>()
+const profileHydrationPromises = new Map<string, Promise<TrustedEvent[]>>()
 
-  return Promise.race([
-    promise,
-    new Promise<T>(resolve => {
-      timeoutId = setTimeout(() => resolve(fallback), timeout)
-    }),
-  ]).finally(() => {
-    if (timeoutId) clearTimeout(timeoutId)
-  })
+export const hydratePubkeyProfiles = async ({
+  pubkeys,
+  relayHints = [],
+  force = false,
+  timeout = COMMUNITY_PROFILE_LOAD_TIMEOUT,
+}: {
+  pubkeys: string[]
+  relayHints?: string[]
+  force?: boolean
+  timeout?: number
+}) => {
+  const authors = Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean)))
+  const relays = getCommunityBootstrapRelays(relayHints)
+  const key = `${authors.join(",")}:${relays.slice().sort().join(",")}`
+
+  if (authors.length === 0 || relays.length === 0 || !key) return []
+  if (!force && (profileHydratedAt.get(key) || 0) > Date.now() - COMMUNITY_PROFILE_HYDRATION_TTL) {
+    return []
+  }
+
+  const pending = profileHydrationPromises.get(key)
+  if (pending) return pending
+
+  const promise = loadCommunityEvents(
+    relays,
+    [{kinds: [PROFILE], authors, limit: authors.length}],
+    {timeout, authenticate: true},
+  )
+    .then(events => {
+      if (events.length > 0) profileHydratedAt.set(key, Date.now())
+
+      return events
+    })
+    .finally(() => {
+      if (profileHydrationPromises.get(key) === promise) profileHydrationPromises.delete(key)
+    })
+
+  profileHydrationPromises.set(key, promise)
+
+  return promise
 }
 
 export const getCommunityStarRelays = (relayHints: string[] = []) => {
@@ -528,8 +622,11 @@ export const hydrateCommunityStars = async ({
       : reactionFilter
 
     await withTimeout(
-      loadCommunityEvents(relays, [scopedReactionFilter], {timeout: COMMUNITY_STAR_LOAD_TIMEOUT}),
-      COMMUNITY_STAR_LOAD_TIMEOUT + 500,
+      loadCommunityEvents(relays, [scopedReactionFilter], {
+        timeout: COMMUNITY_STAR_LOAD_TIMEOUT,
+        authenticate: true,
+      }),
+      COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_STAR_LOAD_TIMEOUT + 500,
       [],
     )
 
@@ -543,8 +640,11 @@ export const hydrateCommunityStars = async ({
 
     if (deleteFilters.length > 0) {
       await withTimeout(
-        loadCommunityEvents(relays, deleteFilters, {timeout: COMMUNITY_STAR_LOAD_TIMEOUT}),
-        COMMUNITY_STAR_LOAD_TIMEOUT + 500,
+        loadCommunityEvents(relays, deleteFilters, {
+          timeout: COMMUNITY_STAR_LOAD_TIMEOUT,
+          authenticate: true,
+        }),
+        COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_STAR_LOAD_TIMEOUT + 500,
         [],
       )
     }
@@ -598,8 +698,11 @@ export const hydrateCommunityPreferences = async ({
 
   try {
     const loadedEvents = await withTimeout(
-      loadCommunityEvents(relays, filters, {timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT}),
-      COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+      loadCommunityEvents(relays, filters, {
+        timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
+        authenticate: true,
+      }),
+      COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
       [] as TrustedEvent[],
     )
 
@@ -623,8 +726,11 @@ export const hydrateCommunityPreferences = async ({
     if (definitionFilters.length === 0) return
 
     await withTimeout(
-      loadCommunityEvents(relays, definitionFilters, {timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT}),
-      COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+      loadCommunityEvents(relays, definitionFilters, {
+        timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
+        authenticate: true,
+      }),
+      COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
       [] as TrustedEvent[],
     )
   } finally {
@@ -1179,11 +1285,28 @@ export const loadCommunityBootstrap = async (
   session: CommunitySession,
 ): Promise<CommunityBootstrap> => {
   const relays = getCommunityBootstrapRelays(session.communityRelayHints)
-  const definitionEvents = await loadCommunityEvents(relays, [
-    makeCommunityDefinitionFilter(session.communityPubkey),
-  ])
-  const definition = selectLatestCommunityDefinition(definitionEvents, session.communityPubkey)
-  const communityRelays = definition?.relays.length ? definition.relays : relays
+  const definitionFilter = makeCommunityDefinitionFilter(session.communityPubkey)
+  if (session.communityRelayHints.length > 0) {
+    await authenticateCommunityRelays(session.communityRelayHints)
+  }
+
+  const definitionEvents = await loadCommunityEvents(relays, [definitionFilter])
+  let definition = selectLatestCommunityDefinition(definitionEvents, session.communityPubkey)
+  let communityRelays = definition?.relays.length ? definition.relays : relays
+
+  if (definition?.relays.length) {
+    await authenticateCommunityRelays(communityRelays)
+    const relayDefinitionEvents = await loadCommunityEvents(communityRelays, [definitionFilter])
+    const communityRelayDefinition = selectLatestCommunityDefinition(
+      [...definitionEvents, ...relayDefinitionEvents],
+      session.communityPubkey,
+    )
+
+    if (communityRelayDefinition) {
+      definition = communityRelayDefinition
+      communityRelays = definition.relays.length ? definition.relays : communityRelays
+    }
+  }
   const authorityFilters: Filter[] = []
   const admissionFormFilters: Filter[] = []
   const reportFilters: Filter[] = []
@@ -1218,4 +1341,77 @@ export const loadCommunityBootstrap = async (
   }
 
   return bootstrap
+}
+
+export const ensureCommunityBootstrap = async (
+  session: CommunitySession,
+  options: {key?: string; updateStatus?: boolean} = {},
+): Promise<CommunityBootstrap> => {
+  const key = options.key || getCommunityBootstrapKey(session, pubkey.get() || "")
+  const updateStatus = options.updateStatus ?? true
+  const completed = completedCommunityBootstrap.get(key)
+
+  if (completed) {
+    if (updateStatus) activeCommunityBootstrapStatus.set({key, loading: false, loaded: true})
+    return completed
+  }
+
+  const existing = communityBootstrapPromises.get(key)
+  if (existing) {
+    if (!updateStatus) return existing
+
+    activeCommunityBootstrapStatus.set({key, loading: true, loaded: false})
+
+    return existing
+      .then(bootstrap => {
+        if (get(activeCommunityBootstrapStatus).key === key) {
+          activeCommunityBootstrapStatus.set({key, loading: false, loaded: true})
+        }
+
+        return bootstrap
+      })
+      .catch(error => {
+        if (get(activeCommunityBootstrapStatus).key === key) {
+          activeCommunityBootstrapStatus.set({
+            key,
+            loading: false,
+            loaded: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+
+        throw error
+      })
+  }
+
+  if (updateStatus) activeCommunityBootstrapStatus.set({key, loading: true, loaded: false})
+
+  const promise = loadCommunityBootstrap(session)
+    .then(bootstrap => {
+      completedCommunityBootstrap.set(key, bootstrap)
+      if (updateStatus && get(activeCommunityBootstrapStatus).key === key) {
+        activeCommunityBootstrapStatus.set({key, loading: false, loaded: true})
+      }
+
+      return bootstrap
+    })
+    .catch(error => {
+      if (updateStatus && get(activeCommunityBootstrapStatus).key === key) {
+        activeCommunityBootstrapStatus.set({
+          key,
+          loading: false,
+          loaded: false,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+
+      throw error
+    })
+    .finally(() => {
+      if (communityBootstrapPromises.get(key) === promise) communityBootstrapPromises.delete(key)
+    })
+
+  communityBootstrapPromises.set(key, promise)
+
+  return promise
 }

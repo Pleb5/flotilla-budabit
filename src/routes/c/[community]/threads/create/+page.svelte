@@ -14,6 +14,7 @@
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -25,16 +26,25 @@
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const threadsPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "threads") : "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
   const canCreateThread = $derived(
     Boolean(
       $pubkey &&
-      $activeCommunityDefinition &&
-      canWriteCommunityTarget({
-        definition: $activeCommunityDefinition,
-        profileListEvents: $activeCommunityProfileListEvents,
-        userPubkey: $pubkey,
-        target: COMMUNITY_WRITE_TARGETS.forumThread,
-      }),
+        communityBootstrapReady &&
+        $activeCommunityDefinition &&
+        canWriteCommunityTarget({
+          definition: $activeCommunityDefinition,
+          profileListEvents: $activeCommunityProfileListEvents,
+          userPubkey: $pubkey,
+          target: COMMUNITY_WRITE_TARGETS.forumThread,
+        }),
     ),
   )
 
@@ -42,6 +52,10 @@
     const trimmedTitle = title.trim()
     const trimmedContent = content.trim()
     if (!communityPubkey || !trimmedTitle || !trimmedContent) return
+    if (!communityBootstrapReady) {
+      pushToast({theme: "error", message: "Community permissions are still loading."})
+      return
+    }
     if (!canCreateThread) {
       pushToast({theme: "error", message: "You do not have permission to create forum threads."})
       return

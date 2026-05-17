@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
@@ -11,12 +10,14 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import Field from "@lib/components/Field.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -37,8 +38,21 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const targetingFilters = $derived(
-    communityPubkey ? [makeCommunityTargetingFilter(communityPubkey, [GIT_REPO_ANNOUNCEMENT])] : [],
+    communityBootstrapReady && communityPubkey
+      ? [makeCommunityTargetingFilter(communityPubkey, [GIT_REPO_ANNOUNCEMENT])]
+      : [],
   )
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
@@ -53,7 +67,7 @@
       : [],
   )
   const repoFilters = $derived(
-    repoAuthorPubkeys.length
+    communityBootstrapReady && repoAuthorPubkeys.length
       ? makeTargetedPublicationOriginalFilters($targetingEvents, repoAuthorPubkeys)
       : [],
   )
@@ -61,6 +75,7 @@
   const canCreateRepo = $derived(
     Boolean(
       $pubkey &&
+        communityBootstrapReady &&
         $activeCommunityDefinition &&
         canWriteCommunityTarget({
           definition: $activeCommunityDefinition,
@@ -130,21 +145,61 @@
   let slug = $state("")
   let description = $state("")
   let clone = $state("")
+  let loadingTargets = $state(false)
+  let targetRequestDone = $state(false)
+  let loadingRepos = $state(false)
+  let repoRequestDone = $state(false)
+  const reposLoading = $derived(
+    communityBootstrapLoading ||
+      loadingTargets ||
+      loadingRepos ||
+      !targetRequestDone ||
+      (repoFilters.length > 0 && !repoRequestDone && $repos.length === 0),
+  )
 
-  onMount(() => {
-    if (!communityPubkey || $activeCommunityRelays.length === 0) return
+  $effect(() => {
+    if (
+      !communityBootstrapReady ||
+      !communityPubkey ||
+      $activeCommunityRelays.length === 0 ||
+      targetingFilters.length === 0
+    ) {
+      loadingTargets = false
+      targetRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+    loadingTargets = true
+    targetRequestDone = false
+    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        if (controller.signal.aborted) return
+        loadingTargets = false
+        targetRequestDone = true
+      })
 
     return () => controller.abort()
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || repoFilters.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || repoFilters.length === 0) {
+      loadingRepos = false
+      repoRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: repoFilters, signal: controller.signal})
+    loadingRepos = true
+    repoRequestDone = false
+    request({relays: $activeCommunityRelays, autoClose: true, filters: repoFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        if (controller.signal.aborted) return
+        loadingRepos = false
+        repoRequestDone = true
+      })
 
     return () => controller.abort()
   })
@@ -200,7 +255,13 @@
         {/if}
       </div>
     {:else}
-      <p class="py-8 text-center opacity-70">No targeted repositories found.</p>
+      <p class="py-8 text-center opacity-70">
+        {#if reposLoading}
+          <Spinner loading>Looking for repositories...</Spinner>
+        {:else}
+          No targeted repositories found.
+        {/if}
+      </p>
     {/each}
   </div>
 </PageContent>

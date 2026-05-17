@@ -127,6 +127,7 @@
     REPO_CLONE_URLS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     PULL_REQUESTS_KEY,
+    COMMENT_EVENTS_KEY,
     REPO_FEED_ACTIVITY_KEY,
     REPO_ACTIONS_KEY,
     REPO_SETTINGS_ACTIONS_KEY,
@@ -208,6 +209,13 @@
   const COMMENT_DERIVE_FILTER_CHUNK_SIZE = 100
   const SCOPED_DERIVE_THROTTLE_MS = 120
   const GIT_COVER_LETTER_KIND = 1624
+  const REPO_LIVE_FILTER_CHUNK_SIZE = 100
+  const repoStatusKinds = [
+    GIT_STATUS_OPEN,
+    GIT_STATUS_DRAFT,
+    GIT_STATUS_CLOSED,
+    GIT_STATUS_COMPLETE,
+  ]
 
   type RepoBranchUpdate = {
     repoId: string
@@ -1743,6 +1751,7 @@
   setContext(REPO_CLONE_URLS_KEY, maintainerSetCloneUrlsStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
+  setContext(COMMENT_EVENTS_KEY, commentEventsStore)
   setContext(REPO_FEED_ACTIVITY_KEY, repoFeedActivityStore)
   setContext(REPO_TRUST_METRICS_KEY, repoTrustMetricsStore)
   setContext(REPO_ACTIONS_KEY, {
@@ -1832,6 +1841,54 @@
   let effectiveAddressLoadRelaysKey = ""
   let effectiveAddressLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
   let dataLoadInitialized = $state(false)
+  let repoLiveSubscriptionKey = ""
+  let repoLiveSubscriptionController: AbortController | null = null
+  let viewerScopedLoadKey = ""
+
+  const stopRepoLiveSubscription = () => {
+    repoLiveSubscriptionController?.abort()
+    repoLiveSubscriptionController = null
+    repoLiveSubscriptionKey = ""
+  }
+
+  const buildRepoLiveFilters = ({
+    addresses,
+    rootIds,
+    viewer,
+  }: {
+    addresses: string[]
+    rootIds: string[]
+    viewer: string
+  }) => {
+    const filters: Filter[] = []
+
+    for (const addressChunk of chunkBySize(addresses, ADDRESS_DERIVE_FILTER_CHUNK_SIZE)) {
+      filters.push({
+        kinds: [GIT_ISSUE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE, ...repoStatusKinds],
+        "#a": addressChunk,
+        limit: 0,
+      })
+    }
+
+    for (const rootChunk of chunkBySize(rootIds, REPO_LIVE_FILTER_CHUNK_SIZE)) {
+      filters.push(
+        {kinds: [COMMENT], "#E": rootChunk, limit: 0},
+        {kinds: [COMMENT], "#e": rootChunk, limit: 0},
+        {kinds: [GIT_LABEL, GIT_COVER_LETTER_KIND], "#e": rootChunk, limit: 0},
+        {kinds: repoStatusKinds, "#e": rootChunk, limit: 0},
+      )
+    }
+
+    if (viewer) {
+      filters.push({
+        kinds: [GIT_ISSUE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE],
+        "#p": [viewer],
+        limit: 0,
+      })
+    }
+
+    return filters
+  }
 
   // Use effect only for data loading, not for store/context creation
   // Only run once when component mounts, not on every navigation
@@ -2199,33 +2256,57 @@
   })
 
   $effect(() => {
-    const relays = ($repoRelaysStore || []).filter(Boolean)
-    const viewer = $pubkey
-    if (!viewer || relays.length === 0) return
+    const relays = normalizeScopeValues(($repoRelaysStore || []).filter(Boolean))
+    const viewer = $pubkey || ""
+    if (!viewer || relays.length === 0) {
+      viewerScopedLoadKey = ""
+      return
+    }
 
-    const filters: Filter[] = [
-      {
-        kinds: [GIT_ISSUE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE],
-        "#p": [viewer],
-      },
-    ]
+    const key = `${viewer}::${relays.join("|")}`
+    if (viewerScopedLoadKey === key) return
+    viewerScopedLoadKey = key
 
-    load({relays, filters}).catch(() => {})
+    load({
+      relays,
+      filters: [
+        {
+          kinds: [GIT_ISSUE, GIT_PULL_REQUEST, GIT_PULL_REQUEST_UPDATE],
+          "#p": [viewer],
+        },
+      ],
+    }).catch(() => {})
+  })
 
+  $effect(() => {
+    const relays = normalizeScopeValues(($repoRelaysStore || []).filter(Boolean))
+    const addresses = normalizeScopeValues(($repoAddressesStore || []).filter(Boolean))
+    const rootIds = normalizeScopeValues(($allRootIdsStore || []).filter(Boolean))
+    const viewer = $pubkey || ""
+    const filters = buildRepoLiveFilters({addresses, rootIds, viewer})
+
+    if (relays.length === 0 || filters.length === 0) {
+      stopRepoLiveSubscription()
+      return
+    }
+
+    const key = [relays.join("|"), addresses.join("|"), rootIds.join("|"), viewer].join("::")
+    if (repoLiveSubscriptionKey === key) return
+
+    repoLiveSubscriptionController?.abort()
+    repoLiveSubscriptionKey = key
     const controller = new AbortController()
-    const since = Math.floor(Date.now() / 1000) - 600
+    repoLiveSubscriptionController = controller
+
     request({
       relays,
       signal: controller.signal,
-      filters: filters.map(filter => ({...filter, since})),
-      onEvent: event => {
-        if (!repository.getEvent(event.id)) {
-          repository.publish(event as TrustedEvent)
-        }
-      },
+      filters,
+    }).catch(error => {
+      if (!controller.signal.aborted) {
+        console.warn("[repo-live] Failed to subscribe to repo activity", error)
+      }
     })
-
-    return () => controller.abort()
   })
 
   // Cleanup on component destroy
@@ -2234,6 +2315,7 @@
       setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
     }
 
+    stopRepoLiveSubscription()
     unsubscribers.forEach(unsub => unsub())
     unsubscribers = []
     requestedPrStatusRootIds.clear()

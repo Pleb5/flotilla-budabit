@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
@@ -10,12 +9,14 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import Field from "@lib/components/Field.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -36,8 +37,21 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const targetingFilters = $derived(
-    communityPubkey ? [makeCommunityTargetingFilter(communityPubkey, [GIT_PERMALINK_KIND])] : [],
+    communityBootstrapReady && communityPubkey
+      ? [makeCommunityTargetingFilter(communityPubkey, [GIT_PERMALINK_KIND])]
+      : [],
   )
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
@@ -52,7 +66,7 @@
       : [],
   )
   const permalinkFilters = $derived(
-    permalinkAuthorPubkeys.length
+    communityBootstrapReady && permalinkAuthorPubkeys.length
       ? makeTargetedPublicationOriginalFilters($targetingEvents, permalinkAuthorPubkeys)
       : [],
   )
@@ -60,6 +74,7 @@
   const canCreatePermalink = $derived(
     Boolean(
       $pubkey &&
+        communityBootstrapReady &&
         $activeCommunityDefinition &&
         canWriteCommunityTarget({
           definition: $activeCommunityDefinition,
@@ -128,21 +143,61 @@
   let commit = $state("")
   let line = $state("")
   let description = $state("")
+  let loadingTargets = $state(false)
+  let targetRequestDone = $state(false)
+  let loadingPermalinks = $state(false)
+  let permalinkRequestDone = $state(false)
+  const permalinksLoading = $derived(
+    communityBootstrapLoading ||
+      loadingTargets ||
+      loadingPermalinks ||
+      !targetRequestDone ||
+      (permalinkFilters.length > 0 && !permalinkRequestDone && $permalinks.length === 0),
+  )
 
-  onMount(() => {
-    if (!communityPubkey || $activeCommunityRelays.length === 0) return
+  $effect(() => {
+    if (
+      !communityBootstrapReady ||
+      !communityPubkey ||
+      $activeCommunityRelays.length === 0 ||
+      targetingFilters.length === 0
+    ) {
+      loadingTargets = false
+      targetRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+    loadingTargets = true
+    targetRequestDone = false
+    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        if (controller.signal.aborted) return
+        loadingTargets = false
+        targetRequestDone = true
+      })
 
     return () => controller.abort()
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || permalinkFilters.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || permalinkFilters.length === 0) {
+      loadingPermalinks = false
+      permalinkRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: permalinkFilters, signal: controller.signal})
+    loadingPermalinks = true
+    permalinkRequestDone = false
+    request({relays: $activeCommunityRelays, autoClose: true, filters: permalinkFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        if (controller.signal.aborted) return
+        loadingPermalinks = false
+        permalinkRequestDone = true
+      })
 
     return () => controller.abort()
   })
@@ -182,7 +237,13 @@
         {#if permalink.content}<p class="whitespace-pre-wrap">{permalink.content}</p>{/if}
       </div>
     {:else}
-      <p class="py-8 text-center opacity-70">No targeted permalinks found.</p>
+      <p class="py-8 text-center opacity-70">
+        {#if permalinksLoading}
+          <Spinner loading>Looking for permalinks...</Spinner>
+        {:else}
+          No targeted permalinks found.
+        {/if}
+      </p>
     {/each}
   </div>
 </PageContent>

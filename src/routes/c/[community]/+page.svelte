@@ -1,6 +1,5 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {goto} from "$app/navigation"
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -17,15 +16,19 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
+  import CommunityRoomCreate from "@app/components/community/CommunityRoomCreate.svelte"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
   import {fade} from "@lib/transition"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
     getCommunityDefinitionRelayHints,
+    hasCommunityHydrationCompleted,
+    markCommunityHydrationCompleted,
   } from "@app/core/community-state"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
@@ -36,11 +39,11 @@
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
   import {notifications} from "@app/util/notifications"
+  import {pushModal} from "@app/util/modal"
   import {formatShortNpub} from "@app/util/pubkeys"
   import {
     makeCommunityCalendarPath,
     makeCommunityGoalPath,
-    makeCommunityPath,
     makeCommunityRoomPath,
     makeCommunityThreadPath,
     parseCommunityRouteParam,
@@ -65,8 +68,6 @@
   const communityActionRelays = $derived(
     communityShareRelays.length > 0 ? communityShareRelays : $activeCommunityRelays,
   )
-  const roomsPath = $derived(communityId ? makeCommunityPath(communityId, "rooms") : "")
-  const roomCreatePath = $derived(roomsPath ? `${roomsPath}?create=1` : "")
   const threadsPath = $derived(communityId ? makeCommunityThreadPath(communityId) : "")
   const calendarPath = $derived(communityId ? makeCommunityCalendarPath(communityId) : "")
   const goalsPath = $derived(communityId ? makeCommunityGoalPath(communityId) : "")
@@ -80,8 +81,19 @@
         })
       : [],
   )
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityId &&
+        $activeCommunityDefinition?.pubkey === communityId &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityId && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const roomFilters = $derived(
-    communityId && roomAuthorPubkeys.length
+    communityBootstrapReady && communityId && roomAuthorPubkeys.length
       ? [makeCommunityRoomRootsFilter(communityId, {authors: roomAuthorPubkeys})]
       : [],
   )
@@ -90,6 +102,7 @@
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
+        communityBootstrapReady &&
         $activeCommunityDefinition &&
         canWriteCommunityTarget({
           definition: $activeCommunityDefinition,
@@ -99,12 +112,53 @@
         }),
     ),
   )
+  let roomRootsLoading = $state(false)
+  let roomRootsLoaded = $state(false)
+  let roomLoadKey = ""
+  const roomsLoading = $derived(communityBootstrapLoading || roomRootsLoading || !roomRootsLoaded)
+
+  const createRoom = () => {
+    if (communityId) pushModal(CommunityRoomCreate, {communityPubkey: communityId})
+  }
 
   $effect(() => {
-    if (!communityId || $activeCommunityRelays.length === 0) return
+    if (
+      !communityBootstrapReady ||
+      !communityId ||
+      $activeCommunityRelays.length === 0 ||
+      roomFilters.length === 0
+    ) {
+      roomRootsLoading = false
+      roomRootsLoaded = false
+      roomLoadKey = ""
+      return
+    }
+
+    const key = JSON.stringify({relays: $activeCommunityRelays, filters: roomFilters})
+    if (roomLoadKey === key) return
+    if (hasCommunityHydrationCompleted(key)) {
+      roomLoadKey = key
+      roomRootsLoading = false
+      roomRootsLoaded = true
+      return
+    }
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: roomFilters, signal: controller.signal})
+    roomLoadKey = key
+    roomRootsLoading = true
+    roomRootsLoaded = false
+
+    request({relays: $activeCommunityRelays, autoClose: true, filters: roomFilters, signal: controller.signal})
+      .catch(error => {
+        if (!controller.signal.aborted) console.warn("[community-home] Failed to load rooms", error)
+      })
+      .finally(() => {
+        if (roomLoadKey === key) {
+          if (!controller.signal.aborted) markCommunityHydrationCompleted(key)
+          roomRootsLoading = false
+          roomRootsLoaded = true
+        }
+      })
 
     return () => controller.abort()
   })
@@ -184,21 +238,23 @@
         {/if}
       </Link>
     {/each}
-    {#if roomsPath && rooms.length === 0}
+    {#if communityId && rooms.length === 0}
       <div class="card2 bg-alt col-span-full flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
           <h3 class="flex items-center gap-2 text-lg font-semibold">
             <Icon icon={Hashtag} />
-            No rooms found
+            {roomsLoading ? "Looking for rooms..." : "No rooms found"}
           </h3>
           <p class="text-sm opacity-70">
-            {canCreateRoom
-              ? "Create the first room for this community."
-              : "No rooms have been published yet."}
+            {roomsLoading
+              ? "Loading community rooms and permissions."
+              : canCreateRoom
+                ? "Create the first room for this community."
+                : "No rooms have been published yet."}
           </p>
         </div>
         {#if canCreateRoom}
-          <button class="btn btn-primary" type="button" onclick={() => goto(roomCreatePath)}>
+          <button class="btn btn-primary" type="button" onclick={createRoom}>
             Create Room
           </button>
         {/if}

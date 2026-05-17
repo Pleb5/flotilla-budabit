@@ -52,6 +52,8 @@ export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")
 
 export const PULL_REQUESTS_KEY = Symbol("pull-requests")
 
+export const COMMENT_EVENTS_KEY = Symbol("comment-events")
+
 export const REPO_FEED_ACTIVITY_KEY = Symbol("repo-feed-activity")
 
 export const REPO_ACTIONS_KEY = Symbol("repo-actions")

@@ -13,9 +13,12 @@
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import ThreadItem from "@app/components/ThreadItem.svelte"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
+    hasCommunityHydrationCompleted,
+    markCommunityHydrationCompleted,
   } from "@app/core/community-state"
   import {
     makeCommunityForumRepliesFilter,
@@ -55,19 +58,30 @@
         })
       : [],
   )
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const threadFilter = $derived(
-    communityPubkey && forumAuthorPubkeys.length
+    communityBootstrapReady && communityPubkey && forumAuthorPubkeys.length
       ? makeCommunityForumThreadsFilter(communityPubkey, {authors: forumAuthorPubkeys})
       : undefined,
   )
   const replyFilter = $derived(
-    communityPubkey && replyAuthorPubkeys.length
+    communityBootstrapReady && communityPubkey && replyAuthorPubkeys.length
       ? makeCommunityForumRepliesFilter(communityPubkey, {authors: replyAuthorPubkeys})
       : undefined,
   )
   const feedFilters = $derived([threadFilter, replyFilter].filter(Boolean) as Filter[])
   const feedKey = $derived.by(() =>
-    communityPubkey && feedFilters.length && $activeCommunityRelays.length
+    communityBootstrapReady && communityPubkey && feedFilters.length && $activeCommunityRelays.length
       ? [
           communityPubkey,
           ...$activeCommunityRelays,
@@ -108,6 +122,7 @@
   const canReact = $derived(
     Boolean(
       $pubkey &&
+      communityBootstrapReady &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
         definition: $activeCommunityDefinition,
@@ -131,7 +146,9 @@
   const startFeed = (key: string) => {
     if (!element || !key || feedFilters.length === 0 || $activeCommunityRelays.length === 0) return
 
-    loadingEvents = true
+    const hydrationKey = `threads:feed:${key}`
+
+    loadingEvents = !hasCommunityHydrationCompleted(hydrationKey)
     exhaustedEvents = false
     lastFeedKey = key
     feedInitialized = true
@@ -142,9 +159,11 @@
       feedFilters,
       subscriptionFilters: feedFilters,
       onInitialLoad: () => {
+        markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
       },
       onExhausted: () => {
+        markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
         exhaustedEvents = true
       },
@@ -211,7 +230,7 @@
         readOnly={!canReact}
         event={thread.event} />
     {/each}
-    {#if !$activeCommunityDefinition}
+    {#if communityBootstrapLoading}
       <p class="flex h-10 items-center justify-center py-20 text-center">
         <Spinner loading>Loading community permissions...</Spinner>
       </p>

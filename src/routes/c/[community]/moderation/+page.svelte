@@ -12,6 +12,7 @@
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import Field from "@lib/components/Field.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import ModerationReportList from "@app/components/community/ModerationReportList.svelte"
   import {preventDefault} from "@lib/html"
@@ -26,6 +27,7 @@
   import {makeCommunityGrantEvents} from "@app/core/community-admin"
   import {
     activeCommunityAdmissionForms,
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportEvents,
@@ -73,6 +75,17 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   let pageMode = $state<PageMode>("queue")
   let selectedSectionName = $state("")
   let drafts = $state<Record<string, CommunityAdmissionFormDraft>>({})
@@ -84,7 +97,8 @@
     JSON.stringify({relays: relays.slice().sort(), filters})
 
   const grantableSections = $derived(
-    ($activeCommunityDefinition?.sections || [])
+    communityBootstrapReady
+      ? ($activeCommunityDefinition?.sections || [])
       .map(section => ({
         section,
         displayName: getCommunitySectionDisplayName(section),
@@ -97,7 +111,8 @@
               })
             : undefined,
       }))
-      .filter(item => item.capability?.canGrant),
+      .filter(item => item.capability?.canGrant)
+      : [],
   )
   const selected = $derived(
     grantableSections.find(item => item.section.name === selectedSectionName),
@@ -110,7 +125,7 @@
   )
   const setupComplete = $derived(grantableSections.length > 0 && missingFormSections.length === 0)
   const canAccessModerationPage = $derived.by(() => {
-    if (!$activeCommunityDefinition || !$pubkey) return false
+    if (!communityBootstrapReady || !$activeCommunityDefinition || !$pubkey) return false
     if (grantableSections.length > 0) return true
 
     return isCommunityAdmin($activeCommunityDefinition, $pubkey)
@@ -128,7 +143,9 @@
     Object.values($activeCommunityAdmissionForms).map(form => form.address),
   )
   const responseFilters = $derived(
-    formAddresses.length ? [{kinds: [FORM_RESPONSE_KIND], "#a": formAddresses}] : [],
+    communityBootstrapReady && formAddresses.length
+      ? [{kinds: [FORM_RESPONSE_KIND], "#a": formAddresses}]
+      : [],
   )
   const responseEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: responseFilters})),
@@ -145,7 +162,9 @@
     deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})),
   )
   const reportFilters = $derived(
-    $activeCommunityDefinition ? makeCommunityReportFilters($activeCommunityDefinition) : [],
+    communityBootstrapReady && $activeCommunityDefinition
+      ? makeCommunityReportFilters($activeCommunityDefinition)
+      : [],
   )
   const reportDeleteFilters = $derived(
     makeCommunityReportDeleteFilters($activeCommunityReportEvents),
@@ -434,7 +453,7 @@
   }
 
   const publishSelectedForm = () => {
-    if (!$activeCommunityDefinition || !selected?.capability?.canGrant || !selectedDraft) {
+    if (!communityBootstrapReady || !$activeCommunityDefinition || !selected?.capability?.canGrant || !selectedDraft) {
       pushToast({theme: "error", message: "You can only edit forms for sections you can grant."})
       return
     }
@@ -472,7 +491,7 @@
   }
 
   const reviewApplication = (application: ReviewApplication, status: "granted" | "rejected") => {
-    if (!$activeCommunityDefinition) return
+    if (!communityBootstrapReady || !$activeCommunityDefinition) return
 
     const capability = getGrantCapability({
       definition: $activeCommunityDefinition,
@@ -534,7 +553,7 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
 
     const filters = [...responseFilters, ...deleteFilters, ...reviewFilters]
     if (filters.length === 0) return
@@ -546,7 +565,7 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
     if (reportFilters.length === 0) return
     const key = makeHydrationKey($activeCommunityRelays, reportFilters)
     if (key === reportHydrationKey) return
@@ -558,7 +577,7 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
     if (reportDeleteFilters.length === 0) return
     const key = makeHydrationKey($activeCommunityRelays, reportDeleteFilters)
     if (key === reportDeleteHydrationKey) return
@@ -581,7 +600,11 @@
 </PageBar>
 
 <PageContent class="content col-4 p-4">
-  {#if !$activeCommunityDefinition}
+  {#if communityBootstrapLoading}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Loading community permissions...</Spinner>
+    </p>
+  {:else if !communityBootstrapReady || !$activeCommunityDefinition}
     <p class="py-8 text-center opacity-70">Community definition is not loaded.</p>
   {:else if !$pubkey}
     <p class="py-8 text-center opacity-70">Log in with a moderator key to manage applications.</p>
@@ -593,7 +616,7 @@
     <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
       {#each pageTabs as tab (tab.mode)}
         <Button
-          class={`btn justify-center gap-3 border font-semibold shadow-sm transition ${
+          class={`btn h-auto min-h-16 flex-nowrap justify-center gap-3 border px-4 py-3 font-semibold shadow-sm transition ${
             pageMode === tab.mode
               ? "btn-primary ring-2 ring-primary/40 ring-offset-2 ring-offset-base-300"
               : tab.warning
@@ -603,10 +626,10 @@
           aria-current={pageMode === tab.mode ? "page" : undefined}
           disabled={tab.disabled}
           onclick={() => selectPageMode(tab.mode, tab.disabled)}>
-          {tab.label}
+          <span class="min-w-0 truncate text-center leading-tight">{tab.label}</span>
           {#if tab.count > 0}
             <span
-              class={`badge ${
+              class={`badge shrink-0 ${
                 pageMode === tab.mode
                   ? "border-primary-content/40 bg-primary-content text-primary"
                   : tab.warning

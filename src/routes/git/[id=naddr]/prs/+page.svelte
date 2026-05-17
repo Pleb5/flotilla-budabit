@@ -1,9 +1,8 @@
 <script lang="ts">
   import {Button as GitButton, NewPRForm, Status, toast} from "@nostr-git/ui"
   import {Eye, GitPullRequest, SearchX} from "@lucide/svelte"
-  import {createSearch, pubkey, repository} from "@welshman/app"
+  import {createSearch, pubkey} from "@welshman/app"
   import {
-    COMMENT,
     GIT_STATUS_CLOSED,
     GIT_STATUS_COMPLETE,
     GIT_STATUS_DRAFT,
@@ -11,7 +10,6 @@
     getTagValue,
     type TrustedEvent,
   } from "@welshman/util"
-  import {request} from "@welshman/net"
   import {
     createStatusEvent,
     GIT_PULL_REQUEST,
@@ -55,6 +53,7 @@
   import {makeFeed} from "@src/app/core/requests"
   import {
     PULL_REQUESTS_KEY,
+    COMMENT_EVENTS_KEY,
     REPO_KEY,
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
@@ -116,6 +115,7 @@
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
+  const commentEventsStore = getContext<Readable<CommentEvent[]>>(COMMENT_EVENTS_KEY)
   const repoTrustMetricsStore = getContext<Readable<RepoTrustMetrics>>(REPO_TRUST_METRICS_KEY)
 
   if (!repoClass) {
@@ -222,7 +222,8 @@
     }
   }
 
-  let comments = $state<CommentEvent[]>([])
+  const layoutComments = $derived.by(() => (commentEventsStore ? $commentEventsStore : []))
+  const comments = $derived.by(() => layoutComments || [])
   const mergedStatusEventsByRoot = $derived.by(
     () => statusEventsByRoot || new Map<string, StatusEvent[]>(),
   )
@@ -590,7 +591,6 @@
   let feedInitialized = $state(false)
   let feedCleanup: (() => void) | undefined = $state(undefined)
   let feedInitTimer: ReturnType<typeof setTimeout> | null = null
-  const abortControllers: AbortController[] = []
 
   $effect(() => {
     const container = element
@@ -1000,44 +1000,6 @@
   }))
 
   $effect(() => {
-    const currentPullRequests = pullRequests
-    const currentRepoRelays = repoRelays.filter(Boolean)
-
-    if (currentRepoRelays.length === 0) return
-
-    const controller = new AbortController()
-    abortControllers.push(controller)
-
-    const timeout = setTimeout(() => {
-      const rootIds = currentPullRequests.map((pr: PullRequestEvent) => pr.id)
-
-      if (rootIds.length > 0) {
-        request({
-          relays: currentRepoRelays,
-          signal: controller.signal,
-          filters: [
-            {kinds: [COMMENT], "#E": rootIds},
-            {kinds: [COMMENT], "#e": rootIds},
-          ],
-          onEvent: event => {
-            if (!comments.some(comment => comment.id === event.id)) {
-              comments = [...comments, event as CommentEvent]
-            }
-            if (!repository.getEvent(event.id)) {
-              repository.publish(event as CommentEvent)
-            }
-          },
-        })
-      }
-    }, 100)
-
-    return () => {
-      clearTimeout(timeout)
-      controller.abort()
-    }
-  })
-
-  $effect(() => {
     const currentElement = element
 
     if (feedInitialized || feedCleanup) return
@@ -1093,8 +1055,6 @@
       feedInitTimer = null
     }
 
-    abortControllers.forEach(controller => controller.abort())
-    abortControllers.length = 0
   })
 
   const searchedPrs = $derived.by(() => {

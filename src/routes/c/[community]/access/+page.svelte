@@ -11,6 +11,7 @@
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import Field from "@lib/components/Field.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
@@ -18,6 +19,7 @@
   import {FORM_RESPONSE_KIND, getCommunitySectionDisplayName} from "@app/core/community"
   import {
     activeCommunityAdmissionForms,
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -56,14 +58,25 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   let answers = $state<Record<string, Record<string, string>>>({})
   let moderatorRequestsOpen = $state(false)
   let moderatorRequestPublishStates = $state<Record<string, ModeratorRequestPublishState>>({})
 
-  const forms = $derived($activeCommunityAdmissionForms)
+  const forms = $derived(communityBootstrapReady ? $activeCommunityAdmissionForms : {})
   const formAddresses = $derived(Object.values(forms).map(form => form.address))
   const responseFilters = $derived(
-    $pubkey && formAddresses.length
+    communityBootstrapReady && $pubkey && formAddresses.length
       ? [{kinds: [FORM_RESPONSE_KIND], authors: [$pubkey], "#a": formAddresses}]
       : [],
   )
@@ -84,7 +97,7 @@
     deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})),
   )
   const sectionItems = $derived(
-    ($activeCommunityDefinition?.sections || []).map(section => {
+    communityBootstrapReady ? ($activeCommunityDefinition?.sections || []).map(section => {
       const displayName = getCommunitySectionDisplayName(section)
       const form = forms[section.name] || forms[displayName]
       const granted = Boolean(
@@ -112,9 +125,11 @@
           : ({status: granted ? "granted" : "none"} satisfies CommunitySubmissionState)
 
       return {section, displayName, form, granted, state}
-    }),
+    }) : [],
   )
-  const moderatorRequestStates = $derived($activeCommunityUserModeratorRequestStates)
+  const moderatorRequestStates = $derived(
+    communityBootstrapReady ? $activeCommunityUserModeratorRequestStates : [],
+  )
   const accessCheckedAt = $derived.by(() => {
     let checkedAt = 0
     const path = $page.url.pathname
@@ -146,6 +161,8 @@
   )
   const moderatorRequestStatusUpdateCount = $derived(updatedModeratorRequestKeys.size)
   const moderatorRequestItems = $derived.by(() => {
+    if (!communityBootstrapReady) return []
+
     const definition = $activeCommunityDefinition
 
     return (definition?.sections || []).map(section => {
@@ -198,6 +215,11 @@
       return
     }
 
+    if (!communityBootstrapReady) {
+      pushToast({theme: "error", message: "Community permissions are still loading."})
+      return
+    }
+
     if ($activeCommunityRelays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return
@@ -243,7 +265,7 @@
       return
     }
 
-    if (!$activeCommunityDefinition) {
+    if (!communityBootstrapReady || !$activeCommunityDefinition) {
       pushToast({theme: "error", message: "Community definition is not loaded."})
       return
     }
@@ -350,7 +372,7 @@
 
   const hydrateModeratorRequests = async () => {
     const definition = $activeCommunityDefinition
-    if (!moderatorRequestsOpen || !definition || !$pubkey) return
+    if (!moderatorRequestsOpen || !communityBootstrapReady || !definition || !$pubkey) return
     if ($activeCommunityRelays.length === 0) return
 
     try {
@@ -398,7 +420,11 @@
 </PageBar>
 
 <PageContent class="content col-4 p-4">
-  {#if !$activeCommunityDefinition}
+  {#if communityBootstrapLoading}
+    <p class="flex h-10 items-center justify-center py-20 text-center">
+      <Spinner loading>Loading community permissions...</Spinner>
+    </p>
+  {:else if !communityBootstrapReady || !$activeCommunityDefinition}
     <p class="py-8 text-center opacity-70">Community definition is not loaded.</p>
   {:else if !$pubkey}
     <div class="card2 bg-alt p-4 text-center shadow-md">

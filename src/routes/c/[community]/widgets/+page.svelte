@@ -1,5 +1,4 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository} from "@welshman/app"
@@ -10,12 +9,14 @@
   import Icon from "@lib/components/Icon.svelte"
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
+  import Spinner from "@lib/components/Spinner.svelte"
   import Field from "@lib/components/Field.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -41,8 +42,21 @@
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const targetingFilters = $derived(
-    communityPubkey ? [makeCommunityTargetingFilter(communityPubkey, [SMART_WIDGET_KIND])] : [],
+    communityBootstrapReady && communityPubkey
+      ? [makeCommunityTargetingFilter(communityPubkey, [SMART_WIDGET_KIND])]
+      : [],
   )
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
@@ -57,7 +71,7 @@
       : [],
   )
   const widgetFilters = $derived(
-    widgetAuthorPubkeys.length
+    communityBootstrapReady && widgetAuthorPubkeys.length
       ? makeTargetedPublicationOriginalFilters($targetingEvents, widgetAuthorPubkeys)
       : [],
   )
@@ -65,6 +79,7 @@
   const canCreateWidget = $derived(
     Boolean(
       $pubkey &&
+      communityBootstrapReady &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
         definition: $activeCommunityDefinition,
@@ -147,21 +162,61 @@
   let appUrl = $state("")
   let iconUrl = $state("")
   let description = $state("")
+  let loadingTargets = $state(false)
+  let targetRequestDone = $state(false)
+  let loadingWidgets = $state(false)
+  let widgetRequestDone = $state(false)
+  const widgetsLoading = $derived(
+    communityBootstrapLoading ||
+      loadingTargets ||
+      loadingWidgets ||
+      !targetRequestDone ||
+      (widgetFilters.length > 0 && !widgetRequestDone && $widgets.length === 0),
+  )
 
-  onMount(() => {
-    if (!communityPubkey || $activeCommunityRelays.length === 0) return
+  $effect(() => {
+    if (
+      !communityBootstrapReady ||
+      !communityPubkey ||
+      $activeCommunityRelays.length === 0 ||
+      targetingFilters.length === 0
+    ) {
+      loadingTargets = false
+      targetRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+    loadingTargets = true
+    targetRequestDone = false
+    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        if (controller.signal.aborted) return
+        loadingTargets = false
+        targetRequestDone = true
+      })
 
     return () => controller.abort()
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || widgetFilters.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || widgetFilters.length === 0) {
+      loadingWidgets = false
+      widgetRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: widgetFilters, signal: controller.signal})
+    loadingWidgets = true
+    widgetRequestDone = false
+    request({relays: $activeCommunityRelays, autoClose: true, filters: widgetFilters, signal: controller.signal})
+      .catch(() => undefined)
+      .finally(() => {
+        if (controller.signal.aborted) return
+        loadingWidgets = false
+        widgetRequestDone = true
+      })
 
     return () => controller.abort()
   })
@@ -218,7 +273,13 @@
         {#if widget.content}<p class="whitespace-pre-wrap">{widget.content}</p>{/if}
       </div>
     {:else}
-      <p class="py-8 text-center opacity-70">No targeted widgets found.</p>
+      <p class="py-8 text-center opacity-70">
+        {#if widgetsLoading}
+          <Spinner loading>Looking for widgets...</Spinner>
+        {:else}
+          No targeted widgets found.
+        {/if}
+      </p>
     {/each}
   </div>
 </PageContent>

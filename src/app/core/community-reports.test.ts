@@ -87,8 +87,31 @@ describe("community reports", () => {
       targetEventId: "reported-event",
       targetPubkey,
     })
+    expect(eventReport.tags).toContainEqual(["h", communityPubkey])
     expect(parseCommunityReport(personReport, communityPubkey)).toMatchObject({
       target: "person",
+      targetPubkey,
+    })
+    expect(personReport.tags).toContainEqual(["h", communityPubkey])
+  })
+
+  it("parses NIP-56 report reason tags with relay hints", () => {
+    const report = makeEvent({
+      id: "nip56-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: sectionModeratorPubkey,
+      tags: [
+        ["e", "reported-event", "wss://relay.example.com/", "spam"],
+        ["p", targetPubkey],
+        ["a", `${COMMUNITY_DEFINITION_KIND}:${communityPubkey}:`],
+        ["content", "General"],
+      ],
+    })
+
+    expect(parseCommunityReport(report, communityPubkey)).toMatchObject({
+      target: "event",
+      sectionName: "General",
+      targetEventId: "reported-event",
       targetPubkey,
     })
   })

@@ -18,11 +18,21 @@ import {
   ZAP_GOAL,
   verifiedSymbol,
   MESSAGING_RELAYS,
+  BADGE_DEFINITION,
+  DELETE,
+  REACTION,
+  getTagValue,
 } from "@welshman/util"
 import type {Zapper, TrustedEvent, RelayProfile} from "@welshman/util"
 import type {Handle, RelayStats} from "@welshman/app"
 import type {RepositoryUpdate} from "@welshman/net"
 import {DM_KIND} from "@app/core/state"
+import {
+  COMMUNITY_DEFINITION_KIND,
+  FORM_TEMPLATE_KIND,
+  PROFILE_LIST_KIND,
+} from "@app/core/community"
+import {COMMUNITY_REPORT_KIND} from "@app/core/community-reports"
 import {
   tracker,
   plaintext,
@@ -44,10 +54,27 @@ const kinds = {
   meta: [PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, MESSAGING_RELAYS, APP_DATA],
   alert: [ALERT_STATUS, ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID],
   content: [EVENT_TIME, THREAD, MESSAGE, ZAP_GOAL, DM_KIND],
+  community: [
+    COMMUNITY_DEFINITION_KIND,
+    PROFILE_LIST_KIND,
+    BADGE_DEFINITION,
+    FORM_TEMPLATE_KIND,
+    COMMUNITY_REPORT_KIND,
+  ],
 }
+
+const isCommunityStarReaction = (event: TrustedEvent) =>
+  event.kind === REACTION &&
+  event.content === "+" &&
+  getTagValue("k", event.tags) === String(COMMUNITY_DEFINITION_KIND)
+
+const isCommunityStarDelete = (event: TrustedEvent) =>
+  event.kind === DELETE && getTagValue("k", event.tags) === String(REACTION)
 
 const rankEvent = (event: TrustedEvent) => {
   if (kinds.meta.includes(event.kind)) return 9
+  if (kinds.community.includes(event.kind) || isCommunityStarReaction(event)) return 9
+  if (isCommunityStarDelete(event)) return 8
   if (kinds.alert.includes(event.kind)) return 8
   if (!isMobile && kinds.content.includes(event.kind)) return 5
   if (isPersistedGitDeleteEvent(event)) return 4

@@ -7,6 +7,7 @@
   import {formatShortNpub} from "@app/util/pubkeys"
   import {
     getCommunityBootstrapRelays,
+    hydratePubkeyProfiles,
     loadCommunityEvents,
     makeCommunityDefinitionFilter,
     selectLatestCommunityDefinition,
@@ -84,6 +85,16 @@
   const preserveRelayHints = () => {
     if (shareValue) setActiveCommunityInput(shareValue)
   }
+
+  let profileHydrationKey = ""
+
+  $effect(() => {
+    const key = communityPubkey ? `${communityPubkey}:${displayRelays.join(",")}` : ""
+    if (!key || profileHydrationKey === key) return
+
+    profileHydrationKey = key
+    hydratePubkeyProfiles({pubkeys: [communityPubkey], relayHints: displayRelays}).catch(() => {})
+  })
 
   const openCommunity = (event: MouseEvent) => {
     preserveRelayHints()

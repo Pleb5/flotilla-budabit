@@ -24,6 +24,7 @@
   import {preventDefault} from "@lib/html"
   import {publishComment} from "@app/core/commands"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
@@ -58,6 +59,17 @@
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const goalId = $derived($page.params.goal || "")
   const goalsPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "goals") : "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const goalAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunitySectionWriterPubkeys({
@@ -77,7 +89,7 @@
       : [],
   )
   const goalFilters = $derived<Filter[]>(
-    goalId && goalAuthorPubkeys.length
+    communityBootstrapReady && goalId && goalAuthorPubkeys.length
       ? [{kinds: [ZAP_GOAL], ids: [goalId], authors: goalAuthorPubkeys}]
       : [],
   )
@@ -85,7 +97,7 @@
   const goal = $derived($goalEvents[0])
   const goalTargetingId = $derived(goal ? getTagValue("h", goal.tags) || "" : "")
   const targetingFilters = $derived<Filter[]>(
-    communityPubkey && goal
+    communityBootstrapReady && communityPubkey && goal
       ? [
           makeCommunityTargetingFilter(
             communityPubkey,
@@ -125,7 +137,7 @@
       : undefined,
   )
   const replyFilters = $derived<Filter[]>(
-    approvedGoal && !approvedGoalCensorReason && interactionAuthorPubkeys.length
+    communityBootstrapReady && approvedGoal && !approvedGoalCensorReason && interactionAuthorPubkeys.length
       ? [
           {
             kinds: [COMMENT],
@@ -145,6 +157,7 @@
   const canReply = $derived(
     Boolean(
       approvedGoal &&
+      communityBootstrapReady &&
       !approvedGoalCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
@@ -159,6 +172,7 @@
   const canReact = $derived(
     Boolean(
       approvedGoal &&
+      communityBootstrapReady &&
       !approvedGoalCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
@@ -194,7 +208,11 @@
   }
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || goalFilters.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || goalFilters.length === 0) {
+      loadingGoal = false
+      goalRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
     const timeout = setTimeout(() => {
@@ -204,7 +222,7 @@
 
     loadingGoal = true
     goalRequestDone = false
-    request({relays: $activeCommunityRelays, filters: goalFilters, signal: controller.signal})
+    request({relays: $activeCommunityRelays, autoClose: true, filters: goalFilters, signal: controller.signal})
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
@@ -221,7 +239,11 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || targetingFilters.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || targetingFilters.length === 0) {
+      loadingTargeting = false
+      targetRequestDone = false
+      return
+    }
 
     const controller = new AbortController()
     const timeout = setTimeout(() => {
@@ -231,7 +253,7 @@
 
     loadingTargeting = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
@@ -248,10 +270,10 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || replyFilters.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0 || replyFilters.length === 0) return
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters: replyFilters, signal: controller.signal})
+    request({relays: $activeCommunityRelays, autoClose: true, filters: replyFilters, signal: controller.signal})
 
     return () => controller.abort()
   })
@@ -376,6 +398,10 @@
             <Icon icon={Reply} />
             Comment on this goal
           </button>
+        {:else if communityBootstrapLoading}
+          <div class="flex items-center gap-2 text-sm opacity-70">
+            <Spinner loading>Checking comment access...</Spinner>
+          </div>
         {:else}
           <PublishGate
             target={COMMUNITY_WRITE_TARGETS.comment}
@@ -387,7 +413,7 @@
         {/if}
       </div>
     {/if}
-  {:else if !$activeCommunityDefinition || loadingGoal || (goal && (loadingTargeting || !targetRequestDone)) || (!goal && !goalRequestDone)}
+  {:else if communityBootstrapLoading || loadingGoal || (goal && (loadingTargeting || !targetRequestDone)) || (!goal && !goalRequestDone)}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading>Loading funding goal...</Spinner>
     </p>

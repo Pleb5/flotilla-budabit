@@ -19,7 +19,9 @@
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
+  import CommunityRoomCreate from "@app/components/community/CommunityRoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
+  import {pushModal} from "@app/util/modal"
   import {
     activeCommunityDefinition,
     activeCommunityProfile,
@@ -63,8 +65,6 @@
   const communityPicture = $derived($activeCommunityProfile?.picture || "")
   const mainRelay = $derived($activeCommunityDefinition?.relays[0] || "")
   const homePath = $derived(makeCommunityPath(community))
-  const roomsPath = $derived(makeCommunityPath(community, "rooms"))
-  const roomCreatePath = $derived(`${roomsPath}?create=1`)
   const threadsPath = $derived(makeCommunityThreadPath(community))
   const calendarPath = $derived(makeCommunityCalendarPath(community))
   const goalsPath = $derived(makeCommunityGoalPath(community))
@@ -114,6 +114,7 @@
     Boolean(
       $pubkey &&
       $activeCommunityDefinition &&
+      $activeCommunityDefinition.pubkey === community &&
       canWriteCommunityTarget({
         definition: $activeCommunityDefinition,
         profileListEvents: $activeCommunityProfileListEvents,
@@ -125,7 +126,7 @@
 
   const goHome = () => goto(homePath, {replaceState})
   const createRoom = () => {
-    if (canCreateRoom) goto(roomCreatePath, {replaceState})
+    if (canCreateRoom) pushModal(CommunityRoomCreate, {communityPubkey: community}, {replaceState})
   }
 
   let replaceState = $state(false)

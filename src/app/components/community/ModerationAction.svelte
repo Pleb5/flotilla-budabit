@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {TrustedEvent} from "@welshman/util"
   import {makeEvent} from "@welshman/util"
-  import {pubkey, publishThunk} from "@welshman/app"
+  import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
   import Danger from "@assets/icons/danger.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
@@ -36,6 +36,7 @@
   }: Props = $props()
 
   const reporterPubkey = $derived(normalizePubkey($pubkey || ""))
+  let publishStatus = $state<"idle" | "publishing">("idle")
   const reportRelays = $derived.by(() =>
     (relays.length > 0 ? relays : $activeCommunityRelays).filter(Boolean),
   )
@@ -66,8 +67,19 @@
     ),
   )
 
+  const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
+    Object.values(thunk.results).some(result => result.status === "success")
+
+  const getPublishError = (thunk: ReturnType<typeof publishThunk>) => {
+    const result = Object.values(thunk.results).find(result => result.status !== "success")
+
+    return result
+      ? `${result.relay}: ${result.detail || result.status}`
+      : "Relay did not confirm the moderation report."
+  }
+
   const publishCommunityReport = async (target: "event" | "person") => {
-    if (!$activeCommunityDefinition || reportRelays.length === 0) return
+    if (!$activeCommunityDefinition || reportRelays.length === 0 || publishStatus === "publishing") return
 
     const template =
       target === "event"
@@ -79,11 +91,30 @@
           })
         : makeCommunityPersonReport({
             communityPubkey: $activeCommunityDefinition.pubkey,
-            pubkey: event.pubkey,
-          })
+          pubkey: event.pubkey,
+        })
 
-    publishThunk({relays: reportRelays, event: makeEvent(template.kind, template)})
-    pushToast({message: target === "event" ? "Event moderated." : "Person moderated."})
+    publishStatus = "publishing"
+    const thunk = publishThunk({relays: reportRelays, event: makeEvent(template.kind, template)})
+
+    try {
+      await waitForThunkCompletion(thunk)
+    } catch {
+      // The result map below carries the relay-specific failure detail.
+    }
+
+    if (!hasSuccessfulRelay(thunk)) {
+      if (thunk.event) repository.removeEvent(thunk.event.id)
+      publishStatus = "idle"
+      pushToast({
+        theme: "error",
+        message: `Moderation failed: ${getPublishError(thunk)}`,
+      })
+      return
+    }
+
+    publishStatus = "idle"
+    pushToast({theme: "success", message: target === "event" ? "Event moderated." : "Person moderated."})
     history.back()
   }
 
@@ -111,31 +142,31 @@
 
 {#if mode === "buttons"}
   {#if canModerateEvent}
-    <Button class={buttonClass} onclick={() => confirmModeration("event")}>
+    <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("event")}>
       <Icon size={4} icon={Danger} />
-      Moderate Event
+      {publishStatus === "publishing" ? "Publishing..." : "Moderate Event"}
     </Button>
   {/if}
   {#if canModeratePerson}
-    <Button class={buttonClass} onclick={() => confirmModeration("person")}>
+    <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("person")}>
       <Icon size={4} icon={Danger} />
-      Moderate Person
+      {publishStatus === "publishing" ? "Publishing..." : "Moderate Person"}
     </Button>
   {/if}
 {:else}
   {#if canModerateEvent}
     <li>
-      <Button class={buttonClass} onclick={() => confirmModeration("event")}>
+      <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("event")}>
         <Icon size={4} icon={Danger} />
-        Moderate Event
+        {publishStatus === "publishing" ? "Publishing..." : "Moderate Event"}
       </Button>
     </li>
   {/if}
   {#if canModeratePerson}
     <li>
-      <Button class={buttonClass} onclick={() => confirmModeration("person")}>
+      <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("person")}>
         <Icon size={4} icon={Danger} />
-        Moderate Person
+        {publishStatus === "publishing" ? "Publishing..." : "Moderate Person"}
       </Button>
     </li>
   {/if}

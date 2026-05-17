@@ -18,9 +18,12 @@
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import CalendarEventItem from "@app/components/CalendarEventItem.svelte"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
+    hasCommunityHydrationCompleted,
+    markCommunityHydrationCompleted,
   } from "@app/core/community-state"
   import {
     COMMUNITY_SECTION_CALENDAR,
@@ -77,8 +80,21 @@
   const lastDeleteSeen = $derived(
     deleteSeenKey ? normalizeDeleteCheckpoint($checked[deleteSeenKey] || 0) : 0,
   )
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const targetingFilters = $derived(
-    communityPubkey ? [makeCommunityTargetingFilter(communityPubkey, [EVENT_TIME])] : [],
+    communityBootstrapReady && communityPubkey
+      ? [makeCommunityTargetingFilter(communityPubkey, [EVENT_TIME])]
+      : [],
   )
   const targetingEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: targetingFilters})),
@@ -117,7 +133,7 @@
       .filter(Boolean)
   })
   const targetedOriginalFilters = $derived(
-    calendarAuthorPubkeys.length
+    communityBootstrapReady && calendarAuthorPubkeys.length
       ? makeTargetedPublicationOriginalFilters($targetingEvents, calendarAuthorPubkeys)
       : [],
   )
@@ -131,7 +147,7 @@
     return filters
   })
   const feedKey = $derived.by(() =>
-    communityPubkey && calendarFeedFilters.length && $activeCommunityRelays.length
+    communityBootstrapReady && communityPubkey && calendarFeedFilters.length && $activeCommunityRelays.length
       ? [
           communityPubkey,
           ...$activeCommunityRelays,
@@ -144,6 +160,7 @@
   const canReact = $derived(
     Boolean(
       $pubkey &&
+      communityBootstrapReady &&
       $activeCommunityDefinition &&
       canWriteCommunityTarget({
         definition: $activeCommunityDefinition,
@@ -193,7 +210,9 @@
     if (!element || !key || calendarFeedFilters.length === 0 || $activeCommunityRelays.length === 0)
       return
 
-    loadingEvents = true
+    const hydrationKey = `calendar:feed:${key}`
+
+    loadingEvents = !hasCommunityHydrationCompleted(hydrationKey)
     exhaustedEvents = false
     lastFeedKey = key
     feedInitialized = true
@@ -203,9 +222,11 @@
       relays: $activeCommunityRelays,
       filters: calendarFeedFilters,
       onInitialLoad: () => {
+        markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
       },
       onExhausted: () => {
+        markCommunityHydrationCompleted(hydrationKey)
         loadingEvents = false
         exhaustedEvents = true
       },
@@ -217,7 +238,7 @@
 
   $effect(() => {
     const relays = $activeCommunityRelays
-    if (!communityPubkey || relays.length === 0) return
+    if (!communityBootstrapReady || !communityPubkey || relays.length === 0) return
 
     const since = getCommunityDeleteSince(lastDeleteSeen)
     const key = `${communityPubkey}::${relays.slice().sort().join("|")}::${since}`
@@ -238,26 +259,41 @@
   })
 
   $effect(() => {
-    if (!communityPubkey || $activeCommunityRelays.length === 0 || targetingFilters.length === 0) {
+    if (
+      !communityBootstrapReady ||
+      !communityPubkey ||
+      $activeCommunityRelays.length === 0 ||
+      targetingFilters.length === 0
+    ) {
       loadingTargets = false
       targetRequestDone = false
       return
     }
 
     const controller = new AbortController()
+    const key = JSON.stringify({scope: "calendar-targets", relays: $activeCommunityRelays, filters: targetingFilters})
+
+    if (hasCommunityHydrationCompleted(key)) {
+      loadingTargets = false
+      targetRequestDone = true
+      return
+    }
+
     const timeout = setTimeout(() => {
+      markCommunityHydrationCompleted(key)
       loadingTargets = false
       targetRequestDone = true
     }, 3000)
 
     loadingTargets = true
     targetRequestDone = false
-    request({relays: $activeCommunityRelays, filters: targetingFilters, signal: controller.signal})
+    request({relays: $activeCommunityRelays, autoClose: true, filters: targetingFilters, signal: controller.signal})
       .catch(() => undefined)
       .finally(() => {
         clearTimeout(timeout)
         if (controller.signal.aborted) return
 
+        markCommunityHydrationCompleted(key)
         loadingTargets = false
         targetRequestDone = true
       })
@@ -269,11 +305,17 @@
   })
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0 || targetedOriginalFilters.length === 0) return
+    if (
+      !communityBootstrapReady ||
+      $activeCommunityRelays.length === 0 ||
+      targetedOriginalFilters.length === 0
+    )
+      return
 
     const controller = new AbortController()
     request({
       relays: $activeCommunityRelays,
+      autoClose: true,
       filters: targetedOriginalFilters,
       signal: controller.signal,
     })
@@ -383,7 +425,7 @@
         {event} />
     </div>
   {/each}
-  {#if !$activeCommunityDefinition}
+  {#if communityBootstrapLoading}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading>Loading community permissions...</Spinner>
     </p>

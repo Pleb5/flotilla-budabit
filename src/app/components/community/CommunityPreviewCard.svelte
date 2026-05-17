@@ -6,6 +6,7 @@
   import Field from "@lib/components/Field.svelte"
   import {preventDefault} from "@lib/html"
   import {normalizeRelays} from "@app/core/community"
+  import {hydratePubkeyProfiles} from "@app/core/community-state"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
   import {formatShortNpub} from "@app/util/pubkeys"
@@ -74,6 +75,16 @@
   )
 
   const submit = () => onSubmit?.()
+
+  let profileHydrationKey = ""
+
+  $effect(() => {
+    const key = pubkey ? `${pubkey}:${profileRelays.join(",")}` : ""
+    if (!key || profileHydrationKey === key) return
+
+    profileHydrationKey = key
+    hydratePubkeyProfiles({pubkeys: [pubkey], relayHints: profileRelays}).catch(() => {})
+  })
 </script>
 
 {#snippet preview()}

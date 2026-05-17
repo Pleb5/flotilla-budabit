@@ -41,8 +41,11 @@
   let previewLookupState = $state<"idle" | "loading" | "found" | "not-found">("idle")
   let enteringCommunityKey = $state("")
   let selectorRelayHints = $state<Record<string, string[]>>({})
+  let preferredHydrationKey = ""
+  let preferredHydrationAttempts = 0
   const selectorRelayLoadAttempts = new Map<string, number>()
   const SELECTOR_RELAY_RETRY_MS = 30_000
+  const PREFERRED_HYDRATION_MAX_ATTEMPTS = 2
 
   const createCommunity = () => goto("/explore/create-community")
 
@@ -50,7 +53,7 @@
     const discoveryRelays = getCommunityBootstrapRelays(relayHints)
     const definitionEvents = await loadCommunityEvents(discoveryRelays, [
       makeCommunityDefinitionFilter(communityPubkey),
-    ])
+    ], {authenticate: true})
 
     return selectLatestCommunityDefinition(definitionEvents, communityPubkey)
   }
@@ -235,9 +238,24 @@
   )
 
   $effect(() => {
-    if (!$pubkey) return
+    const key = $pubkey ? `${$pubkey}:${currentRelayHints.join(",")}` : ""
 
-    hydratePreferredCommunities({relayHints: currentRelayHints}).catch(() => {})
+    if (!$pubkey || !key) return
+
+    if (preferredHydrationKey !== key) {
+      preferredHydrationKey = key
+      preferredHydrationAttempts = 0
+    }
+
+    if ($communityStarsLoading || $communityPreferencesLoading) return
+    if (preferredCommunities.length > 0 && preferredHydrationAttempts > 0) return
+    if (preferredHydrationAttempts >= PREFERRED_HYDRATION_MAX_ATTEMPTS) return
+
+    preferredHydrationAttempts += 1
+    hydratePreferredCommunities({
+      relayHints: currentRelayHints,
+      force: preferredHydrationAttempts > 1,
+    }).catch(() => {})
   })
 
   $effect(() => {

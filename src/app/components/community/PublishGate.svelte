@@ -8,6 +8,7 @@
   import Link from "@lib/components/Link.svelte"
   import {
     activeCommunityAdmissionForms,
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -51,6 +52,17 @@
     parsedCommunity?.pubkey || $activeCommunityDefinition?.pubkey || "",
   )
   const accessPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "access") : "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
+  )
   const section = $derived(
     $activeCommunityDefinition
       ? findCommunitySection($activeCommunityDefinition, target.sectionName)
@@ -58,7 +70,7 @@
   )
   const form = $derived($activeCommunityAdmissionForms[target.sectionName])
   const responseFilters = $derived(
-    $pubkey && form
+    communityBootstrapReady && $pubkey && form
       ? [{kinds: [FORM_RESPONSE_KIND], authors: [$pubkey], "#a": [form.address]}]
       : [],
   )
@@ -79,7 +91,7 @@
     deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})),
   )
   const gateState = $derived.by<CommunityPublishGateState>(() =>
-    $activeCommunityDefinition
+    communityBootstrapReady && $activeCommunityDefinition
       ? getCommunityPublishGateState({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
@@ -136,19 +148,23 @@
   )
 
   $effect(() => {
-    if ($activeCommunityRelays.length === 0) return
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
 
     const filters = [...responseFilters, ...deleteFilters, ...reviewFilters]
     if (filters.length === 0) return
 
     const controller = new AbortController()
-    request({relays: $activeCommunityRelays, filters, signal: controller.signal})
+    request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
 
     return () => controller.abort()
   })
 </script>
 
-{#if canWrite && href && !submit && !disabled}
+{#if communityBootstrapLoading}
+  <Button type="button" class={className} disabled title="Loading community permissions...">
+    {@render children?.()}
+  </Button>
+{:else if canWrite && href && !submit && !disabled}
   <Link {href} class={className}>
     {@render children?.()}
   </Link>
@@ -182,6 +198,6 @@
   </Button>
 {/if}
 
-{#if showReason && !canWrite && (hasForm || writerCount > 0)}
+{#if showReason && !communityBootstrapLoading && !canWrite && (hasForm || writerCount > 0)}
   <p class="mt-2 text-right text-xs opacity-60">{reason}</p>
 {/if}

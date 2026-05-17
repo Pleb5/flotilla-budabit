@@ -16,6 +16,7 @@
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityRelays,
@@ -32,9 +33,18 @@
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
   const communityPubkey = $derived(parsedCommunity?.pubkey || "")
   const goalsPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "goals") : "")
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
   const canCreateGoal = $derived(
     Boolean(
       $pubkey &&
+        communityBootstrapReady &&
         $activeCommunityDefinition &&
         canWriteCommunityTarget({
           definition: $activeCommunityDefinition,
@@ -49,6 +59,10 @@
     const trimmedTitle = title.trim()
     const trimmedSummary = summary.trim()
     if (!$pubkey || !communityPubkey || !trimmedTitle || !trimmedSummary) return
+    if (!communityBootstrapReady) {
+      pushToast({theme: "error", message: "Community permissions are still loading."})
+      return
+    }
     if (!canCreateGoal) {
       pushToast({theme: "error", message: "You do not have permission to publish goals."})
       return

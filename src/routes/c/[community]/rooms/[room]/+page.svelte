@@ -28,6 +28,7 @@
   import RoomName from "@app/components/RoomName.svelte"
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import {
+    activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
@@ -84,8 +85,23 @@
         })
       : [],
   )
+  const communityBootstrapReady = $derived(
+    Boolean(
+      communityPubkey &&
+        $activeCommunityDefinition?.pubkey === communityPubkey &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading,
+    ),
+  )
+  const communityBootstrapLoading = $derived(
+    Boolean(
+      communityPubkey &&
+        !communityBootstrapReady &&
+        !$activeCommunityBootstrapStatus.error,
+    ),
+  )
   const roomFilters = $derived(
-    communityPubkey && roomId && roomAuthorPubkeys.length
+    communityBootstrapReady && communityPubkey && roomId && roomAuthorPubkeys.length
       ? [
           makeCommunityExclusiveFilter(communityPubkey, [THREAD], {
             ids: [roomId],
@@ -109,13 +125,14 @@
       : undefined,
   )
   const messageFilters = $derived(
-    communityPubkey && room && !roomCensorReason && messageAuthorPubkeys.length
+    communityBootstrapReady && communityPubkey && room && !roomCensorReason && messageAuthorPubkeys.length
       ? [makeCommunityRoomMessagesFilter(communityPubkey, room.id, {authors: messageAuthorPubkeys})]
       : [],
   )
   const canSendMessage = $derived(
     Boolean(
       room &&
+      communityBootstrapReady &&
       !roomCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
@@ -130,6 +147,7 @@
   const canReact = $derived(
     Boolean(
       room &&
+      communityBootstrapReady &&
       !roomCensorReason &&
       $pubkey &&
       $activeCommunityDefinition &&
@@ -143,6 +161,7 @@
   )
   const feedKey = $derived.by(() =>
     communityPubkey &&
+    communityBootstrapReady &&
     room &&
     !roomCensorReason &&
     messageAuthorPubkeys.length &&
@@ -398,7 +417,7 @@
     if (!communityPubkey || !roomId || relays.length === 0 || roomFilters.length === 0) return
 
     const controller = new AbortController()
-    request({relays, filters: roomFilters, signal: controller.signal})
+    request({relays, autoClose: true, filters: roomFilters, signal: controller.signal})
 
     return () => controller.abort()
   })
@@ -443,7 +462,7 @@
 <PageBar>
   {#snippet icon()}
     <div class="row-2">
-      <a href={makeCommunityPath(communityPubkey, "rooms")} class="btn btn-neutral btn-sm">
+      <a href={makeCommunityPath(communityPubkey)} class="btn btn-neutral btn-sm">
         <Icon icon={AltArrowLeft} />
       </a>
       <div class="center hidden h-8 w-8 rounded-xl bg-base-200 sm:flex">
@@ -511,9 +530,11 @@
         </div>
       {/if}
     {/each}
-    {#if loadingEvents || elements.length === 0 || exhaustedEvents}
+    {#if communityBootstrapLoading || loadingEvents || elements.length === 0 || exhaustedEvents}
       <p class="flex h-10 items-center justify-center py-20 text-center">
-        {#if loadingEvents}
+        {#if communityBootstrapLoading}
+          <Spinner loading>Loading community...</Spinner>
+        {:else if loadingEvents}
           <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
         {:else if elements.length === 0}
           <span>No messages yet.</span>
@@ -550,6 +571,14 @@
           content={eventToEdit?.content}
           bind:this={compose} />
       {/key}
+    {:else if communityBootstrapLoading}
+      <div
+        class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
+        <div class="min-w-0">
+          <strong class="block text-sm">Checking room access</strong>
+          <p class="text-xs opacity-70">Loading community permissions...</p>
+        </div>
+      </div>
     {:else}
       <div
         class="m-3 flex flex-wrap items-center justify-between gap-3 rounded-box bg-base-100 p-3 shadow-sm">
