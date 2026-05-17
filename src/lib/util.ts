@@ -11,6 +11,55 @@ export const nsecDecode = (nsec: string) => {
   return bytesToHex(data)
 }
 
+export type NsecTextParseResult = {
+  nsecs: string[]
+  hasInvalidNsec: boolean
+  hasEncryptedNsec: boolean
+}
+
+const NIP19_SECRET_PATTERN = /\b(?:nsec|ncryptsec)1[0-9a-z]+\b/gi
+
+const normalizeBech32Candidate = (candidate: string) => {
+  const hasLower = /[a-z]/.test(candidate)
+  const hasUpper = /[A-Z]/.test(candidate)
+
+  if (hasLower && hasUpper) return undefined
+
+  return candidate.toLowerCase()
+}
+
+export const parseNsecsFromText = (text: string): NsecTextParseResult => {
+  const nsecs = new Set<string>()
+  let hasInvalidNsec = false
+  let hasEncryptedNsec = false
+
+  for (const match of text.matchAll(NIP19_SECRET_PATTERN)) {
+    const candidate = match[0]
+    const normalized = normalizeBech32Candidate(candidate)
+
+    if (!normalized) {
+      if (candidate.toLowerCase().startsWith("nsec1")) hasInvalidNsec = true
+      if (candidate.toLowerCase().startsWith("ncryptsec1")) hasEncryptedNsec = true
+
+      continue
+    }
+
+    if (normalized.startsWith("ncryptsec1")) {
+      hasEncryptedNsec = true
+      continue
+    }
+
+    try {
+      nsecDecode(normalized)
+      nsecs.add(normalized)
+    } catch {
+      hasInvalidNsec = true
+    }
+  }
+
+  return {nsecs: [...nsecs], hasInvalidNsec, hasEncryptedNsec}
+}
+
 export const day = (seconds: number) => Math.floor(seconds / DAY)
 
 export const daysBetween = (start: number, end: number) => [...range(start, end, DAY)].map(day)
