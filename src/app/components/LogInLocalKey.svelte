@@ -1,5 +1,7 @@
 <script lang="ts">
   import {addSession, makeNip01Session} from "@welshman/app"
+  import {hexToBytes} from "@welshman/lib"
+  import {encrypt} from "nostr-tools/nip49"
   import {preventDefault} from "@lib/html"
   import {nsecDecode, parseNsecsFromText} from "@lib/util"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -13,6 +15,9 @@
   import UploadMinimalistic from "@assets/icons/upload-minimalistic.svg?dataurl"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
+  import Eye from "@assets/icons/eye.svg?dataurl"
+  import EyeClosed from "@assets/icons/eye-closed.svg?dataurl"
+  import {LOCAL_KEY_SECRET_ENCRYPTION, cacheUnlockedLocalKeySecret} from "@app/core/session-storage"
   import {clearModals} from "@app/util/modal"
   import {setChecked} from "@app/util/notifications"
   import {pushToast} from "@app/util/toast"
@@ -38,12 +43,38 @@
     const key = value.trim()
     if (!key) return
 
+    if (encryptAtRest) {
+      if (passphrase.length < 12) {
+        pushToast({
+          theme: "error",
+          message: "Use an encryption passphrase of at least 12 characters.",
+        })
+        return
+      }
+
+      if (passphrase !== passphraseConfirm) {
+        pushToast({theme: "error", message: "Encryption passphrases do not match."})
+        return
+      }
+    }
+
     fileError = ""
     loading = true
 
     try {
       const secret = nsecDecode(key)
-      addSession(makeNip01Session(secret))
+      const session = makeNip01Session(secret)
+      const encryptedSession = encryptAtRest
+        ? {
+            ...session,
+            secretCiphertext: encrypt(hexToBytes(secret), passphrase),
+            secretEncryption: LOCAL_KEY_SECRET_ENCRYPTION,
+          }
+        : undefined
+
+      if (encryptedSession) cacheUnlockedLocalKeySecret(session.pubkey, secret)
+
+      addSession(encryptedSession || session)
       pushToast({message: "Successfully logged in!"})
       setChecked("*")
       clearModals()
@@ -171,6 +202,11 @@
   }
 
   let nsec = $state("")
+  let encryptAtRest = $state(false)
+  let passphrase = $state("")
+  let passphraseConfirm = $state("")
+  let showPassphrase = $state(false)
+  let showPassphraseConfirm = $state(false)
   let loading = $state(false)
   let fileError = $state("")
   let dragActive = $state(false)
@@ -217,9 +253,79 @@
       </label>
     {/snippet}
     {#snippet info()}
-      <p>The key is stored encrypted at rest using NIP-44 encryption to self.</p>
+      <p>The key is stored on this device so this account stays logged in after reloads.</p>
     {/snippet}
   </Field>
+
+  <label
+    class="flex cursor-pointer gap-3 rounded-box border border-base-content/10 bg-base-200/50 p-3 text-sm"
+    class:opacity-60={loading}>
+    <input
+      bind:checked={encryptAtRest}
+      disabled={loading}
+      type="checkbox"
+      class="checkbox mt-0.5" />
+    <span>
+      <span class="block font-semibold">Encrypt at rest with a passphrase</span>
+      <span class="block opacity-70">
+        You will need this passphrase again after the browser session expires.
+      </span>
+    </span>
+  </label>
+
+  {#if encryptAtRest}
+    <Field>
+      {#snippet label()}
+        <p>Encryption passphrase</p>
+      {/snippet}
+      {#snippet input()}
+        <label class="input input-bordered flex w-full items-center gap-2">
+          <Icon icon={Key} />
+          <input
+            bind:value={passphrase}
+            disabled={loading}
+            type={showPassphrase ? "text" : "password"}
+            class="grow"
+            autocomplete="new-password" />
+          <button
+            type="button"
+            class="btn btn-square btn-ghost btn-xs"
+            disabled={loading}
+            aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+            onclick={() => (showPassphrase = !showPassphrase)}>
+            <Icon icon={showPassphrase ? EyeClosed : Eye} />
+          </button>
+        </label>
+      {/snippet}
+      {#snippet info()}
+        <p>Use at least 12 characters. This passphrase is not recoverable.</p>
+      {/snippet}
+    </Field>
+    <Field>
+      {#snippet label()}
+        <p>Confirm passphrase</p>
+      {/snippet}
+      {#snippet input()}
+        <label class="input input-bordered flex w-full items-center gap-2">
+          <Icon icon={Key} />
+          <input
+            bind:value={passphraseConfirm}
+            disabled={loading}
+            type={showPassphraseConfirm ? "text" : "password"}
+            class="grow"
+            autocomplete="new-password" />
+          <button
+            type="button"
+            class="btn btn-square btn-ghost btn-xs"
+            disabled={loading}
+            aria-label={showPassphraseConfirm ? "Hide passphrase" : "Show passphrase"}
+            onclick={() => (showPassphraseConfirm = !showPassphraseConfirm)}>
+            <Icon icon={showPassphraseConfirm ? EyeClosed : Eye} />
+          </button>
+        </label>
+      {/snippet}
+    </Field>
+  {/if}
 
   <Field error={fileError}>
     {#snippet label()}
@@ -264,7 +370,10 @@
       <Icon icon={AltArrowLeft} />
       Go back
     </Button>
-    <Button type="submit" class="btn btn-primary" disabled={loading || !nsec.trim()}>
+    <Button
+      type="submit"
+      class="btn btn-primary"
+      disabled={loading || !nsec.trim() || (encryptAtRest && (!passphrase || !passphraseConfirm))}>
       <Spinner {loading}>Log in</Spinner>
       <Icon icon={AltArrowRight} />
     </Button>

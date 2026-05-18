@@ -13,14 +13,15 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {FORM_RESPONSE_KIND, findCommunitySection} from "@app/core/community"
+  import {FORM_RESPONSE_KIND} from "@app/core/community"
   import {
     getCommunityPublishGateState,
-    getSectionProfileListPubkeys,
     type CommunityPublishGateState,
     type CommunityWriteTarget,
   } from "@app/core/community-permissions"
   import {COMMUNITY_FORM_REVIEW_KIND} from "@app/core/community-forms"
+  import LogIn from "@app/components/LogIn.svelte"
+  import {pushModal} from "@app/util/modal"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
   type Props = {
@@ -29,7 +30,6 @@
     disabled?: boolean
     submit?: boolean
     compact?: boolean
-    showReason?: boolean
     class?: string
     href?: string
     children?: import("svelte").Snippet
@@ -41,7 +41,6 @@
     disabled = false,
     submit = false,
     compact = false,
-    showReason = !compact,
     class: className = "btn btn-primary",
     href = "",
     children,
@@ -62,11 +61,6 @@
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
-  )
-  const section = $derived(
-    $activeCommunityDefinition
-      ? findCommunitySection($activeCommunityDefinition, target.sectionName)
-      : undefined,
   )
   const form = $derived($activeCommunityAdmissionForms[target.sectionName])
   const responseFilters = $derived(
@@ -106,12 +100,6 @@
   )
   const canWrite = $derived(gateState.status === "allowed")
   const hasForm = $derived(Boolean(form))
-  const writerCount = $derived(
-    getSectionProfileListPubkeys({
-      section,
-      profileListEvents: $activeCommunityProfileListEvents,
-    }).length,
-  )
   const reason = $derived(
     !$pubkey
       ? "Log in to request publishing access."
@@ -127,25 +115,17 @@
   )
   const accessLabel = $derived(
     gateState.status === "pending"
-      ? compact
-        ? "Access pending"
-        : `${target.sectionName} request pending`
+      ? "Access pending"
       : gateState.status === "rejected"
-        ? compact
-          ? "Revise access"
-          : `Revise ${target.sectionName} request`
+        ? "Revise access"
         : gateState.status === "granted"
-          ? compact
-            ? "Syncing access"
-            : `Syncing ${target.sectionName} access`
+          ? "Syncing access"
           : hasForm
-            ? compact
-              ? "Request access"
-              : `Request ${target.sectionName} access`
-            : compact
-              ? "Access options"
-              : `${target.sectionName} access options`,
+            ? "Request access"
+            : "Access options",
   )
+
+  const login = () => pushModal(LogIn)
 
   $effect(() => {
     if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
@@ -184,20 +164,12 @@
       {accessLabel}
     </Link>
   </span>
-{:else}
+{:else if $pubkey}
   <Button type="button" class={className} disabled title={reason}>
-    {#if $pubkey}
-      {compact
-        ? "Access unavailable"
-        : hasForm
-          ? `Request ${target.sectionName} access`
-          : `${target.sectionName} access unavailable`}
-    {:else}
-      {compact ? "Log in" : `Log in to ${action}`}
-    {/if}
+    {hasForm ? "Request access" : "Access unavailable"}
   </Button>
-{/if}
-
-{#if showReason && !communityBootstrapLoading && !canWrite && (hasForm || writerCount > 0)}
-  <p class="mt-2 text-right text-xs opacity-60">{reason}</p>
+{:else}
+  <Button type="button" class={className} title={reason} onclick={login}>
+    {compact ? "Log in" : `Log in to ${action}`}
+  </Button>
 {/if}

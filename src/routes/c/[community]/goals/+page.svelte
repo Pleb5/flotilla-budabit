@@ -293,8 +293,7 @@
         target={COMMUNITY_WRITE_TARGETS.goal}
         action="publish goals"
         href={createPath}
-        class="btn btn-primary btn-sm"
-        showReason={false}>
+        class="btn btn-primary btn-sm">
         <Icon icon={NotesMinimalistic} />
         Create
       </PublishGate>

@@ -392,8 +392,7 @@
         target={COMMUNITY_WRITE_TARGETS.calendar}
         action="publish calendar events"
         href={createPath}
-        class="btn btn-primary btn-sm"
-        showReason={false}>
+        class="btn btn-primary btn-sm">
         <Icon icon={CalendarAdd} />
         Create
       </PublishGate>

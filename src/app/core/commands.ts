@@ -110,6 +110,7 @@ import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
 import {request} from "@welshman/net"
 import type {ExtensionManifest, SmartWidgetEvent} from "@app/extensions/types"
 import {activeRepoClass} from "@app/core/git-state"
+import {clearUnlockedLocalKeySecrets} from "@app/core/session-storage"
 import {deleteIndexedDB} from "@lib/util"
 import {getQuoteEventTags} from "@app/util/git-quote"
 
@@ -480,6 +481,7 @@ export const logout = async () => {
     dropSession($pubkey)
   }
 
+  clearUnlockedLocalKeySecrets()
   localStorage.clear()
 
   await bestEffortWithTimeout(kv.clear(), "Preferences clear", 2500)

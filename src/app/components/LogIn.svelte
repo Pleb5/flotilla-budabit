@@ -13,11 +13,14 @@
   import InfoNostr from "@app/components/InfoNostr.svelte"
   import LogInBunker from "@app/components/LogInBunker.svelte"
   import LogInLocalKey from "@app/components/LogInLocalKey.svelte"
+  import LogInLocalKeyUnlock from "@app/components/LogInLocalKeyUnlock.svelte"
   import LogInPassword from "@app/components/LogInPassword.svelte"
+  import {lockedLocalKeySessions} from "@app/core/session-storage"
   import {pushModal, clearModals} from "@app/util/modal"
   import {APP_NAME, BURROW_URL} from "@app/core/state"
   import {pushToast} from "@app/util/toast"
   import {setChecked} from "@app/util/notifications"
+  import {formatShortNpub} from "@app/util/pubkeys"
 
   let loading: string | undefined = $state()
 
@@ -57,7 +60,10 @@
 
   const loginWithLocalKey = () => pushModal(LogInLocalKey)
 
+  const unlockLocalKey = (pubkey: string) => pushModal(LogInLocalKeyUnlock, {pubkey})
+
   const hasSigner = $derived(Boolean(getNip07()))
+  const lockedLocalKeys = $derived(Object.values($lockedLocalKeySessions))
 </script>
 
 <div class="column gap-4" data-testid="login-modal">
@@ -67,6 +73,20 @@
     <Button class="link" onclick={() => pushModal(InfoNostr)}>nostr protocol</Button>, which allows
     you to own your social identity.
   </p>
+  {#if lockedLocalKeys.length > 0}
+    <div class="rounded-box border border-primary/30 bg-primary/10 p-3 text-left text-sm">
+      <p class="font-semibold">Encrypted local key saved on this device</p>
+      <p class="mt-1 opacity-75">Unlock it with your passphrase to continue.</p>
+      <div class="mt-3 flex flex-col gap-2">
+        {#each lockedLocalKeys as lockedLocalKey (lockedLocalKey.pubkey)}
+          <Button class="btn btn-primary" onclick={() => unlockLocalKey(lockedLocalKey.pubkey)}>
+            <Icon icon={Key} />
+            Unlock {formatShortNpub(lockedLocalKey.pubkey) || "local key"}
+          </Button>
+        {/each}
+      </div>
+    </div>
+  {/if}
   {#if getNip07()}
     <Button {disabled} onclick={loginWithNip07} class="btn btn-primary">
       {#if loading === "nip07"}

@@ -332,6 +332,8 @@ const withTimeout = async <T>(promise: Promise<T>, timeout: number, fallback: T)
 }
 
 export const authenticateCommunityRelays = async (relays: string[]) => {
+  if (!get(pubkey)) return
+
   await Promise.all(
     normalizeRelays(relays).map(async relay => {
       const auth = Pool.get().get(relay).auth

@@ -7,6 +7,7 @@
   import {BADGE_DEFINITION} from "@welshman/util"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
+  import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Ghost from "@assets/icons/ghost-smile.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
@@ -19,6 +20,7 @@
   import SecondaryNavHeader from "@lib/components/SecondaryNavHeader.svelte"
   import SecondaryNavItem from "@lib/components/SecondaryNavItem.svelte"
   import SecondaryNavSection from "@lib/components/SecondaryNavSection.svelte"
+  import LogIn from "@app/components/LogIn.svelte"
   import CommunityRoomCreate from "@app/components/community/CommunityRoomCreate.svelte"
   import SocketStatusIndicator from "@app/components/SocketStatusIndicator.svelte"
   import {pushModal} from "@app/util/modal"
@@ -125,6 +127,7 @@
   )
 
   const goHome = () => goto(homePath, {replaceState})
+  const login = () => pushModal(LogIn, {}, {replaceState})
   const createRoom = () => {
     if (canCreateRoom) pushModal(CommunityRoomCreate, {communityPubkey: community}, {replaceState})
   }
@@ -185,6 +188,12 @@
       <SecondaryNavItem {replaceState} href={homePath}>
         <Icon icon={HomeSmile} /> Home
       </SecondaryNavItem>
+
+      {#if !$pubkey}
+        <SecondaryNavItem {replaceState} onclick={login}>
+          <Icon icon={Key} /> Log in
+        </SecondaryNavItem>
+      {/if}
 
       <SecondaryNavItem {replaceState} href={gitPath} notification={$notifications.has(gitPath)}>
         <Icon icon={Git} /> Git
@@ -265,7 +274,7 @@
     </div>
   </SecondaryNavSection>
 
-  {#if mainRelay}
+  {#if mainRelay && $pubkey}
     <div class="flex flex-col gap-2 p-4">
       <div class="btn btn-neutral btn-sm">
         <SocketStatusIndicator url={mainRelay} />

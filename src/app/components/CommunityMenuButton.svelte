@@ -1,5 +1,6 @@
 <script lang="ts">
   import CommunityMenu from "@app/components/CommunityMenu.svelte"
+  import {pubkey} from "@welshman/app"
   import {activeCommunitySession} from "@app/core/community-state"
   import {pushDrawer} from "@app/util/modal"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
@@ -19,7 +20,10 @@
 </script>
 
 {#if communityPubkey}
-  <Button aria-label="Open community menu" onclick={openCommunityMenu} class="btn btn-neutral btn-sm lg:hidden">
+  <Button
+    aria-label="Open community menu"
+    onclick={openCommunityMenu}
+    class={`btn btn-neutral btn-sm ${$pubkey ? "lg:hidden" : ""}`}>
     <Icon icon={MenuDots} />
   </Button>
 {/if}

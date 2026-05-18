@@ -208,8 +208,7 @@
         target={COMMUNITY_WRITE_TARGETS.forumThread}
         action="create forum threads"
         href={createPath}
-        class="btn btn-primary btn-sm"
-        showReason={false}>
+        class="btn btn-primary btn-sm">
         <Icon icon={NotesMinimalistic} />
         Create
       </PublishGate>
