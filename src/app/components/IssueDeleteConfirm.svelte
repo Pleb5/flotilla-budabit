@@ -34,7 +34,7 @@
   {onSuccess}
   title="Delete Issue"
   subtitle="Are you sure you want to delete this issue?"
-  message="This will delete the issue root and remove your author labels. Replies, edits, and other related events will remain. The modal stays open while relay acknowledgements come back, and you can cancel while it is waiting."
+  message="Replies, edits, and other related events will remain."
   errorMessage="Failed to delete issue"
   cancelMessage="Issue deletion cancelled"
   confirmLabel="Delete issue" />

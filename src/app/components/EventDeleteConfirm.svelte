@@ -74,7 +74,7 @@
   {onSuccess}
   title={`Delete ${noun}`}
   subtitle={`Are you sure you want to delete this ${lowerNoun}?`}
-  message={`This waits for relay acknowledgements before closing, and you can cancel while it is waiting. Be aware that not all relays may honor this request.`}
+  message="Not all relays may honor this request."
   errorMessage={`Failed to delete this ${lowerNoun}`}
   cancelMessage={`${noun} deletion cancelled`}
   confirmLabel={`Delete ${noun}`} />

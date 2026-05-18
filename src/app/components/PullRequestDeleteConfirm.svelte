@@ -36,7 +36,7 @@
   {onSuccess}
   {title}
   subtitle={`Are you sure you want to delete this ${noun}?`}
-  message="This sends Nostr delete events for the root and your related updates, statuses, comments, and labels. Events from other authors are not deleted. The modal stays open while relay acknowledgements come back, and you can cancel while it is waiting."
+  message="Events from other authors will remain."
   errorMessage={`Failed to delete ${noun}`}
   cancelMessage="Pull request deletion cancelled"
   confirmLabel={title} />

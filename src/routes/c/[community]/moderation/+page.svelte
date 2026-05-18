@@ -485,7 +485,7 @@
 
     pushModal(Confirm, {
       title: "Publish application form",
-      message: `Publish the application form for ${selected.displayName}? This becomes the latest active form for this section.`,
+      message: `Publish the application form for ${selected.displayName}?`,
       confirm: () => {
         const template = makeAdmissionFormTemplate({
           identifier: selectedDraft.identifier,

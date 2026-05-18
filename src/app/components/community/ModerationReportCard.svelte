@@ -141,7 +141,6 @@
   const confirmRevoke = () => {
     pushModal(Confirm, {
       title: revokeLabel,
-      subtitle: "Publish a kind:5 delete for this community report.",
       message:
         report.target === "event"
           ? "Remove this event moderation report so the event can render again?"

@@ -128,7 +128,6 @@
       Confirm,
       {
         title: target === "event" ? "Moderate event" : "Moderate person",
-        subtitle: "Publish a community NIP-56 spam report.",
         message:
           target === "event"
             ? "Hide this event in the current community section?"

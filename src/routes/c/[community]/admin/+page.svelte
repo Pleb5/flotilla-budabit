@@ -296,7 +296,7 @@
 
     pushModal(Confirm, {
       title: "Accept moderator request",
-      message: `Add this pubkey as a moderator for ${requestState.sectionName}? This deletes active review reactions, publishes acceptance reactions, and appends the requester's refs to a new community definition.`,
+      message: `Add this pubkey as a moderator for ${requestState.sectionName}?`,
       confirm: () => {
         for (const reaction of getActiveReviewReactions(requestState)) {
           const deleteEvent = makeModeratorRequestReactionDelete({reactionId: reaction.id})
@@ -347,8 +347,8 @@
     }
 
     pushModal(Confirm, {
-      title: "Revoke moderator refs",
-      message: `Remove this pubkey's profile-list and badge refs from ${grant.displayName}? This publishes a new community definition for the section.`,
+      title: "Revoke moderator access",
+      message: `Remove this pubkey as a moderator for ${grant.displayName}?`,
       confirm: () => {
         const definitionUpdate = makeModeratorGrantRevokeDefinitionUpdate({
           definition: $activeCommunityDefinition!,
