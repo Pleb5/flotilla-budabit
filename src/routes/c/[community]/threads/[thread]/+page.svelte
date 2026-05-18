@@ -28,15 +28,15 @@
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {
-    makeCommunityForumRepliesFilter,
-    makeCommunityForumThreadsFilter,
+    makeCommunityThreadRepliesFilter,
+    makeCommunityThreadsFilter,
   } from "@app/core/community-feeds"
   import {
-    makeCommunityForumReply,
-    readCommunityForumReply,
-    readCommunityForumThread,
-  } from "@app/core/community-forum"
-  import {COMMUNITY_SECTION_FORUM, COMMUNITY_SECTION_GENERAL} from "@app/core/community"
+    makeCommunityThreadReply,
+    readCommunityThread,
+    readCommunityThreadReply,
+  } from "@app/core/community-threads"
+  import {COMMUNITY_SECTION_GENERAL, COMMUNITY_SECTION_THREADS} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
@@ -52,9 +52,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -65,7 +65,7 @@
       ? getCommunitySectionWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_FORUM,
+          sectionName: COMMUNITY_SECTION_THREADS,
         })
       : [],
   )
@@ -81,7 +81,7 @@
   const threadFilters = $derived(
     communityBootstrapReady && communityPubkey && threadId && threadAuthorPubkeys.length
       ? [
-          makeCommunityForumThreadsFilter(communityPubkey, {
+          makeCommunityThreadsFilter(communityPubkey, {
             ids: [threadId],
             authors: threadAuthorPubkeys,
           }),
@@ -91,7 +91,7 @@
   const replyFilters = $derived(
     communityBootstrapReady && communityPubkey && threadId && replyAuthorPubkeys.length
       ? [
-          makeCommunityForumRepliesFilter(communityPubkey, {
+          makeCommunityThreadRepliesFilter(communityPubkey, {
             "#E": [threadId],
             authors: replyAuthorPubkeys,
           }),
@@ -105,7 +105,7 @@
     deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})),
   )
   const thread = $derived(
-    $threadEvents[0] ? readCommunityForumThread($threadEvents[0], communityPubkey) : undefined,
+    $threadEvents[0] ? readCommunityThread($threadEvents[0], communityPubkey) : undefined,
   )
   const threadCensorReason = $derived.by(() =>
     communityPubkey && threadId
@@ -113,13 +113,13 @@
           reportState: $activeCommunityReportState,
           eventId: thread?.event.id || threadId,
           pubkey: thread?.event.pubkey,
-          sectionName: COMMUNITY_SECTION_FORUM,
+          sectionName: COMMUNITY_SECTION_THREADS,
         })
       : undefined,
   )
   const replies = $derived(
     $replyEvents
-      .map(event => readCommunityForumReply(event, communityPubkey, threadId))
+      .map(event => readCommunityThreadReply(event, communityPubkey, threadId))
       .filter(Boolean)
       .sort((a, b) => (a?.event.created_at || 0) - (b?.event.created_at || 0)),
   )
@@ -182,7 +182,7 @@
       relays,
       event: makeEvent(
         COMMENT,
-        makeCommunityForumReply({
+        makeCommunityThreadReply({
           communityPubkey,
           thread: {id: thread.id, creatorPubkey: thread.creatorPubkey},
           relay: relays[0],
@@ -304,14 +304,14 @@
           <Content
             event={thread.event}
             url={communityPubkey}
-            communitySectionName={COMMUNITY_SECTION_FORUM}
+            communitySectionName={COMMUNITY_SECTION_THREADS}
             expandMode="inline" />
           <div class="mt-3 flex justify-end">
             <ThreadActions
               url={communityPubkey}
               relays={$activeCommunityRelays}
               scopeH={communityPubkey}
-              communitySectionName={COMMUNITY_SECTION_FORUM}
+              communitySectionName={COMMUNITY_SECTION_THREADS}
               allowedAuthors={replyAuthorPubkeys}
               readOnly={!canReact}
               floatMobileMenu

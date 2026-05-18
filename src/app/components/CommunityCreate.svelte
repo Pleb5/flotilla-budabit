@@ -120,7 +120,7 @@
   const KNOWN_SECTION_KIND_OPTIONS = [
     {label: "Room Messages", kind: 9, subtype: "room-message"},
     {label: "Rooms", kind: 11, subtype: "room"},
-    {label: "Threads", kind: 11, subtype: "forum"},
+    {label: "Threads", kind: 11, subtype: "threads"},
     {label: "Comments", kind: 1111},
     {label: "Reactions", kind: 7},
     {label: "Labels", kind: 1985},

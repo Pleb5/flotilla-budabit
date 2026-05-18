@@ -3,6 +3,7 @@ import {
   COMMUNITY_DEFINITION_KIND,
   FORM_RESPONSE_KIND,
   FORM_TEMPLATE_KIND,
+  normalizeCommunitySectionName,
   normalizePubkey,
   normalizeRelay,
   normalizeRelays,
@@ -183,7 +184,7 @@ export const makeAdmissionFormIdentifier = ({
 }) => {
   const communityPrefix = normalizePubkey(communityPubkey)?.slice(0, 12) || "community"
 
-  return `community-${communityPrefix}-${slugify(sectionName, "section")}-application`
+  return `community-${communityPrefix}-${slugify(normalizeCommunitySectionName(sectionName), "section")}-application`
 }
 
 export const makeDefaultAdmissionFormDraft = ({
@@ -355,7 +356,7 @@ export const makeAdmissionFormTemplate = ({
   tags: [
     ["d", identifier.trim()],
     ["a", makeCommunityDefinitionAddress(communityPubkey)],
-    ["content", sectionName],
+    ["content", normalizeCommunitySectionName(sectionName)],
     ["name", name.trim() || `${sectionName} application`],
     ["settings", stringifySettings(description?.trim() ? {description: description.trim()} : {})],
     ...normalizeRelays(relays || []).map(relay => ["relay", relay]),
@@ -424,7 +425,9 @@ export const parseAdmissionForm = (event: TrustedEvent): CommunityAdmissionForm 
     relays: normalizeRelays(event.tags.filter(tag => tag[0] === "relay").map(tag => tag[1] || "")),
     communityAddress: communityRef?.address,
     communityPubkey: communityRef?.pubkey,
-    sectionName: event.tags.find(tag => tag[0] === "content")?.[1]?.trim() || undefined,
+    sectionName:
+      normalizeCommunitySectionName(event.tags.find(tag => tag[0] === "content")?.[1] || "") ||
+      undefined,
     fields,
     fieldOrder,
   }
@@ -469,7 +472,11 @@ export const selectActiveAdmissionForm = ({
 
   for (const form of selectLatestFormByAddress(events)) {
     if (form.communityAddress !== communityAddress) continue
-    if (form.sectionName !== sectionName) continue
+    if (
+      normalizeCommunitySectionName(form.sectionName || "") !==
+      normalizeCommunitySectionName(sectionName)
+    )
+      continue
     if (filterModerators && !moderators.has(form.pubkey)) continue
     if (isPreferredEvent(form.event, selected?.event)) selected = form
   }
@@ -500,12 +507,45 @@ export const parseAdmissionResponse = (event: TrustedEvent): CommunityFormRespon
   return {event, formAddress, values, responses}
 }
 
+export const getAdmissionResponseDisplayValue = (
+  field: CommunityFormField | undefined,
+  value: string,
+  metadata: Record<string, unknown> = {},
+) => {
+  if (field?.type !== "option") return value
+
+  const values = value
+    .split(";")
+    .map(item => item.trim())
+    .filter(Boolean)
+  const options = new Map(field.options.map(option => [option.id, option]))
+  const rawOther = metadata.other
+  const otherAnswers =
+    rawOther && typeof rawOther === "object" && !Array.isArray(rawOther)
+      ? (rawOther as Record<string, unknown>)
+      : emptySettings
+
+  return values
+    .map(item => {
+      const option = options.get(item)
+      const label = option?.label || item
+      const otherAnswer = option?.settings.isOther === true ? otherAnswers[item] : undefined
+
+      return typeof otherAnswer === "string" && otherAnswer.trim()
+        ? `${label}: ${otherAnswer.trim()}`
+        : label
+    })
+    .join(", ")
+}
+
 export const makeAdmissionResponse = ({
   formAddress,
   values,
+  metadata,
 }: {
   formAddress: string
   values: Record<string, string | string[]>
+  metadata?: Record<string, Record<string, unknown>>
 }): EventContent & {kind: typeof FORM_RESPONSE_KIND} => ({
   kind: FORM_RESPONSE_KIND,
   content: "",
@@ -515,7 +555,7 @@ export const makeAdmissionResponse = ({
       "response",
       fieldId,
       Array.isArray(value) ? value.join(";") : value,
-      "{}",
+      stringifySettings(metadata?.[fieldId]),
     ]),
   ],
 })

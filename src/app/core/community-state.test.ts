@@ -195,14 +195,14 @@ describe("community state helpers", () => {
       ],
     })
     const wrongSectionForm = makeEvent({
-      id: "forum-form",
+      id: "threads-form",
       kind: FORM_TEMPLATE_KIND,
       pubkey: badgePubkey,
       created_at: 3,
       tags: [
-        ["d", "forum-form"],
+        ["d", "threads-form"],
         ["a", makeCommunityDefinitionAddress(communityPubkey)],
-        ["content", "Forum"],
+        ["content", "Threads"],
       ],
     })
 

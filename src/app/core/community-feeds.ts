@@ -42,12 +42,10 @@ export const makeCommunityExclusiveFilter = (
 export const makeCommunityRoomRootsFilter = (communityPubkey: string, extra: Filter = {}): Filter =>
   makeCommunityExclusiveFilter(communityPubkey, [THREAD], extra)
 
-export const makeCommunityForumThreadsFilter = (
-  communityPubkey: string,
-  extra: Filter = {},
-): Filter => makeCommunityExclusiveFilter(communityPubkey, [THREAD], extra)
+export const makeCommunityThreadsFilter = (communityPubkey: string, extra: Filter = {}): Filter =>
+  makeCommunityExclusiveFilter(communityPubkey, [THREAD], extra)
 
-export const makeCommunityForumRepliesFilter = (
+export const makeCommunityThreadRepliesFilter = (
   communityPubkey: string,
   extra: Filter = {},
 ): Filter =>
@@ -81,7 +79,7 @@ export const isRoomRoot = (event: TrustedEvent, communityPubkey?: string) => {
   return Boolean(getTag("room", event.tags))
 }
 
-export const isForumThreadRoot = (event: TrustedEvent, communityPubkey?: string) => {
+export const isThreadRoot = (event: TrustedEvent, communityPubkey?: string) => {
   if (event.kind !== THREAD) return false
   if (communityPubkey && !eventTargetsCommunity(event, communityPubkey)) return false
 
@@ -91,8 +89,8 @@ export const isForumThreadRoot = (event: TrustedEvent, communityPubkey?: string)
 export const filterRoomRoots = (events: TrustedEvent[], communityPubkey?: string) =>
   events.filter(event => isRoomRoot(event, communityPubkey))
 
-export const filterForumThreadRoots = (events: TrustedEvent[], communityPubkey?: string) =>
-  events.filter(event => isForumThreadRoot(event, communityPubkey))
+export const filterThreadRoots = (events: TrustedEvent[], communityPubkey?: string) =>
+  events.filter(event => isThreadRoot(event, communityPubkey))
 
 export const getRoomRootIdForMessage = (event: TrustedEvent) => {
   if (event.kind !== MESSAGE) return ""

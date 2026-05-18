@@ -7,16 +7,16 @@ import {
 } from "@app/core/community-forms"
 import {
   COMMUNITY_SECTION_CALENDAR,
-  COMMUNITY_SECTION_FORUM,
   COMMUNITY_SECTION_GENERAL,
   COMMUNITY_SECTION_GOALS,
   COMMUNITY_SECTION_PERMALINKS,
   COMMUNITY_SECTION_REPOSITORIES,
   COMMUNITY_SECTION_ROOMS,
+  COMMUNITY_SECTION_THREADS,
   COMMUNITY_SECTION_WIDGETS,
-  COMMUNITY_SUBTYPE_FORUM,
   COMMUNITY_SUBTYPE_ROOM,
   COMMUNITY_SUBTYPE_ROOM_MESSAGE,
+  COMMUNITY_SUBTYPE_THREADS,
   type AddressRef,
   type CommunityBadgeRef,
   type CommunityDefinition,
@@ -24,6 +24,7 @@ import {
   type CommunitySection,
   findCommunitySection,
   getProfileListPubkeys,
+  normalizeCommunitySectionSubtype,
   normalizePubkey,
   sectionSupportsKind,
   userCanIssueBadge,
@@ -73,7 +74,7 @@ export const COMMUNITY_WRITE_TARGETS = {
     kind: 9,
     subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE,
   },
-  forumThread: {sectionName: COMMUNITY_SECTION_FORUM, kind: 11, subtype: COMMUNITY_SUBTYPE_FORUM},
+  thread: {sectionName: COMMUNITY_SECTION_THREADS, kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS},
   comment: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1111},
   reaction: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 7},
   label: {sectionName: COMMUNITY_SECTION_GENERAL, kind: 1985},
@@ -87,13 +88,19 @@ export const COMMUNITY_WRITE_TARGETS = {
 export const getCommunityWriteTarget = (
   kind: number,
   subtype?: string,
-): CommunityWriteTarget | undefined =>
-  (Object.values(COMMUNITY_WRITE_TARGETS) as CommunityWriteTarget[]).find(
-    target => target.kind === kind && (!subtype || target.subtype === subtype),
-  )
+): CommunityWriteTarget | undefined => {
+  const normalizedSubtype = normalizeCommunitySectionSubtype(subtype)
 
-export const getCommunityCapabilityKey = (kind: number, subtype?: string) =>
-  subtype ? `${kind}:${subtype}` : String(kind)
+  return (Object.values(COMMUNITY_WRITE_TARGETS) as CommunityWriteTarget[]).find(
+    target => target.kind === kind && (!normalizedSubtype || target.subtype === normalizedSubtype),
+  )
+}
+
+export const getCommunityCapabilityKey = (kind: number, subtype?: string) => {
+  const normalizedSubtype = normalizeCommunitySectionSubtype(subtype)
+
+  return normalizedSubtype ? `${kind}:${normalizedSubtype}` : String(kind)
+}
 
 export const getPrimaryProfileListRef = (section: CommunitySection | undefined) =>
   section?.profileLists[0]
@@ -159,7 +166,8 @@ export const userHasSectionProfileListAccess = ({
   section: CommunitySection | undefined
   profileListEvents: TrustedEvent[]
   userPubkey: string
-}) => getSectionProfileListPubkeys({section, profileListEvents}).includes(normalizePubkey(userPubkey))
+}) =>
+  getSectionProfileListPubkeys({section, profileListEvents}).includes(normalizePubkey(userPubkey))
 
 export const canWriteCommunitySection = ({
   definition,
@@ -352,7 +360,8 @@ export const getCommunitySectionWriterPubkeys = ({
   const section = findCommunitySection(definition, sectionName)
   const pubkeys = new Set(getCommunitySectionAuthorityPubkeys({definition, sectionName}))
 
-  for (const pubkey of getSectionProfileListPubkeys({section, profileListEvents})) pubkeys.add(pubkey)
+  for (const pubkey of getSectionProfileListPubkeys({section, profileListEvents}))
+    pubkeys.add(pubkey)
 
   return Array.from(pubkeys)
 }

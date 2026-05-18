@@ -3,6 +3,7 @@ import {DELETE, type TrustedEvent} from "@welshman/util"
 import {FORM_RESPONSE_KIND, FORM_TEMPLATE_KIND} from "./community"
 import {
   COMMUNITY_FORM_REVIEW_KIND,
+  getAdmissionResponseDisplayValue,
   getAdmissionSubmissionState,
   makeAdmissionFormDraftFromForm,
   makeAdmissionFormFieldsFromDraft,
@@ -170,12 +171,12 @@ describe("community admission forms", () => {
 
   it("selects an active form by community, section, and moderator", () => {
     const repoForm = makeFormEvent({id: "repo-form", created_at: 10})
-    const newerForumForm = makeFormEvent({
-      id: "forum-form",
+    const newerThreadForm = makeFormEvent({
+      id: "thread-form",
       created_at: 20,
       tags: makeFormEvent().tags.map(tag => {
-        if (tag[0] === "d") return ["d", "forum-application"]
-        if (tag[0] === "content") return ["content", "Forum"]
+        if (tag[0] === "d") return ["d", "threads-application"]
+        if (tag[0] === "content") return ["content", "Threads"]
 
         return tag
       }),
@@ -188,7 +189,7 @@ describe("community admission forms", () => {
 
     expect(
       selectActiveAdmissionForm({
-        events: [repoForm, newerForumForm, outsiderForm],
+        events: [repoForm, newerThreadForm, outsiderForm],
         communityPubkey,
         sectionName: "Repositories",
         moderatorPubkeys: [moderatorPubkey],
@@ -398,6 +399,74 @@ describe("community admission responses", () => {
       value: "tools;protocols",
       metadata: {source: "test"},
     })
+  })
+
+  it("builds and parses response metadata for other explanations", () => {
+    const template = makeAdmissionResponse({
+      formAddress,
+      values: {focus: ["tools", "other"]},
+      metadata: {focus: {other: {other: "Pizza maker tools"}}},
+    })
+
+    expect(template.tags).toEqual([
+      ["a", formAddress],
+      ["response", "focus", "tools;other", JSON.stringify({other: {other: "Pizza maker tools"}})],
+    ])
+
+    const response = parseAdmissionResponse(
+      makeEvent({kind: FORM_RESPONSE_KIND, pubkey: applicantPubkey, tags: template.tags}),
+    )!
+
+    expect(response.responses[0]).toEqual({
+      fieldId: "focus",
+      value: "tools;other",
+      metadata: {other: {other: "Pizza maker tools"}},
+    })
+  })
+
+  it("resolves choice response values to option labels", () => {
+    const form = parseAdmissionForm(makeFormEvent())!
+    const field = form.fields.focus
+
+    expect(getAdmissionResponseDisplayValue(field, "tools")).toBe("Developer tools")
+    expect(getAdmissionResponseDisplayValue(field, "tools;protocols")).toBe(
+      "Developer tools, Protocols",
+    )
+    expect(getAdmissionResponseDisplayValue(field, "unknown")).toBe("unknown")
+    expect(getAdmissionResponseDisplayValue(form.fields.experience, "I build things")).toBe(
+      "I build things",
+    )
+  })
+
+  it("resolves other choice response metadata to explanations", () => {
+    const form = parseAdmissionForm(
+      makeFormEvent({
+        tags: makeFormEvent().tags.map(tag => {
+          if (tag[0] !== "field" || tag[1] !== "focus") return tag
+
+          return [
+            "field",
+            "focus",
+            "option",
+            "What will you curate?",
+            JSON.stringify([
+              ["tools", "Developer tools", "{}"],
+              ["other", "Other", JSON.stringify({isOther: true})],
+            ]),
+            "{}",
+          ]
+        }),
+      }),
+    )!
+    const field = form.fields.focus
+
+    expect(
+      getAdmissionResponseDisplayValue(field, "other", {other: {other: "Pizza maker tools"}}),
+    ).toBe("Other: Pizza maker tools")
+    expect(
+      getAdmissionResponseDisplayValue(field, "tools;other", {other: {other: "Pizza maker tools"}}),
+    ).toBe("Developer tools, Other: Pizza maker tools")
+    expect(getAdmissionResponseDisplayValue(field, "other")).toBe("Other")
   })
 
   it("requires deleting an active submission before resubmission", () => {

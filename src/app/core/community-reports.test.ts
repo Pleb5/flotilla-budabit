@@ -1,6 +1,12 @@
 import {describe, expect, it} from "vitest"
 import {BADGE_DEFINITION, DELETE, type TrustedEvent} from "@welshman/util"
-import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
+import {
+  COMMUNITY_DEFINITION_KIND,
+  COMMUNITY_SECTION_THREADS,
+  COMMUNITY_SUBTYPE_THREADS,
+  PROFILE_LIST_KIND,
+  parseCommunityDefinition,
+} from "./community"
 import {
   COMMUNITY_REPORT_KIND,
   COMMUNITY_REPORT_TARGET_CONTENT_MAX_LENGTH,
@@ -52,12 +58,12 @@ const makeDefinition = ({includeSectionModerator = true} = {}) =>
           : []),
         ["a", `${PROFILE_LIST_KIND}:${allSectionModeratorPubkey}:General`],
         ["badge", `${BADGE_DEFINITION}:${allSectionModeratorPubkey}:General`],
-        ["content", "Forum"],
-        ["k", "11", "forum"],
-        ["a", `${PROFILE_LIST_KIND}:${allSectionModeratorPubkey}:Forum`],
-        ["badge", `${BADGE_DEFINITION}:${allSectionModeratorPubkey}:Forum`],
-        ["a", `${PROFILE_LIST_KIND}:${otherSectionModeratorPubkey}:Forum`],
-        ["badge", `${BADGE_DEFINITION}:${otherSectionModeratorPubkey}:Forum`],
+        ["content", COMMUNITY_SECTION_THREADS],
+        ["k", "11", COMMUNITY_SUBTYPE_THREADS],
+        ["a", `${PROFILE_LIST_KIND}:${allSectionModeratorPubkey}:Threads`],
+        ["badge", `${BADGE_DEFINITION}:${allSectionModeratorPubkey}:Threads`],
+        ["a", `${PROFILE_LIST_KIND}:${otherSectionModeratorPubkey}:Threads`],
+        ["badge", `${BADGE_DEFINITION}:${otherSectionModeratorPubkey}:Threads`],
       ],
     }),
   )!
@@ -151,8 +157,8 @@ describe("community reports", () => {
       pubkey: communityPubkey,
       tags: makeCommunityEventReport({
         communityPubkey,
-        sectionName: "Forum",
-        eventId: "forum-event",
+        sectionName: COMMUNITY_SECTION_THREADS,
+        eventId: "thread-event",
         eventPubkey: targetPubkey,
       }).tags,
     })
@@ -180,7 +186,14 @@ describe("community reports", () => {
 
     expect(getAllSectionModeratorPubkeys(definition)).toEqual([allSectionModeratorPubkey])
     expect(
-      getCommunityCensorReason({reportState: state, eventId: "forum-event", sectionName: "Forum"}),
+      getCommunityCensorReason({
+        reportState: state,
+        eventId: "thread-event",
+        sectionName: COMMUNITY_SECTION_THREADS,
+      }),
+    ).toBe("event")
+    expect(
+      getCommunityCensorReason({reportState: state, eventId: "thread-event", sectionName: "Forum"}),
     ).toBe("event")
     expect(
       getCommunityCensorReason({
@@ -344,7 +357,7 @@ describe("community reports", () => {
         definition,
         reporterPubkey: sectionModeratorPubkey,
         targetPubkey,
-        sectionName: "Forum",
+        sectionName: COMMUNITY_SECTION_THREADS,
       }),
     ).toBe(false)
     expect(

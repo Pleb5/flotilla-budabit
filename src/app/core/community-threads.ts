@@ -3,7 +3,7 @@ import {COMMENT, THREAD, getTag, getTagValue} from "@welshman/util"
 import {normalizePubkey} from "@app/core/community"
 import {eventTargetsCommunity} from "@app/core/community-feeds"
 
-export type CommunityForumThread = {
+export type CommunityThread = {
   id: string
   communityPubkey: string
   title: string
@@ -12,7 +12,7 @@ export type CommunityForumThread = {
   creatorPubkey: string
 }
 
-export const makeCommunityForumThread = ({
+export const makeCommunityThread = ({
   communityPubkey,
   title,
   content,
@@ -27,10 +27,10 @@ export const makeCommunityForumThread = ({
   tags: [["h", normalizePubkey(communityPubkey)], ["title", title], ...tags],
 })
 
-export const readCommunityForumThread = (
+export const readCommunityThread = (
   event: TrustedEvent,
   communityPubkey?: string,
-): CommunityForumThread | undefined => {
+): CommunityThread | undefined => {
   if (event.kind !== THREAD) return undefined
   if (getTag("room", event.tags)) return undefined
   if (communityPubkey && !eventTargetsCommunity(event, communityPubkey)) return undefined
@@ -49,12 +49,12 @@ export const readCommunityForumThread = (
   }
 }
 
-export const readCommunityForumThreads = (events: TrustedEvent[], communityPubkey?: string) =>
+export const readCommunityThreads = (events: TrustedEvent[], communityPubkey?: string) =>
   events
-    .map(event => readCommunityForumThread(event, communityPubkey))
-    .filter((thread): thread is CommunityForumThread => Boolean(thread))
+    .map(event => readCommunityThread(event, communityPubkey))
+    .filter((thread): thread is CommunityThread => Boolean(thread))
 
-export const makeCommunityForumReply = ({
+export const makeCommunityThreadReply = ({
   communityPubkey,
   thread,
   content,
@@ -62,7 +62,7 @@ export const makeCommunityForumReply = ({
   tags = [],
 }: {
   communityPubkey: string
-  thread: Pick<CommunityForumThread, "id" | "creatorPubkey">
+  thread: Pick<CommunityThread, "id" | "creatorPubkey">
   content: string
   relay?: string
   tags?: string[][]
@@ -77,7 +77,7 @@ export const makeCommunityForumReply = ({
   ],
 })
 
-export const readCommunityForumReply = (
+export const readCommunityThreadReply = (
   event: TrustedEvent,
   communityPubkey?: string,
   threadId?: string,

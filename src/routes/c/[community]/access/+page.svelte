@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {onDestroy} from "svelte"
+  import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
   import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -70,9 +70,13 @@
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
   let answers = $state<Record<string, Record<string, string>>>({})
+  let otherAnswers = $state<Record<string, Record<string, Record<string, string>>>>({})
+  let publishingAccessOpen = $state(true)
   let moderatorRequestsOpen = $state(false)
   let moderatorRequestPublishStates = $state<Record<string, ModeratorRequestPublishState>>({})
+  let lastScrolledSectionName = $state("")
 
+  const requestedSectionName = $derived($page.url.searchParams.get("section") || "")
   const forms = $derived(communityBootstrapReady ? $activeCommunityAdmissionForms : {})
   const formAddresses = $derived(Object.values(forms).map(form => form.address))
   const responseFilters = $derived(
@@ -205,6 +209,105 @@
     }
   }
 
+  const isMultipleChoiceField = (field: CommunityFormField) =>
+    field.settings.renderElement === "multipleChoice"
+
+  const isRequiredField = (field: CommunityFormField) => field.settings.required !== false
+
+  const getChoiceValues = (
+    sectionName: string,
+    field: CommunityFormField,
+    response?: CommunityFormResponse,
+  ) =>
+    getAnswer(sectionName, field, response)
+      .split(";")
+      .map(item => item.trim())
+      .filter(Boolean)
+
+  const setChoiceAnswer = (
+    sectionName: string,
+    field: CommunityFormField,
+    optionId: string,
+    checked: boolean,
+  ) => {
+    if (!isMultipleChoiceField(field)) {
+      setAnswer(sectionName, field.id, optionId)
+      return
+    }
+
+    const selected = new Set(getChoiceValues(sectionName, field))
+
+    if (checked) selected.add(optionId)
+    else selected.delete(optionId)
+
+    setAnswer(
+      sectionName,
+      field.id,
+      field.options
+        .filter(option => selected.has(option.id))
+        .map(option => option.id)
+        .join(";"),
+    )
+  }
+
+  const getOtherAnswersFromMetadata = (metadata: Record<string, unknown>) => {
+    const rawOther = metadata.other
+    const values: Record<string, string> = {}
+
+    if (!rawOther || typeof rawOther !== "object" || Array.isArray(rawOther)) return values
+
+    for (const [optionId, value] of Object.entries(rawOther)) {
+      if (typeof value === "string") values[optionId] = value
+    }
+
+    return values
+  }
+
+  const getResponseOtherAnswers = (response: CommunityFormResponse) => {
+    const values: Record<string, Record<string, string>> = {}
+
+    for (const item of response.responses) {
+      const fieldValues = getOtherAnswersFromMetadata(item.metadata)
+
+      if (Object.keys(fieldValues).length) values[item.fieldId] = fieldValues
+    }
+
+    return values
+  }
+
+  const getOtherAnswer = (
+    sectionName: string,
+    fieldId: string,
+    optionId: string,
+    response?: CommunityFormResponse,
+  ) => {
+    const draftValue = otherAnswers[sectionName]?.[fieldId]?.[optionId]
+    if (draftValue !== undefined) return draftValue
+
+    const responseValue = response?.responses.find(item => item.fieldId === fieldId)
+    if (!responseValue) return ""
+
+    return getOtherAnswersFromMetadata(responseValue.metadata)[optionId] || ""
+  }
+
+  const setOtherAnswer = (
+    sectionName: string,
+    fieldId: string,
+    optionId: string,
+    value: string,
+  ) => {
+    otherAnswers = {
+      ...otherAnswers,
+      [sectionName]: {
+        ...(otherAnswers[sectionName] || {}),
+        [fieldId]: {
+          ...(otherAnswers[sectionName]?.[fieldId] || {}),
+          [optionId]: value,
+        },
+      },
+    }
+  }
+
   const submitApplication = (
     sectionName: string,
     sectionDisplayName: string,
@@ -225,12 +328,54 @@
       return
     }
 
-    const values = Object.fromEntries(
-      form.fieldOrder
-        .filter(fieldId => form.fields[fieldId]?.type !== "label")
-        .map(fieldId => [fieldId, answers[sectionName]?.[fieldId] || ""]),
-    )
-    const template = makeAdmissionResponse({formAddress: form.address, values})
+    const values: Record<string, string> = {}
+    const metadata: Record<string, Record<string, unknown>> = {}
+
+    for (const fieldId of form.fieldOrder) {
+      const field = form.fields[fieldId]
+      if (!field || field.type === "label") continue
+
+      const value = answers[sectionName]?.[fieldId] || ""
+
+      values[fieldId] = value
+
+      if (field.type !== "option") {
+        if (isRequiredField(field) && !value.trim()) {
+          pushToast({theme: "error", message: `Answer "${field.label}" before submitting.`})
+          return
+        }
+
+        continue
+      }
+
+      const selectedValues = value
+        .split(";")
+        .map(item => item.trim())
+        .filter(Boolean)
+      const selected = new Set(selectedValues)
+
+      if (isRequiredField(field) && selectedValues.length === 0) {
+        pushToast({theme: "error", message: `Answer "${field.label}" before submitting.`})
+        return
+      }
+      const other: Record<string, string> = {}
+
+      for (const option of field.options) {
+        if (option.settings.isOther !== true || !selected.has(option.id)) continue
+
+        const explanation = otherAnswers[sectionName]?.[fieldId]?.[option.id]?.trim()
+        if (!explanation) {
+          pushToast({theme: "error", message: `Explain "${option.label}" for ${field.label}.`})
+          return
+        }
+
+        other[option.id] = explanation
+      }
+
+      if (Object.keys(other).length) metadata[fieldId] = {other}
+    }
+
+    const template = makeAdmissionResponse({formAddress: form.address, values, metadata})
 
     publishThunk({relays: $activeCommunityRelays, event: makeEvent(template.kind, template)})
     pushToast({message: `Application submitted for ${sectionDisplayName}.`})
@@ -358,6 +503,7 @@
       message: `Delete your ${sectionDisplayName} access request so you can submit a revised application?`,
       confirm: async () => {
         answers = {...answers, [sectionName]: {...response.values}}
+        otherAnswers = {...otherAnswers, [sectionName]: getResponseOtherAnswers(response)}
         const template = makeAdmissionResponseDelete({responseId: response.event.id})
 
         publishThunk({relays: $activeCommunityRelays, event: makeEvent(template.kind, template)})
@@ -399,6 +545,28 @@
 
     return "badge-neutral"
   }
+
+  const getPublishingAccessRequestId = (sectionName: string) =>
+    `publishing-access-request-${encodeURIComponent(sectionName)}`
+
+  $effect(() => {
+    const sectionName = requestedSectionName
+
+    if (!sectionName) {
+      lastScrolledSectionName = ""
+      return
+    }
+    if (sectionName === lastScrolledSectionName) return
+    if (!sectionItems.some(item => item.section.name === sectionName)) return
+
+    publishingAccessOpen = true
+    lastScrolledSectionName = sectionName
+    void tick().then(() => {
+      document
+        .getElementById(getPublishingAccessRequestId(sectionName))
+        ?.scrollIntoView({behavior: "smooth", block: "start"})
+    })
+  })
 
   $effect(() => {
     if (moderatorRequestStatusUpdateCount > 0) moderatorRequestsOpen = true
@@ -442,7 +610,9 @@
       </p>
     </div>
 
-    <details class="card2 bg-alt shrink-0 overflow-hidden shadow-md" open>
+    <details
+      class="card2 bg-alt shrink-0 overflow-hidden shadow-md"
+      bind:open={publishingAccessOpen}>
       <summary class="cursor-pointer p-4 marker:text-primary">
         <div
           class="inline-flex w-[calc(100%-1.5rem)] flex-wrap items-start justify-between gap-3 align-top">
@@ -460,6 +630,7 @@
         <div class="grid gap-3 lg:grid-cols-2">
           {#each sectionItems as item (item.section.name)}
             <section
+              id={getPublishingAccessRequestId(item.section.name)}
               class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md"
               class:border-success={item.state.status === "granted"}
               class:border-error={item.state.status === "rejected"}
@@ -498,6 +669,11 @@
                     {#if field?.type === "label"}
                       <p class="rounded-box bg-base-200 p-3 text-sm">{field.label}</p>
                     {:else if field?.type === "option"}
+                      {@const selectedValues = getChoiceValues(
+                        item.section.name,
+                        field,
+                        item.state.response,
+                      )}
                       <Field>
                         {#snippet label()}<p>{field.label}</p>{/snippet}
                         {#snippet input()}
@@ -505,20 +681,46 @@
                             class="flex flex-col gap-2"
                             disabled={item.state.status !== "none"}>
                             {#each field.options as option}
-                              <label class="flex items-center gap-2 text-sm">
-                                <input
-                                  type="radio"
-                                  name={`${item.section.name}-${field.id}`}
-                                  class="radio radio-sm"
-                                  checked={getAnswer(
-                                    item.section.name,
-                                    field,
-                                    item.state.response,
-                                  ) === option.id}
-                                  onchange={() =>
-                                    setAnswer(item.section.name, field.id, option.id)} />
-                                <span>{option.label}</span>
-                              </label>
+                              {@const isSelected = selectedValues.includes(option.id)}
+                              <div class="flex flex-col gap-2">
+                                <label class="flex items-center gap-2 text-sm">
+                                  <input
+                                    type={isMultipleChoiceField(field) ? "checkbox" : "radio"}
+                                    name={`${item.section.name}-${field.id}`}
+                                    class={isMultipleChoiceField(field)
+                                      ? "checkbox checkbox-sm"
+                                      : "radio radio-sm"}
+                                    required={!isMultipleChoiceField(field) && isRequiredField(field)}
+                                    checked={isSelected}
+                                    onchange={event =>
+                                      setChoiceAnswer(
+                                        item.section.name,
+                                        field,
+                                        option.id,
+                                        event.currentTarget.checked,
+                                      )} />
+                                  <span>{option.label}</span>
+                                </label>
+                                {#if option.settings.isOther === true && isSelected}
+                                  <input
+                                    class="input input-sm input-bordered ml-7 w-[calc(100%-1.75rem)]"
+                                    placeholder="Please explain"
+                                    required
+                                    value={getOtherAnswer(
+                                      item.section.name,
+                                      field.id,
+                                      option.id,
+                                      item.state.response,
+                                    )}
+                                    oninput={event =>
+                                      setOtherAnswer(
+                                        item.section.name,
+                                        field.id,
+                                        option.id,
+                                        event.currentTarget.value,
+                                      )} />
+                                {/if}
+                              </div>
                             {/each}
                           </fieldset>
                         {/snippet}
@@ -530,6 +732,7 @@
                           <textarea
                             class="textarea textarea-bordered min-h-24 w-full"
                             disabled={item.state.status !== "none"}
+                            required={isRequiredField(field)}
                             value={getAnswer(item.section.name, field, item.state.response)}
                             oninput={event =>
                               setAnswer(item.section.name, field.id, event.currentTarget.value)}

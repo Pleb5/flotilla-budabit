@@ -19,7 +19,7 @@
     activeCommunityProfileListEvents,
     activeCommunityRelays,
   } from "@app/core/community-state"
-  import {makeCommunityForumThread} from "@app/core/community-forum"
+  import {makeCommunityThread} from "@app/core/community-threads"
   import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
@@ -29,22 +29,22 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const canCreateThread = $derived(
     Boolean(
       $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.forumThread,
-        }),
+      communityBootstrapReady &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.thread,
+      }),
     ),
   )
 
@@ -57,7 +57,7 @@
       return
     }
     if (!canCreateThread) {
-      pushToast({theme: "error", message: "You do not have permission to create forum threads."})
+      pushToast({theme: "error", message: "You do not have permission to create threads."})
       return
     }
 
@@ -71,7 +71,7 @@
       relays,
       event: makeEvent(
         THREAD,
-        makeCommunityForumThread({communityPubkey, title: trimmedTitle, content: trimmedContent}),
+        makeCommunityThread({communityPubkey, title: trimmedTitle, content: trimmedContent}),
       ),
     })
     pushToast({message: "Thread published."})
@@ -122,8 +122,8 @@
     </Field>
     <div class="flex justify-end">
       <PublishGate
-        target={COMMUNITY_WRITE_TARGETS.forumThread}
-        action="create forum threads"
+        target={COMMUNITY_WRITE_TARGETS.thread}
+        action="create threads"
         submit
         disabled={!title.trim() || !content.trim()}>
         Create thread

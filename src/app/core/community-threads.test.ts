@@ -1,12 +1,12 @@
 import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
 import {
-  makeCommunityForumReply,
-  makeCommunityForumThread,
-  readCommunityForumReply,
-  readCommunityForumThread,
-  readCommunityForumThreads,
-} from "./community-forum"
+  makeCommunityThread,
+  makeCommunityThreadReply,
+  readCommunityThread,
+  readCommunityThreadReply,
+  readCommunityThreads,
+} from "./community-threads"
 
 const communityPubkey = "a".repeat(64)
 const creatorPubkey = "b".repeat(64)
@@ -24,65 +24,66 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
     ...overrides,
   }) as TrustedEvent
 
-describe("community forum helpers", () => {
-  it("builds forum thread roots without room markers", () => {
+describe("community thread helpers", () => {
+  it("builds thread roots without room markers", () => {
     expect(
-      makeCommunityForumThread({
+      makeCommunityThread({
         communityPubkey,
-        title: "Forum topic",
+        title: "Thread topic",
         content: "Thread body",
       }),
     ).toEqual({
       content: "Thread body",
       tags: [
         ["h", communityPubkey],
-        ["title", "Forum topic"],
+        ["title", "Thread topic"],
       ],
     })
   })
 
-  it("reads forum threads and excludes room roots", () => {
-    const forum = makeEvent({
-      id: "forum-id",
+  it("reads threads and excludes room roots", () => {
+    const thread = makeEvent({
+      id: "thread-id",
       kind: 11,
       pubkey: creatorPubkey,
       content: "Thread body",
       tags: [
         ["h", communityPubkey],
-        ["title", "Forum topic"],
+        ["title", "Thread topic"],
       ],
     })
     const room = makeEvent({
       id: "room-id",
       kind: 11,
-      tags: [
-        ["h", communityPubkey],
-        ["room"],
-        ["title", "General"],
-      ],
+      tags: [["h", communityPubkey], ["room"], ["title", "General"]],
     })
 
-    expect(readCommunityForumThread(forum, communityPubkey)).toMatchObject({
-      id: "forum-id",
+    expect(readCommunityThread(thread, communityPubkey)).toMatchObject({
+      id: "thread-id",
       communityPubkey,
-      title: "Forum topic",
+      title: "Thread topic",
       content: "Thread body",
       creatorPubkey,
     })
-    expect(readCommunityForumThread(room, communityPubkey)).toBeUndefined()
-    expect(readCommunityForumThreads([forum, room], communityPubkey).map(thread => thread.id)).toEqual([
-      "forum-id",
+    expect(readCommunityThread(room, communityPubkey)).toBeUndefined()
+    expect(readCommunityThreads([thread, room], communityPubkey).map(thread => thread.id)).toEqual([
+      "thread-id",
     ])
   })
 
-  it("builds and reads community-scoped forum replies", () => {
-    const template = makeCommunityForumReply({
+  it("builds and reads community-scoped thread replies", () => {
+    const template = makeCommunityThreadReply({
       communityPubkey,
       thread: {id: "thread-id", creatorPubkey},
       relay: "wss://relay.example.com/",
       content: "Reply body",
     })
-    const reply = makeEvent({id: "reply-id", kind: 1111, tags: template.tags, content: template.content})
+    const reply = makeEvent({
+      id: "reply-id",
+      kind: 1111,
+      tags: template.tags,
+      content: template.content,
+    })
 
     expect(template).toEqual({
       content: "Reply body",
@@ -93,11 +94,11 @@ describe("community forum helpers", () => {
         ["P", creatorPubkey, "wss://relay.example.com/"],
       ],
     })
-    expect(readCommunityForumReply(reply, communityPubkey, "thread-id")).toMatchObject({
+    expect(readCommunityThreadReply(reply, communityPubkey, "thread-id")).toMatchObject({
       id: "reply-id",
       communityPubkey,
       threadId: "thread-id",
     })
-    expect(readCommunityForumReply(reply, communityPubkey, "other-thread")).toBeUndefined()
+    expect(readCommunityThreadReply(reply, communityPubkey, "other-thread")).toBeUndefined()
   })
 })

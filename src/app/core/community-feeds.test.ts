@@ -2,13 +2,13 @@ import {describe, expect, it} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
 import {TARGETED_PUBLICATION_KIND, buildTargetedPublication} from "./community"
 import {
-  filterForumThreadRoots,
   filterRoomRoots,
+  filterThreadRoots,
   getRoomRootIdForMessage,
   isRoomMessage,
   makeCommunityExclusiveFilter,
-  makeCommunityForumRepliesFilter,
   makeCommunityRoomMessagesFilter,
+  makeCommunityThreadRepliesFilter,
   makeCommunityTargetingFilter,
   makeTargetedPublicationOriginalFilters,
 } from "./community-feeds"
@@ -47,9 +47,9 @@ describe("community feed helpers", () => {
     })
   })
 
-  it("builds forum reply filters", () => {
+  it("builds thread reply filters", () => {
     expect(
-      makeCommunityForumRepliesFilter(communityPubkey, {"#E": ["thread-root"], limit: 50}),
+      makeCommunityThreadRepliesFilter(communityPubkey, {"#E": ["thread-root"], limit: 50}),
     ).toEqual({
       kinds: [1111],
       "#h": [communityPubkey],
@@ -68,28 +68,28 @@ describe("community feed helpers", () => {
     })
   })
 
-  it("separates room roots from forum thread roots", () => {
+  it("separates room roots from thread roots", () => {
     const room = makeEvent({
       id: "room",
       kind: 11,
       tags: [["h", communityPubkey], ["room"], ["title", "General"]],
     })
-    const forum = makeEvent({
-      id: "forum",
+    const thread = makeEvent({
+      id: "thread",
       kind: 11,
       tags: [
         ["h", communityPubkey],
-        ["title", "Forum topic"],
+        ["title", "Thread topic"],
       ],
     })
     const other = makeEvent({id: "other", kind: 11, tags: [["h", otherCommunityPubkey], ["room"]]})
 
-    expect(filterRoomRoots([room, forum, other], communityPubkey).map(event => event.id)).toEqual([
+    expect(filterRoomRoots([room, thread, other], communityPubkey).map(event => event.id)).toEqual([
       "room",
     ])
     expect(
-      filterForumThreadRoots([room, forum, other], communityPubkey).map(event => event.id),
-    ).toEqual(["forum"])
+      filterThreadRoots([room, thread, other], communityPubkey).map(event => event.id),
+    ).toEqual(["thread"])
   })
 
   it("identifies room messages by community and room root", () => {

@@ -53,6 +53,7 @@
     type CommunityAdmissionFormDraftOption,
     type CommunityAdmissionFormDraftQuestion,
     type CommunityAdmissionQuestionType,
+    getAdmissionResponseDisplayValue,
     getAdmissionSubmissionState,
     makeAdmissionFormDraftFromForm,
     makeAdmissionFormFieldsFromDraft,
@@ -439,6 +440,19 @@
 
   const isChoiceQuestion = (question: CommunityAdmissionFormDraftQuestion) =>
     question.type === "singleChoice" || question.type === "multipleChoice"
+
+  const getResponseLabel = (application: ReviewApplication, fieldId: string) =>
+    application.form.fields[fieldId]?.label || fieldId
+
+  const getResponseDisplayValue = (
+    application: ReviewApplication,
+    response: ReviewApplication["response"]["responses"][number],
+  ) =>
+    getAdmissionResponseDisplayValue(
+      application.form.fields[response.fieldId],
+      response.value,
+      response.metadata,
+    )
 
   const selectSection = async (sectionName: string) => {
     selectedSectionName = sectionName
@@ -926,14 +940,22 @@
                       {:else if isChoiceQuestion(question)}
                         <div class="flex flex-col gap-2">
                           {#each question.options as option}
-                            <label class="flex items-center gap-2 text-sm">
-                              {#if question.type === "multipleChoice"}
-                                <input type="checkbox" class="checkbox checkbox-sm" disabled />
-                              {:else}
-                                <input type="radio" class="radio radio-sm" disabled />
+                            <div class="flex flex-col gap-2">
+                              <label class="flex items-center gap-2 text-sm">
+                                {#if question.type === "multipleChoice"}
+                                  <input type="checkbox" class="checkbox checkbox-sm" disabled />
+                                {:else}
+                                  <input type="radio" class="radio radio-sm" disabled />
+                                {/if}
+                                <span>{option.label}</span>
+                              </label>
+                              {#if option.isOther}
+                                <input
+                                  class="input input-sm input-bordered ml-7 w-[calc(100%-1.75rem)]"
+                                  disabled
+                                  placeholder="Please explain" />
                               {/if}
-                              <span>{option.label}</span>
-                            </label>
+                            </div>
                           {/each}
                         </div>
                       {/if}
@@ -1053,12 +1075,11 @@
                 </div>
 
                 {#if application.response.responses[0]}
+                  {@const firstResponse = application.response.responses[0]}
                   <div class="mt-3 rounded-box bg-base-200 p-2 text-sm">
-                    <strong
-                      >{application.form.fields[application.response.responses[0].fieldId]?.label ||
-                        application.response.responses[0].fieldId}</strong>
+                    <strong>{getResponseLabel(application, firstResponse.fieldId)}</strong>
                     <p class="line-clamp-3 whitespace-pre-wrap opacity-80">
-                      {application.response.responses[0].value}
+                      {getResponseDisplayValue(application, firstResponse)}
                     </p>
                   </div>
                 {/if}
@@ -1068,10 +1089,10 @@
                   <div class="mt-2 grid gap-2">
                     {#each application.response.responses as response}
                       <div class="rounded-box bg-base-200 p-2 text-sm">
-                        <strong
-                          >{application.form.fields[response.fieldId]?.label ||
-                            response.fieldId}</strong>
-                        <p class="whitespace-pre-wrap opacity-80">{response.value}</p>
+                        <strong>{getResponseLabel(application, response.fieldId)}</strong>
+                        <p class="whitespace-pre-wrap opacity-80">
+                          {getResponseDisplayValue(application, response)}
+                        </p>
                       </div>
                     {/each}
                   </div>

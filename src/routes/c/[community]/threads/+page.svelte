@@ -21,11 +21,11 @@
     markCommunityHydrationCompleted,
   } from "@app/core/community-state"
   import {
-    makeCommunityForumRepliesFilter,
-    makeCommunityForumThreadsFilter,
+    makeCommunityThreadRepliesFilter,
+    makeCommunityThreadsFilter,
   } from "@app/core/community-feeds"
-  import {readCommunityForumReply, readCommunityForumThreads} from "@app/core/community-forum"
-  import {COMMUNITY_SECTION_FORUM, COMMUNITY_SECTION_GENERAL} from "@app/core/community"
+  import {readCommunityThreadReply, readCommunityThreads} from "@app/core/community-threads"
+  import {COMMUNITY_SECTION_GENERAL, COMMUNITY_SECTION_THREADS} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     canWriteCommunityTarget,
@@ -40,12 +40,12 @@
   const createPath = $derived(
     communityPubkey ? makeCommunityPath(communityPubkey, "threads", "create") : "",
   )
-  const forumAuthorPubkeys = $derived(
+  const threadAuthorPubkeys = $derived(
     $activeCommunityDefinition
       ? getCommunitySectionWriterPubkeys({
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
-          sectionName: COMMUNITY_SECTION_FORUM,
+          sectionName: COMMUNITY_SECTION_THREADS,
         })
       : [],
   )
@@ -61,31 +61,34 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
     Boolean(communityPubkey && !communityBootstrapReady && !$activeCommunityBootstrapStatus.error),
   )
   const threadFilter = $derived(
-    communityBootstrapReady && communityPubkey && forumAuthorPubkeys.length
-      ? makeCommunityForumThreadsFilter(communityPubkey, {authors: forumAuthorPubkeys})
+    communityBootstrapReady && communityPubkey && threadAuthorPubkeys.length
+      ? makeCommunityThreadsFilter(communityPubkey, {authors: threadAuthorPubkeys})
       : undefined,
   )
   const replyFilter = $derived(
     communityBootstrapReady && communityPubkey && replyAuthorPubkeys.length
-      ? makeCommunityForumRepliesFilter(communityPubkey, {authors: replyAuthorPubkeys})
+      ? makeCommunityThreadRepliesFilter(communityPubkey, {authors: replyAuthorPubkeys})
       : undefined,
   )
   const feedFilters = $derived([threadFilter, replyFilter].filter(Boolean) as Filter[])
   const feedKey = $derived.by(() =>
-    communityBootstrapReady && communityPubkey && feedFilters.length && $activeCommunityRelays.length
+    communityBootstrapReady &&
+    communityPubkey &&
+    feedFilters.length &&
+    $activeCommunityRelays.length
       ? [
           communityPubkey,
           ...$activeCommunityRelays,
-          ...forumAuthorPubkeys,
+          ...threadAuthorPubkeys,
           ...replyAuthorPubkeys,
         ].join("|")
       : "",
@@ -101,10 +104,10 @@
 
   const threads = $derived.by(() => {
     const repliesByThread = new Map<string, number>()
-    const roots = readCommunityForumThreads($events, communityPubkey)
+    const roots = readCommunityThreads($events, communityPubkey)
 
     for (const event of $events) {
-      const reply = readCommunityForumReply(event, communityPubkey)
+      const reply = readCommunityThreadReply(event, communityPubkey)
       if (!reply) continue
 
       repliesByThread.set(
@@ -205,8 +208,8 @@
   {#snippet action()}
     <div class="row-2">
       <PublishGate
-        target={COMMUNITY_WRITE_TARGETS.forumThread}
-        action="create forum threads"
+        target={COMMUNITY_WRITE_TARGETS.thread}
+        action="create threads"
         href={createPath}
         class="btn btn-primary btn-sm">
         <Icon icon={NotesMinimalistic} />
@@ -224,7 +227,7 @@
         url={communityPubkey}
         relays={$activeCommunityRelays}
         scopeH={communityPubkey}
-        communitySectionName={COMMUNITY_SECTION_FORUM}
+        communitySectionName={COMMUNITY_SECTION_THREADS}
         allowedAuthors={replyAuthorPubkeys}
         readOnly={!canReact}
         event={thread.event} />

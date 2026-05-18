@@ -34,31 +34,23 @@ describe("community room helpers", () => {
   it("builds immutable room root content", () => {
     expect(makeCommunityRoomRoot({communityPubkey, name: "General", about: "Main room"})).toEqual({
       content: "Main room",
-      tags: [
-        ["h", communityPubkey],
-        ["room"],
-        ["title", "General"],
-      ],
+      tags: [["h", communityPubkey], ["room"], ["title", "General"]],
     })
   })
 
-  it("reads room roots and filters out forum threads", () => {
+  it("reads room roots and filters out threads", () => {
     const room = makeEvent({
       id: "room-id",
       kind: 11,
       content: "Main room",
-      tags: [
-        ["h", communityPubkey],
-        ["room"],
-        ["title", "General"],
-      ],
+      tags: [["h", communityPubkey], ["room"], ["title", "General"]],
     })
-    const forum = makeEvent({
-      id: "forum-id",
+    const thread = makeEvent({
+      id: "thread-id",
       kind: 11,
       tags: [
         ["h", communityPubkey],
-        ["title", "Forum"],
+        ["title", "Thread"],
       ],
     })
 
@@ -69,8 +61,8 @@ describe("community room helpers", () => {
       about: "Main room",
       creatorPubkey,
     })
-    expect(readCommunityRoomRoot(forum, communityPubkey)).toBeUndefined()
-    expect(readCommunityRoomRoots([room, forum], communityPubkey).map(room => room.id)).toEqual([
+    expect(readCommunityRoomRoot(thread, communityPubkey)).toBeUndefined()
+    expect(readCommunityRoomRoots([room, thread], communityPubkey).map(room => room.id)).toEqual([
       "room-id",
     ])
   })

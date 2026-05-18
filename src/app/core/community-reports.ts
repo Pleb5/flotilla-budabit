@@ -2,6 +2,8 @@ import {DELETE, type EventContent, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   findCommunitySection,
+  normalizeCommunitySectionName,
+  normalizeCommunitySectionSubtype,
   normalizePubkey,
   type CommunityDefinition,
 } from "@app/core/community"
@@ -65,7 +67,8 @@ export const getEffectiveCommunityModerationActionsByReporter = (
 const getReasonTag = (event: TrustedEvent, tagName: "e" | "p") =>
   event.tags.find(
     tag =>
-      tag[0] === tagName && (tag[2] === COMMUNITY_REPORT_REASON || tag[3] === COMMUNITY_REPORT_REASON),
+      tag[0] === tagName &&
+      (tag[2] === COMMUNITY_REPORT_REASON || tag[3] === COMMUNITY_REPORT_REASON),
   )
 
 const makeCommunityDefinitionAddress = (communityPubkey: string) => {
@@ -92,7 +95,7 @@ const getCommunityAddress = (event: TrustedEvent) =>
     .find(Boolean)
 
 const getSectionName = (event: TrustedEvent) =>
-  event.tags.find(tag => tag[0] === "content")?.[1]?.trim() || ""
+  normalizeCommunitySectionName(event.tags.find(tag => tag[0] === "content")?.[1] || "")
 
 const getStringTagValue = (event: TrustedEvent, tagName: string) =>
   event.tags.find(tag => tag[0] === tagName)?.[1]?.trim() || ""
@@ -146,9 +149,9 @@ export const makeCommunityEventReport = ({
     ["p", normalizePubkey(eventPubkey)],
     ["a", makeCommunityDefinitionAddress(communityPubkey)],
     ["h", normalizePubkey(communityPubkey)],
-    ["content", sectionName],
+    ["content", normalizeCommunitySectionName(sectionName)],
     ...makeOptionalTag("target-kind", eventKind),
-    ...makeOptionalTag("target-subtype", eventSubtype),
+    ...makeOptionalTag("target-subtype", normalizeCommunitySectionSubtype(eventSubtype)),
     ...makeOptionalTag("target-title", eventTitle),
     ...makeOptionalTag("target-content", truncateTargetContent(eventContent)),
   ],
@@ -215,7 +218,9 @@ export const parseCommunityReport = (
       targetPubkey,
       targetEventId: eventTag[1],
       targetEventKind: getTargetEventKind(event),
-      targetEventSubtype: getStringTagValue(event, "target-subtype"),
+      targetEventSubtype: normalizeCommunitySectionSubtype(
+        getStringTagValue(event, "target-subtype"),
+      ),
       targetEventTitle: getStringTagValue(event, "target-title"),
       targetEventContent: getStringTagValue(event, "target-content"),
       sectionName,
@@ -432,7 +437,10 @@ export const getCommunityCensorReason = ({
     eventId &&
     sectionName &&
     reportState.eventReports.some(
-      report => report.targetEventId === eventId && report.sectionName === sectionName,
+      report =>
+        report.targetEventId === eventId &&
+        normalizeCommunitySectionName(report.sectionName || "") ===
+          normalizeCommunitySectionName(sectionName),
     )
   ) {
     return "event"

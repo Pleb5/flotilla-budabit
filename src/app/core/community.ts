@@ -12,7 +12,7 @@ export const MAX_TARGET_COMMUNITIES = 12
 
 export const COMMUNITY_SECTION_GENERAL = "General"
 export const COMMUNITY_SECTION_ROOMS = "Rooms"
-export const COMMUNITY_SECTION_FORUM = "Forum"
+export const COMMUNITY_SECTION_THREADS = "Threads"
 export const COMMUNITY_SECTION_CALENDAR = "Calendar"
 export const COMMUNITY_SECTION_GOALS = "Goals"
 export const COMMUNITY_SECTION_REPOSITORIES = "Repositories"
@@ -20,8 +20,24 @@ export const COMMUNITY_SECTION_PERMALINKS = "Permalinks"
 export const COMMUNITY_SECTION_WIDGETS = "Widgets"
 
 export const COMMUNITY_SUBTYPE_ROOM = "room"
-export const COMMUNITY_SUBTYPE_FORUM = "forum"
+export const COMMUNITY_SUBTYPE_THREADS = "threads"
 export const COMMUNITY_SUBTYPE_ROOM_MESSAGE = "room-message"
+
+const LEGACY_COMMUNITY_SECTION_FORUM = "Forum"
+const LEGACY_COMMUNITY_SUBTYPE_FORUM = "forum"
+
+export const normalizeCommunitySectionName = (name: string) => {
+  const trimmed = name.trim()
+
+  return trimmed === LEGACY_COMMUNITY_SECTION_FORUM ? COMMUNITY_SECTION_THREADS : trimmed
+}
+
+export const normalizeCommunitySectionSubtype = (subtype?: string) => {
+  const trimmed = subtype?.trim()
+  if (!trimmed) return undefined
+
+  return trimmed === LEGACY_COMMUNITY_SUBTYPE_FORUM ? COMMUNITY_SUBTYPE_THREADS : trimmed
+}
 
 export const TARGETED_PUBLICATION_KINDS = [31922, 9041, 30617, 1623, 30033] as const
 
@@ -43,6 +59,14 @@ export type AddressRef = {
 export type CommunitySectionKind = {
   kind: number
   subtype?: string
+}
+
+export const normalizeCommunitySectionKind = (
+  sectionKind: CommunitySectionKind,
+): CommunitySectionKind => {
+  const subtype = normalizeCommunitySectionSubtype(sectionKind.subtype)
+
+  return subtype ? {kind: sectionKind.kind, subtype} : {kind: sectionKind.kind}
 }
 
 export type CommunityProfileListRef = AddressRef & {
@@ -215,7 +239,7 @@ export const makeCommunityScopedIdentifier = (communityPubkey: string, value: st
   `budabit-${normalizePubkey(communityPubkey).slice(0, 16)}-${slugifyCommunityValue(value)}`
 
 export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionKind[] => {
-  switch (name) {
+  switch (normalizeCommunitySectionName(name)) {
     case COMMUNITY_SECTION_GENERAL:
       return [
         {kind: 9, subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE},
@@ -225,8 +249,8 @@ export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionK
       ]
     case COMMUNITY_SECTION_ROOMS:
       return [{kind: 11, subtype: COMMUNITY_SUBTYPE_ROOM}]
-    case COMMUNITY_SECTION_FORUM:
-      return [{kind: 11, subtype: COMMUNITY_SUBTYPE_FORUM}]
+    case COMMUNITY_SECTION_THREADS:
+      return [{kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS}]
     case COMMUNITY_SECTION_CALENDAR:
       return [{kind: 31922}]
     case COMMUNITY_SECTION_GOALS:
@@ -245,7 +269,7 @@ export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionK
 export const DEFAULT_COMMUNITY_SECTION_NAMES = [
   COMMUNITY_SECTION_GENERAL,
   COMMUNITY_SECTION_ROOMS,
-  COMMUNITY_SECTION_FORUM,
+  COMMUNITY_SECTION_THREADS,
   COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_GOALS,
   COMMUNITY_SECTION_REPOSITORIES,
@@ -275,7 +299,9 @@ export const makeCommunitySetupSection = ({
   const normalizedProfileListPubkey = normalizePubkey(profileListPubkey)
   const normalizedBadgeIssuerPubkey = normalizePubkey(badgeIssuerPubkey)
   const normalizedRelays = normalizeRelays(relays)
-  const identifier = makeCommunityScopedIdentifier(normalizedCommunityPubkey, name)
+  const normalizedName = normalizeCommunitySectionName(name)
+  const normalizedKinds = kinds.map(normalizeCommunitySectionKind)
+  const identifier = makeCommunityScopedIdentifier(normalizedCommunityPubkey, normalizedName)
   const profileListAddress = makeAddress(PROFILE_LIST_KIND, normalizedProfileListPubkey, identifier)
   const badgeAddress = makeAddress(BADGE_DEFINITION, normalizedBadgeIssuerPubkey, identifier)
   const profileList = {
@@ -293,8 +319,8 @@ export const makeCommunitySetupSection = ({
   }
 
   return {
-    name,
-    kinds,
+    name: normalizedName,
+    kinds: normalizedKinds,
     profileList,
     badge,
     profileLists: [profileList],
@@ -362,9 +388,11 @@ export const buildCommunityDefinition = ({
   if (normalizedGeohash) tags.push(["g", normalizedGeohash])
 
   for (const section of sections) {
-    tags.push(["content", section.name])
+    tags.push(["content", normalizeCommunitySectionName(section.name)])
     for (const sectionKind of section.kinds) {
-      tags.push(appendDefined(["k", String(sectionKind.kind)], sectionKind.subtype))
+      const normalizedKind = normalizeCommunitySectionKind(sectionKind)
+
+      tags.push(appendDefined(["k", String(normalizedKind.kind)], normalizedKind.subtype))
     }
     for (const profileList of section.profileLists ||
       (section.profileList ? [section.profileList] : [])) {
@@ -449,7 +477,7 @@ const parseSectionKind = (tag: string[]): CommunitySectionKind | undefined => {
   const kind = Number.parseInt(tag[1] || "", 10)
   if (!Number.isInteger(kind)) return undefined
 
-  return {kind, subtype: tag[2] || undefined}
+  return {kind, subtype: normalizeCommunitySectionSubtype(tag[2])}
 }
 
 const parseProfileListRef = (tag: string[]): CommunityProfileListRef | undefined => {
@@ -503,7 +531,7 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
 
   for (const tag of event.tags || []) {
     if (tag[0] === "content" && tag[1]) {
-      currentSection = makeSection(tag[1])
+      currentSection = makeSection(normalizeCommunitySectionName(tag[1]))
       sections.push(currentSection)
       continue
     }
@@ -585,10 +613,19 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
 export const getCommunityMainRelay = (definition: CommunityDefinition) => definition.relays[0] || ""
 
 export const findCommunitySection = (definition: CommunityDefinition, name: string) => {
-  const exactSection = definition.sections.find(section => section.name === name)
+  const normalizedName = normalizeCommunitySectionName(name)
+  const exactSection = definition.sections.find(
+    section => normalizeCommunitySectionName(section.name) === normalizedName,
+  )
   if (exactSection) return exactSection
 
-  if (name === COMMUNITY_SECTION_GOALS) {
+  if (normalizedName === COMMUNITY_SECTION_THREADS) {
+    return definition.sections.find(section =>
+      sectionSupportsKind(section, 11, COMMUNITY_SUBTYPE_THREADS),
+    )
+  }
+
+  if (normalizedName === COMMUNITY_SECTION_GOALS) {
     return definition.sections.find(section =>
       section.kinds.some(sectionKind => sectionKind.kind === 9041),
     )
@@ -599,15 +636,23 @@ export const sectionSupportsKind = (
   section: CommunitySection | undefined,
   kind: number,
   subtype?: string,
-) =>
-  Boolean(
+) => {
+  const normalizedSubtype = normalizeCommunitySectionSubtype(subtype)
+
+  return Boolean(
     section?.kinds.some(
-      sectionKind => sectionKind.kind === kind && (!subtype || sectionKind.subtype === subtype),
+      sectionKind =>
+        sectionKind.kind === kind &&
+        (!normalizedSubtype ||
+          normalizeCommunitySectionSubtype(sectionKind.subtype) === normalizedSubtype),
     ),
   )
+}
 
 export const getCommunitySectionDisplayName = (section: CommunitySection) =>
-  sectionSupportsKind(section, 9041) ? COMMUNITY_SECTION_GOALS : section.name
+  sectionSupportsKind(section, 9041)
+    ? COMMUNITY_SECTION_GOALS
+    : normalizeCommunitySectionName(section.name)
 
 export const getProfileListPubkeys = (event: TrustedEvent | undefined) => {
   if (!event || event.kind !== PROFILE_LIST_KIND) return []

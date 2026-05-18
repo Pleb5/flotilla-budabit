@@ -50,7 +50,11 @@
   const communityPubkey = $derived(
     parsedCommunity?.pubkey || $activeCommunityDefinition?.pubkey || "",
   )
-  const accessPath = $derived(communityPubkey ? makeCommunityPath(communityPubkey, "access") : "")
+  const accessPath = $derived(
+    communityPubkey
+      ? `${makeCommunityPath(communityPubkey, "access")}?section=${encodeURIComponent(target.sectionName)}`
+      : "",
+  )
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&

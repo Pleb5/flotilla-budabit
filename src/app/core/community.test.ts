@@ -5,8 +5,10 @@ import {
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_GENERAL,
   COMMUNITY_SECTION_ROOMS,
+  COMMUNITY_SECTION_THREADS,
   COMMUNITY_SUBTYPE_ROOM,
   COMMUNITY_SUBTYPE_ROOM_MESSAGE,
+  COMMUNITY_SUBTYPE_THREADS,
   MAX_TARGET_COMMUNITIES,
   PROFILE_LIST_KIND,
   TARGETED_PUBLICATION_KIND,
@@ -212,6 +214,7 @@ describe("community protocol helpers", () => {
       makeEvent({kind: COMMUNITY_DEFINITION_KIND, pubkey: pubkeyA, tags: template.tags}),
     )!
     const general = findCommunitySection(definition, COMMUNITY_SECTION_GENERAL)!
+    const threads = findCommunitySection(definition, COMMUNITY_SECTION_THREADS)!
 
     expect(template.kind).toBe(COMMUNITY_DEFINITION_KIND)
     expect(definition.description).toBe("A builder community")
@@ -220,12 +223,15 @@ describe("community protocol helpers", () => {
     expect(definition.mints).toEqual([{url: "https://mint.example.com", type: "cashu"}])
     expect(definition.geohash).toBe("u4pruy")
     expect(template.tags).toContainEqual(["g", "u4pruy"])
+    expect(template.tags).toContainEqual(["content", COMMUNITY_SECTION_THREADS])
+    expect(template.tags).toContainEqual(["k", "11", COMMUNITY_SUBTYPE_THREADS])
     expect(general.profileLists[0]).toMatchObject({
       pubkey: pubkeyB,
       relay: "wss://relay.example.com/",
     })
     expect(general.badges[0]).toMatchObject({pubkey: pubkeyC})
     expect(sectionSupportsKind(general, 9, COMMUNITY_SUBTYPE_ROOM_MESSAGE)).toBe(true)
+    expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
   })
 
   it("builds custom content sections with multiple authority refs", () => {
@@ -235,7 +241,7 @@ describe("community protocol helpers", () => {
       badgeIssuerPubkey: pubkeyA,
       relays: ["wss://relay.example.com"],
       name: "Apps",
-      kinds: [{kind: 32267}, {kind: 11, subtype: "forum"}],
+      kinds: [{kind: 32267}, {kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS}],
     })
     const moderatorSection = makeCommunitySetupSection({
       communityPubkey: pubkeyA,
@@ -261,11 +267,34 @@ describe("community protocol helpers", () => {
     )!
     const apps = findCommunitySection(definition, "Apps")!
 
-    expect(template.tags).toContainEqual(["k", "11", "forum"])
+    expect(template.tags).toContainEqual(["k", "11", COMMUNITY_SUBTYPE_THREADS])
     expect(apps.profileLists.map(ref => ref.pubkey)).toEqual([pubkeyA, pubkeyB])
     expect(apps.badges.map(ref => ref.pubkey)).toEqual([pubkeyA, pubkeyB])
     expect(sectionSupportsKind(apps, 32267)).toBe(true)
+    expect(sectionSupportsKind(apps, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
     expect(sectionSupportsKind(apps, 11, "forum")).toBe(true)
+  })
+
+  it("normalizes legacy forum sections to threads", () => {
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: pubkeyA,
+        tags: [
+          ["content", "Forum"],
+          ["k", "11", "forum"],
+          ["a", `${PROFILE_LIST_KIND}:${pubkeyB}:Forum`],
+          ["badge", `${BADGE_DEFINITION}:${pubkeyC}:Forum`],
+        ],
+      }),
+    )!
+    const threads = findCommunitySection(definition, COMMUNITY_SECTION_THREADS)!
+
+    expect(threads.name).toBe(COMMUNITY_SECTION_THREADS)
+    expect(findCommunitySection(definition, "Forum")).toBe(threads)
+    expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
+    expect(sectionSupportsKind(threads, 11, "forum")).toBe(true)
+    expect(threads.profileLists[0].address).toBe(`${PROFILE_LIST_KIND}:${pubkeyB}:Forum`)
   })
 
   it("builds community badge definition events", () => {
