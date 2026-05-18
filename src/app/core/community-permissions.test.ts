@@ -18,7 +18,6 @@ import {
   COMMUNITY_WRITE_TARGETS,
   canWriteCommunitySection,
   canWriteCommunityTarget,
-  findBadgeDefinitionEvent,
   findProfileListEvent,
   getCommunityCapabilityKey,
   getCommunityPublishGateState,
@@ -28,6 +27,7 @@ import {
   getGrantCapableSectionModeratorPubkeys,
   getGrantCapability,
 } from "./community-permissions"
+import type {EffectiveCommunityReportState} from "./community-reports"
 
 const communityPubkey = "a".repeat(64)
 const memberPubkey = "b".repeat(64)
@@ -84,11 +84,11 @@ const repoProfileList = makeEvent({
   ],
 })
 
-const memberBadgeDefinition = makeEvent({
-  kind: BADGE_DEFINITION,
-  pubkey: managerPubkey,
-  tags: [["d", "member"]],
-})
+const makePersonBanState = (pubkey: string): EffectiveCommunityReportState =>
+  ({
+    eventReports: [],
+    personReports: [{targetPubkey: pubkey}],
+  }) as unknown as EffectiveCommunityReportState
 
 describe("community permissions", () => {
   it("maps write targets by kind and subtype", () => {
@@ -98,13 +98,10 @@ describe("community permissions", () => {
     expect(getCommunityWriteTarget(30617)).toEqual(COMMUNITY_WRITE_TARGETS.repository)
   })
 
-  it("finds authoritative profile list and badge events by address", () => {
+  it("finds authoritative profile list events by address", () => {
     expect(findProfileListEvent(definition.sections[0].profileLists[0], [generalProfileList])).toBe(
       generalProfileList,
     )
-    expect(
-      findBadgeDefinitionEvent(definition.sections[0].badges[0], [memberBadgeDefinition]),
-    ).toBe(memberBadgeDefinition)
   })
 
   it("uses the latest replaceable profile list event by address", () => {
@@ -177,6 +174,54 @@ describe("community permissions", () => {
     ).toBe(true)
   })
 
+  it("lets person bans override existing write and grant permissions", () => {
+    const bannedMemberState = makePersonBanState(memberPubkey)
+    const bannedManagerState = makePersonBanState(managerPubkey)
+
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [generalProfileList, repoProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        reportState: bannedMemberState,
+      }),
+    ).toBe(false)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [],
+        userPubkey: managerPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        reportState: bannedManagerState,
+      }),
+    ).toBe(false)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [],
+        userPubkey: communityPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        reportState: makePersonBanState(communityPubkey),
+      }),
+    ).toBe(true)
+    expect(
+      getGrantCapability({
+        definition,
+        userPubkey: managerPubkey,
+        sectionName: "General",
+        reportState: bannedManagerState,
+      }),
+    ).toMatchObject({canManageList: false, canGrant: false})
+    expect(
+      getGrantCapableSectionModeratorPubkeys({
+        definition,
+        sectionName: "General",
+        reportState: bannedManagerState,
+      }),
+    ).toEqual([])
+  })
+
   it("allows section authorities to bootstrap content before list events load", () => {
     expect(
       canWriteCommunityTarget({
@@ -198,25 +243,36 @@ describe("community permissions", () => {
       canWriteCommunityTarget({
         definition,
         profileListEvents: [],
-        userPubkey: managerPubkey,
+        userPubkey: repoManagerPubkey,
         target: COMMUNITY_WRITE_TARGETS.repository,
       }),
     ).toBe(true)
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [],
+        userPubkey: managerPubkey,
+        target: COMMUNITY_WRITE_TARGETS.repository,
+      }),
+    ).toBe(false)
   })
 
-  it("requires both list-manager and badge-issuer authority for grants", () => {
+  it("uses profile-list manager authority for grants", () => {
     expect(
       getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "General"}),
-    ).toMatchObject({canManageList: true, canIssueBadge: true, canGrant: true})
+    ).toMatchObject({canManageList: true, canGrant: true})
     expect(
       getGrantCapability({definition, userPubkey: repoManagerPubkey, sectionName: "Repositories"}),
-    ).toMatchObject({canManageList: true, canIssueBadge: false, canGrant: false})
+    ).toMatchObject({canManageList: true, canGrant: true})
+    expect(
+      getGrantCapability({definition, userPubkey: managerPubkey, sectionName: "Repositories"}),
+    ).toMatchObject({canManageList: false, canGrant: false})
     expect(getGrantCapableSectionModeratorPubkeys({definition, sectionName: "General"})).toEqual([
       managerPubkey,
     ])
     expect(
       getGrantCapableSectionModeratorPubkeys({definition, sectionName: "Repositories"}),
-    ).toEqual([])
+    ).toEqual([repoManagerPubkey])
   })
 
   it("derives publish capabilities by kind and subtype", () => {
@@ -318,6 +374,16 @@ describe("community permissions", () => {
         target: COMMUNITY_WRITE_TARGETS.roomMessage,
       }).status,
     ).toBe("missing")
+    expect(
+      getCommunityPublishGateState({
+        definition,
+        profileListEvents: [generalProfileList],
+        userPubkey: memberPubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        form,
+        reportState: makePersonBanState(memberPubkey),
+      }).status,
+    ).toBe("banned")
   })
 
   it("derives section writer pubkeys from authorities and profile lists", () => {
@@ -330,6 +396,14 @@ describe("community permissions", () => {
     ).toEqual([communityPubkey, managerPubkey, memberPubkey])
     expect(
       getCommunitySectionWriterPubkeys({definition, profileListEvents: [], sectionName: "General"}),
+    ).toEqual([communityPubkey, managerPubkey])
+    expect(
+      getCommunitySectionWriterPubkeys({
+        definition,
+        profileListEvents: [generalProfileList, repoProfileList],
+        sectionName: "General",
+        reportState: makePersonBanState(memberPubkey),
+      }),
     ).toEqual([communityPubkey, managerPubkey])
   })
 

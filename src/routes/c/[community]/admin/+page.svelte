@@ -25,25 +25,22 @@
     activeCommunityModeratorRequestStates,
     activeCommunityModeratorRequests,
     activeCommunityProfile,
-    activeCommunityReportEvents,
     activeCommunityReportState,
     activeCommunityRelays,
     loadCommunityEvents,
     makeCommunityModeratorRequestDeleteFilters,
     makeCommunityModeratorRequestFilters,
     makeCommunityModeratorRequestReactionFilters,
-    makeCommunityReportDeleteFilters,
-    makeCommunityReportFilters,
   } from "@app/core/community-state"
   import {
     findCommunitySection,
     getCommunitySectionDisplayName,
     normalizePubkey,
-    type CommunityBadgeRef,
     type CommunityProfileListRef,
   } from "@app/core/community"
   import {
     getEffectiveCommunityModerationActionsByReporter,
+    isCommunityPersonBanned,
     type CommunityModerationAction,
   } from "@app/core/community-reports"
   import {
@@ -64,13 +61,13 @@
     displayName: string
     pubkey: string
     profileLists: CommunityProfileListRef[]
-    badges: CommunityBadgeRef[]
   }
 
   type ModeratorGrantPerson = {
     pubkey: string
     grants: ModeratorSectionGrant[]
     grantCount: number
+    banned: boolean
   }
 
   const parsedCommunity = $derived(parseCommunityRouteParam($page.params.community))
@@ -93,8 +90,6 @@
   let moderatorRequestHydrationKey = $state("")
   let moderatorReactionHydrationKey = $state("")
   let moderatorDeleteHydrationKey = $state("")
-  let reportHydrationKey = $state("")
-  let reportDeleteHydrationKey = $state("")
 
   const makeHydrationKey = (relays: string[], filters: unknown[]) =>
     JSON.stringify({relays: relays.slice().sort(), filters})
@@ -128,14 +123,6 @@
         )
       : [],
   )
-  const reportFilters = $derived(
-    communityBootstrapReady && $activeCommunityDefinition
-      ? makeCommunityReportFilters($activeCommunityDefinition)
-      : [],
-  )
-  const reportDeleteFilters = $derived(
-    makeCommunityReportDeleteFilters($activeCommunityReportEvents),
-  )
   const pendingModeratorRequests = $derived(
     $activeCommunityModeratorRequestStates.filter(request => request.status === "pending"),
   )
@@ -166,9 +153,7 @@
     return definition.sections.flatMap(section => {
       const pubkeys = Array.from(
         new Set(
-          [...section.profileLists.map(ref => ref.pubkey), ...section.badges.map(ref => ref.pubkey)]
-            .map(normalizePubkey)
-            .filter(Boolean),
+          section.profileLists.map(ref => ref.pubkey).map(normalizePubkey).filter(Boolean),
         ),
       )
 
@@ -178,8 +163,7 @@
         const profileLists = section.profileLists.filter(
           ref => normalizePubkey(ref.pubkey) === userPubkey,
         )
-        const badges = section.badges.filter(ref => normalizePubkey(ref.pubkey) === userPubkey)
-        if (profileLists.length === 0 || badges.length === 0) return []
+        if (profileLists.length === 0) return []
 
         return [
           {
@@ -187,7 +171,6 @@
             displayName: getCommunitySectionDisplayName(section),
             pubkey: userPubkey,
             profileLists,
-            badges,
           },
         ]
       })
@@ -205,10 +188,13 @@
         pubkey: userPubkey,
         grants: grants.toSorted((a, b) => a.displayName.localeCompare(b.displayName)),
         grantCount: grants.length,
+        banned: isCommunityPersonBanned($activeCommunityReportState, userPubkey),
       }))
       .toSorted((a, b) => b.grantCount - a.grantCount || a.pubkey.localeCompare(b.pubkey))
   })
-  const activeModeratorCount = $derived(moderatorGrantPeople.length)
+  const activeModeratorCount = $derived(
+    moderatorGrantPeople.filter(person => !person.banned).length,
+  )
   const moderationActionsByReporter = $derived.by((): Map<string, CommunityModerationAction[]> => {
     const reports = new Map<string, CommunityModerationAction[]>()
 
@@ -233,7 +219,13 @@
   }
 
   const getSubmittedAt = (request: ModeratorPromotionRequestState) =>
-    Math.max(request.profileList.event.created_at, request.badge.event.created_at)
+    request.profileList.event.created_at
+
+  const getRequestTimeLabel = (request: ModeratorPromotionRequestState) =>
+    request.derivedFromGrant ? "Granted" : "Submitted"
+
+  const getRequestTime = (request: ModeratorPromotionRequestState) =>
+    request.derivedFromGrant ? request.statusChangedAt : getSubmittedAt(request)
 
   const getActiveReviewReactions = (request: ModeratorPromotionRequestState) => [
     ...request.acceptanceReactions,
@@ -270,19 +262,10 @@
       target: requestState.profileList,
       content,
     })
-    const badgeReaction = makeModeratorRequestReaction({
-      request: requestState,
-      target: requestState.badge,
-      content,
-    })
 
     publishThunk({
       relays: $activeCommunityRelays,
       event: makeEvent(profileListReaction.kind, profileListReaction),
-    })
-    publishThunk({
-      relays: $activeCommunityRelays,
-      event: makeEvent(badgeReaction.kind, badgeReaction),
     })
   }
 
@@ -326,8 +309,15 @@
   const rejectModeratorRequest = (requestState: ModeratorPromotionRequestState) => {
     if (!assertCanPublish()) return
 
-    publishModeratorReview(requestState, "-")
-    pushToast({theme: "warning", message: "Moderator request rejected."})
+    pushModal(Confirm, {
+      title: "Reject moderator request",
+      message: `Reject this request for ${requestState.sectionName}?`,
+      confirm: () => {
+        publishModeratorReview(requestState, "-")
+        pushToast({theme: "warning", message: "Moderator request rejected."})
+        history.back()
+      },
+    })
   }
 
   const revokeModeratorGrant = (grant: ModeratorSectionGrant) => {
@@ -337,11 +327,8 @@
     const hasProfileListRefs = grant.profileLists.some(ref =>
       section?.profileLists.some(sectionRef => sectionRef.address === ref.address),
     )
-    const hasBadgeRefs = grant.badges.some(ref =>
-      section?.badges.some(sectionRef => sectionRef.address === ref.address),
-    )
 
-    if (!section || !hasProfileListRefs || !hasBadgeRefs) {
+    if (!section || !hasProfileListRefs) {
       pushToast({theme: "error", message: "This moderator grant is no longer active."})
       return
     }
@@ -360,7 +347,7 @@
           relays: $activeCommunityRelays,
           event: makeEvent(definitionUpdate.kind, definitionUpdate),
         })
-        pushToast({theme: "warning", message: "Moderator refs revoked."})
+        pushToast({theme: "warning", message: "Moderator ref revoked."})
         history.back()
       },
     })
@@ -426,29 +413,6 @@
     })
   })
 
-  $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
-    if (reportFilters.length === 0) return
-    const key = makeHydrationKey($activeCommunityRelays, reportFilters)
-    if (key === reportHydrationKey) return
-
-    reportHydrationKey = key
-    void loadCommunityEvents($activeCommunityRelays, reportFilters).catch(error => {
-      console.warn("[community] Failed to hydrate admin moderation reports", error)
-    })
-  })
-
-  $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
-    if (reportDeleteFilters.length === 0) return
-    const key = makeHydrationKey($activeCommunityRelays, reportDeleteFilters)
-    if (key === reportDeleteHydrationKey) return
-
-    reportDeleteHydrationKey = key
-    void loadCommunityEvents($activeCommunityRelays, reportDeleteFilters).catch(error => {
-      console.warn("[community] Failed to hydrate admin moderation report deletes", error)
-    })
-  })
 </script>
 
 <PageBar>
@@ -507,8 +471,8 @@
           <div>
             <h2 class="text-xl font-semibold">Moderator requests</h2>
             <p class="text-sm opacity-70">
-              Review requester-owned list and badge pairs, then accept by appending their refs to
-              the community definition.
+              Review requester-owned profile-list refs, then accept by appending them to the
+              community definition.
             </p>
           </div>
           {#if pendingModeratorRequests.length > 0}
@@ -542,13 +506,15 @@
                     Requester: <ProfileLink pubkey={moderatorRequest.requesterPubkey} />
                   </p>
                   <p class="text-xs opacity-60">
-                    Submitted {new Date(getSubmittedAt(moderatorRequest) * 1000).toLocaleString()}
+                    {getRequestTimeLabel(moderatorRequest)} {new Date(
+                      getRequestTime(moderatorRequest) * 1000,
+                    ).toLocaleString()}
                   </p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <Button
                     class="btn btn-error btn-sm"
-                    disabled={moderatorRequest.status === "rejected"}
+                    disabled={moderatorRequest.status === "rejected" || moderatorRequest.derivedFromGrant}
                     onclick={() => rejectModeratorRequest(moderatorRequest)}>
                     Reject
                   </Button>
@@ -561,16 +527,17 @@
                 </div>
               </div>
 
-              <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
+              <div class="mt-3 text-sm">
                 <div class="rounded-box bg-base-200 p-3">
                   <strong>Profile list ref</strong>
                   <p class="break-all opacity-75">{moderatorRequest.profileListRef.address}</p>
                 </div>
-                <div class="rounded-box bg-base-200 p-3">
-                  <strong>Badge ref</strong>
-                  <p class="break-all opacity-75">{moderatorRequest.badgeRef.address}</p>
-                </div>
               </div>
+              {#if moderatorRequest.derivedFromGrant}
+                <p class="mt-3 rounded-box bg-info/10 p-3 text-sm text-info">
+                  Grant exists; original request is unavailable.
+                </p>
+              {/if}
             </article>
           {:else}
             <p class="rounded-box bg-base-200 p-4 text-center text-sm opacity-70">
@@ -586,7 +553,8 @@
             <h2 class="text-xl font-semibold">Moderators</h2>
             <p class="text-sm opacity-70">
               Review section moderator grants grouped by pubkey. The community key is always allowed
-              and is not listed here.
+              and is not listed here. Person bans disable moderator powers without revoking grant
+              refs.
             </p>
           </div>
           <span class="badge badge-neutral">
@@ -606,6 +574,9 @@
                     <ProfileCircle pubkey={person.pubkey} size={9} />
                     <div class="min-w-0">
                       <strong><ProfileLink pubkey={person.pubkey} /></strong>
+                      {#if person.banned}
+                        <span class="badge badge-error mt-1">banned</span>
+                      {/if}
                     </div>
                   </div>
                   <div class="flex flex-wrap gap-2">
@@ -650,11 +621,10 @@
                           <div>
                             <div class="flex flex-wrap items-center gap-2">
                               <strong>{grant.displayName}</strong>
-                              <span class="badge badge-success">profile list + badge</span>
+                              <span class="badge badge-success">profile list</span>
                             </div>
                             <p class="mt-1 text-xs opacity-60">
-                              Revoking removes both profile-list manager and badge issuer refs for
-                              this section.
+                              Revoking removes this profile-list manager ref for the section.
                             </p>
                           </div>
                           <Button
@@ -664,19 +634,11 @@
                           </Button>
                         </div>
 
-                        <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                        <div class="mt-3 text-sm">
                           <div class="rounded-box bg-base-100 p-3">
                             <strong>Profile-list refs</strong>
                             <div class="mt-2 flex flex-col gap-1">
                               {#each grant.profileLists as ref (ref.address)}
-                                <p class="break-all opacity-75">{ref.address}</p>
-                              {/each}
-                            </div>
-                          </div>
-                          <div class="rounded-box bg-base-100 p-3">
-                            <strong>Badge refs</strong>
-                            <div class="mt-2 flex flex-col gap-1">
-                              {#each grant.badges as ref (ref.address)}
                                 <p class="break-all opacity-75">{ref.address}</p>
                               {/each}
                             </div>

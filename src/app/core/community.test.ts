@@ -29,7 +29,6 @@ import {
   parseCommunityInput,
   parseTargetedPublication,
   sectionSupportsKind,
-  userCanIssueBadge,
   userCanManageProfileList,
 } from "./community"
 
@@ -147,11 +146,7 @@ describe("community protocol helpers", () => {
       identifier: "General",
       relay: "wss://relay.example.com/",
     })
-    expect(general.badges[0]).toMatchObject({
-      kind: BADGE_DEFINITION,
-      pubkey: pubkeyC,
-      identifier: "member",
-    })
+    expect(general.badges).toEqual([])
     expect(general.retention).toEqual([{kind: 9, value: 100, type: "count"}])
   })
 
@@ -181,24 +176,12 @@ describe("community protocol helpers", () => {
         pubkeyB,
       ),
     ).toBe(true)
-    expect(
-      userCanIssueBadge(
-        {
-          kind: BADGE_DEFINITION,
-          pubkey: pubkeyC,
-          identifier: "member",
-          address: `${BADGE_DEFINITION}:${pubkeyC}:member`,
-        },
-        pubkeyC,
-      ),
-    ).toBe(true)
   })
 
   it("builds default community setup refs and definition events", () => {
     const setup = makeCommunitySetupRefs({
       communityPubkey: pubkeyA,
       profileListPubkey: pubkeyB,
-      badgeIssuerPubkey: pubkeyC,
       relays: ["wss://relay.example.com"],
     })
 
@@ -229,7 +212,7 @@ describe("community protocol helpers", () => {
       pubkey: pubkeyB,
       relay: "wss://relay.example.com/",
     })
-    expect(general.badges[0]).toMatchObject({pubkey: pubkeyC})
+    expect(general.badges).toEqual([])
     expect(sectionSupportsKind(general, 9, COMMUNITY_SUBTYPE_ROOM_MESSAGE)).toBe(true)
     expect(sectionSupportsKind(threads, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
   })
@@ -238,7 +221,6 @@ describe("community protocol helpers", () => {
     const communitySection = makeCommunitySetupSection({
       communityPubkey: pubkeyA,
       profileListPubkey: pubkeyA,
-      badgeIssuerPubkey: pubkeyA,
       relays: ["wss://relay.example.com"],
       name: "Apps",
       kinds: [{kind: 32267}, {kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS}],
@@ -246,7 +228,6 @@ describe("community protocol helpers", () => {
     const moderatorSection = makeCommunitySetupSection({
       communityPubkey: pubkeyA,
       profileListPubkey: pubkeyB,
-      badgeIssuerPubkey: pubkeyB,
       relays: ["wss://relay.example.com"],
       name: "Apps",
       kinds: communitySection.kinds,
@@ -258,7 +239,6 @@ describe("community protocol helpers", () => {
           name: "Apps",
           kinds: communitySection.kinds,
           profileLists: [communitySection.profileList, moderatorSection.profileList],
-          badges: [communitySection.badge, moderatorSection.badge],
         },
       ],
     })
@@ -269,7 +249,7 @@ describe("community protocol helpers", () => {
 
     expect(template.tags).toContainEqual(["k", "11", COMMUNITY_SUBTYPE_THREADS])
     expect(apps.profileLists.map(ref => ref.pubkey)).toEqual([pubkeyA, pubkeyB])
-    expect(apps.badges.map(ref => ref.pubkey)).toEqual([pubkeyA, pubkeyB])
+    expect(apps.badges).toEqual([])
     expect(sectionSupportsKind(apps, 32267)).toBe(true)
     expect(sectionSupportsKind(apps, 11, COMMUNITY_SUBTYPE_THREADS)).toBe(true)
     expect(sectionSupportsKind(apps, 11, "forum")).toBe(true)
@@ -298,20 +278,19 @@ describe("community protocol helpers", () => {
   })
 
   it("builds community badge definition events", () => {
-    const setup = makeCommunitySetupRefs({
-      communityPubkey: pubkeyA,
-      profileListPubkey: pubkeyB,
-      badgeIssuerPubkey: pubkeyC,
-      relays: ["wss://relay.example.com"],
-    })
-    const badge = setup.sections[0].badge
+    const badge = {
+      kind: BADGE_DEFINITION,
+      pubkey: pubkeyC,
+      identifier: "community-helper",
+      address: `${BADGE_DEFINITION}:${pubkeyC}:community-helper`,
+    }
 
-    expect(makeCommunityBadgeDefinition({badge, name: "General writer"})).toEqual({
+    expect(makeCommunityBadgeDefinition({badge, name: "Community helper"})).toEqual({
       kind: BADGE_DEFINITION,
       content: "",
       tags: [
         ["d", badge.identifier],
-        ["name", "General writer"],
+        ["name", "Community helper"],
       ],
     })
   })

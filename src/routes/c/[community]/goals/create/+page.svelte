@@ -19,6 +19,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
     getUserOutboxRelays,
   } from "@app/core/community-state"
@@ -51,6 +52,7 @@
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.goal,
+          reportState: $activeCommunityReportState,
         }),
     ),
   )

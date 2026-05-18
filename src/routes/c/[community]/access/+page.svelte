@@ -1,6 +1,7 @@
 <script lang="ts">
   import {onDestroy, tick} from "svelte"
   import {page} from "$app/stores"
+  import {request} from "@welshman/net"
   import {pubkey, publishThunk, repository, waitForThunkCompletion} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {DELETE, makeEvent, type TrustedEvent} from "@welshman/util"
@@ -13,6 +14,7 @@
   import Field from "@lib/components/Field.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
+  import ProfileLink from "@app/components/ProfileLink.svelte"
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
@@ -22,6 +24,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
     activeCommunityUserModeratorRequestStates,
     activeCommunityUserModeratorRequestsLoading,
@@ -38,14 +41,13 @@
     type CommunityFormField,
     type CommunityFormResponse,
     type CommunitySubmissionState,
+    getAdmissionReviewHistory,
     getAdmissionSubmissionState,
     makeAdmissionResponse,
     makeAdmissionResponseDelete,
   } from "@app/core/community-forms"
-  import {
-    makeModeratorBadgeRequest,
-    makeModeratorProfileListRequest,
-  } from "@app/core/community-moderator-requests"
+  import {makeModeratorProfileListRequest} from "@app/core/community-moderator-requests"
+  import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {checked, normalizeChecked, setChecked} from "@app/util/notifications"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
@@ -75,6 +77,7 @@
   let moderatorRequestsOpen = $state(false)
   let moderatorRequestPublishStates = $state<Record<string, ModeratorRequestPublishState>>({})
   let lastScrolledSectionName = $state("")
+  const currentUserBanned = $derived(isCommunityPersonBanned($activeCommunityReportState, $pubkey || ""))
 
   const requestedSectionName = $derived($page.url.searchParams.get("section") || "")
   const forms = $derived(communityBootstrapReady ? $activeCommunityAdmissionForms : {})
@@ -94,22 +97,46 @@
   const reviewFilters = $derived(
     responseIds.length ? [{kinds: [COMMUNITY_FORM_REVIEW_KIND], "#e": responseIds}] : [],
   )
+  const reviewHistoryFilters = $derived(
+    communityBootstrapReady && $pubkey && communityPubkey
+      ? [
+          {
+            kinds: [COMMUNITY_FORM_REVIEW_KIND],
+            "#p": [$pubkey],
+            "#h": [communityPubkey],
+            "#k": [String(FORM_RESPONSE_KIND)],
+            limit: 200,
+          },
+        ]
+      : [],
+  )
   const deleteEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: deleteFilters})),
   )
   const reviewEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})),
   )
+  const reviewHistoryEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: reviewHistoryFilters})),
+  )
   const sectionItems = $derived(
     communityBootstrapReady ? ($activeCommunityDefinition?.sections || []).map(section => {
       const displayName = getCommunitySectionDisplayName(section)
       const form = forms[section.name] || forms[displayName]
+      const moderatorPubkeys = $activeCommunityDefinition
+        ? getGrantCapableSectionModeratorPubkeys({
+            definition: $activeCommunityDefinition,
+            sectionName: section.name,
+            reportState: $activeCommunityReportState,
+          })
+        : []
       const granted = Boolean(
         $pubkey &&
         userHasSectionProfileListAccess({
           section,
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
+          reportState: $activeCommunityReportState,
         }),
       )
       const state =
@@ -120,15 +147,22 @@
               reviewEvents: $reviewEvents,
               formAddress: form.address,
               applicantPubkey: $pubkey,
-              moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
-                definition: $activeCommunityDefinition!,
-                sectionName: section.name,
-              }),
+              moderatorPubkeys,
               profileListGranted: granted,
             })
           : ({status: granted ? "granted" : "none"} satisfies CommunitySubmissionState)
+      const history = $pubkey
+        ? getAdmissionReviewHistory({
+            reviewEvents: [...$reviewEvents, ...$reviewHistoryEvents],
+            applicantPubkey: $pubkey,
+            communityPubkey,
+            sectionName: section.name,
+            moderatorPubkeys,
+            excludeResponseId: state.response?.event.id,
+          })
+        : undefined
 
-      return {section, displayName, form, granted, state}
+      return {section, displayName, form, granted, state, history}
     }) : [],
   )
   const moderatorRequestStates = $derived(
@@ -181,6 +215,7 @@
           definition,
           userPubkey: $pubkey,
           sectionName: section.name,
+          reportState: $activeCommunityReportState,
         }).canGrant,
       )
       const status = alreadyModerator ? "accepted" : request?.status || "none"
@@ -323,6 +358,11 @@
       return
     }
 
+    if (currentUserBanned) {
+      pushToast({theme: "error", message: "You are banned from requesting community access."})
+      return
+    }
+
     if ($activeCommunityRelays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return
@@ -415,6 +455,11 @@
       return
     }
 
+    if (currentUserBanned) {
+      pushToast({theme: "error", message: "You are banned from requesting moderator permissions."})
+      return
+    }
+
     if ($activeCommunityRelays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return
@@ -446,7 +491,6 @@
       relays: $activeCommunityRelays,
     }
     const profileList = makeModeratorProfileListRequest(options)
-    const badge = makeModeratorBadgeRequest(options)
 
     setModeratorRequestPublishState(sectionName, {
       status: "publishing",
@@ -454,22 +498,14 @@
     })
 
     let profileListThunk: ReturnType<typeof publishThunk>
-    let badgeThunk: ReturnType<typeof publishThunk>
 
     try {
       profileListThunk = publishThunk({
         relays: $activeCommunityRelays,
         event: makeEvent(profileList.kind, profileList),
       })
-      badgeThunk = publishThunk({
-        relays: $activeCommunityRelays,
-        event: makeEvent(badge.kind, badge),
-      })
 
-      await Promise.all([
-        waitForThunkCompletion(profileListThunk),
-        waitForThunkCompletion(badgeThunk),
-      ])
+      await waitForThunkCompletion(profileListThunk)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       setModeratorRequestPublishState(sectionName, {status: "failed", detail})
@@ -477,15 +513,14 @@
       return
     }
 
-    if (!hasSuccessfulRelay(profileListThunk) || !hasSuccessfulRelay(badgeThunk)) {
-      const detail = getPublishError([profileListThunk, badgeThunk])
+    if (!hasSuccessfulRelay(profileListThunk)) {
+      const detail = getPublishError([profileListThunk])
       setModeratorRequestPublishState(sectionName, {status: "failed", detail})
       pushToast({theme: "error", message: `Moderator request failed: ${detail}`})
       return
     }
 
     repository.publish(profileListThunk.event as TrustedEvent)
-    repository.publish(badgeThunk.event as TrustedEvent)
     setModeratorRequestPublishState(sectionName, {
       status: "sent",
       detail: "Relay confirmed the request.",
@@ -545,9 +580,28 @@
 
     return "badge-neutral"
   }
+  const reviewHistoryToneClass = (status: string) =>
+    status === "granted" ? "bg-success/10 text-success" : "bg-error/10 text-error"
+  const reviewHistoryLabel = (status: string) =>
+    status === "granted" ? "Previously granted" : "Previously rejected"
 
   const getPublishingAccessRequestId = (sectionName: string) =>
     `publishing-access-request-${encodeURIComponent(sectionName)}`
+
+  $effect(() => {
+    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
+    if (reviewHistoryFilters.length === 0) return
+
+    const controller = new AbortController()
+    request({
+      relays: $activeCommunityRelays,
+      autoClose: true,
+      filters: reviewHistoryFilters,
+      signal: controller.signal,
+    })
+
+    return () => controller.abort()
+  })
 
   $effect(() => {
     const sectionName = requestedSectionName
@@ -601,6 +655,13 @@
         Community content remains readable, but applications must be tied to your pubkey.
       </p>
     </div>
+  {:else if currentUserBanned}
+    <div class="card2 bg-alt p-4 text-center shadow-md">
+      <strong>Community access is blocked</strong>
+      <p class="mt-2 text-sm opacity-70">
+        This pubkey is banned from publishing or requesting additional permissions in this community.
+      </p>
+    </div>
   {:else}
     <div class="card2 bg-alt shrink-0 p-4 shadow-md">
       <h2 class="text-xl font-semibold">Your community permissions</h2>
@@ -646,6 +707,16 @@
                 </div>
                 <span class={`badge ${statusClass(item.state.status)}`}>{item.state.status}</span>
               </div>
+
+              {#if item.state.status !== "granted" && item.history?.latestPriorReview}
+                {@const priorReview = item.history.latestPriorReview}
+                <p class={`rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
+                  {reviewHistoryLabel(priorReview.status)} by
+                  <ProfileLink pubkey={priorReview.event.pubkey} /> on {new Date(
+                    priorReview.event.created_at * 1000,
+                  ).toLocaleString()}.
+                </p>
+              {/if}
 
               {#if item.state.status === "granted"}
                 <p class="rounded-box bg-success/10 p-3 text-sm text-success">
@@ -790,8 +861,7 @@
           <div>
             <h2 class="text-xl font-semibold">Moderator access requests</h2>
             <p class="mt-1 text-sm opacity-70">
-              Ask the community key to add your pubkey as a list manager and badge issuer for a
-              section.
+              Ask the community key to add your pubkey as a section moderator.
             </p>
           </div>
           <span

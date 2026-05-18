@@ -21,6 +21,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
     hasCommunityHydrationCompleted,
     markCommunityHydrationCompleted,
@@ -40,6 +41,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {
     getCommunityDeleteSeenKey,
     getCommunityDeleteSince,
@@ -105,6 +107,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_CALENDAR,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -114,6 +117,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_GENERAL,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -167,6 +171,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.reaction,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )
@@ -178,6 +183,7 @@
     let previousDateDisplay: string | undefined
 
     return $events
+      .filter(event => !isCommunityPersonBanned($activeCommunityReportState, event.pubkey))
       .filter(event => !isNaN(getStart(event)))
       .map<CalendarItem>(event => {
         const start = getStart(event)

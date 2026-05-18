@@ -46,7 +46,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {getCommunityCensorReason} from "@app/core/community-reports"
+  import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
   import {userSettingsValues} from "@app/core/state"
   import {prependParent, publishSocialDelete} from "@app/core/commands"
@@ -82,6 +82,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_GENERAL,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -141,6 +142,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.roomMessage,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )
@@ -156,6 +158,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.reaction,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )
@@ -357,7 +360,11 @@
   let feedInitialized = $state(false)
   let lastFeedKey = ""
 
-  const messages = $derived(readCommunityRoomMessages($events, communityPubkey, roomId))
+  const messages = $derived(
+    readCommunityRoomMessages($events, communityPubkey, roomId).filter(
+      item => !isCommunityPersonBanned($activeCommunityReportState, item.event.pubkey),
+    ),
+  )
   const elements = $derived.by(() => {
     const nextElements: RoomElement[] = []
     const seen = new Set<string>()

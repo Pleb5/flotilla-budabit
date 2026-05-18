@@ -2,7 +2,7 @@ import {describe, expect, it} from "vitest"
 import {get} from "svelte/store"
 import {repository} from "@welshman/app"
 import * as nip19 from "nostr-tools/nip19"
-import {BADGE_DEFINITION, type TrustedEvent} from "@welshman/util"
+import {type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   FORM_TEMPLATE_KIND,
@@ -11,20 +11,17 @@ import {
   parseCommunityDefinition,
 } from "./community"
 import {
-  getBadgeDefinitionRefs,
   getCommunityBootstrapRelays,
   COMMUNITY_DISCOVERY_RELAYS,
   activeCommunityAdmissionFormEvents,
   activeCommunityAdmissionForms,
   getProfileListRefs,
   makeCommunityAdmissionFormFilters,
-  makeCommunityBadgeDefinitionFilters,
   makeCommunityDefinitionFilter,
   makeCommunityProfileListFilters,
   makeCommunitySession,
   selectLatestCommunityDefinition,
   activeCommunityDefinition,
-  activeCommunityBadgeDefinitionEvents,
   activeCommunityProfile,
   activeCommunityProfileListEvents,
   activeCommunityRelays,
@@ -63,7 +60,6 @@ const makeCommunityDefinitionEvent = (created_at: number, id = `definition-${cre
       ["content", "General"],
       ["k", "1111"],
       ["a", `${PROFILE_LIST_KIND}:${listPubkey}:General`, "wss://relay.example.com"],
-      ["badge", `${BADGE_DEFINITION}:${badgePubkey}:member`],
     ],
   })
 
@@ -151,20 +147,14 @@ describe("community state helpers", () => {
     ).toBe("newer")
   })
 
-  it("extracts profile-list and badge refs from definitions", () => {
+  it("extracts profile-list refs from definitions", () => {
     const definition = parseCommunityDefinition(makeCommunityDefinitionEvent(1))!
 
     expect(getProfileListRefs(definition)).toMatchObject([
       {kind: PROFILE_LIST_KIND, pubkey: listPubkey, identifier: "General"},
     ])
-    expect(getBadgeDefinitionRefs(definition)).toMatchObject([
-      {kind: BADGE_DEFINITION, pubkey: badgePubkey, identifier: "member"},
-    ])
     expect(makeCommunityProfileListFilters(definition)).toEqual([
       {kinds: [PROFILE_LIST_KIND], authors: [listPubkey], "#d": ["General"], limit: 1},
-    ])
-    expect(makeCommunityBadgeDefinitionFilters(definition)).toEqual([
-      {kinds: [BADGE_DEFINITION], authors: [badgePubkey], "#d": ["member"], limit: 1},
     ])
   })
 
@@ -178,7 +168,6 @@ describe("community state helpers", () => {
           ["content", "Repositories"],
           ["k", "30617"],
           ["a", `${PROFILE_LIST_KIND}:${badgePubkey}:Repositories`, "wss://relay.example.com"],
-          ["badge", `${BADGE_DEFINITION}:${badgePubkey}:repo-curator`],
         ],
       }),
     )!
@@ -246,7 +235,6 @@ describe("community state helpers", () => {
     expect(get(activeCommunitySession)).toBeUndefined()
     expect(get(activeCommunityDefinition)).toBeUndefined()
     expect(get(activeCommunityProfileListEvents)).toEqual([])
-    expect(get(activeCommunityBadgeDefinitionEvents)).toEqual([])
     expect(get(activeCommunityAdmissionFormEvents)).toEqual([])
   })
 

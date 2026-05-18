@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest"
-import {BADGE_DEFINITION, DELETE, type TrustedEvent} from "@welshman/util"
+import {DELETE, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   FORM_RESPONSE_KIND,
@@ -8,7 +8,7 @@ import {
   TARGETED_PUBLICATION_KIND,
   parseCommunityDefinition,
 } from "./community"
-import {makeCommunityGrantEvents} from "./community-admin"
+import {makeCommunityGrantEvent, makeCommunityRevokeEvent} from "./community-admin"
 import {makeModeratorGrantRevokeDefinitionUpdate} from "./community-moderator-requests"
 import {
   makeTargetedPublicationForCommunity,
@@ -69,25 +69,6 @@ const calendarListRef = {
   identifier: "Calendar",
   address: `${PROFILE_LIST_KIND}:${moderatorPubkey}:Calendar`,
 }
-const generalBadgeRef = {
-  kind: BADGE_DEFINITION,
-  pubkey: moderatorPubkey,
-  identifier: "General",
-  address: `${BADGE_DEFINITION}:${moderatorPubkey}:General`,
-}
-const repoBadgeRef = {
-  kind: BADGE_DEFINITION,
-  pubkey: moderatorPubkey,
-  identifier: "Repositories",
-  address: `${BADGE_DEFINITION}:${moderatorPubkey}:Repositories`,
-}
-const calendarBadgeRef = {
-  kind: BADGE_DEFINITION,
-  pubkey: moderatorPubkey,
-  identifier: "Calendar",
-  address: `${BADGE_DEFINITION}:${moderatorPubkey}:Calendar`,
-}
-
 const definition = parseCommunityDefinition(
   makeEvent({
     id: "community-definition",
@@ -100,15 +81,12 @@ const definition = parseCommunityDefinition(
       ["k", "1111"],
       ["k", "7"],
       ["a", generalListRef.address],
-      ["badge", generalBadgeRef.address],
       ["content", "Repositories"],
       ["k", "30617"],
       ["a", repoListRef.address],
-      ["badge", repoBadgeRef.address],
       ["content", "Calendar"],
       ["k", "31922"],
       ["a", calendarListRef.address],
-      ["badge", calendarBadgeRef.address],
     ],
   }),
 )!
@@ -264,16 +242,41 @@ describe("community admission lifecycle integration", () => {
       }).status,
     ).toBe("pending")
 
-    const grantEvents = makeCommunityGrantEvents({
+    const grantEvent = makeCommunityGrantEvent({
       profileList: generalListRef,
-      badge: generalBadgeRef,
       pubkey: applicantPubkey,
     })
     const grantedProfileList = makeEvent({
       id: "general-list-granted",
       kind: PROFILE_LIST_KIND,
       pubkey: moderatorPubkey,
-      tags: grantEvents.profileList.tags,
+      tags: grantEvent.tags,
+    })
+    const revokeReview = makeEvent({
+      id: "revoke-response-3",
+      kind: 7,
+      pubkey: moderatorPubkey,
+      created_at: 16,
+      content: "-",
+      tags: makeAdmissionReview({
+        responseId: "response-3",
+        applicantPubkey,
+        formAddress,
+        communityPubkey,
+        sectionName: "General",
+        status: "rejected",
+      }).tags,
+    })
+    const revokedProfileList = makeEvent({
+      id: "general-list-revoked",
+      kind: PROFILE_LIST_KIND,
+      pubkey: moderatorPubkey,
+      created_at: 16,
+      tags: makeCommunityRevokeEvent({
+        profileList: generalListRef,
+        profileListEvent: grantedProfileList,
+        pubkey: applicantPubkey,
+      }).tags,
     })
 
     expect(
@@ -290,6 +293,25 @@ describe("community admission lifecycle integration", () => {
         profileListEvents: [grantedProfileList],
         userPubkey: applicantPubkey,
         target: COMMUNITY_WRITE_TARGETS.repository,
+      }),
+    ).toBe(false)
+    expect(
+      getAdmissionSubmissionState({
+        responseEvents: [firstResponse, duplicateResponse, revisedResponse],
+        deleteEvents: [deleteDuplicate],
+        reviewEvents: [rejection, grantReview, revokeReview],
+        formAddress,
+        applicantPubkey,
+        moderatorPubkeys: [moderatorPubkey],
+        profileListGranted: true,
+      }).status,
+    ).toBe("rejected")
+    expect(
+      canWriteCommunityTarget({
+        definition,
+        profileListEvents: [revokedProfileList],
+        userPubkey: applicantPubkey,
+        target: COMMUNITY_WRITE_TARGETS.comment,
       }),
     ).toBe(false)
 
@@ -347,16 +369,15 @@ describe("community admission lifecycle integration", () => {
   })
 
   it("ignores grants, forms, and reviews from a removed moderator", () => {
-    const grantEvents = makeCommunityGrantEvents({
+    const grantEvent = makeCommunityGrantEvent({
       profileList: generalListRef,
-      badge: generalBadgeRef,
       pubkey: applicantPubkey,
     })
     const grantedProfileList = makeEvent({
       id: "general-list-granted",
       kind: PROFILE_LIST_KIND,
       pubkey: moderatorPubkey,
-      tags: grantEvents.profileList.tags,
+      tags: grantEvent.tags,
     })
     const revokeTemplate = makeModeratorGrantRevokeDefinitionUpdate({
       definition,

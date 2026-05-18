@@ -18,7 +18,6 @@ import {
   COMMUNITY_SUBTYPE_ROOM_MESSAGE,
   COMMUNITY_SUBTYPE_THREADS,
   type AddressRef,
-  type CommunityBadgeRef,
   type CommunityDefinition,
   type CommunityProfileListRef,
   type CommunitySection,
@@ -27,10 +26,10 @@ import {
   normalizeCommunitySectionSubtype,
   normalizePubkey,
   sectionSupportsKind,
-  userCanIssueBadge,
   userCanManageProfileList,
 } from "@app/core/community"
 import {GIT_PERMALINK_KIND, SMART_WIDGET_KIND} from "@app/core/community-feeds"
+import type {EffectiveCommunityReportState} from "@app/core/community-reports"
 import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
 
 export type CommunityWriteTarget = {
@@ -41,10 +40,8 @@ export type CommunityWriteTarget = {
 
 export type CommunityGrantCapability = {
   canManageList: boolean
-  canIssueBadge: boolean
   canGrant: boolean
   profileList?: CommunityProfileListRef
-  badge?: CommunityBadgeRef
 }
 
 export type CommunityPublishCapability = CommunityWriteTarget & {
@@ -54,6 +51,7 @@ export type CommunityPublishCapability = CommunityWriteTarget & {
 
 export type CommunityPublishGateStatus =
   | "allowed"
+  | "banned"
   | "login-required"
   | "missing"
   | "pending"
@@ -105,7 +103,17 @@ export const getCommunityCapabilityKey = (kind: number, subtype?: string) => {
 export const getPrimaryProfileListRef = (section: CommunitySection | undefined) =>
   section?.profileLists[0]
 
-export const getPrimaryBadgeRef = (section: CommunitySection | undefined) => section?.badges[0]
+export const isCommunityReportStatePersonBanned = (
+  reportState: EffectiveCommunityReportState | undefined,
+  pubkey: string | undefined,
+) => {
+  const normalizedPubkey = normalizePubkey(pubkey || "")
+
+  return Boolean(
+    normalizedPubkey &&
+      reportState?.personReports.some(report => report.targetPubkey === normalizedPubkey),
+  )
+}
 
 const getAddress = (event: TrustedEvent) => {
   const d = event.tags.find(tag => tag[0] === "d")?.[1]
@@ -138,23 +146,21 @@ export const findProfileListEvent = (
   profileListEvents: TrustedEvent[],
 ) => findAddressableEvent(profileListRef, profileListEvents)
 
-export const findBadgeDefinitionEvent = (
-  badgeRef: CommunityBadgeRef | undefined,
-  badgeDefinitionEvents: TrustedEvent[],
-) => findAddressableEvent(badgeRef, badgeDefinitionEvents)
-
 export const getSectionProfileListPubkeys = ({
   section,
   profileListEvents,
+  reportState,
 }: {
   section: CommunitySection | undefined
   profileListEvents: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
 }) =>
   Array.from(
     new Set(
       (section?.profileLists || [])
         .flatMap(ref => getProfileListPubkeys(findProfileListEvent(ref, profileListEvents)))
-        .filter(Boolean),
+        .filter(Boolean)
+        .filter(pubkey => !isCommunityReportStatePersonBanned(reportState, pubkey)),
     ),
   )
 
@@ -162,12 +168,16 @@ export const userHasSectionProfileListAccess = ({
   section,
   profileListEvents,
   userPubkey,
+  reportState,
 }: {
   section: CommunitySection | undefined
   profileListEvents: TrustedEvent[]
   userPubkey: string
+  reportState?: EffectiveCommunityReportState
 }) =>
-  getSectionProfileListPubkeys({section, profileListEvents}).includes(normalizePubkey(userPubkey))
+  getSectionProfileListPubkeys({section, profileListEvents, reportState}).includes(
+    normalizePubkey(userPubkey),
+  )
 
 export const canWriteCommunitySection = ({
   definition,
@@ -176,6 +186,7 @@ export const canWriteCommunitySection = ({
   sectionName,
   kind,
   subtype,
+  reportState,
 }: {
   definition: CommunityDefinition
   profileListEvents: TrustedEvent[]
@@ -183,16 +194,22 @@ export const canWriteCommunitySection = ({
   sectionName: string
   kind: number
   subtype?: string
+  reportState?: EffectiveCommunityReportState
 }) => {
   const section = findCommunitySection(definition, sectionName)
   if (!sectionSupportsKind(section, kind, subtype)) return false
   const normalizedUser = normalizePubkey(userPubkey)
 
   if (definition.pubkey === normalizedUser) return true
+  if (isCommunityReportStatePersonBanned(reportState, normalizedUser)) return false
   if (section?.profileLists.some(ref => userCanManageProfileList(ref, normalizedUser))) return true
-  if (section?.badges.some(ref => userCanIssueBadge(ref, normalizedUser))) return true
 
-  return userHasSectionProfileListAccess({section, profileListEvents, userPubkey: normalizedUser})
+  return userHasSectionProfileListAccess({
+    section,
+    profileListEvents,
+    userPubkey: normalizedUser,
+    reportState,
+  })
 }
 
 export const canWriteCommunityTarget = ({
@@ -200,11 +217,13 @@ export const canWriteCommunityTarget = ({
   profileListEvents,
   userPubkey,
   target,
+  reportState,
 }: {
   definition: CommunityDefinition
   profileListEvents: TrustedEvent[]
   userPubkey: string
   target: CommunityWriteTarget
+  reportState?: EffectiveCommunityReportState
 }) => {
   const section =
     findCommunitySection(definition, target.sectionName) ||
@@ -219,6 +238,7 @@ export const canWriteCommunityTarget = ({
     sectionName: section.name,
     kind: target.kind,
     subtype: target.subtype,
+    reportState,
   })
 }
 
@@ -226,10 +246,12 @@ export const getCommunityPublishCapabilityMap = ({
   definition,
   profileListEvents,
   userPubkey,
+  reportState,
 }: {
   definition: CommunityDefinition
   profileListEvents: TrustedEvent[]
   userPubkey: string
+  reportState?: EffectiveCommunityReportState
 }) =>
   Object.fromEntries(
     (Object.values(COMMUNITY_WRITE_TARGETS) as CommunityWriteTarget[]).map(target => [
@@ -237,7 +259,13 @@ export const getCommunityPublishCapabilityMap = ({
       {
         ...target,
         key: getCommunityCapabilityKey(target.kind, target.subtype),
-        canWrite: canWriteCommunityTarget({definition, profileListEvents, userPubkey, target}),
+        canWrite: canWriteCommunityTarget({
+          definition,
+          profileListEvents,
+          userPubkey,
+          target,
+          reportState,
+        }),
       } satisfies CommunityPublishCapability,
     ]),
   ) as Record<string, CommunityPublishCapability>
@@ -251,6 +279,7 @@ export const getCommunityPublishGateState = ({
   responseEvents = [],
   deleteEvents = [],
   reviewEvents = [],
+  reportState,
 }: {
   definition: CommunityDefinition
   profileListEvents: TrustedEvent[]
@@ -260,6 +289,7 @@ export const getCommunityPublishGateState = ({
   responseEvents?: TrustedEvent[]
   deleteEvents?: TrustedEvent[]
   reviewEvents?: TrustedEvent[]
+  reportState?: EffectiveCommunityReportState
 }): CommunityPublishGateState => {
   const normalizedUser = normalizePubkey(userPubkey || "")
   const section =
@@ -269,9 +299,21 @@ export const getCommunityPublishGateState = ({
   const base = {...resolvedTarget, form}
 
   if (!normalizedUser) return {...base, status: "login-required"}
+  if (
+    normalizedUser !== normalizePubkey(definition.pubkey) &&
+    isCommunityReportStatePersonBanned(reportState, normalizedUser)
+  ) {
+    return {...base, status: "banned"}
+  }
 
   if (
-    canWriteCommunityTarget({definition, profileListEvents, userPubkey: normalizedUser, target})
+    canWriteCommunityTarget({
+      definition,
+      profileListEvents,
+      userPubkey: normalizedUser,
+      target,
+      reportState,
+    })
   ) {
     return {...base, status: "allowed"}
   }
@@ -287,6 +329,7 @@ export const getCommunityPublishGateState = ({
     moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
       definition,
       sectionName: resolvedTarget.sectionName,
+      reportState,
     }),
   })
 
@@ -305,22 +348,22 @@ export const getCommunityPublishGateState = ({
 export const getGrantCapableSectionModeratorPubkeys = ({
   definition,
   sectionName,
+  reportState,
 }: {
   definition: CommunityDefinition
   sectionName: string
+  reportState?: EffectiveCommunityReportState
 }) => {
   const section = findCommunitySection(definition, sectionName)
   if (!section) return []
-
-  const badgeIssuers = new Set(section.badges.map(ref => ref.pubkey))
 
   return Array.from(
     new Set(
       section.profileLists
         .map(ref => ref.pubkey)
-        .filter(pubkey => badgeIssuers.has(pubkey))
         .map(normalizePubkey)
-        .filter(Boolean),
+        .filter(Boolean)
+        .filter(pubkey => !isCommunityReportStatePersonBanned(reportState, pubkey)),
     ),
   )
 }
@@ -328,9 +371,11 @@ export const getGrantCapableSectionModeratorPubkeys = ({
 export const getCommunitySectionAuthorityPubkeys = ({
   definition,
   sectionName,
+  reportState,
 }: {
   definition: CommunityDefinition
   sectionName: string
+  reportState?: EffectiveCommunityReportState
 }) => {
   const section = findCommunitySection(definition, sectionName)
   if (!section) return [definition.pubkey]
@@ -340,11 +385,14 @@ export const getCommunitySectionAuthorityPubkeys = ({
       [
         definition.pubkey,
         ...section.profileLists.map(ref => ref.pubkey),
-        ...section.badges.map(ref => ref.pubkey),
       ]
         .map(normalizePubkey)
         .filter(Boolean),
     ),
+  ).filter(
+    pubkey =>
+      pubkey === normalizePubkey(definition.pubkey) ||
+      !isCommunityReportStatePersonBanned(reportState, pubkey),
   )
 }
 
@@ -352,15 +400,17 @@ export const getCommunitySectionWriterPubkeys = ({
   definition,
   profileListEvents,
   sectionName,
+  reportState,
 }: {
   definition: CommunityDefinition
   profileListEvents: TrustedEvent[]
   sectionName: string
+  reportState?: EffectiveCommunityReportState
 }) => {
   const section = findCommunitySection(definition, sectionName)
-  const pubkeys = new Set(getCommunitySectionAuthorityPubkeys({definition, sectionName}))
+  const pubkeys = new Set(getCommunitySectionAuthorityPubkeys({definition, sectionName, reportState}))
 
-  for (const pubkey of getSectionProfileListPubkeys({section, profileListEvents}))
+  for (const pubkey of getSectionProfileListPubkeys({section, profileListEvents, reportState}))
     pubkeys.add(pubkey)
 
   return Array.from(pubkeys)
@@ -370,25 +420,31 @@ export const getGrantCapability = ({
   definition,
   userPubkey,
   sectionName,
+  reportState,
 }: {
   definition: CommunityDefinition
   userPubkey: string
   sectionName: string
+  reportState?: EffectiveCommunityReportState
 }): CommunityGrantCapability => {
   const section = findCommunitySection(definition, sectionName)
   const normalizedUser = normalizePubkey(userPubkey)
+
+  if (
+    normalizedUser !== normalizePubkey(definition.pubkey) &&
+    isCommunityReportStatePersonBanned(reportState, normalizedUser)
+  ) {
+    return {canManageList: false, canGrant: false}
+  }
+
   const profileList = section?.profileLists.find(ref =>
     userCanManageProfileList(ref, normalizedUser),
   )
-  const badge = section?.badges.find(ref => userCanIssueBadge(ref, normalizedUser))
   const canManageList = Boolean(profileList)
-  const canIssueBadge = Boolean(badge)
 
   return {
     canManageList,
-    canIssueBadge,
-    canGrant: canManageList && canIssueBadge,
+    canGrant: canManageList,
     profileList,
-    badge,
   }
 }

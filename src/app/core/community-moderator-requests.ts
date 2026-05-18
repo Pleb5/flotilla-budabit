@@ -1,4 +1,4 @@
-import {BADGE_DEFINITION, DELETE, type EventContent, type TrustedEvent} from "@welshman/util"
+import {DELETE, type EventContent, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   PROFILE_LIST_KIND,
@@ -9,7 +9,6 @@ import {
   normalizePubkey,
   normalizeRelay,
   normalizeRelays,
-  type CommunityBadgeRef,
   type CommunityDefinition,
   type CommunityDefinitionSectionInput,
   type CommunityProfileListRef,
@@ -17,11 +16,8 @@ import {
 
 export const MODERATOR_REQUEST_REACTION_KIND = 7
 
-export type ModeratorRequestTarget = "profile-list" | "badge"
-
 export type ParsedModeratorRequestEvent = {
   event: TrustedEvent
-  target: ModeratorRequestTarget
   pubkey: string
   identifier: string
   address: string
@@ -37,9 +33,7 @@ export type ModeratorPromotionRequest = {
   communityPubkey: string
   sectionName: string
   profileList: ParsedModeratorRequestEvent
-  badge: ParsedModeratorRequestEvent
   profileListRef: CommunityProfileListRef
-  badgeRef: CommunityBadgeRef
 }
 
 export type ModeratorPromotionRequestStatus = "pending" | "accepted" | "rejected"
@@ -50,6 +44,7 @@ export type ModeratorPromotionRequestState = ModeratorPromotionRequest & {
   statusEvent?: TrustedEvent
   acceptanceReactions: TrustedEvent[]
   rejectionReactions: TrustedEvent[]
+  derivedFromGrant?: boolean
 }
 
 const getDTag = (event: TrustedEvent) => event.tags.find(tag => tag[0] === "d")?.[1] || ""
@@ -134,14 +129,8 @@ export const makeModeratorRequestRefs = ({
     address: makeAddress(PROFILE_LIST_KIND, pubkey, identifier),
     relay: normalizedRelays[0],
   }
-  const badge: CommunityBadgeRef = {
-    kind: BADGE_DEFINITION,
-    pubkey,
-    identifier,
-    address: makeAddress(BADGE_DEFINITION, pubkey, identifier),
-  }
 
-  return {identifier, profileList, badge}
+  return {identifier, profileList}
 }
 
 export const makeModeratorProfileListRequest = ({
@@ -175,44 +164,11 @@ export const makeModeratorProfileListRequest = ({
   }
 }
 
-export const makeModeratorBadgeRequest = ({
-  communityPubkey,
-  requesterPubkey,
-  sectionName,
-  relays = [],
-}: {
-  communityPubkey: string
-  requesterPubkey: string
-  sectionName: string
-  relays?: string[]
-}): EventContent & {kind: typeof BADGE_DEFINITION} => {
-  const {identifier} = makeModeratorRequestRefs({
-    communityPubkey,
-    requesterPubkey,
-    sectionName,
-    relays,
-  })
-  const communityAddress = makeCommunityDefinitionAddress(communityPubkey)
-  const relay = normalizeRelay(relays[0])
-
-  return {
-    kind: BADGE_DEFINITION,
-    content: "",
-    tags: [
-      ["d", identifier],
-      relay ? ["a", communityAddress, relay] : ["a", communityAddress],
-      ["content", sectionName],
-      ["name", `${sectionName} moderator`],
-      ["description", `Can moderate access for the ${sectionName} section.`],
-    ],
-  }
-}
-
 export const parseModeratorRequestEvent = (
   event: TrustedEvent,
   communityPubkey?: string,
 ): ParsedModeratorRequestEvent | undefined => {
-  if (event.kind !== PROFILE_LIST_KIND && event.kind !== BADGE_DEFINITION) return undefined
+  if (event.kind !== PROFILE_LIST_KIND) return undefined
 
   const pubkey = normalizePubkey(event.pubkey || "")
   const identifier = getDTag(event)
@@ -225,7 +181,6 @@ export const parseModeratorRequestEvent = (
 
   return {
     event,
-    target: event.kind === PROFILE_LIST_KIND ? "profile-list" : "badge",
     pubkey,
     identifier,
     address,
@@ -237,70 +192,129 @@ export const parseModeratorRequestEvent = (
 
 export const getModeratorPromotionRequests = ({
   profileListEvents,
-  badgeEvents,
   communityPubkey,
 }: {
   profileListEvents: TrustedEvent[]
-  badgeEvents: TrustedEvent[]
   communityPubkey: string
 }): ModeratorPromotionRequest[] => {
   const lists = selectLatestParsedRequestEvents(
     profileListEvents
       .map(event => parseModeratorRequestEvent(event, communityPubkey))
-      .filter((event): event is ParsedModeratorRequestEvent => Boolean(event))
-      .filter(event => event.target === "profile-list"),
+      .filter((event): event is ParsedModeratorRequestEvent => Boolean(event)),
   )
-  const badges = selectLatestParsedRequestEvents(
-    badgeEvents
-      .map(event => parseModeratorRequestEvent(event, communityPubkey))
-      .filter((event): event is ParsedModeratorRequestEvent => Boolean(event))
-      .filter(event => event.target === "badge"),
-  )
-  const badgesByKey = new Map(
-    badges.map(badge => [`${badge.pubkey}:${badge.sectionName}:${badge.identifier}`, badge]),
-  )
-  const requests: ModeratorPromotionRequest[] = []
 
-  for (const profileList of lists) {
-    const badge = badgesByKey.get(
-      `${profileList.pubkey}:${profileList.sectionName}:${profileList.identifier}`,
-    )
-    if (!badge) continue
-
-    requests.push({
-      requesterPubkey: profileList.pubkey,
+  return lists.map(profileList => ({
+    requesterPubkey: profileList.pubkey,
+    identifier: profileList.identifier,
+    communityAddress: profileList.communityAddress,
+    communityPubkey: profileList.communityPubkey,
+    sectionName: profileList.sectionName,
+    profileList,
+    profileListRef: {
+      kind: PROFILE_LIST_KIND,
+      pubkey: profileList.pubkey,
       identifier: profileList.identifier,
-      communityAddress: profileList.communityAddress,
-      communityPubkey: profileList.communityPubkey,
-      sectionName: profileList.sectionName,
-      profileList,
-      badge,
-      profileListRef: {
-        kind: PROFILE_LIST_KIND,
-        pubkey: profileList.pubkey,
-        identifier: profileList.identifier,
-        address: profileList.address,
-        relay: normalizeRelay(profileList.event.tags.find(tag => tag[0] === "a")?.[2]),
-      },
-      badgeRef: {
-        kind: BADGE_DEFINITION,
-        pubkey: badge.pubkey,
-        identifier: badge.identifier,
-        address: badge.address,
-      },
-    })
-  }
-
-  return requests
+      address: profileList.address,
+      relay: normalizeRelay(profileList.event.tags.find(tag => tag[0] === "a")?.[2]),
+    },
+  }))
 }
 
 const hasSectionRef = (definition: CommunityDefinition, request: ModeratorPromotionRequest) => {
   const section = findCommunitySection(definition, request.sectionName)
 
   return Boolean(
-    section?.profileLists.some(ref => ref.address === request.profileListRef.address) &&
-    section.badges.some(ref => ref.address === request.badgeRef.address),
+    section?.profileLists.some(ref => ref.address === request.profileListRef.address),
   )
+}
+
+const makeGrantDerivedRequestEvent = ({
+  definition,
+  sectionName,
+  ref,
+}: {
+  definition: CommunityDefinition
+  sectionName: string
+  ref: CommunityProfileListRef
+}): ParsedModeratorRequestEvent => {
+  const communityAddress = makeCommunityDefinitionAddress(definition.pubkey)
+  const relay = normalizeRelay(ref.relay)
+  const event = {
+    ...definition.event,
+    id: `grant:${ref.address}`,
+    pubkey: ref.pubkey,
+    kind: ref.kind,
+    content: "",
+    tags: [
+      ["d", ref.identifier],
+      relay ? ["a", communityAddress, relay] : ["a", communityAddress],
+      ["content", sectionName],
+    ],
+  } as TrustedEvent
+
+  return {
+    event,
+    pubkey: normalizePubkey(ref.pubkey),
+    identifier: ref.identifier,
+    address: ref.address,
+    communityAddress,
+    communityPubkey: normalizePubkey(definition.pubkey),
+    sectionName,
+  }
+}
+
+const getGrantDerivedModeratorRequestStates = (
+  definition: CommunityDefinition,
+  requestStates: ModeratorPromotionRequestState[],
+): ModeratorPromotionRequestState[] => {
+  const communityOwner = normalizePubkey(definition.pubkey)
+  const acceptedKeys = new Set(
+    requestStates
+      .filter(request => request.status === "accepted")
+      .map(request => `${request.requesterPubkey}:${request.sectionName}`),
+  )
+  const states: ModeratorPromotionRequestState[] = []
+
+  for (const section of definition.sections) {
+    const profileListsByPubkey = new Map<string, CommunityProfileListRef[]>()
+
+    for (const ref of section.profileLists) {
+      const pubkey = normalizePubkey(ref.pubkey)
+      if (!pubkey || pubkey === communityOwner) continue
+
+      profileListsByPubkey.set(pubkey, [...(profileListsByPubkey.get(pubkey) || []), ref])
+    }
+
+    for (const [requesterPubkey, profileLists] of profileListsByPubkey) {
+      const profileListRef = profileLists[0]
+      if (!profileListRef) continue
+      if (acceptedKeys.has(`${requesterPubkey}:${section.name}`)) continue
+
+      const profileList = makeGrantDerivedRequestEvent({
+        definition,
+        sectionName: section.name,
+        ref: profileListRef,
+      })
+
+      states.push({
+        requesterPubkey,
+        identifier: profileListRef.identifier,
+        communityAddress: profileList.communityAddress,
+        communityPubkey: profileList.communityPubkey,
+        sectionName: section.name,
+        profileList,
+        profileListRef,
+        status: "accepted",
+        statusChangedAt: definition.event.created_at,
+        statusEvent: definition.event,
+        acceptanceReactions: [],
+        rejectionReactions: [],
+        derivedFromGrant: true,
+      })
+    }
+  }
+
+  return states
 }
 
 const isReactionDeleted = (reaction: TrustedEvent, deleteEvents: TrustedEvent[]) =>
@@ -350,22 +364,17 @@ export const getModeratorPromotionRequestStates = ({
   requests,
   reactionEvents = [],
   deleteEvents = [],
+  includeGranted = false,
 }: {
   definition: CommunityDefinition
   requests: ModeratorPromotionRequest[]
   reactionEvents?: TrustedEvent[]
   deleteEvents?: TrustedEvent[]
-}): ModeratorPromotionRequestState[] =>
-  requests.map(request => {
+  includeGranted?: boolean
+}): ModeratorPromotionRequestState[] => {
+  const requestStates: ModeratorPromotionRequestState[] = requests.map(request => {
     const acceptedListReactions = getActiveTargetReactions({
       targetEventId: request.profileList.event.id,
-      communityPubkey: definition.pubkey,
-      content: "+",
-      reactionEvents,
-      deleteEvents,
-    })
-    const acceptedBadgeReactions = getActiveTargetReactions({
-      targetEventId: request.badge.event.id,
       communityPubkey: definition.pubkey,
       content: "+",
       reactionEvents,
@@ -378,22 +387,15 @@ export const getModeratorPromotionRequestStates = ({
       reactionEvents,
       deleteEvents,
     })
-    const rejectedBadgeReactions = getActiveTargetReactions({
-      targetEventId: request.badge.event.id,
-      communityPubkey: definition.pubkey,
-      content: "-",
-      reactionEvents,
-      deleteEvents,
-    })
-    const acceptanceReactions = [...acceptedListReactions, ...acceptedBadgeReactions]
-    const rejectionReactions = [...rejectedListReactions, ...rejectedBadgeReactions]
+    const acceptanceReactions = acceptedListReactions
+    const rejectionReactions = rejectedListReactions
     const accepted = hasSectionRef(definition, request)
-    const rejected = rejectedListReactions.length > 0 && rejectedBadgeReactions.length > 0
+    const rejected = rejectedListReactions.length > 0
     const statusEvent = accepted
       ? definition.event
       : rejected
-        ? getLatestEvent([...rejectedListReactions, ...rejectedBadgeReactions])
-        : getLatestEvent([request.profileList.event, request.badge.event])
+        ? getLatestEvent(rejectedListReactions)
+        : request.profileList.event
 
     return {
       ...request,
@@ -404,6 +406,11 @@ export const getModeratorPromotionRequestStates = ({
       statusEvent,
     }
   })
+
+  return includeGranted
+    ? [...requestStates, ...getGrantDerivedModeratorRequestStates(definition, requestStates)]
+    : requestStates
+}
 
 export const makeModeratorRequestReaction = ({
   request,
@@ -461,15 +468,12 @@ export const makeModeratorPromotionDefinitionUpdate = ({
     )
       ? section.profileLists
       : [...section.profileLists, request.profileListRef]
-    const badges = section.badges.some(ref => ref.address === request.badgeRef.address)
-      ? section.badges
-      : [...section.badges, request.badgeRef]
 
     return {
       name: section.name,
       kinds: section.kinds,
       profileLists,
-      badges,
+      badges: section.badges,
       retention: section.retention,
     }
   })
@@ -511,7 +515,7 @@ export const makeModeratorGrantRevokeDefinitionUpdate = ({
       name: section.name,
       kinds: section.kinds,
       profileLists: section.profileLists.filter(ref => normalizePubkey(ref.pubkey) !== pubkey),
-      badges: section.badges.filter(ref => normalizePubkey(ref.pubkey) !== pubkey),
+      badges: section.badges,
       retention: section.retention,
     }
   })

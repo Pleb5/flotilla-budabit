@@ -19,6 +19,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
     hasCommunityHydrationCompleted,
     markCommunityHydrationCompleted,
@@ -38,6 +39,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
@@ -82,6 +84,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_GOALS,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -91,6 +94,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_GENERAL,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -154,13 +158,17 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.reaction,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )
 
   const items = $derived.by(() => {
     const scores = new Map<string, number[]>()
-    const [goals, comments] = partition(spec({kind: ZAP_GOAL}), $events)
+    const [goals, comments] = partition(
+      spec({kind: ZAP_GOAL}),
+      $events.filter(event => !isCommunityPersonBanned($activeCommunityReportState, event.pubkey)),
+    )
 
     for (const comment of comments) {
       const id = getTagValue("E", comment.tags)

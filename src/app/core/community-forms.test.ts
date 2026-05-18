@@ -3,6 +3,7 @@ import {DELETE, type TrustedEvent} from "@welshman/util"
 import {FORM_RESPONSE_KIND, FORM_TEMPLATE_KIND} from "./community"
 import {
   COMMUNITY_FORM_REVIEW_KIND,
+  getAdmissionReviewHistory,
   getAdmissionResponseDisplayValue,
   getAdmissionSubmissionState,
   makeAdmissionFormDraftFromForm,
@@ -566,7 +567,79 @@ describe("community admission responses", () => {
         moderatorPubkeys: [moderatorPubkey],
         profileListGranted: true,
       }).status,
-    ).toBe("granted")
+    ).toBe("rejected")
+  })
+
+  it("derives prior review history without relying on active responses", () => {
+    const oldReject = makeEvent({
+      id: "old-reject",
+      kind: COMMUNITY_FORM_REVIEW_KIND,
+      pubkey: moderatorPubkey,
+      created_at: 30,
+      tags: makeAdmissionReview({
+        responseId: "old-response",
+        applicantPubkey,
+        formAddress,
+        communityPubkey,
+        sectionName: "Repositories",
+        status: "rejected",
+      }).tags,
+      content: "-",
+    })
+    const currentGrant = makeEvent({
+      id: "current-grant",
+      kind: COMMUNITY_FORM_REVIEW_KIND,
+      pubkey: moderatorPubkey,
+      created_at: 40,
+      tags: makeAdmissionReview({
+        responseId: "current-response",
+        applicantPubkey,
+        formAddress,
+        communityPubkey,
+        sectionName: "Repositories",
+        status: "granted",
+      }).tags,
+      content: "+",
+    })
+    const wrongSection = makeEvent({
+      id: "wrong-section",
+      kind: COMMUNITY_FORM_REVIEW_KIND,
+      pubkey: moderatorPubkey,
+      created_at: 50,
+      tags: makeAdmissionReview({
+        responseId: "wrong-section-response",
+        applicantPubkey,
+        formAddress,
+        communityPubkey,
+        sectionName: "Threads",
+        status: "rejected",
+      }).tags,
+      content: "-",
+    })
+    const outsiderReview = makeEvent({
+      id: "outsider-review",
+      kind: COMMUNITY_FORM_REVIEW_KIND,
+      pubkey: outsiderPubkey,
+      created_at: 60,
+      tags: oldReject.tags,
+      content: "-",
+    })
+
+    const history = getAdmissionReviewHistory({
+      reviewEvents: [oldReject, currentGrant, wrongSection, outsiderReview, oldReject],
+      applicantPubkey,
+      communityPubkey,
+      sectionName: "Repositories",
+      moderatorPubkeys: [moderatorPubkey],
+      excludeResponseId: "current-response",
+    })
+
+    expect(history.reviews.map(review => review.event.id)).toEqual(["current-grant", "old-reject"])
+    expect(history.latestReview?.status).toBe("granted")
+    expect(history.latestPriorReview?.event.id).toBe("old-reject")
+    expect(history.latestPriorReview?.status).toBe("rejected")
+    expect(history.grantedCount).toBe(1)
+    expect(history.rejectedCount).toBe(1)
   })
 
   it("builds delete and review event templates", () => {
@@ -587,6 +660,26 @@ describe("community admission responses", () => {
         ["e", "response-event"],
         ["p", applicantPubkey],
         ["k", "1069"],
+      ],
+    })
+    expect(
+      makeAdmissionReview({
+        responseId: "response-event",
+        applicantPubkey,
+        formAddress,
+        communityPubkey,
+        sectionName: "General",
+        status: "granted",
+      }),
+    ).toMatchObject({
+      content: "+",
+      tags: [
+        ["e", "response-event"],
+        ["p", applicantPubkey],
+        ["k", "1069"],
+        ["a", formAddress],
+        ["h", communityPubkey],
+        ["content", "General"],
       ],
     })
   })

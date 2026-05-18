@@ -44,7 +44,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {getCommunityCensorReason} from "@app/core/community-reports"
+  import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
   import {
     getCommunityDeleteSeenKey,
     getCommunityDeleteSince,
@@ -87,6 +87,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_GENERAL,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -193,7 +194,14 @@
   const replyEventsStore = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: replyFilters})),
   )
-  const replyEvents = $derived(sortBy(replyEvent => replyEvent.created_at, $replyEventsStore))
+  const replyEvents = $derived(
+    sortBy(
+      replyEvent => replyEvent.created_at,
+      $replyEventsStore.filter(
+        event => !isCommunityPersonBanned($activeCommunityReportState, event.pubkey),
+      ),
+    ),
+  )
 
   let showAllReplies = $state(false)
 
@@ -213,6 +221,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.comment,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )
@@ -228,6 +237,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.reaction,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )

@@ -17,6 +17,7 @@ import {
   GIT_REPO_STATE,
   GIT_STATUS_APPLIED,
 } from "@nostr-git/core/events"
+import {COMMUNITY_REPORT_KIND} from "@app/core/community-reports"
 
 const GIT_COVER_LETTER_KIND = 1624
 
@@ -46,4 +47,11 @@ export const isPersistedGitDeleteEvent = (event: TrustedEvent) => {
   if (!Number.isFinite(targetKind)) return false
 
   return persistedGitDeleteKinds.has(targetKind)
+}
+
+export const isPersistedCommunityReportDeleteEvent = (event: TrustedEvent) => {
+  if (event.kind !== DELETE) return false
+  if (!event.tags.some(tag => tag[0] === "e" && tag[1])) return false
+
+  return event.tags.some(tag => tag[0] === "k" && tag[1] === String(COMMUNITY_REPORT_KIND))
 }

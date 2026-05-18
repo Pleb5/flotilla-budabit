@@ -263,7 +263,7 @@ Notify users when their access status changes.
 
 Scope:
 
-- Watch for relevant `kind:8` badge awards and `kind:7` review reactions on the user's application responses.
+- Watch for relevant `kind:7` review reactions on the user's application responses.
 - Show in-app notification or toast when access is granted or rejected while Budabit is open.
 - Highlight newly granted permissions on the Access Requests page.
 - Refresh community permission state after grant or rejection events are seen.

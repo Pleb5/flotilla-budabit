@@ -47,7 +47,7 @@ Resolution flow:
 3. Extract relay hints if the input is `ncommunity`.
 4. Fetch the latest `kind:10222` event authored by the community pubkey.
 5. Fetch the community `kind:0` profile metadata.
-6. Fetch profile lists and badge definitions referenced by the `kind:10222` content sections.
+6. Fetch profile lists referenced by the `kind:10222` content sections.
 7. Build the active community model from the community pubkey and latest valid definition.
 
 Bare `npub` resolution should use best-effort discovery through bootstrap relays, indexer relays, outbox discovery, and eventually any relays found from prior cache state.
@@ -159,7 +159,7 @@ Write access workflow:
 4. Check whether the user's pubkey is in that list.
 5. Allow publishing only when the user is listed.
 
-Badges remain important because they explain why a user is allowed to publish, provide a portable membership credential, and can be displayed by clients. For Budabit enforcement, profile list inclusion is authoritative.
+Badges remain important as community endorsements and engagement primitives, but they are not access-control inputs. For Budabit enforcement, profile list inclusion is authoritative.
 
 ## Badge Revocation
 
@@ -167,7 +167,7 @@ NIP-58 badge awards are immutable `kind:8` events. The NIP-58 text defines how b
 
 NIP-58 users can choose whether to display badges through their profile badge event. That is user-side acceptance/display, not issuer-side revocation.
 
-For Budabit and Communikeys, effective revocation is profile-list removal:
+For Budabit section access, effective revocation is profile-list removal:
 
 ```json
 {
@@ -514,10 +514,10 @@ Budabit should not require the community root key to be hot.
 | Key | Role |
 |---|---|
 | Community root key | Signs `kind:0` and `kind:10222`. Should be cold or rarely used. |
-| Membership/admin key | Awards badges, updates profile lists, publishes admin labels. Can be hot or delegated. |
+| Moderator key | Updates delegated profile lists, reviews applications, creates community endorsements, and publishes admin labels. Can be hot or delegated. |
 | User key | Publishes user content when included in the relevant profile list. |
 
-The `badge` tags in `kind:10222` may reference badge definitions issued by delegated pubkeys. The profile list `a` tags may also reference lists managed by delegated pubkeys.
+The profile list `a` tags may reference lists managed by delegated pubkeys. Badge definitions and awards are discovered by badge-specific views and should not be required for community bootstrap or section access checks.
 
 This allows Budabit to support practical admin workflows without exposing the main community key in a browser or server process.
 

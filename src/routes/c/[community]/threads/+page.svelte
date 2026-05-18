@@ -16,6 +16,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
     hasCommunityHydrationCompleted,
     markCommunityHydrationCompleted,
@@ -31,6 +32,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
+  import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
@@ -46,6 +48,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_THREADS,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -55,6 +58,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_GENERAL,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -104,9 +108,13 @@
 
   const threads = $derived.by(() => {
     const repliesByThread = new Map<string, number>()
-    const roots = readCommunityThreads($events, communityPubkey)
+    const roots = readCommunityThreads($events, communityPubkey).filter(
+      thread => !isCommunityPersonBanned($activeCommunityReportState, thread.event.pubkey),
+    )
 
     for (const event of $events) {
+      if (isCommunityPersonBanned($activeCommunityReportState, event.pubkey)) continue
+
       const reply = readCommunityThreadReply(event, communityPubkey)
       if (!reply) continue
 
@@ -132,6 +140,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.reaction,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )

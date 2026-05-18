@@ -25,6 +25,7 @@
     activeCommunityDefinition,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
     getCommunityDefinitionRelayHints,
     hasCommunityHydrationCompleted,
@@ -78,6 +79,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_ROOMS,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -109,6 +111,7 @@
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.roomRoot,
+          reportState: $activeCommunityReportState,
         }),
     ),
   )

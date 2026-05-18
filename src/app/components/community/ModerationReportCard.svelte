@@ -42,7 +42,7 @@
   )
   const canRevoke = $derived(Boolean(currentPubkey && report.reporterPubkey === currentPubkey))
   const revokeLabel = $derived(report.target === "event" ? "Uncensor" : "Unban")
-  const targetLabel = $derived(report.target === "event" ? "Event" : "Person")
+  const targetLabel = $derived(report.target === "event" ? "Event" : "Person ban")
 
   const getTargetEventKindLabelFromParts = (kind: number, subtype = "") => {
     if (kind === THREAD) return subtype === "room" ? "Room" : "Thread"
@@ -144,7 +144,7 @@
       message:
         report.target === "event"
           ? "Remove this event moderation report so the event can render again?"
-          : "Remove this person moderation report so their content can render again?",
+          : "Remove this person ban so their content can render again?",
       confirm: publishReportDelete,
     })
   }
@@ -172,7 +172,7 @@
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
-        <strong>{targetLabel} moderation</strong>
+        <strong>{report.target === "event" ? "Event moderation" : "Person ban"}</strong>
         <span class={`badge ${report.target === "event" ? "badge-warning" : "badge-error"}`}
           >{targetLabel}</span>
       </div>
@@ -202,7 +202,7 @@
 
   <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
     <div class="rounded-box bg-base-200 p-3">
-      <strong>{report.target === "event" ? "Target author" : "Target person"}</strong>
+        <strong>{report.target === "event" ? "Target author" : "Banned person"}</strong>
       <p class="mt-1 opacity-75"><ProfileLink pubkey={report.targetPubkey} /></p>
     </div>
 
@@ -224,7 +224,7 @@
     {:else}
       <div class="rounded-box bg-base-200 p-3">
         <strong>Scope</strong>
-        <p class="mt-1 opacity-75">Community-wide person moderation</p>
+        <p class="mt-1 opacity-75">Community-wide person ban</p>
       </div>
     {/if}
   </div>

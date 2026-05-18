@@ -140,7 +140,7 @@ The live layer should:
 Implementation notes:
 
 - `src/routes/c/[community]/+layout.svelte` owns the live request lifecycle.
-- `src/app/core/community-live.ts` builds stable `limit: 0` filters for community definition updates, `#h` community-exclusive events, `#p` targeting wrappers, targeted originals, authority/profile/badge references, admission form responses/reviews/deletes, moderation reports/deletes, and moderator request/review/delete state.
+- `src/app/core/community-live.ts` builds stable `limit: 0` filters for community definition updates, `#h` community-exclusive events, `#p` targeting wrappers, targeted originals, authority profile-list references, admission form responses/reviews/deletes, moderation reports/deletes, and moderator request/review/delete state.
 - The community layout also does a one-shot recent `MESSAGE` history preload by broad community `#h`, matching the old platform-relay layout warmup behavior so room feeds do not depend only on room-specific `#E` backfill.
 - Section pages keep their initial hydration, scroll loading, and rendering logic. Page-owned `request(...)` calls that overlap the central live layer should use `autoClose: true` so they do not become duplicate long-lived subscriptions.
 

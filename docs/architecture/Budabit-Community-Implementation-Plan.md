@@ -13,7 +13,7 @@ Scope:
 - Add Communikey constants for community definitions, targeted publications, profile lists, badges, badge awards, forms, and form responses.
 - Parse community inputs: raw hex pubkey, `npub`, and `ncommunity://<pubkey>?relay=<url>`.
 - Parse `kind:10222` community definitions into a normalized model.
-- Parse content sections, section kinds, profile-list refs, badge refs, relays, blossom servers, mints, terms, location, and description.
+- Parse content sections, section kinds, profile-list refs, relays, blossom servers, mints, terms, location, and description.
 - Parse and build `kind:30222` targeted publication templates.
 - Add profile-list based write-permission helpers.
 
@@ -31,7 +31,7 @@ Scope:
 - Persist selected community separately from user identity.
 - Load latest `kind:10222` for selected community.
 - Load community `kind:0` metadata.
-- Load referenced `kind:30000` profile lists and `kind:30009` badge definitions.
+- Load referenced `kind:30000` profile lists.
 - Add community input labelled `Community npub, hex, or ncommunity`.
 - Remove home entry dependency on legacy platform relay config.
 
@@ -140,7 +140,7 @@ Scope:
 - Gate forum thread creation by `Forum`.
 - Gate comments, reactions, and labels by `General`.
 - Gate targeted publication creation by the matching section.
-- Badge UX must require both list-manager and badge-issuer authority for grant/revoke workflows.
+- Badge UX is separate from write permissions. Grant/revoke workflows require profile-list manager authority.
 
 ## Phase 9: Admin Tools
 
@@ -148,9 +148,9 @@ Add practical one-community administration.
 
 Scope:
 
-- Show sections, authoritative profile lists, badges, and current writers.
-- Grant access only when logged-in user can update the list and issue the badge.
-- Revoke access by removing from profile list. Existing badge awards remain immutable.
+- Show sections, authoritative profile lists, and current writers.
+- Grant access only when logged-in user can update the section profile list.
+- Revoke access by removing from profile list. Badges remain separate community endorsements.
 - Archive rooms through authoritative `kind:1985` labels.
 - Community root editor can be added later.
 

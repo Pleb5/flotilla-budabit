@@ -11,7 +11,6 @@ import {
   MODERATOR_REQUEST_REACTION_KIND,
   getModeratorPromotionRequestStates,
   getModeratorPromotionRequests,
-  makeModeratorBadgeRequest,
   makeModeratorGrantRevokeDefinitionUpdate,
   makeModeratorProfileListRequest,
   makeModeratorPromotionDefinitionUpdate,
@@ -39,13 +38,12 @@ const makeDefinition = () => {
   const setup = makeCommunitySetupSection({
     communityPubkey,
     profileListPubkey: existingModeratorPubkey,
-    badgeIssuerPubkey: existingModeratorPubkey,
     relays: ["wss://relay.example.com"],
     name: "General",
   })
   const template = buildCommunityDefinition({
     relays: ["wss://relay.example.com"],
-    sections: [{...setup, profileLists: [setup.profileList], badges: [setup.badge]}],
+    sections: [setup],
     description: "A community",
     blossomServers: ["https://blossom.example.com"],
     mints: [{url: "https://mint.example.com", type: "cashu"}],
@@ -59,14 +57,8 @@ const makeDefinition = () => {
   )!
 }
 
-const makeRequestPair = ({created_at = 1}: {created_at?: number} = {}) => {
+const makeRequest = ({created_at = 1}: {created_at?: number} = {}) => {
   const profileList = makeModeratorProfileListRequest({
-    communityPubkey,
-    requesterPubkey,
-    sectionName: "General",
-    relays: ["wss://relay.example.com"],
-  })
-  const badge = makeModeratorBadgeRequest({
     communityPubkey,
     requesterPubkey,
     sectionName: "General",
@@ -81,22 +73,14 @@ const makeRequestPair = ({created_at = 1}: {created_at?: number} = {}) => {
       kind: profileList.kind,
       tags: profileList.tags,
     }),
-    badge: makeEvent({
-      id: `badge-${created_at}`,
-      pubkey: requesterPubkey,
-      created_at,
-      kind: badge.kind,
-      tags: badge.tags,
-    }),
   }
 }
 
 describe("community moderator promotion requests", () => {
-  it("pairs requester-owned list and badge request events", () => {
-    const pair = makeRequestPair()
+  it("parses requester-owned profile-list request events", () => {
+    const requestEvent = makeRequest()
     const [request] = getModeratorPromotionRequests({
-      profileListEvents: [pair.profileList],
-      badgeEvents: [pair.badge],
+      profileListEvents: [requestEvent.profileList],
       communityPubkey,
     })
 
@@ -109,38 +93,29 @@ describe("community moderator promotion requests", () => {
       pubkey: requesterPubkey,
       relay: "wss://relay.example.com/",
     })
-    expect(request.badgeRef).toMatchObject({pubkey: requesterPubkey})
   })
 
   it("uses the latest replaceable request events by address", () => {
-    const older = makeRequestPair({created_at: 1})
-    const newer = makeRequestPair({created_at: 2})
+    const older = makeRequest({created_at: 1})
+    const newer = makeRequest({created_at: 2})
     const [request] = getModeratorPromotionRequests({
       profileListEvents: [newer.profileList, older.profileList],
-      badgeEvents: [older.badge, newer.badge],
       communityPubkey,
     })
 
     expect(request.profileList.event.id).toBe("profile-list-2")
-    expect(request.badge.event.id).toBe("badge-2")
   })
 
   it("derives pending, rejected, and deleted-reaction states", () => {
     const definition = makeDefinition()
-    const pair = makeRequestPair()
+    const requestEvent = makeRequest()
     const [request] = getModeratorPromotionRequests({
-      profileListEvents: [pair.profileList],
-      badgeEvents: [pair.badge],
+      profileListEvents: [requestEvent.profileList],
       communityPubkey,
     })
     const listReactionTemplate = makeModeratorRequestReaction({
       request,
       target: request.profileList,
-      content: "-",
-    })
-    const badgeReactionTemplate = makeModeratorRequestReaction({
-      request,
-      target: request.badge,
       content: "-",
     })
     const listReaction = makeEvent({
@@ -149,13 +124,6 @@ describe("community moderator promotion requests", () => {
       pubkey: communityPubkey,
       content: "-",
       tags: listReactionTemplate.tags,
-    })
-    const badgeReaction = makeEvent({
-      id: "reject-badge",
-      kind: MODERATOR_REQUEST_REACTION_KIND,
-      pubkey: communityPubkey,
-      content: "-",
-      tags: badgeReactionTemplate.tags,
     })
     const deleteListReaction = makeEvent({
       id: "delete-reject-list",
@@ -169,33 +137,26 @@ describe("community moderator promotion requests", () => {
     )
     expect(
       getModeratorPromotionRequestStates({definition, requests: [request]})[0].statusEvent?.id,
-    ).toBe("badge-1")
+    ).toBe("profile-list-1")
     expect(
       getModeratorPromotionRequestStates({
         definition,
         requests: [request],
         reactionEvents: [listReaction],
       })[0].status,
-    ).toBe("pending")
-    expect(
-      getModeratorPromotionRequestStates({
-        definition,
-        requests: [request],
-        reactionEvents: [listReaction, badgeReaction],
-      })[0].status,
     ).toBe("rejected")
     expect(
       getModeratorPromotionRequestStates({
         definition,
         requests: [request],
-        reactionEvents: [listReaction, badgeReaction],
+        reactionEvents: [listReaction],
       })[0].statusEvent?.id,
-    ).toBe("reject-badge")
+    ).toBe("reject-list")
     expect(
       getModeratorPromotionRequestStates({
         definition,
         requests: [request],
-        reactionEvents: [listReaction, badgeReaction],
+        reactionEvents: [listReaction],
         deleteEvents: [deleteListReaction],
       })[0].status,
     ).toBe("pending")
@@ -203,10 +164,9 @@ describe("community moderator promotion requests", () => {
 
   it("appends accepted request refs to the community definition without overwriting refs", () => {
     const definition = makeDefinition()
-    const pair = makeRequestPair()
+    const requestEvent = makeRequest()
     const [request] = getModeratorPromotionRequests({
-      profileListEvents: [pair.profileList],
-      badgeEvents: [pair.badge],
+      profileListEvents: [requestEvent.profileList],
       communityPubkey,
     })
     const template = makeModeratorPromotionDefinitionUpdate({definition, request})
@@ -225,10 +185,7 @@ describe("community moderator promotion requests", () => {
       existingModeratorPubkey,
       requesterPubkey,
     ])
-    expect(section.badges.map(ref => ref.pubkey)).toEqual([
-      existingModeratorPubkey,
-      requesterPubkey,
-    ])
+    expect(section.badges).toEqual([])
     expect(
       getModeratorPromotionRequestStates({definition: updated, requests: [request]})[0].status,
     ).toBe("accepted")
@@ -250,23 +207,66 @@ describe("community moderator promotion requests", () => {
     expect(secondSection.profileLists.map(ref => ref.address)).toEqual(
       section.profileLists.map(ref => ref.address),
     )
-    expect(secondSection.badges.map(ref => ref.address)).toEqual(
-      section.badges.map(ref => ref.address),
+    expect(secondSection.badges).toEqual([])
+  })
+
+  it("derives accepted request states from active grants when request events are incomplete", () => {
+    const definition = makeDefinition()
+    const requestEvent = makeRequest()
+    const [request] = getModeratorPromotionRequests({
+      profileListEvents: [requestEvent.profileList],
+      communityPubkey,
+    })
+    const acceptedTemplate = makeModeratorPromotionDefinitionUpdate({definition, request})
+    const accepted = parseCommunityDefinition(
+      makeEvent({
+        id: "accepted-definition",
+        created_at: 10,
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: acceptedTemplate.tags,
+      }),
+    )!
+    const incompleteRequests = getModeratorPromotionRequests({
+      profileListEvents: [],
+      communityPubkey,
+    })
+
+    const incompleteStates = getModeratorPromotionRequestStates({
+      definition: accepted,
+      requests: incompleteRequests,
+      includeGranted: true,
+    })
+    const derivedState = incompleteStates.find(
+      state => state.requesterPubkey === requesterPubkey && state.sectionName === "General",
     )
+    const completeStates = getModeratorPromotionRequestStates({
+      definition: accepted,
+      requests: [request],
+      includeGranted: true,
+    }).filter(state => state.requesterPubkey === requesterPubkey && state.sectionName === "General")
+
+    expect(incompleteRequests).toEqual([])
+    expect(derivedState).toMatchObject({
+      status: "accepted",
+      derivedFromGrant: true,
+      profileListRef: {address: request.profileListRef.address},
+    })
+    expect(derivedState?.statusEvent?.id).toBe("accepted-definition")
+    expect(completeStates).toHaveLength(1)
+    expect(completeStates[0].derivedFromGrant).toBeUndefined()
   })
 
   it("revokes moderator refs from one section without touching other refs", () => {
     const general = makeCommunitySetupSection({
       communityPubkey,
       profileListPubkey: existingModeratorPubkey,
-      badgeIssuerPubkey: existingModeratorPubkey,
       relays: ["wss://relay.example.com"],
       name: "General",
     })
     const rooms = makeCommunitySetupSection({
       communityPubkey,
       profileListPubkey: requesterPubkey,
-      badgeIssuerPubkey: requesterPubkey,
       relays: ["wss://relay.example.com"],
       name: "Rooms",
     })
@@ -276,10 +276,7 @@ describe("community moderator promotion requests", () => {
         pubkey: communityPubkey,
         tags: buildCommunityDefinition({
           relays: ["wss://relay.example.com"],
-          sections: [
-            {...general, profileLists: [general.profileList], badges: [general.badge]},
-            {...rooms, profileLists: [rooms.profileList], badges: [rooms.badge]},
-          ],
+          sections: [general, rooms],
           description: "A community",
           blossomServers: ["https://blossom.example.com"],
           mints: [{url: "https://mint.example.com", type: "cashu"}],
@@ -289,10 +286,9 @@ describe("community moderator promotion requests", () => {
         }).tags,
       }),
     )!
-    const pair = makeRequestPair()
+    const requestEvent = makeRequest()
     const [request] = getModeratorPromotionRequests({
-      profileListEvents: [pair.profileList],
-      badgeEvents: [pair.badge],
+      profileListEvents: [requestEvent.profileList],
       communityPubkey,
     })
     const acceptedTemplate = makeModeratorPromotionDefinitionUpdate({definition, request})
@@ -325,8 +321,8 @@ describe("community moderator promotion requests", () => {
     expect(revoked.location).toBe("Online")
     expect(revoked.geohash).toBe("u4pruydqqvj")
     expect(revokedGeneral.profileLists.map(ref => ref.pubkey)).toEqual([existingModeratorPubkey])
-    expect(revokedGeneral.badges.map(ref => ref.pubkey)).toEqual([existingModeratorPubkey])
+    expect(revokedGeneral.badges).toEqual([])
     expect(revokedRooms.profileLists.map(ref => ref.pubkey)).toEqual([requesterPubkey])
-    expect(revokedRooms.badges.map(ref => ref.pubkey)).toEqual([requesterPubkey])
+    expect(revokedRooms.badges).toEqual([])
   })
 })

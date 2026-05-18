@@ -6,9 +6,9 @@ The goal is to let communities stay readable and discoverable while keeping publ
 
 ## Summary
 
-Budabit communities use `kind:10222` Communikey definitions for stable community structure. Section write access is enforced by `kind:30000` profile lists and explained by `kind:30009` badges. Admission requests use NIP-101 forms created by moderators, not by the community root key.
+Budabit communities use `kind:10222` Communikey definitions for stable community structure. Section write access is enforced by `kind:30000` profile lists. Admission requests use NIP-101 forms created by moderators, not by the community root key.
 
-Moderators create application forms as `kind:30168` events. A form references the community definition with an `a` tag and identifies the requested section with a `content` tag. Users submit public, identified `kind:1069` responses to request access. Moderators review responses and either grant access by updating the section profile list and awarding the badge, or reject by reacting negatively to the response.
+Moderators create application forms as `kind:30168` events. A form references the community definition with an `a` tag and identifies the requested section with a `content` tag. Users submit public, identified `kind:1069` responses to request access. Moderators review responses and either grant access by updating the section profile list and publishing a positive review, or reject by reacting negatively to the response.
 
 ## Core Decisions
 
@@ -21,11 +21,11 @@ Moderators create application forms as `kind:30168` events. A form references th
 | Write access | Effective publish permission comes from section profile-list membership. |
 | Admission request | Users submit an identified public `kind:1069` response to the selected application form. |
 | Duplicate applications | Budabit allows one active submission per user/form. Resubmission requires a `kind:5` delete of the old response. |
-| Grant | Publish a badge award, update the section profile list, and publish a `+` reaction on the response. |
-| Reject | Publish a `-` reaction on the response. No badge award and no profile-list edit. |
+| Grant | Update the section profile list and publish a `+` reaction on the response. |
+| Reject | Publish a `-` reaction on the response. No profile-list edit. |
 | Root visibility | Root-level section content only appears when explicitly allowed by current section permissions and targeting rules. Replies do not make roots visible. |
 | Censoring | Explicit moderation uses NIP-56 `kind:1984` reports with report type `spam`; it is a negative overlay on top of normal visibility and write permissions. |
-| Relays | Forms, responses, reactions, badge awards, and profile-list edits are confined to the community relays plus any explicit authority relay hints. |
+| Relays | Forms, responses, reactions, and profile-list edits are confined to the community relays plus any explicit authority relay hints. |
 | Anonymous submissions | Not supported. Admission requests must be tied to the requesting pubkey. |
 
 ## Why Forms Are Not In `kind:10222`
@@ -59,14 +59,15 @@ The empty identifier in `10222:<community-pubkey>:` is intentional. Budabit trea
 
 A moderator can create and review forms for a section only when the moderator can grant that section's access.
 
-Grant capability requires both:
+Grant capability requires profile-list management:
 
 | Capability | Source |
 |---|---|
 | Profile-list management | The moderator pubkey is the author of the section's `kind:30000` profile-list reference. |
-| Badge issuing | The moderator pubkey is the author of the section's `kind:30009` badge definition reference. |
 
-This keeps the first implementation simple and prevents users from applying through forms whose authors cannot approve them.
+This keeps the access-control model simple and prevents users from applying through forms whose authors cannot approve them.
+
+Badges are community endorsements and engagement primitives. They do not grant write access and do not make a pubkey a moderator.
 
 If a future community wants separate reviewers who cannot grant access, Budabit can add a reviewer role later. That should be explicit rather than inferred from form authorship.
 
@@ -77,7 +78,7 @@ Form discovery starts from the active community definition.
 For a requested section:
 
 1. Find the section in latest `kind:10222`.
-2. Derive grant-capable moderator pubkeys from the section profile-list and badge references.
+2. Derive grant-capable moderator pubkeys from the section profile-list references.
 3. Query community relays for `kind:30168` authored by those moderators and tagged to the community definition.
 4. Client-side filter to forms with `content = <section name>`.
 5. Resolve the active form by addressable event semantics and deterministic ordering.
@@ -156,9 +157,11 @@ Delete event example:
 
 A delete only counts when it is authored by the same pubkey as the response being deleted.
 
+Deleting a response removes it from active submission selection. It does not erase moderator decisions from review history. Budabit should still surface prior authorized reviews for the applicant when they submit again, because a new pending response should not appear as if no prior rejection or revocation exists.
+
 ## Review Events
 
-Granting access publishes three events:
+Granting access publishes two events:
 
 ```json
 [
@@ -173,21 +176,15 @@ Granting access publishes three events:
     "content": ""
   },
   {
-    "kind": 8,
-    "pubkey": "<badge-issuer-pubkey>",
-    "tags": [
-      ["a", "30009:<badge-issuer-pubkey>:Repositories"],
-      ["p", "<applicant-pubkey>"]
-    ],
-    "content": ""
-  },
-  {
     "kind": 7,
     "pubkey": "<moderator-pubkey>",
     "tags": [
       ["e", "<form-response-event-id>"],
       ["p", "<applicant-pubkey>"],
-      ["k", "1069"]
+      ["k", "1069"],
+      ["a", "30168:<form-author-pubkey>:repo-curator-application"],
+      ["h", "<community-pubkey>"],
+      ["content", "Repositories"]
     ],
     "content": "+"
   }
@@ -203,7 +200,10 @@ Rejecting access publishes only a negative reaction:
   "tags": [
     ["e", "<form-response-event-id>"],
     ["p", "<applicant-pubkey>"],
-    ["k", "1069"]
+    ["k", "1069"],
+    ["a", "30168:<form-author-pubkey>:repo-curator-application"],
+    ["h", "<community-pubkey>"],
+    ["content", "Repositories"]
   ],
   "content": "-"
 }
@@ -212,6 +212,19 @@ Rejecting access publishes only a negative reaction:
 Only reactions authored by grant-capable moderators for the requested section should count as review decisions.
 
 The `+` reaction is intentionally redundant with the profile-list edit. It creates a review audit marker, makes moderation queues easy to group, and preserves evidence of grants even if a profile list is accidentally overwritten.
+
+Review history is discovered separately from active responses. For applicants or visible queue entries, Budabit should query enriched review reactions by applicant, community, and response kind:
+
+```json
+{
+  "kinds": [7],
+  "#p": ["<applicant-pubkey>"],
+  "#h": ["<community-pubkey>"],
+  "#k": ["1069"]
+}
+```
+
+The client then filters by section `content` tag and, when needed, form `a` tag. This lets the active submission remain `pending` after resubmission while the UI still displays context such as `Previously rejected`.
 
 ## Effective Permissions
 

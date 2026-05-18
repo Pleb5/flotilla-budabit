@@ -17,6 +17,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {makeCommunityThread} from "@app/core/community-threads"
@@ -44,6 +45,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.thread,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )

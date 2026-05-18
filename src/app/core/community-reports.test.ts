@@ -16,6 +16,7 @@ import {
   getCommunityCensorReason,
   getEffectiveCommunityModerationActionsByReporter,
   getEffectiveCommunityReportState,
+  isCommunityPersonBanned,
   makeCommunityEventReport,
   makeCommunityPersonReport,
   makeCommunityReportDelete,
@@ -306,6 +307,89 @@ describe("community reports", () => {
     )
   })
 
+  it("protects the community admin from moderator reports", () => {
+    const definition = makeDefinition()
+    const moderatorEventReport = makeEvent({
+      id: "moderator-admin-event-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: allSectionModeratorPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "General",
+        eventId: "admin-authored-event",
+        eventPubkey: communityPubkey,
+      }).tags,
+    })
+    const moderatorPersonReport = makeEvent({
+      id: "moderator-admin-person-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: allSectionModeratorPubkey,
+      tags: makeCommunityPersonReport({communityPubkey, pubkey: communityPubkey}).tags,
+    })
+    const state = getEffectiveCommunityReportState({
+      definition,
+      reportEvents: [moderatorEventReport, moderatorPersonReport],
+    })
+
+    expect(
+      getCommunityCensorReason({
+        reportState: state,
+        eventId: "admin-authored-event",
+        sectionName: "General",
+      }),
+    ).toBeUndefined()
+    expect(getCommunityCensorReason({reportState: state, pubkey: communityPubkey})).toBeUndefined()
+  })
+
+  it("ignores active reports from banned moderators", () => {
+    const definition = makeDefinition()
+    const adminBan = makeEvent({
+      id: "admin-ban",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: communityPubkey,
+      tags: makeCommunityPersonReport({communityPubkey, pubkey: allSectionModeratorPubkey}).tags,
+    })
+    const bannedModeratorPersonReport = makeEvent({
+      id: "banned-moderator-person-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: allSectionModeratorPubkey,
+      tags: makeCommunityPersonReport({communityPubkey, pubkey: targetPubkey}).tags,
+    })
+    const bannedModeratorEventReport = makeEvent({
+      id: "banned-moderator-event-report",
+      kind: COMMUNITY_REPORT_KIND,
+      pubkey: allSectionModeratorPubkey,
+      tags: makeCommunityEventReport({
+        communityPubkey,
+        sectionName: "General",
+        eventId: "target-event",
+        eventPubkey: targetPubkey,
+      }).tags,
+    })
+    const state = getEffectiveCommunityReportState({
+      definition,
+      reportEvents: [bannedModeratorPersonReport, bannedModeratorEventReport, adminBan],
+    })
+
+    expect(isCommunityPersonBanned(state, allSectionModeratorPubkey)).toBe(true)
+    expect(isCommunityPersonBanned(state, targetPubkey)).toBe(false)
+    expect(
+      getCommunityCensorReason({
+        reportState: state,
+        eventId: "target-event",
+        sectionName: "General",
+      }),
+    ).toBeUndefined()
+    expect(
+      canPublishCommunityPersonReport({
+        definition,
+        reporterPubkey: allSectionModeratorPubkey,
+        targetPubkey,
+        reportState: state,
+      }),
+    ).toBe(false)
+  })
+
   it("ignores self moderation reports", () => {
     const definition = makeDefinition()
     const ownEventReport = makeEvent({
@@ -402,6 +486,13 @@ describe("community reports", () => {
         definition,
         reporterPubkey: allSectionModeratorPubkey,
         targetPubkey: allSectionModeratorPubkey,
+      }),
+    ).toBe(false)
+    expect(
+      canPublishCommunityPersonReport({
+        definition,
+        reporterPubkey: allSectionModeratorPubkey,
+        targetPubkey: communityPubkey,
       }),
     ).toBe(false)
   })

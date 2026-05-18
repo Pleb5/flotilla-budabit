@@ -23,7 +23,6 @@
     DEFAULT_COMMUNITY_SECTION_NAMES,
     buildCommunityDefinition,
     getDefaultCommunitySectionKinds,
-    makeCommunityBadgeDefinition,
     makeCommunityNcommunity,
     makeCommunitySetupSection,
     normalizeGeohash,
@@ -38,7 +37,7 @@
     type CommunityRetentionPolicy,
     type CommunitySectionKind,
   } from "@app/core/community"
-  import {makeCommunityBadgeAward, makeCommunityProfileList} from "@app/core/community-admin"
+  import {makeCommunityProfileList} from "@app/core/community-admin"
 
   type Mode = "create" | "edit"
 
@@ -86,11 +85,6 @@
     profileList: CommunityProfileListRef
   }
 
-  type NewBadge = {
-    sectionName: string
-    badge: CommunityBadgeRef
-  }
-
   type ValidatedSetup = {
     name: string
     description: string
@@ -107,7 +101,6 @@
     geohash: string
     sections: CommunityDefinitionSectionInput[]
     newProfileLists: NewProfileList[]
-    newBadges: NewBadge[]
   }
 
   const {mode = "create", definition, profile, embedded = false}: Props = $props()
@@ -512,13 +505,11 @@
   }) => {
     const nextSections: CommunityDefinitionSectionInput[] = []
     const newProfileLists: NewProfileList[] = []
-    const newBadges: NewBadge[] = []
 
     for (const section of sections) {
       const setup = makeCommunitySetupSection({
         communityPubkey,
         profileListPubkey: communityPubkey,
-        badgeIssuerPubkey: communityPubkey,
         relays,
         name: section.name,
         kinds: section.kinds,
@@ -530,15 +521,11 @@
         profileLists.push(setup.profileList)
         newProfileLists.push({sectionName: section.name, profileList: setup.profileList})
       }
-      if (badges.length === 0) {
-        badges.push(setup.badge)
-        newBadges.push({sectionName: section.name, badge: setup.badge})
-      }
 
       nextSections.push({...section, profileLists, badges})
     }
 
-    return {sections: nextSections, newProfileLists, newBadges}
+    return {sections: nextSections, newProfileLists}
   }
 
   const validateForm = (): ValidatedSetup | undefined => {
@@ -611,7 +598,6 @@
       geohash: normalizedGeohash,
       sections: authority.sections,
       newProfileLists: authority.newProfileLists,
-      newBadges: authority.newBadges,
     }
   }
 
@@ -704,33 +690,13 @@
       const profileLists = validated.newProfileLists.map(({profileList}) =>
         makeCommunityProfileList({profileList, pubkeys: [validated.community.pubkey]}),
       )
-      const badgeDefinitions = validated.newBadges.map(({sectionName, badge}) =>
-        makeCommunityBadgeDefinition({
-          badge,
-          name: `${sectionName} writer`,
-          description: `Can publish to the ${sectionName} section in ${validated.name}.`,
-        }),
-      )
-      const badgeAwards = validated.newBadges.map(({badge}) =>
-        makeCommunityBadgeAward({badge, pubkeys: [validated.community.pubkey]}),
-      )
       const signedCommunityProfile = await makeSignedEvent(validated.community, communityProfile)
       const signedDefinition = await makeSignedEvent(validated.community, communityDefinition)
       const signedProfileLists = await Promise.all(
         profileLists.map(template => makeSignedEvent(validated.community, template)),
       )
-      const signedBadgeDefinitions = await Promise.all(
-        badgeDefinitions.map(template => makeSignedEvent(validated.community, template)),
-      )
-      const signedBadgeAwards = await Promise.all(
-        badgeAwards.map(template => makeSignedEvent(validated.community, template)),
-      )
       const rootRelays = getRootPublishRelays(validated.relays)
-      const communityScopedEvents = [
-        ...signedProfileLists,
-        ...signedBadgeDefinitions,
-        ...signedBadgeAwards,
-      ]
+      const communityScopedEvents = signedProfileLists
 
       await publishRequiredEvent(signedCommunityProfile, rootRelays, validated.primaryRelay)
       await publishRequiredEvent(signedDefinition, rootRelays, validated.primaryRelay)
@@ -906,9 +872,7 @@
   const activeCommunityPubkey = $derived(definition?.pubkey || $pubkey || "")
   const sectionCount = $derived(sectionDrafts.length)
   const newAuthorityCount = $derived(
-    sectionDrafts.filter(
-      section => section.profileLists.length === 0 || section.badges.length === 0,
-    ).length,
+    sectionDrafts.filter(section => section.profileLists.length === 0).length,
   )
 
   $effect(() => {
@@ -1002,7 +966,7 @@
               sections.
             {:else}
               Your logged-in signer becomes the community. BudaBit publishes the profile, kind:10222
-              definition, initial publishing lists, and role badges.
+              definition, and initial publishing lists.
             {/if}
           </p>
         </div>
@@ -1375,12 +1339,12 @@
               <strong>{sectionCount}</strong><br />sections
             </div>
             <div class="rounded-xl bg-base-200 p-3">
-              <strong>{newAuthorityCount}</strong><br />new grants
+              <strong>{newAuthorityCount}</strong><br />new lists
             </div>
           </div>
           <p class="mt-3 text-xs leading-relaxed opacity-60">
-            Profile and definition go to community, bootstrap, and user outbox relays. New lists,
-            badges, and initial awards stay on community relays.
+            Profile and definition go to community, bootstrap, and user outbox relays. New lists stay
+            on community relays.
           </p>
           <div class="mt-5 flex gap-2">
             <Button class="btn btn-ghost flex-1" onclick={cancel} {disabled}>Cancel</Button>

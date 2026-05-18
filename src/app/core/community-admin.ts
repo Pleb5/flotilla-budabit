@@ -1,7 +1,6 @@
-import {BADGE_AWARD, type EventContent, type TrustedEvent} from "@welshman/util"
+import {type EventContent, type TrustedEvent} from "@welshman/util"
 import {
   PROFILE_LIST_KIND,
-  type CommunityBadgeRef,
   type CommunityProfileListRef,
   getProfileListPubkeys,
   normalizePubkey,
@@ -52,46 +51,15 @@ export const removePubkeyFromCommunityProfileList = ({
   })
 }
 
-export const makeCommunityBadgeAward = ({
-  badge,
-  pubkeys,
-  relayHints = {},
-}: {
-  badge: CommunityBadgeRef
-  pubkeys: string[]
-  relayHints?: Record<string, string>
-}): EventContent & {kind: typeof BADGE_AWARD} => ({
-  kind: BADGE_AWARD,
-  content: "",
-  tags: [
-    ["a", badge.address],
-    ...Array.from(new Set(pubkeys.map(normalizePubkey).filter(Boolean))).map(pubkey => {
-      const relay = relayHints[pubkey]
-      return relay ? ["p", pubkey, relay] : ["p", pubkey]
-    }),
-  ],
-})
-
-export const makeCommunityGrantEvents = ({
+export const makeCommunityGrantEvent = ({
   profileList,
   profileListEvent,
-  badge,
   pubkey,
-  relayHint,
 }: {
   profileList: CommunityProfileListRef
   profileListEvent?: TrustedEvent
-  badge: CommunityBadgeRef
   pubkey: string
-  relayHint?: string
-}) => ({
-  profileList: addPubkeyToCommunityProfileList({profileList, event: profileListEvent, pubkey}),
-  badgeAward: makeCommunityBadgeAward({
-    badge,
-    pubkeys: [pubkey],
-    relayHints: relayHint ? {[normalizePubkey(pubkey)]: relayHint} : {},
-  }),
-})
+}) => addPubkeyToCommunityProfileList({profileList, event: profileListEvent, pubkey})
 
 export const makeCommunityRevokeEvent = ({
   profileList,

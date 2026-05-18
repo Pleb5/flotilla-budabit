@@ -18,6 +18,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
@@ -52,6 +53,7 @@
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.roomRoot,
+          reportState: $activeCommunityReportState,
         }),
     ),
   )

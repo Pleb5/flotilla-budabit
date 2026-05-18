@@ -11,6 +11,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {FORM_RESPONSE_KIND} from "@app/core/community"
@@ -99,6 +100,7 @@
           responseEvents: $responseEvents,
           deleteEvents: $deleteEvents,
           reviewEvents: $reviewEvents,
+          reportState: $activeCommunityReportState,
         })
       : {...target, status: $pubkey ? "missing" : "login-required", form},
   )
@@ -107,7 +109,9 @@
   const reason = $derived(
     !$pubkey
       ? "Log in to request publishing access."
-      : gateState.status === "pending"
+      : gateState.status === "banned"
+        ? "You are banned from publishing in this community."
+        : gateState.status === "pending"
         ? `Your ${target.sectionName} access request is pending.`
         : gateState.status === "rejected"
           ? `Your ${target.sectionName} access request was rejected. Delete it before resubmitting.`
@@ -120,7 +124,9 @@
   const accessLabel = $derived(
     gateState.status === "pending"
       ? "Access pending"
-      : gateState.status === "rejected"
+      : gateState.status === "banned"
+        ? "Banned"
+        : gateState.status === "rejected"
         ? "Revise access"
         : gateState.status === "granted"
           ? "Syncing access"
@@ -155,6 +161,10 @@
 {:else if canWrite}
   <Button type={submit ? "submit" : "button"} class={className} {disabled}>
     {@render children?.()}
+  </Button>
+{:else if gateState.status === "banned"}
+  <Button type="button" class={className} disabled title={reason}>
+    {compact ? "Banned" : `Cannot ${action}`}
   </Button>
 {:else if accessPath && $pubkey && hasForm}
   <span title={reason}>

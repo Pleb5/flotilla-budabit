@@ -19,6 +19,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {COMMUNITY_SECTION_WIDGETS, TARGETED_PUBLICATION_KIND} from "@app/core/community"
@@ -67,6 +68,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_WIDGETS,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -86,6 +88,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.widget,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )

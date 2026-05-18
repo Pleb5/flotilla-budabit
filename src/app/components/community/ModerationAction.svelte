@@ -6,7 +6,11 @@
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import Icon from "@lib/components/Icon.svelte"
-  import {activeCommunityDefinition, activeCommunityRelays} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityReportState,
+    activeCommunityRelays,
+  } from "@app/core/community-state"
   import {normalizePubkey} from "@app/core/community"
   import {
     canPublishCommunityEventReport,
@@ -51,6 +55,7 @@
         reporterPubkey,
         targetPubkey: event.pubkey,
         sectionName,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )
@@ -63,6 +68,7 @@
         definition: $activeCommunityDefinition,
         reporterPubkey,
         targetPubkey: event.pubkey,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )
@@ -95,8 +101,8 @@
           })
         : makeCommunityPersonReport({
             communityPubkey: $activeCommunityDefinition.pubkey,
-          pubkey: event.pubkey,
-        })
+            pubkey: event.pubkey,
+          })
 
     publishStatus = "publishing"
     const thunk = publishThunk({relays: reportRelays, event: makeEvent(template.kind, template)})
@@ -118,7 +124,7 @@
     }
 
     publishStatus = "idle"
-    pushToast({theme: "success", message: target === "event" ? "Event moderated." : "Person moderated."})
+    pushToast({theme: "success", message: target === "event" ? "Event moderated." : "Person banned."})
     history.back()
   }
 
@@ -127,11 +133,11 @@
     pushModal(
       Confirm,
       {
-        title: target === "event" ? "Moderate event" : "Moderate person",
+        title: target === "event" ? "Moderate event" : "Ban person",
         message:
           target === "event"
             ? "Hide this event in the current community section?"
-            : "Hide this person's content across this community?",
+            : "Ban this person from publishing across this community?",
         confirm: () => publishCommunityReport(target),
       },
       {replaceState},
@@ -153,7 +159,7 @@
   {#if canModeratePerson}
     <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("person")}>
       <Icon size={4} icon={Danger} />
-      {publishStatus === "publishing" ? "Publishing..." : "Moderate Person"}
+      {publishStatus === "publishing" ? "Publishing..." : "Ban Person"}
     </Button>
   {/if}
 {:else}
@@ -169,7 +175,7 @@
     <li>
       <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("person")}>
         <Icon size={4} icon={Danger} />
-        {publishStatus === "publishing" ? "Publishing..." : "Moderate Person"}
+        {publishStatus === "publishing" ? "Publishing..." : "Ban Person"}
       </Button>
     </li>
   {/if}

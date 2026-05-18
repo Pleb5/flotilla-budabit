@@ -19,12 +19,9 @@ This document describes the moderator promotion request flow for Communikey comm
 
 ## Request Shape
 
-A moderator promotion request is a pair of requester-authored events:
+A moderator promotion request is a requester-authored empty `kind:30000` profile list.
 
-- Empty `kind:30000` profile list.
-- `kind:30009` badge definition.
-
-Both events MUST tag the community and requested section.
+The event MUST tag the community and requested section.
 
 ### Profile List Event
 
@@ -41,39 +38,22 @@ Both events MUST tag the community and requested section.
 }
 ```
 
-### Badge Definition Event
-
-```json
-{
-  "kind": 30009,
-  "pubkey": "<requester-pubkey>",
-  "tags": [
-    ["d", "<same-deterministic-community-section-moderator-id>"],
-    ["a", "10222:<community-pubkey>:", "<community-relay>"],
-    ["content", "<section-name>"],
-    ["name", "<section-name> moderator"],
-    ["description", "Can moderate access for the <section-name> section."]
-  ],
-  "content": ""
-}
-```
-
 ## Request States
 
-- `not-requested`: no valid requester-owned list and badge pair exists for the section.
-- `pending`: a valid list and badge pair exists, latest `kind:10222` does not reference them, and there is no active rejection.
-- `rejected`: a valid list and badge pair exists, latest `kind:10222` does not reference them, and the community pubkey has active `-` reactions on both request events.
-- `accepted`: latest `kind:10222` references both requester-owned refs for the section.
+- `not-requested`: no valid requester-owned profile-list request exists for the section.
+- `pending`: a valid profile-list request exists, latest `kind:10222` does not reference it, and there is no active rejection.
+- `rejected`: a valid profile-list request exists, latest `kind:10222` does not reference it, and the community pubkey has an active `-` reaction on the request event.
+- `accepted`: latest `kind:10222` references the requester-owned profile-list ref for the section.
 - `already-moderator`: requester perspective label for `accepted`.
 
 Accepted moderators become section authorities for admission and event-level moderation in their granted section. Person-level moderation is stronger and only counts when performed by the community admin or by a current moderator with grant capability for every section in the latest community definition.
 
 ## Reaction Rules
 
-The community pubkey reviews request pairs using reactions against both request events.
+The community pubkey reviews requests using reactions against the request event.
 
-- Reject: publish `kind:7` reactions with `content = "-"` against both events.
-- Accept: publish `kind:5` delete events for active review reactions, publish `kind:7` reactions with `content = "+"` against both request events, and publish a new `kind:10222` that appends both refs to the requested section.
+- Reject: publish a `kind:7` reaction with `content = "-"` against the request event.
+- Accept: publish `kind:5` delete events for active review reactions, publish a `kind:7` reaction with `content = "+"` against the request event, and publish a new `kind:10222` that appends the profile-list ref to the requested section.
 - Clear rejection: publish `kind:5` delete events for the community pubkey's active `-` reactions.
 
 Deleted reactions MUST be ignored when deriving request state. If the admin changes their mind after rejecting, they can still accept the original request. Accepting performs the reaction cleanup and publishes the approval artifacts in one action. The applicant does not publish another request.
@@ -83,7 +63,7 @@ Deleted reactions MUST be ignored when deriving request state. If the admin chan
 Add a section at the bottom of `/c/[community]/access` named `Moderator promotion requests`.
 
 - Show one card per content section.
-- `Request moderator role` publishes the requester-owned empty list and badge definition.
+- `Request moderator role` publishes the requester-owned empty profile list.
 - Cards show `Not requested`, `Pending`, `Rejected`, or `Already moderator`.
 - If rejected, keep the requester blocked from publishing another moderator request. The admin can still grant the original request later.
 
@@ -100,7 +80,7 @@ The `Moderator requests` tab contains filters for:
 - `Accepted`
 - `Rejected`
 
-Pending requests show requester profile, section, list ref, badge ref, and actions:
+Pending requests show requester profile, section, list ref, and actions:
 
 - `Accept`
 - `Reject`
@@ -109,7 +89,7 @@ Accepted requests show the moderators already appended to `kind:10222`.
 
 Rejected requests support:
 
-- `Accept` to delete active review reactions, publish approval reactions, and flip the original request from rejected to approved.
+- `Accept` to delete active review reactions, publish an approval reaction, and flip the original request from rejected to approved.
 
 ## Navigation Highlights
 
@@ -123,17 +103,17 @@ Rejected requests support:
 Before accepting, validate:
 
 - Requested section still exists.
-- Profile list and badge definition are authored by the same requester.
-- Both events tag the active community definition address.
-- Both events tag the same section name.
-- Latest `kind:10222` does not already include both refs in that section.
+- Profile list is authored by the requester.
+- The event tags the active community definition address.
+- The event tags the requested section name.
+- Latest `kind:10222` does not already include the profile-list ref in that section.
 
 Acceptance MUST append the requester refs and MUST NOT overwrite existing section refs.
 
 ## Implementation Steps
 
-1. Add core helpers for request event creation, parsing, pairing, state derivation, acceptance, rejection, and rejection clearing.
-2. Add unit tests for request pairing, pending/accepted/rejected state, deleted reaction handling, and 10222 append behavior.
+1. Add core helpers for request event creation, parsing, state derivation, acceptance, rejection, and rejection clearing.
+2. Add unit tests for request parsing, pending/accepted/rejected state, deleted reaction handling, and 10222 append behavior.
 3. Extend community state to load request events and review/delete reactions from active community relays.
 4. Add requester cards to `/c/[community]/access`.
 5. Add admin tabs and request review UI to `/c/[community]/admin`.

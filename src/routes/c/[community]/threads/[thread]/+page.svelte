@@ -42,7 +42,7 @@
     canWriteCommunityTarget,
     getCommunitySectionWriterPubkeys,
   } from "@app/core/community-permissions"
-  import {getCommunityCensorReason} from "@app/core/community-reports"
+  import {getCommunityCensorReason, isCommunityPersonBanned} from "@app/core/community-reports"
   import {setChecked} from "@app/util/notifications"
   import {makeCommunityPath, parseCommunityRouteParam} from "@app/util/routes"
 
@@ -75,6 +75,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_GENERAL,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -121,6 +122,7 @@
     $replyEvents
       .map(event => readCommunityThreadReply(event, communityPubkey, threadId))
       .filter(Boolean)
+      .filter(reply => !isCommunityPersonBanned($activeCommunityReportState, reply!.event.pubkey))
       .sort((a, b) => (a?.event.created_at || 0) - (b?.event.created_at || 0)),
   )
 
@@ -142,6 +144,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.comment,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )
@@ -156,6 +159,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.reaction,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )

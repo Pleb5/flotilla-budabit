@@ -20,6 +20,7 @@
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
   } from "@app/core/community-state"
   import {COMMUNITY_SECTION_REPOSITORIES, TARGETED_PUBLICATION_KIND} from "@app/core/community"
@@ -63,6 +64,7 @@
           definition: $activeCommunityDefinition,
           profileListEvents: $activeCommunityProfileListEvents,
           sectionName: COMMUNITY_SECTION_REPOSITORIES,
+          reportState: $activeCommunityReportState,
         })
       : [],
   )
@@ -82,6 +84,7 @@
           profileListEvents: $activeCommunityProfileListEvents,
           userPubkey: $pubkey,
           target: COMMUNITY_WRITE_TARGETS.repository,
+          reportState: $activeCommunityReportState,
         }),
     ),
   )

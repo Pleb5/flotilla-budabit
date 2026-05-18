@@ -4,7 +4,6 @@
   import {request} from "@welshman/net"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {BADGE_DEFINITION} from "@welshman/util"
   import HomeSmile from "@assets/icons/home-smile.svg?dataurl"
   import Hashtag from "@assets/icons/hashtag.svg?dataurl"
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
@@ -28,6 +27,7 @@
     activeCommunityDefinition,
     activeCommunityProfile,
     activeCommunityProfileListEvents,
+    activeCommunityReportState,
     activeCommunityRelays,
     makeCommunityModeratorRequestFilters,
   } from "@app/core/community-state"
@@ -43,6 +43,7 @@
     getModeratorPromotionRequestStates,
     getModeratorPromotionRequests,
   } from "@app/core/community-moderator-requests"
+  import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {notifications} from "@app/util/notifications"
   import {formatShortNpub} from "@app/util/pubkeys"
@@ -79,7 +80,11 @@
   )
   const roomFilters = $derived(community ? [makeCommunityRoomRootsFilter(community)] : [])
   const roomEvents = $derived(deriveEventsAsc(deriveEventsById({repository, filters: roomFilters})))
-  const rooms = $derived(readCommunityRoomRoots($roomEvents, community))
+  const rooms = $derived(
+    readCommunityRoomRoots($roomEvents, community).filter(
+      room => !isCommunityPersonBanned($activeCommunityReportState, room.event.pubkey),
+    ),
+  )
   const moderatorRequestFilters = $derived(
     canViewAdmin && $activeCommunityDefinition
       ? makeCommunityModeratorRequestFilters($activeCommunityDefinition, {limit: 200})
@@ -94,7 +99,6 @@
 
     const requests = getModeratorPromotionRequests({
       profileListEvents: $moderatorRequestEvents.filter(event => event.kind === PROFILE_LIST_KIND),
-      badgeEvents: $moderatorRequestEvents.filter(event => event.kind === BADGE_DEFINITION),
       communityPubkey: definition.pubkey,
     })
 
@@ -109,7 +113,13 @@
     if (!definition || !userPubkey) return false
 
     return definition.sections.some(
-      section => getGrantCapability({definition, userPubkey, sectionName: section.name}).canGrant,
+      section =>
+        getGrantCapability({
+          definition,
+          userPubkey,
+          sectionName: section.name,
+          reportState: $activeCommunityReportState,
+        }).canGrant,
     )
   })
   const canCreateRoom = $derived(
@@ -122,6 +132,7 @@
         profileListEvents: $activeCommunityProfileListEvents,
         userPubkey: $pubkey,
         target: COMMUNITY_WRITE_TARGETS.roomRoot,
+        reportState: $activeCommunityReportState,
       }),
     ),
   )

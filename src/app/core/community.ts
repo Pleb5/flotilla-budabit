@@ -132,9 +132,7 @@ export type CommunitySetupSection = {
   name: string
   kinds: CommunitySectionKind[]
   profileList: CommunityProfileListRef
-  badge: CommunityBadgeRef
   profileLists?: CommunityProfileListRef[]
-  badges?: CommunityBadgeRef[]
   retention?: CommunityRetentionPolicy[]
 }
 
@@ -283,27 +281,23 @@ export const makeAddress = (kind: number, pubkey: string, identifier: string) =>
 export const makeCommunitySetupSection = ({
   communityPubkey,
   profileListPubkey,
-  badgeIssuerPubkey,
   relays,
   name,
   kinds = getDefaultCommunitySectionKinds(name),
 }: {
   communityPubkey: string
   profileListPubkey: string
-  badgeIssuerPubkey: string
   relays: string[]
   name: string
   kinds?: CommunitySectionKind[]
 }): CommunitySetupSection => {
   const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
   const normalizedProfileListPubkey = normalizePubkey(profileListPubkey)
-  const normalizedBadgeIssuerPubkey = normalizePubkey(badgeIssuerPubkey)
   const normalizedRelays = normalizeRelays(relays)
   const normalizedName = normalizeCommunitySectionName(name)
   const normalizedKinds = kinds.map(normalizeCommunitySectionKind)
   const identifier = makeCommunityScopedIdentifier(normalizedCommunityPubkey, normalizedName)
   const profileListAddress = makeAddress(PROFILE_LIST_KIND, normalizedProfileListPubkey, identifier)
-  const badgeAddress = makeAddress(BADGE_DEFINITION, normalizedBadgeIssuerPubkey, identifier)
   const profileList = {
     kind: PROFILE_LIST_KIND,
     pubkey: normalizedProfileListPubkey,
@@ -311,39 +305,28 @@ export const makeCommunitySetupSection = ({
     address: profileListAddress,
     relay: normalizedRelays[0],
   }
-  const badge = {
-    kind: BADGE_DEFINITION,
-    pubkey: normalizedBadgeIssuerPubkey,
-    identifier,
-    address: badgeAddress,
-  }
 
   return {
     name: normalizedName,
     kinds: normalizedKinds,
     profileList,
-    badge,
     profileLists: [profileList],
-    badges: [badge],
   }
 }
 
 export const makeCommunitySetupRefs = ({
   communityPubkey,
   profileListPubkey,
-  badgeIssuerPubkey,
   relays,
   sectionNames = DEFAULT_COMMUNITY_SECTION_NAMES,
 }: {
   communityPubkey: string
   profileListPubkey: string
-  badgeIssuerPubkey: string
   relays: string[]
   sectionNames?: readonly string[]
 }): CommunitySetupRefs => {
   const normalizedCommunityPubkey = normalizePubkey(communityPubkey)
   const normalizedProfileListPubkey = normalizePubkey(profileListPubkey)
-  const normalizedBadgeIssuerPubkey = normalizePubkey(badgeIssuerPubkey)
   const normalizedRelays = normalizeRelays(relays)
 
   return {
@@ -353,7 +336,6 @@ export const makeCommunitySetupRefs = ({
       makeCommunitySetupSection({
         communityPubkey: normalizedCommunityPubkey,
         profileListPubkey: normalizedProfileListPubkey,
-        badgeIssuerPubkey: normalizedBadgeIssuerPubkey,
         relays: normalizedRelays,
         name,
       }),
@@ -397,9 +379,6 @@ export const buildCommunityDefinition = ({
     for (const profileList of section.profileLists ||
       (section.profileList ? [section.profileList] : [])) {
       tags.push(appendDefined(["a", profileList.address], profileList.relay))
-    }
-    for (const badge of section.badges || (section.badge ? [section.badge] : [])) {
-      tags.push(["badge", badge.address])
     }
     for (const retention of section.retention || []) {
       tags.push(["retention", String(retention.kind), String(retention.value), retention.type])
@@ -487,13 +466,6 @@ const parseProfileListRef = (tag: string[]): CommunityProfileListRef | undefined
   return {...ref, relay: normalizeRelay(tag[2]) || undefined}
 }
 
-const parseBadgeRef = (tag: string[]): CommunityBadgeRef | undefined => {
-  const ref = parseAddressRef(tag[1] || "")
-  if (!ref || ref.kind !== BADGE_DEFINITION) return undefined
-
-  return ref
-}
-
 const parseRetentionPolicy = (tag: string[]): CommunityRetentionPolicy | undefined => {
   const kind = Number.parseInt(tag[1] || "", 10)
   const value = Number.parseInt(tag[2] || "", 10)
@@ -545,12 +517,6 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
     if (tag[0] === "a" && currentSection) {
       const profileList = parseProfileListRef(tag)
       if (profileList) currentSection.profileLists.push(profileList)
-      continue
-    }
-
-    if (tag[0] === "badge" && currentSection) {
-      const badge = parseBadgeRef(tag)
-      if (badge) currentSection.badges.push(badge)
       continue
     }
 
@@ -678,9 +644,6 @@ export const userCanManageProfileList = (
   profileListRef: CommunityProfileListRef | undefined,
   pubkey: string,
 ) => Boolean(profileListRef && normalizePubkey(pubkey) === profileListRef.pubkey)
-
-export const userCanIssueBadge = (badgeRef: CommunityBadgeRef | undefined, pubkey: string) =>
-  Boolean(badgeRef && normalizePubkey(pubkey) === badgeRef.pubkey)
 
 const appendDefined = (base: string[], ...values: Array<string | undefined>) => {
   for (const value of values) {

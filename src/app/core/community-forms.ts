@@ -96,6 +96,9 @@ export type CommunityFormReview = {
   event: TrustedEvent
   responseId: string
   applicantPubkey?: string
+  formAddress?: string
+  communityPubkey?: string
+  sectionName?: string
   status: CommunityFormReviewStatus
 }
 
@@ -105,6 +108,15 @@ export type CommunitySubmissionState = {
   status: CommunitySubmissionStatus
   response?: CommunityFormResponse
   review?: CommunityFormReview
+}
+
+export type CommunityAdmissionReviewHistory = {
+  reviews: CommunityFormReview[]
+  priorReviews: CommunityFormReview[]
+  latestReview?: CommunityFormReview
+  latestPriorReview?: CommunityFormReview
+  grantedCount: number
+  rejectedCount: number
 }
 
 const emptySettings = {} as Record<string, unknown>
@@ -168,6 +180,12 @@ export const makeAdmissionFormAddress = (pubkey: string, identifier: string) => 
 }
 
 const stringifySettings = (settings?: Record<string, unknown>) => JSON.stringify(settings || {})
+
+const makeOptionalTag = (name: string, value: unknown) => {
+  const text = value === undefined || value === null ? "" : String(value).trim()
+
+  return text ? [[name, text]] : []
+}
 
 const slugify = (value: string, fallback: string) =>
   value
@@ -630,6 +648,11 @@ export const parseAdmissionReview = (event: TrustedEvent): CommunityFormReview |
     event,
     responseId,
     applicantPubkey: event.tags.find(tag => tag[0] === "p")?.[1],
+    formAddress: event.tags.find(tag => tag[0] === "a")?.[1],
+    communityPubkey: normalizePubkey(event.tags.find(tag => tag[0] === "h")?.[1] || "") || undefined,
+    sectionName:
+      normalizeCommunitySectionName(event.tags.find(tag => tag[0] === "content")?.[1] || "") ||
+      undefined,
     status: event.content === "+" ? "granted" : "rejected",
   }
 }
@@ -637,10 +660,16 @@ export const parseAdmissionReview = (event: TrustedEvent): CommunityFormReview |
 export const makeAdmissionReview = ({
   responseId,
   applicantPubkey,
+  formAddress = "",
+  communityPubkey = "",
+  sectionName = "",
   status,
 }: {
   responseId: string
   applicantPubkey: string
+  formAddress?: string
+  communityPubkey?: string
+  sectionName?: string
   status: CommunityFormReviewStatus
 }): EventContent & {kind: typeof COMMUNITY_FORM_REVIEW_KIND} => ({
   kind: COMMUNITY_FORM_REVIEW_KIND,
@@ -649,6 +678,9 @@ export const makeAdmissionReview = ({
     ["e", responseId],
     ["p", normalizePubkey(applicantPubkey)],
     ["k", String(FORM_RESPONSE_KIND)],
+    ...makeOptionalTag("a", formAddress),
+    ...makeOptionalTag("h", normalizePubkey(communityPubkey)),
+    ...makeOptionalTag("content", normalizeCommunitySectionName(sectionName)),
   ],
 })
 
@@ -676,6 +708,63 @@ export const selectLatestAdmissionReview = ({
   return selected
 }
 
+const sortReviewsNewestFirst = (a: CommunityFormReview, b: CommunityFormReview) => {
+  if (a.event.created_at !== b.event.created_at) return b.event.created_at - a.event.created_at
+
+  return a.event.id.localeCompare(b.event.id)
+}
+
+export const getAdmissionReviewHistory = ({
+  reviewEvents,
+  applicantPubkey,
+  communityPubkey,
+  sectionName,
+  formAddress,
+  moderatorPubkeys,
+  excludeResponseId,
+}: {
+  reviewEvents: TrustedEvent[]
+  applicantPubkey: string
+  communityPubkey?: string
+  sectionName?: string
+  formAddress?: string
+  moderatorPubkeys?: string[]
+  excludeResponseId?: string
+}): CommunityAdmissionReviewHistory => {
+  const applicant = normalizePubkey(applicantPubkey)
+  const community = normalizePubkey(communityPubkey || "")
+  const section = normalizeCommunitySectionName(sectionName || "")
+  const moderators = new Set((moderatorPubkeys || []).map(normalizePubkey).filter(Boolean))
+  const filterModerators = Boolean(moderatorPubkeys)
+  const reviewsById = new Map<string, CommunityFormReview>()
+
+  for (const event of reviewEvents) {
+    const review = parseAdmissionReview(event)
+    if (!review) continue
+    if (!applicant || normalizePubkey(review.applicantPubkey || "") !== applicant) continue
+    if (community && normalizePubkey(review.communityPubkey || "") !== community) continue
+    if (section && normalizeCommunitySectionName(review.sectionName || "") !== section) continue
+    if (formAddress && review.formAddress !== formAddress) continue
+    if (filterModerators && !moderators.has(normalizePubkey(review.event.pubkey || ""))) continue
+
+    reviewsById.set(review.event.id, review)
+  }
+
+  const reviews = Array.from(reviewsById.values()).sort(sortReviewsNewestFirst)
+  const priorReviews = excludeResponseId
+    ? reviews.filter(review => review.responseId !== excludeResponseId)
+    : reviews
+
+  return {
+    reviews,
+    priorReviews,
+    latestReview: reviews[0],
+    latestPriorReview: priorReviews[0],
+    grantedCount: reviews.filter(review => review.status === "granted").length,
+    rejectedCount: reviews.filter(review => review.status === "rejected").length,
+  }
+}
+
 export const getAdmissionSubmissionState = ({
   responseEvents,
   deleteEvents,
@@ -701,7 +790,6 @@ export const getAdmissionSubmissionState = ({
   })
 
   if (!response) return {status: profileListGranted ? "granted" : "none"}
-  if (profileListGranted) return {status: "granted", response}
 
   const review = selectLatestAdmissionReview({
     events: reviewEvents,
@@ -709,8 +797,9 @@ export const getAdmissionSubmissionState = ({
     moderatorPubkeys,
   })
 
-  if (review?.status === "granted") return {status: "granted", response, review}
   if (review?.status === "rejected") return {status: "rejected", response, review}
+  if (profileListGranted) return {status: "granted", response, review}
+  if (review?.status === "granted") return {status: "granted", response, review}
 
   return {status: "pending", response}
 }

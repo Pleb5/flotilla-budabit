@@ -48,7 +48,10 @@ import {
 } from "@welshman/app"
 import {isMobile} from "@lib/html"
 import type {IDBTable} from "@lib/indexeddb"
-import {isPersistedGitDeleteEvent} from "@app/util/storage-events"
+import {
+  isPersistedCommunityReportDeleteEvent,
+  isPersistedGitDeleteEvent,
+} from "@app/util/storage-events"
 
 const kinds = {
   meta: [PROFILE, FOLLOWS, MUTES, RELAYS, BLOSSOM_SERVERS, MESSAGING_RELAYS, APP_DATA],
@@ -74,6 +77,7 @@ const isCommunityStarDelete = (event: TrustedEvent) =>
 const rankEvent = (event: TrustedEvent) => {
   if (kinds.meta.includes(event.kind)) return 9
   if (kinds.community.includes(event.kind) || isCommunityStarReaction(event)) return 9
+  if (isPersistedCommunityReportDeleteEvent(event)) return 9
   if (isCommunityStarDelete(event)) return 8
   if (kinds.alert.includes(event.kind)) return 8
   if (!isMobile && kinds.content.includes(event.kind)) return 5

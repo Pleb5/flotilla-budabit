@@ -10,7 +10,6 @@ import {COMMUNITY_FORM_REVIEW_KIND} from "@app/core/community-forms"
 import type {ModeratorPromotionRequest} from "@app/core/community-moderator-requests"
 import {
   makeCommunityAdmissionFormFilters,
-  makeCommunityBadgeDefinitionFilters,
   makeCommunityDefinitionFilter,
   makeCommunityModeratorRequestDeleteFilters,
   makeCommunityModeratorRequestFilters,
@@ -89,7 +88,6 @@ export const buildCommunityLiveFilters = ({
     {kinds: COMMUNITY_EXCLUSIVE_KINDS, "#h": [definition.pubkey]},
     makeCommunityTargetingFilter(definition.pubkey, TARGETED_PUBLICATION_KINDS),
     ...makeCommunityProfileListFilters(definition),
-    ...makeCommunityBadgeDefinitionFilters(definition),
     ...makeCommunityAdmissionFormFilters(definition),
     ...makeCommunityModeratorRequestFilters(definition),
     ...makeCommunityModeratorRequestReactionFilters(definition, moderatorRequests),

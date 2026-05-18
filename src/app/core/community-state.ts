@@ -5,7 +5,7 @@ import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {sortBy} from "@welshman/lib"
 import {AuthStatus, load, Pool} from "@welshman/net"
 import {Router} from "@welshman/router"
-import {BADGE_DEFINITION, DELETE, PROFILE, type Filter, type TrustedEvent} from "@welshman/util"
+import {DELETE, PROFILE, type Filter, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_GOALS,
@@ -76,7 +76,6 @@ export type CommunitySession = {
 export type CommunityBootstrap = {
   definition?: CommunityDefinition
   profileListEvents: TrustedEvent[]
-  badgeDefinitionEvents: TrustedEvent[]
   admissionFormEvents: TrustedEvent[]
   reportEvents: TrustedEvent[]
   reportDeleteEvents: TrustedEvent[]
@@ -317,6 +316,7 @@ const COMMUNITY_MODERATOR_REQUEST_LOAD_TIMEOUT = 1500
 const COMMUNITY_MODERATOR_REQUEST_HYDRATION_TTL = 30_000
 const COMMUNITY_PROFILE_LOAD_TIMEOUT = 3000
 const COMMUNITY_PROFILE_HYDRATION_TTL = 30_000
+const COMMUNITY_REPORT_DELETE_HYDRATION_TTL = 30_000
 
 const withTimeout = async <T>(promise: Promise<T>, timeout: number, fallback: T): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -756,9 +756,6 @@ export const hydratePreferredCommunities = async ({
 export const getProfileListRefs = (definition: CommunityDefinition) =>
   definition.sections.flatMap(section => section.profileLists)
 
-export const getBadgeDefinitionRefs = (definition: CommunityDefinition) =>
-  definition.sections.flatMap(section => section.badges)
-
 const makeAddressRefFilter = ({
   kind,
   pubkey,
@@ -776,9 +773,6 @@ const makeAddressRefFilter = ({
 
 export const makeCommunityProfileListFilters = (definition: CommunityDefinition): Filter[] =>
   getProfileListRefs(definition).map(ref => makeAddressRefFilter(ref))
-
-export const makeCommunityBadgeDefinitionFilters = (definition: CommunityDefinition): Filter[] =>
-  getBadgeDefinitionRefs(definition).map(ref => makeAddressRefFilter(ref))
 
 export const getAdmissionFormModeratorPubkeys = (definition: CommunityDefinition) =>
   Array.from(
@@ -808,7 +802,7 @@ export const makeCommunityModeratorRequestFilters = (
   return communityAddress
     ? [
         {
-          kinds: [PROFILE_LIST_KIND, BADGE_DEFINITION],
+          kinds: [PROFILE_LIST_KIND],
           "#a": [communityAddress],
           ...(authors?.length ? {authors} : {}),
           limit: options.limit ?? 200,
@@ -823,9 +817,7 @@ export const makeCommunityModeratorRequestReactionFilters = (
 ): Filter[] => {
   const eventIds = Array.from(
     new Set(
-      requests
-        .flatMap(request => [request.profileList.event.id, request.badge.event.id])
-        .filter(Boolean),
+      requests.map(request => request.profileList.event.id).filter(Boolean),
     ),
   )
 
@@ -865,6 +857,52 @@ export const makeCommunityReportDeleteFilters = (reportEvents: TrustedEvent[]): 
   return reportIds.length ? [{kinds: [DELETE], "#e": reportIds}] : []
 }
 
+const communityReportDeleteHydratedAt = new Map<string, number>()
+const communityReportDeleteHydrationPromises = new Map<string, Promise<TrustedEvent[]>>()
+
+export const hydrateCommunityReportDeleteEvents = async ({
+  relays,
+  reportEvents,
+  force = false,
+}: {
+  relays: string[]
+  reportEvents: TrustedEvent[]
+  force?: boolean
+}) => {
+  const normalizedRelays = normalizeRelays(relays)
+  const reportIds = Array.from(new Set(reportEvents.map(event => event.id).filter(Boolean))).sort()
+  const key = `${reportIds.join(",")}:${normalizedRelays.slice().sort().join(",")}`
+  const filters = makeCommunityReportDeleteFilters(reportEvents)
+
+  if (normalizedRelays.length === 0 || reportIds.length === 0 || filters.length === 0) return []
+  if (
+    !force &&
+    (communityReportDeleteHydratedAt.get(key) || 0) >
+      Date.now() - COMMUNITY_REPORT_DELETE_HYDRATION_TTL
+  ) {
+    return []
+  }
+
+  const pending = communityReportDeleteHydrationPromises.get(key)
+  if (pending) return pending
+
+  const promise = loadCommunityEvents(normalizedRelays, filters, {authenticate: true})
+    .then(events => {
+      communityReportDeleteHydratedAt.set(key, Date.now())
+
+      return events
+    })
+    .finally(() => {
+      if (communityReportDeleteHydrationPromises.get(key) === promise) {
+        communityReportDeleteHydrationPromises.delete(key)
+      }
+    })
+
+  communityReportDeleteHydrationPromises.set(key, promise)
+
+  return promise
+}
+
 const deriveActiveCommunityEvents = (
   makeFilters: (definition: CommunityDefinition) => Filter[],
 ): Readable<TrustedEvent[]> =>
@@ -890,9 +928,6 @@ const deriveActiveCommunityEvents = (
 export const activeCommunityProfileListEvents: Readable<TrustedEvent[]> =
   deriveActiveCommunityEvents(makeCommunityProfileListFilters)
 
-export const activeCommunityBadgeDefinitionEvents: Readable<TrustedEvent[]> =
-  deriveActiveCommunityEvents(makeCommunityBadgeDefinitionFilters)
-
 export const activeCommunityAdmissionFormEvents: Readable<TrustedEvent[]> =
   deriveActiveCommunityEvents(makeCommunityAdmissionFormFilters)
 
@@ -901,13 +936,20 @@ export const activeCommunityReportEvents: Readable<TrustedEvent[]> = deriveActiv
 )
 
 export const activeCommunityReportDeleteEvents: Readable<TrustedEvent[]> = derived(
-  activeCommunityReportEvents,
-  ($activeCommunityReportEvents, set) => {
+  [activeCommunityReportEvents, activeCommunityRelays],
+  ([$activeCommunityReportEvents, $activeCommunityRelays], set) => {
     const filters = makeCommunityReportDeleteFilters($activeCommunityReportEvents)
     if (filters.length === 0) {
       set([])
       return
     }
+
+    void hydrateCommunityReportDeleteEvents({
+      relays: $activeCommunityRelays,
+      reportEvents: $activeCommunityReportEvents,
+    }).catch(error => {
+      console.warn("[community] Failed to hydrate moderation report deletes", error)
+    })
 
     return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
   },
@@ -941,9 +983,6 @@ export const activeCommunityModeratorRequests: Readable<ModeratorPromotionReques
       ? getModeratorPromotionRequests({
           profileListEvents: $activeCommunityModeratorRequestEvents.filter(
             event => event.kind === PROFILE_LIST_KIND,
-          ),
-          badgeEvents: $activeCommunityModeratorRequestEvents.filter(
-            event => event.kind === BADGE_DEFINITION,
           ),
           communityPubkey: $activeCommunityDefinition.pubkey,
         })
@@ -1015,6 +1054,7 @@ export const activeCommunityModeratorRequestStates: Readable<ModeratorPromotionR
             requests: $activeCommunityModeratorRequests,
             reactionEvents: $activeCommunityModeratorRequestReactionEvents,
             deleteEvents: $activeCommunityModeratorRequestDeleteEvents,
+            includeGranted: true,
           })
         : [],
     [] as ModeratorPromotionRequestState[],
@@ -1056,9 +1096,6 @@ export const activeCommunityUserModeratorRequests: Readable<ModeratorPromotionRe
       ? getModeratorPromotionRequests({
           profileListEvents: $activeCommunityUserModeratorRequestEvents.filter(
             event => event.kind === PROFILE_LIST_KIND,
-          ),
-          badgeEvents: $activeCommunityUserModeratorRequestEvents.filter(
-            event => event.kind === BADGE_DEFINITION,
           ),
           communityPubkey: $activeCommunityDefinition.pubkey,
         })
@@ -1206,7 +1243,6 @@ export const hydrateActiveCommunityUserModeratorRequests = async ({
     ]
     const requests = getModeratorPromotionRequests({
       profileListEvents: requestEvents.filter(event => event.kind === PROFILE_LIST_KIND),
-      badgeEvents: requestEvents.filter(event => event.kind === BADGE_DEFINITION),
       communityPubkey: definition.pubkey,
     })
     const reactionFilters = makeCommunityModeratorRequestReactionFilters(definition, requests)
@@ -1247,6 +1283,7 @@ export const hydrateActiveCommunityUserModeratorRequests = async ({
 export const selectCommunityAdmissionForms = (
   definition: CommunityDefinition,
   events: TrustedEvent[],
+  reportState?: EffectiveCommunityReportState,
 ): Record<string, CommunityAdmissionForm> =>
   Object.fromEntries(
     definition.sections.flatMap(section => {
@@ -1257,6 +1294,7 @@ export const selectCommunityAdmissionForms = (
         moderatorPubkeys: getGrantCapableSectionModeratorPubkeys({
           definition,
           sectionName: section.name,
+          reportState,
         }),
       })
 
@@ -1273,12 +1311,13 @@ export const selectCommunityAdmissionForms = (
 
 export const activeCommunityAdmissionForms: Readable<Record<string, CommunityAdmissionForm>> =
   derived(
-    [activeCommunityDefinition, activeCommunityAdmissionFormEvents],
-    ([$activeCommunityDefinition, $activeCommunityAdmissionFormEvents]) =>
+    [activeCommunityDefinition, activeCommunityAdmissionFormEvents, activeCommunityReportState],
+    ([$activeCommunityDefinition, $activeCommunityAdmissionFormEvents, $activeCommunityReportState]) =>
       $activeCommunityDefinition
         ? selectCommunityAdmissionForms(
             $activeCommunityDefinition,
             $activeCommunityAdmissionFormEvents,
+            $activeCommunityReportState,
           )
         : {},
   )
@@ -1316,7 +1355,6 @@ export const loadCommunityBootstrap = async (
   if (definition) {
     setActiveCommunityDefinition(definition)
     authorityFilters.push(...makeCommunityProfileListFilters(definition))
-    authorityFilters.push(...makeCommunityBadgeDefinitionFilters(definition))
     admissionFormFilters.push(...makeCommunityAdmissionFormFilters(definition))
     reportFilters.push(...makeCommunityReportFilters(definition))
   }
@@ -1326,20 +1364,21 @@ export const loadCommunityBootstrap = async (
     admissionFormFilters.length > 0
       ? loadCommunityEvents(communityRelays, admissionFormFilters)
       : [],
-    reportFilters.length > 0 ? loadCommunityEvents(communityRelays, reportFilters) : [],
+    reportFilters.length > 0
+      ? loadCommunityEvents(communityRelays, reportFilters, {authenticate: true})
+      : [],
   ])
-  const reportDeleteFilters = makeCommunityReportDeleteFilters(reportEvents)
-  const reportDeleteEvents = reportDeleteFilters.length
-    ? await loadCommunityEvents(communityRelays, reportDeleteFilters)
-    : []
+
+  void hydrateCommunityReportDeleteEvents({relays: communityRelays, reportEvents}).catch(error => {
+    console.warn("[community] Failed to hydrate moderation report deletes", error)
+  })
 
   const bootstrap = {
     definition,
     profileListEvents: authorityEvents.filter(event => event.kind === PROFILE_LIST_KIND),
-    badgeDefinitionEvents: authorityEvents.filter(event => event.kind === BADGE_DEFINITION),
     admissionFormEvents: admissionFormEvents.filter(event => event.kind === FORM_TEMPLATE_KIND),
     reportEvents: reportEvents.filter(event => event.kind === COMMUNITY_REPORT_KIND),
-    reportDeleteEvents: reportDeleteEvents.filter(event => event.kind === DELETE),
+    reportDeleteEvents: [],
   }
 
   return bootstrap

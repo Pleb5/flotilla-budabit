@@ -22,20 +22,17 @@
   import {
     FORM_RESPONSE_KIND,
     getCommunitySectionDisplayName,
+    getProfileListPubkeys,
     normalizePubkey,
   } from "@app/core/community"
-  import {makeCommunityGrantEvents} from "@app/core/community-admin"
+  import {makeCommunityGrantEvent, makeCommunityRevokeEvent} from "@app/core/community-admin"
   import {
     activeCommunityAdmissionForms,
     activeCommunityBootstrapStatus,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
-    activeCommunityReportEvents,
     activeCommunityReportState,
     activeCommunityRelays,
-    loadCommunityEvents,
-    makeCommunityReportDeleteFilters,
-    makeCommunityReportFilters,
   } from "@app/core/community-state"
   import {
     findProfileListEvent,
@@ -53,6 +50,7 @@
     type CommunityAdmissionFormDraftOption,
     type CommunityAdmissionFormDraftQuestion,
     type CommunityAdmissionQuestionType,
+    getAdmissionReviewHistory,
     getAdmissionResponseDisplayValue,
     getAdmissionSubmissionState,
     makeAdmissionFormDraftFromForm,
@@ -70,6 +68,7 @@
     form: CommunityAdmissionForm
     response: NonNullable<ReturnType<typeof parseAdmissionResponse>>
     state: ReturnType<typeof getAdmissionSubmissionState>
+    history: ReturnType<typeof getAdmissionReviewHistory>
   }
 
   type PageMode = "queue" | "forms" | "moderation"
@@ -91,11 +90,6 @@
   let selectedSectionName = $state("")
   let drafts = $state<Record<string, CommunityAdmissionFormDraft>>({})
   let formBuilderElement = $state<HTMLFormElement | undefined>()
-  let reportHydrationKey = $state("")
-  let reportDeleteHydrationKey = $state("")
-
-  const makeHydrationKey = (relays: string[], filters: unknown[]) =>
-    JSON.stringify({relays: relays.slice().sort(), filters})
 
   const grantableSections = $derived(
     communityBootstrapReady
@@ -109,6 +103,7 @@
                 definition: $activeCommunityDefinition,
                 userPubkey: $pubkey,
                 sectionName: section.name,
+                reportState: $activeCommunityReportState,
               })
             : undefined,
       }))
@@ -152,9 +147,25 @@
     deriveEventsAsc(deriveEventsById({repository, filters: responseFilters})),
   )
   const responseIds = $derived($responseEvents.map(event => event.id))
+  const responseApplicantPubkeys = $derived(
+    Array.from(new Set($responseEvents.map(event => normalizePubkey(event.pubkey || "")).filter(Boolean))),
+  )
   const deleteFilters = $derived(responseIds.length ? [{kinds: [DELETE], "#e": responseIds}] : [])
   const reviewFilters = $derived(
     responseIds.length ? [{kinds: [COMMUNITY_FORM_REVIEW_KIND], "#e": responseIds}] : [],
+  )
+  const reviewHistoryFilters = $derived(
+    communityBootstrapReady && $activeCommunityDefinition && responseApplicantPubkeys.length
+      ? [
+          {
+            kinds: [COMMUNITY_FORM_REVIEW_KIND],
+            "#p": responseApplicantPubkeys,
+            "#h": [$activeCommunityDefinition.pubkey],
+            "#k": [String(FORM_RESPONSE_KIND)],
+            limit: 500,
+          },
+        ]
+      : [],
   )
   const deleteEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: deleteFilters})),
@@ -162,13 +173,8 @@
   const reviewEvents = $derived(
     deriveEventsAsc(deriveEventsById({repository, filters: reviewFilters})),
   )
-  const reportFilters = $derived(
-    communityBootstrapReady && $activeCommunityDefinition
-      ? makeCommunityReportFilters($activeCommunityDefinition)
-      : [],
-  )
-  const reportDeleteFilters = $derived(
-    makeCommunityReportDeleteFilters($activeCommunityReportEvents),
+  const reviewHistoryEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: reviewHistoryFilters})),
   )
   const applications = $derived.by(() => {
     if (!$activeCommunityDefinition) return []
@@ -197,6 +203,7 @@
         const moderators = getGrantCapableSectionModeratorPubkeys({
           definition: $activeCommunityDefinition!,
           sectionName: matched.sectionName,
+          reportState: $activeCommunityReportState,
         })
         const state = getAdmissionSubmissionState({
           responseEvents: $responseEvents,
@@ -209,7 +216,16 @@
 
         if (state.response?.event.id !== response!.event.id) return undefined
 
-        return {...matched, response: response!, state}
+        const history = getAdmissionReviewHistory({
+          reviewEvents: [...$reviewEvents, ...$reviewHistoryEvents],
+          applicantPubkey: response!.event.pubkey,
+          communityPubkey: $activeCommunityDefinition!.pubkey,
+          sectionName: matched.sectionName,
+          moderatorPubkeys: moderators,
+          excludeResponseId: state.response?.event.id,
+        })
+
+        return {...matched, response: response!, state, history}
       })
       .filter((item): item is ReviewApplication => Boolean(item))
   })
@@ -453,6 +469,10 @@
       response.value,
       response.metadata,
     )
+  const reviewHistoryToneClass = (status: string) =>
+    status === "granted" ? "bg-success/10 text-success" : "bg-error/10 text-error"
+  const reviewHistoryLabel = (status: string) =>
+    status === "granted" ? "Previously granted" : "Previously rejected"
 
   const selectSection = async (sectionName: string) => {
     selectedSectionName = sectionName
@@ -511,12 +531,13 @@
       definition: $activeCommunityDefinition,
       userPubkey: $pubkey || "",
       sectionName: application.sectionName,
+      reportState: $activeCommunityReportState,
     })
 
-    if (!capability.canGrant || !capability.profileList || !capability.badge) {
+    if (!capability.canGrant || !capability.profileList) {
       pushToast({
         theme: "error",
-        message: "You need list-manager and badge-issuer authority for this section.",
+        message: "You need moderator authority for this section.",
       })
       return
     }
@@ -524,36 +545,53 @@
     const applicant = normalizePubkey(application.response.event.pubkey)
     if (!applicant) return
 
+    const profileListEvent = findProfileListEvent(
+      capability.profileList,
+      $activeCommunityProfileListEvents,
+    )
+
     if (status === "granted") {
-      const profileListEvent = findProfileListEvent(
-        capability.profileList,
-        $activeCommunityProfileListEvents,
-      )
-      const events = makeCommunityGrantEvents({
+      const grant = makeCommunityGrantEvent({
         profileList: capability.profileList,
         profileListEvent,
-        badge: capability.badge,
         pubkey: applicant,
       })
 
       publishThunk({
         relays: $activeCommunityRelays,
-        event: makeEvent(events.profileList.kind, events.profileList),
+        event: makeEvent(grant.kind, grant),
       })
+    } else if (profileListEvent && getProfileListPubkeys(profileListEvent).includes(applicant)) {
+      const revoke = makeCommunityRevokeEvent({
+        profileList: capability.profileList,
+        profileListEvent,
+        pubkey: applicant,
+      })
+
       publishThunk({
         relays: $activeCommunityRelays,
-        event: makeEvent(events.badgeAward.kind, events.badgeAward),
+        event: makeEvent(revoke.kind, revoke),
       })
     }
 
     const review = makeAdmissionReview({
       responseId: application.response.event.id,
       applicantPubkey: applicant,
+      formAddress: application.form.address,
+      communityPubkey: $activeCommunityDefinition.pubkey,
+      sectionName: application.sectionName,
       status,
     })
 
     publishThunk({relays: $activeCommunityRelays, event: makeEvent(review.kind, review)})
-    pushToast({message: status === "granted" ? "Application granted." : "Application rejected."})
+    pushToast({
+      message:
+        status === "granted"
+          ? "Application granted."
+          : application.state.status === "granted"
+            ? "Access revoked."
+            : "Application rejected.",
+    })
   }
 
   $effect(() => {
@@ -569,37 +607,13 @@
   $effect(() => {
     if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
 
-    const filters = [...responseFilters, ...deleteFilters, ...reviewFilters]
+    const filters = [...responseFilters, ...deleteFilters, ...reviewFilters, ...reviewHistoryFilters]
     if (filters.length === 0) return
 
     const controller = new AbortController()
     request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
 
     return () => controller.abort()
-  })
-
-  $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
-    if (reportFilters.length === 0) return
-    const key = makeHydrationKey($activeCommunityRelays, reportFilters)
-    if (key === reportHydrationKey) return
-
-    reportHydrationKey = key
-    void loadCommunityEvents($activeCommunityRelays, reportFilters).catch(error => {
-      console.warn("[community] Failed to hydrate moderation reports", error)
-    })
-  })
-
-  $effect(() => {
-    if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
-    if (reportDeleteFilters.length === 0) return
-    const key = makeHydrationKey($activeCommunityRelays, reportDeleteFilters)
-    if (key === reportDeleteHydrationKey) return
-
-    reportDeleteHydrationKey = key
-    void loadCommunityEvents($activeCommunityRelays, reportDeleteFilters).catch(error => {
-      console.warn("[community] Failed to hydrate moderation report deletes", error)
-    })
   })
 </script>
 
@@ -973,8 +987,8 @@
           <div>
             <h2 class="text-xl font-semibold">Moderation</h2>
             <p class="text-sm opacity-70">
-              Review active censor reports published by this key. Revoking publishes a kind:5 delete
-              for the original report.
+              Review active event censors and person bans published by this key. Revoking publishes
+              a kind:5 delete for the original report.
             </p>
           </div>
           <span class="badge badge-neutral">
@@ -1002,15 +1016,15 @@
         <section class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 class="text-lg font-semibold">People moderation</h3>
-              <p class="text-sm opacity-70">Community-wide person censor reports from this key.</p>
+              <h3 class="text-lg font-semibold">Person bans</h3>
+              <p class="text-sm opacity-70">Community-wide person bans from this key.</p>
             </div>
             <span class="badge badge-error">{currentPersonModerationActions.length}</span>
           </div>
           <ModerationReportList
             reports={currentPersonModerationActions}
             relays={$activeCommunityRelays}
-            emptyMessage="No active person moderations from this key." />
+            emptyMessage="No active person bans from this key." />
         </section>
       </div>
     {:else}
@@ -1074,6 +1088,16 @@
                   <span class="badge">{application.state.status}</span>
                 </div>
 
+                {#if application.history.latestPriorReview}
+                  {@const priorReview = application.history.latestPriorReview}
+                  <p class={`mt-3 rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
+                    {reviewHistoryLabel(priorReview.status)} by
+                    <ProfileLink pubkey={priorReview.event.pubkey} /> on {new Date(
+                      priorReview.event.created_at * 1000,
+                    ).toLocaleString()}.
+                  </p>
+                {/if}
+
                 {#if application.response.responses[0]}
                   {@const firstResponse = application.response.responses[0]}
                   <div class="mt-3 rounded-box bg-base-200 p-2 text-sm">
@@ -1102,7 +1126,9 @@
                   <Button
                     class="btn btn-error btn-sm"
                     disabled={application.state.status === "rejected"}
-                    onclick={() => reviewApplication(application, "rejected")}>Reject</Button>
+                    onclick={() => reviewApplication(application, "rejected")}>
+                    {application.state.status === "granted" ? "Revoke" : "Reject"}
+                  </Button>
                   <Button
                     class="btn btn-success btn-sm"
                     disabled={application.state.status === "granted"}
