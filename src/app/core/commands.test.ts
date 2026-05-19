@@ -1,9 +1,22 @@
 // @vitest-environment jsdom
 
-import {describe, expect, it, vi} from "vitest"
+import {beforeEach, describe, expect, it, vi} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
 
+const utilMocks = vi.hoisted(() => ({
+  uploadBlob: vi.fn(),
+}))
+
 vi.mock("@nostr-git/ui", () => ({}))
+
+vi.mock("@welshman/util", async importOriginal => {
+  const actual = await importOriginal<typeof import("@welshman/util")>()
+
+  return {
+    ...actual,
+    uploadBlob: utilMocks.uploadBlob,
+  }
+})
 
 vi.mock("@app/core/storage", () => ({
   kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
@@ -33,7 +46,22 @@ vi.mock("@app/core/git-state", () => ({
   },
 }))
 
+const makeUploadTestFile = () => {
+  const bytes = new TextEncoder().encode("hello")
+  const file = new File([bytes], "hello.webp", {type: "image/webp"})
+
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => bytes.buffer.slice(0),
+  })
+
+  return file
+}
+
 describe("commands", () => {
+  beforeEach(() => {
+    utilMocks.uploadBlob.mockReset()
+  })
+
   it("normalizeBlossomUrl converts ws to http", async () => {
     const {normalizeBlossomUrl} = await import("./commands")
     expect(normalizeBlossomUrl("wss://blossom.example.com")).toMatch(/^https?:\/\//)
@@ -44,6 +72,92 @@ describe("commands", () => {
     const {normalizeBlossomUrl} = await import("./commands")
     const url = "https://blossom.example.com"
     expect(normalizeBlossomUrl(url)).toContain("https")
+  })
+
+  it("getBlossomUploadTargets prefers an explicit primary server", async () => {
+    const {getBlossomUploadTargets, normalizeBlossomUrl} = await import("./commands")
+    const primary = "https://primary.example.com"
+
+    expect(getBlossomUploadTargets({url: primary}).primary).toBe(normalizeBlossomUrl(primary))
+  })
+
+  it("getBlossomUploadTargets deduplicates mirror servers and excludes the primary", async () => {
+    const {getBlossomUploadTargets, normalizeBlossomUrl} = await import("./commands")
+    const primary = "https://primary.example.com"
+    const mirror = "https://mirror.example.com"
+
+    expect(
+      getBlossomUploadTargets({
+        url: primary,
+        mirrorUrls: [primary, `${mirror}/`, mirror],
+      }).mirrors,
+    ).toEqual([normalizeBlossomUrl(mirror)])
+  })
+
+  it("uploadFile mirrors successful uploads after the primary upload", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const mirror = normalizeBlossomUrl("https://mirror.example.com")
+    const file = makeUploadTestFile()
+
+    utilMocks.uploadBlob.mockImplementation(async (server: string) =>
+      new Response(JSON.stringify({uploaded: 1, url: `${server}blob`})),
+    )
+
+    const {error, mirrors, result} = await uploadFile(file, {
+      url: primary,
+      mirrorUrls: [mirror],
+    })
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(mirrors).toEqual([{server: mirror, ok: true, status: 200, url: `${mirror}blob`}])
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
+    expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(primary)
+    expect(utilMocks.uploadBlob.mock.calls[1][0]).toBe(mirror)
+
+    const headers = utilMocks.uploadBlob.mock.calls[0][2].headers
+    expect(headers["X-SHA-256"]).toMatch(/^[a-f0-9]{64}$/)
+    expect(headers["Content-Type"]).toBe("image/webp")
+    expect(headers["Content-Length"]).toBe(String(file.size))
+  })
+
+  it("uploadFile does not fail when a mirror upload fails", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const mirror = normalizeBlossomUrl("https://mirror.example.com")
+    const file = makeUploadTestFile()
+
+    utilMocks.uploadBlob
+      .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})))
+      .mockRejectedValueOnce(new Error("mirror unavailable"))
+
+    const {error, mirrors, result} = await uploadFile(file, {
+      url: primary,
+      mirrorUrls: [mirror],
+    })
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(mirrors).toEqual([{server: mirror, ok: false, error: "Error: mirror unavailable"}])
+  })
+
+  it("uploadFile keeps default uploads single-target without mirrors", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const {DEFAULT_BLOSSOM_SERVERS} = await import("@app/core/state")
+    const file = makeUploadTestFile()
+
+    utilMocks.uploadBlob.mockResolvedValue(
+      new Response(JSON.stringify({uploaded: 1, url: "https://default.example.com/blob"})),
+    )
+
+    const {error, mirrors, result} = await uploadFile(file)
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe("https://default.example.com/blob.webp")
+    expect(mirrors).toBeUndefined()
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
+    expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(normalizeBlossomUrl(DEFAULT_BLOSSOM_SERVERS[0]))
   })
 
   it("makeReport builds report event with tags", async () => {

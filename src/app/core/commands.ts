@@ -960,6 +960,20 @@ export const payInvoice = async (invoice: string, msats?: number) => {
 
 export const normalizeBlossomUrl = (url: string) => normalizeUrl(url.replace(/^ws/, "http"))
 
+export const normalizeBlossomUrls = (urls: Array<string | undefined | null>) =>
+  uniq(
+    urls
+      .flatMap(url => (url ? [url] : []))
+      .map(url => {
+        try {
+          return normalizeBlossomUrl(url)
+        } catch {
+          return ""
+        }
+      })
+      .filter(Boolean),
+  )
+
 export const fetchHasBlossomSupport = async (url: string) => {
   const server = normalizeBlossomUrl(url)
   const $signer = signer.get() || Nip01Signer.ephemeral()
@@ -987,34 +1001,117 @@ export const hasBlossomSupport = simpleCache(([url]: [string]) => fetchHasBlosso
 
 export type GetBlossomServerOptions = {
   url?: string
+  mirrorUrls?: string[]
 }
 
-export const getBlossomServer = async (options: GetBlossomServerOptions = {}) => {
-  if (options.url) {
-    if (await hasBlossomSupport(options.url)) {
-      return normalizeBlossomUrl(options.url)
-    }
+export const getPrimaryBlossomServers = (options: GetBlossomServerOptions = {}) => {
+  const explicitUrls = normalizeBlossomUrls([options.url])
+
+  if (explicitUrls.length > 0) {
+    return explicitUrls
   }
 
   const userUrls = getTagValues("server", getListTags(get(userBlossomServerList)))
+  const userServers = normalizeBlossomUrls(userUrls)
 
-  for (const url of userUrls) {
-    return normalizeBlossomUrl(url)
+  if (userServers.length > 0) {
+    return userServers
   }
 
-  return first(DEFAULT_BLOSSOM_SERVERS)!
+  return normalizeBlossomUrls(DEFAULT_BLOSSOM_SERVERS)
+}
+
+export const getBlossomUploadTargets = (options: GetBlossomServerOptions = {}) => {
+  const primary = first(getPrimaryBlossomServers(options))!
+  const mirrors = normalizeBlossomUrls(options.mirrorUrls || []).filter(server => server !== primary)
+
+  return {primary, mirrors}
+}
+
+export const getBlossomServer = async (options: GetBlossomServerOptions = {}) => {
+  return getBlossomUploadTargets(options).primary
 }
 
 export type UploadFileOptions = {
   url?: string
+  mirrorUrls?: string[]
   encrypt?: boolean
   maxWidth?: number
   maxHeight?: number
 }
 
+export type BlossomMirrorUploadResult = {
+  server: string
+  ok: boolean
+  status?: number
+  url?: string
+  error?: string
+}
+
 export type UploadFileResult = {
   error?: string
   result?: UploadTask
+  mirrors?: BlossomMirrorUploadResult[]
+}
+
+const getBlossomUploadHeaders = (file: File, hash: string) => {
+  const headers: Record<string, string> = {
+    "X-SHA-256": hash,
+  }
+
+  if (file.type) {
+    headers["Content-Type"] = file.type
+  }
+
+  if (Number.isFinite(file.size)) {
+    headers["Content-Length"] = String(file.size)
+  }
+
+  return headers
+}
+
+const uploadFileToBlossomServer = async ({
+  file,
+  hash,
+  headers,
+  server,
+}: {
+  file: File
+  hash: string
+  headers: Record<string, string>
+  server: string
+}) => {
+  const $signer = signer.get() || Nip01Signer.ephemeral()
+  const authTemplate = makeBlossomAuthEvent({action: "upload", server, hashes: [hash]})
+  const authEvent = await $signer.sign(authTemplate)
+  const res = await uploadBlob(server, file, {authEvent, headers: {...headers}})
+  const text = await res.text()
+
+  return {res, text, task: parseJson(text) || {}}
+}
+
+const mirrorFileToBlossomServer = async ({
+  file,
+  hash,
+  headers,
+  server,
+}: {
+  file: File
+  hash: string
+  headers: Record<string, string>
+  server: string
+}): Promise<BlossomMirrorUploadResult> => {
+  try {
+    const {res, text, task} = await uploadFileToBlossomServer({file, hash, headers, server})
+
+    if (!task.uploaded) {
+      return {server, ok: false, status: res.status, error: text || `Failed to mirror file`}
+    }
+
+    return {server, ok: true, status: res.status, url: task.url}
+  } catch (e: any) {
+    return {server, ok: false, error: e.toString()}
+  }
 }
 
 export const uploadFile = async (file: File, options: UploadFileOptions = {}) => {
@@ -1042,19 +1139,25 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
     }
 
     const ext = "." + type.split("/")[1]
-    const server = await getBlossomServer(options)
-    const hashes = [await sha256(await file.arrayBuffer())]
-    const $signer = signer.get() || Nip01Signer.ephemeral()
-    const authTemplate = makeBlossomAuthEvent({action: "upload", server, hashes})
-    const authEvent = await $signer.sign(authTemplate)
-    const res = await uploadBlob(server, file, {authEvent})
-    const text = await res.text()
+    const {primary: server, mirrors: mirrorServers} = getBlossomUploadTargets(options)
+    const hash = await sha256(await file.arrayBuffer())
+    const headers = getBlossomUploadHeaders(file, hash)
+    const {res, text, task: uploadTask} = await uploadFileToBlossomServer({
+      file,
+      hash,
+      headers,
+      server,
+    })
 
-    let {uploaded, url, ...task} = parseJson(text) || {}
+    let {uploaded, url, ...task} = uploadTask
 
     if (!uploaded) {
       return {error: text || `Failed to upload file (HTTP ${res.status})`}
     }
+
+    const mirrors = await Promise.all(
+      mirrorServers.map(server => mirrorFileToBlossomServer({file, hash, headers, server})),
+    )
 
     // Always append correct file extension if we encrypted the file, or if it's missing
     if (options.encrypt) {
@@ -1065,7 +1168,7 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
 
     const result = {...task, tags, url}
 
-    return {result}
+    return mirrorServers.length > 0 ? {result, mirrors} : {result}
   } catch (e: any) {
     console.error("Error caught when uploading file:", e)
 
