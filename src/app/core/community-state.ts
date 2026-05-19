@@ -88,6 +88,14 @@ export type CommunityBootstrapStatus = {
   error?: string
 }
 
+export type CommunityRelayLoadSettle = "all" | "first" | "first-non-empty"
+
+export type CommunityRelayLoadOptions = {
+  timeout?: number
+  authenticate?: boolean
+  settle?: CommunityRelayLoadSettle
+}
+
 export type CommunityProfile = {
   name?: string
   display_name?: string
@@ -379,6 +387,15 @@ const withTimeout = async <T>(promise: Promise<T>, timeout: number, fallback: T)
   })
 }
 
+const dedupeCommunityEvents = (events: TrustedEvent[]) =>
+  Array.from(new Map(events.map(event => [event.id, event])).values())
+
+const publishCommunityEvents = (events: TrustedEvent[]) => {
+  for (const event of events) {
+    repository.publish(event)
+  }
+}
+
 export const authenticateCommunityRelays = async (relays: string[]) => {
   if (!get(pubkey)) return
 
@@ -399,38 +416,91 @@ export const authenticateCommunityRelays = async (relays: string[]) => {
 export const loadCommunityEvents = async (
   relays: string[],
   filters: Filter[],
-  options: {timeout?: number; authenticate?: boolean} = {},
+  options: CommunityRelayLoadOptions = {},
 ): Promise<TrustedEvent[]> => {
   const timeoutMs = options.timeout ?? COMMUNITY_RELAY_LOAD_TIMEOUT
+  const settle = options.settle ?? "all"
   const normalizedRelays = normalizeRelays(relays)
+
+  if (normalizedRelays.length === 0 || filters.length === 0) return []
 
   if (options.authenticate) {
     await authenticateCommunityRelays(normalizedRelays)
   }
 
-  const results = await Promise.all(
-    normalizedRelays.map(relay => {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const loadRelay = async (relay: string) => {
+    const controller = new AbortController()
+    let timeout: ReturnType<typeof setTimeout> | undefined
 
-      return load({
-        relays: [relay],
-        filters,
-        signal: controller.signal,
-        onEvent: (event, url) => tracker.addRelay(event.id, url),
-      })
-        .catch(() => [])
-        .finally(() => clearTimeout(timeout))
-    }),
-  )
+    try {
+      const events = await Promise.race([
+        load({
+          relays: [relay],
+          filters,
+          signal: controller.signal,
+          onEvent: (event, url) => tracker.addRelay(event.id, url),
+        }).catch(() => []),
+        new Promise<TrustedEvent[]>(resolve => {
+          timeout = setTimeout(() => {
+            controller.abort()
+            resolve([])
+          }, timeoutMs)
+        }),
+      ])
 
-  const events = Array.from(new Map(results.flat().map(event => [event.id, event])).values())
+      publishCommunityEvents(events)
 
-  for (const event of events) {
-    repository.publish(event)
+      return events
+    } catch {
+      return []
+    } finally {
+      if (timeout) clearTimeout(timeout)
+    }
   }
 
-  return events
+  const relayPromises = normalizedRelays.map(async relay => ({
+    relay,
+    events: await loadRelay(relay),
+  }))
+
+  if (settle === "all") {
+    const results = await Promise.all(relayPromises)
+
+    return dedupeCommunityEvents(results.flatMap(result => result.events))
+  }
+
+  return new Promise(resolve => {
+    let settled = 0
+    let resolved = false
+    const collectedEvents: TrustedEvent[] = []
+
+    const resolveOnce = (events: TrustedEvent[]) => {
+      if (resolved) return
+      resolved = true
+      resolve(dedupeCommunityEvents(events))
+    }
+
+    for (const promise of relayPromises) {
+      promise.then(({events}) => {
+        settled += 1
+        collectedEvents.push(...events)
+
+        if (settle === "first") {
+          resolveOnce(events)
+          return
+        }
+
+        if (events.length > 0) {
+          resolveOnce(events)
+          return
+        }
+
+        if (settled === relayPromises.length) {
+          resolveOnce(collectedEvents)
+        }
+      })
+    }
+  })
 }
 
 const profileHydratedAt = new Map<string, number>()
@@ -1381,13 +1451,17 @@ export const loadCommunityBootstrap = async (
     await authenticateCommunityRelays(session.communityRelayHints)
   }
 
-  const definitionEvents = await loadCommunityEvents(relays, [definitionFilter])
+  const definitionEvents = await loadCommunityEvents(relays, [definitionFilter], {
+    settle: "first-non-empty",
+  })
   let definition = selectLatestCommunityDefinition(definitionEvents, session.communityPubkey)
   let communityRelays = definition?.relays.length ? definition.relays : relays
 
   if (definition?.relays.length) {
     await authenticateCommunityRelays(communityRelays)
-    const relayDefinitionEvents = await loadCommunityEvents(communityRelays, [definitionFilter])
+    const relayDefinitionEvents = await loadCommunityEvents(communityRelays, [definitionFilter], {
+      settle: "first-non-empty",
+    })
     const communityRelayDefinition = selectLatestCommunityDefinition(
       [...definitionEvents, ...relayDefinitionEvents],
       session.communityPubkey,
@@ -1410,12 +1484,14 @@ export const loadCommunityBootstrap = async (
   }
 
   const [authorityEvents, admissionFormEvents, reportEvents] = await Promise.all([
-    authorityFilters.length > 0 ? loadCommunityEvents(communityRelays, authorityFilters) : [],
+    authorityFilters.length > 0
+      ? loadCommunityEvents(communityRelays, authorityFilters, {settle: "first"})
+      : [],
     admissionFormFilters.length > 0
-      ? loadCommunityEvents(communityRelays, admissionFormFilters)
+      ? loadCommunityEvents(communityRelays, admissionFormFilters, {settle: "first"})
       : [],
     reportFilters.length > 0
-      ? loadCommunityEvents(communityRelays, reportFilters, {authenticate: true})
+      ? loadCommunityEvents(communityRelays, reportFilters, {authenticate: true, settle: "first"})
       : [],
   ])
 
