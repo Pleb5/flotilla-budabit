@@ -32,6 +32,14 @@
     activeCommunityRelays,
     makeCommunityModeratorRequestFilters,
   } from "@app/core/community-state"
+  import {
+    getPendingCommunityBadgeAwards,
+    makeCommunityBadgeAwardDeleteFilters,
+    makeCommunityBadgeAwardFilters,
+    makeCommunityBadgeDefinitionFilters,
+    makeProfileBadgeFilters,
+    selectCommunityBadgeDefinitions,
+  } from "@app/core/community-badges"
   import {makeCommunityRoomRootsFilter} from "@app/core/community-feeds"
   import {readCommunityRoomRoots} from "@app/core/community-rooms"
   import {PROFILE_LIST_KIND, normalizePubkey} from "@app/core/community"
@@ -108,6 +116,53 @@
       request => request.status === "pending",
     ).length
   })
+  const badgeDefinitionFilters = $derived(
+    $activeCommunityDefinition
+      ? makeCommunityBadgeDefinitionFilters({
+          definition: $activeCommunityDefinition,
+          reportState: $activeCommunityReportState,
+        })
+      : [],
+  )
+  const badgeDefinitionEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: badgeDefinitionFilters})),
+  )
+  const badgeDefinitions = $derived.by(() =>
+    $activeCommunityDefinition
+      ? selectCommunityBadgeDefinitions({
+          definition: $activeCommunityDefinition,
+          badgeDefinitionEvents: $badgeDefinitionEvents,
+          reportState: $activeCommunityReportState,
+        })
+      : [],
+  )
+  const badgeAwardFilters = $derived(
+    $pubkey ? makeCommunityBadgeAwardFilters({definitions: badgeDefinitions, recipientPubkey: $pubkey}) : [],
+  )
+  const badgeAwardEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: badgeAwardFilters})),
+  )
+  const badgeAwardDeleteFilters = $derived(makeCommunityBadgeAwardDeleteFilters($badgeAwardEvents))
+  const badgeAwardDeleteEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: badgeAwardDeleteFilters})),
+  )
+  const profileBadgeFilters = $derived($pubkey ? makeProfileBadgeFilters($pubkey) : [])
+  const profileBadgeEvents = $derived(
+    deriveEventsAsc(deriveEventsById({repository, filters: profileBadgeFilters})),
+  )
+  const pendingBadgeAwardCount = $derived.by(() =>
+    $activeCommunityDefinition && $pubkey
+      ? getPendingCommunityBadgeAwards({
+          definition: $activeCommunityDefinition,
+          badgeDefinitionEvents: $badgeDefinitionEvents,
+          badgeAwardEvents: $badgeAwardEvents,
+          badgeAwardDeleteEvents: $badgeAwardDeleteEvents,
+          profileBadgeEvents: $profileBadgeEvents,
+          profilePubkey: $pubkey,
+          reportState: $activeCommunityReportState,
+        }).length
+      : 0,
+  )
   const canModerate = $derived.by(() => {
     const definition = $activeCommunityDefinition
     const userPubkey = $pubkey
@@ -172,6 +227,23 @@
       filters: moderatorRequestFilters,
       signal: controller.signal,
     })
+
+    return () => controller.abort()
+  })
+
+  $effect(() => {
+    if (!community || $activeCommunityRelays.length === 0) return
+
+    const filters = [
+      ...badgeDefinitionFilters,
+      ...badgeAwardFilters,
+      ...badgeAwardDeleteFilters,
+      ...profileBadgeFilters,
+    ]
+    if (filters.length === 0) return
+
+    const controller = new AbortController()
+    request({relays: $activeCommunityRelays, autoClose: true, filters, signal: controller.signal})
 
     return () => controller.abort()
   })
@@ -262,6 +334,9 @@
 
       <SecondaryNavItem {replaceState} href={badgesPath}>
         <Icon icon={MedalStar} /> Badges
+        {#if pendingBadgeAwardCount > 0}
+          <span class="badge badge-info badge-sm ml-auto">{pendingBadgeAwardCount} new</span>
+        {/if}
       </SecondaryNavItem>
 
       <SecondaryNavItem

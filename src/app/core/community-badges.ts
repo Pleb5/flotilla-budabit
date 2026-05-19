@@ -574,6 +574,33 @@ const getAwardsById = ({
   return awardsById
 }
 
+export const getCommunityBadgeAward = ({
+  definition,
+  badgeAwardEvents,
+  badgeAwardDeleteEvents = [],
+  profilePubkey,
+}: {
+  definition: CommunityBadgeDefinition
+  badgeAwardEvents: TrustedEvent[]
+  badgeAwardDeleteEvents?: TrustedEvent[]
+  profilePubkey: string
+}): CommunityBadgeAward | undefined => {
+  const recipient = normalizePubkey(profilePubkey)
+  if (!recipient) return undefined
+
+  return badgeAwardEvents
+    .filter(event => !isCommunityBadgeAwardDeleted(event, badgeAwardDeleteEvents))
+    .map(parseCommunityBadgeAward)
+    .filter((award): award is CommunityBadgeAward => Boolean(award))
+    .filter(
+      award =>
+        award.definitionAddress === definition.address &&
+        award.recipientPubkey === recipient &&
+        normalizePubkey(award.event.pubkey || "") === definition.pubkey,
+    )
+    .toSorted((a, b) => b.event.created_at - a.event.created_at || a.event.id.localeCompare(b.event.id))[0]
+}
+
 export const getAcceptedCommunityBadges = ({
   definition,
   badgeDefinitionEvents,

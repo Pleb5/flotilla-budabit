@@ -789,9 +789,17 @@
                       class="file-input file-input-bordered w-full"
                       disabled={uploadingImage}
                       onchange={uploadBadgeImage} />
+                    {#if uploadingImage}
+                      <div
+                        class="flex items-center gap-2 rounded-box border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
+                        <span class="loading loading-spinner loading-sm"></span>
+                        <span>Uploading badge image...</span>
+                      </div>
+                    {/if}
                     <input
                       class="input input-bordered w-full"
                       placeholder="https://example.com/badge.png"
+                      disabled={uploadingImage}
                       value={badgeImage}
                       oninput={event => {
                         badgeImage = event.currentTarget.value
@@ -801,7 +809,6 @@
                 {/snippet}
                 {#snippet info()}
                   Square images are required. NIP-58 recommends 1024x1024 pixels.
-                  {#if uploadingImage}Uploading...{/if}
                   {#if imageUploadNote}{imageUploadNote}{/if}
                 {/snippet}
               </Field>

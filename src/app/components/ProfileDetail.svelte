@@ -1,10 +1,12 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {removeUndefined} from "@welshman/lib"
-  import {deriveProfile} from "@welshman/app"
+  import {deriveProfile, pubkey as sessionPubkey} from "@welshman/app"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
+  import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import Letter from "@assets/icons/letter-opened.svg?dataurl"
+  import MedalStar from "@assets/icons/medal-star.svg?dataurl"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import {fly} from "@lib/transition"
   import Icon from "@lib/components/Icon.svelte"
@@ -21,6 +23,12 @@
   import ProfileCodeTrustAnalysis from "@app/components/ProfileCodeTrustAnalysis.svelte"
   import ProfileNip85Metrics from "@app/components/ProfileNip85Metrics.svelte"
   import {pubkeyLink} from "@app/core/state"
+  import {
+    activeCommunityBootstrapStatus,
+    activeCommunityDefinition,
+    activeCommunityReportState,
+  } from "@app/core/community-state"
+  import {canCreateCommunityBadge} from "@app/core/community-badges"
   import {pushModal} from "@app/util/modal"
   import {makeChatPath} from "@app/util/routes"
 
@@ -35,6 +43,19 @@
   const relayHints = $derived(removeUndefined([url, ...relays]))
   const profileUrl = $derived(relayHints[0])
   const profile = $derived(deriveProfile(pubkey, relayHints))
+  const canAwardCommunityBadges = $derived(
+    Boolean(
+      $activeCommunityDefinition &&
+        $activeCommunityBootstrapStatus.loaded &&
+        !$activeCommunityBootstrapStatus.loading &&
+        $sessionPubkey &&
+        canCreateCommunityBadge({
+          definition: $activeCommunityDefinition,
+          pubkey: $sessionPubkey,
+          reportState: $activeCommunityReportState,
+        }),
+    ),
+  )
 
   const back = () => history.back()
 
@@ -53,6 +74,7 @@
   }
 
   let showMenu = $state(false)
+  let awardPanelOpen = $state(false)
 </script>
 
 <div class="flex flex-col gap-4">
@@ -84,13 +106,38 @@
   </div>
   <ProfileInfo {pubkey} url={profileUrl} relays={relayHints} />
   <ProfileBadges {pubkey} url={profileUrl} />
-  <CommunityBadgeAwardForm
-    recipientPubkey={pubkey}
-    title="Award this profile"
-    description="Choose one of your active badges to award to this profile."
-    class="rounded-box border border-base-300 bg-base-100 p-4" />
   <ProfileNip85Metrics {pubkey} />
   <ProfileCodeTrustAnalysis {pubkey} />
+  {#if canAwardCommunityBadges}
+    <div class="rounded-xl bg-base-200/50">
+      <button
+        type="button"
+        class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        aria-expanded={awardPanelOpen}
+        onclick={() => (awardPanelOpen = !awardPanelOpen)}>
+        <div class="flex flex-col gap-1">
+          <span class="flex items-center gap-2 text-sm font-semibold">
+            <Icon icon={MedalStar} /> Award this profile
+          </span>
+          <span class="text-xs opacity-70">Choose one of your active badges to award.</span>
+        </div>
+
+        <div class="transition-transform" class:rotate-180={awardPanelOpen}>
+          <Icon icon={AltArrowDown} />
+        </div>
+      </button>
+
+      {#if awardPanelOpen}
+        <div class="border-t border-base-300/50 px-4 py-4">
+          <CommunityBadgeAwardForm
+            recipientPubkey={pubkey}
+            title="Award this profile"
+            description="Choose one of your active badges to award to this profile."
+            showHeader={false} />
+        </div>
+      {/if}
+    </div>
+  {/if}
   <ModalFooter>
     <Button onclick={back} class="hidden md:btn md:btn-link">
       <Icon icon={AltArrowLeft} />

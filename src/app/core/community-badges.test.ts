@@ -5,6 +5,7 @@ import {
   PROFILE_BADGES_KIND,
   canCreateCommunityBadge,
   getAcceptedCommunityBadges,
+  getCommunityBadgeAward,
   getCommunityBadgeImageUrl,
   getCommunityBadgeCreatorPubkeys,
   getPendingCommunityBadgeAwards,
@@ -403,5 +404,53 @@ describe("community badges", () => {
         profilePubkey: recipientPubkey,
       }).map(item => item.award.event.id),
     ).toEqual(["award-id"])
+  })
+
+  it("finds an active existing award for a badge and recipient", () => {
+    const badgeDefinition = parseCommunityBadgeDefinition(makeBadgeDefinitionEvent(), communityPubkey)!
+    const olderAward = makeEvent({
+      id: "older-award",
+      kind: BADGE_AWARD,
+      created_at: 1,
+      pubkey: moderatorPubkey,
+      tags: makeCommunityBadgeAwardEvent({
+        definitionAddress: `${BADGE_DEFINITION}:${moderatorPubkey}:helper`,
+        recipientPubkey,
+      }).tags,
+    })
+    const newerAward = makeEvent({
+      id: "newer-award",
+      kind: BADGE_AWARD,
+      created_at: 2,
+      pubkey: moderatorPubkey,
+      tags: makeCommunityBadgeAwardEvent({
+        definitionAddress: `${BADGE_DEFINITION}:${moderatorPubkey}:helper`,
+        recipientPubkey,
+      }).tags,
+    })
+
+    expect(
+      getCommunityBadgeAward({
+        definition: badgeDefinition,
+        badgeAwardEvents: [olderAward, newerAward],
+        profilePubkey: recipientPubkey,
+      })?.event.id,
+    ).toBe("newer-award")
+
+    expect(
+      getCommunityBadgeAward({
+        definition: badgeDefinition,
+        badgeAwardEvents: [olderAward, newerAward],
+        badgeAwardDeleteEvents: [
+          makeEvent({
+            id: "delete-newer-award",
+            kind: DELETE,
+            pubkey: moderatorPubkey,
+            tags: makeCommunityBadgeAwardDelete({awardId: newerAward.id}).tags,
+          }),
+        ],
+        profilePubkey: recipientPubkey,
+      })?.event.id,
+    ).toBe("older-award")
   })
 })
