@@ -2,7 +2,7 @@ import {browser} from "$app/environment"
 import {derived, get, writable, type Readable} from "svelte/store"
 import {deriveProfile, pubkey, repository, sign, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-import {sortBy} from "@welshman/lib"
+import {normalizeUrl, sortBy} from "@welshman/lib"
 import {AuthStatus, load, Pool} from "@welshman/net"
 import {Router} from "@welshman/router"
 import {DELETE, PROFILE, type Filter, type TrustedEvent} from "@welshman/util"
@@ -285,6 +285,29 @@ export const activeCommunityRelays: Readable<string[]> = derived(
       ? $activeCommunityDefinition.relays
       : getCommunityBootstrapRelays($activeCommunityRelayHints),
 )
+
+const normalizeCommunityBlossomServer = (server?: string) => {
+  const value = server?.trim()
+  if (!value || !/^https?:\/\//i.test(value)) return ""
+
+  try {
+    return normalizeUrl(value)
+  } catch {
+    return ""
+  }
+}
+
+export const getCommunityBlossomServers = (definition?: CommunityDefinition) =>
+  Array.from(
+    new Set((definition?.blossomServers || []).map(normalizeCommunityBlossomServer).filter(Boolean)),
+  )
+
+export const activeCommunityBlossomServers: Readable<string[]> = derived(
+  activeCommunityDefinition,
+  getCommunityBlossomServers,
+)
+
+export const getActiveCommunityBlossomServers = () => get(activeCommunityBlossomServers)
 
 export const getUserOutboxRelays = () => {
   try {

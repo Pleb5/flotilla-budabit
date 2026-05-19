@@ -24,9 +24,12 @@ import {
   activeCommunityDefinition,
   activeCommunityProfile,
   activeCommunityProfileListEvents,
+  activeCommunityBlossomServers,
   activeCommunityRelays,
   activeCommunitySession,
   clearActiveCommunity,
+  getActiveCommunityBlossomServers,
+  getCommunityBlossomServers,
   setActiveCommunityDefinition,
   setActiveCommunityInput,
   type CommunityProfile,
@@ -236,6 +239,33 @@ describe("community state helpers", () => {
     expect(get(activeCommunityDefinition)).toBeUndefined()
     expect(get(activeCommunityProfileListEvents)).toEqual([])
     expect(get(activeCommunityAdmissionFormEvents)).toEqual([])
+  })
+
+  it("derives active community blossom servers from the loaded definition", () => {
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        id: "definition-blossom",
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["r", "wss://relay.example.com"],
+          ["blossom", "https://blossom.example.com/"],
+          ["blossom", "https://blossom.example.com"],
+          ["blossom", "not-a-url"],
+          ["content", "General"],
+          ["k", "1111"],
+        ],
+      }),
+    )!
+
+    expect(getCommunityBlossomServers(definition)).toEqual(["https://blossom.example.com"])
+
+    setActiveCommunityDefinition(definition)
+    expect(get(activeCommunityBlossomServers)).toEqual(["https://blossom.example.com"])
+    expect(getActiveCommunityBlossomServers()).toEqual(["https://blossom.example.com"])
+
+    repository.removeEvent(definition.event.id)
+    clearActiveCommunity()
   })
 
   it("derives active community profile metadata from Welshman cache", async () => {

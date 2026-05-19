@@ -44,7 +44,7 @@ Exit criteria:
 
 ## Phase 2: Active Community Blossom State
 
-Status: pending.
+Status: completed.
 
 Scope:
 
