@@ -83,7 +83,7 @@ Exit criteria:
 
 ## Phase 4: Badge And Community-Owned Asset Uploads
 
-Status: pending.
+Status: completed.
 
 Scope:
 

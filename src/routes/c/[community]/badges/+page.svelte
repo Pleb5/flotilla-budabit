@@ -20,6 +20,7 @@
   import {uploadFile} from "@app/core/commands"
   import {
     activeCommunityBootstrapStatus,
+    activeCommunityBlossomServers,
     activeCommunityDefinition,
     activeCommunityRelays,
     activeCommunityReportState,
@@ -480,8 +481,9 @@
         imageUploadNote = "Uploaded. 1024x1024 is recommended by NIP-58."
       }
 
-      const {error, result} = await uploadFile(file, {
-        url: $activeCommunityDefinition?.blossomServers[0],
+      const {error, mirrors, result} = await uploadFile(file, {
+        url: $activeCommunityBlossomServers[0],
+        mirrorUrls: $activeCommunityBlossomServers.slice(1),
         maxWidth: 1024,
         maxHeight: 1024,
       })
@@ -491,7 +493,15 @@
       badgeImage = result.url
       badgeImageDimensions =
         width === height ? `${Math.min(width, 1024)}x${Math.min(height, 1024)}` : ""
-      pushToast({theme: "success", message: "Badge image uploaded."})
+
+      const failedMirrors = mirrors?.filter(mirror => !mirror.ok) || []
+      pushToast({
+        theme: failedMirrors.length > 0 ? "warning" : "success",
+        message:
+          failedMirrors.length > 0
+            ? `Badge image uploaded, but ${failedMirrors.length} community mirror${failedMirrors.length === 1 ? "" : "s"} failed.`
+            : "Badge image uploaded.",
+      })
     } catch (error) {
       pushToast({theme: "error", message: error instanceof Error ? error.message : String(error)})
     } finally {
