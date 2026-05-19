@@ -48,6 +48,7 @@
       "/c/[community]",
       "/c/[community]/access",
       "/c/[community]/admin",
+      "/c/[community]/badges",
       "/c/[community]/calendar",
       "/c/[community]/calendar/create",
       "/c/[community]/calendar/[event]",

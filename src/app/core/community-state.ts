@@ -317,8 +317,33 @@ export const getUserOutboxRelays = () => {
   }
 }
 
+export const getPubkeyOutboxRelays = (pubkeys: string[]) => {
+  try {
+    return Router.get().FromPubkeys(pubkeys.map(normalizePubkey).filter(Boolean)).getUrls() || []
+  } catch {
+    return []
+  }
+}
+
 export const getCommunityBootstrapRelays = (relayHints: string[] = []) =>
   normalizeRelays([...relayHints, ...getUserOutboxRelays(), ...COMMUNITY_DISCOVERY_RELAYS])
+
+export const getCommunityBadgeRelays = (communityRelays: string[] = []) =>
+  normalizeRelays([...communityRelays, ...getUserOutboxRelays(), ...COMMUNITY_DISCOVERY_RELAYS])
+
+export const getCommunityBadgeReadRelays = ({
+  communityRelays = [],
+  pubkeys = [],
+}: {
+  communityRelays?: string[]
+  pubkeys?: string[]
+} = {}) =>
+  normalizeRelays([
+    ...communityRelays,
+    ...getPubkeyOutboxRelays(pubkeys),
+    ...getUserOutboxRelays(),
+    ...COMMUNITY_DISCOVERY_RELAYS,
+  ])
 
 export const getCommunityDefinitionRelayHints = (
   definition?: CommunityDefinition,
@@ -839,9 +864,7 @@ export const makeCommunityModeratorRequestReactionFilters = (
   requests: ModeratorPromotionRequest[],
 ): Filter[] => {
   const eventIds = Array.from(
-    new Set(
-      requests.map(request => request.profileList.event.id).filter(Boolean),
-    ),
+    new Set(requests.map(request => request.profileList.event.id).filter(Boolean)),
   )
 
   return eventIds.length
@@ -1335,7 +1358,11 @@ export const selectCommunityAdmissionForms = (
 export const activeCommunityAdmissionForms: Readable<Record<string, CommunityAdmissionForm>> =
   derived(
     [activeCommunityDefinition, activeCommunityAdmissionFormEvents, activeCommunityReportState],
-    ([$activeCommunityDefinition, $activeCommunityAdmissionFormEvents, $activeCommunityReportState]) =>
+    ([
+      $activeCommunityDefinition,
+      $activeCommunityAdmissionFormEvents,
+      $activeCommunityReportState,
+    ]) =>
       $activeCommunityDefinition
         ? selectCommunityAdmissionForms(
             $activeCommunityDefinition,

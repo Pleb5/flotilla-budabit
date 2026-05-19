@@ -18,6 +18,8 @@ import {
   ZAP_GOAL,
   verifiedSymbol,
   MESSAGING_RELAYS,
+  BADGE_AWARD,
+  BADGES,
   BADGE_DEFINITION,
   DELETE,
   REACTION,
@@ -27,12 +29,9 @@ import type {Zapper, TrustedEvent, RelayProfile} from "@welshman/util"
 import type {Handle, RelayStats} from "@welshman/app"
 import type {RepositoryUpdate} from "@welshman/net"
 import {DM_KIND} from "@app/core/state"
-import {
-  COMMUNITY_DEFINITION_KIND,
-  FORM_TEMPLATE_KIND,
-  PROFILE_LIST_KIND,
-} from "@app/core/community"
+import {COMMUNITY_DEFINITION_KIND, FORM_TEMPLATE_KIND, PROFILE_LIST_KIND} from "@app/core/community"
 import {COMMUNITY_REPORT_KIND} from "@app/core/community-reports"
+import {PROFILE_BADGES_KIND} from "@app/core/community-badges"
 import {
   tracker,
   plaintext,
@@ -60,7 +59,10 @@ const kinds = {
   community: [
     COMMUNITY_DEFINITION_KIND,
     PROFILE_LIST_KIND,
+    BADGE_AWARD,
+    BADGES,
     BADGE_DEFINITION,
+    PROFILE_BADGES_KIND,
     FORM_TEMPLATE_KIND,
     COMMUNITY_REPORT_KIND,
   ],

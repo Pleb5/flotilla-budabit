@@ -13,6 +13,7 @@
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic-2.svg?dataurl"
+  import MedalStar from "@assets/icons/medal-star.svg?dataurl"
   import ShieldUser from "@assets/icons/shield-user.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
@@ -72,6 +73,7 @@
   const calendarPath = $derived(makeCommunityCalendarPath(community))
   const goalsPath = $derived(makeCommunityGoalPath(community))
   const adminPath = $derived(makeCommunityPath(community, "admin"))
+  const badgesPath = $derived(makeCommunityPath(community, "badges"))
   const accessPath = $derived(makeCommunityPath(community, "access"))
   const moderationPath = $derived(makeCommunityPath(community, "moderation"))
   const gitPath = "/git"
@@ -257,6 +259,10 @@
       <div aria-hidden="true" class="mx-4 my-1 border-t border-base-300/50"></div>
 
       <SecondaryNavHeader>Manage</SecondaryNavHeader>
+
+      <SecondaryNavItem {replaceState} href={badgesPath}>
+        <Icon icon={MedalStar} /> Badges
+      </SecondaryNavItem>
 
       <SecondaryNavItem
         {replaceState}
