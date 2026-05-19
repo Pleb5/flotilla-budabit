@@ -109,6 +109,8 @@
   const CUSTOM_KIND_VALUE = "custom"
   const KIND_DIGITS_RE = /^\d+$/
   const SUBTYPE_RE = /^[a-z-]{0,20}$/
+  const SUBTYPE_HELP =
+    "Optional third value in a k tag. Use it when one event kind supports multiple sections, like 11/room, 11/threads, or 9/room-message."
 
   const KNOWN_SECTION_KIND_OPTIONS = [
     {label: "Room Messages", kind: 9, subtype: "room-message"},
@@ -1176,7 +1178,9 @@
                                 type="text" />{/snippet}
                           </Field>
                           <Field error={errors[sectionSubtypeField(sectionIndex, kindIndex)]}>
-                            {#snippet label()}<p>Subtype</p>{/snippet}
+                            {#snippet label()}
+                              <p>Subtype</p>
+                            {/snippet}
                             {#snippet input()}<input
                                 value={kindDraft.subtype}
                                 maxlength="20"
@@ -1191,6 +1195,7 @@
                                   })}
                                 onblur={() => validateSectionKinds()}
                                 type="text" />{/snippet}
+                            {#snippet info()}{SUBTYPE_HELP}{/snippet}
                           </Field>
                           <div class="flex sm:col-span-2 lg:col-span-1">
                             <Button
