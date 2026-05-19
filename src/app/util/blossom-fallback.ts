@@ -1,7 +1,7 @@
 import {normalizeUrl, uniq} from "@welshman/lib"
 import {buildBlobUrl, getTagValues} from "@welshman/util"
 
-const SHA256_HEX_RE = /[0-9a-f]{64}/g
+const SHA256_HEX_RE = /[0-9a-f]{64}/
 
 export type BlossomFallbackTarget = {
   server: string
@@ -10,9 +10,13 @@ export type BlossomFallbackTarget = {
 }
 
 export const extractSha256FromUrl = (url: string) => {
-  const matches = url.match(SHA256_HEX_RE) || []
+  const getFilename = (value: string) => value.split(/[?#]/, 1)[0].split("/").at(-1) || ""
 
-  return matches.at(-1) || ""
+  try {
+    return new URL(url).pathname.split("/").at(-1)?.match(SHA256_HEX_RE)?.[0] || ""
+  } catch {
+    return getFilename(url).match(SHA256_HEX_RE)?.[0] || ""
+  }
 }
 
 export const normalizeBlossomFallbackServers = (servers: Array<string | undefined | null>) =>

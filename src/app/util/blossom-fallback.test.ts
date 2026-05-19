@@ -10,8 +10,8 @@ const hashA = "a".repeat(64)
 const hashB = "b".repeat(64)
 
 describe("blossom fallback helpers", () => {
-  it("extracts the last lowercase sha256 hash from a media URL", () => {
-    expect(extractSha256FromUrl(`https://cdn.example.com/${hashA}.jpg?mirror=${hashB}`)).toBe(hashB)
+  it("extracts the lowercase sha256 hash from the media filename", () => {
+    expect(extractSha256FromUrl(`https://cdn.example.com/${hashA}.jpg?mirror=${hashB}`)).toBe(hashA)
   })
 
   it("returns an empty hash when a URL has no lowercase sha256", () => {

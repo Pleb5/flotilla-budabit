@@ -119,7 +119,7 @@ describe("commands", () => {
     const headers = utilMocks.uploadBlob.mock.calls[0][2].headers
     expect(headers["X-SHA-256"]).toMatch(/^[a-f0-9]{64}$/)
     expect(headers["Content-Type"]).toBe("image/webp")
-    expect(headers["Content-Length"]).toBe(String(file.size))
+    expect(headers["Content-Length"]).toBeUndefined()
   })
 
   it("uploadFile does not fail when a mirror upload fails", async () => {

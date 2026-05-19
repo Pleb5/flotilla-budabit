@@ -1071,10 +1071,6 @@ const getBlossomUploadHeaders = (file: File, hash: string) => {
     headers["Content-Type"] = file.type
   }
 
-  if (Number.isFinite(file.size)) {
-    headers["Content-Length"] = String(file.size)
-  }
-
   return headers
 }
 
