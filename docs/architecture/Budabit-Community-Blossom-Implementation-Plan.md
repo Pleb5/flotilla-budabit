@@ -123,7 +123,7 @@ Exit criteria:
 
 ## Phase 6: Spec Compatibility Hardening
 
-Status: pending.
+Status: completed.
 
 Scope:
 

@@ -1,14 +1,7 @@
 <script lang="ts">
   import {onMount, onDestroy} from "svelte"
   import {displayUrl, sha256} from "@welshman/lib"
-  import {
-    getTags,
-    getBlob,
-    decryptFile,
-    getTagValue,
-    tagsFromIMeta,
-    makeBlossomAuthEvent,
-  } from "@welshman/util"
+  import {getTags, getBlob, decryptFile, getTagValue, tagsFromIMeta} from "@welshman/util"
   import {getBlossomServerList, loadBlossomServerList, signer} from "@welshman/app"
   import LinkRound from "@assets/icons/link-round.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -18,6 +11,7 @@
     getBlossomFallbackTargets,
     getBlossomServersFromList,
   } from "@app/util/blossom-fallback"
+  import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/util/blossom-auth"
 
   const {value, event, ...props} = $props()
 
@@ -70,7 +64,7 @@
     const activeSigner = signer.get()
 
     return activeSigner
-      ? activeSigner.sign(makeBlossomAuthEvent({action: "get", server, hashes: [hash]}))
+      ? activeSigner.sign(makeBudabitBlossomAuthEvent({action: "get", server, hashes: [hash]}))
       : undefined
   }
 
@@ -95,7 +89,11 @@
     for (const target of await getFallbackTargets()) {
       try {
         const authEvent = await makeGetAuthEvent(target.server)
-        const res = await getBlob(target.server, hash, authEvent ? {authEvent} : {})
+        const res = await getBlob(
+          target.server,
+          hash,
+          authEvent ? {headers: {Authorization: makeBudabitBlossomAuthHeader(authEvent)}} : {},
+        )
         const bytes = await readVerifiedBytes(res)
 
         if (bytes) return bytes

@@ -53,7 +53,6 @@ import {
   uploadBlob,
   canUploadBlob,
   encryptFile,
-  makeBlossomAuthEvent,
   isPublishedProfile,
   editProfile,
   createProfile,
@@ -113,6 +112,7 @@ import {activeRepoClass} from "@app/core/git-state"
 import {clearUnlockedLocalKeySecrets} from "@app/core/session-storage"
 import {deleteIndexedDB} from "@lib/util"
 import {getQuoteEventTags} from "@app/util/git-quote"
+import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/util/blossom-auth"
 
 // Utils
 
@@ -984,8 +984,16 @@ export const fetchHasBlossomSupport = async (url: string) => {
   }
 
   try {
-    const authEvent = await $signer.sign(makeBlossomAuthEvent({action: "upload", server}))
-    const res = await canUploadBlob(server, {authEvent, headers})
+    const authEvent = await $signer.sign(
+      makeBudabitBlossomAuthEvent({
+        action: "upload",
+        server,
+        hashes: [headers["X-SHA-256"]],
+      }),
+    )
+    const res = await canUploadBlob(server, {
+      headers: {...headers, Authorization: makeBudabitBlossomAuthHeader(authEvent)},
+    })
 
     return res.status === 200
   } catch (e) {
@@ -1082,9 +1090,11 @@ const uploadFileToBlossomServer = async ({
   server: string
 }) => {
   const $signer = signer.get() || Nip01Signer.ephemeral()
-  const authTemplate = makeBlossomAuthEvent({action: "upload", server, hashes: [hash]})
+  const authTemplate = makeBudabitBlossomAuthEvent({action: "upload", server, hashes: [hash]})
   const authEvent = await $signer.sign(authTemplate)
-  const res = await uploadBlob(server, file, {authEvent, headers: {...headers}})
+  const res = await uploadBlob(server, file, {
+    headers: {...headers, Authorization: makeBudabitBlossomAuthHeader(authEvent)},
+  })
   const text = await res.text()
 
   return {res, text, task: parseJson(text) || {}}
