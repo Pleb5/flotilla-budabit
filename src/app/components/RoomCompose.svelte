@@ -17,6 +17,7 @@
   type Props = {
     url?: string
     h?: string
+    mirrorUrls?: string[]
     content?: string
     showMenu?: boolean
     onEscape?: () => void
@@ -24,7 +25,16 @@
     onSubmit: (event: EventContent) => void
   }
 
-  const {url, h, content, showMenu = true, onEscape, onEditPrevious, onSubmit}: Props = $props()
+  const {
+    url,
+    h,
+    mirrorUrls = [],
+    content,
+    showMenu = true,
+    onEscape,
+    onEditPrevious,
+    onSubmit,
+  }: Props = $props()
 
   const autofocus = !isMobile
   const sendShortcut = `${navigator.platform.includes("Mac") ? "cmd" : "ctrl"}+enter to send`
@@ -66,7 +76,15 @@
     ed.chain().clearContent().run()
   }
 
-  const editor = makeEditor({url, content, autofocus, submit, uploading, aggressive: false})
+  const editor = makeEditor({
+    url,
+    mirrorUrls,
+    content,
+    autofocus,
+    submit,
+    uploading,
+    aggressive: false,
+  })
 
   let popover: Instance | undefined = $state()
   let editorInstance: Awaited<typeof editor> | null = null

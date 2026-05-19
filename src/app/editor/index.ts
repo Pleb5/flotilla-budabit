@@ -55,6 +55,7 @@ export const makeEditor = async ({
   content = "",
   placeholder = "",
   url,
+  mirrorUrls = [],
   submit,
   uploading,
   wordCount,
@@ -66,10 +67,25 @@ export const makeEditor = async ({
   content?: string
   placeholder?: string
   url?: string
+  mirrorUrls?: string[]
   submit: () => void
   uploading?: Writable<boolean>
   wordCount?: Writable<number>
 }) => {
+  const upload = async (attrs: FileAttributes) => {
+    const uploadResult = await uploadFile(attrs.file, {url, encrypt: encryptFiles, mirrorUrls})
+    const failedMirrors = uploadResult.mirrors?.filter(mirror => !mirror.ok) || []
+
+    if (failedMirrors.length > 0) {
+      pushToast({
+        theme: "warning",
+        message: `File uploaded, but ${failedMirrors.length} community mirror${failedMirrors.length === 1 ? "" : "s"} failed.`,
+      })
+    }
+
+    return uploadResult
+  }
+
   const profileSearch = derived(
     [throttled(800, profiles), throttled(800, handlesByNip05)],
     ([$profiles, $handlesByNip05]) => {
@@ -128,8 +144,7 @@ export const makeEditor = async ({
           },
           fileUpload: {
             config: {
-              upload: (attrs: FileAttributes) =>
-                uploadFile(attrs.file, {url, encrypt: encryptFiles}),
+              upload,
               onDrop: () => uploading?.set(true),
               onComplete: () => uploading?.set(false),
               onUploadError(currentEditor, task) {

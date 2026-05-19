@@ -63,7 +63,7 @@ Exit criteria:
 
 ## Phase 3: Community Composer Replication
 
-Status: pending.
+Status: completed.
 
 Scope:
 

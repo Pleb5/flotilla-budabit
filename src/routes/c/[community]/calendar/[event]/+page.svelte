@@ -27,6 +27,7 @@
   import {publishComment} from "@app/core/commands"
   import {
     activeCommunityBootstrapStatus,
+    activeCommunityBlossomServers,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
@@ -499,6 +500,7 @@
         <RoomCompose
           url={$activeCommunityRelays[0] || communityPubkey}
           h={communityPubkey}
+          mirrorUrls={$activeCommunityBlossomServers}
           showMenu={false}
           onSubmit={sendReply} />
       </div>
