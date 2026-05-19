@@ -43,8 +43,8 @@
   import type {Repo} from "@nostr-git/ui"
   import type {CommitMeta, PermalinkEvent} from "@nostr-git/core/types"
   import {githubPermalinkDiffId} from "@nostr-git/core/git"
-  import {nip19} from "nostr-tools"
   import {postPermalink} from "@app/core/git-commands"
+  import {makeEventNevent} from "@app/util/event-links"
   import type {CommitChange} from "./+page"
 
   const {data}: {data: PageData} = $props()
@@ -213,11 +213,7 @@
       message: "Permalink published successfully",
       timeout: 2000,
     })
-    const nevent = nip19.neventEncode({
-      id: thunk.event.id,
-      kind: thunk.event.kind,
-      relays,
-    })
+    const nevent = makeEventNevent(thunk.event as any, {relays})
     await navigator.clipboard.writeText(nevent)
     toast.push({
       message: "Permalink copied to clipboard",

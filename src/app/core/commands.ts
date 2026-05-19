@@ -112,6 +112,7 @@ import {activeRepoClass} from "@app/core/git-state"
 import {clearUnlockedLocalKeySecrets} from "@app/core/session-storage"
 import {deleteIndexedDB} from "@lib/util"
 import {getQuoteEventTags} from "@app/util/git-quote"
+import {getEventRelayHints, makeEventNevent} from "@app/util/event-links"
 import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/util/blossom-auth"
 
 // Utils
@@ -389,24 +390,6 @@ export const getPubkeyHints = (pubkey: string) => {
   return hints
 }
 
-const getEventRelayHints = (event: TrustedEvent, explicitRelays: string[] = []) => {
-  const relays = new Set<string>()
-  const addRelay = (relay: string | undefined) => {
-    if (!relay) return
-    try {
-      const normalized = normalizeRelayUrl(relay)
-      if (isRelayUrl(normalized)) relays.add(normalized)
-    } catch {
-      // Ignore non-relay tag values such as addresses, pubkeys, and labels.
-    }
-  }
-
-  for (const relay of explicitRelays) addRelay(relay)
-  for (const relay of tracker.getRelays(event.id)) addRelay(relay)
-
-  return Array.from(relays)
-}
-
 const tagEventForShareQuote = (event: TrustedEvent, relays: string[]) =>
   getQuoteEventTags({id: event.id, author: event.pubkey, relays})
 
@@ -416,13 +399,8 @@ export const prependParent = (
   {relays = []}: {relays?: string[]} = {},
 ) => {
   if (parent) {
-    const relayHints = getEventRelayHints(parent, relays)
-    const nevent = nip19.neventEncode({
-      id: parent.id,
-      kind: parent.kind,
-      author: parent.pubkey,
-      relays: relayHints,
-    })
+    const relayHints = getEventRelayHints(parent, {relays})
+    const nevent = makeEventNevent(parent, {relays: relayHints})
 
     tags = [...tags, ...tagEventForShareQuote(parent, relayHints)]
     content = toNostrURI(nevent) + "\n\n" + content

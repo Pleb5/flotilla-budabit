@@ -4,7 +4,7 @@ import {goto} from "$app/navigation"
 import {request} from "@welshman/net"
 import {sleep} from "@welshman/lib"
 import type {Filter, TrustedEvent} from "@welshman/util"
-import {pubkey, repository, tracker} from "@welshman/app"
+import {pubkey, repository} from "@welshman/app"
 import {scrollToEvent} from "@lib/html"
 import {identity} from "@welshman/lib"
 import {
@@ -17,8 +17,14 @@ import {
   getTagValue,
 } from "@welshman/util"
 import {makeChatId, entityLink, DM_KIND} from "@app/core/state"
-import {TARGETED_PUBLICATION_KIND, parseCommunityInput, parseTargetedPublication} from "@app/core/community"
+import {
+  TARGETED_PUBLICATION_KIND,
+  makeCommunityNcommunity,
+  parseCommunityInput,
+  parseTargetedPublication,
+} from "@app/core/community"
 import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
+import {getEventRelayHints, makeEventNevent} from "@app/util/event-links"
 
 export const parseCommunityRouteParam = (community: string | undefined) => {
   if (!community) return undefined
@@ -32,7 +38,11 @@ export const parseCommunityRouteParam = (community: string | undefined) => {
 
 export const encodeCommunityRouteParam = (community: string) => {
   const parsed = parseCommunityInput(community)
-  const value = parsed ? nip19.npubEncode(parsed.pubkey) : community
+  const value = parsed
+    ? parsed.relays.length > 0
+      ? makeCommunityNcommunity({pubkey: parsed.pubkey, relayHints: parsed.relays})
+      : nip19.npubEncode(parsed.pubkey)
+    : community
 
   return encodeURIComponent(value)
 }
@@ -258,7 +268,7 @@ export const getPrimaryNavItemIndex = ($page: Page) => {
 }
 
 export const goToEvent = async (event: TrustedEvent, options: Record<string, any> = {}) => {
-  const urls = Array.from(tracker.getRelays(event.id))
+  const urls = getEventRelayHints(event)
   const path = await getEventPath(event, urls)
 
   if (path.includes("://")) {
@@ -272,6 +282,8 @@ export const goToEvent = async (event: TrustedEvent, options: Record<string, any
 }
 
 export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
+  const relayHints = getEventRelayHints(event, {relays: urls})
+
   if (event.kind === DM_KIND) {
     const selfPubkey = pubkey.get()
     const participants = Array.from(new Set([event.pubkey, ...getPubkeyTagValues(event.tags)]))
@@ -288,9 +300,9 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
 
   if (communityPath) return communityPath
 
-  const loadedCommunityPath = await loadTargetedPublicationEventPath(event, urls)
+  const loadedCommunityPath = await loadTargetedPublicationEventPath(event, relayHints)
 
   if (loadedCommunityPath) return loadedCommunityPath
 
-  return entityLink(nip19.neventEncode({id: event.id, relays: urls}))
+  return entityLink(makeEventNevent(event, {relays: relayHints}))
 }

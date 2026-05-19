@@ -17,6 +17,14 @@ vi.mock("@app/core/community-feeds", () => ({
   SMART_WIDGET_KIND: 30033,
 }))
 vi.mock("@welshman/net", () => ({request: requestMock}))
+vi.mock("@welshman/router", () => ({
+  Router: {
+    get: () => ({
+      FromPubkey: () => ({getUrls: () => []}),
+      FromUser: () => ({getUrls: () => []}),
+    }),
+  },
+}))
 vi.mock("@welshman/app", () => ({
   pubkey: {get: vi.fn()},
   repository: {query: repositoryQuery},
@@ -36,6 +44,36 @@ vi.mock("@welshman/util", () => ({
   getTagValue: (name: string, tags: string[][]) => tags.find(tag => tag[0] === name)?.[1] || "",
   normalizeRelayUrl: (url: string) => (url.endsWith("/") ? url : `${url}/`),
   isRelayUrl: (url: string) => url.startsWith("wss://"),
+  isReplaceable: (event: {kind: number}) => event.kind >= 10000 && event.kind < 40000,
+  Address: class {
+    kind: number
+    pubkey: string
+    identifier: string
+    relays: string[]
+
+    constructor(kind: number, pubkey: string, identifier: string, relays: string[] = []) {
+      this.kind = kind
+      this.pubkey = pubkey
+      this.identifier = identifier
+      this.relays = relays
+    }
+
+    static fromEvent(event: {kind: number; pubkey: string; tags: string[][]}) {
+      return new this(
+        event.kind,
+        event.pubkey,
+        event.tags.find(tag => tag[0] === "d")?.[1] || "",
+      )
+    }
+
+    toString() {
+      return `${this.kind}:${this.pubkey}:${this.identifier}`
+    }
+
+    toNaddr() {
+      return `naddr:${this.kind}:${this.pubkey}:${this.identifier}`
+    }
+  },
 }))
 
 const makeEvent = (overrides: Record<string, unknown> = {}) => ({
@@ -90,8 +128,11 @@ describe("routes", () => {
     const value = `ncommunity://${communityPubkey}?relay=${encodeURIComponent(
       "wss://relay.example.com",
     )}`
+    const normalizedValue = `ncommunity://${communityPubkey}?relay=${encodeURIComponent(
+      "wss://relay.example.com/",
+    )}`
 
-    expect(makeCommunityPath(value)).toBe(`/c/${communityNpub}`)
+    expect(makeCommunityPath(value)).toBe(`/c/${encodeURIComponent(normalizedValue)}`)
     expect(parseCommunityRouteParam(encodeURIComponent(value))).toEqual({
       pubkey: communityPubkey,
       relays: ["wss://relay.example.com/"],
@@ -189,7 +230,7 @@ describe("routes", () => {
       tags: [["d", "target-1"], ["k", "9041"], ["p", communityPubkey]],
     })
 
-    repositoryQuery.mockReturnValueOnce([]).mockReturnValueOnce([targeting] as any)
+    repositoryQuery.mockReturnValueOnce([]).mockReturnValueOnce([]).mockReturnValueOnce([targeting] as any)
 
     await expect(
       getEventPath(makeEvent({kind: 9041, tags: [["h", "target-1"]]}) as any, [
@@ -197,7 +238,7 @@ describe("routes", () => {
       ]),
     ).resolves.toBe(`/c/${communityNpub}/goals`)
     expect(requestMock).toHaveBeenCalledWith(
-      expect.objectContaining({relays: ["wss://relay.example.com"], autoClose: true}),
+      expect.objectContaining({relays: ["wss://relay.example.com/"], autoClose: true}),
     )
   })
 

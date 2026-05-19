@@ -94,6 +94,7 @@
   import {goToEvent, makeGitPath} from "@app/util/routes"
   import {pushToast} from "@app/util/toast"
   import {getQuoteRelayHints, getQuoteTagRelayHints} from "@app/util/git-quote"
+  import {makeEventNevent} from "@app/util/event-links"
   import {
     Button as GitButton,
     highlightCodeLines,
@@ -140,7 +141,7 @@
     })
   })
   const entity = id
-    ? nip19.neventEncode({id, relays: mergedRelays})
+    ? makeEventNevent({id, kind, pubkey}, {relays: mergedRelays})
     : new Address(kind, pubkey, identifier, mergedRelays).toNaddr()
 
   const onclick = () => {
@@ -577,7 +578,8 @@
   }
 
   const buildPermalinkHref = (evt: TrustedEvent, relays: string[] = [], diffHash = "") => {
-    const repoAddress = getTagValue(evt, "a")
+    const repoTag = getTagValue(evt, "repo")
+    const repoAddress = getTagValue(evt, "a") || (parseRepoAddress(repoTag) ? repoTag : "")
     const base = buildRepoHrefFromAddress(
       repoAddress,
       getQuoteRelayHints(relays, getTagRelayHints(evt, ["a"], repoAddress)),

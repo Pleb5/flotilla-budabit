@@ -13,7 +13,7 @@
   import {pushToast} from "@src/app/util/toast"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {postPermalink} from "@app/core/git-commands.js"
-  import {nip19} from "nostr-tools"
+  import {makeEventNevent} from "@app/util/event-links"
   import {createSearch} from "@welshman/app"
   import {getContext, hasContext} from "svelte"
   import {REPO_CLONE_URLS_KEY, REPO_KEY} from "@app/core/git-state"
@@ -551,11 +551,7 @@
       message: "Permalink published successfully",
     })
     console.log("Permalink published successfully", thunk.event)
-    const nevent = nip19.neventEncode({
-      id: thunk.event.id,
-      kind: thunk.event.kind,
-      relays: repoClass.relays,
-    })
+    const nevent = makeEventNevent(thunk.event as any, {relays: repoClass.relays})
     console.log("Permalink published successfully", nevent)
     navigator.clipboard.writeText(nevent)
     pushToast({
