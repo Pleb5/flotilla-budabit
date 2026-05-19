@@ -135,7 +135,7 @@ describe("community badges", () => {
   it("builds and parses badge award events", () => {
     const template = makeCommunityBadgeAwardEvent({
       definitionAddress: `${BADGE_DEFINITION}:${moderatorPubkey}:helper`,
-      recipientPubkeys: [recipientPubkey, recipientPubkey, "invalid"],
+      recipientPubkey,
     })
     const parsed = parseCommunityBadgeAward(makeEvent({kind: BADGE_AWARD, tags: template.tags}))!
 
@@ -147,7 +147,22 @@ describe("community badges", () => {
         ["p", recipientPubkey],
       ],
     })
-    expect(parsed.recipientPubkeys).toEqual([recipientPubkey])
+    expect(parsed.recipientPubkey).toBe(recipientPubkey)
+  })
+
+  it("rejects multi-recipient badge award events", () => {
+    const parsed = parseCommunityBadgeAward(
+      makeEvent({
+        kind: BADGE_AWARD,
+        tags: [
+          ["a", `${BADGE_DEFINITION}:${moderatorPubkey}:helper`],
+          ["p", recipientPubkey],
+          ["p", outsiderPubkey],
+        ],
+      }),
+    )
+
+    expect(parsed).toBeUndefined()
   })
 
   it("parses current and deprecated profile badge pairs", () => {
@@ -274,7 +289,7 @@ describe("community badges", () => {
       pubkey: moderatorPubkey,
       tags: makeCommunityBadgeAwardEvent({
         definitionAddress: `${BADGE_DEFINITION}:${moderatorPubkey}:helper`,
-        recipientPubkeys: [recipientPubkey],
+        recipientPubkey,
       }).tags,
     })
     const profileBadges = makeEvent({
@@ -326,7 +341,7 @@ describe("community badges", () => {
       pubkey: moderatorPubkey,
       tags: makeCommunityBadgeAwardEvent({
         definitionAddress: `${BADGE_DEFINITION}:${moderatorPubkey}:helper`,
-        recipientPubkeys: [recipientPubkey],
+        recipientPubkey,
       }).tags,
     })
     const deleteAward = makeEvent({
@@ -375,7 +390,7 @@ describe("community badges", () => {
       pubkey: moderatorPubkey,
       tags: makeCommunityBadgeAwardEvent({
         definitionAddress: `${BADGE_DEFINITION}:${moderatorPubkey}:helper`,
-        recipientPubkeys: [recipientPubkey],
+        recipientPubkey,
       }).tags,
     })
 

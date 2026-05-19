@@ -17,6 +17,7 @@
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
+  import CommunityBadgeAwardForm from "@app/components/CommunityBadgeAwardForm.svelte"
   import ProfileCodeTrustAnalysis from "@app/components/ProfileCodeTrustAnalysis.svelte"
   import ProfileNip85Metrics from "@app/components/ProfileNip85Metrics.svelte"
   import {pubkeyLink} from "@app/core/state"
@@ -83,6 +84,11 @@
   </div>
   <ProfileInfo {pubkey} url={profileUrl} relays={relayHints} />
   <ProfileBadges {pubkey} url={profileUrl} />
+  <CommunityBadgeAwardForm
+    recipientPubkey={pubkey}
+    title="Award this profile"
+    description="Choose one of your active badges to award to this profile."
+    class="rounded-box border border-base-300 bg-base-100 p-4" />
   <ProfileNip85Metrics {pubkey} />
   <ProfileCodeTrustAnalysis {pubkey} />
   <ModalFooter>

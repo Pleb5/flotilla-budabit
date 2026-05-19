@@ -42,7 +42,7 @@ export type CommunityBadgeDefinition = {
 export type CommunityBadgeAward = {
   event: TrustedEvent
   definitionAddress: string
-  recipientPubkeys: string[]
+  recipientPubkey: string
 }
 
 export type ProfileBadgePair = {
@@ -238,18 +238,19 @@ export const makeCommunityBadgeAwardDelete = ({
 
 export const makeCommunityBadgeAwardEvent = ({
   definitionAddress,
-  recipientPubkeys,
+  recipientPubkey,
 }: {
   definitionAddress: string
-  recipientPubkeys: string[]
-}): EventContent & {kind: typeof BADGE_AWARD} => ({
-  kind: BADGE_AWARD,
-  content: "",
-  tags: [
-    ["a", definitionAddress],
-    ...unique(recipientPubkeys.map(normalizePubkey)).map(pubkey => ["p", pubkey]),
-  ],
-})
+  recipientPubkey: string
+}): EventContent & {kind: typeof BADGE_AWARD} => {
+  const pubkey = normalizePubkey(recipientPubkey)
+
+  return {
+    kind: BADGE_AWARD,
+    content: "",
+    tags: [["a", definitionAddress], ...(pubkey ? [["p", pubkey]] : [])],
+  }
+}
 
 export const makeProfileBadgesEvent = ({
   pairs,
@@ -319,9 +320,9 @@ export const parseCommunityBadgeAward = (event: TrustedEvent): CommunityBadgeAwa
   const recipientPubkeys = unique(
     event.tags.filter(tag => tag[0] === "p").map(tag => normalizePubkey(tag[1] || "")),
   )
-  if (recipientPubkeys.length === 0) return undefined
+  if (recipientPubkeys.length !== 1) return undefined
 
-  return {event, definitionAddress: parsedDefinition.address, recipientPubkeys}
+  return {event, definitionAddress: parsedDefinition.address, recipientPubkey: recipientPubkeys[0]}
 }
 
 export const isCommunityBadgeAwardDeleted = (award: TrustedEvent, deleteEvents: TrustedEvent[]) =>
@@ -565,7 +566,7 @@ const getAwardsById = ({
     const badgeDefinition = definitionsByAddress.get(award.definitionAddress)
     if (!badgeDefinition) continue
     if (normalizePubkey(award.event.pubkey || "") !== badgeDefinition.pubkey) continue
-    if (recipient && !award.recipientPubkeys.includes(recipient)) continue
+    if (recipient && award.recipientPubkey !== recipient) continue
 
     awardsById.set(award.event.id, award)
   }

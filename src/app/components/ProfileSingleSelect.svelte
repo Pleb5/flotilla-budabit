@@ -13,6 +13,7 @@
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {pushModal} from "@app/util/modal"
+  import {normalizePubkey} from "@app/core/community"
 
   interface Props {
     value: string
@@ -50,6 +51,12 @@
   $effect(() => {
     // @ts-ignore
     oninput?.($term)
+
+    const typedPubkey = normalizePubkey($term)
+    if (typedPubkey && !inputDisabled) {
+      selectPubkey(typedPubkey)
+      return
+    }
 
     if ($term && !inputDisabled) {
       popover?.show()

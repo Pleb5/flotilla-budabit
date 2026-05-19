@@ -13,6 +13,7 @@
   import Field from "@lib/components/Field.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
+  import CommunityBadgeAwardForm from "@app/components/CommunityBadgeAwardForm.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
@@ -35,10 +36,8 @@
     isCommunityBadgeAwardDeleted,
     makeCommunityBadgeAwardDelete,
     makeCommunityBadgeAwardDeleteFilters,
-    makeCommunityBadgeAwardEvent,
     makeCommunityBadgeDefinitionEvent,
     makeCommunityBadgeDefinitionFilters,
-    makeCommunityBadgeIdentifier,
     makeCommunityBadgeAwardFilters,
     makeProfileBadgeAcceptanceEvent,
     makeProfileBadgeFilters,
@@ -80,13 +79,10 @@
   let pageTab = $state<BadgePageTab>("awarded")
   let myBadgePanel = $state<MyBadgePanel>("awarded")
   let badgeName = $state("")
-  let badgeIdentifier = $state("")
   let badgeDescription = $state("")
   let badgeImage = $state("")
   let badgeImageDimensions = $state("")
   let editingDefinitionAddress = $state("")
-  let selectedDefinitionAddress = $state("")
-  let awardRecipients = $state("")
   let publishing = $state(false)
   let uploadingImage = $state(false)
   let imageUploadNote = $state("")
@@ -143,9 +139,6 @@
   const editingDefinition = $derived(
     ownActiveBadgeDefinitions.find(definition => definition.address === editingDefinitionAddress),
   )
-  const selectedDefinition = $derived(
-    ownActiveBadgeDefinitions.find(definition => definition.address === selectedDefinitionAddress),
-  )
   const badgeAwardFilters = $derived(
     makeCommunityBadgeAwardFilters({definitions: badgeDefinitions}),
   )
@@ -186,16 +179,6 @@
         })
       : [],
   )
-  const parseAwardRecipients = () =>
-    Array.from(
-      new Set(
-        awardRecipients
-          .split(/[\s,]+/)
-          .map(normalizePubkey)
-          .filter(Boolean),
-      ),
-    )
-
   const hasSuccessfulRelay = (thunk: ReturnType<typeof publishThunk>) =>
     Object.values(thunk.results).some(result => result.status === "success")
 
@@ -249,7 +232,6 @@
   const resetBadgeForm = () => {
     editingDefinitionAddress = ""
     badgeName = ""
-    badgeIdentifier = ""
     badgeDescription = ""
     badgeImage = ""
     badgeImageDimensions = ""
@@ -259,7 +241,6 @@
   const editBadge = (definition: CommunityBadgeDefinition) => {
     editingDefinitionAddress = definition.address
     badgeName = definition.name
-    badgeIdentifier = definition.identifier
     badgeDescription = definition.description || ""
     badgeImage = definition.image || ""
     badgeImageDimensions = definition.imageDimensions || ""
@@ -270,10 +251,8 @@
   const buildBadgeDefinitionTemplate = (deprecated = false) => {
     if (!$activeCommunityDefinition) throw new Error("Community definition is not loaded.")
 
-    const rawIdentifier = badgeIdentifier.trim()
-    const identifier = (rawIdentifier || makeCommunityBadgeIdentifier(badgeName)).trim()
-    if (!rawIdentifier && !badgeName.trim()) throw new Error("Add a badge name first.")
-    if (!identifier) throw new Error("Add a badge identifier or name first.")
+    const identifier = editingDefinition?.identifier || `badge-${crypto.randomUUID()}`
+    if (!badgeName.trim()) throw new Error("Add a badge name first.")
 
     return makeCommunityBadgeDefinitionEvent({
       communityPubkey: $activeCommunityDefinition.pubkey,
@@ -356,36 +335,6 @@
     })
   }
 
-  const awardBadge = () => {
-    if (!canManageBadges || !selectedDefinition) {
-      pushToast({theme: "error", message: "Select one of your active badge definitions first."})
-      return
-    }
-
-    const recipients = parseAwardRecipients()
-    if (recipients.length === 0) {
-      pushToast({theme: "error", message: "Add at least one recipient pubkey or npub."})
-      return
-    }
-
-    confirmAction({
-      title: "Award badge",
-      message: `Award ${selectedDefinition.name} to ${recipients.length} ${recipients.length === 1 ? "person" : "people"}?`,
-      confirm: () =>
-        runPublish(async () => {
-          for (const recipient of recipients) {
-            await publishTemplate(
-              makeCommunityBadgeAwardEvent({
-                definitionAddress: selectedDefinition.address,
-                recipientPubkeys: [recipient],
-              }),
-            )
-          }
-          awardRecipients = ""
-        }, "Badge award published."),
-    })
-  }
-
   const acceptAward = async (award: PendingCommunityBadgeAward) => {
     if (!$pubkey) {
       pushToast({theme: "error", message: "Log in with the awarded pubkey first."})
@@ -432,7 +381,7 @@
   const revokeAward = (definition: CommunityBadgeDefinition, award: CommunityBadgeAward) => {
     confirmAction({
       title: "Revoke badge award",
-      message: `Revoke ${definition.name} from ${award.recipientPubkeys.length} ${award.recipientPubkeys.length === 1 ? "recipient" : "recipients"}?`,
+      message: `Revoke ${definition.name} from this recipient?`,
       confirm: () =>
         runPublish(
           () => publishTemplate(makeCommunityBadgeAwardDelete({awardId: award.event.id})),
@@ -534,21 +483,12 @@
     getDefinitionAwardItems(definition).length
 
   const getDefinitionRecipientCount = (definition: CommunityBadgeDefinition) =>
-    new Set(getDefinitionAwardItems(definition).flatMap(item => item.award.recipientPubkeys)).size
+    new Set(getDefinitionAwardItems(definition).map(item => item.award.recipientPubkey)).size
 
   $effect(() => {
     if (canManageBadges || pageTab !== "mine") return
 
     pageTab = "awarded"
-  })
-
-  $effect(() => {
-    if (
-      ownActiveBadgeDefinitions.some(definition => definition.address === selectedDefinitionAddress)
-    )
-      return
-
-    selectedDefinitionAddress = ownActiveBadgeDefinitions[0]?.address || ""
   })
 
   $effect(() => {
@@ -784,11 +724,9 @@
                       <div class="rounded-box bg-base-200 p-3">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                           <div class="flex flex-wrap gap-2">
-                            {#each item.award.recipientPubkeys as recipient}
-                              <span class="badge badge-neutral h-auto py-1">
-                                <ProfileLink pubkey={recipient} />
-                              </span>
-                            {/each}
+                            <span class="badge badge-neutral h-auto py-1">
+                              <ProfileLink pubkey={item.award.recipientPubkey} />
+                            </span>
                           </div>
                           <Button
                             class="btn btn-error btn-xs"
@@ -820,8 +758,7 @@
                   {editingDefinition ? "Edit badge" : "Create badge"}
                 </h2>
                 <p class="text-sm opacity-70">
-                  Definitions are replaceable kind 30009 events. The identifier is locked when
-                  editing.
+                  Create a badge your community can award to individual profiles.
                 </p>
               </div>
               <Field>
@@ -831,21 +768,6 @@
                     class="input input-bordered w-full"
                     placeholder="Community helper"
                     bind:value={badgeName} />
-                {/snippet}
-              </Field>
-              <Field>
-                {#snippet label()}<p>Identifier</p>{/snippet}
-                {#snippet input()}
-                  <input
-                    class="input input-bordered w-full"
-                    placeholder="community-helper"
-                    readonly={Boolean(editingDefinition)}
-                    bind:value={badgeIdentifier} />
-                {/snippet}
-                {#snippet info()}
-                  {editingDefinition
-                    ? "Changing the identifier would create a different badge."
-                    : "Leave blank to derive this from the name."}
                 {/snippet}
               </Field>
               <Field>
@@ -903,42 +825,7 @@
             </form>
 
             <div class="flex flex-col gap-4">
-              <form class="flex flex-col gap-3" onsubmit={preventDefault(awardBadge)}>
-                <div>
-                  <h2 class="text-xl font-semibold">Award badge</h2>
-                  <p class="text-sm opacity-70">
-                    Budabit publishes one immutable award event per recipient.
-                  </p>
-                </div>
-                <Field>
-                  {#snippet label()}<p>Your badge</p>{/snippet}
-                  {#snippet input()}
-                    <select
-                      class="select select-bordered w-full"
-                      bind:value={selectedDefinitionAddress}
-                      disabled={ownActiveBadgeDefinitions.length === 0}>
-                      {#each ownActiveBadgeDefinitions as definition (definition.address)}
-                        <option value={definition.address}>{definition.name}</option>
-                      {/each}
-                    </select>
-                  {/snippet}
-                </Field>
-                <Field>
-                  {#snippet label()}<p>Recipients</p>{/snippet}
-                  {#snippet input()}
-                    <textarea
-                      class="textarea textarea-bordered min-h-32 w-full"
-                      placeholder="Paste pubkeys or npubs, separated by spaces or commas"
-                      bind:value={awardRecipients}></textarea>
-                  {/snippet}
-                </Field>
-                <div class="flex justify-end">
-                  <Button
-                    type="submit"
-                    class="btn btn-primary"
-                    disabled={publishing || !selectedDefinitionAddress}>Award badge</Button>
-                </div>
-              </form>
+              <CommunityBadgeAwardForm />
 
               <div class="flex flex-col gap-3 rounded-box border border-base-300 bg-base-100 p-4">
                 <h3 class="font-semibold">Your active badges</h3>
@@ -1015,11 +902,9 @@
                       <div class="rounded-box bg-base-200 p-3">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                           <div class="flex flex-wrap gap-2">
-                            {#each item.award.recipientPubkeys as recipient}
-                              <span class="badge h-auto py-1" class:badge-error={item.revoked}>
-                                <ProfileLink pubkey={recipient} />
-                              </span>
-                            {/each}
+                            <span class="badge h-auto py-1" class:badge-error={item.revoked}>
+                              <ProfileLink pubkey={item.award.recipientPubkey} />
+                            </span>
                             {#if item.revoked}<span class="badge badge-error">revoked</span>{/if}
                           </div>
                           {#if !item.revoked}
