@@ -102,7 +102,7 @@ Exit criteria:
 
 ## Phase 5: Read Fallbacks
 
-Status: pending.
+Status: completed.
 
 Scope:
 
