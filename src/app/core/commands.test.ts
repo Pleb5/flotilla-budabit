@@ -2,6 +2,7 @@
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
+import {get} from "svelte/store"
 import {
   blossomDashboardState,
   blossomSettings,
@@ -63,6 +64,11 @@ const makeUploadTestFile = () => {
   return file
 }
 
+const waitForBackgroundJobs = async () => {
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await new Promise(resolve => setTimeout(resolve, 0))
+}
+
 describe("commands", () => {
   beforeEach(() => {
     utilMocks.uploadBlob.mockReset()
@@ -107,15 +113,22 @@ describe("commands", () => {
     ).toEqual([normalizeBlossomUrl(mirror)])
   })
 
-  it("uploadFile mirrors successful uploads after the primary upload", async () => {
+  it("uploadFile queues successful mirrors after the primary upload", async () => {
     const {uploadFile, normalizeBlossomUrl} = await import("./commands")
     const primary = normalizeBlossomUrl("https://primary.example.com")
     const mirror = normalizeBlossomUrl("https://mirror.example.com")
     const file = makeUploadTestFile()
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>
+      const hash = headers["X-SHA-256"]
+
+      return new Response(JSON.stringify({url: `${mirror}/${hash}.webp`, sha256: hash}))
+    })
 
     utilMocks.uploadBlob.mockImplementation(
       async (server: string) => new Response(JSON.stringify({uploaded: 1, url: `${server}blob`})),
     )
+    vi.stubGlobal("fetch", fetchMock)
 
     const {error, mirrors, result} = await uploadFile(file, {
       url: primary,
@@ -124,18 +137,90 @@ describe("commands", () => {
 
     expect(error).toBeUndefined()
     expect(result?.url).toBe(`${primary}blob.webp`)
-    expect(mirrors).toEqual([{server: mirror, ok: true, status: 200, url: `${mirror}blob`}])
-    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
+    expect(mirrors).toBeUndefined()
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
     expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(primary)
-    expect(utilMocks.uploadBlob.mock.calls[1][0]).toBe(mirror)
 
     const headers = utilMocks.uploadBlob.mock.calls[0][2].headers
     expect(headers["X-SHA-256"]).toMatch(/^[a-f0-9]{64}$/)
     expect(headers["Content-Type"]).toBe("image/webp")
     expect(headers["Content-Length"]).toBeUndefined()
+
+    await waitForBackgroundJobs()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
+      targetUrl: mirror,
+      method: "server-mirror",
+      status: "succeeded",
+    })
   })
 
-  it("uploadFile does not fail when a mirror upload fails", async () => {
+  it("uploadFile records background mirror failures without failing the upload", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const mirror = normalizeBlossomUrl("https://mirror.example.com")
+    const file = makeUploadTestFile()
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("mirror unavailable", {status: 503}),
+    )
+
+    utilMocks.uploadBlob.mockResolvedValue(
+      new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const {error, mirrors, result} = await uploadFile(file, {
+      url: primary,
+      mirrorUrls: [mirror],
+    })
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(mirrors).toBeUndefined()
+
+    await waitForBackgroundJobs()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
+      targetUrl: mirror,
+      status: "failed",
+      lastError: "mirror unavailable",
+    })
+  })
+
+  it("uploadFile records mirror hash mismatches", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const mirror = normalizeBlossomUrl("https://mirror.example.com")
+    const file = makeUploadTestFile()
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({url: `${mirror}/${"c".repeat(64)}.webp`, sha256: "c".repeat(64)}),
+        ),
+    )
+
+    utilMocks.uploadBlob.mockResolvedValue(
+      new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const {error, result} = await uploadFile(file, {url: primary, mirrorUrls: [mirror]})
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${primary}blob.webp`)
+
+    await waitForBackgroundJobs()
+
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
+      status: "failed",
+      lastError: "Mirror returned a different hash than the canonical file.",
+    })
+  })
+
+  it("uploadFile can run browser-assisted background mirroring with consent", async () => {
     const {uploadFile, normalizeBlossomUrl} = await import("./commands")
     const primary = normalizeBlossomUrl("https://primary.example.com")
     const mirror = normalizeBlossomUrl("https://mirror.example.com")
@@ -143,16 +228,34 @@ describe("commands", () => {
 
     utilMocks.uploadBlob
       .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})))
-      .mockRejectedValueOnce(new Error("mirror unavailable"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${mirror}blob`})))
 
-    const {error, mirrors, result} = await uploadFile(file, {
+    const {error, result} = await uploadFile(file, {
       url: primary,
       mirrorUrls: [mirror],
+      blossomCapabilities: {
+        [mirror]: {
+          url: mirror,
+          checkedAt: 1,
+          upload: "supported",
+          media: "unsupported",
+          mirror: "unsupported",
+        },
+      },
+      blossomSettings: {...defaultBlossomSettings, browserMirrorConsent: "allow"},
     })
 
     expect(error).toBeUndefined()
     expect(result?.url).toBe(`${primary}blob.webp`)
-    expect(mirrors).toEqual([{server: mirror, ok: false, error: "Error: mirror unavailable"}])
+
+    await waitForBackgroundJobs()
+
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
+    expect(utilMocks.uploadBlob.mock.calls[1][0]).toBe(mirror)
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
+      method: "browser-upload",
+      status: "succeeded",
+    })
   })
 
   it("uploadFile keeps default uploads single-target without mirrors", async () => {

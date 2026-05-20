@@ -119,7 +119,12 @@ import {
   blossomDashboardState,
   blossomSettings,
   chooseBlossomInitialUploadPlan,
+  createBlossomMirrorJobs,
   normalizeBlossomSettings,
+  rememberBlossomUpload,
+  updateBlossomUploadRecord,
+  type BlossomBlobDescriptor,
+  type BlossomMirrorJob,
   type BlossomServerCapability,
   type BlossomServerTarget,
   type BlossomSettings,
@@ -1076,9 +1081,17 @@ export type BlossomMirrorUploadResult = {
   error?: string
 }
 
-export type UploadFileResult = {
-  error?: string
-  result?: UploadTask
+export type UploadFileBlobResult = {
+  url: string
+  sha256: string
+  tags: string[][]
+  size?: number
+  type?: string
+  [key: string]: any
+}
+
+export type UploadFileResult = Omit<UploadTask, "result"> & {
+  result?: UploadFileBlobResult
   mirrors?: BlossomMirrorUploadResult[]
 }
 
@@ -1135,6 +1148,12 @@ const getTaskMimeType = (task: Record<string, any>) =>
     : typeof task.mime_type === "string"
       ? task.mime_type
       : undefined
+
+const getTaskSize = (task: Record<string, any>) => {
+  const size = typeof task.size === "string" ? Number(task.size) : task.size
+
+  return typeof size === "number" && Number.isFinite(size) ? size : undefined
+}
 
 const buildBlossomUrl = (server: string, hash: string, type?: string) =>
   `${server.replace(/\/+$/, "")}/${hash}${getFileExtension(type)}`
@@ -1224,46 +1243,184 @@ const mirrorBlossomUrlToBlossomServer = async ({
   return {res, text, task: parseJson(text) || {}}
 }
 
-const mirrorFileToBlossomServer = async ({
-  file,
-  hash,
-  headers,
-  server,
-}: {
-  file: File
-  hash: string
-  headers: Record<string, string>
-  server: string
-}): Promise<BlossomMirrorUploadResult> => {
-  try {
-    const {res, text, task} = await uploadFileToBlossomServer({file, hash, headers, server})
+const updateBackgroundMirrorJob = (
+  uploadId: string,
+  jobId: string,
+  update: (job: BlossomMirrorJob) => BlossomMirrorJob,
+) => {
+  const updatedAt = Date.now()
 
-    if (!res.ok || !hasBlossomTaskSucceeded(task)) {
-      return {server, ok: false, status: res.status, error: text || `Failed to mirror file`}
+  updateBlossomUploadRecord(uploadId, record => ({
+    ...record,
+    updatedAt,
+    mirrorJobs: record.mirrorJobs.map(job =>
+      job.id === jobId ? {...update(job), updatedAt} : job,
+    ),
+  }))
+}
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error || "Unknown error")
+
+const runServerSideMirrorJob = async ({
+  canonical,
+  job,
+}: {
+  canonical: BlossomBlobDescriptor
+  job: BlossomMirrorJob
+}) => {
+  const {res, text, task} = await mirrorBlossomUrlToBlossomServer({
+    hash: canonical.sha256,
+    server: job.targetUrl,
+    url: canonical.url,
+  })
+
+  if (!res.ok || !hasBlossomTaskSucceeded(task)) {
+    throw new Error(text || `Failed to mirror file (HTTP ${res.status})`)
+  }
+
+  const mirroredHash = getBlossomTaskHash(task)
+
+  if (mirroredHash && mirroredHash !== canonical.sha256) {
+    throw new Error("Mirror returned a different hash than the canonical file.")
+  }
+
+  return task.url || buildBlossomUrl(job.targetUrl, canonical.sha256, canonical.type)
+}
+
+const runBrowserUploadMirrorJob = async ({
+  canonical,
+  file,
+  job,
+}: {
+  canonical: BlossomBlobDescriptor
+  file: File
+  job: BlossomMirrorJob
+}) => {
+  const headers = getBlossomUploadHeaders(file, canonical.sha256)
+  const {res, text, task} = await uploadFileToBlossomServer({
+    file,
+    hash: canonical.sha256,
+    headers,
+    server: job.targetUrl,
+  })
+
+  if (!res.ok || !hasBlossomTaskSucceeded(task)) {
+    throw new Error(text || `Failed to upload mirror file (HTTP ${res.status})`)
+  }
+
+  const uploadedHash = getBlossomTaskHash(task)
+
+  if (uploadedHash && uploadedHash !== canonical.sha256) {
+    throw new Error("Mirror upload returned a different hash than the canonical file.")
+  }
+
+  return task.url || buildBlossomUrl(job.targetUrl, canonical.sha256, canonical.type)
+}
+
+const runBackgroundMirrorJob = async ({
+  canonical,
+  exactFile,
+  job,
+  settings,
+  uploadId,
+}: {
+  canonical: BlossomBlobDescriptor
+  exactFile?: File
+  job: BlossomMirrorJob
+  settings: BlossomSettings
+  uploadId: string
+}) => {
+  updateBackgroundMirrorJob(uploadId, job.id, current => ({
+    ...current,
+    status: "running",
+    attempts: current.attempts + 1,
+  }))
+
+  const canBrowserFallback = Boolean(
+    exactFile &&
+    settings.browserMirrorConsent === "allow" &&
+    settings.mirrorMode !== "server-side-only",
+  )
+
+  try {
+    let resultUrl: string
+
+    if (job.method === "browser-upload") {
+      if (!exactFile) throw new Error("Browser-assisted mirroring requires exact canonical bytes.")
+      resultUrl = await runBrowserUploadMirrorJob({canonical, file: exactFile, job})
+    } else {
+      try {
+        resultUrl = await runServerSideMirrorJob({canonical, job})
+      } catch (error) {
+        if (!canBrowserFallback || !exactFile) throw error
+
+        updateBackgroundMirrorJob(uploadId, job.id, current => ({
+          ...current,
+          method: "browser-upload",
+          status: "running",
+          lastError: getErrorMessage(error),
+        }))
+        resultUrl = await runBrowserUploadMirrorJob({canonical, file: exactFile, job})
+      }
     }
 
-    return {server, ok: true, status: res.status, url: task.url}
-  } catch (e: any) {
-    return {server, ok: false, error: e.toString()}
+    updateBackgroundMirrorJob(uploadId, job.id, current => ({
+      ...current,
+      status: "succeeded",
+      resultUrl,
+      lastError: undefined,
+    }))
+  } catch (error) {
+    updateBackgroundMirrorJob(uploadId, job.id, current => ({
+      ...current,
+      status: "failed",
+      lastError: getErrorMessage(error),
+    }))
   }
 }
 
-export const uploadFile = async (file: File, options: UploadFileOptions = {}) => {
+const runBackgroundMirrorJobs = async ({
+  canonical,
+  exactFile,
+  jobs,
+  settings,
+  uploadId,
+}: {
+  canonical: BlossomBlobDescriptor
+  exactFile?: File
+  jobs: BlossomMirrorJob[]
+  settings: BlossomSettings
+  uploadId: string
+}) => {
+  for (const job of jobs) {
+    if (job.status === "queued") {
+      await runBackgroundMirrorJob({canonical, exactFile, job, settings, uploadId})
+    }
+  }
+}
+
+export const uploadFile = async (
+  file: File,
+  options: UploadFileOptions = {},
+): Promise<UploadFileResult> => {
   const setStage = (stage: BlossomUploadStage) => options.onStage?.(stage)
 
   try {
     setStage("preparing")
 
     const {name, type} = file
+    const originalSize = file.size
     const originalExtension = getFileExtension(type)
     const {primary, mirrors: mirrorServers} = getBlossomUploadTargets(options)
     const capabilities = options.blossomCapabilities || get(blossomDashboardState).capabilities
     const settings = normalizeBlossomSettings(options.blossomSettings || get(blossomSettings))
+    const plannerTargets = getPlannerTargets({options, primary, mirrors: mirrorServers})
 
     setStage("checking-servers")
 
     const plan = chooseBlossomInitialUploadPlan({
-      targets: getPlannerTargets({options, primary, mirrors: mirrorServers}),
+      targets: plannerTargets,
       capabilities,
       settings,
       file: {type, size: file.size},
@@ -1383,18 +1540,9 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
 
     const resultHash = getBlossomTaskHash(uploadTask) || hash
     const resultType = getTaskMimeType(uploadTask) || file.type || type
+    const resultSize = getTaskSize(uploadTask) || file.size
     let {url, ...task} = uploadTask
     url = url || buildBlossomUrl(plan.canonical.url, resultHash, resultType)
-    const immediateMirrorServers =
-      plan.method === "upload" && !plan.mirrorOptimizedToCanonical
-        ? mirrorServers.filter(server => server !== plan.canonical.url)
-        : []
-
-    const mirrors = await Promise.all(
-      immediateMirrorServers.map(server =>
-        mirrorFileToBlossomServer({file, hash, headers, server}),
-      ),
-    )
 
     url = ensureUploadUrlExtension({
       encrypted: Boolean(options.encrypt),
@@ -1403,11 +1551,54 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
       url,
     })
 
-    const result = {...task, tags, url}
+    const canonical: BlossomBlobDescriptor = {
+      url,
+      sha256: resultHash,
+      size: resultSize,
+      type: resultType,
+    }
+    const mirrorTargets = plannerTargets.filter(
+      target => target.url !== plan.canonical.url && target.url !== uploadServer,
+    )
+    const mirrorJobs = createBlossomMirrorJobs({
+      targets: mirrorTargets,
+      capabilities,
+      settings,
+      exactBytesAvailable: plan.method === "upload",
+      makeId: () => randomId(),
+    })
+    const uploadId = randomId()
+    const now = Date.now()
+
+    rememberBlossomUpload({
+      id: uploadId,
+      createdAt: now,
+      updatedAt: now,
+      context: options.blossomContext || {type: "generic"},
+      canonical,
+      original: {
+        name,
+        size: originalSize,
+        type,
+      },
+      optimizationMode: settings.optimizationMode,
+      mirrorMode: settings.mirrorMode,
+      mirrorJobs,
+    })
+
+    void runBackgroundMirrorJobs({
+      canonical,
+      exactFile: plan.method === "upload" ? file : undefined,
+      jobs: mirrorJobs,
+      settings,
+      uploadId,
+    })
+
+    const result = {...task, tags, url, sha256: resultHash, size: resultSize, type: resultType}
 
     setStage("ready")
 
-    return immediateMirrorServers.length > 0 ? {result, mirrors} : {result}
+    return {result}
   } catch (e: any) {
     setStage("failed")
     console.error("Error caught when uploading file:", e)

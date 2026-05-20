@@ -191,7 +191,7 @@ Exit criteria:
 
 ## Phase 6: Background Mirroring Queue
 
-Status: pending.
+Status: completed.
 
 Scope:
 

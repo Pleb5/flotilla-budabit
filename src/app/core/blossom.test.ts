@@ -9,6 +9,7 @@ import {
   chooseBlossomInitialUploadPlan,
   classifyBlossomProbeError,
   classifyBlossomProbeResponse,
+  createBlossomMirrorJobs,
   defaultBlossomDashboardState,
   defaultBlossomSettings,
   flattenBlossomServerGroups,
@@ -472,5 +473,66 @@ describe("blossom initial upload planner", () => {
       useClientCompression: false,
       reason: "regular-upload",
     })
+  })
+})
+
+describe("blossom mirror job planning", () => {
+  const mirror = makeTarget("https://mirror.example", 2)
+
+  it("queues server-side mirror jobs when mirror support is available", () => {
+    expect(
+      createBlossomMirrorJobs({
+        targets: [mirror],
+        capabilities: {[mirror.url]: makeCapability(mirror.url, {mirror: "supported"})},
+        now: () => 100,
+        makeId: () => "job",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: "job",
+        targetUrl: mirror.url,
+        method: "server-mirror",
+        status: "queued",
+      }),
+    ])
+  })
+
+  it("uses browser upload only when exact bytes and consent are available", () => {
+    expect(
+      createBlossomMirrorJobs({
+        targets: [mirror],
+        capabilities: {[mirror.url]: makeCapability(mirror.url, {mirror: "unsupported"})},
+        settings: {...defaultBlossomSettings, browserMirrorConsent: "allow"},
+        exactBytesAvailable: true,
+        makeId: () => "job",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        method: "browser-upload",
+        status: "queued",
+      }),
+    ])
+  })
+
+  it("records skipped jobs when no safe mirror method can run", () => {
+    expect(
+      createBlossomMirrorJobs({
+        targets: [mirror],
+        capabilities: {
+          [mirror.url]: makeCapability(mirror.url, {
+            upload: "unsupported",
+            mirror: "unsupported",
+          }),
+        },
+        exactBytesAvailable: true,
+        makeId: () => "job",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        method: "browser-upload",
+        status: "skipped",
+        lastError: expect.stringContaining("browser-assisted mirroring requires consent"),
+      }),
+    ])
   })
 })

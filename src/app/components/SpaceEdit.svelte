@@ -57,8 +57,8 @@
     if (imageFile) {
       const {error, result} = await uploadFile(imageFile, {maxWidth: 128, maxHeight: 128})
 
-      if (error) {
-        return pushToast({theme: "error", message: error})
+      if (error || !result?.url) {
+        return pushToast({theme: "error", message: error || "Image upload failed"})
       }
 
       const res = await manageRelay(url, {

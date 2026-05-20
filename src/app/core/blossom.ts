@@ -202,6 +202,15 @@ export type BuildBlossomServerGroupsOptions = {
   lastResortServers?: string[]
 }
 
+export type CreateBlossomMirrorJobsOptions = {
+  targets: BlossomServerTarget[]
+  capabilities?: Record<string, BlossomServerCapability | undefined>
+  settings?: BlossomSettings
+  exactBytesAvailable?: boolean
+  now?: () => number
+  makeId?: (target: BlossomServerTarget, index: number) => string
+}
+
 export type BlossomMirrorJob = {
   id: string
   targetUrl: string
@@ -591,6 +600,9 @@ const canTryMedia = (capability: BlossomServerCapability | undefined) =>
 const canServerMirror = (capability: BlossomServerCapability | undefined) =>
   Boolean(capability && ["supported", "auth-failed"].includes(capability.mirror))
 
+const canTryServerMirror = (capability: BlossomServerCapability | undefined) =>
+  !capability || ["unknown", "supported", "auth-failed"].includes(capability.mirror)
+
 const isMediaFile = (file?: BlossomUploadPlanFile) =>
   Boolean(file?.type && /^(image|video)\//.test(file.type))
 
@@ -659,6 +671,53 @@ export const chooseBlossomInitialUploadPlan = ({
         normalizedSettings.optimizationMode === "auto"),
     reason: mediaEligible ? "media-unavailable-upload-fallback" : "regular-upload",
   }
+}
+
+export const createBlossomMirrorJobs = ({
+  targets,
+  capabilities = {},
+  settings = defaultBlossomSettings,
+  exactBytesAvailable = false,
+  now = Date.now,
+  makeId,
+}: CreateBlossomMirrorJobsOptions): BlossomMirrorJob[] => {
+  const normalizedSettings = normalizeBlossomSettings(settings)
+  if (normalizedSettings.mirrorMode === "never") return []
+
+  const createdAt = now()
+  const seen = new Set<string>()
+
+  return targets.flatMap((target, index) => {
+    if (seen.has(target.url)) return []
+    seen.add(target.url)
+
+    const capability = capabilities[target.url]
+    const canMirror = normalizedSettings.preferServerSideMirroring && canTryServerMirror(capability)
+    const canBrowserUpload =
+      exactBytesAvailable &&
+      normalizedSettings.browserMirrorConsent === "allow" &&
+      normalizedSettings.mirrorMode !== "server-side-only" &&
+      canTryUpload(capability)
+    const method: BlossomMirrorMethod = canMirror ? "server-mirror" : "browser-upload"
+    const canQueue = canMirror || canBrowserUpload
+
+    return [
+      {
+        id: makeId?.(target, index) || `${createdAt}-${index}-${target.url}`,
+        targetUrl: target.url,
+        targetLabel: target.label,
+        targetGroup: target.group,
+        method,
+        status: canQueue ? "queued" : "skipped",
+        attempts: 0,
+        createdAt,
+        updatedAt: createdAt,
+        lastError: canQueue
+          ? undefined
+          : "Server-side mirroring unavailable; browser-assisted mirroring requires consent.",
+      } satisfies BlossomMirrorJob,
+    ]
+  })
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
