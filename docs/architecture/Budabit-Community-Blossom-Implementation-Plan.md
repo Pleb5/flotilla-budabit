@@ -276,7 +276,7 @@ Exit criteria:
 
 ## Phase 9: Generic Blossom Upload Surface
 
-Status: pending.
+Status: completed.
 
 Scope:
 

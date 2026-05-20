@@ -6,12 +6,13 @@
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import InputList from "@lib/components/InputList.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import {
     activeCommunityBlossomServers,
     activeCommunityDefinition,
     activeMemberCommunityBlossomRefs,
   } from "@app/core/community-state"
-  import {startBlossomMirrorJobs} from "@app/core/commands"
+  import {startBlossomMirrorJobs, uploadFile} from "@app/core/commands"
   import {
     blossomDashboardState,
     blossomSettings,
@@ -29,14 +30,17 @@
     type BlossomMirrorTargetGroup,
     type BlossomOptimizationMode,
     type BlossomServerTarget,
+    type BlossomUploadStage,
   } from "@app/core/blossom"
+  import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
   import {DEFAULT_BLOSSOM_SERVERS} from "@app/core/state"
   import {clip, pushToast} from "@app/util/toast"
 
-  type Tab = "dashboard" | "servers" | "optimization" | "mirroring" | "advanced"
+  type Tab = "dashboard" | "upload" | "servers" | "optimization" | "mirroring" | "advanced"
 
   const tabs: Array<{id: Tab; label: string}> = [
     {id: "dashboard", label: "Dashboard"},
+    {id: "upload", label: "Upload"},
     {id: "servers", label: "Servers"},
     {id: "optimization", label: "Optimization"},
     {id: "mirroring", label: "Mirroring"},
@@ -93,6 +97,10 @@
 
   let activeTab = $state<Tab>("dashboard")
   let personalServers = $state(getTagValues("server", getListTags($userBlossomServerList)))
+  let selectedUploadFile = $state<File | undefined>()
+  let genericUploadStage = $state<BlossomUploadStage>("idle")
+  let genericUploadError = $state("")
+  let genericUploadResult = $state<{url: string; sha256?: string; uploadId?: string} | undefined>()
 
   const serverGroups = $derived(
     buildBlossomServerGroups({
@@ -167,6 +175,28 @@
       message: started ? "Server-side mirroring started." : "No server-side mirror jobs to start.",
       theme: started ? "success" : "info",
     })
+  }
+
+  const uploadGenericFile = async () => {
+    if (!selectedUploadFile) return
+
+    genericUploadError = ""
+    genericUploadResult = undefined
+
+    const {error, result, uploadId} = await uploadFile(selectedUploadFile, {
+      blossomContext: {type: "generic", label: "Dashboard"},
+      blossomTargets: allTargets,
+      onStage: stage => (genericUploadStage = stage),
+    })
+
+    if (error || !result?.url) {
+      genericUploadError = error || "Upload failed."
+      genericUploadStage = "failed"
+      return
+    }
+
+    genericUploadResult = {url: result.url, sha256: result.sha256, uploadId}
+    promptBlossomMirrorUpload(uploadId)
   }
 </script>
 
@@ -250,6 +280,65 @@
             </article>
           {/each}
         {/if}
+      </section>
+    {:else if activeTab === "upload"}
+      <section class="column gap-4">
+        <div>
+          <h2 class="text-lg font-semibold">Upload a file</h2>
+          <p class="text-sm opacity-70">
+            Upload media or files to Blossom for sharing. This does not create or publish a Nostr
+            post.
+          </p>
+        </div>
+        <Field>
+          {#snippet label()}<p>File</p>{/snippet}
+          {#snippet input()}
+            <input
+              type="file"
+              class="file-input file-input-bordered w-full"
+              onchange={event => (selectedUploadFile = event.currentTarget.files?.[0])} />
+          {/snippet}
+          {#snippet info()}
+            The same Blossom upload planner, optimization settings, and mirror prompt are used here.
+          {/snippet}
+        </Field>
+        {#if selectedUploadFile}
+          <div class="rounded-box bg-base-200 p-3 text-sm">
+            <div class="font-medium">{selectedUploadFile.name}</div>
+            <div class="text-xs opacity-70">
+              {formatBytes(selectedUploadFile.size)} · {selectedUploadFile.type || "unknown type"}
+            </div>
+          </div>
+        {/if}
+        <BlossomUploadStatus stage={genericUploadStage} />
+        {#if genericUploadError}
+          <div class="rounded-box bg-error/10 p-3 text-sm text-error">{genericUploadError}</div>
+        {/if}
+        {#if genericUploadResult}
+          <div class="column gap-2 rounded-box border border-success/30 bg-success/10 p-3 text-sm">
+            <div class="font-semibold text-success">Upload ready</div>
+            <div class="break-all">{genericUploadResult.url}</div>
+            {#if genericUploadResult.sha256}
+              <div class="break-all text-xs opacity-70">sha256: {genericUploadResult.sha256}</div>
+            {/if}
+            <div class="row-2">
+              <Button class="btn btn-sm" onclick={() => clip(genericUploadResult!.url)}
+                >Copy URL</Button>
+              <a class="btn btn-sm" href={genericUploadResult.url} download>Download</a>
+            </div>
+          </div>
+        {/if}
+        <div class="row-2">
+          <Button
+            class="btn btn-primary"
+            disabled={!selectedUploadFile}
+            onclick={uploadGenericFile}>
+            Upload to Blossom
+          </Button>
+          <Button class="btn btn-neutral" onclick={() => (activeTab = "dashboard")}>
+            View dashboard
+          </Button>
+        </div>
       </section>
     {:else if activeTab === "servers"}
       <section class="column gap-4">
