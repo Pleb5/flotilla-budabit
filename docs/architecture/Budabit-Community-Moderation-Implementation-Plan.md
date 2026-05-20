@@ -238,7 +238,7 @@ Scope:
 - Group cards into New, Granted, and Rejected.
 - Show applicant profile, requested section, form name, submitted time, and response summary.
 - Provide a review expansion or modal with the full response.
-- Grant by publishing profile-list edit, badge award, and `+` reaction.
+- Grant by publishing profile-list edit and `+` reaction, with an optional badge award for recognition or onboarding context.
 - Reject by publishing `-` reaction.
 - Highlight the moderator panel when new submissions are present.
 

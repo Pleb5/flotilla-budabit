@@ -433,7 +433,7 @@ Each application card should show:
 | Short response summary | Let moderators scan quickly. |
 | Review action | Open or expand full response details. |
 
-The review view should show the full response and buttons to grant or reject. Grant should publish the profile-list edit, badge award, and `+` reaction. Reject should publish the `-` reaction.
+The review view should show the full response and buttons to grant or reject. Grant should publish the profile-list edit and `+` reaction; it may also publish a badge award as recognition or onboarding context. Reject should publish the `-` reaction.
 
 ## Fetching Permissioned Views
 

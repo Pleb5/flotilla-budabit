@@ -43,7 +43,7 @@ The community's name, picture, and description are derived from the pubkey's [[k
     ["k", "7"],    // reactions
     ["k", "1985"], // labels
     ["a", "30000:<pubkey>:General", "<relay-url>"], // profile list with whitelisted pubkeys
-    ["badge", "<badge-definition>"], // badge that grants interaction rights
+    ["badge", "<badge-definition>"], // optional badge/engagement reference
 
     // one or more content sections for publishing
     ["content", "Chat"],
@@ -88,7 +88,7 @@ The community's name, picture, and description are derived from the pubkey's [[k
 | `content` | Name of Content Type section that the Communikey works with. |
 | `k` | Event kind, within a content type section. |
 | `a` | (within content section) Addressable reference to a profile list [[kind-30000]] containing all whitelisted pubkeys (`p` tags) for this content section. Format: `30000:<pubkey>:<d-tag>`. |
-| `badge` | Badge requirement for publishing. References a Badge Definition event, see [[NIP-58]]. Format: `30009:<pubkey>:<d-tag>`. Multiple `badge` tags can be specified per content section — users holding any of these badges can publish. |
+| `badge` | Optional community badge reference for endorsements, achievements, onboarding, or other engagement. References a Badge Definition event, see [[NIP-58]]. Format: `30009:<pubkey>:<d-tag>`. Multiple `badge` tags can be specified per content section, but Budabit does not treat them as publish permission inputs. |
 | `retention` | (optional) Retention policy in format [kind, value, type] where type is either "time" (seconds) or "count" (number of events). |
 | `tos` | (optional) Reference to the community's posting policy. |
 | `location` | (optional) Location of the community. |
@@ -124,7 +124,7 @@ Clients can filter these lists to show only pubkeys that have a [[kind-10222]] c
 
 ### Community Badges
 
-Clients can look at a user's accepted community badges in their Profile Badges [[kind-30008]] event. Badge Definitions can include a `p` tag specifying which community the badge belongs to, see [[NIP-58]]. This allows clients to automatically determine community membership from badge ownership.
+Clients can look at a user's accepted community badges in their Profile Badges [[kind-30008]] event. Badge Definitions can include a `p` tag specifying which community the badge belongs to, see [[NIP-58]]. This gives clients engagement and endorsement context, but does not grant publishing rights in Budabit.
 
 ## Targeted Publication Event (kind:30222)
 
@@ -185,9 +185,9 @@ For chat messages within a community, users should use [[kind-9]] events with a 
 
 The same pattern applies to Forum posts, see [[kind-11]].
 
-## Badge-Based Access Control
+## Profile-List Write Access And Badges
 
-Communities use [[NIP-58|Badges]] for publishing permissions. Each content section can have one or more `badge` tags referencing Badge Definitions. Users holding **any** of these badges can publish to that content section.
+Communities use profile lists for publishing permissions. Each content section has an `a` tag referencing allowed pubkeys. `badge` tags can reference [[NIP-58|Badge]] definitions for recognition or engagement around a section, but holding a badge does not make a user writable in Budabit.
 
 ```json
 ["content", "Apps"],
@@ -198,33 +198,33 @@ Communities use [[NIP-58|Badges]] for publishing permissions. Each content secti
 ["badge", "30009:community-pubkey:team"]
 ```
 
-In this example, "Member", "Pro", and "Team" badge holders can all publish Apps.
+In this example, Apps publishing is controlled by the profile list. "Member", "Pro", and "Team" badges can drive display, onboarding, achievements, or other engagement around Apps.
 
-Badge Definitions can include a `form` tag that references a Form Template, see [[kind-30168]] and [[NIP-101]]. Users request badges by submitting a Form Response [[kind-1069]] that references both the form and the badge. This allows communities to collect information from users before granting access.
+Admission forms can collect information before a moderator grants profile-list access. Badges may still be awarded after review as recognition, but they are not the permission check.
 
 ### Profile Lists
 
 Each content section includes an `a` tag referencing a profile list [[kind-30000]] containing `p` tags for all whitelisted pubkeys. This allows clients to fetch all allowed pubkeys in a single event, avoiding the need to query potentially hundreds of badge award events.
 
-**Keeping lists in sync:** When awarding or revoking a badge, apps MUST also update the corresponding profile list. This can be handled by:
-- **Automated systems:** A hot-key solution that processes badge requests and updates lists automatically
-- **Manual admin interfaces:** Apps that let admins accept requests should both award the badge and update the profile list in one action
+**Granting access:** Because profile lists are the access source, awarding or revoking a badge does not change publish rights. Admin interfaces that grant or revoke access must update profile lists directly. Badge awards can be handled separately by:
+- **Automated systems:** A hot-key solution that processes badge programs without exposing the community root key
+- **Manual admin interfaces:** Apps that let admins award badges as recognition while keeping profile-list edits as the permission step
 
 ### Delegated Badge Awarding
 
-The pubkey that awards badges does **not** have to be the same as the community's pubkey. The `badge` tag in a content section simply references a Badge Definition — this badge can be created and awarded by any pubkey.
+The pubkey that awards badges does **not** have to be the same as the community's pubkey. The `badge` tag in a content section simply references a Badge Definition for engagement context — this badge can be created and awarded by any pubkey.
 
 This enables important security patterns:
 
-- **Separate award key:** Communities can use a dedicated pubkey for handling badge awards. This key can run on a live server to process Form Responses without exposing the main community keypair.
-- **Multiple award authorities:** Different badges can be managed by different pubkeys, allowing delegation of membership management.
+- **Separate award key:** Communities can use a dedicated pubkey for handling badge awards. This key can run on a live server to process badge programs without exposing the main community keypair.
+- **Multiple award authorities:** Different badges can be managed by different pubkeys, allowing delegation of badge and engagement workflows.
 - **Cold storage for community key:** The main community keypair can remain in cold storage, only used for updating the community definition event.
 
-Example: A community's "member" badge could be defined and awarded by a separate "membership-bot" pubkey that processes applications automatically, while the community's main key stays secure offline.
+Example: A community's "builder" badge could be defined and awarded by a separate badge-bot pubkey that processes recognition workflows automatically, while the community's main key stays secure offline.
 
 ## Comments, Reactions, Labels, and Zaps
 
-Communities SHOULD include a "General" content section that handles comments ([[kind-1111]]), reactions ([[kind-7]]), and labels ([[kind-1985]]) with one shared profile list and badge. This allows members to interact with community content.
+Communities SHOULD include a "General" content section that handles comments ([[kind-1111]]), reactions ([[kind-7]]), and labels ([[kind-1985]]) with one shared profile list. Optional badges can recognize contributors, but profile-list membership controls filtered interaction.
 
 When a publication targets multiple communities, members from all those communities participate together:
 
@@ -251,8 +251,8 @@ Community blossom servers SHOULD back up all media files referenced in community
 **Additional recommendations:**
 
 - Clients MAY cache community metadata and badge awards to reduce relay queries
-- Clients SHOULD check badge requirements before attempting to publish
-- Relays MAY optionally verify badge requirements or implement retention policies, but this is not required
+- Clients SHOULD check profile-list membership before attempting to publish
+- Relays MAY optionally optimize for profile-list checks or implement retention policies, but this is not required
 
 ## Benefits
 
@@ -261,7 +261,7 @@ Community blossom servers SHOULD back up all media files referenced in community
 3. Any existing npub can become a community
 4. Any existing publication can be targeted at communities (backwards compatible)
 5. Communities are not permanently tied to specific relays
-6. Communities can define their own content types with badge-based access control
+6. Communities can define their own content types with profile-list-based write access
 7. Cross-community interaction via Targeted Publications
 8. Users can request access by submitting Form Responses
-9. Delegated badge awarding — separate keys can handle membership without exposing the main community keypair
+9. Delegated badge awarding — separate keys can run community badge programs without exposing the main community keypair

@@ -374,7 +374,7 @@
               <div>Create BudaBit Community</div>
             {/snippet}
             {#snippet info()}
-              <div>Publish the community definition, writer lists, and initial admin badges.</div>
+              <div>Publish the community definition, content sections, and initial access lists.</div>
             {/snippet}
           </CardButton>
         </Button>

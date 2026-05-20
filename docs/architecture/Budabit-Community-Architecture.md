@@ -8,7 +8,7 @@ Budabit should treat this as a clean redesign of the community foundation. Legac
 
 Budabit communities are identified by a pubkey.
 
-The community pubkey publishes a `kind:10222` Communikey definition event. That event defines the community's relays, blossom servers, supported content sections, badge requirements, and profile lists used for write permissions.
+The community pubkey publishes a `kind:10222` Communikey definition event. That event defines the community's relays, blossom servers, supported content sections, profile lists used for write permissions, and optional badge references for engagement.
 
 Relays are infrastructure. They are not identity.
 
@@ -23,7 +23,7 @@ The selected community is the root of the application session. A user may enter 
 | Session scope | A Budabit session stores the selected community pubkey and optional relay hints. |
 | Read visibility | All community content is publicly readable for now. |
 | Write access | Profile lists are the effective write-permission source. |
-| Badges | Badges explain and grant membership, but profile list inclusion is what Budabit enforces. |
+| Badges | Badges drive engagement and endorsements; profile list inclusion is what Budabit enforces for write access. |
 | Rooms | Rooms are immutable `kind:11` roots with a `room` marker. |
 | Room messages | Room messages are `kind:9` chat events scoped to the community and room root. |
 | Forum threads | Forum threads remain `kind:11`, distinguished from rooms by absence of a `room` marker. |
@@ -161,7 +161,7 @@ Write access workflow:
 
 Badges remain important as community endorsements and engagement primitives, but they are not access-control inputs. For Budabit enforcement, profile list inclusion is authoritative.
 
-## Badge Revocation
+## Badge Display And Access Revocation
 
 NIP-58 badge awards are immutable `kind:8` events. The NIP-58 text defines how badges are created, awarded, and displayed, but it does not define a standard revocation event that deletes or invalidates a badge award.
 
@@ -183,15 +183,15 @@ For Budabit section access, effective revocation is profile-list removal:
 
 When a user is removed from the relevant section list, Budabit must treat that user as no longer allowed to publish in that section, even if an old badge award event still exists.
 
-Admin tooling that grants or revokes access must update both sides when appropriate:
+Admin tooling that grants or revokes access must update profile lists. Badge awards may be published separately as recognition or onboarding context, but they are not effective permission state:
 
 | Action | Badge event | Profile list event | Effective result |
 |---|---|---|---|
-| Grant access | Publish badge award if needed | Add pubkey to section list | User can publish. |
-| Revoke access | Existing badge award remains immutable | Remove pubkey from section list | User cannot publish. |
+| Grant access | Optional endorsement award | Add pubkey to section list | User can publish. |
+| Revoke access | Existing badge award remains display state | Remove pubkey from section list | User cannot publish. |
 | User hides badge | User updates profile badges | No required change | Display changes, write access unchanged. |
 
-If a future standard defines explicit badge revocation, Budabit can support it as an additional signal. Until then, profile lists are the source of truth.
+If a future standard defines explicit badge revocation, Budabit can support it for badge display and engagement. Profile lists remain the access-control source of truth unless Budabit intentionally adopts another permission signal.
 
 ## Event Taxonomy
 
@@ -529,18 +529,18 @@ Minimum useful flow:
 
 1. User requests access to a section or community role.
 2. Admin reviews the request.
-3. Admin awards the appropriate badge if needed.
-4. Admin adds the user's pubkey to the relevant `kind:30000` profile list.
-5. Budabit treats the user as writable for that section.
+3. Admin adds the user's pubkey to the relevant `kind:30000` profile list.
+4. Budabit treats the user as writable for that section.
+5. Admin may award a community badge as separate recognition or onboarding context.
 
 Future form-based flow:
 
-1. Badge definition references a NIP-101 form template.
+1. A section application form is published as a NIP-101 form template.
 2. User submits a `kind:1069` form response.
 3. Admin or bot processes the response.
-4. Admin or bot awards the badge and updates the profile list.
+4. Admin or bot updates the profile list and may award a badge as recognition.
 
-Revocation remains list removal unless a future badge revocation standard emerges.
+Access revocation remains list removal. Badge revocation, if standardized later, affects badge display unless Budabit explicitly adopts it as an additional permission signal.
 
 ## Routing Direction
 

@@ -80,9 +80,9 @@ Plus relay-specific configuration not stored as events (NIP-11, NIP-42, NIP-43, 
 
 ### Communikeys
 
-Content sections (Chat, Posts, Articles) have specific event kinds and badge requirements. Multiple badges can grant access to the same section. Granular, per-content-type permissions.
+Content sections (Chat, Posts, Articles) have specific event kinds and profile-list write rules. Different sections can point at different profile lists, giving granular per-content-type permissions. Badges can add engagement and onboarding context, but they do not grant access in Budabit.
 
-Badge requests use Forms (NIP-101), allowing communities to require anything: email verification, captcha, payments, invite codes, questionnaires, etc. All requirements are transparent in the Badge Definition and Form Template events.
+Access requests use Forms (NIP-101), allowing communities to require anything: email verification, captcha, payments, invite codes, questionnaires, etc. Requirements are transparent in the Form Template events, and approved access is reflected in profile lists.
 
 ### NIP-72
 
@@ -167,7 +167,7 @@ Information is also scattered across multiple NIPs (NIP-11, NIP-29, NIP-42, NIP-
 
 ### Communikeys
 
-A standard "General" content section handles comments (kind:1111), reactions (kind:7), and labels (kind:1985) with one shared profile list and badge. Fetch the list, filter responses by those pubkeys.
+A standard "General" content section handles comments (kind:1111), reactions (kind:7), and labels (kind:1985) with one shared profile list. Optional badges can recognize participants. Fetch the list, filter responses by those pubkeys.
 
 - **Comments, reactions, labels:** Filter by the General section's profile list. Only members' responses are shown.
 - **Zaps:** Anyone can zap. Query zap receipts on the community relay.
@@ -250,18 +250,18 @@ If you take the Nip-72, Nip-29 and Relay-as-Community approaches seriously and t
 
 - **Migration without breaking everything** — If your community ID is a relay URL (Relay-as-Community) or tied to a specific relay (NIP-29), switching hosting is a nightmare. All references break. For migration to work smoothly, the ID needs to be portable and sufficiently unique. So why not use an npub anyway?
 
-- **Per-content-type access control** — NIP-72, NIP-29, and Relays treat communities as generic containers. No different rules for chat vs articles vs apps. You'd need content sections with kind declarations and badge requirements.
+- **Per-content-type access control** — NIP-72, NIP-29, and Relays treat communities as generic containers. No different rules for chat vs articles vs apps. You'd need content sections with kind declarations and profile-list write rules.
 
 - **Content type discovery** — None of these solutions announce which content types they handle. Apps can't find communities by specialization. You'd need communities to declare which kinds they support.
 
 - **Multi-community targeting** — NIP-72 and NIP-29 permanently tie content to one community. Creators fragment discussions across duplicates. You'd need a separate targeting event that can reference multiple communities.
 
-- **Flexible badge-based access** — NIP-72 uses approval workflows, NIP-29 uses relay-specific roles. Neither supports forms, payments, invite codes, questionnaires. You'd need badges with form integration.
+- **Flexible admission and engagement flows** — NIP-72 uses approval workflows, NIP-29 uses relay-specific roles. Neither supports forms, payments, invite codes, questionnaires, or badge-driven community engagement as first-class context.
 
 - **Backup relays** — Relay-as-Community and NIP-29 tie you to one server. You'd need relay lists in the community definition.
 
 - **Blossom servers** — Relays and NIP-29 have no integrated media solution. You'd need blossom tags.
 
-Follow these paths to their logical conclusions and you arrive at something that looks like Communikeys: communities as npubs, content sections with badge requirements, targeted publications, integrated infrastructure tags.
+Follow these paths to their logical conclusions and you arrive at something that looks like Communikeys: communities as npubs, content sections with profile-list write rules, targeted publications, badge-driven engagement, and integrated infrastructure tags.
 
 Communikeys isn't an alternative to these approaches — it's what you get when you play them out.

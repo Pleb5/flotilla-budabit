@@ -330,7 +330,7 @@
   </form>
 {:else if showIfUnavailable && communityBootstrapLoading}
   <p class="flex items-center justify-center py-6 text-sm opacity-70">
-    <Spinner loading>Loading badge permissions...</Spinner>
+    <Spinner loading>Loading badge management...</Spinner>
   </p>
 {:else if showIfUnavailable}
   <p class="rounded-box bg-base-200 p-4 text-sm opacity-70">
