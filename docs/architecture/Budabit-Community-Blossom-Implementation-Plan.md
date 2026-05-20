@@ -89,7 +89,7 @@ Exit criteria:
 
 ## Phase 3: Capability Probing
 
-Status: pending.
+Status: completed.
 
 Scope:
 

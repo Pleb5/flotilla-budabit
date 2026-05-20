@@ -58,6 +58,8 @@ export type BlossomMirrorJobStatus =
   | "skipped"
 
 export type BlossomMirrorMethod = "server-mirror" | "browser-upload"
+export type BlossomProbeEndpoint = "upload" | "media" | "mirror"
+export type BlossomProbeAuthAction = "upload" | "media"
 
 export type BlossomUploadContextType =
   | "community"
@@ -84,6 +86,22 @@ export type BlossomServerCapability = {
   media: BlossomCapabilityStatus
   mirror: BlossomCapabilityStatus
   reason?: string
+}
+
+export type BlossomProbeFile = {
+  size?: number
+  type?: string
+  sha256?: string
+}
+
+export type BlossomProbeOptions = {
+  server: string
+  file?: BlossomProbeFile
+  source?: BlossomServerSource
+  fetcher?: typeof fetch
+  persist?: boolean
+  makeAuthHeader?: (action: BlossomProbeAuthAction, server: string) => Promise<string | undefined>
+  now?: () => number
 }
 
 export type BlossomBlobDescriptor = {
@@ -226,7 +244,7 @@ export const normalizeBlossomServerUrl = (url: string | undefined | null) => {
   if (!value || !/^https?:\/\//i.test(value)) return ""
 
   try {
-    return normalizeUrl(value)
+    return new URL(normalizeUrl(value)).origin
   } catch {
     return ""
   }
@@ -367,6 +385,163 @@ export const flattenBlossomServerGroups = (groups: BlossomServerGroups) => [
   ...groups.memberCommunities,
   ...groups.lastResort,
 ]
+
+const getResponseReason = (response: Response) =>
+  response.headers.get("x-reason") || response.statusText || `HTTP ${response.status}`
+
+export const classifyBlossomProbeResponse = (
+  response: Response,
+  endpoint: BlossomProbeEndpoint,
+): BlossomCapabilityStatus => {
+  if (response.ok) return "supported"
+  if (endpoint === "mirror" && response.status === 405) {
+    const allow = response.headers.get("allow") || ""
+    return allow.toUpperCase().includes("PUT") ? "supported" : "unsupported"
+  }
+  if (response.status === 401 || response.status === 403) {
+    const reason = getResponseReason(response).toLowerCase()
+    return reason.includes("disabled") ? "disabled" : "auth-failed"
+  }
+  if (response.status === 404 || response.status === 405) return "unsupported"
+  if (response.status === 413) return "too-large"
+  if (response.status === 415) return "unsupported"
+  if (response.status === 503 || response.status === 502 || response.status === 504) {
+    return "unavailable"
+  }
+
+  return "error"
+}
+
+export const classifyBlossomProbeError = (error: unknown): BlossomCapabilityStatus => {
+  const message = error instanceof Error ? error.message : String(error)
+
+  return /failed to fetch|networkerror|cors/i.test(message) ? "cors-blocked" : "unavailable"
+}
+
+const makeProbeHeaders = async ({
+  action,
+  file,
+  makeAuthHeader,
+  server,
+}: {
+  action: BlossomProbeAuthAction
+  file?: BlossomProbeFile
+  makeAuthHeader?: BlossomProbeOptions["makeAuthHeader"]
+  server: string
+}) => {
+  const headers: Record<string, string> = {
+    "X-Content-Length": String(file?.size ?? 0),
+    "X-Content-Type": file?.type || "application/octet-stream",
+  }
+
+  if (file?.sha256) headers["X-SHA-256"] = file.sha256.toLowerCase()
+
+  const authorization = await makeAuthHeader?.(action, server)
+  if (authorization) headers.Authorization = authorization
+
+  return headers
+}
+
+const probeHeadEndpoint = async ({
+  action,
+  endpoint,
+  fetcher,
+  file,
+  makeAuthHeader,
+  origin,
+  server,
+}: {
+  action: BlossomProbeAuthAction
+  endpoint: "upload" | "media"
+  fetcher: typeof fetch
+  file?: BlossomProbeFile
+  makeAuthHeader?: BlossomProbeOptions["makeAuthHeader"]
+  origin: string
+  server: string
+}) => {
+  try {
+    const headers = await makeProbeHeaders({action, file, makeAuthHeader, server})
+    const response = await fetcher(`${origin}/${endpoint}`, {method: "HEAD", headers})
+
+    return classifyBlossomProbeResponse(response, endpoint)
+  } catch (error) {
+    return classifyBlossomProbeError(error)
+  }
+}
+
+const probeMirrorEndpoint = async ({
+  fetcher,
+  origin,
+}: {
+  fetcher: typeof fetch
+  origin: string
+}) => {
+  try {
+    const response = await fetcher(`${origin}/mirror`, {method: "OPTIONS"})
+
+    return classifyBlossomProbeResponse(response, "mirror")
+  } catch (error) {
+    return classifyBlossomProbeError(error)
+  }
+}
+
+export const probeBlossomServerCapabilities = async ({
+  server,
+  file,
+  source,
+  fetcher = fetch,
+  persist = true,
+  makeAuthHeader,
+  now = Date.now,
+}: BlossomProbeOptions): Promise<BlossomServerCapability> => {
+  const normalized = normalizeBlossomServerUrl(server)
+  if (!normalized) {
+    return {
+      url: server,
+      checkedAt: now(),
+      source,
+      upload: "unavailable",
+      media: "unavailable",
+      mirror: "unavailable",
+      reason: "Invalid Blossom server URL",
+    }
+  }
+
+  const origin = new URL(normalized).origin
+  const [upload, media, mirror] = await Promise.all([
+    probeHeadEndpoint({
+      action: "upload",
+      endpoint: "upload",
+      fetcher,
+      file,
+      makeAuthHeader,
+      origin,
+      server: normalized,
+    }),
+    probeHeadEndpoint({
+      action: "media",
+      endpoint: "media",
+      fetcher,
+      file,
+      makeAuthHeader,
+      origin,
+      server: normalized,
+    }),
+    probeMirrorEndpoint({fetcher, origin}),
+  ])
+  const capability: BlossomServerCapability = {
+    url: normalized,
+    checkedAt: now(),
+    source,
+    upload,
+    media,
+    mirror,
+  }
+
+  if (persist) rememberBlossomCapability(capability)
+
+  return capability
+}
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === "object" && !Array.isArray(value))

@@ -1,16 +1,19 @@
 // @vitest-environment jsdom
 
-import {beforeEach, describe, expect, it} from "vitest"
+import {beforeEach, describe, expect, it, vi} from "vitest"
 import {get} from "svelte/store"
 import {
   blossomDashboardState,
   blossomSettings,
   buildBlossomServerGroups,
+  classifyBlossomProbeError,
+  classifyBlossomProbeResponse,
   defaultBlossomDashboardState,
   defaultBlossomSettings,
   flattenBlossomServerGroups,
   normalizeBlossomDashboardState,
   normalizeBlossomSettings,
+  probeBlossomServerCapabilities,
   rememberBlossomCapability,
   rememberBlossomUpload,
   selectMemberCommunityBlossomRefs,
@@ -260,5 +263,79 @@ describe("blossom server sources", () => {
         writableSections: ["General"],
       }),
     ])
+  })
+})
+
+describe("blossom capability probing", () => {
+  it("classifies probe responses into capability statuses", () => {
+    expect(classifyBlossomProbeResponse(new Response(null, {status: 200}), "upload")).toBe(
+      "supported",
+    )
+    expect(classifyBlossomProbeResponse(new Response(null, {status: 413}), "upload")).toBe(
+      "too-large",
+    )
+    expect(
+      classifyBlossomProbeResponse(
+        new Response(null, {status: 403, headers: {"X-Reason": "Media endpoint is disabled"}}),
+        "media",
+      ),
+    ).toBe("disabled")
+    expect(classifyBlossomProbeResponse(new Response(null, {status: 401}), "upload")).toBe(
+      "auth-failed",
+    )
+    expect(
+      classifyBlossomProbeResponse(
+        new Response(null, {status: 405, headers: {Allow: "GET, PUT"}}),
+        "mirror",
+      ),
+    ).toBe("supported")
+    expect(classifyBlossomProbeError(new TypeError("Failed to fetch"))).toBe("cors-blocked")
+  })
+
+  it("probes upload, media, and mirror endpoints and persists results", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/upload")) {
+        expect(init?.method).toBe("HEAD")
+        expect((init?.headers as Record<string, string>)["X-Content-Length"]).toBe("12")
+        return new Response(null, {status: 200})
+      }
+      if (url.endsWith("/media")) return new Response(null, {status: 413})
+      if (url.endsWith("/mirror")) {
+        expect(init?.method).toBe("OPTIONS")
+        return new Response(null, {status: 405, headers: {Allow: "PUT"}})
+      }
+
+      return new Response(null, {status: 404})
+    })
+
+    const capability = await probeBlossomServerCapabilities({
+      server: "https://blossom.example/path",
+      file: {size: 12, type: "image/png", sha256: "b".repeat(64)},
+      source: "personal",
+      fetcher,
+      now: () => 123,
+      makeAuthHeader: async action => `Nostr ${action}`,
+    })
+
+    expect(capability).toMatchObject({
+      url: "https://blossom.example",
+      checkedAt: 123,
+      source: "personal",
+      upload: "supported",
+      media: "too-large",
+      mirror: "supported",
+    })
+    expect(get(blossomDashboardState).capabilities["https://blossom.example"]).toEqual(
+      capability,
+    )
+  })
+
+  it("returns unavailable capabilities for invalid servers without throwing", async () => {
+    await expect(probeBlossomServerCapabilities({server: "notaurl"})).resolves.toMatchObject({
+      upload: "unavailable",
+      media: "unavailable",
+      mirror: "unavailable",
+    })
   })
 })
