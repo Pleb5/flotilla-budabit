@@ -1033,6 +1033,31 @@ export const updateBlossomUploadRecord = (
   })
 }
 
+export const removeBlossomUploadRecord = (id: string) => {
+  blossomDashboardState.update(current => {
+    const normalizedCurrent = normalizeBlossomDashboardState(current)
+
+    return normalizeBlossomDashboardState({
+      ...normalizedCurrent,
+      uploads: normalizedCurrent.uploads.filter(record => record.id !== id),
+    })
+  })
+}
+
+export const clearBlossomUploadRecords = () => {
+  blossomDashboardState.update(current => ({
+    ...normalizeBlossomDashboardState(current),
+    uploads: [],
+  }))
+}
+
+export const clearBlossomCapabilityCache = () => {
+  blossomDashboardState.update(current => ({
+    ...normalizeBlossomDashboardState(current),
+    capabilities: {},
+  }))
+}
+
 export const rememberBlossomCapability = (capability: BlossomServerCapability) => {
   blossomDashboardState.update(current => {
     const normalizedCurrent = normalizeBlossomDashboardState(current)

@@ -9,6 +9,8 @@ import {
   chooseBlossomInitialUploadPlan,
   classifyBlossomProbeError,
   classifyBlossomProbeResponse,
+  clearBlossomCapabilityCache,
+  clearBlossomUploadRecords,
   createBlossomMirrorJobs,
   defaultBlossomDashboardState,
   defaultBlossomSettings,
@@ -20,6 +22,7 @@ import {
   probeBlossomServerCapabilities,
   rememberBlossomCapability,
   rememberBlossomUpload,
+  removeBlossomUploadRecord,
   selectMemberCommunityBlossomRefs,
   shouldPromptForBlossomMirrorUpload,
   updateBlossomSettings,
@@ -188,6 +191,18 @@ describe("blossom dashboard state", () => {
     expect(get(blossomDashboardState).uploads[0].mirrorJobs).toHaveLength(1)
   })
 
+  it("removes and clears local upload records", () => {
+    rememberBlossomUpload(makeUpload("one"))
+    rememberBlossomUpload(makeUpload("two"))
+    removeBlossomUploadRecord("one")
+
+    expect(get(blossomDashboardState).uploads.map(upload => upload.id)).toEqual(["two"])
+
+    clearBlossomUploadRecords()
+
+    expect(get(blossomDashboardState).uploads).toEqual([])
+  })
+
   it("remembers server capabilities keyed by url", () => {
     rememberBlossomCapability({
       url: "https://blossom.example",
@@ -201,6 +216,10 @@ describe("blossom dashboard state", () => {
       media: "supported",
       mirror: "unsupported",
     })
+
+    clearBlossomCapabilityCache()
+
+    expect(get(blossomDashboardState).capabilities).toEqual({})
   })
 })
 

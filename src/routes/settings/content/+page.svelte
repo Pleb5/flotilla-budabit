@@ -1,20 +1,12 @@
 <script lang="ts">
-  import {
-    getListTags,
-    tagger,
-    makeEvent,
-    getPubkeyTagValues,
-    getTagValues,
-    MUTES,
-    BLOSSOM_SERVERS,
-  } from "@welshman/util"
+  import {getListTags, getPubkeyTagValues, MUTES, makeEvent} from "@welshman/util"
   import {Router} from "@welshman/router"
-  import {userMuteList, tagPubkey, publishThunk, userBlossomServerList} from "@welshman/app"
+  import {userMuteList, tagPubkey, publishThunk} from "@welshman/app"
   import {preventDefault} from "@lib/html"
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
-  import InputList from "@lib/components/InputList.svelte"
   import Button from "@lib/components/Button.svelte"
+  import Link from "@lib/components/Link.svelte"
   import ProfileMultiSelect from "@app/components/ProfileMultiSelect.svelte"
   import {pushToast} from "@app/util/toast"
   import {APP_NAME, userSettingsValues} from "@app/core/state"
@@ -23,7 +15,6 @@
   const reset = () => {
     settings = {...$userSettingsValues}
     mutedPubkeys = getPubkeyTagValues(getListTags($userMuteList))
-    blossomServers = getTagValues("server", getListTags($userBlossomServerList))
   }
 
   const onsubmit = preventDefault(async () => {
@@ -34,17 +25,11 @@
       relays: Router.get().FromUser().getUrls(),
     })
 
-    publishThunk({
-      event: makeEvent(BLOSSOM_SERVERS, {tags: blossomServers.map(tagger("server"))}),
-      relays: Router.get().FromUser().getUrls(),
-    })
-
     pushToast({message: "Your settings have been saved!"})
   })
 
   let settings = $state({...$userSettingsValues})
   let mutedPubkeys = $state(getPubkeyTagValues(getListTags($userMuteList)))
-  let blossomServers = $state(getTagValues("server", getListTags($userBlossomServerList)))
 </script>
 
 <form class="content column gap-4" {onsubmit}>
@@ -108,21 +93,10 @@
         </p>
       {/snippet}
     </FieldInline>
-    <Field>
-      {#snippet label()}
-        <p>Media Server</p>
-      {/snippet}
-      {#snippet input()}
-        <InputList bind:value={blossomServers}>
-          {#snippet addLabel()}
-            Add Server
-          {/snippet}
-        </InputList>
-      {/snippet}
-      {#snippet info()}
-        <p>Choose a media server type and url for files you upload to {$APP_NAME}.</p>
-      {/snippet}
-    </Field>
+    <div class="rounded-box bg-base-200 p-3 text-sm">
+      Personal media servers moved to <Link class="link" href="/settings/blossom">Blossom</Link>,
+      where upload history, mirroring, and optimization settings live together.
+    </div>
     <strong class="text-lg">Accessibility</strong>
     <Field>
       {#snippet label()}

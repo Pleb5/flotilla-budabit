@@ -245,7 +245,7 @@ Exit criteria:
 
 ## Phase 8: Blossom Dashboard And Menu Entry
 
-Status: pending.
+Status: completed.
 
 Scope:
 

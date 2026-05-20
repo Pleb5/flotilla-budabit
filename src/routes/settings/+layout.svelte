@@ -62,16 +62,21 @@
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 225}}>
+      <SecondaryNavItem href="/settings/blossom">
+        <Icon icon={GalleryMinimalistic} /> Blossom
+      </SecondaryNavItem>
+    </div>
+    <div in:fly|local={{delay: 250}}>
       <SecondaryNavItem href="/settings/content">
         <Icon icon={GalleryMinimalistic} /> Content
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 250}}>
+    <div in:fly|local={{delay: 275}}>
       <SecondaryNavItem href="/settings/extensions">
         <Icon icon={Plugins} /> Extensions
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 275}}>
+    <div in:fly|local={{delay: 300}}>
       <SecondaryNavItem onclick={toggleTheme}>
         <Icon icon={Moon} /> Theme
       </SecondaryNavItem>
