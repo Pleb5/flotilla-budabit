@@ -70,7 +70,7 @@ Scope:
 - Build helpers that assemble grouped Blossom server candidates:
   - Current community servers.
   - Personal `kind:10063` servers from `userBlossomServerList`.
-  - Communities the user can publish to.
+  - Communities the user can publish to, usable as initial-upload fallback in all contexts and as mirror candidates.
   - Last-resort configured servers.
 - Reuse the existing personal server list from `Content Settings -> Media Server` / `userBlossomServerList`.
 - Add app-wide derivation for "communities you are part of": communities where the user has publish access to at least one section based on community profile-list membership.
@@ -127,6 +127,7 @@ Scope:
   - Nostr publish context.
   - Blossom upload targets.
   - Mirror target candidates.
+- Include communities the user can publish to as initial-upload fallback for community, personal/profile, and generic uploads.
 - Implement optimization-mode behavior:
   - `auto`.
   - `server optimize`.
@@ -316,7 +317,7 @@ Exit criteria:
 
 ## Phase 11: Final Review And Full Verification
 
-Status: pending.
+Status: completed.
 
 Scope:
 
@@ -333,6 +334,13 @@ Verification:
 - Run `npm run test:main` or the closest focused main test suite.
 - Run `npm run build` if checks pass.
 - Document any residual risks in the final commit message or PR notes.
+
+Final verification completed:
+
+- `pnpm vitest run --project=main src/app/core/blossom.test.ts src/app/core/commands.test.ts`.
+- `npm run check`.
+- `npm run test:main`.
+- `npm run build`.
 
 Exit criteria:
 

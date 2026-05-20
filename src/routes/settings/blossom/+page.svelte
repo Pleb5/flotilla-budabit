@@ -39,6 +39,7 @@
     type BlossomMirrorTargetGroup,
     type BlossomOptimizationMode,
     type BlossomServerTarget,
+    type BlossomUploadRecord,
     type BlossomUploadStage,
   } from "@app/core/blossom"
   import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
@@ -191,6 +192,26 @@
     })
   }
 
+  const continueBrowserMirrors = async (uploadId: string) => {
+    const ok = confirm(
+      "Browser-assisted mirroring downloads the canonical media in this browser and uploads the exact bytes to upload-only targets. Continue?",
+    )
+
+    if (!ok) return
+
+    const started = await startBlossomMirrorJobs({uploadId, browserAssist: true})
+
+    pushToast({
+      message: started
+        ? "Browser-assisted mirroring started."
+        : "No browser-assisted mirror jobs to start.",
+      theme: started ? "success" : "info",
+    })
+  }
+
+  const hasBrowserMirrorJobs = (upload: BlossomUploadRecord) =>
+    upload.mirrorJobs.some(job => job.method === "browser-upload" && job.status !== "succeeded")
+
   const uploadGenericFile = async () => {
     if (!selectedUploadFile) return
 
@@ -315,6 +336,13 @@
                 <Button class="btn btn-primary btn-sm" onclick={() => continueMirrors(upload.id)}>
                   Continue/retry mirroring
                 </Button>
+                {#if hasBrowserMirrorJobs(upload)}
+                  <Button
+                    class="btn btn-warning btn-sm"
+                    onclick={() => continueBrowserMirrors(upload.id)}>
+                    Browser-assisted mirroring
+                  </Button>
+                {/if}
                 <Button class="btn btn-sm" onclick={() => clip(upload.canonical.url)}
                   >Copy URL</Button>
                 <a class="btn btn-sm" href={upload.canonical.url} download>Download</a>

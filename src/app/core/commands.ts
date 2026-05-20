@@ -115,9 +115,11 @@ import {deleteIndexedDB} from "@lib/util"
 import {getQuoteEventTags} from "@app/util/git-quote"
 import {getEventRelayHints, makeEventNevent} from "@app/util/event-links"
 import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/util/blossom-auth"
+import {activeMemberCommunityBlossomRefs} from "@app/core/community-state"
 import {
   blossomDashboardState,
   blossomSettings,
+  buildBlossomInitialUploadTargets,
   chooseBlossomInitialUploadPlan,
   createBlossomMirrorJobs,
   normalizeBlossomSettings,
@@ -1021,6 +1023,14 @@ export const getPrimaryBlossomServers = (options: GetBlossomServerOptions = {}) 
     return userServers
   }
 
+  const memberCommunityServers = normalizeBlossomUrls(
+    get(activeMemberCommunityBlossomRefs).flatMap(community => community.blossomServers),
+  )
+
+  if (memberCommunityServers.length > 0) {
+    return memberCommunityServers
+  }
+
   return normalizeBlossomUrls(DEFAULT_BLOSSOM_SERVERS)
 }
 
@@ -1033,14 +1043,6 @@ export const getBlossomUploadTargets = (options: GetBlossomServerOptions = {}) =
   return {primary, mirrors}
 }
 
-const makeLegacyBlossomTarget = (url: string, priority: number): BlossomServerTarget => ({
-  url,
-  priority,
-  source: "manual",
-  group: "manual",
-  label: priority === 1 ? "Primary Blossom server" : "Mirror candidate",
-})
-
 const getPlannerTargets = ({
   options,
   primary,
@@ -1052,7 +1054,23 @@ const getPlannerTargets = ({
 }) => {
   if (options.blossomTargets?.length) return options.blossomTargets
 
-  return [primary, ...mirrors].map((url, index) => makeLegacyBlossomTarget(url, index + 1))
+  const selectedContextServers = normalizeBlossomUrls([
+    ...(options.url ? [primary] : []),
+    ...mirrors,
+  ])
+  const personalServers = normalizeBlossomUrls(
+    getTagValues("server", getListTags(get(userBlossomServerList))),
+  )
+
+  return buildBlossomInitialUploadTargets({
+    selectedContextServers,
+    selectedContextLabel: options.blossomContext?.label || "Selected context servers",
+    selectedContextGroup:
+      options.blossomContext?.type === "community" ? "current-community" : "manual",
+    personalServers,
+    memberCommunities: get(activeMemberCommunityBlossomRefs),
+    lastResortServers: DEFAULT_BLOSSOM_SERVERS,
+  })
 }
 
 export const getBlossomServer = async (options: GetBlossomServerOptions = {}) => {
@@ -1384,18 +1402,22 @@ const runBackgroundMirrorJob = async ({
 const runBackgroundMirrorJobs = async ({
   canonical,
   exactFile,
+  includeSkipped = false,
   jobs,
   settings,
   uploadId,
 }: {
   canonical: BlossomBlobDescriptor
   exactFile?: File
+  includeSkipped?: boolean
   jobs: BlossomMirrorJob[]
   settings: BlossomSettings
   uploadId: string
 }) => {
   for (const job of jobs) {
-    if (["queued", "paused", "failed"].includes(job.status)) {
+    if (
+      ["queued", "paused", "failed", ...(includeSkipped ? ["skipped"] : [])].includes(job.status)
+    ) {
       await runBackgroundMirrorJob({canonical, exactFile, job, settings, uploadId})
     }
   }
@@ -1407,8 +1429,14 @@ const getCanonicalFileForBrowserMirror = async (canonical: BlossomBlobDescriptor
   if (!response.ok) throw new Error(`Failed to download canonical file (HTTP ${response.status})`)
 
   const blob = await response.blob()
+  const buffer = await blob.arrayBuffer()
+  const hash = await sha256(buffer)
 
-  return new File([blob], canonical.sha256, {
+  if (hash !== canonical.sha256) {
+    throw new Error("Downloaded canonical file does not match the expected Blossom hash.")
+  }
+
+  return new File([buffer], canonical.sha256, {
     type: canonical.type || blob.type || "application/octet-stream",
   })
 }
@@ -1425,7 +1453,7 @@ export const startBlossomMirrorJobs = async ({
 
   const jobs = record.mirrorJobs.filter(
     job =>
-      ["paused", "queued", "failed"].includes(job.status) &&
+      ["paused", "queued", "failed", "skipped"].includes(job.status) &&
       (browserAssist || job.method === "server-mirror"),
   )
 
@@ -1435,14 +1463,37 @@ export const startBlossomMirrorJobs = async ({
   const runSettings = browserAssist
     ? {...settings, browserMirrorConsent: "allow" as const}
     : {...settings, browserMirrorConsent: "deny" as const, mirrorMode: "server-side-only" as const}
-  const exactFile = browserAssist
-    ? await getCanonicalFileForBrowserMirror(record.canonical)
-    : undefined
+  let exactFile: File | undefined
+
+  if (browserAssist) {
+    try {
+      exactFile = await getCanonicalFileForBrowserMirror(record.canonical)
+    } catch (error) {
+      const lastError = getErrorMessage(error)
+
+      for (const job of jobs) {
+        if (job.method === "browser-upload") {
+          updateBackgroundMirrorJob(uploadId, job.id, current => ({
+            ...current,
+            status: "failed",
+            attempts: current.attempts + 1,
+            lastError,
+          }))
+        }
+      }
+    }
+  }
+
+  const runnableJobs =
+    browserAssist && !exactFile ? jobs.filter(job => job.method === "server-mirror") : jobs
+
+  if (runnableJobs.length === 0) return false
 
   void runBackgroundMirrorJobs({
     canonical: record.canonical,
     exactFile,
-    jobs,
+    includeSkipped: true,
+    jobs: runnableJobs,
     settings: runSettings,
     uploadId,
   })
@@ -1615,7 +1666,7 @@ export const uploadFile = async (
       capabilities,
       settings,
       exactBytesAvailable: plan.method === "upload",
-      defer: settings.mirrorMode === "ask",
+      defer: ["ask", "never"].includes(settings.mirrorMode),
       makeId: () => randomId(),
     })
     const uploadId = randomId()
@@ -1637,7 +1688,7 @@ export const uploadFile = async (
       mirrorJobs,
     })
 
-    if (settings.mirrorMode !== "ask") {
+    if (!["ask", "never"].includes(settings.mirrorMode)) {
       void runBackgroundMirrorJobs({
         canonical,
         exactFile: plan.method === "upload" ? file : undefined,

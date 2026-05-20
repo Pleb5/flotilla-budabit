@@ -206,6 +206,15 @@ export type BuildBlossomServerGroupsOptions = {
   lastResortServers?: string[]
 }
 
+export type BuildBlossomInitialUploadTargetsOptions = {
+  selectedContextServers?: string[]
+  selectedContextLabel?: string
+  selectedContextGroup?: BlossomMirrorTargetGroup
+  personalServers?: string[]
+  memberCommunities?: BlossomMemberCommunityRef[]
+  lastResortServers?: string[]
+}
+
 export type CreateBlossomMirrorJobsOptions = {
   targets: BlossomServerTarget[]
   capabilities?: Record<string, BlossomServerCapability | undefined>
@@ -303,6 +312,17 @@ export const defaultBlossomDashboardState: BlossomDashboardState = {
   uploads: [],
   capabilities: {},
 }
+
+const memoryStorage = new Map<string, unknown>()
+const blossomStorageProvider =
+  typeof localStorage === "undefined"
+    ? {
+        get: async (key: string) => memoryStorage.get(key),
+        set: async (key: string, value: unknown) => {
+          memoryStorage.set(key, value)
+        },
+      }
+    : localStorageProvider
 
 const optimizationModes = new Set<BlossomOptimizationMode>(["auto", "server", "client", "original"])
 const mirrorModes = new Set<BlossomMirrorMode>([
@@ -471,6 +491,64 @@ export const buildBlossomServerGroups = ({
   }
 
   return groups
+}
+
+export const buildBlossomInitialUploadTargets = ({
+  selectedContextServers = [],
+  selectedContextLabel = "Selected context servers",
+  selectedContextGroup = "manual",
+  personalServers = [],
+  memberCommunities = [],
+  lastResortServers = [],
+}: BuildBlossomInitialUploadTargetsOptions): BlossomServerTarget[] => {
+  const seen = new Set<string>()
+  const targets: BlossomServerTarget[] = []
+
+  const addTarget = (url: string, target: Omit<BlossomServerTarget, "url" | "priority">) => {
+    const normalized = normalizeBlossomServerUrl(url)
+    if (!normalized || seen.has(normalized)) return
+
+    seen.add(normalized)
+    targets.push({...target, url: normalized, priority: seen.size})
+  }
+
+  for (const server of selectedContextServers) {
+    addTarget(server, {
+      source: selectedContextGroup,
+      group: selectedContextGroup,
+      label: selectedContextLabel,
+    })
+  }
+
+  for (const server of personalServers) {
+    addTarget(server, {
+      source: "personal",
+      group: "personal",
+      label: "Your personal servers",
+    })
+  }
+
+  for (const community of memberCommunities) {
+    for (const server of community.blossomServers) {
+      addTarget(server, {
+        source: "member-community",
+        group: "member-community",
+        label: community.communityName || `Community ${community.communityPubkey.slice(0, 8)}`,
+        communityPubkey: community.communityPubkey,
+        communityName: community.communityName,
+      })
+    }
+  }
+
+  for (const server of lastResortServers) {
+    addTarget(server, {
+      source: "last-resort",
+      group: "last-resort",
+      label: "Last-resort servers",
+    })
+  }
+
+  return targets
 }
 
 export const flattenBlossomServerGroups = (groups: BlossomServerGroups) => [
@@ -723,7 +801,7 @@ export const createBlossomMirrorJobs = ({
   makeId,
 }: CreateBlossomMirrorJobsOptions): BlossomMirrorJob[] => {
   const normalizedSettings = normalizeBlossomSettings(settings)
-  if (normalizedSettings.mirrorMode === "never") return []
+  const shouldDefer = defer || normalizedSettings.mirrorMode === "never"
 
   const createdAt = now()
   const seen = new Set<string>()
@@ -733,14 +811,21 @@ export const createBlossomMirrorJobs = ({
     seen.add(target.url)
 
     const capability = capabilities[target.url]
-    const canMirror = normalizedSettings.preferServerSideMirroring && canTryServerMirror(capability)
+    const targetGroupSelected =
+      normalizedSettings.mirrorMode !== "always-selected" ||
+      normalizedSettings.autoMirrorTargetGroups.includes(target.group)
+    const canMirror =
+      (normalizedSettings.preferServerSideMirroring ||
+        normalizedSettings.mirrorMode === "server-side-only") &&
+      canTryServerMirror(capability)
     const canBrowserUpload =
       exactBytesAvailable &&
-      normalizedSettings.browserMirrorConsent === "allow" &&
+      (normalizedSettings.browserMirrorConsent === "allow" ||
+        (shouldDefer && normalizedSettings.browserMirrorConsent === "ask")) &&
       normalizedSettings.mirrorMode !== "server-side-only" &&
       canTryUpload(capability)
     const method: BlossomMirrorMethod = canMirror ? "server-mirror" : "browser-upload"
-    const canQueue = canMirror || canBrowserUpload
+    const canQueue = targetGroupSelected && (canMirror || canBrowserUpload)
 
     return [
       {
@@ -749,13 +834,15 @@ export const createBlossomMirrorJobs = ({
         targetLabel: target.label,
         targetGroup: target.group,
         method,
-        status: canQueue ? (defer ? "paused" : "queued") : "skipped",
+        status: canQueue ? (shouldDefer ? "paused" : "queued") : "skipped",
         attempts: 0,
         createdAt,
         updatedAt: createdAt,
         lastError: canQueue
           ? undefined
-          : "Server-side mirroring unavailable; browser-assisted mirroring requires consent.",
+          : targetGroupSelected
+            ? "Server-side mirroring unavailable; browser-assisted mirroring requires consent."
+            : "Target group is not selected for automatic mirroring.",
       } satisfies BlossomMirrorJob,
     ]
   })
@@ -1040,13 +1127,13 @@ export const normalizeBlossomDashboardState = (
 export const blossomSettings = synced<BlossomSettings>({
   key: BLOSSOM_SETTINGS_STORAGE_KEY,
   defaultValue: defaultBlossomSettings,
-  storage: localStorageProvider,
+  storage: blossomStorageProvider,
 })
 
 export const blossomDashboardState = synced<BlossomDashboardState>({
   key: BLOSSOM_DASHBOARD_STORAGE_KEY,
   defaultValue: defaultBlossomDashboardState,
-  storage: localStorageProvider,
+  storage: blossomStorageProvider,
 })
 
 void blossomSettings.ready.then(() => {

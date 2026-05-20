@@ -8,6 +8,7 @@ import {
   blossomSettings,
   defaultBlossomDashboardState,
   defaultBlossomSettings,
+  type BlossomServerTarget,
 } from "./blossom"
 
 const utilMocks = vi.hoisted(() => ({
@@ -68,6 +69,14 @@ const waitForBackgroundJobs = async () => {
   await new Promise(resolve => setTimeout(resolve, 0))
   await new Promise(resolve => setTimeout(resolve, 0))
 }
+
+const makeBlossomTarget = (url: string, priority: number): BlossomServerTarget => ({
+  url,
+  priority,
+  source: "manual",
+  group: "manual",
+  label: priority === 1 ? "Primary Blossom server" : "Mirror candidate",
+})
 
 describe("commands", () => {
   beforeEach(() => {
@@ -133,6 +142,7 @@ describe("commands", () => {
     const {error, mirrors, result, uploadId} = await uploadFile(file, {
       url: primary,
       mirrorUrls: [mirror],
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(mirror, 2)],
     })
 
     expect(error).toBeUndefined()
@@ -184,6 +194,7 @@ describe("commands", () => {
     const {error, mirrors, result, uploadId} = await uploadFile(file, {
       url: primary,
       mirrorUrls: [mirror],
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(mirror, 2)],
     })
 
     expect(error).toBeUndefined()
@@ -221,7 +232,11 @@ describe("commands", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    const {error, result, uploadId} = await uploadFile(file, {url: primary, mirrorUrls: [mirror]})
+    const {error, result, uploadId} = await uploadFile(file, {
+      url: primary,
+      mirrorUrls: [mirror],
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(mirror, 2)],
+    })
 
     expect(error).toBeUndefined()
     expect(result?.url).toBe(`${primary}blob.webp`)
@@ -249,6 +264,7 @@ describe("commands", () => {
     const {error, result} = await uploadFile(file, {
       url: primary,
       mirrorUrls: [mirror],
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(mirror, 2)],
       blossomCapabilities: {
         [mirror]: {
           url: mirror,
@@ -262,6 +278,7 @@ describe("commands", () => {
         ...defaultBlossomSettings,
         browserMirrorConsent: "allow",
         mirrorMode: "always-selected",
+        autoMirrorTargetGroups: ["manual"],
       },
     })
 
@@ -275,6 +292,93 @@ describe("commands", () => {
     expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
       method: "browser-upload",
       status: "succeeded",
+    })
+  })
+
+  it("starts ask-mode browser-assisted mirrors after confirmation", async () => {
+    const {startBlossomMirrorJobs, uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const mirror = normalizeBlossomUrl("https://mirror.example.com")
+    const file = makeUploadTestFile()
+    const bytes = new Uint8Array(await file.arrayBuffer())
+
+    utilMocks.uploadBlob
+      .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})))
+      .mockResolvedValueOnce(new Response(JSON.stringify({uploaded: 1, url: `${mirror}blob`})))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(bytes, {headers: {"Content-Type": file.type}})),
+    )
+
+    const {error, result, uploadId} = await uploadFile(file, {
+      url: primary,
+      mirrorUrls: [mirror],
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(mirror, 2)],
+      blossomCapabilities: {
+        [mirror]: {
+          url: mirror,
+          checkedAt: 1,
+          upload: "supported",
+          media: "unsupported",
+          mirror: "unsupported",
+        },
+      },
+    })
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
+      method: "browser-upload",
+      status: "paused",
+    })
+
+    expect(await startBlossomMirrorJobs({uploadId: uploadId!, browserAssist: true})).toBe(true)
+    await waitForBackgroundJobs()
+
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
+    expect(utilMocks.uploadBlob.mock.calls[1][0]).toBe(mirror)
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
+      status: "succeeded",
+    })
+  })
+
+  it("does not browser-mirror downloaded canonical bytes with the wrong hash", async () => {
+    const {startBlossomMirrorJobs, uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const mirror = normalizeBlossomUrl("https://mirror.example.com")
+    const file = makeUploadTestFile()
+
+    utilMocks.uploadBlob.mockResolvedValueOnce(
+      new Response(JSON.stringify({uploaded: 1, url: `${primary}blob`})),
+    )
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("tampered")),
+    )
+
+    const {error, result, uploadId} = await uploadFile(file, {
+      url: primary,
+      mirrorUrls: [mirror],
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(mirror, 2)],
+      blossomCapabilities: {
+        [mirror]: {
+          url: mirror,
+          checkedAt: 1,
+          upload: "supported",
+          media: "unsupported",
+          mirror: "unsupported",
+        },
+      },
+    })
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${primary}blob.webp`)
+    expect(await startBlossomMirrorJobs({uploadId: uploadId!, browserAssist: true})).toBe(false)
+
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
+      status: "failed",
+      lastError: "Downloaded canonical file does not match the expected Blossom hash.",
     })
   })
 

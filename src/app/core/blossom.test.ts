@@ -5,6 +5,7 @@ import {get} from "svelte/store"
 import {
   blossomDashboardState,
   blossomSettings,
+  buildBlossomInitialUploadTargets,
   buildBlossomServerGroups,
   chooseBlossomInitialUploadPlan,
   classifyBlossomProbeError,
@@ -252,6 +253,40 @@ describe("blossom server sources", () => {
     expect(groups.memberCommunities.map(target => target.url)).toEqual(["https://member.example"])
     expect(groups.lastResort.map(target => target.url)).toEqual(["https://fallback.example"])
     expect(flattenBlossomServerGroups(groups).map(target => target.group)).toEqual([
+      "current-community",
+      "current-community",
+      "personal",
+      "member-community",
+      "last-resort",
+    ])
+  })
+
+  it("builds initial upload targets with member-community fallback before last resort", () => {
+    const targets = buildBlossomInitialUploadTargets({
+      selectedContextServers: ["https://community.example", "https://shared.example"],
+      selectedContextLabel: "Current community",
+      selectedContextGroup: "current-community",
+      personalServers: ["https://personal.example"],
+      memberCommunities: [
+        {
+          communityPubkey: "d".repeat(64),
+          communityName: "Member community",
+          relayHints: [],
+          blossomServers: ["https://member.example", "https://shared.example"],
+          writableSections: ["General"],
+        },
+      ],
+      lastResortServers: ["https://fallback.example"],
+    })
+
+    expect(targets.map(target => target.url)).toEqual([
+      "https://community.example",
+      "https://shared.example",
+      "https://personal.example",
+      "https://member.example",
+      "https://fallback.example",
+    ])
+    expect(targets.map(target => target.group)).toEqual([
       "current-community",
       "current-community",
       "personal",
@@ -546,6 +581,7 @@ describe("blossom mirror job planning", () => {
             mirror: "unsupported",
           }),
         },
+        settings: {...defaultBlossomSettings, browserMirrorConsent: "deny"},
         exactBytesAvailable: true,
         makeId: () => "job",
       }),
@@ -554,6 +590,63 @@ describe("blossom mirror job planning", () => {
         method: "browser-upload",
         status: "skipped",
         lastError: expect.stringContaining("browser-assisted mirroring requires consent"),
+      }),
+    ])
+  })
+
+  it("keeps manual jobs available when prompts are disabled", () => {
+    expect(
+      createBlossomMirrorJobs({
+        targets: [mirror],
+        capabilities: {[mirror.url]: makeCapability(mirror.url, {mirror: "supported"})},
+        settings: {...defaultBlossomSettings, mirrorMode: "never"},
+        makeId: () => "job",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        method: "server-mirror",
+        status: "paused",
+      }),
+    ])
+  })
+
+  it("honors selected auto-mirror target groups", () => {
+    expect(
+      createBlossomMirrorJobs({
+        targets: [mirror],
+        capabilities: {[mirror.url]: makeCapability(mirror.url, {mirror: "supported"})},
+        settings: {
+          ...defaultBlossomSettings,
+          mirrorMode: "always-selected",
+          autoMirrorTargetGroups: ["current-community"],
+        },
+        makeId: () => "job",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        method: "server-mirror",
+        status: "skipped",
+        lastError: "Target group is not selected for automatic mirroring.",
+      }),
+    ])
+  })
+
+  it("server-side-only mode tries server mirrors even when preference toggle is off", () => {
+    expect(
+      createBlossomMirrorJobs({
+        targets: [mirror],
+        capabilities: {[mirror.url]: makeCapability(mirror.url, {mirror: "supported"})},
+        settings: {
+          ...defaultBlossomSettings,
+          mirrorMode: "server-side-only",
+          preferServerSideMirroring: false,
+        },
+        makeId: () => "job",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        method: "server-mirror",
+        status: "queued",
       }),
     ])
   })

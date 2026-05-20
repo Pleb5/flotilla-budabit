@@ -157,6 +157,7 @@ describe("community preferences", () => {
     const definition = makeDefinition({
       id: "not-moderator",
       pubkey: otherCommunityPubkey,
+      profileListPubkey: otherCommunityPubkey,
       listIdentifier: "general-list",
       badgePubkey: otherCommunityPubkey,
     })

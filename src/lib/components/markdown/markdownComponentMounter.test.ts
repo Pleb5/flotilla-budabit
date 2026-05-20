@@ -16,6 +16,9 @@ vi.mock("@app/components/Profile.svelte", () => ({default: "Profile"}))
 vi.mock("@app/components/ProfileLink.svelte", () => ({default: "ProfileLink"}))
 vi.mock("@app/components/ContentLinkBlock.svelte", () => ({default: "ContentLinkBlock"}))
 vi.mock("@app/components/ContentQuote.svelte", () => ({default: "ContentQuote"}))
+vi.mock("@app/components/community/CommunityLinkCard.svelte", () => ({
+  default: "CommunityLinkCard",
+}))
 
 describe("markdownComponentMounter", () => {
   const mockDestroy = vi.fn()

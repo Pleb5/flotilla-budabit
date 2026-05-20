@@ -93,15 +93,15 @@ Budabit assembles Blossom servers from several sources.
 
 Budabit should not default to Budabit-operated storage for all communities. Communities should be able to operate and prioritize their own storage.
 
-## Community Membership For Mirror Targets
+## Community Membership For Upload And Mirror Targets
 
-Mirror candidates should not be limited to communities where the user is an admin or moderator. Most users will not have those roles.
+Member-community storage candidates should not be limited to communities where the user is an admin or moderator. Most users will not have those roles.
 
 Budabit should derive "communities you are part of" app-wide:
 
 - A user is part of a community when that community grants them publish access to at least one section.
 - Access is based on the community definition's section profile lists and the user's membership in those lists.
-- This derived list can populate mirror target groups and future community-aware upload UIs.
+- This derived list populates both initial-upload fallbacks and mirror target groups.
 
 Starred communities alone should not imply storage intent. They can be useful discovery signals, but they should not be automatic mirror targets.
 
@@ -114,6 +114,7 @@ Community-facing content:
 ```txt
 current community Blossom servers
 user personal Blossom servers
+communities the user can publish to
 last-resort servers
 ```
 
@@ -121,6 +122,7 @@ Personal/profile content:
 
 ```txt
 user personal Blossom servers
+communities the user can publish to
 last-resort servers
 ```
 
@@ -129,10 +131,11 @@ Generic upload tool:
 ```txt
 selected context servers
 user personal Blossom servers
+communities the user can publish to
 last-resort servers
 ```
 
-Current-community canonical upload is preferred but not mandatory. If community servers are unavailable, Budabit may publish a personal or fallback URL after showing clear initial-upload feedback.
+Current-community canonical upload is preferred but not mandatory. If community servers are unavailable, Budabit may publish a personal URL, a URL from another community that has granted the user publish access, or a last-resort URL after showing clear initial-upload feedback.
 
 ## Optimization Model
 
