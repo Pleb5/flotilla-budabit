@@ -35,7 +35,7 @@ Exit criteria:
 
 ## Phase 1: Upload Domain Model And Settings Skeleton
 
-Status: pending.
+Status: completed.
 
 Scope:
 
