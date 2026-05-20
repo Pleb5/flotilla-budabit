@@ -4,7 +4,6 @@
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
-  import CardButton from "@lib/components/CardButton.svelte"
   import {pushToast} from "@app/util/toast"
   import {normalizeRelays, parseCommunityInput} from "@app/core/community"
   import {
@@ -51,9 +50,11 @@
 
   const loadCommunityDefinition = async (communityPubkey: string, relayHints: string[]) => {
     const discoveryRelays = getCommunityBootstrapRelays(relayHints)
-    const definitionEvents = await loadCommunityEvents(discoveryRelays, [
-      makeCommunityDefinitionFilter(communityPubkey),
-    ], {authenticate: true})
+    const definitionEvents = await loadCommunityEvents(
+      discoveryRelays,
+      [makeCommunityDefinitionFilter(communityPubkey)],
+      {authenticate: true},
+    )
 
     return selectLatestCommunityDefinition(definitionEvents, communityPubkey)
   }
@@ -211,7 +212,8 @@
   })
   const previewOpenInput = $derived(
     previewPubkey
-      ? makeCommunityInputValue({pubkey: previewPubkey, relayHints: previewRelayHints}) || previewPubkey
+      ? makeCommunityInputValue({pubkey: previewPubkey, relayHints: previewRelayHints}) ||
+          previewPubkey
       : "",
   )
   const previewOpening = $derived(
@@ -220,8 +222,8 @@
   const previewHasCommunityDefinition = $derived(
     Boolean(
       previewPubkey &&
-        ($activeCommunityDefinition?.pubkey === previewPubkey ||
-          selectorRelayHints[previewPubkey]?.length),
+      ($activeCommunityDefinition?.pubkey === previewPubkey ||
+        selectorRelayHints[previewPubkey]?.length),
     ),
   )
   const previewLoading = $derived(
@@ -318,10 +320,12 @@
   })
 </script>
 
-<div class="hero min-h-screen overflow-auto pb-8">
-  <div class="hero-content">
-    <div class="column content gap-4">
-      <h1 class="mb-4 text-center text-5xl font-bold">Explore BudaBit Communities</h1>
+<div class="hero min-h-screen w-full min-w-0 overflow-y-auto overflow-x-hidden pb-8">
+  <div class="hero-content w-full min-w-0 p-2 sm:p-4">
+    <div class="column content-sizing min-w-0 gap-4 px-2 py-4 sm:px-8 sm:py-8 md:px-12 md:py-12">
+      <h1 class="mb-3 text-center text-3xl font-bold leading-tight sm:mb-4 sm:text-5xl">
+        Explore BudaBit Communities
+      </h1>
       <div class="col-3">
         <CommunityPreviewCard
           pubkey={previewPubkey}
@@ -339,7 +343,7 @@
           onSubmit={submitCommunityInput} />
 
         {#if selectorCommunities.length > 0 || $communityStarsLoading || $communityPreferencesLoading}
-          <div class="card2 bg-alt col-4 p-4 shadow-md">
+          <div class="card2 card2-sm bg-alt col-3 shadow-md">
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
                 <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
@@ -350,7 +354,9 @@
                 {/if}
               </div>
               {#each selectorCommunities as item (item.pubkey)}
-                {@const selectorInput = makeCommunityInputValue({pubkey: item.pubkey, relayHints: item.relayHints}) || item.pubkey}
+                {@const selectorInput =
+                  makeCommunityInputValue({pubkey: item.pubkey, relayHints: item.relayHints}) ||
+                  item.pubkey}
                 <CommunitySelectorCard
                   pubkey={item.pubkey}
                   relayHints={item.relayHints}
@@ -365,18 +371,13 @@
             </div>
           </div>
         {/if}
-        <Button onclick={createCommunity}>
-          <CardButton class="btn-neutral">
-            {#snippet icon()}
-              <Icon icon={AddCircle} size={7} />
-            {/snippet}
-            {#snippet title()}
-              <div>Create BudaBit Community</div>
-            {/snippet}
-            {#snippet info()}
-              <div>Publish the community definition, content sections, and initial access lists.</div>
-            {/snippet}
-          </CardButton>
+        <Button
+          onclick={createCommunity}
+          class="btn btn-neutral h-14 w-full justify-start gap-4 px-5 sm:h-16 sm:px-6">
+          <Icon icon={AddCircle} size={7} />
+          <span class="min-w-0 truncate text-base font-bold leading-none sm:text-lg">
+            Create BudaBit Community
+          </span>
         </Button>
       </div>
     </div>

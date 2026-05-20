@@ -91,13 +91,13 @@
   <div class="flex items-stretch gap-2">
     <button
       type="button"
-      class="group flex min-w-0 flex-1 items-center gap-4 rounded-xl p-2 text-left transition-colors hover:bg-base-300 disabled:cursor-not-allowed disabled:opacity-60"
+      class="group flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1 text-left transition-colors hover:bg-base-300 disabled:cursor-not-allowed disabled:opacity-60 sm:gap-4 sm:p-2"
       class:bg-base-300={opening}
       aria-busy={loading || opening}
       disabled={!pubkey || loading || opening || notFound}
       onclick={onOpen}>
       <div
-        class="center !flex h-16 w-16 shrink-0 overflow-hidden rounded-full border border-solid border-base-300 bg-base-300">
+        class="center !flex h-12 w-12 shrink-0 overflow-hidden rounded-full border border-solid border-base-300 bg-base-300 sm:h-16 sm:w-16">
         {#if pubkey && !notFound && $profile?.picture}
           <img alt="" src={$profile.picture} class="h-full w-full object-cover" />
         {:else}
@@ -105,9 +105,12 @@
         {/if}
       </div>
       <div class="min-w-0 flex-1">
-        <p class="text-xs font-semibold uppercase tracking-wide opacity-60">{label}</p>
-        <h2 class="ellipsize text-xl font-bold">{name}</h2>
-        <p class="ellipsize text-sm opacity-70">{info}</p>
+        <p
+          class="truncate text-[0.7rem] font-semibold uppercase tracking-wide opacity-60 sm:text-xs">
+          {label}
+        </p>
+        <h2 class="truncate text-lg font-bold leading-snug sm:text-xl">{name}</h2>
+        <p class="truncate text-xs opacity-70 sm:text-sm">{info}</p>
       </div>
       {#if loading || opening}
         <span class="loading loading-spinner loading-sm hidden opacity-60 sm:block"></span>
@@ -133,7 +136,7 @@
 
 {#if showInput}
   <form
-    class="card2 bg-alt flex w-full flex-col gap-3 p-4 shadow-md"
+    class="card2 bg-alt flex w-full flex-col gap-3 !p-3 shadow-md sm:!p-4"
     onsubmit={preventDefault(submit)}>
     <Field>
       {#snippet label()}

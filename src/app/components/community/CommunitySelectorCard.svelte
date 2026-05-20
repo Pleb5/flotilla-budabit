@@ -50,31 +50,35 @@
   })
 </script>
 
-<div class="flex items-center gap-2 rounded-xl border border-base-300 bg-base-100 p-2">
+<div
+  class="flex items-center gap-1.5 rounded-xl border border-base-300 bg-base-100 p-1.5 sm:gap-2 sm:p-2">
   <button
     type="button"
-    class="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 text-left transition-colors hover:bg-base-200 disabled:cursor-not-allowed disabled:opacity-70"
+    class="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 text-left transition-colors hover:bg-base-200 disabled:cursor-not-allowed disabled:opacity-70 sm:gap-3"
     class:bg-base-200={loading}
     aria-busy={loading}
     disabled={disabled || loading}
     onclick={onOpen}>
-    <div class="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-base-300">
+    <div
+      class="center !flex h-9 w-9 shrink-0 overflow-hidden rounded-full bg-base-300 sm:h-10 sm:w-10">
       <ProfileCircle {pubkey} relays={profileRelays} size={10} />
     </div>
     <div class="min-w-0 flex-1">
-      <div class="flex min-w-0 items-center gap-2">
-        <strong class="ellipsize">{name}</strong>
-        {#if isCurrent}
-          <span class="badge badge-primary badge-sm shrink-0">Last visited</span>
-        {/if}
-        {#if isAdmin}
-          <span class="badge badge-secondary badge-sm shrink-0">Admin</span>
-        {/if}
-        {#if isModerator}
-          <span class="badge badge-accent badge-sm shrink-0">Moderator</span>
-        {/if}
+      <div class="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+        <strong class="truncate leading-tight">{name}</strong>
+        <div class="flex min-w-0 flex-wrap items-center gap-1 sm:gap-2">
+          {#if isCurrent}
+            <span class="badge badge-primary badge-sm shrink-0">Last visited</span>
+          {/if}
+          {#if isAdmin}
+            <span class="badge badge-secondary badge-sm shrink-0">Admin</span>
+          {/if}
+          {#if isModerator}
+            <span class="badge badge-accent badge-sm shrink-0">Moderator</span>
+          {/if}
+        </div>
       </div>
-      <p class="ellipsize text-xs opacity-70">{info}</p>
+      <p class="truncate text-xs opacity-70">{info}</p>
     </div>
     {#if loading}
       <span class="loading loading-spinner loading-xs shrink-0 opacity-60"></span>
