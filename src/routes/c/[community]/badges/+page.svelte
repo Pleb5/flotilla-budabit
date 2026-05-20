@@ -19,6 +19,7 @@
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
+  import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
   import {uploadFile} from "@app/core/commands"
   import type {BlossomUploadStage} from "@app/core/blossom"
   import {
@@ -436,7 +437,7 @@
         imageUploadNote = "Uploaded. 1024x1024 is recommended by NIP-58."
       }
 
-      const {error, result} = await uploadFile(file, {
+      const {error, result, uploadId} = await uploadFile(file, {
         url: $activeCommunityBlossomServers[0],
         mirrorUrls: $activeCommunityBlossomServers.slice(1),
         maxWidth: 1024,
@@ -447,6 +448,7 @@
       if (error || !result?.url) throw new Error(error || "Image upload failed.")
 
       badgeImage = result.url
+      promptBlossomMirrorUpload(uploadId)
       badgeImageDimensions =
         width === height ? `${Math.min(width, 1024)}x${Math.min(height, 1024)}` : ""
 

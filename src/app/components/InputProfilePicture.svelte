@@ -8,6 +8,7 @@
   import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import {uploadFile} from "@app/core/commands"
   import type {BlossomUploadStage} from "@app/core/blossom"
+  import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
 
   interface Props {
     file?: File | undefined
@@ -53,10 +54,13 @@
   $effect(() => {
     call(async () => {
       if (file) {
-        const {error, result} = await uploadFile(file, {onStage: stage => (uploadStage = stage)})
+        const {error, result, uploadId} = await uploadFile(file, {
+          onStage: stage => (uploadStage = stage),
+        })
 
         if (result?.url) {
           url = result.url
+          promptBlossomMirrorUpload(uploadId)
         } else {
           if (error) uploadStage = "failed"
 

@@ -13,6 +13,7 @@ import {
   defaultBlossomDashboardState,
   defaultBlossomSettings,
   flattenBlossomServerGroups,
+  groupBlossomMirrorJobs,
   getBlossomUploadStageMessage,
   normalizeBlossomDashboardState,
   normalizeBlossomSettings,
@@ -20,6 +21,7 @@ import {
   rememberBlossomCapability,
   rememberBlossomUpload,
   selectMemberCommunityBlossomRefs,
+  shouldPromptForBlossomMirrorUpload,
   updateBlossomSettings,
   updateBlossomUploadRecord,
   type BlossomUploadRecord,
@@ -534,5 +536,57 @@ describe("blossom mirror job planning", () => {
         lastError: expect.stringContaining("browser-assisted mirroring requires consent"),
       }),
     ])
+  })
+
+  it("can defer queued jobs until the user chooses mirroring", () => {
+    expect(
+      createBlossomMirrorJobs({
+        targets: [mirror],
+        capabilities: {[mirror.url]: makeCapability(mirror.url, {mirror: "supported"})},
+        defer: true,
+        makeId: () => "job",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        method: "server-mirror",
+        status: "paused",
+      }),
+    ])
+  })
+
+  it("groups mirror jobs for the post-upload modal", () => {
+    const jobs = createBlossomMirrorJobs({
+      targets: [
+        {...mirror, group: "current-community", label: "Community"},
+        {...makeTarget("https://personal.example", 3), group: "personal", label: "Personal"},
+      ],
+      now: () => 100,
+    })
+
+    expect(groupBlossomMirrorJobs(jobs)).toEqual([
+      expect.objectContaining({group: "current-community", label: "Current community servers"}),
+      expect.objectContaining({group: "personal", label: "Your personal servers"}),
+    ])
+  })
+
+  it("prompts only for ask-mode uploads with mirror jobs", () => {
+    expect(shouldPromptForBlossomMirrorUpload({record: makeUpload("no-jobs")})).toBe(false)
+    expect(
+      shouldPromptForBlossomMirrorUpload({
+        record: {
+          ...makeUpload("with-jobs"),
+          mirrorJobs: createBlossomMirrorJobs({targets: [mirror]}),
+        },
+      }),
+    ).toBe(true)
+    expect(
+      shouldPromptForBlossomMirrorUpload({
+        record: {
+          ...makeUpload("with-jobs"),
+          mirrorJobs: createBlossomMirrorJobs({targets: [mirror]}),
+        },
+        settings: {...defaultBlossomSettings, mirrorMode: "never"},
+      }),
+    ).toBe(false)
   })
 })

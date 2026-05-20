@@ -207,8 +207,15 @@ export type CreateBlossomMirrorJobsOptions = {
   capabilities?: Record<string, BlossomServerCapability | undefined>
   settings?: BlossomSettings
   exactBytesAvailable?: boolean
+  defer?: boolean
   now?: () => number
   makeId?: (target: BlossomServerTarget, index: number) => string
+}
+
+export type BlossomMirrorJobGroup = {
+  group: BlossomMirrorTargetGroup
+  label: string
+  jobs: BlossomMirrorJob[]
 }
 
 export type BlossomMirrorJob = {
@@ -247,6 +254,17 @@ export type BlossomDashboardState = {
   uploads: BlossomUploadRecord[]
   capabilities: Record<string, BlossomServerCapability>
 }
+
+const blossomMirrorTargetGroupLabels: Record<BlossomMirrorTargetGroup, string> = {
+  "current-community": "Current community servers",
+  personal: "Your personal servers",
+  "member-community": "Communities you are part of",
+  "last-resort": "Last-resort servers",
+  manual: "Other servers",
+}
+
+export const getBlossomMirrorTargetGroupLabel = (group: BlossomMirrorTargetGroup) =>
+  blossomMirrorTargetGroupLabels[group]
 
 export const defaultBlossomSettings: BlossomSettings = {
   version: 1,
@@ -678,6 +696,7 @@ export const createBlossomMirrorJobs = ({
   capabilities = {},
   settings = defaultBlossomSettings,
   exactBytesAvailable = false,
+  defer = false,
   now = Date.now,
   makeId,
 }: CreateBlossomMirrorJobsOptions): BlossomMirrorJob[] => {
@@ -708,7 +727,7 @@ export const createBlossomMirrorJobs = ({
         targetLabel: target.label,
         targetGroup: target.group,
         method,
-        status: canQueue ? "queued" : "skipped",
+        status: canQueue ? (defer ? "paused" : "queued") : "skipped",
         attempts: 0,
         createdAt,
         updatedAt: createdAt,
@@ -718,6 +737,42 @@ export const createBlossomMirrorJobs = ({
       } satisfies BlossomMirrorJob,
     ]
   })
+}
+
+export const groupBlossomMirrorJobs = (jobs: BlossomMirrorJob[]): BlossomMirrorJobGroup[] => {
+  const grouped = new Map<BlossomMirrorTargetGroup, BlossomMirrorJob[]>()
+
+  for (const job of jobs) {
+    grouped.set(job.targetGroup, [...(grouped.get(job.targetGroup) || []), job])
+  }
+
+  return ["current-community", "personal", "member-community", "last-resort", "manual"].flatMap(
+    group => {
+      const jobs = grouped.get(group as BlossomMirrorTargetGroup) || []
+
+      return jobs.length > 0
+        ? [
+            {
+              group: group as BlossomMirrorTargetGroup,
+              label: getBlossomMirrorTargetGroupLabel(group as BlossomMirrorTargetGroup),
+              jobs,
+            },
+          ]
+        : []
+    },
+  )
+}
+
+export const shouldPromptForBlossomMirrorUpload = ({
+  record,
+  settings = defaultBlossomSettings,
+}: {
+  record?: BlossomUploadRecord
+  settings?: BlossomSettings
+}) => {
+  const normalizedSettings = normalizeBlossomSettings(settings)
+
+  return normalizedSettings.mirrorMode === "ask" && Boolean(record?.mirrorJobs.length)
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>

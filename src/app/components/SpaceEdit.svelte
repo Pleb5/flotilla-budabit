@@ -17,6 +17,7 @@
   import ImageIcon from "@lib/components/ImageIcon.svelte"
   import IconPickerButton from "@lib/components/IconPickerButton.svelte"
   import {pushToast} from "@app/util/toast"
+  import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
   import {clearModals} from "@app/util/modal"
   import {uploadFile} from "@app/core/commands"
 
@@ -55,7 +56,7 @@
     }
 
     if (imageFile) {
-      const {error, result} = await uploadFile(imageFile, {maxWidth: 128, maxHeight: 128})
+      const {error, result, uploadId} = await uploadFile(imageFile, {maxWidth: 128, maxHeight: 128})
 
       if (error || !result?.url) {
         return pushToast({theme: "error", message: error || "Image upload failed"})
@@ -69,6 +70,8 @@
       if (res.error) {
         return pushToast({theme: "error", message: res.error})
       }
+
+      promptBlossomMirrorUpload(uploadId)
     }
 
     // Force-reload the relay

@@ -114,7 +114,7 @@ describe("commands", () => {
   })
 
   it("uploadFile queues successful mirrors after the primary upload", async () => {
-    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const {startBlossomMirrorJobs, uploadFile, normalizeBlossomUrl} = await import("./commands")
     const primary = normalizeBlossomUrl("https://primary.example.com")
     const mirror = normalizeBlossomUrl("https://mirror.example.com")
     const file = makeUploadTestFile()
@@ -130,7 +130,7 @@ describe("commands", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    const {error, mirrors, result} = await uploadFile(file, {
+    const {error, mirrors, result, uploadId} = await uploadFile(file, {
       url: primary,
       mirrorUrls: [mirror],
     })
@@ -148,6 +148,16 @@ describe("commands", () => {
 
     await waitForBackgroundJobs()
 
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
+      targetUrl: mirror,
+      method: "server-mirror",
+      status: "paused",
+    })
+
+    expect(await startBlossomMirrorJobs({uploadId: uploadId!})).toBe(true)
+    await waitForBackgroundJobs()
+
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
       targetUrl: mirror,
@@ -157,7 +167,7 @@ describe("commands", () => {
   })
 
   it("uploadFile records background mirror failures without failing the upload", async () => {
-    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const {startBlossomMirrorJobs, uploadFile, normalizeBlossomUrl} = await import("./commands")
     const primary = normalizeBlossomUrl("https://primary.example.com")
     const mirror = normalizeBlossomUrl("https://mirror.example.com")
     const file = makeUploadTestFile()
@@ -171,7 +181,7 @@ describe("commands", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    const {error, mirrors, result} = await uploadFile(file, {
+    const {error, mirrors, result, uploadId} = await uploadFile(file, {
       url: primary,
       mirrorUrls: [mirror],
     })
@@ -180,6 +190,10 @@ describe("commands", () => {
     expect(result?.url).toBe(`${primary}blob.webp`)
     expect(mirrors).toBeUndefined()
 
+    await waitForBackgroundJobs()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    expect(await startBlossomMirrorJobs({uploadId: uploadId!})).toBe(true)
     await waitForBackgroundJobs()
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -191,7 +205,7 @@ describe("commands", () => {
   })
 
   it("uploadFile records mirror hash mismatches", async () => {
-    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const {startBlossomMirrorJobs, uploadFile, normalizeBlossomUrl} = await import("./commands")
     const primary = normalizeBlossomUrl("https://primary.example.com")
     const mirror = normalizeBlossomUrl("https://mirror.example.com")
     const file = makeUploadTestFile()
@@ -207,11 +221,13 @@ describe("commands", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    const {error, result} = await uploadFile(file, {url: primary, mirrorUrls: [mirror]})
+    const {error, result, uploadId} = await uploadFile(file, {url: primary, mirrorUrls: [mirror]})
 
     expect(error).toBeUndefined()
     expect(result?.url).toBe(`${primary}blob.webp`)
 
+    await waitForBackgroundJobs()
+    expect(await startBlossomMirrorJobs({uploadId: uploadId!})).toBe(true)
     await waitForBackgroundJobs()
 
     expect(get(blossomDashboardState).uploads[0].mirrorJobs[0]).toMatchObject({
@@ -242,7 +258,11 @@ describe("commands", () => {
           mirror: "unsupported",
         },
       },
-      blossomSettings: {...defaultBlossomSettings, browserMirrorConsent: "allow"},
+      blossomSettings: {
+        ...defaultBlossomSettings,
+        browserMirrorConsent: "allow",
+        mirrorMode: "always-selected",
+      },
     })
 
     expect(error).toBeUndefined()

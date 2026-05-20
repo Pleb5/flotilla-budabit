@@ -1093,6 +1093,7 @@ export type UploadFileBlobResult = {
 export type UploadFileResult = Omit<UploadTask, "result"> & {
   result?: UploadFileBlobResult
   mirrors?: BlossomMirrorUploadResult[]
+  uploadId?: string
 }
 
 const getBlossomUploadHeaders = (file: File, hash: string) => {
@@ -1394,10 +1395,59 @@ const runBackgroundMirrorJobs = async ({
   uploadId: string
 }) => {
   for (const job of jobs) {
-    if (job.status === "queued") {
+    if (["queued", "paused", "failed"].includes(job.status)) {
       await runBackgroundMirrorJob({canonical, exactFile, job, settings, uploadId})
     }
   }
+}
+
+const getCanonicalFileForBrowserMirror = async (canonical: BlossomBlobDescriptor) => {
+  const response = await fetch(canonical.url)
+
+  if (!response.ok) throw new Error(`Failed to download canonical file (HTTP ${response.status})`)
+
+  const blob = await response.blob()
+
+  return new File([blob], canonical.sha256, {
+    type: canonical.type || blob.type || "application/octet-stream",
+  })
+}
+
+export const startBlossomMirrorJobs = async ({
+  uploadId,
+  browserAssist = false,
+}: {
+  uploadId: string
+  browserAssist?: boolean
+}) => {
+  const record = get(blossomDashboardState).uploads.find(upload => upload.id === uploadId)
+  if (!record) return false
+
+  const jobs = record.mirrorJobs.filter(
+    job =>
+      ["paused", "queued", "failed"].includes(job.status) &&
+      (browserAssist || job.method === "server-mirror"),
+  )
+
+  if (jobs.length === 0) return false
+
+  const settings = normalizeBlossomSettings(get(blossomSettings))
+  const runSettings = browserAssist
+    ? {...settings, browserMirrorConsent: "allow" as const}
+    : {...settings, browserMirrorConsent: "deny" as const, mirrorMode: "server-side-only" as const}
+  const exactFile = browserAssist
+    ? await getCanonicalFileForBrowserMirror(record.canonical)
+    : undefined
+
+  void runBackgroundMirrorJobs({
+    canonical: record.canonical,
+    exactFile,
+    jobs,
+    settings: runSettings,
+    uploadId,
+  })
+
+  return true
 }
 
 export const uploadFile = async (
@@ -1565,6 +1615,7 @@ export const uploadFile = async (
       capabilities,
       settings,
       exactBytesAvailable: plan.method === "upload",
+      defer: settings.mirrorMode === "ask",
       makeId: () => randomId(),
     })
     const uploadId = randomId()
@@ -1586,19 +1637,21 @@ export const uploadFile = async (
       mirrorJobs,
     })
 
-    void runBackgroundMirrorJobs({
-      canonical,
-      exactFile: plan.method === "upload" ? file : undefined,
-      jobs: mirrorJobs,
-      settings,
-      uploadId,
-    })
+    if (settings.mirrorMode !== "ask") {
+      void runBackgroundMirrorJobs({
+        canonical,
+        exactFile: plan.method === "upload" ? file : undefined,
+        jobs: mirrorJobs,
+        settings,
+        uploadId,
+      })
+    }
 
     const result = {...task, tags, url, sha256: resultHash, size: resultSize, type: resultType}
 
     setStage("ready")
 
-    return {result}
+    return {result, uploadId}
   } catch (e: any) {
     setStage("failed")
     console.error("Error caught when uploading file:", e)

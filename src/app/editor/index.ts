@@ -21,6 +21,7 @@ import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
 import {uploadFile} from "@app/core/commands"
 import type {BlossomUploadStage} from "@app/core/blossom"
 import {pushToast} from "@app/util/toast"
+import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
 import {getQuoteEventTags} from "@app/util/git-quote"
 import {PermalinkExtension} from "@nostr-git/ui"
 import Spinner from "@lib/components/Spinner.svelte"
@@ -82,6 +83,8 @@ export const makeEditor = async ({
       mirrorUrls,
       onStage: stage => uploadStage?.set(stage),
     })
+
+    if (uploadResult.result) promptBlossomMirrorUpload(uploadResult.uploadId)
 
     return uploadResult
   }
