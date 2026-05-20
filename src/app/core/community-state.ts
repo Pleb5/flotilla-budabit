@@ -34,6 +34,7 @@ import {
   type CommunityStarRef,
 } from "@app/util/community-stars"
 import {
+  COMMUNITY_PREFERENCE_LIMIT,
   makeCommunityAdminDefinitionFilter,
   makeCommunityDefinitionProfileListRefFilters,
   makeCommunityModeratorFormFilter,
@@ -41,6 +42,10 @@ import {
   selectPreferredCommunities,
   type PreferredCommunityRef,
 } from "@app/util/community-preferences"
+import {
+  selectMemberCommunityBlossomRefs,
+  type BlossomMemberCommunityRef,
+} from "@app/core/blossom"
 import {
   MODERATOR_REQUEST_REACTION_KIND,
   getModeratorPromotionRequestStates,
@@ -672,6 +677,58 @@ export const communityModeratorDefinitionEvents: Readable<TrustedEvent[]> = deri
   [] as TrustedEvent[],
 )
 
+export const communityMemberProfileListEvents: Readable<TrustedEvent[]> = derived(
+  pubkey,
+  ($pubkey, set) => {
+    const normalizedPubkey = normalizePubkey($pubkey || "")
+
+    if (!normalizedPubkey) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(
+      deriveEventsById({
+        repository,
+        filters: [
+          {
+            kinds: [PROFILE_LIST_KIND],
+            "#p": [normalizedPubkey],
+            limit: COMMUNITY_PREFERENCE_LIMIT,
+          },
+        ],
+      }),
+    ).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const communityMemberDefinitionEvents: Readable<TrustedEvent[]> = derived(
+  communityMemberProfileListEvents,
+  ($communityMemberProfileListEvents, set) => {
+    const filters = makeCommunityDefinitionProfileListRefFilters($communityMemberProfileListEvents)
+
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+export const activeMemberCommunityBlossomRefs: Readable<BlossomMemberCommunityRef[]> = derived(
+  [pubkey, communityMemberDefinitionEvents, communityMemberProfileListEvents],
+  ([$pubkey, $communityMemberDefinitionEvents, $communityMemberProfileListEvents]) =>
+    selectMemberCommunityBlossomRefs({
+      author: $pubkey || undefined,
+      definitionEvents: $communityMemberDefinitionEvents,
+      profileListEvents: $communityMemberProfileListEvents,
+    }),
+  [] as BlossomMemberCommunityRef[],
+)
+
 export const activePreferredCommunities: Readable<PreferredCommunityRef[]> = derived(
   [
     pubkey,
@@ -807,6 +864,11 @@ export const hydrateCommunityPreferences = async ({
     makeCommunityAdminDefinitionFilter(user),
     makeCommunityModeratorFormFilter(user),
     makeCommunityModeratorProfileListFilter(user),
+    {
+      kinds: [PROFILE_LIST_KIND],
+      "#p": [user],
+      limit: COMMUNITY_PREFERENCE_LIMIT,
+    },
   ].filter(Boolean) as Filter[]
 
   if (filters.length === 0) return
@@ -828,9 +890,11 @@ export const hydrateCommunityPreferences = async ({
 
     if (requestId !== communityPreferenceHydrationRequestId) return
 
-    const profileListEvents = [...loadedEvents, ...get(communityModeratorProfileListEvents)].filter(
-      event => event.kind === PROFILE_LIST_KIND,
-    )
+    const profileListEvents = [
+      ...loadedEvents,
+      ...get(communityModeratorProfileListEvents),
+      ...get(communityMemberProfileListEvents),
+    ].filter(event => event.kind === PROFILE_LIST_KIND)
     const formCommunityPubkeys = Array.from(
       new Set(
         [...loadedEvents, ...get(communityModeratorFormEvents)]

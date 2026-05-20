@@ -63,7 +63,7 @@ Exit criteria:
 
 ## Phase 2: Server Source Aggregation
 
-Status: pending.
+Status: completed.
 
 Scope:
 

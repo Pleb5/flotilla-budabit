@@ -1,5 +1,13 @@
 import {get} from "svelte/store"
 import {localStorageProvider, synced} from "@welshman/store"
+import {normalizeUrl} from "@welshman/lib"
+import type {TrustedEvent} from "@welshman/util"
+import {
+  type CommunityDefinition,
+  normalizePubkey,
+  parseCommunityDefinition,
+} from "@app/core/community"
+import {getCommunityPublishCapabilityMap} from "@app/core/community-permissions"
 
 export const BLOSSOM_SETTINGS_STORAGE_KEY = "budabit/blossom/settings:v1"
 export const BLOSSOM_DASHBOARD_STORAGE_KEY = "budabit/blossom/dashboard:v1"
@@ -92,6 +100,42 @@ export type BlossomUploadContext = {
   label?: string
 }
 
+export type BlossomMemberCommunityRef = {
+  communityPubkey: string
+  communityName?: string
+  relayHints: string[]
+  blossomServers: string[]
+  writableSections: string[]
+}
+
+export type BlossomServerTarget = {
+  url: string
+  source: BlossomServerSource
+  group: BlossomMirrorTargetGroup
+  priority: number
+  label: string
+  communityPubkey?: string
+  communityName?: string
+}
+
+export type BlossomServerGroups = {
+  currentCommunity: BlossomServerTarget[]
+  personal: BlossomServerTarget[]
+  memberCommunities: BlossomServerTarget[]
+  lastResort: BlossomServerTarget[]
+}
+
+export type BuildBlossomServerGroupsOptions = {
+  currentCommunity?: {
+    servers?: string[]
+    communityPubkey?: string
+    communityName?: string
+  }
+  personalServers?: string[]
+  memberCommunities?: BlossomMemberCommunityRef[]
+  lastResortServers?: string[]
+}
+
 export type BlossomMirrorJob = {
   id: string
   targetUrl: string
@@ -176,6 +220,153 @@ const capabilityStatuses = new Set<BlossomCapabilityStatus>([
   "cors-blocked",
   "error",
 ])
+
+export const normalizeBlossomServerUrl = (url: string | undefined | null) => {
+  const value = url?.trim()
+  if (!value || !/^https?:\/\//i.test(value)) return ""
+
+  try {
+    return normalizeUrl(value)
+  } catch {
+    return ""
+  }
+}
+
+const normalizeBlossomServers = (servers: Array<string | undefined | null>) =>
+  Array.from(new Set(servers.map(normalizeBlossomServerUrl).filter(Boolean)))
+
+const getLatestDefinitionsByPubkey = (definitions: CommunityDefinition[]) => {
+  const latest = new Map<string, CommunityDefinition>()
+
+  for (const definition of definitions) {
+    const current = latest.get(definition.pubkey)
+    if (!current || definition.event.created_at > current.event.created_at) {
+      latest.set(definition.pubkey, definition)
+    }
+  }
+
+  return Array.from(latest.values())
+}
+
+export const selectMemberCommunityBlossomRefs = ({
+  author,
+  definitions = [],
+  definitionEvents = [],
+  profileListEvents = [],
+}: {
+  author?: string
+  definitions?: CommunityDefinition[]
+  definitionEvents?: TrustedEvent[]
+  profileListEvents?: TrustedEvent[]
+}): BlossomMemberCommunityRef[] => {
+  const normalizedAuthor = normalizePubkey(author || "")
+  if (!normalizedAuthor) return []
+
+  const parsedDefinitions = definitionEvents.flatMap(event => {
+    const definition = parseCommunityDefinition(event)
+    return definition ? [definition] : []
+  })
+
+  return getLatestDefinitionsByPubkey([...definitions, ...parsedDefinitions])
+    .flatMap(definition => {
+      const capabilities = Object.values(
+        getCommunityPublishCapabilityMap({
+          definition,
+          profileListEvents,
+          userPubkey: normalizedAuthor,
+        }),
+      ).filter(capability => capability.canWrite)
+
+      if (capabilities.length === 0) return []
+
+      const blossomServers = normalizeBlossomServers(definition.blossomServers)
+      if (blossomServers.length === 0) return []
+
+      return [
+        {
+          communityPubkey: definition.pubkey,
+          relayHints: definition.relays,
+          blossomServers,
+          writableSections: Array.from(new Set(capabilities.map(capability => capability.sectionName))),
+        } satisfies BlossomMemberCommunityRef,
+      ]
+    })
+    .sort((a, b) => a.communityPubkey.localeCompare(b.communityPubkey))
+}
+
+export const buildBlossomServerGroups = ({
+  currentCommunity,
+  personalServers = [],
+  memberCommunities = [],
+  lastResortServers = [],
+}: BuildBlossomServerGroupsOptions): BlossomServerGroups => {
+  const seen = new Set<string>()
+  const groups: BlossomServerGroups = {
+    currentCommunity: [],
+    personal: [],
+    memberCommunities: [],
+    lastResort: [],
+  }
+
+  const addTarget = (
+    group: keyof BlossomServerGroups,
+    url: string,
+    target: Omit<BlossomServerTarget, "url" | "priority">,
+  ) => {
+    const normalized = normalizeBlossomServerUrl(url)
+    if (!normalized || seen.has(normalized)) return
+
+    seen.add(normalized)
+    groups[group].push({...target, url: normalized, priority: seen.size})
+  }
+
+  for (const server of currentCommunity?.servers || []) {
+    addTarget("currentCommunity", server, {
+      source: "current-community",
+      group: "current-community",
+      label: currentCommunity?.communityName || "Current community",
+      communityPubkey: currentCommunity?.communityPubkey,
+      communityName: currentCommunity?.communityName,
+    })
+  }
+
+  for (const server of personalServers) {
+    addTarget("personal", server, {
+      source: "personal",
+      group: "personal",
+      label: "Your personal servers",
+    })
+  }
+
+  for (const community of memberCommunities) {
+    for (const server of community.blossomServers) {
+      addTarget("memberCommunities", server, {
+        source: "member-community",
+        group: "member-community",
+        label: community.communityName || `Community ${community.communityPubkey.slice(0, 8)}`,
+        communityPubkey: community.communityPubkey,
+        communityName: community.communityName,
+      })
+    }
+  }
+
+  for (const server of lastResortServers) {
+    addTarget("lastResort", server, {
+      source: "last-resort",
+      group: "last-resort",
+      label: "Last-resort servers",
+    })
+  }
+
+  return groups
+}
+
+export const flattenBlossomServerGroups = (groups: BlossomServerGroups) => [
+  ...groups.currentCommunity,
+  ...groups.personal,
+  ...groups.memberCommunities,
+  ...groups.lastResort,
+]
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === "object" && !Array.isArray(value))
