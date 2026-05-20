@@ -1,156 +1,339 @@
-# Budabit Community Blossom Implementation Plan
+# Budabit Blossom Implementation Plan
 
-This plan implements the architecture in `docs/architecture/Budabit-Community-Blossom-Architecture.md` in small phases. Each phase should leave the app working, be committed, pushed, and followed by re-reading the remaining unchecked items.
+This plan implements `docs/architecture/Budabit-Community-Blossom-Architecture.md` in phases. Each phase should leave the app working. After each phase:
 
-## Phase 0: Documentation
+1. Run the relevant checks.
+2. Commit the phase.
+3. Push the branch.
+4. Re-read the architecture document and this plan before starting the next phase.
+
+The final phase is a thorough review pass that looks for bugs, simplifies code, and reruns the full verification set.
+
+## Phase 0: Documentation Refresh
 
 Status: completed.
 
 Scope:
 
-- Add the community Blossom architecture document.
-- Add this implementation plan.
+- Replace the earlier community-only Blossom docs with the revised Blossom architecture.
+- Document server roles, canonical URLs, same-hash mirroring, optimization, post-upload mirroring, dashboard state, and privacy constraints.
+- Create this phased implementation plan.
 
 Verification:
 
-- Read both docs for consistency with `Budabit-Community-Architecture.md` and `Communikeys.md`.
+- Read both docs for internal consistency.
+- Confirm they describe the agreed product decisions:
+  - Same hash is mandatory for mirrors.
+  - Initial upload should complete quickly.
+  - Mirroring is background best-effort.
+  - Random background failures are dashboard-only.
+  - Encryption is not exposed for public/community uploads.
 
 Exit criteria:
 
-- Docs are committed and pushed.
+- Documentation is committed and pushed.
 
-## Phase 1: Upload Helper Foundation
+## Phase 1: Upload Domain Model And Settings Skeleton
 
-Status: completed.
+Status: pending.
 
 Scope:
 
-- Extend `UploadFileOptions` with community mirror inputs, without changing existing callers.
-- Add normalized Blossom server collection helpers for primary and mirror targets.
-- Upload exact final bytes to the selected primary server and best-effort mirror servers.
-- Include `X-SHA-256`, `Content-Type`, and `Content-Length` upload metadata where available.
-- Avoid requiring successful `HEAD /upload`; treat it as optional preflight only.
-- Return the existing upload result shape while adding optional mirror summary data.
+- Introduce Budabit-owned Blossom domain types for upload contexts, server sources, capabilities, optimization modes, mirror modes, upload records, and mirror jobs.
+- Add typed settings defaults for Blossom behavior:
+  - Optimization mode: `auto`.
+  - Mirror prompt mode: ask after upload.
+  - Server-side mirroring preferred.
+  - Browser-assisted mirroring requires user consent.
+  - Encryption unavailable for public/community uploads.
+- Add local persistence for the new settings and upload dashboard records, using the existing app storage layer first.
+- Leave encrypted `APP_DATA` sync as a clearly isolated follow-up if the current APP_DATA helpers are not ready for immediate reuse.
+- Preserve the existing `Content Settings -> Media Server` behavior until the new Blossom UI is ready.
 
 Verification:
 
-- Add focused unit tests for primary selection, deduplication, successful mirror upload, non-blocking mirror failure, and no-regression default behavior.
-- Run the focused command tests.
+- Add unit tests for default settings normalization and persistence helpers.
+- Run focused tests for the new Blossom module.
+- Run `npm run check` if type-level changes touch shared app types.
 
 Exit criteria:
 
-- Existing `uploadFile(file)` callers keep working.
-- Mirror failures do not make `uploadFile` fail when the primary upload succeeds.
+- Code can read/write Blossom settings locally.
+- No upload behavior changes yet.
 
-## Phase 2: Active Community Blossom State
+## Phase 2: Server Source Aggregation
 
-Status: completed.
+Status: pending.
 
 Scope:
 
-- Add an `activeCommunityBlossomServers` derived store from the active community definition.
-- Add a synchronous helper for one-off callers that need the current community Blossom server list.
-- Keep route/session behavior unchanged.
+- Build helpers that assemble grouped Blossom server candidates:
+  - Current community servers.
+  - Personal `kind:10063` servers from `userBlossomServerList`.
+  - Communities the user can publish to.
+  - Last-resort configured servers.
+- Reuse the existing personal server list from `Content Settings -> Media Server` / `userBlossomServerList`.
+- Add app-wide derivation for "communities you are part of": communities where the user has publish access to at least one section based on community profile-list membership.
+- Keep starred communities out of automatic mirror groups.
+- Deduplicate servers while preserving source metadata for UI grouping.
 
 Verification:
 
-- Add focused tests for derived community Blossom server behavior if the existing state test setup supports it.
-- Run community-state focused tests.
+- Add unit tests for target aggregation, deduplication, and grouping.
+- Add focused tests for publish-access-derived community membership if existing community test fixtures support it.
+- Re-read current community access logic before committing.
 
 Exit criteria:
 
-- Community Blossom server lists are available to components without re-parsing definitions.
+- Upload code can request grouped candidates for a context without knowing UI state internals.
 
-## Phase 3: Community Composer Replication
+## Phase 3: Capability Probing
 
-Status: completed.
+Status: pending.
 
 Scope:
 
-- Thread community mirror servers into `makeEditor` and editor upload calls.
-- Update community `RoomCompose` uses for rooms, thread replies, and calendar comments.
-- Keep direct DM and non-community editor behavior unchanged.
-- Surface mirror warnings without blocking message publication.
+- Add a capability probe/cache layer for Blossom servers.
+- Probe enough to answer:
+  - Can this server accept `/upload` for this file?
+  - Can this server accept `/media` for this file?
+  - Is this server likely to support `/mirror`?
+- Treat `HEAD /upload` and `HEAD /media` as optional preflights.
+- Avoid noisy user-facing errors for background probes.
+- Persist last-known capability results for dashboard display and future decisions.
 
 Verification:
 
-- Run focused component/type checks for editor and community routes.
-- Manually inspect event `imeta` behavior in code to ensure `x`, `m`, and `size` are preserved.
+- Add tests for probe result classification:
+  - supported.
+  - unavailable.
+  - disabled.
+  - too large.
+  - auth/signing failed.
+  - CORS/network failure.
+- Ensure probe failures do not throw into normal rendering paths.
 
 Exit criteria:
 
-- Community attachment uploads replicate to all configured community Blossom servers when possible.
+- Upload planner can make decisions using capability results and safe fallbacks.
 
-## Phase 4: Badge And Community-Owned Asset Uploads
+## Phase 4: Initial Upload Planner
 
-Status: completed.
+Status: pending.
 
 Scope:
 
-- Update community badge image uploads to prefer the first community Blossom server as primary.
-- Mirror badge image uploads to all remaining community Blossom servers.
-- Preserve badge image dimensions and existing NIP-58 metadata behavior.
-- Apply the same community-owned upload policy to community profile images in the community create/edit flow if an upload path exists there.
+- Replace ad-hoc `uploadFile` server choice with a planner that separates:
+  - Nostr publish context.
+  - Blossom upload targets.
+  - Mirror target candidates.
+- Implement optimization-mode behavior:
+  - `auto`.
+  - `server optimize`.
+  - `client compress`.
+  - `original`.
+- Implement safe optimizer selection:
+  - Prefer `/media` on the canonical server.
+  - Use a non-canonical optimizer only when the canonical server can `/mirror` the optimized result.
+  - Otherwise fall back to direct `/upload` to the canonical server.
+- Do not fetch back optimized bytes in the initial publish path unless absolutely necessary and explicitly allowed by settings.
+- Keep `/upload` fallback for servers without `/media`.
+- Keep public/community encryption unavailable.
 
 Verification:
 
-- Run badge tests and focused Svelte checks for the badges route.
-
-Exit criteria:
-
-- Badge image uploads use community infrastructure first and replicate best-effort.
-
-## Phase 5: Read Fallbacks
-
-Status: completed.
-
-Scope:
-
-- Extract the last 64-character lowercase hex hash from failed media URLs when `imeta` `x` is unavailable.
-- Try active community Blossom servers after original URL failure.
-- Try author `kind:10063` Blossom servers in accordance with NIP-B7.
-- Verify downloaded fallback bytes match the expected SHA-256 before display.
-- Keep encrypted media decryption behavior intact after fallback download.
-
-Verification:
-
-- Add focused tests for hash extraction and fallback URL generation.
-- Manually inspect `ContentLinkBlockImage.svelte` flow for encrypted and non-encrypted cases.
-
-Exit criteria:
-
-- Community media can recover from dead primary URLs when a community or author Blossom server has the blob.
-
-## Phase 6: Spec Compatibility Hardening
-
-Status: completed.
-
-Scope:
-
-- Add Budabit-owned BUD-11 auth header generation if Welshman remains non-compliant with base64url/server-domain scoping.
-- Add optional `PUT /mirror` support as a later optimization only after direct upload replication works.
-- Consider adding Blossom URI generation or rendering support only if a product use case appears.
-
-Verification:
-
-- Focused tests for auth event/header formatting.
-- Manual comparison against local `~/Work/blossom/buds/11.md`.
-
-Exit criteria:
-
-- New Budabit Blossom helpers are compatible with current BUD-11 expectations without requiring a Welshman upgrade.
-
-## Phase 7: Full Verification
-
-Status: completed.
-
-Scope:
-
-- Run focused unit tests added in this plan.
+- Add focused tests for upload plans:
+  - community server supports `/media`.
+  - community server lacks `/media` but can `/mirror` from personal optimizer.
+  - no safe optimizer available, fallback to `/upload`.
+  - non-media file uses `/upload`.
+  - public/community encrypted upload is rejected or disabled.
+- Run focused command/upload tests.
 - Run `npm run check`.
-- Run the relevant app test suite if time allows.
-- Run `npm run build` if the check and focused tests pass.
 
 Exit criteria:
 
-- The feature is verified end-to-end or documented with clear residual risks.
+- Existing upload call sites still work.
+- Initial upload returns one canonical descriptor.
+- Same-hash mirror constraints are represented in the plan.
+
+## Phase 5: Upload Status Feedback
+
+Status: pending.
+
+Scope:
+
+- Replace boolean-only upload feedback where practical with structured upload stages.
+- Show concise initial-upload status in editor and asset upload flows:
+  - Preparing file.
+  - Checking Blossom servers.
+  - Uploading.
+  - Optimizing media.
+  - Saving to community server.
+  - Ready to publish.
+- Surface initial upload failures clearly.
+- Do not surface background mirror failures as intrusive toasts.
+- Add explanatory copy and tooltips for optimization behavior.
+
+Verification:
+
+- Run Svelte/type checks for components touched.
+- Manually inspect key flows in code:
+  - Room compose.
+  - Thread reply.
+  - Calendar comment.
+  - Badge image upload.
+  - Profile image upload if touched.
+
+Exit criteria:
+
+- Users can tell what is happening during slow initial media uploads.
+
+## Phase 6: Background Mirroring Queue
+
+Status: pending.
+
+Scope:
+
+- Add a background mirror queue that runs after a successful initial upload.
+- Store mirror jobs with canonical URL, hash, size, type, context, target group, selected policy, and status.
+- Prefer server-side `/mirror`.
+- Verify returned `sha256` equals the canonical hash.
+- If settings and user consent allow, perform browser-assisted mirroring by fetching canonical bytes and uploading exact bytes with `/upload`.
+- Limit concurrency to avoid stressing the browser or servers.
+- Stop silently when server-side-only mirroring cannot continue; record details in dashboard state.
+
+Verification:
+
+- Add unit tests for queue state transitions and target selection.
+- Add mocked tests for server-side mirror success, hash mismatch, server failure, and browser-assisted fallback.
+- Ensure background failures do not reject initial upload promises.
+
+Exit criteria:
+
+- Mirroring can run independently of publishing.
+- Failed background jobs are visible in state but not intrusive.
+
+## Phase 7: Post-Upload Mirror Prompt And Modal
+
+Status: pending.
+
+Scope:
+
+- Show a 20-second post-upload toast when settings say to ask.
+- Toast action opens a mirror modal.
+- Modal groups targets:
+  - Current community servers.
+  - Your personal servers.
+  - Communities you are part of.
+  - Last-resort servers.
+- Modal shows mirroring-specific capability only:
+  - Server-side mirror available or likely available.
+  - Upload-only mirror requires browser download.
+  - Unavailable or recently failed.
+- Add quick selection for "Mirror without download".
+- Warn before browser-assisted mirroring.
+
+Verification:
+
+- Run Svelte/type checks for new UI components.
+- Add focused tests for grouping and selection helpers where possible.
+
+Exit criteria:
+
+- Users can choose optional mirroring after initial upload without blocking publish.
+
+## Phase 8: Blossom Dashboard And Menu Entry
+
+Status: pending.
+
+Scope:
+
+- Add `Blossom` to the avatar menu.
+- Create a tabbed Blossom page:
+  - Dashboard.
+  - Servers.
+  - Optimization.
+  - Mirroring.
+  - Advanced.
+- Dashboard shows recent uploads, canonical URL, hash, size, type, context, policy, and mirror status.
+- Add actions:
+  - Continue/retry mirroring.
+  - Copy URLs.
+  - Download file.
+  - Remove local dashboard record.
+- Servers tab reuses the existing personal Blossom server list currently shown as `Media Server` in Content settings.
+- Add explanatory copy and tooltips for every non-obvious setting.
+
+Verification:
+
+- Run route/component checks.
+- Manually inspect that the old personal server list is not duplicated or lost.
+
+Exit criteria:
+
+- Blossom management has a first-class home in the app.
+
+## Phase 9: Generic Blossom Upload Surface
+
+Status: pending.
+
+Scope:
+
+- Add a simple generic upload flow inside the Blossom dashboard.
+- Let users upload media or files for sharing without composing a post.
+- Use the same upload planner, optimization settings, and mirror prompt.
+- Show shareable canonical URL and optional mirror URLs.
+- Store the upload in the dashboard record list.
+
+Verification:
+
+- Run focused upload planner tests and Svelte checks.
+- Manually inspect that generic uploads do not accidentally publish Nostr content.
+
+Exit criteria:
+
+- Budabit can serve as a basic Blossom media manager.
+
+## Phase 10: Optional Server Listing Integration
+
+Status: pending.
+
+Scope:
+
+- Where servers support `/list`, add a dashboard action to inspect existing Blossom uploads.
+- Keep this separate from local Budabit upload records.
+- Clearly mark listed server data as server-provided and potentially incomplete.
+
+Verification:
+
+- Add tests for list result normalization if implemented.
+- Verify list failures stay non-intrusive.
+
+Exit criteria:
+
+- The dashboard can become generic without depending only on local history.
+
+## Phase 11: Final Review And Full Verification
+
+Status: pending.
+
+Scope:
+
+- Perform a thorough code review of the entire feature.
+- Look for bugs, race conditions, duplicated logic, confusing copy, and over-engineering.
+- Simplify code where possible.
+- Re-read the architecture and plan one last time and verify the implemented behavior matches the decisions.
+- Run all relevant tests again.
+
+Verification:
+
+- Run focused Blossom/upload tests.
+- Run `npm run check`.
+- Run `npm run test:main` or the closest focused main test suite.
+- Run `npm run build` if checks pass.
+- Document any residual risks in the final commit message or PR notes.
+
+Exit criteria:
+
+- The implementation is verified end-to-end or any remaining gaps are explicitly documented.
