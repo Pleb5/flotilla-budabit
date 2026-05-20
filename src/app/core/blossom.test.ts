@@ -6,6 +6,7 @@ import {
   blossomDashboardState,
   blossomSettings,
   buildBlossomServerGroups,
+  chooseBlossomInitialUploadPlan,
   classifyBlossomProbeError,
   classifyBlossomProbeResponse,
   defaultBlossomDashboardState,
@@ -20,6 +21,8 @@ import {
   updateBlossomSettings,
   updateBlossomUploadRecord,
   type BlossomUploadRecord,
+  type BlossomServerCapability,
+  type BlossomServerTarget,
 } from "./blossom"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
 import type {TrustedEvent} from "@welshman/util"
@@ -51,6 +54,26 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
     sig: "sig",
     ...overrides,
   }) as TrustedEvent
+
+const makeTarget = (url: string, priority: number): BlossomServerTarget => ({
+  url,
+  priority,
+  source: priority === 1 ? "current-community" : "personal",
+  group: priority === 1 ? "current-community" : "personal",
+  label: priority === 1 ? "Community" : "Personal",
+})
+
+const makeCapability = (
+  url: string,
+  overrides: Partial<BlossomServerCapability> = {},
+): BlossomServerCapability => ({
+  url,
+  checkedAt: 1,
+  upload: "supported",
+  media: "unsupported",
+  mirror: "unsupported",
+  ...overrides,
+})
 
 beforeEach(() => {
   localStorage.clear()
@@ -194,9 +217,7 @@ describe("blossom server sources", () => {
       "https://shared.example",
     ])
     expect(groups.personal.map(target => target.url)).toEqual(["https://personal.example"])
-    expect(groups.memberCommunities.map(target => target.url)).toEqual([
-      "https://member.example",
-    ])
+    expect(groups.memberCommunities.map(target => target.url)).toEqual(["https://member.example"])
     expect(groups.lastResort.map(target => target.url)).toEqual(["https://fallback.example"])
     expect(flattenBlossomServerGroups(groups).map(target => target.group)).toEqual([
       "current-community",
@@ -326,9 +347,7 @@ describe("blossom capability probing", () => {
       media: "too-large",
       mirror: "supported",
     })
-    expect(get(blossomDashboardState).capabilities["https://blossom.example"]).toEqual(
-      capability,
-    )
+    expect(get(blossomDashboardState).capabilities["https://blossom.example"]).toEqual(capability)
   })
 
   it("returns unavailable capabilities for invalid servers without throwing", async () => {
@@ -336,6 +355,113 @@ describe("blossom capability probing", () => {
       upload: "unavailable",
       media: "unavailable",
       mirror: "unavailable",
+    })
+  })
+})
+
+describe("blossom initial upload planner", () => {
+  const community = makeTarget("https://community.example", 1)
+  const personal = makeTarget("https://personal.example", 2)
+
+  it("uses media on the canonical community server when supported", () => {
+    const plan = chooseBlossomInitialUploadPlan({
+      targets: [community, personal],
+      file: {type: "image/png", size: 1024},
+      capabilities: {
+        [community.url]: makeCapability(community.url, {media: "supported"}),
+        [personal.url]: makeCapability(personal.url, {media: "supported"}),
+      },
+    })
+
+    expect(plan).toMatchObject({
+      status: "ready",
+      method: "media",
+      canonical: community,
+      mirrorOptimizedToCanonical: false,
+      reason: "canonical-media",
+    })
+  })
+
+  it("uses a non-canonical optimizer only when canonical can mirror the result", () => {
+    const plan = chooseBlossomInitialUploadPlan({
+      targets: [community, personal],
+      file: {type: "image/png", size: 1024},
+      capabilities: {
+        [community.url]: makeCapability(community.url, {mirror: "supported"}),
+        [personal.url]: makeCapability(personal.url, {media: "supported"}),
+      },
+    })
+
+    expect(plan).toMatchObject({
+      status: "ready",
+      method: "media",
+      canonical: community,
+      optimizer: personal,
+      mirrorOptimizedToCanonical: true,
+      reason: "safe-external-optimizer",
+    })
+  })
+
+  it("falls back to upload when no safe optimizer is available", () => {
+    const plan = chooseBlossomInitialUploadPlan({
+      targets: [community, personal],
+      file: {type: "image/png", size: 1024},
+      capabilities: {
+        [community.url]: makeCapability(community.url),
+        [personal.url]: makeCapability(personal.url, {media: "supported"}),
+      },
+    })
+
+    expect(plan).toMatchObject({
+      status: "ready",
+      method: "upload",
+      canonical: community,
+      mirrorOptimizedToCanonical: false,
+      useClientCompression: true,
+      reason: "media-unavailable-upload-fallback",
+    })
+  })
+
+  it("uses upload without client compression for non-media files", () => {
+    const plan = chooseBlossomInitialUploadPlan({
+      targets: [community],
+      file: {type: "application/pdf", size: 1024},
+      capabilities: {[community.url]: makeCapability(community.url, {media: "supported"})},
+    })
+
+    expect(plan).toMatchObject({
+      status: "ready",
+      method: "upload",
+      canonical: community,
+      useClientCompression: false,
+      reason: "regular-upload",
+    })
+  })
+
+  it("blocks encrypted uploads in public contexts", () => {
+    expect(
+      chooseBlossomInitialUploadPlan({
+        targets: [community],
+        file: {type: "image/png", size: 1024},
+        encrypted: true,
+      }),
+    ).toEqual({status: "blocked", reason: "public-encryption-disabled"})
+  })
+
+  it("honors original mode by avoiding server and client optimization", () => {
+    const plan = chooseBlossomInitialUploadPlan({
+      targets: [community],
+      file: {type: "image/png", size: 1024},
+      settings: {...defaultBlossomSettings, optimizationMode: "original"},
+      capabilities: {[community.url]: makeCapability(community.url, {media: "supported"})},
+    })
+
+    expect(plan).toMatchObject({
+      status: "ready",
+      method: "upload",
+      canonical: community,
+      useClientCompression: false,
+      reason: "regular-upload",
     })
   })
 })

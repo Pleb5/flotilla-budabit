@@ -119,7 +119,7 @@ Exit criteria:
 
 ## Phase 4: Initial Upload Planner
 
-Status: pending.
+Status: completed.
 
 Scope:
 

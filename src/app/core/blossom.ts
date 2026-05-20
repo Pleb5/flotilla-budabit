@@ -61,12 +61,7 @@ export type BlossomMirrorMethod = "server-mirror" | "browser-upload"
 export type BlossomProbeEndpoint = "upload" | "media" | "mirror"
 export type BlossomProbeAuthAction = "upload" | "media"
 
-export type BlossomUploadContextType =
-  | "community"
-  | "personal"
-  | "profile"
-  | "badge"
-  | "generic"
+export type BlossomUploadContextType = "community" | "personal" | "profile" | "badge" | "generic"
 
 export type BlossomSettings = {
   version: 1
@@ -102,6 +97,37 @@ export type BlossomProbeOptions = {
   persist?: boolean
   makeAuthHeader?: (action: BlossomProbeAuthAction, server: string) => Promise<string | undefined>
   now?: () => number
+}
+
+export type BlossomUploadPlanFile = {
+  type?: string
+  size?: number
+}
+
+export type BlossomInitialUploadMethod = "media" | "upload"
+
+export type BlossomInitialUploadPlan =
+  | {
+      status: "ready"
+      method: BlossomInitialUploadMethod
+      canonical: BlossomServerTarget
+      optimizer?: BlossomServerTarget
+      mirrorOptimizedToCanonical: boolean
+      useClientCompression: boolean
+      reason: string
+    }
+  | {
+      status: "blocked"
+      reason: string
+    }
+
+export type ChooseBlossomInitialUploadPlanOptions = {
+  targets: BlossomServerTarget[]
+  capabilities?: Record<string, BlossomServerCapability | undefined>
+  settings?: BlossomSettings
+  file?: BlossomUploadPlanFile
+  encrypted?: boolean
+  publicContext?: boolean
 }
 
 export type BlossomBlobDescriptor = {
@@ -207,12 +233,7 @@ export const defaultBlossomDashboardState: BlossomDashboardState = {
   capabilities: {},
 }
 
-const optimizationModes = new Set<BlossomOptimizationMode>([
-  "auto",
-  "server",
-  "client",
-  "original",
-])
+const optimizationModes = new Set<BlossomOptimizationMode>(["auto", "server", "client", "original"])
 const mirrorModes = new Set<BlossomMirrorMode>([
   "ask",
   "server-side-only",
@@ -305,7 +326,9 @@ export const selectMemberCommunityBlossomRefs = ({
           communityPubkey: definition.pubkey,
           relayHints: definition.relays,
           blossomServers,
-          writableSections: Array.from(new Set(capabilities.map(capability => capability.sectionName))),
+          writableSections: Array.from(
+            new Set(capabilities.map(capability => capability.sectionName)),
+          ),
         } satisfies BlossomMemberCommunityRef,
       ]
     })
@@ -469,13 +492,7 @@ const probeHeadEndpoint = async ({
   }
 }
 
-const probeMirrorEndpoint = async ({
-  fetcher,
-  origin,
-}: {
-  fetcher: typeof fetch
-  origin: string
-}) => {
+const probeMirrorEndpoint = async ({fetcher, origin}: {fetcher: typeof fetch; origin: string}) => {
   try {
     const response = await fetcher(`${origin}/mirror`, {method: "OPTIONS"})
 
@@ -543,6 +560,85 @@ export const probeBlossomServerCapabilities = async ({
   return capability
 }
 
+const canTryUpload = (capability: BlossomServerCapability | undefined) =>
+  !capability || ["unknown", "supported", "auth-failed"].includes(capability.upload)
+
+const canTryMedia = (capability: BlossomServerCapability | undefined) =>
+  Boolean(capability && ["supported", "auth-failed"].includes(capability.media))
+
+const canServerMirror = (capability: BlossomServerCapability | undefined) =>
+  Boolean(capability && ["supported", "auth-failed"].includes(capability.mirror))
+
+const isMediaFile = (file?: BlossomUploadPlanFile) =>
+  Boolean(file?.type && /^(image|video)\//.test(file.type))
+
+const isClientCompressibleImage = (file?: BlossomUploadPlanFile) =>
+  Boolean(
+    file?.type && /^image\//.test(file.type) && !/^image\/(webp|gif|svg\+xml|svg)$/.test(file.type),
+  )
+
+export const chooseBlossomInitialUploadPlan = ({
+  targets,
+  capabilities = {},
+  settings = defaultBlossomSettings,
+  file,
+  encrypted = false,
+  publicContext = true,
+}: ChooseBlossomInitialUploadPlanOptions): BlossomInitialUploadPlan => {
+  if (encrypted && publicContext) return {status: "blocked", reason: "public-encryption-disabled"}
+
+  const canonical = targets.find(target => canTryUpload(capabilities[target.url]))
+  if (!canonical) return {status: "blocked", reason: "no-upload-target"}
+
+  const normalizedSettings = normalizeBlossomSettings(settings)
+  const mediaEligible =
+    !encrypted &&
+    isMediaFile(file) &&
+    (normalizedSettings.optimizationMode === "auto" ||
+      normalizedSettings.optimizationMode === "server")
+
+  if (mediaEligible && canTryMedia(capabilities[canonical.url])) {
+    return {
+      status: "ready",
+      method: "media",
+      canonical,
+      mirrorOptimizedToCanonical: false,
+      useClientCompression: false,
+      reason: "canonical-media",
+    }
+  }
+
+  if (mediaEligible && canServerMirror(capabilities[canonical.url])) {
+    const optimizer = targets.find(
+      target => target.url !== canonical.url && canTryMedia(capabilities[target.url]),
+    )
+
+    if (optimizer) {
+      return {
+        status: "ready",
+        method: "media",
+        canonical,
+        optimizer,
+        mirrorOptimizedToCanonical: true,
+        useClientCompression: false,
+        reason: "safe-external-optimizer",
+      }
+    }
+  }
+
+  return {
+    status: "ready",
+    method: "upload",
+    canonical,
+    mirrorOptimizedToCanonical: false,
+    useClientCompression:
+      isClientCompressibleImage(file) &&
+      (normalizedSettings.optimizationMode === "client" ||
+        normalizedSettings.optimizationMode === "auto"),
+    reason: mediaEligible ? "media-unavailable-upload-fallback" : "regular-upload",
+  }
+}
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === "object" && !Array.isArray(value))
 
@@ -594,10 +690,7 @@ export const normalizeBlossomSettings = (
       typeof source.preferServerSideMirroring === "boolean"
         ? source.preferServerSideMirroring
         : defaultBlossomSettings.preferServerSideMirroring,
-    autoMirrorTargetGroups: normalizeStringArray(
-      source.autoMirrorTargetGroups,
-      mirrorTargetGroups,
-    ),
+    autoMirrorTargetGroups: normalizeStringArray(source.autoMirrorTargetGroups, mirrorTargetGroups),
     publicEncryptionEnabled: false,
   }
 }
@@ -656,9 +749,8 @@ const normalizeMirrorJob = (value: unknown): BlossomMirrorJob | undefined => {
     targetGroup,
     method,
     status,
-    attempts: typeof value.attempts === "number" && Number.isFinite(value.attempts)
-      ? value.attempts
-      : 0,
+    attempts:
+      typeof value.attempts === "number" && Number.isFinite(value.attempts) ? value.attempts : 0,
     createdAt: normalizeTimestamp(value.createdAt, now),
     updatedAt: normalizeTimestamp(value.updatedAt, now),
     lastError: typeof value.lastError === "string" ? value.lastError : undefined,
@@ -702,9 +794,10 @@ const normalizeUploadRecord = (value: unknown): BlossomUploadRecord | undefined 
     original: original
       ? {
           name: typeof original.name === "string" ? original.name : undefined,
-          size: typeof original.size === "number" && Number.isFinite(original.size)
-            ? original.size
-            : undefined,
+          size:
+            typeof original.size === "number" && Number.isFinite(original.size)
+              ? original.size
+              : undefined,
           type: typeof original.type === "string" ? original.type : undefined,
           sha256: typeof original.sha256 === "string" ? original.sha256.toLowerCase() : undefined,
         }
@@ -797,7 +890,9 @@ export const updateBlossomUploadRecord = (
 
     return normalizeBlossomDashboardState({
       ...normalizedCurrent,
-      uploads: normalizedCurrent.uploads.map(record => (record.id === id ? update(record) : record)),
+      uploads: normalizedCurrent.uploads.map(record =>
+        record.id === id ? update(record) : record,
+      ),
     })
   })
 }

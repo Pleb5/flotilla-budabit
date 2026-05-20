@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
-import {beforeEach, describe, expect, it, vi} from "vitest"
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
+import {
+  blossomDashboardState,
+  blossomSettings,
+  defaultBlossomDashboardState,
+  defaultBlossomSettings,
+} from "./blossom"
 
 const utilMocks = vi.hoisted(() => ({
   uploadBlob: vi.fn(),
@@ -60,6 +66,13 @@ const makeUploadTestFile = () => {
 describe("commands", () => {
   beforeEach(() => {
     utilMocks.uploadBlob.mockReset()
+    localStorage.clear()
+    blossomSettings.set(defaultBlossomSettings)
+    blossomDashboardState.set(defaultBlossomDashboardState)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it("normalizeBlossomUrl converts ws to http", async () => {
@@ -100,8 +113,8 @@ describe("commands", () => {
     const mirror = normalizeBlossomUrl("https://mirror.example.com")
     const file = makeUploadTestFile()
 
-    utilMocks.uploadBlob.mockImplementation(async (server: string) =>
-      new Response(JSON.stringify({uploaded: 1, url: `${server}blob`})),
+    utilMocks.uploadBlob.mockImplementation(
+      async (server: string) => new Response(JSON.stringify({uploaded: 1, url: `${server}blob`})),
     )
 
     const {error, mirrors, result} = await uploadFile(file, {
@@ -157,7 +170,56 @@ describe("commands", () => {
     expect(result?.url).toBe("https://default.example.com/blob.webp")
     expect(mirrors).toBeUndefined()
     expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
-    expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(normalizeBlossomUrl(DEFAULT_BLOSSOM_SERVERS[0]))
+    expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(
+      normalizeBlossomUrl(DEFAULT_BLOSSOM_SERVERS[0]),
+    )
+  })
+
+  it("uploadFile uses media when the canonical server supports it", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const server = normalizeBlossomUrl("https://media.example.com")
+    const file = makeUploadTestFile()
+    const hash = "b".repeat(64)
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({url: `${server}/${hash}`, sha256: hash, type: "image/webp"})),
+    )
+
+    blossomDashboardState.set({
+      ...defaultBlossomDashboardState,
+      capabilities: {
+        [server]: {
+          url: server,
+          checkedAt: 1,
+          upload: "supported",
+          media: "supported",
+          mirror: "unsupported",
+        },
+      },
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const {error, result} = await uploadFile(file, {url: server})
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${server}/${hash}.webp`)
+    expect(utilMocks.uploadBlob).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toBe(`${server.replace(/\/+$/, "")}/media`)
+    expect(fetchMock.mock.calls[0][1]?.method).toBe("PUT")
+  })
+
+  it("uploadFile rejects encrypted uploads in public contexts", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const file = makeUploadTestFile()
+
+    const {error} = await uploadFile(file, {
+      url: normalizeBlossomUrl("https://primary.example.com"),
+      encrypt: true,
+    })
+
+    expect(error).toBe("Encrypted Blossom uploads are disabled for public contexts.")
+    expect(utilMocks.uploadBlob).not.toHaveBeenCalled()
   })
 
   it("makeReport builds report event with tags", async () => {
