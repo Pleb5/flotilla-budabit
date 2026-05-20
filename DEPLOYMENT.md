@@ -146,30 +146,23 @@ export const config = {
 }
 ```
 
-## Monitoring and Logging
+## Local Logging
 
-### Application Monitoring
-
-#### Error Tracking
+### Application Logging
 
 ```typescript
 // packages/core/src/lib/logger.ts
 export class Logger {
   error(message: string, error?: Error, context?: object) {
     console.error(`[nostr-git] ${message}`, {error, context})
-
-    // Send to error tracking service in production
-    if (process.env.NODE_ENV === "production") {
-      // Sentry, LogRocket, etc.
-    }
   }
 }
 ```
 
-#### Performance Monitoring
+### Performance Logging
 
 ```typescript
-// Performance tracking for critical operations
+// Local timing for critical operations
 export async function trackOperation<T>(name: string, operation: () => Promise<T>): Promise<T> {
   const start = performance.now()
   try {
@@ -181,20 +174,6 @@ export async function trackOperation<T>(name: string, operation: () => Promise<T
     const duration = performance.now() - start
     logger.error(`Operation ${name} failed`, error, {duration})
     throw error
-  }
-}
-```
-
-### Extension Monitoring
-
-#### Chrome Extension Analytics
-
-```javascript
-// packages/extension/src/analytics.ts
-export function trackEvent(event: string, properties?: object) {
-  if (process.env.NODE_ENV === 'production') {
-    // Google Analytics 4 or similar
-    gtag('event', event, properties);
   }
 }
 ```
