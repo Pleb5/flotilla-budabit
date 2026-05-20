@@ -123,6 +123,7 @@ import {
   type BlossomServerCapability,
   type BlossomServerTarget,
   type BlossomSettings,
+  type BlossomUploadStage,
   type BlossomUploadContext,
 } from "@app/core/blossom"
 
@@ -1064,6 +1065,7 @@ export type UploadFileOptions = {
   blossomTargets?: BlossomServerTarget[]
   blossomCapabilities?: Record<string, BlossomServerCapability | undefined>
   blossomSettings?: Partial<BlossomSettings>
+  onStage?: (stage: BlossomUploadStage) => void
 }
 
 export type BlossomMirrorUploadResult = {
@@ -1247,12 +1249,19 @@ const mirrorFileToBlossomServer = async ({
 }
 
 export const uploadFile = async (file: File, options: UploadFileOptions = {}) => {
+  const setStage = (stage: BlossomUploadStage) => options.onStage?.(stage)
+
   try {
+    setStage("preparing")
+
     const {name, type} = file
     const originalExtension = getFileExtension(type)
     const {primary, mirrors: mirrorServers} = getBlossomUploadTargets(options)
     const capabilities = options.blossomCapabilities || get(blossomDashboardState).capabilities
     const settings = normalizeBlossomSettings(options.blossomSettings || get(blossomSettings))
+
+    setStage("checking-servers")
+
     const plan = chooseBlossomInitialUploadPlan({
       targets: getPlannerTargets({options, primary, mirrors: mirrorServers}),
       capabilities,
@@ -1263,6 +1272,8 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
     })
 
     if (plan.status === "blocked") {
+      setStage("failed")
+
       return {
         error:
           plan.reason === "public-encryption-disabled"
@@ -1294,6 +1305,9 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
     const hash = await sha256(await file.arrayBuffer())
     const headers = getBlossomUploadHeaders(file, hash)
     const uploadServer = plan.optimizer?.url || plan.canonical.url
+
+    setStage(plan.method === "media" ? "optimizing" : "uploading")
+
     const {
       res,
       text,
@@ -1308,10 +1322,14 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
     let uploadTask = initialTask
 
     if (!res.ok || !hasBlossomTaskSucceeded(uploadTask)) {
+      setStage("failed")
+
       return {error: text || `Failed to upload file (HTTP ${res.status})`}
     }
 
     if (plan.mirrorOptimizedToCanonical) {
+      setStage("saving-canonical")
+
       const optimizedHash = getBlossomTaskHash(uploadTask)
       const optimizedType = getTaskMimeType(uploadTask) || file.type
       const optimizedUrl =
@@ -1319,6 +1337,8 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
         (optimizedHash && buildBlossomUrl(uploadServer, optimizedHash, optimizedType))
 
       if (!optimizedHash || !optimizedUrl) {
+        setStage("failed")
+
         return {error: "Optimized Blossom upload did not include a usable URL and hash."}
       }
 
@@ -1333,6 +1353,8 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
       })
 
       if (!mirrorRes.ok || !hasBlossomTaskSucceeded(mirrorTask)) {
+        setStage("failed")
+
         return {
           error:
             mirrorText ||
@@ -1343,6 +1365,8 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
       const mirroredHash = getBlossomTaskHash(mirrorTask)
 
       if (mirroredHash && mirroredHash !== optimizedHash) {
+        setStage("failed")
+
         return {
           error: "Canonical Blossom mirror returned a different hash than the optimized file.",
         }
@@ -1381,8 +1405,11 @@ export const uploadFile = async (file: File, options: UploadFileOptions = {}) =>
 
     const result = {...task, tags, url}
 
+    setStage("ready")
+
     return immediateMirrorServers.length > 0 ? {result, mirrors} : {result}
   } catch (e: any) {
+    setStage("failed")
     console.error("Error caught when uploading file:", e)
 
     return {error: e.toString()}

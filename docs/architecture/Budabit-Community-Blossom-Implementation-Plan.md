@@ -159,7 +159,7 @@ Exit criteria:
 
 ## Phase 5: Upload Status Feedback
 
-Status: pending.
+Status: completed.
 
 Scope:
 

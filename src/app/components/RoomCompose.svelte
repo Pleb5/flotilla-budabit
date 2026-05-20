@@ -10,8 +10,10 @@
   import Button from "@lib/components/Button.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
   import ComposeMenu from "@app/components/ComposeMenu.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {makeEditor} from "@app/editor"
+  import type {BlossomUploadStage} from "@app/core/blossom"
   import {onDestroy, onMount} from "svelte"
 
   type Props = {
@@ -40,6 +42,7 @@
   const sendShortcut = `${navigator.platform.includes("Mac") ? "cmd" : "ctrl"}+enter to send`
 
   const uploading = writable(false)
+  const uploadStage = writable<BlossomUploadStage>("idle")
 
   export const focus = () => editor.then(ed => ed.chain().focus().run())
 
@@ -74,6 +77,7 @@
     onSubmit({content, tags})
 
     ed.chain().clearContent().run()
+    uploadStage.set("idle")
   }
 
   const editor = makeEditor({
@@ -82,6 +86,7 @@
     content,
     autofocus,
     submit,
+    uploadStage,
     uploading,
     aggressive: false,
   })
@@ -142,4 +147,7 @@
     onclick={submit}>
     <Icon icon={Plane} />
   </Button>
+  <div class="absolute bottom-full left-2 mb-2">
+    <BlossomUploadStatus stage={$uploadStage} />
+  </div>
 </form>

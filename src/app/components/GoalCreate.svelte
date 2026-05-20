@@ -12,9 +12,11 @@
   import Button from "@lib/components/Button.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {pushToast} from "@app/util/toast"
   import {makeEditor} from "@app/editor"
+  import type {BlossomUploadStage} from "@app/core/blossom"
 
   type Props = {
     url: string
@@ -24,6 +26,7 @@
   const {url, h}: Props = $props()
 
   const uploading = writable(false)
+  const uploadStage = writable<BlossomUploadStage>("idle")
 
   const back = () => history.back()
 
@@ -68,7 +71,13 @@
     history.back()
   }
 
-  const editor = makeEditor({url, submit, uploading, placeholder: "What's on your mind?"})
+  const editor = makeEditor({
+    url,
+    submit,
+    uploadStage,
+    uploading,
+    placeholder: "What's on your mind?",
+  })
 
   let content = $state("")
   let amount = $state(1000)
@@ -121,6 +130,9 @@
           <Icon icon={Paperclip} size={3} />
         {/if}
       </Button>
+      <div class="mt-2">
+        <BlossomUploadStatus stage={$uploadStage} />
+      </div>
     </div>
     <div class="flex flex-col gap-1">
       <FieldInline>

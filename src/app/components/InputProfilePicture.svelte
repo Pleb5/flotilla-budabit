@@ -5,7 +5,9 @@
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import GallerySend from "@assets/icons/gallery-send.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import {uploadFile} from "@app/core/commands"
+  import type {BlossomUploadStage} from "@app/core/blossom"
 
   interface Props {
     file?: File | undefined
@@ -46,15 +48,18 @@
 
   let active = $state(false)
   let initialUrl = $state(url)
+  let uploadStage = $state<BlossomUploadStage>("idle")
 
   $effect(() => {
     call(async () => {
       if (file) {
-        const {result} = await uploadFile(file)
+        const {error, result} = await uploadFile(file, {onStage: stage => (uploadStage = stage)})
 
         if (result?.url) {
           url = result.url
         } else {
+          if (error) uploadStage = "failed"
+
           const reader = new FileReader()
 
           reader.addEventListener(
@@ -68,6 +73,7 @@
           reader.readAsDataURL(file)
         }
       } else {
+        uploadStage = "idle"
         url = initialUrl
       }
     })
@@ -107,4 +113,7 @@
       <Icon icon={GallerySend} size={7} />
     {/if}
   </label>
+  <div class="mt-2 w-56 max-w-full">
+    <BlossomUploadStatus stage={uploadStage} />
+  </div>
 </form>

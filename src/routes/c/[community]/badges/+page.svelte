@@ -14,11 +14,13 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import CommunityBadgeAwardForm from "@app/components/CommunityBadgeAwardForm.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import {preventDefault} from "@lib/html"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {uploadFile} from "@app/core/commands"
+  import type {BlossomUploadStage} from "@app/core/blossom"
   import {
     activeCommunityBootstrapStatus,
     activeCommunityBlossomServers,
@@ -85,6 +87,7 @@
   let editingDefinitionAddress = $state("")
   let publishing = $state(false)
   let uploadingImage = $state(false)
+  let imageUploadStage = $state<BlossomUploadStage>("idle")
   let imageUploadNote = $state("")
 
   const canManageBadges = $derived(
@@ -235,6 +238,7 @@
     badgeDescription = ""
     badgeImage = ""
     badgeImageDimensions = ""
+    imageUploadStage = "idle"
     imageUploadNote = ""
   }
 
@@ -244,6 +248,7 @@
     badgeDescription = definition.description || ""
     badgeImage = definition.image || ""
     badgeImageDimensions = definition.imageDimensions || ""
+    imageUploadStage = "idle"
     imageUploadNote = ""
     myBadgePanel = "studio"
   }
@@ -412,6 +417,7 @@
     if (!file) return
 
     uploadingImage = true
+    imageUploadStage = "preparing"
     imageUploadNote = ""
 
     try {
@@ -430,11 +436,12 @@
         imageUploadNote = "Uploaded. 1024x1024 is recommended by NIP-58."
       }
 
-      const {error, mirrors, result} = await uploadFile(file, {
+      const {error, result} = await uploadFile(file, {
         url: $activeCommunityBlossomServers[0],
         mirrorUrls: $activeCommunityBlossomServers.slice(1),
         maxWidth: 1024,
         maxHeight: 1024,
+        onStage: stage => (imageUploadStage = stage),
       })
 
       if (error || !result?.url) throw new Error(error || "Image upload failed.")
@@ -443,15 +450,12 @@
       badgeImageDimensions =
         width === height ? `${Math.min(width, 1024)}x${Math.min(height, 1024)}` : ""
 
-      const failedMirrors = mirrors?.filter(mirror => !mirror.ok) || []
       pushToast({
-        theme: failedMirrors.length > 0 ? "warning" : "success",
-        message:
-          failedMirrors.length > 0
-            ? `Badge image uploaded, but ${failedMirrors.length} community mirror${failedMirrors.length === 1 ? "" : "s"} failed.`
-            : "Badge image uploaded.",
+        theme: "success",
+        message: "Badge image uploaded.",
       })
     } catch (error) {
+      imageUploadStage = "failed"
       pushToast({theme: "error", message: error instanceof Error ? error.message : String(error)})
     } finally {
       uploadingImage = false
@@ -789,13 +793,7 @@
                       class="file-input file-input-bordered w-full"
                       disabled={uploadingImage}
                       onchange={uploadBadgeImage} />
-                    {#if uploadingImage}
-                      <div
-                        class="flex items-center gap-2 rounded-box border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary">
-                        <span class="loading loading-spinner loading-sm"></span>
-                        <span>Uploading badge image...</span>
-                      </div>
-                    {/if}
+                    <BlossomUploadStatus stage={imageUploadStage} />
                     <input
                       class="input input-bordered w-full"
                       placeholder="https://example.com/badge.png"

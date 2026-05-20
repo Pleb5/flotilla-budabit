@@ -6,8 +6,10 @@
   import Plane from "@assets/icons/plane-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {makeEditor} from "@app/editor"
+  import type {BlossomUploadStage} from "@app/core/blossom"
   import SlotRenderer from "@app/extensions/components/SlotRenderer.svelte"
 
   type Props = {
@@ -26,6 +28,7 @@
   const sendShortcut = `${navigator.platform.includes("Mac") ? "cmd" : "ctrl"}+enter to send`
 
   const uploading = writable(false)
+  const uploadStage = writable<BlossomUploadStage>("idle")
 
   export const focus = () => {
     if (disabled) return
@@ -49,11 +52,13 @@
     onSubmit({content, tags})
 
     ed.chain().clearContent().run()
+    uploadStage.set("idle")
   }
 
   const editor = makeEditor({
     autofocus,
     submit,
+    uploadStage,
     uploading,
     aggressive: false,
     encryptFiles: false,
@@ -93,5 +98,8 @@
         <SlotRenderer slotId="chat:composer:actions" context={{editor}} />
       </div>
     {/if}
+    <div class="absolute bottom-full left-2 mb-2">
+      <BlossomUploadStatus stage={$uploadStage} />
+    </div>
   </form>
 {/if}

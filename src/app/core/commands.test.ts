@@ -180,6 +180,7 @@ describe("commands", () => {
     const server = normalizeBlossomUrl("https://media.example.com")
     const file = makeUploadTestFile()
     const hash = "b".repeat(64)
+    const stages: string[] = []
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response(JSON.stringify({url: `${server}/${hash}`, sha256: hash, type: "image/webp"})),
@@ -199,10 +200,14 @@ describe("commands", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const {error, result} = await uploadFile(file, {url: server})
+    const {error, result} = await uploadFile(file, {
+      url: server,
+      onStage: stage => stages.push(stage),
+    })
 
     expect(error).toBeUndefined()
     expect(result?.url).toBe(`${server}/${hash}.webp`)
+    expect(stages).toEqual(["preparing", "checking-servers", "optimizing", "ready"])
     expect(utilMocks.uploadBlob).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0][0])).toBe(`${server.replace(/\/+$/, "")}/media`)
@@ -212,13 +217,16 @@ describe("commands", () => {
   it("uploadFile rejects encrypted uploads in public contexts", async () => {
     const {uploadFile, normalizeBlossomUrl} = await import("./commands")
     const file = makeUploadTestFile()
+    const stages: string[] = []
 
     const {error} = await uploadFile(file, {
       url: normalizeBlossomUrl("https://primary.example.com"),
       encrypt: true,
+      onStage: stage => stages.push(stage),
     })
 
     expect(error).toBe("Encrypted Blossom uploads are disabled for public contexts.")
+    expect(stages).toEqual(["preparing", "checking-servers", "failed"])
     expect(utilMocks.uploadBlob).not.toHaveBeenCalled()
   })
 

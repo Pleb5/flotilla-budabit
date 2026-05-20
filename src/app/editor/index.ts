@@ -19,6 +19,7 @@ import {Editor, MentionSuggestion, WelshmanExtension, editorProps} from "@welshm
 import {makeMentionNodeView} from "@app/editor/MentionNodeView"
 import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
 import {uploadFile} from "@app/core/commands"
+import type {BlossomUploadStage} from "@app/core/blossom"
 import {pushToast} from "@app/util/toast"
 import {getQuoteEventTags} from "@app/util/git-quote"
 import {PermalinkExtension} from "@nostr-git/ui"
@@ -57,6 +58,7 @@ export const makeEditor = async ({
   url,
   mirrorUrls = [],
   submit,
+  uploadStage,
   uploading,
   wordCount,
 }: {
@@ -69,19 +71,17 @@ export const makeEditor = async ({
   url?: string
   mirrorUrls?: string[]
   submit: () => void
+  uploadStage?: Writable<BlossomUploadStage>
   uploading?: Writable<boolean>
   wordCount?: Writable<number>
 }) => {
   const upload = async (attrs: FileAttributes) => {
-    const uploadResult = await uploadFile(attrs.file, {url, encrypt: encryptFiles, mirrorUrls})
-    const failedMirrors = uploadResult.mirrors?.filter(mirror => !mirror.ok) || []
-
-    if (failedMirrors.length > 0) {
-      pushToast({
-        theme: "warning",
-        message: `File uploaded, but ${failedMirrors.length} community mirror${failedMirrors.length === 1 ? "" : "s"} failed.`,
-      })
-    }
+    const uploadResult = await uploadFile(attrs.file, {
+      url,
+      encrypt: encryptFiles,
+      mirrorUrls,
+      onStage: stage => uploadStage?.set(stage),
+    })
 
     return uploadResult
   }
@@ -145,10 +145,14 @@ export const makeEditor = async ({
           fileUpload: {
             config: {
               upload,
-              onDrop: () => uploading?.set(true),
+              onDrop: () => {
+                uploadStage?.set("preparing")
+                uploading?.set(true)
+              },
               onComplete: () => uploading?.set(false),
               onUploadError(currentEditor, task) {
                 currentEditor.commands.removeFailedUploads()
+                uploadStage?.set("failed")
                 pushToast({theme: "error", message: task.error})
                 uploading?.set(false)
               },

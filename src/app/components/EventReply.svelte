@@ -7,14 +7,17 @@
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {publishComment} from "@app/core/commands"
   import {makeEditor} from "@app/editor"
   import {pushToast} from "@app/util/toast"
+  import type {BlossomUploadStage} from "@app/core/blossom"
 
   const {url, event, onClose, onSubmit} = $props()
 
   const uploading = writable(false)
+  const uploadStage = writable<BlossomUploadStage>("idle")
 
   const selectFiles = () => editor.then(ed => ed.commands.selectFiles())
 
@@ -35,7 +38,7 @@
     onSubmit(publishComment({event, content, tags, relays: [url]}))
   }
 
-  const editor = makeEditor({url, submit, uploading, autofocus: !isMobile})
+  const editor = makeEditor({url, submit, uploadStage, uploading, autofocus: !isMobile})
 
   let form: HTMLElement
   let spacer: HTMLElement
@@ -78,6 +81,9 @@
           <Icon icon={Paperclip} size={3} />
         {/if}
       </Button>
+      <div class="mt-2">
+        <BlossomUploadStatus stage={$uploadStage} />
+      </div>
     </div>
     <ModalFooter>
       <Button class="btn btn-link" onclick={onClose}>Cancel</Button>

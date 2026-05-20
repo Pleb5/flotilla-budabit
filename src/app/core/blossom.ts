@@ -49,6 +49,28 @@ export type BlossomUploadStage =
   | "ready"
   | "failed"
 
+export const getBlossomUploadStageMessage = (stage: BlossomUploadStage = "idle") => {
+  switch (stage) {
+    case "preparing":
+      return "Preparing file..."
+    case "checking-servers":
+      return "Checking Blossom servers..."
+    case "uploading":
+      return "Uploading to Blossom..."
+    case "optimizing":
+      return "Optimizing media on Blossom..."
+    case "saving-canonical":
+      return "Saving optimized media to the canonical server..."
+    case "ready":
+      return "Ready to publish."
+    case "failed":
+      return "Upload failed."
+    case "idle":
+    default:
+      return ""
+  }
+}
+
 export type BlossomMirrorJobStatus =
   | "queued"
   | "running"

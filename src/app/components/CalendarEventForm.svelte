@@ -16,9 +16,11 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import DateTimeInput from "@lib/components/DateTimeInput.svelte"
+  import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import EditorContent from "@app/editor/EditorContent.svelte"
   import {makeEditor, plainTextToTiptapHTML} from "@app/editor"
   import {normalizeRelays} from "@app/core/community"
+  import type {BlossomUploadStage} from "@app/core/blossom"
   import {pushToast} from "@app/util/toast"
 
   type Props = {
@@ -44,6 +46,7 @@
   const managedTagNames = new Set(["d", "title", "name", "location", "start", "end", "D", "h"])
 
   const uploading = writable(false)
+  const uploadStage = writable<BlossomUploadStage>("idle")
 
   const back = () => history.back()
 
@@ -122,7 +125,7 @@
 
   const content = initialValues?.content || ""
   const tiptapContent = plainTextToTiptapHTML(content)
-  const editor = makeEditor({url, submit, uploading, content: tiptapContent})
+  const editor = makeEditor({url, submit, uploadStage, uploading, content: tiptapContent})
 
   let title = $state(initialValues?.title || "")
   let location = $state(initialValues?.location || "")
@@ -167,6 +170,9 @@
         <!--     <Icon icon={GallerySend} /> -->
         <!--   {/if} -->
         <!-- </Button> -->
+      </div>
+      <div class="mt-2">
+        <BlossomUploadStatus stage={$uploadStage} />
       </div>
     {/snippet}
   </Field>

@@ -12,6 +12,7 @@ import {
   defaultBlossomDashboardState,
   defaultBlossomSettings,
   flattenBlossomServerGroups,
+  getBlossomUploadStageMessage,
   normalizeBlossomDashboardState,
   normalizeBlossomSettings,
   probeBlossomServerCapabilities,
@@ -123,6 +124,14 @@ describe("blossom settings", () => {
       browserMirrorConsent: "allow",
       autoMirrorTargetGroups: ["current-community", "manual"],
     })
+  })
+})
+
+describe("blossom upload status", () => {
+  it("provides concise user-facing stage messages", () => {
+    expect(getBlossomUploadStageMessage("checking-servers")).toBe("Checking Blossom servers...")
+    expect(getBlossomUploadStageMessage("optimizing")).toBe("Optimizing media on Blossom...")
+    expect(getBlossomUploadStageMessage("idle")).toBe("")
   })
 })
 
