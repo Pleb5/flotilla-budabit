@@ -297,7 +297,7 @@ Exit criteria:
 
 ## Phase 10: Optional Server Listing Integration
 
-Status: pending.
+Status: completed.
 
 Scope:
 

@@ -18,6 +18,7 @@ import {
   groupBlossomMirrorJobs,
   getBlossomUploadStageMessage,
   normalizeBlossomDashboardState,
+  normalizeBlossomListResult,
   normalizeBlossomSettings,
   probeBlossomServerCapabilities,
   rememberBlossomCapability,
@@ -607,5 +608,38 @@ describe("blossom mirror job planning", () => {
         settings: {...defaultBlossomSettings, mirrorMode: "never"},
       }),
     ).toBe(false)
+  })
+})
+
+describe("blossom server list normalization", () => {
+  it("normalizes array and wrapped list responses", () => {
+    expect(
+      normalizeBlossomListResult(
+        {
+          blobs: [
+            {
+              sha256: "a".repeat(64),
+              size: "123",
+              type: "image/webp",
+              uploaded: 10,
+            },
+            {hash: "bad"},
+          ],
+        },
+        "https://blossom.example/path",
+      ),
+    ).toEqual([
+      {
+        url: `https://blossom.example/${"a".repeat(64)}`,
+        sha256: "a".repeat(64),
+        size: 123,
+        type: "image/webp",
+        uploadedAt: 10,
+      },
+    ])
+
+    expect(
+      normalizeBlossomListResult([{hash: "b".repeat(64), url: "https://cdn.example/blob"}], ""),
+    ).toEqual([expect.objectContaining({url: "https://cdn.example/blob", sha256: "b".repeat(64)})])
   })
 })

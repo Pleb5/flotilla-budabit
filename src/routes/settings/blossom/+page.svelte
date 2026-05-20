@@ -1,7 +1,14 @@
 <script lang="ts">
-  import {BLOSSOM_SERVERS, getListTags, getTagValues, makeEvent, tagger} from "@welshman/util"
+  import {
+    BLOSSOM_SERVERS,
+    getListTags,
+    getTagValues,
+    listBlobs,
+    makeEvent,
+    tagger,
+  } from "@welshman/util"
   import {Router} from "@welshman/router"
-  import {publishThunk, userBlossomServerList} from "@welshman/app"
+  import {pubkey, publishThunk, signer, userBlossomServerList} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
   import Field from "@lib/components/Field.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
@@ -23,9 +30,11 @@
     flattenBlossomServerGroups,
     getBlossomMirrorTargetGroupLabel,
     groupBlossomMirrorJobs,
+    normalizeBlossomListResult,
     removeBlossomUploadRecord,
     updateBlossomSettings,
     type BlossomBrowserMirrorConsent,
+    type BlossomListedBlob,
     type BlossomMirrorMode,
     type BlossomMirrorTargetGroup,
     type BlossomOptimizationMode,
@@ -33,6 +42,7 @@
     type BlossomUploadStage,
   } from "@app/core/blossom"
   import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
+  import {makeBudabitBlossomAuthEvent} from "@app/util/blossom-auth"
   import {DEFAULT_BLOSSOM_SERVERS} from "@app/core/state"
   import {clip, pushToast} from "@app/util/toast"
 
@@ -101,6 +111,10 @@
   let genericUploadStage = $state<BlossomUploadStage>("idle")
   let genericUploadError = $state("")
   let genericUploadResult = $state<{url: string; sha256?: string; uploadId?: string} | undefined>()
+  let listedServer = $state("")
+  let listedBlobs = $state<BlossomListedBlob[]>([])
+  let listError = $state("")
+  let listing = $state(false)
 
   const serverGroups = $derived(
     buildBlossomServerGroups({
@@ -197,6 +211,39 @@
 
     genericUploadResult = {url: result.url, sha256: result.sha256, uploadId}
     promptBlossomMirrorUpload(uploadId)
+  }
+
+  const inspectServerList = async (server = listedServer) => {
+    if (!$pubkey) {
+      listError = "Sign in before listing Blossom uploads."
+      return
+    }
+    if (!server) {
+      listError = "Choose a Blossom server first."
+      return
+    }
+
+    listing = true
+    listError = ""
+    listedServer = server
+
+    try {
+      const activeSigner = signer.get()
+      const authEvent = activeSigner
+        ? await activeSigner.sign(makeBudabitBlossomAuthEvent({action: "list", server}))
+        : undefined
+      const response = await listBlobs(server, $pubkey, {authEvent})
+      const text = await response.text()
+
+      if (!response.ok) throw new Error(text || `Server list failed (HTTP ${response.status})`)
+
+      listedBlobs = normalizeBlossomListResult(text ? JSON.parse(text) : [], server)
+    } catch (error) {
+      listError = error instanceof Error ? error.message : String(error)
+      listedBlobs = []
+    } finally {
+      listing = false
+    }
   }
 </script>
 
@@ -376,6 +423,57 @@
             {/if}
           </div>
         {/each}
+
+        <div class="column gap-3 rounded-box border border-base-300 p-3">
+          <div>
+            <h2 class="font-semibold">Inspect server uploads</h2>
+            <p class="text-sm opacity-70">
+              Server listings come from Blossom `/list` and may be incomplete or unavailable. They
+              are shown separately from local Budabit upload history.
+            </p>
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <select class="select select-bordered flex-1" bind:value={listedServer}>
+              <option value="">Choose a server</option>
+              {#each allTargets as target}
+                <option value={target.url}>{target.url}</option>
+              {/each}
+            </select>
+            <Button
+              class="btn btn-primary"
+              disabled={listing || !listedServer}
+              onclick={() => inspectServerList()}>
+              {listing ? "Listing..." : "List uploads"}
+            </Button>
+          </div>
+          {#if listError}
+            <div class="rounded-box bg-error/10 p-3 text-sm text-error">{listError}</div>
+          {/if}
+          {#if listedBlobs.length > 0}
+            <div class="column gap-2">
+              {#each listedBlobs as blob (blob.url)}
+                <div class="rounded-box bg-base-200 p-3 text-sm">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="font-medium">Server-provided upload</div>
+                    <span class="badge badge-warning">server-provided</span>
+                  </div>
+                  <div class="mt-1 break-all text-xs">{blob.url}</div>
+                  <div class="mt-1 text-xs opacity-70">
+                    {formatBytes(blob.size)} · {blob.type || "unknown type"}
+                    {#if blob.uploadedAt}
+                      · {new Date(blob.uploadedAt * 1000).toLocaleString()}{/if}
+                  </div>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <Button class="btn btn-sm" onclick={() => clip(blob.url)}>Copy URL</Button>
+                    <a class="btn btn-sm" href={blob.url} download>Download</a>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {:else if listedServer && !listing && !listError}
+            <p class="text-sm opacity-60">No server-provided uploads returned for this server.</p>
+          {/if}
+        </div>
       </section>
     {:else if activeTab === "optimization"}
       <section class="column gap-3">

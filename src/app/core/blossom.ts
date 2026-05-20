@@ -159,6 +159,10 @@ export type BlossomBlobDescriptor = {
   type?: string
 }
 
+export type BlossomListedBlob = BlossomBlobDescriptor & {
+  uploadedAt?: number
+}
+
 export type BlossomUploadContext = {
   type: BlossomUploadContextType
   communityPubkey?: string
@@ -253,6 +257,24 @@ export type BlossomDashboardState = {
   version: 1
   uploads: BlossomUploadRecord[]
   capabilities: Record<string, BlossomServerCapability>
+}
+
+const getBlobHashFromValue = (value: Record<string, unknown>) => {
+  for (const field of ["sha256", "hash", "x"]) {
+    const hash = value[field]
+
+    if (typeof hash === "string" && /^[0-9a-f]{64}$/i.test(hash)) return hash.toLowerCase()
+  }
+
+  return ""
+}
+
+const getBlobUrlFromValue = (value: Record<string, unknown>, server: string, sha256: string) => {
+  const url = value.url
+  if (typeof url === "string" && /^https?:\/\//i.test(url)) return url
+
+  const normalizedServer = normalizeBlossomServerUrl(server)
+  return normalizedServer && sha256 ? `${normalizedServer}/${sha256}` : ""
 }
 
 const blossomMirrorTargetGroupLabels: Record<BlossomMirrorTargetGroup, string> = {
@@ -773,6 +795,47 @@ export const shouldPromptForBlossomMirrorUpload = ({
   const normalizedSettings = normalizeBlossomSettings(settings)
 
   return normalizedSettings.mirrorMode === "ask" && Boolean(record?.mirrorJobs.length)
+}
+
+export const normalizeBlossomListResult = (value: unknown, server: string): BlossomListedBlob[] => {
+  const rows = Array.isArray(value)
+    ? value
+    : isPlainObject(value) && Array.isArray(value.blobs)
+      ? value.blobs
+      : isPlainObject(value) && Array.isArray(value.files)
+        ? value.files
+        : []
+
+  return rows.flatMap(row => {
+    if (!isPlainObject(row)) return []
+
+    const sha256 = getBlobHashFromValue(row)
+    if (!sha256) return []
+
+    const size = typeof row.size === "string" ? Number(row.size) : row.size
+    const uploadedAt =
+      typeof row.uploaded === "number"
+        ? row.uploaded
+        : typeof row.created_at === "number"
+          ? row.created_at
+          : undefined
+    const type =
+      typeof row.type === "string"
+        ? row.type
+        : typeof row.mime_type === "string"
+          ? row.mime_type
+          : undefined
+
+    return [
+      {
+        url: getBlobUrlFromValue(row, server, sha256),
+        sha256,
+        size: typeof size === "number" && Number.isFinite(size) ? size : undefined,
+        type,
+        uploadedAt,
+      } satisfies BlossomListedBlob,
+    ]
+  })
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
