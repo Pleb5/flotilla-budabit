@@ -94,6 +94,7 @@ import {
   SMART_WIDGET_RELAYS,
   userSettingsValues,
   getSetting,
+  normalizeSettingsValues,
 } from "@app/core/state"
 import {loadAlertStatuses} from "@app/core/requests"
 import {platform, platformName, getPushInfo} from "@app/util/push"
@@ -895,7 +896,7 @@ export const createDmAlert = async () => {
 // Settings
 
 export const makeSettings = async (params: Partial<SettingsValues>) => {
-  const json = JSON.stringify({...get(userSettingsValues), ...params})
+  const json = JSON.stringify(normalizeSettingsValues({...get(userSettingsValues), ...params}))
   const content = await signer.get().nip44.encrypt(pubkey.get()!, json)
   const tags = [["d", SETTINGS]]
 

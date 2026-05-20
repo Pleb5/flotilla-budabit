@@ -103,8 +103,6 @@ You can also optionally create an `.env` file and populate it with the following
 - `VITE_PLATFORM_DESCRIPTION` - Fallback app description when community profile about is unavailable
 - `VITE_GIT_RELAYS` - Comma-separated Nostr relays used for Git repository discovery
 - `VITE_GIT_DEFAULT_CORS_PROXY` - Default CORS proxy for Git HTTP operations
-- `VITE_GLITCHTIP_API_KEY` - A Sentry DSN for use with glitchtip (error reporting)
-- `GLITCHTIP_AUTH_TOKEN` - A glitchtip auth token for error reporting
 
 ## Troubleshooting
 

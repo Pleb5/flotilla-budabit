@@ -251,8 +251,6 @@ export type SettingsValues = {
   show_media: boolean
   hide_sensitive: boolean
   trusted_relays: string[]
-  report_usage: boolean
-  report_errors: boolean
   send_delay: number
   font_size: number
   play_notification_sound: boolean
@@ -264,16 +262,26 @@ export type Settings = {
   values: SettingsValues
 }
 
-export const defaultSettings = {
+export const defaultSettings: SettingsValues = {
   show_media: true,
   hide_sensitive: true,
   trusted_relays: [],
-  report_usage: true,
-  report_errors: true,
   send_delay: 0,
   font_size: 1.1,
   play_notification_sound: true,
   show_notifications_badge: true,
+}
+
+const settingValueKeys = Object.keys(defaultSettings) as (keyof SettingsValues)[]
+
+export const normalizeSettingsValues = (
+  values?: Partial<SettingsValues> | null,
+): SettingsValues => {
+  const source = values || {}
+
+  return Object.fromEntries(
+    settingValueKeys.map(key => [key, source[key] ?? defaultSettings[key]]),
+  ) as SettingsValues
 }
 
 export const settingsByPubkey = deriveItemsByKey({
@@ -281,7 +289,7 @@ export const settingsByPubkey = deriveItemsByKey({
   getKey: settings => settings.event.pubkey,
   filters: [{kinds: [APP_DATA], "#d": [SETTINGS]}],
   eventToItem: async (event: TrustedEvent) => {
-    const values = {...defaultSettings, ...parseJson(await ensurePlaintext(event))}
+    const values = normalizeSettingsValues(parseJson(await ensurePlaintext(event)))
 
     return {event, values}
   },

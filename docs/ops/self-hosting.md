@@ -42,12 +42,7 @@ Notes:
 - `VITE_DEFAULT_COMMUNITY` should be a community `npub`, hex pubkey, or `ncommunity` identifier.
 - `VITE_INDEXER_RELAYS` should include relays that can resolve the default community definition.
 
-## What You Do Not Need
-
-You can skip these unless you specifically want the related features:
-
-- `VITE_NOTIFIER_*` and `VITE_VAPID_PUBLIC_KEY` - only for email/push alerts
-- `VITE_GLITCHTIP_API_KEY` and `GLITCHTIP_AUTH_TOKEN` - only for error reporting
+## Optional Alerts
 
 If you do not set notifier values, the app still builds and runs fine. You just will not have alert delivery features.
 
@@ -199,8 +194,6 @@ Notes:
 
 - Do **not** add `--delete-excluded` in pass 2, or excluded immutable files may be removed.
 - If your SFTP server is unstable, reduce `--parallel=4` to `--parallel=2`.
-- Keep source maps (`*.map`) deployed if your error pipeline depends on public source map fetches.
-- If your Glitchtip/Sentry upload pipeline is fully configured in CI, you may choose to stop uploading `*.map` publicly.
 
 ### Remote storage growth and cleanup
 

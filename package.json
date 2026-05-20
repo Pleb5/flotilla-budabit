@@ -8,7 +8,6 @@
     "dev:full": "node dev-full.mjs",
     "build": "./build.sh",
     "build-in-production": "./build-in-production.sh",
-    "sourcemaps": "./build.sh && ./sourcemaps.sh",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json --watch",
     "lint": "prettier --check \"src/**/*.{ts,js,css}\" && eslint src",
@@ -40,7 +39,6 @@
     "@codemirror/view": "^6.39.16",
     "@eslint/js": "^9.37.0",
     "@playwright/test": "^1.50.0",
-    "@sentry/cli": "^2.56.1",
     "@sveltejs/kit": "^2.46.5",
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@types/eslint": "^9.6.1",
@@ -98,7 +96,6 @@
     "@octokit/auth-oauth-device": "^8.0.1",
     "@poppanator/sveltekit-svg": "^4.2.1",
     "@scure/bip39": "^1.2.1",
-    "@sentry/browser": "^8.55.0",
     "@sveltejs/adapter-static": "^3.0.10",
     "@tiptap/core": "^2.27.1",
     "@types/qrcode": "^1.5.5",
@@ -147,7 +144,6 @@
       "@welshman/store": "0.7.1"
     },
     "ignoredBuiltDependencies": [
-      "@sentry/cli",
       "esbuild"
     ],
     "onlyBuiltDependencies": [

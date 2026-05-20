@@ -256,7 +256,6 @@
 
 * Fix keyboard covering chat input
 * Fix thread replies
-* Make error reporting and analytics optional
 * Replace long press with tap target
 * Fix time input
 * Fix nevent hints for url-specific stuff

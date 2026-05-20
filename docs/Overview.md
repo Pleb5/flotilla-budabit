@@ -27,7 +27,7 @@ This document summarizes how the Flotilla client is structured and how the main 
   - `app/`
     - `state.ts`: Central state, stores, selectors, loaders. Hooks into `@welshman/app` repository, tracker, thunks, router context, etc.
     - `components/`: App-level UI components (chat, channels, git integrations, modals, alerts, etc.).
-    - `analytics.ts`, `notifications.ts`, etc.: side-channel app services.
+    - `notifications.ts`, etc.: side-channel app services.
   - `lib/`: Design system and general-purpose components/utilities.
   - `routes/`: SvelteKit routes and pages. Community pages are under `src/routes/c/[community]/...`.
   - `params/`: SvelteKit route parameter parsers.

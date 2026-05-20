@@ -30,8 +30,6 @@
   import NostrGitProfileComponent from "@app/components/NostrGitProfileComponent.svelte"
   import NostrGitProfileLink from "@app/components/NostrGitProfileLink.svelte"
   import {setupHistory} from "@app/util/history"
-  import {setupTracking} from "@app/util/tracking"
-  import {setupAnalytics} from "@app/util/analytics"
   import {setupGitCorsProxy} from "@app/util/git-cors-proxy"
   import {userSettingsValues} from "@app/core/state"
   import {db, kv} from "@app/core/storage"
@@ -581,11 +579,9 @@
     // Remove policies when we're done
     unsubscribers.push(uninstallSocketPolicies)
 
-    // History, navigation, bug tracking, application data
+    // History, navigation, and application data
     unsubscribers.push(
       setupHistory(),
-      setupAnalytics(),
-      setupTracking(),
       setupGitCorsProxy(),
       syncApplicationData(),
       syncGitData(),

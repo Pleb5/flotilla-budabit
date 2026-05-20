@@ -127,7 +127,6 @@ describe("state", () => {
     expect(defaultSettings.show_media).toBe(true)
     expect(defaultSettings.hide_sensitive).toBe(true)
     expect(defaultSettings.trusted_relays).toEqual([])
-    expect(defaultSettings.report_usage).toBe(true)
     expect(defaultSettings.font_size).toBe(1.1)
   })
 
