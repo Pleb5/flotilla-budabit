@@ -166,6 +166,38 @@ const parseGitUploadPackAdvertisement = (text: string): AdvertisedServerRef[] =>
 const buildInfoRefsUrl = (url: string): string =>
   `${String(url || "").replace(/\/+$/, "")}/info/refs?service=git-upload-pack`
 
+const buildCorsProxyUrl = (url: string, corsProxy: string): string =>
+  `${corsProxy.replace(/\/+$/, "")}/${url.replace(/^https?:\/\//i, "")}`
+
+const fetchAdvertisedRefsText = async (url: string, corsProxy?: string | null): Promise<string> => {
+  const infoRefsUrl = buildInfoRefsUrl(url)
+  const attempts = [infoRefsUrl]
+  if (corsProxy) attempts.push(buildCorsProxyUrl(infoRefsUrl, corsProxy))
+
+  const failures: string[] = []
+
+  for (const attemptUrl of attempts) {
+    try {
+      const response = await fetch(attemptUrl, {
+        method: "GET",
+        mode: "cors",
+        credentials: "omit",
+      })
+
+      if (!response.ok) {
+        failures.push(`${attemptUrl}: ${response.status} ${response.statusText}`)
+        continue
+      }
+
+      return await response.text()
+    } catch (error) {
+      failures.push(`${attemptUrl}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  throw new Error(`Failed to fetch advertised refs: ${failures.join("; ")}`)
+}
+
 const filterAdvertisedRefs = (
   refs: AdvertisedServerRef[],
   opts: {prefix?: string; symrefs?: boolean},
@@ -183,17 +215,7 @@ export async function listAdvertisedServerRefs(
   opts: {url: string; prefix?: string; symrefs?: boolean; onAuth?: any; corsProxy?: string | null},
 ): Promise<AdvertisedServerRef[]> {
   if (isGraspRepoHttpUrl(opts.url)) {
-    const response = await fetch(buildInfoRefsUrl(opts.url), {
-      method: "GET",
-      mode: "cors",
-      credentials: "omit",
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch advertised refs: ${response.status} ${response.statusText}`)
-    }
-
-    const body = await response.text()
+    const body = await fetchAdvertisedRefsText(opts.url, opts.corsProxy)
     return filterAdvertisedRefs(parseGitUploadPackAdvertisement(body), opts)
   }
 

@@ -19,7 +19,13 @@ export function validateGraspServerUrl(url: string): boolean {
     try {
         const u = new URL(url);
         // Allow ws(s) and http(s) because GRASP may use both for different endpoints
-        return ['ws:', 'wss:', 'http:', 'https:'].includes(u.protocol);
+        if (!['ws:', 'wss:', 'http:', 'https:'].includes(u.protocol)) return false;
+        const host = u.hostname.toLowerCase();
+        const pathSegments = u.pathname.split('/').filter(Boolean);
+        const lastSegment = pathSegments[pathSegments.length - 1] || '';
+        if (['github.com', 'gitlab.com', 'bitbucket.org'].includes(host)) return false;
+        if (pathSegments.length >= 2 && /\.git$/i.test(lastSegment)) return false;
+        return true;
     } catch (_) {
         return false;
     }

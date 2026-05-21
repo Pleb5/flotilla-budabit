@@ -12,7 +12,7 @@ import {
   updateUrlPreferenceCache,
   type ReadFallbackResult,
 } from "../../utils/clone-url-fallback.js"
-import {isGraspRepoHttpUrl} from "../../utils/grasp-url.js"
+import {isGraspRepoHttpUrl, resolveCorsProxyForUrl} from "../../utils/grasp-url.js"
 import {
   buildAdvertisedBranchCandidates,
   discoverAdvertisedRefs,
@@ -153,12 +153,13 @@ export async function smartInitializeRepoUtil(
           sendProgress("Fetching latest changes from remote")
           const fetchStart = Date.now()
           const fetchDepth = repoDataLevels.get(key) === "full" ? undefined : 50
-          const corsProxy = resolveDefaultCorsProxy()
+          const configuredCorsProxy = resolveDefaultCorsProxy()
 
           // Try each URL with fallback until one succeeds
           const fetchResult = await withUrlFallback(
             orderedUrls,
             async (cloneUrl: string) => {
+              const corsProxy = resolveCorsProxyForUrl(cloneUrl, configuredCorsProxy)
               // Try singleBranch: true first (works better with non-GitHub servers like Forgejo)
               const primaryFetchOpts: any = {
                 dir,
@@ -413,7 +414,8 @@ export async function initializeRepoUtil(
         const onProgress = (progress: {phase: string; loaded?: number; total?: number}) =>
           sendProgress(progress.phase, progress.loaded, progress.total)
         const authCallback = getAuthCallback(cloneUrl)
-        const corsProxy = resolveDefaultCorsProxy()
+        const configuredCorsProxy = resolveDefaultCorsProxy()
+        const corsProxy = resolveCorsProxyForUrl(cloneUrl, configuredCorsProxy)
 
         let refCandidates: string[] = []
         try {
@@ -745,7 +747,7 @@ export async function ensureShallowCloneUtil(
     const originRemote = remotes.find((r: any) => r.remote === "origin")
     if (!originRemote?.url) throw new Error("Origin remote not found or has no URL configured")
     const authCallback = getAuthCallback(originRemote.url)
-    const corsProxy = resolveDefaultCorsProxy()
+    const corsProxy = resolveCorsProxyForUrl(originRemote.url, resolveDefaultCorsProxy())
     await git.fetch({
       dir,
       url: originRemote.url,
@@ -789,7 +791,7 @@ export async function ensureFullCloneUtil(
   const key = parseRepoId(repoId)
   const dir = `${rootDir}/${key}`
   const currentLevel = repoDataLevels.get(key)
-  const corsProxy = resolveDefaultCorsProxy()
+  const configuredCorsProxy = resolveDefaultCorsProxy()
 
   const resolveExistingBranchCommit = async (targetBranch: string): Promise<string | null> => {
     const refsToCheck = [
@@ -917,7 +919,7 @@ export async function ensureFullCloneUtil(
       const orderedUrls = reorderUrlsByPreference(urlsToTry, key)
 
       console.log(
-        `[ensureFullClone] URLs to try (corsProxy=${corsProxy ?? "none"}):`,
+        `[ensureFullClone] URLs to try (corsProxy=${configuredCorsProxy ?? "none"}):`,
         orderedUrls.join(", "),
       )
 
@@ -925,6 +927,7 @@ export async function ensureFullCloneUtil(
       const fetchResult = await withUrlFallback(
         orderedUrls,
         async (cloneUrl: string) => {
+          const corsProxy = resolveCorsProxyForUrl(cloneUrl, configuredCorsProxy)
           // Detect Nostr relay URLs - they may need special handling
           const isNostrRelay = isGraspRepoHttpUrl(cloneUrl)
 

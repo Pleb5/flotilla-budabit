@@ -174,18 +174,20 @@ describe('clone-url-fallback utilities', () => {
       expect(cached?.failedUrls).toContain('https://failed.com');
     });
 
-    it('stops on non-retriable error', async () => {
+    it('continues after auth errors so readable mirrors can be tried', async () => {
       const operation = vi.fn()
-        .mockRejectedValueOnce(new Error('401 Unauthorized'));
+        .mockRejectedValueOnce(new Error('401 Unauthorized'))
+        .mockResolvedValueOnce({ data: 'public mirror' });
 
       const result = await withUrlFallback(
         ['https://url1.com', 'https://url2.com'],
         operation
       );
 
-      expect(result.success).toBe(false);
-      expect(result.attempts).toHaveLength(1);
-      expect(operation).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(true);
+      expect(result.usedUrl).toBe('https://url2.com');
+      expect(result.attempts).toHaveLength(2);
+      expect(operation).toHaveBeenCalledTimes(2);
     });
 
     it('handles empty URL list', async () => {

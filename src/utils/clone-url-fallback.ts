@@ -464,24 +464,8 @@ function defaultIsRetriable(error: unknown): boolean {
   const code = (error as any)?.code || (error as any)?.name || "";
   const lower = (message + code).toLowerCase();
 
-  // Non-retriable errors (trying another URL won't help)
-  const nonRetriable = [
-    // Auth errors - likely need credentials, not a different URL
-    "unauthorized",
-    "forbidden",
-    "permission denied",
-    "401",
-    "403",
-    // Not found could mean the repo doesn't exist anywhere
-    // But for clone URLs, it could mean just that mirror is stale
-    // So we'll consider it retriable
-  ];
-
-  for (const term of nonRetriable) {
-    if (lower.includes(term)) {
-      return false;
-    }
-  }
+  // Keep URL fallback moving even for auth/not-found errors. One mirror can
+  // require credentials or be stale while another mirror remains readable.
 
   // Retriable errors - transient or URL-specific
   const retriable = [

@@ -294,6 +294,22 @@ function formatError(
   }
 }
 
+function getErrorMessageWithDetails(error: unknown): string {
+  const value = error as any
+  const message = error instanceof Error ? error.message : String(error || "Unknown error")
+  const details = [value?.data?.prettyDetails, value?.data?.details]
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map(item => item.trim())
+
+  for (const detail of details) {
+    if (!message.includes(detail)) {
+      return `${message}\n${detail}`
+    }
+  }
+
+  return message
+}
+
 function postProgress(payload: {
   type: "clone-progress" | "merge-progress"
   repoId: string
@@ -311,7 +327,11 @@ function postProgress(payload: {
 
 function makeProgress(repoId: string, type: "clone-progress" | "merge-progress") {
   return (phase: string, loaded?: number, total?: number) => {
-    postProgress({type, repoId, phase, loaded, total})
+    const progress =
+      typeof loaded === "number" && typeof total === "number" && total > 0
+        ? Math.max(0, Math.min(100, (loaded / total) * 100))
+        : undefined
+    postProgress({type, repoId, phase, loaded, total, progress})
   }
 }
 
@@ -749,7 +769,11 @@ const api = {
     }
   },
 
-  async discoverRemoteBackfill(opts: {repoId: string; cloneUrls: string[]}) {
+  async discoverRemoteBackfill(opts: {
+    repoId: string
+    cloneUrls: string[]
+    defaultBranch?: string
+  }) {
     return toPlain(
       await discoverRemoteBackfillUtil(git, opts, {
         rootDir,
@@ -776,6 +800,7 @@ const api = {
       await prepareRemoteBackfillUtil(git, opts, {
         rootDir,
         parseRepoId,
+        onProgress: makeProgress(opts.repoId, "clone-progress"),
       }),
     )
   },
@@ -799,6 +824,7 @@ const api = {
       await executeRemoteBackfillUtil(git, opts, {
         rootDir,
         parseRepoId,
+        onProgress: makeProgress(opts.repoId, "clone-progress"),
         pushToRemote: async params => await api.pushToRemote(params),
       }),
     )
@@ -1611,11 +1637,27 @@ const api = {
       })
     } catch (error) {
       console.error(`Error pushing to remote:`, error)
+      const message = getErrorMessageWithDetails(error)
+      const formatted = formatError(error, {naddr: repoId, remote: remoteUrl, operation: "push"})
+      const requestedRefs = Array.from(
+        new Set(
+          [...normalizedRequestedRefs, normalizedRequestedRef].filter(Boolean).length > 0
+            ? [...normalizedRequestedRefs, normalizedRequestedRef].filter(Boolean)
+            : [normalizePushRef(targetBranch)],
+        ),
+      )
+
       return toPlain({
         success: false,
         repoId,
         remoteUrl,
-        ...formatError(error, {naddr: repoId, remote: remoteUrl, operation: "push"}),
+        ...formatted,
+        error: message,
+        details: {
+          pushedRefs: [],
+          failedRefs: requestedRefs.map(ref => ({ref, error: message})),
+          warnings: [],
+        },
       })
     }
   },

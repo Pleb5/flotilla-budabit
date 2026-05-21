@@ -3,13 +3,42 @@ const isValidNostrRelayUrl = (url: string): boolean => {
   try {
     const u = new URL(url)
     if (!(u.protocol === "ws:" || u.protocol === "wss:")) return false
+    if (isLikelyGitRemotePath(u.pathname)) return false
     const host = u.hostname.toLowerCase()
     if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true
     if (host === "container") return false
+    if (isKnownGitPlatformHost(host)) return false
     return host.includes(".")
   } catch {
     return false
   }
+}
+
+function isKnownGitPlatformHost(host: string): boolean {
+  const normalized = String(host || "").toLowerCase()
+  return normalized === "github.com" || normalized === "gitlab.com" || normalized === "bitbucket.org"
+}
+
+function isLikelyGitRemotePath(pathname: string): boolean {
+  const segments = String(pathname || "").split("/").filter(Boolean)
+  const lastSegment = segments[segments.length - 1] || ""
+  return segments.length >= 2 && /\.git$/i.test(lastSegment)
+}
+
+function isLikelyNonRelayInput(input: string): boolean {
+  const raw = String(input || "").trim()
+  if (!raw) return false
+
+  let parsed: URL
+  try {
+    parsed = new URL(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw) ? raw : `https://${raw}`)
+  } catch {
+    return false
+  }
+
+  const host = parsed.hostname.toLowerCase()
+  if (isLikelyGitRemotePath(parsed.pathname)) return true
+  return isKnownGitPlatformHost(host)
 }
 
 function isOnionHost(host: string | null | undefined): boolean {
@@ -105,7 +134,10 @@ export const sanitizeRelays = (urls: string[]): string[] => {
   const seen = new Set<string>()
   for (const url of urls || []) {
     try {
-      const normalized = normalizeRelayUrl(url)
+      const raw = String(url || "").trim()
+      if (isLikelyNonRelayInput(raw)) continue
+      const normalized = normalizeRelayUrl(raw)
+      if (isLikelyNonRelayInput(normalized)) continue
       if (!isValidNostrRelayUrl(normalized)) continue
       if (seen.has(normalized)) continue
       seen.add(normalized)

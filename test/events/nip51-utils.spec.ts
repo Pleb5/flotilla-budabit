@@ -15,6 +15,8 @@ describe('NIP-51 utils', () => {
     expect(validateGraspServerUrl('http://example.com')).toBe(true);
     expect(validateGraspServerUrl('https://example.com')).toBe(true);
     expect(validateGraspServerUrl('ftp://example.com')).toBe(false);
+    expect(validateGraspServerUrl('https://github.com')).toBe(false);
+    expect(validateGraspServerUrl('https://github.com/Pleb5/flotilla-budabit.git')).toBe(false);
     expect(validateGraspServerUrl('not a url')).toBe(false);
   });
 
@@ -32,7 +34,7 @@ describe('NIP-51 utils', () => {
   });
 
   it('parseGraspServersEvent parses and filters invalid urls', () => {
-    const good = mkEvt({ urls: ['https://ok.com/', 'ftp://no.com', 'ws://relay.com'] });
+    const good = mkEvt({ urls: ['https://ok.com/', 'ftp://no.com', 'ws://relay.com', 'https://github.com/Pleb5/repo.git'] });
     expect(parseGraspServersEvent(good as any)).toEqual(['https://ok.com','ws://relay.com']);
 
     const bad = mkEvt({ urls: 'not-array' });

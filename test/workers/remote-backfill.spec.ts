@@ -1,7 +1,8 @@
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 
 import {
   buildRemoteBackfillPlanFromSnapshots,
+  executeRemoteBackfillUtil,
   type RemoteBackfillRemoteSnapshot,
 } from "../../src/worker/workers/remote-backfill.js"
 
@@ -36,6 +37,7 @@ describe("worker/remote-backfill: buildRemoteBackfillPlanFromSnapshots", () => {
     ]
 
     const plan = await buildRemoteBackfillPlanFromSnapshots(snapshots, {
+      defaultBranch: "main",
       isDescendent: async (oid, ancestor) => oid === "b".repeat(40) && ancestor === "a".repeat(40),
     })
 
@@ -60,8 +62,11 @@ describe("worker/remote-backfill: buildRemoteBackfillPlanFromSnapshots", () => {
       createCount: 2,
       fastForwardCount: 0,
       conflictCount: 0,
-      selectedByDefault: true,
+      selectedByDefault: false,
     })
+
+    const releaseTag = plan.refs.find(ref => ref.ref === "refs/tags/v1.0.0")
+    expect(releaseTag).toMatchObject({selectedByDefault: false})
 
     const mirrorPlan = plan.remotes.find(
       remote => remote.remoteUrl === "https://mirror.example/repo.git",
@@ -143,5 +148,111 @@ describe("worker/remote-backfill: buildRemoteBackfillPlanFromSnapshots", () => {
       "refs/heads/main",
       "refs/tags/release",
     ])
+  })
+
+  it("pushes standard backfill refs one at a time and preserves partial success", async () => {
+    const git: any = {
+      init: vi.fn(async () => undefined),
+      addRemote: vi.fn(async () => undefined),
+      setConfig: vi.fn(async () => undefined),
+      readObject: vi.fn(async () => ({})),
+      writeRef: vi.fn(async () => undefined),
+      listServerRefs: vi.fn(async () => []),
+    }
+
+    const pushToRemote = vi.fn(async ({refs}: {refs: string[]}) => {
+      const ref = refs[0]
+      if (ref === "refs/heads/main") {
+        return {success: true, details: {pushedRefs: refs, failedRefs: [], warnings: []}}
+      }
+
+      return {
+        success: false,
+        error: "push declined due to repository rule violations",
+      }
+    })
+    const onProgress = vi.fn()
+
+    const result = await executeRemoteBackfillUtil(
+      git,
+      {
+        repoId: "owner/repo",
+        targets: [
+          {
+            remoteUrl: "https://github.com/owner/repo.git",
+            refs: [
+              {
+                ref: "refs/heads/main",
+                name: "main",
+                type: "heads",
+                effectiveOid: "a".repeat(40),
+                sourceUrls: [
+                  "https://grasp.example/npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpc4z7/repo.git",
+                ],
+              },
+              {
+                ref: "refs/heads/changeset-release/master",
+                name: "changeset-release/master",
+                type: "heads",
+                effectiveOid: "b".repeat(40),
+                sourceUrls: [
+                  "https://grasp.example/npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpc4z7/repo.git",
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        rootDir: "/tmp/budabit-test",
+        parseRepoId: id => id.replace(":", "/"),
+        onProgress,
+        pushToRemote,
+      },
+    )
+
+    expect(pushToRemote).toHaveBeenCalledTimes(2)
+    expect(pushToRemote).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({refs: ["refs/heads/main"]}),
+    )
+    expect(pushToRemote).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({refs: ["refs/heads/changeset-release/master"]}),
+    )
+    expect(result.success).toBe(false)
+    expect(result.results[0]).toMatchObject({
+      remoteUrl: "https://github.com/owner/repo.git",
+      success: false,
+      pushedRefs: ["refs/heads/main"],
+      failedRefs: [
+        {
+          ref: "refs/heads/changeset-release/master",
+          error: "push declined due to repository rule violations",
+        },
+      ],
+    })
+    expect(result.summary.pushedRefCount).toBe(1)
+    expect(result.summary.failedRefCount).toBe(1)
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.stringContaining("Backfill: preparing staged refs"),
+      0,
+      2,
+    )
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.stringContaining("Backfill: pushing branch main to github.com"),
+      0,
+      2,
+    )
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.stringContaining("Backfill: failed branch changeset-release/master on github.com"),
+      2,
+      2,
+    )
+    expect(onProgress).not.toHaveBeenCalledWith(
+      expect.stringContaining("Backfill: pushed branch changeset-release/master to github.com"),
+      expect.anything(),
+      expect.anything(),
+    )
   })
 })

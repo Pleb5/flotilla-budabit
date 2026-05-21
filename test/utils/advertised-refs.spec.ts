@@ -70,6 +70,36 @@ describe("advertised-refs utilities", () => {
     expect(advertised.hasRemoteHead).toBe(true)
   })
 
+  it("falls back to the configured proxy when direct GRASP refs fetch fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Failed to fetch"))
+      .mockResolvedValueOnce({ok: true, text: async () => buildAdvertisement()})
+    vi.stubGlobal("fetch", fetchMock)
+
+    const refs = await listAdvertisedServerRefs(
+      {},
+      {
+        url: GRASP_URL,
+        prefix: "refs/heads/",
+        symrefs: true,
+        corsProxy: "https://corsproxy.budabit.club",
+      },
+    )
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `${GRASP_URL}/info/refs?service=git-upload-pack`,
+      expect.objectContaining({method: "GET"}),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `https://corsproxy.budabit.club/${GRASP_URL.replace(/^https?:\/\//, "")}/info/refs?service=git-upload-pack`,
+      expect.objectContaining({method: "GET"}),
+    )
+    expect(refs.map(ref => ref.ref)).toEqual(["HEAD", "refs/heads/main"])
+  })
+
   it("falls back to git.listServerRefs for non-grasp remotes", async () => {
     const git = {
       listServerRefs: vi.fn(async () => [{ref: "refs/heads/main", oid: "abc"}]),

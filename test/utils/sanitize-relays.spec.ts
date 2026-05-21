@@ -51,4 +51,17 @@ describe('utils/sanitize-relays', () => {
     // deduped
     expect(out.filter((u) => u === 'wss://relay.example.com').length).toBe(1);
   });
+
+  it('drops platform and clone URLs instead of coercing them into relays', () => {
+    expect(
+      sanitizeRelays([
+        'https://github.com',
+        'https://github.com/Pleb5/flotilla-budabit',
+        'https://github.com/Pleb5/flotilla-budabit.git',
+        'github.com/Pleb5/flotilla-budabit.git',
+        'wss://github.com/Pleb5/flotilla-budabit.git',
+        'https://relay.example.com',
+      ]),
+    ).toEqual(['wss://relay.example.com']);
+  });
 });

@@ -136,6 +136,7 @@ export type RemoteBackfillPrepareResult = {
 type RemoteBackfillDiscoveryDeps = {
   rootDir: string
   parseRepoId: (id: string) => string
+  onProgress?: (phase: string, loaded?: number, total?: number) => void
 }
 
 type RemoteBackfillExecuteDeps = RemoteBackfillDiscoveryDeps & {
@@ -280,14 +281,22 @@ async function hydrateStageRepoForRefs(
   git: GitProvider,
   stage: StageRepoContext,
   refs: Map<string, RemoteBackfillTargetRefSelection>,
+  onProgress?: (phase: string, loaded?: number, total?: number) => void,
 ): Promise<{
   hydrationFailures: Map<string, string>
   hydratedRefs: string[]
 }> {
   const hydrationFailures = new Map<string, string>()
   const hydratedRefs: string[] = []
+  const refList = Array.from(refs.values())
 
-  for (const ref of refs.values()) {
+  for (let index = 0; index < refList.length; index++) {
+    const ref = refList[index]
+    onProgress?.(
+      `Backfill: hydrating ${formatBackfillRefForProgress(ref)} (${index + 1}/${refList.length})`,
+      index,
+      refList.length,
+    )
     let hydrated = false
     let lastError = "Could not load selected ref objects into the local staging repo"
 
@@ -309,6 +318,11 @@ async function hydrateStageRepoForRefs(
           oid: ref.effectiveOid,
         })
         hydratedRefs.push(ref.ref)
+        onProgress?.(
+          `Backfill: hydrated ${formatBackfillRefForProgress(ref)} (${index + 1}/${refList.length})`,
+          index + 1,
+          refList.length,
+        )
         break
       }
 
@@ -317,6 +331,11 @@ async function hydrateStageRepoForRefs(
 
     if (!hydrated) {
       hydrationFailures.set(ref.ref, lastError)
+      onProgress?.(
+        `Backfill: failed to hydrate ${formatBackfillRefForProgress(ref)} (${index + 1}/${refList.length})`,
+        index + 1,
+        refList.length,
+      )
     }
   }
 
@@ -357,9 +376,11 @@ export async function buildRemoteBackfillPlanFromSnapshots(
   snapshots: RemoteBackfillRemoteSnapshot[],
   deps: {
     isDescendent?: (oid: string, ancestor: string) => Promise<boolean>
+    defaultBranch?: string
   } = {},
 ): Promise<Omit<RemoteBackfillDiscoveryResult, "success">> {
   const refEntries = collectRefEntries(snapshots)
+  const defaultBranchNames = collectDefaultBranchNames(snapshots, deps.defaultBranch)
   const ancestryCache = new Map<string, boolean>()
   let ancestryErrored = false
 
@@ -484,7 +505,10 @@ export async function buildRemoteBackfillPlanFromSnapshots(
       sourceUrls,
       status,
       reason,
-      selectedByDefault: status === "ready" && createCount + fastForwardCount > 0,
+      selectedByDefault:
+        status === "ready" &&
+        createCount + fastForwardCount > 0 &&
+        isBackfillRefSelectedByDefault(entry, defaultBranchNames),
       createCount,
       fastForwardCount,
       conflictCount,
@@ -542,7 +566,9 @@ export async function buildRemoteBackfillPlanFromSnapshots(
       remoteUrl: snapshot.remoteUrl,
       reachable: true,
       headBranch: snapshot.headBranch,
-      selectedByDefault: actions.length > 0,
+      selectedByDefault: actions.some(action =>
+        isBackfillRefSelectedByDefault(action, defaultBranchNames),
+      ),
       createCount: actions.filter(action => action.action === "create").length,
       fastForwardCount: actions.filter(action => action.action === "fast-forward").length,
       conflictCount: conflicts.length,
@@ -563,6 +589,61 @@ export async function buildRemoteBackfillPlanFromSnapshots(
       targetCount: remotePlans.filter(remote => remote.actions.length > 0).length,
     },
   }
+}
+
+function normalizeBranchName(value: string | undefined): string {
+  return String(value || "")
+    .trim()
+    .replace(/^refs\/heads\//, "")
+}
+
+function collectDefaultBranchNames(
+  snapshots: RemoteBackfillRemoteSnapshot[],
+  preferredDefaultBranch?: string,
+): Set<string> {
+  const names = new Set<string>()
+  const preferred = normalizeBranchName(preferredDefaultBranch)
+  if (preferred) names.add(preferred)
+
+  for (const snapshot of snapshots) {
+    if (!snapshot.reachable) continue
+    const headBranch = normalizeBranchName(snapshot.headBranch)
+    if (headBranch) names.add(headBranch)
+  }
+
+  if (names.size === 0) {
+    names.add("main")
+    names.add("master")
+  }
+
+  return names
+}
+
+function isBackfillRefSelectedByDefault(
+  ref: {type: RemoteBackfillRefType; name: string},
+  defaultBranchNames: Set<string>,
+): boolean {
+  if (ref.type === "tags") return false
+  return defaultBranchNames.has(normalizeBranchName(ref.name))
+}
+
+function formatBackfillRefForProgress(ref: {type: RemoteBackfillRefType; name: string}): string {
+  return `${ref.type === "heads" ? "branch" : "tag"} ${ref.name}`
+}
+
+function describeBackfillRemote(remoteUrl: string): string {
+  try {
+    return new URL(remoteUrl).hostname
+  } catch {
+    return remoteUrl
+  }
+}
+
+function summarizeProgressError(error: string | undefined): string {
+  const trimmed = String(error || "Remote push failed")
+    .replace(/\s+/g, " ")
+    .trim()
+  return trimmed.length > 160 ? `${trimmed.slice(0, 157)}...` : trimmed
 }
 
 function createStageRepoContext(
@@ -765,7 +846,7 @@ async function cleanupStageRepo(git: GitProvider, stage: StageRepoContext): Prom
 
 export async function discoverRemoteBackfillUtil(
   git: GitProvider,
-  opts: {repoId: string; cloneUrls: string[]},
+  opts: {repoId: string; cloneUrls: string[]; defaultBranch?: string},
   deps: RemoteBackfillDiscoveryDeps,
 ): Promise<RemoteBackfillDiscoveryResult> {
   const cloneUrls = filterValidCloneUrls(opts.cloneUrls)
@@ -822,6 +903,7 @@ export async function discoverRemoteBackfillUtil(
     }
 
     const plan = await buildRemoteBackfillPlanFromSnapshots(snapshots, {
+      defaultBranch: opts.defaultBranch,
       isDescendent: stage
         ? async (oid, ancestor) => await git.isDescendent({dir: stage!.dir, oid, ancestor})
         : undefined,
@@ -868,7 +950,13 @@ export async function prepareRemoteBackfillUtil(
       seedRemoteUrl,
     })
 
-    const {hydrationFailures, hydratedRefs} = await hydrateStageRepoForRefs(git, stage, uniqueRefs)
+    deps.onProgress?.("Backfill: preparing staged refs", 0, Math.max(1, uniqueRefs.size))
+    const {hydrationFailures, hydratedRefs} = await hydrateStageRepoForRefs(
+      git,
+      stage,
+      uniqueRefs,
+      deps.onProgress,
+    )
 
     return {
       success: true,
@@ -924,7 +1012,8 @@ export async function executeRemoteBackfillUtil(
   const hydrationFailures = new Map<string, string>()
 
   try {
-    const preparedStage = await hydrateStageRepoForRefs(git, stage, uniqueRefs)
+    deps.onProgress?.("Backfill: preparing staged refs", 0, Math.max(1, uniqueRefs.size))
+    const preparedStage = await hydrateStageRepoForRefs(git, stage, uniqueRefs, deps.onProgress)
     for (const [ref, error] of preparedStage.hydrationFailures.entries()) {
       hydrationFailures.set(ref, error)
     }
@@ -932,6 +1021,8 @@ export async function executeRemoteBackfillUtil(
     const results: RemoteBackfillExecuteResult["results"] = []
 
     for (const target of selectedTargets) {
+      const targetLabel = describeBackfillRemote(target.remoteUrl)
+      deps.onProgress?.(`Backfill: checking ${targetLabel} before push`)
       const snapshot = await loadRemoteSnapshot(git, target.remoteUrl)
       const failedRefs: Array<{ref: string; error: string}> = []
       const skippedRefs: Array<{ref: string; reason: string}> = []
@@ -1005,45 +1096,122 @@ export async function executeRemoteBackfillUtil(
       }
 
       const isGraspRemote = isGraspRepoHttpUrl(target.remoteUrl)
+      const pushedRefs: string[] = []
+      const pushFailures: Array<{ref: string; error: string}> = []
 
-      const pushResult = await deps.pushToRemote({
-        repoId: stage.repoId,
-        remoteUrl: target.remoteUrl,
-        refs: refsToPush,
-        provider: isGraspRemote ? "grasp" : undefined,
-        token: isGraspRemote ? opts.userPubkey : undefined,
-      })
+      const collectPushResult = (
+        pushResult: any,
+        attemptedRefs: string[],
+      ): {pushedRefs: string[]; failedRefs: Array<{ref: string; error: string}>; success: boolean} => {
+        const resultPushedRefs =
+          pushResult?.details?.pushedRefs && Array.isArray(pushResult.details.pushedRefs)
+            ? pushResult.details.pushedRefs
+            : pushResult?.success
+              ? attemptedRefs
+              : []
 
-      const pushedRefs =
-        pushResult?.details?.pushedRefs && Array.isArray(pushResult.details.pushedRefs)
-          ? pushResult.details.pushedRefs
-          : pushResult?.success
-            ? refsToPush
-            : []
+        pushedRefs.push(...resultPushedRefs)
 
-      const pushFailures =
-        pushResult?.details?.failedRefs && Array.isArray(pushResult.details.failedRefs)
-          ? pushResult.details.failedRefs.map((entry: {ref: string; error: string}) => ({
-              ref: entry.ref,
-              error: entry.error,
-            }))
-          : pushResult?.success
-            ? []
-            : refsToPush.map(ref => ({
-                ref,
-                error: pushResult?.error || "Remote push failed",
+        const resultFailedRefs: Array<{ref: string; error: string}> =
+          pushResult?.details?.failedRefs && Array.isArray(pushResult.details.failedRefs)
+            ? pushResult.details.failedRefs.map((entry: {ref: string; error: string}) => ({
+                ref: entry.ref,
+                error: entry.error,
               }))
+            : pushResult?.success
+              ? []
+              : attemptedRefs.map(ref => ({
+                  ref,
+                  error: pushResult?.error || "Remote push failed",
+                }))
+
+        pushFailures.push(...resultFailedRefs)
+
+        return {
+          pushedRefs: resultPushedRefs,
+          failedRefs: resultFailedRefs,
+          success:
+            Boolean(pushResult?.success) &&
+            resultPushedRefs.length > 0 &&
+            resultFailedRefs.length === 0,
+        }
+      }
+
+      if (isGraspRemote) {
+        deps.onProgress?.(`Backfill: pushing ${refsToPush.length} refs to ${targetLabel}`, 0, 1)
+        const pushResult = await deps.pushToRemote({
+          repoId: stage.repoId,
+          remoteUrl: target.remoteUrl,
+          refs: refsToPush,
+          provider: "grasp",
+          token: opts.userPubkey,
+        })
+        const collected = collectPushResult(pushResult, refsToPush)
+        deps.onProgress?.(
+          collected.failedRefs.length > 0
+            ? `Backfill: finished ${targetLabel} with ${collected.failedRefs.length} failed ref${collected.failedRefs.length === 1 ? "" : "s"}`
+            : `Backfill: finished pushing refs to ${targetLabel}`,
+          1,
+          1,
+        )
+      } else {
+        for (let refIndex = 0; refIndex < refsToPush.length; refIndex++) {
+          const refToPush = refsToPush[refIndex]
+          const selectedRef = target.refs.find(ref => ref.ref === refToPush)
+          const label = selectedRef
+            ? formatBackfillRefForProgress(selectedRef)
+            : refToPush.replace(/^refs\/(heads|tags)\//, "")
+          deps.onProgress?.(
+            `Backfill: pushing ${label} to ${targetLabel} (${refIndex + 1}/${refsToPush.length})`,
+            refIndex,
+            refsToPush.length,
+          )
+          try {
+            const pushResult = await deps.pushToRemote({
+              repoId: stage.repoId,
+              remoteUrl: target.remoteUrl,
+              refs: [refToPush],
+            })
+            const collected = collectPushResult(pushResult, [refToPush])
+            if (collected.success && collected.pushedRefs.includes(refToPush)) {
+              deps.onProgress?.(
+                `Backfill: pushed ${label} to ${targetLabel} (${refIndex + 1}/${refsToPush.length})`,
+                refIndex + 1,
+                refsToPush.length,
+              )
+            } else {
+              const failure = collected.failedRefs.find(item => item.ref === refToPush)
+              deps.onProgress?.(
+                `Backfill: failed ${label} on ${targetLabel}: ${summarizeProgressError(failure?.error)} (${refIndex + 1}/${refsToPush.length})`,
+                refIndex + 1,
+                refsToPush.length,
+              )
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error || "Remote push failed")
+            pushFailures.push({
+              ref: refToPush,
+              error: message,
+            })
+            deps.onProgress?.(
+              `Backfill: failed ${label} on ${targetLabel}: ${summarizeProgressError(message)} (${refIndex + 1}/${refsToPush.length})`,
+              refIndex + 1,
+              refsToPush.length,
+            )
+          }
+        }
+      }
 
       results.push({
         remoteUrl: target.remoteUrl,
-        success:
-          Boolean(pushResult?.success) && failedRefs.length === 0 && pushFailures.length === 0,
-        pushedRefs,
+        success: pushedRefs.length > 0 && failedRefs.length === 0 && pushFailures.length === 0,
+        pushedRefs: Array.from(new Set(pushedRefs)),
         failedRefs: [...failedRefs, ...pushFailures],
         skippedRefs,
         error:
-          !pushResult?.success && pushFailures.length === 0
-            ? pushResult?.error || "Remote push failed"
+          pushFailures.length > 0 && pushedRefs.length === 0
+            ? pushFailures.map(ref => `${ref.ref}: ${ref.error}`).join("; ")
             : undefined,
       })
     }
