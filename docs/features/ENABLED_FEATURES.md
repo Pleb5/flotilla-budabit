@@ -1,115 +1,47 @@
 # Enabled Features Summary
 
-This document tracks all features that have been enabled for development.
+This document records the current build-time feature defaults and built-in extension status. For the full feature flag reference, see `docs/features/FEATURE_FLAGS.md`.
 
-## Feature Flags Enabled
+## Current Feature Flag Defaults
 
-All feature flags in `.env` have been enabled:
+The root `vite.config.ts` defines these compile-time flags from environment variables. `.env.example` carries the recommended defaults.
 
-### `FEATURE_TERMINAL=1`
-- **Terminal UI Components**: Enables terminal emulator for Git CLI operations
-- **Bundle Impact**: ~150KB
-- **Features**: Terminal.svelte component, Git CLI adapters, XTerm.js integration
+| Environment variable | Compile-time constant | Default | Current role |
+| --- | --- | --- | --- |
+| `FEATURE_GRASP` | `__GRASP__` | Enabled unless set to `0` | GRASP and Nostr Git integration paths. |
+| `FEATURE_TERMINAL` | `__TERMINAL__` | Enabled unless set to `0` | Terminal UI components for Git workflows. |
+| `FEATURE_NIP34_PR` | `__NIP34_PR__` | Disabled unless set to `1` | Experimental NIP-34 pull request format handling. |
+| `FEATURE_CICD` | `__CICD__` | Disabled unless set to `1` | Experimental CI/CD automation hooks. |
+| `FEATURE_STRICT_NIP29` | `__STRICT_NIP29__` | Disabled unless set to `1` | Legacy strict NIP-29 validation. Not part of the current Communikey community model. |
 
-### `FEATURE_CICD=1` ✨ **NEW**
-- **CI/CD Automation**: GitHub Actions integration and automation workflows
-- **Bundle Impact**: ~10KB
-- **Features**: 
-  - Automated workflow triggers
-  - Build pipeline integration
-  - GitHub Actions event handlers
-  - CI/CD tab in repository view
+## Community Architecture Note
 
-### `FEATURE_NIP34_PR=1` ✨ **NEW**
-- **NIP-34 Pull Request Format**: Experimental PR format support
-- **Bundle Impact**: ~5KB
-- **Features**:
-  - Updated PR event structures
-  - Enhanced PR metadata
-  - PR-specific validation
+Budabit's current community architecture is Communikey-based:
 
-### `FEATURE_STRICT_NIP29=1` ✨ **NEW**
-- **Strict NIP-29 Validation**: Enhanced group/room specification validation
-- **Bundle Impact**: ~2KB
-- **Features**:
-  - Stricter conversation thread validation
-  - Enhanced group membership checks
-  - Stricter relay requirement enforcement
+- Community identity comes from a community pubkey and latest `kind:10222` definition.
+- Community routes are under `/c/[community]`.
+- Canonical Git routes are under `/git`.
+- Relay URLs are infrastructure and discovery hints, not community IDs.
 
-### `FEATURE_GRASP=1`
-- **GRASP Protocol**: Git Repository Announcement State Protocol integration
-- **Bundle Impact**: ~50KB
-- **Features**: GRASP relay support, repository state synchronization
+Do not treat `FEATURE_STRICT_NIP29` as the community access-control model. Current write permissions come from community definition sections and their referenced `kind:30000` profile lists.
 
-## Built-in Extensions Auto-Installed
+## Built-In Extensions
 
-Created `src/app/extensions/builtin.ts` to automatically install and enable built-in extensions on app startup.
+Built-in extensions are no longer bundled or auto-installed by this repo.
 
-### Pipelines Extension (budabit-pipelines)
-- **Label**: "Pipelines"
-- **Route**: `/cicd` (built-in route)
-- **Icon**: Play
-- **Features**:
-  - View CI/CD pipeline runs
-  - Manage workflow executions
-  - GitHub Actions integration
-  - Workflow file detection and parsing
+`src/app/extensions/builtin.ts` intentionally keeps `installBuiltinExtensions()` as a no-op so the app shell can retain the call site without installing bundled extension manifests.
 
-### Kanban Extension (budabit-kanban)
-- **Label**: "Kanban"
-- **Route**: `/extensions/budabit-kanban`
-- **Icon**: LayoutGrid
-- **Entrypoint**: `http://localhost:5178`
-- **Features**:
-  - NIP-100 Kanban board
-  - Repository issue tracking
-  - Project management
-  - Drag-and-drop interface
+Extensions are installed through Nostr `kind:30033` events or manifest URLs from Settings > Extensions.
 
-## Production Features Integrated
+## Optional Extension Packages
 
-From budabit/dev branch:
+The repo still contains extension packages for development and distribution, such as pipelines and Kanban, but they are not automatically enabled in the app bundle.
 
-### Watch Button
-- Repository notification subscriptions
-- Watch modal for configuring alerts
-- Props: `watchRepo`, `isWatching`
+Run or publish those packages according to their package-level docs when you want to test or distribute them.
 
-### Notification Badges
-- Visual indicators on Issues and PRs tabs
-- Shows unread item counts
-- Props: `hasIssuesNotification`, `hasPrsNotification`
+## Source Of Truth
 
-### Split-Pane File Viewer
-- Files open side-by-side (list on left, viewer on right)
-- Uses `displayMode="list"` for browser
-- Uses `displayMode="viewer"` for preview panel
-- Mobile overlay support
-
-## Development Server
-
-Running at: **http://localhost:1849/**
-
-## Next Steps
-
-1. **Test CI/CD Tab**: Navigate to a repository and verify the "Pipelines" tab appears
-2. **Test Kanban Extension**: Start the kanban dev server at port 5178 and test the integration
-3. **Verify Feature Flags**: Check that terminal, strict NIP-29, and NIP-34 PR features are active
-4. **Extension Development**: Extensions are now auto-enabled, ready for further development
-
-## Files Modified
-
-- `.env` - Enabled all feature flags
-- `src/app/extensions/builtin.ts` - Created auto-install mechanism
-- `src/routes/+layout.svelte` - Added builtin extension initialization
-
-## Bundle Size Impact
-
-Total additional features enabled: **~217KB**
-- TERMINAL: 150KB
-- GRASP: 50KB
-- CICD: 10KB
-- NIP34_PR: 5KB
-- STRICT_NIP29: 2KB
-
-This is acceptable for development builds. For production, selectively disable features as needed.
+- `.env.example` for recommended environment defaults
+- `vite.config.ts` for compile-time flag definitions
+- `src/feature-flags.d.ts` for TypeScript declarations
+- `src/app/extensions/builtin.ts` for built-in extension behavior

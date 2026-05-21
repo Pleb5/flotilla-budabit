@@ -179,7 +179,7 @@ export default defineConfig({
 
 ### Browser Extension (esbuild)
 
-**File**: `packages/nostr-git/packages/extension/esbuild.config.js`
+Budabit no longer carries the old nested Nostr Git extension workspace in this repo. If an extension build reappears, mirror the root feature definitions in that package's build config.
 
 ```javascript
 define: {
@@ -192,9 +192,7 @@ define: {
 
 ### Git Worker (Vite)
 
-**File**: `packages/nostr-git/packages/git-worker/vite.config.ts`
-
-Same as main application configuration.
+Git worker code now lives under the `packages/nostr-git-core` and `packages/nostr-git-ui` workspaces. Use the root `vite.config.ts` feature definitions as the source of truth for app-integrated worker builds.
 
 ## TypeScript Support
 

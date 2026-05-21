@@ -1,6 +1,6 @@
 # Serving the Production Build
 
-If you need the full clone/build/deploy workflow, start with `docs/self-hosting.md`.
+If you need the full clone/build/deploy workflow, start with `docs/ops/self-hosting.md`.
 
 The production build is a static SPA (Single Page Application) that requires proper server configuration to handle client-side routing.
 
@@ -21,7 +21,7 @@ npx serve build -s -p 3000
 The `-s` flag tells `serve` to:
 
 - Redirect all non-file routes to index.html (enabling SPA routing)
-- Properly handle client-side routing for routes like `/settings`, `/c/...`, etc.
+- Properly handle client-side routing for routes like `/settings`, `/git/...`, `/c/...`, etc.
 
 ## Alternative: Using Python's http.server
 

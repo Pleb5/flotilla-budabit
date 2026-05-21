@@ -1,12 +1,12 @@
-# Flotilla Budabit - Code Flow Overview
+# Budabit - Code Flow Overview
 
-This document explains the overall flow of the codebase, with emphasis on git-related functionality and the role of workers.
+This document explains the overall flow of the codebase, with emphasis on Git-related functionality and the role of workers. Budabit's current app shell is community-first: communities are keyed by Communikey pubkeys under `/c/[community]`, while repository collaboration has a canonical top-level `/git` route family.
 
 ## Project Structure
 
 ```
 flotilla-budabit/
-├── src/                    # Main SvelteKit application (Discord-like Nostr client)
+├── src/                    # Main SvelteKit application (community-first Nostr client)
 ├── packages/
 │   ├── nostr-git-core/     # Core Git/Nostr library (NIP-34 implementation)
 │   ├── nostr-git-ui/       # Svelte 5 UI components for Git features

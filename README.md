@@ -1,6 +1,6 @@
-# Flotilla Budabit
+# Budabit
 
-A discord-like nostr client based on the idea of "relays as groups", enhanced with nostr-git functionality for decentralized Git operations.
+Budabit is a community-first Nostr client for social Git collaboration. Communities are identified by Communikey pubkeys, not relay URLs, and Git collaboration is exposed through Nostr Git events and a canonical `/git` surface.
 
 If you would like to be interoperable with Flotilla, please check out this guide: https://habla.news/u/hodlbod@coracle.social/1741286140797
 
@@ -81,13 +81,13 @@ The application will be available at `http://localhost:1847` (or the next availa
 
 ## Features
 
-Flotilla Budabit extends the original Flotilla with decentralized Git functionality through the nostr-git protocol:
+Budabit combines Communikey communities with decentralized Git functionality through the Nostr Git protocol:
 
-- **Decentralized Git Repositories**: Create and manage Git repositories using Nostr relays
-- **Issue Tracking**: Create, manage, and track issues with status updates
-- **Patch Management**: Submit, review, and merge patches
-- **Collaborative Development**: Work with teams using Nostr-based communication
-- **Real-time Updates**: Reactive feeds for issues and patches with live status updates
+- **Communikey Communities**: Select a community by hex pubkey, `npub`, or `ncommunity`; community definitions provide relays, sections, permissions, and media servers
+- **Decentralized Git Repositories**: Discover and manage Git repositories using Nostr relays and Git remotes
+- **Issue And Pull Request Tracking**: Create, manage, and discuss issues and PRs with Nostr-native status updates
+- **Community Catalogs**: Target repositories, calendar events, goals, permalinks, and widgets to `/c/<community>` pages
+- **Collaborative Development**: Work with teams using Nostr-based communication, moderation, and access requests
 
 ## Environment
 
@@ -165,7 +165,7 @@ pnpm lint
 pnpm format
 ```
 
-For testing the dev server from a phone over a VPS tunnel (with remote console/network debugging, including ocmux profile setup), see `docs/phone-dev-vps.md`.
+For testing the dev server from a phone over a VPS tunnel (with remote console/network debugging, including ocmux profile setup), see `docs/ops/phone-dev-vps.md`.
 
 ### E2E (Playwright)
 
@@ -192,9 +192,9 @@ Playwright will start (or reuse) the dev server at `http://127.0.0.1:1847`.
 
 ## Deployment
 
-If you want the shortest path for running your own instance, read `docs/self-hosting.md`.
+If you want the shortest path for running your own instance, read `docs/ops/self-hosting.md`.
 
-To run your own Flotilla Budabit, it's as simple as:
+To run your own Budabit instance, it's as simple as:
 
 ```sh
 # Install dependencies (including submodules)
@@ -221,15 +221,18 @@ git submodule update --init --recursive
 pnpm run build-in-production
 ```
 
-Or, if you prefer to use a container:
+Or, if you prefer to use a container, build and run the local Dockerfile:
 
 ```sh
-podman run -d -p 3000:3000 ghcr.io/coracle-social/flotilla:latest
+podman build -t budabit .
+podman run -d -p 1847:1847 budabit
 ```
 
 Alternatively, you can copy the build files into a directory of your choice and serve it yourself:
 
 ```sh
 mkdir ./mount
-podman run -v ./mount:/app/mount ghcr.io/coracle-social/flotilla:latest bash -c 'cp -r build/* mount'
+podman create --name budabit-build budabit
+podman cp budabit-build:/app/build/. ./mount/
+podman rm budabit-build
 ```
