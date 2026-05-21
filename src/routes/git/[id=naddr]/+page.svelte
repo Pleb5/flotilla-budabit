@@ -246,6 +246,7 @@
   let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
   let commitLoadInProgress = $state(false)
   let expandedRecentPrIds = $state<Set<string>>(new Set())
+  let cloneDetailsElement = $state<HTMLDetailsElement>()
 
   // Expandable sections state
   let showAllRelays = $state(false)
@@ -702,7 +703,21 @@
       console.error("Failed to copy URL", e)
     }
   }
+
+  function closeCloneDropdownOnOutsideClick(event: MouseEvent) {
+    const target = event.target
+
+    if (
+      cloneDetailsElement?.open &&
+      target instanceof Node &&
+      !cloneDetailsElement.contains(target)
+    ) {
+      cloneDetailsElement.open = false
+    }
+  }
 </script>
+
+<svelte:document onclick={closeCloneDropdownOnOutsideClick} />
 
 <svelte:head>
   <title>{repoClass.name || "Repository"}</title>
@@ -808,6 +823,7 @@
             </div>
             {#if sortedCloneUrls.length > 0}
               <details
+                bind:this={cloneDetailsElement}
                 class="group relative col-start-2 row-start-2 shrink-0 justify-self-end sm:col-start-3 sm:row-start-1 lg:col-start-1 lg:row-start-2 lg:justify-self-start">
                 <summary
                   class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-600/40 bg-green-100 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-200 dark:border-green-500/40 dark:bg-green-600/20 dark:text-green-300 dark:hover:bg-green-600/30">
