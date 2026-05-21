@@ -194,4 +194,39 @@ describe("VendorReadRouter.listCommits", () => {
       404
     );
   });
+
+  it("treats GitHub empty-repo commits 409 as an empty history", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+    });
+
+    const reportCloneUrlError = vi.fn();
+    router.setCloneUrlErrorCallback(reportCloneUrlError);
+
+    vi.spyOn(router as any, "vendorListCommits").mockRejectedValue(
+      new Error(
+        "Repository is empty (HTTP 409). (op=listCommits, remote=https://github.com/example/repo.git, branch=master)"
+      )
+    );
+
+    const workerManager = {
+      getCommitHistory: vi.fn(async () => ({
+        success: false,
+        error: "Could not find HEAD",
+      })),
+    } as any;
+
+    const result = await router.listCommits({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      repoKey: "owner/repo",
+      cloneUrls: ["https://github.com/example/repo.git"],
+      branch: "master",
+    });
+
+    expect(result.fromVendor).toBe(false);
+    expect(result.commits).toHaveLength(0);
+    expect(reportCloneUrlError).not.toHaveBeenCalled();
+  });
 });

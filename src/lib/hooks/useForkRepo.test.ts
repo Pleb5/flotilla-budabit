@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { filterPreparedSourceRefs, type PreparedSourceRefs } from "./useForkRepo.svelte";
+import {
+  filterPreparedSourceRefs,
+  getRollbackRemoteRepoTokens,
+  type PreparedSourceRefs,
+} from "./useForkRepo.svelte";
 
 describe("filterPreparedSourceRefs", () => {
   it("preserves the default branch while filtering copied heads", () => {
@@ -55,5 +59,30 @@ describe("filterPreparedSourceRefs", () => {
     };
 
     expect(filterPreparedSourceRefs({ preparedSource })).toEqual(preparedSource);
+  });
+});
+
+describe("getRollbackRemoteRepoTokens", () => {
+  it("tries the validated token followed by candidate tokens for platform rollback", () => {
+    expect(
+      getRollbackRemoteRepoTokens({
+        id: "git:github.com",
+        label: "GitHub (github.com)",
+        provider: "github",
+        token: "ghp_valid",
+        tokens: ["ghp_valid", "ghp_fallback"],
+      })
+    ).toEqual(["ghp_valid", "ghp_fallback"]);
+  });
+
+  it("does not attempt remote API deletion for GRASP event-backed repos", () => {
+    expect(
+      getRollbackRemoteRepoTokens({
+        id: "grasp:wss://relay.example",
+        label: "GRASP (relay.example)",
+        provider: "grasp",
+        relayUrl: "wss://relay.example",
+      })
+    ).toEqual([]);
   });
 });

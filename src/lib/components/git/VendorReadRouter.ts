@@ -152,6 +152,10 @@ export class VendorReadRouter {
     return match ? parseInt(match[1], 10) : undefined;
   }
 
+  private isBenignEmptyRepoCommitError(error?: string): boolean {
+    return this.extractHttpStatus(error) === 409;
+  }
+
   async listDirectory(params: {
     workerManager: WorkerManager;
     repoEvent: RepoAnnouncementEvent;
@@ -597,6 +601,17 @@ export class VendorReadRouter {
         depth,
       });
     } catch (error) {
+      if (
+        pendingVendorFailures.some((attempt) => this.isBenignEmptyRepoCommitError(attempt.error))
+      ) {
+        return {
+          commits: [],
+          ref: normalizeGitRefName(branch),
+          fromVendor: false,
+          hasMore: false,
+        };
+      }
+
       for (const attempt of pendingVendorFailures) {
         const status = this.extractHttpStatus(attempt.error);
         this.reportCloneUrlError(attempt.url, attempt.error || "Unknown error", status);
@@ -605,7 +620,9 @@ export class VendorReadRouter {
     }
 
     if (commitsResult?.success === false) {
-      for (const attempt of pendingVendorFailures) {
+      for (const attempt of pendingVendorFailures.filter(
+        (entry) => !this.isBenignEmptyRepoCommitError(entry.error)
+      )) {
         const status = this.extractHttpStatus(attempt.error);
         this.reportCloneUrlError(attempt.url, attempt.error || "Unknown error", status);
       }
@@ -2135,6 +2152,9 @@ export class VendorReadRouter {
     }
     if (status === 404) {
       return createFsError(`Not found (HTTP 404).${ctx}`);
+    }
+    if (status === 409 && ctx.includes("op=listCommits")) {
+      return createFsError(`Repository is empty (HTTP 409).${ctx}`);
     }
     if (status === 429 || (status >= 500 && status <= 599)) {
       const nerr = createNetworkError();

@@ -43,6 +43,20 @@ describe("grasp-pipeline", () => {
     ).toEqual(["wss://relay.extra", "wss://relay.one"]);
   });
 
+  it("does not derive mandatory GRASP relays from platform clone URLs", () => {
+    expect(
+      getMandatoryGraspRelayUrls([
+        "https://github.com",
+        "github.com",
+        "https://github.com/Pleb5/blossom-server",
+        "https://github.com/Pleb5/blossom-server.git",
+        "https://gitlab.com/group/project.git",
+        "https://bitbucket.org/team/project",
+        "https://grasp.example/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/flotilla-budabit.git",
+      ])
+    ).toEqual(["wss://grasp.example"]);
+  });
+
   it("derives successful GRASP relays from successful remote URLs only", () => {
     expect(
       getSuccessfulGraspRelayUrls([

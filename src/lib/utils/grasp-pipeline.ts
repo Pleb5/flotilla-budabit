@@ -133,11 +133,39 @@ function dedupeStrings(values: string[]): string[] {
   return result;
 }
 
+function canDeriveMandatoryGraspRelay(input: string): boolean {
+  const trimmed = String(input || "").trim();
+  if (!trimmed) return false;
+  if (isGraspRepoHttpUrl(trimmed)) return true;
+
+  const knownPlatformHosts = ["github.com", "gitlab.com", "bitbucket.org"];
+  if (knownPlatformHosts.includes(trimmed.split(":")[0].toLowerCase())) return false;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol === "ws:" || url.protocol === "wss:") return true;
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    if (knownPlatformHosts.includes(url.hostname.toLowerCase())) {
+      return false;
+    }
+
+    const pathSegments = url.pathname.split("/").filter(Boolean);
+    if (pathSegments.length === 0) return true;
+
+    // Allow GRASP server API roots like https://relay.example/api, but not
+    // platform clone URLs such as https://github.com/owner/repo.git.
+    return pathSegments.length === 1 && !pathSegments[0].endsWith(".git");
+  } catch {
+    return /^[^/\s]+(?::\d+)?$/.test(trimmed);
+  }
+}
+
 export function getMandatoryGraspRelayUrls(relayUrls: string[] = []): string[] {
   return dedupeStrings(
     relayUrls
       .map((relayUrl) => {
         try {
+          if (!canDeriveMandatoryGraspRelay(relayUrl)) return "";
           return normalizeGraspOrigins(relayUrl).wsOrigin;
         } catch {
           return "";

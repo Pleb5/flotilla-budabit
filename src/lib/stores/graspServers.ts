@@ -11,13 +11,29 @@ export function normalizeGraspServerUrl(url: string): string {
   return (url || "").trim().replace(/\/+$/, "");
 }
 
+export function isValidGraspServerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (!["ws:", "wss:", "http:", "https:"].includes(parsed.protocol)) return false;
+
+    const host = parsed.hostname.toLowerCase();
+    const pathSegments = parsed.pathname.split("/").filter(Boolean);
+    const lastSegment = pathSegments[pathSegments.length - 1] || "";
+    if (["github.com", "gitlab.com", "bitbucket.org"].includes(host)) return false;
+    if (pathSegments.length >= 2 && /\.git$/i.test(lastSegment)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeGraspServerUrls(urls: string[] = []): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
 
   for (const url of urls) {
     const normalized = normalizeGraspServerUrl(url);
-    if (!normalized || seen.has(normalized)) continue;
+    if (!normalized || !isValidGraspServerUrl(normalized) || seen.has(normalized)) continue;
     seen.add(normalized);
     result.push(normalized);
   }
@@ -42,7 +58,7 @@ function createGraspServersStore() {
     push: (url: string) =>
       store.update((urls) => {
         const normalized = normalizeGraspServerUrl(url);
-        if (!normalized) return urls;
+        if (!normalized || !isValidGraspServerUrl(normalized)) return urls;
         return urls.includes(normalized) ? urls : [...urls, normalized];
       }),
     remove: (url: string) => {

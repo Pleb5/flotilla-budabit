@@ -78,6 +78,79 @@ interface WorkerPushToRemoteResult {
   };
 }
 
+class RemotePushResultError extends Error {
+  result?: WorkerPushToRemoteResult;
+
+  constructor(message: string, result?: WorkerPushToRemoteResult) {
+    super(message);
+    this.name = "RemotePushResultError";
+    this.result = result;
+  }
+}
+
+function getPushResultFromError(error: unknown): WorkerPushToRemoteResult | undefined {
+  if (error instanceof RemotePushResultError) return error.result;
+
+  const causes = (error as any)?.causes;
+  if (Array.isArray(causes)) {
+    for (const cause of causes) {
+      const result = getPushResultFromError(cause);
+      if (result) return result;
+    }
+  }
+
+  return undefined;
+}
+
+function addFailedRef(
+  failedRefs: Array<{ ref: string; error: string }>,
+  ref: string | undefined,
+  error: string
+): void {
+  const normalizedRef = String(ref || "").trim();
+  const message = String(error || "sync failed").trim() || "sync failed";
+  if (!normalizedRef) return;
+  if (failedRefs.some((item) => item.ref === normalizedRef)) return;
+  failedRefs.push({ ref: normalizedRef, error: message });
+}
+
+function collectPushResultDetails(
+  pushResult: WorkerPushToRemoteResult | undefined,
+  fallbackRef: string | undefined,
+  fallbackError: string | undefined,
+  pushedRefsForTarget: string[],
+  failedRefsForTarget: Array<{ ref: string; error: string }>,
+  warningsForTarget: string[]
+): string[] {
+  const pushedRefs = Array.isArray(pushResult?.details?.pushedRefs)
+    ? pushResult.details.pushedRefs.filter(Boolean)
+    : [];
+  const effectivePushedRefs =
+    pushedRefs.length > 0
+      ? pushedRefs
+      : pushResult?.success && fallbackRef
+        ? [fallbackRef]
+        : [];
+
+  pushedRefsForTarget.push(...effectivePushedRefs);
+
+  if (Array.isArray(pushResult?.details?.failedRefs)) {
+    for (const failedRef of pushResult.details.failedRefs) {
+      addFailedRef(failedRefsForTarget, failedRef.ref, failedRef.error);
+    }
+  }
+
+  if (!pushResult?.success && fallbackError) {
+    addFailedRef(failedRefsForTarget, fallbackRef, fallbackError);
+  }
+
+  if (Array.isArray(pushResult?.details?.warnings)) {
+    warningsForTarget.push(...pushResult.details.warnings.filter(Boolean));
+  }
+
+  return effectivePushedRefs;
+}
+
 function getTargetTokens(target: RemoteTargetSelection): string[] {
   return Array.from(new Set([target.token, ...(target.tokens || [])].filter(Boolean) as string[]));
 }
@@ -92,10 +165,12 @@ async function tryTargetTokens<T>(
   }
 
   const failures: string[] = [];
+  const failureErrors: unknown[] = [];
   for (const token of tokens) {
     try {
       return await operation(token);
     } catch (error) {
+      failureErrors.push(error);
       failures.push(error instanceof Error ? error.message : String(error));
     }
   }
@@ -105,12 +180,15 @@ async function tryTargetTokens<T>(
   }
 
   if (failures.length === 1) {
-    throw new Error(failures[0]);
+    const [failure] = failureErrors;
+    throw failure instanceof Error ? failure : new Error(failures[0]);
   }
 
-  throw new Error(
+  const error = new Error(
     `All tokens failed for ${target.label}: ${Array.from(new Set(failures)).join(" | ")}`
   );
+  (error as any).causes = failureErrors;
+  throw error;
 }
 
 async function withRateLimit<T>(
@@ -279,6 +357,7 @@ export async function syncLocalRepoToTargets(
     const pushedRefsForTarget: string[] = [];
     const failedRefsForTarget: Array<{ ref: string; error: string }> = [];
     const warningsForTarget: string[] = [];
+    let activeRef: RemoteSyncRef | null = null;
 
     try {
       if (target.provider === "grasp") {
@@ -403,6 +482,7 @@ export async function syncLocalRepoToTargets(
 
         for (let refIndex = 0; refIndex < orderedRefs.length; refIndex++) {
           const ref = orderedRefs[refIndex];
+          activeRef = ref;
           throwIfAborted?.();
 
           if (onPublishEvent && refDetailsByFullRef.size > 0) {
@@ -496,31 +576,24 @@ export async function syncLocalRepoToTargets(
           )) as WorkerPushToRemoteResult;
 
           if (!pushResult?.success) {
-            throw new Error(pushResult?.error || `Failed to push ${ref.name} to GRASP target`);
+            const message = pushResult?.error || `Failed to push ${ref.name} to GRASP target`;
+            throw new RemotePushResultError(message, pushResult);
           }
 
-          const pushedRefs = Array.isArray(pushResult?.details?.pushedRefs)
-            ? pushResult.details.pushedRefs
-            : [ref.ref];
-          pushedRefsForTarget.push(...pushedRefs);
+          const pushedRefs = collectPushResultDetails(
+            pushResult,
+            ref.ref,
+            undefined,
+            pushedRefsForTarget,
+            failedRefsForTarget,
+            warningsForTarget
+          );
 
           if (pushedRefs.includes(ref.ref)) {
             acceptedRefsForState.add(ref.ref);
           }
-
-          if (
-            Array.isArray(pushResult?.details?.failedRefs) &&
-            pushResult.details.failedRefs.length > 0
-          ) {
-            failedRefsForTarget.push(...pushResult.details.failedRefs);
-          }
-          if (
-            Array.isArray(pushResult?.details?.warnings) &&
-            pushResult.details.warnings.length > 0
-          ) {
-            warningsForTarget.push(...pushResult.details.warnings);
-          }
         }
+        activeRef = null;
 
         results.push({
           id: target.id,
@@ -591,6 +664,7 @@ export async function syncLocalRepoToTargets(
 
       for (let refIndex = 0; refIndex < orderedRefs.length; refIndex++) {
         const ref = orderedRefs[refIndex];
+        activeRef = ref;
         throwIfAborted?.();
 
         const isDefaultBranchRef = ref.type === "heads" && ref.name === defaultBranch;
@@ -661,7 +735,8 @@ export async function syncLocalRepoToTargets(
                 )) as WorkerPushToRemoteResult;
 
                 if (!result?.success) {
-                  throw new Error(result?.error || `Failed to push ${ref.name} to ${target.label}`);
+                  const message = result?.error || `Failed to push ${ref.name} to ${target.label}`;
+                  throw new RemotePushResultError(message, result);
                 }
 
                 return result;
@@ -697,27 +772,20 @@ export async function syncLocalRepoToTargets(
         );
 
         if (!pushResult?.success) {
-          throw new Error(pushResult?.error || `Failed to push ${ref.name} to ${target.label}`);
+          const message = pushResult?.error || `Failed to push ${ref.name} to ${target.label}`;
+          throw new RemotePushResultError(message, pushResult);
         }
 
-        const pushedRefs = Array.isArray(pushResult?.details?.pushedRefs)
-          ? pushResult.details.pushedRefs
-          : [ref.ref];
-        pushedRefsForTarget.push(...pushedRefs);
-
-        if (
-          Array.isArray(pushResult?.details?.failedRefs) &&
-          pushResult.details.failedRefs.length > 0
-        ) {
-          failedRefsForTarget.push(...pushResult.details.failedRefs);
-        }
-        if (
-          Array.isArray(pushResult?.details?.warnings) &&
-          pushResult.details.warnings.length > 0
-        ) {
-          warningsForTarget.push(...pushResult.details.warnings);
-        }
+        collectPushResultDetails(
+          pushResult,
+          ref.ref,
+          undefined,
+          pushedRefsForTarget,
+          failedRefsForTarget,
+          warningsForTarget
+        );
       }
+      activeRef = null;
 
       results.push({
         id: target.id,
@@ -733,6 +801,19 @@ export async function syncLocalRepoToTargets(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const failedPushResult = getPushResultFromError(error);
+      if (failedPushResult && activeRef) {
+        collectPushResultDetails(
+          failedPushResult,
+          activeRef.ref,
+          message,
+          pushedRefsForTarget,
+          failedRefsForTarget,
+          warningsForTarget
+        );
+      } else if (activeRef) {
+        addFailedRef(failedRefsForTarget, activeRef.ref, message);
+      }
       const partialSuffix =
         pushedRefsForTarget.length > 0
           ? ` (pushed ${Array.from(new Set(pushedRefsForTarget)).length}/${orderedRefs.length} refs before failure)`

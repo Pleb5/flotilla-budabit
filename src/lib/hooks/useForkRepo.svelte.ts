@@ -218,6 +218,17 @@ function getSourceTokenForUrl(url: string, tokens: Token[]): string | undefined 
   return match?.token;
 }
 
+export function getRollbackRemoteRepoTokens(
+  target: RemoteTargetSelection | undefined
+): string[] {
+  if (!target) return [];
+  if (target.provider === "grasp") return [];
+
+  return Array.from(
+    new Set([target.token, ...(target.tokens || [])].map((token) => token?.trim()).filter(Boolean))
+  ) as string[];
+}
+
 async function discoverSourceRefs(params: {
   workerApi: any;
   sourceUrlCandidates: string[];
@@ -784,13 +795,14 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       return result;
     } catch (err) {
       const successfulTargetCount = remotePushResults.filter((result) => result.success).length;
+      const remoteRollbackTargets = remotePushResults.filter(
+        (result) => result.createdRemote && result.remoteUrl && result.provider !== "grasp"
+      );
       const rollbackPlan = getForkRollbackPlan({
         successfulTargetCount,
         hasPublishedRepoRollbackContext: Boolean(publishedRepoRollbackContext),
         hasRollbackPublishedRepoEvents: Boolean(onRollbackPublishedRepoEvents),
-        createdRemoteRepoCount: remotePushResults.filter(
-          (result) => result.createdRemote && result.remoteUrl
-        ).length,
+        createdRemoteRepoCount: remoteRollbackTargets.length,
         hasGitWorkerApi: Boolean(gitWorkerApi),
         hasRollbackLocalRepoId: Boolean(localRepoId),
       });
@@ -811,30 +823,39 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       }
 
       if (rollbackPlan.rollbackRemoteRepos) {
-        const rollbackTargets = remotePushResults.filter(
-          (result) => result.createdRemote && result.remoteUrl
-        );
-        for (const result of rollbackTargets) {
+        for (const result of remoteRollbackTargets) {
           const target = selectedTargets.find((item) => item.id === result.id);
           if (!result.remoteUrl) continue;
 
-          const rollbackToken =
-            target?.provider === "grasp"
-              ? userPubkey
-              : target?.token || (target?.tokens || []).find(Boolean) || undefined;
-          if (!rollbackToken || !result.remoteUrl) continue;
+          const rollbackTokens = getRollbackRemoteRepoTokens(target);
+          if (rollbackTokens.length === 0) {
+            rollbackFailures.push(`${result.label}: no token available for rollback`);
+            continue;
+          }
 
-          try {
-            const rollbackResult = await gitWorkerApi.deleteRemoteRepo({
-              remoteUrl: result.remoteUrl,
-              token: rollbackToken,
-            });
-            if (!rollbackResult?.success) {
-              throw new Error(rollbackResult?.error || `Failed to delete ${result.label}`);
+          let deleted = false;
+          let lastRollbackError = "";
+          for (const rollbackToken of rollbackTokens) {
+            try {
+              updateProgress("rollback", `Deleting created remote ${result.label}...`, "running");
+              const rollbackResult = await gitWorkerApi.deleteRemoteRepo({
+                remoteUrl: result.remoteUrl,
+                token: rollbackToken,
+              });
+              if (!rollbackResult?.success) {
+                throw new Error(rollbackResult?.error || `Failed to delete ${result.label}`);
+              }
+              deleted = true;
+              break;
+            } catch (rollbackError) {
+              lastRollbackError =
+                rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
             }
-          } catch (rollbackError) {
+          }
+
+          if (!deleted) {
             rollbackFailures.push(
-              `${result.label}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
+              `${result.label}: ${lastRollbackError || `Failed to delete ${result.label}`}`
             );
           }
         }

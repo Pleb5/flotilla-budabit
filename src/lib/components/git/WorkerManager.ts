@@ -492,7 +492,11 @@ export class WorkerManager {
     return this.execute("listServerRefs", params);
   }
 
-  async discoverRemoteBackfill(params: { repoId: string; cloneUrls: string[] }): Promise<any> {
+  async discoverRemoteBackfill(params: {
+    repoId: string;
+    cloneUrls: string[];
+    defaultBranch?: string;
+  }): Promise<any> {
     await this.initialize();
     return this.execute("discoverRemoteBackfill", params, { timeoutMs: 120000 });
   }

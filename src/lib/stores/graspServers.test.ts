@@ -4,6 +4,7 @@ import {
   DEFAULT_GRASP_SERVER_URL,
   DEFAULT_RECOMMENDED_GRASP_SERVER_URLS,
   getRecommendedGraspServerUrls,
+  isValidGraspServerUrl,
   normalizeGraspServerUrl,
   normalizeGraspServerUrls,
 } from "./graspServers";
@@ -37,9 +38,19 @@ describe("grasp server helpers", () => {
     expect(normalizeGraspServerUrl("  wss://gitnostr.com/  ")).toBe("wss://gitnostr.com");
   });
 
+  it("rejects platform and clone URLs as GRASP server entries", () => {
+    expect(isValidGraspServerUrl("wss://grasp.budabit.club")).toBe(true);
+    expect(isValidGraspServerUrl("https://github.com")).toBe(false);
+    expect(isValidGraspServerUrl("https://github.com/Pleb5/flotilla-budabit.git")).toBe(false);
+  });
+
   it("normalizes stored relay lists so old trailing-slash entries can be removed", () => {
     expect(
-      normalizeGraspServerUrls(["wss://grasp.budabit.club/", "wss://grasp.budabit.club"])
+      normalizeGraspServerUrls([
+        "wss://grasp.budabit.club/",
+        "wss://grasp.budabit.club",
+        "https://github.com/Pleb5/flotilla-budabit.git",
+      ])
     ).toEqual(["wss://grasp.budabit.club"]);
   });
 });
