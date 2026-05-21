@@ -17,7 +17,7 @@
     notification?: boolean;
   } = $props();
 
-  const isActive = activeTab === tabValue;
+  const isActive = $derived(activeTab === tabValue);
 </script>
 
 <a

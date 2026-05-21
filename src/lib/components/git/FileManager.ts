@@ -109,6 +109,13 @@ export class FileManager {
   private config: Required<Omit<FileManagerConfig, "vendorReadRouter">> &
     Pick<FileManagerConfig, "vendorReadRouter">;
   private vendorReadRouter?: VendorReadRouter;
+  private cloneUrlsOverride: string[] = [];
+
+  setCloneUrls(cloneUrls: string[]): void {
+    this.cloneUrlsOverride = Array.from(
+      new Set((cloneUrls || []).map((u) => String(u || "").trim()).filter(Boolean))
+    );
+  }
 
   // Cache keys for different types of file operations
   private static readonly CACHE_KEYS = {
@@ -278,6 +285,8 @@ export class FileManager {
   }
 
   private getCloneUrlsFromRepoEvent(repoEvent: RepoAnnouncementEvent): string[] {
+    if (this.cloneUrlsOverride.length > 0) return this.cloneUrlsOverride;
+
     try {
       const parsed: any = parseRepoAnnouncementEvent(repoEvent as any) as any;
       const clone = parsed?.clone;

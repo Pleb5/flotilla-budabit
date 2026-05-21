@@ -87,8 +87,17 @@ export class BranchManager {
   private vendorReadRouter?: VendorReadRouter;
   private repoEventSnapshot?: RepoAnnouncementEvent;
   private refDiscoverySource?: RefDiscoverySource;
+  private cloneUrlsOverride: string[] = [];
+
+  setCloneUrls(cloneUrls: string[]): void {
+    this.cloneUrlsOverride = Array.from(
+      new Set((cloneUrls || []).map((u) => String(u || "").trim()).filter(Boolean))
+    );
+  }
 
   private getCloneUrlsFromRepoEvent(repoEvent: RepoAnnouncementEvent): string[] {
+    if (this.cloneUrlsOverride.length > 0) return this.cloneUrlsOverride;
+
     try {
       const parsed: any = parseRepoAnnouncementEvent(repoEvent as any) as any;
       const clone = parsed?.clone;

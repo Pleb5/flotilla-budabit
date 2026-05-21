@@ -35,6 +35,32 @@
   const loadingLabel = $derived.by(() =>
     repo.isRefsLoading && !isSwitching ? "Loading branches" : `Switching to ${selectedBranch}`
   );
+  const discoverySource = $derived.by(() => repo.refDiscoverySource);
+  const sourceHost = $derived.by(() => {
+    const remoteUrl = discoverySource?.remoteUrl || "";
+    if (!remoteUrl) return "";
+    try {
+      return new URL(remoteUrl).hostname;
+    } catch {
+      return remoteUrl;
+    }
+  });
+  const sourceLabel = $derived.by(() => {
+    if (!discoverySource) return "";
+    if (discoverySource.kind === "vendor") return sourceHost ? `API: ${sourceHost}` : "Provider API";
+    if (discoverySource.kind === "git-remote") {
+      return sourceHost ? `Remote: ${sourceHost}` : "Git remote";
+    }
+    if (discoverySource.kind === "repo-state") return "Repo state";
+    if (discoverySource.kind === "local") return "Local cache";
+    return discoverySource.label || "Branch source";
+  });
+  const sourceTitle = $derived.by(() => {
+    if (!discoverySource) return "";
+    return [discoverySource.label, discoverySource.remoteUrl, discoverySource.details]
+      .filter(Boolean)
+      .join(" · ");
+  });
 
   // Debug logging disabled for performance - uncomment if needed for debugging
   // $effect(() => {
@@ -111,4 +137,12 @@
       <span class="sr-only" aria-live="polite">{loadingLabel}</span>
     {/if}
   </div>
+  {#if sourceLabel}
+    <span
+      class="hidden max-w-[10rem] truncate rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground sm:inline-block"
+      title={sourceTitle}
+    >
+      {sourceLabel}
+    </span>
+  {/if}
 </div>

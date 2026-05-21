@@ -168,16 +168,10 @@ export class VendorReadRouter {
     const branch = params.branch || "";
     const remotes = this.getValidRemotes(params.cloneUrls);
 
-    // 1) Vendor-first with URL fallback - try each supported vendor URL in order
+    // 1) Vendor fast path only for the selected remote policy. A later GitHub/GitLab
+    // URL must not jump ahead of the first clone URL just because it has an API.
     if (this.preferVendorReads && remotes.length > 0) {
-      // Filter to only URLs with supported vendors
-      const vendorUrls = remotes.filter((url) => {
-        const vendor = this.getSupportedVendor(url);
-        if (vendor) {
-          console.log(`[VendorReadRouter] Detected vendor: ${vendor} for URL: ${url}`);
-        }
-        return vendor !== null;
-      });
+      const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
         // Try each vendor URL with fallback
@@ -263,16 +257,9 @@ export class VendorReadRouter {
     const remotes = this.getValidRemotes(params.cloneUrls);
     const ctx = this.ctx({ op: "getFileContent", remote: remotes[0], branch, path: params.path });
 
-    // 1) Vendor-first with URL fallback - try each supported vendor URL in order
+    // 1) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
-      // Filter to only URLs with supported vendors
-      const vendorUrls = remotes.filter((url) => {
-        const vendor = this.getSupportedVendor(url);
-        if (vendor) {
-          console.log(`[VendorReadRouter] Detected vendor: ${vendor} for URL: ${url}`);
-        }
-        return vendor !== null;
-      });
+      const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
         // Try each vendor URL with fallback
@@ -351,15 +338,9 @@ export class VendorReadRouter {
   }> {
     const remotes = this.getValidRemotes(params.cloneUrls);
 
-    // 1) Vendor-first with URL fallback
+    // 1) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
-      const vendorUrls = remotes.filter((url) => {
-        const vendor = this.getSupportedVendor(url);
-        if (vendor) {
-          console.log(`[VendorReadRouter] Detected vendor: ${vendor} for URL: ${url}`);
-        }
-        return vendor !== null;
-      });
+      const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
         console.log(`[VendorReadRouter] Trying REST API for listRefs...`);
@@ -542,15 +523,9 @@ export class VendorReadRouter {
     const perPage = params.perPage || 30;
     let pendingVendorFailures: Array<{ url: string; error?: string }> = [];
 
-    // 1) Vendor-first with URL fallback
+    // 1) Vendor fast path only for the selected remote policy.
     if (this.preferVendorReads && remotes.length > 0) {
-      const vendorUrls = remotes.filter((url) => {
-        const vendor = this.getSupportedVendor(url);
-        if (vendor) {
-          console.log(`[VendorReadRouter] Detected vendor: ${vendor} for URL: ${url}`);
-        }
-        return vendor !== null;
-      });
+      const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
         console.log(`[VendorReadRouter] Trying REST API for listCommits...`);
@@ -675,6 +650,18 @@ export class VendorReadRouter {
     }
   }
 
+  private getPolicyVendorUrls(remotes: string[]): string[] {
+    if (!this.preferVendorReads) return [];
+    const selectedRemote = remotes[0];
+    if (!selectedRemote) return [];
+
+    const vendor = this.getSupportedVendor(selectedRemote);
+    if (!vendor) return [];
+
+    console.log(`[VendorReadRouter] Detected selected vendor: ${vendor} for URL: ${selectedRemote}`);
+    return [selectedRemote];
+  }
+
   /**
    * Check if any of the provided clone URLs have vendor API support.
    * This can be used to skip slow git operations when vendor API is available.
@@ -682,7 +669,7 @@ export class VendorReadRouter {
   hasVendorSupport(cloneUrls: string[]): boolean {
     if (!this.preferVendorReads) return false;
     const remotes = this.getValidRemotes(cloneUrls);
-    return remotes.some((url) => this.getSupportedVendor(url) !== null);
+    return this.getPolicyVendorUrls(remotes).length > 0;
   }
 
   /**
@@ -708,7 +695,7 @@ export class VendorReadRouter {
 
     // 1) Check if vendor API is available
     if (this.preferVendorReads && remotes.length > 0) {
-      const vendorUrls = remotes.filter((url) => this.getSupportedVendor(url) !== null);
+      const vendorUrls = this.getPolicyVendorUrls(remotes);
 
       if (vendorUrls.length > 0) {
         // For vendor APIs, we can't get exact count without pagination

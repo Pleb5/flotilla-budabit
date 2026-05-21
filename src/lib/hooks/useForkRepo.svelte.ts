@@ -143,6 +143,13 @@ function buildSourceCloneCandidates(...urls: Array<string | undefined>): string[
   return candidates;
 }
 
+function prioritizeCloneCandidate(candidates: string[], preferredUrl: string): string[] {
+  const preferred = String(preferredUrl || "").trim();
+  if (!preferred) return candidates;
+
+  return Array.from(new Set([preferred, ...candidates]));
+}
+
 function compactCloneUrlLabel(value: string): string {
   const raw = String(value || "").trim();
   if (!raw) return "unknown URL";
@@ -624,9 +631,10 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         );
       }
 
+      const sourceDiscoveryCandidates = prioritizeCloneCandidate(sourceUrlCandidates, clonedFrom);
       const discoveredSource = await discoverSourceRefs({
         workerApi: gitWorkerApi,
-        sourceUrlCandidates,
+        sourceUrlCandidates: sourceDiscoveryCandidates,
         localRepoId,
         fallbackDefaultBranch: originalRepo.defaultBranch,
         updateProgress: (message) => updateProgress("fork", message, "running"),

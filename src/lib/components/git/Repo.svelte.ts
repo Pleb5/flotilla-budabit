@@ -101,6 +101,8 @@ export class Repo {
 
   // Clone URL error tracking - surfaces 404s and other errors to the UI
   #cloneUrlErrors: Array<{ url: string; error: string; status?: number }> = $state([]);
+  #effectiveCloneUrls: string[] = $state([]);
+  currentReadRemoteUrl: string = $state("");
 
   // Reactive selected branch so UI can respond to changes
   #selectedBranchState: string | undefined = $state(undefined);
@@ -407,7 +409,7 @@ export class Repo {
       this.recordCloneUrlError(url, error, status);
     });
     this.vendorReadRouter.setCloneUrlSuccessCallback((url: string) => {
-      this.clearCloneUrlError(url);
+      this.recordCloneUrlSuccess(url);
     });
 
     // Initialize CommitManager with dependencies and vendor router for API-first commit reads
@@ -443,6 +445,7 @@ export class Repo {
           if (this.repoEvent?.id === event.id) return;
           this.repoEvent = event;
           this.#repo = parseRepoAnnouncementEvent(event);
+          this.#updateEffectiveCloneUrls();
           this.name = this.#repo!.name!;
           this.description = this.#repo!.description!;
           // Compute canonical key from "pubkey:name" string (matches current @nostr-git/core signature)
@@ -706,6 +709,9 @@ export class Repo {
               cloneUrls,
               branch,
             });
+            if (this.syncStatus?.usedUrl) {
+              this.recordCloneUrlSuccess(this.syncStatus.usedUrl);
+            }
           } else if (hasVendorApi) {
             console.log(`[Repo init] Vendor API available, skipping git sync for fast UI response`);
           }
@@ -1129,6 +1135,9 @@ export class Repo {
           })
           .then((result) => {
             if (result.success) {
+              if (result.usedUrl) {
+                this.recordCloneUrlSuccess(result.usedUrl);
+              }
               console.log(`[Repo] Background git clone completed for maintainer`);
             } else {
               console.warn(`[Repo] Background git clone failed:`, result.error);
@@ -1148,6 +1157,9 @@ export class Repo {
         });
 
         if (result.success) {
+          if (result.usedUrl) {
+            this.recordCloneUrlSuccess(result.usedUrl);
+          }
           context.update(this.#loadingIds.clone, {
             type: "success",
             message: result.fromCache ? "Repository loaded from cache" : "Repository initialized",
@@ -1277,7 +1289,30 @@ export class Repo {
 
   // Expose clone URLs from the parsed repo announcement
   get cloneUrls(): string[] {
-    return this.#repo?.clone ?? [];
+    return this.#effectiveCloneUrls.length > 0 ? this.#effectiveCloneUrls : (this.#repo?.clone ?? []);
+  }
+
+  setCloneUrls(cloneUrls: string[]): void {
+    this.#updateEffectiveCloneUrls(cloneUrls || []);
+  }
+
+  #updateEffectiveCloneUrls(extraCloneUrls: string[] = []): void {
+    const declared = this.#repo?.clone || [];
+    const nextCloneUrls = Array.from(
+      new Set([...declared, ...extraCloneUrls].map((u) => String(u || "").trim()).filter(Boolean))
+    );
+
+    if (this.#arraysEqual(this.#effectiveCloneUrls, nextCloneUrls)) return;
+
+    this.#effectiveCloneUrls = nextCloneUrls;
+    this.commitManager?.setCloneUrls(this.#effectiveCloneUrls);
+    this.branchManager?.setCloneUrls(this.#effectiveCloneUrls);
+    this.fileManager?.setCloneUrls(this.#effectiveCloneUrls);
+  }
+
+  #arraysEqual(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) return false;
+    return left.every((value, index) => value === right[index]);
   }
 
   // Expose clone URL errors for UI display (e.g., 404s, auth errors)
@@ -1308,6 +1343,14 @@ export class Repo {
     this.#cloneUrlErrors = this.#cloneUrlErrors.filter(
       (entry) => this.#normalizeCloneUrl(entry.url) !== normalized
     );
+  }
+
+  recordCloneUrlSuccess(url: string): void {
+    const trimmed = String(url || "").trim();
+    if (trimmed) {
+      this.currentReadRemoteUrl = trimmed;
+    }
+    this.clearCloneUrlError(url);
   }
 
   // Clear clone URL errors (e.g., after successful operation)
@@ -1668,6 +1711,9 @@ export class Repo {
             cloneUrls,
             branch: shortBranch,
           });
+          if (this.syncStatus?.usedUrl) {
+            this.recordCloneUrlSuccess(this.syncStatus.usedUrl);
+          }
 
           // Only clear cache if remote had updates or if sync reports it needs update
           if (this.syncStatus?.needsUpdate) {

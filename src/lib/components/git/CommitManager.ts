@@ -59,6 +59,7 @@ export class CommitManager {
     Pick<CommitManagerConfig, "vendorReadRouter">;
   private vendorReadRouter?: VendorReadRouter;
   private repoEventSnapshot?: RepoAnnouncementEvent;
+  private cloneUrlsOverride: string[] = [];
   // Repo identifiers
   private canonicalKey?: string; // for caches and internal maps
   private workerRepoId?: string; // for worker API calls
@@ -132,10 +133,18 @@ export class CommitManager {
     this.repoEventSnapshot = repoEvent;
   }
 
+  setCloneUrls(cloneUrls: string[]): void {
+    this.cloneUrlsOverride = Array.from(
+      new Set((cloneUrls || []).map((u) => String(u || "").trim()).filter(Boolean))
+    );
+  }
+
   /**
    * Extract clone URLs from a repo event
    */
   private getCloneUrlsFromRepoEvent(repoEvent: RepoAnnouncementEvent): string[] {
+    if (this.cloneUrlsOverride.length > 0) return this.cloneUrlsOverride;
+
     try {
       const parsed: any = parseRepoAnnouncementEvent(repoEvent as any) as any;
       const clone = parsed?.clone;

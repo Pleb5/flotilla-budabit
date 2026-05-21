@@ -108,6 +108,48 @@ describe("VendorReadRouter.listRefs", () => {
     expect(result.refs.map((ref) => ref.name)).toEqual(["dev", "master"]);
     expect(workerManager.listServerRefs).not.toHaveBeenCalled();
   });
+
+  it("does not promote a secondary vendor URL ahead of the first remote", async () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+    });
+    const vendorSpy = vi.spyOn(router as any, "vendorListRefs");
+
+    const workerManager = {
+      listServerRefs: vi.fn(async () => [
+        { ref: "HEAD", oid: "head", target: "refs/heads/main" },
+        { ref: "refs/heads/main", oid: "111111" },
+      ]),
+      listBranchesFromEvent: vi.fn(async () => []),
+    } as any;
+
+    const result = await router.listRefs({
+      workerManager,
+      repoEvent: { id: "repo", pubkey: "owner", tags: [] } as any,
+      cloneUrls: ["https://example.com/owner/repo.git", "https://github.com/example/repo.git"],
+    });
+
+    expect(result.source.kind).toBe("git-remote");
+    expect(result.source.remoteUrl).toBe("https://example.com/owner/repo.git");
+    expect(vendorSpy).not.toHaveBeenCalled();
+    expect(workerManager.listServerRefs).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports vendor support only for the selected first remote", () => {
+    const router = new VendorReadRouter({
+      getTokens: async () => [],
+      preferVendorReads: true,
+    });
+
+    expect(
+      router.hasVendorSupport([
+        "https://example.com/owner/repo.git",
+        "https://github.com/example/repo.git",
+      ])
+    ).toBe(false);
+    expect(router.hasVendorSupport(["https://github.com/example/repo.git"])).toBe(true);
+  });
 });
 
 describe("VendorReadRouter.listCommits", () => {
