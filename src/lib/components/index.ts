@@ -103,7 +103,3 @@ export { signer } from "../stores/signer";
 // Providers
 export { default as ConfigProvider } from "../ConfigProvider.svelte";
 export { default as FunctionProvider } from "../FunctionProvider.svelte";
-
-// Terminal
-export { default as Terminal } from "./terminal/Terminal.svelte";
-export { createTerminalFeedBridge } from "./terminal/feed-bridge";
