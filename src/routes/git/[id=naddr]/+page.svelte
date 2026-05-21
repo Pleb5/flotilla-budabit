@@ -1,6 +1,6 @@
 <script lang="ts">
   import markdownit from "markdown-it"
-  import {BranchSelector, Card} from "@nostr-git/ui"
+  import {BranchSelector, Card, classifyCloneUrlIssue} from "@nostr-git/ui"
   import {
     CircleAlert,
     GitBranch,
@@ -35,11 +35,14 @@
   import {
     PULL_REQUESTS_KEY,
     REPO_CLONE_URLS_KEY,
+    REPO_CLONE_URL_SOURCES_KEY,
     REPO_KEY,
     REPO_RELAYS_KEY,
+    REPO_RELAY_SOURCES_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     REPO_ACTIONS_KEY,
     type RepoActions,
+    type MaintainerSetRepoValueSource,
     maintainerSetByRepoAddress,
     pendingMaintainersByRepoAddress,
   } from "@app/core/git-state"
@@ -71,6 +74,12 @@
   const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const repoCloneUrlsStore = getContext<Readable<string[]>>(REPO_CLONE_URLS_KEY)
+  const repoCloneUrlSourcesStore = getContext<Readable<MaintainerSetRepoValueSource[]>>(
+    REPO_CLONE_URL_SOURCES_KEY,
+  )
+  const repoRelaySourcesStore = getContext<Readable<MaintainerSetRepoValueSource[]>>(
+    REPO_RELAY_SOURCES_KEY,
+  )
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
@@ -83,6 +92,12 @@
   // Get relays reactively
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
   const maintainerSetCloneUrls = $derived.by(() => (repoCloneUrlsStore ? $repoCloneUrlsStore : []))
+  const maintainerSetCloneUrlSources = $derived.by(() =>
+    repoCloneUrlSourcesStore ? $repoCloneUrlSourcesStore : [],
+  )
+  const maintainerSetRelaySources = $derived.by(() =>
+    repoRelaySourcesStore ? $repoRelaySourcesStore : [],
+  )
   const statusEventsByRoot = $derived.by(() =>
     statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
   )
@@ -339,22 +354,161 @@
     return `nostr://${resolved.ownerNpub}/${resolved.name}`
   }
 
+  type CloneUrlItem = {
+    url: string
+    sources: MaintainerSetRepoValueSource[]
+    isDeclared: boolean
+    isDeclaredPrimary: boolean
+    isFallback: boolean
+    isMine: boolean
+    isOtherMaintainer: boolean
+    isCurrent: boolean
+    isGrasp: boolean
+    isApi: boolean
+  }
+
+  type RelayItem = {
+    url: string
+    sources: MaintainerSetRepoValueSource[]
+    isMine: boolean
+    isOtherMaintainer: boolean
+    isRepoRelay: boolean
+  }
+
+  let remoteFallbackToastKey = $state("")
+
+  const normalizeRemoteForCompare = (value: string) => {
+    const raw = String(value || "").trim()
+    if (!raw) return ""
+    try {
+      const parsed = new URL(raw)
+      return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${parsed.pathname.replace(/\.git$/i, "").replace(/\/+$/, "")}`
+    } catch {
+      return raw.replace(/\.git$/i, "").replace(/\/+$/, "").toLowerCase()
+    }
+  }
+
+  const getUrlHost = (value: string) => {
+    try {
+      return new URL(value).hostname
+    } catch {
+      return value
+    }
+  }
+
+  const makeDeclaredSource = (value: string): MaintainerSetRepoValueSource => ({
+    value,
+    repoAddress,
+    maintainer: normalizePubkey(repoClass?.repoEvent?.pubkey) || repoClass?.repoEvent?.pubkey || "",
+    root: true,
+  })
+
+  const sourcesForValue = (sources: MaintainerSetRepoValueSource[], value: string) => {
+    const normalized = normalizeRemoteForCompare(value)
+    return sources.filter(source => normalizeRemoteForCompare(source.value) === normalized)
+  }
+
+  const hasMineSource = (sources: MaintainerSetRepoValueSource[]) => {
+    const me = normalizePubkey($pubkey)
+    if (!me) return false
+    return sources.some(source => normalizePubkey(source.maintainer) === me)
+  }
+
+  const hasOtherMaintainerSource = (sources: MaintainerSetRepoValueSource[]) => {
+    const me = normalizePubkey($pubkey)
+    return sources.some(source => !source.root && (!me || normalizePubkey(source.maintainer) !== me))
+  }
+
+  const getCloneUrlError = (url: string) => {
+    const normalized = normalizeRemoteForCompare(url)
+    return (repoClass.cloneUrlErrors || []).find(
+      error => normalizeRemoteForCompare(error.url) === normalized,
+    )
+  }
+
+  const issuePillLabel = (url: string) => {
+    const issue = getCloneUrlError(url)
+    if (!issue) return ""
+    const classified = classifyCloneUrlIssue(issue.error, issue.status)
+    if (classified.kind === "auth") return "auth"
+    if (classified.kind === "not-found") return "unavailable"
+    if (classified.kind === "network") return "failed"
+    return "issue"
+  }
+
+  const isApiCloneUrl = (url: string) => {
+    const provider = detectProviderFromUrl(url)
+    return provider === "github" || provider === "gitlab"
+  }
+
+  const currentReadRemoteUrl = $derived.by(() => repoClass.currentReadRemoteUrl || "")
+  const declaredCloneUrls = $derived.by(() => repoClass.cloneUrls || [])
+  const declaredPrimaryCloneUrl = $derived.by(() => declaredCloneUrls[0] || "")
+
+  const repoCloneUrlItems = $derived.by<CloneUrlItem[]>(() => {
+    const defaultNgitCloneUrl = buildDefaultNgitCloneUrl()
+    const urls = Array.from(
+      new Set([...(declaredCloneUrls || []), ...(maintainerSetCloneUrls || [])].filter(Boolean)),
+    )
+
+    if (defaultNgitCloneUrl && !urls.some(url => url.startsWith("nostr://"))) {
+      urls.push(defaultNgitCloneUrl)
+    }
+
+    return urls.map(url => {
+      const declaredIndex = declaredCloneUrls.findIndex(
+        declared => normalizeRemoteForCompare(declared) === normalizeRemoteForCompare(url),
+      )
+      const isFallback = false
+      const sources = sourcesForValue(maintainerSetCloneUrlSources, url)
+      if (declaredIndex >= 0 && !sources.some(source => source.root)) {
+        sources.unshift(makeDeclaredSource(url))
+      }
+
+      return {
+        url,
+        sources,
+        isDeclared: declaredIndex >= 0,
+        isDeclaredPrimary: declaredIndex === 0,
+        isFallback,
+        isMine: hasMineSource(sources),
+        isOtherMaintainer: hasOtherMaintainerSource(sources),
+        isCurrent:
+          Boolean(currentReadRemoteUrl) &&
+          normalizeRemoteForCompare(currentReadRemoteUrl) === normalizeRemoteForCompare(url),
+        isGrasp: isGraspRepoHttpUrl(url) || isGraspRelayUrl(url),
+        isApi: isApiCloneUrl(url),
+      }
+    })
+  })
+
+  const repoRelayItems = $derived.by<RelayItem[]>(() => {
+    const relays = repoRelays.length > 0 ? repoRelays : repoClass.relays || []
+    return relays.map(relay => {
+      const sources = sourcesForValue(maintainerSetRelaySources, relay)
+      const isRepoRelay = (repoClass.relays || []).some(
+        rootRelay => normalizeRemoteForCompare(rootRelay) === normalizeRemoteForCompare(relay),
+      )
+      if (isRepoRelay && !sources.some(source => source.root)) {
+        sources.unshift(makeDeclaredSource(relay))
+      }
+
+      return {
+        url: relay,
+        sources,
+        isMine: hasMineSource(sources),
+        isOtherMaintainer: hasOtherMaintainerSource(sources),
+        isRepoRelay,
+      }
+    })
+  })
+
   const repoMetadata = $derived({
     name: repoClass.name || "Unknown Repository",
     description: repoClass.description || "",
     repoId: repoClass.key || "",
-    relays: repoRelays.length > 0 ? repoRelays : repoClass.relays || [],
-    cloneUrls: (() => {
-      // Get clone URLs from repoClass directly
-      const urls = [
-        ...(maintainerSetCloneUrls.length > 0 ? maintainerSetCloneUrls : repoClass.cloneUrls || []),
-      ]
-      if (!urls.find(u => u.startsWith("nostr://"))) {
-        const def = buildDefaultNgitCloneUrl()
-        if (def && !urls.includes(def)) urls.push(def)
-      }
-      return urls
-    })(),
+    relays: repoRelayItems.map(item => item.url),
+    cloneUrls: repoCloneUrlItems.map(item => item.url),
     webUrls: getDisplayedRepoWebUrls(repoClass),
     mainBranch: repoClass.mainBranch,
     createdAt: repoClass.repoEvent?.created_at
@@ -363,6 +517,23 @@
     updatedAt: (repoClass as any).repoStateEvent?.created_at
       ? new Date(((repoClass as any).repoStateEvent.created_at as number) * 1000)
       : null,
+  })
+
+  $effect(() => {
+    if (!declaredPrimaryCloneUrl || !currentReadRemoteUrl) return
+    if (
+      normalizeRemoteForCompare(declaredPrimaryCloneUrl) === normalizeRemoteForCompare(currentReadRemoteUrl)
+    ) {
+      return
+    }
+
+    const key = `${declaredPrimaryCloneUrl}|${currentReadRemoteUrl}`
+    if (remoteFallbackToastKey === key) return
+    remoteFallbackToastKey = key
+    pushToast({
+      message: `Primary remote unavailable; reading from fallback ${getUrlHost(currentReadRemoteUrl)}`,
+      theme: "warning",
+    })
   })
 
   const relayUrl = $derived((($page.data as any)?.url || "") as string)
@@ -776,6 +947,21 @@
       </div>
     {/if}
 
+    {#if declaredPrimaryCloneUrl && currentReadRemoteUrl && normalizeRemoteForCompare(declaredPrimaryCloneUrl) !== normalizeRemoteForCompare(currentReadRemoteUrl)}
+      <div
+        class="mb-4 flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+        <CircleAlert class="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+        <div class="min-w-0 flex-1">
+          Reading from fallback remote
+          <code class="font-mono">{getUrlHost(currentReadRemoteUrl)}</code>
+          because the primary remote is not the active read source.
+          <button class="ml-1 underline" type="button" onclick={repoActions?.openRemoteFixModal}>
+            Review health
+          </button>
+        </div>
+      </div>
+    {/if}
+
     <div class="grid min-w-0 gap-4 lg:grid-cols-3" transition:fly>
       <div class="min-w-0 lg:col-span-1 lg:col-start-3 lg:row-start-1">
         <Card class="min-w-0 divide-y divide-border p-3 text-sm">
@@ -791,7 +977,7 @@
               class="col-start-1 row-start-2 min-w-0 justify-self-end sm:col-start-2 sm:row-start-1 lg:col-start-1 lg:row-start-3 lg:justify-self-start">
               <BranchSelector repo={repoClass} />
             </div>
-            {#if sortedCloneUrls.length > 0}
+            {#if repoCloneUrlItems.length > 0}
               <details
                 bind:this={cloneDetailsElement}
                 class="group relative col-start-2 row-start-2 shrink-0 justify-self-end sm:col-start-3 sm:row-start-1 lg:col-start-1 lg:row-start-2 lg:justify-self-start">
@@ -805,22 +991,53 @@
                 </summary>
                 <div
                   class="z-20 absolute right-0 mt-2 w-[min(22rem,calc(100vw-2rem))] space-y-1 rounded-md border border-border bg-base-100 p-2 shadow-lg">
-                  {#each sortedCloneUrls as url}
-                    {@const isNostr = url.startsWith("nostr://")}
+                  {#each repoCloneUrlItems as item (item.url)}
+                    {@const isNostr = item.url.startsWith("nostr://")}
+                    {@const issueLabel = issuePillLabel(item.url)}
                     <button
                       type="button"
-                      class="group/row flex w-full min-w-0 items-center gap-2 rounded-md border p-2 transition-all hover:bg-secondary/40 active:scale-[0.995] {isNostr
-                        ? 'border-purple-500/40 bg-purple-500/5'
-                        : 'border-transparent'}"
+                      class="group/row flex w-full min-w-0 items-start gap-2 rounded-md border p-2 text-left transition-all hover:bg-secondary/40 active:scale-[0.995] {item.isDeclaredPrimary
+                        ? 'border-green-600/40 bg-green-500/5'
+                        : isNostr
+                          ? 'border-purple-500/40 bg-purple-500/5'
+                          : 'border-transparent'}"
                       title="Click to copy"
-                      onclick={() => copyUrl(url)}>
-                      <code
-                        class="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden whitespace-nowrap text-left font-mono text-xs {isNostr
-                          ? 'text-purple-300'
-                          : ''}">{url}</code>
+                      onclick={() => copyUrl(item.url)}>
+                      <div class="min-w-0 flex-1">
+                        <code
+                          class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs {isNostr
+                            ? 'text-purple-300'
+                            : ''}">{item.url}</code>
+                        <div class="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-wide">
+                          {#if item.isDeclaredPrimary}
+                            <span class="rounded border border-green-500/40 px-1 py-0.5 text-green-700 dark:text-green-300">Primary</span>
+                          {:else if item.isDeclared}
+                            <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Repo</span>
+                          {/if}
+                          {#if item.isCurrent}
+                            <span class="rounded border border-sky-500/40 px-1 py-0.5 text-sky-700 dark:text-sky-300">Current</span>
+                          {/if}
+                          {#if item.isMine}
+                            <span class="rounded border border-blue-500/40 px-1 py-0.5 text-blue-700 dark:text-blue-300">Yours</span>
+                          {:else if item.isOtherMaintainer}
+                            <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Maintainer</span>
+                          {/if}
+                          {#if item.isGrasp}
+                            <span class="rounded border border-purple-500/40 px-1 py-0.5 text-purple-700 dark:text-purple-300">GRASP</span>
+                          {:else if item.isApi}
+                            <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">API</span>
+                          {/if}
+                          {#if item.isFallback}
+                            <span class="rounded border border-amber-500/40 px-1 py-0.5 text-amber-700 dark:text-amber-300">Fallback</span>
+                          {/if}
+                          {#if issueLabel}
+                            <span class="rounded border border-rose-500/40 px-1 py-0.5 text-rose-700 dark:text-rose-300">{issueLabel}</span>
+                          {/if}
+                        </div>
+                      </div>
                       <div
                         class="flex-shrink-0 rounded p-1 transition-colors group-hover/row:bg-background/50">
-                        {#if copiedUrl === url}
+                        {#if copiedUrl === item.url}
                           <Check class="h-3.5 w-3.5 text-green-500" />
                         {:else}
                           <Copy class="h-3.5 w-3.5 text-muted-foreground" />
@@ -838,6 +1055,20 @@
             <div class="space-y-3">
               <!-- Compact info rows -->
               <div class="space-y-1 text-sm">
+                {#if declaredPrimaryCloneUrl}
+                  <div class="flex items-center gap-2 py-1">
+                    <span class="flex-shrink-0 text-muted-foreground">Primary remote</span>
+                    <code
+                      class="min-w-0 flex-1 truncate font-mono text-xs"
+                      title={declaredPrimaryCloneUrl}>{getUrlHost(declaredPrimaryCloneUrl)}</code>
+                    {#if currentReadRemoteUrl && normalizeRemoteForCompare(currentReadRemoteUrl) === normalizeRemoteForCompare(declaredPrimaryCloneUrl)}
+                      <span class="rounded border border-sky-500/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-sky-700 dark:text-sky-300">Current</span>
+                    {:else if currentReadRemoteUrl}
+                      <span class="rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-300">Fallback active</span>
+                    {/if}
+                  </div>
+                {/if}
+
                 <!-- Address -->
                 <div class="flex items-center gap-2 py-1">
                   <span class="flex-shrink-0 text-muted-foreground">Address</span>
@@ -954,7 +1185,7 @@
                 {/if}
 
                 <!-- Relays -->
-                {#if repoMetadata.relays.length > 0}
+                {#if repoRelayItems.length > 0}
                   {@const relayHostname = (u: string) => {
                     try {
                       return new URL(u).hostname
@@ -967,20 +1198,31 @@
                       class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
                       <span class="flex-shrink-0 text-muted-foreground">Relays</span>
                       <span class="min-w-0 flex-1 font-mono text-xs"
-                        >{repoMetadata.relays.length}</span>
+                        >{repoRelayItems.length}</span>
                       <ChevronDown
                         class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/relays:rotate-180" />
                     </summary>
                     <div class="mt-1 space-y-0.5">
-                      {#each repoMetadata.relays as relay}
+                      {#each repoRelayItems as relay (relay.url)}
                         <div class="flex items-center gap-2">
-                          <span class="min-w-0 flex-1 truncate font-mono text-xs" title={relay}
-                            >{relayHostname(relay)}</span>
+                          <span class="min-w-0 flex-1 truncate font-mono text-xs" title={relay.url}
+                            >{relayHostname(relay.url)}</span>
+                          <div class="flex flex-shrink-0 flex-wrap gap-1 text-[10px] uppercase tracking-wide">
+                            {#if relay.isMine}
+                              <span class="rounded border border-blue-500/40 px-1 py-0.5 text-blue-700 dark:text-blue-300">Yours</span>
+                            {:else if relay.isOtherMaintainer}
+                              <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Maintainer</span>
+                            {:else if relay.isRepoRelay}
+                              <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Repo</span>
+                            {:else}
+                              <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Hint</span>
+                            {/if}
+                          </div>
                           <button
                             type="button"
                             class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
                             title="Copy relay URL"
-                            onclick={() => clip(relay)}>
+                            onclick={() => clip(relay.url)}>
                             <Copy class="h-3.5 w-3.5" />
                           </button>
                         </div>

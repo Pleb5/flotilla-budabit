@@ -546,6 +546,24 @@
             return null
           }
 
+          let normalized = ""
+          try {
+            normalized = util.normalizeRelayUrl(tag[1])
+          } catch {
+            normalized = ""
+          }
+
+          if (!normalized || !util.isRelayUrl(normalized)) {
+            console.warn("[+layout] Filtered invalid relay tag:", tag)
+            modified = true
+            return null
+          }
+
+          if (normalized !== tag[1]) {
+            modified = true
+            return [tag[0], normalized, ...tag.slice(2)]
+          }
+
           return tag
         })
         .filter(Boolean)

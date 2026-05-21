@@ -292,6 +292,10 @@
                 throw new Error(result.error || "Repository initialization failed")
               }
 
+              if (result.usedUrl) {
+                repoClass.recordCloneUrlSuccess(result.usedUrl)
+              }
+
               // Skip syncWithRemote - it's slow and not needed for initial display
               // The vendor API or cached data will be used for file display
               console.log("✅ Repository initialized (skipping sync for faster UI)")

@@ -48,6 +48,10 @@ export const REPO_RELAYS_KEY = Symbol("repo-relays")
 
 export const REPO_CLONE_URLS_KEY = Symbol("repo-clone-urls")
 
+export const REPO_CLONE_URL_SOURCES_KEY = Symbol("repo-clone-url-sources")
+
+export const REPO_RELAY_SOURCES_KEY = Symbol("repo-relay-sources")
+
 export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")
 
 export const PULL_REQUESTS_KEY = Symbol("pull-requests")
@@ -429,12 +433,34 @@ export const maintainerSetCloneUrlsByRepoAddress = derived(
   },
 )
 
+export const maintainerSetCloneUrlSourcesByRepoAddress = derived(
+  repoMaintainerSetProfilesByRepoAddress,
+  $profiles => {
+    const map = new Map<string, MaintainerSetRepoValueSource[]>()
+    for (const [repoAddress, profile] of $profiles.entries()) {
+      map.set(repoAddress, profile.cloneUrlSources)
+    }
+    return map
+  },
+)
+
 export const maintainerSetRelaysByRepoAddress = derived(
   repoMaintainerSetProfilesByRepoAddress,
   $profiles => {
     const map = new Map<string, string[]>()
     for (const [repoAddress, profile] of $profiles.entries()) {
       map.set(repoAddress, profile.relays)
+    }
+    return map
+  },
+)
+
+export const maintainerSetRelaySourcesByRepoAddress = derived(
+  repoMaintainerSetProfilesByRepoAddress,
+  $profiles => {
+    const map = new Map<string, MaintainerSetRepoValueSource[]>()
+    for (const [repoAddress, profile] of $profiles.entries()) {
+      map.set(repoAddress, profile.relaySources)
     }
     return map
   },

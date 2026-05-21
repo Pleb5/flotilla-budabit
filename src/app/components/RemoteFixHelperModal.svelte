@@ -21,12 +21,14 @@
   } from "@nostr-git/ui"
   import {nip19} from "nostr-tools"
   import {onMount, tick} from "svelte"
+  import type {MaintainerSetRepoValueSource} from "@app/core/git-state"
 
   type RemoteHealth = "healthy" | "degraded" | "auth" | "unreachable" | "unknown" | "branch-drift"
 
   type RemoteStatus = {
     url: string
     isPrimary: boolean
+    isCurrent: boolean
     health: RemoteHealth
     message: string
     details?: string
@@ -165,6 +167,7 @@
   interface Props {
     repoClass: Repo
     cloneUrls?: string[]
+    cloneUrlSources?: MaintainerSetRepoValueSource[]
     onClose?: () => void
     onOpenSettings?: () => void
     onRefresh?: () => Promise<void> | void
@@ -183,6 +186,7 @@
   const {
     repoClass,
     cloneUrls: providedCloneUrls = [],
+    cloneUrlSources = [],
     onClose,
     onOpenSettings,
     onRefresh,
@@ -222,6 +226,7 @@
     ),
   )
   const primaryUrl = $derived.by(() => String(cloneUrls[0] || ""))
+  const currentReadRemoteUrl = $derived.by(() => repoClass.currentReadRemoteUrl || "")
   const expectedBranch = $derived.by(() => {
     const candidates = [repoClass.mainBranch, repoClass.selectedBranch]
       .map(branch => String(branch || "").trim())
@@ -293,6 +298,57 @@
       return ""
     }
   }
+
+  const normalizePubkey = (value: string | undefined | null): string => {
+    if (!value) return ""
+    if (/^[0-9a-f]{64}$/i.test(value)) return value
+    if (value.startsWith("npub1")) {
+      try {
+        const decoded = nip19.decode(value)
+        if (decoded.type === "npub") return decoded.data as string
+      } catch {
+        // pass
+      }
+    }
+    return ""
+  }
+
+  const getRemoteSources = (url: string): MaintainerSetRepoValueSource[] => {
+    const normalized = normalizeUrl(url)
+    const sources = cloneUrlSources.filter(source => normalizeUrl(source.value) === normalized)
+    const declaredByRepo = (repoClass.cloneUrls || []).some(cloneUrl => normalizeUrl(cloneUrl) === normalized)
+
+    if (declaredByRepo && !sources.some(source => source.root)) {
+      sources.unshift({
+        value: url,
+        repoAddress: repoClass.address || "",
+        maintainer: normalizePubkey(repoClass.repoEvent?.pubkey) || repoClass.repoEvent?.pubkey || "",
+        root: true,
+      })
+    }
+
+    return sources
+  }
+
+  const getRemoteSourcePills = (url: string) => {
+    const sources = getRemoteSources(url)
+    const me = normalizePubkey(repoClass.viewerPubkey)
+    const pills: string[] = []
+    const add = (label: string) => {
+      if (!pills.includes(label)) pills.push(label)
+    }
+
+    if (sources.some(source => source.root)) add("Repo")
+    if (me && sources.some(source => normalizePubkey(source.maintainer) === me)) add("Yours")
+    if (sources.some(source => !source.root && (!me || normalizePubkey(source.maintainer) !== me))) {
+      add("Maintainer")
+    }
+    if (isGraspLikeRemote(url)) add("GRASP")
+    return pills
+  }
+
+  const isCurrentRemote = (url: string) =>
+    Boolean(currentReadRemoteUrl) && normalizeUrl(currentReadRemoteUrl) === normalizeUrl(url)
 
   const summarizeBranches = (branches: string[]) => {
     if (branches.length === 0) return "none"
@@ -1406,6 +1462,7 @@
         return {
           url,
           isPrimary: normalizeUrl(url) === normalizeUrl(primaryUrl),
+          isCurrent: isCurrentRemote(url),
           health: "branch-drift",
           message: `Remote is reachable, but expected branch '${missingExpectedBranch}' is missing here`,
           details: recordedError?.error,
@@ -1420,6 +1477,7 @@
         return {
           url,
           isPrimary: normalizeUrl(url) === normalizeUrl(primaryUrl),
+          isCurrent: isCurrentRemote(url),
           health: hasHeads ? "healthy" : "degraded",
           message: hasHeads
             ? `Git probe reachable; a recent app read issue was recorded for this remote`
@@ -1435,6 +1493,7 @@
       return {
         url,
         isPrimary: normalizeUrl(url) === normalizeUrl(primaryUrl),
+        isCurrent: isCurrentRemote(url),
         health: hasHeads ? "healthy" : "degraded",
         message: hasHeads
           ? `Remote reachable (${branchCount} branch${branchCount === 1 ? "" : "es"})`
@@ -1448,6 +1507,7 @@
       return {
         url,
         isPrimary: normalizeUrl(url) === normalizeUrl(primaryUrl),
+        isCurrent: isCurrentRemote(url),
         health: classified.health,
         message: classified.message,
         details: classified.details,
@@ -1857,6 +1917,11 @@
       <div class="min-w-0 rounded-md border border-border bg-muted/20 p-3 text-xs">
         <div class="font-semibold">Primary remote</div>
         <div class="mt-1 break-all font-mono">{primaryUrl || "Not set"}</div>
+        {#if currentReadRemoteUrl && normalizeUrl(currentReadRemoteUrl) !== normalizeUrl(primaryUrl)}
+          <div class="mt-2 text-amber-700 dark:text-amber-300">
+            Current reads are using fallback {parseHostFromUrl(currentReadRemoteUrl) || currentReadRemoteUrl}.
+          </div>
+        {/if}
         {#if primaryStatus}
           <div class="mt-2 {statusTone(primaryStatus.health)}">
             {primaryStatus.message}
@@ -1866,6 +1931,8 @@
 
       <div class="flex flex-col gap-2">
         {#each statuses as status (status.url)}
+          {@const sourcePills = getRemoteSourcePills(status.url)}
+          {@const currentRemote = status.isCurrent || isCurrentRemote(status.url)}
           <div class="min-w-0 rounded-md border border-border bg-card p-3">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0 flex-1">
@@ -1875,6 +1942,12 @@
                   {:else}
                     <span class="rounded border border-border px-1.5 py-0.5">Secondary</span>
                   {/if}
+                  {#if currentRemote}
+                    <span class="rounded border border-sky-500/40 px-1.5 py-0.5 text-sky-700 dark:text-sky-300">Current</span>
+                  {/if}
+                  {#each sourcePills as pill}
+                    <span class="rounded border border-border px-1.5 py-0.5 text-muted-foreground">{pill}</span>
+                  {/each}
                   <span class="uppercase tracking-wide {statusTone(status.health)}">
                     {healthLabel(status.health)}
                   </span>
@@ -1900,7 +1973,7 @@
                   disabled={Boolean(syncingBranchStateUrl)}>
                   {syncingBranchStateUrl === status.url ? "Syncing..." : "Sync Branch State"}
                 </Button>
-              {:else if !status.isPrimary && status.health === "healthy"}
+              {:else if !status.isPrimary && !currentRemote && status.health === "healthy"}
                 <Button
                   class="btn btn-ghost btn-xs self-start sm:self-auto"
                   onclick={() => useForReads(status.url)}>
@@ -2059,6 +2132,8 @@
           {#each backfillDiscovery.remotes as remote (remote.remoteUrl)}
             {@const authState = getBackfillRemoteAuthState(remote.remoteUrl)}
             {@const remoteSelectable = isBackfillRemoteSelectable(remote)}
+            {@const sourcePills = getRemoteSourcePills(remote.remoteUrl)}
+            {@const currentRemote = isCurrentRemote(remote.remoteUrl)}
             <div class="min-w-0 rounded-md border border-border bg-card p-3">
               <label class="flex min-w-0 items-start gap-3">
                 <input
@@ -2074,6 +2149,16 @@
                         ? "Primary"
                         : "Secondary"}
                     </span>
+                    {#if currentRemote}
+                      <span class="rounded border border-sky-500/40 px-1.5 py-0.5 text-sky-700 dark:text-sky-300">
+                        Current
+                      </span>
+                    {/if}
+                    {#each sourcePills as pill}
+                      <span class="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+                        {pill}
+                      </span>
+                    {/each}
                     <span
                       class={remote.reachable
                         ? "uppercase tracking-wide text-emerald-700 dark:text-emerald-300"

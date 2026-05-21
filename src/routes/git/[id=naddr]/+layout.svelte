@@ -125,6 +125,8 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     REPO_CLONE_URLS_KEY,
+    REPO_CLONE_URL_SOURCES_KEY,
+    REPO_RELAY_SOURCES_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     PULL_REQUESTS_KEY,
     COMMENT_EVENTS_KEY,
@@ -137,10 +139,13 @@
     getRepoScopedRelays,
     maintainerSetByRepoAddress,
     maintainerSetCloneUrlsByRepoAddress,
+    maintainerSetCloneUrlSourcesByRepoAddress,
     maintainerSetRepoAddressesByRepoAddress,
     maintainerSetRelaysByRepoAddress,
+    maintainerSetRelaySourcesByRepoAddress,
     getMaintainerSetRepoAddresses,
     loadRepoMaintainerAnnouncements,
+    type MaintainerSetRepoValueSource,
   } from "@app/core/git-state"
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
@@ -182,19 +187,17 @@
     url: string
   }
   const {repoId, repoName, repoPubkey, fallbackRelays, naddrRelays, url} = layoutData
-  const normalizedGitRelays = GIT_RELAYS.map(relay => {
+  const safeNormalizeRelayUrl = (relay: unknown) => {
     try {
-      return normalizeRelayUrl(relay)
+      return normalizeRelayUrl(String(relay || "").trim())
     } catch {
       return ""
     }
-  }).filter(Boolean)
+  }
+  const normalizedGitRelays = GIT_RELAYS.map(safeNormalizeRelayUrl).filter(Boolean)
   const isGitRelay = (relay: string) => {
-    try {
-      return normalizedGitRelays.includes(normalizeRelayUrl(relay))
-    } catch {
-      return false
-    }
+    const normalized = safeNormalizeRelayUrl(relay)
+    return Boolean(normalized && normalizedGitRelays.includes(normalized))
   }
 
   const COMMENT_LOAD_DEBOUNCE_MS = 300
@@ -396,6 +399,24 @@
     },
   ) as Readable<string[]>
 
+  const repoCloneUrlsStore: Readable<string[]> = derived(
+    [activeRepoClass, maintainerSetCloneUrlsStore],
+    ([$repo, $maintainerSetCloneUrls]) => {
+      const declaredCloneUrls = $repo?.cloneUrls || []
+      return Array.from(
+        new Set([...declaredCloneUrls, ...($maintainerSetCloneUrls || [])].filter(Boolean)),
+      )
+    },
+  ) as Readable<string[]>
+
+  const maintainerSetCloneUrlSourcesStore: Readable<MaintainerSetRepoValueSource[]> = derived(
+    [repoAddressStore, maintainerSetCloneUrlSourcesByRepoAddress],
+    ([$repoAddress, $bySources]) => {
+      if (!$repoAddress) return []
+      return $bySources.get($repoAddress) || []
+    },
+  ) as Readable<MaintainerSetRepoValueSource[]>
+
   const maintainerSetRelaysStore: Readable<string[]> = derived(
     [repoAddressStore, maintainerSetRelaysByRepoAddress],
     ([$repoAddress, $byRelays]) => {
@@ -403,6 +424,19 @@
       return $byRelays.get($repoAddress) || []
     },
   ) as Readable<string[]>
+
+  const maintainerSetRelaySourcesStore: Readable<MaintainerSetRepoValueSource[]> = derived(
+    [repoAddressStore, maintainerSetRelaySourcesByRepoAddress],
+    ([$repoAddress, $bySources]) => {
+      if (!$repoAddress) return []
+      return $bySources.get($repoAddress) || []
+    },
+  ) as Readable<MaintainerSetRepoValueSource[]>
+
+  $effect(() => {
+    if (!repoClass) return
+    repoClass.setCloneUrls($repoCloneUrlsStore || [])
+  })
 
   const repoAddress = $derived.by(() => $repoAddressStore)
 
@@ -623,7 +657,7 @@
       try {
         const parsed = parseRepoAnnouncementEvent(repo)
         for (const relay of parsed.relays || []) {
-          const normalized = normalizeRelayUrl(relay)
+          const normalized = safeNormalizeRelayUrl(relay)
           if (normalized) relays.add(normalized)
         }
       } catch {
@@ -637,7 +671,7 @@
     if (!isOwnedRepo) return []
     const relays = new Set<string>()
     for (const relay of [...myRepoRelays, ...GIT_RELAYS]) {
-      const normalized = normalizeRelayUrl(relay)
+      const normalized = safeNormalizeRelayUrl(relay)
       if (normalized) relays.add(normalized)
     }
     return Array.from(relays)
@@ -806,7 +840,7 @@
               throw new Error(`No relays configured for ${repo.repoName || repo.repoId}`)
             }
             const targetRelays = Array.from(new Set([...baseRelays, ...GIT_RELAYS]))
-              .map(relay => normalizeRelayUrl(relay))
+              .map(safeNormalizeRelayUrl)
               .filter(Boolean) as string[]
             const stateEvent = createRepoStateEvent({
               repoId: repo.repoId,
@@ -1748,7 +1782,9 @@
   // Set context for child components (only once, not in effect)
   setContext(REPO_KEY, $activeRepoClass)
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
-  setContext(REPO_CLONE_URLS_KEY, maintainerSetCloneUrlsStore)
+  setContext(REPO_CLONE_URLS_KEY, repoCloneUrlsStore)
+  setContext(REPO_CLONE_URL_SOURCES_KEY, maintainerSetCloneUrlSourcesStore)
+  setContext(REPO_RELAY_SOURCES_KEY, maintainerSetRelaySourcesStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
   setContext(COMMENT_EVENTS_KEY, commentEventsStore)
@@ -2462,7 +2498,7 @@
             const relays = Router.get()
               .FromUser()
               .getUrls()
-              .map(u => normalizeRelayUrl(u))
+              .map(safeNormalizeRelayUrl)
               .filter(Boolean)
             load({relays: relays as string[], filters: [graspServersFilter]})
           }
@@ -2498,10 +2534,7 @@
 
     try {
       // Get clone URLs from the repo event
-      const cloneUrls =
-        getStore(maintainerSetCloneUrlsStore).length > 0
-          ? getStore(maintainerSetCloneUrlsStore)
-          : repoClass.cloneUrls
+      const cloneUrls = getStore(repoCloneUrlsStore).length > 0 ? getStore(repoCloneUrlsStore) : repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         throw new Error("No clone URLs found for repository")
       }
@@ -2515,9 +2548,18 @@
       })
 
       if (result.success) {
+        if (result.usedUrl) {
+          repoClass.recordCloneUrlSuccess(result.usedUrl)
+        }
+        const primaryCloneUrl = getStore(repoCloneUrlsStore)[0]
+        const usedFallback =
+          result.usedUrl && primaryCloneUrl && result.usedUrl !== primaryCloneUrl
         // Show success toast
         pushToast({
-          message: `Repository synced with remote (${result.headCommit?.slice(0, 8)})`,
+          message: usedFallback
+            ? `Repository synced from fallback remote ${result.usedUrl}`
+            : `Repository synced with remote (${result.headCommit?.slice(0, 8)})`,
+          theme: usedFallback ? "warning" : undefined,
         })
 
         // Reset the repo to refresh all cached data
@@ -2823,7 +2865,7 @@
 
     const repoRelays = getRepoAnnouncementRelaysFromEvent()
     const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
-    const sourceCloneUrls = getStore(maintainerSetCloneUrlsStore)
+    const sourceCloneUrls = getStore(repoCloneUrlsStore)
     const defaultMaintainers = Array.from(
       new Set([...(getStore(repoMaintainersStore) || []), $pubkey].filter(Boolean)),
     )
@@ -2835,7 +2877,7 @@
       if (!$pubkey) return
 
       const rollbackRelays = Array.from(
-        new Set(params.relays.map(r => normalizeRelayUrl(r)).filter(Boolean)),
+        new Set(params.relays.map(safeNormalizeRelayUrl).filter(Boolean)),
       )
       if (rollbackRelays.length === 0) return
 
@@ -3021,7 +3063,7 @@
     const relaysForPublish = Array.from(
       new Set([...(baseRelays.length > 0 ? baseRelays : GIT_RELAYS), ...GIT_RELAYS]),
     )
-      .map(relay => normalizeRelayUrl(relay))
+      .map(safeNormalizeRelayUrl)
       .filter(Boolean) as string[]
 
     if (relaysForPublish.length === 0) {
@@ -3063,7 +3105,8 @@
     if (!repoClass) return
     pushModal(RemoteFixHelperModal, {
       repoClass,
-      cloneUrls: getStore(maintainerSetCloneUrlsStore),
+      cloneUrls: getStore(repoCloneUrlsStore),
+      cloneUrlSources: getStore(maintainerSetCloneUrlSourcesStore),
       onOpenSettings: () => settingsRepo(true),
       onRefresh: refreshRepo,
       onPublishEvent: async (event: any) => {
@@ -3187,7 +3230,7 @@
       // Determine relay hint
       const relayHint =
         repoRelays[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
-      const normalizedRelayHint = relayHint ? normalizeRelayUrl(relayHint) : ""
+      const normalizedRelayHint = relayHint ? safeNormalizeRelayUrl(relayHint) : ""
       const activeStar = findActiveRepoStar()
       wasRemoving = Boolean(activeStar)
 
