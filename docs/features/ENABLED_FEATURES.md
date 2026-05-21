@@ -9,10 +9,8 @@ The root `vite.config.ts` defines these compile-time flags from environment vari
 | Environment variable | Compile-time constant | Default | Current role |
 | --- | --- | --- | --- |
 | `FEATURE_GRASP` | `__GRASP__` | Enabled unless set to `0` | GRASP and Nostr Git integration paths. |
-| `FEATURE_TERMINAL` | `__TERMINAL__` | Enabled unless set to `0` | Terminal UI components for Git workflows. |
-| `FEATURE_NIP34_PR` | `__NIP34_PR__` | Disabled unless set to `1` | Experimental NIP-34 pull request format handling. |
 | `FEATURE_CICD` | `__CICD__` | Disabled unless set to `1` | Experimental CI/CD automation hooks. |
-| `FEATURE_STRICT_NIP29` | `__STRICT_NIP29__` | Disabled unless set to `1` | Legacy strict NIP-29 validation. Not part of the current Communikey community model. |
+| `FEATURE_ALERTS` | `__ALERTS__` | Disabled unless set to `1` | External email digest and web push alert setup. |
 
 ## Community Architecture Note
 
@@ -23,7 +21,7 @@ Budabit's current community architecture is Communikey-based:
 - Canonical Git routes are under `/git`.
 - Relay URLs are infrastructure and discovery hints, not community IDs.
 
-Do not treat `FEATURE_STRICT_NIP29` as the community access-control model. Current write permissions come from community definition sections and their referenced `kind:30000` profile lists.
+NIP-34 pull request support is always part of Budabit. Terminal UI has been removed for now. Strict NIP-29 validation is not part of the current community access-control model; current write permissions come from community definition sections and their referenced `kind:30000` profile lists.
 
 ## Built-In Extensions
 

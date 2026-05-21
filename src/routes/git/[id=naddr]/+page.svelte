@@ -1,7 +1,3 @@
-<script module lang="ts">
-  declare const __TERMINAL__: boolean
-</script>
-
 <script lang="ts">
   import markdownit from "markdown-it"
   import {BranchSelector, Card} from "@nostr-git/ui"
@@ -69,11 +65,6 @@
   import {getContext} from "svelte"
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
-
-  let Terminal = $state<any>(null)
-  if (__TERMINAL__) {
-    import("@nostr-git/ui").then(m => (Terminal = m.Terminal))
-  }
 
   // Get repoClass and repoRelays from context
   const repoClass = getContext<Repo>(REPO_KEY)
@@ -374,29 +365,8 @@
       : null,
   })
 
-  // Defaults for Terminal
-  const repoCloneUrls = $derived(repoMetadata.cloneUrls || [])
-  const sortedCloneUrls = $derived(
-    [...repoCloneUrls].sort((a, b) => {
-      const an = a.startsWith("nostr://") ? 0 : 1
-      const bn = b.startsWith("nostr://") ? 0 : 1
-      return an - bn
-    }),
-  )
-  const defaultRemoteUrl = $derived(repoCloneUrls[0])
-  const defaultBranch = $derived(repoMetadata.mainBranch || "")
-  const detectedProvider = $derived(
-    detectProviderFromUrl(defaultRemoteUrl || repoMetadata.relays?.[0]),
-  )
-  const defaultToken = $derived(detectedProvider === "grasp" ? $pubkey : undefined)
   const relayUrl = $derived((($page.data as any)?.url || "") as string)
   const naddr = $derived($page.params.id)
-  const repoRefObj = $derived({
-    relay: relayUrl,
-    naddr,
-    npub: $pubkey,
-    repoId: repoClass.key,
-  })
 
   // Simple provider detection from URL
   function detectProviderFromUrl(url: string | undefined): string | undefined {
@@ -1318,32 +1288,6 @@
             </div>
           </section>
         </Card>
-      </div>
-
-      <div class="flex-1" transition:slide>
-        {#if __TERMINAL__ && Terminal}
-          <Terminal
-            fs={undefined}
-            repoRef={repoRefObj}
-            repoEvent={repoClass.repoEvent}
-            relays={repoRelays}
-            theme="retro"
-            height={260}
-            initialCwd="/"
-            urlAllowlist={[]}
-            outputLimit={{bytes: 1_000_000, lines: 10_000, timeMs: 30_000}}
-            onCommand={(cmd: string) => console.log(cmd)}
-            onOutput={(evt: {stream: string; chunk: string}) => console.log(evt)}
-            onExit={(e: {code: number}) => console.log("terminal exit", e.code)}
-            onProgress={(evt: any) => console.log("terminal progress", evt)}
-            onToast={(evt: {level: "error" | undefined; message: string}) =>
-              pushToast({message: evt.message, theme: evt.level})}
-            {repoCloneUrls}
-            {defaultRemoteUrl}
-            {defaultBranch}
-            provider={detectedProvider}
-            token={defaultToken} />
-        {/if}
       </div>
 
       <!-- README -->
