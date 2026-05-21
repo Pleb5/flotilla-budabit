@@ -308,6 +308,44 @@ describe("worker/sync utils", () => {
     expect(fetchSpy.mock.calls[0][0]?.url).toBe("https://primary.example.com/repo.git")
   })
 
+  it("syncWithRemoteUtil: tries declared clone URLs before cached origin fallback", async () => {
+    const cache = cacheMgr()
+    const fetchSpy = vi.fn(async ({url}: any) => ({fetchHead: `${url}:head`})) as any
+    const git = makeGit({
+      fetch: fetchSpy,
+      listRemotes: vi.fn(async () => [
+        {remote: "origin", url: "https://fallback.example.com/repo.git"},
+      ]) as any,
+      listBranches: vi.fn(async () => ["main"]) as any,
+      resolveRef: vi.fn(async ({ref}: any) => {
+        if (ref === "refs/remotes/origin/main") return "https://primary.example.com/repo.git:head"
+        if (ref === "refs/heads/main") return "localMainHead"
+        if (ref === "HEAD") return "localMainHead"
+        return "localMainHead"
+      }) as any,
+      checkout: vi.fn(async () => undefined) as any,
+      branch: vi.fn(async () => undefined) as any,
+    })
+
+    const res = await syncWithRemoteUtil(
+      git,
+      cache,
+      {
+        repoId: "Org/DeclaredPrimary",
+        cloneUrls: ["https://primary.example.com/repo.git", "https://fallback.example.com/repo.git"],
+        branch: "main",
+      },
+      {
+        ...depsBase,
+        isRepoCloned: async () => true,
+      },
+    )
+
+    expect(res.success).toBe(true)
+    expect((res as any).usedUrl).toBe("https://primary.example.com/repo.git")
+    expect(fetchSpy.mock.calls[0][0]?.url).toBe("https://primary.example.com/repo.git")
+  })
+
   it("syncWithRemoteUtil: CORS/network fetch error returns success with warning and synced=false", async () => {
     const cache = cacheMgr()
     const git = makeGit({

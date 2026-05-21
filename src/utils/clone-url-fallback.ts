@@ -112,80 +112,23 @@ export function hasRestApiSupport(url: string): boolean {
 
 /**
  * Sort URLs to prioritize REST API-capable providers.
- * This allows faster initial repo loading by trying API-capable sources first.
+ * Deprecated policy shim: clone URL order is the repository's declared remote policy.
+ * API support may speed up a selected remote, but must not promote that remote ahead
+ * of earlier clone URLs.
  */
 export function sortUrlsByApiPriority(urls: string[]): string[] {
-  if (urls.length <= 1) return urls;
-
-  const apiUrls: string[] = [];
-  const otherUrls: string[] = [];
-
-  for (const url of urls) {
-    if (hasRestApiSupport(url)) {
-      apiUrls.push(url);
-    } else {
-      otherUrls.push(url);
-    }
-  }
-
-  // Log when we're reordering for API priority
-  if (apiUrls.length > 0 && otherUrls.length > 0) {
-    console.log(`[sortUrlsByApiPriority] Prioritizing ${apiUrls.length} REST API-capable URL(s) over ${otherUrls.length} git-only URL(s)`);
-  }
-
-  // API-capable URLs first, then others
-  return [...apiUrls, ...otherUrls];
+  return [...urls];
 }
 
 /**
- * Reorder URLs to put cached preferred URL first, if available.
- * Also prioritizes REST API-capable URLs over git-only sources.
+ * Preserve the caller's clone URL order.
+ *
+ * Fallback success is cached for diagnostics, but it must not rewrite the
+ * repository's declared primary remote policy on future reads.
  */
 export function reorderUrlsByPreference(urls: string[], repoId?: string): string[] {
-  if (urls.length <= 1) return urls;
-
-  // First, sort by API priority (REST API-capable sources first)
-  let orderedUrls = sortUrlsByApiPriority(urls);
-
-  // If no repoId, just return API-prioritized order
-  if (!repoId) return orderedUrls;
-
-  const cached = getCachedUrlPreference(repoId);
-  if (!cached) return orderedUrls;
-
-  // Check if cached preference is stale (older than 1 hour)
-  const maxCacheAge = 60 * 60 * 1000;
-  if (Date.now() - cached.lastSuccessAt > maxCacheAge) {
-    clearUrlPreferenceCache(repoId);
-    return orderedUrls;
-  }
-
-  // Put preferred URL first, then non-failed URLs, then failed URLs last
-  const preferred = cached.preferredUrl;
-  const failed = new Set(cached.failedUrls);
-
-  const result: string[] = [];
-
-  // Add preferred URL first if it's in the list
-  if (orderedUrls.includes(preferred)) {
-    result.push(preferred);
-  }
-
-  // Add non-failed URLs (maintaining API priority order)
-  for (const url of orderedUrls) {
-    if (url !== preferred && !failed.has(url)) {
-      result.push(url);
-    }
-  }
-
-  // Add previously failed URLs last (they might work now)
-  for (const url of orderedUrls) {
-    if (url !== preferred && failed.has(url)) {
-      result.push(url);
-    }
-  }
-
-  return result;
+  void repoId;
+  return [...urls];
 }
 
 /**

@@ -2620,7 +2620,7 @@ const api = {
               ordered: orderedUrls,
             })
 
-            for (const url of orderedUrls) {
+            for (const url of orderedUrls.slice(0, 1)) {
               const hasApi = hasRestApiSupport(url)
               console.log(`[getCommitDetails] Checking URL ${url}: hasRestApi=${hasApi}`)
 

@@ -197,39 +197,27 @@ export async function syncWithRemoteUtil(
       throw new Error(error)
     }
 
-    // 2. Get remote URLs - prefer configured origin, then fall back to cloneUrls
+    // 2. Get remote URLs. Declared cloneUrls remain the remote policy; local
+    // origin can point at a previous fallback and must only be an extra fallback.
     const remotes = await git.listRemotes({dir})
     const originRemote = remotes.find((r: any) => r.remote === "origin")
     const preferredSyncUrl = filterValidCloneUrls([preferredUrl || ""])[0]
 
-    // Build list of URLs to try: origin URL first (if available), then cloneUrls
     const urlsToTry: string[] = []
     if (preferredSyncUrl) {
       urlsToTry.push(preferredSyncUrl)
     }
-    if (originRemote?.url) {
-      if (!urlsToTry.includes(originRemote.url)) {
-        urlsToTry.push(originRemote.url)
-      }
-    }
-    // Add cloneUrls that aren't already in the list
     const validCloneUrls = filterValidCloneUrls(cloneUrls)
     for (const url of validCloneUrls) {
       if (!urlsToTry.includes(url)) {
         urlsToTry.push(url)
       }
     }
+    if (originRemote?.url && !urlsToTry.includes(originRemote.url)) {
+      urlsToTry.push(originRemote.url)
+    }
 
-    // Reorder by preference (cached successful URL first)
-    const orderedUrls = preferredSyncUrl
-      ? [
-          preferredSyncUrl,
-          ...reorderUrlsByPreference(
-            urlsToTry.filter(url => url !== preferredSyncUrl),
-            key,
-          ),
-        ]
-      : reorderUrlsByPreference(urlsToTry, key)
+    const orderedUrls = reorderUrlsByPreference(urlsToTry, key)
 
     if (orderedUrls.length === 0) {
       throw new Error("No remote URL available for sync")

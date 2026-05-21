@@ -4,6 +4,7 @@ import {
   withMultiWrite,
   filterValidCloneUrls,
   reorderUrlsByPreference,
+  sortUrlsByApiPriority,
   getCachedUrlPreference,
   updateUrlPreferenceCache,
   clearUrlPreferenceCache,
@@ -85,7 +86,7 @@ describe('clone-url-fallback utilities', () => {
   });
 
   describe('reorderUrlsByPreference', () => {
-    it('puts preferred URL first', () => {
+    it('preserves declared order even when a preferred URL is cached', () => {
       updateUrlPreferenceCache('repo', 'https://preferred.com/repo.git');
 
       const urls = [
@@ -96,10 +97,10 @@ describe('clone-url-fallback utilities', () => {
 
       const result = reorderUrlsByPreference(urls, 'repo');
 
-      expect(result[0]).toBe('https://preferred.com/repo.git');
+      expect(result).toEqual(urls);
     });
 
-    it('puts failed URLs last', () => {
+    it('does not move previously failed primary URLs to the end', () => {
       updateUrlPreferenceCache('repo', 'https://preferred.com/repo.git', [
         'https://failed.com/repo.git',
       ]);
@@ -112,14 +113,23 @@ describe('clone-url-fallback utilities', () => {
 
       const result = reorderUrlsByPreference(urls, 'repo');
 
-      expect(result[0]).toBe('https://preferred.com/repo.git');
-      expect(result[result.length - 1]).toBe('https://failed.com/repo.git');
+      expect(result).toEqual(urls);
     });
 
     it('returns original order without repoId', () => {
       const urls = ['https://a.com', 'https://b.com'];
       const result = reorderUrlsByPreference(urls);
       expect(result).toEqual(urls);
+    });
+
+    it('does not promote API-capable remotes ahead of declared order', () => {
+      const urls = [
+        'https://gitnostr.com/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/repo.git',
+        'https://github.com/user/repo.git',
+      ];
+
+      expect(sortUrlsByApiPriority(urls)).toEqual(urls);
+      expect(reorderUrlsByPreference(urls, 'repo')).toEqual(urls);
     });
   });
 

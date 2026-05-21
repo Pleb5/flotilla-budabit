@@ -346,6 +346,8 @@ export async function smartInitializeRepoUtil(
           branches: newCache.branches,
           headCommit: newCache.headCommit,
           synced: true,
+          usedUrl: fetchResult.usedUrl,
+          attemptedUrls: fetchResult.attempts.map(a => a.url),
         }
       } catch (e) {
         // fall through to re-init
@@ -681,6 +683,8 @@ export async function initializeRepoUtil(
         headCommit: undefined,
         fromCache: false,
         warning: "Repository cloned but no commits found. Repository may be empty.",
+        usedUrl: successfulUrl,
+        attemptedUrls: cloneResult.attempts.map(a => a.url),
       })
     }
     repoDataLevels.set(key, "refs")
@@ -702,6 +706,8 @@ export async function initializeRepoUtil(
       branches: cache.branches,
       headCommit,
       fromCache: false,
+      usedUrl: successfulUrl,
+      attemptedUrls: cloneResult.attempts.map(a => a.url),
     }
   } catch (error: any) {
     return {success: false, repoId, error: error?.message || String(error), fromCache: false}
@@ -874,17 +880,11 @@ export async function ensureFullCloneUtil(
   const fetchPromise = (async () => {
     sendProgress(`Fetching commit history (depth: ${depth})...`)
     try {
-      // Build list of URLs to try: origin URL first, then provided cloneUrls, then cached cloneUrls
+      // Build list of URLs to try: declared cloneUrls first, then origin/cache as
+      // fallbacks. Origin may point at a previous fallback remote.
       const urlsToTry: string[] = []
 
-      // 1. Get origin URL from git config
-      const remotes = await git.listRemotes({dir})
-      const originRemote = remotes.find((r: any) => r.remote === "origin")
-      if (originRemote?.url) {
-        urlsToTry.push(originRemote.url)
-      }
-
-      // 2. Add provided clone URLs
+      // 1. Add provided clone URLs in declared order.
       if (providedCloneUrls?.length) {
         for (const url of filterValidCloneUrls(providedCloneUrls)) {
           if (!urlsToTry.includes(url)) {
@@ -893,7 +893,16 @@ export async function ensureFullCloneUtil(
         }
       }
 
-      // 3. Try to get clone URLs from cache if we have a cache manager
+      // 2. Get origin URL from git config as an extra fallback.
+      const remotes = await git.listRemotes({dir})
+      const originRemote = remotes.find((r: any) => r.remote === "origin")
+      if (originRemote?.url) {
+        if (!urlsToTry.includes(originRemote.url)) {
+          urlsToTry.push(originRemote.url)
+        }
+      }
+
+      // 3. Try to get clone URLs from cache if we have a cache manager.
       if (deps.cacheManager) {
         try {
           const cache = await deps.cacheManager.getRepoCache(key)
