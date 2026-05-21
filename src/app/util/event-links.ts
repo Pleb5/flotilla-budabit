@@ -11,7 +11,7 @@ import {
   parseTargetedPublication,
 } from "@app/core/community"
 
-type RelayGroup = Iterable<string | undefined | null> | undefined | null
+type RelayGroup = Iterable<string | undefined | null> | string | undefined | null
 
 export type EventPointerLike = {
   id: string
@@ -36,20 +36,48 @@ export type EventShareEntityOptions = EventRelayHintOptions & {
 
 const normalizeRelayHint = (relay: string | undefined | null) => {
   if (!relay) return ""
+  if (isLikelyNonRelayHint(relay)) return ""
 
   try {
     const normalized = normalizeRelayUrl(relay)
+    if (isLikelyNonRelayHint(normalized)) return ""
     return isRelayUrl(normalized) ? normalized : ""
   } catch {
     return ""
   }
 }
 
+const relayGroupValues = (group: RelayGroup) => {
+  if (!group) return []
+  if (typeof group === "string") return [group]
+  return group
+}
+
+const isLikelyNonRelayHint = (relay: string) => {
+  const raw = String(relay || "").trim()
+  if (!raw) return false
+
+  let parsed: URL
+  try {
+    parsed = new URL(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw) ? raw : `https://${raw}`)
+  } catch {
+    return false
+  }
+
+  const host = parsed.hostname.toLowerCase()
+  const pathSegments = parsed.pathname.split("/").filter(Boolean)
+  const lastSegment = pathSegments[pathSegments.length - 1] || ""
+  const looksLikeGitRemote = pathSegments.length >= 2 && /\.git$/i.test(lastSegment)
+  const isKnownPlatform = ["github.com", "gitlab.com", "bitbucket.org"].includes(host)
+
+  return looksLikeGitRemote || isKnownPlatform
+}
+
 export const normalizeRelayHints = (...relayGroups: RelayGroup[]) => {
   const relays = new Set<string>()
 
   for (const group of relayGroups) {
-    for (const relay of group || []) {
+    for (const relay of relayGroupValues(group)) {
       const normalized = normalizeRelayHint(relay)
       if (normalized) relays.add(normalized)
     }

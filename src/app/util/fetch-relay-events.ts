@@ -1,4 +1,5 @@
 import {load} from "@welshman/net"
+import {normalizeRelayHints} from "@app/util/event-links"
 
 const DEFAULT_RELAY_FETCH_TIMEOUT_MS = 2500
 
@@ -18,8 +19,9 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   )
 
   try {
+    const relays = normalizeRelayHints(params.relays as any)
     await load({
-      relays: params.relays,
+      relays,
       filters: params.filters,
       signal: controller.signal,
       onEvent: event => events.push(event as TEvent),

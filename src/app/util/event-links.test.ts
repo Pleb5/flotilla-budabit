@@ -72,6 +72,25 @@ describe("event link utilities", () => {
     ).toEqual(["wss://relay.example.com/"])
   })
 
+  it("treats a bare string as one relay hint instead of character relays", async () => {
+    const {normalizeRelayHints} = await import("./event-links")
+
+    expect(normalizeRelayHints("wss://relay.example.com")).toEqual(["wss://relay.example.com/"])
+  })
+
+  it("drops platform clone URLs from relay hints", async () => {
+    const {normalizeRelayHints} = await import("./event-links")
+
+    expect(
+      normalizeRelayHints([
+        "wss://github.com/Pleb5/flotilla-budabit.git",
+        "https://github.com",
+        "https://github.com/Pleb5/flotilla-budabit",
+        "wss://relay.example.com",
+      ]),
+    ).toEqual(["wss://relay.example.com/"])
+  })
+
   it("uses explicit and seen relays before tag fallback relays", async () => {
     relayMocks.trackerRelays = new Set(["wss://seen.example.com"])
     const {getEventRelayHints} = await import("./event-links")

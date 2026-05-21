@@ -7,7 +7,7 @@ export const load: LayoutLoad = async ({params}) => {
   const {id} = params
   // Dynamic imports to avoid SSR issues
   const {getRepoAnnouncementRelays} = await import("@app/core/git-state")
-  const {normalizeRelayUrl} = await import("@nostr-git/core/utils")
+  const {sanitizeRelays} = await import("@nostr-git/core/utils")
   const {parseRepoId} = await import("@nostr-git/core/utils")
 
   const decoded = nip19.decode(id).data as AddressPointer
@@ -27,9 +27,7 @@ export const load: LayoutLoad = async ({params}) => {
   // Extract relays from naddr if present
   const naddrRelays =
     (decoded.relays?.length ?? 0) > 0
-      ? ((decoded.relays as string[])
-          .map((u: string) => normalizeRelayUrl(u))
-          .filter(Boolean) as string[])
+      ? sanitizeRelays(decoded.relays as string[])
       : []
 
   const fallbackRelays = getRepoAnnouncementRelays(naddrRelays)

@@ -156,6 +156,12 @@
     }
   }
 
+  type BackfillProgressEntry = {
+    id: number
+    message: string
+    tone: "info" | "success" | "warning" | "error"
+  }
+
   interface Props {
     repoClass: Repo
     cloneUrls?: string[]
@@ -198,6 +204,11 @@
   let backfillRemoteAuthStates = $state<Record<string, BackfillRemoteAuthState>>({})
   let selectedBackfillRemotes = $state<Record<string, boolean>>({})
   let selectedBackfillRefs = $state<Record<string, boolean>>({})
+  let activeBackfillProgress = $state("")
+  let backfillProgressLog = $state<BackfillProgressEntry[]>([])
+  let backfillLastResult = $state<BackfillExecutionResult | null>(null)
+  let backfillProgressSeq = 0
+  let lastObservedBackfillPhase = ""
 
   const cloneUrls = $derived.by(() =>
     Array.from(
@@ -217,6 +228,37 @@
       .filter(Boolean)
 
     return candidates[0] || ""
+  })
+
+  const recordBackfillProgress = (
+    message: string,
+    tone: BackfillProgressEntry["tone"] = "info",
+  ) => {
+    const trimmed = String(message || "").trim()
+    if (!trimmed) return
+
+    activeBackfillProgress = trimmed
+    if (backfilling) {
+      actionMessage = trimmed
+    }
+
+    const previous = backfillProgressLog[backfillProgressLog.length - 1]
+    if (previous?.message === trimmed && previous.tone === tone) return
+
+    backfillProgressLog = [
+      ...backfillProgressLog.slice(-11),
+      {id: ++backfillProgressSeq, message: trimmed, tone},
+    ]
+  }
+
+  $effect(() => {
+    if (!backfilling) return
+    const phase = String(repoClass.cloneProgress?.phase || "").trim()
+    if (!phase || phase === lastObservedBackfillPhase) return
+    if (!phase.toLowerCase().includes("backfill")) return
+
+    lastObservedBackfillPhase = phase
+    recordBackfillProgress(phase)
   })
 
   const normalizeUrl = (url: string) => {
@@ -844,6 +886,129 @@
   ): BackfillExecutionResult =>
     buildBackfillExecutionResult(batches.flatMap(batch => batch?.results || []))
 
+  const isBranchRef = (ref: string) => String(ref || "").startsWith("refs/heads/")
+
+  const isTagRef = (ref: string) => String(ref || "").startsWith("refs/tags/")
+
+  const countRefsByKind = (refs: string[]) => ({
+    branches: refs.filter(isBranchRef).length,
+    tags: refs.filter(isTagRef).length,
+  })
+
+  const countFailedRefsByKind = (refs: Array<{ref: string}>) => ({
+    branches: refs.filter(item => isBranchRef(item.ref)).length,
+    tags: refs.filter(item => isTagRef(item.ref)).length,
+  })
+
+  const summarizeBackfillResultKinds = (result: BackfillExecutionResult) => {
+    const pushed = countRefsByKind(result.results.flatMap(item => item.pushedRefs || []))
+    const skipped = countRefsByKind(
+      result.results.flatMap(item => (item.skippedRefs || []).map(ref => ref.ref)),
+    )
+    const failed = countFailedRefsByKind(result.results.flatMap(item => item.failedRefs || []))
+
+    return {pushed, skipped, failed}
+  }
+
+  const summarizeFirstFailedBranch = (result: BackfillExecutionResult) => {
+    const failedBranch = result.results
+      .flatMap(item => item.failedRefs || [])
+      .find(item => isBranchRef(item.ref))
+    if (!failedBranch) return ""
+    return `${failedBranch.ref}: ${failedBranch.error}`
+  }
+
+  const describeBackfillOutcome = (
+    result: BackfillExecutionResult,
+    selectedTargets: BackfillExecutionTarget[],
+  ): {
+    message: string
+    toast: string
+    theme: "success" | "warning" | "error"
+    clearErrors: boolean
+    refreshRepo: boolean
+  } => {
+    const summary = result.summary
+    const selectedBranchCount = selectedTargets.reduce(
+      (sum, target) => sum + target.refs.filter(ref => ref.type === "heads").length,
+      0,
+    )
+    const selectedTagCount = selectedTargets.reduce(
+      (sum, target) => sum + target.refs.filter(ref => ref.type === "tags").length,
+      0,
+    )
+    const counts = summarizeBackfillResultKinds(result)
+    const branchSuccessCount = counts.pushed.branches + counts.skipped.branches
+    const firstFailedBranch = summarizeFirstFailedBranch(result)
+
+    if (selectedBranchCount > 0 && branchSuccessCount === 0) {
+      const tagNote = counts.pushed.tags
+        ? ` Pushed ${counts.pushed.tags} tag${counts.pushed.tags === 1 ? "" : "s"}, but tags do not make GitHub leave the empty-repository state.`
+        : ""
+      const failureNote = firstFailedBranch ? ` First branch failure: ${firstFailedBranch}` : ""
+      return {
+        message: `Backfill did not create or update any branches.${tagNote} The repository will still appear empty until a branch push succeeds.${failureNote}`,
+        toast: "Remote backfill did not create a branch",
+        theme: "error",
+        clearErrors: false,
+        refreshRepo: false,
+      }
+    }
+
+    if (selectedBranchCount === 0 && selectedTagCount > 0 && counts.pushed.tags > 0) {
+      return {
+        message: `Backfill pushed ${counts.pushed.tags} tag${counts.pushed.tags === 1 ? "" : "s"}, but no branches were selected. Empty hosting remotes will still show no branches until a branch is backfilled.`,
+        toast: "Remote backfill pushed tags only",
+        theme: "warning",
+        clearErrors: false,
+        refreshRepo: false,
+      }
+    }
+
+    if (summary.failureCount === 0 && summary.failedRefCount === 0 && summary.pushedRefCount > 0) {
+      return {
+        message: `Backfill complete. Pushed ${summary.pushedRefCount} ref${summary.pushedRefCount === 1 ? "" : "s"} to ${summary.successCount} remote${summary.successCount === 1 ? "" : "s"}.`,
+        toast: "Remote backfill completed",
+        theme: "success",
+        clearErrors: true,
+        refreshRepo: true,
+      }
+    }
+
+    if (summary.failureCount === 0 && summary.failedRefCount === 0) {
+      return {
+        message: `Backfill finished without pushing any refs. ${summary.skippedRefCount} ref${summary.skippedRefCount === 1 ? " was" : "s were"} already up to date when execution started.`,
+        toast: "Remote backfill found nothing to push",
+        theme: "warning",
+        clearErrors: false,
+        refreshRepo: branchSuccessCount > 0,
+      }
+    }
+
+    if (summary.pushedRefCount > 0) {
+      return {
+        message: `Backfill finished with warnings. Pushed ${summary.pushedRefCount} ref${summary.pushedRefCount === 1 ? "" : "s"}, failed ${summary.failedRefCount} and skipped ${summary.skippedRefCount}.`,
+        toast: "Remote backfill partially completed",
+        theme: "warning",
+        clearErrors: false,
+        refreshRepo: branchSuccessCount > 0,
+      }
+    }
+
+    return {
+      message: "Backfill did not push any refs. Re-run analysis and review the remote results.",
+      toast: "Remote backfill failed",
+      theme: "error",
+      clearErrors: false,
+      refreshRepo: false,
+    }
+  }
+
+  const flattenBackfillFailures = (result: BackfillExecutionResult | null) =>
+    (result?.results || []).flatMap(item =>
+      (item.failedRefs || []).map(ref => ({...ref, remoteUrl: item.remoteUrl})),
+    )
+
   const createFailedBackfillExecutionResult = (
     targets: BackfillExecutionTarget[],
     error: unknown,
@@ -993,7 +1158,7 @@
     }
 
     await repoClass.workerManager.initialize()
-    actionMessage = "Preparing staged refs for GRASP backfill..."
+    recordBackfillProgress("Preparing staged refs for GRASP backfill...")
 
     const prepared = await repoClass.workerManager.prepareRemoteBackfill({
       repoId: repoClass.key,
@@ -1016,7 +1181,9 @@
     try {
       for (let index = 0; index < targets.length; index++) {
         const target = targets[index]
-        actionMessage = `Checking ${parseHostFromUrl(target.remoteUrl) || target.remoteUrl} before GRASP backfill...`
+        recordBackfillProgress(
+          `Checking ${parseHostFromUrl(target.remoteUrl) || target.remoteUrl} before GRASP backfill...`,
+        )
         const preflight = await preflightBackfillTarget(target, hydrationFailures)
 
         if (preflight.readyRefs.length === 0) {
@@ -1065,7 +1232,7 @@
           onPublishEvent,
           onFetchRelayEvents,
           updateProgress: message => {
-            actionMessage = `Remote ${index + 1}/${targets.length}: ${message}`
+            recordBackfillProgress(`Remote ${index + 1}/${targets.length}: ${message}`)
           },
           runAbortable: runBackfillAbortable,
           requireNonGraspSuccessBeforeGrasp: false,
@@ -1402,6 +1569,8 @@
       const result = (await repoClass.workerManager.discoverRemoteBackfill({
         repoId: repoClass.key,
         cloneUrls,
+        defaultBranch:
+          expectedBranch || repoClass.mainBranch || repoClass.selectedBranch || undefined,
       })) as BackfillDiscovery
 
       actionMessage = "Checking which remotes you can actually backfill..."
@@ -1514,13 +1683,20 @@
 
     if (backfilling || !repoClass.key || selectedTargetsSnapshot.length === 0) return
     backfilling = true
-    actionMessage = ""
+    actionMessage = "Starting remote backfill..."
+    activeBackfillProgress = "Starting remote backfill..."
+    backfillProgressLog = []
+    backfillLastResult = null
+    lastObservedBackfillPhase = ""
+    recordBackfillProgress("Starting remote backfill...")
 
     try {
       const resultBatches: BackfillExecutionResult[] = []
 
       if (selectedStandardTargetsSnapshot.length > 0) {
-        actionMessage = "Backfilling standard remotes..."
+        recordBackfillProgress(
+          `Backfilling ${selectedStandardTargetsSnapshot.length} standard remote${selectedStandardTargetsSnapshot.length === 1 ? "" : "s"}...`,
+        )
         try {
           const standardResult = (await repoClass.workerManager.executeRemoteBackfill({
             repoId: repoClass.key,
@@ -1529,6 +1705,7 @@
           })) as BackfillExecutionResult
           resultBatches.push(standardResult)
         } catch (error) {
+          recordBackfillProgress("Standard remote backfill failed", "error")
           resultBatches.push(
             createFailedBackfillExecutionResult(selectedStandardTargetsSnapshot, error),
           )
@@ -1536,10 +1713,14 @@
       }
 
       if (selectedGraspTargetsSnapshot.length > 0) {
+        recordBackfillProgress(
+          `Backfilling ${selectedGraspTargetsSnapshot.length} GRASP remote${selectedGraspTargetsSnapshot.length === 1 ? "" : "s"}...`,
+        )
         try {
           const graspResult = await executeGraspBackfill(selectedGraspTargetsSnapshot)
           resultBatches.push(graspResult)
         } catch (error) {
+          recordBackfillProgress("GRASP remote backfill failed", "error")
           resultBatches.push(
             createFailedBackfillExecutionResult(selectedGraspTargetsSnapshot, error),
           )
@@ -1547,47 +1728,36 @@
       }
 
       const result = mergeBackfillExecutionResults(resultBatches)
+      backfillLastResult = result
 
       if (result.results.length === 0 && selectedTargetsSnapshot.length > 0) {
         throw new Error("Backfill did not execute any selected remote targets")
       }
 
-      const summary = result?.summary || {
-        successCount: 0,
-        failureCount: 0,
-        pushedRefCount: 0,
-        failedRefCount: 0,
-        skippedRefCount: 0,
-      }
+      const outcome = describeBackfillOutcome(result, selectedTargetsSnapshot)
+      recordBackfillProgress(
+        outcome.message,
+        outcome.theme === "success" ? "success" : outcome.theme,
+      )
 
-      if (
-        summary.failureCount === 0 &&
-        summary.failedRefCount === 0 &&
-        summary.pushedRefCount > 0
-      ) {
-        actionMessage = `Backfill complete. Pushed ${summary.pushedRefCount} ref${summary.pushedRefCount === 1 ? "" : "s"} to ${summary.successCount} remote${summary.successCount === 1 ? "" : "s"}.`
-        pushToast({message: "Remote backfill completed", theme: "success"})
+      if (outcome.clearErrors) {
         repoClass.clearCloneUrlErrors()
-      } else if (summary.failureCount === 0 && summary.failedRefCount === 0) {
-        actionMessage = `Backfill finished without pushing any refs. ${summary.skippedRefCount} ref${summary.skippedRefCount === 1 ? " was" : "s were"} already up to date when execution started.`
-        pushToast({message: "Remote backfill found nothing to push", theme: "warning"})
-      } else if (summary.pushedRefCount > 0) {
-        actionMessage = `Backfill finished with warnings. Pushed ${summary.pushedRefCount} ref${summary.pushedRefCount === 1 ? "" : "s"}, failed ${summary.failedRefCount} and skipped ${summary.skippedRefCount}.`
-        pushToast({message: "Remote backfill partially completed", theme: "warning"})
-      } else {
-        actionMessage =
-          "Backfill did not push any refs. Re-run analysis and review the remote results."
-        pushToast({message: "Remote backfill failed", theme: "error"})
       }
+      pushToast({message: outcome.toast, theme: outcome.theme})
 
       await probeRemotes()
-      await onRefresh?.()
+      actionMessage = outcome.message
+      if (outcome.refreshRepo) {
+        await onRefresh?.()
+      }
       await scrollModalToTop()
 
       try {
         const refreshed = (await repoClass.workerManager.discoverRemoteBackfill({
           repoId: repoClass.key,
           cloneUrls,
+          defaultBranch:
+            expectedBranch || repoClass.mainBranch || repoClass.selectedBranch || undefined,
         })) as BackfillDiscovery
         backfillRemoteAuthStates = await preflightBackfillRemoteAuthStates(refreshed)
         backfillDiscovery = refreshed
@@ -1608,6 +1778,16 @@
     if (!backfillDiscovery) return ""
     return `${selectedBackfillActionCount} selected action${selectedBackfillActionCount === 1 ? "" : "s"} across ${selectedBackfillRemoteCount} remote${selectedBackfillRemoteCount === 1 ? "" : "s"}.`
   })
+
+  const recentBackfillProgress = $derived.by(() => backfillProgressLog.slice(-8).reverse())
+
+  const recentBackfillFailures = $derived.by(() =>
+    flattenBackfillFailures(backfillLastResult).slice(0, 6),
+  )
+
+  const backfillResultKindSummary = $derived.by(() =>
+    backfillLastResult ? summarizeBackfillResultKinds(backfillLastResult) : null,
+  )
 
   const openSettings = () => {
     onOpenSettings?.()
@@ -1737,6 +1917,71 @@
           </div>
         {/each}
       </div>
+
+      {#if backfilling || backfillProgressLog.length > 0}
+        <div class="rounded-md border border-border bg-muted/20 p-3 text-xs">
+          <div class="font-semibold">Backfill progress</div>
+          <div class="mt-1 text-muted-foreground">
+            {activeBackfillProgress || "Waiting for backfill progress..."}
+          </div>
+          {#if typeof repoClass.cloneProgress?.progress === "number" && backfilling}
+            <div class="mt-2 h-1.5 overflow-hidden rounded bg-muted">
+              <div
+                class="h-full rounded bg-primary transition-all"
+                style={`width: ${Math.max(4, Math.min(100, repoClass.cloneProgress.progress || 0))}%`}>
+              </div>
+            </div>
+          {/if}
+          {#if recentBackfillProgress.length > 0}
+            <div class="mt-3 flex flex-col gap-1">
+              {#each recentBackfillProgress as entry (entry.id)}
+                <div
+                  class={entry.tone === "error"
+                    ? "break-words text-rose-700 dark:text-rose-300"
+                    : entry.tone === "warning"
+                      ? "break-words text-amber-700 dark:text-amber-300"
+                      : entry.tone === "success"
+                        ? "break-words text-emerald-700 dark:text-emerald-300"
+                        : "break-words text-muted-foreground"}>
+                  {entry.message}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      {#if backfillLastResult && backfillResultKindSummary}
+        <div class="rounded-md border border-border bg-muted/10 p-3 text-xs">
+          <div class="font-semibold">Last backfill result</div>
+          <div class="mt-1 text-muted-foreground">
+            Pushed {backfillResultKindSummary.pushed.branches} branch{backfillResultKindSummary
+              .pushed.branches === 1
+              ? ""
+              : "es"}
+            and {backfillResultKindSummary.pushed.tags} tag{backfillResultKindSummary.pushed
+              .tags === 1
+              ? ""
+              : "s"}; failed {backfillResultKindSummary.failed.branches} branch{backfillResultKindSummary
+              .failed.branches === 1
+              ? ""
+              : "es"}
+            and {backfillResultKindSummary.failed.tags} tag{backfillResultKindSummary.failed
+              .tags === 1
+              ? ""
+              : "s"}.
+          </div>
+          {#if recentBackfillFailures.length > 0}
+            <div class="mt-2 flex flex-col gap-1">
+              {#each recentBackfillFailures as failure}
+                <div class="break-words text-rose-700 dark:text-rose-300">
+                  {parseHostFromUrl(failure.remoteUrl) || failure.remoteUrl}: {failure.ref} - {failure.error}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       {#if actionMessage}
         <div class="rounded-md border border-border bg-muted/30 p-3 text-xs">
@@ -1914,7 +2159,8 @@
             <div class="font-semibold">Refs to backfill</div>
             <div class="mt-1 text-xs text-muted-foreground">
               Only safe refs with at least one pushable target stay selectable. Conflicts and
-              blocked refs remain visible but disabled.
+              blocked refs remain visible but disabled. Tags are opt-in so an empty hosting remote
+              gets a branch before tag-only refs are copied.
             </div>
           </div>
 
