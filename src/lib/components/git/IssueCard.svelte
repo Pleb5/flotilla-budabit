@@ -174,7 +174,7 @@
       case GIT_STATUS_CLOSED:
         return { icon: CircleCheck, color: "text-red-500" };
       case GIT_STATUS_DRAFT:
-        return { icon: FileCode, color: "text-gray-500" };
+        return { icon: FileCode, color: "text-muted-foreground" };
       default:
         return { icon: CircleDot, color: "text-amber-500" };
     }

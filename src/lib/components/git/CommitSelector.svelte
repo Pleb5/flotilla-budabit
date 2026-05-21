@@ -19,11 +19,11 @@
   const getBranchColor = (branch: string) => {
     switch (branch) {
       case "main":
-        return "bg-green-100 text-green-800 border-green-200";
+        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-200 dark:border-green-700/60";
       case "develop":
-        return "bg-blue-100 text-blue-800 border-blue-200";
+        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-700/60";
       default:
-        return "bg-purple-100 text-purple-800 border-purple-200";
+        return "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/40 dark:text-purple-200 dark:border-purple-700/60";
     }
   };
 
@@ -51,7 +51,7 @@
             class={`w-full text-left p-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-primary/50 ${
               selectedCommit?.oid === commit.commit.oid
                 ? "border-primary bg-primary/5 shadow-md"
-                : "border-gray-200 hover:border-gray-300"
+                : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600"
             }`}
             onclick={() => onCommitSelect(commit)}
             onkeydown={(e) => (e.key === "Enter" || e.key === " ") && onCommitSelect(commit)}

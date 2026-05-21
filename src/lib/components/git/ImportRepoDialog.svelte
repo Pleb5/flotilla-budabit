@@ -1084,11 +1084,11 @@
   }
 
   function targetStatusTone(target: ImportTargetOption): string {
-    if (target.status === "ready") return "text-green-400";
+    if (target.status === "ready") return "text-green-700 dark:text-green-400";
     if (target.status === "checking") return "text-gray-400";
-    if (target.status === "no-token") return "text-yellow-400";
-    if (target.status === "unsupported") return "text-yellow-400";
-    return "text-red-400";
+    if (target.status === "no-token") return "text-yellow-700 dark:text-yellow-400";
+    if (target.status === "unsupported") return "text-yellow-700 dark:text-yellow-400";
+    return "text-red-700 dark:text-red-400";
   }
 
   // Track if we should close after abort completes
@@ -1271,7 +1271,7 @@
     <!-- Header -->
     <div class="flex items-center justify-between p-6 border-b border-gray-700">
       <div class="flex items-center space-x-3">
-        <Download class="w-6 h-6 text-blue-400" />
+        <Download class="w-6 h-6 text-blue-600 dark:text-blue-400" />
         <h2 id="import-dialog-title" class="text-xl font-semibold text-white">Import Repository</h2>
       </div>
       {#if !importState.isImporting}
@@ -1309,7 +1309,7 @@
                 aria-invalid={!!validationError}
               />
               {#if validationError}
-                <p class="mt-1 text-sm text-red-400 flex items-center gap-1">
+                <p class="mt-1 text-sm text-red-700 dark:text-red-400 flex items-center gap-1">
                   <AlertCircle class="w-4 h-4" />
                   {validationError}
                 </p>
@@ -1327,15 +1327,15 @@
                     type="button"
                     onclick={validateSourceToken}
                     disabled={isValidatingToken}
-                    class="text-sm text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="text-sm text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isValidatingToken ? "Validating..." : "Validate"}
                   </button>
                 </div>
                 <div class="flex items-center space-x-2">
                   {#if tokenValidated}
-                    <CheckCircle2 class="w-5 h-5 text-green-400" />
-                    <span class="text-sm text-green-400">
+                    <CheckCircle2 class="w-5 h-5 text-green-600 dark:text-green-400" />
+                    <span class="text-sm text-green-700 dark:text-green-400">
                       {#if sourceAccessMode === "anonymous"}
                         Public source access validated (anonymous)
                       {:else}
@@ -1343,18 +1343,18 @@
                       {/if}
                     </span>
                   {:else if tokenValidationError}
-                    <AlertCircle class="w-5 h-5 text-red-400" />
-                    <span class="text-sm text-red-400">{tokenValidationError}</span>
+                    <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400" />
+                    <span class="text-sm text-red-700 dark:text-red-400">{tokenValidationError}</span>
                   {:else if isValidatingToken}
                     <Loader2 class="w-5 h-5 text-gray-400 animate-spin" />
                     <span class="text-sm text-gray-400">Validating source access...</span>
                   {:else}
-                    <AlertCircle class="w-5 h-5 text-yellow-400" />
-                    <span class="text-sm text-yellow-400">Validate source access to continue</span>
+                    <AlertCircle class="w-5 h-5 text-yellow-700 dark:text-yellow-400" />
+                    <span class="text-sm text-yellow-700 dark:text-yellow-400">Validate source access to continue</span>
                   {/if}
                 </div>
                 {#if tokenValidated && sourceAccessMode === "anonymous"}
-                  <p class="mt-2 text-xs text-amber-300">
+                  <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
                     Repo-only import is available anonymously. Importing issues, pull requests, and
                     comments still requires a source token.
                   </p>
@@ -1427,7 +1427,7 @@
                     href={repoMetadata.htmlUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="text-sm text-blue-400 hover:text-blue-300 mt-1 inline-flex items-center gap-1"
+                    class="text-sm text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 mt-1 inline-flex items-center gap-1"
                   >
                     View on {selectedHost}
                     <ExternalLink class="w-3 h-3" />
@@ -1476,7 +1476,7 @@
                   <div class="flex items-center gap-2">
                     <button
                       type="button"
-                      class="px-2 py-1 text-xs rounded border border-gray-600 text-gray-300 hover:border-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="px-2 py-1 text-xs rounded border border-gray-600 text-gray-300 hover:border-blue-600 hover:text-blue-700 dark:hover:border-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
                       onclick={selectAllAdditionalBranches}
                       disabled={isLoadingImportBranches || importBranchOptions.length <= 1}
                     >
@@ -1484,7 +1484,7 @@
                     </button>
                     <button
                       type="button"
-                      class="px-2 py-1 text-xs rounded border border-gray-600 text-gray-300 hover:border-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="px-2 py-1 text-xs rounded border border-gray-600 text-gray-300 hover:border-blue-600 hover:text-blue-700 dark:hover:border-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
                       onclick={clearAdditionalBranches}
                       disabled={isLoadingImportBranches ||
                         selectedAdditionalBranchNames.length === 0}
@@ -1495,7 +1495,7 @@
                 </div>
 
                 {#if importBranchLoadError}
-                  <p class="text-xs text-amber-300">
+                  <p class="text-xs text-amber-700 dark:text-amber-300">
                     {importBranchLoadError}. Using default branch only.
                   </p>
                 {/if}
@@ -1627,7 +1627,7 @@
               <div class="space-y-2 bg-gray-800 rounded-lg p-4 border border-gray-600">
                 {#if importTargets.length === 0}
                   <p class="text-sm text-gray-400">No writable targets detected yet.</p>
-                  <p class="text-xs text-gray-500">
+                  <p class="text-xs text-gray-400">
                     Add host tokens in settings and/or add GRASP relay URLs above.
                   </p>
                 {:else}
@@ -1705,7 +1705,7 @@
                       type="button"
                       onclick={() => removeRelay(index)}
                       disabled={selectedRelays.length === 1 && mandatoryGraspRelays.length === 0}
-                      class="p-2 text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Remove relay"
                     >
                       <Trash2 class="w-4 h-4" />
@@ -1750,7 +1750,7 @@
                       <button
                         type="button"
                         onclick={addRelay}
-                        class="flex items-center gap-2 px-3 py-2 text-sm text-blue-400 hover:text-blue-300"
+                        class="flex items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                       >
                         <Plus class="w-4 h-4" />
                         Add Relay
@@ -1781,7 +1781,7 @@
                   <button
                     type="button"
                     onclick={addRelay}
-                    class="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+                    class="flex items-center gap-2 text-sm text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                   >
                     <Plus class="w-4 h-4" />
                     Add Relay
@@ -1902,10 +1902,12 @@
             </div>
 
             {#if validationError}
-              <div class="bg-red-900/50 border border-red-500 rounded-lg p-4">
+              <div
+                class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50"
+              >
                 <div class="flex items-start space-x-3">
-                  <AlertCircle class="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-                  <p class="text-sm text-red-400">{validationError}</p>
+                  <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                  <p class="text-sm text-red-700 dark:text-red-400">{validationError}</p>
                 </div>
               </div>
             {/if}
@@ -1985,16 +1987,20 @@
                     <!-- Right: label + detail + progress -->
                     <div class="flex-1 min-w-0 pb-4">
                       <p
-                        class="text-sm font-medium transition-colors"
-                        class:text-green-400={phase.status === "completed"}
-                        class:text-blue-400={phase.status === "active" && !currentProgress.error}
-                        class:text-red-400={phase.status === "active" && currentProgress.error}
-                        class:text-gray-500={phase.status === "pending"}
+                        class={`text-sm font-medium transition-colors ${
+                          phase.status === "completed"
+                            ? "text-green-700 dark:text-green-400"
+                            : phase.status === "active" && !currentProgress.error
+                              ? "text-blue-700 dark:text-blue-400"
+                              : phase.status === "active" && currentProgress.error
+                                ? "text-red-700 dark:text-red-400"
+                                : "text-gray-400"
+                        }`}
                       >
                         {phase.label}
                       </p>
                       {#if phase.status === "completed" && phase.mirroredCount != null}
-                        <p class="text-xs text-green-300/90 mt-0.5">
+                        <p class="text-xs text-green-700/90 dark:text-green-300/90 mt-0.5">
                           {phase.mirroredCount} mirrored
                         </p>
                       {/if}
@@ -2012,12 +2018,12 @@
                                   : 0) + '%'}"
                               ></div>
                             </div>
-                            <span class="text-xs text-gray-500 tabular-nums"
+                            <span class="text-xs text-gray-400 tabular-nums"
                               >{phase.current} / {phase.total}</span
                             >
                           </div>
                         {:else if phase.current != null}
-                          <p class="text-xs text-gray-500 mt-0.5">{phase.current} so far</p>
+                          <p class="text-xs text-gray-400 mt-0.5">{phase.current} so far</p>
                         {/if}
                       {/if}
                     </div>
@@ -2027,21 +2033,23 @@
 
               <!-- Error message (inline with stepper, or banner) -->
               {#if currentProgress.error}
-                <div class="bg-red-900/50 border border-red-500 rounded-lg p-4 mb-4">
+                <div
+                  class="rounded-lg border border-red-300 bg-red-50 p-4 mb-4 dark:border-red-500 dark:bg-red-900/50"
+                >
                   <div class="flex items-start space-x-3">
-                    <AlertCircle class="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+                    <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
                     <div class="flex-1">
-                      <p class="text-sm text-red-400 font-medium">Import failed</p>
-                      <p class="text-sm text-red-300 mt-1">{currentProgress.error}</p>
+                      <p class="text-sm text-red-800 dark:text-red-400 font-medium">Import failed</p>
+                      <p class="text-sm text-red-700 dark:text-red-300 mt-1">{currentProgress.error}</p>
                       {#if workflowScopeIssue}
-                        <div class="mt-3 text-xs text-red-200/80">
+                        <div class="mt-3 text-xs text-red-700/80 dark:text-red-200/80">
                           GitHub requires the workflow token scope to push files under
                           <span class="font-mono">.github/workflows</span>.
                           <a
                             href="/settings/profile"
                             target="_blank"
                             rel="noopener noreferrer"
-                            class="ml-2 inline-flex items-center text-red-200 hover:text-red-100 underline"
+                            class="ml-2 inline-flex items-center text-red-700 hover:text-red-800 dark:text-red-200 dark:hover:text-red-100 underline"
                           >
                             Open settings
                           </a>
@@ -2051,12 +2059,14 @@
                   </div>
                 </div>
               {:else if currentProgress.isComplete && completedResult}
-                <div class="bg-green-900/50 border border-green-500 rounded-lg p-4 mb-4">
+                <div
+                  class="rounded-lg border border-green-300 bg-green-50 p-4 mb-4 dark:border-green-500 dark:bg-green-900/50"
+                >
                   <div class="flex items-start space-x-3">
-                    <CheckCircle2 class="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 class="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                     <div class="flex-1">
-                      <p class="text-sm text-green-400 font-medium">Import completed</p>
-                      <p class="text-sm text-green-300 mt-1">
+                      <p class="text-sm text-green-800 dark:text-green-400 font-medium">Import completed</p>
+                      <p class="text-sm text-green-700 dark:text-green-300 mt-1">
                         {completedResult.issuesImported} issues,
                         {completedResult.commentsImported} comments,
                         {completedResult.prsImported} PRs, and {completedResult.profilesCreated} profiles
@@ -2068,14 +2078,14 @@
                         ).length}
                         {@const remoteFailureCount =
                           completedResult.remotePushResults.length - remoteSuccessCount}
-                        <p class="text-sm text-green-300 mt-1">
+                        <p class="text-sm text-green-700 dark:text-green-300 mt-1">
                           Remote sync: {remoteSuccessCount} succeeded{#if remoteFailureCount > 0}, {remoteFailureCount}
                             failed{/if}.
                         </p>
                         {#if remoteFailureCount > 0}
                           <div class="mt-2 space-y-1">
                             {#each completedResult.remotePushResults.filter((r) => !r.success) as failedRemote (failedRemote.id)}
-                              <p class="text-xs text-yellow-300">
+                              <p class="text-xs text-yellow-700 dark:text-yellow-300">
                                 {failedRemote.label}: {failedRemote.error || "Push failed"}
                               </p>
                             {/each}

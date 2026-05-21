@@ -46,7 +46,7 @@
         return {
           action: "opened",
           icon: GitPullRequest,
-          color: "text-green-400",
+          color: "text-green-600 dark:text-green-400",
           bgColor: "bg-green-500/10",
           borderColor: "border-green-500/30",
           message: "opened this"
@@ -55,7 +55,7 @@
         return {
           action: "merged",
           icon: GitMerge,
-          color: "text-purple-400",
+          color: "text-purple-600 dark:text-purple-400",
           bgColor: "bg-purple-500/10",
           borderColor: "border-purple-500/30",
           message: "merged this"
@@ -64,7 +64,7 @@
         return {
           action: "closed",
           icon: X,
-          color: "text-red-400",
+          color: "text-red-600 dark:text-red-400",
           bgColor: "bg-red-500/10",
           borderColor: "border-red-500/30",
           message: "closed this"
@@ -73,7 +73,7 @@
         return {
           action: "drafted",
           icon: Clock,
-          color: "text-gray-400",
+          color: "text-muted-foreground",
           bgColor: "bg-gray-500/10",
           borderColor: "border-gray-500/30",
           message: "marked this as draft"
@@ -82,7 +82,7 @@
         return {
           action: "updated",
           icon: CheckCircle2,
-          color: "text-blue-400",
+          color: "text-blue-600 dark:text-blue-400",
           bgColor: "bg-blue-500/10",
           borderColor: "border-blue-500/30",
           message: "updated this"
@@ -134,7 +134,7 @@
           <Icon class="w-3.5 h-3.5 {statusConfig.color}" />
         </div>
         {#if hasTarget}
-          <div class="w-0.5 flex-1 bg-gray-700 mt-2 mb-1" style="min-height: 20px;"></div>
+          <div class="w-0.5 flex-1 bg-border mt-2 mb-1" style="min-height: 20px;"></div>
         {/if}
       </div>
       
@@ -142,12 +142,12 @@
       <div class="flex-1 pb-2">
         <!-- Status Message -->
         <div class="text-sm mb-2">
-          <span class="text-gray-400">{statusConfig.message}</span>
+          <span class="text-muted-foreground">{statusConfig.message}</span>
         </div>
         
         <!-- Connected Target Card -->
         {#if hasTarget}
-          <div class="border border-gray-700 rounded-lg p-3 bg-gray-900/30 hover:border-gray-600 transition-colors cursor-pointer">
+          <div class="border border-border rounded-lg p-3 bg-muted/30 hover:border-muted-foreground/40 transition-colors cursor-pointer">
             <div class="flex items-start gap-2">
               <!-- Target Type Icon -->
               <div class="flex-shrink-0 mt-0.5">
@@ -161,9 +161,9 @@
               <!-- Target Info -->
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
-                  <span class="text-xs font-medium text-gray-400 uppercase">{targetType}</span>
+                  <span class="text-xs font-medium text-muted-foreground uppercase">{targetType}</span>
                 </div>
-                <div class="text-sm text-gray-200 font-medium mt-0.5 truncate">
+                <div class="text-sm text-foreground font-medium mt-0.5 truncate">
                   {targetTitle}
                 </div>
               </div>

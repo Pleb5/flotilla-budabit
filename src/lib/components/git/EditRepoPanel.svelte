@@ -811,7 +811,7 @@
     <!-- Header -->
     <div class="flex items-center justify-between p-6 border-b border-gray-700">
       <div class="flex items-center space-x-3">
-        <Settings class="w-6 h-6 text-blue-400" />
+        <Settings class="w-6 h-6 text-blue-600 dark:text-blue-400" />
         <h2 id="edit-repo-title" class="text-xl font-semibold text-white">Edit Repository</h2>
       </div>
       {#if !isEditing && !isPage}
@@ -850,7 +850,7 @@
             {#if validationErrors.name}
               <p
                 id="repo-name-error"
-                class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+                class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
                 role="alert"
                 aria-live="polite"
               >
@@ -880,7 +880,7 @@
           {#if validationErrors.description}
             <p
               id="repo-description-error"
-              class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+              class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
               role="alert"
               aria-live="polite"
             >
@@ -947,7 +947,7 @@
           {#if validationErrors.defaultBranch}
             <p
               id="default-branch-error"
-              class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+              class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
               role="alert"
               aria-live="polite"
             >
@@ -995,7 +995,7 @@
 
           {#if validationErrors.maintainers}
             <p
-              class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+              class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
               role="alert"
               aria-live="polite"
             >
@@ -1044,7 +1044,7 @@
                   type="button"
                   onclick={() => removeArrayItem("relays", index)}
                   disabled={isEditing}
-                  class="p-2 text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Remove relay"
                 >
                   <Trash2 class="w-4 h-4" />
@@ -1092,7 +1092,7 @@
                 type="button"
                 onclick={() => addArrayItem("relays")}
                 disabled={isEditing}
-                class="flex items-center space-x-2 px-3 py-2 text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="flex items-center space-x-2 px-3 py-2 text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus class="w-4 h-4" />
                 <span>Add relay</span>
@@ -1101,7 +1101,7 @@
           </div>
           {#if validationErrors.relays}
             <p
-              class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+              class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
               role="alert"
               aria-live="polite"
             >
@@ -1133,7 +1133,7 @@
                   type="button"
                   onclick={() => removeArrayItem("webUrls", index)}
                   disabled={isEditing}
-                  class="p-2 text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Remove web URL"
                 >
                   <Trash2 class="w-4 h-4" />
@@ -1144,7 +1144,7 @@
               type="button"
               onclick={() => addArrayItem("webUrls")}
               disabled={isEditing}
-              class="flex items-center space-x-2 px-3 py-2 text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="flex items-center space-x-2 px-3 py-2 text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus class="w-4 h-4" />
               <span>Add web URL</span>
@@ -1152,7 +1152,7 @@
           </div>
           {#if validationErrors.webUrls}
             <p
-              class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+              class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
               role="alert"
               aria-live="polite"
             >
@@ -1236,7 +1236,7 @@
                   type="button"
                   onclick={() => removeArrayItem("cloneUrls", index)}
                   disabled={isEditing}
-                  class="p-2 text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Remove clone URL"
                 >
                   <Trash2 class="w-4 h-4" />
@@ -1247,7 +1247,7 @@
               type="button"
               onclick={() => addArrayItem("cloneUrls")}
               disabled={isEditing}
-              class="flex items-center space-x-2 px-3 py-2 text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="flex items-center space-x-2 px-3 py-2 text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus class="w-4 h-4" />
               <span>Add clone URL</span>
@@ -1255,7 +1255,7 @@
           </div>
           {#if validationErrors.cloneUrls}
             <p
-              class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+              class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
               role="alert"
               aria-live="polite"
             >
@@ -1287,7 +1287,7 @@
                   type="button"
                   onclick={() => removeArrayItem("hashtags", index)}
                   disabled={isEditing}
-                  class="p-2 text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Remove hashtag"
                 >
                   <Trash2 class="w-4 h-4" />
@@ -1350,7 +1350,7 @@
                       <Hash class="w-3 h-3 text-gray-400" />
                       {tag}
                       {#if isAlreadyAdded}
-                        <span class="text-xs text-gray-500 ml-auto">(already added)</span>
+                        <span class="text-xs text-gray-400 ml-auto">(already added)</span>
                       {/if}
                     </button>
                   {/each}
@@ -1373,8 +1373,8 @@
                         ? 'bg-gray-700'
                         : 'hover:bg-gray-700'}"
                     >
-                      <Plus class="w-3 h-3 text-blue-400" />
-                      <span class="text-blue-400 font-medium"
+                      <Plus class="w-3 h-3 text-blue-700 dark:text-blue-400" />
+                      <span class="text-blue-700 dark:text-blue-400 font-medium"
                         >Create tag: {getNormalizedQuery()}</span
                       >
                     </button>
@@ -1385,7 +1385,7 @@
           </div>
           {#if validationErrors.hashtags}
             <p
-              class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+              class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
               role="alert"
               aria-live="polite"
             >
@@ -1444,7 +1444,7 @@
                     <div class="flex items-start gap-2">
                       <GitCommit class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
                       <div class="flex-1 min-w-0">
-                        <div class="text-xs font-mono text-blue-400">
+                        <div class="text-xs font-mono text-blue-700 dark:text-blue-400">
                           {commit.oid?.slice(0, 7) || "unknown"}
                         </div>
                         <div class="text-sm text-white truncate">
@@ -1477,7 +1477,7 @@
                   commitSearchQuery = "";
                   showCommitDropdown = false;
                 }}
-                class="ml-2 text-red-400 hover:text-red-300 flex-shrink-0"
+                class="ml-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 flex-shrink-0"
                 aria-label="Clear commit"
               >
                 <X class="w-4 h-4" />
@@ -1487,7 +1487,7 @@
           {#if validationErrors.earliestUniqueCommit}
             <p
               id="earliest-commit-error"
-              class="text-red-400 text-sm mt-1 flex items-center space-x-1"
+              class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
               role="alert"
               aria-live="polite"
             >
@@ -1518,7 +1518,7 @@
                 type="button"
                 onclick={onRequestDelete}
                 disabled={isEditing || !canDelete}
-                class="flex shrink-0 items-center space-x-2 rounded-lg bg-red-600 px-3 py-2 text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                class="flex shrink-0 items-center space-x-2 rounded-lg bg-red-600 px-3 py-2 !text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Trash2 class="w-4 h-4" />
                 <span>Delete repo</span>
@@ -1532,10 +1532,12 @@
           <div class="space-y-4">
             <div class="flex items-center space-x-3">
               {#if progress.isComplete}
-                <CheckCircle2 class="w-5 h-5 text-green-400" />
-                <span class="text-green-400 font-medium">Repository updated successfully!</span>
+                <CheckCircle2 class="w-5 h-5 text-green-600 dark:text-green-400" />
+                <span class="text-green-700 dark:text-green-400 font-medium">
+                  Repository updated successfully!
+                </span>
               {:else}
-                <Loader2 class="w-5 h-5 text-blue-400 animate-spin" />
+                <Loader2 class="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
                 <span class="text-white">{progress.stage}</span>
               {/if}
             </div>
@@ -1555,21 +1557,23 @@
 
         <!-- Error Display -->
         {#if error}
-          <div class="bg-red-900/50 border border-red-500 rounded-lg p-4">
+          <div
+            class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50"
+          >
             <div class="flex items-start space-x-3">
-              <AlertCircle class="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
               <div class="flex-1">
-                <h4 class="text-red-400 font-medium mb-1">Update Failed</h4>
-                <p class="text-red-300 text-sm">{error}</p>
+                <h4 class="text-red-800 dark:text-red-400 font-medium mb-1">Update Failed</h4>
+                <p class="text-red-700 dark:text-red-300 text-sm">{error}</p>
                 {#if workflowScopeIssue}
-                  <div class="mt-3 text-xs text-red-200/80">
+                  <div class="mt-3 text-xs text-red-700/80 dark:text-red-200/80">
                     GitHub requires the workflow token scope to push files under
                     <span class="font-mono">.github/workflows</span>.
                     <a
                       href="/settings/profile"
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="ml-2 inline-flex items-center text-red-200 hover:text-red-100 underline"
+                      class="ml-2 inline-flex items-center text-red-700 hover:text-red-800 dark:text-red-200 dark:hover:text-red-100 underline"
                     >
                       Open settings
                     </a>
@@ -1578,7 +1582,7 @@
                 {#if !isEditing}
                   <button
                     onclick={handleRetry}
-                    class="mt-3 text-red-400 hover:text-red-300 text-sm underline"
+                    class="mt-3 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-sm underline"
                   >
                     Try again
                   </button>
@@ -1595,7 +1599,7 @@
       <div class="flex items-center justify-between p-6 border-t border-gray-700">
         <div class="text-sm text-gray-400">
           {#if isFormDirty}
-            <span class="text-yellow-400">• Unsaved changes</span>
+            <span class="text-yellow-700 dark:text-yellow-400">• Unsaved changes</span>
           {:else}
             <span>No changes</span>
           {/if}
@@ -1611,7 +1615,7 @@
           <button
             onclick={handleSave}
             disabled={isEditing || !isFormValid || !isFormDirty}
-            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 !text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
             {#if isEditing}
               <Loader2 class="w-4 h-4 animate-spin" />
@@ -1627,7 +1631,7 @@
       <div class="flex items-center justify-end p-6 border-t border-gray-700">
         <button
           onclick={back}
-          class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center space-x-2"
+          class="px-4 py-2 bg-green-600 hover:bg-green-700 !text-white rounded-lg transition-colors flex items-center space-x-2"
         >
           <CheckCircle2 class="w-4 h-4" />
           <span>Done</span>

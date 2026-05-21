@@ -98,28 +98,28 @@
 </script>
 
 <div
-  class="git-repo-state-event border-l-4 border-green-500 bg-green-50 p-4 rounded-r-lg transition-all duration-200 ease-in-out hover:shadow-md"
+  class="git-repo-state-event border-l-4 border-green-500 bg-green-50 p-4 rounded-r-lg transition-all duration-200 ease-in-out hover:shadow-md dark:bg-green-950/30"
 >
   <div class="flex items-start gap-3">
-    <GitBranch class="text-green-600 mt-1" size={20} />
+    <GitBranch class="text-green-600 dark:text-green-300 mt-1" size={20} />
 
     <div class="flex-1">
       <div class="flex items-center gap-2 mb-2">
-        <h3 class="font-semibold text-lg text-gray-900">
+        <h3 class="font-semibold text-lg text-green-900 dark:text-green-100">
           Repository State: {displayId}
         </h3>
-        <span class="text-sm text-gray-500 bg-gray-200 px-2 py-1 rounded"> State Update </span>
+        <span class="text-sm text-green-700 bg-green-100 px-2 py-1 rounded dark:bg-green-900/40 dark:text-green-200"> State Update </span>
       </div>
 
       {#if event.content}
-        <p class="text-gray-700 mb-3">{event.content}</p>
+        <p class="text-green-800 dark:text-green-100/90 mb-3">{event.content}</p>
       {/if}
 
       <div class="space-y-2">
         {#if cloneUrl}
           <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-600">Clone URL:</span>
-            <code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono flex-1" title={cloneUrl}>
+            <span class="text-sm font-medium text-green-800/80 dark:text-green-100/70">Clone URL:</span>
+            <code class="bg-green-100/80 px-2 py-1 rounded text-sm font-mono flex-1 text-green-950 dark:bg-gray-900/70 dark:text-green-100" title={cloneUrl}>
               {shortCloneUrl || cloneUrl}
             </code>
             <button
@@ -135,8 +135,8 @@
 
         {#if headCommit}
           <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-600">HEAD:</span>
-            <code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono">
+            <span class="text-sm font-medium text-green-800/80 dark:text-green-100/70">HEAD:</span>
+            <code class="bg-green-100/80 px-2 py-1 rounded text-sm font-mono text-green-950 dark:bg-gray-900/70 dark:text-green-100">
               {shortCommit}
             </code>
             <button
@@ -151,21 +151,21 @@
         {/if}
 
         <div class="flex items-center gap-2">
-          <span class="text-sm font-medium text-gray-600">Author:</span>
-          <span class="text-sm text-green-600 font-mono">{shortNpub}</span>
+          <span class="text-sm font-medium text-green-800/80 dark:text-green-100/70">Author:</span>
+          <span class="text-sm text-green-700 dark:text-green-300 font-mono">{shortNpub}</span>
         </div>
 
         {#if branches.length > 0}
           <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-600">Branches:</span>
+            <span class="text-sm font-medium text-green-800/80 dark:text-green-100/70">Branches:</span>
             <div class="flex gap-1 flex-wrap">
               {#each branches.slice(0, 5) as branch}
-                <span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                <span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded dark:bg-green-900/40 dark:text-green-200">
                   {branch}
                 </span>
               {/each}
               {#if branches.length > 5}
-                <span class="text-xs text-gray-500">
+                <span class="text-xs text-green-700/80 dark:text-green-200/70">
                   +{branches.length - 5} more
                 </span>
               {/if}
@@ -175,15 +175,15 @@
 
         {#if tags.length > 0}
           <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-600">Tags:</span>
+            <span class="text-sm font-medium text-green-800/80 dark:text-green-100/70">Tags:</span>
             <div class="flex gap-1 flex-wrap">
               {#each tags.slice(0, 3) as tag}
-                <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded dark:bg-blue-900/40 dark:text-blue-200">
                   {tag}
                 </span>
               {/each}
               {#if tags.length > 3}
-                <span class="text-xs text-gray-500">
+                <span class="text-xs text-green-700/80 dark:text-green-200/70">
                   +{tags.length - 3} more
                 </span>
               {/if}
@@ -192,7 +192,7 @@
         {/if}
       </div>
 
-      <div class="mt-3 text-xs text-gray-500">
+      <div class="mt-3 text-xs text-green-700/70 dark:text-green-200/60">
         Last updated {formattedDate}
       </div>
     </div>

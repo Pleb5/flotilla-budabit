@@ -251,10 +251,10 @@
                   <div class="flex flex-wrap items-center gap-1.5">
                     {#each graspRelayUrls as url, idx (idx)}
                       <span
-                        class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-accent/20 text-accent-foreground border border-accent/30 {!isValidRelayUrl(
+                        class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-accent/15 text-accent border border-accent/40 dark:bg-accent/20 {!isValidRelayUrl(
                           url
                         )
-                          ? 'border-red-500 bg-red-500/10'
+                          ? 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-300'
                           : ''}"
                       >
                         <span class="max-w-[180px] truncate" title={url}
@@ -278,7 +278,7 @@
                     <div class="inline-flex items-center">
                       <input
                         type="text"
-                        class="w-36 px-2 py-0.5 text-xs bg-background border border-input rounded-l-full focus:outline-none focus:ring-1 focus:ring-accent"
+                        class="w-36 px-2 py-0.5 text-xs bg-background border border-input rounded-l-full text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent"
                         placeholder="wss://relay..."
                         bind:value={newGraspRelayUrl}
                         onkeydown={(e) => {

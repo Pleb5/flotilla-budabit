@@ -52,7 +52,7 @@
 
 <div class="image-viewer">
   {#if error || imageError}
-    <div class="flex flex-col items-center justify-center p-8 text-gray-500">
+    <div class="flex flex-col items-center justify-center p-8 text-muted-foreground">
       <p>Failed to load image {filename}</p>
       <p class="text-sm">{error || "Unknown error"}</p>
     </div>
@@ -80,7 +80,7 @@
       {/if}
     </div>
   {:else}
-    <div class="flex items-center justify-center p-8 text-gray-500">
+    <div class="flex items-center justify-center p-8 text-muted-foreground">
       <div class="text-center">
         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
         <p>Loading image...</p>

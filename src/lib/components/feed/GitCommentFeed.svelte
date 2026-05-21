@@ -45,15 +45,15 @@
   <!-- Reply Context (if applicable) -->
   {#if isReply && replyToTitle}
     <div
-      class="mb-2 pl-2.5 border-l-2 border-blue-500/30 text-[11px] text-gray-500 bg-blue-500/5 rounded-r py-1 pr-2"
+      class="mb-2 pl-2.5 border-l-2 border-blue-500/30 text-[11px] text-muted-foreground bg-blue-500/5 rounded-r py-1 pr-2"
     >
       <span>Replying to</span>
-      <span class="text-gray-400 font-semibold ml-1">{replyToTitle}</span>
+      <span class="text-foreground font-semibold ml-1">{replyToTitle}</span>
     </div>
   {/if}
 
   <!-- Comment Content -->
-  <div class="text-gray-300 text-sm leading-relaxed">
+  <div class="text-foreground text-sm leading-relaxed">
     {#if Markdown}
       <Markdown content={commentContent} event={event as any} variant="comment" />
     {:else}

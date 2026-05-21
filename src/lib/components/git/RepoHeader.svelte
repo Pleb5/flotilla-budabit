@@ -176,9 +176,9 @@
   <div class="mb-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
     <div class="flex items-start justify-between gap-2">
       <div class="flex items-start gap-2 min-w-0">
-        <AlertTriangle class="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-400" />
+        <AlertTriangle class="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
         <div class="min-w-0">
-          <p class="text-sm font-medium text-amber-300">{cloneUrlBannerTitle}</p>
+          <p class="text-sm font-medium text-amber-700 dark:text-amber-300">{cloneUrlBannerTitle}</p>
           <ul class="mt-1 text-sm text-muted-foreground space-y-1">
             {#each displayCloneUrlErrors as error}
               <li class="truncate" title={error.error}>{formatError(error)}</li>
@@ -190,7 +190,7 @@
         {#if resolveCloneUrlIssues}
           <button
             onclick={resolveCloneUrlIssues}
-            class="rounded border border-amber-500/30 px-2 py-1 text-xs text-amber-300 hover:bg-amber-500/10"
+            class="rounded border border-amber-500/30 px-2 py-1 text-xs text-amber-700 hover:bg-amber-500/10 dark:text-amber-300"
             title="Review remote read issues"
           >
             Review

@@ -211,6 +211,31 @@
     return owner;
   }
 
+  function splitRepoDisplay(value: string, fallbackOwner: string, fallbackName: string) {
+    const trimmed = (value || "").trim();
+    const fallback = { owner: fallbackOwner, name: fallbackName };
+
+    if (!trimmed) return fallback;
+
+    const colonIndex = trimmed.lastIndexOf(":");
+    if (colonIndex > 0 && colonIndex < trimmed.length - 1) {
+      return {
+        owner: toDisplayOwner(trimmed.slice(0, colonIndex)),
+        name: trimmed.slice(colonIndex + 1),
+      };
+    }
+
+    const slashIndex = trimmed.indexOf("/");
+    if (slashIndex > 0 && slashIndex < trimmed.length - 1) {
+      return {
+        owner: toDisplayOwner(trimmed.slice(0, slashIndex)),
+        name: trimmed.slice(slashIndex + 1),
+      };
+    }
+
+    return fallback;
+  }
+
   const cloneUrl = $derived(
     (sourceCloneUrls.length > 0 ? sourceCloneUrls : repo.clone || []).find((url) => {
       const trimmed = String(url || "").trim();
@@ -227,18 +252,27 @@
     defaultBranch: repo.selectedBranch || repo.mainBranch || "main",
   });
   const ownerDisplayOwner = $derived.by(() => toDisplayOwner(originalRepo.owner));
-  const ownerDisplay = $derived.by(() => `${ownerDisplayOwner}/${originalRepo.name}`);
+  const ownerDisplayName = $derived.by(() => originalRepo.name || "repository");
+  const ownerDisplay = $derived.by(() => `${ownerDisplayOwner}/${ownerDisplayName}`);
   const ownerIsNostr = $derived.by(() =>
     /^(nostr:)?(npub|nprofile)1/i.test(ownerDisplayOwner || "")
   );
   const currentUserDisplayOwner = $derived.by(() => toDisplayOwner(pubkey || ""));
-  const currentUserIsNostr = $derived.by(() =>
-    /^(nostr:)?(npub|nprofile)1/i.test(currentUserDisplayOwner || "")
+  const forkDisplayParts = $derived.by(() =>
+    splitRepoDisplay(
+      completedResult?.repoId || "",
+      currentUserDisplayOwner || ownerDisplayOwner,
+      forkName || ownerDisplayName
+    )
   );
+  const forkOwnerDisplayOwner = $derived.by(() => forkDisplayParts.owner);
+  const forkOwnerDisplayName = $derived.by(() => forkDisplayParts.name);
   const forkOwnerDisplay = $derived.by(() => {
-    if (completedResult?.repoId) return completedResult.repoId;
-    return `${ownerDisplayOwner}/${forkName}`;
+    return `${forkOwnerDisplayOwner}/${forkOwnerDisplayName}`;
   });
+  const forkOwnerIsNostr = $derived.by(() =>
+    /^(nostr:)?(npub|nprofile)1/i.test(forkOwnerDisplayOwner || "")
+  );
   const branchCopyFilterState = $derived.by(() =>
     deriveBranchCopyFilterState({
       branchNames: (repo?.branches || []).map((branch) => branch?.name || ""),
@@ -405,10 +439,12 @@
   }
 
   function targetStatusTone(target: RemoteTargetOption): string {
-    if (target.status === "ready") return "text-green-400";
+    if (target.status === "ready") return "text-green-700 dark:text-green-400";
     if (target.status === "checking") return "text-gray-400";
-    if (target.status === "no-token" || target.status === "unsupported") return "text-yellow-400";
-    return "text-red-400";
+    if (target.status === "no-token" || target.status === "unsupported") {
+      return "text-yellow-700 dark:text-yellow-400";
+    }
+    return "text-red-700 dark:text-red-400";
   }
 
   function handleForkTargetSelectionChange() {
@@ -917,7 +953,7 @@
     >
       <div class="flex items-center justify-between p-6 border-b border-gray-700">
         <div class="flex items-center space-x-3">
-          <GitFork class="w-6 h-6 text-blue-400" />
+          <GitFork class="w-6 h-6 text-blue-600 dark:text-blue-400" />
           <h2 id="fork-dialog-title" class="text-xl font-semibold text-white">Fork Repository</h2>
         </div>
         {#if !isForking}
@@ -940,7 +976,8 @@
               <div class="text-sm font-medium text-white">
                 {#if Markdown && ownerIsNostr}
                   <div class="fork-owner-inline">
-                    <Markdown content={ownerDisplay} relays={defaultRelays} variant="comment" />
+                    <Markdown content={ownerDisplayOwner} relays={defaultRelays} variant="comment" />
+                    <span>/{ownerDisplayName}</span>
                   </div>
                 {:else}
                   {ownerDisplay}
@@ -982,7 +1019,7 @@
               {#if validationError}
                 <p
                   id="fork-name-error"
-                  class="mt-1 text-sm text-red-400 flex items-center space-x-1"
+                  class="mt-1 text-sm text-red-700 dark:text-red-400 flex items-center space-x-1"
                 >
                   <AlertCircle class="w-4 h-4" />
                   <span>{validationError}</span>
@@ -1040,7 +1077,7 @@
                         <button
                           type="button"
                           onclick={() => removeGraspRelay(index)}
-                          class="p-2 text-red-400 hover:text-red-300"
+                          class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                           aria-label="Remove GRASP relay"
                         >
                           <Trash2 class="w-4 h-4" />
@@ -1095,7 +1132,7 @@
               <div class="space-y-2 bg-gray-800 rounded-lg p-4 border border-gray-600">
                 {#if forkTargets.length === 0}
                   <p class="text-sm text-gray-400">No writable targets detected yet.</p>
-                  <p class="text-xs text-gray-500">
+                  <p class="text-xs text-gray-400">
                     Add host tokens in settings and/or add GRASP relay URLs above.
                   </p>
                 {:else}
@@ -1242,7 +1279,7 @@
                         <div class="flex items-start gap-2">
                           <GitCommit class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
                           <div class="flex-1 min-w-0">
-                            <div class="text-xs font-mono text-blue-400">
+                            <div class="text-xs font-mono text-blue-700 dark:text-blue-400">
                               {commit.oid?.slice(0, 7) || "unknown"}
                             </div>
                             <div class="text-sm text-white truncate">
@@ -1270,7 +1307,7 @@
                   <button
                     type="button"
                     onclick={() => (earliestUniqueCommit = "")}
-                    class="ml-2 text-red-400 hover:text-red-300 flex-shrink-0"
+                    class="ml-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 flex-shrink-0"
                     aria-label="Clear commit"
                   >
                     <X class="w-4 h-4" />
@@ -1366,7 +1403,7 @@
                           <Hash class="w-3 h-3 text-gray-400" />
                           <span class="flex-1">{tag}</span>
                           {#if isAlreadyAdded}
-                            <span class="text-xs text-gray-500">(already added)</span>
+                            <span class="text-xs text-gray-400">(already added)</span>
                           {/if}
                         </button>
                       {/each}
@@ -1385,8 +1422,8 @@
                             ? 'bg-gray-700'
                             : 'hover:bg-gray-700'}"
                         >
-                          <Plus class="w-3 h-3 text-blue-400" />
-                          <span class="text-blue-400 font-medium"
+                          <Plus class="w-3 h-3 text-blue-700 dark:text-blue-400" />
+                          <span class="text-blue-700 dark:text-blue-400 font-medium"
                             >Create tag: {getNormalizedQuery()}</span
                           >
                         </button>
@@ -1438,7 +1475,7 @@
                           class="flex-1 px-3 py-2 bg-gray-800 border border-blue-500/40 rounded-lg text-white focus:outline-none"
                         />
                         <span
-                          class="px-2.5 py-2 text-xs font-medium text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded-lg whitespace-nowrap"
+                          class="px-2.5 py-2 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded-lg whitespace-nowrap"
                         >
                           Target relay
                         </span>
@@ -1462,7 +1499,7 @@
                       />
                       <button
                         type="button"
-                        class="p-2 text-red-400 hover:text-red-300"
+                        class="p-2 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                         aria-label="Remove relay"
                         onclick={() => (preferredRelays = removeItem(preferredRelays, index))}
                       >
@@ -1521,7 +1558,7 @@
                   {:else}
                     <button
                       type="button"
-                      class="px-3 py-2 text-blue-400 hover:text-blue-300"
+                      class="px-3 py-2 text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                       onclick={() => (preferredRelays = addItem(preferredRelays))}
                     >
                       <Plus class="w-4 h-4 inline mr-1" />
@@ -1548,24 +1585,30 @@
         </div>
 
         {#if warning}
-          <div class="bg-amber-900/40 border border-amber-500 rounded-lg p-4">
+          <div
+            class="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-500 dark:bg-amber-900/40"
+          >
             <div class="flex items-start space-x-3">
-              <AlertCircle class="w-5 h-5 text-amber-300 mt-0.5 flex-shrink-0" />
+              <AlertCircle class="w-5 h-5 text-amber-600 dark:text-amber-300 mt-0.5 flex-shrink-0" />
               <div class="flex-1">
-                <h4 class="text-amber-200 font-medium mb-1">Fork completed with warnings</h4>
-                <p class="text-amber-100 text-sm">{warning}</p>
+                <h4 class="text-amber-800 dark:text-amber-200 font-medium mb-1">
+                  Fork completed with warnings
+                </h4>
+                <p class="text-amber-700 dark:text-amber-100 text-sm">{warning}</p>
               </div>
             </div>
           </div>
         {/if}
 
         {#if error}
-          <div class="bg-red-900/50 border border-red-500 rounded-lg p-4">
+          <div
+            class="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50"
+          >
             <div class="flex items-start space-x-3">
-              <AlertCircle class="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <AlertCircle class="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
               <div class="flex-1">
-                <h4 class="text-red-400 font-medium mb-1">Fork Failed</h4>
-                <div class="text-red-300 text-sm">
+                <h4 class="text-red-800 dark:text-red-400 font-medium mb-1">Fork Failed</h4>
+                <div class="text-red-700 dark:text-red-300 text-sm">
                   {#if Markdown}
                     <Markdown content={error} relays={defaultRelays} variant="comment" />
                   {:else}
@@ -1576,7 +1619,7 @@
                   <button
                     type="button"
                     onclick={handleRetry}
-                    class="mt-3 text-red-400 hover:text-red-300 text-sm underline"
+                    class="mt-3 text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 text-sm underline"
                   >
                     Try again
                   </button>
@@ -1587,8 +1630,10 @@
         {:else if isProgressComplete}
           <div class="space-y-4">
             <div class="flex items-center space-x-3">
-              <CheckCircle2 class="w-5 h-5 text-green-400" />
-              <span class="text-green-400 font-medium">Fork completed successfully!</span>
+              <CheckCircle2 class="w-5 h-5 text-green-600 dark:text-green-400" />
+              <span class="text-green-700 dark:text-green-400 font-medium">
+                Fork completed successfully!
+              </span>
             </div>
 
             {#if primaryForkUrl}
@@ -1599,7 +1644,7 @@
                     href={primaryForkUrl}
                     target="_blank"
                     rel="noreferrer noopener"
-                    class="text-blue-400 hover:text-blue-300 break-all inline-flex items-center gap-1"
+                    class="text-blue-700 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 break-all inline-flex items-center gap-1"
                   >
                     <span>{primaryForkUrl}</span>
                     <ExternalLink class="w-3 h-3" />
@@ -1627,7 +1672,7 @@
                           {target.webUrl || target.remoteUrl}
                         </div>
                       </div>
-                      <CheckCircle2 class="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+                      <CheckCircle2 class="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                     </div>
                   {/each}
                 </div>
@@ -1635,12 +1680,16 @@
 
               {#if completedFailedTargets.length > 0}
                 <div class="border-t border-gray-700 pt-3">
-                  <p class="text-sm text-amber-300 mb-2">Targets that still need manual retry</p>
+                  <p class="text-sm text-amber-700 dark:text-amber-300 mb-2">
+                    Targets that still need manual retry
+                  </p>
                   <div class="space-y-2">
                     {#each completedFailedTargets as target}
                       <div class="text-sm">
                         <div class="text-white">{target.label}</div>
-                        <div class="text-amber-200/80">{target.error || "Sync failed"}</div>
+                        <div class="text-amber-700/80 dark:text-amber-200/80">
+                          {target.error || "Sync failed"}
+                        </div>
                       </div>
                     {/each}
                   </div>
@@ -1683,13 +1732,14 @@
                 {/if}
                 <div class="flex items-center gap-1">
                   <span class="text-gray-400">Repository:</span>
-                  {#if Markdown && ownerIsNostr}
+                  {#if Markdown && forkOwnerIsNostr}
                     <div class="fork-owner-inline">
                       <Markdown
-                        content={forkOwnerDisplay}
+                        content={forkOwnerDisplayOwner}
                         relays={defaultRelays}
                         variant="comment"
                       />
+                      <span>/{forkOwnerDisplayName}</span>
                     </div>
                   {:else}
                     <span class="text-gray-300">{forkOwnerDisplay}</span>
@@ -1758,11 +1808,15 @@
                   </div>
                   <div class="flex-1 min-w-0 pb-4">
                     <p
-                      class="text-sm font-medium transition-colors"
-                      class:text-green-400={phase.status === "completed"}
-                      class:text-blue-400={phase.status === "active"}
-                      class:text-red-400={phase.status === "error"}
-                      class:text-gray-500={phase.status === "pending"}
+                      class={`text-sm font-medium transition-colors ${
+                        phase.status === "completed"
+                          ? "text-green-700 dark:text-green-400"
+                          : phase.status === "active"
+                            ? "text-blue-700 dark:text-blue-400"
+                            : phase.status === "error"
+                              ? "text-red-700 dark:text-red-400"
+                              : "text-gray-400"
+                      }`}
                     >
                       {phase.label}
                     </p>

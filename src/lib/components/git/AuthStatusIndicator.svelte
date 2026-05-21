@@ -96,8 +96,8 @@
       return {
         type: "no-user",
         icon: AlertCircle,
-        color: "text-gray-500",
-        bgColor: "bg-gray-100",
+        color: "text-gray-600 dark:text-gray-300",
+        bgColor: "bg-gray-100 dark:bg-gray-800",
         message: "Not logged in",
       };
     }
@@ -106,8 +106,8 @@
       return {
         type: "authorized",
         icon: CheckCircle,
-        color: "text-green-600",
-        bgColor: "bg-green-100",
+        color: "text-green-700 dark:text-green-300",
+        bgColor: "bg-green-100 dark:bg-green-900/40",
         message: "Authorized maintainer",
       };
     }
@@ -116,8 +116,8 @@
       return {
         type: "maintainer-no-token",
         icon: Key,
-        color: "text-orange-600",
-        bgColor: "bg-orange-100",
+        color: "text-orange-700 dark:text-orange-300",
+        bgColor: "bg-orange-100 dark:bg-orange-900/40",
         message: "Maintainer - needs auth token",
       };
     }
@@ -126,8 +126,8 @@
       return {
         type: "token-no-access",
         icon: Shield,
-        color: "text-blue-600",
-        bgColor: "bg-blue-100",
+        color: "text-blue-700 dark:text-blue-300",
+        bgColor: "bg-blue-100 dark:bg-blue-900/40",
         message: "Has token - not maintainer",
       };
     }
@@ -135,8 +135,8 @@
     return {
       type: "no-access",
       icon: AlertCircle,
-      color: "text-gray-500",
-      bgColor: "bg-gray-100",
+      color: "text-gray-600 dark:text-gray-300",
+      bgColor: "bg-gray-100 dark:bg-gray-800",
       message: "Read-only access",
     };
   });

@@ -21,13 +21,13 @@
   const getSeverityColor = (severity: string) => {
     switch (severity) {
       case "high":
-        return "border-red-200 bg-red-50";
+        return "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30";
       case "medium":
-        return "border-orange-200 bg-orange-50";
+        return "border-orange-200 bg-orange-50 dark:border-orange-900/60 dark:bg-orange-950/30";
       case "low":
-        return "border-yellow-200 bg-yellow-50";
+        return "border-yellow-200 bg-yellow-50 dark:border-yellow-900/60 dark:bg-yellow-950/30";
       default:
-        return "border-gray-200 bg-gray-50";
+        return "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/40";
     }
   };
 
@@ -51,13 +51,13 @@
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "content":
-        return { icon: FileText, color: "text-gray-500" };
+        return { icon: FileText, color: "text-muted-foreground" };
       case "formatting":
         return { icon: Target, color: "text-orange-500" };
       case "structure":
         return { icon: Zap, color: "text-blue-500" };
       default:
-        return { icon: TriangleAlert, color: "text-gray-500" };
+        return { icon: TriangleAlert, color: "text-muted-foreground" };
     }
   };
 
@@ -71,12 +71,12 @@
 </script>
 
 {#if conflicts.length === 0}
-  <Card class="border-green-200 bg-green-50">
+  <Card class="border-green-200 bg-green-50 dark:border-green-900/60 dark:bg-green-950/30">
     <CardContent class="flex items-center justify-center py-12">
       <div class="text-center">
-        <Target class="h-12 w-12 mx-auto mb-4 text-green-500" />
-        <h3 class="text-lg font-medium text-green-800 mb-2">No Conflicts Detected</h3>
-        <p class="text-sm text-green-600">
+        <Target class="h-12 w-12 mx-auto mb-4 text-green-500 dark:text-green-300" />
+        <h3 class="text-lg font-medium text-green-800 dark:text-green-200 mb-2">No Conflicts Detected</h3>
+        <p class="text-sm text-green-600 dark:text-green-300">
           This PR can be merged cleanly without any conflicts. The merge operation is safe to
           proceed.
         </p>
@@ -86,9 +86,9 @@
 {:else}
   <div class="space-y-4">
     <!-- Conflict Summary -->
-    <Card class="border-orange-200 bg-orange-50">
+    <Card class="border-orange-200 bg-orange-50 dark:border-orange-900/60 dark:bg-orange-950/30">
       <CardHeader class="pb-3">
-        <CardTitle class="text-lg flex items-center gap-2 text-orange-800">
+        <CardTitle class="text-lg flex items-center gap-2 text-orange-800 dark:text-orange-200">
           <TriangleAlert class="h-5 w-5" />
           Conflict Summary
         </CardTitle>
@@ -96,19 +96,19 @@
       <CardContent>
         <div class="grid grid-cols-3 gap-4">
           <div class="text-center">
-            <div class="text-2xl font-bold text-red-600">
+            <div class="text-2xl font-bold text-red-600 dark:text-red-300">
               {conflicts.filter((c: Conflict) => c.severity === "high").length}
             </div>
             <div class="text-xs text-muted-foreground">High Risk</div>
           </div>
           <div class="text-center">
-            <div class="text-2xl font-bold text-orange-600">
+            <div class="text-2xl font-bold text-orange-600 dark:text-orange-300">
               {conflicts.filter((c: Conflict) => c.severity === "medium").length}
             </div>
             <div class="text-xs text-muted-foreground">Medium Risk</div>
           </div>
           <div class="text-center">
-            <div class="text-2xl font-bold text-yellow-600">
+            <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-300">
               {conflicts.filter((c: Conflict) => c.severity === "low").length}
             </div>
             <div class="text-xs text-muted-foreground">Low Risk</div>
@@ -123,7 +123,7 @@
         <Card class={getSeverityColor(conflict.severity)}>
           <Collapsible>
             <CollapsibleTrigger class="w-full" onclick={() => toggleConflict(conflict.file)}>
-              <CardHeader class="pb-3 hover:bg-black/5 transition-colors">
+              <CardHeader class="pb-3 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-3">
                     {#if expandedConflicts.has(conflict.file)}

@@ -500,7 +500,7 @@
                     <Hash class="w-3 h-3 text-gray-400" />
                     <span class="flex-1">{tag}</span>
                     {#if isAlreadyAdded}
-                      <span class="text-xs text-gray-500">(already added)</span>
+                      <span class="text-xs text-gray-400">(already added)</span>
                     {/if}
                   </button>
                 {/each}
