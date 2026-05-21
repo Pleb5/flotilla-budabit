@@ -66,6 +66,7 @@ export default defineConfig({
     __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
     __TERMINAL__: JSON.stringify(process.env.FEATURE_TERMINAL !== "0"),
     __STRICT_NIP29__: JSON.stringify(process.env.FEATURE_STRICT_NIP29 === "1"),
+    __ALERTS__: JSON.stringify(process.env.FEATURE_ALERTS === "1"),
   },
   optimizeDeps: {
     include: ["@codemirror/state", "@codemirror/view"],

@@ -1,4 +1,4 @@
-/* global clients */
+/* global clients, __ALERTS__ */
 
 import * as nip19 from "nostr-tools/nip19"
 
@@ -20,6 +20,8 @@ self.addEventListener("fetch", event => {
 })
 
 self.addEventListener("push", e => {
+  if (typeof __ALERTS__ === "undefined" || !__ALERTS__) return
+
   console.log("Service Worker: Push event received", e)
 
   let url = "/"

@@ -89,6 +89,8 @@ const pullWithFallback = ({relays, filters, signal}: PullOpts) => {
 
 const dmLoad = makeLoader({delay: 200, threshold: 0.5})
 
+const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
+
 const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
   const [smart, dumb] = partition(hasNegentropy, relays)
   const events = repository.query(filters, {shouldSort: false}).filter(isSignedEvent)
@@ -180,8 +182,10 @@ const syncRelays = () => {
 const syncUserData = () => {
   const unsubscribeRelayList = userRelayList.subscribe(($userRelayList: any) => {
     if ($userRelayList) {
-      loadAlerts($userRelayList.event.pubkey)
-      loadAlertStatuses($userRelayList.event.pubkey)
+      if (ALERTS_ENABLED) {
+        loadAlerts($userRelayList.event.pubkey)
+        loadAlertStatuses($userRelayList.event.pubkey)
+      }
       loadUserBlossomServerList($userRelayList.event.pubkey)
       loadUserFollowList($userRelayList.event.pubkey)
       loadUserMuteList($userRelayList.event.pubkey)

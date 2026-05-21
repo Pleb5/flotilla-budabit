@@ -69,7 +69,9 @@ Relays are infrastructure, not identity. Do not configure a deployment as if one
 
 ## Optional Alerts
 
-If you do not set notifier values, the app still builds and runs fine. You just will not have alert delivery features.
+Email digests and web push alerts are disabled by default with `FEATURE_ALERTS=0`.
+Set `FEATURE_ALERTS=1` and configure notifier values only if you want external alert delivery.
+In-app unread badges and notification sounds do not require notifier values.
 
 ## Hosting Requirements
 

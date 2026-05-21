@@ -159,10 +159,12 @@
       <SocketStatusIndicator {url} />
     </Button>
     {#if $pubkey}
-      <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
-        <Icon icon={Bell} />
-        Manage Alerts
-      </Button>
+      {#if __ALERTS__}
+        <Button class="btn btn-neutral btn-sm" onclick={manageAlerts}>
+          <Icon icon={Bell} />
+          Manage Alerts
+        </Button>
+      {/if}
       <Button class="btn btn-neutral btn-sm" onclick={logout}>
         <Icon icon={Exit} />
         Log Out

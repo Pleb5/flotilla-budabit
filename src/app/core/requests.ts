@@ -421,19 +421,25 @@ export const makeCalendarFeed = ({
 
 // Domain specific
 
+const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
+
 export const loadAlerts = (pubkey: string) =>
-  request({
-    autoClose: true,
-    relays: [NOTIFIER_RELAY],
-    filters: [{kinds: [ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID], authors: [pubkey]}],
-  })
+  ALERTS_ENABLED
+    ? request({
+        autoClose: true,
+        relays: [NOTIFIER_RELAY],
+        filters: [{kinds: [ALERT_EMAIL, ALERT_WEB, ALERT_IOS, ALERT_ANDROID], authors: [pubkey]}],
+      })
+    : Promise.resolve([])
 
 export const loadAlertStatuses = (pubkey: string) =>
-  request({
-    autoClose: true,
-    relays: [NOTIFIER_RELAY],
-    filters: [{kinds: [ALERT_STATUS], "#p": [pubkey]}],
-  })
+  ALERTS_ENABLED
+    ? request({
+        autoClose: true,
+        relays: [NOTIFIER_RELAY],
+        filters: [{kinds: [ALERT_STATUS], "#p": [pubkey]}],
+      })
+    : Promise.resolve([])
 
 export const discoverRelays = (lists: List[]) =>
   Promise.all(

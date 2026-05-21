@@ -42,11 +42,13 @@
         <Icon icon={UserCircle} /> Profile
       </SecondaryNavItem>
     </div>
-    <div in:fly|local={{delay: 50}}>
-      <SecondaryNavItem href="/settings/alerts">
-        <Icon icon={Bell} /> Alerts
-      </SecondaryNavItem>
-    </div>
+    {#if __ALERTS__}
+      <div in:fly|local={{delay: 50}}>
+        <SecondaryNavItem href="/settings/alerts">
+          <Icon icon={Bell} /> Alerts
+        </SecondaryNavItem>
+      </div>
+    {/if}
     <div in:fly|local={{delay: 100}}>
       <SecondaryNavItem href="/settings/wallet">
         <Icon icon={Wallet} /> Wallet

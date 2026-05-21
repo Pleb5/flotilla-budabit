@@ -237,7 +237,11 @@
   </div>
 
   <p class="text-xs text-muted-foreground">
-    Comments are in-app only. Email digests include issues, PRs, status changes, and assignments.
+    {#if __ALERTS__}
+      Comments are in-app only. Email digests include issues, PRs, status changes, and assignments.
+    {:else}
+      Watch settings create in-app notifications only.
+    {/if}
   </p>
 
   <ModalFooter>

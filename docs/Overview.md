@@ -73,7 +73,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - Relays and communities: `VITE_INDEXER_RELAYS`, `VITE_SIGNER_RELAYS`, `VITE_DEFAULT_COMMUNITY`, `VITE_GIT_RELAYS`.
   - Branding: community profile metadata first, with fallback env values `VITE_PLATFORM_NAME`, `VITE_PLATFORM_DESCRIPTION`, `VITE_PLATFORM_URL`, `VITE_PLATFORM_LOGO`, `VITE_PLATFORM_ACCENT`.
   - Media: `VITE_DEFAULT_BLOSSOM_SERVERS` for fallback Blossom upload targets; community Blossom servers come from active community definitions.
-  - Services: `VITE_BURROW_URL`, `VITE_NOTIFIER_PUBKEY`, `VITE_NOTIFIER_RELAY`, `VITE_NOTIFIER_HANDLER_ADDRESS`, `VITE_NOTIFIER_HANDLER_RELAY`, `VITE_VAPID_PUBLIC_KEY`.
+  - Services: `VITE_BURROW_URL`; alert delivery services `VITE_NOTIFIER_PUBKEY`, `VITE_NOTIFIER_RELAY`, `VITE_NOTIFIER_HANDLER_ADDRESS`, `VITE_NOTIFIER_HANDLER_RELAY`, and `VITE_VAPID_PUBLIC_KEY` are used only when `FEATURE_ALERTS=1`.
   - Git HTTP fallback: `VITE_GIT_DEFAULT_CORS_PROXY`.
 
 ## How Pages Use State

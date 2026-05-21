@@ -66,19 +66,21 @@
     <Icon size={5} icon={Check} />
     Mark all read
   </Button>
-  {#if (!enablingAlert && $dmAlert) || disablingAlert}
-    <Button class="btn btn-neutral" onclick={disableAlerts} disabled={disablingAlert}>
-      {#if !disablingAlert}
-        <Icon size={4} icon={BellOff} />
-      {/if}
-      <Spinner loading={disablingAlert}>Disable alerts</Spinner>
-    </Button>
-  {:else}
-    <Button class="btn btn-neutral" onclick={enableAlerts} disabled={enablingAlert}>
-      {#if !enablingAlert}
-        <Icon size={4} icon={Bell} />
-      {/if}
-      <Spinner loading={enablingAlert}>Enable alerts</Spinner>
-    </Button>
+  {#if __ALERTS__}
+    {#if (!enablingAlert && $dmAlert) || disablingAlert}
+      <Button class="btn btn-neutral" onclick={disableAlerts} disabled={disablingAlert}>
+        {#if !disablingAlert}
+          <Icon size={4} icon={BellOff} />
+        {/if}
+        <Spinner loading={disablingAlert}>Disable alerts</Spinner>
+      </Button>
+    {:else}
+      <Button class="btn btn-neutral" onclick={enableAlerts} disabled={enablingAlert}>
+        {#if !enablingAlert}
+          <Icon size={4} icon={Bell} />
+        {/if}
+        <Spinner loading={enablingAlert}>Enable alerts</Spinner>
+      </Button>
+    {/if}
   {/if}
 </div>

@@ -789,7 +789,18 @@ export type AlertParams = {
   android?: AlertParamsAndroid
 }
 
+const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
+const ALERTS_DISABLED_MESSAGE = "Email and push alerts are currently disabled."
+
+const assertAlertsEnabled = () => {
+  if (!ALERTS_ENABLED) {
+    throw new Error(ALERTS_DISABLED_MESSAGE)
+  }
+}
+
 export const makeAlert = async (params: AlertParams) => {
+  assertAlertsEnabled()
+
   const tags = [
     ["feed", JSON.stringify(params.feed)],
     ["locale", LOCALE],
@@ -860,6 +871,10 @@ const getNotifierHandler = () => {
 }
 
 export const createAlert = async (params: CreateAlertParams): Promise<CreateAlertResult> => {
+  if (!ALERTS_ENABLED) {
+    return {error: ALERTS_DISABLED_MESSAGE}
+  }
+
   if (params.email) {
     const cadence = params.email.cron.endsWith("1") ? "Weekly" : "Daily"
     const handler = getNotifierHandler()

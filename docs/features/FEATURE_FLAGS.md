@@ -155,6 +155,38 @@ const isStrictRelay = __STRICT_NIP29__ &&
   error.includes("missing group (`h`) tag");
 ```
 
+### `__ALERTS__`
+
+**Type**: Feature  
+**Default**: Disabled  
+**Control**: `FEATURE_ALERTS` environment variable
+
+Enables external email digest and web push alert setup.
+
+**When enabled**:
+- Settings > Alerts
+- Email digest setup
+- Web push subscription setup
+- Notifier alert/status loading
+
+**When disabled**:
+- Email and push alert setup is hidden
+- Direct alert creation is rejected
+- In-app notification badges and sounds remain available
+
+**Usage**:
+```bash
+# Enable email and push alerts
+FEATURE_ALERTS=1 npm run build
+```
+
+**Code gating**:
+```typescript
+if (__ALERTS__) {
+  createAlert(params);
+}
+```
+
 ## Build Configuration
 
 Feature flags are defined in multiple build configuration files:
@@ -173,6 +205,7 @@ export default defineConfig({
     __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
     __TERMINAL__: JSON.stringify(process.env.FEATURE_TERMINAL !== "0"),
     __STRICT_NIP29__: JSON.stringify(process.env.FEATURE_STRICT_NIP29 === "1"),
+    __ALERTS__: JSON.stringify(process.env.FEATURE_ALERTS === "1"),
   }
 });
 ```
@@ -206,6 +239,7 @@ declare const __NIP34_PR__: boolean;
 declare const __CICD__: boolean;
 declare const __TERMINAL__: boolean;
 declare const __STRICT_NIP29__: boolean;
+declare const __ALERTS__: boolean;
 ```
 
 ## Best Practices
@@ -312,5 +346,6 @@ Approximate bundle size savings when features are disabled:
 | `__NIP34_PR__` | ~5KB |
 | `__CICD__` | ~10KB |
 | `__STRICT_NIP29__` | ~2KB |
+| `__ALERTS__` | varies |
 
-**Total potential savings**: ~217KB when all optional features are disabled.
+**Total potential savings**: varies when all optional features are disabled.

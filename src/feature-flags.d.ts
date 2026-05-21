@@ -5,3 +5,4 @@ declare const __NIP34_PR__: boolean
 declare const __CICD__: boolean
 declare const __TERMINAL__: boolean
 declare const __STRICT_NIP29__: boolean
+declare const __ALERTS__: boolean

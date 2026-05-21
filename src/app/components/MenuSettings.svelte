@@ -38,19 +38,21 @@
       {/snippet}
     </CardButton>
   </Link>
-  <Link replaceState href="/settings/alerts">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={Bell} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Alerts</div>
-      {/snippet}
-      {#snippet info()}
-        <div>Set up email digests and push notifications</div>
-      {/snippet}
-    </CardButton>
-  </Link>
+  {#if __ALERTS__}
+    <Link replaceState href="/settings/alerts">
+      <CardButton class="btn-neutral">
+        {#snippet icon()}
+          <div><Icon icon={Bell} size={7} /></div>
+        {/snippet}
+        {#snippet title()}
+          <div>Alerts</div>
+        {/snippet}
+        {#snippet info()}
+          <div>Set up email digests and push notifications</div>
+        {/snippet}
+      </CardButton>
+    </Link>
+  {/if}
   <Link replaceState href="/settings/wallet">
     <CardButton class="btn-neutral">
       {#snippet icon()}
@@ -112,7 +114,11 @@
         <div>Content Settings</div>
       {/snippet}
       {#snippet info()}
-        <div>Get into the details about how you view and publish content on {$APP_NAME}</div>
+        {#if __ALERTS__}
+          <div>Get into the details about how you view and publish content on {$APP_NAME}</div>
+        {:else}
+          <div>Manage content display, editor, and in-app notification preferences</div>
+        {/if}
       {/snippet}
     </CardButton>
   </Link>

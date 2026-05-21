@@ -1,14 +1,20 @@
 import {VAPID_PUBLIC_KEY} from "@app/core/state"
 
+const ALERTS_ENABLED = typeof __ALERTS__ !== "undefined" && __ALERTS__
+
 export const platform = "web"
 
 export const platformName = "Web"
 
 export const initializePushNotifications = () => {}
 
-export const canSendPushNotifications = () => true
+export const canSendPushNotifications = () => ALERTS_ENABLED
 
 export const getWebPushInfo = async () => {
+  if (!ALERTS_ENABLED) {
+    throw new Error("Email and push alerts are currently disabled")
+  }
+
   if (!("serviceWorker" in navigator)) {
     throw new Error("Service Worker not supported")
   }

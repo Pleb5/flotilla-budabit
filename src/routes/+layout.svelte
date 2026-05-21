@@ -133,8 +133,10 @@
     ...notifications,
   })
 
-  // Initialize push notification handler asap
-  initializePushNotifications()
+  // Initialize the external push handler only when email/push alerts are enabled.
+  if (__ALERTS__) {
+    initializePushNotifications()
+  }
 
   // Keep unwrap enabled globally so wrapped relay traffic does not throw noisily.
   shouldUnwrap.set(true)
