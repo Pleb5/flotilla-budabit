@@ -66,6 +66,7 @@
 
   const editor = makeEditor({
     url,
+    blossomContext: h ? {type: "community", communityPubkey: h} : undefined,
     submit,
     uploadStage,
     uploading,

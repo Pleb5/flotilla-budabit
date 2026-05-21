@@ -3,6 +3,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import * as nip19 from "nostr-tools/nip19"
 import {get} from "svelte/store"
+import {repository} from "@welshman/app"
 import {
   blossomDashboardState,
   blossomSettings,
@@ -10,6 +11,8 @@ import {
   defaultBlossomSettings,
   type BlossomServerTarget,
 } from "./blossom"
+import {COMMUNITY_DEFINITION_KIND, parseCommunityDefinition} from "./community"
+import {clearActiveCommunity, setActiveCommunityDefinition} from "./community-state"
 
 const utilMocks = vi.hoisted(() => ({
   uploadBlob: vi.fn(),
@@ -78,6 +81,23 @@ const makeBlossomTarget = (url: string, priority: number): BlossomServerTarget =
   label: priority === 1 ? "Primary Blossom server" : "Mirror candidate",
 })
 
+const communityPubkey = "f".repeat(64)
+const makeCommunityDefinition = (id: string, blossomServers: string[] = []) =>
+  parseCommunityDefinition({
+    id,
+    pubkey: communityPubkey,
+    created_at: 1,
+    kind: COMMUNITY_DEFINITION_KIND,
+    tags: [
+      ["r", "wss://relay.example.com"],
+      ...blossomServers.map(server => ["blossom", server]),
+      ["content", "General"],
+      ["k", "9", "room-message"],
+    ],
+    content: "",
+    sig: "sig",
+  } as any)!
+
 describe("commands", () => {
   beforeEach(() => {
     utilMocks.uploadBlob.mockReset()
@@ -87,6 +107,9 @@ describe("commands", () => {
   })
 
   afterEach(() => {
+    clearActiveCommunity()
+    repository.removeEvent("definition-with-blossom")
+    repository.removeEvent("definition-without-blossom")
     vi.unstubAllGlobals()
   })
 
@@ -400,6 +423,182 @@ describe("commands", () => {
     expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(
       normalizeBlossomUrl(DEFAULT_BLOSSOM_SERVERS[0]),
     )
+  })
+
+  it("uploadFile reconstructs canonical URLs when upload response URL is unusable", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const server = normalizeBlossomUrl("https://primary.example.com")
+    const file = makeUploadTestFile()
+
+    utilMocks.uploadBlob.mockResolvedValue(
+      new Response(JSON.stringify({uploaded: 1, url: "not-a-url"})),
+    )
+
+    const {error, result} = await uploadFile(file, {url: server})
+
+    expect(error).toBeUndefined()
+    expect(result?.url.startsWith(`${server}/`)).toBe(true)
+    expect(result?.url.endsWith(".webp")).toBe(true)
+    expect(result?.url).toMatch(/[a-f0-9]{64}\.webp$/)
+  })
+
+  it("uploadFile retries once with the Blossom server expected content type", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const server = normalizeBlossomUrl("https://primary.example.com")
+    const bytes = new TextEncoder().encode('{"kind":30023}')
+    const file = new File([bytes], "NIP-B7.md", {type: "text/markdown"})
+
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => bytes.buffer.slice(0),
+    })
+
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) => {
+      const headers = options.headers as Record<string, string>
+
+      if (headers["Content-Type"] === "text/markdown") {
+        return new Response(
+          "Content-Type header does not match the file content, expected application/json",
+          {status: 400},
+        )
+      }
+
+      return new Response(
+        JSON.stringify({uploaded: 1, url: `${server}/blob`, type: headers["Content-Type"]}),
+      )
+    })
+
+    const {error, result} = await uploadFile(file, {url: server})
+
+    expect(error).toBeUndefined()
+    expect(result?.type).toBe("application/json")
+    expect(result?.url).toBe(`${server}/blob.json`)
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
+    expect(utilMocks.uploadBlob.mock.calls[0][2].headers["Content-Type"]).toBe("text/markdown")
+    expect(utilMocks.uploadBlob.mock.calls[1][2].headers["Content-Type"]).toBe("application/json")
+    expect(get(blossomDashboardState).uploads[0].original).toMatchObject({
+      name: "NIP-B7.md",
+      type: "text/markdown",
+    })
+  })
+
+  it("uploadFile tries the next target after a file-type policy rejection", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const backup = normalizeBlossomUrl("https://backup.example.com")
+    const bytes = new TextEncoder().encode('{"kind":30023}')
+    const file = new File([bytes], "NIP-B7.md", {type: "text/markdown"})
+
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => bytes.buffer.slice(0),
+    })
+
+    utilMocks.uploadBlob.mockImplementation(async (server: string, _blob: Blob, options: any) => {
+      const headers = options.headers as Record<string, string>
+      const contentType = headers["Content-Type"]
+
+      if (server === primary && contentType === "text/markdown") {
+        return new Response(
+          "Content-Type header does not match the file content, expected application/json",
+          {status: 400},
+        )
+      }
+
+      if (server === primary) {
+        return new Response("File type not allowed, unsupported.", {status: 415})
+      }
+
+      return new Response(JSON.stringify({uploaded: 1, url: `${server}/blob`, type: contentType}))
+    })
+
+    const {error, result} = await uploadFile(file, {
+      url: primary,
+      mirrorUrls: [backup],
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(backup, 2)],
+    })
+
+    expect(error).toBeUndefined()
+    expect(result?.type).toBe("text/markdown")
+    expect(result?.url).toBe(`${backup}/blob.markdown`)
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(3)
+    expect(utilMocks.uploadBlob.mock.calls.map(call => call[0])).toEqual([
+      primary,
+      primary,
+      backup,
+    ])
+    expect(utilMocks.uploadBlob.mock.calls[2][2].headers["Content-Type"]).toBe("text/markdown")
+    expect(get(blossomDashboardState).uploads[0].canonical.url).toBe(`${backup}/blob.markdown`)
+    expect(get(blossomDashboardState).uploads[0].mirrorJobs).toHaveLength(0)
+  })
+
+  it("uploadFile returns a clear error when every target rejects the file type", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const primary = normalizeBlossomUrl("https://primary.example.com")
+    const backup = normalizeBlossomUrl("https://backup.example.com")
+    const bytes = new TextEncoder().encode("# hello")
+    const file = new File([bytes], "NIP-B7.md", {type: "text/markdown"})
+
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => bytes.buffer.slice(0),
+    })
+
+    utilMocks.uploadBlob.mockImplementation(
+      async () => new Response("File type not allowed, unsupported.", {status: 415}),
+    )
+
+    const {error, result} = await uploadFile(file, {
+      url: primary,
+      mirrorUrls: [backup],
+      blossomTargets: [makeBlossomTarget(primary, 1), makeBlossomTarget(backup, 2)],
+    })
+
+    expect(result).toBeUndefined()
+    expect(error).toBe(
+      "No Blossom upload target accepted this file type. Last rejection: File type not allowed, unsupported.",
+    )
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(2)
+    expect(get(blossomDashboardState).uploads).toHaveLength(0)
+  })
+
+  it("uploadFile derives current community Blossom servers from upload context", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const relay = "wss://relay.example.com"
+    const communityBlossom = normalizeBlossomUrl("https://community-blossom.example")
+    const file = makeUploadTestFile()
+
+    setActiveCommunityDefinition(makeCommunityDefinition("definition-with-blossom", [communityBlossom]))
+    utilMocks.uploadBlob.mockResolvedValue(
+      new Response(JSON.stringify({uploaded: 1, url: `${communityBlossom}/blob`})),
+    )
+
+    const {error, result} = await uploadFile(file, {
+      url: relay,
+      blossomContext: {type: "community", communityPubkey},
+    })
+
+    expect(error).toBeUndefined()
+    expect(result?.url).toBe(`${communityBlossom}/blob.webp`)
+    expect(utilMocks.uploadBlob).toHaveBeenCalledTimes(1)
+    expect(utilMocks.uploadBlob.mock.calls[0][0]).toBe(communityBlossom)
+    expect(utilMocks.uploadBlob.mock.calls[0][0]).not.toBe(normalizeBlossomUrl(relay))
+  })
+
+  it("uploadFile ignores relay urls when community context has no Blossom servers", async () => {
+    const {uploadFile, normalizeBlossomUrl} = await import("./commands")
+    const relay = "wss://relay.example.com"
+    const relayAsHttp = normalizeBlossomUrl(relay)
+    const file = makeUploadTestFile()
+
+    setActiveCommunityDefinition(makeCommunityDefinition("definition-without-blossom"))
+    utilMocks.uploadBlob.mockResolvedValue(
+      new Response(JSON.stringify({uploaded: 1, url: "https://fallback.example/blob"})),
+    )
+
+    await uploadFile(file, {
+      url: relay,
+      blossomContext: {type: "community", communityPubkey},
+    })
+
+    expect(utilMocks.uploadBlob.mock.calls.some(call => call[0] === relayAsHttp)).toBe(false)
   })
 
   it("uploadFile uses media when the canonical server supports it", async () => {

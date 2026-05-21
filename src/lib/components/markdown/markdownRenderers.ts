@@ -39,6 +39,20 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
     return createLinkBlockPlaceholder(link.href, event.id)
   }
 
+  const splitLines = (tokens: Tokens.Generic[] = []) => {
+    const lines: Tokens.Generic[][] = [[]]
+
+    for (const token of tokens) {
+      if (token.type === "br") {
+        lines.push([])
+      } else {
+        lines[lines.length - 1].push(token)
+      }
+    }
+
+    return lines
+  }
+
   const getOnlyLink = (tokens: Tokens.Generic[] = []) => {
     const contentTokens = tokens.filter(
       token => !(token.type === "text" && `${token.text || ""}`.trim() === ""),
@@ -61,8 +75,28 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
     return {link: link as Tokens.Link, prefixTokens}
   }
 
+  const renderParagraphLinesWithLinkPreviews = (renderer: Renderer, tokens: Tokens.Generic[]) => {
+    const lines = splitLines(tokens)
+    const renderedLines = lines.map(line => {
+      const onlyLink = getOnlyLink(line)
+      const preview = onlyLink ? createStandaloneLinkPreview(onlyLink) : ""
+
+      return preview || (line.length > 0 ? `<p>${renderInlineTokens(renderer, line)}</p>` : "")
+    })
+
+    return renderedLines.some(line => line.includes("markdown-link-block-placeholder"))
+      ? renderedLines.join("")
+      : ""
+  }
+
   return {
     paragraph(this: Renderer, token: Tokens.Paragraph): string {
+      const linePreviews = renderParagraphLinesWithLinkPreviews(
+        this,
+        token.tokens as Tokens.Generic[],
+      )
+      if (linePreviews) return linePreviews
+
       const onlyLink = getOnlyLink(token.tokens as Tokens.Generic[])
       if (onlyLink) {
         const preview = createStandaloneLinkPreview(onlyLink)

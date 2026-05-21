@@ -39,6 +39,15 @@ describe("markdownUtils", () => {
       expect(result.length).toBeLessThan(50)
     })
 
+    it("truncates long blossom subdomains", () => {
+      const result = shortenUrl(
+        "https://npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw.blossom.band/f1cde3693b0a4b4b8149bfd7627ab4bc87ebdbb8136ae3af56edea2d3fd62ff0.png",
+      )
+
+      expect(result).toContain("...blossom.band")
+      expect(result.length).toBeLessThan(70)
+    })
+
     it("handles invalid URLs by truncating long strings", () => {
       const longInvalid = "not-a-valid-url-" + "x".repeat(50)
       const result = shortenUrl(longInvalid)

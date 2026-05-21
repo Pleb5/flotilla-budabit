@@ -132,6 +132,34 @@ describe("markdownRenderers", () => {
       expect(html).toContain('data-url="https://honey.hivetalk.org/dashboard/abc"')
     })
 
+    it("renders standalone middle-line media URLs as link block placeholders", () => {
+      const mockEvent = {id: "evt123"} as any
+      const renderers = createRenderers({event: mockEvent})
+      const parser = {
+        parseInline: vi.fn(tokens => tokens.map((token: any) => token.text).join("")),
+      }
+      const token = {
+        tokens: [
+          {type: "text", text: "before", raw: "before"},
+          {type: "br", raw: "\n"},
+          {
+            type: "link",
+            href: "https://example.com/photo.png",
+            text: "https://example.com/photo.png",
+          },
+          {type: "br", raw: "\n"},
+          {type: "text", text: "after", raw: "after"},
+        ],
+      }
+
+      const html = renderers.paragraph!.call({parser} as any, token as any)
+
+      expect(html).toContain("<p>before</p>")
+      expect(html).toContain('data-url="https://example.com/photo.png"')
+      expect(html).toContain("<p>after</p>")
+      expect(html).toContain("markdown-link-block-placeholder")
+    })
+
     it("keeps inline URL paragraphs as prose", () => {
       const mockEvent = {id: "evt123"} as any
       const renderers = createRenderers({event: mockEvent})

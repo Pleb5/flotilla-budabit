@@ -24,7 +24,6 @@
   import type {BlossomUploadStage} from "@app/core/blossom"
   import {
     activeCommunityBootstrapStatus,
-    activeCommunityBlossomServers,
     activeCommunityDefinition,
     activeCommunityRelays,
     activeCommunityReportState,
@@ -438,8 +437,7 @@
       }
 
       const {error, result, uploadId} = await uploadFile(file, {
-        url: $activeCommunityBlossomServers[0],
-        mirrorUrls: $activeCommunityBlossomServers.slice(1),
+        blossomContext: {type: "badge", communityPubkey},
         maxWidth: 1024,
         maxHeight: 1024,
         onStage: stage => (imageUploadStage = stage),

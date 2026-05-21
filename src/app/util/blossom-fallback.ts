@@ -1,12 +1,20 @@
 import {normalizeUrl, uniq} from "@welshman/lib"
 import {buildBlobUrl, getTagValues} from "@welshman/util"
+import type {BlossomUploadRecord} from "@app/core/blossom"
 
 const SHA256_HEX_RE = /[0-9a-f]{64}/
+
+export type BlossomFallbackSource =
+  | "original"
+  | "mirror"
+  | "community"
+  | "author"
+  | "last-resort"
 
 export type BlossomFallbackTarget = {
   server: string
   url: string
-  source: "original" | "community" | "author"
+  source: BlossomFallbackSource
 }
 
 export const extractSha256FromUrl = (url: string) => {
@@ -47,33 +55,96 @@ export const getBlossomServersFromList = (list?: {
     getTagValues("server", [...(list?.publicTags || []), ...(list?.privateTags || [])]),
   )
 
+const getServerFromUrl = (url: string | undefined | null) => {
+  if (!url) return ""
+
+  try {
+    return new URL(url).origin
+  } catch {
+    return ""
+  }
+}
+
+const normalizeFallbackUrl = (url: string | undefined | null) => {
+  if (!url) return ""
+
+  try {
+    const parsed = new URL(url.trim())
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return ""
+
+    return parsed.toString()
+  } catch {
+    return ""
+  }
+}
+
+export const getBlossomMirrorUrlsFromUploads = ({
+  hash,
+  uploads = [],
+}: {
+  hash: string
+  uploads?: BlossomUploadRecord[]
+}) => {
+  const normalizedHash = hash.toLowerCase()
+
+  return uniq(
+    uploads
+      .filter(upload => upload.canonical.sha256 === normalizedHash)
+      .flatMap(upload => [
+        upload.canonical.url,
+        ...upload.mirrorJobs.flatMap(job =>
+          job.status === "succeeded" ? [job.resultUrl, buildBlobUrl(job.targetUrl, normalizedHash)] : [],
+        ),
+      ])
+      .map(normalizeFallbackUrl)
+      .filter(Boolean),
+  )
+}
+
 export const getBlossomFallbackTargets = ({
   hash,
   originalUrl,
   originalServers = [],
+  mirrorUrls = [],
+  mirrorServers = [],
   communityServers = [],
   authorServers = [],
+  lastResortServers = [],
 }: {
   hash: string
   originalUrl?: string
   originalServers?: string[]
+  mirrorUrls?: string[]
+  mirrorServers?: string[]
   communityServers?: string[]
   authorServers?: string[]
+  lastResortServers?: string[]
 }): BlossomFallbackTarget[] => {
   const targets: BlossomFallbackTarget[] = []
   const seen = new Set<string>()
 
+  const addTarget = (source: BlossomFallbackSource, server: string, url: string) => {
+    const normalizedUrl = normalizeFallbackUrl(url)
+    if (!normalizedUrl || normalizedUrl === originalUrl || seen.has(normalizedUrl)) return
+
+    seen.add(normalizedUrl)
+    targets.push({server, url: normalizedUrl, source})
+  }
+
+  for (const url of mirrorUrls) {
+    const server = getServerFromUrl(url)
+    if (server) addTarget("mirror", server, url)
+  }
+
   for (const [source, servers] of [
     ["original", originalServers],
+    ["mirror", mirrorServers],
     ["community", communityServers],
     ["author", authorServers],
+    ["last-resort", lastResortServers],
   ] as const) {
     for (const server of normalizeBlossomFallbackServers(servers)) {
-      const url = buildBlobUrl(server, hash)
-      if (url === originalUrl || seen.has(url)) continue
-
-      seen.add(url)
-      targets.push({server, url, source})
+      addTarget(source, server, buildBlobUrl(server, hash))
     }
   }
 

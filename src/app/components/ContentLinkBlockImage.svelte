@@ -1,14 +1,21 @@
 <script lang="ts">
   import {onMount, onDestroy} from "svelte"
   import {displayUrl, sha256} from "@welshman/lib"
-  import {getTags, getBlob, decryptFile, getTagValue, tagsFromIMeta} from "@welshman/util"
+  import {getTags, decryptFile, getTagValue, tagsFromIMeta} from "@welshman/util"
   import {getBlossomServerList, loadBlossomServerList, signer} from "@welshman/app"
   import LinkRound from "@assets/icons/link-round.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
-  import {activeCommunityBlossomServers} from "@app/core/community-state"
+  import {
+    activeCommunityDefinition,
+    activeCommunityBlossomServers,
+    getCommunityBlossomServers,
+  } from "@app/core/community-state"
+  import {blossomDashboardState} from "@app/core/blossom"
+  import {DEFAULT_BLOSSOM_SERVERS} from "@app/core/state"
   import {
     extractSha256FromUrl,
     getBlossomFallbackTargets,
+    getBlossomMirrorUrlsFromUploads,
     getBlossomServersFromList,
   } from "@app/util/blossom-fallback"
   import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/util/blossom-auth"
@@ -27,6 +34,7 @@
   const nonce = getTagValue("decryption-nonce", meta)
   const algorithm = getTagValue("encryption-algorithm", meta)
   const mimeType = getTagValue("m", meta)
+  const communityPubkey = getTagValue("h", event.tags)
 
   const getOriginalServer = () => {
     try {
@@ -51,12 +59,23 @@
   const getFallbackTargets = async () => {
     if (!hash) return []
 
+    const definition = $activeCommunityDefinition
+    const communityServers =
+      definition?.pubkey && definition.pubkey === communityPubkey
+        ? getCommunityBlossomServers(definition)
+        : $activeCommunityBlossomServers
+
     return getBlossomFallbackTargets({
       hash,
       originalUrl: url,
       originalServers: [getOriginalServer()],
-      communityServers: $activeCommunityBlossomServers,
+      mirrorUrls: getBlossomMirrorUrlsFromUploads({
+        hash,
+        uploads: $blossomDashboardState.uploads,
+      }),
+      communityServers,
       authorServers: await getAuthorBlossomServers(),
+      lastResortServers: DEFAULT_BLOSSOM_SERVERS,
     })
   }
 
@@ -89,11 +108,9 @@
     for (const target of await getFallbackTargets()) {
       try {
         const authEvent = await makeGetAuthEvent(target.server)
-        const res = await getBlob(
-          target.server,
-          hash,
-          authEvent ? {headers: {Authorization: makeBudabitBlossomAuthHeader(authEvent)}} : {},
-        )
+        const res = await fetch(target.url, {
+          headers: authEvent ? {Authorization: makeBudabitBlossomAuthHeader(authEvent)} : {},
+        })
         const bytes = await readVerifiedBytes(res)
 
         if (bytes) return bytes

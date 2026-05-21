@@ -8,21 +8,34 @@ import {
 import {pushModal} from "@app/util/modal"
 import {pushToast} from "@app/util/toast"
 
-export const promptBlossomMirrorUpload = (uploadId?: string) => {
-  if (!uploadId) return
+export const promptBlossomMirrorUploads = (uploadIds: Array<string | undefined>) => {
+  const uniqueUploadIds = Array.from(new Set(uploadIds.filter((id): id is string => Boolean(id))))
+  if (uniqueUploadIds.length === 0) return
 
-  const record = get(blossomDashboardState).uploads.find(upload => upload.id === uploadId)
+  const records = get(blossomDashboardState).uploads.filter(upload =>
+    uniqueUploadIds.includes(upload.id),
+  )
   const settings = get(blossomSettings)
+  const promptUploadIds = records
+    .filter(record => shouldPromptForBlossomMirrorUpload({record, settings}))
+    .map(record => record.id)
 
-  if (!shouldPromptForBlossomMirrorUpload({record, settings})) return
+  if (promptUploadIds.length === 0) return
+
+  const multiple = promptUploadIds.length > 1
 
   pushToast({
     theme: "info",
     timeout: 20_000,
-    message: "Blossom upload ready. Choose optional mirrors?",
+    message: multiple
+      ? `${promptUploadIds.length} Blossom uploads ready. Choose optional mirrors?`
+      : "Blossom upload ready. Choose optional mirrors?",
     action: {
       message: "Review mirrors",
-      onclick: () => pushModal(BlossomMirrorPrompt, {uploadId}),
+      onclick: () => pushModal(BlossomMirrorPrompt, {uploadIds: promptUploadIds}),
     },
   })
 }
+
+export const promptBlossomMirrorUpload = (uploadId?: string) =>
+  promptBlossomMirrorUploads([uploadId])

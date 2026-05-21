@@ -29,7 +29,6 @@
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import {
     activeCommunityBootstrapStatus,
-    activeCommunityBlossomServers,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
@@ -572,7 +571,7 @@
         <RoomCompose
           url={composeUrl}
           h={communityPubkey}
-          mirrorUrls={$activeCommunityBlossomServers}
+          blossomContext={{type: "community", communityPubkey}}
           showMenu={false}
           {onSubmit}
           {onEscape}

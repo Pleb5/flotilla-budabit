@@ -125,7 +125,14 @@
 
   const content = initialValues?.content || ""
   const tiptapContent = plainTextToTiptapHTML(content)
-  const editor = makeEditor({url, submit, uploadStage, uploading, content: tiptapContent})
+  const editor = makeEditor({
+    url,
+    blossomContext: h ? {type: "community", communityPubkey: h} : undefined,
+    submit,
+    uploadStage,
+    uploading,
+    content: tiptapContent,
+  })
 
   let title = $state(initialValues?.title || "")
   let location = $state(initialValues?.location || "")

@@ -26,12 +26,12 @@
 
 {#if url.match(/\.(jpe?g|png|gif|webp)$/)}
   <!-- Use a real link so people can copy the href -->
-  <a href={url} class="link-content whitespace-nowrap" onclick={preventDefault(expand)}>
+  <a href={url} class="link-content break-all" onclick={preventDefault(expand)}>
     <Icon icon={LinkRound} size={3} class="inline-block" />
     {displayUrl(url)}
   </a>
 {:else}
-  <Link {external} {href} class="link-content whitespace-nowrap">
+  <Link {external} {href} class="link-content break-all">
     <Icon icon={LinkRound} size={3} class="inline-block" />
     {displayUrl(url)}
   </Link>

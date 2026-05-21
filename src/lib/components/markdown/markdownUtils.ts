@@ -10,9 +10,19 @@ export function shortenUrl(url: string, text?: string): string {
     return text
   }
 
+  const shortenDomain = (domain: string) => {
+    if (domain.length <= 32) return domain
+
+    const parts = domain.split(".")
+    const suffix = parts.length > 2 ? `.${parts.slice(-2).join(".")}` : ""
+    const prefixLength = Math.max(12, 32 - suffix.length - 3)
+
+    return `${domain.slice(0, prefixLength)}...${suffix}`
+  }
+
   try {
     const urlObj = new URL(url)
-    const domain = urlObj.hostname.replace("www.", "")
+    const domain = shortenDomain(urlObj.hostname.replace("www.", ""))
     const pathname = urlObj.pathname
 
     if (pathname && pathname !== "/") {

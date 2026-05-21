@@ -14,12 +14,12 @@ import {
   getWotGraph,
   signer,
 } from "@welshman/app"
-import type {FileAttributes} from "@welshman/editor"
+import type {FileAttributes, WelshmanExtensionOptions} from "@welshman/editor"
 import {Editor, MentionSuggestion, WelshmanExtension, editorProps} from "@welshman/editor"
 import {makeMentionNodeView} from "@app/editor/MentionNodeView"
 import ProfileSuggestion from "@app/editor/ProfileSuggestion.svelte"
 import {uploadFile} from "@app/core/commands"
-import type {BlossomUploadStage} from "@app/core/blossom"
+import type {BlossomUploadContext, BlossomUploadStage} from "@app/core/blossom"
 import {pushToast} from "@app/util/toast"
 import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
 import {getQuoteEventTags} from "@app/util/git-quote"
@@ -30,6 +30,12 @@ type NEventNodeAttrs = {
   id: string
   author?: string
   relays?: string[]
+}
+
+// The Welshman runtime accepts `false` for every child extension, but its type
+// currently omits that option for fileUpload.
+type EditorExtensionOptions = Omit<WelshmanExtensionOptions, "fileUpload"> & {
+  fileUpload?: WelshmanExtensionOptions["fileUpload"] | false
 }
 
 const expandNeventQTags = (nostrStorage: any) => {
@@ -53,11 +59,12 @@ export const makeEditor = async ({
   encryptFiles = false,
   aggressive = false,
   autofocus = false,
+  blossomContext,
   charCount,
   content = "",
+  inlineUploads = true,
   placeholder = "",
   url,
-  mirrorUrls = [],
   submit,
   uploadStage,
   uploading,
@@ -66,11 +73,12 @@ export const makeEditor = async ({
   encryptFiles?: boolean
   aggressive?: boolean
   autofocus?: boolean
+  blossomContext?: BlossomUploadContext
   charCount?: Writable<number>
   content?: string
+  inlineUploads?: boolean
   placeholder?: string
   url?: string
-  mirrorUrls?: string[]
   submit: () => void
   uploadStage?: Writable<BlossomUploadStage>
   uploading?: Writable<boolean>
@@ -78,9 +86,8 @@ export const makeEditor = async ({
 }) => {
   const upload = async (attrs: FileAttributes) => {
     const uploadResult = await uploadFile(attrs.file, {
-      url,
+      blossomContext,
       encrypt: encryptFiles,
-      mirrorUrls,
       onStage: stage => uploadStage?.set(stage),
     })
 
@@ -121,6 +128,59 @@ export const makeEditor = async ({
     },
   )
 
+  const extensions: EditorExtensionOptions = {
+    placeholder: {
+      config: {
+        placeholder,
+      },
+    },
+    breakOrSubmit: {
+      config: {
+        aggressive,
+      },
+    },
+    fileUpload: inlineUploads
+      ? {
+          config: {
+            upload,
+            onDrop: () => {
+              uploadStage?.set("preparing")
+              uploading?.set(true)
+            },
+            onComplete: () => uploading?.set(false),
+            onUploadError(currentEditor, task) {
+              currentEditor.commands.removeFailedUploads()
+              uploadStage?.set("failed")
+              pushToast({theme: "error", message: task.error})
+              uploading?.set(false)
+            },
+          },
+        }
+      : false,
+    nprofile: {
+      extend: {
+        addNodeView: () => makeMentionNodeView(url),
+        addProseMirrorPlugins() {
+          return [
+            MentionSuggestion({
+              editor: (this as any).editor,
+              search: (term: string) => get(profileSearch).searchValues(term),
+              getRelays: (pubkey: string) => Router.get().FromPubkeys([pubkey]).getUrls(),
+              updateSignal: profileSearch,
+              createSuggestion: (value: string) => {
+                const target = document.createElement("div")
+
+                mount(ProfileSuggestion, {target, props: {value, url}})
+
+                return target
+              },
+            }),
+          ]
+        },
+      },
+    },
+  }
+
   const editor = new Editor({
     content,
     autofocus,
@@ -134,56 +194,7 @@ export const makeEditor = async ({
       }),
       WelshmanExtension.configure({
         submit,
-        extensions: {
-          placeholder: {
-            config: {
-              placeholder,
-            },
-          },
-          breakOrSubmit: {
-            config: {
-              aggressive,
-            },
-          },
-          fileUpload: {
-            config: {
-              upload,
-              onDrop: () => {
-                uploadStage?.set("preparing")
-                uploading?.set(true)
-              },
-              onComplete: () => uploading?.set(false),
-              onUploadError(currentEditor, task) {
-                currentEditor.commands.removeFailedUploads()
-                uploadStage?.set("failed")
-                pushToast({theme: "error", message: task.error})
-                uploading?.set(false)
-              },
-            },
-          },
-          nprofile: {
-            extend: {
-              addNodeView: () => makeMentionNodeView(url),
-              addProseMirrorPlugins() {
-                return [
-                  MentionSuggestion({
-                    editor: (this as any).editor,
-                    search: (term: string) => get(profileSearch).searchValues(term),
-                    getRelays: (pubkey: string) => Router.get().FromPubkeys([pubkey]).getUrls(),
-                    updateSignal: profileSearch,
-                    createSuggestion: (value: string) => {
-                      const target = document.createElement("div")
-
-                      mount(ProfileSuggestion, {target, props: {value, url}})
-
-                      return target
-                    },
-                  }),
-                ]
-              },
-            },
-          },
-        },
+        extensions: extensions as WelshmanExtensionOptions,
       }),
     ],
     onUpdate({editor}) {

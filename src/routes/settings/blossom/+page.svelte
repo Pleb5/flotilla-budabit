@@ -107,6 +107,8 @@
   ]
 
   let activeTab = $state<Tab>("dashboard")
+  let uploadSearch = $state("")
+  let uploadExtensionFilter = $state("all")
   let personalServers = $state(getTagValues("server", getListTags($userBlossomServerList)))
   let selectedUploadFile = $state<File | undefined>()
   let genericUploadStage = $state<BlossomUploadStage>("idle")
@@ -146,6 +148,66 @@
 
     return `${(size / 1024 / 1024).toFixed(1)} MB`
   }
+
+  const getUploadFileName = (upload: BlossomUploadRecord) => {
+    if (upload.original?.name) return upload.original.name
+
+    try {
+      const pathName = new URL(upload.canonical.url).pathname
+      const fileName = decodeURIComponent(pathName.split("/").filter(Boolean).at(-1) || "")
+
+      if (fileName) return fileName
+    } catch {
+      // Fall through to the stable local label.
+    }
+
+    return `${upload.context.label || upload.context.type} upload`
+  }
+
+  const getUploadExtension = (upload: BlossomUploadRecord) => {
+    const fileName = getUploadFileName(upload).split(/[?#]/, 1)[0]
+    const extension = fileName.split(".").filter(Boolean).at(-1)
+
+    return extension && extension !== fileName ? extension.toLowerCase() : ""
+  }
+
+  const getStatusClass = (status: string) => {
+    if (status === "succeeded") return "badge-success"
+    if (status === "failed") return "badge-error"
+    if (status === "running") return "badge-info"
+    if (status === "skipped" || status === "paused") return "badge-warning"
+
+    return "badge-ghost"
+  }
+
+  const getMirrorStatusPills = (upload: BlossomUploadRecord) => {
+    if (upload.mirrorJobs.length === 0) return [{label: "no mirrors", class: "badge-ghost"}]
+
+    return ["running", "succeeded", "failed", "skipped", "paused", "queued"].flatMap(status => {
+      const count = upload.mirrorJobs.filter(job => job.status === status).length
+
+      return count > 0 ? [{label: `${count} ${status}`, class: getStatusClass(status)}] : []
+    })
+  }
+
+  const uploadExtensionOptions = $derived(
+    Array.from(new Set($blossomDashboardState.uploads.map(getUploadExtension))).sort((a, b) =>
+      (a || "zzz").localeCompare(b || "zzz"),
+    ),
+  )
+  const filteredUploads = $derived(
+    $blossomDashboardState.uploads.filter(upload => {
+      const matchesSearch = getUploadFileName(upload)
+        .toLowerCase()
+        .includes(uploadSearch.trim().toLowerCase())
+      const extension = getUploadExtension(upload)
+      const matchesExtension =
+        uploadExtensionFilter === "all" ||
+        (uploadExtensionFilter === "__none__" ? !extension : extension === uploadExtensionFilter)
+
+      return matchesSearch && matchesExtension
+    }),
+  )
 
   const getCapabilityText = (target: BlossomServerTarget) => {
     const capability = $blossomDashboardState.capabilities[target.url]
@@ -297,62 +359,93 @@
             Local dashboard records for uploads Budabit performed on this device.
           </p>
         </div>
+        <div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <input
+            bind:value={uploadSearch}
+            type="search"
+            class="input input-bordered w-full"
+            placeholder="Search uploads by filename" />
+          <select bind:value={uploadExtensionFilter} class="select select-bordered w-full sm:w-48">
+            <option value="all">All file types</option>
+            {#each uploadExtensionOptions as extension}
+              <option value={extension || "__none__"}>{extension ? `.${extension}` : "No extension"}</option>
+            {/each}
+          </select>
+        </div>
         {#if $blossomDashboardState.uploads.length === 0}
           <div class="rounded-box bg-base-200 p-4 text-sm opacity-70">No Blossom uploads yet.</div>
+        {:else if filteredUploads.length === 0}
+          <div class="rounded-box bg-base-200 p-4 text-sm opacity-70">
+            No uploads match the current filters.
+          </div>
         {:else}
-          {#each $blossomDashboardState.uploads as upload (upload.id)}
-            <article class="column gap-3 rounded-box border border-base-300 p-4">
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div class="font-semibold">
-                    {upload.context.label || upload.context.type} upload
+          {#each filteredUploads as upload (upload.id)}
+            <details class="rounded-box border border-base-300 bg-base-100">
+              <summary class="cursor-pointer list-none p-4 marker:text-primary">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div class="min-w-0">
+                    <div class="truncate font-semibold">{getUploadFileName(upload)}</div>
+                    <div class="text-xs opacity-70">
+                      {upload.context.label || upload.context.type} · {new Date(
+                        upload.createdAt,
+                      ).toLocaleString()} · {formatBytes(upload.canonical.size)} ·
+                      {upload.canonical.type || "unknown type"}
+                    </div>
                   </div>
-                  <div class="text-xs opacity-70">
-                    {new Date(upload.createdAt).toLocaleString()} · {formatBytes(
-                      upload.canonical.size,
-                    )} ·
-                    {upload.canonical.type || "unknown type"}
-                  </div>
-                </div>
-                <span class="badge badge-ghost">{upload.optimizationMode} optimization</span>
-              </div>
-              <div class="rounded-box bg-base-200 p-3 text-xs">
-                <div class="break-all">{upload.canonical.url}</div>
-                <div class="mt-1 break-all opacity-60">sha256: {upload.canonical.sha256}</div>
-              </div>
-              {#each groupBlossomMirrorJobs(upload.mirrorJobs) as group}
-                <div class="rounded-box bg-base-200 p-3 text-xs">
-                  <div class="font-semibold">{group.label}</div>
-                  <div class="mt-2 flex flex-wrap gap-2">
-                    {#each group.jobs as job}
-                      <span class="badge badge-outline" title={job.lastError || job.targetUrl}>
-                        {job.method === "server-mirror" ? "server" : "browser"}: {job.status}
-                      </span>
+                  <div class="flex shrink-0 flex-wrap gap-2">
+                    <span class="badge badge-success">uploaded</span>
+                    {#each getMirrorStatusPills(upload) as pill}
+                      <span class={`badge ${pill.class}`}>{pill.label}</span>
                     {/each}
+                    <span class="badge badge-ghost">{upload.optimizationMode} optimization</span>
                   </div>
                 </div>
-              {/each}
-              <div class="flex flex-wrap gap-2">
-                <Button class="btn btn-primary btn-sm" onclick={() => continueMirrors(upload.id)}>
-                  Continue/retry mirroring
-                </Button>
-                {#if hasBrowserMirrorJobs(upload)}
-                  <Button
-                    class="btn btn-warning btn-sm"
-                    onclick={() => continueBrowserMirrors(upload.id)}>
-                    Browser-assisted mirroring
+              </summary>
+              <div class="column gap-3 border-t border-base-300 p-4">
+                <div class="rounded-box bg-base-200 p-3 text-xs">
+                  <div class="break-all font-medium">{upload.canonical.url}</div>
+                  <div class="mt-1 break-all opacity-60">sha256: {upload.canonical.sha256}</div>
+                  {#if upload.original?.name}
+                    <div class="mt-2 opacity-70">Original file: {upload.original.name}</div>
+                  {/if}
+                </div>
+                {#each groupBlossomMirrorJobs(upload.mirrorJobs) as group}
+                  <div class="rounded-box bg-base-200 p-3 text-xs">
+                    <div class="font-semibold">{group.label}</div>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      {#each group.jobs as job}
+                        <span
+                          class={`badge badge-outline ${getStatusClass(job.status)}`}
+                          title={job.lastError || job.resultUrl || job.targetUrl}>
+                          {job.method === "server-mirror" ? "server" : "browser"}: {job.status}
+                        </span>
+                      {/each}
+                    </div>
+                  </div>
+                {/each}
+                <div class="flex flex-wrap gap-2">
+                  <Button class="btn btn-primary btn-sm" onclick={() => continueMirrors(upload.id)}>
+                    Continue/retry mirroring
                   </Button>
-                {/if}
-                <Button class="btn btn-sm" onclick={() => clip(upload.canonical.url)}
-                  >Copy URL</Button>
-                <a class="btn btn-sm" href={upload.canonical.url} download>Download</a>
-                <Button
-                  class="btn btn-error btn-sm"
-                  onclick={() => removeBlossomUploadRecord(upload.id)}>
-                  Remove local record
-                </Button>
+                  {#if hasBrowserMirrorJobs(upload)}
+                    <Button
+                      class="btn btn-warning btn-sm"
+                      onclick={() => continueBrowserMirrors(upload.id)}>
+                      Browser-assisted mirroring
+                    </Button>
+                  {/if}
+                  <Button class="btn btn-sm" onclick={() => clip(upload.canonical.url)}>
+                    Copy URL
+                  </Button>
+                  <a class="btn btn-sm" href={upload.canonical.url} download>Download</a>
+                  <Button
+                    class="btn btn-error btn-sm"
+                    onclick={() => removeBlossomUploadRecord(upload.id)}>
+                    Remove local record
+                  </Button>
+                </div>
               </div>
-            </article>
+            </details>
           {/each}
         {/if}
       </section>
@@ -429,10 +522,10 @@
             Settings, so this is the same personal list in its new Blossom home.
           {/snippet}
         </Field>
-        <div class="row-2">
-          <Button class="btn btn-neutral" onclick={resetPersonalServers}
+        <div class="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+          <Button class="btn btn-neutral w-full sm:w-auto" onclick={resetPersonalServers}
             >Discard server edits</Button>
-          <Button class="btn btn-primary" onclick={savePersonalServers}
+          <Button class="btn btn-primary w-full sm:w-auto" onclick={savePersonalServers}
             >Save personal servers</Button>
         </div>
 

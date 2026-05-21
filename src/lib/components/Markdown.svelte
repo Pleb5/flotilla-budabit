@@ -205,6 +205,8 @@
     cleanupMountedComponents,
     type MountedComponent,
   } from "./markdown/markdownComponentMounter.js"
+  import BlossomAttachmentList from "@app/components/BlossomAttachmentList.svelte"
+  import {getEventAttachments, stripAttachmentUrlLines} from "@app/util/attachments"
 
   interface Props {
     content?: string
@@ -237,6 +239,8 @@
   let sanitizedContent = $state("")
   let containerElement: HTMLDivElement | undefined = $state()
   let mountedComponents: MountedComponent[] = $state([])
+  const attachments = $derived(getEventAttachments(event))
+  const markdownContent = $derived(stripAttachmentUrlLines(content, attachments))
 
   // ============================================================================
   // Relay Configuration
@@ -286,7 +290,7 @@
   // we want to re-parse with updated context (e.g., new event for mentions).
 
   $effect(() => {
-    const currentContent = content
+    const currentContent = markdownContent
     if (!currentContent) {
       sanitizedContent = ""
       return
@@ -298,7 +302,7 @@
       const parsed = await markedInstance.parse(currentContent)
 
       // Guard: Only update if content hasn't changed during async operation
-      if (content === currentContent) {
+      if (markdownContent === currentContent) {
         sanitizedContent = DOMPurify.sanitize(parsed, {
           ADD_ATTR: [
             "target",
@@ -371,9 +375,10 @@
   })
 </script>
 
-<div
-  class="markdown w-full max-w-full overflow-hidden"
-  class:markdown--comment={variant === "comment"}
-  bind:this={containerElement}>
-  {@html sanitizedContent}
-</div>
+  <div
+    class="markdown w-full max-w-full overflow-hidden"
+    class:markdown--comment={variant === "comment"}
+    bind:this={containerElement}>
+    {@html sanitizedContent}
+  </div>
+  <BlossomAttachmentList {attachments} {event} />

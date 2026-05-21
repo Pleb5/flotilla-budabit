@@ -22,7 +22,6 @@
   import {pushToast} from "@app/util/toast"
   import {
     activeCommunityBootstrapStatus,
-    activeCommunityBlossomServers,
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
@@ -375,7 +374,7 @@
         <RoomCompose
           url={$activeCommunityRelays[0] || communityPubkey}
           h={communityPubkey}
-          mirrorUrls={$activeCommunityBlossomServers}
+          blossomContext={{type: "community", communityPubkey}}
           showMenu={false}
           onSubmit={sendReply} />
       </div>
