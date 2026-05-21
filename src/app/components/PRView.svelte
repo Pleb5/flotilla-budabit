@@ -2692,7 +2692,7 @@
             </div>
           </div>
         {:else}
-          <Markdown content={prDescription || ""} />
+          <Markdown content={prDescription || ""} event={prEvent as any} relays={repoRelays} />
           {#if canEditPrDescription}
             <button
               class="not-prose mt-3 text-xs text-muted-foreground underline-offset-2 hover:underline"

@@ -469,16 +469,16 @@
         {/if}
 
         {#if commitsError}
-          <div class="rounded-md bg-red-50 p-4">
+          <div class="rounded-md border border-red-300 bg-red-50 p-4 dark:border-red-500 dark:bg-red-900/50">
             <div class="flex">
               <div class="ml-3">
-                <h3 class="text-sm font-medium text-red-800">Error loading commits</h3>
-                <div class="mt-2 text-sm text-red-700">
+                <h3 class="text-sm font-medium text-red-800 dark:text-red-400">Error loading commits</h3>
+                <div class="mt-2 text-sm text-red-700 dark:text-red-300">
                   <p>{commitsError}</p>
                 </div>
                 <button
                   onclick={loadCommits}
-                  class="mt-2 text-sm font-medium text-red-800 hover:text-red-700">
+                  class="mt-2 text-sm font-medium text-red-800 hover:text-red-700 dark:text-red-300 dark:hover:text-red-200">
                   Retry
                 </button>
               </div>

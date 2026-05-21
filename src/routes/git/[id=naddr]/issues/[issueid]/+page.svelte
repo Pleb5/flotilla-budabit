@@ -817,7 +817,7 @@
             </div>
           </div>
         {:else}
-          <Markdown content={issue.content} />
+          <Markdown content={issue.content} event={issueEvent as any} relays={repoBoundRelays} />
           {#if isMaintainerOrAuthor}
             <button
               class="not-prose mt-3 text-xs text-muted-foreground underline-offset-2 hover:underline"

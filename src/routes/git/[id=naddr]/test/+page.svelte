@@ -74,7 +74,7 @@
     </code>
   </div>
 
-  <div class="mb-6 rounded-lg border bg-purple-50 p-4">
+  <div class="mb-6 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-500/30 dark:bg-purple-950/30">
     <h2 class="mb-2 font-semibold">Repository Filter</h2>
     <p class="mb-2 text-sm text-muted-foreground">
       Only showing events with #a tag matching this repository:
@@ -84,7 +84,7 @@
     </code>
   </div>
 
-  <div class="mb-6 rounded-lg border bg-blue-50 p-4">
+  <div class="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-500/30 dark:bg-blue-950/30">
     <h2 class="mb-2 font-semibold">Status</h2>
     <p class="text-lg">
       {#if loading}
@@ -105,7 +105,7 @@
         <div class="space-y-3 rounded-lg border border-border bg-card p-4">
           <div class="mb-3 flex items-center gap-2">
             <span class="text-lg font-semibold">Event {i + 1}</span>
-            <span class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800">
+            <span class="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
               Kind {event.kind}
             </span>
           </div>
@@ -118,7 +118,7 @@
             {event.pubkey.substring(0, 8)}...{event.pubkey.substring(8)}
           </div>
           {#if event.content}
-            <div class="mb-3 rounded bg-green-50 p-3">
+            <div class="mb-3 rounded bg-green-50 p-3 dark:bg-green-950/30">
               <h3 class="mb-2 font-semibold">Content Preview</h3>
               <pre
                 class="overflow-auto bg-green-800 p-2 text-xs text-green-100">{event.content.substring(
@@ -149,7 +149,7 @@
             {/if}
           </div>
           <details class="mt-3">
-            <summary class="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
+            <summary class="cursor-pointer text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
               View full event JSON
             </summary>
             <pre

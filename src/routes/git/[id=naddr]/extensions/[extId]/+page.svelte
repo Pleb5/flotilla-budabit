@@ -3,10 +3,10 @@
     width: 100%;
     height: calc(100vh - 4rem);
     min-height: 600px;
-    border: 1px solid var(--border, #e5e7eb);
+    border: 1px solid hsl(var(--ng-border, 214 30% 84%));
     border-radius: 12px;
     overflow: hidden;
-    background: var(--card, #fff);
+    background: hsl(var(--ng-card, 0 0% 100%));
     position: relative;
     display: flex;
     flex-direction: column;
@@ -15,9 +15,9 @@
   .extension-error {
     padding: 12px 14px;
     font-size: 12px;
-    color: #991b1b;
-    background: rgba(254, 226, 226, 0.8);
-    border-bottom: 1px solid rgba(239, 68, 68, 0.25);
+    color: hsl(var(--ng-destructive, 0 72% 50%));
+    background: hsl(var(--ng-destructive, 0 72% 50%) / 0.12);
+    border-bottom: 1px solid hsl(var(--ng-destructive, 0 72% 50%) / 0.25);
     word-break: break-word;
   }
 
@@ -30,15 +30,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.95);
+    background: hsl(var(--ng-card, 0 0% 100%) / 0.95);
     backdrop-filter: blur(4px);
     z-index: 10;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .extension-loading {
-      background: rgba(0, 0, 0, 0.85);
-    }
   }
 
   .extension-iframe {
