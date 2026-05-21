@@ -11,6 +11,7 @@
   import InfoSquare from "@assets/icons/info-square.svg?dataurl"
   import Exit from "@assets/icons/logout-3.svg?dataurl"
   import GalleryMinimalistic from "@assets/icons/gallery-minimalistic.svg?dataurl"
+  import Flower from "@assets/icons/flower.svg?dataurl"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Plugins from "@assets/icons/plug-circle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -63,7 +64,7 @@
     </div>
     <div in:fly|local={{delay: 225}}>
       <SecondaryNavItem href="/settings/blossom">
-        <Icon icon={GalleryMinimalistic} /> Blossom
+        <Icon icon={Flower} /> Blossom
       </SecondaryNavItem>
     </div>
     <div in:fly|local={{delay: 250}}>

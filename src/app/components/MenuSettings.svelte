@@ -8,7 +8,7 @@
   import Bell from "@assets/icons/bell.svg?dataurl"
   import Wallet from "@assets/icons/wallet.svg?dataurl"
   import Plugins from "@assets/icons/plug-circle.svg?dataurl"
-  import GalleryMinimalistic from "@assets/icons/gallery-minimalistic.svg?dataurl"
+  import Flower from "@assets/icons/flower.svg?dataurl"
   import ShieldCheck from "@assets/icons/shield-check.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
@@ -80,7 +80,7 @@
   <Link replaceState href="/settings/blossom">
     <CardButton class="btn-neutral">
       {#snippet icon()}
-        <div><Icon icon={GalleryMinimalistic} size={7} /></div>
+        <div><Icon icon={Flower} size={7} /></div>
       {/snippet}
       {#snippet title()}
         <div>Blossom</div>
