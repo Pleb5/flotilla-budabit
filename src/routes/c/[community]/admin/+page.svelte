@@ -50,6 +50,10 @@
     makeModeratorRequestReaction,
     makeModeratorRequestReactionDelete,
   } from "@app/core/community-moderator-requests"
+  import {
+    getCommunityRootPublishRelays,
+    getCommunityScopedPublishRelays,
+  } from "@app/core/community-relays"
   import {communityAdminSelectedTab, type CommunityAdminTab} from "@app/util/community-admin-tabs"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
@@ -75,9 +79,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -97,9 +101,9 @@
   const canEditCommunity = $derived(
     Boolean(
       $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        normalizePubkey($pubkey) === normalizePubkey($activeCommunityDefinition.pubkey),
+      communityBootstrapReady &&
+      $activeCommunityDefinition &&
+      normalizePubkey($pubkey) === normalizePubkey($activeCommunityDefinition.pubkey),
     ),
   )
   const moderatorRequestFilters = $derived(
@@ -153,7 +157,10 @@
     return definition.sections.flatMap(section => {
       const pubkeys = Array.from(
         new Set(
-          section.profileLists.map(ref => ref.pubkey).map(normalizePubkey).filter(Boolean),
+          section.profileLists
+            .map(ref => ref.pubkey)
+            .map(normalizePubkey)
+            .filter(Boolean),
         ),
       )
 
@@ -194,6 +201,12 @@
   })
   const activeModeratorCount = $derived(
     moderatorGrantPeople.filter(person => !person.banned).length,
+  )
+  const communityPublishRelays = $derived(
+    getCommunityScopedPublishRelays($activeCommunityDefinition),
+  )
+  const communityRootPublishRelays = $derived(
+    getCommunityRootPublishRelays(communityPublishRelays, $activeCommunityDefinition?.pubkey),
   )
   const moderationActionsByReporter = $derived.by((): Map<string, CommunityModerationAction[]> => {
     const reports = new Map<string, CommunityModerationAction[]>()
@@ -245,8 +258,8 @@
       return false
     }
 
-    if ($activeCommunityRelays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+    if (communityPublishRelays.length === 0) {
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return false
     }
 
@@ -264,7 +277,7 @@
     })
 
     publishThunk({
-      relays: $activeCommunityRelays,
+      relays: communityPublishRelays,
       event: makeEvent(profileListReaction.kind, profileListReaction),
     })
   }
@@ -285,7 +298,7 @@
           const deleteEvent = makeModeratorRequestReactionDelete({reactionId: reaction.id})
 
           publishThunk({
-            relays: $activeCommunityRelays,
+            relays: communityPublishRelays,
             event: makeEvent(deleteEvent.kind, deleteEvent),
           })
         }
@@ -297,7 +310,7 @@
         })
 
         publishThunk({
-          relays: $activeCommunityRelays,
+          relays: communityRootPublishRelays,
           event: makeEvent(definitionUpdate.kind, definitionUpdate),
         })
         pushToast({theme: "success", message: "Moderator request accepted."})
@@ -344,7 +357,7 @@
         })
 
         publishThunk({
-          relays: $activeCommunityRelays,
+          relays: communityRootPublishRelays,
           event: makeEvent(definitionUpdate.kind, definitionUpdate),
         })
         pushToast({theme: "warning", message: "Moderator ref revoked."})
@@ -412,7 +425,6 @@
       console.warn("[community] Failed to hydrate admin moderator review deletes", error)
     })
   })
-
 </script>
 
 <PageBar>
@@ -506,15 +518,15 @@
                     Requester: <ProfileLink pubkey={moderatorRequest.requesterPubkey} />
                   </p>
                   <p class="text-xs opacity-60">
-                    {getRequestTimeLabel(moderatorRequest)} {new Date(
-                      getRequestTime(moderatorRequest) * 1000,
-                    ).toLocaleString()}
+                    {getRequestTimeLabel(moderatorRequest)}
+                    {new Date(getRequestTime(moderatorRequest) * 1000).toLocaleString()}
                   </p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <Button
                     class="btn btn-error btn-sm"
-                    disabled={moderatorRequest.status === "rejected" || moderatorRequest.derivedFromGrant}
+                    disabled={moderatorRequest.status === "rejected" ||
+                      moderatorRequest.derivedFromGrant}
                     onclick={() => rejectModeratorRequest(moderatorRequest)}>
                     Reject
                   </Button>
@@ -611,7 +623,6 @@
                 {#if getModeratorPersonTab(person.pubkey) === "actions"}
                   <ModerationReportList
                     reports={personActions}
-                    relays={$activeCommunityRelays}
                     emptyMessage="No active moderation actions from this moderator." />
                 {:else}
                   <div class="flex flex-col gap-3">

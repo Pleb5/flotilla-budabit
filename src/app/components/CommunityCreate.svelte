@@ -4,7 +4,6 @@
   import {goto} from "$app/navigation"
   import {publish, PublishStatus} from "@welshman/net"
   import {pubkey, signer as sessionSigner} from "@welshman/app"
-  import {Router} from "@welshman/router"
   import {createProfile, prep, type EventTemplate, type SignedEvent} from "@welshman/util"
   import type {ISigner} from "@welshman/signer"
   import Button from "@lib/components/Button.svelte"
@@ -12,7 +11,6 @@
   import Profile from "@app/components/Profile.svelte"
   import {preventDefault} from "@lib/html"
   import {pushToast} from "@app/util/toast"
-  import {INDEXER_RELAYS} from "@app/core/state"
   import {
     setActiveCommunityDefinition,
     setActiveCommunityInput,
@@ -38,6 +36,7 @@
     type CommunitySectionKind,
   } from "@app/core/community"
   import {makeCommunityProfileList} from "@app/core/community-admin"
+  import {getCommunityRootPublishRelays} from "@app/core/community-relays"
 
   type Mode = "create" | "edit"
 
@@ -633,17 +632,6 @@
     }
   }
 
-  const getUserOutboxRelays = () => {
-    try {
-      return Router.get().FromUser().getUrls()
-    } catch {
-      return []
-    }
-  }
-
-  const getRootPublishRelays = (communityRelays: string[]) =>
-    normalizeRelays([...communityRelays, ...INDEXER_RELAYS, ...getUserOutboxRelays()])
-
   const cancel = () =>
     goto(isEdit && definition ? makeCommunityPath(definition.pubkey) : "/explore")
 
@@ -697,7 +685,7 @@
       const signedProfileLists = await Promise.all(
         profileLists.map(template => makeSignedEvent(validated.community, template)),
       )
-      const rootRelays = getRootPublishRelays(validated.relays)
+      const rootRelays = getCommunityRootPublishRelays(validated.relays, validated.community.pubkey)
       const communityScopedEvents = signedProfileLists
 
       await publishRequiredEvent(signedCommunityProfile, rootRelays, validated.primaryRelay)
@@ -1348,8 +1336,8 @@
             </div>
           </div>
           <p class="mt-3 text-xs leading-relaxed opacity-60">
-            Profile and definition go to community, bootstrap, and user outbox relays. New lists stay
-            on community relays.
+            Profile and definition go to community, indexer, and community-key outbox relays. New
+            lists stay on community relays.
           </p>
           <div class="mt-5 flex gap-2">
             <Button class="btn btn-ghost flex-1" onclick={cancel} {disabled}>Cancel</Button>

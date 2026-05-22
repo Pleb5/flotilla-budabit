@@ -47,6 +47,7 @@
     makeAdmissionResponseDelete,
   } from "@app/core/community-forms"
   import {makeModeratorProfileListRequest} from "@app/core/community-moderator-requests"
+  import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
   import {isCommunityPersonBanned} from "@app/core/community-reports"
   import {checked, normalizeChecked, setChecked} from "@app/util/notifications"
   import {parseCommunityRouteParam} from "@app/util/routes"
@@ -63,9 +64,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -77,7 +78,12 @@
   let moderatorRequestsOpen = $state(false)
   let moderatorRequestPublishStates = $state<Record<string, ModeratorRequestPublishState>>({})
   let lastScrolledSectionName = $state("")
-  const currentUserBanned = $derived(isCommunityPersonBanned($activeCommunityReportState, $pubkey || ""))
+  const currentUserBanned = $derived(
+    isCommunityPersonBanned($activeCommunityReportState, $pubkey || ""),
+  )
+  const communityPublishRelays = $derived(
+    getCommunityScopedPublishRelays($activeCommunityDefinition),
+  )
 
   const requestedSectionName = $derived($page.url.searchParams.get("section") || "")
   const forms = $derived(communityBootstrapReady ? $activeCommunityAdmissionForms : {})
@@ -120,50 +126,52 @@
     deriveEventsAsc(deriveEventsById({repository, filters: reviewHistoryFilters})),
   )
   const sectionItems = $derived(
-    communityBootstrapReady ? ($activeCommunityDefinition?.sections || []).map(section => {
-      const displayName = getCommunitySectionDisplayName(section)
-      const form = forms[section.name] || forms[displayName]
-      const moderatorPubkeys = $activeCommunityDefinition
-        ? getGrantCapableSectionModeratorPubkeys({
-            definition: $activeCommunityDefinition,
-            sectionName: section.name,
-            reportState: $activeCommunityReportState,
-          })
-        : []
-      const granted = Boolean(
-        $pubkey &&
-        userHasSectionProfileListAccess({
-          section,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          reportState: $activeCommunityReportState,
-        }),
-      )
-      const state =
-        form && $pubkey
-          ? getAdmissionSubmissionState({
-              responseEvents: $responseEvents,
-              deleteEvents: $deleteEvents,
-              reviewEvents: $reviewEvents,
-              formAddress: form.address,
-              applicantPubkey: $pubkey,
-              moderatorPubkeys,
-              profileListGranted: granted,
-            })
-          : ({status: granted ? "granted" : "none"} satisfies CommunitySubmissionState)
-      const history = $pubkey
-        ? getAdmissionReviewHistory({
-            reviewEvents: [...$reviewEvents, ...$reviewHistoryEvents],
-            applicantPubkey: $pubkey,
-            communityPubkey,
-            sectionName: section.name,
-            moderatorPubkeys,
-            excludeResponseId: state.response?.event.id,
-          })
-        : undefined
+    communityBootstrapReady
+      ? ($activeCommunityDefinition?.sections || []).map(section => {
+          const displayName = getCommunitySectionDisplayName(section)
+          const form = forms[section.name] || forms[displayName]
+          const moderatorPubkeys = $activeCommunityDefinition
+            ? getGrantCapableSectionModeratorPubkeys({
+                definition: $activeCommunityDefinition,
+                sectionName: section.name,
+                reportState: $activeCommunityReportState,
+              })
+            : []
+          const granted = Boolean(
+            $pubkey &&
+            userHasSectionProfileListAccess({
+              section,
+              profileListEvents: $activeCommunityProfileListEvents,
+              userPubkey: $pubkey,
+              reportState: $activeCommunityReportState,
+            }),
+          )
+          const state =
+            form && $pubkey
+              ? getAdmissionSubmissionState({
+                  responseEvents: $responseEvents,
+                  deleteEvents: $deleteEvents,
+                  reviewEvents: $reviewEvents,
+                  formAddress: form.address,
+                  applicantPubkey: $pubkey,
+                  moderatorPubkeys,
+                  profileListGranted: granted,
+                })
+              : ({status: granted ? "granted" : "none"} satisfies CommunitySubmissionState)
+          const history = $pubkey
+            ? getAdmissionReviewHistory({
+                reviewEvents: [...$reviewEvents, ...$reviewHistoryEvents],
+                applicantPubkey: $pubkey,
+                communityPubkey,
+                sectionName: section.name,
+                moderatorPubkeys,
+                excludeResponseId: state.response?.event.id,
+              })
+            : undefined
 
-      return {section, displayName, form, granted, state, history}
-    }) : [],
+          return {section, displayName, form, granted, state, history}
+        })
+      : [],
   )
   const moderatorRequestStates = $derived(
     communityBootstrapReady ? $activeCommunityUserModeratorRequestStates : [],
@@ -363,8 +371,8 @@
       return
     }
 
-    if ($activeCommunityRelays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+    if (communityPublishRelays.length === 0) {
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return
     }
 
@@ -417,7 +425,7 @@
 
     const template = makeAdmissionResponse({formAddress: form.address, values, metadata})
 
-    publishThunk({relays: $activeCommunityRelays, event: makeEvent(template.kind, template)})
+    publishThunk({relays: communityPublishRelays, event: makeEvent(template.kind, template)})
     pushToast({message: `Application submitted for ${sectionDisplayName}.`})
   }
 
@@ -460,8 +468,8 @@
       return
     }
 
-    if ($activeCommunityRelays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+    if (communityPublishRelays.length === 0) {
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return
     }
 
@@ -488,7 +496,7 @@
       communityPubkey: $activeCommunityDefinition.pubkey,
       requesterPubkey: $pubkey,
       sectionName,
-      relays: $activeCommunityRelays,
+      relays: communityPublishRelays,
     }
     const profileList = makeModeratorProfileListRequest(options)
 
@@ -501,7 +509,7 @@
 
     try {
       profileListThunk = publishThunk({
-        relays: $activeCommunityRelays,
+        relays: communityPublishRelays,
         event: makeEvent(profileList.kind, profileList),
       })
 
@@ -537,11 +545,19 @@
       title: "Delete submission",
       message: `Delete your ${sectionDisplayName} access request so you can submit a revised application?`,
       confirm: async () => {
+        if (communityPublishRelays.length === 0) {
+          pushToast({
+            theme: "error",
+            message: "Community definition must declare at least one relay.",
+          })
+          return
+        }
+
         answers = {...answers, [sectionName]: {...response.values}}
         otherAnswers = {...otherAnswers, [sectionName]: getResponseOtherAnswers(response)}
         const template = makeAdmissionResponseDelete({responseId: response.event.id})
 
-        publishThunk({relays: $activeCommunityRelays, event: makeEvent(template.kind, template)})
+        publishThunk({relays: communityPublishRelays, event: makeEvent(template.kind, template)})
         pushToast({
           message:
             "Submission deleted. You can submit a revised application after relays confirm it.",
@@ -659,7 +675,8 @@
     <div class="card2 bg-alt p-4 text-center shadow-md">
       <strong>Community access is blocked</strong>
       <p class="mt-2 text-sm opacity-70">
-        This pubkey is banned from publishing or requesting additional permissions in this community.
+        This pubkey is banned from publishing or requesting additional permissions in this
+        community.
       </p>
     </div>
   {:else}
@@ -761,7 +778,8 @@
                                     class={isMultipleChoiceField(field)
                                       ? "checkbox checkbox-sm"
                                       : "radio radio-sm"}
-                                    required={!isMultipleChoiceField(field) && isRequiredField(field)}
+                                    required={!isMultipleChoiceField(field) &&
+                                      isRequiredField(field)}
                                     checked={isSelected}
                                     onchange={event =>
                                       setChoiceAnswer(

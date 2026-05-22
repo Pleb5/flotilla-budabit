@@ -60,6 +60,7 @@
     parseAdmissionResponse,
     validateAdmissionFormDraft,
   } from "@app/core/community-forms"
+  import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
   import {parseCommunityRouteParam} from "@app/util/routes"
 
   type ReviewApplication = {
@@ -78,9 +79,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -90,24 +91,27 @@
   let selectedSectionName = $state("")
   let drafts = $state<Record<string, CommunityAdmissionFormDraft>>({})
   let formBuilderElement = $state<HTMLFormElement | undefined>()
+  const communityPublishRelays = $derived(
+    getCommunityScopedPublishRelays($activeCommunityDefinition),
+  )
 
   const grantableSections = $derived(
     communityBootstrapReady
       ? ($activeCommunityDefinition?.sections || [])
-      .map(section => ({
-        section,
-        displayName: getCommunitySectionDisplayName(section),
-        capability:
-          $pubkey && $activeCommunityDefinition
-            ? getGrantCapability({
-                definition: $activeCommunityDefinition,
-                userPubkey: $pubkey,
-                sectionName: section.name,
-                reportState: $activeCommunityReportState,
-              })
-            : undefined,
-      }))
-      .filter(item => item.capability?.canGrant)
+          .map(section => ({
+            section,
+            displayName: getCommunitySectionDisplayName(section),
+            capability:
+              $pubkey && $activeCommunityDefinition
+                ? getGrantCapability({
+                    definition: $activeCommunityDefinition,
+                    userPubkey: $pubkey,
+                    sectionName: section.name,
+                    reportState: $activeCommunityReportState,
+                  })
+                : undefined,
+          }))
+          .filter(item => item.capability?.canGrant)
       : [],
   )
   const selected = $derived(
@@ -148,7 +152,9 @@
   )
   const responseIds = $derived($responseEvents.map(event => event.id))
   const responseApplicantPubkeys = $derived(
-    Array.from(new Set($responseEvents.map(event => normalizePubkey(event.pubkey || "")).filter(Boolean))),
+    Array.from(
+      new Set($responseEvents.map(event => normalizePubkey(event.pubkey || "")).filter(Boolean)),
+    ),
   )
   const deleteFilters = $derived(responseIds.length ? [{kinds: [DELETE], "#e": responseIds}] : [])
   const reviewFilters = $derived(
@@ -487,7 +493,12 @@
   }
 
   const publishSelectedForm = () => {
-    if (!communityBootstrapReady || !$activeCommunityDefinition || !selected?.capability?.canGrant || !selectedDraft) {
+    if (
+      !communityBootstrapReady ||
+      !$activeCommunityDefinition ||
+      !selected?.capability?.canGrant ||
+      !selectedDraft
+    ) {
       pushToast({theme: "error", message: "You can only edit forms for sections you can grant."})
       return
     }
@@ -498,8 +509,8 @@
       return
     }
 
-    if ($activeCommunityRelays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+    if (communityPublishRelays.length === 0) {
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return
     }
 
@@ -513,11 +524,11 @@
           sectionName: selected.section.name,
           name: selectedDraft.name,
           description: selectedDraft.description,
-          relays: $activeCommunityRelays,
+          relays: communityPublishRelays,
           fields: makeAdmissionFormFieldsFromDraft(selectedDraft),
         })
 
-        publishThunk({relays: $activeCommunityRelays, event: makeEvent(template.kind, template)})
+        publishThunk({relays: communityPublishRelays, event: makeEvent(template.kind, template)})
         pushToast({message: `${selected.displayName} application form published.`})
         history.back()
       },
@@ -542,6 +553,11 @@
       return
     }
 
+    if (communityPublishRelays.length === 0) {
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
+      return
+    }
+
     const applicant = normalizePubkey(application.response.event.pubkey)
     if (!applicant) return
 
@@ -558,7 +574,7 @@
       })
 
       publishThunk({
-        relays: $activeCommunityRelays,
+        relays: communityPublishRelays,
         event: makeEvent(grant.kind, grant),
       })
     } else if (profileListEvent && getProfileListPubkeys(profileListEvent).includes(applicant)) {
@@ -569,7 +585,7 @@
       })
 
       publishThunk({
-        relays: $activeCommunityRelays,
+        relays: communityPublishRelays,
         event: makeEvent(revoke.kind, revoke),
       })
     }
@@ -583,7 +599,7 @@
       status,
     })
 
-    publishThunk({relays: $activeCommunityRelays, event: makeEvent(review.kind, review)})
+    publishThunk({relays: communityPublishRelays, event: makeEvent(review.kind, review)})
     pushToast({
       message:
         status === "granted"
@@ -607,7 +623,12 @@
   $effect(() => {
     if (!communityBootstrapReady || $activeCommunityRelays.length === 0) return
 
-    const filters = [...responseFilters, ...deleteFilters, ...reviewFilters, ...reviewHistoryFilters]
+    const filters = [
+      ...responseFilters,
+      ...deleteFilters,
+      ...reviewFilters,
+      ...reviewHistoryFilters,
+    ]
     if (filters.length === 0) return
 
     const controller = new AbortController()
@@ -1009,7 +1030,6 @@
           </div>
           <ModerationReportList
             reports={currentEventModerationActions}
-            relays={$activeCommunityRelays}
             emptyMessage="No active event moderations from this key." />
         </section>
 
@@ -1023,7 +1043,6 @@
           </div>
           <ModerationReportList
             reports={currentPersonModerationActions}
-            relays={$activeCommunityRelays}
             emptyMessage="No active person bans from this key." />
         </section>
       </div>
@@ -1090,7 +1109,8 @@
 
                 {#if application.history.latestPriorReview}
                   {@const priorReview = application.history.latestPriorReview}
-                  <p class={`mt-3 rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
+                  <p
+                    class={`mt-3 rounded-box p-3 text-sm ${reviewHistoryToneClass(priorReview.status)}`}>
                     {reviewHistoryLabel(priorReview.status)} by
                     <ProfileLink pubkey={priorReview.event.pubkey} /> on {new Date(
                       priorReview.event.created_at * 1000,

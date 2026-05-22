@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 import {get} from "svelte/store"
-import {repository} from "@welshman/app"
+import {pubkey, repository} from "@welshman/app"
 import * as nip19 from "nostr-tools/nip19"
 import {type TrustedEvent} from "@welshman/util"
 import {
@@ -25,6 +25,7 @@ import {
   activeCommunityProfile,
   activeCommunityProfileListEvents,
   activeCommunityBlossomServers,
+  activeUserCommunityBlossomRefs,
   activeCommunityRelays,
   activeCommunitySession,
   clearActiveCommunity,
@@ -234,11 +235,41 @@ describe("community state helpers", () => {
     expect(get(activeCommunityDefinition)?.event.id).toBe("definition-1")
     expect(get(activeCommunityRelays)).toEqual(["wss://relay.example.com/"])
 
+    repository.removeEvent(definition.event.id)
     clearActiveCommunity()
     expect(get(activeCommunitySession)).toBeUndefined()
     expect(get(activeCommunityDefinition)).toBeUndefined()
     expect(get(activeCommunityProfileListEvents)).toEqual([])
     expect(get(activeCommunityAdmissionFormEvents)).toEqual([])
+  })
+
+  it("does not fall back to bootstrap relays when a loaded definition declares no relays", () => {
+    const definition = parseCommunityDefinition(
+      makeEvent({
+        id: "definition-without-relays",
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: communityPubkey,
+        tags: [
+          ["content", "General"],
+          ["k", "1111"],
+        ],
+      }),
+    )!
+
+    activeCommunitySession.set({
+      communityPubkey,
+      communityRelayHints: ["wss://hint.example.com/"],
+    })
+    expect(get(activeCommunityRelays)).toEqual([
+      "wss://hint.example.com/",
+      ...COMMUNITY_DISCOVERY_RELAYS,
+    ])
+
+    setActiveCommunityDefinition(definition)
+    expect(get(activeCommunityRelays)).toEqual([])
+
+    repository.removeEvent(definition.event.id)
+    clearActiveCommunity()
   })
 
   it("derives active community blossom servers from the loaded definition", () => {
@@ -266,6 +297,51 @@ describe("community state helpers", () => {
 
     repository.removeEvent(definition.event.id)
     clearActiveCommunity()
+  })
+
+  it("derives active user community blossom refs from admin and moderator evidence", () => {
+    const userPubkey = "d".repeat(64)
+    const moderatorCommunityPubkey = "e".repeat(64)
+    const events = [
+      makeEvent({
+        id: "admin-blossom-definition",
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: userPubkey,
+        tags: [
+          ["blossom", "https://admin-blossom.example/"],
+          ["content", "General"],
+          ["k", "1111"],
+        ],
+      }),
+      makeEvent({
+        id: "moderator-profile-list",
+        kind: PROFILE_LIST_KIND,
+        pubkey: userPubkey,
+        tags: [["d", "General"]],
+      }),
+      makeEvent({
+        id: "moderator-blossom-definition",
+        kind: COMMUNITY_DEFINITION_KIND,
+        pubkey: moderatorCommunityPubkey,
+        tags: [
+          ["blossom", "https://moderator-blossom.example/"],
+          ["content", "General"],
+          ["k", "1111"],
+          ["a", `${PROFILE_LIST_KIND}:${userPubkey}:General`],
+        ],
+      }),
+    ]
+
+    pubkey.set(userPubkey)
+    for (const event of events) repository.publish(event)
+
+    expect(get(activeUserCommunityBlossomRefs).map(ref => ref.blossomServers[0])).toEqual([
+      "https://admin-blossom.example",
+      "https://moderator-blossom.example",
+    ])
+
+    for (const event of events) repository.removeEvent(event.id)
+    pubkey.set(undefined)
   })
 
   it("derives active community profile metadata from Welshman cache", async () => {

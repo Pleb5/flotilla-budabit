@@ -19,9 +19,9 @@
     activeCommunityDefinition,
     activeCommunityProfileListEvents,
     activeCommunityReportState,
-    activeCommunityRelays,
   } from "@app/core/community-state"
   import {COMMUNITY_WRITE_TARGETS, canWriteCommunityTarget} from "@app/core/community-permissions"
+  import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
   import {pushToast} from "@app/util/toast"
   import {formatShortNpub} from "@app/util/pubkeys"
   import {makeCommunityRoomPath} from "@app/util/routes"
@@ -35,9 +35,9 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-        $activeCommunityDefinition?.pubkey === communityPubkey &&
-        $activeCommunityBootstrapStatus.loaded &&
-        !$activeCommunityBootstrapStatus.loading,
+      $activeCommunityDefinition?.pubkey === communityPubkey &&
+      $activeCommunityBootstrapStatus.loaded &&
+      !$activeCommunityBootstrapStatus.loading,
     ),
   )
   const communityBootstrapLoading = $derived(
@@ -46,16 +46,19 @@
   const canCreateRoom = $derived(
     Boolean(
       $pubkey &&
-        communityBootstrapReady &&
-        $activeCommunityDefinition &&
-        canWriteCommunityTarget({
-          definition: $activeCommunityDefinition,
-          profileListEvents: $activeCommunityProfileListEvents,
-          userPubkey: $pubkey,
-          target: COMMUNITY_WRITE_TARGETS.roomRoot,
-          reportState: $activeCommunityReportState,
-        }),
+      communityBootstrapReady &&
+      $activeCommunityDefinition &&
+      canWriteCommunityTarget({
+        definition: $activeCommunityDefinition,
+        profileListEvents: $activeCommunityProfileListEvents,
+        userPubkey: $pubkey,
+        target: COMMUNITY_WRITE_TARGETS.roomRoot,
+        reportState: $activeCommunityReportState,
+      }),
     ),
+  )
+  const communityPublishRelays = $derived(
+    getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
 
   const back = () => history.back()
@@ -71,8 +74,8 @@
       pushToast({theme: "error", message: "You do not have permission to create rooms."})
       return
     }
-    if ($activeCommunityRelays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+    if (communityPublishRelays.length === 0) {
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return
     }
 
@@ -86,7 +89,7 @@
       }),
     )
 
-    const thunk = publishThunk({relays: $activeCommunityRelays, event})
+    const thunk = publishThunk({relays: communityPublishRelays, event})
 
     pushToast({message: "Room published."})
     void goto(makeCommunityRoomPath(communityPubkey, thunk.event.id), {replaceState: true})
@@ -128,7 +131,8 @@
         <p>Description</p>
       {/snippet}
       {#snippet input()}
-        <textarea bind:value={roomDescription} class="textarea textarea-bordered" rows="4"></textarea>
+        <textarea bind:value={roomDescription} class="textarea textarea-bordered" rows="4"
+        ></textarea>
       {/snippet}
     </Field>
   {:else}

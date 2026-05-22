@@ -17,7 +17,7 @@
   import {
     activeCommunityBlossomServers,
     activeCommunityDefinition,
-    activeMemberCommunityBlossomRefs,
+    activeUserCommunityBlossomRefs,
   } from "@app/core/community-state"
   import {startBlossomMirrorJobs, uploadFile} from "@app/core/commands"
   import {
@@ -129,7 +129,7 @@
           : undefined,
       },
       personalServers,
-      memberCommunities: $activeMemberCommunityBlossomRefs,
+      memberCommunities: $activeUserCommunityBlossomRefs,
       lastResortServers: DEFAULT_BLOSSOM_SERVERS,
     }),
   )
@@ -368,7 +368,8 @@
           <select bind:value={uploadExtensionFilter} class="select select-bordered w-full sm:w-48">
             <option value="all">All file types</option>
             {#each uploadExtensionOptions as extension}
-              <option value={extension || "__none__"}>{extension ? `.${extension}` : "No extension"}</option>
+              <option value={extension || "__none__"}
+                >{extension ? `.${extension}` : "No extension"}</option>
             {/each}
           </select>
         </div>

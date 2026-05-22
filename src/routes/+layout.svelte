@@ -12,7 +12,14 @@
   import {call, spec} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
   import {defaultSocketPolicies} from "@welshman/net"
-  import {pubkey, sessions, signerLog, shouldUnwrap, SignerLogEntryStatus} from "@welshman/app"
+  import {
+    pubkey,
+    sessions,
+    signerLog,
+    shouldUnwrap,
+    SignerLogEntryStatus,
+    userRelayList,
+  } from "@welshman/app"
   import * as lib from "@welshman/lib"
   import * as util from "@welshman/util"
   import * as feeds from "@welshman/feeds"
@@ -58,6 +65,7 @@
     activeCommunitySession,
     ensureCommunityBootstrap,
     getCommunityBootstrapKey,
+    hydrateCommunityPreferences,
     hydratePubkeyProfiles,
     hydrateActiveCommunityUserModeratorRequests,
   } from "@app/core/community-state"
@@ -114,6 +122,8 @@
   let loadingUserModeratorRequestsKey = ""
   let loadedUserProfileKey = ""
   let loadingUserProfileKey = ""
+  let loadedCommunityPreferencesKey = ""
+  let loadingCommunityPreferencesKey = ""
 
   // Add stuff to window for convenience
   Object.assign(window, {
@@ -148,12 +158,39 @@
     const inCommunityRoute = $page.route.id?.startsWith("/c/[community]")
     const key = session ? getCommunityBootstrapKey(session, $pubkey || "") : ""
 
-    if (!browser || inCommunityRoute || !session || !key)
-      return
+    if (!browser || inCommunityRoute || !session || !key) return
 
-    ensureCommunityBootstrap(session, {key, updateStatus: false})
+    ensureCommunityBootstrap(session, {key, updateStatus: false}).catch(error => {
+      console.warn("[community] Failed to load active community metadata", error)
+    })
+  })
+
+  $effect(() => {
+    const user = $pubkey || ""
+    const relayHints = $activeCommunityRelays
+    const relayListKey = $userRelayList?.event?.id || ""
+    const key = user ? `${user}:${relayHints.join(",")}:${relayListKey}` : ""
+
+    if (
+      !browser ||
+      !user ||
+      !key ||
+      loadedCommunityPreferencesKey === key ||
+      loadingCommunityPreferencesKey === key
+    ) {
+      return
+    }
+
+    loadingCommunityPreferencesKey = key
+    hydrateCommunityPreferences({relayHints})
+      .then(() => {
+        loadedCommunityPreferencesKey = key
+      })
       .catch(error => {
-        console.warn("[community] Failed to load active community metadata", error)
+        console.warn("[community] Failed to load community preferences", error)
+      })
+      .finally(() => {
+        if (loadingCommunityPreferencesKey === key) loadingCommunityPreferencesKey = ""
       })
   })
 

@@ -34,6 +34,7 @@ import {
   type BlossomServerTarget,
 } from "./blossom"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND, parseCommunityDefinition} from "./community"
+import type {EffectiveCommunityReportState} from "./community-reports"
 import type {TrustedEvent} from "@welshman/util"
 
 const makeUpload = (id: string, updatedAt = 100): BlossomUploadRecord => ({
@@ -83,6 +84,12 @@ const makeCapability = (
   mirror: "unsupported",
   ...overrides,
 })
+
+const makePersonBanState = (pubkey: string): EffectiveCommunityReportState =>
+  ({
+    eventReports: [],
+    personReports: [{targetPubkey: pubkey}],
+  }) as unknown as EffectiveCommunityReportState
 
 beforeEach(() => {
   localStorage.clear()
@@ -349,6 +356,122 @@ describe("blossom server sources", () => {
         communityPubkey: memberDefinition.pubkey,
         blossomServers: ["https://member-blossom.example"],
         writableSections: ["General"],
+      }),
+    ])
+  })
+
+  it("selects admin and moderator communities without p-tag membership", () => {
+    const userPubkey = "b".repeat(64)
+    const moderatorCommunityPubkey = "e".repeat(64)
+    const adminDefinition = parseCommunityDefinition(
+      makeEvent({
+        id: "admin-definition",
+        pubkey: userPubkey,
+        created_at: 2,
+        kind: COMMUNITY_DEFINITION_KIND,
+        tags: [
+          ["blossom", "https://admin-blossom.example/"],
+          ["content", "General"],
+          ["k", "1111"],
+        ],
+      }),
+    )!
+    const moderatorDefinition = parseCommunityDefinition(
+      makeEvent({
+        id: "moderator-definition",
+        pubkey: moderatorCommunityPubkey,
+        created_at: 2,
+        kind: COMMUNITY_DEFINITION_KIND,
+        tags: [
+          ["blossom", "https://moderator-blossom.example/"],
+          ["content", "General"],
+          ["k", "1111"],
+          ["a", `${PROFILE_LIST_KIND}:${userPubkey}:General`],
+        ],
+      }),
+    )!
+    const moderatorProfileList = makeEvent({
+      id: "moderator-list",
+      pubkey: userPubkey,
+      kind: PROFILE_LIST_KIND,
+      tags: [["d", "General"]],
+    })
+
+    expect(
+      selectMemberCommunityBlossomRefs({
+        author: userPubkey,
+        definitions: [moderatorDefinition, adminDefinition],
+        profileListEvents: [moderatorProfileList],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        communityPubkey: adminDefinition.pubkey,
+        blossomServers: ["https://admin-blossom.example"],
+        writableSections: ["General"],
+      }),
+      expect.objectContaining({
+        communityPubkey: moderatorDefinition.pubkey,
+        blossomServers: ["https://moderator-blossom.example"],
+        writableSections: ["General"],
+      }),
+    ])
+  })
+
+  it("excludes person-banned non-admin members while keeping the community admin", () => {
+    const userPubkey = "b".repeat(64)
+    const memberListOwner = "c".repeat(64)
+    const memberCommunityPubkey = "e".repeat(64)
+    const adminDefinition = parseCommunityDefinition(
+      makeEvent({
+        id: "admin-definition",
+        pubkey: userPubkey,
+        created_at: 2,
+        kind: COMMUNITY_DEFINITION_KIND,
+        tags: [
+          ["blossom", "https://admin-blossom.example/"],
+          ["content", "General"],
+          ["k", "1111"],
+        ],
+      }),
+    )!
+    const memberDefinition = parseCommunityDefinition(
+      makeEvent({
+        id: "banned-member-definition",
+        pubkey: memberCommunityPubkey,
+        created_at: 2,
+        kind: COMMUNITY_DEFINITION_KIND,
+        tags: [
+          ["blossom", "https://member-blossom.example/"],
+          ["content", "General"],
+          ["k", "1111"],
+          ["a", `${PROFILE_LIST_KIND}:${memberListOwner}:General`],
+        ],
+      }),
+    )!
+    const profileList = makeEvent({
+      id: "member-list",
+      pubkey: memberListOwner,
+      kind: PROFILE_LIST_KIND,
+      tags: [
+        ["d", "General"],
+        ["p", userPubkey],
+      ],
+    })
+
+    expect(
+      selectMemberCommunityBlossomRefs({
+        author: userPubkey,
+        definitions: [memberDefinition, adminDefinition],
+        profileListEvents: [profileList],
+        reportStates: new Map([
+          [memberDefinition.pubkey, makePersonBanState(userPubkey)],
+          [adminDefinition.pubkey, makePersonBanState(userPubkey)],
+        ]),
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        communityPubkey: adminDefinition.pubkey,
+        blossomServers: ["https://admin-blossom.example"],
       }),
     ])
   })

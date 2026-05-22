@@ -13,6 +13,7 @@ import {
   PROFILE_LIST_KIND,
   type CommunityDefinition,
   type ParsedCommunityInput,
+  normalizeRelay,
   normalizePubkey,
   normalizeRelays,
   parseCommunityDefinition,
@@ -23,6 +24,7 @@ import {getGrantCapableSectionModeratorPubkeys} from "@app/core/community-permis
 import {
   type CommunityAdmissionForm,
   makeCommunityDefinitionAddress,
+  parseCommunityDefinitionAddress,
   parseAdmissionForm,
   selectActiveAdmissionForm,
 } from "@app/core/community-forms"
@@ -42,10 +44,8 @@ import {
   selectPreferredCommunities,
   type PreferredCommunityRef,
 } from "@app/util/community-preferences"
-import {
-  selectMemberCommunityBlossomRefs,
-  type BlossomMemberCommunityRef,
-} from "@app/core/blossom"
+import type {BlossomMemberCommunityRef} from "@app/core/blossom"
+import {selectUserCommunityRefs, type ActiveUserCommunityRef} from "@app/core/community-membership"
 import {
   MODERATOR_REQUEST_REACTION_KIND,
   getModeratorPromotionRequestStates,
@@ -294,7 +294,7 @@ export const activeCommunityRelayHints: Readable<string[]> = derived(
 export const activeCommunityRelays: Readable<string[]> = derived(
   [activeCommunityDefinition, activeCommunityRelayHints],
   ([$activeCommunityDefinition, $activeCommunityRelayHints]) =>
-    $activeCommunityDefinition?.relays.length
+    $activeCommunityDefinition
       ? $activeCommunityDefinition.relays
       : getCommunityBootstrapRelays($activeCommunityRelayHints),
 )
@@ -312,7 +312,9 @@ const normalizeCommunityBlossomServer = (server?: string) => {
 
 export const getCommunityBlossomServers = (definition?: CommunityDefinition) =>
   Array.from(
-    new Set((definition?.blossomServers || []).map(normalizeCommunityBlossomServer).filter(Boolean)),
+    new Set(
+      (definition?.blossomServers || []).map(normalizeCommunityBlossomServer).filter(Boolean),
+    ),
   )
 
 export const activeCommunityBlossomServers: Readable<string[]> = derived(
@@ -655,6 +657,9 @@ export const communityModeratorProfileListEvents: Readable<TrustedEvent[]> = der
 export const communityModeratorDefinitionEvents: Readable<TrustedEvent[]> = derived(
   [communityModeratorProfileListEvents, communityModeratorFormEvents],
   ([$communityModeratorProfileListEvents, $communityModeratorFormEvents], set) => {
+    const profileListCommunityRefs = getCommunityDefinitionRefsFromEvents(
+      $communityModeratorProfileListEvents,
+    )
     const formCommunityPubkeys = Array.from(
       new Set(
         $communityModeratorFormEvents
@@ -664,6 +669,7 @@ export const communityModeratorDefinitionEvents: Readable<TrustedEvent[]> = deri
     )
     const filters = [
       ...makeCommunityDefinitionProfileListRefFilters($communityModeratorProfileListEvents),
+      ...profileListCommunityRefs.map(ref => makeCommunityDefinitionFilter(ref.pubkey)),
       ...formCommunityPubkeys.map(makeCommunityDefinitionFilter),
     ]
 
@@ -718,13 +724,176 @@ export const communityMemberDefinitionEvents: Readable<TrustedEvent[]> = derived
   [] as TrustedEvent[],
 )
 
-export const activeMemberCommunityBlossomRefs: Readable<BlossomMemberCommunityRef[]> = derived(
-  [pubkey, communityMemberDefinitionEvents, communityMemberProfileListEvents],
-  ([$pubkey, $communityMemberDefinitionEvents, $communityMemberProfileListEvents]) =>
-    selectMemberCommunityBlossomRefs({
+const dedupeTrustedEvents = (events: TrustedEvent[]) =>
+  Array.from(
+    new Map(events.filter(event => event.id).map(event => [event.id, event])).values(),
+  ).sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
+
+const getCommunityDefinitionRefsFromEvents = (events: TrustedEvent[]) =>
+  Array.from(
+    new Map(
+      events.flatMap(event =>
+        event.tags.flatMap(tag => {
+          if (tag[0] !== "a") return []
+
+          const ref = parseCommunityDefinitionAddress(tag[1] || "")
+          if (!ref) return []
+
+          return [
+            [
+              ref.address,
+              {
+                pubkey: ref.pubkey,
+                address: ref.address,
+                relay: normalizeRelay(tag[2]) || undefined,
+              },
+            ] as const,
+          ]
+        }),
+      ),
+    ).values(),
+  )
+
+const selectLatestDefinitionsByPubkey = (events: TrustedEvent[]) => {
+  const definitions = new Map<string, CommunityDefinition>()
+
+  for (const event of events) {
+    const definition = parseCommunityDefinition(event)
+    if (!definition) continue
+
+    const current = definitions.get(definition.pubkey)
+    if (!current || definition.event.created_at > current.event.created_at) {
+      definitions.set(definition.pubkey, definition)
+    }
+  }
+
+  return Array.from(definitions.values())
+}
+
+const activeUserCommunityDefinitionEvents: Readable<TrustedEvent[]> = derived(
+  [
+    communityMemberDefinitionEvents,
+    communityAdminDefinitionEvents,
+    communityModeratorDefinitionEvents,
+  ],
+  ([
+    $communityMemberDefinitionEvents,
+    $communityAdminDefinitionEvents,
+    $communityModeratorDefinitionEvents,
+  ]) =>
+    dedupeTrustedEvents([
+      ...$communityMemberDefinitionEvents,
+      ...$communityAdminDefinitionEvents,
+      ...$communityModeratorDefinitionEvents,
+    ]),
+  [] as TrustedEvent[],
+)
+
+const communityMemberReportEvents: Readable<TrustedEvent[]> = derived(
+  activeUserCommunityDefinitionEvents,
+  ($activeUserCommunityDefinitionEvents, set) => {
+    const filters = selectLatestDefinitionsByPubkey($activeUserCommunityDefinitionEvents).flatMap(
+      makeCommunityReportFilters,
+    )
+
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+const communityMemberReportDeleteEvents: Readable<TrustedEvent[]> = derived(
+  communityMemberReportEvents,
+  ($communityMemberReportEvents, set) => {
+    const filters = makeCommunityReportDeleteFilters($communityMemberReportEvents)
+
+    if (filters.length === 0) {
+      set([])
+      return
+    }
+
+    return deriveEventsAsc(deriveEventsById({repository, filters})).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+const communityMemberReportStates: Readable<Map<string, EffectiveCommunityReportState>> = derived(
+  [
+    activeUserCommunityDefinitionEvents,
+    communityMemberReportEvents,
+    communityMemberReportDeleteEvents,
+  ],
+  ([
+    $activeUserCommunityDefinitionEvents,
+    $communityMemberReportEvents,
+    $communityMemberReportDeleteEvents,
+  ]) => {
+    const states = new Map<string, EffectiveCommunityReportState>()
+
+    for (const definition of selectLatestDefinitionsByPubkey(
+      $activeUserCommunityDefinitionEvents,
+    )) {
+      states.set(
+        definition.pubkey,
+        getEffectiveCommunityReportState({
+          definition,
+          reportEvents: $communityMemberReportEvents,
+          deleteEvents: $communityMemberReportDeleteEvents,
+        }),
+      )
+    }
+
+    return states
+  },
+  new Map<string, EffectiveCommunityReportState>(),
+)
+
+export const activeUserCommunityRefs: Readable<ActiveUserCommunityRef[]> = derived(
+  [
+    pubkey,
+    activeUserCommunityDefinitionEvents,
+    communityMemberProfileListEvents,
+    communityModeratorProfileListEvents,
+    communityMemberReportStates,
+  ],
+  ([
+    $pubkey,
+    $activeUserCommunityDefinitionEvents,
+    $communityMemberProfileListEvents,
+    $communityModeratorProfileListEvents,
+    $communityMemberReportStates,
+  ]) =>
+    selectUserCommunityRefs({
       author: $pubkey || undefined,
-      definitionEvents: $communityMemberDefinitionEvents,
-      profileListEvents: $communityMemberProfileListEvents,
+      definitionEvents: $activeUserCommunityDefinitionEvents,
+      profileListEvents: dedupeTrustedEvents([
+        ...$communityMemberProfileListEvents,
+        ...$communityModeratorProfileListEvents,
+      ]),
+      reportStates: $communityMemberReportStates,
+    }),
+  [] as ActiveUserCommunityRef[],
+)
+
+export const activeUserCommunityBlossomRefs: Readable<BlossomMemberCommunityRef[]> = derived(
+  activeUserCommunityRefs,
+  $activeUserCommunityRefs =>
+    $activeUserCommunityRefs.flatMap(ref => {
+      const blossomServers = getCommunityBlossomServers(ref.definition)
+      if (blossomServers.length === 0) return []
+
+      return [
+        {
+          communityPubkey: ref.communityPubkey,
+          relayHints: ref.relayHints,
+          blossomServers,
+          writableSections: ref.writableSections,
+        } satisfies BlossomMemberCommunityRef,
+      ]
     }),
   [] as BlossomMemberCommunityRef[],
 )
@@ -895,6 +1064,7 @@ export const hydrateCommunityPreferences = async ({
       ...get(communityModeratorProfileListEvents),
       ...get(communityMemberProfileListEvents),
     ].filter(event => event.kind === PROFILE_LIST_KIND)
+    const profileListCommunityRefs = getCommunityDefinitionRefsFromEvents(profileListEvents)
     const formCommunityPubkeys = Array.from(
       new Set(
         [...loadedEvents, ...get(communityModeratorFormEvents)]
@@ -904,13 +1074,68 @@ export const hydrateCommunityPreferences = async ({
     )
     const definitionFilters = [
       ...makeCommunityDefinitionProfileListRefFilters(profileListEvents),
+      ...profileListCommunityRefs.map(ref => makeCommunityDefinitionFilter(ref.pubkey)),
       ...formCommunityPubkeys.map(makeCommunityDefinitionFilter),
     ]
+    const definitionRelays = normalizeRelays([
+      ...relays,
+      ...profileListCommunityRefs.flatMap(ref => (ref.relay ? [ref.relay] : [])),
+    ])
 
-    if (definitionFilters.length === 0) return
+    const definitionEvents =
+      definitionFilters.length > 0
+        ? await withTimeout(
+            loadCommunityEvents(definitionRelays, definitionFilters, {
+              timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
+              authenticate: true,
+            }),
+            COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+            [] as TrustedEvent[],
+          )
+        : []
+
+    if (requestId !== communityPreferenceHydrationRequestId) return
+
+    const definitions = selectLatestDefinitionsByPubkey(
+      dedupeTrustedEvents([...loadedEvents, ...definitionEvents]),
+    )
+    const communityRelays = normalizeRelays(definitions.flatMap(definition => definition.relays))
+
+    if (communityRelays.length === 0) return
+
+    const profileListFilters = definitions.flatMap(makeCommunityProfileListFilters)
+
+    if (profileListFilters.length > 0) {
+      await withTimeout(
+        loadCommunityEvents(communityRelays, profileListFilters, {
+          timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
+          authenticate: true,
+        }),
+        COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+        [] as TrustedEvent[],
+      )
+    }
+
+    if (requestId !== communityPreferenceHydrationRequestId) return
+
+    const reportFilters = definitions.flatMap(makeCommunityReportFilters)
+
+    if (reportFilters.length === 0) return
+
+    const reportEvents = await withTimeout(
+      loadCommunityEvents(communityRelays, reportFilters, {
+        timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
+        authenticate: true,
+      }),
+      COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+      [] as TrustedEvent[],
+    )
+    const reportDeleteFilters = makeCommunityReportDeleteFilters(reportEvents)
+
+    if (reportDeleteFilters.length === 0) return
 
     await withTimeout(
-      loadCommunityEvents(relays, definitionFilters, {
+      loadCommunityEvents(communityRelays, reportDeleteFilters, {
         timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
         authenticate: true,
       }),
@@ -1519,7 +1744,7 @@ export const loadCommunityBootstrap = async (
     settle: "first-non-empty",
   })
   let definition = selectLatestCommunityDefinition(definitionEvents, session.communityPubkey)
-  let communityRelays = definition?.relays.length ? definition.relays : relays
+  let communityRelays = definition ? definition.relays : relays
 
   if (definition?.relays.length) {
     await authenticateCommunityRelays(communityRelays)

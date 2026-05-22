@@ -63,7 +63,7 @@ Exit criteria:
 
 ## Phase 2: Server Source Aggregation
 
-Status: completed.
+Status: needs revision.
 
 Scope:
 
@@ -73,19 +73,30 @@ Scope:
   - Communities the user can publish to, usable as initial-upload fallback in all contexts and as mirror candidates.
   - Last-resort configured servers.
 - Reuse the existing personal server list from `Content Settings -> Media Server` / `userBlossomServerList`.
-- Add app-wide derivation for "communities you are part of": communities where the user has publish access to at least one section based on community profile-list membership.
+- Add app-wide derivation for "communities you are part of": communities where the user is the admin, owns at least one validated section grant list as a moderator, or is present in at least one referenced section profile-list event as a member/grantee.
+- Keep profile-list events as a discovery entrypoint for moderator communities: load user-authored `kind:30000`, find matching `kind:10222` definitions by `#a`, and use any profile-list `10222:<community>:` `a` tag relay hints to fetch the root definition.
+- Validate moderator membership against the loaded `kind:10222`; a user-authored list alone is not enough unless the community definition references it.
+- Load referenced section profile-list events and moderation report state from each loaded definition's declared community relays before deriving member/grant and ban status.
+- Exclude person-banned non-admin users from member-community Blossom candidates.
+- Keep community-scoped moderation and membership data on community relays only; only community-root `kind:10222` publishes also go to indexer and community-key outbox relays.
 - Keep starred communities out of automatic mirror groups.
 - Deduplicate servers while preserving source metadata for UI grouping.
 
 Verification:
 
 - Add unit tests for target aggregation, deduplication, and grouping.
-- Add focused tests for publish-access-derived community membership if existing community test fixtures support it.
+- Add focused tests for admin, validated moderator, member/grantee, banned non-admin exclusion, and community-root discovery through profile-list addresses and profile-list `a` tag hints.
 - Re-read current community access logic before committing.
 
 Exit criteria:
 
 - Upload code can request grouped candidates for a context without knowing UI state internals.
+
+Revision notes:
+
+- Replace Blossom-specific community membership derivation with a canonical active-user community membership store.
+- Derive Blossom community refs from that store instead of duplicating role checks in upload code.
+- Existing upload and mirroring planners should not need algorithm changes; they should consume the corrected derived server groups.
 
 ## Phase 3: Capability Probing
 

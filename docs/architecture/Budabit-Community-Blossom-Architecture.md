@@ -18,17 +18,17 @@ The design has five product goals:
 
 Budabit should remain compatible with NIP-B7 and the Blossom BUD family.
 
-| Source | Budabit behavior |
-| --- | --- |
-| NIP-B7 | Read and write user `kind:10063` Blossom server lists for personal media preferences. |
-| BUD-01 | Retrieve blobs with `GET /<sha256>` and optional file extension. |
-| BUD-02 | Upload exact bytes with `PUT /upload`. |
-| BUD-03 | Support user server lists, but do not force all uploads to every user server. |
-| BUD-04 | Prefer `PUT /mirror` for background mirroring when available. |
-| BUD-05 | Use `PUT /media` for server-side media optimization when available. |
-| BUD-06 | Use `HEAD /upload` and `HEAD /media` as optional preflights, never as hard requirements. |
-| BUD-08 | Preserve useful returned NIP-94 metadata when servers provide it. |
-| BUD-10 | Blossom URIs can be considered later, but normal HTTPS URLs remain supported. |
+| Source | Budabit behavior                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------------------- |
+| NIP-B7 | Read and write user `kind:10063` Blossom server lists for personal media preferences.                   |
+| BUD-01 | Retrieve blobs with `GET /<sha256>` and optional file extension.                                        |
+| BUD-02 | Upload exact bytes with `PUT /upload`.                                                                  |
+| BUD-03 | Support user server lists, but do not force all uploads to every user server.                           |
+| BUD-04 | Prefer `PUT /mirror` for background mirroring when available.                                           |
+| BUD-05 | Use `PUT /media` for server-side media optimization when available.                                     |
+| BUD-06 | Use `HEAD /upload` and `HEAD /media` as optional preflights, never as hard requirements.                |
+| BUD-08 | Preserve useful returned NIP-94 metadata when servers provide it.                                       |
+| BUD-10 | Blossom URIs can be considered later, but normal HTTPS URLs remain supported.                           |
 | BUD-11 | Authorization uses kind `24242`, `t`, `expiration`, server scoping, and scoped `x` tags where required. |
 
 ## Core Concepts
@@ -84,26 +84,61 @@ server C: PUT /upload exact optimized bytes -> hash A
 
 Budabit assembles Blossom servers from several sources.
 
-| Source | Meaning | Default role |
-| --- | --- | --- |
-| Current community definition | Servers declared by the active community through `kind:10222` `blossom` tags. | Primary for current community content. |
-| User personal list | The user's `kind:10063` Blossom server list. | Primary for personal content and optional mirrors. |
-| Communities the user can publish to | Communities where the user has access to publish in at least one section, based on community profile-list membership. | Manual mirror candidates. |
-| Last-resort servers | App-configured fallback servers. | Fallback only, not a preferred home for community media. |
+| Source                              | Meaning                                                                                              | Default role                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Current community definition        | Servers declared by the active community through `kind:10222` `blossom` tags.                        | Primary for current community content.                   |
+| User personal list                  | The user's `kind:10063` Blossom server list.                                                         | Primary for personal content and optional mirrors.       |
+| Communities the user can publish to | Communities where the user is an admin, moderator, or has access to publish in at least one section. | Manual mirror candidates.                                |
+| Last-resort servers                 | App-configured fallback servers.                                                                     | Fallback only, not a preferred home for community media. |
 
 Budabit should not default to Budabit-operated storage for all communities. Communities should be able to operate and prioritize their own storage.
 
+## Community Relay Scope
+
+The community `kind:10222` definition is the discovery entrypoint. Only the community pubkey should publish it, and every published definition must declare at least one relay with an `r` tag.
+
+Root community definition publishes go to:
+
+```txt
+community relays from the definition
+community-pubkey outbox relays
+Budabit indexer relays
+```
+
+Community-scoped moderation and membership data stays on community relays only:
+
+- Section profile lists and member grants/revokes.
+- Moderator request profile lists and request reviews.
+- Admission forms, responses, reviews, and deletes.
+- Moderation reports, person bans, and report deletes.
+
+Budabit must not fall back to personal outbox relays or indexer relays for those community-scoped writes. If no community relay is declared, the write should fail instead of scattering moderation data.
+
 ## Community Membership For Upload And Mirror Targets
 
-Member-community storage candidates should not be limited to communities where the user is an admin or moderator. Most users will not have those roles.
+Member-community storage candidates use Budabit's minimum viable community member model. Read access alone does not imply that the user may upload to a community's Blossom servers.
 
-Budabit should derive "communities you are part of" app-wide:
+Budabit should derive "communities you are part of" app-wide, outside of Blossom-specific code. Blossom upload and mirroring code consumes that canonical community-membership store and then selects Blossom servers from the included community definitions.
 
-- A user is part of a community when that community grants them publish access to at least one section.
-- Access is based on the community definition's section profile lists and the user's membership in those lists.
-- This derived list populates both initial-upload fallbacks and mirror target groups.
+A user is part of a community when at least one of these is true:
 
-Starred communities alone should not imply storage intent. They can be useful discovery signals, but they should not be automatic mirror targets.
+- The user is the community admin, meaning the community definition is authored by that pubkey.
+- The user is a moderator for at least one content section, meaning the `kind:10222` section references a `kind:30000` profile list owned by the user, and Budabit has seen that user-authored `kind:30000` event.
+- The user is a member of at least one content section, meaning they are present in one of that section's referenced profile-list events.
+
+Person-banned users are excluded from member-community storage candidates. The root community admin cannot be person-banned.
+
+This derived list populates both initial-upload fallbacks and mirror target groups. The derived list should expose role evidence (`admin`, `moderator`, `member`) and writable section names; Blossom then filters to communities with at least one valid `blossom` tag.
+
+Profile-list events are a valid discovery entrypoint for moderator communities:
+
+1. Load user-authored `kind:30000` profile-list events from available user and discovery relays.
+2. Build `#a` filters from their addresses and query for `kind:10222` definitions referencing those lists.
+3. If a profile-list event includes an `a` tag pointing to `10222:<community-pubkey>:` with a relay hint, also query that hinted relay for the root definition.
+4. Validate the moderator role only after loading the `kind:10222` and confirming one of its section refs points to the user-owned list.
+5. Load referenced section lists and moderation report state from the loaded definition's declared `r` relays to validate member/grant and ban status.
+
+Starred communities alone should not imply storage intent. Stars are not membership and should not be automatic upload or mirror targets.
 
 ## Upload Priorities
 
@@ -143,12 +178,12 @@ Optimization is an initial-upload concern. It should not be shown in mirror targ
 
 Budabit supports these optimization modes:
 
-| Mode | Behavior |
-| --- | --- |
-| Auto | Use server-side `/media` when it is safe and available. Otherwise fall back to regular upload. |
+| Mode            | Behavior                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------- |
+| Auto            | Use server-side `/media` when it is safe and available. Otherwise fall back to regular upload.        |
 | Server optimize | Prefer `/media`; ask or warn before falling back to original upload when optimization is unavailable. |
-| Client compress | Compress images in the browser before regular upload. Videos are not locally transcoded. |
-| Original | Upload the selected file bytes unchanged. |
+| Client compress | Compress images in the browser before regular upload. Videos are not locally transcoded.              |
+| Original        | Upload the selected file bytes unchanged.                                                             |
 
 Recommended default: `Auto`.
 
@@ -248,13 +283,13 @@ They should not show server-side optimization status. Optimization is relevant o
 
 Mirroring settings:
 
-| Mode | Behavior |
-| --- | --- |
-| Ask after upload | Show a toast after successful initial uploads. |
-| Server-side mirroring only | Only attempt targets that can mirror without browser download. |
-| Allow browser-assisted mirroring | Ask before downloading canonical media and uploading exact bytes to upload-only targets. |
-| Always mirror to selected defaults | Automatically enqueue mirrors for selected target groups. |
-| Never ask | Do not prompt after upload. Manual dashboard actions remain available. |
+| Mode                               | Behavior                                                                                 |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| Ask after upload                   | Show a toast after successful initial uploads.                                           |
+| Server-side mirroring only         | Only attempt targets that can mirror without browser download.                           |
+| Allow browser-assisted mirroring   | Ask before downloading canonical media and uploading exact bytes to upload-only targets. |
+| Always mirror to selected defaults | Automatically enqueue mirrors for selected target groups.                                |
+| Never ask                          | Do not prompt after upload. Manual dashboard actions remain available.                   |
 
 Recommended defaults:
 
@@ -299,7 +334,7 @@ Servers tab:
 
 - Personal Blossom servers from `kind:10063`.
 - Current community servers.
-- Communities the user can publish to.
+- Communities from the canonical user-community membership store that declare Blossom servers.
 - Last-resort servers.
 - Capability and status cache.
 

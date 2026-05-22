@@ -16,8 +16,9 @@
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
-  import {activeCommunityRelays, loadCommunityEvents} from "@app/core/community-state"
+  import {activeCommunityDefinition, loadCommunityEvents} from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND, normalizePubkey} from "@app/core/community"
+  import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
   import {
     makeCommunityReportDelete,
     type CommunityModerationAction,
@@ -27,19 +28,16 @@
 
   type Props = {
     report: CommunityModerationAction
-    relays?: string[]
     showReporter?: boolean
   }
 
-  const {report, relays = [], showReporter = false}: Props = $props()
+  const {report, showReporter = false}: Props = $props()
 
   let revokeStatus = $state<"idle" | "publishing">("idle")
   let targetEventLoadStatus = $state<"idle" | "loading" | "done">("idle")
 
   const currentPubkey = $derived(normalizePubkey($pubkey || ""))
-  const reportRelays = $derived(
-    (relays.length > 0 ? relays : $activeCommunityRelays).filter(Boolean),
-  )
+  const reportRelays = $derived(getCommunityScopedPublishRelays($activeCommunityDefinition))
   const canRevoke = $derived(Boolean(currentPubkey && report.reporterPubkey === currentPubkey))
   const revokeLabel = $derived(report.target === "event" ? "Uncensor" : "Unban")
   const targetLabel = $derived(report.target === "event" ? "Event" : "Person ban")
@@ -63,17 +61,25 @@
   }
 
   const targetEventFilters = $derived(
-    report.target === "event" && report.targetEventId ? [{ids: [report.targetEventId]}] : [{ids: [""]}],
+    report.target === "event" && report.targetEventId
+      ? [{ids: [report.targetEventId]}]
+      : [{ids: [""]}],
   )
   const targetEvents = $derived(
-    deriveEventsAsc(deriveEventsById({repository, filters: targetEventFilters, includeDeleted: true})),
+    deriveEventsAsc(
+      deriveEventsById({repository, filters: targetEventFilters, includeDeleted: true}),
+    ),
   )
   const targetEvent = $derived($targetEvents[0])
   const targetEventKindNumber = $derived(targetEvent?.kind ?? report.targetEventKind)
   const targetEventTitle = $derived(
-    targetEvent ? (getTagValue("title", targetEvent.tags) || "").trim() : report.targetEventTitle || "",
+    targetEvent
+      ? (getTagValue("title", targetEvent.tags) || "").trim()
+      : report.targetEventTitle || "",
   )
-  const targetEventContent = $derived(targetEvent?.content?.trim() || report.targetEventContent || "")
+  const targetEventContent = $derived(
+    targetEvent?.content?.trim() || report.targetEventContent || "",
+  )
   const targetEventKind = $derived.by(() => {
     if (report.target !== "event") return ""
     if (!targetEvent) {
@@ -109,7 +115,7 @@
     }
 
     if (reportRelays.length === 0) {
-      pushToast({theme: "error", message: "Community relays are not loaded yet."})
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return
     }
 
@@ -202,7 +208,7 @@
 
   <div class="mt-3 grid gap-2 text-sm md:grid-cols-2">
     <div class="rounded-box bg-base-200 p-3">
-        <strong>{report.target === "event" ? "Target author" : "Banned person"}</strong>
+      <strong>{report.target === "event" ? "Target author" : "Banned person"}</strong>
       <p class="mt-1 opacity-75"><ProfileLink pubkey={report.targetPubkey} /></p>
     </div>
 
@@ -214,7 +220,9 @@
       <div class="rounded-box bg-base-200 p-3">
         <strong>Event type</strong>
         <p class="mt-1 opacity-75">
-          {targetEventKind}{targetEventKindNumber !== undefined ? ` (${targetEventKindNumber})` : ""}
+          {targetEventKind}{targetEventKindNumber !== undefined
+            ? ` (${targetEventKindNumber})`
+            : ""}
         </p>
       </div>
       <div class="rounded-box bg-base-200 p-3 md:col-span-2">

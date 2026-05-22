@@ -117,7 +117,7 @@ import {getEventRelayHints, makeEventNevent} from "@app/util/event-links"
 import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/util/blossom-auth"
 import {
   activeCommunityDefinition,
-  activeMemberCommunityBlossomRefs,
+  activeUserCommunityBlossomRefs,
   getCommunityBlossomServers,
 } from "@app/core/community-state"
 import {
@@ -1066,7 +1066,7 @@ export const getPrimaryBlossomServers = (options: GetBlossomServerOptions = {}) 
   }
 
   const memberCommunityServers = normalizeBlossomUrls(
-    get(activeMemberCommunityBlossomRefs).flatMap(community => community.blossomServers),
+    get(activeUserCommunityBlossomRefs).flatMap(community => community.blossomServers),
   )
 
   if (memberCommunityServers.length > 0) {
@@ -1113,10 +1113,11 @@ const getPlannerTargets = ({
       (usesCommunityBlossomContext(options.blossomContext)
         ? "Current community"
         : "Selected context servers"),
-    selectedContextGroup:
-      usesCommunityBlossomContext(options.blossomContext) ? "current-community" : "manual",
+    selectedContextGroup: usesCommunityBlossomContext(options.blossomContext)
+      ? "current-community"
+      : "manual",
     personalServers,
-    memberCommunities: get(activeMemberCommunityBlossomRefs),
+    memberCommunities: get(activeUserCommunityBlossomRefs),
     lastResortServers: DEFAULT_BLOSSOM_SERVERS,
   })
 }
@@ -1178,12 +1179,9 @@ const getBlossomUploadHeaders = (file: File, hash: string, contentType = file.ty
 
 const getExpectedContentTypeFromUploadError = (text: string, currentContentType?: string) => {
   const parsed = parseJson(text)
-  const messages = [
-    text,
-    parsed?.message,
-    parsed?.reason,
-    parsed?.error,
-  ].filter((message): message is string => typeof message === "string")
+  const messages = [text, parsed?.message, parsed?.reason, parsed?.error].filter(
+    (message): message is string => typeof message === "string",
+  )
 
   for (const message of messages) {
     if (!/content-type/i.test(message) || !/expected/i.test(message)) continue
@@ -1386,7 +1384,6 @@ const uploadFileToPlannedBlossomServer = async ({
   if (expectedContentType) {
     contentType = expectedContentType
     headers = getBlossomUploadHeaders(file, hash, contentType)
-
     ;({res, text, task} = await uploadFileToBlossomServer({
       file,
       hash,

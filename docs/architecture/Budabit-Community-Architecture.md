@@ -23,6 +23,7 @@ The selected community is the root of the application session. A user may enter 
 | Session scope | A Budabit session stores the selected community pubkey and optional relay hints. |
 | Read visibility | All community content is publicly readable for now. |
 | Write access | Profile lists are the effective write-permission source. |
+| User-community membership | App-wide membership is derived from community definitions plus section profile lists: admin, moderator/list owner, or member/grantee. |
 | Badges | Badges drive engagement and endorsements; profile list inclusion is what Budabit enforces for write access. |
 | Rooms | Rooms are immutable `kind:11` roots with a `room` marker. |
 | Room messages | Room messages are `kind:9` chat events scoped to the community and room root. |
@@ -160,6 +161,22 @@ Write access workflow:
 5. Allow publishing only when the user is listed.
 
 Badges remain important as community endorsements and engagement primitives, but they are not access-control inputs. For Budabit enforcement, profile list inclusion is authoritative.
+
+## App-Wide User Community Membership
+
+Budabit should derive a canonical app-wide list of communities the active user is part of. Feature-specific systems such as Blossom must consume that list instead of re-implementing their own community-membership rules.
+
+A user is part of a community when at least one of these is true:
+
+- Admin: the latest `kind:10222` definition is authored by the user.
+- Moderator: a section in `kind:10222` references a `kind:30000` profile-list address owned by the user, and Budabit has seen that user-authored `kind:30000` event.
+- Member/grantee: a referenced section profile-list event contains a `p` tag for the user.
+
+Non-admin users are excluded when effective community report state contains a person-ban for that user. The community admin is never excluded by a person-ban in their own community.
+
+Discovery should keep `kind:30000` profile-list events as a first-class entrypoint. If the user-authored profile list includes an `a` tag pointing to `10222:<community-pubkey>:` with a relay hint, Budabit may use that relay hint to find the community definition. Budabit should still validate the role against the loaded `kind:10222` section refs before treating the user as a moderator.
+
+Community-scoped data used to validate membership, including referenced section profile lists and moderation reports, should be loaded from the relays declared by the loaded `kind:10222` definition. Personal outbox and indexer relays may help discover root `kind:10222` definitions, but they are not fallback sources for scoped membership or moderation state.
 
 ## Badge Display And Access Revocation
 

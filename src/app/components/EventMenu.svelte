@@ -93,7 +93,7 @@
     </li>
   {/if}
   {@render customActions?.()}
-  <ModerationAction {event} sectionName={communitySectionName} {relays} {onClick} />
+  <ModerationAction {event} sectionName={communitySectionName} {onClick} />
   <li>
     <Button onclick={showInfo}>
       <Icon size={4} icon={Code2} />

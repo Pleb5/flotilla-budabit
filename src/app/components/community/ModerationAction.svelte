@@ -6,12 +6,9 @@
   import Button from "@lib/components/Button.svelte"
   import Confirm from "@lib/components/Confirm.svelte"
   import Icon from "@lib/components/Icon.svelte"
-  import {
-    activeCommunityDefinition,
-    activeCommunityReportState,
-    activeCommunityRelays,
-  } from "@app/core/community-state"
+  import {activeCommunityDefinition, activeCommunityReportState} from "@app/core/community-state"
   import {normalizePubkey} from "@app/core/community"
+  import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
   import {
     canPublishCommunityEventReport,
     canPublishCommunityPersonReport,
@@ -24,7 +21,6 @@
   type Props = {
     event: TrustedEvent
     sectionName?: string
-    relays?: string[]
     onClick?: () => void
     mode?: "menu" | "buttons"
     replaceState?: boolean
@@ -33,7 +29,6 @@
   const {
     event,
     sectionName = "",
-    relays = [],
     onClick = undefined,
     mode = "menu",
     replaceState = false,
@@ -42,7 +37,7 @@
   const reporterPubkey = $derived(normalizePubkey($pubkey || ""))
   let publishStatus = $state<"idle" | "publishing">("idle")
   const reportRelays = $derived.by(() =>
-    (relays.length > 0 ? relays : $activeCommunityRelays).filter(Boolean),
+    getCommunityScopedPublishRelays($activeCommunityDefinition),
   )
   const canModerateEvent = $derived.by(() =>
     Boolean(
@@ -85,7 +80,12 @@
   }
 
   const publishCommunityReport = async (target: "event" | "person") => {
-    if (!$activeCommunityDefinition || reportRelays.length === 0 || publishStatus === "publishing") return
+    if (!$activeCommunityDefinition || publishStatus === "publishing") return
+
+    if (reportRelays.length === 0) {
+      pushToast({theme: "error", message: "Community definition must declare at least one relay."})
+      return
+    }
 
     const template =
       target === "event"
@@ -95,7 +95,8 @@
             eventId: event.id,
             eventPubkey: event.pubkey,
             eventKind: event.kind,
-            eventSubtype: event.kind === THREAD && event.tags.some(tag => tag[0] === "room") ? "room" : "",
+            eventSubtype:
+              event.kind === THREAD && event.tags.some(tag => tag[0] === "room") ? "room" : "",
             eventTitle: getTagValue("title", event.tags) || "",
             eventContent: event.content || "",
           })
@@ -124,7 +125,10 @@
     }
 
     publishStatus = "idle"
-    pushToast({theme: "success", message: target === "event" ? "Event moderated." : "Person banned."})
+    pushToast({
+      theme: "success",
+      message: target === "event" ? "Event moderated." : "Person banned.",
+    })
     history.back()
   }
 
@@ -151,13 +155,19 @@
 
 {#if mode === "buttons"}
   {#if canModerateEvent}
-    <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("event")}>
+    <Button
+      class={buttonClass}
+      disabled={publishStatus === "publishing"}
+      onclick={() => confirmModeration("event")}>
       <Icon size={4} icon={Danger} />
       {publishStatus === "publishing" ? "Publishing..." : "Moderate Event"}
     </Button>
   {/if}
   {#if canModeratePerson}
-    <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("person")}>
+    <Button
+      class={buttonClass}
+      disabled={publishStatus === "publishing"}
+      onclick={() => confirmModeration("person")}>
       <Icon size={4} icon={Danger} />
       {publishStatus === "publishing" ? "Publishing..." : "Ban Person"}
     </Button>
@@ -165,7 +175,10 @@
 {:else}
   {#if canModerateEvent}
     <li>
-      <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("event")}>
+      <Button
+        class={buttonClass}
+        disabled={publishStatus === "publishing"}
+        onclick={() => confirmModeration("event")}>
         <Icon size={4} icon={Danger} />
         {publishStatus === "publishing" ? "Publishing..." : "Moderate Event"}
       </Button>
@@ -173,7 +186,10 @@
   {/if}
   {#if canModeratePerson}
     <li>
-      <Button class={buttonClass} disabled={publishStatus === "publishing"} onclick={() => confirmModeration("person")}>
+      <Button
+        class={buttonClass}
+        disabled={publishStatus === "publishing"}
+        onclick={() => confirmModeration("person")}>
         <Icon size={4} icon={Danger} />
         {publishStatus === "publishing" ? "Publishing..." : "Ban Person"}
       </Button>

@@ -2,12 +2,11 @@ import {get} from "svelte/store"
 import {localStorageProvider, synced} from "@welshman/store"
 import {normalizeUrl} from "@welshman/lib"
 import type {TrustedEvent} from "@welshman/util"
+import type {CommunityDefinition} from "@app/core/community"
 import {
-  type CommunityDefinition,
-  normalizePubkey,
-  parseCommunityDefinition,
-} from "@app/core/community"
-import {getCommunityPublishCapabilityMap} from "@app/core/community-permissions"
+  selectUserCommunityRefs,
+  type UserCommunityReportStates,
+} from "@app/core/community-membership"
 
 export const BLOSSOM_SETTINGS_STORAGE_KEY = "budabit/blossom/settings:v1"
 export const BLOSSOM_DASHBOARD_STORAGE_KEY = "budabit/blossom/dashboard:v1"
@@ -177,6 +176,8 @@ export type BlossomMemberCommunityRef = {
   blossomServers: string[]
   writableSections: string[]
 }
+
+export type BlossomMemberCommunityReportStates = UserCommunityReportStates
 
 export type BlossomServerTarget = {
   url: string
@@ -365,65 +366,38 @@ export const normalizeBlossomServerUrl = (url: string | undefined | null) => {
 const normalizeBlossomServers = (servers: Array<string | undefined | null>) =>
   Array.from(new Set(servers.map(normalizeBlossomServerUrl).filter(Boolean)))
 
-const getLatestDefinitionsByPubkey = (definitions: CommunityDefinition[]) => {
-  const latest = new Map<string, CommunityDefinition>()
-
-  for (const definition of definitions) {
-    const current = latest.get(definition.pubkey)
-    if (!current || definition.event.created_at > current.event.created_at) {
-      latest.set(definition.pubkey, definition)
-    }
-  }
-
-  return Array.from(latest.values())
-}
-
 export const selectMemberCommunityBlossomRefs = ({
   author,
   definitions = [],
   definitionEvents = [],
   profileListEvents = [],
+  reportStates,
 }: {
   author?: string
   definitions?: CommunityDefinition[]
   definitionEvents?: TrustedEvent[]
   profileListEvents?: TrustedEvent[]
+  reportStates?: BlossomMemberCommunityReportStates
 }): BlossomMemberCommunityRef[] => {
-  const normalizedAuthor = normalizePubkey(author || "")
-  if (!normalizedAuthor) return []
+  return selectUserCommunityRefs({
+    author,
+    definitions,
+    definitionEvents,
+    profileListEvents,
+    reportStates,
+  }).flatMap(definition => {
+    const blossomServers = normalizeBlossomServers(definition.definition.blossomServers)
+    if (blossomServers.length === 0) return []
 
-  const parsedDefinitions = definitionEvents.flatMap(event => {
-    const definition = parseCommunityDefinition(event)
-    return definition ? [definition] : []
+    return [
+      {
+        communityPubkey: definition.communityPubkey,
+        relayHints: definition.relayHints,
+        blossomServers,
+        writableSections: definition.writableSections,
+      } satisfies BlossomMemberCommunityRef,
+    ]
   })
-
-  return getLatestDefinitionsByPubkey([...definitions, ...parsedDefinitions])
-    .flatMap(definition => {
-      const capabilities = Object.values(
-        getCommunityPublishCapabilityMap({
-          definition,
-          profileListEvents,
-          userPubkey: normalizedAuthor,
-        }),
-      ).filter(capability => capability.canWrite)
-
-      if (capabilities.length === 0) return []
-
-      const blossomServers = normalizeBlossomServers(definition.blossomServers)
-      if (blossomServers.length === 0) return []
-
-      return [
-        {
-          communityPubkey: definition.pubkey,
-          relayHints: definition.relays,
-          blossomServers,
-          writableSections: Array.from(
-            new Set(capabilities.map(capability => capability.sectionName)),
-          ),
-        } satisfies BlossomMemberCommunityRef,
-      ]
-    })
-    .sort((a, b) => a.communityPubkey.localeCompare(b.communityPubkey))
 }
 
 export const buildBlossomServerGroups = ({
