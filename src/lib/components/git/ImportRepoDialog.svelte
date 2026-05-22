@@ -58,6 +58,10 @@
     getEffectiveRepoRelayUrls,
     getMandatoryGraspRelayUrls,
   } from "../../utils/grasp-pipeline.js";
+  import {
+    getAccessTokenManagementMessage,
+    isWorkflowScopeIssue,
+  } from "../../utils/tokenManagement.js";
 
   interface Props {
     pubkey: string;
@@ -1196,7 +1200,7 @@
   );
   const isProgressComplete = $derived(currentProgress?.isComplete && completedResult !== null);
   const workflowScopeIssue = $derived.by(() =>
-    Boolean(currentProgress?.error && /workflow|\.github\/workflows/i.test(currentProgress.error))
+    Boolean(currentProgress?.error && isWorkflowScopeIssue(currentProgress.error))
   );
 
   // Phased progress from hook: use explicit phase and IMPORT_PHASES order (no string matching)
@@ -2043,8 +2047,7 @@
                       <p class="text-sm text-red-700 dark:text-red-300 mt-1">{currentProgress.error}</p>
                       {#if workflowScopeIssue}
                         <div class="mt-3 text-xs text-red-700/80 dark:text-red-200/80">
-                          GitHub requires the workflow token scope to push files under
-                          <span class="font-mono">.github/workflows</span>.
+                          {getAccessTokenManagementMessage(currentProgress.error)}
                           <a
                             href="/settings/profile"
                             target="_blank"

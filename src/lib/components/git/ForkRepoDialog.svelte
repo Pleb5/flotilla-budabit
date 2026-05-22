@@ -46,6 +46,11 @@
     getEditableRepoRelayUrls,
     getEffectiveRepoRelayUrls,
   } from "../../utils/grasp-pipeline.js";
+  import {
+    ACCESS_TOKEN_SETTINGS_PATH,
+    getAccessTokenManagementMessage,
+    isAccessTokenManagementIssue,
+  } from "../../utils/tokenManagement.js";
 
   interface Props {
     repo: Repo;
@@ -154,6 +159,7 @@
   const progressPhases = $derived.by(() => deriveForkProgressPhases(progress || []));
   const error = $derived(forkState.error);
   const warning = $derived(forkState.warning);
+  const forkTokenIssue = $derived(Boolean(error && isAccessTokenManagementIssue(error)));
   const isForking = $derived(forkState.isForking);
   const isProgressComplete = $derived(Boolean(forkState.isComplete));
   const currentProgressMessage = $derived.by(() => {
@@ -1615,6 +1621,18 @@
                     <p>{error}</p>
                   {/if}
                 </div>
+                {#if forkTokenIssue}
+                  <p class="mt-2 text-xs text-red-700 dark:text-red-300">
+                    {getAccessTokenManagementMessage(error)}
+                    <a
+                      href={ACCESS_TOKEN_SETTINGS_PATH}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="ml-1 underline underline-offset-2">
+                      Open token settings
+                    </a>
+                  </p>
+                {/if}
                 {#if !isForking}
                   <button
                     type="button"

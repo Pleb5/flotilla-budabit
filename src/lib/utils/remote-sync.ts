@@ -71,6 +71,7 @@ interface WorkerCreateRemoteRepoResult {
 interface WorkerPushToRemoteResult {
   success?: boolean;
   error?: string;
+  reason?: string;
   details?: {
     pushedRefs?: string[];
     failedRefs?: Array<{ ref: string; error: string }>;

@@ -9,6 +9,7 @@ import { detectVendorFromUrl } from "@nostr-git/core/git";
 import { isGraspRepoHttpUrl } from "@nostr-git/core/utils";
 import { tokens as tokensStore } from "../stores/tokens.js";
 import { normalizeGraspOrigins } from "../utils/grasp-pipeline.js";
+import { getAccessTokenManagementMessage, isWorkflowScopeIssue } from "../utils/tokenManagement.js";
 import { tryTokensForHost } from "../utils/tokenHelpers.js";
 
 // Types for edit configuration and progress
@@ -290,9 +291,8 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
     } catch (err: any) {
       console.error("Edit repository failed:", err);
       const message = err?.message || "Repository update failed";
-      if (/workflow|\.github\/workflows/i.test(message)) {
-        error =
-          "GitHub requires the workflow token scope to push files under .github/workflows. Update your token or remove those changes.";
+      if (isWorkflowScopeIssue(message)) {
+        error = getAccessTokenManagementMessage(message);
       } else {
         error = message;
       }
