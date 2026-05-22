@@ -92,19 +92,6 @@
       {/snippet}
     </CardButton>
   </Link>
-  <Link replaceState href="/settings/trust">
-    <CardButton class="btn-neutral">
-      {#snippet icon()}
-        <div><Icon icon={ShieldCheck} size={7} /></div>
-      {/snippet}
-      {#snippet title()}
-        <div>Trust</div>
-      {/snippet}
-      {#snippet info()}
-        <div>Manage trusted assertion providers and WoT-based recommendations</div>
-      {/snippet}
-    </CardButton>
-  </Link>
   <Link replaceState href="/settings/content">
     <CardButton class="btn-neutral">
       {#snippet icon()}
@@ -119,6 +106,19 @@
         {:else}
           <div>Manage content display, editor, and in-app notification preferences</div>
         {/if}
+      {/snippet}
+    </CardButton>
+  </Link>
+  <Link replaceState href="/settings/trust">
+    <CardButton class="btn-neutral">
+      {#snippet icon()}
+        <div><Icon icon={ShieldCheck} size={7} /></div>
+      {/snippet}
+      {#snippet title()}
+        <div>Trust</div>
+      {/snippet}
+      {#snippet info()}
+        <div>Manage trusted assertion providers and WoT-based recommendations</div>
       {/snippet}
     </CardButton>
   </Link>
