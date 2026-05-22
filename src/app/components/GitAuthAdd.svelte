@@ -9,11 +9,18 @@
   import Field from "@src/lib/components/Field.svelte"
   import {GithubIcon} from "@lucide/svelte"
   import {pushToast} from "@app/util/toast"
-  import {ACCESS_TOKEN_SETTINGS_LINKS, toast, tokens as tokensStore} from "@nostr-git/ui"
-  import {signer, pubkey, publishThunk} from "@welshman/app"
+  import {
+    ACCESS_TOKEN_SETTINGS_LINKS,
+    checkTokenCapabilities,
+    getMissingRecommendedTokenCapabilities,
+    getTokenCapabilityPillLabel,
+    toast,
+    tokens as tokensStore,
+    type TokenCapability,
+    type TokenCapabilityCheck,
+  } from "@nostr-git/ui"
   import {Router} from "@welshman/router"
-  import {APP_DATA, makeEvent} from "@welshman/util"
-  import {GIT_AUTH_DTAG} from "@app/core/git-requests"
+  import {persistGitAuthTokens} from "@app/core/git-requests"
   import {get} from "svelte/store"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
@@ -32,6 +39,7 @@
   let token = $state(editToken?.token || "")
   let busy = $state(false)
   let error = $state("")
+  let capabilityCheck = $state<TokenCapabilityCheck | null>(null)
 
   interface TokenEntry {
     host: string
@@ -41,24 +49,33 @@
   const githubTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "github")
   const gitlabTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "gitlab")
 
+  function capabilityPillClass(capability: TokenCapability) {
+    const base =
+      "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium leading-5"
+    if (capability.status === "present") {
+      return `${base} border-blue-400/40 bg-blue-500/10 text-blue-700 dark:text-blue-300`
+    }
+    if (capability.status === "missing") {
+      return `${base} border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300`
+    }
+    return `${base} border-base-300 bg-base-200 text-base-content/70`
+  }
+
+  function capabilityPanelClass(check: TokenCapabilityCheck) {
+    const base = "rounded border p-3 text-sm"
+    if (!check.valid && !check.unsupported) return `${base} border-error bg-error/10`
+    if (check.unsupported) return `${base} border-warning bg-warning/10`
+    return `${base} border-base-300 bg-base-200/40`
+  }
+
   function reset() {
     host = token = ""
     busy = false
     error = ""
+    capabilityCheck = null
   }
 
   const saveTokens = async (toks: TokenEntry[]) => {
-    // Detailed signer validation
-    if (!$signer) {
-      throw new Error("Signer is not available")
-    }
-    if (!$signer.nip44) {
-      throw new Error("Signer does not support NIP-44 encryption")
-    }
-    if (!$pubkey) {
-      throw new Error("Public key is not available")
-    }
-
     try {
       // Get current tokens from store
       const currentTokens: TokenEntry[] = get(tokensStore)
@@ -81,41 +98,8 @@
         token: String(t.token).trim(),
       }))
 
-      const dataToEncrypt = JSON.stringify(cleanTokens)
-
-      // Create a promise that rejects after timeout (longer for NIP-46 signers)
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                "NIP-44 encryption timeout. Please try logging out and back in with your signer.",
-              ),
-            ),
-          15000,
-        )
-      })
-
-      // Encrypt with NIP-44 (self-encryption)
-      const encrypted = (await Promise.race([
-        $signer.nip44.encrypt($pubkey!, dataToEncrypt),
-        timeoutPromise,
-      ])) as string
-
-      // Create and publish the event
-      const event = makeEvent(APP_DATA, {
-        content: encrypted,
-        tags: [["d", GIT_AUTH_DTAG]],
-      })
-
-      // Publish to user's relays
       const relays = Router.get().FromUser().getUrls()
-      console.log("[GitAuthAdd] Publishing token event to relays:", relays)
-      publishThunk({event, relays})
-
-      // Update the reactive store immediately for responsive UI
-      tokensStore.clear()
-      cleanTokens.forEach(t => tokensStore.push(t))
+      await persistGitAuthTokens(cleanTokens, relays)
 
       console.log("[GitAuthAdd] Tokens saved successfully, count:", cleanTokens.length)
     } catch (e) {
@@ -144,7 +128,29 @@
     error = "" // Clear any previous errors
 
     try {
+      capabilityCheck = await checkTokenCapabilities({host: cleanHost, token: cleanToken})
+      if (!capabilityCheck.valid && !capabilityCheck.unsupported) {
+        error = capabilityCheck.error || "Token validation failed"
+        return
+      }
+
       await saveTokens([{host: cleanHost, token: cleanToken}])
+      const missingCapabilities = getMissingRecommendedTokenCapabilities(capabilityCheck)
+      if (missingCapabilities.length > 0) {
+        pushToast({
+          theme: "warning",
+          timeout: 8000,
+          message: `Token saved, but missing: ${missingCapabilities
+            .map(getTokenCapabilityPillLabel)
+            .join(", ")}. Some Budabit Git workflows may fail until permissions are updated.`,
+        })
+      } else if (capabilityCheck.unsupported) {
+        pushToast({
+          theme: "warning",
+          timeout: 8000,
+          message: "Token saved, but Budabit could not verify capabilities for this host.",
+        })
+      }
       reset()
       back()
     } catch (e) {
@@ -232,6 +238,31 @@
         </label>
       {/snippet}
     </Field>
+    {#if capabilityCheck}
+      <div class={capabilityPanelClass(capabilityCheck)}>
+        <div class="mb-2 font-medium">
+          {#if capabilityCheck.valid}
+            {capabilityCheck.providerLabel} token checked{capabilityCheck.userLogin
+              ? ` for ${capabilityCheck.userLogin}`
+              : ""}
+          {:else if capabilityCheck.unsupported}
+            Capability check unavailable
+          {:else}
+            Token validation failed
+          {/if}
+        </div>
+        {#if capabilityCheck.error}
+          <p class="mb-2 text-sm opacity-80">{capabilityCheck.error}</p>
+        {/if}
+        <div class="flex flex-wrap gap-1">
+          {#each capabilityCheck.capabilities as capability}
+            <span class={capabilityPillClass(capability)} title={capability.detail || capability.label}>
+              {getTokenCapabilityPillLabel(capability)}
+            </span>
+          {/each}
+        </div>
+      </div>
+    {/if}
   </div>
   <ModalFooter>
     <Button class="btn btn-link" onclick={back}>

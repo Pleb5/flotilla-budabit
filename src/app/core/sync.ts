@@ -46,6 +46,7 @@ import {
   setupGraspServersSync,
   setupTokensSync,
   setupExtensionSettingsSync,
+  clearSyncedGitAuthTokens,
 } from "@app/core/git-requests"
 import {
   applyRemoteExtensionSettings,
@@ -453,6 +454,7 @@ const syncUserGitData = () => {
 
     if ($pubkey !== currentPubkey) {
       unsubscribeAll()
+      clearSyncedGitAuthTokens()
     }
 
     loadController?.abort()
@@ -494,6 +496,7 @@ const syncUserGitData = () => {
       })()
     } else {
       console.log("[syncUserGitData] Skipping sync - no pubkey")
+      clearSyncedGitAuthTokens()
     }
 
     currentPubkey = $pubkey

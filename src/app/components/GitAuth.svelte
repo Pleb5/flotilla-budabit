@@ -3,8 +3,16 @@
   import Button from "@lib/components/Button.svelte"
   import FieldInline from "@lib/components/FieldInline.svelte"
   import {pushModal} from "@app/util/modal"
+  import {pushToast} from "@app/util/toast"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
-  import {ACCESS_TOKEN_SETTINGS_LINKS, tokens as tokensStore} from "@nostr-git/ui"
+  import {
+    ACCESS_TOKEN_SETTINGS_LINKS,
+    checkTokenCapabilities,
+    getTokenCapabilityPillLabel,
+    tokens as tokensStore,
+    type TokenCapability,
+    type TokenCapabilityCheck,
+  } from "@nostr-git/ui"
   import {
     DEFAULT_GIT_CORS_PROXY,
     gitCorsProxy,
@@ -12,11 +20,9 @@
     resolveGitCorsProxy,
   } from "@app/util/git-cors-proxy"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
-  import {signer, pubkey, publishThunk} from "@welshman/app"
   import {Router} from "@welshman/router"
-  import {APP_DATA, makeEvent} from "@welshman/util"
-  import {GIT_AUTH_DTAG} from "@app/core/git-requests"
-  import {get} from "svelte/store"
+  import {persistGitAuthTokens} from "@app/core/git-requests"
+  import {onMount} from "svelte"
   import Git from "@assets/icons/git.svg?dataurl"
   import DangerTriangle from "@assets/icons/danger-triangle.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
@@ -53,43 +59,101 @@
 
   const githubTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "github")
   const gitlabTokenSettings = ACCESS_TOKEN_SETTINGS_LINKS.find(link => link.provider === "gitlab")
+  let capabilityChecks = $state<Record<string, TokenCapabilityCheck>>({})
+  let capabilityRefreshing = $state(false)
+  let capabilityRefreshError = $state("")
+  let lastCapabilitySignature = ""
+  let capabilityRunId = 0
 
   // Use the store directly for reactivity
   // $tokensStore is reactive and will update when tokens are loaded
 
-  async function del(tokenToDelete: TokenEntry) {
-    const currentSigner = get(signer)
-    const currentPubkey = get(pubkey)
+  function tokenKey(token: TokenEntry) {
+    return `${token.host}\n${token.token}`
+  }
 
-    if (!currentSigner?.nip44 || !currentPubkey) {
-      console.error("[GitAuth] Cannot delete token: signer or pubkey not available")
+  function getCapabilityCheck(token: TokenEntry) {
+    return capabilityChecks[tokenKey(token)]
+  }
+
+  function capabilityPillClass(capability: TokenCapability) {
+    const base =
+      "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium leading-5"
+    if (capability.status === "present") {
+      return `${base} border-blue-400/40 bg-blue-500/10 text-blue-700 dark:text-blue-300`
+    }
+    if (capability.status === "missing") {
+      return `${base} border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300`
+    }
+    return `${base} border-base-300 bg-base-200 text-base-content/70`
+  }
+
+  function checkSummary(check: TokenCapabilityCheck | undefined) {
+    if (!check) return "Checking token capabilities"
+    if (check.unsupported) return check.error || "Capability checks unavailable for this host"
+    if (!check.valid) return check.error || "Token is invalid"
+    return check.userLogin ? `${check.providerLabel}: ${check.userLogin}` : check.providerLabel
+  }
+
+  function invalidPillClass() {
+    return "inline-flex items-center rounded-full border border-error/40 bg-error/10 px-2 py-0.5 text-xs font-medium leading-5 text-error"
+  }
+
+  async function refreshCapabilities(tokensToCheck: TokenEntry[] = $tokensStore) {
+    const runId = ++capabilityRunId
+    capabilityRefreshing = true
+    capabilityRefreshError = ""
+
+    try {
+      const entries = await Promise.all(
+        tokensToCheck.map(async token => [tokenKey(token), await checkTokenCapabilities(token)] as const),
+      )
+      if (runId !== capabilityRunId) return
+      capabilityChecks = Object.fromEntries(entries)
+    } catch (error) {
+      if (runId !== capabilityRunId) return
+      capabilityRefreshError = error instanceof Error ? error.message : String(error)
+    } finally {
+      if (runId === capabilityRunId) capabilityRefreshing = false
+    }
+  }
+
+  onMount(() => {
+    void (async () => {
+      await tokensStore.waitForInitialization()
+      await tokensStore.refresh()
+    })()
+  })
+
+  $effect(() => {
+    const signature = $tokensStore.map(tokenKey).join("|")
+    if (signature === lastCapabilitySignature) return
+    lastCapabilitySignature = signature
+
+    if (!signature) {
+      capabilityChecks = {}
+      capabilityRefreshing = false
       return
     }
 
+    void refreshCapabilities($tokensStore)
+  })
+
+  async function del(tokenToDelete: TokenEntry) {
     // Match both host AND token to uniquely identify the token to delete
     const updatedTokens = $tokensStore.filter(
       (t: TokenEntry) => !(t.host === tokenToDelete.host && t.token === tokenToDelete.token),
     )
 
     try {
-      // Encrypt and publish updated token list
-      const dataToEncrypt = JSON.stringify(updatedTokens)
-      const encrypted = await currentSigner.nip44.encrypt(currentPubkey, dataToEncrypt)
-
-      const event = makeEvent(APP_DATA, {
-        content: encrypted,
-        tags: [["d", GIT_AUTH_DTAG]],
-      })
-
       const relays = Router.get().FromUser().getUrls()
-      console.log("[GitAuth] Publishing updated token list after delete to relays:", relays)
-      publishThunk({event, relays})
-
-      // Update the reactive store
-      tokensStore.clear()
-      updatedTokens.forEach(token => tokensStore.push(token))
+      await persistGitAuthTokens(updatedTokens, relays)
     } catch (error) {
       console.error("[GitAuth] Failed to delete token:", error)
+      pushToast({
+        theme: "error",
+        message: error instanceof Error ? error.message : "Failed to delete token",
+      })
     }
   }
 
@@ -110,19 +174,27 @@
       <Icon icon={Git} />
       Git Authentication Tokens
     </strong>
-    <Button class="btn btn-primary btn-sm" onclick={openDialog}>
-      <Icon icon={AddCircle} />
-      Add Token
-    </Button>
+    <div class="flex items-center gap-2">
+      <Button
+        class="btn btn-ghost btn-sm"
+        onclick={() => refreshCapabilities($tokensStore)}
+        disabled={capabilityRefreshing || !$tokensStore.length}>
+        {capabilityRefreshing ? "Checking..." : "Refresh"}
+      </Button>
+      <Button class="btn btn-primary btn-sm" onclick={openDialog}>
+        <Icon icon={AddCircle} />
+        Add Token
+      </Button>
+    </div>
   </div>
 
   <div class="rounded border border-warning/30 bg-warning/10 p-3 text-warning">
     <div class="flex items-start gap-2">
       <Icon icon={DangerTriangle} class="mt-0.5 text-warning" size={4} />
       <p class="text-sm leading-5">
-        Tokens are sent in cleartext through the configured CORS proxy and are stored encrypted in
-        browser local storage. DO NOT PUT CRITICAL ACCESS TOKENS HERE! SCOPE TOKEN PERMISSIONS TO
-        REDUCE RISK.
+        Tokens are sent in cleartext through the configured CORS proxy and are backed up encrypted to
+        your Nostr relays. DO NOT PUT CRITICAL ACCESS TOKENS HERE! SCOPE TOKEN PERMISSIONS TO REDUCE
+        RISK.
       </p>
     </div>
   </div>
@@ -151,16 +223,41 @@
       <table class="w-full table-fixed">
         <thead>
           <tr>
-            <th class="w-1/3 p-2 text-left">Host</th>
-            <th class="w-1/3 p-2 text-left">Token</th>
-            <th class="w-1/3 p-2 text-right">Actions</th>
+            <th class="w-1/5 p-2 text-left">Host</th>
+            <th class="w-1/5 p-2 text-left">Token</th>
+            <th class="w-2/5 p-2 text-left">Capabilities</th>
+            <th class="w-1/5 p-2 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
           {#each $tokensStore as t}
+            {@const capabilityCheck = getCapabilityCheck(t)}
             <tr class="hover:bg-neutral">
               <td class="p-2 text-left">{t.host}</td>
               <td class="p-2 text-left">{mask(t.token)}</td>
+              <td class="p-2 text-left">
+                <div class="flex flex-col gap-1">
+                  <div class="text-xs opacity-70">{checkSummary(capabilityCheck)}</div>
+                  <div class="flex flex-wrap gap-1">
+                    {#if capabilityCheck?.valid}
+                      {#each capabilityCheck.capabilities as capability}
+                        <span class={capabilityPillClass(capability)} title={capability.detail || capability.label}>
+                          {getTokenCapabilityPillLabel(capability)}
+                        </span>
+                      {/each}
+                    {:else if capabilityCheck}
+                      <span class={invalidPillClass()} title={capabilityCheck.error || "Token check failed"}>
+                        {capabilityCheck.unsupported ? "Capabilities unknown" : "Invalid token"}
+                      </span>
+                    {:else}
+                      <span
+                        class="inline-flex items-center rounded-full border border-base-300 bg-base-200 px-2 py-0.5 text-xs font-medium leading-5 text-base-content/70">
+                        Checking...
+                      </span>
+                    {/if}
+                  </div>
+                </div>
+              </td>
               <td class="p-2 text-right">
                 <div class="flex justify-end gap-2">
                   <Button class="btn btn-primary btn-sm" onclick={() => editToken(t)}
@@ -173,6 +270,9 @@
           {/each}
         </tbody>
       </table>
+      {#if capabilityRefreshError}
+        <p class="mt-2 text-sm text-error">Capability check failed: {capabilityRefreshError}</p>
+      {/if}
     </div>
   {:else}
     <p class="py-12 text-center opacity-75">No tokens saved yet!</p>

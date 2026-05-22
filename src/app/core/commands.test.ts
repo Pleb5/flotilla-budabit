@@ -30,8 +30,12 @@ vi.mock("@welshman/util", async importOriginal => {
 })
 
 vi.mock("@app/core/storage", () => ({
-  kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn()},
-  db: {},
+  kv: {get: vi.fn(), set: vi.fn(), clear: vi.fn().mockResolvedValue(undefined)},
+  db: {clear: vi.fn().mockResolvedValue(undefined)},
+}))
+
+vi.mock("@lib/util", () => ({
+  deleteIndexedDB: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock("@app/extensions/registry", () => ({
@@ -53,7 +57,11 @@ vi.mock("@app/extensions/settings", () => ({
 
 vi.mock("@app/core/git-state", () => ({
   activeRepoClass: {
-    subscribe: vi.fn(),
+    subscribe: (fn: (value: undefined) => void) => {
+      fn(undefined)
+      return () => {}
+    },
+    set: vi.fn(),
   },
 }))
 
@@ -111,6 +119,16 @@ describe("commands", () => {
     repository.removeEvent("definition-with-blossom")
     repository.removeEvent("definition-without-blossom")
     vi.unstubAllGlobals()
+  })
+
+  it("logout clears local Git token caches", async () => {
+    localStorage.setItem("budabit:git-auth:v1:pk999", "cached")
+
+    const {logout} = await import("./commands")
+
+    await logout()
+
+    expect(localStorage.getItem("budabit:git-auth:v1:pk999")).toBeNull()
   })
 
   it("normalizeBlossomUrl converts ws to http", async () => {

@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => {
     setupBookmarksSync: vi.fn(() => () => {}),
     setupGraspServersSync: vi.fn(() => () => {}),
     setupTokensSync: vi.fn(() => () => {}),
+    clearSyncedGitAuthTokens: vi.fn(),
     setupExtensionSettingsSync: vi.fn(() => () => {}),
     applyRemoteExtensionSettings: vi.fn(),
     startExtensionSettingsAutoSync: vi.fn(() => () => {}),
@@ -172,6 +173,7 @@ vi.mock("@app/core/git-requests", () => ({
   setupBookmarksSync: mocks.setupBookmarksSync,
   setupGraspServersSync: mocks.setupGraspServersSync,
   setupTokensSync: mocks.setupTokensSync,
+  clearSyncedGitAuthTokens: mocks.clearSyncedGitAuthTokens,
   setupExtensionSettingsSync: mocks.setupExtensionSettingsSync,
 }))
 
