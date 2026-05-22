@@ -310,6 +310,29 @@ function getErrorMessageWithDetails(error: unknown): string {
   return message
 }
 
+function isGithubWorkflowPermissionMessage(message: string): boolean {
+  return /workflow_scope_missing|workflow token scope|workflow permission|refusing to allow.*workflow|without.*workflow.*scope|lacks.*workflow.*scope|missing.*workflow.*scope/i.test(
+    message,
+  )
+}
+
+function getGithubWorkflowPushFailureReason(params: {
+  provider?: string
+  message: string
+}): string | null {
+  if (params.provider !== "github") return null
+  if (isGithubWorkflowPermissionMessage(params.message)) return "workflow_scope_missing"
+  return null
+}
+
+function buildGithubWorkflowPushFailureMessage(originalMessage: string): string {
+  const message =
+    "GitHub rejected this push because the token is missing Workflow permission for .github/workflows files. Update the GitHub token permissions and retry."
+  return originalMessage && !originalMessage.includes(message)
+    ? `${message}\n\nOriginal GitHub error: ${originalMessage}`
+    : message
+}
+
 function postProgress(payload: {
   type: "clone-progress" | "merge-progress"
   repoId: string
@@ -1637,8 +1660,7 @@ const api = {
       })
     } catch (error) {
       console.error(`Error pushing to remote:`, error)
-      const message = getErrorMessageWithDetails(error)
-      const formatted = formatError(error, {naddr: repoId, remote: remoteUrl, operation: "push"})
+      const originalMessage = getErrorMessageWithDetails(error)
       const requestedRefs = Array.from(
         new Set(
           [...normalizedRequestedRefs, normalizedRequestedRef].filter(Boolean).length > 0
@@ -1646,17 +1668,28 @@ const api = {
             : [normalizePushRef(targetBranch)],
         ),
       )
+      const workflowFailureReason = getGithubWorkflowPushFailureReason({
+        provider,
+        message: originalMessage,
+      })
+      const message = workflowFailureReason
+        ? buildGithubWorkflowPushFailureMessage(originalMessage)
+        : originalMessage
+      const formatted = formatError(error, {naddr: repoId, remote: remoteUrl, operation: "push"})
 
       return toPlain({
         success: false,
         repoId,
         remoteUrl,
         ...formatted,
+        ...(workflowFailureReason ? {reason: workflowFailureReason} : {}),
         error: message,
         details: {
           pushedRefs: [],
           failedRefs: requestedRefs.map(ref => ({ref, error: message})),
-          warnings: [],
+          warnings: workflowFailureReason
+            ? ["Source contains .github/workflows files; GitHub tokens need Workflow permission."]
+            : [],
         },
       })
     }

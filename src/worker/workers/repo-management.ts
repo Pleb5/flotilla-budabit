@@ -2102,7 +2102,9 @@ export async function forkAndCloneRepo(
         ]
           .filter(Boolean)
           .join(" ")
-        return /workflow|\.github\/workflows/i.test(message)
+        return /workflow_scope_missing|workflow token scope|workflow permission|refusing to allow.*workflow|without.*workflow.*scope|lacks.*workflow.*scope|missing.*workflow.*scope/i.test(
+          message,
+        )
       }
 
       const listWorkflowFiles = async (): Promise<string[]> => {
@@ -2506,7 +2508,7 @@ export async function forkAndCloneRepo(
                 branches: [],
                 tags: [],
                 error:
-                  "GitHub rejected this push because the token lacks workflow scope for .github/workflows files. Update your token or remove workflow files and retry.",
+                  "GitHub rejected this push because the token is missing Workflow permission for .github/workflows files. Update the GitHub token permissions and retry.",
               }
             }
             return {
@@ -2517,7 +2519,7 @@ export async function forkAndCloneRepo(
               branches: [],
               tags: [],
               error:
-                "GitHub rejected this push because the token lacks workflow scope for .github/workflows files.",
+                "GitHub rejected this push because the token is missing Workflow permission for .github/workflows files.",
               requiresWorkflowDecision: true,
               workflowFiles,
             }

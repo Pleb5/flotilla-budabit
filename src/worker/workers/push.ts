@@ -158,7 +158,10 @@ export async function safePushToRemoteUtil(
     }
     if (ok === false) {
       const errorMessage = (pushRes as any)?.error || "Push failed"
-      const hasWorkflowScopeIssue = /workflow|\.github\/workflows/i.test(errorMessage)
+      const hasWorkflowScopeIssue =
+        /workflow_scope_missing|workflow token scope|workflow permission|refusing to allow.*workflow|without.*workflow.*scope|lacks.*workflow.*scope|missing.*workflow.*scope/i.test(
+          errorMessage,
+        )
       const reason =
         (pushRes as any)?.reason ||
         (pushRes as any)?.code ||
