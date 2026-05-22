@@ -148,6 +148,7 @@ export async function smartInitializeRepoUtil(
         sendProgress("Syncing with remote")
         const validUrls = filterValidCloneUrls(cloneUrls)
         const orderedUrls = reorderUrlsByPreference(validUrls, key)
+        let fetchResult: ReadFallbackResult<{url: string}> | undefined
 
         if (orderedUrls.length > 0) {
           sendProgress("Fetching latest changes from remote")
@@ -156,7 +157,7 @@ export async function smartInitializeRepoUtil(
           const configuredCorsProxy = resolveDefaultCorsProxy()
 
           // Try each URL with fallback until one succeeds
-          const fetchResult = await withUrlFallback(
+          fetchResult = await withUrlFallback(
             orderedUrls,
             async (cloneUrl: string) => {
               const corsProxy = resolveCorsProxyForUrl(cloneUrl, configuredCorsProxy)
@@ -346,8 +347,8 @@ export async function smartInitializeRepoUtil(
           branches: newCache.branches,
           headCommit: newCache.headCommit,
           synced: true,
-          usedUrl: fetchResult.usedUrl,
-          attemptedUrls: fetchResult.attempts.map(a => a.url),
+          usedUrl: fetchResult?.usedUrl,
+          attemptedUrls: fetchResult?.attempts.map(a => a.url) ?? [],
         }
       } catch (e) {
         // fall through to re-init
