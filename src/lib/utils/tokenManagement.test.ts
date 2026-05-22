@@ -20,11 +20,27 @@ describe("token management helpers", () => {
   });
 
   it("detects workflow scope failures as token issues", () => {
-    const error = "GitHub requires the workflow token scope to push files under .github/workflows.";
+    const error =
+      "GitHub rejected this push because the token is missing Workflow permission for .github/workflows files.";
 
     expect(isWorkflowScopeIssue(error)).toBe(true);
     expect(isAccessTokenManagementIssue(error)).toBe(true);
-    expect(getAccessTokenManagementMessage(error)).toContain("workflow token scope");
+    expect(getAccessTokenManagementMessage(error)).toContain("Workflow permission");
+  });
+
+  it("detects GitHub workflow push rejection wording", () => {
+    expect(
+      isWorkflowScopeIssue(
+        "refusing to allow a Personal Access Token to create or update workflow .github/workflows/build.yml"
+      )
+    ).toBe(true);
+  });
+
+  it("does not treat generic GitHub repository rules as workflow scope failures", () => {
+    const error = "GH013: Repository rule violations found for refs/heads/master. push declined due to repository rule violations";
+
+    expect(isWorkflowScopeIssue(error)).toBe(false);
+    expect(isAccessTokenManagementIssue(error)).toBe(false);
   });
 
   it("detects missing or invalid token failures", () => {

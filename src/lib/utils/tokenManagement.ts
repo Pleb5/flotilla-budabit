@@ -45,7 +45,9 @@ function getErrorText(error: unknown): string {
 export function isWorkflowScopeIssue(error: unknown): boolean {
   const message = getErrorText(error).toLowerCase();
 
-  return /workflow_scope_missing|workflow token scope|\.github\/workflows/.test(message);
+  return /workflow_scope_missing|workflow token scope|workflow permission|refusing to allow.*workflow|without.*workflow.*scope|lacks.*workflow.*scope|missing.*workflow.*scope/.test(
+    message
+  );
 }
 
 export function isAccessTokenManagementIssue(error: unknown): boolean {
@@ -61,7 +63,7 @@ export function isAccessTokenManagementIssue(error: unknown): boolean {
 
 export function getAccessTokenManagementMessage(error: unknown): string {
   if (isWorkflowScopeIssue(error)) {
-    return "GitHub requires the workflow token scope to push files under .github/workflows.";
+    return "GitHub rejected this push because the token is missing Workflow permission for .github/workflows files.";
   }
 
   return "Review your Git access tokens in Settings and retry.";

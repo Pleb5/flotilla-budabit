@@ -36,6 +36,15 @@ export {
   isWorkflowScopeIssue,
 } from "./utils/tokenManagement";
 export {
+  checkTokenCapabilities,
+  getMissingRecommendedTokenCapabilities,
+  getTokenCapabilityPillLabel,
+  type TokenCapability,
+  type TokenCapabilityCheck,
+  type TokenCapabilityId,
+  type TokenCapabilityStatus,
+} from "./utils/tokenCapabilities";
+export {
   publishGraspRepoStateAndWait,
   publishGraspRepoStateForPush,
   createGraspAnnouncementAndState,
