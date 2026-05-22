@@ -1956,11 +1956,9 @@
       const naddr = buildRepoNaddrFromAnnouncement(result.announcementEvent as any, $pubkey || "")
       const destination = makeGitPath(url, naddr)
 
-      void goto(destination, {replaceState: true})
-        .then(() => {
-          hydrateRepoEvents(result)
-          clearModals()
-        })
+      hydrateRepoEvents(result)
+      clearModals()
+      void goto(destination)
         .catch(error => {
           console.error(`[+page.svelte] Failed to navigate to ${failureContext}:`, error)
           pushToast({
