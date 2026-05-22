@@ -411,7 +411,7 @@ export async function mergePRAndPushUtil(
             }
             if (result?.reason === "workflow_scope_missing") {
               throw new Error(
-                "GitHub requires the workflow token scope to push files under .github/workflows. Update your token or remove those files.",
+                "GitHub rejected this push because the token is missing Workflow permission for .github/workflows files. Update the GitHub token permissions and retry.",
               )
             }
             lastError = new Error(result?.error || "Safe push failed")
