@@ -108,8 +108,9 @@
 
   const onMouseUp = (event: MouseEvent) => {
     const target = event.target as Node | null
+    const anchor = element?.parentElement as HTMLElement | null
 
-    if (!element?.contains(target)) {
+    if (!element?.contains(target) && !anchor?.contains(target)) {
       setTimeout(onClose)
     }
   }

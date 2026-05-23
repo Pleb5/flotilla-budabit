@@ -23,11 +23,15 @@ const makeRepoAnnouncement = ({
   pubkey,
   identifier = "demo",
   maintainers = [],
+  clone = [],
+  relays = [],
   euc = "shared-euc",
 }: {
   pubkey: string
   identifier?: string
   maintainers?: string[]
+  clone?: string[]
+  relays?: string[]
   euc?: string | null
 }) => {
   eventCounter += 1
@@ -35,6 +39,8 @@ const makeRepoAnnouncement = ({
     ...createRepoAnnouncementEvent({
       repoId: identifier,
       maintainers,
+      clone,
+      relays,
       earliestUniqueCommit: euc || undefined,
       created_at: eventCounter,
     }),
@@ -215,6 +221,39 @@ describe("budabit state", () => {
 
       expect(profile?.maintainerSet).toEqual([root, candidate])
       expect(profile?.pendingMaintainers).toEqual([])
+    })
+
+    it("preserves every accepted maintainer source for duplicate infra", () => {
+      const root = "a".repeat(64)
+      const candidate = "b".repeat(64)
+      const identifier = "demo"
+      const rootAddress = `30617:${root}:${identifier}`
+      const cloneUrl = "https://git.example.com/demo.git"
+      const relayUrl = "wss://relay.example.com"
+
+      repository.load([
+        makeRepoAnnouncement({
+          pubkey: root,
+          identifier,
+          maintainers: [candidate],
+          clone: [cloneUrl],
+          relays: [relayUrl],
+        }),
+        makeRepoAnnouncement({
+          pubkey: candidate,
+          identifier,
+          maintainers: [root],
+          clone: [cloneUrl],
+          relays: [relayUrl],
+        }),
+      ])
+
+      const profile = get(repoMaintainerSetProfilesByRepoAddress).get(rootAddress)
+
+      expect(profile?.cloneUrls).toEqual([cloneUrl])
+      expect(profile?.relays).toEqual(["wss://relay.example.com/"])
+      expect(profile?.cloneUrlSources.map(source => source.maintainer)).toEqual([root, candidate])
+      expect(profile?.relaySources.map(source => source.maintainer)).toEqual([root, candidate])
     })
   })
 })

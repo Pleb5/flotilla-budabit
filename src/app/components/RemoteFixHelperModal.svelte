@@ -3,6 +3,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
+  import MaintainerSourceLabel from "@app/components/MaintainerSourceLabel.svelte"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {
@@ -316,35 +317,21 @@
   const getRemoteSources = (url: string): MaintainerSetRepoValueSource[] => {
     const normalized = normalizeUrl(url)
     const sources = cloneUrlSources.filter(source => normalizeUrl(source.value) === normalized)
-    const declaredByRepo = (repoClass.cloneUrls || []).some(cloneUrl => normalizeUrl(cloneUrl) === normalized)
+    const declaredByRepo = (repoClass.cloneUrls || []).some(
+      cloneUrl => normalizeUrl(cloneUrl) === normalized,
+    )
 
     if (declaredByRepo && !sources.some(source => source.root)) {
       sources.unshift({
         value: url,
         repoAddress: repoClass.address || "",
-        maintainer: normalizePubkey(repoClass.repoEvent?.pubkey) || repoClass.repoEvent?.pubkey || "",
+        maintainer:
+          normalizePubkey(repoClass.repoEvent?.pubkey) || repoClass.repoEvent?.pubkey || "",
         root: true,
       })
     }
 
     return sources
-  }
-
-  const getRemoteSourcePills = (url: string) => {
-    const sources = getRemoteSources(url)
-    const me = normalizePubkey(repoClass.viewerPubkey)
-    const pills: string[] = []
-    const add = (label: string) => {
-      if (!pills.includes(label)) pills.push(label)
-    }
-
-    if (sources.some(source => source.root)) add("Repo")
-    if (me && sources.some(source => normalizePubkey(source.maintainer) === me)) add("Yours")
-    if (sources.some(source => !source.root && (!me || normalizePubkey(source.maintainer) !== me))) {
-      add("Maintainer")
-    }
-    if (isGraspLikeRemote(url)) add("GRASP")
-    return pills
   }
 
   const isCurrentRemote = (url: string) =>
@@ -1919,7 +1906,8 @@
         <div class="mt-1 break-all font-mono">{primaryUrl || "Not set"}</div>
         {#if currentReadRemoteUrl && normalizeUrl(currentReadRemoteUrl) !== normalizeUrl(primaryUrl)}
           <div class="mt-2 text-amber-700 dark:text-amber-300">
-            Current reads are using fallback {parseHostFromUrl(currentReadRemoteUrl) || currentReadRemoteUrl}.
+            Current reads are using fallback {parseHostFromUrl(currentReadRemoteUrl) ||
+              currentReadRemoteUrl}.
           </div>
         {/if}
         {#if primaryStatus}
@@ -1931,7 +1919,7 @@
 
       <div class="flex flex-col gap-2">
         {#each statuses as status (status.url)}
-          {@const sourcePills = getRemoteSourcePills(status.url)}
+          {@const remoteSources = getRemoteSources(status.url)}
           {@const currentRemote = status.isCurrent || isCurrentRemote(status.url)}
           <div class="min-w-0 rounded-md border border-border bg-card p-3">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1940,14 +1928,18 @@
                   {#if status.isPrimary}
                     <span class="rounded border border-border px-1.5 py-0.5">Primary</span>
                   {:else}
-                    <span class="rounded border border-border px-1.5 py-0.5">Secondary</span>
+                    <span class="rounded border border-border px-1.5 py-0.5">Mirror</span>
                   {/if}
                   {#if currentRemote}
-                    <span class="rounded border border-sky-500/40 px-1.5 py-0.5 text-sky-700 dark:text-sky-300">Current</span>
+                    <span
+                      class="rounded border border-sky-500/40 px-1.5 py-0.5 text-sky-700 dark:text-sky-300"
+                      >Current</span>
                   {/if}
-                  {#each sourcePills as pill}
-                    <span class="rounded border border-border px-1.5 py-0.5 text-muted-foreground">{pill}</span>
-                  {/each}
+                  <MaintainerSourceLabel sources={remoteSources} align="right" />
+                  {#if isGraspLikeRemote(status.url)}
+                    <span class="rounded border border-border px-1.5 py-0.5 text-muted-foreground"
+                      >GRASP</span>
+                  {/if}
                   <span class="uppercase tracking-wide {statusTone(status.health)}">
                     {healthLabel(status.health)}
                   </span>
@@ -2132,10 +2124,10 @@
           {#each backfillDiscovery.remotes as remote (remote.remoteUrl)}
             {@const authState = getBackfillRemoteAuthState(remote.remoteUrl)}
             {@const remoteSelectable = isBackfillRemoteSelectable(remote)}
-            {@const sourcePills = getRemoteSourcePills(remote.remoteUrl)}
+            {@const remoteSources = getRemoteSources(remote.remoteUrl)}
             {@const currentRemote = isCurrentRemote(remote.remoteUrl)}
             <div class="min-w-0 rounded-md border border-border bg-card p-3">
-              <label class="flex min-w-0 items-start gap-3">
+              <div class="flex min-w-0 items-start gap-3">
                 <input
                   class="checkbox checkbox-sm mt-1"
                   type="checkbox"
@@ -2147,18 +2139,21 @@
                     <span class="rounded border border-border px-1.5 py-0.5">
                       {normalizeUrl(remote.remoteUrl) === normalizeUrl(primaryUrl)
                         ? "Primary"
-                        : "Secondary"}
+                        : "Mirror"}
                     </span>
                     {#if currentRemote}
-                      <span class="rounded border border-sky-500/40 px-1.5 py-0.5 text-sky-700 dark:text-sky-300">
+                      <span
+                        class="rounded border border-sky-500/40 px-1.5 py-0.5 text-sky-700 dark:text-sky-300">
                         Current
                       </span>
                     {/if}
-                    {#each sourcePills as pill}
-                      <span class="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-                        {pill}
+                    <MaintainerSourceLabel sources={remoteSources} align="right" />
+                    {#if isGraspLikeRemote(remote.remoteUrl)}
+                      <span
+                        class="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
+                        GRASP
                       </span>
-                    {/each}
+                    {/if}
                     <span
                       class={remote.reachable
                         ? "uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
@@ -2218,7 +2213,7 @@
                     </div>
                   {/if}
                 </div>
-              </label>
+              </div>
               {#if remote.actions.length > 0 && !isGraspLikeRemote(remote.remoteUrl) && (authState.status === "no-token" || authState.status === "read-only")}
                 <div class="mt-2 flex flex-wrap gap-2">
                   <Button

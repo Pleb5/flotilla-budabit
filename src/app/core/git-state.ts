@@ -167,6 +167,37 @@ const addUnique = <T>(values: T[], value: T) => {
   if (!values.includes(value)) values.push(value)
 }
 
+const normalizeCloneUrlForCompare = (value: string) => {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+  try {
+    const parsed = new URL(raw)
+    return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${parsed.pathname.replace(/\.git$/i, "").replace(/\/+$/, "")}`
+  } catch {
+    return raw
+      .replace(/\.git$/i, "")
+      .replace(/\/+$/, "")
+      .toLowerCase()
+  }
+}
+
+const uniqueSourceValues = (
+  sources: MaintainerSetRepoValueSource[],
+  normalizeValue = (value: string) => String(value || "").trim(),
+) => {
+  const values: string[] = []
+  const seen = new Set<string>()
+
+  for (const source of sources) {
+    const key = normalizeValue(source.value)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    values.push(source.value)
+  }
+
+  return values
+}
+
 const addUniqueSource = (
   sources: MaintainerSetRepoValueSource[],
   seen: Set<string>,
@@ -174,10 +205,14 @@ const addUniqueSource = (
   repoAddress: string,
   maintainer: string,
   root: boolean,
+  normalizeValue = (sourceValue: string) => String(sourceValue || "").trim(),
 ) => {
   const trimmed = String(value || "").trim()
-  if (!trimmed || seen.has(trimmed)) return
-  seen.add(trimmed)
+  const valueKey = normalizeValue(trimmed)
+  const maintainerKey = normalizePubkey(maintainer) || maintainer
+  const sourceKey = `${valueKey}\0${maintainerKey}\0${root ? "1" : "0"}`
+  if (!trimmed || !valueKey || seen.has(sourceKey)) return
+  seen.add(sourceKey)
   sources.push({value: trimmed, repoAddress, maintainer, root})
 }
 
@@ -354,6 +389,7 @@ export const repoMaintainerSetProfilesByRepoAddress = derived(
             repoAddress,
             maintainer,
             maintainer === rootMaintainer,
+            normalizeCloneUrlForCompare,
           )
         }
         for (const relay of parsed.relays || []) {
@@ -366,6 +402,7 @@ export const repoMaintainerSetProfilesByRepoAddress = derived(
               repoAddress,
               maintainer,
               maintainer === rootMaintainer,
+              safeNormalizeRelayUrl,
             )
           }
         }
@@ -378,8 +415,8 @@ export const repoMaintainerSetProfilesByRepoAddress = derived(
         maintainerSet,
         pendingMaintainers,
         repoAddresses,
-        cloneUrls: cloneUrlSources.map(source => source.value),
-        relays: relaySources.map(source => source.value),
+        cloneUrls: uniqueSourceValues(cloneUrlSources, normalizeCloneUrlForCompare),
+        relays: uniqueSourceValues(relaySources, safeNormalizeRelayUrl),
         cloneUrlSources,
         relaySources,
       })

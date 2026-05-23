@@ -30,6 +30,7 @@
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
+  import MaintainerSourceLabel from "@app/components/MaintainerSourceLabel.svelte"
   import {pushModal} from "@app/util/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import {
@@ -77,9 +78,8 @@
   const repoCloneUrlSourcesStore = getContext<Readable<MaintainerSetRepoValueSource[]>>(
     REPO_CLONE_URL_SOURCES_KEY,
   )
-  const repoRelaySourcesStore = getContext<Readable<MaintainerSetRepoValueSource[]>>(
-    REPO_RELAY_SOURCES_KEY,
-  )
+  const repoRelaySourcesStore =
+    getContext<Readable<MaintainerSetRepoValueSource[]>>(REPO_RELAY_SOURCES_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
@@ -253,6 +253,7 @@
   let commitLoadInProgress = $state(false)
   let expandedRecentPrIds = $state<Set<string>>(new Set())
   let cloneDetailsElement = $state<HTMLDetailsElement>()
+  let cloneDetailsOpen = $state(false)
 
   // Expandable sections state
   let showAllRelays = $state(false)
@@ -360,8 +361,6 @@
     isDeclared: boolean
     isDeclaredPrimary: boolean
     isFallback: boolean
-    isMine: boolean
-    isOtherMaintainer: boolean
     isCurrent: boolean
     isGrasp: boolean
     isApi: boolean
@@ -370,8 +369,6 @@
   type RelayItem = {
     url: string
     sources: MaintainerSetRepoValueSource[]
-    isMine: boolean
-    isOtherMaintainer: boolean
     isRepoRelay: boolean
   }
 
@@ -384,7 +381,10 @@
       const parsed = new URL(raw)
       return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${parsed.pathname.replace(/\.git$/i, "").replace(/\/+$/, "")}`
     } catch {
-      return raw.replace(/\.git$/i, "").replace(/\/+$/, "").toLowerCase()
+      return raw
+        .replace(/\.git$/i, "")
+        .replace(/\/+$/, "")
+        .toLowerCase()
     }
   }
 
@@ -406,17 +406,6 @@
   const sourcesForValue = (sources: MaintainerSetRepoValueSource[], value: string) => {
     const normalized = normalizeRemoteForCompare(value)
     return sources.filter(source => normalizeRemoteForCompare(source.value) === normalized)
-  }
-
-  const hasMineSource = (sources: MaintainerSetRepoValueSource[]) => {
-    const me = normalizePubkey($pubkey)
-    if (!me) return false
-    return sources.some(source => normalizePubkey(source.maintainer) === me)
-  }
-
-  const hasOtherMaintainerSource = (sources: MaintainerSetRepoValueSource[]) => {
-    const me = normalizePubkey($pubkey)
-    return sources.some(source => !source.root && (!me || normalizePubkey(source.maintainer) !== me))
   }
 
   const getCloneUrlError = (url: string) => {
@@ -471,8 +460,6 @@
         isDeclared: declaredIndex >= 0,
         isDeclaredPrimary: declaredIndex === 0,
         isFallback,
-        isMine: hasMineSource(sources),
-        isOtherMaintainer: hasOtherMaintainerSource(sources),
         isCurrent:
           Boolean(currentReadRemoteUrl) &&
           normalizeRemoteForCompare(currentReadRemoteUrl) === normalizeRemoteForCompare(url),
@@ -496,8 +483,6 @@
       return {
         url: relay,
         sources,
-        isMine: hasMineSource(sources),
-        isOtherMaintainer: hasOtherMaintainerSource(sources),
         isRepoRelay,
       }
     })
@@ -522,7 +507,8 @@
   $effect(() => {
     if (!declaredPrimaryCloneUrl || !currentReadRemoteUrl) return
     if (
-      normalizeRemoteForCompare(declaredPrimaryCloneUrl) === normalizeRemoteForCompare(currentReadRemoteUrl)
+      normalizeRemoteForCompare(declaredPrimaryCloneUrl) ===
+      normalizeRemoteForCompare(currentReadRemoteUrl)
     ) {
       return
     }
@@ -980,6 +966,7 @@
             {#if repoCloneUrlItems.length > 0}
               <details
                 bind:this={cloneDetailsElement}
+                bind:open={cloneDetailsOpen}
                 class="group relative col-start-2 row-start-2 shrink-0 justify-self-end sm:col-start-3 sm:row-start-1 lg:col-start-1 lg:row-start-2 lg:justify-self-start">
                 <summary
                   class="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-green-600/40 bg-green-100 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-200 dark:border-green-500/40 dark:bg-green-600/20 dark:text-green-300 dark:hover:bg-green-600/30">
@@ -994,15 +981,13 @@
                   {#each repoCloneUrlItems as item (item.url)}
                     {@const isNostr = item.url.startsWith("nostr://")}
                     {@const issueLabel = issuePillLabel(item.url)}
-                    <button
-                      type="button"
-                      class="group/row flex w-full min-w-0 items-start gap-2 rounded-md border p-2 text-left transition-all hover:bg-secondary/40 active:scale-[0.995] {item.isDeclaredPrimary
+                    <div
+                      class="group/row flex w-full min-w-0 cursor-default items-center gap-2 rounded-md border p-2 text-left transition-colors hover:bg-secondary/40 {item.isDeclaredPrimary
                         ? 'border-green-600/40 bg-green-500/5'
                         : isNostr
                           ? 'border-purple-500/40 bg-purple-500/5'
                           : 'border-transparent'}"
-                      title="Click to copy"
-                      onclick={() => copyUrl(item.url)}>
+                      title={item.url}>
                       <div class="min-w-0 flex-1">
                         <code
                           class="scrollbar-hide block min-w-0 overflow-x-auto overflow-y-hidden whitespace-nowrap font-mono text-xs {isNostr
@@ -1010,40 +995,56 @@
                             : ''}">{item.url}</code>
                         <div class="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-wide">
                           {#if item.isDeclaredPrimary}
-                            <span class="rounded border border-green-500/40 px-1 py-0.5 text-green-700 dark:text-green-300">Primary</span>
+                            <span
+                              class="rounded border border-green-500/40 px-1 py-0.5 text-green-700 dark:text-green-300"
+                              >Primary</span>
                           {:else if item.isDeclared}
-                            <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Repo</span>
+                            <span
+                              class="rounded border border-border px-1 py-0.5 text-muted-foreground"
+                              >Mirror</span>
                           {/if}
+                          <MaintainerSourceLabel
+                            sources={item.sources}
+                            url={relayUrl}
+                            align="right" />
                           {#if item.isCurrent}
-                            <span class="rounded border border-sky-500/40 px-1 py-0.5 text-sky-700 dark:text-sky-300">Current</span>
-                          {/if}
-                          {#if item.isMine}
-                            <span class="rounded border border-blue-500/40 px-1 py-0.5 text-blue-700 dark:text-blue-300">Yours</span>
-                          {:else if item.isOtherMaintainer}
-                            <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Maintainer</span>
+                            <span
+                              class="rounded border border-sky-500/40 px-1 py-0.5 text-sky-700 dark:text-sky-300"
+                              >Current</span>
                           {/if}
                           {#if item.isGrasp}
-                            <span class="rounded border border-purple-500/40 px-1 py-0.5 text-purple-700 dark:text-purple-300">GRASP</span>
+                            <span
+                              class="rounded border border-purple-500/40 px-1 py-0.5 text-purple-700 dark:text-purple-300"
+                              >GRASP</span>
                           {:else if item.isApi}
-                            <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">API</span>
+                            <span
+                              class="rounded border border-border px-1 py-0.5 text-muted-foreground"
+                              >API</span>
                           {/if}
                           {#if item.isFallback}
-                            <span class="rounded border border-amber-500/40 px-1 py-0.5 text-amber-700 dark:text-amber-300">Fallback</span>
+                            <span
+                              class="rounded border border-amber-500/40 px-1 py-0.5 text-amber-700 dark:text-amber-300"
+                              >Fallback</span>
                           {/if}
                           {#if issueLabel}
-                            <span class="rounded border border-rose-500/40 px-1 py-0.5 text-rose-700 dark:text-rose-300">{issueLabel}</span>
+                            <span
+                              class="rounded border border-rose-500/40 px-1 py-0.5 text-rose-700 dark:text-rose-300"
+                              >{issueLabel}</span>
                           {/if}
                         </div>
                       </div>
-                      <div
-                        class="flex-shrink-0 rounded p-1 transition-colors group-hover/row:bg-background/50">
+                      <button
+                        type="button"
+                        class="self-center rounded p-2 transition-colors hover:bg-background/70 group-hover/row:bg-background/50"
+                        title="Copy clone URL"
+                        onclick={() => copyUrl(item.url)}>
                         {#if copiedUrl === item.url}
-                          <Check class="h-3.5 w-3.5 text-green-500" />
+                          <Check class="h-4 w-4 text-green-500" />
                         {:else}
-                          <Copy class="h-3.5 w-3.5 text-muted-foreground" />
+                          <Copy class="h-4 w-4 text-muted-foreground" />
                         {/if}
-                      </div>
-                    </button>
+                      </button>
+                    </div>
                   {/each}
                 </div>
               </details>
@@ -1062,9 +1063,13 @@
                       class="min-w-0 flex-1 truncate font-mono text-xs"
                       title={declaredPrimaryCloneUrl}>{getUrlHost(declaredPrimaryCloneUrl)}</code>
                     {#if currentReadRemoteUrl && normalizeRemoteForCompare(currentReadRemoteUrl) === normalizeRemoteForCompare(declaredPrimaryCloneUrl)}
-                      <span class="rounded border border-sky-500/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-sky-700 dark:text-sky-300">Current</span>
+                      <span
+                        class="rounded border border-sky-500/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-sky-700 dark:text-sky-300"
+                        >Current</span>
                     {:else if currentReadRemoteUrl}
-                      <span class="rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-300">Fallback active</span>
+                      <span
+                        class="rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-300"
+                        >Fallback active</span>
                     {/if}
                   </div>
                 {/if}
@@ -1197,8 +1202,7 @@
                     <summary
                       class="flex cursor-pointer list-none items-center gap-2 rounded py-1 hover:bg-secondary/20">
                       <span class="flex-shrink-0 text-muted-foreground">Relays</span>
-                      <span class="min-w-0 flex-1 font-mono text-xs"
-                        >{repoRelayItems.length}</span>
+                      <span class="min-w-0 flex-1 font-mono text-xs">{repoRelayItems.length}</span>
                       <ChevronDown
                         class="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform group-open/relays:rotate-180" />
                     </summary>
@@ -1207,15 +1211,17 @@
                         <div class="flex items-center gap-2">
                           <span class="min-w-0 flex-1 truncate font-mono text-xs" title={relay.url}
                             >{relayHostname(relay.url)}</span>
-                          <div class="flex flex-shrink-0 flex-wrap gap-1 text-[10px] uppercase tracking-wide">
-                            {#if relay.isMine}
-                              <span class="rounded border border-blue-500/40 px-1 py-0.5 text-blue-700 dark:text-blue-300">Yours</span>
-                            {:else if relay.isOtherMaintainer}
-                              <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Maintainer</span>
-                            {:else if relay.isRepoRelay}
-                              <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Repo</span>
+                          <div
+                            class="flex flex-shrink-0 flex-wrap gap-1 text-[10px] uppercase tracking-wide">
+                            {#if relay.sources.length > 0}
+                              <MaintainerSourceLabel
+                                sources={relay.sources}
+                                url={relayUrl}
+                                align="right" />
                             {:else}
-                              <span class="rounded border border-border px-1 py-0.5 text-muted-foreground">Hint</span>
+                              <span
+                                class="rounded border border-border px-1 py-0.5 text-muted-foreground"
+                                >Hint</span>
                             {/if}
                           </div>
                           <button
