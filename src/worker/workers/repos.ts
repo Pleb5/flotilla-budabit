@@ -124,23 +124,27 @@ export async function smartInitializeRepoUtil(
 
   try {
     const key = parseRepoId(repoId)
+    const dir = `${rootDir}/${key}`
     const cache = await cacheManager.getRepoCache(key)
     if (cache && !forceUpdate) {
-      sendProgress("Using cached data")
-      repoDataLevels.set(key, cache.dataLevel)
-      clonedRepos.add(key)
-      return {
-        success: true,
-        repoId,
-        fromCache: true,
-        dataLevel: cache.dataLevel,
-        branches: cache.branches,
-        headCommit: cache.headCommit,
+      const cacheHasLocalClone = await isRepoCloned(git, dir).catch(() => false)
+      if (cacheHasLocalClone) {
+        sendProgress("Using cached data")
+        repoDataLevels.set(key, cache.dataLevel)
+        clonedRepos.add(key)
+        return {
+          success: true,
+          repoId,
+          fromCache: true,
+          dataLevel: cache.dataLevel,
+          branches: cache.branches,
+          headCommit: cache.headCommit,
+        }
       }
+      sendProgress("Cached metadata found, but local clone is missing")
     }
 
     sendProgress("Checking repository status")
-    const dir = `${rootDir}/${key}`
     const isAlreadyCloned = await isRepoCloned(git, dir)
 
     if (isAlreadyCloned && !forceUpdate) {

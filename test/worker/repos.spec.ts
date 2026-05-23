@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import {
   clearCloneTracking,
@@ -34,7 +34,12 @@ function makeGit(overrides: any = {}) {
     },
     async listRemotes() { return overrides.remotes ?? [{ remote: 'origin', url: 'https://example.com/x/y.git' }]; },
     async fetch() { if (overrides.fetchErr) throw new Error(overrides.fetchErr); },
-    async clone() { if (overrides.cloneErr) throw new Error(overrides.cloneErr); },
+    async clone(options: any) {
+      if (overrides.clone) return await overrides.clone(options);
+      if (overrides.cloneErr) throw new Error(overrides.cloneErr);
+    },
+    async addRemote() {},
+    async setConfig() {},
     async checkout() {},
     async writeRef() {},
     async listServerRefs({ url }: any) { if (overrides.noRefs) return []; return [{ ref: 'refs/heads/main' }]; },
@@ -191,6 +196,41 @@ describe('worker/repos quick tests', () => {
     expect(res.success).toBe(true);
     expect((res as any).fromCache).toBe(true);
     expect((res as any).branches?.[0]?.name).toBe('main');
+  });
+
+  it('smartInitializeRepoUtil ignores stale cache when local clone is missing', async () => {
+    const clone = vi.fn();
+    const git = makeGit({ clone });
+    const cache = makeCache();
+    const key = 'owner:name';
+    cache.set({
+      repoId: key,
+      dataLevel: 'refs',
+      headCommit: 'deadbeef'.padEnd(40, '0'),
+      branches: [{ name: 'main', commit: 'deadbeef'.padEnd(40, '0') }],
+      cloneUrls: ['https://example.com/owner/name.git'],
+      lastUpdated: Date.now(),
+    });
+    const progress: string[] = [];
+    const res = await smartInitializeRepoUtil(
+      git,
+      cache.obj as any,
+      { repoId: 'owner/name', cloneUrls: ['https://example.com/owner/name.git'] },
+      {
+        rootDir: '/root',
+        parseRepoId: (id: string) => id.replace('/', ':'),
+        repoDataLevels: new Map(),
+        clonedRepos: new Set(),
+        isRepoCloned: async () => false,
+        resolveBranchName: async () => 'main',
+      },
+      phase => progress.push(phase)
+    );
+
+    expect(res.success).toBe(true);
+    expect((res as any).fromCache).toBe(false);
+    expect(clone).toHaveBeenCalled();
+    expect(progress).toContain('Cached metadata found, but local clone is missing');
   });
 
   it('ensureShallowCloneUtil happy path fetches and checks out branch', async () => {
