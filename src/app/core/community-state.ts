@@ -770,6 +770,24 @@ const selectLatestDefinitionsByPubkey = (events: TrustedEvent[]) => {
   return Array.from(definitions.values())
 }
 
+const makeCommunityModeratorDefinitionDiscoveryFilter = (): Filter => ({
+  kinds: [COMMUNITY_DEFINITION_KIND],
+  limit: COMMUNITY_PREFERENCE_LIMIT,
+})
+
+const selectModeratorDiscoveryDefinitionEvents = (events: TrustedEvent[], author: string) => {
+  const normalizedAuthor = normalizePubkey(author)
+  if (!normalizedAuthor) return []
+
+  return events.filter(event => {
+    const definition = parseCommunityDefinition(event)
+
+    return definition?.sections.some(section =>
+      section.profileLists.some(profileList => profileList.pubkey === normalizedAuthor),
+    )
+  })
+}
+
 const activeUserCommunityDefinitionEvents: Readable<TrustedEvent[]> = derived(
   [
     communityMemberDefinitionEvents,
@@ -1048,14 +1066,24 @@ export const hydrateCommunityPreferences = async ({
   communityPreferencesLoading.set(true)
 
   try {
-    const loadedEvents = await withTimeout(
-      loadCommunityEvents(relays, filters, {
-        timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
-        authenticate: true,
-      }),
-      COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
-      [] as TrustedEvent[],
-    )
+    const [loadedEvents, moderatorDiscoveryEvents] = await Promise.all([
+      withTimeout(
+        loadCommunityEvents(relays, filters, {
+          timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
+          authenticate: true,
+        }),
+        COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+        [] as TrustedEvent[],
+      ),
+      withTimeout(
+        loadCommunityEvents(relays, [makeCommunityModeratorDefinitionDiscoveryFilter()], {
+          timeout: COMMUNITY_PREFERENCE_LOAD_TIMEOUT,
+          authenticate: true,
+        }),
+        COMMUNITY_RELAY_AUTH_TIMEOUT + COMMUNITY_PREFERENCE_LOAD_TIMEOUT + 500,
+        [] as TrustedEvent[],
+      ),
+    ])
 
     if (requestId !== communityPreferenceHydrationRequestId) return
 
@@ -1072,14 +1100,25 @@ export const hydrateCommunityPreferences = async ({
           .filter(Boolean),
       ),
     )
+    const discoveredModeratorDefinitionEvents = selectModeratorDiscoveryDefinitionEvents(
+      moderatorDiscoveryEvents,
+      user,
+    )
+    const discoveredModeratorDefinitions = selectLatestDefinitionsByPubkey(
+      discoveredModeratorDefinitionEvents,
+    )
     const definitionFilters = [
       ...makeCommunityDefinitionProfileListRefFilters(profileListEvents),
       ...profileListCommunityRefs.map(ref => makeCommunityDefinitionFilter(ref.pubkey)),
       ...formCommunityPubkeys.map(makeCommunityDefinitionFilter),
+      ...discoveredModeratorDefinitions.map(definition =>
+        makeCommunityDefinitionFilter(definition.pubkey),
+      ),
     ]
     const definitionRelays = normalizeRelays([
       ...relays,
       ...profileListCommunityRefs.flatMap(ref => (ref.relay ? [ref.relay] : [])),
+      ...discoveredModeratorDefinitions.flatMap(definition => definition.relays),
     ])
 
     const definitionEvents =
@@ -1097,7 +1136,11 @@ export const hydrateCommunityPreferences = async ({
     if (requestId !== communityPreferenceHydrationRequestId) return
 
     const definitions = selectLatestDefinitionsByPubkey(
-      dedupeTrustedEvents([...loadedEvents, ...definitionEvents]),
+      dedupeTrustedEvents([
+        ...loadedEvents,
+        ...definitionEvents,
+        ...discoveredModeratorDefinitionEvents,
+      ]),
     )
     const communityRelays = normalizeRelays(definitions.flatMap(definition => definition.relays))
 
