@@ -59,9 +59,7 @@
     STATUS_EVENTS_BY_ROOT_KEY,
     deriveAssignmentsFor,
     deriveEffectiveLabels,
-    getMaintainerSetRepoAddresses,
-    maintainerSetByRepoAddress,
-    maintainerSetRepoAddressesByRepoAddress,
+    getRepoMaintainers,
   } from "@app/core/git-state"
   import {
     REPO_TRUST_METRICS_KEY,
@@ -182,16 +180,8 @@
     value > 10_000_000_000 ? Math.round(value / 1000) : value
   const lastPrsSeen = $derived.by(() => normalizeChecked($checked[prsSeenKey] || 0))
   const repoAddress = $derived.by(() => repoClass?.address || "")
-  const maintainerSetRepoAddresses = $derived.by((): string[] => {
-    const addresses = repoAddress
-      ? Array.from(
-          getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
-        )
-      : []
-
-    return addresses.length > 0 ? addresses : repoAddress ? [repoAddress] : []
-  })
-  const maintainerSet = $derived.by((): string[] => {
+  const repoAddresses = $derived.by((): string[] => (repoAddress ? [repoAddress] : []))
+  const repoMaintainers = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
     const fallback = Array.from(
       new Set(
@@ -200,21 +190,18 @@
         ),
       ),
     )
-    if (!repoAddress) return fallback
-    const maintainers = $maintainerSetByRepoAddress.get(repoAddress)
-    if (maintainers && maintainers.size > 0) return Array.from(maintainers)
-    return fallback
+    const maintainers = getRepoMaintainers((repoClass as any)?.repoEvent)
+    return maintainers.length > 0 ? maintainers : fallback
   })
 
   const withPullRequestRepoContext = (
     event: PullRequestEvent,
     recipients: string[],
-    repoAddresses: string[],
+    repoAddress: string,
   ): PullRequestEvent => {
     const dedupedRecipients = Array.from(new Set(recipients.filter(Boolean)))
-    const dedupedRepoAddresses = Array.from(new Set(repoAddresses.filter(Boolean)))
     const tags = (event.tags || []).filter((tag: string[]) => tag[0] !== "p" && tag[0] !== "a")
-    tags.unshift(...dedupedRepoAddresses.map((address: string) => ["a", address] as ["a", string]))
+    if (repoAddress) tags.unshift(["a", repoAddress] as ["a", string])
     tags.push(...dedupedRecipients.map((recipient: string) => ["p", recipient] as ["p", string]))
     return {
       ...event,
@@ -390,7 +377,7 @@
     })
   })
 
-  const maintainerPubkeys = $derived.by(() => new Set(maintainerSet))
+  const maintainerPubkeys = $derived.by(() => new Set(repoMaintainers))
   const currentPrStateFor = (rootId: string): PrStatusKey => {
     try {
       const events = (mergedStatusEventsByRoot?.get(rootId) || []) as StatusEvent[]
@@ -434,7 +421,7 @@
     const currentPrListCacheKey = prListCacheKey
     const currentMergedStatusEventsByRoot = mergedStatusEventsByRoot
     const currentRepoTrustMetrics = repoTrustMetrics
-    const currentMaintainerSet = [...maintainerSet].sort()
+    const currentMaintainers = [...repoMaintainers].sort()
 
     const timeout = setTimeout(() => {
       if (!currentPullRequests || currentPullRequests.length === 0) {
@@ -482,7 +469,7 @@
           )
           .sort()
           .join(","),
-        currentMaintainerSet.join(","),
+        currentMaintainers.join(","),
       ].join("|")
 
       if (currentPrListCacheKey === currentKey) return
@@ -892,11 +879,11 @@
       return
     }
 
-    const maintainers = Array.from(new Set([...maintainerSet, evt.pubkey].filter(Boolean)))
+    const maintainers = Array.from(new Set([...repoMaintainers, evt.pubkey].filter(Boolean)))
     const prEventWithRecipients = withPullRequestRepoContext(
       prEvent,
       maintainers,
-      maintainerSetRepoAddresses,
+      repoAddress,
     )
     const publishedPR = publishEvent(prEventWithRecipients, relaysToUse)
     const rootId = publishedPR.event.id
@@ -908,7 +895,6 @@
         new Set([...maintainers, $pubkey].filter((value): value is string => Boolean(value))),
       ),
       repoAddr: repoClass.address,
-      repoAddrs: maintainerSetRepoAddresses,
       relays: relaysToUse,
     })
     publishEvent(statusEvent as any, relaysToUse)
@@ -996,19 +982,19 @@
 
   const pullRequestFilter = $derived.by(() => ({
     kinds: [GIT_PULL_REQUEST],
-    "#a": maintainerSetRepoAddresses,
+    "#a": repoAddresses,
   }))
 
   $effect(() => {
     const currentElement = element
 
     if (feedInitialized || feedCleanup) return
-    if (!currentElement || !repoRelays.length || maintainerSetRepoAddresses.length === 0) return
+    if (!currentElement || !repoRelays.length || repoAddresses.length === 0) return
 
     feedInitTimer = setTimeout(() => {
       feedInitTimer = null
       if (feedInitialized || feedCleanup) return
-      if (!element || !repoRelays.length || maintainerSetRepoAddresses.length === 0) return
+      if (!element || !repoRelays.length || repoAddresses.length === 0) return
       feedInitialized = true
       const feed = makeFeed({
         element,
@@ -1039,7 +1025,7 @@
         {
           relay: relayUrl,
           repoAddress,
-          repoAddresses: maintainerSetRepoAddresses,
+          repoAddresses,
           kind: "prs",
         },
         seenAt,

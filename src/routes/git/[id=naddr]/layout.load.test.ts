@@ -31,6 +31,7 @@ vi.mock("@app/core/git-state", () => ({
 
 vi.mock("@nostr-git/core/utils", () => ({
   normalizeRelayUrl: vi.fn((u: string) => (u && u.startsWith("wss") ? u : "")),
+  sanitizeRelays: vi.fn((relays: string[]) => relays.filter(u => u && u.startsWith("wss://"))),
   parseRepoId: vi.fn((id: string) => {
     if (!id || !id.includes(":")) throw new Error("Invalid repoId")
     return id.replace(":", "/")

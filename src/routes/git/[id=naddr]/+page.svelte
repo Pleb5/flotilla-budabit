@@ -43,9 +43,7 @@
     STATUS_EVENTS_BY_ROOT_KEY,
     REPO_ACTIONS_KEY,
     type RepoActions,
-    type MaintainerSetRepoValueSource,
-    maintainerSetByRepoAddress,
-    pendingMaintainersByRepoAddress,
+    type RepoValueSource,
   } from "@app/core/git-state"
   import {
     REPO_TRUST_METRICS_KEY,
@@ -75,11 +73,11 @@
   const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const repoCloneUrlsStore = getContext<Readable<string[]>>(REPO_CLONE_URLS_KEY)
-  const repoCloneUrlSourcesStore = getContext<Readable<MaintainerSetRepoValueSource[]>>(
+  const repoCloneUrlSourcesStore = getContext<Readable<RepoValueSource[]>>(
     REPO_CLONE_URL_SOURCES_KEY,
   )
   const repoRelaySourcesStore =
-    getContext<Readable<MaintainerSetRepoValueSource[]>>(REPO_RELAY_SOURCES_KEY)
+    getContext<Readable<RepoValueSource[]>>(REPO_RELAY_SOURCES_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
@@ -91,11 +89,11 @@
 
   // Get relays reactively
   const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
-  const maintainerSetCloneUrls = $derived.by(() => (repoCloneUrlsStore ? $repoCloneUrlsStore : []))
-  const maintainerSetCloneUrlSources = $derived.by(() =>
+  const repoCloneUrls = $derived.by(() => (repoCloneUrlsStore ? $repoCloneUrlsStore : []))
+  const repoCloneUrlSources = $derived.by(() =>
     repoCloneUrlSourcesStore ? $repoCloneUrlSourcesStore : [],
   )
-  const maintainerSetRelaySources = $derived.by(() =>
+  const repoRelaySources = $derived.by(() =>
     repoRelaySourcesStore ? $repoRelaySourcesStore : [],
   )
   const statusEventsByRoot = $derived.by(() =>
@@ -223,7 +221,7 @@
         label: "Trusted maintainer merges",
         value: repoTrustMetrics.trustedMaintainerMerges,
         description:
-          "Merged pull requests in this repo where the maintainer-set member who applied the status is in your active trust graph.",
+          "Merged pull requests in this repo where the maintainer who applied the status is in your active trust graph.",
         details: trustedMaintainerDetails,
       },
       {
@@ -257,7 +255,6 @@
 
   // Expandable sections state
   let showAllRelays = $state(false)
-  let showTaggedMaintainers = $state(false)
   const RECENT_PR_PREVIEW_LIMIT = 150
   const normalizePubkey = (value: string | undefined | null): string => {
     if (!value) return ""
@@ -291,12 +288,6 @@
     return Array.from(new Set(normalized))
   }
 
-  const taggedMaintainerPubkeys = $derived.by(() => {
-    const event = repoClass?.repoEvent
-    if (!event) return [] as string[]
-    return getTaggedMaintainers(event)
-  })
-
   const repoAddress = $derived.by(() => {
     if (repoClass?.address) return repoClass.address
     const event = repoClass?.repoEvent
@@ -306,26 +297,9 @@
     return `30617:${event.pubkey}:${dTag}`
   })
 
-  const maintainerSetPubkeys = $derived.by(() => {
-    if (repoAddress) {
-      const maintainers = $maintainerSetByRepoAddress.get(repoAddress)
-      if (maintainers && maintainers.size > 0) {
-        return Array.from(maintainers)
-      }
-    }
-
+  const repoMaintainerPubkeys = $derived.by(() => {
     const owner = normalizePubkey(repoClass?.repoEvent?.pubkey)
-    return owner ? [owner] : []
-  })
-
-  const pendingMaintainerPubkeys = $derived.by(() => {
-    if (repoAddress) {
-      const maintainers = $pendingMaintainersByRepoAddress.get(repoAddress)
-      if (maintainers && maintainers.size > 0) return Array.from(maintainers)
-    }
-
-    const maintainerSet = new Set(maintainerSetPubkeys)
-    return taggedMaintainerPubkeys.filter(pk => !maintainerSet.has(pk))
+    return Array.from(new Set([owner, ...getTaggedMaintainers(repoClass?.repoEvent)].filter(Boolean)))
   })
 
   const branchCount = $derived(repoClass.branches?.length || 0)
@@ -357,7 +331,7 @@
 
   type CloneUrlItem = {
     url: string
-    sources: MaintainerSetRepoValueSource[]
+    sources: RepoValueSource[]
     isDeclared: boolean
     isDeclaredPrimary: boolean
     isFallback: boolean
@@ -368,7 +342,7 @@
 
   type RelayItem = {
     url: string
-    sources: MaintainerSetRepoValueSource[]
+    sources: RepoValueSource[]
     isRepoRelay: boolean
   }
 
@@ -396,14 +370,14 @@
     }
   }
 
-  const makeDeclaredSource = (value: string): MaintainerSetRepoValueSource => ({
+  const makeDeclaredSource = (value: string): RepoValueSource => ({
     value,
     repoAddress,
     maintainer: normalizePubkey(repoClass?.repoEvent?.pubkey) || repoClass?.repoEvent?.pubkey || "",
     root: true,
   })
 
-  const sourcesForValue = (sources: MaintainerSetRepoValueSource[], value: string) => {
+  const sourcesForValue = (sources: RepoValueSource[], value: string) => {
     const normalized = normalizeRemoteForCompare(value)
     return sources.filter(source => normalizeRemoteForCompare(source.value) === normalized)
   }
@@ -437,7 +411,7 @@
   const repoCloneUrlItems = $derived.by<CloneUrlItem[]>(() => {
     const defaultNgitCloneUrl = buildDefaultNgitCloneUrl()
     const urls = Array.from(
-      new Set([...(declaredCloneUrls || []), ...(maintainerSetCloneUrls || [])].filter(Boolean)),
+      new Set([...(declaredCloneUrls || []), ...(repoCloneUrls || [])].filter(Boolean)),
     )
 
     if (defaultNgitCloneUrl && !urls.some(url => url.startsWith("nostr://"))) {
@@ -449,7 +423,7 @@
         declared => normalizeRemoteForCompare(declared) === normalizeRemoteForCompare(url),
       )
       const isFallback = false
-      const sources = sourcesForValue(maintainerSetCloneUrlSources, url)
+      const sources = sourcesForValue(repoCloneUrlSources, url)
       if (declaredIndex >= 0 && !sources.some(source => source.root)) {
         sources.unshift(makeDeclaredSource(url))
       }
@@ -472,7 +446,7 @@
   const repoRelayItems = $derived.by<RelayItem[]>(() => {
     const relays = repoRelays.length > 0 ? repoRelays : repoClass.relays || []
     return relays.map(relay => {
-      const sources = sourcesForValue(maintainerSetRelaySources, relay)
+      const sources = sourcesForValue(repoRelaySources, relay)
       const isRepoRelay = (repoClass.relays || []).some(
         rootRelay => normalizeRemoteForCompare(rootRelay) === normalizeRemoteForCompare(relay),
       )
@@ -1269,11 +1243,11 @@
 
               <!-- Nostr Information -->
               <div class="space-y-3">
-                {#if maintainerSetPubkeys.length > 0}
+                {#if repoMaintainerPubkeys.length > 0}
                   <div>
                     <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
                     <div class="grid grid-cols-2 gap-x-3 gap-y-2">
-                      {#each maintainerSetPubkeys as maintainer (maintainer)}
+                      {#each repoMaintainerPubkeys as maintainer (maintainer)}
                         <button
                           type="button"
                           class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
@@ -1290,37 +1264,6 @@
                         </button>
                       {/each}
                     </div>
-                    {#if pendingMaintainerPubkeys.length > 0}
-                      <button
-                        type="button"
-                        class="mt-2 text-xs text-muted-foreground hover:text-foreground hover:underline"
-                        onclick={() => (showTaggedMaintainers = !showTaggedMaintainers)}>
-                        {showTaggedMaintainers
-                          ? "Hide tagged maintainers"
-                          : `Show pending maintainers (${pendingMaintainerPubkeys.length})`}
-                      </button>
-                      {#if showTaggedMaintainers}
-                        <div class="mt-2 space-y-2">
-                          <span class="block text-xs text-muted-foreground"
-                            >Pending maintainers</span>
-                          {#each pendingMaintainerPubkeys as maintainer (maintainer)}
-                            <div
-                              class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                              <ProfileCircle
-                                pubkey={maintainer}
-                                url={relayUrl}
-                                size={5}
-                                class="border border-border opacity-70" />
-                              <ProfileLink
-                                pubkey={maintainer}
-                                url={relayUrl}
-                                unstyled
-                                class="min-w-0 truncate text-xs text-muted-foreground hover:underline" />
-                            </div>
-                          {/each}
-                        </div>
-                      {/if}
-                    {/if}
                   </div>
                 {/if}
               </div>

@@ -10,10 +10,9 @@ import {
   type StatusEvent,
 } from "@nostr-git/core/events"
 import {
-  maintainerSetByRepoAddress,
+  getRepoMaintainers,
   getRepoAnnouncementRelays,
   loadRepoAnnouncementByAddress,
-  loadRepoMaintainerAnnouncements,
   repoAnnouncementsByAddress,
 } from "@app/core/git-state"
 import {loadActiveTrustGraph, type ActiveTrustGraph, type TrustGraphSource} from "./trust-graph"
@@ -87,7 +86,7 @@ type BuildProfileCodeTrustAnalysisInput = {
   trustGraph: ActiveTrustGraph
   pullRequests: PullRequestEvent[]
   appliedStatuses: StatusEvent[]
-  effectiveMaintainers: Map<string, Set<string>>
+  repoMaintainersByAddress: Map<string, Set<string>>
   repoNamesByAddress?: Map<string, string>
   windowDays?: number
   analyzedAt?: number
@@ -171,8 +170,11 @@ const groupStatusesByRoot = (events: Iterable<StatusEvent>) => {
   return grouped
 }
 
-const getMaintainerSet = (repoAddress: string, effectiveMaintainers: Map<string, Set<string>>) => {
-  const maintainers = new Set<string>(effectiveMaintainers.get(repoAddress) || [])
+const getRepoMaintainerSet = (
+  repoAddress: string,
+  repoMaintainersByAddress: Map<string, Set<string>>,
+) => {
+  const maintainers = new Set<string>(repoMaintainersByAddress.get(repoAddress) || [])
   const owner = getRepoOwner(repoAddress)
 
   if (owner) {
@@ -185,10 +187,10 @@ const getMaintainerSet = (repoAddress: string, effectiveMaintainers: Map<string,
 const getLatestMaintainerAppliedStatus = (
   pullRequest: PullRequestEvent,
   statuses: StatusEvent[],
-  effectiveMaintainers: Map<string, Set<string>>,
+  repoMaintainersByAddress: Map<string, Set<string>>,
 ) => {
   const repoAddress = getRepoAddress(pullRequest)
-  const maintainers = getMaintainerSet(repoAddress, effectiveMaintainers)
+  const maintainers = getRepoMaintainerSet(repoAddress, repoMaintainersByAddress)
 
   if (maintainers.size === 0) return
 
@@ -256,7 +258,7 @@ export const buildProfileCodeTrustAnalysis = ({
   trustGraph,
   pullRequests,
   appliedStatuses,
-  effectiveMaintainers,
+  repoMaintainersByAddress,
   repoNamesByAddress = new Map(),
   windowDays = PROFILE_CODE_TRUST_WINDOW_DAYS,
   analyzedAt = Date.now(),
@@ -283,7 +285,7 @@ export const buildProfileCodeTrustAnalysis = ({
         getLatestMaintainerAppliedStatus(
           pullRequest,
           statusesByRoot.get(pullRequest.id) || [],
-          effectiveMaintainers,
+          repoMaintainersByAddress,
         ),
       ),
     ),
@@ -293,7 +295,7 @@ export const buildProfileCodeTrustAnalysis = ({
     const latestStatus = getLatestMaintainerAppliedStatus(
       pullRequest,
       statusesByRoot.get(pullRequest.id) || [],
-      effectiveMaintainers,
+      repoMaintainersByAddress,
     )
 
     if (!latestStatus) continue
@@ -331,7 +333,7 @@ export const buildProfileCodeTrustAnalysis = ({
     const latestStatus = getLatestMaintainerAppliedStatus(
       pullRequest,
       statuses,
-      effectiveMaintainers,
+      repoMaintainersByAddress,
     )
 
     if (!latestStatus || latestStatus.pubkey !== targetPubkey) continue
@@ -549,11 +551,8 @@ export const loadProfileCodeTrustAnalysis = async (
     .map(repoAddress => repoEventsByAddress.get(repoAddress))
     .filter(Boolean) as RepoAnnouncementEvent[]
 
-  await Promise.all(
-    repoEvents.map(repoEvent => loadRepoMaintainerAnnouncements(repoEvent)?.catch(() => undefined)),
-  )
-
   const repoNamesByAddress = new Map<string, string>()
+  const repoMaintainersByAddress = new Map<string, Set<string>>()
 
   for (const repoEvent of repoEvents) {
     const repoAddress = `${repoEvent.kind}:${repoEvent.pubkey}:${getTagValue("d", repoEvent.tags) || ""}`
@@ -561,6 +560,7 @@ export const loadProfileCodeTrustAnalysis = async (
       getTagValue("name", repoEvent.tags) || getTagValue("d", repoEvent.tags) || repoAddress
 
     repoNamesByAddress.set(repoAddress, repoName)
+    repoMaintainersByAddress.set(repoAddress, new Set(getRepoMaintainers(repoEvent)))
   }
 
   const analysis = buildProfileCodeTrustAnalysis({
@@ -568,7 +568,7 @@ export const loadProfileCodeTrustAnalysis = async (
     trustGraph,
     pullRequests,
     appliedStatuses,
-    effectiveMaintainers: get(maintainerSetByRepoAddress),
+    repoMaintainersByAddress,
     repoNamesByAddress,
     relays,
   })

@@ -37,21 +37,16 @@
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import {ROLE_NS, buildRoleLabelEvent} from "@app/util/labels"
   import {
-    repoAnnouncements,
-    deriveMaintainersForEuc,
     deriveRoleAssignments,
+    getRepoMaintainers,
     getRepoScopedRelays,
     loadRepoContext,
+    repoAnnouncementsByAddress,
   } from "@app/core/git-state"
   import {toNaturalArray} from "@app/util/labels"
   import {resolveIssueEdits} from "@app/util/issue-edits"
   import Markdown from "@src/lib/components/Markdown.svelte"
-  import {
-    REPO_KEY,
-    getMaintainerSetRepoAddresses,
-    maintainerSetByRepoAddress,
-    maintainerSetRepoAddressesByRepoAddress,
-  } from "@app/core/git-state"
+  import {REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
 
   const repoClass = getContext<Repo>(REPO_KEY)
@@ -180,8 +175,6 @@
     )
   })
 
-  let groupMaintainers: Set<string> = $state(new Set<string>())
-
   const fallbackMaintainers = $derived.by(() => {
     const owner = (repoClass as any).repoEvent?.pubkey as string | undefined
     return new Set<string>([...(repoClass.maintainers || []), owner].filter(Boolean) as string[])
@@ -190,35 +183,19 @@
   const currentRepoAddress = $derived.by(() => ((repoClass as any)?.address as string) || "")
   const issueRepoAddress = $derived.by(() => getIssueRepoAddress(issueEvent as any))
   const issueEditRepoAddress = $derived.by(() => issueRepoAddress || currentRepoAddress)
-  const issueMaintainerSetRepoAddresses = $derived.by(() =>
-    issueEditRepoAddress
-      ? Array.from(
-          getMaintainerSetRepoAddresses(
-            $maintainerSetRepoAddressesByRepoAddress,
-            issueEditRepoAddress,
-          ),
-        )
-      : [],
-  )
+  const issueRepoAddresses = $derived.by(() => (issueEditRepoAddress ? [issueEditRepoAddress] : []))
   const issueCommentRepoRefs = $derived.by(() =>
-    issueMaintainerSetRepoAddresses.length > 0
-      ? issueMaintainerSetRepoAddresses
-      : issueEditRepoAddress
-        ? [issueEditRepoAddress]
-        : [],
+    issueRepoAddresses.length > 0 ? issueRepoAddresses : issueEditRepoAddress ? [issueEditRepoAddress] : [],
   )
   const issueCommentRelayHint = $derived.by(() => repoBoundRelays[0] || undefined)
 
-  const effectiveIssueMaintainers = $derived.by(() => {
-    const maintainersFromAddress =
-      issueRepoAddress && $maintainerSetByRepoAddress.get(issueRepoAddress)
-    if (maintainersFromAddress && maintainersFromAddress.size > 0) return maintainersFromAddress
-    const maintainersFromCurrentRepo =
-      currentRepoAddress && $maintainerSetByRepoAddress.get(currentRepoAddress)
-    if (maintainersFromCurrentRepo && maintainersFromCurrentRepo.size > 0) {
-      return maintainersFromCurrentRepo
-    }
-    if (groupMaintainers.size > 0) return groupMaintainers
+  const issueMaintainers = $derived.by(() => {
+    const repoEvent =
+      (issueRepoAddress && $repoAnnouncementsByAddress.get(issueRepoAddress)) ||
+      (currentRepoAddress && $repoAnnouncementsByAddress.get(currentRepoAddress)) ||
+      ((repoClass as any)?.repoEvent as any)
+    const maintainers = getRepoMaintainers(repoEvent)
+    if (maintainers.length > 0) return new Set(maintainers)
     return fallbackMaintainers
   })
 
@@ -229,7 +206,7 @@
       issueEvent: issueEvent as any,
       labelEvents: (($allIssueLabelEvents || []) as LabelEvent[]) || [],
       coverLetters: (($coverLetterEvents || []) as any[]) || [],
-      maintainers: effectiveIssueMaintainers,
+      maintainers: issueMaintainers,
     })
     return {
       ...parsed,
@@ -241,7 +218,7 @@
 
   const authoritativeEditors = $derived.by(() => {
     if (!issue) return new Set<string>()
-    return new Set<string>([issue.author.pubkey, ...Array.from(effectiveIssueMaintainers)])
+    return new Set<string>([issue.author.pubkey, ...Array.from(issueMaintainers)])
   })
 
   // Mirrored issues (from import) have "imported" and "original_date" tags — show original date
@@ -266,31 +243,6 @@
   const displayDateFormatted = $derived.by(() =>
     displayDate ? new Date(displayDate).toLocaleString() : "",
   )
-
-  // Repo EUC lookup via announcements (30617) and derived maintainers
-  const repoPubkey = (repoClass as any).repoEvent?.pubkey as string | undefined
-  const repoD = ((repoClass as any).repoEvent?.tags as any[])?.find?.(
-    (t: any[]) => t[0] === "d",
-  )?.[1]
-  let repoEuc: string | undefined = $derived.by(() => {
-    const match = $repoAnnouncements?.find?.(
-      (evt: any) =>
-        evt.pubkey === repoPubkey &&
-        (evt.tags as string[][]).some((t: string[]) => t[0] === "d" && t[1] === repoD),
-    )
-    const eucTag = (match as any)?.tags?.find?.((t: any) => t[0] === "r" && t[2] === "euc")
-    return eucTag?.[1]
-  })
-  $effect(() => {
-    groupMaintainers = new Set()
-    if (repoEuc) {
-      const store = deriveMaintainersForEuc(repoEuc)
-      const unsub = store.subscribe(s => {
-        groupMaintainers = s || new Set()
-      })
-      return () => unsub()
-    }
-  })
 
   // NIP-32: Add label UI state and publisher
   let newLabel = $state("")
@@ -563,7 +515,7 @@
     return resolveIssueStatus(
       {root: issueEvent as any, comments: [], statuses: $statusEvents as any},
       issue.author.pubkey,
-      effectiveIssueMaintainers,
+      issueMaintainers,
     ) as {final: any | undefined; reason: string}
   })
 
@@ -572,7 +524,7 @@
   const titleCurrentStatusEvent = $derived.by(() => {
     if (!$statusEvents || !issue) return undefined
     const authorized = ($statusEvents as StatusEvent[]).filter(
-      e => e.pubkey === issue.author.pubkey || effectiveIssueMaintainers.has(e.pubkey),
+      e => e.pubkey === issue.author.pubkey || issueMaintainers.has(e.pubkey),
     )
     if (authorized.length === 0) return undefined
     return [...authorized].sort((a, b) => b.created_at - a.created_at)[0]
@@ -603,18 +555,18 @@
   const isMaintainerOrAuthor = $derived.by(() => {
     if (!issue || !$pubkey) return false
     if ($pubkey === issue.author.pubkey) return true
-    return effectiveIssueMaintainers.has($pubkey)
+    return issueMaintainers.has($pubkey)
   })
 
   const handleStatusPublish = async (statusEvent: StatusEvent) => {
-    const effectiveMaintainers = Array.from(effectiveIssueMaintainers)
+    const maintainers = Array.from(issueMaintainers)
     const recipients = Array.from(
-      new Set([...(effectiveMaintainers || []), issue?.author.pubkey, $pubkey].filter(Boolean)),
+      new Set([...(maintainers || []), issue?.author.pubkey, $pubkey].filter(Boolean)),
     )
     const tags = (statusEvent.tags || []).filter(
       (tag: string[]) => tag[0] !== "p" && tag[0] !== "a",
     )
-    tags.unshift(...issueMaintainerSetRepoAddresses.map(address => ["a", address] as ["a", string]))
+    if (issueEditRepoAddress) tags.unshift(["a", issueEditRepoAddress] as ["a", string])
     tags.push(...recipients.map(recipient => ["p", recipient] as ["p", string]))
     const statusWithRecipients = {
       ...statusEvent,

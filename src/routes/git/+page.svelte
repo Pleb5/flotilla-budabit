@@ -74,10 +74,6 @@
   import type {ImportResult, NewRepoResult} from "@nostr-git/ui"
   import type {NostrFilter} from "@nostr-git/core"
   import {
-    deriveRepoRefState,
-    deriveMaintainersForEuc,
-    maintainerSetRepoAddressesByRepoAddress,
-    getMaintainerSetRepoAddresses,
     loadRepoAnnouncements,
     GIT_RELAYS,
     repoAnnouncementRelaysStore,
@@ -202,10 +198,6 @@
     return hasRepoNotification($notifications, {
       relay: url,
       repoAddress,
-      repoAddresses: getMaintainerSetRepoAddresses(
-        $maintainerSetRepoAddressesByRepoAddress,
-        repoAddress,
-      ),
     })
   }
 
@@ -1559,12 +1551,9 @@
       }
       accountSearchCardsComputeTimer = setTimeout(() => {
         const cards = repositoriesStore.computeCards(repos, {
-          deriveMaintainersForEuc,
-          deriveRepoRefState,
           parseRepoAnnouncementEvent,
           Router,
           Address,
-          repoAnnouncements: $repoAnnouncements,
           gitRelays: GIT_RELAYS,
         })
         accountSearchRepoCards = cards
@@ -1617,12 +1606,9 @@
           }
           cardsComputeTimer = setTimeout(() => {
             const cards = repositoriesStore.computeCards(reposToShow, {
-              deriveMaintainersForEuc,
-              deriveRepoRefState,
               parseRepoAnnouncementEvent,
               Router,
               Address,
-              repoAnnouncements: $repoAnnouncements,
               gitRelays: GIT_RELAYS,
             })
             cachedCards = cards
@@ -1693,12 +1679,7 @@
     const address = getRepoAddressFromEvent(event)
     if (!address) return new Set<string>()
 
-    const candidates = getMaintainerSetRepoAddresses(
-      $maintainerSetRepoAddressesByRepoAddress,
-      address,
-    )
-    candidates.add(address)
-    return candidates
+    return new Set([address])
   }
 
   const findRepoCardStar = (event?: RepoAnnouncementEvent | null): RepoStarRef | undefined => {
@@ -2618,8 +2599,7 @@
       {:else if sortedRepoCards.length > 0}
         <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
-            {@const maintainerSet = g.effectiveMaintainers ?? g.maintainers ?? []}
-            {@const taggedMaintainers = g.taggedMaintainers ?? []}
+            {@const maintainers = g.maintainers ?? []}
             <div
               class="min-w-0 rounded-md border border-border bg-card p-3"
               role="link"
@@ -2653,9 +2633,9 @@
 
               <!-- Maintainers avatars and date -->
               <div class="mt-3 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="flex -space-x-2">
-                    {#each maintainerSet.slice(0, 4) as pk (pk)}
+                  <div class="flex items-center gap-2">
+                    <div class="flex -space-x-2">
+                    {#each maintainers.slice(0, 4) as pk (pk)}
                       {@const prof = $profilesByPubkey.get(pk)}
                       <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
                         <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
@@ -2665,18 +2645,15 @@
                             .toUpperCase()}</AvatarFallback>
                       </Avatar>
                     {/each}
-                    {#if maintainerSet.length > 4}
+                    {#if maintainers.length > 4}
                       <div
                         class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                        +{maintainerSet.length - 4}
+                        +{maintainers.length - 4}
                       </div>
                     {/if}
                   </div>
                   <span class="text-xs opacity-60"
-                    >{maintainerSet.length} maintainer-set member{maintainerSet.length !== 1
-                      ? "s"
-                      : ""}
-                    / {taggedMaintainers.length} tagged</span>
+                    >{maintainers.length} maintainer{maintainers.length !== 1 ? "s" : ""}</span>
                 </div>
                 {#if g.first}
                   {@const date = new Date(g.first.created_at * 1000)}

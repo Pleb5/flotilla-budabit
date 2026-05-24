@@ -22,7 +22,7 @@
   } from "@nostr-git/ui"
   import {nip19} from "nostr-tools"
   import {onMount, tick} from "svelte"
-  import type {MaintainerSetRepoValueSource} from "@app/core/git-state"
+  import type {RepoValueSource} from "@app/core/git-state"
 
   type RemoteHealth = "healthy" | "degraded" | "auth" | "unreachable" | "unknown" | "branch-drift"
 
@@ -168,7 +168,7 @@
   interface Props {
     repoClass: Repo
     cloneUrls?: string[]
-    cloneUrlSources?: MaintainerSetRepoValueSource[]
+    cloneUrlSources?: RepoValueSource[]
     onClose?: () => void
     onOpenSettings?: () => void
     onRefresh?: () => Promise<void> | void
@@ -314,7 +314,7 @@
     return ""
   }
 
-  const getRemoteSources = (url: string): MaintainerSetRepoValueSource[] => {
+  const getRemoteSources = (url: string): RepoValueSource[] => {
     const normalized = normalizeUrl(url)
     const sources = cloneUrlSources.filter(source => normalizeUrl(source.value) === normalized)
     const declaredByRepo = (repoClass.cloneUrls || []).some(

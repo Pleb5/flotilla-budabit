@@ -2,7 +2,7 @@ import {derived, readable, type Readable} from "svelte/store"
 import {pubkey} from "@welshman/app"
 import {getTagValue} from "@welshman/util"
 import {getTrustGraphSourceLabel, loadActiveTrustGraph, type ActiveTrustGraph} from "./trust-graph"
-import {maintainerSetByRepoAddress} from "@app/core/git-state"
+import {getRepoMaintainers, repoAnnouncementsByAddress} from "@app/core/git-state"
 import {userNip85ConfiguredProviders} from "./nip85"
 import {userTrustGraphConfigValues} from "./trust-graph-config"
 import type {PullRequestEvent, StatusEvent} from "@nostr-git/core/events"
@@ -40,7 +40,7 @@ export type RepoTrustMetrics = {
   trustedCollaborators: number
   trustedAuthors: number
   trustedMaintainers: number
-  maintainerSetTargetBranches: string[]
+  maintainerTargetBranches: string[]
   byRootId: Map<string, RepoTrustRootMetric>
   topActors: RepoTrustActorMetric[]
   error?: string
@@ -49,7 +49,7 @@ export type RepoTrustMetrics = {
 type BuildRepoTrustMetricsInput = {
   pullRequests: PullRequestEvent[]
   appliedStatuses: StatusEvent[]
-  maintainerSetByRepoAddress: Map<string, Set<string>>
+  repoMaintainersByAddress: Map<string, Set<string>>
   trustGraph: ActiveTrustGraph
 }
 
@@ -65,7 +65,7 @@ export const defaultRepoTrustMetrics: RepoTrustMetrics = {
   trustedCollaborators: 0,
   trustedAuthors: 0,
   trustedMaintainers: 0,
-  maintainerSetTargetBranches: [],
+  maintainerTargetBranches: [],
   byRootId: new Map(),
   topActors: [],
 }
@@ -83,8 +83,8 @@ const getPullRequestTargetBranch = (pullRequest: Pick<PullRequestEvent, "tags">)
 
 const getRepoOwner = (repoAddress: string) => repoAddress.split(":")[1] || ""
 
-const getMaintainerSet = (repoAddress: string, maintainerSets: Map<string, Set<string>>) => {
-  const maintainers = new Set<string>(maintainerSets.get(repoAddress) || [])
+const getRepoMaintainerSet = (repoAddress: string, repoMaintainers: Map<string, Set<string>>) => {
+  const maintainers = new Set<string>(repoMaintainers.get(repoAddress) || [])
   const owner = getRepoOwner(repoAddress)
 
   if (owner) {
@@ -114,10 +114,10 @@ const groupStatusesByRoot = (statuses: StatusEvent[]) => {
 const getLatestMaintainerAppliedStatus = (
   pullRequest: PullRequestEvent,
   statuses: StatusEvent[],
-  maintainerSets: Map<string, Set<string>>,
+  repoMaintainersByAddress: Map<string, Set<string>>,
 ) => {
   const repoAddress = getPullRequestRepoAddress(pullRequest)
-  const maintainers = getMaintainerSet(repoAddress, maintainerSets)
+  const maintainers = getRepoMaintainerSet(repoAddress, repoMaintainersByAddress)
 
   if (maintainers.size === 0) return
 
@@ -155,14 +155,14 @@ const addActorMetric = (
 export const buildRepoTrustMetrics = ({
   pullRequests,
   appliedStatuses,
-  maintainerSetByRepoAddress,
+  repoMaintainersByAddress,
   trustGraph,
 }: BuildRepoTrustMetricsInput): RepoTrustMetrics => {
   const byRootId = new Map<string, RepoTrustRootMetric>()
   const trustedAuthors = new Set<string>()
   const trustedMaintainers = new Set<string>()
   const trustedCollaborators = new Set<string>()
-  const maintainerSetTargetBranches = new Set<string>()
+  const maintainerTargetBranches = new Set<string>()
   const actorMetrics = new Map<string, RepoTrustActorMetric>()
   const statusesByRoot = groupStatusesByRoot(appliedStatuses)
 
@@ -174,7 +174,7 @@ export const buildRepoTrustMetrics = ({
     const latestStatus = getLatestMaintainerAppliedStatus(
       pullRequest,
       statusesByRoot.get(pullRequest.id) || [],
-      maintainerSetByRepoAddress,
+      repoMaintainersByAddress,
     )
     const targetBranch = getPullRequestTargetBranch(pullRequest)
     const authorScore = trustGraph.scores.get(pullRequest.pubkey) || 0
@@ -212,7 +212,7 @@ export const buildRepoTrustMetrics = ({
       }
 
       if (targetBranch) {
-        maintainerSetTargetBranches.add(targetBranch)
+        maintainerTargetBranches.add(targetBranch)
       }
     }
 
@@ -240,7 +240,7 @@ export const buildRepoTrustMetrics = ({
     trustedCollaborators: trustedCollaborators.size,
     trustedAuthors: trustedAuthors.size,
     trustedMaintainers: trustedMaintainers.size,
-    maintainerSetTargetBranches: Array.from(maintainerSetTargetBranches).sort((a, b) =>
+    maintainerTargetBranches: Array.from(maintainerTargetBranches).sort((a, b) =>
       a.localeCompare(b),
     ),
     byRootId,
@@ -272,7 +272,7 @@ export const createRepoTrustMetricsStore = ({
         repoAddresses,
         pullRequests,
         appliedStatuses,
-        maintainerSetByRepoAddress,
+        repoAnnouncementsByAddress,
         userTrustGraphConfigValues,
         userNip85ConfiguredProviders,
         pubkey,
@@ -281,7 +281,7 @@ export const createRepoTrustMetricsStore = ({
         $repoAddresses,
         $pullRequests,
         $appliedStatuses,
-        $maintainerSetByRepoAddress,
+        $repoAnnouncementsByAddress,
         $graphConfig,
         $providers,
         $viewerPubkey,
@@ -289,7 +289,12 @@ export const createRepoTrustMetricsStore = ({
         repoAddresses: $repoAddresses,
         pullRequests: $pullRequests,
         appliedStatuses: $appliedStatuses,
-        maintainerSetByRepoAddress: $maintainerSetByRepoAddress,
+        repoMaintainersByAddress: new Map(
+          Array.from($repoAnnouncementsByAddress.entries()).map(([address, event]) => [
+            address,
+            new Set(getRepoMaintainers(event)),
+          ]),
+        ),
         graphConfig: $graphConfig,
         providers: $providers,
         viewerPubkey: $viewerPubkey,
@@ -301,7 +306,7 @@ export const createRepoTrustMetricsStore = ({
         repoAddresses,
         pullRequests,
         appliedStatuses,
-        maintainerSetByRepoAddress,
+        repoMaintainersByAddress,
         graphConfig,
         providers,
         viewerPubkey,
@@ -371,11 +376,11 @@ export const createRepoTrustMetricsStore = ({
             if (currentRequest !== requestId) return
 
             lastReady = buildRepoTrustMetrics({
-              pullRequests: relevantPullRequests,
-              appliedStatuses: relevantAppliedStatuses,
-              maintainerSetByRepoAddress,
-              trustGraph,
-            })
+            pullRequests: relevantPullRequests,
+            appliedStatuses: relevantAppliedStatuses,
+            repoMaintainersByAddress,
+            trustGraph,
+          })
             set(lastReady)
           })
           .catch(error => {

@@ -112,7 +112,7 @@
             label: "Observed maintainer actions",
             value: analysis.maintainerActionCount,
             description:
-              "Pull requests where this profile is the latest effective maintainer to apply the merge status.",
+              "Pull requests where this profile is the latest repo maintainer to apply the merge status.",
             details: analysis.maintainerActionDetails,
           },
         ]

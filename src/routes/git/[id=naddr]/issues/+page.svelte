@@ -51,9 +51,7 @@
     REPO_RELAYS_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     deriveAssignmentsFor,
-    maintainerSetByRepoAddress,
-    maintainerSetRepoAddressesByRepoAddress,
-    getMaintainerSetRepoAddresses,
+    getRepoMaintainers,
     getRepoScopedRelays,
   } from "@app/core/git-state"
   import type {Readable} from "svelte/store"
@@ -139,13 +137,8 @@
       protect: await getReactionProtect(),
     })
   }
-  const maintainerSetRepoAddresses = $derived.by((): string[] => {
-    if (!repoAddress) return []
-    return Array.from(
-      getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, repoAddress),
-    )
-  })
-  const maintainerSet = $derived.by((): string[] => {
+  const repoAddresses = $derived.by((): string[] => (repoAddress ? [repoAddress] : []))
+  const repoMaintainers = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
     const fallback = Array.from(
       new Set(
@@ -154,21 +147,18 @@
         ),
       ),
     )
-    if (!repoAddress) return fallback
-    const maintainers = $maintainerSetByRepoAddress.get(repoAddress)
-    if (maintainers && maintainers.size > 0) return Array.from(maintainers)
-    return fallback
+    const maintainers = getRepoMaintainers((repoClass as any)?.repoEvent)
+    return maintainers.length > 0 ? maintainers : fallback
   })
 
   const withIssueRepoContext = (
     event: IssueEvent,
     recipients: string[],
-    repoAddresses: string[],
+    repoAddress: string,
   ): IssueEvent => {
     const dedupedRecipients = Array.from(new Set(recipients.filter(Boolean)))
-    const dedupedRepoAddresses = Array.from(new Set(repoAddresses.filter(Boolean)))
     const tags = (event.tags || []).filter((tag: string[]) => tag[0] !== "p" && tag[0] !== "a")
-    tags.unshift(...dedupedRepoAddresses.map((address: string) => ["a", address] as ["a", string]))
+    if (repoAddress) tags.unshift(["a", repoAddress] as ["a", string])
     tags.push(...dedupedRecipients.map((recipient: string) => ["p", recipient] as ["p", string]))
     return {
       ...event,
@@ -569,24 +559,12 @@
 
   $effect(() => {
     const currentIssues = issues || []
-    const fallbackMaintainers = new Set(maintainerSet)
-    const maintainersByRepoAddress = $maintainerSetByRepoAddress
+    const maintainers = new Set(repoMaintainers)
     // Keep effect subscribed to any 1985/1624 event changes
     void $issueEditEvents
 
     const next = new Map<string, {subject: string; content: string; labels: string[]}>()
     for (const issue of currentIssues) {
-      const issueRepoAddress = getTagValue("a", issue.tags) || repoAddress
-      const maintainersFromAddress =
-        issueRepoAddress && maintainersByRepoAddress.get(issueRepoAddress)
-      const maintainersFromCurrentRepo = repoAddress && maintainersByRepoAddress.get(repoAddress)
-      const maintainers =
-        maintainersFromAddress && maintainersFromAddress.size > 0
-          ? maintainersFromAddress
-          : maintainersFromCurrentRepo && maintainersFromCurrentRepo.size > 0
-            ? maintainersFromCurrentRepo
-            : fallbackMaintainers
-
       const labelEvents = repository.query([{kinds: [1985], "#e": [issue.id]}], {
         shouldSort: false,
       }) as LabelEvent[]
@@ -1017,7 +995,7 @@
   // Create combined filter for issues and status events
   const combinedFilter = $derived.by(() => ({
     kinds: [GIT_ISSUE, GIT_STATUS_OPEN, GIT_STATUS_DRAFT, GIT_STATUS_CLOSED, GIT_STATUS_COMPLETE],
-    "#a": maintainerSetRepoAddresses,
+    "#a": repoAddresses,
   }))
 
   // Initialize feed asynchronously - don't block render
@@ -1028,7 +1006,7 @@
         const tryStart = () => {
           if (pageContainerRef && !feedInitialized) {
             const currentRepoRelays = repoRelays
-            const currentRepoAddresses = maintainerSetRepoAddresses
+            const currentRepoAddresses = repoAddresses
             const currentIssueEvents = issueList.map(issue => issue.event as TrustedEvent)
             if (!currentRepoRelays.length || currentRepoAddresses.length === 0) {
               requestAnimationFrame(tryStart)
@@ -1070,7 +1048,7 @@
         {
           relay: relayUrl,
           repoAddress,
-          repoAddresses: maintainerSetRepoAddresses,
+          repoAddresses,
           kind: "issues",
         },
         seenAt,
@@ -1099,8 +1077,8 @@
       return
     }
     const evt: any = (repoClass as any).repoEvent
-    const maintainers = Array.from(new Set([...maintainerSet, evt?.pubkey].filter(Boolean)))
-    const issueWithRecipients = withIssueRepoContext(issue, maintainers, maintainerSetRepoAddresses)
+    const maintainers = Array.from(new Set([...repoMaintainers, evt?.pubkey].filter(Boolean)))
+    const issueWithRecipients = withIssueRepoContext(issue, maintainers, repoAddress)
 
     const postIssueEvent = publishThunk({event: issueWithRecipients, relays: relaysToUse})
     pushToast({message: "Issue created"})
@@ -1119,7 +1097,6 @@
       rootId: postIssueEvent.event.id,
       recipients: Array.from(new Set([...maintainers, $pubkey].filter(Boolean))),
       repoAddr: evt ? Address.fromEvent(evt as any).toString() : "",
-      repoAddrs: maintainerSetRepoAddresses,
       relays: relaysToUse,
     })
     publishThunk({event: statusEvent, relays: relaysToUse})

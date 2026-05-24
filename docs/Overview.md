@@ -43,7 +43,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - Settings: `settings`, `deriveSettings(...)`, with outbox loader for persisting.
   - Chats: `chatMessages`, `chats`, `deriveChat(...)`.
   - Rooms and chat events: community-scoped `kind:11` room roots and `kind:9` room messages via community feed helpers.
-  - Repo announcements (NIP‑34): `repoAnnouncements`, `repoGroups`, `deriveMaintainersForEuc(...)` (uses `@nostr-git/core`).
+  - Repo announcements (NIP-34): `repoAnnouncements`, `repoAnnouncementsByAddress`, and direct repo maintainer helpers.
   - URL and relay helpers: `getUrlsForEvent`, `deriveEventsForUrl`, and community route helpers.
 - `src/app/core/community-state.ts` owns the active community session and bootstrap:
   - `VITE_DEFAULT_COMMUNITY` seeds the initial community when no local session exists.

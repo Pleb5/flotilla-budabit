@@ -136,16 +136,9 @@
     activeRepoClass,
     GIT_RELAYS,
     getRepoAnnouncementRelays,
+    getRepoMaintainers,
     getRepoScopedRelays,
-    maintainerSetByRepoAddress,
-    maintainerSetCloneUrlsByRepoAddress,
-    maintainerSetCloneUrlSourcesByRepoAddress,
-    maintainerSetRepoAddressesByRepoAddress,
-    maintainerSetRelaysByRepoAddress,
-    maintainerSetRelaySourcesByRepoAddress,
-    getMaintainerSetRepoAddresses,
-    loadRepoMaintainerAnnouncements,
-    type MaintainerSetRepoValueSource,
+    type RepoValueSource,
   } from "@app/core/git-state"
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
@@ -204,8 +197,8 @@
   const COMMENT_LOAD_CHUNK_SIZE = 100
   const PR_STATUS_ROOT_LOAD_DEBOUNCE_MS = 250
   const PR_STATUS_ROOT_LOAD_CHUNK_SIZE = 100
-  const EFFECTIVE_ADDRESS_LOAD_DEBOUNCE_MS = 200
-  const EFFECTIVE_ADDRESS_LOAD_CHUNK_SIZE = 50
+  const ADDRESS_LOAD_DEBOUNCE_MS = 200
+  const ADDRESS_LOAD_CHUNK_SIZE = 50
   const FORK_PUBLISH_TIMEOUT_MS = 20000
   const FORK_BRANCH_FILTER_THRESHOLD = 20
   const ADDRESS_DERIVE_FILTER_CHUNK_SIZE = 50
@@ -374,64 +367,22 @@
     return ""
   })
 
-  const repoMaintainersStore: Readable<string[]> = derived(
-    [repoAddressStore, maintainerSetByRepoAddress],
-    ([$repoAddress, $byMaintainers]) => {
-      if (!$repoAddress) return []
-      const maintainers = $byMaintainers.get($repoAddress)
-      if (maintainers && maintainers.size > 0) return Array.from(maintainers)
-      return repoPubkey ? [repoPubkey] : []
-    },
-  ) as Readable<string[]>
-  const repoAddressesStore: Readable<string[]> = derived(
-    [repoAddressStore, maintainerSetRepoAddressesByRepoAddress],
-    ([$repoAddress, $byAddresses]) => {
-      if (!$repoAddress) return []
-      return Array.from(getMaintainerSetRepoAddresses($byAddresses, $repoAddress))
-    },
-  ) as Readable<string[]>
-
-  const maintainerSetCloneUrlsStore: Readable<string[]> = derived(
-    [repoAddressStore, maintainerSetCloneUrlsByRepoAddress],
-    ([$repoAddress, $byCloneUrls]) => {
-      if (!$repoAddress) return []
-      return $byCloneUrls.get($repoAddress) || []
-    },
+  const repoMaintainersStore: Readable<string[]> = derived(activeRepoClass, $repo => {
+    const maintainers = getRepoMaintainers($repo?.repoEvent as RepoAnnouncementEvent | undefined)
+    if (maintainers.length > 0) return maintainers
+    return repoPubkey ? [repoPubkey] : []
+  }) as Readable<string[]>
+  const repoAddressesStore: Readable<string[]> = derived(repoAddressStore, $repoAddress =>
+    $repoAddress ? [$repoAddress] : [],
   ) as Readable<string[]>
 
   const repoCloneUrlsStore: Readable<string[]> = derived(
-    [activeRepoClass, maintainerSetCloneUrlsStore],
-    ([$repo, $maintainerSetCloneUrls]) => {
-      const declaredCloneUrls = $repo?.cloneUrls || []
-      return Array.from(
-        new Set([...declaredCloneUrls, ...($maintainerSetCloneUrls || [])].filter(Boolean)),
-      )
-    },
+    activeRepoClass,
+    $repo => Array.from(new Set(($repo?.cloneUrls || []).filter(Boolean))),
   ) as Readable<string[]>
 
-  const maintainerSetCloneUrlSourcesStore: Readable<MaintainerSetRepoValueSource[]> = derived(
-    [repoAddressStore, maintainerSetCloneUrlSourcesByRepoAddress],
-    ([$repoAddress, $bySources]) => {
-      if (!$repoAddress) return []
-      return $bySources.get($repoAddress) || []
-    },
-  ) as Readable<MaintainerSetRepoValueSource[]>
-
-  const maintainerSetRelaysStore: Readable<string[]> = derived(
-    [repoAddressStore, maintainerSetRelaysByRepoAddress],
-    ([$repoAddress, $byRelays]) => {
-      if (!$repoAddress) return []
-      return $byRelays.get($repoAddress) || []
-    },
-  ) as Readable<string[]>
-
-  const maintainerSetRelaySourcesStore: Readable<MaintainerSetRepoValueSource[]> = derived(
-    [repoAddressStore, maintainerSetRelaySourcesByRepoAddress],
-    ([$repoAddress, $bySources]) => {
-      if (!$repoAddress) return []
-      return $bySources.get($repoAddress) || []
-    },
-  ) as Readable<MaintainerSetRepoValueSource[]>
+  const repoCloneUrlSourcesStore: Readable<RepoValueSource[]> = readable([])
+  const repoRelaySourcesStore: Readable<RepoValueSource[]> = readable([])
 
   $effect(() => {
     if (!repoClass) return
@@ -1426,17 +1377,6 @@
     repoStateEventsStore,
     $events => ($events.length > 0 ? $events[$events.length - 1] : undefined),
   )
-  const maintainerAnnouncementLoads = new Set<string>()
-  $effect(() => {
-    const event = $repoEventStore
-    if (event) {
-      const key = `${repoPubkey}:${repoName}:${event.id}`
-      if (!maintainerAnnouncementLoads.has(key)) {
-        maintainerAnnouncementLoads.add(key)
-        loadRepoMaintainerAnnouncements(event)
-      }
-    }
-  })
   const repoHeaderKey = $derived.by(() => {
     const eventId = $repoEventStore?.id || "no-event"
     const stateId = $repoStateEventStore?.id || "no-state"
@@ -1445,13 +1385,7 @@
     return `repo:${eventId}:${stateId}:${refsCount}:${editable}`
   })
   const rootRepoRelaysStore = deriveRepoRelays(repoEventStore, naddrRelays)
-  const repoRelaysStore: Readable<string[]> = derived(
-    [rootRepoRelaysStore, maintainerSetRelaysStore],
-    ([$rootRelays, $maintainerSetRelays]) =>
-      Array.from(
-        new Set([...($rootRelays || []), ...($maintainerSetRelays || [])].filter(Boolean)),
-      ),
-  ) as Readable<string[]>
+  const repoRelaysStore: Readable<string[]> = rootRepoRelaysStore
   const issuesStore = deriveIssues(repoAddressesStore)
   const pullRequestsStore = derivePullRequests(repoAddressesStore)
   const prsCount = $derived(($pullRequestsStore ?? []).filter(isItemOpen).length)
@@ -1515,7 +1449,7 @@
 
     const branchNames = Array.from(
       new Set(
-        ($repoTrustMetricsStore?.maintainerSetTargetBranches || [])
+        ($repoTrustMetricsStore?.maintainerTargetBranches || [])
           .map(branch => branch.trim())
           .filter(Boolean),
       ),
@@ -1524,11 +1458,11 @@
     return {
       branchNames,
       status,
-      label: "Copy only maintainer-set branches",
+      label: "Copy only maintainer branches",
       description:
-        "For repositories with many branches, limit the fork to the default branch plus branches targeted by accepted merges from the repo maintainer set.",
+        "For repositories with many branches, limit the fork to the default branch plus branches targeted by accepted merges from repo maintainers.",
       tooltip:
-        "Maintainer-set branches are branches targeted by merged pull requests merged by the root maintainer or direct mutual maintainers. When none are found, Budabit includes all branches in the fork.",
+        "Maintainer branches are branches targeted by merged pull requests merged by repo maintainers. When none are found, Budabit includes all branches in the fork.",
       minBranchCount: FORK_BRANCH_FILTER_THRESHOLD,
     }
   })
@@ -1783,8 +1717,8 @@
   setContext(REPO_KEY, $activeRepoClass)
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
   setContext(REPO_CLONE_URLS_KEY, repoCloneUrlsStore)
-  setContext(REPO_CLONE_URL_SOURCES_KEY, maintainerSetCloneUrlSourcesStore)
-  setContext(REPO_RELAY_SOURCES_KEY, maintainerSetRelaySourcesStore)
+  setContext(REPO_CLONE_URL_SOURCES_KEY, repoCloneUrlSourcesStore)
+  setContext(REPO_RELAY_SOURCES_KEY, repoRelaySourcesStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
   setContext(COMMENT_EVENTS_KEY, commentEventsStore)
@@ -1872,10 +1806,10 @@
   let pendingPrStatusRootIds = new Set<string>()
   let prStatusRootLoadRelaysKey = ""
   let prStatusRootLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
-  let loadedEffectiveAddresses = new Set<string>()
-  let pendingEffectiveAddresses = new Set<string>()
-  let effectiveAddressLoadRelaysKey = ""
-  let effectiveAddressLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
+  let loadedRepoAddresses = new Set<string>()
+  let pendingRepoAddresses = new Set<string>()
+  let repoAddressLoadRelaysKey = ""
+  let repoAddressLoadFlushTimer: ReturnType<typeof setTimeout> | null = null
   let dataLoadInitialized = $state(false)
   let repoLiveSubscriptionKey = ""
   let repoLiveSubscriptionController: AbortController | null = null
@@ -2024,23 +1958,23 @@
       repoInitialLoads.set(initialLoadKey, initialLoadsPromise)
     }
 
-    loadedEffectiveAddresses = new Set(addressFilter.filter(Boolean))
-    pendingEffectiveAddresses = new Set<string>()
-    effectiveAddressLoadRelaysKey = sortedRelayListFromUrl.join("|")
+    loadedRepoAddresses = new Set(addressFilter.filter(Boolean))
+    pendingRepoAddresses = new Set<string>()
+    repoAddressLoadRelaysKey = sortedRelayListFromUrl.join("|")
 
-    const flushPendingEffectiveAddressLoads = async (relays: string[], relaysKey: string) => {
-      if (relaysKey !== effectiveAddressLoadRelaysKey) return
+    const flushPendingRepoAddressLoads = async (relays: string[], relaysKey: string) => {
+      if (relaysKey !== repoAddressLoadRelaysKey) return
 
-      while (pendingEffectiveAddresses.size > 0 && relaysKey === effectiveAddressLoadRelaysKey) {
-        const addresses = Array.from(pendingEffectiveAddresses).slice(
+      while (pendingRepoAddresses.size > 0 && relaysKey === repoAddressLoadRelaysKey) {
+        const addresses = Array.from(pendingRepoAddresses).slice(
           0,
-          EFFECTIVE_ADDRESS_LOAD_CHUNK_SIZE,
+          ADDRESS_LOAD_CHUNK_SIZE,
         )
 
         if (addresses.length === 0) return
 
         for (const address of addresses) {
-          pendingEffectiveAddresses.delete(address)
+          pendingRepoAddresses.delete(address)
         }
 
         try {
@@ -2067,24 +2001,24 @@
           })
 
           for (const address of addresses) {
-            loadedEffectiveAddresses.add(address)
+            loadedRepoAddresses.add(address)
           }
         } catch {
           for (const address of addresses) {
-            pendingEffectiveAddresses.add(address)
+            pendingRepoAddresses.add(address)
           }
           break
         }
       }
     }
 
-    const scheduleEffectiveAddressLoadFlush = (relays: string[], relaysKey: string) => {
-      if (effectiveAddressLoadFlushTimer) return
+    const scheduleRepoAddressLoadFlush = (relays: string[], relaysKey: string) => {
+      if (repoAddressLoadFlushTimer) return
 
-      effectiveAddressLoadFlushTimer = setTimeout(() => {
-        effectiveAddressLoadFlushTimer = null
-        void flushPendingEffectiveAddressLoads(relays, relaysKey)
-      }, EFFECTIVE_ADDRESS_LOAD_DEBOUNCE_MS)
+      repoAddressLoadFlushTimer = setTimeout(() => {
+        repoAddressLoadFlushTimer = null
+        void flushPendingRepoAddressLoads(relays, relaysKey)
+      }, ADDRESS_LOAD_DEBOUNCE_MS)
     }
 
     if (!initialLoadsPromise) {
@@ -2093,7 +2027,7 @@
 
     initialLoadsPromise
       .then(() => {
-        // Reactively load data when effective addresses change
+        // Reactively load data when repo addresses change
         const repoAddressesUnsubscribe = repoAddressesStore.subscribe((addresses: string[]) => {
           if (addresses.length === 0) return
 
@@ -2101,24 +2035,24 @@
           if (currentRelays.length === 0) return
 
           const relaysKey = [...currentRelays].sort().join("|")
-          if (effectiveAddressLoadRelaysKey !== relaysKey) {
-            effectiveAddressLoadRelaysKey = relaysKey
-            loadedEffectiveAddresses = new Set<string>()
-            pendingEffectiveAddresses = new Set<string>()
-            if (effectiveAddressLoadFlushTimer) {
-              clearTimeout(effectiveAddressLoadFlushTimer)
-              effectiveAddressLoadFlushTimer = null
+          if (repoAddressLoadRelaysKey !== relaysKey) {
+            repoAddressLoadRelaysKey = relaysKey
+            loadedRepoAddresses = new Set<string>()
+            pendingRepoAddresses = new Set<string>()
+            if (repoAddressLoadFlushTimer) {
+              clearTimeout(repoAddressLoadFlushTimer)
+              repoAddressLoadFlushTimer = null
             }
           }
 
           for (const address of new Set(addresses.filter(Boolean))) {
-            if (!loadedEffectiveAddresses.has(address) && !pendingEffectiveAddresses.has(address)) {
-              pendingEffectiveAddresses.add(address)
+            if (!loadedRepoAddresses.has(address) && !pendingRepoAddresses.has(address)) {
+              pendingRepoAddresses.add(address)
             }
           }
 
-          if (pendingEffectiveAddresses.size > 0) {
-            scheduleEffectiveAddressLoadFlush(currentRelays, relaysKey)
+          if (pendingRepoAddresses.size > 0) {
+            scheduleRepoAddressLoadFlush(currentRelays, relaysKey)
           }
         })
         unsubscribers.push(repoAddressesUnsubscribe)
@@ -2368,13 +2302,13 @@
       commentLoadFlushTimer = null
     }
     commentLoadRelaysKey = ""
-    loadedEffectiveAddresses.clear()
-    pendingEffectiveAddresses.clear()
-    if (effectiveAddressLoadFlushTimer) {
-      clearTimeout(effectiveAddressLoadFlushTimer)
-      effectiveAddressLoadFlushTimer = null
+    loadedRepoAddresses.clear()
+    pendingRepoAddresses.clear()
+    if (repoAddressLoadFlushTimer) {
+      clearTimeout(repoAddressLoadFlushTimer)
+      repoAddressLoadFlushTimer = null
     }
-    effectiveAddressLoadRelaysKey = ""
+    repoAddressLoadRelaysKey = ""
 
     if (repoLoadRetryTimer) {
       clearTimeout(repoLoadRetryTimer)
@@ -3106,7 +3040,7 @@
     pushModal(RemoteFixHelperModal, {
       repoClass,
       cloneUrls: getStore(repoCloneUrlsStore),
-      cloneUrlSources: getStore(maintainerSetCloneUrlSourcesStore),
+      cloneUrlSources: getStore(repoCloneUrlSourcesStore),
       onOpenSettings: () => settingsRepo(true),
       onRefresh: refreshRepo,
       onPublishEvent: async (event: any) => {

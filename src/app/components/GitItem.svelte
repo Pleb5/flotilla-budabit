@@ -10,11 +10,7 @@
   import {getInteractiveCardTarget} from "@lib/html"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
   import {Router} from "@welshman/router"
-  import {
-    GIT_RELAYS,
-    maintainerSetRepoAddressesByRepoAddress,
-    getMaintainerSetRepoAddresses,
-  } from "@app/core/git-state"
+  import {GIT_RELAYS} from "@app/core/git-state"
   import {buildRepoNaddrFromEvent} from "@nostr-git/core/utils"
   import {Star} from "@lucide/svelte"
 
@@ -77,10 +73,6 @@
       return hasRepoNotification($notifications, {
         relay: url,
         repoAddress,
-        repoAddresses: getMaintainerSetRepoAddresses(
-          $maintainerSetRepoAddressesByRepoAddress,
-          repoAddress,
-        ),
       })
     }
     return $notifications.has(issuesHref) || $notifications.has(prsHref)

@@ -25,11 +25,7 @@
   import {pushModal} from "@app/util/modal"
   import ThreadCreate from "./ThreadCreate.svelte"
   import {decodeRelay} from "@app/core/state"
-  import {
-    loadRepoAnnouncements,
-    deriveMaintainersForEuc,
-    repoAnnouncements,
-  } from "@app/core/git-state"
+  import {getRepoMaintainers} from "@app/core/git-state"
   import {Router} from "@welshman/router"
   import {resolveIssueStatus} from "@nostr-git/core/events"
   import {deriveEffectiveLabels} from "@app/core/git-state"
@@ -75,28 +71,6 @@
   let finalStatus: TrustedEvent | undefined = $state(undefined)
   let finalReason: string | undefined = $state(undefined)
   let maintainersSet: Set<string> = $state(new Set<string>())
-  // Maintainers via RepoGroup (preferred when available)
-  let repoEuc: string | undefined = $derived.by(() => {
-    const match = $repoAnnouncements?.find?.(
-      (evt: TrustedEvent) =>
-        evt.pubkey === pubkey &&
-        (evt.tags as string[][]).some(t => t[0] === "d" && t[1] === repoDtag),
-    )
-    const eucTag = match?.tags?.find?.((t: any) => t[0] === "r" && t[2] === "euc")
-    return eucTag?.[1]
-  })
-  let groupMaintainers: Set<string> = $state(new Set<string>())
-  $effect(() => {
-    // subscribe to maintainers set for current repoEuc
-    groupMaintainers = new Set()
-    if (repoEuc) {
-      const store = deriveMaintainersForEuc(repoEuc)
-      const unsub = store.subscribe(s => {
-        groupMaintainers = s || new Set()
-      })
-      return () => unsub()
-    }
-  })
   // NIP-32 labels (centralized derivation)
   let labelsNormalized: string[] = $state([])
 
@@ -134,18 +108,16 @@
         finalReason = undefined
         return
       }
-      const maint =
-        groupMaintainers && groupMaintainers.size > 0 ? groupMaintainers : maintainersSet
       const {final} = resolveIssueStatus(
         {root: issue as any, comments: [], statuses: statusEvents as any},
         issue.pubkey,
-        maint,
+        maintainersSet,
       )
       // resolveIssueStatus returns { final, reason } but type erasure on import; call again to grab reason
       const res: any = resolveIssueStatus(
         {root: issue as any, comments: [], statuses: statusEvents as any},
         issue.pubkey,
-        maint,
+        maintainersSet,
       )
       finalStatus = res.final as any
       finalReason = res.reason as string
@@ -171,17 +143,7 @@
 
       if (events.length > 0) {
         const repoEvent = events[0]
-        // Prefer maintainers from RepoGroup when available; fallback to repo 'p' tags + owner
-        if (groupMaintainers && groupMaintainers.size > 0) {
-          maintainersSet = groupMaintainers
-        } else {
-          // Derive maintainers from 'p' tags of the repo event
-          const pTags = (repoEvent.tags as string[][]).filter(t => t[0] === "p")
-          const repoMaintainers = new Set<string>(pTags.map(t => t[1]).filter(Boolean))
-          // Also include repo owner pubkey as maintainer by convention
-          if (repoEvent.pubkey) repoMaintainers.add(repoEvent.pubkey)
-          maintainersSet = repoMaintainers
-        }
+        maintainersSet = new Set(getRepoMaintainers(repoEvent as any))
 
         const [tagId, ...relays] = getTag("relays", repoEvent.tags) ?? []
 
@@ -240,8 +202,6 @@
 
   onMount(() => {
     if (fetchRepoAndStatus) {
-      // ensure announcements are loaded to resolve RepoGroup maintainers
-      loadRepoAnnouncements()
       loadRepoAndStatus()
     }
 

@@ -24,7 +24,7 @@ The practical consequence is that route-level or layout-level live subscriptions
 The canonical Git routes are under `/git`:
 
 - `/git` loads self repositories, starred/legacy bookmarked repositories, snippets, and search/discovery results.
-- `/git/[id=naddr]/+layout.svelte` owns repo context stores: repo relays, maintainer-set addresses, issues, PRs, statuses, comments, repo feed activity, trust metrics, and repo actions.
+- `/git/[id=naddr]/+layout.svelte` owns repo context stores: repo relays, the current repo address, issues, PRs, statuses, comments, repo feed activity, trust metrics, and repo actions.
 - `/git/[id=naddr]/issues/+page.svelte` consumes repo context but still opens its own live comment request for visible issue roots.
 - `/git/[id=naddr]/prs/+page.svelte` consumes repo context but still opens its own live comment request for PR roots and keeps a local `comments` array.
 
@@ -43,8 +43,8 @@ Child routes should render from layout-owned stores and may continue to trigger 
 Keep existing initial/backfill loading in the repo layout:
 
 - Repo announcement and repo state loads.
-- Initial issue/PR/status loads by effective repo address.
-- Effective-address incremental loads as maintainer-set addresses become known.
+- Initial issue/PR/status loads by the current repo address.
+- Address incremental loads as the current repo address becomes known.
 - PR root status loads.
 - Comment loads by root id.
 - Delete hydration.
@@ -59,10 +59,10 @@ It should open live `request(...)` calls against repo-scoped relays with `limit:
 
 Address-scoped live filters:
 
-- `GIT_ISSUE` by `#a` effective repo addresses.
-- `GIT_PULL_REQUEST` by `#a` effective repo addresses.
-- `GIT_PULL_REQUEST_UPDATE` by `#a` effective repo addresses.
-- status kinds by `#a` effective repo addresses.
+- `GIT_ISSUE` by `#a` current repo address.
+- `GIT_PULL_REQUEST` by `#a` current repo address.
+- `GIT_PULL_REQUEST_UPDATE` by `#a` current repo address.
+- status kinds by `#a` current repo address.
 
 Root-scoped live filters:
 

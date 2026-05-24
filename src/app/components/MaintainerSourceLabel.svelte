@@ -5,10 +5,10 @@
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import {pushModal} from "@app/util/modal"
-  import type {MaintainerSetRepoValueSource} from "@app/core/git-state"
+  import type {RepoValueSource} from "@app/core/git-state"
 
   type Props = {
-    sources?: MaintainerSetRepoValueSource[]
+    sources?: RepoValueSource[]
     url?: string
     align?: "left" | "right"
     class?: string
@@ -84,7 +84,7 @@
       <InlinePopover onClose={close} {align} widthClass="w-64">
         <div class="space-y-2 text-sm">
           <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Declared by maintainers
+            Declared by repo announcement
           </p>
           <div class="space-y-1">
             {#each maintainerPubkeys as pubkey (pubkey)}

@@ -2,11 +2,10 @@ import {readable} from "svelte/store"
 import {describe, expect, it, vi} from "vitest"
 
 vi.mock("@app/core/git-state", () => ({
-  maintainerSetByRepoAddress: readable(new Map()),
   repoAnnouncementsByAddress: readable(new Map()),
+  getRepoMaintainers: vi.fn(() => []),
   getRepoAnnouncementRelays: vi.fn(() => []),
   loadRepoAnnouncementByAddress: vi.fn(),
-  loadRepoMaintainerAnnouncements: vi.fn(),
 }))
 
 vi.mock("./trust-graph", () => ({
@@ -90,7 +89,7 @@ describe("profile code trust analysis", () => {
           tags: [["e", "3".repeat(64), "", "root"]],
         },
       ] as any,
-      effectiveMaintainers: new Map([[repoAddress, new Set([targetPubkey, trustedMaintainer])]]),
+      repoMaintainersByAddress: new Map([[repoAddress, new Set([targetPubkey, trustedMaintainer])]]),
       repoNamesByAddress: new Map([[repoAddress, "demo"]]),
       relays: ["wss://git.example.com"],
       analyzedAt: 123,
@@ -183,7 +182,7 @@ describe("profile code trust analysis", () => {
           tags: [["e", "1".repeat(64), "", "root"]],
         },
       ] as any,
-      effectiveMaintainers: new Map([[repoAddress, new Set([targetPubkey])]]),
+      repoMaintainersByAddress: new Map([[repoAddress, new Set([targetPubkey])]]),
       analyzedAt: 123,
     })
 

@@ -67,11 +67,7 @@
   } from "@nostr-git/core/events"
   import {postComment, postStatus, publishEvent} from "@app/core/git-commands"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
-  import {
-    getMaintainerSetRepoAddresses,
-    maintainerSetByRepoAddress,
-    maintainerSetRepoAddressesByRepoAddress,
-  } from "@app/core/git-state"
+  import {getRepoMaintainers} from "@app/core/git-state"
   import {githubPermalinkDiffId, type PRMergeAnalysisResult} from "@nostr-git/core/git"
   import {getCloneUrlsFromEvent, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {normalizeRelayUrl} from "@welshman/util"
@@ -162,7 +158,7 @@
     return value
   }
 
-  const effectiveMaintainers = $derived.by((): string[] => {
+  const repoMaintainers = $derived.by((): string[] => {
     const owner = (repoClass as any)?.repoEvent?.pubkey as string | undefined
     const maintainers = (((repoClass as any)?.maintainers as string[]) || []).filter(
       (value): value is string => Boolean(value),
@@ -170,23 +166,16 @@
     const fallback = Array.from(
       new Set([...maintainers, owner].filter((value): value is string => Boolean(value))),
     )
-    const repoAddress = (repoClass as any)?.address || ""
-    if (!repoAddress) {
-      return fallback
-    }
-    const mappedMaintainers = $maintainerSetByRepoAddress.get(repoAddress)
-    if (mappedMaintainers && mappedMaintainers.size > 0) return Array.from(mappedMaintainers)
-    return fallback
+    const parsedMaintainers = getRepoMaintainers((repoClass as any)?.repoEvent)
+    return parsedMaintainers.length > 0 ? parsedMaintainers : fallback
   })
 
-  const effectiveMaintainerSet = $derived.by(() => new Set(effectiveMaintainers))
-  const maintainerSetRepoAddresses = $derived.by(() => {
+  const repoMaintainerPubkeys = $derived.by(() => new Set(repoMaintainers))
+  const repoAddresses = $derived.by(() => {
     const address = (repoClass as any)?.address || ""
-    return address
-      ? Array.from(getMaintainerSetRepoAddresses($maintainerSetRepoAddressesByRepoAddress, address))
-      : []
+    return address ? [address] : []
   })
-  const commentRepoRefs = $derived.by(() => maintainerSetRepoAddresses)
+  const commentRepoRefs = $derived.by(() => repoAddresses)
   const commentRelayHint = $derived.by(() => {
     const sourceRelays = repoRelays?.length ? repoRelays : repoClass.relays || []
     const relays = sourceRelays.map((u: string) => normalizeRelayUrl(u)).filter(Boolean)
@@ -224,18 +213,18 @@
 
   const canManagePr = $derived.by(() => {
     if (!$pubkey) return false
-    return effectiveMaintainerSet.has($pubkey)
+    return repoMaintainerPubkeys.has($pubkey)
   })
 
   const canEditPrDescription = $derived.by(() => {
     if (!$pubkey || !prEvent) return false
-    return $pubkey === prEvent.pubkey || effectiveMaintainerSet.has($pubkey)
+    return $pubkey === prEvent.pubkey || repoMaintainerPubkeys.has($pubkey)
   })
 
   const statusRepo = $derived.by(
     () =>
       ({
-        maintainers: effectiveMaintainers,
+        maintainers: repoMaintainers,
         relays: repoClass.relays || repoRelays || [],
         repoEvent: (repoClass as any).repoEvent,
         getCommitHistory: (...args: any[]) => (repoClass as any).getCommitHistory(...args),
@@ -261,7 +250,7 @@
   const prAuthorizedStatusEvents = $derived.by(() => {
     if (!prEvent) return []
     return prStatusEventsArray.filter(
-      event => event.pubkey === prEvent.pubkey || effectiveMaintainerSet.has(event.pubkey),
+      event => event.pubkey === prEvent.pubkey || repoMaintainerPubkeys.has(event.pubkey),
     )
   })
 
@@ -291,7 +280,7 @@
   const prDescription = $derived.by(() => {
     if (!prEvent) return pr?.content || ""
 
-    const authoritative = new Set<string>([prEvent.pubkey, ...Array.from(effectiveMaintainerSet)])
+    const authoritative = new Set<string>([prEvent.pubkey, ...Array.from(repoMaintainerPubkeys)])
     const coverLetters = [...prCoverLetterEventsArray]
       .filter(
         event =>
@@ -1938,10 +1927,9 @@
           return
         }
       }
-      const recipients = effectiveMaintainers
+      const recipients = repoMaintainers
       const unsigned = createPullRequestUpdateEvent({
         repoAddr,
-        repoAddrs: maintainerSetRepoAddresses,
         pullRequestEventId: prEvent.id,
         pullRequestAuthorPubkey: prEvent.pubkey,
         tipCommitOid: updateTipOid,
@@ -2044,7 +2032,7 @@
     }
 
     const recipients = Array.from(
-      new Set([...effectiveMaintainers, prEvent.pubkey, $pubkey].filter(Boolean)),
+      new Set([...repoMaintainers, prEvent.pubkey, $pubkey].filter(Boolean)),
     )
     const tags = (statusEvent.tags || []).filter((tag: string[]) => tag[0] !== "p")
     tags.push(...recipients.map((recipient: string) => ["p", recipient] as ["p", string]))
@@ -2468,7 +2456,7 @@
       const appliedCommits =
         commitIds.length > 0 ? commitIds : prEffectiveTipOid ? [prEffectiveTipOid] : undefined
       const recipients = Array.from(
-        new Set([...effectiveMaintainers, prEvent.pubkey, $pubkey].filter(Boolean)),
+        new Set([...repoMaintainers, prEvent.pubkey, $pubkey].filter(Boolean)),
       )
       const repoAddress =
         (prEvent.tags || []).find((tag: string[]) => tag[0] === "a")?.[1] ||
@@ -2481,7 +2469,6 @@
         rootId: prEvent.id,
         recipients,
         repoAddr: repoAddress,
-        repoAddrs: maintainerSetRepoAddresses,
         relays: repoClass.relays || repoRelays || [],
         appliedCommits,
         mergedCommit: mergeCommitOid,

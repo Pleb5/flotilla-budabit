@@ -1,10 +1,7 @@
 import {writable, derived, get} from "svelte/store"
 import {load} from "@welshman/net"
 import {
-  groupByEuc,
-  deriveMaintainers,
   assembleIssueThread,
-  resolveIssueStatus,
   extractSelfLabels,
   extractLabelEvents,
   mergeEffectiveLabels,
@@ -14,7 +11,6 @@ import {
   GRASP_SET_KIND,
   parseGraspServersEvent,
   parseRepoAnnouncementEvent,
-  type RepoGroup,
   type RepoAnnouncementEvent,
   type IssueEvent,
   type LabelEvent,
@@ -33,7 +29,7 @@ import {
   getAddress,
 } from "@welshman/util"
 import {nip19, type NostrEvent} from "nostr-tools"
-import {pushToMapKey, sortBy} from "@welshman/lib"
+import {sortBy} from "@welshman/lib"
 import {extractRoleAssignments} from "@app/util/labels"
 import {resolveIssueEdits, type EffectiveIssueEdits} from "@app/util/issue-edits"
 import {graspServersStore, type Repo} from "@nostr-git/ui"
@@ -127,29 +123,11 @@ const normalizePubkey = (value: string) => {
   return ""
 }
 
-const getRepoEuc = (event: RepoAnnouncementEvent) => {
-  const tag = (event.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
-  return tag?.[1] || ""
-}
-
-export type MaintainerSetRepoValueSource = {
+export type RepoValueSource = {
   value: string
   repoAddress: string
   maintainer: string
   root: boolean
-}
-
-export type RepoMaintainerSetProfile = {
-  rootAddress: string
-  rootMaintainer: string
-  identifier: string
-  maintainerSet: string[]
-  pendingMaintainers: string[]
-  repoAddresses: string[]
-  cloneUrls: string[]
-  relays: string[]
-  cloneUrlSources: MaintainerSetRepoValueSource[]
-  relaySources: MaintainerSetRepoValueSource[]
 }
 
 const parseRepoAnnouncementSafe = (event: RepoAnnouncementEvent) => {
@@ -160,60 +138,15 @@ const parseRepoAnnouncementSafe = (event: RepoAnnouncementEvent) => {
   }
 }
 
-const getRepoMaintainers = (event: RepoAnnouncementEvent) =>
-  (parseRepoAnnouncementSafe(event)?.maintainers || []).map(normalizePubkey).filter(Boolean)
+export const getRepoMaintainers = (event?: RepoAnnouncementEvent | null) => {
+  if (!event) return []
 
-const addUnique = <T>(values: T[], value: T) => {
-  if (!values.includes(value)) values.push(value)
-}
+  const owner = normalizePubkey(event.pubkey || "")
+  const declaredMaintainers = (parseRepoAnnouncementSafe(event)?.maintainers || [])
+    .map(normalizePubkey)
+    .filter(Boolean)
 
-const normalizeCloneUrlForCompare = (value: string) => {
-  const raw = String(value || "").trim()
-  if (!raw) return ""
-  try {
-    const parsed = new URL(raw)
-    return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${parsed.pathname.replace(/\.git$/i, "").replace(/\/+$/, "")}`
-  } catch {
-    return raw
-      .replace(/\.git$/i, "")
-      .replace(/\/+$/, "")
-      .toLowerCase()
-  }
-}
-
-const uniqueSourceValues = (
-  sources: MaintainerSetRepoValueSource[],
-  normalizeValue = (value: string) => String(value || "").trim(),
-) => {
-  const values: string[] = []
-  const seen = new Set<string>()
-
-  for (const source of sources) {
-    const key = normalizeValue(source.value)
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    values.push(source.value)
-  }
-
-  return values
-}
-
-const addUniqueSource = (
-  sources: MaintainerSetRepoValueSource[],
-  seen: Set<string>,
-  value: string,
-  repoAddress: string,
-  maintainer: string,
-  root: boolean,
-  normalizeValue = (sourceValue: string) => String(sourceValue || "").trim(),
-) => {
-  const trimmed = String(value || "").trim()
-  const valueKey = normalizeValue(trimmed)
-  const maintainerKey = normalizePubkey(maintainer) || maintainer
-  const sourceKey = `${valueKey}\0${maintainerKey}\0${root ? "1" : "0"}`
-  if (!trimmed || !valueKey || seen.has(sourceKey)) return
-  seen.add(sourceKey)
-  sources.push({value: trimmed, repoAddress, maintainer, root})
+  return Array.from(new Set([owner, ...declaredMaintainers].filter(Boolean)))
 }
 
 const GIT_COVER_LETTER_KIND = 1624
@@ -280,8 +213,7 @@ export const getRepoScopedRelays = (
 
 // Repositories adapter (NIP-34 repo announcements)
 // - derive announcements (30617)
-// - group by r:euc using core's groupByEuc
-// - expose lookups and maintainer derivation helpers
+// - expose address lookups and repo maintainer helpers
 
 const repoAnnouncementsRaw = deriveEventsAsc(
   deriveEventsById({repository, filters: [{kinds: [30617]}]}),
@@ -310,256 +242,6 @@ export const repoAnnouncementsByAddress = derived(repoAnnouncements, $events => 
   }
   return map
 })
-
-export const repoMaintainerSetProfilesByRepoAddress = derived(
-  [repoAnnouncements, repoAnnouncementsByAddress],
-  ([$events, $byAddress]) => {
-    const profiles = new Map<string, RepoMaintainerSetProfile>()
-    const eventsByRepoId = new Map<string, RepoAnnouncementEvent[]>()
-
-    for (const event of $events as RepoAnnouncementEvent[]) {
-      const repoId = getTagValue("d", event.tags) || ""
-      if (!repoId) continue
-      pushToMapKey(eventsByRepoId, repoId, event)
-    }
-
-    for (const rootEvent of $events as RepoAnnouncementEvent[]) {
-      const identifier = getTagValue("d", rootEvent.tags) || ""
-      if (!identifier) continue
-
-      const rootMaintainer = normalizePubkey(rootEvent.pubkey)
-      if (!rootMaintainer) continue
-
-      const rootAddress = `${GIT_REPO_ANNOUNCEMENT}:${rootMaintainer}:${identifier}`
-      const rootListedMaintainers = getRepoMaintainers(rootEvent)
-      const rootListedSet = new Set(rootListedMaintainers)
-
-      const maintainerSet: string[] = [rootMaintainer]
-      const pendingMaintainers: string[] = []
-      const rootListedEvents = new Map<string, RepoAnnouncementEvent>()
-
-      for (const candidate of rootListedSet) {
-        if (candidate === rootMaintainer) continue
-
-        const candidateAddress = `${GIT_REPO_ANNOUNCEMENT}:${candidate}:${identifier}`
-        const candidateEvent = $byAddress.get(candidateAddress)
-        if (!candidateEvent) {
-          addUnique(pendingMaintainers, candidate)
-          continue
-        }
-
-        rootListedEvents.set(candidate, candidateEvent)
-
-        if (getRepoMaintainers(candidateEvent).includes(rootMaintainer)) {
-          addUnique(maintainerSet, candidate)
-        } else {
-          addUnique(pendingMaintainers, candidate)
-        }
-      }
-
-      for (const event of rootListedEvents.values()) {
-        for (const candidate of getRepoMaintainers(event)) {
-          if (candidate === rootMaintainer) continue
-          if (rootListedSet.has(candidate)) continue
-          if (maintainerSet.includes(candidate)) continue
-          addUnique(pendingMaintainers, candidate)
-        }
-      }
-
-      const repoAddresses = maintainerSet.map(
-        maintainer => `${GIT_REPO_ANNOUNCEMENT}:${maintainer}:${identifier}`,
-      )
-      const cloneUrlSources: MaintainerSetRepoValueSource[] = []
-      const relaySources: MaintainerSetRepoValueSource[] = []
-      const seenCloneUrls = new Set<string>()
-      const seenRelays = new Set<string>()
-
-      for (const maintainer of maintainerSet) {
-        const repoAddress = `${GIT_REPO_ANNOUNCEMENT}:${maintainer}:${identifier}`
-        const event = $byAddress.get(repoAddress)
-        if (!event) continue
-
-        const parsed = parseRepoAnnouncementSafe(event)
-        if (!parsed) continue
-        for (const cloneUrl of parsed.clone || []) {
-          addUniqueSource(
-            cloneUrlSources,
-            seenCloneUrls,
-            cloneUrl,
-            repoAddress,
-            maintainer,
-            maintainer === rootMaintainer,
-            normalizeCloneUrlForCompare,
-          )
-        }
-        for (const relay of parsed.relays || []) {
-          const normalized = safeNormalizeRelayUrl(relay)
-          if (isRelayUrl(normalized)) {
-            addUniqueSource(
-              relaySources,
-              seenRelays,
-              normalized,
-              repoAddress,
-              maintainer,
-              maintainer === rootMaintainer,
-              safeNormalizeRelayUrl,
-            )
-          }
-        }
-      }
-
-      profiles.set(rootAddress, {
-        rootAddress,
-        rootMaintainer,
-        identifier,
-        maintainerSet,
-        pendingMaintainers,
-        repoAddresses,
-        cloneUrls: uniqueSourceValues(cloneUrlSources, normalizeCloneUrlForCompare),
-        relays: uniqueSourceValues(relaySources, safeNormalizeRelayUrl),
-        cloneUrlSources,
-        relaySources,
-      })
-    }
-
-    return profiles
-  },
-)
-
-export const maintainerSetByRepoAddress = derived(
-  repoMaintainerSetProfilesByRepoAddress,
-  $profiles => {
-    const map = new Map<string, Set<string>>()
-    for (const [repoAddress, profile] of $profiles.entries()) {
-      map.set(repoAddress, new Set(profile.maintainerSet))
-    }
-    return map
-  },
-)
-
-export const pendingMaintainersByRepoAddress = derived(
-  repoMaintainerSetProfilesByRepoAddress,
-  $profiles => {
-    const map = new Map<string, Set<string>>()
-    for (const [repoAddress, profile] of $profiles.entries()) {
-      map.set(repoAddress, new Set(profile.pendingMaintainers))
-    }
-    return map
-  },
-)
-
-export const maintainerSetRepoAddressesByRepoAddress = derived(
-  repoMaintainerSetProfilesByRepoAddress,
-  $profiles => {
-    const map = new Map<string, Set<string>>()
-    for (const [repoAddress, profile] of $profiles.entries()) {
-      map.set(repoAddress, new Set(profile.repoAddresses))
-    }
-    return map
-  },
-)
-
-export const maintainerSetCloneUrlsByRepoAddress = derived(
-  repoMaintainerSetProfilesByRepoAddress,
-  $profiles => {
-    const map = new Map<string, string[]>()
-    for (const [repoAddress, profile] of $profiles.entries()) {
-      map.set(repoAddress, profile.cloneUrls)
-    }
-    return map
-  },
-)
-
-export const maintainerSetCloneUrlSourcesByRepoAddress = derived(
-  repoMaintainerSetProfilesByRepoAddress,
-  $profiles => {
-    const map = new Map<string, MaintainerSetRepoValueSource[]>()
-    for (const [repoAddress, profile] of $profiles.entries()) {
-      map.set(repoAddress, profile.cloneUrlSources)
-    }
-    return map
-  },
-)
-
-export const maintainerSetRelaysByRepoAddress = derived(
-  repoMaintainerSetProfilesByRepoAddress,
-  $profiles => {
-    const map = new Map<string, string[]>()
-    for (const [repoAddress, profile] of $profiles.entries()) {
-      map.set(repoAddress, profile.relays)
-    }
-    return map
-  },
-)
-
-export const maintainerSetRelaySourcesByRepoAddress = derived(
-  repoMaintainerSetProfilesByRepoAddress,
-  $profiles => {
-    const map = new Map<string, MaintainerSetRepoValueSource[]>()
-    for (const [repoAddress, profile] of $profiles.entries()) {
-      map.set(repoAddress, profile.relaySources)
-    }
-    return map
-  },
-)
-
-export const getMaintainerSetRepoAddresses = (
-  map: Map<string, Set<string>>,
-  repoAddress: string,
-) => {
-  const addresses = new Set<string>()
-  if (!repoAddress) return addresses
-
-  addresses.add(repoAddress)
-
-  const direct = map.get(repoAddress)
-  if (direct) {
-    direct.forEach(address => addresses.add(address))
-  }
-
-  for (const [ownerAddress, effectiveAddresses] of map.entries()) {
-    if (ownerAddress === repoAddress || effectiveAddresses.has(repoAddress)) {
-      addresses.add(ownerAddress)
-      effectiveAddresses.forEach(address => addresses.add(address))
-    }
-  }
-
-  return addresses
-}
-
-export const repoGroups = derived(repoAnnouncements, ($events): RepoGroup[] => {
-  return groupByEuc($events as any)
-})
-
-// Map of euc -> count of repo announcement events (30617) in that group
-export const repoCountsByEuc = derived(repoAnnouncements, $events => {
-  const counts = new Map<string, number>()
-  for (const ev of $events) {
-    const t = (ev.tags || []).find((t: string[]) => t[0] === "r" && t[2] === "euc")
-    const euc = t ? t[1] : ""
-    if (!euc) continue
-    counts.set(euc, (counts.get(euc) || 0) + 1)
-  }
-  return counts
-})
-
-// Map groups by EUC for backward compatibility
-// Note: With composite keys, multiple groups may share the same EUC (forks)
-// This map returns the first group found for each EUC
-export const repoGroupsByEuc = derived(repoGroups, $groups => {
-  const map = new Map<string, RepoGroup>()
-  for (const g of $groups) {
-    // Only set if not already present (first wins)
-    if (!map.has(g.euc)) map.set(g.euc, g)
-  }
-  return map
-})
-
-export const deriveRepoGroup = (euc: string) =>
-  withGetter(derived(repoGroupsByEuc, $by => $by.get(euc)))
-
-export const deriveMaintainersForEuc = (euc: string) =>
-  withGetter(derived(deriveRepoGroup(euc), g => (g ? deriveMaintainers(g) : new Set<string>())))
 
 export const loadRepoAnnouncements = (relays?: string[]) => {
   const targetRelays = (relays && relays.length > 0 ? relays : getRepoAnnouncementRelays())
@@ -598,58 +280,13 @@ export const loadRepoAnnouncementsForPubkeys = (
 export const loadRepoAnnouncementByAddress = (repoAddr: string) => {
   const parts = repoAddr.split(":")
   if (parts.length < 3) return
-  const [, pubkey, repoId] = parts
+  const [, pubkey, ...repoIdParts] = parts
+  const repoId = repoIdParts.join(":")
   return loadRepoAnnouncementsForPubkeys([pubkey], repoId)
-}
-
-export const loadRepoMaintainerAnnouncements = (repoEvent: RepoAnnouncementEvent) => {
-  const repoId = getTagValue("d", repoEvent.tags) || ""
-  if (!repoId) return
-  const owner = normalizePubkey(repoEvent.pubkey)
-  let maintainers: string[] = []
-  try {
-    const parsed = parseRepoAnnouncementEvent(repoEvent)
-    maintainers = (parsed.maintainers || []).map(normalizePubkey).filter(Boolean)
-  } catch {
-    maintainers = []
-  }
-  const pubkeys = Array.from(new Set([owner, ...maintainers].filter(Boolean)))
-  const euc = getRepoEuc(repoEvent)
-  loadRepoAnnouncementsForPubkeys(pubkeys, repoId, euc || undefined)
-
-  if (!owner) return
-  let relays: string[] = []
-  try {
-    relays = Router.get().FromPubkeys([owner]).getUrls()
-  } catch {
-    relays = []
-  }
-  return load({
-    relays: Array.from(new Set([...GIT_RELAYS, ...relays])),
-    filters: [{kinds: [GIT_REPO_ANNOUNCEMENT], "#d": [repoId], "#maintainers": [owner]}] as any,
-  })
 }
 
 // ---------------------------------------------------------------------------
 // NIP-34 / 22 / 32 convergence helpers
-
-/**
- * Derive merged ref heads for a repo group by euc, bounded by recognized maintainers.
- */
-export const deriveRepoRefState = (euc: string) =>
-  withGetter(
-    derived(
-      [
-        deriveEventsAsc(deriveEventsById({repository, filters: [{kinds: [30618]}]})),
-        deriveRepoGroup(euc),
-      ],
-      ([$states, $group]) => {
-        const maintainers = $group ? deriveMaintainers($group) : new Set<string>()
-        const ctx = {maintainers: Array.from(maintainers)}
-        return RepoCore.mergeRepoStateByMaintainers(ctx as any, $states as unknown as any[])
-      },
-    ),
-  )
 
 /**
  * Derive role assignments for a given root id.
@@ -744,18 +381,6 @@ export const deriveIssueThread = (rootId: string) =>
   )
 
 /**
- * Resolve final status for an issue or PR root using precedence rules.
- */
-export const deriveStatus = (rootId: string, rootAuthor: string, euc: string) =>
-  withGetter(
-    derived([deriveIssueThread(rootId), deriveRepoGroup(euc)], ([$thread, $group]) => {
-      if (!$thread) return undefined
-      const maintainers = $group ? deriveMaintainers($group) : new Set<string>()
-      return resolveIssueStatus($thread as unknown as any, rootAuthor, maintainers)
-    }),
-  )
-
-/**
  * Effective labels for an event id by combining self labels, external 1985 labels, and legacy #t.
  */
 export const deriveEffectiveLabels = (eventId: string) =>
@@ -781,7 +406,7 @@ export const deriveEffectiveLabels = (eventId: string) =>
 
 /**
  * Resolve effective issue title/description/labels from root issue + 1985 labels + 1624 cover letters.
- * Author + maintainer-set members are authoritative.
+ * Author + repo maintainers are authoritative.
  */
 export const deriveEffectiveIssueEdits = (issueId: string) =>
   withGetter(
@@ -797,15 +422,15 @@ export const deriveEffectiveIssueEdits = (issueId: string) =>
             filters: [{kinds: [GIT_COVER_LETTER_KIND], "#e": [issueId]}],
           }),
         ),
-        maintainerSetByRepoAddress,
+        repoAnnouncementsByAddress,
       ],
-      ([$issueEvent, $labelEvents, $coverLetters, $maintainersByRepoAddress]) => {
+      ([$issueEvent, $labelEvents, $coverLetters, $repoEventsByAddress]) => {
         if (!$issueEvent || $issueEvent.kind !== GIT_ISSUE) return undefined
 
         const issueEvent = $issueEvent as unknown as IssueEvent
         const repoAddress = getTagValue("a", issueEvent.tags || [])
-        const maintainers =
-          (repoAddress && $maintainersByRepoAddress.get(repoAddress)) || new Set<string>()
+        const repoEvent = repoAddress ? $repoEventsByAddress.get(repoAddress) : undefined
+        const maintainers = new Set(repoEvent ? getRepoMaintainers(repoEvent) : [])
 
         return resolveIssueEdits({
           issueEvent,
