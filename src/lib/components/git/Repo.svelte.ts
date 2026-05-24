@@ -1389,12 +1389,12 @@ export class Repo {
     return this.#repo?.relays ?? [];
   }
 
-  // Latest NIP-34 repo state event (30618) from the maintainer set
+  // Latest NIP-34 repo state event (30618) for this repo announcement
   get repoStateEvent(): RepoStateEvent | undefined {
     return this.#repoStateEvent;
   }
 
-  // All known 30618 events from the maintainer set
+  // All known 30618 events for this repo announcement
   get repoStateEvents(): RepoStateEvent[] {
     return this.#repoStateEventsArr || [];
   }

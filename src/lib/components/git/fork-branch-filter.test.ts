@@ -10,27 +10,27 @@ describe("fork-branch-filter", () => {
     ]);
   });
 
-  it("shows toggle mode when maintainer-set branches are a subset of a large repo", () => {
+  it("shows toggle mode when maintainer branches are a subset of a large repo", () => {
     const state = deriveBranchCopyFilterState({
       branchNames: ["main", "release", "feature"],
       branchCopyFilter: {
         branchNames: ["release"],
-        label: "Copy only maintainer-set branches",
+        label: "Copy only maintainer branches",
         minBranchCount: 2,
         status: "ready",
       },
     });
 
     expect(state.mode).toBe("toggle");
-    expect(state.maintainerSetBranchNames).toEqual(["release"]);
+    expect(state.maintainerBranchNames).toEqual(["release"]);
   });
 
-  it("shows empty mode when no maintainer-set branches are found for a large repo", () => {
+  it("shows empty mode when no maintainer branches are found for a large repo", () => {
     const state = deriveBranchCopyFilterState({
       branchNames: ["main", "release", "feature"],
       branchCopyFilter: {
         branchNames: [],
-        label: "Copy only maintainer-set branches",
+        label: "Copy only maintainer branches",
         minBranchCount: 2,
         status: "ready",
       },
@@ -45,7 +45,7 @@ describe("fork-branch-filter", () => {
       branchNames: ["main", "release"],
       branchCopyFilter: {
         branchNames: ["release"],
-        label: "Copy only maintainer-set branches",
+        label: "Copy only maintainer branches",
         minBranchCount: 20,
         status: "ready",
       },
@@ -54,12 +54,12 @@ describe("fork-branch-filter", () => {
     expect(state.mode).toBe("hidden");
   });
 
-  it("shows loading mode while maintainer-set branch metrics are still resolving", () => {
+  it("shows loading mode while maintainer branch metrics are still resolving", () => {
     const state = deriveBranchCopyFilterState({
       branchNames: ["main", "release", "feature"],
       branchCopyFilter: {
         branchNames: [],
-        label: "Copy only maintainer-set branches",
+        label: "Copy only maintainer branches",
         minBranchCount: 2,
         status: "loading",
       },

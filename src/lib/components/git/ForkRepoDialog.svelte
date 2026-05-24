@@ -830,8 +830,8 @@
       includeBranches:
         branchCopyFilterState.mode === "toggle" &&
         useBranchCopyFilter &&
-        branchCopyFilterState.maintainerSetBranchNames.length > 0
-          ? branchCopyFilterState.maintainerSetBranchNames
+        branchCopyFilterState.maintainerBranchNames.length > 0
+          ? branchCopyFilterState.maintainerBranchNames
           : undefined,
       earliestUniqueCommit: earliestUniqueCommit || undefined,
       tags,
@@ -1200,7 +1200,7 @@
                   <div class="flex items-center gap-2 text-sm text-gray-300">
                     <Loader2 class="w-4 h-4 animate-spin text-gray-400" />
                     <p>
-                      Checking maintainer-set branches for this {branchCopyFilterState.totalBranches}-branch
+                      Checking maintainer branches for this {branchCopyFilterState.totalBranches}-branch
                       repo...
                     </p>
                   </div>
@@ -1215,7 +1215,7 @@
                     <div class="flex-1 min-w-0">
                       <div class="text-sm text-white">{branchCopyFilter?.label}</div>
                       <p class="text-xs text-gray-400 mt-0.5">
-                        Copy {branchCopyFilterState.maintainerSetBranchNames.length} of {branchCopyFilterState.totalBranches}
+                        Copy {branchCopyFilterState.maintainerBranchNames.length} of {branchCopyFilterState.totalBranches}
                         current branch{branchCopyFilterState.totalBranches === 1 ? "" : "es"}. The
                         default branch stays included.
                       </p>
@@ -1223,7 +1223,7 @@
                   </label>
                 {:else if branchCopyFilterState.mode === "empty"}
                   <p class="text-sm text-gray-300">
-                    No maintainer-set branches found; including all {branchCopyFilterState.totalBranches}
+                    No maintainer branches found; including all {branchCopyFilterState.totalBranches}
                     branch{branchCopyFilterState.totalBranches === 1 ? "" : "es"} in this fork.
                   </p>
                 {:else}

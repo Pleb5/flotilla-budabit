@@ -53,7 +53,7 @@
   });
 
   // Determine current status
-  const maintainerSet = $derived.by(() => {
+  const maintainerPubkeys = $derived.by(() => {
     const maintainers = repo.maintainers || [];
     const owner = (repo as any).repoEvent?.pubkey;
     return new Set([...maintainers, owner].filter(Boolean));
@@ -66,7 +66,7 @@
       return statusEvents;
     }
 
-    return statusEvents.filter((e) => e.pubkey === rootAuthor || maintainerSet.has(e.pubkey));
+    return statusEvents.filter((e) => e.pubkey === rootAuthor || maintainerPubkeys.has(e.pubkey));
   });
 
   const suggestedEvents = $derived.by(() => {
@@ -75,7 +75,7 @@
       return [];
     }
 
-    return statusEvents.filter((e) => e.pubkey !== rootAuthor && !maintainerSet.has(e.pubkey));
+    return statusEvents.filter((e) => e.pubkey !== rootAuthor && !maintainerPubkeys.has(e.pubkey));
   });
 
   const currentStatusEvent = $derived.by(() => {
