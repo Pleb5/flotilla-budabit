@@ -27,6 +27,9 @@ const GRASP_OWNER_NPUB = "npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz4
 const GRASP_FORK_REMOTE_URL = `https://relay.ngit.dev/${GRASP_OWNER_NPUB}/upstream-repo.git`
 const GRASP_ORIGIN_URL = `https://relay.ngit.dev/${GRASP_OWNER_NPUB}/r.git`
 
+const pktLine = (payload: string) =>
+  `${(payload.length + 4).toString(16).padStart(4, "0")}${payload}`
+
 describe("worker/repo-management GRASP fork output", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -255,6 +258,20 @@ describe("worker/repo-management GRASP fork output", () => {
   it("prefers advertised remote refs over stale local-only branches for GRASP push planning", async () => {
     const tokenHex = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
     const fetchMock = vi.fn(async () => {})
+    const advertisedRefsBody = [
+      pktLine("# service=git-upload-pack\n"),
+      "0000",
+      pktLine(
+        "1111111111111111111111111111111111111111 refs/heads/master\0symref=HEAD:refs/heads/master\n",
+      ),
+      pktLine("2222222222222222222222222222222222222222 refs/heads/maint\n"),
+      "0000",
+    ].join("")
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(advertisedRefsBody, {status: 200, statusText: "OK"})),
+    )
 
     const git = {
       listServerRefs: vi.fn(async () => [
@@ -284,22 +301,26 @@ describe("worker/repo-management GRASP fork output", () => {
       }),
     } as any
 
-    const result = await forkAndCloneRepo(git, {} as any, "/root", {
-      owner: "upstream-owner",
-      repo: "upstream-repo",
-      forkName: "forked-repo",
-      visibility: "public",
-      token: tokenHex,
-      dir: "forked-repo",
-      provider: "grasp",
-      baseUrl: "wss://relay.example",
-      sourceCloneUrls: [GRASP_FORK_REMOTE_URL],
-      sourceRepoId: "upstream-owner/upstream-repo",
-    })
+    try {
+      const result = await forkAndCloneRepo(git, {} as any, "/root", {
+        owner: "upstream-owner",
+        repo: "upstream-repo",
+        forkName: "forked-repo",
+        visibility: "public",
+        token: tokenHex,
+        dir: "forked-repo",
+        provider: "grasp",
+        baseUrl: "wss://relay.example",
+        sourceCloneUrls: [GRASP_FORK_REMOTE_URL],
+        sourceRepoId: "upstream-owner/upstream-repo",
+      })
 
-    expect(result.success).toBe(true)
-    expect(result.branches).toEqual(["master", "maint"])
-    expect(result.branches).not.toContain("add-logos")
-    expect(fetchMock).not.toHaveBeenCalledWith(expect.objectContaining({ref: "add-logos"}))
+      expect(result.success).toBe(true)
+      expect(result.branches).toEqual(["master", "maint"])
+      expect(result.branches).not.toContain("add-logos")
+      expect(fetchMock).not.toHaveBeenCalledWith(expect.objectContaining({ref: "add-logos"}))
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

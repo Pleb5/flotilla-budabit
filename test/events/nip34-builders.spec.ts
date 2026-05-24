@@ -114,7 +114,7 @@ describe("NIP-34 builders", () => {
     ).toEqual(["bug", "ui"].sort())
   })
 
-  it("createIssueEvent emits primary and maintainer-set repo addresses", () => {
+  it("createIssueEvent emits primary and additional repo addresses", () => {
     const evt = createIssueEvent({
       content: "issue body",
       repoAddr: "30617:root:repo",
