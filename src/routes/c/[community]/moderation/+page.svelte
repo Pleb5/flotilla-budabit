@@ -648,7 +648,7 @@
   {/snippet}
 </PageBar>
 
-<PageContent class="content col-4 p-4">
+<PageContent class="col-4 min-w-0 p-3 sm:p-4 lg:p-6">
   {#if communityBootstrapLoading}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading>Loading community permissions...</Spinner>
@@ -710,7 +710,7 @@
         {/if}
       </section>
 
-      <div class="col-4 grid gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
+      <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
         <aside class="flex flex-col gap-2">
           {#each grantableSections as item}
             {@const itemForm = $activeCommunityAdmissionForms[item.section.name]}
@@ -718,21 +718,21 @@
             {@const isSelected = selectedSectionName === item.section.name}
             <button
               type="button"
-              class={`card2 bg-alt p-4 text-left shadow-md transition ${isSelected ? "border-primary bg-primary/10" : ""} ${!itemForm ? "border-warning bg-warning/10" : ""}`}
+              class={`card2 bg-alt min-w-0 p-4 text-left shadow-md transition ${isSelected ? "border-primary bg-primary/10" : ""} ${!itemForm ? "border-warning bg-warning/10" : ""}`}
               onclick={() => selectSection(item.section.name)}>
               <div class="flex items-start justify-between gap-3">
-                <div>
+                <div class="min-w-0">
                   <strong>{item.displayName}</strong>
                   <p class="mt-1 text-xs opacity-60">
                     Kinds: {formatSectionKinds(item.section.kinds)}
                   </p>
                 </div>
                 <span
-                  class={`badge ${hasDraft ? "badge-info" : itemForm ? "badge-success" : "badge-warning"}`}>
+                  class={`badge shrink-0 !overflow-visible px-3 ${hasDraft ? "badge-info" : itemForm ? "badge-success" : "badge-warning"}`}>
                   {hasDraft ? "Draft changes" : itemForm ? "Ready" : "Missing form"}
                 </span>
               </div>
-              <p class="mt-2 text-sm opacity-70">
+              <p class="mt-2 break-words text-sm opacity-70">
                 {itemForm ? itemForm.name : "Users cannot apply until a form is published."}
               </p>
             </button>
@@ -740,15 +740,15 @@
         </aside>
 
         {#if selected && selectedDraft}
-          <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+          <div class="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(320px,440px)]">
             <form
               bind:this={formBuilderElement}
-              class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md"
+              class="card2 bg-alt flex min-w-0 flex-col gap-4 p-4 shadow-md"
               onsubmit={preventDefault(publishSelectedForm)}>
               <div class="flex flex-wrap items-start justify-between gap-3">
-                <div>
+                <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
-                    <h2 class="text-xl font-semibold">
+                    <h2 class="min-w-0 break-words text-xl font-semibold">
                       {activeForm ? "Edit application form" : "Create application form"}
                     </h2>
                     <span class="badge badge-primary">{selected.displayName}</span>
@@ -771,8 +771,8 @@
                 </div>
               {/if}
 
-              <div class="grid gap-3 md:grid-cols-2">
-                <Field>
+              <div class="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <Field class="min-w-0">
                   {#snippet label()}<p>Form name</p>{/snippet}
                   {#snippet input()}
                     <input
@@ -785,11 +785,11 @@
                         )} />
                   {/snippet}
                 </Field>
-                <Field>
+                <Field class="min-w-0">
                   {#snippet label()}<p>Description</p>{/snippet}
                   {#snippet input()}
                     <textarea
-                      class="textarea textarea-bordered min-h-20 w-full"
+                      class="textarea textarea-bordered min-h-20 w-full resize-y"
                       value={selectedDraft.description}
                       oninput={event =>
                         updateDraft(
@@ -843,7 +843,7 @@
                         onclick={() => removeQuestion(question.id)}>Delete</Button>
                     </div>
 
-                    <div class="grid gap-3 md:grid-cols-[1fr_180px]">
+                    <div class="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
                       <input
                         class="input input-bordered w-full font-semibold"
                         value={question.label}
@@ -876,20 +876,20 @@
                           placeholder="Type your answer here" />
                       {:else if question.type === "paragraph"}
                         <textarea
-                          class="textarea textarea-bordered min-h-24 w-full"
+                          class="textarea textarea-bordered min-h-24 w-full resize-y"
                           disabled
                           placeholder="Type your answer here"></textarea>
                       {:else}
                         <div class="flex flex-col gap-2">
                           {#each question.options as option}
-                            <div class="flex items-center gap-2">
+                            <div class="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
                               {#if question.type === "multipleChoice"}
                                 <input type="checkbox" class="checkbox checkbox-sm" disabled />
                               {:else}
                                 <input type="radio" class="radio radio-sm" disabled />
                               {/if}
                               <input
-                                class="input input-sm input-bordered flex-1"
+                                class="input input-sm input-bordered min-w-0 flex-1"
                                 value={option.label}
                                 disabled={option.isOther}
                                 oninput={event =>
@@ -938,7 +938,7 @@
             </form>
 
             <aside
-              class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md xl:sticky xl:top-4 xl:self-start">
+              class="card2 bg-alt flex min-w-0 flex-col gap-4 p-4 shadow-md 2xl:sticky 2xl:top-4 2xl:self-start">
               <div>
                 <h2 class="text-xl font-semibold">Preview</h2>
                 <p class="text-sm opacity-70">
@@ -948,7 +948,7 @@
               <div class="rounded-box bg-base-100 p-4">
                 <div class="rounded-box bg-base-200 p-4">
                   <span class="badge badge-primary mb-3">{selected.displayName}</span>
-                  <h3 class="text-2xl font-bold">{selectedDraft.name}</h3>
+                  <h3 class="break-words text-2xl font-bold">{selectedDraft.name}</h3>
                   <p class="mt-2 whitespace-pre-wrap text-sm opacity-75">
                     {selectedDraft.description}
                   </p>
@@ -957,9 +957,9 @@
                 <div class="mt-4 flex flex-col gap-3">
                   {#each selectedDraft.questions as question}
                     <div class="rounded-box border border-base-300 p-3">
-                      <div class="flex items-center gap-2">
+                      <div class="flex min-w-0 items-center gap-2">
                         {#if question.required}<span class="text-error">*</span>{/if}
-                        <strong>{question.label}</strong>
+                        <strong class="min-w-0 break-words">{question.label}</strong>
                       </div>
                       <p class="mb-2 text-xs opacity-60">{getQuestionTypeLabel(question.type)}</p>
                       {#if question.type === "shortAnswer"}
@@ -969,7 +969,7 @@
                           placeholder="Type your answer here" />
                       {:else if question.type === "paragraph"}
                         <textarea
-                          class="textarea textarea-bordered min-h-20 w-full"
+                          class="textarea textarea-bordered min-h-20 w-full resize-y"
                           disabled
                           placeholder="Type your answer here"></textarea>
                       {:else if isChoiceQuestion(question)}
@@ -982,7 +982,7 @@
                                 {:else}
                                   <input type="radio" class="radio radio-sm" disabled />
                                 {/if}
-                                <span>{option.label}</span>
+                                <span class="min-w-0 break-words">{option.label}</span>
                               </label>
                               {#if option.isOther}
                                 <input
