@@ -449,7 +449,7 @@
       [url, ...Router.get().FromUser().getUrls(), ...GIT_RELAYS]
         .map(u => normalizeRelayUrl(u))
         .filter(Boolean),
-      ),
+    ),
   ) as string[]
 
   $effect(() => {
@@ -504,6 +504,22 @@
       })),
   )
 
+  const repoPublishCommunityRelays = $derived.by(() =>
+    Array.from(
+      new Set(
+        [
+          ...repoPublishCommunityOptions.flatMap(option => [
+            option.relay || "",
+            ...(option.relays || []),
+          ]),
+          ...bookmarkRelays,
+        ]
+          .map(relay => safeNormalizeRelay(relay))
+          .filter(Boolean),
+      ),
+    ),
+  )
+
   const repoViewCommunityOptions = $derived.by((): RepoCommunityOption[] => {
     const options = new Map<string, RepoCommunityOption>()
     const session = $activeCommunitySession
@@ -535,7 +551,10 @@
 
   $effect(() => {
     if (activeMode !== "community") return
-    if (selectedCommunityPubkey && repoViewCommunityOptions.some(c => c.pubkey === selectedCommunityPubkey)) {
+    if (
+      selectedCommunityPubkey &&
+      repoViewCommunityOptions.some(c => c.pubkey === selectedCommunityPubkey)
+    ) {
       return
     }
     selectedCommunityPubkey = repoViewCommunityOptions[0]?.pubkey || ""
@@ -601,11 +620,12 @@
     const key = `${selectedCommunityPubkey}:${selectedCommunityRelays.join(",")}:definition`
     if (key === selectedCommunityDefinitionLoadKey) return
     selectedCommunityDefinitionLoadKey = key
-    load({relays: selectedCommunityRelays, filters: selectedCommunityDefinitionFilters as any}).catch(
-      error => {
-        console.warn("[git/+page] Failed to load selected community definition", error)
-      },
-    )
+    load({
+      relays: selectedCommunityRelays,
+      filters: selectedCommunityDefinitionFilters as any,
+    }).catch(error => {
+      console.warn("[git/+page] Failed to load selected community definition", error)
+    })
   })
 
   const selectedCommunityProfileListFilters = $derived.by(() =>
@@ -703,11 +723,12 @@
     const key = selectedCommunityReportDeleteFilters.map(filter => JSON.stringify(filter)).join("|")
     if (key === selectedCommunityReportDeleteLoadKey) return
     selectedCommunityReportDeleteLoadKey = key
-    load({relays: selectedCommunityRelays, filters: selectedCommunityReportDeleteFilters as any}).catch(
-      error => {
-        console.warn("[git/+page] Failed to load community report deletes", error)
-      },
-    )
+    load({
+      relays: selectedCommunityRelays,
+      filters: selectedCommunityReportDeleteFilters as any,
+    }).catch(error => {
+      console.warn("[git/+page] Failed to load community report deletes", error)
+    })
   })
 
   const toBookmarkAddresses = (bookmarks: BookmarkAddress[]): BookmarkAddress[] =>
@@ -876,7 +897,11 @@
 
   let communityRepoLoadKey = ""
   $effect(() => {
-    if (!selectedCommunityPubkey || selectedCommunityRelays.length === 0 || communityRepoFilters.length === 0) {
+    if (
+      !selectedCommunityPubkey ||
+      selectedCommunityRelays.length === 0 ||
+      communityRepoFilters.length === 0
+    ) {
       communityRepoLoadKey = ""
       return
     }
@@ -907,7 +932,8 @@
     return Array.from(latest.entries()).map(([address, event]) => ({
       address,
       event,
-      relayHint: Router.get().getRelaysForPubkey(event.pubkey)?.[0] || selectedCommunityRelays[0] || "",
+      relayHint:
+        Router.get().getRelaysForPubkey(event.pubkey)?.[0] || selectedCommunityRelays[0] || "",
     }))
   })
 
@@ -952,7 +978,9 @@
   }
 
   const communityStarTargetFilters = $derived.by(() =>
-    selectedCommunityPubkey ? [makeCommunityTargetingFilter(selectedCommunityPubkey, [REACTION])] : [],
+    selectedCommunityPubkey
+      ? [makeCommunityTargetingFilter(selectedCommunityPubkey, [REACTION])]
+      : [],
   )
   const communityStarTargetEvents = $derived.by(() =>
     communityStarTargetFilters.length
@@ -960,11 +988,15 @@
       : undefined,
   )
   const communityStarTargetDeleteFilters = $derived.by(() =>
-    makeTargetDeleteFilters($communityStarTargetEvents ? ($communityStarTargetEvents as TrustedEvent[]) : []),
+    makeTargetDeleteFilters(
+      $communityStarTargetEvents ? ($communityStarTargetEvents as TrustedEvent[]) : [],
+    ),
   )
   const communityStarTargetDeleteEvents = $derived.by(() =>
     communityStarTargetDeleteFilters.length
-      ? deriveEventsDesc(deriveEventsById({repository, filters: communityStarTargetDeleteFilters as any}))
+      ? deriveEventsDesc(
+          deriveEventsById({repository, filters: communityStarTargetDeleteFilters as any}),
+        )
       : undefined,
   )
   const deletedCommunityStarTargetIds = $derived.by(() =>
@@ -993,9 +1025,76 @@
   )
   const communityStarReactionEvents = $derived.by(() =>
     communityStarReactionFilters.length
-      ? deriveEventsDesc(deriveEventsById({repository, filters: communityStarReactionFilters as any}))
+      ? deriveEventsDesc(
+          deriveEventsById({repository, filters: communityStarReactionFilters as any}),
+        )
       : undefined,
   )
+
+  const userCommunityStarTargetFilters = $derived.by((): Filter[] => {
+    if (!$pubkey || repoPublishCommunityOptions.length === 0) return []
+
+    const communityPubkeys = Array.from(
+      new Set(repoPublishCommunityOptions.map(option => option.pubkey).filter(Boolean)),
+    )
+    if (communityPubkeys.length === 0) return []
+
+    return [
+      {
+        kinds: [TARGETED_PUBLICATION_KIND],
+        authors: [$pubkey],
+        "#p": communityPubkeys,
+        "#k": [String(REACTION)],
+      } as Filter,
+    ]
+  })
+  const userCommunityStarTargetEvents = $derived.by(() =>
+    userCommunityStarTargetFilters.length
+      ? deriveEventsDesc(
+          deriveEventsById({repository, filters: userCommunityStarTargetFilters as any}),
+        )
+      : undefined,
+  )
+  const userCommunityStarTargetDeleteFilters = $derived.by(() =>
+    makeTargetDeleteFilters(
+      $userCommunityStarTargetEvents ? ($userCommunityStarTargetEvents as TrustedEvent[]) : [],
+    ),
+  )
+  const userCommunityStarTargetDeleteEvents = $derived.by(() =>
+    userCommunityStarTargetDeleteFilters.length
+      ? deriveEventsDesc(
+          deriveEventsById({repository, filters: userCommunityStarTargetDeleteFilters as any}),
+        )
+      : undefined,
+  )
+  const deletedUserCommunityStarTargetIds = $derived.by(() =>
+    getDeletedTargetEventIds(
+      $userCommunityStarTargetEvents ? ($userCommunityStarTargetEvents as TrustedEvent[]) : [],
+      $userCommunityStarTargetDeleteEvents
+        ? ($userCommunityStarTargetDeleteEvents as TrustedEvent[])
+        : [],
+    ),
+  )
+  const eligibleUserCommunityStarTargetEvents = $derived.by(() => {
+    if (!$pubkey || !$userCommunityStarTargetEvents) return []
+
+    return ($userCommunityStarTargetEvents as TrustedEvent[]).filter(
+      event => event.pubkey === $pubkey && !deletedUserCommunityStarTargetIds.has(event.id),
+    )
+  })
+  const userCommunityStarReactionFilters = $derived.by(() =>
+    $pubkey && eligibleUserCommunityStarTargetEvents.length
+      ? makeTargetedPublicationOriginalFilters(eligibleUserCommunityStarTargetEvents, [$pubkey])
+      : [],
+  )
+  const userCommunityStarReactionEvents = $derived.by(() =>
+    userCommunityStarReactionFilters.length
+      ? deriveEventsDesc(
+          deriveEventsById({repository, filters: userCommunityStarReactionFilters as any}),
+        )
+      : undefined,
+  )
+
   const communityRepoStarAddresses = $derived.by((): BookmarkAddress[] => {
     if (!$communityStarReactionEvents) return []
     return ($communityStarReactionEvents as TrustedEvent[])
@@ -1006,12 +1105,14 @@
 
   const communityStarProfileRequests = new Set<string>()
   $effect(() => {
-    if (activeMode !== "community" || activeTab !== "bookmarks" || !$communityStarReactionEvents) return
+    if (activeMode !== "community" || activeTab !== "bookmarks" || !$communityStarReactionEvents)
+      return
 
     for (const event of $communityStarReactionEvents as TrustedEvent[]) {
       const star = parseRepoStarReaction(event)
       if (!star || !event.pubkey) continue
-      if ($profilesByPubkey.get(event.pubkey) || communityStarProfileRequests.has(event.pubkey)) continue
+      if ($profilesByPubkey.get(event.pubkey) || communityStarProfileRequests.has(event.pubkey))
+        continue
 
       communityStarProfileRequests.add(event.pubkey)
       loadProfile(event.pubkey, []).catch(error => {
@@ -1025,8 +1126,22 @@
     star: RepoStarRef
   }
 
+  type RepoCollectionCommunityStar = CommunityRepoStarCollection & {
+    community: RepoCommunityOption
+  }
+
+  type PublishThunkResult = {
+    event?: TrustedEvent
+    complete?: Promise<unknown>
+    results?: Record<string, {status?: unknown}>
+  }
+
   const activeUserCommunityRepoStarCollections = $derived.by((): CommunityRepoStarCollection[] => {
-    if (!$pubkey || !$communityStarReactionEvents || eligibleCommunityStarTargetEvents.length === 0) {
+    if (
+      !$pubkey ||
+      !$communityStarReactionEvents ||
+      eligibleCommunityStarTargetEvents.length === 0
+    ) {
       return []
     }
 
@@ -1055,6 +1170,73 @@
     })
   })
 
+  const activeUserAllCommunityRepoStarCollections = $derived.by(
+    (): RepoCollectionCommunityStar[] => {
+      if (
+        !$pubkey ||
+        !$userCommunityStarReactionEvents ||
+        eligibleUserCommunityStarTargetEvents.length === 0
+      ) {
+        return []
+      }
+
+      const communityOptionsByPubkey = new Map(
+        repoPublishCommunityOptions.map(option => [option.pubkey, option]),
+      )
+      const targetsByTargetingId = new Map<
+        string,
+        Array<{targetEvent: TrustedEvent; community: RepoCommunityOption}>
+      >()
+      const targetsByOriginalEventId = new Map<
+        string,
+        Array<{targetEvent: TrustedEvent; community: RepoCommunityOption}>
+      >()
+
+      const addTarget = (
+        map: Map<string, Array<{targetEvent: TrustedEvent; community: RepoCommunityOption}>>,
+        key: string,
+        target: {targetEvent: TrustedEvent; community: RepoCommunityOption},
+      ) => {
+        const current = map.get(key) || []
+        current.push(target)
+        map.set(key, current)
+      }
+
+      for (const event of eligibleUserCommunityStarTargetEvents) {
+        const targeting = parseTargetedPublication(event)
+        if (!targeting) continue
+
+        const communities = targeting.communities
+          .map(community => communityOptionsByPubkey.get(community.pubkey))
+          .filter((community): community is RepoCommunityOption => Boolean(community))
+        if (communities.length === 0) continue
+
+        for (const community of communities) {
+          const target = {targetEvent: event, community}
+          addTarget(targetsByTargetingId, targeting.id, target)
+          if (targeting.ref?.type === "e") {
+            addTarget(targetsByOriginalEventId, targeting.ref.value, target)
+          }
+        }
+      }
+
+      if (targetsByTargetingId.size === 0 && targetsByOriginalEventId.size === 0) return []
+
+      return ($userCommunityStarReactionEvents as TrustedEvent[]).flatMap(event => {
+        if (event.pubkey !== $pubkey) return []
+        const star = parseRepoStarReaction(event)
+        if (!star) return []
+
+        const targets =
+          targetsByTargetingId.get(getPublicationTargetingId(event)) ||
+          targetsByOriginalEventId.get(event.id) ||
+          []
+
+        return targets.map(target => ({...target, star}))
+      })
+    },
+  )
+
   const communityStarReposStore = $derived.by(() => {
     if (communityRepoStarAddresses.length === 0) return undefined
     const filters = buildBookmarkRepoFilters(communityRepoStarAddresses)
@@ -1081,21 +1263,29 @@
   )
   const communitySnippetTargetEvents = $derived.by(() =>
     communitySnippetTargetFilters.length
-      ? deriveEventsDesc(deriveEventsById({repository, filters: communitySnippetTargetFilters as any}))
+      ? deriveEventsDesc(
+          deriveEventsById({repository, filters: communitySnippetTargetFilters as any}),
+        )
       : undefined,
   )
   const communitySnippetTargetDeleteFilters = $derived.by(() =>
-    makeTargetDeleteFilters($communitySnippetTargetEvents ? ($communitySnippetTargetEvents as TrustedEvent[]) : []),
+    makeTargetDeleteFilters(
+      $communitySnippetTargetEvents ? ($communitySnippetTargetEvents as TrustedEvent[]) : [],
+    ),
   )
   const communitySnippetTargetDeleteEvents = $derived.by(() =>
     communitySnippetTargetDeleteFilters.length
-      ? deriveEventsDesc(deriveEventsById({repository, filters: communitySnippetTargetDeleteFilters as any}))
+      ? deriveEventsDesc(
+          deriveEventsById({repository, filters: communitySnippetTargetDeleteFilters as any}),
+        )
       : undefined,
   )
   const deletedCommunitySnippetTargetIds = $derived.by(() =>
     getDeletedTargetEventIds(
       $communitySnippetTargetEvents ? ($communitySnippetTargetEvents as TrustedEvent[]) : [],
-      $communitySnippetTargetDeleteEvents ? ($communitySnippetTargetDeleteEvents as TrustedEvent[]) : [],
+      $communitySnippetTargetDeleteEvents
+        ? ($communitySnippetTargetDeleteEvents as TrustedEvent[])
+        : [],
     ),
   )
   const eligibleCommunitySnippetTargetEvents = $derived.by(() => {
@@ -1146,7 +1336,11 @@
 
   let communityTargetLoadKey = ""
   $effect(() => {
-    if (activeMode !== "community" || !selectedCommunityPubkey || selectedCommunityRelays.length === 0) {
+    if (
+      activeMode !== "community" ||
+      !selectedCommunityPubkey ||
+      selectedCommunityRelays.length === 0
+    ) {
       communityTargetLoadKey = ""
       return
     }
@@ -1194,6 +1388,72 @@
     communityOriginalLoadKey = key
     load({relays: selectedCommunityRelays, filters: filters as any}).catch(error => {
       console.warn("[git/+page] Failed to load community curated originals", error)
+    })
+  })
+
+  let userCommunityStarTargetLoadKey = ""
+  $effect(() => {
+    if (
+      !$pubkey ||
+      repoPublishCommunityRelays.length === 0 ||
+      userCommunityStarTargetFilters.length === 0
+    ) {
+      userCommunityStarTargetLoadKey = ""
+      return
+    }
+
+    const key = `${repoPublishCommunityRelays.join(",")}:${userCommunityStarTargetFilters.map(filter => JSON.stringify(filter)).join("|")}`
+    if (key === userCommunityStarTargetLoadKey) return
+    userCommunityStarTargetLoadKey = key
+    load({
+      relays: repoPublishCommunityRelays,
+      filters: userCommunityStarTargetFilters as any,
+    }).catch(error => {
+      console.warn("[git/+page] Failed to load user community repo star targets", error)
+    })
+  })
+
+  let userCommunityStarTargetDeleteLoadKey = ""
+  $effect(() => {
+    if (
+      !$pubkey ||
+      repoPublishCommunityRelays.length === 0 ||
+      userCommunityStarTargetDeleteFilters.length === 0
+    ) {
+      userCommunityStarTargetDeleteLoadKey = ""
+      return
+    }
+
+    const key = `${repoPublishCommunityRelays.join(",")}:${userCommunityStarTargetDeleteFilters.map(filter => JSON.stringify(filter)).join("|")}`
+    if (key === userCommunityStarTargetDeleteLoadKey) return
+    userCommunityStarTargetDeleteLoadKey = key
+    load({
+      relays: repoPublishCommunityRelays,
+      filters: userCommunityStarTargetDeleteFilters as any,
+    }).catch(error => {
+      console.warn("[git/+page] Failed to load user community repo star target deletes", error)
+    })
+  })
+
+  let userCommunityStarReactionLoadKey = ""
+  $effect(() => {
+    if (
+      !$pubkey ||
+      repoPublishCommunityRelays.length === 0 ||
+      userCommunityStarReactionFilters.length === 0
+    ) {
+      userCommunityStarReactionLoadKey = ""
+      return
+    }
+
+    const key = `${repoPublishCommunityRelays.join(",")}:${userCommunityStarReactionFilters.map(filter => JSON.stringify(filter)).join("|")}`
+    if (key === userCommunityStarReactionLoadKey) return
+    userCommunityStarReactionLoadKey = key
+    load({
+      relays: repoPublishCommunityRelays,
+      filters: userCommunityStarReactionFilters as any,
+    }).catch(error => {
+      console.warn("[git/+page] Failed to load user community repo stars", error)
     })
   })
 
@@ -2176,14 +2436,13 @@
     }
 
     const reposToShow = searchFilteredRepos
-    const shouldResolveEmpty = activeMode === "community" || activeTab === "bookmarks" || Boolean($pubkey)
+    const shouldResolveEmpty =
+      activeMode === "community" || activeTab === "bookmarks" || Boolean($pubkey)
     if (reposToShow.length > 0 || !loading || shouldResolveEmpty) {
       loading = false
       if (reposToShow.length > 0) {
         // Preserve visible order so search relevance changes invalidate the card cache.
-        const repoIds = reposToShow
-          .map((r: any) => (r.event ?? r).id)
-          .join(",")
+        const repoIds = reposToShow.map((r: any) => (r.event ?? r).id).join(",")
         const cardsKey = repoIds
 
         // Only recompute and push cards when the key has actually changed
@@ -2240,7 +2499,8 @@
 
   const back = () => history.back()
 
-  const shouldShowRepoCardBookmark = (event?: RepoAnnouncementEvent | null) => Boolean(event && $pubkey)
+  const shouldShowRepoCardBookmark = (event?: RepoAnnouncementEvent | null) =>
+    Boolean(event && $pubkey)
 
   const getRepoCardRelayHint = (
     event: RepoAnnouncementEvent,
@@ -2300,7 +2560,12 @@
   }
 
   const getCommunityRepoStargazerPubkeys = (event?: RepoAnnouncementEvent | null) => {
-    if (activeMode !== "community" || activeTab !== "bookmarks" || !event || !$communityStarReactionEvents) {
+    if (
+      activeMode !== "community" ||
+      activeTab !== "bookmarks" ||
+      !event ||
+      !$communityStarReactionEvents
+    ) {
       return []
     }
 
@@ -2314,7 +2579,8 @@
       if (
         !isAnyBookmarked([repoStarToBookmarkAddress(star)], candidateAddresses, {
           candidateRepoKeys,
-          getCachedEvent: address => repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+          getCachedEvent: address =>
+            repository.getEvent(address) as RepoAnnouncementEvent | undefined,
         })
       ) {
         continue
@@ -2322,7 +2588,10 @@
 
       const current = latestByPubkey.get(reaction.pubkey)
       if (!current || reaction.created_at > current.createdAt) {
-        latestByPubkey.set(reaction.pubkey, {pubkey: reaction.pubkey, createdAt: reaction.created_at})
+        latestByPubkey.set(reaction.pubkey, {
+          pubkey: reaction.pubkey,
+          createdAt: reaction.created_at,
+        })
       }
     }
 
@@ -2332,7 +2601,25 @@
   }
 
   const isRepoCardBookmarked = (event?: RepoAnnouncementEvent | null) =>
-    activeMode === "community" ? Boolean(findRepoCardCommunityStar(event)) : Boolean(findRepoCardStar(event))
+    activeMode === "community"
+      ? Boolean(findRepoCardCommunityStar(event))
+      : Boolean(findRepoCardStar(event))
+
+  const getRepoCardCommunityCollections = (
+    event?: RepoAnnouncementEvent | null,
+  ): RepoCollectionCommunityStar[] => {
+    if (!event) return []
+    const candidateAddresses = getRepoCardCandidateAddresses(event)
+    const candidateRepoKeys = getRepoCardCanonicalKeys(event)
+
+    return activeUserAllCommunityRepoStarCollections.filter(collection =>
+      isAnyBookmarked([repoStarToBookmarkAddress(collection.star)], candidateAddresses, {
+        candidateRepoKeys,
+        getCachedEvent: address =>
+          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+      }),
+    )
+  }
 
   let pendingBookmarkAddresses = $state<Record<string, boolean>>({})
 
@@ -2348,6 +2635,29 @@
     else delete next[address]
     pendingBookmarkAddresses = next
   }
+
+  const getPublishThunkSucceeded = (thunk?: PublishThunkResult) => {
+    if (!thunk) return false
+    const results = Object.values(thunk.results || {})
+    if (results.length === 0) return Boolean(thunk.event)
+    return results.some(result => result?.status === PublishStatus.Success)
+  }
+
+  const awaitPublishThunks = async (
+    thunks: Array<PublishThunkResult | undefined>,
+    mode: "all" | "any" = "any",
+  ) => {
+    const publishThunks = thunks.filter(Boolean) as PublishThunkResult[]
+    if (publishThunks.length === 0) return false
+
+    await Promise.allSettled(publishThunks.map(thunk => thunk.complete || Promise.resolve()))
+
+    const successes = publishThunks.map(getPublishThunkSucceeded)
+    return mode === "all" ? successes.every(Boolean) : successes.some(Boolean)
+  }
+
+  const getRepoCollectionCommunityLabel = (community: RepoCommunityOption) =>
+    community.label || getCommunityOptionLabel(community.pubkey)
 
   const publishPersonalRepoStar = ({
     event,
@@ -2406,66 +2716,157 @@
     })
     const targetingThunk = publishThunk({event: targetingEvent, relays})
     if (targetingThunk?.event) repository.publish(targetingThunk.event as TrustedEvent)
+    return [starThunk, targetingThunk] as Array<PublishThunkResult | undefined>
   }
 
   const deleteCommunityRepoStar = ({
     collection,
     relayHint,
+    community,
   }: {
     collection: CommunityRepoStarCollection
     relayHint: string
+    community?: RepoCommunityOption
   }) => {
     const relays = getRepoStarRelays([
       relayHint,
       collection.star.relayHint,
       ...(collection.star.relayHints || []),
-      selectedCommunityOption?.relay || "",
-      ...(selectedCommunityOption?.relays || []),
+      community?.relay || selectedCommunityOption?.relay || "",
+      ...(community?.relays || selectedCommunityOption?.relays || []),
       ...bookmarkRelays,
     ])
     const targetDelete = publishDelete({event: collection.targetEvent, relays, protect: false})
     if (targetDelete?.event) repository.publish(targetDelete.event as TrustedEvent)
     const starDelete = publishDelete({event: collection.star.reaction, relays, protect: false})
     if (starDelete?.event) repository.publish(starDelete.event as TrustedEvent)
+    return [targetDelete, starDelete] as Array<PublishThunkResult | undefined>
   }
 
-  const openRepoCollectModal = (
-    event: RepoAnnouncementEvent,
-    address: string,
-    {defaultPersonal = true}: {defaultPersonal?: boolean} = {},
-  ) => {
+  const openRepoCollectModal = (event: RepoAnnouncementEvent, address: string) => {
+    const existingPersonalStar = findRepoCardStar(event)
+    const existingCommunityStars = getRepoCardCommunityCollections(event)
+    const existingCommunityByPubkey = new Map(
+      existingCommunityStars.map(collection => [collection.community.pubkey, collection]),
+    )
+    const communityOptions = [...repoPublishCommunityOptions]
+
+    for (const collection of existingCommunityStars) {
+      if (!communityOptions.some(option => option.pubkey === collection.community.pubkey)) {
+        communityOptions.push(collection.community)
+      }
+    }
+
     pushModal(RepoCollectModal, {
-      communityOptions: repoPublishCommunityOptions,
-      defaultPersonal,
-      defaultCommunityPubkey: activeMode === "community" ? selectedCommunityPubkey : "",
+      title: "Edit collections",
+      submitLabel: "Update",
+      submittingLabel: "editing collections...",
+      communityOptions,
+      allowEmpty: true,
+      requireChanges: true,
+      defaultPersonal: Boolean(existingPersonalStar),
+      defaultCommunityPubkeys: Array.from(existingCommunityByPubkey.keys()),
       onCancel: clearModals,
-      onCollect: async ({personal, communityPubkeys}: {personal: boolean; communityPubkeys: string[]}) => {
+      onCollect: async ({
+        personal,
+        communityPubkeys,
+      }: {
+        personal: boolean
+        communityPubkeys: string[]
+      }) => {
         if (pendingBookmarkAddresses[address]) return
         setRepoCardBookmarkPending(address, true)
         try {
           const relayHint = getRepoCardRelayHint(event, address)
           const baseCreatedAt = Math.floor(Date.now() / 1000)
-          if (personal) {
-            publishPersonalRepoStar({event, address, relayHint, createdAt: baseCreatedAt})
-          }
+          const selectedCommunityPubkeys = new Set(communityPubkeys)
+          const actions: Array<{
+            thunks: Array<PublishThunkResult | undefined>
+            mode: "all" | "any"
+            failureMessage: string
+          }> = []
 
-          for (const [index, communityPubkey] of communityPubkeys.entries()) {
-            const community = repoPublishCommunityOptions.find(option => option.pubkey === communityPubkey)
-            if (!community) continue
-            publishCommunityRepoStar({
-              event,
-              address,
+          if (existingPersonalStar && !personal) {
+            const relays = getRepoStarRelays([
               relayHint,
-              community,
-              createdAt: baseCreatedAt + 2 + index * 2,
+              ...(existingPersonalStar.relayHints || []),
+              ...bookmarkRelays,
+            ])
+            const thunk = publishDelete({
+              event: existingPersonalStar.reaction,
+              relays,
+              protect: false,
+            })
+            if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+            actions.push({
+              thunks: [thunk],
+              mode: "any",
+              failureMessage: "failed to remove personal star",
+            })
+          } else if (!existingPersonalStar && personal) {
+            actions.push({
+              thunks: [
+                publishPersonalRepoStar({event, address, relayHint, createdAt: baseCreatedAt}),
+              ],
+              mode: "any",
+              failureMessage: "failed to collect personally",
             })
           }
 
+          for (const collection of existingCommunityStars) {
+            if (selectedCommunityPubkeys.has(collection.community.pubkey)) continue
+
+            actions.push({
+              thunks: deleteCommunityRepoStar({
+                collection,
+                relayHint,
+                community: collection.community,
+              }),
+              mode: "any",
+              failureMessage: `failed to remove from ${getRepoCollectionCommunityLabel(collection.community)}`,
+            })
+          }
+
+          for (const [index, communityPubkey] of communityPubkeys.entries()) {
+            if (existingCommunityByPubkey.has(communityPubkey)) continue
+
+            const community = repoPublishCommunityOptions.find(
+              option => option.pubkey === communityPubkey,
+            )
+            if (!community) continue
+
+            actions.push({
+              thunks: publishCommunityRepoStar({
+                event,
+                address,
+                relayHint,
+                community,
+                createdAt: baseCreatedAt + 2 + index * 2,
+              }),
+              mode: "all",
+              failureMessage: `failed to collect into ${getRepoCollectionCommunityLabel(community)}`,
+            })
+          }
+
+          const results = await Promise.all(
+            actions.map(async action => ({
+              action,
+              succeeded: await awaitPublishThunks(action.thunks, action.mode),
+            })),
+          )
+          const failures = results.filter(result => !result.succeeded)
+
+          for (const failure of failures) {
+            pushToast({message: failure.action.failureMessage, theme: "error"})
+          }
+
           clearModals()
-          pushToast({message: "Repository collected"})
+          if (actions.length > 0 && failures.length === 0) {
+            pushToast({message: "Repository collections updated"})
+          }
         } catch (error) {
-          console.error("[git/+page] Failed to collect repository", error)
-          pushToast({message: "Failed to collect repository", theme: "error"})
+          console.error("[git/+page] Failed to edit repository collections", error)
+          pushToast({message: "Failed to edit repository collections", theme: "error"})
         } finally {
           setRepoCardBookmarkPending(address, false)
         }
@@ -2484,39 +2885,11 @@
     const address = getRepoAddressFromEvent(event)
     if (!address || pendingBookmarkAddresses[address]) return
 
-    setRepoCardBookmarkPending(address, true)
-
     try {
-      const relayHint = getRepoCardRelayHint(event, address)
-      const activeStar = findRepoCardStar(event)
-      const activeCommunityStar = findRepoCardCommunityStar(event)
-      const relays = getRepoStarRelays([
-        relayHint,
-        ...(activeStar?.relayHints || []),
-        ...bookmarkRelays,
-      ])
-
-      if (activeMode === "community") {
-        if (activeCommunityStar) {
-          deleteCommunityRepoStar({collection: activeCommunityStar, relayHint})
-          pushToast({message: "Repository removed from community"})
-        } else {
-          setRepoCardBookmarkPending(address, false)
-          openRepoCollectModal(event, address, {defaultPersonal: !activeStar})
-        }
-      } else if (activeStar) {
-        const thunk = publishDelete({event: activeStar.reaction, relays, protect: false})
-        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
-        pushToast({message: "Repository unstarred"})
-      } else {
-        setRepoCardBookmarkPending(address, false)
-        openRepoCollectModal(event, address)
-      }
+      openRepoCollectModal(event, address)
     } catch (error) {
       console.error("[git/+page] Failed to toggle star from repo card", error)
       pushToast({message: "Failed to update star", theme: "error"})
-    } finally {
-      setRepoCardBookmarkPending(address, false)
     }
   }
 
@@ -2705,14 +3078,13 @@
 
       hydrateRepoEvents(result)
       clearModals()
-      void goto(destination)
-        .catch(error => {
-          console.error(`[+page.svelte] Failed to navigate to ${failureContext}:`, error)
-          pushToast({
-            message: `Failed to navigate to repository: ${String(error)}`,
-            theme: "error",
-          })
+      void goto(destination).catch(error => {
+        console.error(`[+page.svelte] Failed to navigate to ${failureContext}:`, error)
+        pushToast({
+          message: `Failed to navigate to repository: ${String(error)}`,
+          theme: "error",
         })
+      })
     } catch (error) {
       console.error(`[+page.svelte] Failed to navigate to ${failureContext}:`, error)
       pushToast({
@@ -3081,7 +3453,8 @@
   </div>
   <!-- Tabs and Search Bar -->
   <div class="flex flex-col gap-3">
-    <div class="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      class="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="grid grid-cols-2 gap-2 sm:flex">
         <button
           type="button"
@@ -3098,8 +3471,11 @@
       </div>
       {#if activeMode === "community"}
         <label class="flex min-w-0 flex-col gap-1 text-sm sm:min-w-80">
-          <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Community</span>
-          <select bind:value={selectedCommunityPubkey} class="select select-bordered select-sm w-full">
+          <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            >Community</span>
+          <select
+            bind:value={selectedCommunityPubkey}
+            class="select select-bordered select-sm w-full">
             {#if repoViewCommunityOptions.length === 0}
               <option value="">No communities</option>
             {:else}
@@ -3383,7 +3759,9 @@
         <p class="flex h-10 items-center justify-center py-20" out:fly>
           <Spinner {loading}>
             {#if loading}
-              {activeMode === "community" ? "Looking for community Git repos..." : "Looking for Your Git Repos..."}
+              {activeMode === "community"
+                ? "Looking for community Git repos..."
+                : "Looking for Your Git Repos..."}
             {:else if $repositoriesStore.length === 0}
               No Repos found.
             {/if}
@@ -3445,36 +3823,41 @@
               {/if}
 
               <!-- Maintainers avatars and date -->
-              <div class="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div
+                class="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
                   <div class="flex min-w-0 items-center gap-2">
                     <div class="flex shrink-0 -space-x-2">
-                    {#each maintainers.slice(0, 4) as pk (pk)}
-                      {@const prof = $profilesByPubkey.get(pk)}
-                      <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
-                        <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
-                        <AvatarFallback
-                          >{(prof?.display_name || prof?.name || pk)
-                            .slice(0, 2)
-                            .toUpperCase()}</AvatarFallback>
-                      </Avatar>
-                    {/each}
-                    {#if maintainers.length > 4}
-                      <div
-                        class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                        +{maintainers.length - 4}
-                      </div>
-                    {/if}
-                  </div>
+                      {#each maintainers.slice(0, 4) as pk (pk)}
+                        {@const prof = $profilesByPubkey.get(pk)}
+                        <Avatar
+                          class="h-6 w-6 border"
+                          title={prof?.display_name || prof?.name || pk}>
+                          <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                          <AvatarFallback
+                            >{(prof?.display_name || prof?.name || pk)
+                              .slice(0, 2)
+                              .toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                      {/each}
+                      {#if maintainers.length > 4}
+                        <div
+                          class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
+                          +{maintainers.length - 4}
+                        </div>
+                      {/if}
+                    </div>
                     <span class="text-xs opacity-60"
-                    >{maintainers.length} maintainer{maintainers.length !== 1 ? "s" : ""}</span>
+                      >{maintainers.length} maintainer{maintainers.length !== 1 ? "s" : ""}</span>
                   </div>
                   {#if communityStargazers.length > 0}
                     <div class="flex min-w-0 items-center gap-2">
                       <div class="flex shrink-0 -space-x-2">
                         {#each communityStargazers.slice(0, 5) as pk (pk)}
                           {@const prof = $profilesByPubkey.get(pk)}
-                          <Avatar class="h-6 w-6 border border-background" title={prof?.display_name || prof?.name || pk}>
+                          <Avatar
+                            class="h-6 w-6 border border-background"
+                            title={prof?.display_name || prof?.name || pk}>
                             <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
                             <AvatarFallback
                               >{(prof?.display_name || prof?.name || pk)
@@ -3487,7 +3870,10 @@
                         {#if communityStargazers.length > 5}
                           + {communityStargazers.length - 5} others
                         {:else}
-                          {communityStargazers.length} community star{communityStargazers.length !== 1 ? "s" : ""}
+                          {communityStargazers.length} community star{communityStargazers.length !==
+                          1
+                            ? "s"
+                            : ""}
                         {/if}
                       </span>
                     </div>

@@ -223,6 +223,12 @@
       })),
   )
 
+  type PublishThunkResult = {
+    event?: TrustedEvent
+    complete?: Promise<unknown>
+    results?: Record<string, {status?: unknown}>
+  }
+
   const repoCommunityLabel = $derived.by(() => {
     const community = repoClass?.community
     if (!community) return ""
@@ -2430,6 +2436,29 @@
     })
   })
 
+  const getPublishThunkSucceeded = (thunk?: PublishThunkResult) => {
+    if (!thunk) return false
+    const results = Object.values(thunk.results || {})
+    if (results.length === 0) return Boolean(thunk.event)
+    return results.some(result => result?.status === PublishStatus.Success)
+  }
+
+  const awaitPublishThunks = async (
+    thunks: Array<PublishThunkResult | undefined>,
+    mode: "all" | "any" = "any",
+  ) => {
+    const publishThunks = thunks.filter(Boolean) as PublishThunkResult[]
+    if (publishThunks.length === 0) return false
+
+    await Promise.allSettled(publishThunks.map(thunk => thunk.complete || Promise.resolve()))
+
+    const successes = publishThunks.map(getPublishThunkSucceeded)
+    return mode === "all" ? successes.every(Boolean) : successes.some(Boolean)
+  }
+
+  const getRepoCollectionCommunityLabel = (community: RepoCommunityOption) =>
+    community.label || getCommunityOptionLabel(community.pubkey)
+
   const publishPersonalRepoStar = ({
     event,
     address,
@@ -2450,7 +2479,7 @@
     }
     const thunk = publishThunk({event: starEvent, relays})
     if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
-    return Boolean(thunk?.event)
+    return thunk as PublishThunkResult | undefined
   }
 
   const publishCommunityRepoStar = ({
@@ -2493,12 +2522,7 @@
     })
     const targetingThunk = publishThunk({event: targetingEvent, relays})
     if (targetingThunk?.event) repository.publish(targetingThunk.event as TrustedEvent)
-    return Boolean(starThunk?.event || targetingThunk?.event)
-  }
-
-  const getDefaultRepoCollectCommunityPubkey = () => {
-    const communityPubkey = repoClass?.community?.pubkey || ""
-    return repoCommunityOptions.some(option => option.pubkey === communityPubkey) ? communityPubkey : ""
+    return [starThunk, targetingThunk] as Array<PublishThunkResult | undefined>
   }
 
   const openRepoCollectModal = ({
@@ -2512,46 +2536,106 @@
     relayHint: string
     repoRelays: string[]
   }) => {
+    const existingPersonalStar = findActiveRepoStar()
+
     pushModal(RepoCollectModal, {
+      title: "Edit collections",
+      submitLabel: "Update",
+      submittingLabel: "editing collections...",
       communityOptions: repoCommunityOptions,
-      defaultCommunityPubkey: getDefaultRepoCollectCommunityPubkey(),
+      allowEmpty: true,
+      requireChanges: true,
+      defaultPersonal: Boolean(existingPersonalStar),
       onCancel: clearModals,
-      onCollect: async ({personal, communityPubkeys}: {personal: boolean; communityPubkeys: string[]}) => {
+      onCollect: async ({
+        personal,
+        communityPubkeys,
+      }: {
+        personal: boolean
+        communityPubkeys: string[]
+      }) => {
         if (isTogglingBookmark) return
         isTogglingBookmark = true
-        let published = 0
 
         try {
           const baseCreatedAt = Math.floor(Date.now() / 1000)
-          if (personal) {
-            if (publishPersonalRepoStar({event, address, relayHint, repoRelays, createdAt: baseCreatedAt})) {
-              published += 1
-            }
+          const actions: Array<{
+            thunks: Array<PublishThunkResult | undefined>
+            mode: "all" | "any"
+            failureMessage: string
+          }> = []
+
+          if (existingPersonalStar && !personal) {
+            const relaysToPublish = getRepoStarRelays([
+              relayHint,
+              ...(existingPersonalStar.relayHints || []),
+              ...repoRelays,
+            ])
+            const thunk = publishDelete({
+              event: existingPersonalStar.reaction,
+              relays: relaysToPublish,
+              protect: false,
+            })
+            if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
+            actions.push({
+              thunks: [thunk],
+              mode: "any",
+              failureMessage: "failed to remove personal star",
+            })
+          } else if (!existingPersonalStar && personal) {
+            actions.push({
+              thunks: [
+                publishPersonalRepoStar({
+                  event,
+                  address,
+                  relayHint,
+                  repoRelays,
+                  createdAt: baseCreatedAt,
+                }),
+              ],
+              mode: "any",
+              failureMessage: "failed to collect personally",
+            })
           }
 
           for (const [index, communityPubkey] of communityPubkeys.entries()) {
             const community = repoCommunityOptions.find(option => option.pubkey === communityPubkey)
             if (!community) continue
-            if (
-              publishCommunityRepoStar({
+
+            actions.push({
+              thunks: publishCommunityRepoStar({
                 event,
                 address,
                 relayHint,
                 repoRelays,
                 community,
                 createdAt: baseCreatedAt + 2 + index * 2,
-              })
-            ) {
-              published += 1
-            }
+              }),
+              mode: "all",
+              failureMessage: `failed to collect into ${getRepoCollectionCommunityLabel(community)}`,
+            })
+          }
+
+          const results = await Promise.all(
+            actions.map(async action => ({
+              action,
+              succeeded: await awaitPublishThunks(action.thunks, action.mode),
+            })),
+          )
+          const failures = results.filter(result => !result.succeeded)
+
+          for (const failure of failures) {
+            pushToast({message: failure.action.failureMessage, theme: "error"})
           }
 
           clearModals()
-          pushToast({message: published > 1 ? "Repository collected" : "Repository starred"})
+          if (actions.length > 0 && failures.length === 0) {
+            pushToast({message: "Repository collections updated"})
+          }
         } catch (error) {
-          console.error("Failed to collect repository:", error)
+          console.error("Failed to edit repository collections:", error)
           pushToast({
-            message: `Failed to star repository: ${error instanceof Error ? error.message : "Unknown error"}`,
+            message: `Failed to edit repository collections: ${error instanceof Error ? error.message : "Unknown error"}`,
             theme: "error",
           })
         } finally {
@@ -3337,29 +3421,14 @@
       const activeStar = findActiveRepoStar()
       wasRemoving = Boolean(activeStar)
 
-      if (activeStar) {
-        const relaysToPublish = getRepoStarRelays([
-          normalizedRelayHint,
-          ...(activeStar.relayHints || []),
-          ...repoRelays,
-        ])
-        const thunk = publishDelete({
-          event: activeStar.reaction,
-          relays: relaysToPublish,
-          protect: false,
-        })
-        if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
-        pushToast({message: "Repository unstarred"})
-      } else {
-        isTogglingBookmark = false
-        openRepoCollectModal({
-          event: repoClass.repoEvent as RepoAnnouncementEvent,
-          address,
-          relayHint: normalizedRelayHint,
-          repoRelays,
-        })
-        return
-      }
+      isTogglingBookmark = false
+      openRepoCollectModal({
+        event: repoClass.repoEvent as RepoAnnouncementEvent,
+        address,
+        relayHint: normalizedRelayHint,
+        repoRelays,
+      })
+      return
     } catch (error) {
       console.error("Failed to toggle repository star:", error)
       const action = wasRemoving ? "remove" : "add"

@@ -14,8 +14,11 @@
     submitLabel = "Collect",
     submittingLabel = "Collecting...",
     defaultPersonal = true,
+    defaultCommunityPubkeys = [],
     communityOptions = [],
     defaultCommunityPubkey = "",
+    allowEmpty = false,
+    requireChanges = false,
     onCollect,
     onCancel,
   }: {
@@ -25,21 +28,30 @@
     submitLabel?: string
     submittingLabel?: string
     defaultPersonal?: boolean
+    defaultCommunityPubkeys?: string[]
     communityOptions?: RepoCommunityOption[]
     defaultCommunityPubkey?: string
+    allowEmpty?: boolean
+    requireChanges?: boolean
     onCollect: (selection: CollectSelection) => Promise<void> | void
     onCancel?: () => void
   } = $props()
 
+  const initialCommunityPubkeys = Array.from(
+    new Set([defaultCommunityPubkey, ...defaultCommunityPubkeys]),
+  ).filter(pubkey => communityOptions.some(option => option.pubkey === pubkey))
+  const initialCommunityKey = initialCommunityPubkeys.slice().sort().join("\n")
+
   let personal = $state(defaultPersonal)
-  let selectedCommunities = $state<string[]>(
-    defaultCommunityPubkey && communityOptions.some(option => option.pubkey === defaultCommunityPubkey)
-      ? [defaultCommunityPubkey]
-      : [],
-  )
+  let selectedCommunities = $state<string[]>(initialCommunityPubkeys)
   let submitting = $state(false)
 
-  const canSubmit = $derived(personal || selectedCommunities.length > 0)
+  const hasDestinations = $derived(personal || selectedCommunities.length > 0)
+  const selectedCommunityKey = $derived(selectedCommunities.slice().sort().join("\n"))
+  const hasChanges = $derived(
+    personal !== defaultPersonal || selectedCommunityKey !== initialCommunityKey,
+  )
+  const canSubmit = $derived((allowEmpty || hasDestinations) && (!requireChanges || hasChanges))
 
   const toggleCommunity = (pubkey: string, checked: boolean) => {
     selectedCommunities = checked
@@ -83,13 +95,19 @@
     {/each}
   </div>
 
-  {#if !canSubmit}
+  {#if !hasDestinations && !allowEmpty}
     <p class="text-sm text-error">Select at least one destination.</p>
+  {:else if requireChanges && !hasChanges}
+    <p class="text-sm text-muted-foreground">No collection changes yet.</p>
   {/if}
 
   <div class="flex justify-end gap-2">
     <Button class="btn btn-ghost" onclick={onCancel} disabled={submitting}>Cancel</Button>
-    <Button class="btn btn-primary" onclick={collect} disabled={!canSubmit || submitting}>
+    <Button
+      class="btn btn-primary"
+      onclick={collect}
+      disabled={!canSubmit || submitting}
+      aria-busy={submitting}>
       {submitting ? submittingLabel : submitLabel}
     </Button>
   </div>
