@@ -19,8 +19,7 @@
   import PullRequestDeleteConfirm from "@app/components/PullRequestDeleteConfirm.svelte"
   import {pushModal} from "@app/util/modal"
   import {clip} from "@app/util/toast"
-  import {GIT_RELAYS} from "@app/core/git-state"
-  import {getEventRelayHints, getUserRelayHints, makeEventShareEntity} from "@app/util/event-links"
+  import {makeEventShareEntityForEvent} from "@app/util/event-share"
 
   type Props = {
     url: string
@@ -52,14 +51,7 @@
   const showInfo = () => pushModal(EventInfo, {url, event, relays})
 
   const share = () => {
-    const relayHints = getEventRelayHints(event, {relays: [...relays, ...(url ? [url] : [])]})
-    const nostrURI = makeEventShareEntity(event, {
-      relays: relayHints,
-      userOutboxRelays: getUserRelayHints(),
-      gitRelays: GIT_RELAYS,
-    })
-
-    clip(nostrURI)
+    clip(makeEventShareEntityForEvent(event, {url, relays}))
   }
 
   const showDelete = () => {

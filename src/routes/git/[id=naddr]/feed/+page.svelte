@@ -1,44 +1,34 @@
 <script lang="ts">
-  import {readable, type Readable} from "svelte/store"
-  import {getContext, onDestroy, onMount, tick} from "svelte"
-  import {beforeNavigate} from "$app/navigation"
+  import {getContext} from "svelte"
   import {page} from "$app/stores"
-  import {now, formatTimestampAsDate} from "@welshman/lib"
-  import type {EventContent, TrustedEvent} from "@welshman/util"
+  import {formatTimestampAsDate} from "@welshman/lib"
+  import type {TrustedEvent} from "@welshman/util"
   import {
-    DELETE,
-    MESSAGE,
     GIT_ISSUE,
-    GIT_STATUS_OPEN,
-    GIT_STATUS_DRAFT,
     GIT_STATUS_CLOSED,
     GIT_STATUS_COMPLETE,
-    makeEvent,
-    normalizeRelayUrl,
+    GIT_STATUS_DRAFT,
+    GIT_STATUS_OPEN,
   } from "@welshman/util"
-  import {pubkey, publishThunk} from "@welshman/app"
-  import {fade, fly, slide} from "@lib/transition"
-  import Icon from "@lib/components/Icon.svelte"
-  import Button from "@lib/components/Button.svelte"
+  import type {Readable} from "svelte/store"
   import Spinner from "@lib/components/Spinner.svelte"
-  import Divider from "@lib/components/Divider.svelte"
-  import ChannelMessage from "@app/components/ChannelMessage.svelte"
   import RepoFeedGitItem from "@app/components/RepoFeedGitItem.svelte"
-  import RoomCompose from "@app/components/RoomCompose.svelte"
-  import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
-  import {REACTION_KINDS, userSettingsValues} from "@app/core/state"
-  import {makeFeed} from "@app/core/requests"
-  import {checked} from "@app/util/notifications"
-  import {prependParent} from "@app/core/commands"
-  import {popKey} from "@lib/implicit"
-  import {pushToast} from "@app/util/toast"
-  import ThunkToast from "@app/components/ThunkToast.svelte"
-  import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
-  import {GIT_RELAYS, REPO_FEED_ACTIVITY_KEY, REPO_KEY, STATUS_EVENTS_BY_ROOT_KEY} from "@app/core/git-state"
+  import {
+    REPO_FEED_ACTIVITY_KEY,
+    REPO_KEY,
+    REPO_RELAYS_KEY,
+    STATUS_EVENTS_BY_ROOT_KEY,
+  } from "@app/core/git-state"
+  import {makeCommunityPath} from "@app/util/routes"
   import type {Repo} from "@nostr-git/ui"
   import type {StatusEvent} from "@nostr-git/core/events"
 
+  type ActivityElement =
+    | {type: "date"; id: string; value: string}
+    | {type: "activity"; id: string; value: TrustedEvent}
+
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const repoFeedActivityStore = getContext<Readable<TrustedEvent[]>>(REPO_FEED_ACTIVITY_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
@@ -47,247 +37,20 @@
     throw new Error("Repo context not available")
   }
 
-  const mounted = now()
-  const lastChecked = $checked[$page.url.pathname]
   const routeUrl = (($page.data as any)?.url || "") as string
   const basePath = $derived.by(() => $page.url.pathname.replace(/\/feed$/, ""))
-  const scrollStorageKey = $derived.by(() => `repo-feed-scroll:${$page.url.pathname}`)
-
-  const normalizeRelay = (relay: string) => {
-    try {
-      return normalizeRelayUrl(relay)
-    } catch {
-      return ""
-    }
-  }
-
-  const platformRelays = $derived.by(() => [
-    ...new Set(GIT_RELAYS.map(normalizeRelay).filter(Boolean)),
-  ])
-  const communityUrl = $derived.by(() => platformRelays[0] || "")
-  const fallbackRepoAddress = $derived.by(() => {
-    const repoPubkey = String(($page.data as any)?.repoPubkey ?? "")
-    const repoName = String(($page.data as any)?.repoName ?? "")
-
-    if (repoClass.address) {
-      return repoClass.address
-    }
-
-    if (repoPubkey && repoName) {
-      return `30617:${repoPubkey}:${repoName}`
-    }
-
-    return ""
-  })
-  const communityScope = $derived.by(() => fallbackRepoAddress)
-
-  const replyTo = (event: TrustedEvent) => {
-    parent = event
-    compose?.focus()
-  }
-
-  const clearParent = () => {
-    parent = undefined
-  }
-
-  const clearShare = () => {
-    share = undefined
-  }
-
-  const onSubmit = ({content, tags}: EventContent) => {
-    if (!communityScope || platformRelays.length === 0) {
-      return
-    }
-
-    pendingOwnMessageCount =
-      Math.max(pendingOwnMessageCount ?? ownCommunityMessageCount, ownCommunityMessageCount) + 1
-
-    tags.push(["h", communityScope])
-
-    let template = {content, tags}
-
-    if (share) {
-      template = prependParent(share, template, {relays: platformRelays})
-    }
-
-    if (parent) {
-      template = prependParent(parent, template, {relays: platformRelays})
-    }
-
-    const thunk = publishThunk({
-      relays: platformRelays,
-      event: makeEvent(MESSAGE, template),
-      delay: $userSettingsValues.send_delay,
-    })
-
-    if ($userSettingsValues.send_delay) {
-      pushToast({
-        timeout: 30_000,
-        children: {
-          component: ThunkToast,
-          props: {thunk},
-        },
-      })
-    }
-
-    clearParent()
-    clearShare()
-
-    void scrollToFreshestPost()
-  }
-
-  const getDistanceFromBottom = () => {
-    if (!element) return 0
-
-    return Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop)
-  }
-
-  const onScroll = () => {
-    const distanceFromBottom = getDistanceFromBottom()
-
-    stickToBottom = distanceFromBottom < 120
-    showScrollButton = distanceFromBottom > 800
-
-    if (!newMessages || newMessagesSeen) {
-      showFixedNewMessages = false
-      return
-    }
-
-    const rect = newMessages.getBoundingClientRect()
-    const withinViewport = rect.top >= 0 && rect.bottom <= window.innerHeight
-
-    if (withinViewport || (distanceFromBottom < 48 && rect.top < 0)) {
-      newMessagesSeen = true
-      showFixedNewMessages = false
-      return
-    }
-
-    showFixedNewMessages = rect.top > window.innerHeight
-  }
-
-  const scrollToNewMessages = () =>
-    newMessages?.scrollIntoView({behavior: "smooth", block: "center"})
-
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
-    if (element) {
-      element.scrollTo({top: element.scrollHeight, behavior})
-      return
-    }
-
-    bottomAnchor?.scrollIntoView({behavior, block: "end"})
-  }
-
-  const scrollToFreshestPost = async () => {
-    await tick()
-    updateFloatingLayout()
-    scrollToBottom("auto")
-
-    requestAnimationFrame(() => {
-      updateFloatingLayout()
-      scrollToBottom("auto")
-    })
-
-    setTimeout(() => {
-      updateFloatingLayout()
-      scrollToBottom("auto")
-    }, 80)
-  }
-
-  const updateFloatingLayout = () => {
-    if (dynamicPadding && chatCompose) {
-      dynamicPadding.style.minHeight = `${chatCompose.offsetHeight}px`
-    }
-
-    if (!chatCompose?.classList.contains("chat__compose")) {
-      scrollButtonBottom = undefined
-      return
-    }
-
-    const bottomInset = Math.max(0, window.innerHeight - chatCompose.getBoundingClientRect().top)
-
-    scrollButtonBottom = `${bottomInset + 16}px`
-  }
-
-  const restoreFeedScroll = () => {
-    if (!element || pendingScrollRestore === null) {
-      return false
-    }
-
-    const top = pendingScrollRestore
-
-    element.scrollTo({top, behavior: "auto"})
-    requestAnimationFrame(() => {
-      element?.scrollTo({top, behavior: "auto"})
-    })
-    setTimeout(() => {
-      element?.scrollTo({top, behavior: "auto"})
-    }, 40)
-
-    pendingScrollRestore = null
-
-    if (typeof sessionStorage !== "undefined") {
-      sessionStorage.removeItem(scrollStorageKey)
-    }
-
-    return true
-  }
-
-  const syncScrollParent = () => {
-    const next = container?.closest(".scroll-container") as HTMLElement | null
-
-    if (next === element) {
-      return
-    }
-
-    if (element) {
-      element.removeEventListener("scroll", onScroll)
-    }
-
-    element = next || undefined
-    element?.addEventListener("scroll", onScroll, {passive: true})
-    onScroll()
-  }
-
-  let loadingEvents = $state(false)
-  let share = $state(popKey<TrustedEvent | undefined>("share"))
-  let parent: TrustedEvent | undefined = $state()
-  let container: HTMLElement | undefined = $state()
-  let element: HTMLElement | undefined = $state()
-  let newMessages: HTMLElement | undefined = $state()
-  let bottomAnchor: HTMLElement | undefined = $state()
-  let chatCompose: HTMLElement | undefined = $state()
-  let dynamicPadding: HTMLElement | undefined = $state()
-  let newMessagesSeen = false
-  let showFixedNewMessages = $state(false)
-  let showScrollButton = $state(false)
-  let feedCleanup: (() => void) | undefined = $state(undefined)
-  let feedInitialized = $state(false)
-  let lastFeedKey = ""
-  let communityEvents: Readable<TrustedEvent[]> = $state(readable([]))
-  let compose: RoomCompose | undefined = $state()
-  let pendingScrollRestore: number | null = $state(null)
-  let scrollButtonBottom = $state<string | undefined>(undefined)
-  let initialScrollStateReady = $state(false)
-  let shouldScrollToLatestOnLoad = $state(false)
-  let didScrollToLatestOnLoad = $state(false)
-  let pendingOwnMessageCount = $state<number | null>(null)
-  let stickToBottom = $state(true)
-  let lastCommunityEventId = $state("")
-
   const repoFeedActivity = $derived.by(() => $repoFeedActivityStore || [])
+  const repoRelays = $derived.by(() => $repoRelaysStore || [])
   const statusEventsByRoot = $derived.by(() => $statusEventsByRootStore || new Map())
-
-  const visibleCommunityEvents = $derived.by(() =>
-    $communityEvents.filter(event => event.kind === MESSAGE),
-  )
-  const ownCommunityMessageCount = $derived.by(
-    () => visibleCommunityEvents.filter(event => event.pubkey === $pubkey).length,
+  const defaultThreadCommunityPubkey = $derived(repoClass.community?.pubkey || "")
+  const communityHref = $derived(
+    defaultThreadCommunityPubkey ? makeCommunityPath(defaultThreadCommunityPubkey) : "",
   )
 
-  const displayEvents = $derived.by(() => {
+  const activityEvents = $derived.by(() => {
     const deduped = new Map<string, TrustedEvent>()
 
-    for (const event of [...repoFeedActivity, ...visibleCommunityEvents]) {
+    for (const event of repoFeedActivity) {
       deduped.set(event.id, event)
     }
 
@@ -296,56 +59,20 @@
     )
   })
 
-  const elements = $derived.by(() => {
-    const nextElements = []
-    const seen = new Set<string>()
+  const elements = $derived.by((): ActivityElement[] => {
+    const nextElements: ActivityElement[] = []
+    let previousDate = ""
 
-    let previousDate
-    let previousPubkey
-    let hasSeenNewMessages = false
-
-    const lastUserEvent = displayEvents.find(
-      event => event.pubkey === $pubkey && event.kind === MESSAGE,
-    )
-    const adjustedLastChecked =
-      lastChecked && lastUserEvent ? Math.max(lastUserEvent.created_at, lastChecked) : lastChecked
-    const today = formatTimestampAsDate(Date.now() / 1000)
-
-    for (const event of [...displayEvents].toReversed()) {
-      if (seen.has(event.id)) {
-        continue
-      }
-
+    for (const event of activityEvents) {
       const date = formatTimestampAsDate(event.created_at)
 
-      if (
-        !hasSeenNewMessages &&
-        adjustedLastChecked &&
-        event.pubkey !== $pubkey &&
-        event.created_at > adjustedLastChecked &&
-        event.created_at < mounted
-      ) {
-        nextElements.push({type: "new-messages", id: "new-messages"})
-        hasSeenNewMessages = true
+      if (date !== previousDate) {
+        nextElements.push({type: "date", id: `date:${date}`, value: date})
+        previousDate = date
       }
 
-      if (date !== previousDate && date !== today) {
-        nextElements.push({type: "date", value: date, id: date, showPubkey: false})
-      }
-
-      nextElements.push({
-        id: event.id,
-        type: "note",
-        value: event,
-        showPubkey: date !== previousDate || previousPubkey !== event.pubkey,
-      })
-
-      previousDate = date
-      previousPubkey = event.pubkey
-      seen.add(event.id)
+      nextElements.push({type: "activity", id: event.id, value: event})
     }
-
-    setTimeout(onScroll, 100)
 
     return nextElements
   })
@@ -378,285 +105,55 @@
 
     return byId
   })
-
-  const feedKey = $derived.by(() =>
-    communityScope && platformRelays.length > 0
-      ? [communityScope, ...platformRelays].join("|")
-      : "",
-  )
-
-  const startFeed = () => {
-    if (feedInitialized || !element || !communityScope || platformRelays.length === 0) {
-      return
-    }
-
-    loadingEvents = true
-    newMessagesSeen = false
-    showFixedNewMessages = false
-    didScrollToLatestOnLoad = false
-    feedInitialized = true
-    lastFeedKey = feedKey
-
-    const feed = makeFeed({
-      element,
-      relays: platformRelays,
-      feedFilters: [{kinds: [MESSAGE], "#h": [communityScope]}],
-      subscriptionFilters: [{kinds: [DELETE, MESSAGE, ...REACTION_KINDS], "#h": [communityScope]}],
-      onInitialLoad: () => {
-        loadingEvents = false
-      },
-      onExhausted: () => {
-        loadingEvents = false
-      },
-    })
-
-    communityEvents = feed.events
-    feedCleanup = feed.cleanup
-  }
-
-  const resetFeed = () => {
-    feedCleanup?.()
-    feedCleanup = undefined
-    communityEvents = readable([])
-    feedInitialized = false
-    lastFeedKey = ""
-    loadingEvents = false
-    pendingOwnMessageCount = null
-  }
-
-  $effect(() => {
-    if (
-      !initialScrollStateReady ||
-      loadingEvents ||
-      !feedInitialized ||
-      !shouldScrollToLatestOnLoad ||
-      didScrollToLatestOnLoad
-    ) {
-      return
-    }
-
-    didScrollToLatestOnLoad = true
-    void scrollToFreshestPost()
-  })
-
-  $effect(() => {
-    if (pendingOwnMessageCount === null || ownCommunityMessageCount < pendingOwnMessageCount) {
-      return
-    }
-
-    pendingOwnMessageCount = null
-    void scrollToFreshestPost()
-  })
-
-  $effect(() => {
-    const latestCommunityEventId = visibleCommunityEvents[0]?.id || ""
-
-    if (!latestCommunityEventId) {
-      lastCommunityEventId = ""
-      return
-    }
-
-    if (
-      lastCommunityEventId &&
-      latestCommunityEventId !== lastCommunityEventId &&
-      stickToBottom &&
-      pendingOwnMessageCount === null
-    ) {
-      void scrollToFreshestPost()
-    }
-
-    lastCommunityEventId = latestCommunityEventId
-  })
-
-  $effect(() => {
-    const key = feedKey
-
-    if (!key) {
-      resetFeed()
-      return
-    }
-
-    if (!feedInitialized) {
-      startFeed()
-      return
-    }
-
-    if (key !== lastFeedKey) {
-      resetFeed()
-      startFeed()
-    }
-  })
-
-  onMount(() => {
-    if (typeof sessionStorage !== "undefined") {
-      const saved = sessionStorage.getItem(scrollStorageKey)
-
-      if (saved !== null) {
-        const parsed = Number(saved)
-
-        pendingScrollRestore = Number.isFinite(parsed) ? parsed : null
-      }
-    }
-
-    shouldScrollToLatestOnLoad = pendingScrollRestore === null
-    initialScrollStateReady = true
-
-    syncScrollParent()
-    updateFloatingLayout()
-
-    const observer = new ResizeObserver(updateFloatingLayout)
-
-    if (chatCompose) observer.observe(chatCompose)
-    if (dynamicPadding) observer.observe(dynamicPadding)
-    window.addEventListener("resize", updateFloatingLayout)
-
-    const timeout = setTimeout(() => {
-      syncScrollParent()
-      startFeed()
-      updateFloatingLayout()
-
-      if (restoreFeedScroll()) {
-        shouldScrollToLatestOnLoad = false
-      }
-    }, 100)
-
-    return () => {
-      clearTimeout(timeout)
-      if (chatCompose) observer.unobserve(chatCompose)
-      if (dynamicPadding) observer.unobserve(dynamicPadding)
-      observer.disconnect()
-      window.removeEventListener("resize", updateFloatingLayout)
-    }
-  })
-
-  onDestroy(() => {
-    resetFeed()
-    element?.removeEventListener("scroll", onScroll)
-  })
-
-  beforeNavigate(({from, to}) => {
-    if (from?.route.id !== "/git/[id=naddr]/feed") return
-    if (typeof sessionStorage === "undefined") return
-    if (!element) return
-
-    const nextPath = to?.url.pathname || ""
-
-    if (nextPath.startsWith(basePath)) {
-      sessionStorage.setItem(scrollStorageKey, String(element.scrollTop))
-    } else {
-      sessionStorage.removeItem(scrollStorageKey)
-    }
-  })
 </script>
 
 <svelte:head>
-  <title>{repoClass.name} - Feed</title>
+  <title>{repoClass.name} - Activity</title>
 </svelte:head>
 
-<div bind:this={container} class="flex min-h-full flex-col">
-  <p class="flex h-10 items-center justify-center py-4 text-sm sm:py-8 sm:text-base">
-    {#if loadingEvents}
-      <Spinner loading={loadingEvents}>Looking for messages...</Spinner>
-    {:else if elements.length === 0}
-      <span>No activity yet.</span>
-    {:else}
-      <Spinner>End of message history</Spinner>
-    {/if}
-  </p>
-
-  {#each elements as { type, id, value, showPubkey } (id)}
-    {#if type === "new-messages"}
-      <div
-        bind:this={newMessages}
-        class="flex items-center px-2 py-2 text-xs transition-colors sm:px-4"
-        class:opacity-0={showFixedNewMessages}>
-        <div class="h-px flex-grow bg-primary"></div>
-        <p
-          class="whitespace-nowrap rounded-full bg-primary px-2 py-1 text-center text-primary-content">
-          New Messages
+<div class="mx-auto flex w-full max-w-4xl flex-col gap-4 px-1 py-2 sm:px-2">
+  <section class="rounded-2xl border border-border bg-base-200/50 p-4 shadow-sm sm:p-5">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div class="space-y-1">
+        <h2 class="text-xl font-semibold">Repository Activity</h2>
+        <p class="max-w-2xl text-sm text-muted-foreground">
+          Issues and pull requests for this repository. Use the thread action on an activity item to
+          start a focused community discussion without mixing chat into the activity stream.
         </p>
-        <div class="h-px flex-grow bg-primary"></div>
       </div>
-    {:else if type === "date"}
-      <div class="px-2 sm:px-4">
-        <Divider>{value}</Divider>
-      </div>
-    {:else}
-      {@const event = $state.snapshot(value as TrustedEvent)}
-      <div in:slide class:-mt-1={!showPubkey} class="px-1 sm:px-2 md:px-4">
-        {#if event.kind === MESSAGE}
-          <ChannelMessage
-            url={communityUrl || routeUrl}
-            interactionRelays={platformRelays}
-            scopeH={communityScope}
-            protectInteractions={false}
-            {replyTo}
-            {event}
-            {showPubkey} />
+      {#if communityHref}
+        <a class="btn btn-neutral btn-sm shrink-0" href={communityHref}>Open community</a>
+      {/if}
+    </div>
+  </section>
+
+  {#if elements.length === 0}
+    <div
+      class="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+      <Spinner>No repository activity yet.</Spinner>
+    </div>
+  {:else}
+    <div class="flex flex-col gap-2">
+      {#each elements as element (element.id)}
+        {#if element.type === "date"}
+          <div class="z-10 sticky top-0 flex items-center gap-3 py-2">
+            <div class="h-px flex-1 bg-border"></div>
+            <span
+              class="rounded-full border border-border bg-base-100 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+              {element.value}
+            </span>
+            <div class="h-px flex-1 bg-border"></div>
+          </div>
         {:else}
           <RepoFeedGitItem
             url={routeUrl}
-            interactionRelays={platformRelays}
-            scopeH={communityScope}
-            {replyTo}
-            {event}
-            openHref={getOpenHref(event)}
-            statusState={statusStateById.get(event.id) || "open"} />
+            interactionRelays={repoRelays}
+            event={element.value}
+            openHref={getOpenHref(element.value)}
+            statusState={statusStateById.get(element.value.id) || "open"}
+            {defaultThreadCommunityPubkey} />
         {/if}
-      </div>
-    {/if}
-  {/each}
-
-  <div bind:this={bottomAnchor}></div>
-  <div bind:this={dynamicPadding}></div>
-</div>
-
-{#if $pubkey}
-  {#if platformRelays.length > 0 && communityScope}
-    <div class="chat__compose bg-base-200 px-2 py-2 sm:px-4" bind:this={chatCompose}>
-      <div class="max-w-full overflow-hidden">
-        {#if parent}
-          <RoomComposeParent event={parent} clear={clearParent} verb="Replying to" />
-        {/if}
-        {#if share}
-          <RoomComposeParent event={share} clear={clearShare} verb="Sharing" />
-        {/if}
-      </div>
-      <RoomCompose bind:this={compose} {onSubmit} url={communityUrl} h={communityScope} />
-    </div>
-  {:else}
-    <div
-      class="bg-base-200 px-2 py-3 text-center text-sm text-muted-foreground sm:px-4"
-      bind:this={chatCompose}>
-      Community chat is unavailable because no platform relays are configured.
+      {/each}
     </div>
   {/if}
-{:else}
-  <div
-    class="bg-base-200 px-2 py-3 text-center text-sm text-muted-foreground sm:px-4"
-    bind:this={chatCompose}>
-    {#if platformRelays.length > 0 && communityScope}
-      Sign in to join the conversation
-    {:else}
-      Community chat is unavailable because no platform relays are configured.
-    {/if}
-  </div>
-{/if}
-
-{#if showScrollButton}
-  <div in:fade class="chat__scroll-down right-2 sm:right-4" style:bottom={scrollButtonBottom}>
-    <Button class="btn btn-circle btn-neutral btn-sm sm:btn-md" onclick={() => scrollToBottom()}>
-      <Icon icon={AltArrowDown} />
-    </Button>
-  </div>
-{/if}
-
-{#if showFixedNewMessages}
-  <div class="relative z-feature flex justify-center">
-    <div transition:fly={{duration: 200}} class="fixed top-12">
-      <Button class="btn btn-primary btn-xs rounded-full" onclick={scrollToNewMessages}>
-        New Messages
-      </Button>
-    </div>
-  </div>
-{/if}
+</div>

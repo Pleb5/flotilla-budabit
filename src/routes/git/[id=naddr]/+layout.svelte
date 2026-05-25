@@ -19,7 +19,7 @@
   // This must be done at the app level, not inside pre-built packages
   import gitWorkerUrl from "@nostr-git/core/worker/worker.js?url"
   import {
-    FileCode,
+    Activity,
     GitBranch,
     CircleAlert,
     GitPullRequest,
@@ -3029,7 +3029,9 @@
     const defaultMaintainers = (() => {
       try {
         if (!repoClass.repoEvent) return []
-        return Array.from(new Set(parseRepoAnnouncementEvent(repoClass.repoEvent).maintainers || []))
+        return Array.from(
+          new Set(parseRepoAnnouncementEvent(repoClass.repoEvent).maintainers || []),
+        )
       } catch {
         return []
       }
@@ -3538,9 +3540,9 @@
               <Home class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          <RepoTab tabValue="feed" label="Feed" href={`${basePath}/feed`} {activeTab}>
+          <RepoTab tabValue="feed" label="Activity" href={`${basePath}/feed`} {activeTab}>
             {#snippet icon()}
-              <FileCode class="h-4 w-4" />
+              <Activity class="h-4 w-4" />
             {/snippet}
           </RepoTab>
           <RepoTab tabValue="code" label="Code" href={`${basePath}/code`} {activeTab}>

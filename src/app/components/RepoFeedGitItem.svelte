@@ -9,15 +9,21 @@
   } from "@nostr-git/core/events"
   import {CircleCheck, CircleDot, FileCode, ArrowUpRight, XCircle} from "@lucide/svelte"
   import {goto} from "$app/navigation"
+  import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
+  import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
-  import Reply from "@assets/icons/reply-2.svg?dataurl"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import ChannelMessageEmojiButton from "@app/components/ChannelMessageEmojiButton.svelte"
   import RepoFeedGitItemMenuMobile from "@app/components/RepoFeedGitItemMenuMobile.svelte"
+  import RepoActivityThreadCreate from "@app/components/RepoActivityThreadCreate.svelte"
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
   import {getInteractiveCardTarget} from "@lib/html"
   import {publishReaction, publishSocialDelete} from "@app/core/commands"
+  import {COMMUNITY_SECTION_THREADS} from "@app/core/community"
+  import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {makeEventShareEntityForEvent} from "@app/util/event-share"
+  import {clip} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
 
   type RepoFeedStatusState = "open" | "draft" | "closed" | "applied"
@@ -26,26 +32,28 @@
     url: string
     event: TrustedEvent
     openHref: string
-    replyTo?: (event: TrustedEvent) => void
     interactionRelays?: string[]
     scopeH?: string
     statusState?: RepoFeedStatusState
+    defaultThreadCommunityPubkey?: string
   }
 
   const {
     url,
     event,
     openHref,
-    replyTo = undefined,
     interactionRelays = [],
     scopeH = "",
     statusState = "open",
+    defaultThreadCommunityPubkey = "",
   }: Props = $props()
 
   const thunk = $derived($thunks.find(t => t.event.id === event.id))
-  const reply = replyTo ? () => replyTo(event) : undefined
   const relayTargets = $derived.by(() =>
     (interactionRelays.length > 0 ? interactionRelays : [url]).filter(Boolean),
+  )
+  const canCreateThread = $derived.by(() =>
+    $activeUserCommunityRefs.some(ref => ref.writableSections.includes(COMMUNITY_SECTION_THREADS)),
   )
   const scopedTags = $derived.by(() => {
     if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
@@ -135,9 +143,8 @@
       event,
       openHref,
       openLabel,
-      reply,
       relays: relayTargets,
-      scopeH,
+      defaultThreadCommunityPubkey,
     })
 
   const handleCardClick = (event: MouseEvent) => {
@@ -157,6 +164,23 @@
   }
 
   const openItem = () => goto(openHref)
+
+  const shareItem = (domEvent?: Event) => {
+    domEvent?.stopPropagation()
+    clip(makeEventShareEntityForEvent(event, {url, relays: relayTargets}))
+  }
+
+  const createThread = (domEvent?: Event) => {
+    domEvent?.stopPropagation()
+    if (!canCreateThread) return
+
+    pushModal(RepoActivityThreadCreate, {
+      event,
+      url,
+      relays: relayTargets,
+      defaultCommunityPubkey: defaultThreadCommunityPubkey,
+    })
+  }
 
   const deleteReaction = async (event: TrustedEvent) =>
     publishSocialDelete({
@@ -209,11 +233,25 @@
               relays={relayTargets}
               {scopeH}
               protect={false} />
-            {#if reply}
-              <Button class="btn join-item btn-xs" onclick={reply} data-stop-tap>
-                <Icon icon={Reply} size={4} />
-              </Button>
-            {/if}
+            <Button
+              class="btn btn-xs"
+              onclick={shareItem}
+              data-stop-tap
+              aria-label="Share activity"
+              title="Share activity">
+              <Icon icon={ShareCircle} size={4} />
+            </Button>
+            <Button
+              class="btn btn-xs"
+              onclick={createThread}
+              data-stop-tap
+              disabled={!canCreateThread}
+              aria-label="Create thread from activity"
+              title={canCreateThread
+                ? "Create thread from activity"
+                : "No thread-writable community available"}>
+              <Icon icon={NotesMinimalistic} size={4} />
+            </Button>
           </div>
         </div>
 

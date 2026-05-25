@@ -1,26 +1,27 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
-  import type {NativeEmoji} from "emoji-picker-element/shared"
-  import {getTag, type TrustedEvent} from "@welshman/util"
+  import type {TrustedEvent} from "@welshman/util"
   import {ArrowUpRight} from "@lucide/svelte"
-  import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
-  import SmileCircle from "@assets/icons/smile-circle.svg?dataurl"
+  import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
+  import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
-  import EmojiPicker from "@lib/components/EmojiPicker.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
-  import {publishReaction} from "@app/core/commands"
+  import RepoActivityThreadCreate from "@app/components/RepoActivityThreadCreate.svelte"
+  import {COMMUNITY_SECTION_THREADS} from "@app/core/community"
+  import {activeUserCommunityRefs} from "@app/core/community-state"
+  import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import {clearModals, pushModal} from "@app/util/modal"
+  import {clip} from "@app/util/toast"
 
   type Props = {
     url: string
     event: TrustedEvent
     openHref: string
     openLabel?: string
-    reply?: () => void
     relays?: string[]
-    scopeH?: string
+    defaultThreadCommunityPubkey?: string
   }
 
   const {
@@ -28,44 +29,37 @@
     event,
     openHref,
     openLabel = "Open",
-    reply,
     relays = [],
-    scopeH = "",
+    defaultThreadCommunityPubkey = "",
   }: Props = $props()
 
-  const reactionRelays = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
+  const relayTargets = $derived.by(() => (relays.length > 0 ? relays : [url]).filter(Boolean))
+  const canCreateThread = $derived.by(() =>
+    $activeUserCommunityRefs.some(ref => ref.writableSections.includes(COMMUNITY_SECTION_THREADS)),
+  )
 
-  const scopedTags = $derived.by(() => {
-    if (!scopeH || getTag("h", event.tags)?.[1] === scopeH) {
-      return [] as string[][]
-    }
+  const showInfo = () =>
+    pushModal(EventInfo, {url, event, relays: relayTargets}, {replaceState: true})
 
-    return [["h", scopeH]]
-  })
-
-  const onEmoji = (async (event: TrustedEvent, emoji: NativeEmoji) => {
+  const shareItem = () => {
+    clip(makeEventShareEntityForEvent(event, {url, relays: relayTargets}))
     history.back()
-    publishReaction({
-      event,
-      relays: reactionRelays,
-      content: emoji.unicode,
-      tags: scopedTags,
-      protect: false,
-    })
-  }).bind(undefined, event)
-
-  const showEmojiPicker = () => pushModal(EmojiPicker, {onClick: onEmoji}, {replaceState: true})
-
-  const sendReply = () => {
-    if (!reply) {
-      return
-    }
-
-    history.back()
-    reply()
   }
 
-  const showInfo = () => pushModal(EventInfo, {url, event}, {replaceState: true})
+  const createThread = () => {
+    if (!canCreateThread) return
+
+    pushModal(
+      RepoActivityThreadCreate,
+      {
+        event,
+        url,
+        relays: relayTargets,
+        defaultCommunityPubkey: defaultThreadCommunityPubkey,
+      },
+      {replaceState: true},
+    )
+  }
 
   const openItem = () => {
     clearModals()
@@ -79,16 +73,20 @@
     {openLabel}
   </Button>
 
-  {#if reply}
-    <Button class="btn btn-neutral w-full" onclick={sendReply}>
-      <Icon size={4} icon={Reply} />
-      Send Reply
-    </Button>
-  {/if}
+  <Button
+    class="btn btn-neutral w-full"
+    onclick={createThread}
+    disabled={!canCreateThread}
+    title={canCreateThread
+      ? "Create thread from activity"
+      : "No thread-writable community available"}>
+    <Icon size={4} icon={NotesMinimalistic} />
+    Create Thread
+  </Button>
 
-  <Button class="btn btn-neutral w-full" onclick={showEmojiPicker}>
-    <Icon size={4} icon={SmileCircle} />
-    Send Reaction
+  <Button class="btn btn-neutral w-full" onclick={shareItem}>
+    <Icon size={4} icon={ShareCircle} />
+    Share
   </Button>
 
   <Button class="btn btn-neutral" onclick={showInfo}>
