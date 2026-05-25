@@ -458,7 +458,7 @@
         </div>
 
         {#if selectorCommunities.length > 0 || $communityStarsLoading || $communityPreferencesLoading}
-          <div class="card2 card2-sm bg-alt col-3 shadow-md lg:col-start-1 lg:row-start-1">
+          <div class="card2 card2-sm bg-alt col-3 min-w-0 shadow-md lg:col-start-1 lg:row-start-1">
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
                 <p class="text-xs font-semibold uppercase tracking-wide opacity-60">
