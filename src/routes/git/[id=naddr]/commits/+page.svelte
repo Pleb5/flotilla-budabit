@@ -16,7 +16,7 @@
   import Icon from "@lib/components/Icon.svelte"
   import AltArrowUp from "@assets/icons/alt-arrow-up.svg?dataurl"
   import {fade, slide} from "svelte/transition"
-  import {getContext} from "svelte"
+  import {getContext, onMount} from "svelte"
   import {REPO_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
   import {createCommentEvent, type CommentEvent} from "@nostr-git/core/events"
@@ -67,6 +67,17 @@
 
   // Debounce timer for commit loading effect
   let commitLoadDebounce: ReturnType<typeof setTimeout> | null = null
+  let commitLoadInProgress = false
+
+  function scheduleCommitLoad(delay = 100) {
+    if (commitLoadDebounce) {
+      clearTimeout(commitLoadDebounce)
+    }
+
+    commitLoadDebounce = setTimeout(() => {
+      repoClass.waitForReady().then(() => loadCommits())
+    }, delay)
+  }
 
   // Create navigation helper
   const getCommitUrl = (commitId: string) => {
@@ -91,6 +102,18 @@
     handleScroll()
     scrollEl.addEventListener("scroll", handleScroll, {passive: true})
     return () => scrollEl.removeEventListener("scroll", handleScroll)
+  })
+
+  onMount(() => {
+    if (!$page.params.commitid) {
+      scheduleCommitLoad(0)
+    }
+
+    return () => {
+      if (commitLoadDebounce) {
+        clearTimeout(commitLoadDebounce)
+      }
+    }
   })
 
   // Track the previous branch to detect changes
@@ -157,7 +180,10 @@
     const mainBranch = repoClass.mainBranch
     const currentBranch = selectedBranch || mainBranch
     const isSwitching = repoClass.isBranchSwitching
+    const repoEvent = repoClass.repoEvent
     const repoKey = repoClass.key
+    const branchTrigger = repoClass.branchChangeTrigger
+    void branchTrigger
 
     // Guard: Don't load commits if we're on a child route (commit detail page)
     // This prevents the commits list from loading when viewing /commits/[commitid]
@@ -170,15 +196,14 @@
       return
     }
 
-    if (repoClass && repoClass.repoId && currentBranch) {
+    if (!repoEvent) {
+      return
+    }
+
+    if (repoClass && repoClass.repoId) {
       // Skip if actively switching or just completed (setSelectedBranch already loaded commits)
       if (isSwitching || wasJustSwitching || branchSwitchComplete) {
         return
-      }
-
-      // Clear any pending debounce timer
-      if (commitLoadDebounce) {
-        clearTimeout(commitLoadDebounce)
       }
 
       // Detect branch changes (e.g., from navigation, not from selector)
@@ -186,17 +211,13 @@
         currentPage = 1
         initialLoadComplete = false
         previousBranch = currentBranch
-        // Debounce to prevent rapid-fire triggers during initialization
-        commitLoadDebounce = setTimeout(() => {
-          repoClass.waitForReady().then(() => loadCommits())
-        }, 100)
+        scheduleCommitLoad()
       } else if (previousBranch === undefined) {
         // Initial load - wait for repo to be ready
         previousBranch = currentBranch
-        // Debounce to prevent rapid-fire triggers during initialization
-        commitLoadDebounce = setTimeout(() => {
-          repoClass.waitForReady().then(() => loadCommits())
-        }, 100)
+        scheduleCommitLoad()
+      } else if (!initialLoadComplete && commits.length === 0) {
+        scheduleCommitLoad()
       }
     }
   })
@@ -213,6 +234,10 @@
 
   // Load commits with pagination
   async function loadCommits() {
+    if (commitLoadInProgress) return
+    commitLoadInProgress = true
+    commitsError = undefined
+
     if (!initialLoadComplete) {
       commitsLoading = true
     }
@@ -223,6 +248,10 @@
       await repoClass.waitForReady()
     }
 
+    if (!repoClass.repoEvent || !repoClass.repoId) {
+      return
+    }
+
     try {
       const result = await repoClass.loadPage(currentPage)
 
@@ -231,9 +260,16 @@
         throw new Error(result.error || "Failed to load commits")
       }
 
+      commitsError = undefined
+      const loadedCommits = repoClass.commits?.length
+        ? repoClass.commits
+        : Array.isArray(result?.commits)
+          ? result.commits
+          : []
+
       // IMPORTANT: Create a new array reference to ensure Svelte 5 reactivity
       // detects the change. This is critical for $derived to re-run.
-      commits = [...repoClass.commits]
+      commits = [...loadedCommits]
       totalCommits = repoClass.totalCommits
       hasMoreCommits = repoClass.hasMoreCommits
 
@@ -252,6 +288,7 @@
       commitsError = error instanceof Error ? error.message : "Failed to load commits"
     } finally {
       commitsLoading = false
+      commitLoadInProgress = false
     }
   }
 
