@@ -44,10 +44,6 @@ export const REPO_RELAYS_KEY = Symbol("repo-relays")
 
 export const REPO_CLONE_URLS_KEY = Symbol("repo-clone-urls")
 
-export const REPO_CLONE_URL_SOURCES_KEY = Symbol("repo-clone-url-sources")
-
-export const REPO_RELAY_SOURCES_KEY = Symbol("repo-relay-sources")
-
 export const STATUS_EVENTS_BY_ROOT_KEY = Symbol("status-events-by-root")
 
 export const PULL_REQUESTS_KEY = Symbol("pull-requests")
@@ -121,13 +117,6 @@ const normalizePubkey = (value: string) => {
     }
   }
   return ""
-}
-
-export type RepoValueSource = {
-  value: string
-  repoAddress: string
-  maintainer: string
-  root: boolean
 }
 
 const parseRepoAnnouncementSafe = (event: RepoAnnouncementEvent) => {

@@ -128,8 +128,6 @@
     REPO_KEY,
     REPO_RELAYS_KEY,
     REPO_CLONE_URLS_KEY,
-    REPO_CLONE_URL_SOURCES_KEY,
-    REPO_RELAY_SOURCES_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     PULL_REQUESTS_KEY,
     COMMENT_EVENTS_KEY,
@@ -139,18 +137,16 @@
     activeRepoClass,
     GIT_RELAYS,
     getRepoAnnouncementRelays,
-    getRepoMaintainers,
     getRepoScopedRelays,
-    type RepoValueSource,
   } from "@app/core/git-state"
   import {REPO_TRUST_METRICS_KEY, createRepoTrustMetricsStore} from "@app/core/repo-trust-metrics"
   import {userRepoWatchValues} from "@app/core/repo-watch"
   import {extensionSettings} from "@app/extensions/settings"
-  import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import PageBar from "@src/lib/components/PageBar.svelte"
   import Button from "@src/lib/components/Button.svelte"
   import Icon from "@src/lib/components/Icon.svelte"
   import {makeCommunityPath, makeGitPath} from "@app/util/routes"
+  import {makeRepoNaddrFromEvent} from "@app/util/repo-links"
   import {getInitializedGitWorker} from "@app/core/worker-singleton"
   import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import {
@@ -409,22 +405,17 @@
     return ""
   })
 
-  const repoMaintainersStore: Readable<string[]> = derived(activeRepoClass, $repo => {
-    const maintainers = getRepoMaintainers($repo?.repoEvent as RepoAnnouncementEvent | undefined)
-    if (maintainers.length > 0) return maintainers
-    return repoPubkey ? [repoPubkey] : []
+  const repoOwnerStore: Readable<string[]> = derived(activeRepoClass, $repo => {
+    const owner = ($repo?.repoEvent as RepoAnnouncementEvent | undefined)?.pubkey || repoPubkey
+    return owner ? [owner] : []
   }) as Readable<string[]>
   const repoAddressesStore: Readable<string[]> = derived(repoAddressStore, $repoAddress =>
     $repoAddress ? [$repoAddress] : [],
   ) as Readable<string[]>
 
-  const repoCloneUrlsStore: Readable<string[]> = derived(
-    activeRepoClass,
-    $repo => Array.from(new Set(($repo?.cloneUrls || []).filter(Boolean))),
+  const repoCloneUrlsStore: Readable<string[]> = derived(activeRepoClass, $repo =>
+    Array.from(new Set(($repo?.cloneUrls || []).filter(Boolean))),
   ) as Readable<string[]>
-
-  const repoCloneUrlSourcesStore: Readable<RepoValueSource[]> = readable([])
-  const repoRelaySourcesStore: Readable<RepoValueSource[]> = readable([])
 
   $effect(() => {
     if (!repoClass) return
@@ -454,11 +445,6 @@
   }
 
   const isOwnedRepo = $derived.by(() => !!$pubkey && repoPubkey === $pubkey)
-  const isMaintainer = $derived.by(() => {
-    if (!$pubkey) return false
-    if (repoPubkey === $pubkey) return true
-    return ($repoMaintainersStore || []).includes($pubkey)
-  })
 
   let myRepoStateEvents = $state<RepoStateEvent[]>([])
   let optimisticRepoStates = $state<Record<string, RepoStateEvent>>({})
@@ -1110,17 +1096,13 @@
     ) as Readable<RepoAnnouncementEvent | undefined>
   }
 
-  function deriveRepoStateEvents(
-    repoName: string,
-    repoPubkey: string,
-    maintainers: Readable<string[]>,
-  ) {
+  function deriveRepoStateEvents(repoName: string, owners: Readable<string[]>) {
     return readable<RepoStateEvent[]>([], set => {
       let previousKey = ""
       let unsubscribeScoped: (() => void) | undefined
 
-      const unsubscribeMaintainers = maintainers.subscribe(($maintainers: string[]) => {
-        const authors = normalizeScopeValues([repoPubkey, ...$maintainers])
+      const unsubscribeOwners = owners.subscribe(($owners: string[]) => {
+        const authors = normalizeScopeValues($owners)
         const key = authors.join("|")
 
         if (key === previousKey) return
@@ -1159,7 +1141,7 @@
 
       return () => {
         if (unsubscribeScoped) unsubscribeScoped()
-        unsubscribeMaintainers()
+        unsubscribeOwners()
       }
     }) as Readable<RepoStateEvent[]>
   }
@@ -1414,7 +1396,7 @@
 
   // Create stores at top level (not inside effect to avoid infinite loops)
   const repoEventStore = deriveRepoEvent(repoPubkey, repoName)
-  const repoStateEventsStore = deriveRepoStateEvents(repoName, repoPubkey, repoMaintainersStore)
+  const repoStateEventsStore = deriveRepoStateEvents(repoName, repoOwnerStore)
   const repoStateEventStore: Readable<RepoStateEvent | undefined> = derived(
     repoStateEventsStore,
     $events => ($events.length > 0 ? $events[$events.length - 1] : undefined),
@@ -1616,9 +1598,9 @@
     const relays = $repoRelaysStore || []
     const announcementRelays = fallbackRelays
     if (relays.length === 0 || announcementRelays.length === 0) return
-    const maintainers = $repoMaintainersStore || []
-    const maintainerList = maintainers.length > 0 ? maintainers : [repoPubkey]
-    const key = `${maintainerList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
+    const owners = $repoOwnerStore || []
+    const ownerList = owners.length > 0 ? owners : [repoPubkey]
+    const key = `${ownerList.slice().sort().join(",")}::${relays.slice().sort().join(",")}`
     if (repoLoadKey === key) return
     repoLoadKey = key
     load({
@@ -1635,7 +1617,7 @@
       relays,
       filters: [
         {
-          authors: maintainerList,
+          authors: ownerList,
           kinds: [GIT_REPO_STATE],
           "#d": [repoName],
         },
@@ -1650,9 +1632,8 @@
         const announcementRelaysRetry = getRepoAnnouncementRelays(naddrRelays)
         const relaysRetry = getStore(repoRelaysStore)
         if (announcementRelaysRetry.length === 0 || relaysRetry.length === 0) return
-        const maintainersRetry = getStore(repoMaintainersStore)
-        const maintainerListRetry =
-          maintainersRetry && maintainersRetry.length > 0 ? maintainersRetry : [repoPubkey]
+        const ownersRetry = getStore(repoOwnerStore)
+        const ownerListRetry = ownersRetry && ownersRetry.length > 0 ? ownersRetry : [repoPubkey]
         load({
           relays: announcementRelaysRetry,
           filters: [
@@ -1667,7 +1648,7 @@
           relays: relaysRetry,
           filters: [
             {
-              authors: maintainerListRetry,
+              authors: ownerListRetry,
               kinds: [GIT_REPO_STATE],
               "#d": [repoName],
             },
@@ -1759,8 +1740,6 @@
   setContext(REPO_KEY, $activeRepoClass)
   setContext(REPO_RELAYS_KEY, repoRelaysStore)
   setContext(REPO_CLONE_URLS_KEY, repoCloneUrlsStore)
-  setContext(REPO_CLONE_URL_SOURCES_KEY, repoCloneUrlSourcesStore)
-  setContext(REPO_RELAY_SOURCES_KEY, repoRelaySourcesStore)
   setContext(STATUS_EVENTS_BY_ROOT_KEY, statusEventsByRootStore)
   setContext(PULL_REQUESTS_KEY, pullRequestsStore)
   setContext(COMMENT_EVENTS_KEY, commentEventsStore)
@@ -2008,10 +1987,7 @@
       if (relaysKey !== repoAddressLoadRelaysKey) return
 
       while (pendingRepoAddresses.size > 0 && relaysKey === repoAddressLoadRelaysKey) {
-        const addresses = Array.from(pendingRepoAddresses).slice(
-          0,
-          ADDRESS_LOAD_CHUNK_SIZE,
-        )
+        const addresses = Array.from(pendingRepoAddresses).slice(0, ADDRESS_LOAD_CHUNK_SIZE)
 
         if (addresses.length === 0) return
 
@@ -2719,7 +2695,8 @@
 
     try {
       // Get clone URLs from the repo event
-      const cloneUrls = getStore(repoCloneUrlsStore).length > 0 ? getStore(repoCloneUrlsStore) : repoClass.cloneUrls
+      const cloneUrls =
+        getStore(repoCloneUrlsStore).length > 0 ? getStore(repoCloneUrlsStore) : repoClass.cloneUrls
       if (cloneUrls.length === 0) {
         throw new Error("No clone URLs found for repository")
       }
@@ -2737,8 +2714,7 @@
           repoClass.recordCloneUrlSuccess(result.usedUrl)
         }
         const primaryCloneUrl = getStore(repoCloneUrlsStore)[0]
-        const usedFallback =
-          result.usedUrl && primaryCloneUrl && result.usedUrl !== primaryCloneUrl
+        const usedFallback = result.usedUrl && primaryCloneUrl && result.usedUrl !== primaryCloneUrl
         // Show success toast
         pushToast({
           message: usedFallback
@@ -3050,9 +3026,14 @@
     const repoRelays = getRepoAnnouncementRelaysFromEvent()
     const defaultRelays = repoRelays.length > 0 ? repoRelays : GIT_RELAYS
     const sourceCloneUrls = getStore(repoCloneUrlsStore)
-    const defaultMaintainers = Array.from(
-      new Set([...(getStore(repoMaintainersStore) || []), $pubkey].filter(Boolean)),
-    )
+    const defaultMaintainers = (() => {
+      try {
+        if (!repoClass.repoEvent) return []
+        return Array.from(new Set(parseRepoAnnouncementEvent(repoClass.repoEvent).maintainers || []))
+      } catch {
+        return []
+      }
+    })()
 
     const rollbackPublishedRepoEvents = async (params: {
       repoName: string
@@ -3292,7 +3273,6 @@
     pushModal(RemoteFixHelperModal, {
       repoClass,
       cloneUrls: getStore(repoCloneUrlsStore),
-      cloneUrlSources: getStore(repoCloneUrlSourcesStore),
       onOpenSettings: () => settingsRepo(true),
       onRefresh: refreshRepo,
       onPublishEvent: async (event: any) => {
@@ -3593,7 +3573,7 @@
               <GitCommit class="h-4 w-4" />
             {/snippet}
           </RepoTab>
-          {#if isMaintainer}
+          {#if isOwnedRepo}
             <RepoTab tabValue="settings" label="Settings" href={`${basePath}/settings`} {activeTab}>
               {#snippet icon()}
                 <SettingsIcon class="h-4 w-4" />

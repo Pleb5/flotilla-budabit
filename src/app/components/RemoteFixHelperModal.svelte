@@ -3,7 +3,6 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import GitAuthAdd from "@app/components/GitAuthAdd.svelte"
-  import MaintainerSourceLabel from "@app/components/MaintainerSourceLabel.svelte"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {
@@ -13,6 +12,7 @@
     updateUrlPreferenceCache,
   } from "@nostr-git/core"
   import {isGraspRelayUrl, isGraspRepoHttpUrl, parseGraspRepoHttpUrl} from "@nostr-git/core/utils"
+  import {parseRepoAnnouncementEvent} from "@nostr-git/core/events"
   import {
     ACCESS_TOKEN_SETTINGS_PATH,
     classifyCloneUrlIssue,
@@ -22,7 +22,6 @@
   } from "@nostr-git/ui"
   import {nip19} from "nostr-tools"
   import {onMount, tick} from "svelte"
-  import type {RepoValueSource} from "@app/core/git-state"
 
   type RemoteHealth = "healthy" | "degraded" | "auth" | "unreachable" | "unknown" | "branch-drift"
 
@@ -168,7 +167,6 @@
   interface Props {
     repoClass: Repo
     cloneUrls?: string[]
-    cloneUrlSources?: RepoValueSource[]
     onClose?: () => void
     onOpenSettings?: () => void
     onRefresh?: () => Promise<void> | void
@@ -187,7 +185,6 @@
   const {
     repoClass,
     cloneUrls: providedCloneUrls = [],
-    cloneUrlSources = [],
     onClose,
     onOpenSettings,
     onRefresh,
@@ -298,40 +295,6 @@
     } catch {
       return ""
     }
-  }
-
-  const normalizePubkey = (value: string | undefined | null): string => {
-    if (!value) return ""
-    if (/^[0-9a-f]{64}$/i.test(value)) return value
-    if (value.startsWith("npub1")) {
-      try {
-        const decoded = nip19.decode(value)
-        if (decoded.type === "npub") return decoded.data as string
-      } catch {
-        // pass
-      }
-    }
-    return ""
-  }
-
-  const getRemoteSources = (url: string): RepoValueSource[] => {
-    const normalized = normalizeUrl(url)
-    const sources = cloneUrlSources.filter(source => normalizeUrl(source.value) === normalized)
-    const declaredByRepo = (repoClass.cloneUrls || []).some(
-      cloneUrl => normalizeUrl(cloneUrl) === normalized,
-    )
-
-    if (declaredByRepo && !sources.some(source => source.root)) {
-      sources.unshift({
-        value: url,
-        repoAddress: repoClass.address || "",
-        maintainer:
-          normalizePubkey(repoClass.repoEvent?.pubkey) || repoClass.repoEvent?.pubkey || "",
-        root: true,
-      })
-    }
-
-    return sources
   }
 
   const isCurrentRemote = (url: string) =>
@@ -466,6 +429,15 @@
       return nip19.npubEncode(value)
     } catch {
       return ""
+    }
+  }
+
+  const getDeclaredRepoMaintainers = () => {
+    try {
+      if (!repoClass.repoEvent) return []
+      return Array.from(new Set(parseRepoAnnouncementEvent(repoClass.repoEvent).maintainers || []))
+    } catch {
+      return []
     }
   }
 
@@ -1271,7 +1243,7 @@
           ],
           userPubkey: repoClass.viewerPubkey,
           relays: repoClass.relays || [],
-          maintainers: repoClass.maintainers || [repoClass.viewerPubkey],
+          maintainers: getDeclaredRepoMaintainers(),
           onPublishEvent,
           onFetchRelayEvents,
           updateProgress: message => {
@@ -1919,7 +1891,6 @@
 
       <div class="flex flex-col gap-2">
         {#each statuses as status (status.url)}
-          {@const remoteSources = getRemoteSources(status.url)}
           {@const currentRemote = status.isCurrent || isCurrentRemote(status.url)}
           <div class="min-w-0 rounded-md border border-border bg-card p-3">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1935,7 +1906,6 @@
                       class="rounded border border-sky-500/40 px-1.5 py-0.5 text-sky-700 dark:text-sky-300"
                       >Current</span>
                   {/if}
-                  <MaintainerSourceLabel sources={remoteSources} align="right" />
                   {#if isGraspLikeRemote(status.url)}
                     <span class="rounded border border-border px-1.5 py-0.5 text-muted-foreground"
                       >GRASP</span>
@@ -2073,8 +2043,8 @@
           {/if}
           {#if !canBackfill}
             <div class="mt-2 text-amber-700 dark:text-amber-300">
-              You can inspect the plan, but only repository maintainers can push the selected
-              backfill actions.
+              You can inspect the plan, but only the repository owner can push the selected backfill
+              actions.
             </div>
           {/if}
           {#if backfillNoTokenBlockedRemotes.length > 0}
@@ -2124,7 +2094,6 @@
           {#each backfillDiscovery.remotes as remote (remote.remoteUrl)}
             {@const authState = getBackfillRemoteAuthState(remote.remoteUrl)}
             {@const remoteSelectable = isBackfillRemoteSelectable(remote)}
-            {@const remoteSources = getRemoteSources(remote.remoteUrl)}
             {@const currentRemote = isCurrentRemote(remote.remoteUrl)}
             <div class="min-w-0 rounded-md border border-border bg-card p-3">
               <div class="flex min-w-0 items-start gap-3">
@@ -2147,7 +2116,6 @@
                         Current
                       </span>
                     {/if}
-                    <MaintainerSourceLabel sources={remoteSources} align="right" />
                     {#if isGraspLikeRemote(remote.remoteUrl)}
                       <span
                         class="rounded border border-border px-1.5 py-0.5 text-muted-foreground">

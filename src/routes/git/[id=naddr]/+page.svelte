@@ -30,20 +30,14 @@
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
-  import MaintainerSourceLabel from "@app/components/MaintainerSourceLabel.svelte"
   import {pushModal} from "@app/util/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import {
     PULL_REQUESTS_KEY,
-    REPO_CLONE_URLS_KEY,
-    REPO_CLONE_URL_SOURCES_KEY,
     REPO_KEY,
-    REPO_RELAYS_KEY,
-    REPO_RELAY_SOURCES_KEY,
     STATUS_EVENTS_BY_ROOT_KEY,
     REPO_ACTIONS_KEY,
     type RepoActions,
-    type RepoValueSource,
   } from "@app/core/git-state"
   import {
     REPO_TRUST_METRICS_KEY,
@@ -69,16 +63,9 @@
   import type {Readable} from "svelte/store"
   import type {Repo} from "@nostr-git/ui"
 
-  // Get repoClass and repoRelays from context
+  // Get repoClass from context
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
-  const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
-  const repoCloneUrlsStore = getContext<Readable<string[]>>(REPO_CLONE_URLS_KEY)
-  const repoCloneUrlSourcesStore = getContext<Readable<RepoValueSource[]>>(
-    REPO_CLONE_URL_SOURCES_KEY,
-  )
-  const repoRelaySourcesStore =
-    getContext<Readable<RepoValueSource[]>>(REPO_RELAY_SOURCES_KEY)
   const statusEventsByRootStore =
     getContext<Readable<Map<string, StatusEvent[]>>>(STATUS_EVENTS_BY_ROOT_KEY)
   const pullRequestsStore = getContext<Readable<PullRequestEvent[]>>(PULL_REQUESTS_KEY)
@@ -88,15 +75,6 @@
     throw new Error("Repo context not available")
   }
 
-  // Get relays reactively
-  const repoRelays = $derived.by(() => (repoRelaysStore ? $repoRelaysStore : []))
-  const repoCloneUrls = $derived.by(() => (repoCloneUrlsStore ? $repoCloneUrlsStore : []))
-  const repoCloneUrlSources = $derived.by(() =>
-    repoCloneUrlSourcesStore ? $repoCloneUrlSourcesStore : [],
-  )
-  const repoRelaySources = $derived.by(() =>
-    repoRelaySourcesStore ? $repoRelaySourcesStore : [],
-  )
   const statusEventsByRoot = $derived.by(() =>
     statusEventsByRootStore ? $statusEventsByRootStore : new Map<string, StatusEvent[]>(),
   )
@@ -107,10 +85,10 @@
   const prsHref = $derived.by(() => `${$page.url.pathname.replace(/\/+$/, "")}/prs`)
   const repoBasePath = $derived.by(() => $page.url.pathname.replace(/\/+$/, ""))
 
-  const isMaintainer = $derived.by(() => {
+  const isOwner = $derived.by(() => {
     const me = $pubkey
     if (!me) return false
-    return (repoClass.maintainers || []).includes(me)
+    return repoClass.repoEvent?.pubkey === me
   })
 
   const HEAD_REF_PREFIX = "ref: refs/heads/"
@@ -281,27 +259,7 @@
       .replace(/^origin\//, "")
   }
 
-  const getTaggedMaintainers = (event: any): string[] => {
-    const raw = (event?.tags || [])
-      .filter((t: string[]) => t[0] === "maintainers")
-      .flatMap((t: string[]) => t.slice(1))
-    const normalized = raw.map((pk: string) => normalizePubkey(pk)).filter(Boolean)
-    return Array.from(new Set(normalized))
-  }
-
-  const repoAddress = $derived.by(() => {
-    if (repoClass?.address) return repoClass.address
-    const event = repoClass?.repoEvent
-    if (!event) return ""
-    const dTag = (event.tags || []).find((t: string[]) => t[0] === "d")?.[1]
-    if (!event.pubkey || !dTag) return ""
-    return `30617:${event.pubkey}:${dTag}`
-  })
-
-  const repoMaintainerPubkeys = $derived.by(() => {
-    const owner = normalizePubkey(repoClass?.repoEvent?.pubkey)
-    return Array.from(new Set([owner, ...getTaggedMaintainers(repoClass?.repoEvent)].filter(Boolean)))
-  })
+  const repoOwnerPubkey = $derived.by(() => normalizePubkey(repoClass?.repoEvent?.pubkey))
 
   const branchCount = $derived(repoClass.branches?.length || 0)
 
@@ -332,10 +290,8 @@
 
   type CloneUrlItem = {
     url: string
-    sources: RepoValueSource[]
     isDeclared: boolean
     isDeclaredPrimary: boolean
-    isFallback: boolean
     isCurrent: boolean
     isGrasp: boolean
     isApi: boolean
@@ -343,8 +299,6 @@
 
   type RelayItem = {
     url: string
-    sources: RepoValueSource[]
-    isRepoRelay: boolean
   }
 
   let remoteFallbackToastKey = $state("")
@@ -369,18 +323,6 @@
     } catch {
       return value
     }
-  }
-
-  const makeDeclaredSource = (value: string): RepoValueSource => ({
-    value,
-    repoAddress,
-    maintainer: normalizePubkey(repoClass?.repoEvent?.pubkey) || repoClass?.repoEvent?.pubkey || "",
-    root: true,
-  })
-
-  const sourcesForValue = (sources: RepoValueSource[], value: string) => {
-    const normalized = normalizeRemoteForCompare(value)
-    return sources.filter(source => normalizeRemoteForCompare(source.value) === normalized)
   }
 
   const getCloneUrlError = (url: string) => {
@@ -411,9 +353,7 @@
 
   const repoCloneUrlItems = $derived.by<CloneUrlItem[]>(() => {
     const defaultNgitCloneUrl = buildDefaultNgitCloneUrl()
-    const urls = Array.from(
-      new Set([...(declaredCloneUrls || []), ...(repoCloneUrls || [])].filter(Boolean)),
-    )
+    const urls = Array.from(new Set((declaredCloneUrls || []).filter(Boolean)))
 
     if (defaultNgitCloneUrl && !urls.some(url => url.startsWith("nostr://"))) {
       urls.push(defaultNgitCloneUrl)
@@ -423,18 +363,11 @@
       const declaredIndex = declaredCloneUrls.findIndex(
         declared => normalizeRemoteForCompare(declared) === normalizeRemoteForCompare(url),
       )
-      const isFallback = false
-      const sources = sourcesForValue(repoCloneUrlSources, url)
-      if (declaredIndex >= 0 && !sources.some(source => source.root)) {
-        sources.unshift(makeDeclaredSource(url))
-      }
 
       return {
         url,
-        sources,
         isDeclared: declaredIndex >= 0,
         isDeclaredPrimary: declaredIndex === 0,
-        isFallback,
         isCurrent:
           Boolean(currentReadRemoteUrl) &&
           normalizeRemoteForCompare(currentReadRemoteUrl) === normalizeRemoteForCompare(url),
@@ -445,22 +378,7 @@
   })
 
   const repoRelayItems = $derived.by<RelayItem[]>(() => {
-    const relays = repoRelays.length > 0 ? repoRelays : repoClass.relays || []
-    return relays.map(relay => {
-      const sources = sourcesForValue(repoRelaySources, relay)
-      const isRepoRelay = (repoClass.relays || []).some(
-        rootRelay => normalizeRemoteForCompare(rootRelay) === normalizeRemoteForCompare(relay),
-      )
-      if (isRepoRelay && !sources.some(source => source.root)) {
-        sources.unshift(makeDeclaredSource(relay))
-      }
-
-      return {
-        url: relay,
-        sources,
-        isRepoRelay,
-      }
-    })
+    return Array.from(new Set((repoClass.relays || []).filter(Boolean))).map(relay => ({url: relay}))
   })
 
   const repoMetadata = $derived({
@@ -907,10 +825,10 @@
             The default branch <code class="font-mono">{defaultBranchStatus.head}</code> no longer exists.
             Some parts of this page may not load.
           {/if}
-          {#if isMaintainer}
+          {#if isOwner}
             <a href={`${repoBasePath}/settings`} class="ml-1 underline">Update in Settings</a>
           {:else}
-            Ask a maintainer to pick a replacement.
+            Ask the owner to pick a replacement.
           {/if}
         </div>
       </div>
@@ -986,10 +904,6 @@
                               class="rounded border border-border px-1 py-0.5 text-muted-foreground"
                               >Mirror</span>
                           {/if}
-                          <MaintainerSourceLabel
-                            sources={item.sources}
-                            url={relayUrl}
-                            align="right" />
                           {#if item.isCurrent}
                             <span
                               class="rounded border border-sky-500/40 px-1 py-0.5 text-sky-700 dark:text-sky-300"
@@ -1003,11 +917,6 @@
                             <span
                               class="rounded border border-border px-1 py-0.5 text-muted-foreground"
                               >API</span>
-                          {/if}
-                          {#if item.isFallback}
-                            <span
-                              class="rounded border border-amber-500/40 px-1 py-0.5 text-amber-700 dark:text-amber-300"
-                              >Fallback</span>
                           {/if}
                           {#if issueLabel}
                             <span
@@ -1205,19 +1114,6 @@
                         <div class="flex items-center gap-2">
                           <span class="min-w-0 flex-1 truncate font-mono text-xs" title={relay.url}
                             >{relayHostname(relay.url)}</span>
-                          <div
-                            class="flex flex-shrink-0 flex-wrap gap-1 text-[10px] uppercase tracking-wide">
-                            {#if relay.sources.length > 0}
-                              <MaintainerSourceLabel
-                                sources={relay.sources}
-                                url={relayUrl}
-                                align="right" />
-                            {:else}
-                              <span
-                                class="rounded border border-border px-1 py-0.5 text-muted-foreground"
-                                >Hint</span>
-                            {/if}
-                          </div>
                           <button
                             type="button"
                             class="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
@@ -1263,26 +1159,24 @@
 
               <!-- Nostr Information -->
               <div class="space-y-3">
-                {#if repoMaintainerPubkeys.length > 0}
+                {#if repoOwnerPubkey}
                   <div>
-                    <span class="mb-2 block text-sm text-muted-foreground">Maintainers</span>
+                    <span class="mb-2 block text-sm text-muted-foreground">Owner</span>
                     <div class="grid grid-cols-2 gap-x-3 gap-y-2">
-                      {#each repoMaintainerPubkeys as maintainer (maintainer)}
-                        <button
-                          type="button"
-                          class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
-                          onclick={() =>
-                            pushModal(ProfileDetail, {pubkey: maintainer, url: relayUrl})}>
-                          <ProfileCircle
-                            pubkey={maintainer}
-                            url={relayUrl}
-                            size={8}
-                            class="border border-border" />
-                          <span class="min-w-0 truncate text-sm hover:underline">
-                            <ProfileName pubkey={maintainer} url={relayUrl} />
-                          </span>
-                        </button>
-                      {/each}
+                      <button
+                        type="button"
+                        class="flex min-w-0 items-center gap-2 rounded px-1 py-1 text-left text-sm hover:bg-secondary/20"
+                        onclick={() =>
+                          pushModal(ProfileDetail, {pubkey: repoOwnerPubkey, url: relayUrl})}>
+                        <ProfileCircle
+                          pubkey={repoOwnerPubkey}
+                          url={relayUrl}
+                          size={8}
+                          class="border border-border" />
+                        <span class="min-w-0 truncate text-sm hover:underline">
+                          <ProfileName pubkey={repoOwnerPubkey} url={relayUrl} />
+                        </span>
+                      </button>
                     </div>
                   </div>
                 {/if}

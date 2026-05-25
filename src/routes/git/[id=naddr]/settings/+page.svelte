@@ -1,9 +1,8 @@
 <script lang="ts">
   import {getContext} from "svelte"
-  import {profilesByPubkey, pubkey} from "@welshman/app"
+  import {profilesByPubkey} from "@welshman/app"
   import {REPO_KEY, REPO_SETTINGS_ACTIONS_KEY, type RepoSettingsActions} from "@app/core/git-state"
   import {Card, EditRepoPanel, type Repo, type RepoCommunityOption} from "@nostr-git/ui"
-  import RepoSettingsPanel from "@app/components/RepoSettingsPanel.svelte"
   import {activeUserCommunityRefs} from "@app/core/community-state"
   import {COMMUNITY_SECTION_REPOSITORIES} from "@app/core/community"
 
@@ -15,7 +14,6 @@
   }
 
   const canEditAnnouncement = $derived(repoSettings?.canEditAnnouncement ?? false)
-  const canUpdateDefaultBranch = $derived(Boolean($pubkey && repoClass.isAuthorized($pubkey)))
 
   const getCommunityOptionLabel = (communityPubkey: string) => {
     const profile = $profilesByPubkey.get(communityPubkey)
@@ -52,14 +50,11 @@
       searchProfiles={repoSettings.searchProfiles}
       searchRelays={repoSettings.searchRelays}
       communityOptions={repoCommunityOptions} />
-  {:else if canUpdateDefaultBranch}
-    <RepoSettingsPanel repo={repoClass} />
   {:else}
     <Card class="p-4 sm:p-6">
       <h2 class="mb-2 text-lg font-semibold">Repository settings</h2>
       <p class="text-sm text-muted-foreground">
-        Only the repository owner can edit repository metadata. Maintainers can change the default
-        branch.
+        Only the repository owner can edit repository settings.
       </p>
     </Card>
   {/if}

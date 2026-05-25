@@ -3670,25 +3670,20 @@
               <div class="mt-3 flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <div class="flex -space-x-2">
-                    {#each g.maintainers.slice(0, 4) as pk (pk)}
-                      {@const prof = $profilesByPubkey.get(pk)}
-                      <Avatar class="h-6 w-6 border" title={prof?.display_name || prof?.name || pk}>
-                        <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                    {#if g.owner}
+                      {@const prof = $profilesByPubkey.get(g.owner)}
+                      <Avatar
+                        class="h-6 w-6 border"
+                        title={prof?.display_name || prof?.name || g.owner}>
+                        <AvatarImage src={prof?.picture} alt={prof?.name || g.owner} />
                         <AvatarFallback
-                          >{(prof?.display_name || prof?.name || pk)
+                          >{(prof?.display_name || prof?.name || g.owner)
                             .slice(0, 2)
                             .toUpperCase()}</AvatarFallback>
                       </Avatar>
-                    {/each}
-                    {#if g.maintainers.length > 4}
-                      <div
-                        class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                        +{g.maintainers.length - 4}
-                      </div>
                     {/if}
                   </div>
-                  <span class="text-xs opacity-60"
-                    >{g.maintainers.length} maintainer{g.maintainers.length !== 1 ? "s" : ""}</span>
+                  <span class="text-xs opacity-60">Owner</span>
                 </div>
                 {#if g.first}
                   {@const date = new Date(g.first.created_at * 1000)}
@@ -3783,7 +3778,6 @@
       {:else if sortedRepoCards.length > 0}
         <div class="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {#each sortedRepoCards as g, i (getRepoCardStableKey(g))}
-            {@const maintainers = g.maintainers ?? []}
             {@const communityStargazers = g.first
               ? getCommunityRepoStargazerPubkeys(g.first as RepoAnnouncementEvent)
               : []}
@@ -3818,33 +3812,26 @@
                   hideDate={true} />
               {/if}
 
-              <!-- Maintainers avatars and date -->
+              <!-- Owner, community stargazers, and date -->
               <div
                 class="mt-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
                   <div class="flex min-w-0 items-center gap-2">
                     <div class="flex shrink-0 -space-x-2">
-                      {#each maintainers.slice(0, 4) as pk (pk)}
-                        {@const prof = $profilesByPubkey.get(pk)}
+                      {#if g.owner}
+                        {@const prof = $profilesByPubkey.get(g.owner)}
                         <Avatar
                           class="h-6 w-6 border"
-                          title={prof?.display_name || prof?.name || pk}>
-                          <AvatarImage src={prof?.picture} alt={prof?.name || pk} />
+                          title={prof?.display_name || prof?.name || g.owner}>
+                          <AvatarImage src={prof?.picture} alt={prof?.name || g.owner} />
                           <AvatarFallback
-                            >{(prof?.display_name || prof?.name || pk)
+                            >{(prof?.display_name || prof?.name || g.owner)
                               .slice(0, 2)
                               .toUpperCase()}</AvatarFallback>
                         </Avatar>
-                      {/each}
-                      {#if maintainers.length > 4}
-                        <div
-                          class="grid h-6 w-6 place-items-center rounded-full border bg-muted text-[10px]">
-                          +{maintainers.length - 4}
-                        </div>
                       {/if}
                     </div>
-                    <span class="text-xs opacity-60"
-                      >{maintainers.length} maintainer{maintainers.length !== 1 ? "s" : ""}</span>
+                    <span class="text-xs opacity-60">Owner</span>
                   </div>
                   {#if communityStargazers.length > 0}
                     <div class="flex min-w-0 items-center gap-2">
