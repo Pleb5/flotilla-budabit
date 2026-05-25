@@ -75,10 +75,14 @@ const normalizeRepoCommunityPubkey = (value?: string): string | undefined => {
   }
 }
 
+const isTagArray = (
+  eventOrTags: {tags?: readonly string[][]} | readonly string[][],
+): eventOrTags is readonly string[][] => Array.isArray(eventOrTags)
+
 export function parseRepoCommunityBinding(
   eventOrTags: {tags?: readonly string[][]} | readonly string[][],
 ): RepoCommunityBinding | undefined {
-  const tags = Array.isArray(eventOrTags) ? eventOrTags : eventOrTags.tags || []
+  const tags = isTagArray(eventOrTags) ? eventOrTags : (eventOrTags.tags ?? [])
 
   for (const tag of tags) {
     if (tag[0] !== REPO_COMMUNITY_TAG) continue
